@@ -540,4 +540,92 @@ namespace OloEngine::Functional
             << "every animal posed on the same frame: the deformation stagger is not spreading the population, so "
                "the frame-time tail is unchanged however good the mean looks";
     }
+    // -------------------------------------------------------------------------
+    // #1259 — a herd of BOUND coats. The coat is its own entity, parented to the
+    // body it rides (a-bound-coat-rides-its-body.md), so the AnimalBudgetComponent
+    // sits on the coat and the skeleton is one binding away. The deformation
+    // axis must still price the body's bones and gate the body's pose.
+    // -------------------------------------------------------------------------
+
+    /// Bodies with a skeleton, a clip and a path; each wears a budgeted coat
+    /// entity, parented to it and bound to it. No groom assets, for the parent
+    /// fixture's reason: only the deformation axis carries a cost here.
+    class BoundCoatPopulationFixture : public AnimalPopulationFixture
+    {
+      protected:
+        void BuildScene() override
+        {
+            AnimalPopulationFixture::BuildScene();
+            // Move every budget off the bodies and onto a bound coat.
+            m_Bodies.push_back(m_Hero);
+            m_Bodies.insert(m_Bodies.end(), m_Herd.begin(), m_Herd.end());
+            for (Entity body : m_Bodies)
+            {
+                const AnimalBudgetComponent budget = body.GetComponent<AnimalBudgetComponent>();
+                body.RemoveComponent<AnimalBudgetComponent>();
+                body.RemoveComponent<GroomComponent>();
+
+                Entity coat = GetScene().CreateEntity("Coat");
+                coat.SetParent(body);
+                auto& groom = coat.AddComponent<GroomComponent>();
+                groom.m_RenderStrands = true;
+                groom.m_MaxRenderStrands = 12000u;
+                coat.AddComponent<AnimalBudgetComponent>() = budget;
+                auto& binding = coat.AddComponent<GroomBindingComponent>();
+                binding.m_TargetEntity = body.GetUUID();
+                binding.m_Enabled = true;
+                m_Coats.push_back(coat);
+            }
+        }
+
+        // Frames, out of `frames`, on which each herd body was posed.
+        [[nodiscard]] std::vector<u32> CountBodyTicks(u32 frames)
+        {
+            std::vector<u32> ticks(m_Herd.size(), 0u);
+            std::vector<f32> last(m_Herd.size(), -1.0f);
+            for (u32 frame = 0; frame < frames; ++frame)
+            {
+                RunFrames(1u);
+                for (sizet i = 0; i < m_Herd.size(); ++i)
+                {
+                    const f32 now = m_Herd[i].GetComponent<AnimationStateComponent>().m_CurrentTime;
+                    if (!Math::BitwiseEqual(now, last[i]))
+                    {
+                        ++ticks[i];
+                        last[i] = now;
+                    }
+                }
+            }
+            return ticks;
+        }
+
+        std::vector<Entity> m_Bodies;
+        std::vector<Entity> m_Coats;
+    };
+
+    TEST_F(BoundCoatPopulationFixture, ABudgetedBoundCoatSchedulesItsBodysPose)
+    {
+        Renderer3D::GetRendererSettings().AnimalFrameBudgetUnits = 400.0f;
+        constexpr u32 kFrames = 64u;
+
+        const std::vector<u32> bound = CountBodyTicks(kFrames);
+        const AnimalSchedulerStats& stats = GetScene().GetAnimalSchedulerStats();
+        EXPECT_EQ(stats.AnimalsConsidered, kHerdCount + 1u) << "every budgeted coat is gathered";
+        const u32 boundMin = *std::min_element(bound.begin(), bound.end());
+        const u32 boundMax = *std::max_element(bound.begin(), bound.end());
+        EXPECT_LT(boundMin, kFrames) << "no body lost any pose rate: the coat's schedule never reached its body";
+        EXPECT_GT(boundMax, 0u) << "a body stopped posing entirely, which is not a budget but a bug";
+
+        // THE CONTROL: the same population with the bindings switched off. The
+        // coats then name no body, price no bones, and every body poses on
+        // every frame -- what the scene did before the coat's schedule followed
+        // its binding. The difference is the binding, nothing else.
+        for (Entity coat : m_Coats)
+        {
+            coat.GetComponent<GroomBindingComponent>().m_Enabled = false;
+        }
+        const std::vector<u32> unbound = CountBodyTicks(kFrames);
+        EXPECT_EQ(*std::min_element(unbound.begin(), unbound.end()), kFrames)
+            << "with no binding a coat's budget has no body to gate";
+    }
 } // namespace OloEngine::Functional

@@ -261,8 +261,9 @@ parameters and tracks height content; greedy voxel uploads increment their
 geometry revision. Hash only inputs consumed by the depth stages: virtual-texture
 feedback slots and material parameters must not invalidate an unchanged silhouette.
 `ShadowFamilyCache.TerrainFeedbackAndMaterialChangesReuseTheSilhouette` pins this
-boundary. Wind, interactions and camera-facing foliage dirty their
-bounded footprint each frame. Legacy callers without bounds conservatively
+boundary. Foliage motion dirties only the clip levels whose texel can resolve
+its declared displacement, and only where it moves
+([foliage-vsm-page-caching.md](foliage-vsm-page-caching.md), #1580). Legacy callers without bounds conservatively
 dirty the complete domain; callers without keys use geometry/transform identity.
 
 `ShadowFamilyVisualEvidence` measures isolated family shadow contribution and

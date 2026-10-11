@@ -186,15 +186,23 @@
    "name": "HeadSkin",
    "pbrMetallicRoughness": {
     "baseColorFactor": [
-     0.800000011920929,
-     0.800000011920929,
-     0.800000011920929,
-     1
+     1.0,
+     1.0,
+     1.0,
+     1.0
     ],
     "metallicFactor": 0,
-    "roughnessFactor": 0.5,
+    "roughnessFactor": 0.41999998688697815,
     "baseColorTexture": {
      "index": 0
+    }
+   },
+   "extensions": {
+    "KHR_materials_volume": {
+     "thicknessFactor": 0.02,
+     "thicknessTexture": {
+      "index": 1
+     }
     }
    }
   }
@@ -446,6 +454,10 @@
   {
    "uri": "Textures/lambertian.jpg",
    "mimeType": "image/jpeg"
+  },
+  {
+   "uri": "Textures/HeadRigged_Thickness.png",
+   "mimeType": "image/png"
   }
  ],
  "samplers": [
@@ -455,6 +467,13 @@
   {
    "source": 0,
    "sampler": 0
+  },
+  {
+   "source": 1,
+   "sampler": 0
   }
+ ],
+ "extensionsUsed": [
+  "KHR_materials_volume"
  ]
 }

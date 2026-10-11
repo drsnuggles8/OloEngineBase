@@ -74,6 +74,7 @@ if (entity.HasComponent<AnimalPathComponent>())
     SceneBinIO::Write(out, comp.m_HasOrigin);
     SceneBinIO::Write(out, comp.m_FaceAlongMotion);
     SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_FollowTerrain);
 }
 
 if (entity.HasComponent<BoatComponent>())

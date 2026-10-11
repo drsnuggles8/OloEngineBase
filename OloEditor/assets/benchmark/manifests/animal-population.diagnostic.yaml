@@ -191,28 +191,61 @@ Tolerance:
   RepeatRmse: 0.0
 
 Assets:
-  - Path: SandboxProject/Assets/Grooms/reference-longcoat-animal.ologroom
-    Origin: generated in-repo, cooked from reference-longcoat-animal.abc (issues #1232, #1252)
+  - Path: SandboxProject/Assets/Grooms/Animals/FoxShortCoat.ologroom
+    Origin: generated in-repo, grown on the Fox bind-pose surface by FoxCoatEvidenceTest (issue #1259)
     License: repository license (no third-party rights)
     Redistribution: committed
     LicenseVerified: in-repo-file
     Version: generated
-    Sha256: a6dc1b3b92d8a5908a629cc2c3a4f86fae861bb057ad448085b7f844078c98c1
+    Sha256: 8e5a42df2a03fb34880f3b2b04752e387388e5ba1a03562c1dcb5f49a858f856
     Units: metres
     UpAxis: +Y
     ColorSpace: n/a
-    Acquisition: re-import OloEditor/SandboxProject/Assets/Grooms/reference-longcoat-animal.abc in the editor
-  - Path: SandboxProject/Assets/Grooms/reference-shortcoat-animal.ologroom
-    Origin: generated in-repo, cooked from reference-shortcoat-animal.abc (issues #1232, #1252)
+    Acquisition: OLO_FOX_COATS_EXPORT=1 OloEngine-Tests --gtest_filter=FoxCoatEvidenceTest.ExportsTheFoxCoats (cwd OloEditor/)
+  - Path: SandboxProject/Assets/Grooms/Animals/FoxShortCoat.ologroombinding
+    Origin: generated in-repo, FoxShortCoat bound to the Fox surface by GroomBindingCooker (issue #1259)
     License: repository license (no third-party rights)
     Redistribution: committed
     LicenseVerified: in-repo-file
     Version: generated
-    Sha256: 1f90fcb600985a5044447a1be9cc63f5682ed832652a55ea40f9cea022f5367a
+    Sha256: ed59dc0389e296bd83d6ac20ba08417ce87e19fbcfd9a36bb436225dda6ca111
     Units: metres
     UpAxis: +Y
     ColorSpace: n/a
-    Acquisition: re-import OloEditor/SandboxProject/Assets/Grooms/reference-shortcoat-animal.abc in the editor
+    Acquisition: OLO_FOX_COATS_EXPORT=1 OloEngine-Tests --gtest_filter=FoxCoatEvidenceTest.ExportsTheFoxCoats (cwd OloEditor/)
+  - Path: SandboxProject/Assets/Grooms/Animals/FoxLongCoat.ologroom
+    Origin: generated in-repo, grown on the Fox bind-pose surface by FoxCoatEvidenceTest (issue #1259)
+    License: repository license (no third-party rights)
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: generated
+    Sha256: 10984840f0d2ffaa2c7748a7812a99a20fa8d896269e6c43108513f16e4bf3f4
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: OLO_FOX_COATS_EXPORT=1 OloEngine-Tests --gtest_filter=FoxCoatEvidenceTest.ExportsTheFoxCoats (cwd OloEditor/)
+  - Path: SandboxProject/Assets/Grooms/Animals/FoxLongCoat.ologroombinding
+    Origin: generated in-repo, FoxLongCoat bound to the Fox surface by GroomBindingCooker (issue #1259)
+    License: repository license (no third-party rights)
+    Redistribution: committed
+    LicenseVerified: in-repo-file
+    Version: generated
+    Sha256: 583c9630fdf23a92a14cc81ac9d10824e99fe284ce955c784466313e71645b16
+    Units: metres
+    UpAxis: +Y
+    ColorSpace: n/a
+    Acquisition: OLO_FOX_COATS_EXPORT=1 OloEngine-Tests --gtest_filter=FoxCoatEvidenceTest.ExportsTheFoxCoats (cwd OloEditor/)
+  - Path: SandboxProject/Assets/Grooms/Animals/FoxCoatColor.png
+    Origin: generated in-repo from the Khronos Fox texture by FoxCoatEvidenceTest (issue #1259)
+    License: CC0-1.0 AND CC-BY-4.0
+    Redistribution: committed
+    LicenseVerified: upstream-declared
+    Version: generated
+    Sha256: 5e848d979b5d298769ee16a2b88e6ee21024d17acee2104be3b7d7a9ed5815db
+    Units: unitless
+    UpAxis: +Y
+    ColorSpace: srgb
+    Acquisition: OLO_FOX_COATS_EXPORT=1 OloEngine-Tests --gtest_filter=FoxCoatEvidenceTest.ExportsTheFoxCoats (cwd OloEditor/)
   - Path: assets/models/Fox/Fox.gltf
     Origin: KhronosGroup glTF-Sample-Assets — "Fox" (model PixelMannen, rig/animation @tomkranis, conversion AsoboStudio)
     License: CC0-1.0 AND CC-BY-4.0

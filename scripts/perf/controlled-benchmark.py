@@ -61,7 +61,10 @@ def git(repo: Path, *args: str) -> bytes:
     return subprocess.check_output(['git', '-C', str(repo), *args])
 
 
-def provenance(arm: dict) -> dict:
+def provenance(arm: dict, shaders: dict | None = None, assets: dict | None = None) -> dict:
+    """Binary, source and content identity of one arm. A caller that hashes the
+    shader or asset tree itself (once for several binaries, or a referenced
+    subset of a large tree) passes that record in place of the full tree hash."""
     repo, exe = Path(arm['repo']).resolve(), Path(arm['exe']).resolve()
     if arm['buildConfig'] != 'Release' or not arm['compiler']:
         raise ValueError('controlled captures require Release with declared compiler')
@@ -72,8 +75,8 @@ def provenance(arm: dict) -> dict:
             'dirtyDiffSha256': hashlib.sha256(diff).hexdigest(),
             'dirtyDiff': diff.decode(errors='replace'),
             'untracked': {p: sha256(repo / p) for p in untracked if p},
-            'shaders': tree_hash(Path(arm['shaderRoot'])),
-            'assets': tree_hash(Path(arm['assetRoot']))}
+            'shaders': shaders if shaders is not None else tree_hash(Path(arm['shaderRoot'])),
+            'assets': assets if assets is not None else tree_hash(Path(arm['assetRoot']))}
 
 
 def read_capture(directory: Path, workload: dict) -> tuple[dict, dict]:

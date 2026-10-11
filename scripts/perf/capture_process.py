@@ -47,7 +47,7 @@ def run_capture(arm, manifest, destination, environment, timeout, stdout, stderr
     host = arm.get('host', 'test-binary')
     if host == 'test-binary':
         command = [exe, f'--olo-capture-manifest={manifest.resolve()}',
-                   f'--olo-capture-out={destination.resolve()}']
+                   f'--olo-capture-out={destination.resolve()}', *arm.get('extraArgs', [])]
         result = subprocess.run(command, cwd=arm['repo'], env=environment,
                                 stdout=stdout, stderr=stderr, timeout=timeout)
         return {'command': command, 'exitCode': result.returncode,

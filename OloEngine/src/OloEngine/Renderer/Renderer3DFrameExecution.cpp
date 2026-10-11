@@ -11,6 +11,7 @@
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Occlusion/OcclusionQueryPool.h"
 #include "OloEngine/Renderer/Passes/ParticleRenderPass.h"
+#include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -471,6 +472,11 @@ namespace OloEngine
         // whatever ran after it. That omission is invisible: the number is still
         // a plausible number, just a smaller one.
         GPUReadbackStats::EndFrame();
+        // The foliage cull slots' overflow demand (#1581), copied out here for
+        // the same reason: every cull of the frame has run, and an epilogue
+        // copy waits on nothing a later pass of this frame needed.
+        if (auto shadowPass = s_Data.Pipeline->FrameCorePasses.Shadow; shadowPass)
+            shadowPass->CaptureFoliageCullDemand();
 
         // Stamp the whole-frame GPU end timestamp after all of this frame's GPU
         // work has been submitted (graph execute, HZB rebuild, capture commit).

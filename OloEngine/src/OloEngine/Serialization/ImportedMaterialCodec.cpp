@@ -183,7 +183,7 @@ namespace OloEngine::ImportedMaterialCodec
         // half-supported if someone edits this list and then ignores the compile error the
         // structured binding below produces — rather than by simply forgetting the guard,
         // which would silently reintroduce exactly the drop issue #791 was about.
-        [[nodiscard]] std::array<Ref<Texture2D>, 5> MaterialTextureSlots(const Material& material)
+        [[nodiscard]] std::array<Ref<Texture2D>, 6> MaterialTextureSlots(const Material& material)
         {
             return {
                 material.GetAlbedoMap(),
@@ -191,6 +191,7 @@ namespace OloEngine::ImportedMaterialCodec
                 material.GetNormalMap(),
                 material.GetAOMap(),
                 material.GetEmissiveMap(),
+                material.GetThicknessMap(),
             };
         }
 
@@ -319,12 +320,13 @@ namespace OloEngine::ImportedMaterialCodec
 
             // Destructured from the shared slot list rather than re-fetching each getter:
             // adding a slot there is then a compile error here until this is updated too.
-            const auto& [albedo, metallicRoughness, normal, ao, emissive] = MaterialTextureSlots(*material);
+            const auto& [albedo, metallicRoughness, normal, ao, emissive, thickness] = MaterialTextureSlots(*material);
             desc.Albedo = DescribeTexture(albedo);
             desc.MetallicRoughness = DescribeTexture(metallicRoughness);
             desc.Normal = DescribeTexture(normal);
             desc.AO = DescribeTexture(ao);
             desc.Emissive = DescribeTexture(emissive);
+            desc.Thickness = DescribeTexture(thickness);
 
             descs.push_back(std::move(desc));
         }
@@ -401,6 +403,10 @@ namespace OloEngine::ImportedMaterialCodec
             if (Ref<Texture2D> emissive = RealizeTexture(desc.Emissive))
             {
                 material->SetEmissiveMap(emissive);
+            }
+            if (Ref<Texture2D> thickness = RealizeTexture(desc.Thickness))
+            {
+                material->SetThicknessMap(thickness);
             }
             // The cache path must hand out the same chain the import did (issue #1441).
             material->PrepareAlphaTestMips();
@@ -490,6 +496,7 @@ namespace OloEngine::ImportedMaterialCodec
             WritePod(blob, desc.ThicknessFactor);
             WritePod(blob, desc.AttenuationColor);
             WritePod(blob, desc.AttenuationDistance);
+            WriteTextureRef(blob, desc.Thickness);
         }
 
         return blob;
@@ -575,7 +582,8 @@ namespace OloEngine::ImportedMaterialCodec
                 !ReadPod(cursor, desc.IOR) ||
                 !ReadPod(cursor, desc.ThicknessFactor) ||
                 !ReadPod(cursor, desc.AttenuationColor) ||
-                !ReadPod(cursor, desc.AttenuationDistance))
+                !ReadPod(cursor, desc.AttenuationDistance) ||
+                !ReadTextureRef(cursor, desc.Thickness))
             {
                 OLO_CORE_ERROR("ImportedMaterialCodec::Decode: truncated/invalid material {}", i);
                 return false;

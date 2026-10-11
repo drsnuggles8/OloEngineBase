@@ -5,9 +5,13 @@ from the current AnimalPopulation, Meadow, Courtyard light and OceanCoast scenes
 It includes moving animals, procedural terrain, alpha-masked foliage, four local
 lights, directional shadows and a small water patch. A manifest moves one local
 light and one featured animal on closed-form sinusoidal paths. The moving camera
-and rapid turn are separate phases. The source AnimalPopulation grooms remain
-unbound to the Fox bodies and look like blobs; this is a workload limitation,
-not evidence of production groom quality.
+and rapid turn are separate phases. Every AnimalPopulation fox wears a bound coat
+(`FoxShortCoat` or `FoxLongCoat`, #1259): a coat entity parented to the Fox body,
+bound to it, with a cooked card level. `FoxCoatEvidenceTest` grows, cooks and
+judges the coats, and its `ExportsTheFoxCoats` case (`OLO_FOX_COATS_EXPORT=1`)
+writes them. After a re-export, run `generate_animal_population_scene.py` and then
+this generator: the population generator reads the coats' handles from
+`AssetRegistry.oar`.
 
 ## Capture protocol
 

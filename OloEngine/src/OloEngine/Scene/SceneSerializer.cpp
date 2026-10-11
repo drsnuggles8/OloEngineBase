@@ -3616,6 +3616,10 @@ namespace OloEngine
             // Note: m_Mesh is reconstructed from parent MeshComponent at runtime
         }
 
+        // Whether re-wiring the animated model below ADDED a MaterialComponent the
+        // scene file does not have (a one-mesh model gets a copy of its imported
+        // material). Read after every component is in; see the end of this function.
+        bool importAddedMaterialComponent = false;
         if (auto animComponent = entity["AnimationStateComponent"]; animComponent)
         {
             auto& anim = deserializedEntity.AddComponent<AnimationStateComponent>();
@@ -3687,8 +3691,10 @@ namespace OloEngine
                         // MaterialComponent from the model. resetPlaybackState=false keeps the
                         // playback scalars (state/time/clip index) we just read from YAML; the
                         // importer only clamps the current-clip index into range.
-                        ModelImporter::PopulateAnimatedEntity(deserializedEntity, animatedModel,
-                                                              anim.m_SourceFilePath, /*resetPlaybackState=*/false);
+                        importAddedMaterialComponent =
+                            ModelImporter::PopulateAnimatedEntity(deserializedEntity, animatedModel, anim.m_SourceFilePath,
+                                                                  /*resetPlaybackState=*/false)
+                                .AddedMaterialComponent;
                         OLO_CORE_INFO("Deserialized animated model '{}': {} clips, {} meshes, {} bones",
                                       anim.m_SourceFilePath, animatedModel->GetAnimations().size(),
                                       animatedModel->GetMeshes().size(),
@@ -4530,6 +4536,21 @@ namespace OloEngine
         // #380) — the read-side complement of SceneSerializeComponents.Generated.inl.
         // Floats are validated with std::isfinite; a missing key keeps the default.
 #include "OloEngine/Scene/Generated/SceneDeserializeComponents.Generated.inl"
+
+        // AN INVENTED MaterialComponent MUST NOT SHADOW THE ENTITY'S OWN PATCHES
+        // (#1259). The animated model is re-wired above, before the generated
+        // blocks add the MaterialOverridesComponent, so ModelImporter could not
+        // see the patches and gave a one-mesh model an entity-wide copy of its
+        // imported material -- which overrides every submesh and switches every
+        // patch off. The rigged scan head is such a model: its skin kind and
+        // profile are a patch on "HeadSkin", and it loaded as a generic surface.
+        // Only the copy the import ADDED is dropped; a MaterialComponent the
+        // scene file authored stays, and the Scene reports the shadowing.
+        if (importAddedMaterialComponent && deserializedEntity.HasComponent<MaterialOverridesComponent>() &&
+            deserializedEntity.HasComponent<MaterialComponent>())
+        {
+            deserializedEntity.RemoveComponent<MaterialComponent>();
+        }
     }
 
     SceneSerializer::SceneSerializer(const Ref<Scene>& scene)

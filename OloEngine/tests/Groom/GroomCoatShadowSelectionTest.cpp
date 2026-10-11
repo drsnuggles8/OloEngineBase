@@ -21,8 +21,10 @@
 
 #include <gtest/gtest.h>
 
+#include "OloEngine/Groom/CoatVolumeAdmission.h"
 #include "OloEngine/Groom/GroomCoatShadowTechnique.h"
 
+#include <optional>
 #include <set>
 #include <string>
 
@@ -493,4 +495,60 @@ TEST(GroomCoatShadowStatsTest, ResetClearsEveryLane)
     stats.ResidentBytes = 1234u;
     stats.Reset();
     EXPECT_EQ(stats, GroomCoatShadowStats{});
+}
+
+// The coat-volume budget (#1259): past the count, a newcomer is admitted only
+// while the bytes fit, and a reclaim of one small volume does not admit a large
+// one. Before AdmitCoatVolume the pass freed one least-recently-used volume and
+// granted the slot whatever its size.
+TEST(GroomCoatShadowSelection, ALargeNewcomerReclaimsUntilItFitsOrIsRefused)
+{
+    constexpr GroomCoatShadow::CoatVolumeBudget kBudget{ 8u, 256u * 1024u * 1024u };
+    constexpr u64 kHerdVolume = 300u * 1024u;      // a 16^3 fox volume
+    constexpr u64 kCloseUp = 200u * 1024u * 1024u; // a close-up coat
+
+    // Forty herd volumes resident, none drawn this frame: the close-up fits
+    // after reclaiming, and only as many as it needs.
+    {
+        u32 count = 40u;
+        u64 bytes = 40u * kHerdVolume + 100u * 1024u * 1024u; // and one 100 MiB volume
+        u32 reclaims = 0u;
+        const bool admitted = GroomCoatShadow::AdmitCoatVolume(count, bytes, kCloseUp, kBudget, [&]() -> std::optional<u64>
+                                                               {
+                                                                   ++reclaims;
+                                                                   return reclaims == 1u ? 100u * 1024u * 1024u : kHerdVolume; });
+        EXPECT_TRUE(admitted);
+        EXPECT_EQ(reclaims, 1u) << "freeing the 100 MiB volume is enough";
+        EXPECT_EQ(count, 39u);
+        EXPECT_LE(bytes + kCloseUp, kBudget.MaxBytes);
+    }
+
+    // Every resident volume is a small one: one reclaim does not make room,
+    // and the close-up is refused once nothing more can be reclaimed rather
+    // than granted past the budget.
+    {
+        u32 count = 20u;
+        u64 bytes = 20u * 7u * 1024u * 1024u; // 140 MiB, still 20 volumes after two reclaims
+        u32 reclaimable = 2u;
+        const bool admitted = GroomCoatShadow::AdmitCoatVolume(count, bytes, kCloseUp, kBudget, [&]() -> std::optional<u64>
+                                                               {
+                                                                   if (reclaimable == 0u)
+                                                                       return std::nullopt;
+                                                                   --reclaimable;
+                                                                   return 7u * 1024u * 1024u; });
+        EXPECT_FALSE(admitted) << "granted a slot that leaves the set over its byte budget";
+        EXPECT_EQ(reclaimable, 0u);
+    }
+
+    // Under the count, any size is admitted without reclaiming.
+    {
+        u32 count = 3u;
+        u64 bytes = 0u;
+        const bool admitted = GroomCoatShadow::AdmitCoatVolume(count, bytes, kCloseUp * 4u, kBudget, []() -> std::optional<u64>
+                                                               {
+                                                                   ADD_FAILURE() << "reclaimed under the count";
+                                                                   return std::nullopt; });
+        EXPECT_TRUE(admitted);
+        EXPECT_EQ(count, 3u);
+    }
 }

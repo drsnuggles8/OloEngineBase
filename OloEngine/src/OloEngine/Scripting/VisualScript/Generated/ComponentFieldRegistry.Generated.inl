@@ -83,6 +83,7 @@ registry.push_back(OLO_VSF_FIELD_RANGE(AnimalPathComponent, "ElapsedSeconds", m_
 registry.push_back(OLO_VSF_FIELD(AnimalPathComponent, "HasOrigin", m_HasOrigin, Bool));
 registry.push_back(OLO_VSF_FIELD(AnimalPathComponent, "FaceAlongMotion", m_FaceAlongMotion, Bool));
 registry.push_back(OLO_VSF_FIELD(AnimalPathComponent, "Enabled", m_Enabled, Bool));
+registry.push_back(OLO_VSF_FIELD(AnimalPathComponent, "FollowTerrain", m_FollowTerrain, Bool));
 
 }
 

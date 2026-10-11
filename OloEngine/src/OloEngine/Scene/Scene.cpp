@@ -121,6 +121,7 @@
 #include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Scene/TerrainGround.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainChunk.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
@@ -4352,9 +4353,12 @@ namespace OloEngine
             // sine per animal is not work worth paying that bill for. The
             // expensive half of this feature is the scheduling, which runs at
             // the frame boundary and not in this graph at all.
+            // Reads the terrains' world matrices to stand a ground-following
+            // animal on them (#1259).
             sched.AddSystem("AnimalPaths", [](Scene& s, Timestep ts)
                             { s.UpdateAnimalPaths(ts); })
-                .ReadsWrites(kLocalTransforms);
+                .ReadsWrites(kLocalTransforms)
+                .Reads(kWorldTransforms);
 
             // Place the camera on its spring arm (issue #645). Registered
             // DEAD LAST on purpose: a follow camera must observe the target's
@@ -4917,6 +4921,14 @@ namespace OloEngine
         const AnimalSchedule* schedule = FindAnimalSchedule(id);
         if (schedule == nullptr)
         {
+            // A body posed for the budgeted coat bound to it (#1259).
+            if (const auto body = m_AnimalBodySchedules.find(id); body != m_AnimalBodySchedules.end())
+            {
+                schedule = &body->second;
+            }
+        }
+        if (schedule == nullptr)
+        {
             // Every entity without an AnimalBudgetComponent, which is every
             // entity in every scene authored before #1258. The pre-existing
             // behaviour is therefore exactly "no component", not "a component
@@ -4983,6 +4995,9 @@ namespace OloEngine
             return;
         }
 
+        // The terrains and their inverse matrices, gathered at the first animal
+        // that follows the ground rather than once per animal (#1259).
+        std::optional<TerrainGroundSampler> ground;
         auto view = m_Registry.view<TransformComponent, AnimalPathComponent>();
         for (const auto e : view)
         {
@@ -5021,7 +5036,41 @@ namespace OloEngine
             // populations — which is criterion 1 failing silently.
             const glm::vec3 origin{ path.m_OriginX, path.m_OriginY, path.m_OriginZ };
             const glm::vec3 offset = AnimalPathOffsetAt(path, path.m_ElapsedSeconds);
+            const f32 previousY = transform.Translation.y;
             transform.Translation = origin + offset;
+            if (path.m_FollowTerrain)
+            {
+                // Issue #1259. Off every terrain (or before a height field
+                // exists, which a headless host never builds) the animal keeps
+                // its height, and says so once rather than silently.
+                //
+                // Sampled where the animal IS: the path writes its LOCAL
+                // translation, so a parented animal is taken into world space
+                // through its parent, set on the ground there, and brought back.
+                if (!ground)
+                    ground.emplace(*this);
+                const entt::entity parent = ResolveTransformParent(e);
+                const glm::mat4 parentWorld = parent == entt::null ? glm::mat4(1.0f) : GetWorldTransform(parent);
+                glm::vec3 world = glm::vec3(parentWorld * glm::vec4(transform.Translation, 1.0f));
+                if (const auto height = ground->HeightAt(world.x, world.z))
+                {
+                    world.y = *height;
+                    transform.Translation = parent == entt::null
+                                                ? world
+                                                : glm::vec3(glm::inverse(parentWorld) * glm::vec4(world, 1.0f));
+                }
+                else
+                {
+                    transform.Translation.y = previousY;
+                    static std::atomic<bool> s_WarnedNoGround{ false };
+                    if (!s_WarnedNoGround.exchange(true))
+                    {
+                        OLO_CORE_WARN("AnimalPathComponent: FollowTerrain is set but no terrain height field covers "
+                                      "({}, {}); the animal keeps its height",
+                                      transform.Translation.x, transform.Translation.z);
+                    }
+                }
+            }
 
             if (!path.m_FaceAlongMotion)
             {
@@ -5064,6 +5113,7 @@ namespace OloEngine
         m_FrameTimeTail.Push(ts.GetSeconds() * 1000.0f);
 
         m_AnimalSchedules.clear();
+        m_AnimalBodySchedules.clear();
         m_AnimalSchedulerStats = AnimalSchedulerStats{};
 
         const auto budgetView = m_Registry.view<TransformComponent, AnimalBudgetComponent>();
@@ -5105,6 +5155,8 @@ namespace OloEngine
 
         TArray<AnimalWorkItem> items;
         TArray<UUID> ids;
+        // Parallel to `ids`: the body a budgeted coat is bound to, or 0.
+        TArray<UUID> boundBodies;
         std::unordered_set<UUID> liveAnimals;
 
         for (const auto entity : budgetView)
@@ -5140,6 +5192,12 @@ namespace OloEngine
                 {
                     localBounds.Min = groom->GetBoundsMin();
                     localBounds.Max = groom->GetBoundsMax();
+                    // Where a bound coat is drawn, as the groom LOD measures it.
+                    if (glm::vec3 offset{ 0.0f }; BoundGroomPlacementOffset(animal, *groom, offset))
+                    {
+                        localBounds.Min += offset;
+                        localBounds.Max += offset;
+                    }
                     haveBounds = true;
                     // What the coat would build at FULL rate — the static
                     // budget, not this frame's. The scheduler prices the work
@@ -5171,8 +5229,24 @@ namespace OloEngine
             item.StrandCount = strandCount;
 
             // ── The per-axis work this animal would submit at full rate ──
-            if (const auto* skeletonComp = m_Registry.try_get<SkeletonComponent>(entity);
-                skeletonComp != nullptr && skeletonComp->m_Skeleton)
+            //
+            // THE SKELETON IS THE BODY'S. A budgeted coat bound to a body
+            // (#1259) carries no skeleton of its own: the one its deformation
+            // costs, and the pose its schedule gates, belong to the binding's
+            // target. A body with its own budget is scheduled as itself.
+            const SkeletonComponent* skeletonComp = m_Registry.try_get<SkeletonComponent>(entity);
+            UUID boundBody = 0;
+            if (const auto* binding = m_Registry.try_get<GroomBindingComponent>(entity);
+                skeletonComp == nullptr && binding != nullptr && binding->m_Enabled && binding->m_TargetEntity != 0)
+            {
+                if (const auto target = TryGetEntityWithUUID(binding->m_TargetEntity);
+                    target && !target->HasComponent<AnimalBudgetComponent>() && target->HasComponent<SkeletonComponent>())
+                {
+                    skeletonComp = &target->GetComponent<SkeletonComponent>();
+                    boundBody = binding->m_TargetEntity;
+                }
+            }
+            if (skeletonComp != nullptr && skeletonComp->m_Skeleton)
             {
                 // The final palette's size IS the bone count, and it is what
                 // the deformation axis is actually priced per: a skeleton whose
@@ -5262,6 +5336,7 @@ namespace OloEngine
 
             items.Add(item);
             ids.Add(id);
+            boundBodies.Add(boundBody);
             liveAnimals.insert(id);
         }
 
@@ -5303,6 +5378,28 @@ namespace OloEngine
         for (const AnimalSchedule& schedule : schedules)
         {
             m_AnimalSchedules.emplace(schedule.Id, schedule);
+        }
+
+        // The bodies the budgeted coats are bound to, posed by their coat's
+        // deformation step. Two budgeted coats on one body: the finer step,
+        // so neither coat's schedule is overruled toward coarser.
+        constexpr sizet deformAxis = static_cast<sizet>(AnimalWorkAxis::Deformation);
+        for (sizet i = 0; i < ids.Num(); ++i)
+        {
+            if (boundBodies[i] == 0)
+            {
+                continue;
+            }
+            const auto scheduled = m_AnimalSchedules.find(ids[i]);
+            if (scheduled == m_AnimalSchedules.end())
+            {
+                continue;
+            }
+            const auto [it, inserted] = m_AnimalBodySchedules.try_emplace(boundBodies[i], scheduled->second);
+            if (!inserted && scheduled->second.Step[deformAxis] < it->second.Step[deformAxis])
+            {
+                it->second = scheduled->second;
+            }
         }
     }
 
@@ -9336,6 +9433,57 @@ namespace OloEngine
         // Scene's lifetime.
         std::unordered_set<UUID> liveGroomLodEntities;
         std::unordered_set<UUID> liveGroomStreamingIdentities;
+        // THE VIEW A COAT HAS TO REACH (#1259). A coat no view can see, and
+        // whose shadow cannot fall into it, is not deformed, simulated or
+        // drawn this frame: before this, every coat in a scene paid its
+        // binding, simulation and upload every frame, and a 41-fox herd behind
+        // the camera cost ~80 ms of CPU and ~65 ms of root frames a frame.
+        // The frustum is the CULLING camera's, set by this frame's BeginScene,
+        // so a second camera rendering the scene culls against its own view.
+        // A coat that comes back into view resumes through the deformer's own
+        // DeformationSkipped history reset (and the simulation's re-seed from
+        // the binding), so it never integrates one stale step.
+        const bool cullGroomsByView = Renderer3D::IsFrustumCullingEnabled();
+        const Frustum& groomViewFrustum = Renderer3D::GetViewFrustum();
+        // Where a caster's shadow can land: along each shadowing sun for its
+        // shadow distance, and inside each shadowing local light whose range
+        // reaches the view. Gathered once; a handful of lights.
+        TArray<glm::vec3> groomSunSweeps;
+        struct GroomLocalShadowLight
+        {
+            glm::vec3 Center{ 0.0f };
+            f32 Radius = 0.0f;
+        };
+        TArray<GroomLocalShadowLight> groomLocalShadowLights;
+        if (cullGroomsByView)
+        {
+            for (const auto e : m_Registry.view<DirectionalLightComponent>())
+            {
+                const auto& light = m_Registry.get<DirectionalLightComponent>(e);
+                const f32 length = glm::length(light.m_Direction);
+                if (light.m_CastShadows && length > 1.0e-6f && std::isfinite(length) &&
+                    std::isfinite(light.m_MaxShadowDistance))
+                {
+                    groomSunSweeps.Add(light.m_Direction / length * std::max(0.0f, light.m_MaxShadowDistance));
+                }
+            }
+            const auto addLocal = [this, &groomViewFrustum, &groomLocalShadowLights](entt::entity e, f32 range)
+            {
+                const glm::vec3 center = glm::vec3(GetWorldTransform(e)[3]);
+                if (std::isfinite(range) && range > 0.0f && groomViewFrustum.IsSphereVisible(center, range))
+                    groomLocalShadowLights.Add({ center, range });
+            };
+            for (const auto e : m_Registry.view<PointLightComponent>())
+            {
+                if (const auto& light = m_Registry.get<PointLightComponent>(e); light.m_CastShadows)
+                    addLocal(e, light.m_Range);
+            }
+            for (const auto e : m_Registry.view<SpotLightComponent>())
+            {
+                if (const auto& light = m_Registry.get<SpotLightComponent>(e); light.m_CastShadows)
+                    addLocal(e, light.m_Range);
+            }
+        }
         const auto groomView = m_Registry.view<TransformComponent, GroomComponent>();
         for (const auto entity : groomView)
         {
@@ -9489,11 +9637,27 @@ namespace OloEngine
             // a groom with no GroomLodComponent has no decision to read one
             // off. One measurement feeds both, so the two can never disagree
             // about how big this coat is.
+            // The coat's rest bounds where it is drawn: shared by the LOD size
+            // below and the view cull, so the two cannot disagree about where
+            // the coat is.
+            BoundingBox placedRestBounds;
             {
                 const LODViewParams& lodView = Renderer3D::GetLODViewParams();
                 BoundingBox localBounds;
                 localBounds.Min = groom->GetBoundsMin();
                 localBounds.Max = groom->GetBoundsMax();
+                // A BOUND coat is drawn where its body is, not where the groom
+                // was authored (#1259): the rest bounds are measured at the
+                // placement the binding was cooked at, and a body moved, turned
+                // or re-parented since read as a coat metres from the camera --
+                // the rigged head's hair dropped to a third of its strands in
+                // a close-up.
+                if (glm::vec3 offset{ 0.0f }; BoundGroomPlacementOffset(groomEntity, *groom, offset))
+                {
+                    localBounds.Min += offset;
+                    localBounds.Max += offset;
+                }
+                placedRestBounds = localBounds;
                 request.ApparentPixelSize = EstimateProjectedPixelSize(localBounds, worldTransform, lodView);
             }
 
@@ -9595,6 +9759,49 @@ namespace OloEngine
             request.Build.CoatDigest = GroomCoatDigest(request.Coat);
 
             liveGrooms.insert(groomComponent.m_Groom);
+
+            if (cullGroomsByView)
+            {
+                // The rest bounds where the coat is drawn (placed through its
+                // binding, as the LOD size above is), posed by the entity and
+                // padded: a bound coat follows a skinned body and its simulation
+                // sways, so neither stays inside the bind-pose box. A quarter of
+                // the extent plus 0.25 m covers a walk cycle's reach.
+                BoundingBox worldBounds = placedRestBounds.Transform(worldTransform);
+                const glm::vec3 pad = (worldBounds.Max - worldBounds.Min) * 0.25f + glm::vec3(0.25f);
+                worldBounds.Min -= pad;
+                worldBounds.Max += pad;
+                bool relevant = groomViewFrustum.IsBoxVisible(worldBounds.Min, worldBounds.Max);
+                if (!relevant && request.CastsSceneShadow)
+                {
+                    for (const glm::vec3& sweep : groomSunSweeps)
+                    {
+                        if (groomViewFrustum.IsBoxVisible(glm::min(worldBounds.Min, worldBounds.Min + sweep),
+                                                          glm::max(worldBounds.Max, worldBounds.Max + sweep)))
+                        {
+                            relevant = true;
+                            break;
+                        }
+                    }
+                    for (const auto& light : groomLocalShadowLights)
+                    {
+                        const glm::vec3 nearest = glm::clamp(light.Center, worldBounds.Min, worldBounds.Max);
+                        if (glm::dot(nearest - light.Center, nearest - light.Center) <= light.Radius * light.Radius)
+                        {
+                            relevant = true;
+                            break;
+                        }
+                    }
+                }
+                if (!relevant)
+                {
+                    // Still live: its caches (guide influence, streaming key,
+                    // LOD hysteresis) survive the frames it spends out of view.
+                    liveGroomStreamingIdentities.insert(groomEntity.GetUUID());
+                    continue;
+                }
+            }
+
             {
                 OLO_PERF_SCOPE_AUTO("Groom::Deform");
                 DeformGroomAgainstSurface(groomEntity, *groom, request);
@@ -10359,6 +10566,81 @@ namespace OloEngine
                 }
             }
         }
+    }
+
+    bool Scene::BoundGroomPlacementOffset(Entity groomEntity, const GroomAsset& groom, glm::vec3& outOffset)
+    {
+        // The deformation maps the body into the groom's space with THIS frame's
+        // matrix (inverse(groomWorld) * bodyWorld), while the asset's bounds sit
+        // where the coat was when the binding was cooked. The two coincide only
+        // at the cook placement. The binding records, for every root, the
+        // bind-time origin in groom space and the triangle and barycentrics it
+        // sits on, so averaging both gives one point seen two ways: where the
+        // roots were authored, and where the body puts them now.
+        const auto* binding = m_Registry.try_get<GroomBindingComponent>(groomEntity);
+        if (binding == nullptr || !binding->m_Enabled || binding->m_Binding == 0)
+            return false;
+        const auto bindingAsset = AssetManager::GetAsset<GroomBindingAsset>(binding->m_Binding);
+        if (!bindingAsset || bindingAsset->GetRoots().empty() || bindingAsset->GetRoots().size() != groom.GetCurveCount())
+            return false;
+
+        Entity targetEntity = groomEntity;
+        if (binding->m_TargetEntity != 0)
+        {
+            const auto found = TryGetEntityWithUUID(binding->m_TargetEntity);
+            if (!found)
+                return false;
+            targetEntity = *found;
+        }
+        const auto* meshComponent = m_Registry.try_get<MeshComponent>(targetEntity);
+        if (meshComponent == nullptr)
+            return false;
+        const Ref<MeshSource> surface =
+            AnimatedSurfaceSource(m_Registry.try_get<LODGroupComponent>(targetEntity), *meshComponent);
+        if (!surface)
+            return false;
+        const auto& vertices = surface->GetVertices();
+        const auto& indices = surface->GetIndices();
+        // The counts the binding addresses; anything else is a surface the
+        // deformation will refuse, and a refused coat draws at rest.
+        const GroomBindingTargetSignature& signature = bindingAsset->GetTargetSignature();
+        if (static_cast<u32>(vertices.Num()) != signature.VertexCount || static_cast<u32>(indices.Num()) != signature.IndexCount)
+            return false;
+
+        auto& state = m_GroomBindingRuntime[groomEntity.GetUUID()];
+        if (!state.m_AnchorValid || state.m_AnchorBinding != binding->m_Binding ||
+            state.m_AnchorGeneration != surface->GetGeneration())
+        {
+            glm::dvec3 rest{ 0.0 };
+            glm::dvec3 onSurface{ 0.0 };
+            const u32 triangleCount = static_cast<u32>(indices.Num()) / 3u;
+            u64 used = 0;
+            for (const GroomRootBinding& root : bindingAsset->GetRoots())
+            {
+                if (root.TriangleIndex >= triangleCount)
+                    continue;
+                const u32 base = root.TriangleIndex * 3u;
+                const glm::vec3 p = vertices[static_cast<i32>(indices[static_cast<i32>(base)])].Position * root.Barycentric.x +
+                                    vertices[static_cast<i32>(indices[static_cast<i32>(base + 1u)])].Position * root.Barycentric.y +
+                                    vertices[static_cast<i32>(indices[static_cast<i32>(base + 2u)])].Position * root.Barycentric.z;
+                rest += glm::dvec3(root.RestOrigin);
+                onSurface += glm::dvec3(p);
+                ++used;
+            }
+            if (used == 0u)
+                return false;
+            state.m_AnchorRest = glm::vec3(rest / static_cast<f64>(used));
+            state.m_AnchorSurface = glm::vec3(onSurface / static_cast<f64>(used));
+            state.m_AnchorBinding = binding->m_Binding;
+            state.m_AnchorGeneration = surface->GetGeneration();
+            state.m_AnchorValid = true;
+        }
+
+        const glm::mat4 surfaceToGroom =
+            MakeGroomSurfaceToGroomMatrix(GetWorldTransform(groomEntity), GetWorldTransform(targetEntity));
+        const glm::vec3 now = glm::vec3(surfaceToGroom * glm::vec4(state.m_AnchorSurface, 1.0f));
+        outOffset = now - state.m_AnchorRest;
+        return std::isfinite(outOffset.x) && std::isfinite(outOffset.y) && std::isfinite(outOffset.z);
     }
 
     void Scene::DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request)

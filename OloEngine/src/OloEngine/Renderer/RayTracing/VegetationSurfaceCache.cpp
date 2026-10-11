@@ -124,7 +124,7 @@ namespace OloEngine::RayTracing
         bool ValidInput(const VegetationSurfaceInput& input)
         {
             if (!input.Rest || input.Rest->GetDeviceAddress() == 0u || input.VertexCount == 0u ||
-                PlantCount(input) == 0u || PlantCount(input) > VegetationPolicy::CardPlantsPerGroup ||
+                PlantCount(input) == 0u || PlantCount(input) > VegetationPolicy::MaxPlantsPerGroup ||
                 (input.Rows.IsEmpty() && input.ContentKey == 0u) ||
                 input.Parts.IsEmpty() ||
                 !std::isfinite(WindTime(input)) || !std::isfinite(input.DistanceToView) ||

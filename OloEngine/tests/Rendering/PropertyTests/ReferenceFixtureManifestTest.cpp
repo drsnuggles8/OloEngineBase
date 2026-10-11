@@ -414,6 +414,70 @@ TEST(ReferenceFixtureManifest, ParsesEveryLightingTapTokenAndRefusesUnknownOnes)
     EXPECT_NE(refused.find("RendererSettings.LightingTap"), std::string::npos) << refused;
 }
 
+// #1259: the acceptance gate is measured with virtual shadow maps, which no scene
+// serializes, so the manifest pins them. Absent stays absent (the run keeps the
+// renderer's setting), and a non-boolean is refused rather than read as "off".
+TEST(ReferenceFixtureManifest, ParsesVirtualShadowMapsAndRefusesNonBooleans)
+{
+    for (const bool enabled : { true, false })
+    {
+        std::string error;
+        const auto parsed = LoadBenchmarkManifest(
+            WriteManifest("vsm", Replaced(ValidV2Manifest(), "Exposure:\n",
+                                          std::string("RendererSettings:\n  VirtualShadowMaps: ") +
+                                              (enabled ? "true" : "false") + "\nExposure:\n")),
+            error);
+        ASSERT_TRUE(parsed.has_value()) << error;
+        ASSERT_TRUE(parsed->RendererSettings.VirtualShadowMapsEnabled.has_value());
+        EXPECT_EQ(*parsed->RendererSettings.VirtualShadowMapsEnabled, enabled);
+    }
+
+    std::string error;
+    const auto absent = LoadBenchmarkManifest(WriteManifest("vsm-absent", ValidV2Manifest()), error);
+    ASSERT_TRUE(absent.has_value()) << error;
+    EXPECT_FALSE(absent->RendererSettings.VirtualShadowMapsEnabled.has_value());
+
+    const auto refused = ExpectParseFailure(
+        "vsm-typo", Replaced(ValidV2Manifest(), "Exposure:\n", "RendererSettings:\n  VirtualShadowMaps: ture\nExposure:\n"));
+    EXPECT_NE(refused.find("RendererSettings.VirtualShadowMaps"), std::string::npos) << refused;
+}
+
+// #1259: a camera's frame sequence is motion footage — Count steps of Every
+// frames, each followed by a readback of the named attachments. A sequence
+// beside a timed Measurement block would put readbacks inside the timing, and
+// an attachment it names must exist, so both are refused.
+TEST(ReferenceFixtureManifest, ParsesACameraSequenceAndRefusesUnusableOnes)
+{
+    const std::string withSequence =
+        Replaced(ValidV2Manifest(), "  Far: 100.0\n",
+                 "  Far: 100.0\n  Sequence:\n    Every: 2\n    Count: 12\n    Attachments: [Beauty]\n");
+    std::string error;
+    const auto parsed = LoadBenchmarkManifest(WriteManifest("sequence", withSequence), error);
+    ASSERT_TRUE(parsed.has_value()) << error;
+    ASSERT_EQ(parsed->Cameras.Num(), 1);
+    ASSERT_TRUE(parsed->Cameras[0].HasSequence());
+    EXPECT_EQ(parsed->Cameras[0].Sequence.Every, 2u);
+    EXPECT_EQ(parsed->Cameras[0].Sequence.Count, 12u);
+    EXPECT_EQ(SequenceFrameCount(parsed->Cameras[0].Sequence), 24u);
+    // The end-of-camera capture follows the sequence: 8 warm-up + 24 sequence frames.
+    EXPECT_EQ(Benchmark::CameraFrameCount(*parsed, parsed->Cameras[0]), 32u);
+
+    const auto timed = ExpectParseFailure(
+        "sequence-with-measurement",
+        Replaced(withSequence, "Exposure:\n", "Measurement:\n  Frames: 100\n  DeadlineMs: 16.667\nExposure:\n"));
+    EXPECT_NE(timed.find("cannot share a manifest with a Measurement block"), std::string::npos) << timed;
+
+    const auto unknown = ExpectParseFailure("sequence-unknown-attachment",
+                                            Replaced(withSequence, "Attachments: [Beauty]", "Attachments: [Velocity]"));
+    EXPECT_NE(unknown.find("'Velocity' is not in Attachments"), std::string::npos) << unknown;
+
+    const auto single = ExpectParseFailure("sequence-one-step", Replaced(withSequence, "Count: 12", "Count: 1"));
+    EXPECT_NE(single.find("Count must be in [2,"), std::string::npos) << single;
+
+    const auto typo = ExpectParseFailure("sequence-typo", Replaced(withSequence, "Every: 2", "Every: two"));
+    EXPECT_NE(typo.find("Every and Count must be non-negative integers"), std::string::npos) << typo;
+}
+
 TEST(ReferenceFixtureManifest, RejectsAllZeroMotion)
 {
     // An all-zero Motion block advertises a moving sequence and produces a

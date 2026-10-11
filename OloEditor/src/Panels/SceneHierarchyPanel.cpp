@@ -10121,6 +10121,12 @@ namespace OloEngine
                                   "Off leaves the authored rotation alone, which is what a hand-posed hero\n"
                                   "wants.");
             }
+            ImGui::Checkbox("Follow terrain", &component.m_FollowTerrain);
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::SetTooltip("Stand the animal on the terrain under its path each tick, sampled at its\n"
+                                  "world position. Off a terrain it keeps its height, with a warning.");
+            }
 
             ImGui::SeparatorText("Figure");
             ImGui::DragFloat("Radius X (m)", &component.m_RadiusX, 0.1f, 0.0f, 10000.0f, "%.2f");

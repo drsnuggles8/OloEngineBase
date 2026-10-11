@@ -671,6 +671,117 @@ namespace OloEngine::Tests
             << " instances barely changed the frame — the bound is not reaching the draw";
     }
 
+    // ── #1581: a view-sized slot overflows once, counted, then grows ─────────
+    //
+    // The main slot is created looking at the sky, so it is sized from an
+    // almost empty view. Swinging to the overview makes the next frame's
+    // survivors outgrow it: that frame must draw short, BOUNDED and COUNTED
+    // (the reservation cursor still sees every survivor), the slot must grow
+    // from the demand pair it read back without a stall, and the frame after
+    // must draw every survivor. A frame later, at the same pose, nothing grows.
+
+    TEST_F(FoliageGPUCullEvidenceTest, ViewSizedSlotGrowsAfterOneCountedOverflow)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedMockTime mockTime(kCaptureTime);
+        const ScopedGPUCulling on(true);
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+
+        constexpr auto kMain = static_cast<u32>(FoliageGPUCuller::ViewSlot::Main);
+        std::vector<u8> pixels;
+        Capture("", kAway, pixels);
+        ASSERT_FALSE(HasFatalFailure());
+        FoliageRenderer* foliage = Foliage();
+        ASSERT_NE(foliage, nullptr);
+
+        // Sized from the narrow view: far below the layer, which is what the
+        // whole issue is about.
+        u32 narrowTotal = 0;
+        u32 instancesTotal = 0;
+        for (u32 layerIndex = 0; layerIndex < foliage->GetLayerCount(); ++layerIndex)
+        {
+            const auto capacity = foliage->GetCullStreamCapacity(layerIndex, kMain);
+            narrowTotal += capacity.List + capacity.Mesh;
+        }
+        for (const auto& info : foliage->GetActiveLayerDrawInfo())
+            instancesTotal += info.InstanceCount;
+        std::printf("[foliage-cull] #1581 narrow main slot: %u entries for %u plants\n", narrowTotal, instancesTotal);
+        ASSERT_GT(instancesTotal, 0u);
+        EXPECT_LT(narrowTotal, instancesTotal / 2u) << "a slot created looking at the sky still holds the whole layer";
+
+        // ── The wide frame: overflows, bounded and counted ──
+        const u32 growsBefore = foliage->GetCullStreamGrowCount();
+        const AngleCase& wide = kAngles[2];
+        Capture("", wide, pixels, 1);
+        ASSERT_FALSE(HasFatalFailure());
+
+        u32 overflowedLayer = ~0u;
+        u32 visibleWide = 0;
+        u32 capacityWide = 0;
+        for (u32 layerIndex = 0; layerIndex < foliage->GetLayerCount(); ++layerIndex)
+        {
+            FoliageGPUCuller::Readback readback;
+            if (!foliage->ReadbackCull(layerIndex, FoliageGPUCuller::ViewSlot::Main, readback))
+                continue;
+            const auto capacity = foliage->GetCullStreamCapacity(layerIndex, kMain);
+            if (readback.Reserved > capacity.List)
+            {
+                // BOUNDED: the draw holds exactly the list. COUNTED: the cursor
+                // saw every survivor, so Reserved - Submitted is the drop count.
+                EXPECT_EQ(readback.Submitted, capacity.List) << "layer " << layerIndex;
+                EXPECT_EQ(readback.Reserved, readback.Visible) << "layer " << layerIndex;
+                if (overflowedLayer == ~0u)
+                {
+                    overflowedLayer = layerIndex;
+                    visibleWide = readback.Visible;
+                    capacityWide = capacity.List;
+                }
+            }
+        }
+        ASSERT_NE(overflowedLayer, ~0u) << "no layer's narrow-sized slot overflowed at the wide pose, so this test "
+                                           "measured nothing";
+        std::printf("[foliage-cull] #1581 wide frame: layer %u wanted %u, slot held %u\n", overflowedLayer, visibleWide,
+                    capacityWide);
+
+        // ── The next frame: grown, and every survivor drawn ──
+        Capture("", wide, pixels, 1);
+        ASSERT_FALSE(HasFatalFailure());
+        EXPECT_GT(foliage->GetCullStreamGrowCount(), growsBefore) << "the overflow was never read back into a grow";
+        {
+            FoliageGPUCuller::Readback readback;
+            ASSERT_TRUE(foliage->ReadbackCull(overflowedLayer, FoliageGPUCuller::ViewSlot::Main, readback));
+            const auto capacity = foliage->GetCullStreamCapacity(overflowedLayer, kMain);
+            std::printf("[foliage-cull] #1581 next frame: layer %u submitted %u of %u visible, slot now %u\n",
+                        overflowedLayer, readback.Submitted, readback.Visible, capacity.List);
+            EXPECT_GE(capacity.List, visibleWide) << "the slot did not grow to what the view asked for";
+            EXPECT_EQ(readback.Submitted, readback.Visible) << "the frame after the overflow still drew short";
+            EXPECT_EQ(readback.Visible, visibleWide) << "the same pose kept a different survivor set";
+        }
+        for (u32 layerIndex = 0; layerIndex < foliage->GetLayerCount(); ++layerIndex)
+        {
+            FoliageGPUCuller::Readback readback;
+            if (foliage->ReadbackCull(layerIndex, FoliageGPUCuller::ViewSlot::Main, readback))
+                EXPECT_EQ(readback.Submitted, readback.Visible) << "layer " << layerIndex << " still overflows";
+        }
+
+        // ── Steady: nothing more to grow at the same pose ──
+        const u32 growsSettled = foliage->GetCullStreamGrowCount();
+        Capture("", wide, pixels, 2);
+        ASSERT_FALSE(HasFatalFailure());
+        EXPECT_EQ(foliage->GetCullStreamGrowCount(), growsSettled) << "a slot kept growing at a pose it already holds";
+
+        // And the grown slot is still smaller than the old whole-layer-twice.
+        u32 wideTotal = 0;
+        for (u32 layerIndex = 0; layerIndex < foliage->GetLayerCount(); ++layerIndex)
+        {
+            const auto capacity = foliage->GetCullStreamCapacity(layerIndex, kMain);
+            wideTotal += capacity.List + capacity.Mesh;
+        }
+        std::printf("[foliage-cull] #1581 grown main slot: %u entries for %u plants\n", wideTotal, instancesTotal);
+    }
+
     // ── Criterion 4: the shadow view is culled on its own ────────────────────
 
     TEST_F(FoliageGPUCullEvidenceTest, ShadowViewIsCulledSeparatelyFromTheMainView)

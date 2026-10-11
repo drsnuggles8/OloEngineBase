@@ -183,6 +183,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [lightmap-receiver-identity.md](lightmap-receiver-identity.md): a baked lightmap region is addressed by (entity UUID, sub-key), never by the entity alone.
 - [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md): phase 1 tests the previous frame's final pyramid; pass order decides who sees old depth.
 - [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md): four page-cache invariants; a `Setup()` that branches on a runtime toggle is frozen by the fingerprint cache.
+- [foliage-vsm-page-caching.md](foliage-vsm-page-caching.md): moving foliage invalidates a VSM clip level only where its texel is finer than the layer's declared displacement, and a new shadow-affecting layer parameter belongs in `FoliageRenderer::GetShadowRevision`.
 - [shadow-receiver-bias-is-texels-of-the-map-sampled.md](shadow-receiver-bias-is-texels-of-the-map-sampled.md): bias a shadow receiver by the light's depth texels and normal metres, converted through the level or mip it samples; never give one technique its own bias constant in metres.
 - [virtual-geometry-into-a-second-shadow-technique.md](virtual-geometry-into-a-second-shadow-technique.md): a caster family reaches a shadow technique only if somebody wired it there, and the gap is invisible.
 - [cluster-lod-simplification.md](cluster-lod-simplification.md): a terminal group's boundary lock outlives the level that created it, and a terminal group is marked `FLT_MAX`, which is finite.
@@ -640,6 +641,7 @@ Code that exists, is tested, and has no production caller, or has more callers t
 | [substituted-seams-compound.md](substituted-seams-compound.md) | Both decal paths drew zero fragments for as long as they existed; a feature with no scene has no coverage. |
 | [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) §7 | The game scene never set `TessellationEnabled`, and no shipped scene ever set `UseImpostor`. A flag that appears only in its own test has no product coverage. |
 | [render-pass-published-state.md](render-pass-published-state.md) | `MeshComponent { Primitive: 0 }` is `None`: an entity that never renders. |
+| [foliage-vsm-page-caching.md](foliage-vsm-page-caching.md) | Foliage submitted to the VSM as deforming every frame redrew every layer into all sixteen clip levels (19-103 ms at 1080p), and the page cache never applied to it. |
 | [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) §5 | A `Setup()` that early-returns while a feature is off freezes that decision into the frame-graph fingerprint. |
 | [render-graph-setup-declaration-gates.md](render-graph-setup-declaration-gates.md) | Five passes declare nothing when they have no work; one frame rendered with the bucket empty culled the pass, and 1310 generated, culled and submitted plant instances were never drawn. |
 

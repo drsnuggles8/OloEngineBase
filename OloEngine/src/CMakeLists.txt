@@ -1486,6 +1486,8 @@
 
 		"OloEngine/Scene/AnimalScheduler.cpp"
 		"OloEngine/Scene/AnimalScheduler.h"
+		"OloEngine/Scene/TerrainGround.cpp"
+		"OloEngine/Scene/TerrainGround.h"
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/BoneAttachment.h"
 		"OloEngine/Scene/TransformComponent.cpp"

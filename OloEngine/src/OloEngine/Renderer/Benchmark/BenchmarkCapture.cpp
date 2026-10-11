@@ -39,6 +39,16 @@ namespace OloEngine::Benchmark
 {
     namespace
     {
+        // "<Name>_0007.png": the attachment's own file name with the step
+        // spliced in before the extension.
+        std::string SequenceFileName(const CapturedAttachment& attachment, u32 step)
+        {
+            const std::filesystem::path original(attachment.FileName.ToStdString());
+            char index[16];
+            std::snprintf(index, sizeof(index), "_%04u", step);
+            return original.stem().string() + index + original.extension().string();
+        }
+
         const char* FormatName(RGResourceFormat format)
         {
             switch (format)
@@ -452,6 +462,12 @@ namespace OloEngine::Benchmark
             settings.Technique = *wanted.RayTracedShadowsEnabled ? ShadowTechnique::RayTraced : ShadowTechnique::ShadowMap;
             Renderer3D::GetShadowMap().SetSettings(settings);
         }
+        if (wanted.VirtualShadowMapsEnabled)
+        {
+            auto settings = Renderer3D::GetShadowMap().GetSettings();
+            settings.VSM.Enabled = *wanted.VirtualShadowMapsEnabled;
+            Renderer3D::GetShadowMap().SetSettings(settings);
+        }
         if (wanted.GpuPathTracerEnabled)
         {
             postProcess.GpuPathTracer.Enabled = *wanted.GpuPathTracerEnabled;
@@ -489,6 +505,35 @@ namespace OloEngine::Benchmark
             set.Attachments.Add(CaptureAttachment(spec, context));
         }
         return set;
+    }
+
+    TArray<CapturedAttachment> CaptureSequenceAttachments(const BenchmarkManifest& manifest,
+                                                          const ManifestCameraSequence& sequence,
+                                                          std::string_view backend, const CaptureContext& context)
+    {
+        TArray<CapturedAttachment> captured;
+        const TArray<FString>* unsupported = manifest.UnsupportedFor(backend);
+        for (const auto& spec : manifest.Attachments)
+        {
+            if (std::ranges::find(sequence.Attachments, spec.Name) == sequence.Attachments.end())
+                continue;
+            if (unsupported != nullptr && std::ranges::find(*unsupported, spec.Name) != unsupported->end())
+            {
+                CapturedAttachment skipped;
+                skipped.Spec = spec;
+                skipped.SkippedUnsupported = true;
+                captured.Add(std::move(skipped));
+                continue;
+            }
+            captured.Add(CaptureAttachment(spec, context));
+        }
+        return captured;
+    }
+
+    u32 CameraFrameCount(const BenchmarkManifest& manifest, const ManifestCamera& camera)
+    {
+        const u32 sequenceFrames = SequenceFrameCount(camera.Sequence); // 0 without a sequence
+        return camera.WarmupFrames.value_or(manifest.WarmupFrames) + manifest.MeasurementFrames + sequenceFrames;
     }
 
     std::string QueryCommitShaViaGit()
@@ -640,6 +685,7 @@ namespace OloEngine::Benchmark
         applied.Upscale = Renderer3D::GetPostProcessSettings().Upscale;
         applied.Technique = Renderer3D::GetPostProcessSettings().Technique;
         applied.RayTracedShadowsRequested = Renderer3D::GetShadowMap().GetSettings().Technique == ShadowTechnique::RayTraced;
+        applied.VirtualShadowMapsEnabled = Renderer3D::GetShadowMap().GetSettings().VSM.Enabled;
         applied.LightingDebugTap = Renderer3D::GetPostProcessSettings().LightingDebugTap;
         return applied;
     }
@@ -647,6 +693,13 @@ namespace OloEngine::Benchmark
     bool ApplyEntityMotion(Scene& scene, const BenchmarkManifest& manifest, u32 frameIndex,
                            std::string& outError)
     {
+        // The scene's own authored motion first: animal paths advance one fixed
+        // step per rendered frame on both hosts, as the runtime tick would. Only
+        // in edit mode: a running scene's gameplay schedule already runs
+        // "AnimalPaths", and stepping it here as well walked the herd at twice
+        // the speed.
+        if (!scene.IsRunning())
+            scene.AdvanceAnimalPaths(Timestep{ manifest.FixedDtSeconds });
         const f32 elapsed = static_cast<f32>(frameIndex) * manifest.FixedDtSeconds;
         for (const auto& motion : manifest.EntityMotions)
         {
@@ -839,6 +892,31 @@ namespace OloEngine::Benchmark
                     return false;
                 }
             }
+            // A sequence's steps go under <camera>/sequence/ as <Name>_<step>,
+            // zero-padded so a directory listing is the playback order.
+            for (const auto& step : set.Sequence)
+            {
+                const std::filesystem::path sequenceDir = cameraDir / "sequence";
+                std::filesystem::create_directories(sequenceDir, ec);
+                if (ec)
+                {
+                    outError = "cannot create sequence directory " + sequenceDir.string() + ": " + ec.message();
+                    return false;
+                }
+                for (const auto& attachment : step.Attachments)
+                {
+                    if (attachment.FileName.IsEmpty())
+                        continue;
+                    const std::filesystem::path file = sequenceDir / SequenceFileName(attachment, step.Step);
+                    std::ofstream stream(file, std::ios::binary | std::ios::trunc);
+                    if (!stream || !stream.write(reinterpret_cast<const char*>(attachment.FileBytes.GetData()),
+                                                 static_cast<std::streamsize>(attachment.FileBytes.Num())))
+                    {
+                        outError = "cannot write " + file.string();
+                        return false;
+                    }
+                }
+            }
         }
 
         nlohmann::json json;
@@ -867,7 +945,9 @@ namespace OloEngine::Benchmark
                                { "gpuRenderer", runInfo.GpuRenderer.ToStdString() },
                                { "commitSha", runInfo.CommitSha.ToStdString() },
                                { "machineTag", runInfo.MachineTag.ToStdString() },
-                               { "host", runInfo.Host.ToStdString() } };
+                               { "host", runInfo.Host.ToStdString() },
+                               { "presentation", runInfo.Presentation.ToStdString() },
+                               { "vsync", runInfo.VSync ? nlohmann::json(*runInfo.VSync) : nlohmann::json(nullptr) } };
         // The manifest's numbers are the REQUEST; `actual` is what the render
         // graph did with it (#1337 criterion 4). They differ whenever anything
         // has touched the render scale, and a record carrying only the request
@@ -940,7 +1020,7 @@ namespace OloEngine::Benchmark
                 spec != manifest.Cameras.end())
             {
                 const u32 warmFrames = spec->WarmupFrames.value_or(manifest.WarmupFrames);
-                const u32 cameraFrames = warmFrames + manifest.MeasurementFrames;
+                const u32 cameraFrames = CameraFrameCount(manifest, *spec);
                 const auto pose = CameraPoseAtFrame(*spec, cameraFrames > 0u ? cameraFrames - 1u : 0u,
                                                     manifest.FixedDtSeconds);
                 cameraJson["warmupFrames"] = warmFrames;
@@ -1002,6 +1082,44 @@ namespace OloEngine::Benchmark
                     a["maxValue"] = attachment.MaxValue;
                 }
                 cameraJson["attachments"].push_back(std::move(a));
+            }
+            if (!set.Sequence.IsEmpty())
+            {
+                const auto spec = std::ranges::find_if(manifest.Cameras, [&set](const ManifestCamera& c)
+                                                       { return c.Id == set.CameraId; });
+                const std::string prefix = (cameraSets.size() > 1 ? set.CameraId.ToStdString() + "/" : "") + "sequence/";
+                cameraJson["sequence"] = nlohmann::json::array();
+                for (const auto& step : set.Sequence)
+                {
+                    nlohmann::json stepJson{ { "step", step.Step },
+                                             { "frameInCamera", step.FrameInCamera },
+                                             { "captureFrameIndex", step.CaptureFrameIndex },
+                                             { "mockTimeSeconds", step.MockTimeSeconds } };
+                    if (spec != manifest.Cameras.end())
+                    {
+                        const auto pose = CameraPoseAtFrame(*spec, step.FrameInCamera, manifest.FixedDtSeconds);
+                        stepJson["pose"] = { { "position", { pose.Position.x, pose.Position.y, pose.Position.z } },
+                                             { "yawDegrees", pose.YawDegrees },
+                                             { "pitchDegrees", pose.PitchDegrees } };
+                    }
+                    stepJson["attachments"] = nlohmann::json::array();
+                    for (const auto& attachment : step.Attachments)
+                    {
+                        nlohmann::json a{ { "name", attachment.Spec.Name.ToStdString() } };
+                        if (attachment.SkippedUnsupported)
+                            a["skipped"] = "declared unsupported for backend " + runInfo.Backend.ToStdString();
+                        else if (!attachment.Error.IsEmpty())
+                            a["error"] = attachment.Error.ToStdString();
+                        else
+                        {
+                            a["file"] = prefix + SequenceFileName(attachment, step.Step);
+                            a["minValue"] = attachment.MinValue;
+                            a["maxValue"] = attachment.MaxValue;
+                        }
+                        stepJson["attachments"].push_back(std::move(a));
+                    }
+                    cameraJson["sequence"].push_back(std::move(stepJson));
+                }
             }
             json["cameras"].push_back(std::move(cameraJson));
         }
@@ -1118,8 +1236,8 @@ namespace OloEngine::Benchmark
             return "Unknown";
         };
         json["configuration"] = {
-            { "requested", { { "path", manifest.RendererSettings.Path ? pathName(*manifest.RendererSettings.Path) : "unfixed" }, { "msaaSamples", manifest.RendererSettings.MSAASampleCount.value_or(1u) }, { "upscaleMode", static_cast<i32>(manifest.RendererSettings.Upscale.value_or(UpscaleMode::Off)) }, { "upscaleTechnique", static_cast<i32>(manifest.RendererSettings.UpscaleTechnique.value_or(UpscalerTechnique::Spatial)) }, { "rayTracedShadows", manifest.RendererSettings.RayTracedShadowsEnabled.value_or(false) }, { "lightingTap", ToToken(manifest.RendererSettings.LightingDebugTap.value_or(LightingTap::None)) } } },
-            { "selectedSettings", { { "path", pathName(runInfo.Configuration.Path) }, { "msaaSamples", runInfo.Configuration.MSAASampleCount }, { "upscaleMode", static_cast<i32>(runInfo.Configuration.Upscale) }, { "upscaleTechnique", static_cast<i32>(runInfo.Configuration.Technique) }, { "rayTracedShadowsRequested", runInfo.Configuration.RayTracedShadowsRequested }, { "lightingTap", ToToken(runInfo.Configuration.LightingDebugTap) } } },
+            { "requested", { { "path", manifest.RendererSettings.Path ? pathName(*manifest.RendererSettings.Path) : "unfixed" }, { "msaaSamples", manifest.RendererSettings.MSAASampleCount.value_or(1u) }, { "upscaleMode", static_cast<i32>(manifest.RendererSettings.Upscale.value_or(UpscaleMode::Off)) }, { "upscaleTechnique", static_cast<i32>(manifest.RendererSettings.UpscaleTechnique.value_or(UpscalerTechnique::Spatial)) }, { "rayTracedShadows", manifest.RendererSettings.RayTracedShadowsEnabled.value_or(false) }, { "virtualShadowMaps", manifest.RendererSettings.VirtualShadowMapsEnabled.value_or(false) }, { "lightingTap", ToToken(manifest.RendererSettings.LightingDebugTap.value_or(LightingTap::None)) } } },
+            { "selectedSettings", { { "path", pathName(runInfo.Configuration.Path) }, { "msaaSamples", runInfo.Configuration.MSAASampleCount }, { "upscaleMode", static_cast<i32>(runInfo.Configuration.Upscale) }, { "upscaleTechnique", static_cast<i32>(runInfo.Configuration.Technique) }, { "rayTracedShadowsRequested", runInfo.Configuration.RayTracedShadowsRequested }, { "virtualShadowMaps", runInfo.Configuration.VirtualShadowMapsEnabled }, { "lightingTap", ToToken(runInfo.Configuration.LightingDebugTap) } } },
             { "production", "unknown without pass and counter evidence" },
             { "consumption", "unknown without downstream evidence" }
         };

@@ -27,6 +27,7 @@
 #include "MCP/McpSceneControl.h"
 #include "MCP/BenchmarkCaptureCleanup.h"
 
+#include "OloEngine/Core/Application.h"
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkCapture.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
@@ -248,6 +249,9 @@ namespace OloEngine::MCP
                 f32 PriorRenderScale = 1.0f;
                 FString GpuVendor;
                 FString GpuRenderer;
+                // Read on the main thread with the rest of the window state, while
+                // the capture's settings are applied (#1259).
+                bool VSync = false;
                 Ref<Scene> StartedStreamer;
             };
             auto applied = std::make_shared<AppliedState>();
@@ -357,6 +361,7 @@ namespace OloEngine::MCP
                     {
                         applied->PriorPose = host.Context().GetCameraPose();
                     }
+                    applied->VSync = Application::Get().GetWindow().IsVSync();
                     if (!isVulkan)
                     {
                         if (const auto* vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR)))
@@ -394,7 +399,6 @@ namespace OloEngine::MCP
             measurement->DeadlineMs = manifest->MeasurementDeadlineMs;
             measurement->ContinuousEditorFrames = true;
             const FString backendCopy = backend;
-            u32 totalWarmFrames = 0;
             u32 trajectoryFrame = 0;
             bool warmupTimedOut = false;
 
@@ -402,7 +406,6 @@ namespace OloEngine::MCP
             {
                 const f32 fovDegrees = cameraSpec.FovDegrees;
                 const u32 warmFrames = cameraSpec.WarmupFrames.value_or(manifest->WarmupFrames);
-                totalWarmFrames += warmFrames;
 
                 // Everything one capture step changes — camera pose, pinned
                 // clock, entity motion — plus the frame index the await counts
@@ -429,13 +432,14 @@ namespace OloEngine::MCP
                                                              glm::radians(pose->PitchDegrees), fovDegrees);
                             }
                             Time::SetMockTime(seconds);
-                            bool ok = true;
-                            if (!manifestCopy->EntityMotions.IsEmpty())
-                            {
-                                std::string error;
-                                Ref<Scene> active = host.Context().GetActiveScene();
-                                ok = active && Benchmark::ApplyEntityMotion(*active, *manifestCopy, motionFrame, error);
-                            }
+                            // Every step, not only for a manifest with EntityMotion:
+                            // ApplyEntityMotion also advances the scene's animal
+                            // paths, which an edit-mode tick never runs (#1259).
+                            std::string error;
+                            Ref<Scene> active = host.Context().GetActiveScene();
+                            // No scene to move is only a failure when the manifest names a target.
+                            const bool ok = active ? Benchmark::ApplyEntityMotion(*active, *manifestCopy, motionFrame, error)
+                                                   : manifestCopy->EntityMotions.IsEmpty();
                             const u64 frameIndex = host.Context().GetFrameIndex ? host.Context().GetFrameIndex() : 0;
                             return Json{ { "ok", ok }, { "frame", frameIndex } };
                         },
@@ -518,14 +522,66 @@ namespace OloEngine::MCP
 
                 const FString cameraId = cameraSpec.Id;
                 const Benchmark::CaptureContext captureContext{ cameraSpec.NearClip, cameraSpec.FarClip };
+
+                // A frame sequence (#1259): the same one-frame steps, continuing
+                // past the measured frames, with a readback after every step.
+                // The parser refuses a sequence beside a Measurement block, so no
+                // timed frame ever contains one of these readbacks.
+                auto sequenceFrames = std::make_shared<TArray<Benchmark::CameraSequenceFrame>>();
+                if (cameraSpec.HasSequence() && !warmupTimedOut)
+                {
+                    u32 frameInCamera = warmFrames + manifest->MeasurementFrames;
+                    const Benchmark::ManifestCameraSequence sequence = cameraSpec.Sequence;
+                    for (u32 step = 0; step < sequence.Count && !warmupTimedOut; ++step)
+                    {
+                        for (u32 f = 0; f < sequence.Every; ++f)
+                        {
+                            const std::optional<u32> poseFrame =
+                                cameraSpec.Motion ? std::optional<u32>(frameInCamera) : std::nullopt;
+                            const f32 seconds = clockStart + static_cast<f32>(trajectoryFrame) * clockDt;
+                            const std::optional<u64> baseFrame = applyStep(poseFrame, trajectoryFrame++);
+                            if (!baseFrame)
+                                return ToolResult::Error("EntityMotion target missing from the active scene");
+                            if (!AwaitBenchmarkFrames(host, *baseFrame, 1u))
+                            {
+                                warmupTimedOut = true;
+                                break;
+                            }
+                            ++frameInCamera;
+                            if (f + 1u == sequence.Every)
+                            {
+                                const u32 stepFrameInCamera = frameInCamera - 1u;
+                                host.MarshalRead(
+                                    [&host, sequenceFrames, manifestCopy, sequence, backendCopy, captureContext, step,
+                                     stepFrameInCamera, seconds]() -> Json
+                                    {
+                                        Benchmark::CameraSequenceFrame frame;
+                                        frame.Step = step;
+                                        frame.FrameInCamera = stepFrameInCamera;
+                                        frame.CaptureFrameIndex = host.Context().GetFrameIndex
+                                                                      ? static_cast<u32>(host.Context().GetFrameIndex())
+                                                                      : 0u;
+                                        frame.MockTimeSeconds = seconds;
+                                        frame.Attachments = Benchmark::CaptureSequenceAttachments(
+                                            *manifestCopy, sequence, backendCopy.ToView(), captureContext);
+                                        sequenceFrames->Add(std::move(frame));
+                                        return Json{ { "ok", true } };
+                                    },
+                                    kBenchmarkMarshalTimeout);
+                            }
+                        }
+                    }
+                }
+
                 host.MarshalRead(
-                    [&host, cameraSets, manifestCopy, cameraId, backendCopy, captureContext]() -> Json
+                    [&host, cameraSets, manifestCopy, cameraId, backendCopy, captureContext, sequenceFrames]() -> Json
                     {
                         const u32 captureFrame = host.Context().GetFrameIndex
                                                      ? static_cast<u32>(host.Context().GetFrameIndex())
                                                      : 0u;
                         auto set = Benchmark::CaptureCameraSet(*manifestCopy, cameraId.ToView(), captureFrame, backendCopy.ToView(),
                                                                captureContext);
+                        set.Sequence = std::move(*sequenceFrames);
                         // See the loop-header comment: linear-depth derives are
                         // not metric in this host.
                         for (auto& attachment : set.Attachments)
@@ -615,7 +671,11 @@ namespace OloEngine::MCP
             runInfo.CommitSha = Benchmark::QueryCommitShaViaGit();
             runInfo.MachineTag = Benchmark::ResolveMachineTag({});
             runInfo.Host = "editor-mcp";
-            runInfo.TotalFramesRendered = totalWarmFrames;
+            runInfo.Presentation = "window";
+            runInfo.VSync = applied->VSync;
+            // Every stepped frame (warm-up, measured, sequence), as the test-binary
+            // host counts them; the warm-up count alone dropped the measured frames.
+            runInfo.TotalFramesRendered = trajectoryFrame;
             // Carried into result.json so a reader of the capture sees it too — the
             // MCP summary alone is not part of the result directory, and capturedPose
             // is derived from the DECLARED frame count.

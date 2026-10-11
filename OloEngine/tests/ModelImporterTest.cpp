@@ -194,6 +194,46 @@ TEST(ModelImporterTest, ShaderGraphMaterialIsNotClobbered)
     EXPECT_EQ(static_cast<u64>(entity.GetComponent<MaterialComponent>().m_ShaderGraphHandle), 12345ull);
 }
 
+// A one-mesh model must not be given an entity-wide MaterialComponent when the
+// entity patches its imported materials (#1259): that component replaces the
+// material of every submesh and would switch every MaterialOverride off. The
+// rigged scan head is that case -- its skin rides in a patch on "HeadSkin".
+// An entity that ALREADY carries both keeps its MaterialComponent, refreshed as
+// before: the author chose it, and the Scene reports the shadowing.
+TEST(ModelImporterTest, AnEntityThatPatchesItsMaterialsGetsNoShadowingMaterialComponent)
+{
+    auto scene = Ref<Scene>::Create();
+    Material modelMaterial;
+    modelMaterial.SetBaseColorFactor(glm::vec4(0.9f, 0.8f, 0.7f, 1.0f));
+
+    Entity patched = scene->CreateEntity("Patched");
+    MaterialOverride skin;
+    skin.MaterialName = "HeadSkin";
+    skin.Kind = MaterialKind::Skin;
+    patched.AddComponent<MaterialOverridesComponent>().m_Overrides.Add(skin);
+    const ModelImportResult result = ModelImporter::PopulateAnimatedEntityFromParts(
+        patched, Ref<MeshSource>::Create(), Fx::MakeSingleBoneSkeleton(), MakeClips(1), &modelMaterial, "head.gltf");
+    EXPECT_FALSE(result.AddedMaterialComponent);
+    EXPECT_FALSE(patched.HasComponent<MaterialComponent>())
+        << "a MaterialComponent would shade every submesh and leave the HeadSkin patch inactive";
+
+    // Control: the same import onto an entity with no patches still gets one.
+    Entity plain = scene->CreateEntity("Plain");
+    EXPECT_TRUE(ModelImporter::PopulateAnimatedEntityFromParts(plain, Ref<MeshSource>::Create(),
+                                                               Fx::MakeSingleBoneSkeleton(), MakeClips(1),
+                                                               &modelMaterial, "head.gltf")
+                    .AddedMaterialComponent);
+
+    // Both present: refreshed, not removed.
+    Entity both = scene->CreateEntity("Both");
+    both.AddComponent<MaterialOverridesComponent>().m_Overrides.Add(skin);
+    both.AddComponent<MaterialComponent>();
+    (void)ModelImporter::PopulateAnimatedEntityFromParts(both, Ref<MeshSource>::Create(), Fx::MakeSingleBoneSkeleton(),
+                                                         MakeClips(1), &modelMaterial, "head.gltf");
+    ASSERT_TRUE(both.HasComponent<MaterialComponent>());
+    EXPECT_NEAR(both.GetComponent<MaterialComponent>().m_Material.GetBaseColorFactor().g, 0.8f, 1e-5f);
+}
+
 // Re-importing onto an already-wired entity updates the data but reports nothing
 // as newly added (so the editor doesn't push spurious AddComponent undo steps).
 TEST(ModelImporterTest, ReimportUpdatesDataWithoutReAddingComponents)

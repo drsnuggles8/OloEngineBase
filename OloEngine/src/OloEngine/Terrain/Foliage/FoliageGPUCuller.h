@@ -8,6 +8,8 @@
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
 
 #include <glm/glm.hpp>
+#include <array>
+#include <cstddef>
 #include <span>
 #include "OloEngine/Containers/Array.h"
 
@@ -150,6 +152,17 @@ namespace OloEngine
             // s_DistanceOrigin comment in FoliageCullCommon.glsl.
             glm::vec3 DistanceOrigin{ 0.0f };
             f32 MaxDistance = 0.0f;
+            // A virtual-shadow-map clip level (#1580): -1 = not one. When set,
+            // the group pass also rejects every group whose footprint in the
+            // level covers no page being redrawn this frame, read from the
+            // VSM's dirty-page pyramid -- the test VSM_CullCasters asks of a
+            // mesh caster. That is what lets a level keep its cached foliage
+            // pages (FoliageShadowInvalidation.h) without redrawing them.
+            i32 VsmClipLevel = -1;
+            glm::ivec2 VsmPageOffset{ 0 };
+            // Terrain-local -> the level's clip space (MATH flavour).
+            glm::mat4 VsmLocalToClip{ 1.0f };
+            RHI::ResourceHandle VsmHPB{};
         };
 
         // The layer's LOD transition + density parameters (issue #1237),
@@ -207,6 +220,24 @@ namespace OloEngine
         };
 
         // Per (layer, view slot).
+        //
+        // SIZED FROM WHAT THE VIEW CAN SURVIVE (#1581), not from the layer. A
+        // slot used to hold every plant of the layer, twice for a layer with an
+        // authored mesh, in each of the five slots: 320 MB of the traversal
+        // scene's 371 MB foliage floor, for a main view that keeps 31-49 k of
+        // the meadow grass's 358 k plants. Now the all-survivor list is sized
+        // from the groups the view's frustum and draw distance admit
+        // (EstimateSurvivors) and the mesh region from the groups within the
+        // mesh band's reach, each with StreamCapacityFor's headroom. A view
+        // that later sees more overflows the bounded-and-counted way it always
+        // could (FoliageCullOutput / FoliageCullDropped), records how much it
+        // wanted in the State header's demand pair, and the slot grows to that
+        // the first frame the demand has come back (FoliageCullDemandReadback).
+        // Every frame until then draws short and is counted: up to the
+        // readback ring's depth, and for a shadow slot every view sharing it.
+        // A grown shadow slot redraws every virtual-shadow-map level once, so
+        // the cache keeps none of those pages. Grow-only; a regeneration keeps
+        // the capacity it had.
         struct ViewResources
         {
             // The compacted survivors. A VertexBuffer rather than a
@@ -218,7 +249,9 @@ namespace OloEngine
             Ref<VertexBuffer> Compacted;
             Ref<StorageBuffer> State;    // binding 19 — params, counters, tail
             Ref<StorageBuffer> DrawArgs; // binding 17 — kMaxParts commands
-            u32 Capacity = 0;            // instances the compacted buffer holds
+            u32 Capacity = 0;            // instances the compacted buffer holds: ListCapacity + MeshCapacity
+            u32 ListCapacity = 0;        // the all-survivor list, from slot 0
+            u32 MeshCapacity = 0;        // the mesh region (#1533) right after it; 0 = none
             u32 GroupCapacity = 0;       // groups the state tail holds
             u32 PartCount = 0;           // parts the last cull wrote args for
 
@@ -257,10 +290,52 @@ namespace OloEngine
         // into the per-frame GPUReadbackStats block. True for the main view
         // only; every other view would sum into the same block.
 
-        // Size `view` for `capacity` instances and `groupCount` groups. Returns
-        // true when the COMPACTED BUFFER was (re)created, which is the caller's
-        // signal to rebuild the vertex arrays that stream it.
-        bool EnsureViewCapacity(ViewResources& view, u32 capacity, u32 groupCount) const;
+        // Smallest slot capacity, in instances (48 KB). A view that starts out
+        // seeing nothing (a camera facing the sky) still gets a stream that a
+        // small turn does not immediately overflow.
+        static constexpr u32 kMinStreamCapacity = 1024;
+
+        // The capacity a stream gets for `survivors` expected instances: half
+        // as much again (#1581). The estimate it is given is already an upper
+        // bound for the view it was taken from (whole groups, whose bounds
+        // contain every member's padded bound), so the headroom is for the
+        // NEXT views -- a turn or a step toward denser ground -- not for
+        // estimator error; overflow and growth catch what it does not cover.
+        // Never more than the layer's instance count, which no cull can
+        // exceed (every row appends at most once to each region), and never
+        // less than kMinStreamCapacity unless the layer itself is smaller.
+        [[nodiscard]] static constexpr u32 StreamCapacityFor(u32 survivors, u32 instanceCount)
+        {
+            if (instanceCount == 0)
+                return 0;
+            const u64 withHeadroom = static_cast<u64>(survivors) + static_cast<u64>(survivors) / 2u;
+            const u64 floored = withHeadroom > kMinStreamCapacity ? withHeadroom : kMinStreamCapacity;
+            return static_cast<u32>(floored < instanceCount ? floored : instanceCount);
+        }
+
+        // What a view can survive, counted from the layer's spatial groups on
+        // the CPU: the members of every group whose bounds pass the same
+        // frustum and draw-distance test FoliageGroupCull.comp applies, and,
+        // for the mesh region, of those whose bounds come within `meshReach`
+        // of the distance origin (0 = no mesh region). An upper bound on what
+        // the GPU keeps, because the per-instance test only ever removes
+        // members of a surviving group. Used to size a slot when it is first
+        // created, never per frame.
+        struct SurvivorEstimate
+        {
+            u32 List = 0;
+            u32 Mesh = 0;
+        };
+        [[nodiscard]] static SurvivorEstimate EstimateSurvivors(const FoliageInstanceRegistry& registry, u32 layerIndex,
+                                                                const ViewInputs& inputs, f32 meshReach);
+
+        // Size `view` for at least `listCapacity` all-survivor entries,
+        // `meshCapacity` mesh-region entries and `groupCount` groups. Grow-only
+        // per region. Returns true when the COMPACTED BUFFER was (re)created,
+        // which is the caller's signal to rebuild the vertex arrays that stream
+        // it. A recreated buffer also gets a fresh State, so its demand pair
+        // starts at zero against the new capacities.
+        bool EnsureViewCapacity(ViewResources& view, u32 listCapacity, u32 meshCapacity, u32 groupCount) const;
 
         // Dispatch the two kernels. `sourceInstances` is the layer's full
         // instance stream. Returns false without dispatching when anything is
@@ -332,6 +407,11 @@ namespace OloEngine
         [[nodiscard]] bool ReadStaged(RHI::ResourceHandle source, u32 offset, u32 size, void* dest) const;
 
         Ref<ComputeShader> m_GroupCullShader;
+        // The group pass for a virtual-shadow-map clip level (#1580). Optional:
+        // without it a clip level is culled like any view, and draws every
+        // group in its frustum, which is correct and slower.
+        Ref<ComputeShader> m_GroupCullVsmShader;
+        bool m_WarnedVsmGroupCullUnavailable = false;
         Ref<ComputeShader> m_InstanceCullShader;
         // Grow-only staging for ReadbackResult. Mutable because the read is a
         // const query of the cull's result; the staging buffer is scratch.
@@ -384,7 +464,7 @@ namespace OloEngine
         // over the frame's five culls.
         u32 EmitStats = 0;
         // The mesh region (#1533): where in the compacted stream it starts (0 =
-        // none; it is the layer's instance count when present, past every slot
+        // none; it is the view's list capacity when present, past every slot
         // the all-survivor list can use), the pivot distance it admits up to,
         // and its append cursor. See LodInputs::MeshReach.
         u32 MeshRegionBase = 0;
@@ -399,8 +479,110 @@ namespace OloEngine
         // identity, so a layer with the feature off culls exactly as it did.
         glm::vec4 LodTransition0{ 0.0f, 30.0f, 80.0f, 0.25f };
         glm::vec4 LodTransition1{ 0.15f, 2.0f, 0.0f, 0.0f };
+        // The mesh region's own size (#1581). It used to be the layer's
+        // instance count by construction; it is now sized from the plants
+        // within the mesh band's reach.
+        u32 MeshCapacity = 0;
+        // THE DEMAND PAIR (#1581): one more than the largest append index that
+        // found the all-survivor list (or the mesh region) full, kept as a
+        // running maximum over every cull into this State buffer since it was
+        // created. 0 = never overflowed. The kernel writes it only on overflow
+        // (atomicMax) and the CPU never seeds it: Cull() uploads the header
+        // only up to here (kFoliageCullSeededHeaderBytes), so a later cull into
+        // the same slot -- the shadow regions reuse slots within a frame --
+        // cannot erase an earlier view's overflow before it is read back.
+        u32 ListDemand = 0;
+        u32 MeshDemand = 0;
+        u32 Pad3 = 0;
+        // A virtual-shadow-map clip level being culled for (#1580): its
+        // math-flavour projection composed with the terrain transform, and
+        // x = level + 1 (0 = not a clip level), yz = its page offset. Read by
+        // FoliageGroupCullVsm.comp only -- see ViewInputs::VsmClipLevel. After
+        // the demand pair, so #1581's part of the layout is untouched; Cull()
+        // uploads this range separately (kFoliageCullVsmHeaderOffset).
+        glm::mat4 VsmLocalToClip{ 1.0f };
+        glm::ivec4 VsmLevel{ 0 };
     };
-    static_assert(sizeof(FoliageCullStateHeader) == 192, "FoliageCullStateHeader must match the std430 block");
+    static_assert(sizeof(FoliageCullStateHeader) == 288, "FoliageCullStateHeader must match the std430 block");
+    // The part of the header the CPU writes for every cull: everything before
+    // the demand pair.
+    inline constexpr u32 kFoliageCullSeededHeaderBytes = static_cast<u32>(offsetof(FoliageCullStateHeader, ListDemand));
+    static_assert(kFoliageCullSeededHeaderBytes == 196, "the demand pair must follow MeshCapacity");
+    // The clip-level lanes (#1580), written after the demand pair for a
+    // virtual-shadow-map clip level only.
+    inline constexpr u32 kFoliageCullVsmHeaderOffset = static_cast<u32>(offsetof(FoliageCullStateHeader, VsmLocalToClip));
+    static_assert(kFoliageCullVsmHeaderOffset == 208, "std430 puts the mat4 at 208, right after the demand pair");
+
+    // One view slot's demand pair, as FoliageCullDemandReadback hands it back.
+    struct FoliageCullDemand
+    {
+        u32 List = 0;
+        u32 Mesh = 0;
+    };
+    static_assert(sizeof(FoliageCullDemand) == 8, "a demand pair is copied as two packed uints");
+
+    // The non-stalling way a slot learns it overflowed (#1581).
+    //
+    // A fenced ring of tiny GPU -> CPU copies, the same shape as
+    // GPUReadbackStats: Capture() copies each slot's demand pair out of its
+    // State buffer into the next free DeviceToHost buffer and fences it; Poll()
+    // reads only slots whose fence has ALREADY signalled -- a poll, never a
+    // wait. GPUReadbackStats itself cannot carry it: its FoliageCullOutput flag
+    // says that SOME cull overflowed, not which slot, and growing every slot on
+    // it would undo what the sizing saves.
+    //
+    // Nothing is lost when the ring is full or a capture is skipped: the
+    // demand pair is a running maximum that stays in the State buffer until the
+    // slot grows, so the next capture still sees it.
+    class FoliageCullDemandReadback
+    {
+      public:
+        static constexpr u32 kRingSlots = 3;
+
+        FoliageCullDemandReadback() = default;
+        ~FoliageCullDemandReadback();
+        FoliageCullDemandReadback(const FoliageCullDemandReadback&) = delete;
+        FoliageCullDemandReadback& operator=(const FoliageCullDemandReadback&) = delete;
+        FoliageCullDemandReadback(FoliageCullDemandReadback&&) = delete;
+        FoliageCullDemandReadback& operator=(FoliageCullDemandReadback&&) = delete;
+
+        // Entry i comes from states[i]'s demand pair; an invalid handle leaves
+        // entry i out. False, copying nothing, when every ring slot is still in
+        // flight (or there is nothing to copy).
+        bool Capture(std::span<const RHI::ResourceHandle> states);
+
+        // Retire every ring slot whose fence has signalled. `out` is resized to
+        // the largest retired capture and holds, per entry, the maximum over
+        // the retired slots (zero where none of them had the entry). False
+        // when nothing retired.
+        bool Poll(TArray<FoliageCullDemand>& out);
+
+        [[nodiscard]] u32 GetSlotsInFlight() const;
+
+        // Captures still in flight describe a layout the owner no longer has
+        // (its layers were rebuilt): Poll retires them without returning their
+        // pairs, which would otherwise grow whatever slot now sits at their
+        // index. Nothing is lost: a slot that still overflows writes its
+        // demand again.
+        void DiscardInFlight();
+
+        // Drop the staging buffers and fences. Call from the owner's teardown
+        // as well as relying on the destructor -- see StagedBufferReadback::Release.
+        void Release();
+
+      private:
+        struct Slot
+        {
+            RHI::ResourceHandle Buffer = RHI::NullResource;
+            u64 Bytes = 0;
+            u64 Fence = 0;
+            TArray<u8> Valid;
+            bool Pending = false;
+            bool Discarded = false;
+        };
+        std::array<Slot, kRingSlots> m_Slots{};
+        u32 m_Next = 0;
+    };
 
     // One DrawElementsIndirectCommand as the kernels and both backends read it.
     struct FoliageCullDrawArgs
@@ -437,6 +619,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::State)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::DrawArgs)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::Capacity)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::ListCapacity)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::MeshCapacity)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::GroupCapacity)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageGPUCuller::ViewResources::PartCount)>::Value;
     };

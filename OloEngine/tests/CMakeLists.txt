@@ -336,6 +336,8 @@ add_executable(OloEngine-Tests
 		Asset/TextureSourcePathResolutionTest.cpp
 		Rendering/FoliageImpostorPlacementTest.cpp
 		Rendering/FoliageLodTransitionContractTest.cpp
+		Rendering/FoliageCullStreamSizingContractTest.cpp
+		Rendering/FoliageShadowInvalidationContractTest.cpp
 		Rendering/FoliageAuthoredMeshContractTest.cpp
 		Rendering/FoliageAlphaCoverageContractTest.cpp
 		Rendering/AlphaCoverageMipsContractTest.cpp
@@ -720,6 +722,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SkinOcularSurfaceEvidenceTest.cpp
 		Rendering/PropertyTests/SkinDigitalHumanEvidenceTest.cpp
 		Rendering/PropertyTests/SkinReferenceHeadEvidenceTest.cpp
+		Rendering/PropertyTests/SkinRiggedHeadEvidenceTest.cpp
 		Rendering/PropertyTests/ForwardPlusInactiveBindingTest.cpp
 		Rendering/PropertyTests/ProceduralSkyBakeTest.cpp
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp
@@ -744,6 +747,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/MeshAssetBoneInfluenceImportTest.cpp
 		Rendering/PropertyTests/StaticMeshCoincidentCornerImportTest.cpp
 		Rendering/PropertyTests/AnimatedModelCacheSurfaceTest.cpp
+		Rendering/PropertyTests/GroomAnimalsCookedBindingTest.cpp
 		Rendering/PropertyTests/VirtualGeometryRasterParityTest.cpp
 		Rendering/PropertyTests/VirtualRasterSubSampleEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualMeshAssetPackTest.cpp
@@ -784,6 +788,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GroomBindingVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomSimulationVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomAnimalsAcceptanceEvidenceTest.cpp
+		# The herd's coats (#1259): short and long fox coats grown on the Fox's
+		# bind-pose surface, bound and parented, ridden through the walk, judged
+		# for skin showing at the hero framings and across the LOD ladder.
+		Rendering/PropertyTests/FoxCoatEvidenceTest.cpp
 		# The furred dog showcase (#1533): the coat grown region by region on
 		# the generated body, bound, lit and judged from every hero angle.
 		Rendering/PropertyTests/DogShowcaseEvidenceTest.cpp
@@ -858,6 +866,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/FloraLooseCookedParityEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageCostBaselineTest.cpp
         Rendering/PropertyTests/FoliageGPUCullEvidenceTest.cpp
+        Rendering/PropertyTests/FoliageVsmCacheVisualEvidenceTest.cpp
         Rendering/PropertyTests/FoliageWindEvidenceTest.cpp
 		Rendering/PropertyTests/FoliageLeafMaterialTest.cpp
 		Rendering/PropertyTests/FoliageLeafTransmissionTest.cpp
@@ -909,7 +918,9 @@ add_executable(OloEngine-Tests
 		# rendering path, the compensation's A/B, and the two hysteresis bounds
 		# driven as CAMERA MOTION, which is the only shape in which "does not
 		# thrash" has a truth value.
+		Rendering/PropertyTests/AcceptanceSceneEvidenceTest.cpp
 		Rendering/PropertyTests/AnimalBudgetVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GroomViewCullTest.cpp
 		Rendering/PropertyTests/GroomLodVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomVegetationStreamingEvidenceTest.cpp
 		Rendering/PropertyTests/GroomFibrePropertyTests.cpp
@@ -1788,6 +1799,7 @@ add_executable(OloEngine-Tests
 		Functional/AI/BehaviorTreeSequenceShortCircuitsOnFailureTest.cpp
 		Functional/AI/PerceptionMatchesBruteForceViaSpatialIndexTest.cpp
 		Functional/AI/FlockingViaSceneTickTest.cpp
+		Functional/Rendering/AnimalPathFollowsTerrainTest.cpp
 		Functional/Rendering/AnimalPopulationViaSceneTickTest.cpp
 		Functional/Rendering/MaterialOverridesPatchImportedMaterialsTest.cpp
 		Functional/Scripting/LuaReadsTransformOfAnotherEntityTest.cpp
@@ -1855,6 +1867,14 @@ target_link_libraries(OloEngine-Tests
 	OloEditorCore
 	GTest::gtest
 	httplib::httplib)
+
+# A Release test binary with a program PDB (#1259), as olo_set_link_options gives
+# the apps: the GL capture host is the timing host for Release benchmarks, and a
+# crash or a profile in it was unreadable without symbols. Objects already carry
+# /Z7 debug info; this only asks the linker to write it out.
+if(MSVC)
+	target_link_options(OloEngine-Tests PRIVATE $<$<CONFIG:Release>:/DEBUG>)
+endif()
 
 # OpenVDB import (#724) CPU contract-test coverage — same reasoning as the
 # editor link in OloEditor/CMakeLists.txt: OloEngine-VolumeCook is linked

@@ -68,6 +68,7 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+#include "OloEngine/Renderer/Shadow/FoliageShadowInvalidation.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Scene/Components.h"
@@ -1001,6 +1002,24 @@ namespace OloEngine::Tests
             { "buildConfig", "Debug" },
 #endif
         };
+        // The VSM foliage invalidation policy (#1580), for a same-binary A/B:
+        // OLO_FOLIAGE_COST_VSM_POLICY=everyframe is the pre-#1580 behaviour.
+        // Restored when the test ends.
+        const auto previousVsmPolicy = FoliageShadowInvalidation::GetMode();
+        struct RestoreVsmPolicy
+        {
+            FoliageShadowInvalidation::Mode Mode;
+            ~RestoreVsmPolicy()
+            {
+                FoliageShadowInvalidation::SetMode(Mode);
+            }
+        } restoreVsmPolicy{ previousVsmPolicy };
+        const char* vsmPolicy = std::getenv("OLO_FOLIAGE_COST_VSM_POLICY");
+        const bool everyFrame = vsmPolicy != nullptr && std::string_view(vsmPolicy) == "everyframe";
+        FoliageShadowInvalidation::SetMode(everyFrame ? FoliageShadowInvalidation::Mode::EveryFrame
+                                                      : FoliageShadowInvalidation::Mode::Policy);
+        result["vsmFoliagePolicy"] = everyFrame ? "everyframe" : "policy";
+
         result["protocol"] = { { "width", kWidth },
                                { "height", kHeight },
                                { "mockTimeSeconds", kMockTime },
@@ -1177,6 +1196,11 @@ namespace OloEngine::Tests
         // tails: a cell a foreign GPU process overlapped is re-measured on its
         // own instead of in another full run.
         const std::array paths{ RenderingPath::Forward, RenderingPath::ForwardPlus, RenderingPath::Deferred };
+        // The floor again once every cell has run (#1581): the cull streams are
+        // sized from the views that used them and only grow, so the load-time
+        // rows above are the smallest the floor gets and these the largest
+        // this walk produced.
+        nlohmann::json memoryAfterCells = nlohmann::json::object();
         for (const auto& subject : subjects)
         {
             if (!EnvSelects("OLO_FOLIAGE_COST_SUBJECTS", subject.Id))
@@ -1201,7 +1225,9 @@ namespace OloEngine::Tests
                     }
                 }
             }
+            memoryAfterCells[subject.Id] = MemoryJson();
         }
+        result["memoryAfterCells"] = std::move(memoryAfterCells);
 
         const char* extras = std::getenv("OLO_FOLIAGE_COST_EXTRAS");
         if (extras != nullptr && extras[0] == '0')

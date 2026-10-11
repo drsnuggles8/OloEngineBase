@@ -72,6 +72,17 @@ namespace OloEngine
             return;
         }
 
+        // Optional (#1580): the clip-level variant only adds the dirty-page
+        // test. Without it a clip level culls like any view -- every group in
+        // its frustum -- which draws more and is still correct; said once.
+        m_GroupCullVsmShader = ComputeShader::Create("assets/shaders/compute/FoliageGroupCullVsm.comp");
+        if (!m_GroupCullVsmShader || !m_GroupCullVsmShader->IsValid())
+        {
+            OLO_CORE_ERROR("FoliageGPUCuller: FoliageGroupCullVsm.comp did not load -- virtual-shadow-map clip levels "
+                           "cull foliage without the dirty-page test and redraw every cached page they cover");
+            m_GroupCullVsmShader.Reset();
+        }
+
         m_Initialised = true;
     }
 
@@ -230,25 +241,67 @@ namespace OloEngine
         return true;
     }
 
-    bool FoliageGPUCuller::EnsureViewCapacity(ViewResources& view, u32 capacity, u32 groupCount) const
+    FoliageGPUCuller::SurvivorEstimate FoliageGPUCuller::EstimateSurvivors(const FoliageInstanceRegistry& registry,
+                                                                           u32 layerIndex, const ViewInputs& inputs,
+                                                                           f32 meshReach)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        // The same three tests FoliageGroupCull.comp applies to the same
+        // terrain-local boxes, so a group counted here is a group the GPU keeps
+        // (and the mesh test reads the box, which contains every member's
+        // pivot, where the kernel reads the pivot: never smaller).
+        SurvivorEstimate out;
+        for (const auto& group : registry.GetGroups())
+        {
+            if (group.m_LayerIndex != layerIndex)
+                continue;
+            const BoundingBox& box = group.m_LocalBounds;
+            if (!inputs.ViewFrustum.IsBoundingBoxVisible(box))
+                continue;
+            const glm::vec3 closest = glm::clamp(inputs.DistanceOrigin, box.Min, box.Max);
+            const f32 distance = glm::length(closest - inputs.DistanceOrigin);
+            if (distance > inputs.MaxDistance)
+                continue;
+            const auto members = static_cast<u32>(group.m_Instances.Num());
+            out.List += members;
+            if (meshReach > 0.0f && distance <= meshReach)
+                out.Mesh += members;
+        }
+        return out;
+    }
+
+    bool FoliageGPUCuller::EnsureViewCapacity(ViewResources& view, u32 listCapacity, u32 meshCapacity,
+                                              u32 groupCount) const
     {
         OLO_PROFILE_FUNCTION();
 
         bool compactedRecreated = false;
 
-        if (!view.Compacted || view.Capacity < capacity)
+        const u32 wantedList = std::max(std::max(view.ListCapacity, listCapacity), 1u);
+        const u32 wantedMesh = std::max(view.MeshCapacity, meshCapacity);
+        if (!view.Compacted || wantedList != view.ListCapacity || wantedMesh != view.MeshCapacity)
         {
-            // Grown with slack for the same reason FoliageRenderer's instance
-            // VBO is: a sculpt that adds a handful of plants must not reallocate
-            // and rebuild every vertex array that streams this buffer. A quarter,
-            // not double: a mesh layer asks for twice its instance count already
-            // (the mesh region, #1533), and doubling that held four.
-            const u32 newCapacity = std::max(capacity + (capacity / 4u), 256u);
-            const u32 bytes = newCapacity * static_cast<u32>(sizeof(FoliageInstanceData));
+            // No slack added here: the caller's capacities already carry
+            // StreamCapacityFor's headroom, and a view that outgrows them
+            // overflows (bounded, counted) and comes back through here with
+            // what it asked for (#1581).
+            const u64 total = static_cast<u64>(wantedList) + wantedMesh;
+            const u64 bytes64 = total * sizeof(FoliageInstanceData);
+            if (bytes64 > std::numeric_limits<u32>::max())
+            {
+                OLO_CORE_ERROR("FoliageGPUCuller: a {} + {} instance compacted stream does not fit a 32-bit buffer size",
+                               wantedList, wantedMesh);
+                return false;
+            }
+            const auto bytes = static_cast<u32>(bytes64);
             view.Compacted = VertexBuffer::Create(bytes);
             if (!view.Compacted)
             {
                 OLO_CORE_ERROR("FoliageGPUCuller: could not allocate a {} byte compacted instance buffer", bytes);
+                view.Capacity = 0;
+                view.ListCapacity = 0;
+                view.MeshCapacity = 0;
                 return false;
             }
             // The SAME layout FoliageRenderer gives its source instance VBO —
@@ -259,15 +312,22 @@ namespace OloEngine
                 { ShaderDataType::Float4, "a_RotationHeight" },
                 { ShaderDataType::Float4, "a_ColorAlpha" },
             });
-            view.Capacity = newCapacity;
+            view.Capacity = static_cast<u32>(total);
+            view.ListCapacity = wantedList;
+            view.MeshCapacity = wantedMesh;
             compactedRecreated = true;
         }
 
         const u32 stateBytes =
             static_cast<u32>(sizeof(FoliageCullStateHeader)) + (groupCount + view.Capacity) * 4u;
-        if (!view.State || view.State->GetSize() != stateBytes)
+        if (!view.State || view.State->GetSize() != stateBytes || compactedRecreated)
         {
             view.State = StorageBuffer::Create(stateBytes, kStateBinding, StorageBufferUsage::DynamicCopy);
+            // Zeroed once, here, because nothing else ever seeds the demand
+            // pair: Cull() uploads the header only up to it. A recreated buffer
+            // is a new capacity, so its demand starts over against it.
+            if (view.State)
+                view.State->ClearData();
         }
         // Set unconditionally, not inside the branch above: two different
         // (groupCount, capacity) pairs can land on the same byte size, and a
@@ -295,7 +355,10 @@ namespace OloEngine
         {
             return false;
         }
-        if (parts.size() > kMaxParts || view.Capacity < layer.InstanceCount ||
+        // The stream no longer has to hold the whole layer (#1581): a list
+        // smaller than this view's survivors overflows the bounded, counted
+        // way and the caller grows it from the demand pair.
+        if (parts.size() > kMaxParts || view.ListCapacity == 0 || view.Capacity < view.ListCapacity + view.MeshCapacity ||
             view.GroupCapacity < layer.GroupCount)
         {
             return false;
@@ -305,17 +368,17 @@ namespace OloEngine
 
         // THE MESH REGION (#1533): a layer's mesh parts draw only the survivors
         // the mesh band can reach, from a second region of the compacted stream
-        // that starts at the layer's instance count (past every slot the
-        // all-survivor list can use), through the command's BaseInstance. It
-        // needs that BaseInstance honoured, room for the region, and no debug
-        // capacity (that knob exercises the all-survivor list's overflow).
-        // Without it every part draws every survivor, as before.
+        // that starts right after the all-survivor list (ListCapacity), through
+        // the command's BaseInstance. It needs that BaseInstance honoured, room
+        // for the region, and no debug capacity (that knob exercises the
+        // all-survivor list's overflow). Without it every part draws every
+        // survivor, as before.
         bool anyMeshPart = false;
         for (const Part& part : parts)
             anyMeshPart = anyMeshPart || part.MeshRegion;
         const bool meshRegion = anyMeshPart && lod.MeshReach > 0.0f && m_DebugOutputCapacity == 0 &&
-                                view.Capacity / 2u >= layer.InstanceCount && RenderCommand::SupportsIndirectFirstInstance();
-        const u32 meshRegionBase = meshRegion ? layer.InstanceCount : 0u;
+                                view.MeshCapacity > 0 && RenderCommand::SupportsIndirectFirstInstance();
+        const u32 meshRegionBase = meshRegion ? view.ListCapacity : 0u;
 
         // A layer wholly outside this view rejects here, before either kernel is
         // dispatched. Two dispatches are ~22 us of launch cost on this box and
@@ -364,9 +427,10 @@ namespace OloEngine
         // ── 2. Seed the state header. Only the header: the tail's group bits
         // are fully rewritten by the group kernel every dispatch, and the
         // survivor -> source row map is only read for slots the kernel wrote. ──
+        // The ALL-SURVIVOR LIST's bound: the mesh region past it has its own.
         const u32 capacity = (m_DebugOutputCapacity != 0)
-                                 ? std::min(m_DebugOutputCapacity, view.Capacity)
-                                 : view.Capacity;
+                                 ? std::min(m_DebugOutputCapacity, view.ListCapacity)
+                                 : view.ListCapacity;
 
         FoliageCullStateHeader state{};
         state.Planes[0] = PlaneToVec4(inputs.ViewFrustum.GetPlane(Frustum::Planes::Left));
@@ -390,7 +454,29 @@ namespace OloEngine
         state.MeshRegionBase = meshRegionBase;
         state.MeshReach = meshRegion ? lod.MeshReach : 0.0f;
         state.MeshCursor = 0;
-        view.State->SetData(&state, static_cast<u32>(sizeof(state)), 0);
+        state.MeshCapacity = meshRegion ? view.MeshCapacity : 0u;
+        // A clip level is culled against the VSM's dirty pages as well (#1580)
+        // when the variant and the pyramid are both there.
+        const bool vsmLevel = inputs.VsmClipLevel >= 0 && inputs.VsmHPB.IsValid() && m_GroupCullVsmShader;
+        if (inputs.VsmClipLevel >= 0 && !vsmLevel && !m_WarnedVsmGroupCullUnavailable)
+        {
+            OLO_CORE_WARN("FoliageGPUCuller: clip level {} is culled without the dirty-page test (pyramid {}, variant "
+                          "{}) -- its cached foliage pages are redrawn. Further levels not logged.",
+                          inputs.VsmClipLevel, inputs.VsmHPB.IsValid(), m_GroupCullVsmShader != nullptr);
+            m_WarnedVsmGroupCullUnavailable = true;
+        }
+        if (vsmLevel)
+        {
+            state.VsmLocalToClip = inputs.VsmLocalToClip;
+            state.VsmLevel = glm::ivec4(inputs.VsmClipLevel + 1, inputs.VsmPageOffset.x, inputs.VsmPageOffset.y, 0);
+        }
+        // Up to the demand pair, never over it -- see kFoliageCullSeededHeaderBytes.
+        view.State->SetData(&state, kFoliageCullSeededHeaderBytes, 0);
+        if (vsmLevel)
+        {
+            view.State->SetData(reinterpret_cast<const u8*>(&state) + kFoliageCullVsmHeaderOffset,
+                                static_cast<u32>(sizeof(state)) - kFoliageCullVsmHeaderOffset, kFoliageCullVsmHeaderOffset);
+        }
 
         // ── 3. Bind and dispatch ──
         layer.LayerBuffer->Bind(); // 18
@@ -399,7 +485,15 @@ namespace OloEngine
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_CULL_INPUT, sourceInstances);
         RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_INSTANCE_DATA, view.Compacted->GetRHIHandle());
 
-        m_GroupCullShader->Bind();
+        if (vsmLevel)
+        {
+            RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VSM_HPB, inputs.VsmHPB);
+            m_GroupCullVsmShader->Bind();
+        }
+        else
+        {
+            m_GroupCullShader->Bind();
+        }
         RenderCommand::DispatchCompute(DispatchGroups(layer.GroupCount, kGroupWorkgroupSize), 1, 1);
 
         // The instance kernel READS the group bits this dispatch wrote. Without
@@ -512,5 +606,136 @@ namespace OloEngine
         out.Compacted.SetNum(out.Submitted, EAllowShrinking::No);
         return ReadStaged(view.Compacted->GetRHIHandle(), 0,
                           out.Submitted * static_cast<u32>(sizeof(FoliageInstanceData)), out.Compacted.GetData());
+    }
+
+    // ── FoliageCullDemandReadback (#1581) ────────────────────────────────────
+
+    FoliageCullDemandReadback::~FoliageCullDemandReadback()
+    {
+        Release();
+    }
+
+    void FoliageCullDemandReadback::Release()
+    {
+        for (auto& slot : m_Slots)
+        {
+            if (slot.Fence != 0)
+                RenderCommand::DestroyFence(slot.Fence);
+            if (slot.Buffer.IsValid())
+                RenderCommand::DeleteBuffer(slot.Buffer);
+            slot = {};
+        }
+        m_Next = 0;
+    }
+
+    void FoliageCullDemandReadback::DiscardInFlight()
+    {
+        for (auto& slot : m_Slots)
+        {
+            if (slot.Pending)
+                slot.Discarded = true;
+        }
+    }
+
+    u32 FoliageCullDemandReadback::GetSlotsInFlight() const
+    {
+        return static_cast<u32>(std::ranges::count_if(m_Slots, [](const Slot& slot)
+                                                      { return slot.Pending; }));
+    }
+
+    bool FoliageCullDemandReadback::Capture(std::span<const RHI::ResourceHandle> states)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (states.empty() || std::ranges::none_of(states, [](const RHI::ResourceHandle& state)
+                                                   { return state.IsValid(); }))
+            return false;
+
+        Slot& slot = m_Slots[m_Next];
+        // Every slot still in flight: skip rather than wait. The demand pairs
+        // are running maxima that stay in the State buffers, so the next
+        // capture still carries whatever this one would have.
+        if (slot.Pending)
+            return false;
+
+        const u64 bytes = static_cast<u64>(states.size()) * sizeof(FoliageCullDemand);
+        if (!slot.Buffer.IsValid() || slot.Bytes < bytes)
+        {
+            if (slot.Buffer.IsValid())
+                RenderCommand::DeleteBuffer(slot.Buffer);
+            slot.Buffer = RenderCommand::CreateBufferHandle();
+            if (!slot.Buffer.IsValid())
+            {
+                slot.Bytes = 0;
+                return false;
+            }
+            RenderCommand::AllocateBufferStorage(slot.Buffer, bytes, RHI::MemoryResidency::DeviceToHost);
+            slot.Bytes = bytes;
+        }
+
+        // The pairs were written by the cull kernels' atomics (ShaderStorage),
+        // and a buffer copy is a BufferUpdate client: both, or the copy reads a
+        // value that is right most of the time.
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
+        slot.Valid.SetNumZeroed(static_cast<i32>(states.size()));
+        for (sizet i = 0; i < states.size(); ++i)
+        {
+            if (!states[i].IsValid())
+                continue;
+            RenderCommand::CopyBufferSubData(states[i], slot.Buffer, kFoliageCullSeededHeaderBytes,
+                                             i * sizeof(FoliageCullDemand), sizeof(FoliageCullDemand));
+            slot.Valid[static_cast<i32>(i)] = 1u;
+        }
+
+        slot.Fence = RenderCommand::CreateFence();
+        if (slot.Fence == 0)
+        {
+            OLO_CORE_WARN("FoliageCullDemandReadback: fence creation failed; this capture is dropped (the demand "
+                          "stays in the State buffers for the next one).");
+            return false;
+        }
+        slot.Pending = true;
+        slot.Discarded = false;
+        m_Next = (m_Next + 1u) % kRingSlots;
+        return true;
+    }
+
+    bool FoliageCullDemandReadback::Poll(TArray<FoliageCullDemand>& out)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        out.Reset();
+        bool retired = false;
+        TArray<FoliageCullDemand> pairs;
+        for (auto& slot : m_Slots)
+        {
+            if (!slot.Pending || !RenderCommand::IsFenceSignaled(slot.Fence))
+                continue;
+
+            RenderCommand::DestroyFence(slot.Fence);
+            slot.Fence = 0;
+            slot.Pending = false;
+            if (slot.Discarded)
+            {
+                slot.Discarded = false;
+                continue;
+            }
+            const auto entries = static_cast<i32>(slot.Valid.Num());
+            pairs.SetNumZeroed(entries);
+            RenderCommand::ReadBufferSubData(slot.Buffer, 0, static_cast<u64>(entries) * sizeof(FoliageCullDemand),
+                                             pairs.GetData());
+
+            if (out.Num() < entries)
+                out.SetNumZeroed(entries);
+            for (i32 i = 0; i < entries; ++i)
+            {
+                if (slot.Valid[i] == 0u)
+                    continue;
+                out[i].List = std::max(out[i].List, pairs[i].List);
+                out[i].Mesh = std::max(out[i].Mesh, pairs[i].Mesh);
+            }
+            retired = true;
+        }
+        return retired;
     }
 } // namespace OloEngine

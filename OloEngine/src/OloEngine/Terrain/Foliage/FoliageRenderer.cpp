@@ -28,6 +28,8 @@
 #include "OloEngine/Renderer/RayTracing/VegetationSurfaceCache.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 #include "OloEngine/Renderer/CameraRelative.h"
+#include "OloEngine/Renderer/Shadow/FoliageShadowInvalidation.h"
+#include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
@@ -55,6 +57,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 
 namespace OloEngine
 {
@@ -408,6 +411,38 @@ namespace OloEngine
             }
             return cost;
         };
+        // A casting layer's far card plants, grouped by area after the loop
+        // (VegetationPolicy::GroupsCardByArea, #1578): sorted by area key,
+        // then by canonical id, so a group's first plant -- the cache key --
+        // does not move while the camera does.
+        struct AreaPlant
+        {
+            u64 AreaKey = 0u;
+            u64 Id = 0u;
+            const FoliageInstanceRecord* Record = nullptr;
+            f32 Distance = 0.0f;
+        };
+        TArray<AreaPlant> areaPlants;
+        // Each layer's area cell, in registry cells, from its view distance in
+        // terrain-local units (the registry slices local positions).
+        TArray<u32> areaRatios;
+        areaRatios.Reserve(m_Layers.Num());
+        for (const auto& layer : m_Layers)
+        {
+            const f32 localViewDistance = transformNorm > 0.0f && std::isfinite(transformNorm) ? layer.ViewDistance / transformNorm
+                                                                                               : layer.ViewDistance;
+            areaRatios.Add(RayTracing::VegetationPolicy::CastingAreaCellRatio(localViewDistance, FoliageInstanceRegistry::kGroupSize));
+        }
+        const auto areaKey = [](u32 layerIndex, glm::ivec2 registryCell, u32 ratio) -> u64
+        {
+            // 16 bits of layer, 24 of each signed area coordinate (a 16 m
+            // registry cell reaches 2^23 * 16 m before this wraps).
+            const auto lane = [](i32 coordinate) -> u64
+            { return static_cast<u64>(static_cast<u32>(coordinate) & 0xffffffu); };
+            return (static_cast<u64>(layerIndex & 0xffffu) << 48u) |
+                   (lane(RayTracing::VegetationPolicy::CastingAreaCoordinate(registryCell.x, ratio)) << 24u) |
+                   lane(RayTracing::VegetationPolicy::CastingAreaCoordinate(registryCell.y, ratio));
+        };
         u32 cell = 0u;
         for (const auto& group : m_Registry.GetGroups())
         {
@@ -444,6 +479,12 @@ namespace OloEngine
                                   ((layer.UseImpostor && layer.Impostor.IsValid()) || distance <= layer.MeshViewDistance);
                 const bool impostor = mesh && layer.UseImpostor && layer.Impostor.IsValid() &&
                                       distance > layer.MeshViewDistance;
+                if (!mesh && RayTracing::VegetationPolicy::GroupsCardByArea(layer.CastShadows, distance))
+                {
+                    areaPlants.Add({ areaKey(group.m_LayerIndex, group.m_Cell, areaRatios[static_cast<i32>(group.m_LayerIndex)]),
+                                     record->m_Id, record, distance });
+                    continue;
+                }
                 (impostor ? impostorRecords : (mesh ? meshRecords : cardRecords)).Add(record);
                 (impostor ? impostorDistances : (mesh ? meshDistances : cardDistances)).Add(distance);
             }
@@ -510,6 +551,44 @@ namespace OloEngine
                     castingCandidates.Add(std::move(candidate));
                 }
             }
+        }
+        // THE FAR CASTING CARDS, one group per area cell (#1578). Cards have
+        // no lower tier, so each is requested at its card cost, refreshed on
+        // the card's proxy deadline like the per-cell card groups it replaces.
+        if (!areaPlants.IsEmpty())
+        {
+            std::ranges::sort(areaPlants, [](const AreaPlant& a, const AreaPlant& b)
+                              { return std::make_pair(a.AreaKey, a.Id) < std::make_pair(b.AreaKey, b.Id); });
+            TArray<u64> keys;
+            keys.Reserve(areaPlants.Num());
+            for (const AreaPlant& plant : areaPlants)
+                keys.Add(plant.AreaKey);
+            RayTracing::VegetationPolicy::SliceCastingAreas(
+                std::span<const u64>{ keys.GetData(), static_cast<sizet>(keys.Num()) }, [&](sizet first, sizet count)
+                {
+                    const u32 layerIndex = static_cast<u32>(areaPlants[static_cast<i32>(first)].AreaKey >> 48u);
+                    const auto& layer = m_Layers[static_cast<i32>(layerIndex)];
+                    const LayerRates& rates = layerRates[static_cast<i32>(layerIndex)];
+                    CastingCandidate candidate;
+                    candidate.LayerIndex = layerIndex;
+                    candidate.Representation = 2u;
+                    candidate.Cost.Requested = groupCost(layer, false, count);
+                    candidate.Cost.HasFallback = false;
+                    candidate.FirstId = areaPlants[static_cast<i32>(first)].Id;
+                    candidate.FirstRecord = static_cast<u32>(castingRecords.Num());
+                    candidate.RecordCount = static_cast<u32>(count);
+                    f32 nearest = std::numeric_limits<f32>::max();
+                    for (sizet i = first; i < first + count; ++i)
+                    {
+                        const AreaPlant& plant = areaPlants[static_cast<i32>(i)];
+                        nearest = std::min(nearest, plant.Distance);
+                        castingRecords.Add(plant.Record);
+                    }
+                    candidate.Distance = nearest;
+                    candidate.Cost.RequestedRate = RayTracing::VegetationPolicy::RefreshRate(
+                        forceDetailed || nearest <= castingDetailedDistance(layer, false), rates.MeshVelocity, rates.MeshStep);
+                    candidate.Cost.FallbackRate = candidate.Cost.RequestedRate;
+                    castingCandidates.Add(std::move(candidate)); });
         }
 
         // THE CASTING GROUPS, nearest first (VegetationPolicy::ChooseCastingTiers):
@@ -1795,6 +1874,9 @@ namespace OloEngine
         for (sizet i = layers.Num(); i < m_Layers.Num(); ++i)
             ImpostorBaker::Free(m_Layers[i].Impostor);
         m_Layers.SetNum(layers.Num(), EAllowShrinking::No);
+        // A demand capture in flight indexes the layers as they were; applied to
+        // the rebuilt list it would grow whichever slot now sits at its index.
+        m_CullDemand.DiscardInFlight();
 
         // Canonical identity (issue #1230). Everything live becomes a candidate
         // for survival; a placement this pass does not re-emit — because its
@@ -2167,6 +2249,7 @@ namespace OloEngine
             {
                 glm::vec3 bMin(std::numeric_limits<f32>::max());
                 glm::vec3 bMax(std::numeric_limits<f32>::lowest());
+                f32 reach = 0.0f;
                 for (const auto& inst : instances)
                 {
                     const glm::vec3 pos(inst.PositionScale.x, inst.PositionScale.y, inst.PositionScale.z);
@@ -2177,12 +2260,16 @@ namespace OloEngine
                         pos, inst.PositionScale.w, inst.RotationHeight.y, renderData.BoundsProfile);
                     bMin = glm::min(bMin, instanceBox.Min);
                     bMax = glm::max(bMax, instanceBox.Max);
+                    const glm::vec3 fromRoot = glm::max(instanceBox.Max - pos, pos - instanceBox.Min);
+                    reach = std::max({ reach, fromRoot.x, fromRoot.y, fromRoot.z });
                 }
                 renderData.Bounds = BoundingBox(bMin, bMax);
+                renderData.PlantReach = reach;
             }
             else
             {
                 renderData.Bounds = BoundingBox(glm::vec3(0.0f), glm::vec3(0.0f));
+                renderData.PlantReach = 0.0f;
             }
 
             UploadInstances(renderData, instances);
@@ -2402,6 +2489,173 @@ namespace OloEngine
             bounds = bounds.Min.x >= std::numeric_limits<f32>::max() ? world : bounds.Union(world);
         }
         return bounds;
+    }
+
+    u64 FoliageRenderer::GetShadowRevision() const
+    {
+        // FNV-1a over everything that changes what the shadow draw or its cull
+        // produces without the plants moving (#1580). A parameter missed here
+        // leaves a stale shadow in the cached coarse levels until the rotation
+        // reaches them, so this errs toward including.
+        u64 h = 1469598103934665603ull;
+        const auto mix = [&h](const void* bytes, sizet size)
+        {
+            const auto* p = static_cast<const u8*>(bytes);
+            for (sizet i = 0; i < size; ++i)
+                h = (h ^ p[i]) * 1099511628211ull;
+        };
+        const u64 generation = m_Registry.GetGeneration();
+        mix(&generation, sizeof(generation));
+        mix(&m_TerrainTransform, sizeof(m_TerrainTransform));
+        mix(&m_LegacyWindEnvelope, sizeof(m_LegacyWindEnvelope));
+        for (const auto& layer : m_Layers)
+        {
+            const FoliageLod::Params lod = ActiveLod(layer);
+            const glm::vec4 lod0 = FoliageLodTransition0(lod);
+            const glm::vec4 lod1 = FoliageLodTransition1(lod);
+            const std::array<u8, 4> flags{ static_cast<u8>(layer.CastShadows), static_cast<u8>(layer.UseImpostor),
+                                           static_cast<u8>(layer.MeshVBO != nullptr),
+                                           static_cast<u8>(layer.CardUsesMeshBake) };
+            mix(flags.data(), flags.size());
+            mix(&layer.InstanceCount, sizeof(layer.InstanceCount));
+            mix(&layer.ViewDistance, sizeof(layer.ViewDistance));
+            mix(&layer.FadeStartDistance, sizeof(layer.FadeStartDistance));
+            mix(&layer.MeshViewDistance, sizeof(layer.MeshViewDistance));
+            mix(&layer.MeshFadeStartDistance, sizeof(layer.MeshFadeStartDistance));
+            mix(&layer.ImpostorStartDistance, sizeof(layer.ImpostorStartDistance));
+            mix(&layer.ImpostorTransitionBand, sizeof(layer.ImpostorTransitionBand));
+            mix(&layer.AlphaCutoff, sizeof(layer.AlphaCutoff));
+            mix(&layer.WindStrength, sizeof(layer.WindStrength));
+            mix(&layer.WindSpeed, sizeof(layer.WindSpeed));
+            mix(&layer.WindWeights, sizeof(layer.WindWeights));
+            mix(&layer.InteractionResponse, sizeof(layer.InteractionResponse));
+            mix(&lod0, sizeof(lod0));
+            mix(&lod1, sizeof(lod1));
+            const void* albedo = layer.AlbedoTexture.Raw();
+            mix(&albedo, sizeof(albedo));
+        }
+        return h;
+    }
+
+    void FoliageRenderer::CollectVsmInvalidations(const VsmInvalidationInputs& inputs, TArray<VsmInvalidation>& out) const
+    {
+        OLO_PROFILE_FUNCTION();
+        namespace FSI = FoliageShadowInvalidation;
+        out.Reset();
+        const auto levelCount = static_cast<u32>(inputs.TexelWorldSizes.size());
+        if (levelCount == 0u)
+            return;
+        const u32 allLevels = levelCount >= 32u ? ~0u : (1u << levelCount) - 1u;
+
+        // Per layer: the levels its WIND can be resolved in, invalidated every
+        // frame across its whole footprint. The union of what is left over is
+        // the set the rotation walks.
+        struct LayerPlan
+        {
+            BoundingBox World;
+            u32 Wind = 0u;
+            u32 EyeLevels = 0u;
+        };
+        TArray<LayerPlan> plans;
+        u32 coarseUnion = 0u;
+        f32 interactionBound = 0.0f;
+        f32 plantReach = 0.0f;
+        BoundingBox footprint = NoBounds;
+        // Terrain-local lengths into world ones. Every authored terrain is
+        // rigid; this keeps a scaled one conservative.
+        const f32 terrainScale = std::max({ glm::length(glm::vec3(m_TerrainTransform[0])),
+                                            glm::length(glm::vec3(m_TerrainTransform[1])),
+                                            glm::length(glm::vec3(m_TerrainTransform[2])) });
+        for (const auto& layer : m_Layers)
+        {
+            if (layer.InstanceCount == 0 || !layer.CastShadows)
+                continue;
+            LayerPlan plan;
+            plan.World = layer.Bounds.Transform(m_TerrainTransform);
+            const f32 wind = layer.BoundsProfile.m_WindDisplacement * terrainScale;
+            plan.Wind = FSI::LevelsFinerThan(inputs.TexelWorldSizes, wind);
+            // A moved eye changes density fades, mesh/card hand-overs and card
+            // facing within the layer's view distance, none of which the
+            // displacement bound describes. Refresh the levels a receiver out
+            // to twice that distance selects (shadows cast long at a low sun),
+            // plus the next coarser one the marker also backs as a fallback.
+            if (inputs.EyeMoved)
+            {
+                const i32 level = VirtualShadowMap::SelectClipLevel(2.0f * layer.ViewDistance * terrainScale,
+                                                                    inputs.Clip0HalfExtent, inputs.ClipSelectionBias);
+                plan.EyeLevels = FSI::LevelsUpTo(level + 1, levelCount);
+            }
+            coarseUnion |= allLevels & ~plan.Wind;
+            interactionBound =
+                std::max(interactionBound, wind + layer.BoundsProfile.m_InteractionDisplacement * terrainScale);
+            plantReach = std::max(plantReach, layer.PlantReach * terrainScale);
+            footprint = footprint.Min.x >= std::numeric_limits<f32>::max() ? plan.World : footprint.Union(plan.World);
+            plans.Add(plan);
+        }
+        if (plans.IsEmpty())
+        {
+            m_PreviousInfluenceBoxes.Reset();
+            return;
+        }
+
+        const u32 refresh = FSI::CoarseRefreshLevel(coarseUnion, inputs.Frame);
+        // A shadow cull slot grew: the frames before it drew short, so every
+        // level is redrawn once rather than keeping those pages.
+        const u32 afterGrow = std::exchange(m_VsmRefreshAfterShadowGrow, false) ? allLevels : 0u;
+        for (const LayerPlan& plan : plans)
+        {
+            const u32 mask = (plan.Wind | plan.EyeLevels | (refresh & ~plan.Wind) | afterGrow) & allLevels;
+            if (mask != 0u)
+                out.Add({ plan.World, mask });
+        }
+
+        // Around each live interaction influence: the levels wind PLUS the
+        // interaction bound can be resolved in -- the only place the
+        // interaction moves anything, since its contribution is exactly zero
+        // outside the cylinder. Last frame's boxes once more, so an influence
+        // that moved on or retired leaves no bend baked into a page.
+        TArray<BoundingBox> influenceBoxes;
+        const u32 interactionLevels = FSI::LevelsFinerThan(inputs.TexelWorldSizes, interactionBound);
+        if (interactionLevels != 0u && FoliageInteractionField::GetActiveCount() > 0u)
+        {
+            const auto field = FoliageInteractionField::GetGPUData();
+            const u32 count = std::min(static_cast<u32>(field.Params.x + 0.5f), kFoliageInteractionSlots);
+            for (u32 i = 0; i < count; ++i)
+            {
+                const auto& slot = field.Slots[i];
+                if (!(slot.Center.w > 0.0f))
+                    continue;
+                const BoundingBox box = FSI::InfluenceBounds(glm::vec3(slot.Center), glm::vec3(slot.PrevCenter),
+                                                             slot.Center.w, slot.PrevCenter.w,
+                                                             plantReach + interactionBound);
+                const bool overlaps = box.Max.x >= footprint.Min.x && box.Min.x <= footprint.Max.x &&
+                                      box.Max.y >= footprint.Min.y && box.Min.y <= footprint.Max.y &&
+                                      box.Max.z >= footprint.Min.z && box.Min.z <= footprint.Max.z;
+                if (overlaps)
+                    influenceBoxes.Add(box);
+            }
+        }
+        for (const BoundingBox& box : influenceBoxes)
+            out.Add({ box, interactionLevels });
+        for (const BoundingBox& box : m_PreviousInfluenceBoxes)
+            out.Add({ box, interactionLevels != 0u ? interactionLevels : allLevels });
+        m_PreviousInfluenceBoxes = std::move(influenceBoxes);
+    }
+
+    FoliageGPUCuller::ViewInputs FoliageRenderer::MakeVsmClipCullInputs(const glm::mat4& worldViewProjection,
+                                                                        const glm::vec3& mainViewWorldPosition,
+                                                                        u32 clipLevel, const glm::ivec2& pageOffset,
+                                                                        RHI::ResourceHandle dirtyPagePyramid) const
+    {
+        FoliageGPUCuller::ViewInputs inputs = MakeCullInputs(worldViewProjection, mainViewWorldPosition);
+        inputs.VsmClipLevel = static_cast<i32>(clipLevel);
+        inputs.VsmPageOffset = pageOffset;
+        // The matrix MakeCullInputs built the frustum from: terrain-local ->
+        // the level's clip space, in the same render-relative frame.
+        inputs.VsmLocalToClip =
+            MakeObjectLocalViewProjection(worldViewProjection, m_TerrainTransform, Renderer3D::GetRenderOrigin());
+        inputs.VsmHPB = dirtyPagePyramid;
+        return inputs;
     }
 
     void FoliageRenderer::RenderShadows(const Ref<Shader>& depthShader, f32 time, u32 shadowViewIndex,
@@ -3085,6 +3339,11 @@ namespace OloEngine
                           "logged.");
             m_WarnedCullBracketSkipped = true;
         }
+        // The previous frame's culls not yet captured (no shadow pass ran, so
+        // nothing called CaptureCullDemand after them): capture them now,
+        // before this frame's cull adds to the same running maxima.
+        if (m_CullDemandUncaptured)
+            CaptureCullDemand();
         m_MainViewCulled = CullForView(static_cast<u32>(FoliageGPUCuller::ViewSlot::Main),
                                        MakeCullInputs(worldViewProjection, viewWorldPosition));
         if (timed)
@@ -3098,6 +3357,58 @@ namespace OloEngine
             for (u32 i = 0; i < FoliageGPUCuller::kMaxShadowViews; ++i)
                 layer.CullViews[FoliageGPUCuller::ShadowSlot(i)].Active = false;
         }
+    }
+
+    void FoliageRenderer::CaptureCullDemand()
+    {
+        OLO_PROFILE_FUNCTION();
+        if (RenderCommand::IsRecordingParallelItem())
+            return; // a copy and a fence from a parallel item are hard errors on Vulkan
+        TArray<RHI::ResourceHandle> states;
+        states.SetNum(m_Layers.Num() * static_cast<i32>(FoliageGPUCuller::kViewSlotCount));
+        for (i32 layer = 0; layer < m_Layers.Num(); ++layer)
+        {
+            for (u32 slot = 0; slot < FoliageGPUCuller::kViewSlotCount; ++slot)
+            {
+                const auto& state = m_Layers[layer].CullViews[slot].Resources.State;
+                states[layer * static_cast<i32>(FoliageGPUCuller::kViewSlotCount) + static_cast<i32>(slot)] =
+                    state ? state->GetRHIHandle() : RHI::NullResource;
+            }
+        }
+        // A skipped capture (ring full) loses nothing: the pairs stay in the
+        // State buffers until their slot grows.
+        if (m_CullDemand.Capture({ states.GetData(), static_cast<sizet>(states.Num()) }))
+            m_CullDemandUncaptured = false;
+    }
+
+    void FoliageRenderer::PollCullDemand()
+    {
+        if (!m_CullDemand.Poll(m_CullDemandRetired))
+            return;
+        const auto slotCount = static_cast<i32>(FoliageGPUCuller::kViewSlotCount);
+        for (i32 entry = 0; entry < m_CullDemandRetired.Num(); ++entry)
+        {
+            const FoliageCullDemand demand = m_CullDemandRetired[entry];
+            const i32 layerIndex = entry / slotCount;
+            if (layerIndex >= m_Layers.Num() || (demand.List == 0u && demand.Mesh == 0u))
+                continue;
+            auto& view = m_Layers[layerIndex].CullViews[static_cast<u32>(entry % slotCount)];
+            // Compared with the slot's CURRENT capacity: a capture taken before
+            // a grow carries the old buffer's demand, which the grown slot
+            // already holds.
+            if (demand.List > view.Resources.ListCapacity)
+                view.GrowList = std::max(view.GrowList, demand.List);
+            if (demand.Mesh > view.Resources.MeshCapacity)
+                view.GrowMesh = std::max(view.GrowMesh, demand.Mesh);
+        }
+    }
+
+    FoliageRenderer::CullStreamCapacity FoliageRenderer::GetCullStreamCapacity(u32 layerIndex, u32 slot) const
+    {
+        if (layerIndex >= static_cast<u32>(m_Layers.Num()) || slot >= FoliageGPUCuller::kViewSlotCount)
+            return {};
+        const auto& view = m_Layers[static_cast<i32>(layerIndex)].CullViews[slot].Resources;
+        return { view.ListCapacity, view.MeshCapacity };
     }
 
     bool FoliageRenderer::DispatchShadowViewCulling(u32 shadowViewIndex, const FoliageGPUCuller::ViewInputs& cullInputs)
@@ -3156,6 +3467,10 @@ namespace OloEngine
         // ShadowPass's own (#1391).
         const RendererMemoryOwnerScope memoryOwner("Foliage pinned representations", MemoryLifetime::Asset);
 
+        // Overflows the GPU has already reported mark their slots to grow
+        // before this cull uses them (#1581). A poll, never a wait.
+        PollCullDemand();
+
         bool any = false;
         TArray<LayerDraw> draws;
         TArray<FoliageGPUCuller::Part> parts;
@@ -3201,17 +3516,54 @@ namespace OloEngine
                 hasMeshPart = hasMeshPart || draw.IsAuthoredMesh;
             }
 
-            // Room for the mesh region beside the all-survivor list (#1533):
-            // the region starts at the instance count, so the buffer holds two.
-            auto& view = layer.CullViews[slotIndex];
-            const u32 capacityWanted = hasMeshPart ? layer.InstanceCount * 2u : layer.InstanceCount;
-            const bool recreated =
-                m_Culler.EnsureViewCapacity(view.Resources, capacityWanted, layer.CullLayer.GroupCount);
-            if (recreated || (!view.CardVAO && !view.MeshVAO))
-                RebuildCulledVertexArrays(layer, slotIndex);
-
             FoliageGPUCuller::ViewInputs layerInputs = inputs;
             layerInputs.MaxDistance = layer.ViewDistance;
+
+            // Every draw of a layer carries the same hand-over band.
+            const f32 meshReach = hasMeshPart ? FoliageLod::MeshRegionReach(draws[0].HandoverStart, draws[0].HandoverEnd,
+                                                                            layer.Lod.TransitionSpread, layer.Lod.Hysteresis)
+                                              : 0.0f;
+
+            // SIZED FROM THIS VIEW (#1581), see FoliageGPUCuller::ViewResources:
+            // a new slot from the groups its first view can survive, a slot
+            // whose view overflowed it from the demand that came back.
+            auto& view = layer.CullViews[slotIndex];
+            u32 listWanted = 0;
+            u32 meshWanted = 0;
+            // Also when a mesh became drawable after the slot was made (a
+            // streamed mesh going resident): its region is sized the same way.
+            if (!view.Resources.Compacted || (hasMeshPart && view.Resources.MeshCapacity == 0u))
+            {
+                const auto estimate = FoliageGPUCuller::EstimateSurvivors(m_Registry, layerIndex, layerInputs, meshReach);
+                listWanted = FoliageGPUCuller::StreamCapacityFor(estimate.List, layer.InstanceCount);
+                meshWanted = hasMeshPart ? FoliageGPUCuller::StreamCapacityFor(estimate.Mesh, layer.InstanceCount) : 0u;
+            }
+            if (view.GrowList != 0u || view.GrowMesh != 0u)
+            {
+                listWanted = std::max(listWanted, FoliageGPUCuller::StreamCapacityFor(view.GrowList, layer.InstanceCount));
+                if (hasMeshPart)
+                    meshWanted = std::max(meshWanted, FoliageGPUCuller::StreamCapacityFor(view.GrowMesh, layer.InstanceCount));
+                // Loud, once per grow: an overflow is a frame that drew short.
+                OLO_CORE_INFO("FoliageRenderer: layer {} cull slot {} overflowed (wanted {} list / {} mesh entries, held "
+                              "{} / {}); growing it to {} / {}. That frame's dropped plants were counted in "
+                              "FoliageCullDropped.",
+                              layerIndex, slotIndex, view.GrowList, view.GrowMesh, view.Resources.ListCapacity,
+                              view.Resources.MeshCapacity, std::max(listWanted, view.Resources.ListCapacity),
+                              std::max(meshWanted, view.Resources.MeshCapacity));
+                view.GrowList = 0;
+                view.GrowMesh = 0;
+                ++m_CullStreamGrows;
+                // A shadow slot is shared by every shadow view and learns of an
+                // overflow only through the fenced readback, so the frames before
+                // this grow drew it short -- and a virtual shadow map's coarse
+                // levels keep such pages. Redraw every level once.
+                if (slotIndex != static_cast<u32>(FoliageGPUCuller::ViewSlot::Main))
+                    m_VsmRefreshAfterShadowGrow = true;
+            }
+            const bool recreated = m_Culler.EnsureViewCapacity(view.Resources, listWanted, meshWanted,
+                                                               layer.CullLayer.GroupCount);
+            if (recreated || (!view.CardVAO && !view.MeshVAO))
+                RebuildCulledVertexArrays(layer, slotIndex);
 
             // Only the MAIN view publishes the ratio counters — see the
             // s_EmitStats comment in FoliageCullCommon.glsl.
@@ -3224,10 +3576,8 @@ namespace OloEngine
             const FoliageLod::Params lod = ActiveLod(layer);
             lodInputs.Transition0 = FoliageLodTransition0(lod);
             lodInputs.Transition1 = FoliageLodTransition1(lod);
-            // Every draw of a layer carries the same hand-over band.
-            if (hasMeshPart)
-                lodInputs.MeshReach = FoliageLod::MeshRegionReach(draws[0].HandoverStart, draws[0].HandoverEnd,
-                                                                  layer.Lod.TransitionSpread, layer.Lod.Hysteresis);
+            lodInputs.MeshReach = meshReach;
+            m_CullDemandUncaptured = true;
             if (m_Culler.Cull(layer.CullLayer, view.Resources, layer.InstanceVBO->GetRHIHandle(), std::span(parts.GetData(), static_cast<sizet>(parts.Num())), layerInputs,
                               emitStats, lodInputs))
             {

@@ -278,6 +278,15 @@ namespace OloEngine
             return m_AnimalSchedulerStats;
         }
 
+        /// Walk the animal paths one step outside the gameplay scheduler. Edit
+        /// mode never runs "AnimalPaths", so a benchmark capture (an edit-mode
+        /// tick on a pinned clock) calls this once per rendered frame; without
+        /// it the herd played its walk cycle on the spot (issue #1259).
+        void AdvanceAnimalPaths(Timestep ts)
+        {
+            UpdateAnimalPaths(ts);
+        }
+
         /// This frame's per-animal decisions, keyed by entity UUID. Empty when
         /// nothing in the scene carries an AnimalBudgetComponent.
         [[nodiscard]] const std::unordered_map<UUID, AnimalSchedule>& GetAnimalSchedules() const noexcept
@@ -1584,6 +1593,16 @@ namespace OloEngine
             /// a teleport emit zero motion rather than the teleport itself.
             glm::mat4 m_PrevSurfaceToGroom{ 1.0f };
 
+            /// The binding's centre at bind time and the same roots on the
+            /// body's surface (BoundGroomPlacementOffset), cached on the binding
+            /// handle and the surface generation they were averaged from: a
+            /// pass over every root is not a per-frame cost.
+            AssetHandle m_AnchorBinding = 0;
+            u64 m_AnchorGeneration = 0;
+            glm::vec3 m_AnchorRest{ 0.0f };
+            glm::vec3 m_AnchorSurface{ 0.0f };
+            bool m_AnchorValid = false;
+
             // ── The compatibility verdict, cached ───────────────────────
             //
             // Signing a target means an FNV pass over every index AND every
@@ -1777,6 +1796,16 @@ namespace OloEngine
         /// of counters that drift apart by construction.
         std::unordered_map<UUID, AnimalSchedule> m_AnimalSchedules;
 
+        /// The schedule a BODY is posed by when its budget sits on a coat bound
+        /// to it (#1259), keyed by the body's UUID. A bound coat is its own
+        /// entity, parented to the body it rides (a-bound-coat-rides-its-body.md),
+        /// so the budgeted entity carries the groom and the skeleton is one
+        /// binding away. Without this the deformation axis priced no bones and
+        /// gated no pose: a herd of bound coats silently lost a whole axis.
+        /// Only for a body that has no AnimalBudgetComponent of its own; with
+        /// two budgeted coats on one body, the finer deformation step wins.
+        std::unordered_map<UUID, AnimalSchedule> m_AnimalBodySchedules;
+
         AnimalSchedulerStats m_AnimalSchedulerStats;
 
         /// The clock the deformation stagger is phased on, advanced once per
@@ -1955,6 +1984,11 @@ namespace OloEngine
         /// part of the body is the failure this whole feature exists to prevent
         /// (GroomBinding.h says so at more length).
         void DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request);
+        // Where a BOUND groom's coat is drawn, as a translation of the groom's
+        // rest bounds in its own object space (#1259). False for an unbound
+        // groom, or one whose binding cannot address the body: those draw at
+        // rest, where the asset's bounds already are.
+        [[nodiscard]] bool BoundGroomPlacementOffset(Entity groomEntity, const GroomAsset& groom, glm::vec3& outOffset);
 
         /// Drop every bound groom's previous-frame data, attributing the cause.
         /// For wholesale discontinuities: scene load, play-mode transitions —

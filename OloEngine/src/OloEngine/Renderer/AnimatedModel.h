@@ -55,7 +55,7 @@ namespace OloEngine
         [[nodiscard]] Ref<MeshSource> CreateCombinedMeshSource() const;
 
         // The mesh an ENTITY draws (issue #1533). A model with one mesh draws that
-        // mesh. A model with several -- one per material, which is how Assimp
+        // mesh, with its material as the imported table (#1259). A model with several -- one per material, which is how Assimp
         // splits a glTF mesh with several primitives -- draws ALL of them, as the
         // submeshes of CreateCombinedMeshSource() with the imported material
         // table, so each submesh shades with its own material. Before this the
@@ -121,6 +121,9 @@ namespace OloEngine
 
       private:
         // Model processing
+        // A one-mesh model's mesh gets the material table the combined source
+        // carries; called once at the end of LoadModel's cache and import paths.
+        void AttachOneMeshMaterialTable();
         void ProcessNode(const aiNode* node, const aiScene* scene, const glm::mat4& parentTransform);
         Ref<MeshSource> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
 

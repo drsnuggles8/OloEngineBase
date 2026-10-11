@@ -81,10 +81,14 @@ namespace OloEngine
     {
         constexpr u32 MagicNumber = 0x54414D4F; // "OMAT" little-endian
         // v3 (#1499): the Phong material type field is gone from each record.
+        // v4 (#1259): each record carries the KHR_materials_volume THICKNESS map
+        // (Material::GetThicknessMap). v3 had only the factor, so a skin glTF's
+        // measured map was dropped by the .omesh warm load and by the asset
+        // pack, and the ear rendered as thick as the skull.
         // Decode accepts EXACTLY this version and rejects every other one — an
         // older blob is not migrated, its mesh must be re-imported so the
-        // .omesh cache or asset pack is rewritten at v3.
-        constexpr u32 CurrentVersion = 3;
+        // .omesh cache or asset pack is rewritten at v4.
+        constexpr u32 CurrentVersion = 4;
 
         // ── Safety caps (defence against a corrupt/hostile blob) ──
         constexpr u32 MaxMaterialCount = 10'000;
@@ -144,6 +148,8 @@ namespace OloEngine
             TextureRef Normal;
             TextureRef AO;
             TextureRef Emissive;
+            // KHR_materials_volume thickness texture, red channel, LINEAR (#1242).
+            TextureRef Thickness;
         };
 
         // Material -> descriptor. Resolves each texture's asset handle: the

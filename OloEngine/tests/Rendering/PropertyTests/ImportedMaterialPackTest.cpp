@@ -195,7 +195,8 @@ class ImportedMaterialPackTest : public ::testing::Test
         m_Normal0 = MakeRegisteredTexture(0xFF8080FFu, /*srgb=*/false);
         m_MR0 = MakeRegisteredTexture(0xFF00FF00u, /*srgb=*/false);
         m_Albedo1 = MakeRegisteredTexture(0xFF00FF00u, /*srgb=*/true);
-        ASSERT_TRUE(m_Albedo0 && m_Normal0 && m_MR0 && m_Albedo1);
+        m_Thickness0 = MakeRegisteredTexture(0xFF202020u, /*srgb=*/false);
+        ASSERT_TRUE(m_Albedo0 && m_Normal0 && m_MR0 && m_Albedo1 && m_Thickness0);
 
         Ref<Material> stone = Material::CreatePBR("Stone", glm::vec3(0.6f, 0.5f, 0.4f), 0.25f, 0.7f);
         stone->SetAlbedoMap(m_Albedo0);
@@ -206,6 +207,11 @@ class ImportedMaterialPackTest : public ::testing::Test
         stone->SetOcclusionStrength(0.25f);
         stone->SetEmissiveFactor(glm::vec4(0.1f, 0.2f, 0.3f, 1.0f));
         stone->SetFlag(MaterialFlag::TwoSided, true);
+        // A KHR_materials_volume thickness map (#1242): the measured map a skin
+        // glTF carries. Codec v3 kept the factor and dropped the map, so the
+        // second load shaded the whole surface at the factor (#1259).
+        stone->SetThicknessFactor(0.02f);
+        stone->SetThicknessMap(m_Thickness0);
 
         // The alpha-masked one — the material MaterialAsset's YAML could not express
         // (it carries neither AlphaMode nor AlphaCutoff), and the one that turns Sponza's
@@ -242,6 +248,7 @@ class ImportedMaterialPackTest : public ::testing::Test
             EXPECT_FLOAT_EQ(actual->GetRoughnessFactor(), expected->GetRoughnessFactor());
             EXPECT_FLOAT_EQ(actual->GetNormalScale(), expected->GetNormalScale());
             EXPECT_FLOAT_EQ(actual->GetOcclusionStrength(), expected->GetOcclusionStrength());
+            EXPECT_FLOAT_EQ(actual->GetThicknessFactor(), expected->GetThicknessFactor());
             for (int c = 0; c < 4; ++c)
             {
                 EXPECT_FLOAT_EQ(actual->GetBaseColorFactor()[c], expected->GetBaseColorFactor()[c]);
@@ -266,12 +273,13 @@ class ImportedMaterialPackTest : public ::testing::Test
             expectHandle(actual->GetMetallicRoughnessMap(), expected->GetMetallicRoughnessMap(), "MetallicRoughnessMap");
             expectHandle(actual->GetAOMap(), expected->GetAOMap(), "AOMap");
             expectHandle(actual->GetEmissiveMap(), expected->GetEmissiveMap(), "EmissiveMap");
+            expectHandle(actual->GetThicknessMap(), expected->GetThicknessMap(), "ThicknessMap");
         }
     }
 
     fs::path m_TempDir;
     Ref<EditorAssetManager> m_AssetManager;
-    Ref<Texture2D> m_Albedo0, m_Normal0, m_MR0, m_Albedo1;
+    Ref<Texture2D> m_Albedo0, m_Normal0, m_MR0, m_Albedo1, m_Thickness0;
     std::vector<Ref<Material>> m_Materials;
 };
 
@@ -394,6 +402,8 @@ TEST_F(ImportedMaterialPackTest, ThePackCookTakesEachTexturesColourSpaceFromItsI
     EXPECT_EQ(intentFor(m_Albedo0), std::optional<bool>(true));
     EXPECT_EQ(intentFor(m_Normal0), std::optional<bool>(false)) << "a normal map is linear data";
     EXPECT_EQ(intentFor(m_MR0), std::optional<bool>(false)) << "a metallic-roughness map is linear data";
+    EXPECT_EQ(intentFor(m_Thickness0), std::optional<bool>(false))
+        << "a thickness map is linear data; cooked sRGB it would bend every measured thickness";
 }
 
 TEST_F(ImportedMaterialPackTest, EverySubmeshResolvesItsMaterialAfterTheOMeshRoundTrip)
@@ -727,6 +737,7 @@ TEST(ImportedMaterialCodecTest, EveryFieldSurvivesTheWireFormat)
     masked.Albedo = TextureRef{ AssetHandle(0x1234ULL), "Assets/leaf_albedo.png", true };
     masked.Normal = TextureRef{ AssetHandle(0x5678ULL), "Assets/leaf_normal.png", false };
     masked.MetallicRoughness = TextureRef{ AssetHandle(0), "Assets/leaf_mr.png", false };
+    masked.Thickness = TextureRef{ AssetHandle(0x9ABCULL), "Assets/leaf_thickness.png", false };
 
     MaterialDesc absent;
     absent.Present = false; // a null entry in the source vector
@@ -769,6 +780,9 @@ TEST(ImportedMaterialCodecTest, EveryFieldSurvivesTheWireFormat)
     EXPECT_EQ(d.MetallicRoughness.Path, "Assets/leaf_mr.png");
     EXPECT_TRUE(d.AO.IsEmpty());
     EXPECT_TRUE(d.Emissive.IsEmpty());
+    EXPECT_EQ(static_cast<u64>(d.Thickness.Handle), 0x9ABCULL);
+    EXPECT_EQ(d.Thickness.Path, "Assets/leaf_thickness.png");
+    EXPECT_FALSE(d.Thickness.SRGB);
 
     // The null slot stays a null slot — Submesh::m_MaterialIndex addresses this table
     // positionally, so compacting it away would silently shift every later material.

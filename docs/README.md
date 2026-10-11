@@ -27,6 +27,7 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 - [testing/restir-pt-1211-evidence.md](testing/restir-pt-1211-evidence.md) — numerical validation of the experimental ReSTIR PT prototype (#1211): what it supports, what makes it stand down, and the measured bias and variance.
 - [testing/restir-pt-1211-live.md](testing/restir-pt-1211-live.md) — the same prototype in motion in a live Vulkan editor, and what it still gets wrong.
 - [testing/evidence/render-graph-attachment-feedback-1554/README.md](testing/evidence/render-graph-attachment-feedback-1554/README.md) — physical attachment feedback contracts, snapshot copies and the complete OpenGL/Vulkan verification matrix (#1554).
+- [testing/evidence/integrated-acceptance-1259/vulkan-live/README.md](testing/evidence/integrated-acceptance-1259/vulkan-live/README.md) — the raw live-editor Vulkan runs behind the #1259 acceptance results: per-camera frame, CPU and GPU splits, attribution passes, the validation walk and the reload memory trace.
 
 ## Renderer — status, support contract and roadmap owners
 
@@ -101,6 +102,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [analysis/material-reference-validation-1255.md](analysis/material-reference-validation-1255.md) — skin, leaf and fibre models judged against independently computed references (#1255), and the limits written down where none exists.
 - [analysis/multi-animal-scheduling-budgets-1258.md](analysis/multi-animal-scheduling-budgets-1258.md) — multi-animal scheduling and budgets (#1258), every number an assertion in a committed test.
 - [analysis/groom-vegetation-streaming-residency-1257.md](analysis/groom-vegetation-streaming-residency-1257.md) — groom/vegetation detail admission, pinned fallback accounting, and residency capture evidence (#1257).
+- [analysis/integrated-acceptance-1259.md](analysis/integrated-acceptance-1259.md) — the integrated AAA acceptance gate (#1259): the generated `Acceptance.olo` scene, its cameras and manifests, the measurement protocol, and the results against the 16.7 ms VSM gate.
 - [analysis/foliage-cost-baseline-1391.md](analysis/foliage-cost-baseline-1391.md) — foliage GPU cost per stage, memory by category, frame-time tails and the rebuild spike on an RTX 4090 (#1391), OpenGL and Vulkan; measured baselines, not targets.
 - [analysis/vulkan-material-selection-805.md](analysis/vulkan-material-selection-805.md) — Vulkan per-instance material selection through the GPU Scene (#805, ADR 0011 amendment (101)).
 - [analysis/vulkan-parallel-recording-1013.md](analysis/vulkan-parallel-recording-1013.md) — Vulkan parallel command recording measurements (#1013): elapsed region time kept separate from summed worker time.

@@ -4,8 +4,8 @@ Version: 1
 # This fixture combines the AnimalPopulation moving herd and pathless Hero with
 # Meadow terrain and foliage, Courtyard local lights, and an OceanCoast water patch.
 # The capture manifest adds deterministic Hero and point-light trajectories.
-# Imported grooms are unbound to the Fox bodies and appear as small blobs;
-# this scene exercises scheduling and rendering load, not groom quality.
+# Every animal wears a bound fox coat (FoxShortCoat / FoxLongCoat, #1259),
+# parented to its Fox body and riding its walk; see AnimalPopulation.olo.
 Entities:
   # ── Camera (scene camera; capture manifests pose the EDITOR camera) ──
   - Entity: 1258000000000001
@@ -50,7 +50,7 @@ Entities:
       Tag: Hero
     TransformComponent:
       Translation: [0, 0, 5.6]
-      Rotation: [0, 3.1416, 0]
+      Rotation: [0, 0.6, 0]
       Scale: [0.014, 0.014, 0.014]
     MeshComponent:
       {}
@@ -63,13 +63,81 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000004
+  - Entity: 1258000000000004
+    TagComponent:
+      Tag: Hero Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000003
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
     GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 60000
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
       WidthScale: 1
-      StrandColor: [0.58, 0.44, 0.31]
+      StrandColor: [1, 1, 1]
       ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
     GroomLodComponent:
       CardPixelSize: 220
       MeshPixelSize: 8
@@ -83,6 +151,33 @@ Entities:
       SimulationSteps: 4
       ShadowSteps: 3
       Enabled: true
+    GroomSceneShadowComponent:
+      ShadowWidthTexels: 1
+      CastShadows: true
+      ReceiveShadows: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
     AnimalBudgetComponent:
       FullRateMotionMetres: 0.06
       MaxDeformationSteps: 3
@@ -91,8 +186,12 @@ Entities:
       MaxShadowSteps: 3
       Role: 0
       Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000003
+      Children:
+        []
   # ── Featured animals: mid distance, long coats ──
-  - Entity: 1258000000000004
+  - Entity: 1258000000000005
     TagComponent:
       Tag: Featured 0
     TransformComponent:
@@ -110,34 +209,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.54, 0.41, 0.29]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0592
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 1
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 3.5476
       RadiusZ: 2.5861
@@ -152,7 +223,134 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000005
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000006
+  - Entity: 1258000000000006
+    TagComponent:
+      Tag: Featured 0 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000005
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSceneShadowComponent:
+      ShadowWidthTexels: 1
+      CastShadows: true
+      ReceiveShadows: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0592
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 1
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000005
+      Children:
+        []
+  - Entity: 1258000000000007
     TagComponent:
       Tag: Featured 1
     TransformComponent:
@@ -170,34 +368,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.54, 0.41, 0.29]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0826
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 1
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 4.7508
       RadiusZ: 2.5782
@@ -212,7 +382,134 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000006
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000008
+  - Entity: 1258000000000008
+    TagComponent:
+      Tag: Featured 1 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000007
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSceneShadowComponent:
+      ShadowWidthTexels: 1
+      CastShadows: true
+      ReceiveShadows: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0826
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 1
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000007
+      Children:
+        []
+  - Entity: 1258000000000009
     TagComponent:
       Tag: Featured 2
     TransformComponent:
@@ -230,34 +527,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.54, 0.41, 0.29]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0617
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 1
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 3.0089
       RadiusZ: 2.5371
@@ -272,7 +541,134 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000007
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000010
+  - Entity: 1258000000000010
+    TagComponent:
+      Tag: Featured 2 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000009
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSceneShadowComponent:
+      ShadowWidthTexels: 1
+      CastShadows: true
+      ReceiveShadows: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0617
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 1
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000009
+      Children:
+        []
+  - Entity: 1258000000000011
     TagComponent:
       Tag: Featured 3
     TransformComponent:
@@ -290,34 +686,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.54, 0.41, 0.29]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0432
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 1
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 5.8108
       RadiusZ: 3.482
@@ -332,8 +700,135 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000012
+  - Entity: 1258000000000012
+    TagComponent:
+      Tag: Featured 3 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000011
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSceneShadowComponent:
+      ShadowWidthTexels: 1
+      CastShadows: true
+      ReceiveShadows: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0432
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 1
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000011
+      Children:
+        []
   # ── The herd: alternating short and long coats, receding ──
-  - Entity: 1258000000000008
+  - Entity: 1258000000000013
     TagComponent:
       Tag: Herd 0
     TransformComponent:
@@ -351,34 +846,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0921
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 8.436
       RadiusZ: 4.2574
@@ -393,7 +860,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000009
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000014
+  - Entity: 1258000000000014
+    TagComponent:
+      Tag: Herd 0 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000013
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0921
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000013
+      Children:
+        []
+  - Entity: 1258000000000015
     TagComponent:
       Tag: Herd 1
     TransformComponent:
@@ -411,34 +1001,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0985
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 12.2875
       RadiusZ: 3.3022
@@ -453,7 +1015,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000010
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000016
+  - Entity: 1258000000000016
+    TagComponent:
+      Tag: Herd 1 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000015
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0985
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000015
+      Children:
+        []
+  - Entity: 1258000000000017
     TagComponent:
       Tag: Herd 2
     TransformComponent:
@@ -471,34 +1156,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0547
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 11.489
       RadiusZ: 5.1604
@@ -513,7 +1170,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000011
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000018
+  - Entity: 1258000000000018
+    TagComponent:
+      Tag: Herd 2 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000017
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0547
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000017
+      Children:
+        []
+  - Entity: 1258000000000019
     TagComponent:
       Tag: Herd 3
     TransformComponent:
@@ -531,34 +1311,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.078
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 9.9691
       RadiusZ: 9.1242
@@ -573,7 +1325,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000012
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000020
+  - Entity: 1258000000000020
+    TagComponent:
+      Tag: Herd 3 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000019
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.078
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000019
+      Children:
+        []
+  - Entity: 1258000000000021
     TagComponent:
       Tag: Herd 4
     TransformComponent:
@@ -591,34 +1466,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0699
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 12.3323
       RadiusZ: 6.8831
@@ -633,7 +1480,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000013
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000022
+  - Entity: 1258000000000022
+    TagComponent:
+      Tag: Herd 4 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000021
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0699
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000021
+      Children:
+        []
+  - Entity: 1258000000000023
     TagComponent:
       Tag: Herd 5
     TransformComponent:
@@ -651,34 +1621,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0665
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 9.7904
       RadiusZ: 9.124
@@ -693,7 +1635,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000014
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000024
+  - Entity: 1258000000000024
+    TagComponent:
+      Tag: Herd 5 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000023
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0665
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000023
+      Children:
+        []
+  - Entity: 1258000000000025
     TagComponent:
       Tag: Herd 6
     TransformComponent:
@@ -711,34 +1776,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0575
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 13.3272
       RadiusZ: 8.905
@@ -753,7 +1790,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000015
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000026
+  - Entity: 1258000000000026
+    TagComponent:
+      Tag: Herd 6 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000025
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0575
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000025
+      Children:
+        []
+  - Entity: 1258000000000027
     TagComponent:
       Tag: Herd 7
     TransformComponent:
@@ -771,34 +1931,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0377
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 5.1283
       RadiusZ: 5.6168
@@ -813,7 +1945,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000016
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000028
+  - Entity: 1258000000000028
+    TagComponent:
+      Tag: Herd 7 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000027
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0377
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000027
+      Children:
+        []
+  - Entity: 1258000000000029
     TagComponent:
       Tag: Herd 8
     TransformComponent:
@@ -831,34 +2086,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0349
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 7.0653
       RadiusZ: 3.372
@@ -873,7 +2100,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000017
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000030
+  - Entity: 1258000000000030
+    TagComponent:
+      Tag: Herd 8 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000029
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0349
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000029
+      Children:
+        []
+  - Entity: 1258000000000031
     TagComponent:
       Tag: Herd 9
     TransformComponent:
@@ -891,34 +2241,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0586
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 8.7823
       RadiusZ: 6.4048
@@ -933,7 +2255,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000018
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000032
+  - Entity: 1258000000000032
+    TagComponent:
+      Tag: Herd 9 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000031
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0586
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000031
+      Children:
+        []
+  - Entity: 1258000000000033
     TagComponent:
       Tag: Herd 10
     TransformComponent:
@@ -951,34 +2396,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.097
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 6.861
       RadiusZ: 5.6865
@@ -993,7 +2410,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000019
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000034
+  - Entity: 1258000000000034
+    TagComponent:
+      Tag: Herd 10 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000033
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.097
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000033
+      Children:
+        []
+  - Entity: 1258000000000035
     TagComponent:
       Tag: Herd 11
     TransformComponent:
@@ -1011,34 +2551,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0628
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 11.3361
       RadiusZ: 6.0335
@@ -1053,7 +2565,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000020
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000036
+  - Entity: 1258000000000036
+    TagComponent:
+      Tag: Herd 11 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000035
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0628
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000035
+      Children:
+        []
+  - Entity: 1258000000000037
     TagComponent:
       Tag: Herd 12
     TransformComponent:
@@ -1071,34 +2706,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0819
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 4.3398
       RadiusZ: 7.8619
@@ -1113,7 +2720,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000021
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000038
+  - Entity: 1258000000000038
+    TagComponent:
+      Tag: Herd 12 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000037
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0819
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000037
+      Children:
+        []
+  - Entity: 1258000000000039
     TagComponent:
       Tag: Herd 13
     TransformComponent:
@@ -1131,34 +2861,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0715
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 8.4059
       RadiusZ: 8.7066
@@ -1173,7 +2875,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000022
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000040
+  - Entity: 1258000000000040
+    TagComponent:
+      Tag: Herd 13 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000039
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0715
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000039
+      Children:
+        []
+  - Entity: 1258000000000041
     TagComponent:
       Tag: Herd 14
     TransformComponent:
@@ -1191,34 +3016,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0987
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 10.9783
       RadiusZ: 9.3496
@@ -1233,7 +3030,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000023
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000042
+  - Entity: 1258000000000042
+    TagComponent:
+      Tag: Herd 14 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000041
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0987
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000041
+      Children:
+        []
+  - Entity: 1258000000000043
     TagComponent:
       Tag: Herd 15
     TransformComponent:
@@ -1251,34 +3171,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0684
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 10.1709
       RadiusZ: 7.816
@@ -1293,7 +3185,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000024
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000044
+  - Entity: 1258000000000044
+    TagComponent:
+      Tag: Herd 15 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000043
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0684
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000043
+      Children:
+        []
+  - Entity: 1258000000000045
     TagComponent:
       Tag: Herd 16
     TransformComponent:
@@ -1311,34 +3326,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0429
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 4.3312
       RadiusZ: 3.8278
@@ -1353,7 +3340,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000025
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000046
+  - Entity: 1258000000000046
+    TagComponent:
+      Tag: Herd 16 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000045
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0429
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000045
+      Children:
+        []
+  - Entity: 1258000000000047
     TagComponent:
       Tag: Herd 17
     TransformComponent:
@@ -1371,34 +3481,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0463
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 4.7924
       RadiusZ: 6.2781
@@ -1413,7 +3495,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000026
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000048
+  - Entity: 1258000000000048
+    TagComponent:
+      Tag: Herd 17 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000047
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0463
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000047
+      Children:
+        []
+  - Entity: 1258000000000049
     TagComponent:
       Tag: Herd 18
     TransformComponent:
@@ -1431,34 +3636,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0801
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 8.0063
       RadiusZ: 5.7434
@@ -1473,7 +3650,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000027
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000050
+  - Entity: 1258000000000050
+    TagComponent:
+      Tag: Herd 18 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000049
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0801
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000049
+      Children:
+        []
+  - Entity: 1258000000000051
     TagComponent:
       Tag: Herd 19
     TransformComponent:
@@ -1491,34 +3791,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0811
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 5.9341
       RadiusZ: 5.6621
@@ -1533,7 +3805,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000028
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000052
+  - Entity: 1258000000000052
+    TagComponent:
+      Tag: Herd 19 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000051
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0811
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000051
+      Children:
+        []
+  - Entity: 1258000000000053
     TagComponent:
       Tag: Herd 20
     TransformComponent:
@@ -1551,34 +3946,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0465
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 10.3622
       RadiusZ: 5.6647
@@ -1593,7 +3960,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000029
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000054
+  - Entity: 1258000000000054
+    TagComponent:
+      Tag: Herd 20 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000053
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0465
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000053
+      Children:
+        []
+  - Entity: 1258000000000055
     TagComponent:
       Tag: Herd 21
     TransformComponent:
@@ -1611,34 +4101,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0385
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 4.2123
       RadiusZ: 4.1262
@@ -1653,7 +4115,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000030
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000056
+  - Entity: 1258000000000056
+    TagComponent:
+      Tag: Herd 21 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000055
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0385
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000055
+      Children:
+        []
+  - Entity: 1258000000000057
     TagComponent:
       Tag: Herd 22
     TransformComponent:
@@ -1671,34 +4256,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0382
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 8.5098
       RadiusZ: 6.6649
@@ -1713,7 +4270,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000031
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000058
+  - Entity: 1258000000000058
+    TagComponent:
+      Tag: Herd 22 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000057
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0382
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000057
+      Children:
+        []
+  - Entity: 1258000000000059
     TagComponent:
       Tag: Herd 23
     TransformComponent:
@@ -1731,34 +4411,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0881
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 8.6681
       RadiusZ: 5.6476
@@ -1773,7 +4425,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000032
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000060
+  - Entity: 1258000000000060
+    TagComponent:
+      Tag: Herd 23 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000059
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0881
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000059
+      Children:
+        []
+  - Entity: 1258000000000061
     TagComponent:
       Tag: Herd 24
     TransformComponent:
@@ -1791,34 +4566,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0946
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 4.6423
       RadiusZ: 7.4555
@@ -1833,7 +4580,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000033
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000062
+  - Entity: 1258000000000062
+    TagComponent:
+      Tag: Herd 24 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000061
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0946
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000061
+      Children:
+        []
+  - Entity: 1258000000000063
     TagComponent:
       Tag: Herd 25
     TransformComponent:
@@ -1851,34 +4721,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0739
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 7.8752
       RadiusZ: 8.6057
@@ -1893,7 +4735,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000034
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000064
+  - Entity: 1258000000000064
+    TagComponent:
+      Tag: Herd 25 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000063
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0739
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000063
+      Children:
+        []
+  - Entity: 1258000000000065
     TagComponent:
       Tag: Herd 26
     TransformComponent:
@@ -1911,34 +4876,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0785
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 9.1066
       RadiusZ: 8.7612
@@ -1953,7 +4890,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000035
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000066
+  - Entity: 1258000000000066
+    TagComponent:
+      Tag: Herd 26 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000065
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0785
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000065
+      Children:
+        []
+  - Entity: 1258000000000067
     TagComponent:
       Tag: Herd 27
     TransformComponent:
@@ -1971,34 +5031,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0925
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 6.7156
       RadiusZ: 3.6711
@@ -2013,7 +5045,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000036
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000068
+  - Entity: 1258000000000068
+    TagComponent:
+      Tag: Herd 27 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000067
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0925
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000067
+      Children:
+        []
+  - Entity: 1258000000000069
     TagComponent:
       Tag: Herd 28
     TransformComponent:
@@ -2031,34 +5186,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0944
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 12.1046
       RadiusZ: 8.9107
@@ -2073,7 +5200,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000037
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000070
+  - Entity: 1258000000000070
+    TagComponent:
+      Tag: Herd 28 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000069
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0944
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000069
+      Children:
+        []
+  - Entity: 1258000000000071
     TagComponent:
       Tag: Herd 29
     TransformComponent:
@@ -2091,34 +5341,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.055
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 4.787
       RadiusZ: 6.825
@@ -2133,7 +5355,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000038
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000072
+  - Entity: 1258000000000072
+    TagComponent:
+      Tag: Herd 29 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000071
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.055
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000071
+      Children:
+        []
+  - Entity: 1258000000000073
     TagComponent:
       Tag: Herd 30
     TransformComponent:
@@ -2151,34 +5496,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.095
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 11.5821
       RadiusZ: 9.7517
@@ -2193,7 +5510,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000039
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000074
+  - Entity: 1258000000000074
+    TagComponent:
+      Tag: Herd 30 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000073
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.095
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000073
+      Children:
+        []
+  - Entity: 1258000000000075
     TagComponent:
       Tag: Herd 31
     TransformComponent:
@@ -2211,34 +5651,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0482
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 11.4758
       RadiusZ: 8.3944
@@ -2253,7 +5665,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000040
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000076
+  - Entity: 1258000000000076
+    TagComponent:
+      Tag: Herd 31 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000075
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0482
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000075
+      Children:
+        []
+  - Entity: 1258000000000077
     TagComponent:
       Tag: Herd 32
     TransformComponent:
@@ -2271,34 +5806,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0464
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 11.8684
       RadiusZ: 9.2128
@@ -2313,7 +5820,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000041
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000078
+  - Entity: 1258000000000078
+    TagComponent:
+      Tag: Herd 32 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000077
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0464
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000077
+      Children:
+        []
+  - Entity: 1258000000000079
     TagComponent:
       Tag: Herd 33
     TransformComponent:
@@ -2331,34 +5961,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0989
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 11.5701
       RadiusZ: 5.9138
@@ -2373,7 +5975,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000042
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000080
+  - Entity: 1258000000000080
+    TagComponent:
+      Tag: Herd 33 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000079
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0989
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000079
+      Children:
+        []
+  - Entity: 1258000000000081
     TagComponent:
       Tag: Herd 34
     TransformComponent:
@@ -2391,34 +6116,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936285
-      RenderStrands: true
-      MaxRenderStrands: 4000
-      WidthScale: 1
-      StrandColor: [0.62, 0.47, 0.33]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0785
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 4.0832
       RadiusZ: 5.0794
@@ -2433,7 +6130,130 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
-  - Entity: 1258000000000043
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000082
+  - Entity: 1258000000000082
+    TagComponent:
+      Tag: Herd 34 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698136
+      TargetEntity: 1258000000000081
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698135
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 265724
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0785
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000081
+      Children:
+        []
+  - Entity: 1258000000000083
     TagComponent:
       Tag: Herd 35
     TransformComponent:
@@ -2451,34 +6271,6 @@ Entities:
       SourceFilePath: assets/models/Fox/Fox.gltf
     SkeletonComponent:
       {}
-    GroomComponent:
-      Groom: 15952688685437936287
-      RenderStrands: true
-      MaxRenderStrands: 24000
-      WidthScale: 1
-      StrandColor: [0.52, 0.4, 0.28]
-      ShowPreview: false
-    GroomLodComponent:
-      CardPixelSize: 220
-      MeshPixelSize: 8
-      Hysteresis: 0.15
-      MaxWidthCompensation: 8
-      VisibilityFullPixelSize: 512
-      SimulationFullPixelSize: 384
-      ShadowFullPixelSize: 512
-      HoldFrames: 4
-      VisibilitySteps: 4
-      SimulationSteps: 4
-      ShadowSteps: 3
-      Enabled: true
-    AnimalBudgetComponent:
-      FullRateMotionMetres: 0.0666
-      MaxDeformationSteps: 3
-      MaxSimulationSteps: 4
-      MaxVisibilitySteps: 4
-      MaxShadowSteps: 3
-      Role: 2
-      Enabled: true
     AnimalPathComponent:
       RadiusX: 9.5146
       RadiusZ: 8.5994
@@ -2493,8 +6285,131 @@ Entities:
       HasOrigin: false
       FaceAlongMotion: true
       Enabled: true
+    RelationshipComponent:
+      ParentHandle: 0
+      Children:
+        - 1258000000000084
+  - Entity: 1258000000000084
+    TagComponent:
+      Tag: Herd 35 Coat
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [80, 80, 80]
+    GroomBindingComponent:
+      Binding: 18313841716185698134
+      TargetEntity: 1258000000000083
+      TeleportDistance: 5
+      Enabled: true
+      ShowBindingPreview: false
+    GroomCoatComponent:
+      RegionMap: 0
+      ColorMap: 18313841716185698132
+      UndercoatDensity: 1
+      UndercoatLength: 1
+      UndercoatWidth: 1
+      UndercoatClump: 1
+      GuardDensity: 1
+      GuardLength: 1
+      GuardWidth: 1
+      GuardClump: 1
+      LengthJitter: 0.2
+      WidthJitter: 0
+      ShadeJitter: 0.06
+      ClumpCellSize: 0.01
+      VariationSeed: 0
+      RoleVisibilityMask: 31
+      Enabled: true
+    GroomCoatShadowComponent:
+      Kappa: 0.9
+      Resolution: 128
+      StepVoxels: 1.5
+      MaxLodSteps: 3
+      PixelSizeForLod0: 512
+      MinResolution: 8
+      Mode: 2
+      Enabled: true
+      MultipleScattering: true
+      BakeAtRest: true
+    GroomComponent:
+      Groom: 18313841716185698133
+      RootMarkerSize: 0.01
+      MaxPreviewStrands: 2000
+      MaxRenderStrands: 232394
+      WidthScale: 1
+      StrandColor: [1, 1, 1]
+      ShowPreview: false
+      ShowStrands: true
+      ShowRoots: true
+      ShowDirection: true
+      ColorByGroup: true
+      GuidesOnly: false
+      RenderStrands: true
+      CompositionMode: 1
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.86]
+      Absorption: [0.84, 1.39, 2.74]
+      Eumelanin: 1.3
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.4
+      AzimuthalRoughness: 0.3
+      TiltDegrees: 2
+      IndexOfRefraction: 1.55
+      Intensity: 1
+      HSamples: 4
+      PigmentMode: 1
+      DebugMode: 0
+      Enabled: true
+    GroomLodComponent:
+      CardPixelSize: 220
+      MeshPixelSize: 8
+      Hysteresis: 0.15
+      MaxWidthCompensation: 8
+      VisibilityFullPixelSize: 512
+      SimulationFullPixelSize: 384
+      ShadowFullPixelSize: 512
+      HoldFrames: 4
+      VisibilitySteps: 4
+      SimulationSteps: 4
+      ShadowSteps: 3
+      Enabled: true
+    GroomSimulationComponent:
+      Gravity: [0, -9.81, 0]
+      Stiffness: 90
+      Damping: 6
+      VelocityCorrection: 0.85
+      FixedHz: 60
+      StretchTolerance: 0.01
+      TeleportDistance: 1
+      ColliderRadiusScale: 1
+      ColliderPadding: 0
+      ColliderFriction: 0.35
+      MaxSubsteps: 4
+      Iterations: 4
+      MaxGuidesUnassigned: 256
+      MaxGuidesUndercoat: 128
+      MaxGuidesGuardHair: 512
+      MaxGuidesWhisker: 64
+      MaxGuidesLongHair: 512
+      ResetKey: 0
+      Model: 1
+      DebugView: 0
+      Enabled: true
+      Collide: true
+    AnimalBudgetComponent:
+      FullRateMotionMetres: 0.0666
+      MaxDeformationSteps: 3
+      MaxSimulationSteps: 4
+      MaxVisibilitySteps: 4
+      MaxShadowSteps: 3
+      Role: 2
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 1258000000000083
+      Children:
+        []
   # ── Ground: matte earth ──
-  - Entity: 1258000000000044
+  - Entity: 1258000000000085
     TagComponent:
       Tag: Ground
     TransformComponent:

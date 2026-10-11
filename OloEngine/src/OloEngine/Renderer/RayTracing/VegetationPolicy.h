@@ -101,6 +101,100 @@ namespace OloEngine::RayTracing
         // and rebuild, every frame.
         static constexpr u64 UpgradeMarginDivisor = 16u;
 
+        // THE FAR CASTING FIELD IS GROUPED BY AREA (#1578). A group costs one
+        // build per part whatever its plant count, and a proxy whose deadline
+        // a frame overruns refreshes every frame. The IntegratedRenderer
+        // meadow sliced its far cards per 16 m registry cell into 256-plant
+        // groups: 1,681-1,959 casting groups against 1,024 builds, so 657-935
+        // were left out and the TLAS was withheld near the meadow.
+        //
+        // Past the detailed distance (DetailedCardDistance; a mesh layer's
+        // card plants all lie past its mesh distance) a casting layer's card
+        // plants are grouped by AREA instead: square cells of a whole number
+        // of registry cells. The cell is the smallest one whose count over
+        // the layer's view disc stays within CastingAreaCellsPerLayer. A disc
+        // of radius R touches at most pi * (R / S + sqrt 2)^2 cells of side S
+        // (each lies inside radius R + S * sqrt 2), and an eighth of the
+        // per-frame builds per layer leaves half the budget to the near disc
+        // and the upgrade margin with four casting layers:
+        //
+        //   UpdatesPerFrame / 8 = 128 cells per layer
+        //   Grass,     R = 150 m:  S = 16 -> 366,  S = 32 -> 117   (32 m)
+        //   TallGrass, R = 170 m:  S = 32 -> 142,  S = 48 ->  77   (48 m)
+        //   Flowers,   R =  90 m:  S = 16 -> 156,  S = 32 ->  56   (32 m)
+        //
+        // A cell denser than CastingAreaPlantsPerGroup splits into more
+        // groups: one build of that many cards is 4 vertices a plant, a
+        // quarter of VerticesPerFrame, so a single group always fits a frame.
+        // Near the camera nothing changes: mesh groups keep PlantsPerGroup
+        // (and their card fallback the same plants), detailed cards keep
+        // CardPlantsPerGroup per registry cell. The error bound does not
+        // change either: a group's deadline is its layer's ProxyAgeLimit,
+        // whatever the group's size.
+        static constexpr u32 CastingAreaCellsPerLayer = UpdatesPerFrame / 8u;
+        static constexpr u32 CastingAreaPlantsPerGroup = VerticesPerFrame / 16u;
+        /// The largest group any producer may queue (the cache refuses more).
+        static constexpr u32 MaxPlantsPerGroup = std::max(CardPlantsPerGroup, CastingAreaPlantsPerGroup);
+
+        // Whether a casting layer's CARD plant at `distance` is grouped by
+        // area: only a proxy, never a plant the detailed tier refreshes.
+        [[nodiscard]] static constexpr bool GroupsCardByArea(bool castsShadows, f32 distance) noexcept
+        {
+            return castsShadows && distance > DetailedCardDistance;
+        }
+
+        // The area cell's side in registry cells, for a layer seen out to
+        // `viewDistance` with registry cells of `registryCell` (same units).
+        [[nodiscard]] static u32 CastingAreaCellRatio(f32 viewDistance, f32 registryCell) noexcept
+        {
+            constexpr u32 MaximumRatio = 1024u;
+            if (!std::isfinite(viewDistance) || !std::isfinite(registryCell) || viewDistance <= 0.0f || registryCell <= 0.0f)
+                return 1u;
+            for (u32 ratio = 1u; ratio < MaximumRatio; ++ratio)
+                if (CastingAreaCellBound(viewDistance, registryCell * static_cast<f32>(ratio)) <= static_cast<f64>(CastingAreaCellsPerLayer))
+                    return ratio;
+            return MaximumRatio;
+        }
+
+        // At most how many cells of side `cellSize` a view disc touches.
+        [[nodiscard]] static f64 CastingAreaCellBound(f32 viewDistance, f32 cellSize) noexcept
+        {
+            const f64 reach = static_cast<f64>(viewDistance) / static_cast<f64>(cellSize) + 1.4142135623730951;
+            return 3.141592653589793 * reach * reach;
+        }
+
+        // A registry cell coordinate's area cell coordinate: floor division,
+        // so the cells left of the origin are the same size as the rest.
+        [[nodiscard]] static constexpr i32 CastingAreaCoordinate(i32 registryCoordinate, u32 ratio) noexcept
+        {
+            const i32 r = static_cast<i32>(std::max(ratio, 1u));
+            return registryCoordinate >= 0 ? registryCoordinate / r : -((-registryCoordinate - 1) / r) - 1;
+        }
+
+        // Slices plants sorted by area into groups: one per run of equal
+        // keys, a run longer than CastingAreaPlantsPerGroup split into equal
+        // contiguous parts. Calls `emit(first, count)` per group.
+        template<typename Emit>
+        static void SliceCastingAreas(std::span<const u64> sortedAreaKeys, Emit&& emit)
+        {
+            sizet first = 0u;
+            while (first < sortedAreaKeys.size())
+            {
+                sizet end = first + 1u;
+                while (end < sortedAreaKeys.size() && sortedAreaKeys[end] == sortedAreaKeys[first])
+                    ++end;
+                const sizet run = end - first;
+                const sizet groups = (run + CastingAreaPlantsPerGroup - 1u) / CastingAreaPlantsPerGroup;
+                for (sizet group = 0u; group < groups; ++group)
+                {
+                    const sizet begin = first + run * group / groups;
+                    const sizet stop = first + run * (group + 1u) / groups;
+                    emit(begin, stop - begin);
+                }
+                first = end;
+            }
+        }
+
         // A Lipschitz bound for FoliageWind.glsl. The capped field is a
         // projection onto the radius-20 ball (nonexpansive); sine derivatives
         // and the triangle inequality bound all phases, vertices and roots.
@@ -595,4 +689,19 @@ namespace OloEngine::RayTracing
             Triangles = static_cast<u32>(std::min<u64>(VegetationPolicy::TrianglesPerFrame, static_cast<u64>(Triangles) + std::min<u64>(debt.Triangles, VegetationPolicy::TrianglesPerFrame)));
         }
     };
+
+    // WHETHER THE HYBRID PRODUCERS RUN THIS FRAME (#1259). Vegetation and groom
+    // proxies feed two consumers, the ray-traced shadow tier and ray-traced
+    // reflections, and both are Deferred-only. A light's request for traced
+    // shadows feeds nothing unless that tier is armed (shadows on, technique
+    // RayTraced), which is the condition RenderPipeline enables
+    // RayTracedShadowPass on: building proxies for an unarmed tier is work no
+    // ray reads.
+    [[nodiscard]] constexpr bool HybridProducersWanted(bool extractionActive, bool rayTracingAvailable, bool deferred,
+                                                       bool lightsRequestTracedShadows, bool tracedShadowTierArmed,
+                                                       bool tracedReflections)
+    {
+        return extractionActive && rayTracingAvailable && deferred &&
+               ((lightsRequestTracedShadows && tracedShadowTierArmed) || tracedReflections);
+    }
 } // namespace OloEngine::RayTracing

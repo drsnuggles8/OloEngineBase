@@ -39,8 +39,8 @@ def main() -> None:
         "# This fixture combines the AnimalPopulation moving herd and pathless Hero with\n"
         "# Meadow terrain and foliage, Courtyard local lights, and an OceanCoast water patch.\n"
         "# The capture manifest adds deterministic Hero and point-light trajectories.\n"
-        "# Imported grooms are unbound to the Fox bodies and appear as small blobs;\n"
-        "# this scene exercises scheduling and rendering load, not groom quality.\n"
+        "# Every animal wears a bound fox coat (FoxShortCoat / FoxLongCoat, #1259),\n"
+        "# parented to its Fox body and riding its walk; see AnimalPopulation.olo.\n"
         "Entities:" + base.split("\nEntities:", 1)[1]
     )
     chosen = []
@@ -102,7 +102,7 @@ def main() -> None:
     source["Assets"] = list(assets.values())
     source["Scene"] = "Scenes/Benchmark/IntegratedRenderer.olo"
     source["Description"] = ("Integrated moving animal, terrain/foliage, local-shadow and water workload. "
-                             "Animal grooms are unbound to the Fox bodies and are not a quality reference.")
+                             "Every animal wears a bound fox coat (FoxShortCoat / FoxLongCoat) riding its Fox body.")
     source["Cameras"] = [
         {"Id": "stationary", "Position": [0.0, 3.4, 16.0], "YawDegrees": 0.0,
          "PitchDegrees": 6.0, "FovDegrees": 50.0, "Near": 0.05, "Far": 400.0},

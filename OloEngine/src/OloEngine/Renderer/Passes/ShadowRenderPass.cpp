@@ -6,6 +6,8 @@
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Shadow/TerrainShadowRevision.h"
+#include "OloEngine/Renderer/Shadow/FoliageShadowInvalidation.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -690,6 +692,17 @@ namespace OloEngine
         RenderCommand::BackCull();
         m_ShadowFramebuffer->Unbind();
         RenderCommand::SetViewport(prevViewport.x, prevViewport.y, prevViewport.width, prevViewport.height);
+
+        // Every foliage cull of the frame is behind us. Their slots' overflow
+        // demand is copied out in the frame epilogue (CaptureFoliageCullDemand),
+        // not here: a copy here waits for every shader write before it and so
+        // serialised this pass against the passes after it (#1581).
+        m_FoliageDemandCaptures.Reset();
+        for (const auto& caster : m_FoliageCasters)
+        {
+            if (caster.renderer && !m_FoliageDemandCaptures.Contains(caster.renderer))
+                m_FoliageDemandCaptures.Add(caster.renderer);
+        }
 
         // Clear caster lists for next frame (vectors keep their allocation)
         m_MeshCasters.Reset();
@@ -2068,6 +2081,15 @@ namespace OloEngine
         }
         m_FamilyCaches[1].Update({ footprints.GetData(), static_cast<sizet>(footprints.Num()) }, invalidate);
         footprints.Reset();
+        // FOLIAGE (#1580). What changes its silhouette without motion -- new or
+        // removed plants, an edited layer, a moved terrain -- goes through the
+        // cache like every other family and invalidates every level. Its
+        // MOTION (wind, interaction, a moved eye) no longer marks the whole
+        // footprint deforming in all sixteen levels: each renderer names the
+        // levels its declared displacement can be resolved in, and where
+        // (FoliageShadowInvalidation.h has the policy and its error bound).
+        namespace FSI = FoliageShadowInvalidation;
+        const FSI::Mode foliageMode = FSI::GetMode();
         for (const auto& caster : m_FoliageCasters)
         {
             if (!caster.renderer)
@@ -2075,12 +2097,38 @@ namespace OloEngine
             const auto bounds = caster.renderer->GetShadowBounds();
             if (bounds.Min.x >= std::numeric_limits<f32>::max())
                 continue;
-            // Wind, interactions, card facing and density/mesh LOD depend on
-            // time and the main eye even when the terrain itself is stationary.
-            footprints.Add({ static_cast<u64>(reinterpret_cast<uintptr_t>(caster.renderer)), bounds,
-                             glm::mat4(1.0f), caster.renderer->GetInstanceRegistry().GetGeneration(), true });
+            footprints.Add({ static_cast<u64>(reinterpret_cast<uintptr_t>(caster.renderer)), bounds, glm::mat4(1.0f),
+                             caster.renderer->GetShadowRevision(), foliageMode == FSI::Mode::EveryFrame });
         }
         m_FamilyCaches[2].Update({ footprints.GetData(), static_cast<sizet>(footprints.Num()) }, invalidate);
+
+        const glm::vec3 eye = Renderer3D::GetCullViewPosition();
+        const bool eyeMoved = !m_FoliageVsmEyeValid || !Math::BitwiseEqual(eye, m_FoliageVsmEye);
+        m_FoliageVsmEye = eye;
+        m_FoliageVsmEyeValid = true;
+        const u64 frame = m_FoliageVsmFrame++;
+        if (foliageMode != FSI::Mode::Policy)
+            return;
+        std::array<f32, VSM::kClipLevels> texels{};
+        for (u32 level = 0; level < VSM::kClipLevels; ++level)
+            texels[level] = vsm.GetClipProjections()[level].TexelWorldSize;
+        FoliageRenderer::VsmInvalidationInputs inputs;
+        inputs.TexelWorldSizes = texels;
+        inputs.Clip0HalfExtent = vsm.GetSettings().Clip0HalfExtent;
+        inputs.ClipSelectionBias = vsm.GetSettings().ClipSelectionBias;
+        inputs.Frame = frame;
+        inputs.EyeMoved = eyeMoved;
+        const glm::vec3 origin = Renderer3D::GetRenderOrigin();
+        TArray<FoliageRenderer::VsmInvalidation> entries;
+        for (const auto& caster : m_FoliageCasters)
+        {
+            if (!caster.renderer)
+                continue;
+            caster.renderer->CollectVsmInvalidations(inputs, entries);
+            for (const auto& entry : entries)
+                vsm.AddDynamicInvalidation(entry.WorldBounds.Min - origin, entry.WorldBounds.Max - origin,
+                                           entry.ClipLevelMask);
+        }
     }
 
     u32 ShadowRenderPass::RenderFamilyVirtualViews(VirtualShadowMap& vsm, bool local)
@@ -2147,7 +2195,13 @@ namespace OloEngine
                 if (!caster.renderer)
                     continue;
                 caster.renderer->ResetShadowViewCulling();
-                caster.renderer->DispatchShadowViewCulling(0, caster.renderer->MakeCullInputs(worldVP, Renderer3D::GetCullViewPosition()));
+                // A clip level culls against the dirty pages too (#1580), so a
+                // level holding cached foliage pages draws none of it.
+                caster.renderer->DispatchShadowViewCulling(
+                    0, local ? caster.renderer->MakeCullInputs(worldVP, Renderer3D::GetCullViewPosition())
+                             : caster.renderer->MakeVsmClipCullInputs(worldVP, Renderer3D::GetCullViewPosition(), view,
+                                                                      vsm.GetClipProjections()[view].PageOffset,
+                                                                      vsm.GetHPBHandle()));
             }
             if (foliageCullTimers)
                 foliageCullTimers->EndSubPass();
@@ -2180,6 +2234,13 @@ namespace OloEngine
     void ShadowRenderPass::AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time)
     {
         m_FoliageCasters.Add({ renderer, depthShader, time });
+    }
+
+    void ShadowRenderPass::CaptureFoliageCullDemand()
+    {
+        for (FoliageRenderer* renderer : m_FoliageDemandCaptures)
+            renderer->CaptureCullDemand();
+        m_FoliageDemandCaptures.Reset();
     }
 
     Ref<Framebuffer> ShadowRenderPass::GetTarget() const
@@ -2215,6 +2276,7 @@ namespace OloEngine
         // GroomRenderPass, which resets on the same pipeline reset.
         m_GroomCasters.Reset();
         m_PrevGroomCasters.clear();
+        m_FoliageDemandCaptures.Reset();
         if (m_FramebufferSpec.Width > 0 && m_FramebufferSpec.Height > 0)
         {
             Init(m_FramebufferSpec);

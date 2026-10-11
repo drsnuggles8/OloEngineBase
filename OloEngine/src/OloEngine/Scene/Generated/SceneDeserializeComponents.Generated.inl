@@ -127,6 +127,7 @@ if (auto node = entity["AnimalPathComponent"]; node)
     comp.m_HasOrigin = node["HasOrigin"].as<bool>(comp.m_HasOrigin);
     comp.m_FaceAlongMotion = node["FaceAlongMotion"].as<bool>(comp.m_FaceAlongMotion);
     comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_FollowTerrain = node["FollowTerrain"].as<bool>(comp.m_FollowTerrain);
 }
 
 if (auto node = entity["BoatComponent"]; node)

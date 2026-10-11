@@ -18,6 +18,16 @@ on a hold, so the clip contains both.
 
 Writes HeadRigged.gltf + HeadRigged.bin. The albedo stays the existing
 Textures/lambertian.jpg (the glTF references it; it is not re-encoded).
+HeadSkin also carries Textures/HeadRigged_Thickness.png as a
+KHR_materials_volume thickness texture (issue #1259). That map is baked FROM
+the exported mesh, so a re-rig that moves a vertex is two steps:
+
+    blender -b --python prepare_head_rig.py -- <this_dir>
+    python tools/skin-thickness/bake_thickness.py --mesh <this_dir>/HeadRigged.gltf \\
+        --out <this_dir>/Textures/HeadRigged_Thickness.png
+
+Re-running this script alone keeps the existing map; it refuses to write a
+glTF that names a map that is not there.
 Licence: CC BY 3.0, the same as the scan -- see LICENSE.md and README.md.
 """
 
@@ -35,6 +45,21 @@ PREVIEW_DIR = os.path.abspath(argv[1]) if len(argv) > 1 else None
 
 BUST_HEIGHT = 0.43  # metres, shoulders to crown; puts the head at ~0.2 m wide
 FPS = 30
+ROUGHNESS = 0.42
+
+# THE THICKNESS MAP (issue #1259). Baked from THIS file's own mesh, at its own
+# size, by tools/skin-thickness/bake_thickness.py --mesh HeadRigged.gltf, and
+# encoded as thickness / 20 mm -- so the factor is 20 mm in metres and
+# factor * map is the measured thickness. It is NOT Head.fbx's map
+# (SandboxProject/Assets/Textures/InfiniteScanHead_Thickness.png): that one is
+# measured at DigitalHuman.olo's 0.38 m per unit, and this bust is 1.34x larger.
+THICKNESS_MAP = "Textures/HeadRigged_Thickness.png"
+THICKNESS_FACTOR = 0.02
+# Checked before anything is written: the glTF must never name a missing map.
+if not os.path.isfile(os.path.join(HERE, THICKNESS_MAP)):
+    sys.exit(f"[prepare_head_rig] {THICKNESS_MAP} is missing. Bake it from the exported mesh: "
+             "python tools/skin-thickness/bake_thickness.py --mesh <this_dir>/HeadRigged.gltf "
+             f"--out <this_dir>/{THICKNESS_MAP}")
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
 scene = bpy.context.scene
@@ -169,7 +194,9 @@ for b in pb:
 mat = bpy.data.materials.new("HeadSkin")
 mat.use_nodes = True
 bsdf = mat.node_tree.nodes["Principled BSDF"]
-bsdf.inputs["Roughness"].default_value = 0.5
+# The static reference head's roughness (Scenes/DigitalHuman.olo, Cranium), so
+# the two scans of one face shade alike under the same skin profile.
+bsdf.inputs["Roughness"].default_value = ROUGHNESS
 tex = mat.node_tree.nodes.new("ShaderNodeTexImage")
 tex.image = bpy.data.images.load(os.path.join(HERE, "Textures", "lambertian.jpg"), check_existing=True)
 mat.node_tree.links.new(tex.outputs["Color"], bsdf.inputs["Base Color"])
@@ -216,14 +243,35 @@ bpy.ops.export_scene.gltf(
 
 # The exporter was told not to write images; point the material back at the
 # scan's existing albedo rather than shipping a second 8.6 MB copy of it.
+#
+# baseColorFactor is 1: with no image to export, the exporter wrote the BSDF's
+# unlinked default (0.8) as the factor, which darkened the scan's measured
+# albedo by a fifth.
+#
+# KHR_materials_volume carries the measured thickness map (issue #1259). The
+# engine's importers read its thicknessTexture as the skin thickness map
+# (#1242), so the ear is thin and the skull thick without a per-scene path. The
+# skin KIND and PROFILE cannot ride in a glTF; a scene adds them with a
+# MaterialOverridesComponent on "HeadSkin" (docs/guides/skin-digital-human.md).
+# No KHR_materials_transmission: this is skin, not glass, and the engine's
+# transmission is the skin profile's, not a refractive one.
 with open(out, encoding="utf-8") as f:
     gltf = json.load(f)
-gltf["images"] = [{"uri": "Textures/lambertian.jpg", "mimeType": "image/jpeg"}]
+gltf["images"] = [
+    {"uri": "Textures/lambertian.jpg", "mimeType": "image/jpeg"},
+    {"uri": THICKNESS_MAP, "mimeType": "image/png"},
+]
 gltf["samplers"] = gltf.get("samplers") or [{}]
-gltf["textures"] = [{"source": 0, "sampler": 0}]
+gltf["textures"] = [{"source": 0, "sampler": 0}, {"source": 1, "sampler": 0}]
 for m in gltf.get("materials", []):
     pbr = m.setdefault("pbrMetallicRoughness", {})
     pbr["baseColorTexture"] = {"index": 0}
+    pbr["baseColorFactor"] = [1.0, 1.0, 1.0, 1.0]
+    m.setdefault("extensions", {})["KHR_materials_volume"] = {
+        "thicknessFactor": THICKNESS_FACTOR,
+        "thicknessTexture": {"index": 1},
+    }
+gltf["extensionsUsed"] = sorted(set(gltf.get("extensionsUsed", [])) | {"KHR_materials_volume"})
 with open(out, "w", encoding="utf-8", newline="\n") as f:
     json.dump(gltf, f, indent=1)
 print("[prepare_head_rig] wrote", out)

@@ -11,6 +11,21 @@ python -m venv .venv
 .venv\Scripts\python tools\skin-thickness\bake_thickness.py        # ~30 s, reproduces the committed map
 ```
 
+## The rigged head (issue #1259)
+
+`HeadRigged.gltf` is the same scan re-exported by Blender at another size (a 0.43 m bust, 1.34x the
+size `DigitalHuman.olo` gives `Head.fbx`), so it has its own map, baked from its own vertices:
+
+```powershell
+.venv/Scripts/python tools/skin-thickness/bake_thickness.py --mesh OloEditor/assets/models/InfiniteScanHead/HeadRigged.gltf `
+    --out OloEditor/assets/models/InfiniteScanHead/Textures/HeadRigged_Thickness.png
+```
+
+A `.gltf` mesh is read in metres (`--scale` defaults to 1 for it, 0.38 for an FBX) and its v
+coordinate is flipped to the FBX convention, so both maps share the albedo's image layout. The rig
+keeps every UV of the scan: the two meshes rasterise the same 961 403 texels. `HeadSkin` carries the
+map as a `KHR_materials_volume` thickness texture, factor 0.02.
+
 ## What it measures
 
 For every texel the mesh's UV layout covers, it recovers the surface point and the interpolated
