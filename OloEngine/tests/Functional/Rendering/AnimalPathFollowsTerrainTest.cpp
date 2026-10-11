@@ -194,3 +194,27 @@ TEST(AnimalPathFollowsTerrain, AParentedAnimalStandsOnTheGroundUnderItsWorldPosi
             << "step " << step << ": the parented animal is not on the ground at (" << p.x << ", " << p.z << ")";
     }
 }
+
+// A running scene's gameplay schedule advances the paths itself, so a capture
+// step leaves them alone there; stepping them as well walked the herd at twice
+// the speed. Headless: no terrain, no GPU.
+TEST(AnimalPathFollowsTerrain, ACaptureStepLeavesARunningSceneToItsOwnTick)
+{
+    Ref<Scene> scene = Scene::Create();
+    Entity animal = scene->CreateEntity("Herd 0");
+    auto& path = animal.AddComponent<AnimalPathComponent>();
+    path.m_RadiusX = 12.0f;
+    path.m_RadiusZ = 8.0f;
+    scene->SetRunning(true);
+
+    Benchmark::BenchmarkManifest manifest;
+    manifest.FixedDtSeconds = kDt;
+    for (u32 frame = 0; frame < 30; ++frame)
+    {
+        std::string error;
+        ASSERT_TRUE(Benchmark::ApplyEntityMotion(*scene, manifest, frame, error)) << error;
+    }
+    EXPECT_LT(animal.GetComponent<AnimalPathComponent>().m_ElapsedSeconds, 0.5f * kDt)
+        << "the capture stepped a running scene's paths on top of its own tick";
+    scene->SetRunning(false);
+}

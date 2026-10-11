@@ -694,8 +694,12 @@ namespace OloEngine::Benchmark
                            std::string& outError)
     {
         // The scene's own authored motion first: animal paths advance one fixed
-        // step per rendered frame on both hosts, as the runtime tick would.
-        scene.AdvanceAnimalPaths(Timestep{ manifest.FixedDtSeconds });
+        // step per rendered frame on both hosts, as the runtime tick would. Only
+        // in edit mode: a running scene's gameplay schedule already runs
+        // "AnimalPaths", and stepping it here as well walked the herd at twice
+        // the speed.
+        if (!scene.IsRunning())
+            scene.AdvanceAnimalPaths(Timestep{ manifest.FixedDtSeconds });
         const f32 elapsed = static_cast<f32>(frameIndex) * manifest.FixedDtSeconds;
         for (const auto& motion : manifest.EntityMotions)
         {

@@ -249,6 +249,9 @@ namespace OloEngine::MCP
                 f32 PriorRenderScale = 1.0f;
                 FString GpuVendor;
                 FString GpuRenderer;
+                // Read on the main thread with the rest of the window state, while
+                // the capture's settings are applied (#1259).
+                bool VSync = false;
                 Ref<Scene> StartedStreamer;
             };
             auto applied = std::make_shared<AppliedState>();
@@ -358,6 +361,7 @@ namespace OloEngine::MCP
                     {
                         applied->PriorPose = host.Context().GetCameraPose();
                     }
+                    applied->VSync = Application::Get().GetWindow().IsVSync();
                     if (!isVulkan)
                     {
                         if (const auto* vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR)))
@@ -433,7 +437,9 @@ namespace OloEngine::MCP
                             // paths, which an edit-mode tick never runs (#1259).
                             std::string error;
                             Ref<Scene> active = host.Context().GetActiveScene();
-                            const bool ok = active && Benchmark::ApplyEntityMotion(*active, *manifestCopy, motionFrame, error);
+                            // No scene to move is only a failure when the manifest names a target.
+                            const bool ok = active ? Benchmark::ApplyEntityMotion(*active, *manifestCopy, motionFrame, error)
+                                                   : manifestCopy->EntityMotions.IsEmpty();
                             const u64 frameIndex = host.Context().GetFrameIndex ? host.Context().GetFrameIndex() : 0;
                             return Json{ { "ok", ok }, { "frame", frameIndex } };
                         },
@@ -666,7 +672,7 @@ namespace OloEngine::MCP
             runInfo.MachineTag = Benchmark::ResolveMachineTag({});
             runInfo.Host = "editor-mcp";
             runInfo.Presentation = "window";
-            runInfo.VSync = Application::Get().GetWindow().IsVSync();
+            runInfo.VSync = applied->VSync;
             // Every stepped frame (warm-up, measured, sequence), as the test-binary
             // host counts them; the warm-up count alone dropped the measured frames.
             runInfo.TotalFramesRendered = trajectoryFrame;
