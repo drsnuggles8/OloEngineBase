@@ -1,8 +1,10 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
+
 #include "OloEngine/Core/PerformanceProfiler.h"
 
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Groom/CoatVolumeAdmission.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -1405,7 +1407,7 @@ namespace OloEngine
         return resident;
     }
 
-    bool GroomRenderPass::ReclaimLeastRecentlyUsedCoatVolume()
+    std::optional<u64> GroomRenderPass::ReclaimLeastRecentlyUsedCoatVolume()
     {
         CacheEntry* oldest = nullptr;
         for (auto& [key, entry] : m_Cache)
@@ -1428,10 +1430,11 @@ namespace OloEngine
         }
         if (oldest == nullptr)
         {
-            return false;
+            return std::nullopt;
         }
+        const u64 freed = oldest->CoatBytes;
         ReleaseCoatVolume(*oldest, m_CacheBytes);
-        return true;
+        return freed;
     }
 
     bool GroomRenderPass::BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
@@ -1899,20 +1902,19 @@ namespace OloEngine
         {
             inputs.GrantedSlot = 0u;
         }
-        else if (residentVolumes < kMaxResidentCoatVolumes ||
-                 CountResidentCoatVolumeBytes() + EstimateCoatVolumeBytes(resolution, kCoatVolumeRing) <=
-                     kMaxResidentCoatVolumeBytes)
-        {
-            inputs.GrantedSlot = residentVolumes;
-        }
-        else if (ReclaimLeastRecentlyUsedCoatVolume())
-        {
-            --residentVolumes;
-            inputs.GrantedSlot = residentVolumes;
-        }
         else
         {
-            inputs.GrantedSlot = kNoGroomCoatShadowSlot;
+            // A newcomer takes a slot under the count, or past it while the
+            // bytes still fit, reclaiming least-recently-used volumes until it
+            // does (GroomCoatShadow::AdmitCoatVolume). The resident bytes are
+            // summed once, here, and only once the count is reached.
+            u64 residentBytes = residentVolumes < kMaxResidentCoatVolumes ? 0u : CountResidentCoatVolumeBytes();
+            const bool admitted = GroomCoatShadow::AdmitCoatVolume(residentVolumes, residentBytes,
+                                                                   EstimateCoatVolumeBytes(resolution, kCoatVolumeRing),
+                                                                   { kMaxResidentCoatVolumes, kMaxResidentCoatVolumeBytes },
+                                                                   [this]
+                                                                   { return ReclaimLeastRecentlyUsedCoatVolume(); });
+            inputs.GrantedSlot = admitted ? residentVolumes : kNoGroomCoatShadowSlot;
         }
 
         // WHICH SOURCE THE RESIDENT BAKE CAME FROM must match the one this

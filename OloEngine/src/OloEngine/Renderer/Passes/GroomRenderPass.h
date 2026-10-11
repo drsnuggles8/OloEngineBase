@@ -66,6 +66,7 @@
 #include <unordered_map>
 #include <vector>
 #include <limits>
+#include <optional>
 
 namespace OloEngine
 {
@@ -1197,10 +1198,11 @@ namespace OloEngine
         [[nodiscard]] u64 CountResidentCoatVolumeBytes() const noexcept;
 
         /// Frees the least-recently-used coat volume that is NOT in use this
-        /// frame, so a newly visible coat can take its slot. Returns false when
-        /// every resident volume belongs to a groom drawn this frame, which is
-        /// the honest "budget really is full" case.
-        bool ReclaimLeastRecentlyUsedCoatVolume();
+        /// frame, so a newly visible coat can take its slot, and returns the
+        /// bytes it freed. nullopt when every resident volume belongs to a
+        /// groom drawn this frame, which is the honest "budget really is full"
+        /// case.
+        std::optional<u64> ReclaimLeastRecentlyUsedCoatVolume();
 
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_ParamsUBO;
