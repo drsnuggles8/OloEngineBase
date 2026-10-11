@@ -7433,6 +7433,18 @@ Entities:
       CurrentClipName: LookAround
     SkeletonComponent:
       {}
+    MaterialOverridesComponent:
+      Overrides:
+        - MaterialName: HeadSkin
+          Kind: 2
+          SkinProfile: 15952688685437936278
+          ThicknessFactor: 0.02
+          OverrideBaseColor: false
+          BaseColor: [1, 1, 1, 1]
+          OverrideRoughness: false
+          Roughness: 0.5
+          OverrideMetallic: false
+          Metallic: 0
     RelationshipComponent:
       ParentHandle: 0
       Children:

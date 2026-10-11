@@ -398,6 +398,25 @@ def compose() -> str:
     human, hair, plinth = groom_blocks["Human"], groom_blocks["HumanCoat"], groom_blocks["Plinth"]
     human = set_translation(human, [sx, sy + 1.24, sz])
     human = add_yaw(human, FACE_YAW)
+    # The rigged scan's imported HeadSkin patched to the reference skin
+    # (Kind 2 = Skin, ReferenceHead.oloskin, 20 mm thickness factor); the
+    # measured thickness map rides in HeadRigged.gltf. Key spellings from
+    # Dog.olo. No MaterialComponent: it would override every submesh and
+    # switch the patch off.
+    human = append_component(human, "\n".join([
+        "    MaterialOverridesComponent:",
+        "      Overrides:",
+        "        - MaterialName: HeadSkin",
+        "          Kind: 2",
+        "          SkinProfile: 15952688685437936278",
+        "          ThicknessFactor: 0.02",
+        "          OverrideBaseColor: false",
+        "          BaseColor: [1, 1, 1, 1]",
+        "          OverrideRoughness: false",
+        "          Roughness: 0.5",
+        "          OverrideMetallic: false",
+        "          Metallic: 0",
+    ]))
     plinth = set_translation(plinth, [sx, sy + 0.62, sz])
     human = set_relationship(human, 0, [uuid_of(hair)])
     hair = set_relationship(hair, uuid_of(human), [])
