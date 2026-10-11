@@ -194,15 +194,9 @@ jobs:
     # You can convert this to a matrix build if you need cross-platform coverage.
     # See: https://docs.github.com/en/free-pro-team@latest/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
     #
-    # PINNED to windows-2025 rather than windows-latest (#1009). `windows-latest`
-    # is a rolling alias, and when GitHub rolls it the image's cl.exe changes.
-    # sccache hashes the compiler binary into every cache key, so an image roll
-    # invalidates the ENTIRE sccache in one step -- silently, because the cache
-    # still restores and the build still goes green, just with a 0% hit rate. That
-    # is the measured state of this job: run 33502248619 reported 1516 compile
-    # requests / 0 hits against a snapshot taken six days earlier. A pinned image
-    # makes an image bump a deliberate, reviewable commit that we can pair with the
-    # cache-key bump below.
+    # windows-2025 selects the runner family, not an immutable image/compiler.
+    # Actual image revision and compiler identity are fingerprinted below (#1584)
+    # so an upgrade starts a cold lineage rather than restoring incompatible objects.
     # SELF-HOSTED WHEN THE CODE IS OURS AND THE SWITCH IS ON, hosted windows-2025
     # otherwise -- the same expression shape asan.yml's Linux jobs have used since
     # #1009, and the security reasoning is theirs verbatim: the fork boundary is
@@ -290,6 +284,9 @@ jobs:
         # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
         python -m pip install jinja2==3.1.6
         python -c "import jinja2; print(f'jinja2 {jinja2.__version__} installed at {jinja2.__file__}')"
+
+    - name: Check compiler cache health guard
+      run: python -m unittest discover -s scripts -p test_sccache_health.py
     
     # `id: vulkan` so the sccache key below can carry the version this action
     # actually installed -- see the restore step for why it has to.
@@ -308,6 +305,32 @@ jobs:
       uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
       with:
         arch: x64
+
+    - name: Identify hosted compiler cache lineage
+      id: cache_identity
+      if: runner.environment == 'github-hosted'
+      shell: pwsh
+      env:
+        OLO_CACHE_VULKAN_VERSION: ${{ steps.vulkan.outputs.version }}
+      run: |
+        $compiler = (Get-Command cl.exe).Source
+        $identity = [ordered]@{
+          compiler = $compiler
+          compiler_sha256 = (Get-FileHash -Algorithm SHA256 $compiler).Hash.ToLowerInvariant()
+          msvc = $env:VCToolsVersion
+          windows_sdk = $env:WindowsSDKVersion
+          image = $env:ImageVersion
+          sccache = '0.15.0'
+        }
+        if (-not $identity.image -or -not $identity.msvc -or -not $identity.windows_sdk) {
+          throw 'Hosted compiler/image identity is incomplete'
+        }
+        $json = $identity | ConvertTo-Json -Compress
+        $fingerprint = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
+          [Text.Encoding]::UTF8.GetBytes($json))).ToLowerInvariant()
+        "prefix=sccache-windows-2025-release-vk$env:OLO_CACHE_VULKAN_VERSION-$fingerprint-" >> $env:GITHUB_OUTPUT
+        $json | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/cache-toolchain.json"
+        Write-Host $json
 
     # OLO_VIDEO_FFMPEG defaults ON, so the engine build compiles FFmpeg from source
     # (scripts/build-ffmpeg.sh). That needs nasm + a bash + Visual Studio; windows-2025
@@ -415,14 +438,9 @@ jobs:
     # restore-keys falls back to the most recent prior one, so each run starts
     # warm and banks the superset.
     #
-    # The key carries the runner IMAGE (`windows-2025`), not just "windows". A
-    # hosted image roll swaps cl.exe underneath us, and sccache hashes the
-    # compiler binary -- so every entry taken on the old image becomes a
-    # guaranteed miss while still restoring, downloading and occupying quota.
-    # That is exactly what run 33502248619 showed: 1516 compile requests, 0 hits,
-    # against a snapshot taken six days earlier. `runs-on` is pinned to the same
-    # image; when it is bumped, bump this string with it so the dead entries age
-    # out instead of being restored forever.
+    # The shared prefix includes the actual compiler/image fingerprint (#1584).
+    # A windows-2025 label alone did not pin either. Do not add a broader fallback:
+    # it would restore incompatible objects and make a legitimate upgrade look warm.
     #
     # AND IT CARRIES THE VULKAN SDK VERSION (#1084), for the reason asan.yml's key
     # has carried it since #1118: sccache hashes the PREPROCESSED output, so every TU
@@ -440,13 +458,9 @@ jobs:
     # measured until the next SDK bump. This is a key-shape bug fixed on its own
     # terms, not a lever with a number on it.
     #
-    # `restore-keys` carries the version too, deliberately, and that is the half that
-    # does the work: a bare `sccache-windows-2025-release-` fallback would keep
-    # finding the pre-bump entry and reproduce the half-stale restore above. The cost
-    # is ONE cold build per SDK bump, taken visibly -- and cache-prune.yml strips a
-    # trailing `-vk<version>` when it groups, so the bump supersedes the old entry
-    # rather than stranding 2044 MiB of it for thirty days. That same strip is what
-    # collects the unstamped lineage this rename leaves behind.
+    # Restore and save consume one computed prefix, with the fingerprint after the
+    # Vulkan stamp. cache-prune strips run/attempt, then that hash, then the SDK,
+    # collecting superseded identities under the existing budget rules.
     - name: Restore sccache storage
       id: sccache_restore
       # HOSTED ONLY (#1076). On a persistent runner the sccache directory below is on
@@ -457,9 +471,9 @@ jobs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-windows-2025-release-vk${{ steps.vulkan.outputs.version }}-${{ github.run_id }}-${{ github.run_attempt }}
+        key: ${{ steps.cache_identity.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
         restore-keys: |
-          sccache-windows-2025-release-vk${{ steps.vulkan.outputs.version }}-
+          ${{ steps.cache_identity.outputs.prefix }}
 
     - name: Snapshot restored cache residency
       if: github.event_name == 'workflow_dispatch' && inputs.cache_probe
@@ -548,6 +562,7 @@ jobs:
         }
 
     - name: Build with CMake
+      id: build
       # Build your program with the given configuration
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
 
@@ -564,11 +579,35 @@ jobs:
         & "${{github.workspace}}/scripts/Check-NinjaHeaderDeps.ps1"
         -BuildDir "${{github.workspace}}/build" -Config "${{env.BUILD_TYPE}}"
 
-    # Read the cache hit rate. On a cold cache (first run / after a real source
-    # change) this is mostly writes; on a warm cache a high hit rate means the
-    # build step did almost no compiling.
-    - name: Show sccache stats
-      if: always()
+    # A prefix restore has cache-hit=false; cache-matched-key, not cache-hit,
+    # distinguishes warm from cold. A successful restore alone proves no reuse.
+    - name: Check restored compiler cache health
+      if: always() && runner.environment == 'github-hosted'
+      shell: pwsh
+      env:
+        OLO_CACHE_RESTORED_KEY: ${{ steps.sccache_restore.outputs.cache-matched-key }}
+        OLO_CACHE_BUILD_OUTCOME: ${{ steps.build.outcome }}
+      run: |
+        $stats = sccache --show-stats --stats-format=json
+        if ($LASTEXITCODE -ne 0) { $stats = '' }
+        $stats | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/cache-stats.json"
+        python scripts/check_sccache_health.py --stats "$env:RUNNER_TEMP/cache-stats.json" `
+          --output "$env:RUNNER_TEMP/cache-health.json"
+        exit $LASTEXITCODE
+
+    - name: Upload compiler cache health
+      if: always() && runner.environment == 'github-hosted'
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      with:
+        name: windows-cache-health
+        path: |
+          ${{ runner.temp }}/cache-stats.json
+          ${{ runner.temp }}/cache-health.json
+          ${{ runner.temp }}/cache-toolchain.json
+        if-no-files-found: error
+
+    - name: Show persistent compiler cache statistics
+      if: always() && runner.environment == 'self-hosted'
       run: sccache --show-stats
 
     - name: Report cache residency probe
@@ -636,11 +675,11 @@ jobs:
     # behind. The save is kept on workflow_dispatch so a warm/cold A/B can be measured
     # on a branch (that is how the fix for #1073 was verified).
     - name: Save sccache storage
-      if: always() && runner.environment == 'github-hosted' && github.event_name != 'pull_request' && !inputs.cache_probe
+      if: always() && steps.build.outcome == 'success' && runner.environment == 'github-hosted' && github.event_name != 'pull_request' && !inputs.cache_probe
       uses: ./.github/actions/save-cache-pruned
       with:
         path: ${{ env.SCCACHE_DIR }}
-        key: sccache-windows-2025-release-vk${{ steps.vulkan.outputs.version }}-${{ github.run_id }}-${{ github.run_attempt }}
+        key: ${{ steps.cache_identity.outputs.prefix }}${{ github.run_id }}-${{ github.run_attempt }}
         token: ${{ secrets.GITHUB_TOKEN }}
 
     # Banked here rather than by the combined actions/cache action's post-job
