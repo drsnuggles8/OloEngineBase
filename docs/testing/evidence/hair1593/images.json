@@ -1,0 +1,450 @@
+[
+  {
+    "file": "baseline-front.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/baseline-native/HumanHairNative_GL_Forward_Front.png",
+    "sourceSha256": "dfcda9b7abf411436fe40aeab92ec6d37519dcf70ae17e9b32b310f93f1ee1c5",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-front.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_Front.png",
+    "sourceSha256": "62842a61888a2d71f03b7f789bcbab3e64a45fbc79d8aa517c0522360b538554",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "baseline-threequarter.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/baseline-native/HumanHairNative_GL_Forward_ThreeQuarter.png",
+    "sourceSha256": "a64e05068d9ab5572f070294eb0673e269172c499d6e8f6961355f3aae865b73",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-threequarter.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_ThreeQuarter.png",
+    "sourceSha256": "e7539d905dda84ff5745dc54ba0d574fe725eb09936fe9fb485e95d09f8e60db",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "baseline-crown.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/baseline-native/HumanHairNative_GL_Forward_Crown.png",
+    "sourceSha256": "2d9ae83bf476b76a3ca83307bcdc35b2aa12144fe442954564402477ec1b6ab2",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-crown.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_Crown.png",
+    "sourceSha256": "55be562df39f0d8958bc26dfbe9623fea34cfef0bc9cb423560a48f459051e38",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "baseline-profile.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/baseline-native/HumanHairNative_GL_Forward_Profile.png",
+    "sourceSha256": "907fc7ba4431eb4c38bf506d3eea83670fb59ae3665c594de0ef34bda5c19cb0",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-profile.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_Profile.png",
+    "sourceSha256": "b1f1029643e0f10b1216c06919e1dbe5d991df07608b3b90e24de9e6bb9b9c12",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "baseline-backlit.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/baseline-native/HumanHairNative_GL_Forward_Backlit.png",
+    "sourceSha256": "181a37bb5fcd6968240bb43e31d6ef54dd9449e40d82b0e995bf929fef5e02da",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-backlit.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_Backlit.png",
+    "sourceSha256": "0aaf894eb2a7c6bd208ea43f64e29c9f51616030b915e83d8c8b98632451130f",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-loose.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_Loose.png",
+    "sourceSha256": "7c3f02cf0aa59a3235c0615e264320d2e0373579b06bc929cc61151c2795ed9c",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-packed.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_Packed.png",
+    "sourceSha256": "db392a04abb88851905c85a1640da0de3d260cd909484a2a05439dd94a1a6c38",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-ForwardPlus-Front.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_ForwardPlus_Front.png",
+    "sourceSha256": "c30567d3e9ec56848c6b9533f89d471dd4bf61c9f32fe05aac067fa25830e754",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-ForwardPlus-Crown.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_ForwardPlus_Crown.png",
+    "sourceSha256": "f8a82162e6e4a7fe3637cf5ee7a47cf8cd2c4d9474c6cb8e6bef8c6edf45cad8",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-ForwardPlus-ThreeQuarter.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_ForwardPlus_ThreeQuarter.png",
+    "sourceSha256": "50b9685bf5255f54f2fa17de83535330c2999d0b29e2f4808c5277238f992f41",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-Deferred-Front.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Deferred_Front.png",
+    "sourceSha256": "13b0a0c4c56fbbb2a31f5022c805c6bab9171e08fb67256ed42b3a918408ba78",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-Deferred-Crown.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Deferred_Crown.png",
+    "sourceSha256": "521ccee5137eb5a2bccf3101f8d8b60e258b91a35809e7feeabea55391c78c2b",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-Deferred-ThreeQuarter.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Deferred_ThreeQuarter.png",
+    "sourceSha256": "c7cd7c8291c4b1a76e1a944ffc81ec2080287f026462265147fe494960cbd477",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "VK-deferred-front.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/VK-validation-rest-views/deferred-Front.png",
+    "sourceSha256": "23c8371b873e7d2779b58c7e3da2002a4e3c83ad3a6426600296ccbf85ed4dfa",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "VK-deferred-crown.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/VK-validation-rest-views/deferred-Crown.png",
+    "sourceSha256": "2d1267a065ae452cb62af8f3c9120ab8283e46d365bd81c5ae537e57a9e0ec57",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "VK-deferred-profile.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/VK-validation-rest-views/deferred-Profile.png",
+    "sourceSha256": "edb6d907fa6950651ec70ab4b4571585086549fc393f052c5330175abf11261e",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "VK-deferred-threequarter.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/VK-validation-rest-views/deferred-ThreeQuarter.png",
+    "sourceSha256": "300ba76a598ebeaa2111a9b8a49ef5c35fa72d28e40f5f5195f9f839ccc4208e",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "VK-hybrid.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/VK-validation-rest-hybrid/deferred-hybrid-RT-shadow.png",
+    "sourceSha256": "ae3d1f49784f04f5d378cb7f6532e2a4d2040c9332735d30ca12fc3f4cbf1edf",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-lobe-1.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_Lobe1.png",
+    "sourceSha256": "2208fb79a75d6294ed5659732c50a8f1f38e80de2abf19fc30f6eefb0699a30f",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-lobe-2.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_Lobe2.png",
+    "sourceSha256": "d5a4f093ba7b952cecdca1d2cb508e3c802590cf09a57fcdcd79243b72f5e55d",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-lobe-3.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_Lobe3.png",
+    "sourceSha256": "a7f6383bfa6fb95ebc78999cc4a6751bb4dd3e75ee6fbad8299df254f77288b4",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-lobe-6.webp",
+    "source": "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_Lobe6.png",
+    "sourceSha256": "90b082dd39b06676d2daa336445c1b4a1d1383216b99c343c586d2ec4ce505c6",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "runtime-cold-VK.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/runtime-cold-VK.png",
+    "sourceSha256": "8f568ea2ab5104e9b5d63f0d8a58c9ce2543d95438bcb06659c3f29a0ec85e0f",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "runtime-cold.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/runtime-cold-GL.png",
+    "sourceSha256": "068c58639233009bb9c8c67b142e0990f1227d9b011c59b66e1a6173d079efea",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-Acceptance.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/GL-Acceptance-complete/deferred-Acceptance.png",
+    "sourceSha256": "3ca76dd92af87156dd09df6abd24390dd4f7290ae4f92001a88dbd6f0c427811",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-AcceptanceBacklit.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/GL-Acceptance-complete/deferred-AcceptanceBacklit.png",
+    "sourceSha256": "aac813ee0a7ed618057a163f6f670f7307d0c4734ca14d3d008baebcdb1ca70e",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "VK-Acceptance.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/VK-Acceptance-complete/deferred-Acceptance.png",
+    "sourceSha256": "efd1abb8ea4d30865e9b2a1e6b98f055001e2357cd26120548077b4a7994857f",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "VK-AcceptanceBacklit.webp",
+    "source": ".claude/skills/run-oloengine/shots/hair1593/VK-Acceptance-complete/deferred-AcceptanceBacklit.png",
+    "sourceSha256": "8b04a9e269347d2c36de933de40fc9ca33fa3895a0c1c899e6a7705755b80c5d",
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP"
+  },
+  {
+    "file": "GL-motion.webp",
+    "frames": 9,
+    "sources": [
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_LookAround_5.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_LookAround_45.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_LookAround_150.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_LookAround_230.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_LookAround_340.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_LookAround_445.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_LookAround_515.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_LookAround_600.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Forward_LookAround_724.png"
+    ],
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP",
+    "sampleDisplayDurationMs": 600
+  },
+  {
+    "file": "GL-ForwardPlus-motion.webp",
+    "frames": 9,
+    "sources": [
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_ForwardPlus_LookAround_5.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_ForwardPlus_LookAround_45.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_ForwardPlus_LookAround_150.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_ForwardPlus_LookAround_230.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_ForwardPlus_LookAround_340.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_ForwardPlus_LookAround_445.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_ForwardPlus_LookAround_515.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_ForwardPlus_LookAround_600.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_ForwardPlus_LookAround_724.png"
+    ],
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP",
+    "sampleDisplayDurationMs": 600
+  },
+  {
+    "file": "GL-Deferred-motion.webp",
+    "frames": 9,
+    "sources": [
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Deferred_LookAround_5.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Deferred_LookAround_45.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Deferred_LookAround_150.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Deferred_LookAround_230.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Deferred_LookAround_340.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Deferred_LookAround_445.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Deferred_LookAround_515.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Deferred_LookAround_600.png",
+      "OloEditor/assets/tests/visual/HumanHairNative_GL_Deferred_LookAround_724.png"
+    ],
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP",
+    "sampleDisplayDurationMs": 600
+  },
+  {
+    "file": "VK-motion.webp",
+    "frames": 16,
+    "sources": [
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-00.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-01.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-02.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-03.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-04.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-05.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-06.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-07.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-08.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-09.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-10.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-11.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-12.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-13.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-14.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-full-motion/forward-motion-final.png"
+    ],
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP",
+    "sampleDisplayDurationMs": 600
+  },
+  {
+    "file": "VK-hybrid-motion.webp",
+    "frames": 15,
+    "sources": [
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-00.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-01.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-02.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-03.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-04.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-05.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-06.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-07.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-08.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-09.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-10.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-11.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-12.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-13.png",
+      ".claude/skills/run-oloengine/shots/hair1593/VK-validation-hybrid-motion/deferred-motion-final.png"
+    ],
+    "size": [
+      1920,
+      1080
+    ],
+    "encoding": "lossless WebP",
+    "sampleDisplayDurationMs": 600
+  }
+]

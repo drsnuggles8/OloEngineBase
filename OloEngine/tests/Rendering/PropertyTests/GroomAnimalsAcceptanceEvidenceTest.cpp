@@ -40,6 +40,7 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
@@ -95,6 +96,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -834,19 +836,52 @@ namespace OloEngine::Tests
             return r;
         }
 
-        // Straight hair to the jaw, dark brown. ~0.9 strands per mm² is about
-        // half a real scalp's density, so the width stays near a real hair's.
-        [[nodiscard]] CoatRecipe HumanHairRecipe()
+        // The shipped Blender groom is the human recipe (#1593). Tests must
+        // exercise its locks, hairline and card tier rather than grow another
+        // approximation. OLO_HUMAN_HAIR_ABC selects an authoring archive for
+        // cooking; absent, this reads exactly the groom the scene ships.
+        [[nodiscard]] GrownCoat HumanHairRecipe()
         {
-            CoatRecipe r;
-            r.Name = "HumanHair";
-            r.Seed = 37;
-            r.GuideEvery = 16;
-            r.Layers = {
-                { Region::Scalp, GroomCoatRole::LongHair, 600000.0f, 0.20f, 1.6e-4f, 0.12f, 0.35f, 14, glm::vec3(1.0f),
-                  0.35f, 0.06f, 0.10f, 0.35f },
-            };
-            return r;
+            GrownCoat out;
+            if (const char* abc = std::getenv("OLO_HUMAN_HAIR_ABC"); abc != nullptr && abc[0] != '\0')
+            {
+#if defined(OLO_WITH_ALEMBIC)
+                AlembicGroomImporter::Options options;
+                options.ProvenancePath = "Grooms/HumanSource/Human.abc";
+                const auto imported = AlembicGroomImporter::Import(abc, options);
+                if (!imported.Succeeded())
+                {
+                    ADD_FAILURE() << imported.Diagnostic;
+                    return out;
+                }
+                for (const auto& warning : imported.Warnings)
+                {
+                    ADD_FAILURE() << warning;
+                }
+                EXPECT_TRUE(imported.AuthoredCards);
+                out.Groom = imported.Groom;
+#else
+                ADD_FAILURE() << "authoring Human.abc requires OLO_WITH_ALEMBIC";
+                return out;
+#endif
+            }
+            else
+            {
+                const fs::path file = fs::path{ OLO_TEST_EDITOR_ROOT } /
+                                      "SandboxProject/Assets/Grooms/Animals/Human.ologroom";
+                std::ifstream in(file, std::ios::binary);
+                const std::vector<u8> bytes{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+                std::string reason;
+                if (!GroomSerializer::DecodeFromBytes(bytes.data(), bytes.size(), out.Groom, reason))
+                {
+                    ADD_FAILURE() << file.string() << ": " << reason;
+                    return out;
+                }
+            }
+            out.Strands = out.Groom->GetCurveCount();
+            out.Guides = out.Groom->GetGuideCount();
+            out.PerRegion[static_cast<sizet>(Region::Scalp)] = out.Strands;
+            return out;
         }
     } // namespace
 
@@ -989,7 +1024,7 @@ namespace OloEngine::Tests
                            Subject::Horse, LongCoatRecipe());
             ASSERT_FALSE(HasFatalFailure());
             InstallSubject(m_Human, "Human", "Human", HeadPath(), kHumanPosition, "LookAround", 0.0f,
-                           Subject::HumanHead, HumanHairRecipe());
+                           Subject::HumanHead, {});
             ASSERT_FALSE(HasFatalFailure());
         }
 
@@ -1021,7 +1056,7 @@ namespace OloEngine::Tests
             // maps the body's object space into it.
             const glm::mat4 bodyWorld = out.Body.GetComponent<TransformComponent>().GetTransform();
             const std::vector<SurfaceTriangle> tris = CollectSurface(*surface, *skeleton, bodyWorld, out.Frame, kind);
-            out.Grown = GrowCoat(tris, out.Frame, recipe);
+            out.Grown = kind == Subject::HumanHead ? HumanHairRecipe() : GrowCoat(tris, out.Frame, recipe);
             ASSERT_TRUE(out.Grown.Groom);
 
             // THE COOKED CARD LEVEL (#1252), through the real builder, so what
@@ -1040,6 +1075,10 @@ namespace OloEngine::Tests
                     << reason;
                 out.CardCount = level.GetCurveCount();
                 ASSERT_TRUE(GroomLodBuilder::AttachLodLevels(*out.Grown.Groom, { std::move(level) }, reason)) << reason;
+            }
+            else if (const GroomLodLevel* cards = out.Grown.Groom->FindLodLevel(GroomRepresentation::Card))
+            {
+                out.CardCount = cards->GetCurveCount();
             }
 
             std::printf("[groom-animals] %s: %u strands, %u guides, %u cards;", name.c_str(), out.Grown.Strands,
@@ -1130,12 +1169,18 @@ namespace OloEngine::Tests
             }
             else
             {
-                // Dark brown. At eumelanin 1.6 and intensity 6 the unshadowed
-                // coat washed out to grey under the key light.
+                // The Blender source already varies lengths and gathers locks.
+                // A second per-strand length variation can move its tips into
+                // the shoulders and undo the authored face clearance.
+                coat.m_LengthJitter = 0.0f;
+                // Match the authored head's native-resolution look development.
+                // Keep the cuticle reflection; pigment changes transmitted light.
                 fibre.m_PigmentMode = static_cast<u8>(GroomFibrePigmentMode::Melanin);
-                fibre.m_Eumelanin = 3.0f;
-                fibre.m_Pheomelanin = 0.25f;
-                fibre.m_Intensity = 3.0f;
+                fibre.m_Eumelanin = 0.5f;
+                fibre.m_Pheomelanin = 0.1f;
+                fibre.m_Intensity = 1.0f;
+                fibre.m_LongitudinalRoughness = 0.18f;
+                fibre.m_AzimuthalRoughness = 0.22f;
             }
 
             // #1248, REQUESTED on a bound coat. Since #1426 the pass bakes a
@@ -1162,6 +1207,12 @@ namespace OloEngine::Tests
             auto& sim = coatEntity.AddComponent<GroomSimulationComponent>(); // #1250
             sim.m_Enabled = true;
             sim.m_Collide = true;
+            if (kind == Subject::HumanHead)
+            {
+                sim.m_Stiffness = 2000.0f;
+                sim.m_Damping = 12.0f;
+                sim.m_Gravity = { 0.0f, -4.0f, 0.0f };
+            }
             return coatEntity;
         }
 
@@ -3128,6 +3179,37 @@ namespace OloEngine::Tests
         }
     }
     // =========================================================================
+    // Human-only authoring cook. Export into a scratch directory, inspect the
+    // frames and pair compatibility, then install the pair explicitly. This
+    // never rewrites the horses, registry or scene as a side effect.
+    TEST_F(GroomAnimalsAcceptanceEvidenceTest, ExportsHumanHairPair)
+    {
+        const char* destination = std::getenv("OLO_HUMAN_HAIR_EXPORT");
+        if (destination == nullptr || destination[0] == '\0')
+        {
+            GTEST_SKIP() << "set OLO_HUMAN_HAIR_EXPORT to a scratch output directory";
+        }
+        ASSERT_TRUE(m_Human.Grown.Groom && m_Human.Binding);
+        std::string reason;
+        std::vector<u8> groomBytes, bindingBytes;
+        ASSERT_TRUE(GroomCooker::CookToBytes(*m_Human.Grown.Groom, groomBytes, reason)) << reason;
+        ASSERT_TRUE(GroomBindingCooker::CookToBytes(*m_Human.Binding, bindingBytes, reason)) << reason;
+        const fs::path dir(destination);
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        ASSERT_FALSE(ec) << ec.message();
+        for (const auto& [name, bytes] : { std::pair{ "Human.ologroom", &groomBytes },
+                                           std::pair{ "Human.ologroombinding", &bindingBytes } })
+        {
+            std::ofstream stream(dir / name, std::ios::binary);
+            stream.write(reinterpret_cast<const char*>(bytes->data()), static_cast<std::streamsize>(bytes->size()));
+            stream.close();
+            ASSERT_FALSE(stream.fail()) << name;
+        }
+        std::printf("[human-hair] cooked %u strands and %u guides: %zu groom bytes, %zu binding bytes\n",
+                    m_Human.Grown.Strands, m_Human.Grown.Guides, groomBytes.size(), bindingBytes.size());
+    }
+
     // Not a test: the generator of the LIVE subject. With
     // OLO_GROOM_ANIMALS_EXPORT=1 it cooks the three coats and their bindings
     // into SandboxProject/Assets/Grooms/Animals/, registers them through the

@@ -261,4 +261,6 @@ scripts/steam/generated/
 /OloEditor/assets/tests/visual/TerrainSnow_*
 /OloEditor/assets/tests/visual/GroomSceneShadow_GL_Forward_VsmNearOccluder*
 /OloEditor/assets/tests/visual/VirtualShadowMap_Contact*
+# Native human-hair authoring matrix (#1593); curate review images in docs.
+/OloEditor/assets/tests/visual/HumanHairNative_*.png
 /.v-build/

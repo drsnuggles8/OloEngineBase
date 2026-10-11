@@ -36,6 +36,9 @@
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
+#include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Build/GameBuildPipeline.h"
 #include "OloEngine/Core/YAMLConverters.h"
@@ -56,6 +59,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/SceneCamera.h"
+#include "OloEngine/Groom/GroomGuideSimulation.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
@@ -69,8 +73,10 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstring>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -359,6 +365,8 @@ namespace OloEngine::Tests
         constexpr Pose kFront{ "Front", { 0.0f, 0.02f, 0.62f }, { 0.0f, -0.01f, 0.0f } };
         constexpr Pose kThreeQuarter{ "ThreeQuarter", { 0.42f, 0.04f, 0.46f }, { 0.0f, -0.01f, 0.0f } };
         constexpr Pose kProfile{ "Profile", { 0.62f, 0.02f, 0.0f }, { 0.0f, -0.01f, 0.0f } };
+        constexpr Pose kCrown{ "Crown", { 0.10f, 0.45f, 0.43f }, { 0.0f, 0.03f, 0.0f } };
+        constexpr Pose kHairMotion{ "MotionShoulders", { 0.0f, 0.04f, 0.90f }, { 0.0f, -0.05f, 0.0f } };
         // Front-right, looking back toward the light through the right ear
         // (#1242's exit lobe peaks when the view looks INTO the light).
         constexpr Pose kBacklitEar{ "BacklitEar", { 0.24f, 0.04f, 0.40f }, { 0.06f, -0.04f, 0.0f } };
@@ -768,10 +776,18 @@ namespace OloEngine::Tests
             // number is read from, so a temporal blend cannot be a confound.
             bool Taa = false;
             u32 Frames = 6;
+            u32 Width = kSize;
+            u32 Height = kSize;
         };
 
         [[nodiscard]] bool CaptureFrame(const Settings& s, const Pose& pose, const std::string& name, Capture& out)
         {
+            if (s.Width != m_CaptureWidth || s.Height != m_CaptureHeight)
+            {
+                ResizeRenderTarget(s.Width, s.Height);
+                m_CaptureWidth = s.Width;
+                m_CaptureHeight = s.Height;
+            }
             Renderer3D::GetSkinDiffusionSettings().Enabled = true;
             Renderer3D::GetSkinDiffusionSettings().Quality = SkinDiffusionQuality::High;
             Renderer3D::GetRendererSettings().Path = s.Path;
@@ -785,7 +801,7 @@ namespace OloEngine::Tests
             const ScopedMockTime clock(kCaptureTime);
             PoseCamera(pose);
             RunFrames(s.Frames);
-            if (!ReadbackComposite(out.Pixels, out.Width, out.Height) || out.Width != kSize || out.Height != kSize)
+            if (!ReadbackComposite(out.Pixels, out.Width, out.Height) || out.Width != s.Width || out.Height != s.Height)
                 return false;
             FlipRowsInPlace(out.Pixels, out.Width, out.Height);
             if (!name.empty())
@@ -849,6 +865,8 @@ namespace OloEngine::Tests
         Ref<Texture2D> m_RemovedMap;
         glm::mat4 m_Body = glm::translate(glm::mat4(1.0f), kHumanPosition);
         RenderingPath m_SavedPath = RenderingPath::Forward;
+        u32 m_CaptureWidth = kSize;
+        u32 m_CaptureHeight = kSize;
     };
 
     // The import carries the map, and the scene block makes the head SKIN: the
@@ -999,6 +1017,193 @@ namespace OloEngine::Tests
                 std::printf("[RiggedHead %s %s] frame mean luma %.4f\n", p, pose.Name, all.MeanLuma);
                 EXPECT_GT(all.MeanLuma, 0.02) << p << " " << pose.Name << ": the frame is black";
                 EXPECT_LT(all.MeanLuma, 0.9) << p << " " << pose.Name << ": the frame is blown out";
+            }
+        }
+    }
+
+    // The changed shipping pair goes through the real pack builder and runtime
+    // manager, not a hand-built payload or an editor fallback. The unchanged
+    // head's path-backed dependencies are staged by the scene test above.
+    TEST_F(SkinRiggedHeadCloseUp, NativePackedHairKeepsItsCookedPairAndBinding)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const Settings settings{ RenderingPath::Forward, MaterialDebugView::None, true, 48, 1920, 1080 };
+        Capture loose;
+        ASSERT_TRUE(CaptureFrame(settings, kThreeQuarter, "HumanHairNative_GL_Forward_Loose", loose));
+        const auto profile = AssetManager::GetAsset<SkinProfile>(m_Profile);
+        ASSERT_TRUE(profile);
+        AssetRegistry selected;
+        std::array<AssetHandle, 2> handles{};
+        constexpr std::array<const char*, 2> files{ "Human.ologroom", "Human.ologroombinding" };
+        for (sizet i = 0; i < files.size(); ++i)
+        {
+            const fs::path destination = m_ProjectDir / "Assets" / files[i];
+            fs::copy_file(ProjectRoot() / "Assets/Grooms/Animals" / files[i], destination);
+            handles[i] = m_AssetManager->ImportAsset(destination);
+            ASSERT_NE(static_cast<u64>(handles[i]), 0u);
+            selected.AddAsset(m_AssetManager->GetMetadata(handles[i]));
+        }
+        ASSERT_TRUE(m_AssetManager->SerializeAssetRegistry());
+        AssetPackBuilder::BuildSettings build;
+        build.m_OutputPath = m_ProjectDir / "Game/Assets/AssetPack.olopack";
+        build.m_IncludeScriptModule = false;
+        build.m_IncludeLocalizationFiles = false;
+        std::atomic<f32> progress{ 0.0f };
+        const auto packed = AssetPackBuilder::BuildFromRegistry(selected, build, progress);
+        ASSERT_TRUE(packed.m_Success) << packed.m_ErrorMessage;
+        EXPECT_EQ(packed.m_FailedAssetCount, 0u);
+        struct RestoreManager
+        {
+            Ref<AssetManagerBase> Previous = Project::GetAssetManager();
+            ~RestoreManager()
+            {
+                Project::SetAssetManager(Previous);
+            }
+        } restore;
+        auto runtime = Ref<RuntimeAssetManager>::Create(false);
+        ASSERT_TRUE(runtime->LoadAssetPack(build.m_OutputPath));
+        Project::SetAssetManager(runtime);
+        runtime->AddMemoryOnlyAsset(profile); // unchanged skin control, not hair
+        const auto groom = AssetManager::GetAsset<GroomAsset>(handles[0]);
+        const auto binding = AssetManager::GetAsset<GroomBindingAsset>(handles[1]);
+        ASSERT_TRUE(groom && binding);
+        std::string reason;
+        std::vector<u8> bytes;
+        ASSERT_TRUE(GroomSerializer::EncodeToBytes(*groom, bytes, reason)) << reason;
+        EXPECT_EQ(bytes, ReadBytes(ProjectRoot() / "Assets/Grooms/Animals/Human.ologroom"));
+        ASSERT_TRUE(GroomBindingSerializer::EncodeToBytes(*binding, bytes, reason)) << reason;
+        EXPECT_EQ(bytes, ReadBytes(ProjectRoot() / "Assets/Grooms/Animals/Human.ologroombinding"));
+        m_Coat.GetComponent<GroomComponent>().m_Groom = handles[0];
+        m_Coat.GetComponent<GroomBindingComponent>().m_Binding = handles[1];
+        Capture frame;
+        ASSERT_TRUE(CaptureFrame(settings, kThreeQuarter, "HumanHairNative_GL_Forward_Packed", frame));
+        const auto* pass = Renderer3D::GetGroomRenderPass();
+        ASSERT_NE(pass, nullptr);
+        EXPECT_EQ(pass->GetStats().GroomsBindingRefused, 0u);
+        EXPECT_EQ(pass->GetStats().RootsHeldAtRest, 0u);
+        EXPECT_EQ(pass->GetStats().GroomsDeformed, 1u);
+    }
+
+    // A reproducible standalone distribution for the cold-process asset cell.
+    // Export only on request; ordinary CI exercises the pack round-trip above.
+    TEST_F(SkinRiggedHeadCloseUp, ExportsHumanHairGame)
+    {
+        const char* output = std::getenv("OLO_HUMAN_HAIR_GAME");
+        if (output == nullptr || *output == '\0')
+            GTEST_SKIP() << "Set OLO_HUMAN_HAIR_GAME to a scratch output directory";
+        OLO_ENSURE_GPU_OR_SKIP();
+        const std::array<fs::path, 3> sources{
+            ProjectRoot() / "Assets/Grooms/Animals/Human.ologroom",
+            ProjectRoot() / "Assets/Grooms/Animals/Human.ologroombinding",
+            ProjectRoot() / "Assets/Materials/ReferenceHead.oloskin"
+        };
+        std::array<AssetHandle, 3> handles{};
+        for (sizet i = 0; i < sources.size(); ++i)
+        {
+            const auto destination = m_ProjectDir / "Assets" / sources[i].filename();
+            fs::copy_file(sources[i], destination);
+            handles[i] = m_AssetManager->ImportAsset(destination);
+            ASSERT_NE(static_cast<u64>(handles[i]), 0u);
+        }
+        m_Coat.GetComponent<GroomComponent>().m_Groom = handles[0];
+        m_Coat.GetComponent<GroomBindingComponent>().m_Binding = handles[1];
+        m_Human.GetComponent<MaterialOverridesComponent>().m_Overrides[0].SkinProfile = handles[2];
+        auto& anim = m_Human.GetComponent<AnimationStateComponent>();
+        anim.m_CurrentTime = 0.0f;
+        anim.m_IsPlaying = true;
+        anim.m_PlaybackSpeed = 0.25f;
+        Entity camera = GetScene().CreateEntity("Hair runtime camera");
+        auto& transform = camera.GetComponent<TransformComponent>();
+        transform.Translation = BustToWorld(kHeadCentre + kHairMotion.Eye);
+        transform.SetRotationEuler({ -std::atan2(0.09f, 0.9f), 0.0f, 0.0f });
+        auto& cc = camera.AddComponent<CameraComponent>();
+        cc.Camera.SetPerspective(glm::radians(30.0f), 0.01f, 400.0f);
+        cc.Primary = true;
+        const fs::path scenePath = m_ProjectDir / "Assets/Hair1593.olo";
+        SceneSerializer(GetSceneRef()).Serialize(scenePath.string());
+        ASSERT_NE(static_cast<u64>(m_AssetManager->ImportAsset(scenePath)), 0u);
+        ASSERT_TRUE(m_AssetManager->SerializeAssetRegistry());
+        GameBuildSettings settings;
+        settings.GameName = "HumanHair1593";
+        settings.OutputDirectory = fs::path(output);
+        settings.StartScene = "Hair1593.olo";
+        settings.IncludeScriptModule = false;
+        std::atomic<f32> progress{ 0.0f };
+        const auto built = GameBuildPipeline::Build(settings, progress);
+        ASSERT_TRUE(built.Success) << built.ErrorMessage;
+        EXPECT_TRUE(fs::exists(built.OutputPath / "Assets/AssetPack.olopack"));
+        EXPECT_TRUE(fs::exists(built.OutputPath / "assets/models/InfiniteScanHead/HeadRigged.bin"));
+    }
+
+    // #1593: native-resolution authoring evidence. These are inspected images,
+    // not a numerical realism verdict. Each path uses the same lights and pose,
+    // includes the hair-off control and exposes the physical fibre lobes.
+    TEST_F(SkinRiggedHeadCloseUp, NativeHairAuthoringEvidenceOnEveryPath)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        for (const RenderingPath path : kPaths)
+        {
+            const std::string prefix = std::string("HumanHairNative_GL_") + PathName(path) + "_";
+            const Settings settings{ path, MaterialDebugView::None, true, 48, 1920, 1080 };
+            HoldPose(0.0f);
+            ShowHair(true);
+            for (const Pose& pose : { kFront, kThreeQuarter, kProfile, kCrown, kBacklit })
+            {
+                SetRig(std::string_view(pose.Name) == kBacklit.Name ? Rig::Backlit : Rig::Studio);
+                Capture frame;
+                ASSERT_TRUE(CaptureFrame(settings, pose, prefix + pose.Name, frame));
+                const WindowStats all = Measure(frame, Window{ 0, 0, frame.Width - 1u, frame.Height - 1u });
+                EXPECT_GT(all.MeanLuma, 0.02) << "black evidence frame";
+                EXPECT_LT(all.MeanLuma, 0.9) << "blown evidence frame";
+            }
+            SetRig(Rig::Studio);
+            ShowHair(false);
+            Capture without;
+            ASSERT_TRUE(CaptureFrame(settings, kFront, prefix + "HairOff", without));
+            ShowHair(true);
+            auto& fibre = m_Coat.GetComponent<GroomFibreComponent>();
+            for (const GroomFibreDebugMode lobe : { GroomFibreDebugMode::LobeR, GroomFibreDebugMode::LobeTT,
+                                                    GroomFibreDebugMode::LobeTRT, GroomFibreDebugMode::MultipleScattering })
+            {
+                fibre.m_DebugMode = static_cast<u8>(lobe);
+                Capture tap;
+                ASSERT_TRUE(CaptureFrame(settings, kFront, prefix + "Lobe" + std::to_string(fibre.m_DebugMode), tap));
+            }
+            fibre.m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
+
+            // Advance the real Scene continuously through both turns and the
+            // nod, rather than substituting static poses for motion evidence.
+            auto& anim = m_Human.GetComponent<AnimationStateComponent>();
+            anim.m_CurrentTime = 0.0f;
+            anim.m_IsPlaying = true;
+            u32 playedFrames = 0;
+            for (const f32 time : { 0.05f, 0.45f, 1.5f, 2.3f, 3.4f, 4.45f, 5.15f, 6.0f, 7.24f })
+            {
+                Settings moving = settings;
+                const u32 targetFrames = static_cast<u32>(std::ceil(time * 60.0f));
+                moving.Frames = std::max(1u, targetFrames - playedFrames);
+                playedFrames += moving.Frames;
+                Capture frame;
+                ASSERT_TRUE(CaptureFrame(moving, kHairMotion,
+                                         prefix + "LookAround_" + std::to_string(std::lround(time * 100.0f)), frame));
+                const auto pass = Renderer3D::GetGroomRenderPass();
+                ASSERT_TRUE(pass);
+                const GroomRenderStats& stats = pass->GetStats();
+                EXPECT_EQ(stats.GroomsBindingRefused, 0u);
+                EXPECT_EQ(stats.RootsHeldAtRest, 0u);
+                EXPECT_GE(stats.GroomsDeformed, 1u);
+                const auto* guides = GetScene().FindGroomGuideSimulation(m_Coat.GetUUID());
+                ASSERT_TRUE(guides && guides->Initialized);
+                ASSERT_EQ(guides->Curr.size(), guides->LastTargets.size());
+                f32 worstDeviation = 0.0f;
+                for (sizet i = 0; i < guides->Curr.size(); ++i)
+                {
+                    worstDeviation = std::max(worstDeviation, glm::length(guides->Curr[i] - guides->LastTargets[i]));
+                }
+                // The rest tips clear the shoulders by 24 mm. Retain a margin
+                // through the authored motion; the old rope-soft setting let
+                // the scalp arcs collapse by centimetres despite valid binding.
+                EXPECT_LT(worstDeviation, 0.015f);
             }
         }
     }
