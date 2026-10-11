@@ -84,4 +84,218 @@ Every manifest carries the same five cameras, each with its own warm-up:
 
 ## Results
 
-*(filled in by the rebaseline and the final runs)*
+**The gate is not met on any cell.** Every camera of every counted run misses 16.667 ms p95, on both
+backends and all three raster paths, and in the hybrid cell on Vulkan. Nothing was disabled or
+thinned to get closer. Each miss below is attributed to the pass or CPU scope that causes it, and each
+cause has an open issue (see *Open work*).
+
+Hardware: NVIDIA GeForce RTX 4090 (driver 617.14), Intel Core i7-14700KF, Windows 11 (10.0.22631),
+64 GB. Build: Release with symbols, clang-cl, `dev-cached` tree. Native 1920x1080, VSM on, TAA on,
+MSAA off. The GL protocol checked for other GPU load before and during every run and found none; the
+live Vulkan sessions ran outside that check.
+
+### OpenGL: test host, controlled protocol
+
+`acceptance-benchmark.py`, three fresh-process interleaved runs per cell, 300 measured frames per
+camera after its warm-up; frame time is the wall-clock `Scene::OnUpdateEditor` call. Ranges are
+min–max over the three counted runs. Full per-pass tables:
+[gl-summary.md](../testing/evidence/integrated-acceptance-1259/gl-summary.md).
+
+| cell | camera | frame p50 | p95 | p99 | CPU p50 | GPU p50 | top GPU passes (p50 ms) |
+|---|---|---:|---:|---:|---:|---:|---|
+| Forward | head-closeup | 283–341 | 321–407 | 344–430 | 281–337 | 123–148 | GroomPass 115.5, ShadowPass 24.5, FoliagePass 9.1 |
+| Forward | head-backlit | 43–48 | 68–72 | 73–76 | 42–46 | 24–29 | ShadowPass 9.9, FoliagePass 7.6, GroomPass 4.7 |
+| Forward | coats-closeup | 138–149 | 168–173 | 176–191 | 136–147 | 68–78 | ShadowPass 37.9, FoliagePass 22.6, GroomPass 10.9 |
+| Forward | population-dolly | 193–215 | 270–303 | 318–347 | 191–213 | 90–116 | ShadowPass 58.5, FoliagePass 20.3, GroomPass 19.0 |
+| Forward | rapid-turn | 81–84 | 210–229 | 242–253 | 80–83 | 63–66 | ShadowPass 44.1, FoliagePass 14.4, GroomPass 3.8 |
+| Forward+ | head-closeup | 291–325 | 336–379 | 349–399 | 288–322 | 133–140 | GroomPass 108.7, ShadowPass 24.0, FoliagePass 9.2 |
+| Forward+ | head-backlit | 44–46 | 66–68 | 70–72 | 43–45 | 24–25 | FoliagePass 9.5, ShadowPass 8.9, GroomPass 3.8 |
+| Forward+ | coats-closeup | 138–149 | 167–168 | 181–186 | 137–148 | 69–71 | ShadowPass 35.1, FoliagePass 19.9, GroomPass 10.0 |
+| Forward+ | population-dolly | 193–208 | 272–295 | 329–334 | 191–206 | 85–87 | ShadowPass 46.9, GroomPass 18.0, FoliagePass 15.6 |
+| Forward+ | rapid-turn | 78–85 | 214–238 | 250–258 | 77–83 | 63–64 | ShadowPass 42.0, FoliagePass 14.0, GroomPass 3.7 |
+| Deferred | head-closeup | 321–337 | 351–443 | 369–617 | 318–334 | 147–152 | GroomPass 120.3, ShadowPass 24.3, ScenePass 5.2 |
+| Deferred | head-backlit | 45–48 | 67–72 | 69–77 | 43–47 | 27–29 | ScenePass 11.8, ShadowPass 9.5, GroomPass 4.9 |
+| Deferred | coats-closeup | 150–161 | 175–190 | 183–201 | 149–159 | 63–77 | ShadowPass 44.8, GroomPass 13.2, ScenePass 10.9 |
+| Deferred | population-dolly | 205–226 | 291–320 | 324–417 | 204–223 | 89–107 | ShadowPass 51.6, GroomPass 21.9, ScenePass 12.9 |
+| Deferred | rapid-turn | 82–97 | 220–261 | 239–306 | 80–96 | 59–64 | ShadowPass 45.1, ScenePass 9.7, GroomPass 4.8 |
+
+GPU memory (#1342 report): live 1674 MiB (Forward, Forward+) and 1761 MiB (Deferred); peak 4253 and
+4340 MiB. Largest owners: ShadowPass 501 MiB, GroomPass 412 MiB, unattributed 197 MiB, transient pool
+166 MiB, foliage pinned representations 124 MiB. The process's resident set exceeds the test host's
+6 GB guard, so these runs pass `--olo-rss-ceiling-mb=0` (the plan's `testHostArgs`; #1591).
+
+### Vulkan: live editor
+
+The editor host's capture reopens the scene, and that load outlasts the MCP main-thread wait, so every
+capture attempt failed (#1591). The Vulkan cells were measured live with
+`scripts/perf/acceptance-live.py` on one editor that opened the scene once: Release, `--rhi=vulkan`, ThrottleEditMode off, three passes over every
+cell and camera, the last 120 completed frames after a 6 s settle. Frame time here is the completed
+frame interval and the editor animates on its own clock with the animal paths still, so these are
+live observations, never pooled with the GL rows. Ranges are over the three passes. Raw data:
+[evidence/integrated-acceptance-1259/vulkan-live/](../testing/evidence/integrated-acceptance-1259/vulkan-live/).
+
+| cell | camera | frame p50 | p95 | p99 | CPU p50 | GPU p50 |
+|---|---|---:|---:|---:|---:|---:|
+| Forward | head-closeup | 160–185 | 208–427 | 484–902 | 157–179 | 73–104 |
+| Forward | head-backlit | 28–30 | 49–52 | 51–59 | 26–28 | 17–19 |
+| Forward | coats-closeup | 82–86 | 93–204 | 99–375 | 80–84 | 44 |
+| Forward | population-dolly | 125–141 | 153–688 | 159–1059 | 122–136 | 45–51 |
+| Forward | rapid-turn | 97–104 | 121–130 | 129–3090 | 94–99 | 34–39 |
+| Forward+ | head-closeup | 169–191 | 228–466 | 319–918 | 165–186 | 83–108 |
+| Forward+ | head-backlit | 29–32 | 50–57 | 52–61 | 27–30 | 18–19 |
+| Forward+ | coats-closeup | 85–88 | 97–109 | 102–195 | 83–85 | 43–44 |
+| Forward+ | population-dolly | 131–135 | 154–532 | 1103–1127 | 126–130 | 46–49 |
+| Forward+ | rapid-turn | 98–102 | 123–272 | 139–573 | 94–99 | 36–38 |
+| Deferred | head-closeup | 180–192 | 228–347 | 386–884 | 175–187 | 86–115 |
+| Deferred | head-backlit | 28–30 | 49–51 | 50–56 | 27–29 | 18–19 |
+| Deferred | coats-closeup | 85–89 | 95–101 | 100–220 | 83–87 | 41–42 |
+| Deferred | population-dolly | 127–140 | 162–571 | 978–1093 | 123–134 | 42–47 |
+| Deferred | rapid-turn | 97–101 | 120–369 | 126–510 | 94–97 | 37–38 |
+| Hybrid | head-closeup | 237–264 | 303–473 | 420–1199 | 234–260 | 86–93 |
+| Hybrid | head-backlit | 67–74 | 83–94 | 89–103 | 66–73 | 21–26 |
+| Hybrid | coats-closeup | 144–149 | 166–274 | 178–736 | 142–147 | 48–49 |
+| Hybrid | population-dolly | 209–228 | 257–546 | 1293–2107 | 206–223 | 58–63 |
+| Hybrid | rapid-turn | 168–190 | 211–233 | 224–251 | 165–187 | 44–47 |
+
+**Hybrid never traces at these cameras.** The hybrid rows come from a second editor session, after
+the generator was fixed to make every shadowed light request the ray-traced tier (the first
+session's hybrid cell traced no light at all and measured as Deferred). With the tier armed, the
+TLAS holds 111–369 instances and all 44 coats are represented, but the vegetation planner leaves
+94–144 of its 148–431 casting groups out over the per-frame build budget, so the shadow TLAS is
+withheld (`pressure: frameWork`) at every camera and the lights take the counted raster fallback.
+That is #1578, which area-sized card groups narrowed but did not close. The cell still pays
+26–75 ms of CPU in `Vegetation::Queue` for proxies no ray reads.
+
+Arming the lights exposed a bug, fixed on this branch: the vegetation and groom producers ran on
+every Deferred frame whose lights asked for the tier, even with raster shadows. That cost the Deferred
+cell 24–39 ms (frame p50 72 → 30 ms at head-backlit, 190 → 136 ms at population-dolly after the fix).
+The Forward, Forward+ and Deferred rows above come from the first session, which had neither the
+light requests nor the waste, and agree with the post-fix Deferred check within 10%.
+
+GPU memory at the end of the session: live 2.75 GiB, peak 6.26 GiB; ShadowPass 696 MiB, ShadowMap
+640 MiB, unattributed 427 MiB, transient pool 273 MiB, GroomPass 199 MiB. The editor process held
+6.6–6.8 GB of private memory throughout, and a reload of the scene peaks at 12.9 GB for about 30 s
+(#1591). The editor log has no shader error; it warns that the groom strand cache runs 50–85 MiB
+over its 1 GiB budget at the head close-up with every entry in use (1.3–1.6 GiB over while the scene loads), and that the VSM's lamps
+cast no groom shadow (below).
+
+**Validation.** A separate walk ran the Release editor under the Khronos validation layer (forced
+with `VK_LOADER_LAYERS_ENABLE`; core, synchronization, object-lifetime and thread-safety checks
+on, errors and warnings logged to a file, no message limit) through the scene load and every cell at
+every camera: **no error and no warning**. The control for that empty file: the same launch with
+`info` added logs `CURRENT-VALIDATION-ENABLED` and the checks it runs. The GL runs' logs carry no
+shader compile or link error, and every load deserialises all 96 entities.
+
+### Where the time goes
+
+**The frame is CPU-bound on both backends.** CPU p50 is within 2–4 ms of frame p50 on every row
+above. An attribution pass on the same Vulkan editor (Deferred, `--scope-samples 8 --groom-stats`,
+CPU scopes averaged over 8 frames; scopes nest, so columns do not add):
+
+| camera | frame p50 | `Scene::OnUpdateEditor` | `Groom::Deform` | `UploadDeformation` | `Simulate` | `RootEvaluate` | `PackFrame` | `RG::Execute` | coats strand / card |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| head-closeup | 196 | 218 | 94 | 70 | 49 | 44 | 34 | 115 | 1 / 43 |
+| head-backlit | 30 | 50 | 7 | 9 | 3 | 3 | 3 | 40 | 1 / 2 |
+| coats-closeup | 96 | 177 | 59 | 64 | 27 | 31 | 34 | 111 | 2 / 16 |
+| population-dolly | 137 | 268 | 128 | 119 | 63 | 63 | 60 | 131 | 2 / 36 |
+| rapid-turn | 107 | 109 | 59 | 38 | 31 | 28 | 20 | 44 | 0 / 28 |
+
+1. **Bound-coat deformation on the main thread** (59–128 ms wherever the herd is in view). Every
+   published coat runs guide simulation, root evaluation, packing and the deformation upload,
+   whatever tier it is drawn at, and 16–43 of the coats in view are on the card tier. The view
+   cull this branch adds removes coats outside the frustum and its shadow sweep; it cannot help the
+   ones in view. A card-tier simulation skip was tried here and reverted (it broke seven groom
+   tests); #1588.
+2. **Render-graph recording** (`RG::Execute`, 40–131 ms of CPU). Per-pass CPU puts `GroomPass` at
+   34–76 ms of it and `ShadowPass` at 5–11 ms, every other pass under 1 ms: the strand pass's CPU
+   side, which acquires each coat's deformed geometry before recording, is the second groom cost on
+   the main thread (#1588).
+3. **GroomPass on OpenGL** at the head close-up: 88–120 ms of GPU, of which `GroomPass/RootFrames`
+   is 36–75 ms and about 45 ms falls outside every GroomPass sub-bracket. Single-frame snapshots of
+   the same framing on Vulkan read 5–26 ms (`RootFrames` 7 ms), so the GL deformation upload path
+   is the suspect (#1589).
+4. **ShadowPass** with VSM: 35–59 ms on GL and 24–31 ms on Vulkan at the outdoor cameras. Its only
+   foliage brackets read under 0.2 ms, so the cost is unattributed beyond them. A CSM control run
+   (`acceptance-forward-csm`, one GL run, ShadowPass p50) splits it:
+
+   | camera | VSM (gate) | CSM | `ShadowPass/FoliageCasters` under CSM |
+   |---|---:|---:|---:|
+   | head-closeup | 18–25 | 940 | 66 |
+   | head-backlit | 9–10 | 538 | 33 |
+   | coats-closeup | 35–45 | 149 | 2 |
+   | population-dolly | 47–59 | 25 | 3 |
+   | rapid-turn | 42–45 | 149 | 3 |
+
+   Where no shadowed lamp is near, the VSM costs the sun 25–35 ms more than CSM. Where one is (the
+   head's key and side lights, the lantern over the horses), CSM sends the lamps through the shadow
+   atlas, and that route costs 0.1–0.9 s of GPU, almost none of it in the foliage bracket. Which
+   casters it spends that on (the head's 232k-strand hair, the coats or the meshes) is not
+   bracketed. The atlas is also the only route where lamps shadow grooms: under the VSM the lamps
+   skip the grooms entirely (below), so part of the VSM's lead at those cameras is a missing
+   feature rather than a saving (#1590, #1592).
+5. **Frame-time tails on Vulkan**: the p95/p99 spread at the dolly and rapid-turn cameras is CPU
+   hitches of 0.65–2.1 s (GPU time unchanged in those frames), which grew over the session. They did
+   not recur in 1,082 frames polled one CPU-scope snapshot per frame at the same poses, so their
+   cause is not attributed here (#1594).
+
+### What the captures show
+
+Every gate camera on every GL raster path is committed as `Acceptance_GL_<Path>_<camera>.png` under
+`OloEditor/assets/tests/visual/`, written by `AcceptanceSceneTest.EveryGateCameraSeesItsSubjectOnEveryRasterPath`.
+Motion footage and AOVs come from the GL test host (`acceptance-*-motion`, one frame every second
+frame for 2 s per camera, at the protocol's fixed 1/60 s step with the animal paths walking) and
+are in [evidence/integrated-acceptance-1259/](../testing/evidence/integrated-acceptance-1259/):
+
+* `GL_Deferred_<camera>.webp`: the Beauty sequence for each of the five cameras, animated.
+* `GL_<Path>_<camera>_aov.jpg`: six evenly spaced frames per row. Deferred has Beauty, Albedo,
+  Normals and Velocity; Forward and Forward+ have Beauty and Velocity. Velocity PNGs are min–max
+  normalised per frame over all channels, so their tones compare within a frame only.
+* `GL_Deferred_lighting_taps.jpg`: the five lighting terms (#1526) at the head and coat close-ups.
+  These AOVs found a bug, fixed on this branch: the strand shader never read the tap, so every coat
+  carried its full colour into all five terms. It now splits the cuticle reflection (specular) from
+  the light that entered the fibre (diffuse), and lights from the environment, and
+  `LightingTapEvidenceTest` holds a lit tuft to the partition.
+
+The footage shows the herd walking through the grass on the terrain, the horses walking under the
+moving lantern, and the head turning with its hair following the body it is bound to.
+
+Known shortfalls in the picture, all open:
+
+* **No separable eyes or mouth** on the scan head (#1402), so criterion 1's eye and mouth part is unmet.
+* **The head's hair** reads as a thin, smeared veil over the forehead and eyes (#1593): the crown is
+  sparse and the strands hang straight over the cheek and past the shoulder line without resolving
+  into clumps. The lighting taps show why it reads grey: the pigment is dark brown, and the cuticle
+  sheen (the R lobe, from the environment above all) is a broad grey on top of it. Vulkan shows the
+  same (`VK_Hybrid_head-*.jpg`).
+* **Lamps cast no groom shadow under VSM**: the head's key and side lights and the moving lantern are
+  served by the VSM's local-light layers, which grooms never enter, so only the sun shadows the hair
+  and coats. (#1592)
+* **Herd coats do not cast into the scene shadow maps** (the hero and four featured foxes do): an
+  authoring choice from the fox-coat work, because each casting coat holds caster entries per shadow
+  step. Herd bodies still cast.
+* Deferred cannot take a dynamic internal scale (#1537), and skinned virtual geometry has no RT proxy
+  (#1525); those cells are recorded as unreachable rather than measured.
+
+Not measured in this pass: the `acceptance-*-upscale-quality` manifests and the Forward+ and Deferred
+`-csm` manifests. They are generated and pass the terrain-clearance check; one Forward CSM run is the
+control above. With every camera missing the gate by 3x or more at native resolution, an upscaled cell
+would not change the verdict, and the CPU-bound frame would not get faster at a lower internal scale.
+
+### Open work
+
+| Issue | What it holds | Gate cells it moves |
+|---|---|---|
+| #1588 | bound-coat deformation and the strand pass's CPU side on the main thread (59–128 ms + 34–76 ms with the herd in view) | every outdoor and head camera, both backends |
+| #1589 | GroomPass on OpenGL: `RootFrames` 36–75 ms and ~45 ms unbracketed at the head close-up | GL head-closeup |
+| #1590 | ShadowPass outside its brackets: the VSM sun (+25–35 ms over CSM) and the lamp atlas route (0.1–0.9 s) | every outdoor camera; CSM control |
+| #1591 | a 12.9 GB load transient, the strand cache 1.5 GiB over budget at load, and the editor-host capture timing out on the load | Vulkan protocol runs; GL RSS guard |
+| #1594 | 0.65–2.1 s CPU hitches in the live Vulkan editor | Vulkan p95/p99 |
+| #1578 | the vegetation build budget withholds the RT TLAS at every acceptance camera | Vulkan hybrid |
+| #1592 | VSM lamps cast no groom shadow | picture (head, horses) |
+| #1593 | the head's hair below the film-quality bar | picture (head) |
+| #1402 | no separable eyes or mouth | criterion 1 |
+| #1537, #1525 | Deferred dynamic scale; RT proxy for skinned virtual geometry | unreachable cells |
+| #1580 | VSM foliage invalidation: the decided policy and the dirty-page group cull ship here (Vulkan traversal VSM frame 39 → 15 ms); GL ShadowPass remains the largest pass (#1590) | left open for the owner to judge |
+
+#1581 (cull streams sized by survivors, foliage floor 371 → 147 MB) is delivered by this branch. #1582
+(the layer-rebuild spike) stays open as decided: it does not occur in the acceptance trajectories.

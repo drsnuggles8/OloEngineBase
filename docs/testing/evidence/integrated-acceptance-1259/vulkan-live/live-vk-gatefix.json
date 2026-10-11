@@ -1,0 +1,4565 @@
+{
+ "manifest": "..\\..\\OloEditor\\assets\\benchmark\\manifests\\acceptance-deferred.yaml",
+ "scene": "Scenes/Benchmark/Acceptance.olo",
+ "gateMs": 16.667,
+ "framesPerCamera": 120,
+ "settleSeconds": 6.0,
+ "runs": [
+  {
+   "repeat": 0,
+   "cell": "deferred",
+   "camera": "head-closeup",
+   "rayTracedShadows": false,
+   "frameTimeMs": {
+    "count": 120,
+    "p50Ms": 173.46,
+    "p95Ms": 526.76,
+    "p99Ms": 11387.99,
+    "maxMs": 12626.33,
+    "deadlineMisses": 105
+   },
+   "cpuMs": {
+    "count": 120,
+    "p50Ms": 168.77,
+    "p95Ms": 340.34,
+    "p99Ms": 10446.4,
+    "maxMs": 12032.75,
+    "deadlineMisses": 104
+   },
+   "gpuMs": {
+    "count": 120,
+    "p50Ms": 82.6,
+    "p95Ms": 261.47,
+    "p99Ms": 6208.9,
+    "maxMs": 9756.36,
+    "deadlineMisses": 103
+   },
+   "fenceWaitMs": {
+    "count": 120,
+    "p50Ms": 0.0,
+    "p95Ms": 0.01,
+    "p99Ms": 0.02,
+    "maxMs": 0.03,
+    "deadlineMisses": 0
+   },
+   "presentWaitMs": {
+    "count": 120,
+    "p50Ms": 172.67,
+    "p95Ms": 428.65,
+    "p99Ms": 11136.89,
+    "maxMs": 12347.57,
+    "deadlineMisses": 103
+   },
+   "topPasses": [
+    {
+     "pass": "GroomPass",
+     "gpuMs": 15.026,
+     "subPasses": {
+      "RootFrames": 1.462,
+      "StrandPrepass": 0.065,
+      "StrandShade": 0.075
+     }
+    },
+    {
+     "pass": "ShadowPass",
+     "gpuMs": 11.685,
+     "subPasses": {
+      "FoliageCull": 0.894,
+      "FoliageCasters": 0.003
+     }
+    },
+    {
+     "pass": "ScenePass",
+     "gpuMs": 2.749,
+     "subPasses": {
+      "DepthPrepass": 1.455,
+      "LightCulling": 0.101,
+      "Color": 1.136
+     }
+    },
+    {
+     "pass": "GTAOPass",
+     "gpuMs": 1.359,
+     "subPasses": {
+      "HZB": 0.094,
+      "GTAO": 1.121,
+      "GTAO_Denoise": 0.118
+     }
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "gpuMs": 0.955,
+     "subPasses": {}
+    },
+    {
+     "pass": "SkinDiffusionPass",
+     "gpuMs": 0.373,
+     "subPasses": {}
+    }
+   ],
+   "topCpuPasses": [
+    {
+     "pass": "GroomPass",
+     "cpuMs": 58.998
+    },
+    {
+     "pass": "ShadowPass",
+     "cpuMs": 12.254
+    },
+    {
+     "pass": "ScenePass",
+     "cpuMs": 0.495
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "cpuMs": 0.136
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "cpuMs": 0.102
+    },
+    {
+     "pass": "GTAOPass",
+     "cpuMs": 0.066
+    }
+   ],
+   "groomStats": {
+    "groom": {
+     "byRepresentation": [
+      {
+       "bytes": 181761760,
+       "grooms": 1,
+       "representation": "Strand",
+       "strands": 44235
+      },
+      {
+       "bytes": 284788256,
+       "grooms": 43,
+       "representation": "Card",
+       "strands": 372774
+      },
+      {
+       "bytes": 0,
+       "grooms": 0,
+       "representation": "Mesh",
+       "strands": 0
+      }
+     ],
+     "dominantFallbackReason": "the apparent size selects the shell tier, which the measured comparison did not select (see docs/analysis/groom-representation-lod-1252.md)",
+     "groomsAtCompensationCap": 1,
+     "groomsFellBack": 2,
+     "groomsOnSelectedTier": 42,
+     "groomsSubmitted": 44,
+     "maxWidthCompensation": 8.0,
+     "representationChanges": 0,
+     "segmentsDrawn": 2703155,
+     "strandsDrawn": 417009
+    },
+    "coatShadow": {
+     "bakeMicroseconds": 26518,
+     "deformedRebakes": 3,
+     "dominantFallbackReason": "None",
+     "fallback": 0,
+     "maxDriftVoxels": 0.0,
+     "rebuilds": 3,
+     "residentBytes": 9779584,
+     "resolutionInForce": 64,
+     "shadowed": 44,
+     "unshadowedByChoice": 0
+    },
+    "sceneShadow": {
+     "atlasDraws": 0,
+     "cascadeDraws": 0,
+     "groomsAskedToCast": 5,
+     "groomsCasting": 5,
+     "segmentsCast": 651796,
+     "segmentsWhole": 2576520,
+     "virtualShadowLevelDraws": 9
+    },
+    "animalBudget": {
+     "animalsAtDesired": 1,
+     "animalsAtPoseStepCap": 0,
+     "animalsAtVisibilityFloor": 0,
+     "animalsCapHeld": 40,
+     "animalsCoarsened": 0,
+     "animalsConsidered": 41,
+     "animalsHeldByHysteresis": 0,
+     "budgetExceeded": true,
+     "byAxis": [
+      {
+       "axis": "Deformation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 413.2798156738281,
+       "scheduledCostUnits": 413.2798156738281,
+       "shareOfScheduled": 0.005914788693189621
+      },
+      {
+       "axis": "Simulation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 49055.7890625,
+       "scheduledCostUnits": 49055.7890625,
+       "shareOfScheduled": 0.7020778656005859
+      },
+      {
+       "axis": "Visibility",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 8545.580078125,
+       "scheduledCostUnits": 8545.580078125,
+       "shareOfScheduled": 0.12230285257101059
+      },
+      {
+       "axis": "Shadow",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 77384.9296875,
+       "scheduledCostUnits": 11324.623046875,
+       "shareOfScheduled": 0.16207602620124817
+      }
+     ],
+     "drawCallCostUnits": 533.0,
+     "drawCalls": 82,
+     "enabled": true,
+     "estimatedCostUnits": 69872.2890625,
+     "frameBudgetUnits": 6000.0,
+     "heroesCoarsened": 0,
+     "heroesConsidered": 1,
+     "maxStarvedFrames": 102,
+     "stepChanges": 0
+    }
+   },
+   "cpuScopes": [
+    {
+     "scope": "EditorLayer::OnUpdate",
+     "meanMs": 196.115
+    },
+    {
+     "scope": "Scene::OnUpdateEditor",
+     "meanMs": 196.089
+    },
+    {
+     "scope": "Renderer3D::EndScene",
+     "meanMs": 97.042
+    },
+    {
+     "scope": "RG::Execute",
+     "meanMs": 96.691
+    },
+    {
+     "scope": "Scene::PublishGroomStrandRequests",
+     "meanMs": 94.46
+    },
+    {
+     "scope": "Groom::Request",
+     "meanMs": 94.375
+    },
+    {
+     "scope": "Groom::Deform",
+     "meanMs": 93.241
+    },
+    {
+     "scope": "Groom::UploadDeformation",
+     "meanMs": 55.891
+    },
+    {
+     "scope": "Groom::Simulate",
+     "meanMs": 47.999
+    },
+    {
+     "scope": "Groom::RootEvaluate",
+     "meanMs": 44.561
+    },
+    {
+     "scope": "Groom::PackFrame",
+     "meanMs": 28.239
+    },
+    {
+     "scope": "Groom::CasterPose",
+     "meanMs": 1.866
+    },
+    {
+     "scope": "EditorLayer::OnImGuiRender",
+     "meanMs": 0.644
+    },
+    {
+     "scope": "RayTracing::SceneUpdate",
+     "meanMs": 0.126
+    },
+    {
+     "scope": "Renderer3D::CompileFrameGraph",
+     "meanMs": 0.089
+    }
+   ]
+  },
+  {
+   "repeat": 0,
+   "cell": "deferred",
+   "camera": "head-backlit",
+   "rayTracedShadows": false,
+   "frameTimeMs": {
+    "count": 120,
+    "p50Ms": 29.9,
+    "p95Ms": 49.82,
+    "p99Ms": 52.64,
+    "maxMs": 52.92,
+    "deadlineMisses": 120
+   },
+   "cpuMs": {
+    "count": 120,
+    "p50Ms": 28.2,
+    "p95Ms": 48.28,
+    "p99Ms": 50.87,
+    "maxMs": 50.96,
+    "deadlineMisses": 120
+   },
+   "gpuMs": {
+    "count": 120,
+    "p50Ms": 18.49,
+    "p95Ms": 38.53,
+    "p99Ms": 40.03,
+    "maxMs": 40.58,
+    "deadlineMisses": 120
+   },
+   "fenceWaitMs": {
+    "count": 120,
+    "p50Ms": 0.0,
+    "p95Ms": 0.0,
+    "p99Ms": 0.0,
+    "maxMs": 0.0,
+    "deadlineMisses": 0
+   },
+   "presentWaitMs": {
+    "count": 120,
+    "p50Ms": 29.87,
+    "p95Ms": 49.82,
+    "p99Ms": 52.49,
+    "maxMs": 52.74,
+    "deadlineMisses": 119
+   },
+   "topPasses": [
+    {
+     "pass": "ShadowPass",
+     "gpuMs": 5.154,
+     "subPasses": {
+      "FoliageCull": 0.09,
+      "FoliageCasters": 0.002
+     }
+    },
+    {
+     "pass": "GroomPass",
+     "gpuMs": 1.945,
+     "subPasses": {
+      "RootFrames": 0.001,
+      "StrandPrepass": 0.03,
+      "StrandShade": 0.033
+     }
+    },
+    {
+     "pass": "ScenePass",
+     "gpuMs": 0.658,
+     "subPasses": {
+      "DepthPrepass": 0.123,
+      "LightCulling": 0.354,
+      "Color": 0.152
+     }
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "gpuMs": 0.376,
+     "subPasses": {}
+    },
+    {
+     "pass": "GTAOPass",
+     "gpuMs": 0.363,
+     "subPasses": {
+      "HZB": 0.05,
+      "GTAO": 0.234,
+      "GTAO_Denoise": 0.061
+     }
+    },
+    {
+     "pass": "SkinDiffusionPass",
+     "gpuMs": 0.159,
+     "subPasses": {}
+    }
+   ],
+   "topCpuPasses": [
+    {
+     "pass": "GroomPass",
+     "cpuMs": 13.759
+    },
+    {
+     "pass": "ShadowPass",
+     "cpuMs": 4.909
+    },
+    {
+     "pass": "ScenePass",
+     "cpuMs": 0.22
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "cpuMs": 0.098
+    },
+    {
+     "pass": "BloomPass",
+     "cpuMs": 0.056
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "cpuMs": 0.051
+    }
+   ],
+   "groomStats": {
+    "groom": {
+     "byRepresentation": [
+      {
+       "bytes": 181761760,
+       "grooms": 1,
+       "representation": "Strand",
+       "strands": 44235
+      },
+      {
+       "bytes": 29183648,
+       "grooms": 2,
+       "representation": "Card",
+       "strands": 17780
+      },
+      {
+       "bytes": 0,
+       "grooms": 0,
+       "representation": "Mesh",
+       "strands": 0
+      }
+     ],
+     "dominantFallbackReason": "the groom is on the representation its apparent size selects",
+     "groomsAtCompensationCap": 0,
+     "groomsFellBack": 0,
+     "groomsOnSelectedTier": 3,
+     "groomsSubmitted": 3,
+     "maxWidthCompensation": 1.0,
+     "representationChanges": 0,
+     "segmentsDrawn": 689567,
+     "strandsDrawn": 62015
+    },
+    "coatShadow": {
+     "bakeMicroseconds": 0,
+     "deformedRebakes": 0,
+     "dominantFallbackReason": "None",
+     "fallback": 0,
+     "maxDriftVoxels": 0.29792383313179016,
+     "rebuilds": 0,
+     "residentBytes": 4707840,
+     "resolutionInForce": 64,
+     "shadowed": 3,
+     "unshadowedByChoice": 0
+    },
+    "sceneShadow": {
+     "atlasDraws": 0,
+     "cascadeDraws": 0,
+     "groomsAskedToCast": 2,
+     "groomsCasting": 2,
+     "segmentsCast": 280428,
+     "segmentsWhole": 1030608,
+     "virtualShadowLevelDraws": 9
+    },
+    "animalBudget": {
+     "animalsAtDesired": 1,
+     "animalsAtPoseStepCap": 0,
+     "animalsAtVisibilityFloor": 0,
+     "animalsCapHeld": 40,
+     "animalsCoarsened": 0,
+     "animalsConsidered": 41,
+     "animalsHeldByHysteresis": 0,
+     "budgetExceeded": true,
+     "byAxis": [
+      {
+       "axis": "Deformation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 413.2798156738281,
+       "scheduledCostUnits": 413.2798156738281,
+       "shareOfScheduled": 0.005914788693189621
+      },
+      {
+       "axis": "Simulation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 49055.7890625,
+       "scheduledCostUnits": 49055.7890625,
+       "shareOfScheduled": 0.7020778656005859
+      },
+      {
+       "axis": "Visibility",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 8545.580078125,
+       "scheduledCostUnits": 8545.580078125,
+       "shareOfScheduled": 0.12230285257101059
+      },
+      {
+       "axis": "Shadow",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 77384.9296875,
+       "scheduledCostUnits": 11324.623046875,
+       "shareOfScheduled": 0.16207602620124817
+      }
+     ],
+     "drawCallCostUnits": 533.0,
+     "drawCalls": 82,
+     "enabled": true,
+     "estimatedCostUnits": 69872.2890625,
+     "frameBudgetUnits": 6000.0,
+     "heroesCoarsened": 0,
+     "heroesConsidered": 1,
+     "maxStarvedFrames": 505,
+     "stepChanges": 0
+    }
+   },
+   "cpuScopes": [
+    {
+     "scope": "EditorLayer::OnUpdate",
+     "meanMs": 42.342
+    },
+    {
+     "scope": "Scene::OnUpdateEditor",
+     "meanMs": 42.328
+    },
+    {
+     "scope": "Renderer3D::EndScene",
+     "meanMs": 35.268
+    },
+    {
+     "scope": "RG::Execute",
+     "meanMs": 34.981
+    },
+    {
+     "scope": "Scene::PublishGroomStrandRequests",
+     "meanMs": 5.51
+    },
+    {
+     "scope": "Groom::Request",
+     "meanMs": 5.491
+    },
+    {
+     "scope": "Groom::Deform",
+     "meanMs": 5.247
+    },
+    {
+     "scope": "Groom::UploadDeformation",
+     "meanMs": 4.297
+    },
+    {
+     "scope": "Groom::Simulate",
+     "meanMs": 2.6
+    },
+    {
+     "scope": "Groom::RootEvaluate",
+     "meanMs": 2.495
+    },
+    {
+     "scope": "Groom::PackFrame",
+     "meanMs": 1.942
+    },
+    {
+     "scope": "Groom::CasterPose",
+     "meanMs": 0.756
+    },
+    {
+     "scope": "EditorLayer::OnImGuiRender",
+     "meanMs": 0.595
+    },
+    {
+     "scope": "RayTracing::SceneUpdate",
+     "meanMs": 0.167
+    },
+    {
+     "scope": "RayTracing::RecordBlas",
+     "meanMs": 0.132
+    }
+   ]
+  },
+  {
+   "repeat": 0,
+   "cell": "deferred",
+   "camera": "coats-closeup",
+   "rayTracedShadows": false,
+   "frameTimeMs": {
+    "count": 120,
+    "p50Ms": 96.44,
+    "p95Ms": 111.26,
+    "p99Ms": 119.59,
+    "maxMs": 125.89,
+    "deadlineMisses": 120
+   },
+   "cpuMs": {
+    "count": 120,
+    "p50Ms": 94.04,
+    "p95Ms": 108.38,
+    "p99Ms": 116.28,
+    "maxMs": 123.32,
+    "deadlineMisses": 120
+   },
+   "gpuMs": {
+    "count": 120,
+    "p50Ms": 48.06,
+    "p95Ms": 53.22,
+    "p99Ms": 58.12,
+    "maxMs": 58.12,
+    "deadlineMisses": 120
+   },
+   "fenceWaitMs": {
+    "count": 120,
+    "p50Ms": 0.0,
+    "p95Ms": 0.0,
+    "p99Ms": 0.01,
+    "maxMs": 0.01,
+    "deadlineMisses": 0
+   },
+   "presentWaitMs": {
+    "count": 120,
+    "p50Ms": 96.35,
+    "p95Ms": 111.2,
+    "p99Ms": 118.87,
+    "maxMs": 126.15,
+    "deadlineMisses": 119
+   },
+   "topPasses": [
+    {
+     "pass": "ShadowPass",
+     "gpuMs": 29.334,
+     "subPasses": {
+      "FoliageCull": 0.1,
+      "FoliageCasters": 0.675
+     }
+    },
+    {
+     "pass": "ScenePass",
+     "gpuMs": 5.546,
+     "subPasses": {
+      "DepthPrepass": 2.784,
+      "LightCulling": 0.052,
+      "Color": 2.68
+     }
+    },
+    {
+     "pass": "GroomPass",
+     "gpuMs": 2.692,
+     "subPasses": {
+      "RootFrames": 0.259,
+      "StrandPrepass": 0.038,
+      "StrandShade": 0.117
+     }
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "gpuMs": 0.458,
+     "subPasses": {}
+    },
+    {
+     "pass": "GTAOPass",
+     "gpuMs": 0.429,
+     "subPasses": {
+      "HZB": 0.05,
+      "GTAO": 0.298,
+      "GTAO_Denoise": 0.062
+     }
+    },
+    {
+     "pass": "VirtualShadowMapMarkPass",
+     "gpuMs": 0.231,
+     "subPasses": {}
+    }
+   ],
+   "topCpuPasses": [
+    {
+     "pass": "GroomPass",
+     "cpuMs": 45.648
+    },
+    {
+     "pass": "ShadowPass",
+     "cpuMs": 16.479
+    },
+    {
+     "pass": "ScenePass",
+     "cpuMs": 0.344
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "cpuMs": 0.215
+    },
+    {
+     "pass": "SkeletalDeformPass",
+     "cpuMs": 0.087
+    },
+    {
+     "pass": "GTAOPass",
+     "cpuMs": 0.071
+    }
+   ],
+   "groomStats": {
+    "groom": {
+     "byRepresentation": [
+      {
+       "bytes": 295898176,
+       "grooms": 2,
+       "representation": "Strand",
+       "strands": 99719
+      },
+      {
+       "bytes": 140967920,
+       "grooms": 16,
+       "representation": "Card",
+       "strands": 142525
+      },
+      {
+       "bytes": 0,
+       "grooms": 0,
+       "representation": "Mesh",
+       "strands": 0
+      }
+     ],
+     "dominantFallbackReason": "the groom is on the representation its apparent size selects",
+     "groomsAtCompensationCap": 0,
+     "groomsFellBack": 0,
+     "groomsOnSelectedTier": 18,
+     "groomsSubmitted": 18,
+     "maxWidthCompensation": 6.998494625091553,
+     "representationChanges": 0,
+     "segmentsDrawn": 1761973,
+     "strandsDrawn": 242244
+    },
+    "coatShadow": {
+     "bakeMicroseconds": 23403,
+     "deformedRebakes": 2,
+     "dominantFallbackReason": "None",
+     "fallback": 0,
+     "maxDriftVoxels": 0.0,
+     "rebuilds": 2,
+     "residentBytes": 1953152,
+     "resolutionInForce": 64,
+     "shadowed": 18,
+     "unshadowedByChoice": 0
+    },
+    "sceneShadow": {
+     "atlasDraws": 0,
+     "cascadeDraws": 0,
+     "groomsAskedToCast": 5,
+     "groomsCasting": 5,
+     "segmentsCast": 1504368,
+     "segmentsWhole": 3435360,
+     "virtualShadowLevelDraws": 12
+    },
+    "animalBudget": {
+     "animalsAtDesired": 1,
+     "animalsAtPoseStepCap": 0,
+     "animalsAtVisibilityFloor": 0,
+     "animalsCapHeld": 40,
+     "animalsCoarsened": 0,
+     "animalsConsidered": 41,
+     "animalsHeldByHysteresis": 0,
+     "budgetExceeded": true,
+     "byAxis": [
+      {
+       "axis": "Deformation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 413.2798156738281,
+       "scheduledCostUnits": 413.2798156738281,
+       "shareOfScheduled": 0.005627049598842859
+      },
+      {
+       "axis": "Simulation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 59347.7109375,
+       "scheduledCostUnits": 52432.62109375,
+       "shareOfScheduled": 0.7139012217521667
+      },
+      {
+       "axis": "Visibility",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 9329.91015625,
+       "scheduledCostUnits": 8741.6630859375,
+       "shareOfScheduled": 0.1190229281783104
+      },
+      {
+       "axis": "Shadow",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 77384.9296875,
+       "scheduledCostUnits": 11324.623046875,
+       "shareOfScheduled": 0.15419146418571472
+      }
+     ],
+     "drawCallCostUnits": 533.0,
+     "drawCalls": 82,
+     "enabled": true,
+     "estimatedCostUnits": 73445.203125,
+     "frameBudgetUnits": 6000.0,
+     "heroesCoarsened": 0,
+     "heroesConsidered": 1,
+     "maxStarvedFrames": 681,
+     "stepChanges": 0
+    }
+   },
+   "cpuScopes": [
+    {
+     "scope": "EditorLayer::OnUpdate",
+     "meanMs": 96.249
+    },
+    {
+     "scope": "Scene::OnUpdateEditor",
+     "meanMs": 96.218
+    },
+    {
+     "scope": "Renderer3D::EndScene",
+     "meanMs": 56.708
+    },
+    {
+     "scope": "RG::Execute",
+     "meanMs": 56.438
+    },
+    {
+     "scope": "Scene::PublishGroomStrandRequests",
+     "meanMs": 37.066
+    },
+    {
+     "scope": "Groom::Request",
+     "meanMs": 37.012
+    },
+    {
+     "scope": "Groom::Deform",
+     "meanMs": 36.378
+    },
+    {
+     "scope": "Groom::UploadDeformation",
+     "meanMs": 22.736
+    },
+    {
+     "scope": "Groom::Simulate",
+     "meanMs": 18.667
+    },
+    {
+     "scope": "Groom::RootEvaluate",
+     "meanMs": 17.214
+    },
+    {
+     "scope": "Groom::PackFrame",
+     "meanMs": 11.632
+    },
+    {
+     "scope": "Groom::CasterPose",
+     "meanMs": 1.845
+    },
+    {
+     "scope": "EditorLayer::OnImGuiRender",
+     "meanMs": 0.656
+    },
+    {
+     "scope": "RayTracing::SceneUpdate",
+     "meanMs": 0.115
+    },
+    {
+     "scope": "RayTracing::RecordBlas",
+     "meanMs": 0.077
+    }
+   ]
+  },
+  {
+   "repeat": 0,
+   "cell": "deferred",
+   "camera": "population-dolly",
+   "rayTracedShadows": false,
+   "frameTimeMs": {
+    "count": 120,
+    "p50Ms": 135.74,
+    "p95Ms": 157.22,
+    "p99Ms": 167.23,
+    "maxMs": 172.37,
+    "deadlineMisses": 120
+   },
+   "cpuMs": {
+    "count": 120,
+    "p50Ms": 132.03,
+    "p95Ms": 152.83,
+    "p99Ms": 162.94,
+    "maxMs": 168.13,
+    "deadlineMisses": 120
+   },
+   "gpuMs": {
+    "count": 120,
+    "p50Ms": 45.03,
+    "p95Ms": 59.25,
+    "p99Ms": 65.82,
+    "maxMs": 72.86,
+    "deadlineMisses": 120
+   },
+   "fenceWaitMs": {
+    "count": 120,
+    "p50Ms": 0.0,
+    "p95Ms": 0.01,
+    "p99Ms": 0.01,
+    "maxMs": 0.01,
+    "deadlineMisses": 0
+   },
+   "presentWaitMs": {
+    "count": 120,
+    "p50Ms": 135.73,
+    "p95Ms": 156.79,
+    "p99Ms": 167.25,
+    "maxMs": 172.63,
+    "deadlineMisses": 119
+   },
+   "topPasses": [
+    {
+     "pass": "ShadowPass",
+     "gpuMs": 28.136,
+     "subPasses": {
+      "FoliageCull": 0.128,
+      "FoliageCasters": 0.002
+     }
+    },
+    {
+     "pass": "ScenePass",
+     "gpuMs": 6.13,
+     "subPasses": {
+      "DepthPrepass": 3.117,
+      "LightCulling": 0.051,
+      "Color": 2.931
+     }
+    },
+    {
+     "pass": "GroomPass",
+     "gpuMs": 5.081,
+     "subPasses": {
+      "RootFrames": 1.016,
+      "StrandPrepass": 0.599,
+      "StrandShade": 0.667
+     }
+    },
+    {
+     "pass": "GTAOPass",
+     "gpuMs": 0.32,
+     "subPasses": {
+      "HZB": 0.055,
+      "GTAO": 0.179,
+      "GTAO_Denoise": 0.065
+     }
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "gpuMs": 0.308,
+     "subPasses": {}
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "gpuMs": 0.29,
+     "subPasses": {
+      "AccelerationStructureBuild": 0.287
+     }
+    }
+   ],
+   "topCpuPasses": [
+    {
+     "pass": "GroomPass",
+     "cpuMs": 38.458
+    },
+    {
+     "pass": "ShadowPass",
+     "cpuMs": 11.216
+    },
+    {
+     "pass": "ScenePass",
+     "cpuMs": 0.376
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "cpuMs": 0.142
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "cpuMs": 0.065
+    },
+    {
+     "pass": "GTAOPass",
+     "cpuMs": 0.055
+    }
+   ],
+   "groomStats": {
+    "groom": {
+     "byRepresentation": [
+      {
+       "bytes": 470785600,
+       "grooms": 2,
+       "representation": "Strand",
+       "strands": 245761
+      },
+      {
+       "bytes": 238892880,
+       "grooms": 36,
+       "representation": "Card",
+       "strands": 320952
+      },
+      {
+       "bytes": 0,
+       "grooms": 0,
+       "representation": "Mesh",
+       "strands": 0
+      }
+     ],
+     "dominantFallbackReason": "the groom is on the representation its apparent size selects",
+     "groomsAtCompensationCap": 1,
+     "groomsFellBack": 0,
+     "groomsOnSelectedTier": 38,
+     "groomsSubmitted": 38,
+     "maxWidthCompensation": 8.0,
+     "representationChanges": 0,
+     "segmentsDrawn": 3221664,
+     "strandsDrawn": 566713
+    },
+    "coatShadow": {
+     "bakeMicroseconds": 0,
+     "deformedRebakes": 0,
+     "dominantFallbackReason": "None",
+     "fallback": 0,
+     "maxDriftVoxels": 0.0,
+     "rebuilds": 0,
+     "residentBytes": 2931456,
+     "resolutionInForce": 128,
+     "shadowed": 38,
+     "unshadowedByChoice": 0
+    },
+    "sceneShadow": {
+     "atlasDraws": 0,
+     "cascadeDraws": 0,
+     "groomsAskedToCast": 5,
+     "groomsCasting": 5,
+     "segmentsCast": 9185048,
+     "segmentsWhole": 24986752,
+     "virtualShadowLevelDraws": 16
+    },
+    "animalBudget": {
+     "animalsAtDesired": 1,
+     "animalsAtPoseStepCap": 0,
+     "animalsAtVisibilityFloor": 0,
+     "animalsCapHeld": 40,
+     "animalsCoarsened": 0,
+     "animalsConsidered": 41,
+     "animalsHeldByHysteresis": 0,
+     "budgetExceeded": true,
+     "byAxis": [
+      {
+       "axis": "Deformation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 413.2798156738281,
+       "scheduledCostUnits": 413.2798156738281,
+       "shareOfScheduled": 0.004607475362718105
+      },
+      {
+       "axis": "Simulation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 102605.1875,
+       "scheduledCostUnits": 65939.9375,
+       "shareOfScheduled": 0.7351354360580444
+      },
+      {
+       "axis": "Visibility",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 15044.423828125,
+       "scheduledCostUnits": 11486.8173828125,
+       "shareOfScheduled": 0.12806148827075958
+      },
+      {
+       "axis": "Shadow",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 76441.2109375,
+       "scheduledCostUnits": 11324.623046875,
+       "shareOfScheduled": 0.12625326216220856
+      }
+     ],
+     "drawCallCostUnits": 533.0,
+     "drawCalls": 82,
+     "enabled": true,
+     "estimatedCostUnits": 89697.671875,
+     "frameBudgetUnits": 6000.0,
+     "heroesCoarsened": 0,
+     "heroesConsidered": 1,
+     "maxStarvedFrames": 822,
+     "stepChanges": 0
+    }
+   },
+   "cpuScopes": [
+    {
+     "scope": "EditorLayer::OnUpdate",
+     "meanMs": 136.274
+    },
+    {
+     "scope": "Scene::OnUpdateEditor",
+     "meanMs": 136.259
+    },
+    {
+     "scope": "Scene::PublishGroomStrandRequests",
+     "meanMs": 80.168
+    },
+    {
+     "scope": "Groom::Request",
+     "meanMs": 80.104
+    },
+    {
+     "scope": "Groom::Deform",
+     "meanMs": 79.249
+    },
+    {
+     "scope": "Renderer3D::EndScene",
+     "meanMs": 52.453
+    },
+    {
+     "scope": "RG::Execute",
+     "meanMs": 52.143
+    },
+    {
+     "scope": "Groom::UploadDeformation",
+     "meanMs": 45.684
+    },
+    {
+     "scope": "Groom::Simulate",
+     "meanMs": 41.102
+    },
+    {
+     "scope": "Groom::RootEvaluate",
+     "meanMs": 37.704
+    },
+    {
+     "scope": "Groom::PackFrame",
+     "meanMs": 23.918
+    },
+    {
+     "scope": "Groom::CasterPose",
+     "meanMs": 2.175
+    },
+    {
+     "scope": "EditorLayer::OnImGuiRender",
+     "meanMs": 0.667
+    },
+    {
+     "scope": "RayTracing::SceneUpdate",
+     "meanMs": 0.148
+    },
+    {
+     "scope": "RayTracing::RecordBlas",
+     "meanMs": 0.097
+    }
+   ]
+  },
+  {
+   "repeat": 0,
+   "cell": "deferred",
+   "camera": "rapid-turn",
+   "rayTracedShadows": false,
+   "frameTimeMs": {
+    "count": 120,
+    "p50Ms": 99.4,
+    "p95Ms": 114.89,
+    "p99Ms": 123.96,
+    "maxMs": 124.28,
+    "deadlineMisses": 120
+   },
+   "cpuMs": {
+    "count": 120,
+    "p50Ms": 96.04,
+    "p95Ms": 111.99,
+    "p99Ms": 120.94,
+    "maxMs": 121.03,
+    "deadlineMisses": 120
+   },
+   "gpuMs": {
+    "count": 120,
+    "p50Ms": 37.68,
+    "p95Ms": 39.11,
+    "p99Ms": 39.81,
+    "maxMs": 41.25,
+    "deadlineMisses": 120
+   },
+   "fenceWaitMs": {
+    "count": 120,
+    "p50Ms": 0.0,
+    "p95Ms": 0.0,
+    "p99Ms": 0.01,
+    "maxMs": 0.01,
+    "deadlineMisses": 0
+   },
+   "presentWaitMs": {
+    "count": 120,
+    "p50Ms": 99.37,
+    "p95Ms": 115.12,
+    "p99Ms": 124.07,
+    "maxMs": 124.19,
+    "deadlineMisses": 119
+   },
+   "topPasses": [
+    {
+     "pass": "ShadowPass",
+     "gpuMs": 23.549,
+     "subPasses": {
+      "FoliageCull": 0.134,
+      "FoliageCasters": 0.003
+     }
+    },
+    {
+     "pass": "ScenePass",
+     "gpuMs": 7.13,
+     "subPasses": {
+      "DepthPrepass": 3.434,
+      "LightCulling": 0.062,
+      "Color": 3.6
+     }
+    },
+    {
+     "pass": "GroomPass",
+     "gpuMs": 4.119,
+     "subPasses": {
+      "RootFrames": 1.114,
+      "StrandPrepass": 0.036,
+      "StrandShade": 0.029
+     }
+    },
+    {
+     "pass": "GTAOPass",
+     "gpuMs": 1.379,
+     "subPasses": {
+      "HZB": 0.055,
+      "GTAO": 1.142,
+      "GTAO_Denoise": 0.163
+     }
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "gpuMs": 0.37,
+     "subPasses": {}
+    },
+    {
+     "pass": "FoliageCull",
+     "gpuMs": 0.163,
+     "subPasses": {}
+    }
+   ],
+   "topCpuPasses": [
+    {
+     "pass": "GroomPass",
+     "cpuMs": 23.783
+    },
+    {
+     "pass": "ShadowPass",
+     "cpuMs": 9.354
+    },
+    {
+     "pass": "ScenePass",
+     "cpuMs": 0.349
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "cpuMs": 0.304
+    },
+    {
+     "pass": "GTAOPass",
+     "cpuMs": 0.081
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "cpuMs": 0.076
+    }
+   ],
+   "groomStats": {
+    "groom": {
+     "byRepresentation": [
+      {
+       "bytes": 0,
+       "grooms": 0,
+       "representation": "Strand",
+       "strands": 0
+      },
+      {
+       "bytes": 210077392,
+       "grooms": 28,
+       "representation": "Card",
+       "strands": 249604
+      },
+      {
+       "bytes": 0,
+       "grooms": 0,
+       "representation": "Mesh",
+       "strands": 0
+      }
+     ],
+     "dominantFallbackReason": "the groom is on the representation its apparent size selects",
+     "groomsAtCompensationCap": 0,
+     "groomsFellBack": 0,
+     "groomsOnSelectedTier": 28,
+     "groomsSubmitted": 28,
+     "maxWidthCompensation": 1.0,
+     "representationChanges": 0,
+     "segmentsDrawn": 1431076,
+     "strandsDrawn": 249604
+    },
+    "coatShadow": {
+     "bakeMicroseconds": 0,
+     "deformedRebakes": 0,
+     "dominantFallbackReason": "None",
+     "fallback": 0,
+     "maxDriftVoxels": 0.0,
+     "rebuilds": 0,
+     "residentBytes": 193536,
+     "resolutionInForce": 16,
+     "shadowed": 28,
+     "unshadowedByChoice": 0
+    },
+    "sceneShadow": {
+     "atlasDraws": 0,
+     "cascadeDraws": 0,
+     "groomsAskedToCast": 5,
+     "groomsCasting": 5,
+     "segmentsCast": 1784020,
+     "segmentsWhole": 3721640,
+     "virtualShadowLevelDraws": 13
+    },
+    "animalBudget": {
+     "animalsAtDesired": 1,
+     "animalsAtPoseStepCap": 0,
+     "animalsAtVisibilityFloor": 0,
+     "animalsCapHeld": 40,
+     "animalsCoarsened": 0,
+     "animalsConsidered": 41,
+     "animalsHeldByHysteresis": 0,
+     "budgetExceeded": true,
+     "byAxis": [
+      {
+       "axis": "Deformation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 413.2798156738281,
+       "scheduledCostUnits": 413.2798156738281,
+       "shareOfScheduled": 0.005627049598842859
+      },
+      {
+       "axis": "Simulation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 93766.15625,
+       "scheduledCostUnits": 52432.62109375,
+       "shareOfScheduled": 0.7139012217521667
+      },
+      {
+       "axis": "Visibility",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 13700.7421875,
+       "scheduledCostUnits": 8741.6630859375,
+       "shareOfScheduled": 0.1190229281783104
+      },
+      {
+       "axis": "Shadow",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 77384.9296875,
+       "scheduledCostUnits": 11324.623046875,
+       "shareOfScheduled": 0.15419146418571472
+      }
+     ],
+     "drawCallCostUnits": 533.0,
+     "drawCalls": 82,
+     "enabled": true,
+     "estimatedCostUnits": 73445.203125,
+     "frameBudgetUnits": 6000.0,
+     "heroesCoarsened": 0,
+     "heroesConsidered": 1,
+     "maxStarvedFrames": 1051,
+     "stepChanges": 0
+    }
+   },
+   "cpuScopes": [
+    {
+     "scope": "EditorLayer::OnUpdate",
+     "meanMs": 100.792
+    },
+    {
+     "scope": "Scene::OnUpdateEditor",
+     "meanMs": 100.777
+    },
+    {
+     "scope": "Scene::PublishGroomStrandRequests",
+     "meanMs": 57.139
+    },
+    {
+     "scope": "Groom::Request",
+     "meanMs": 57.081
+    },
+    {
+     "scope": "Groom::Deform",
+     "meanMs": 56.337
+    },
+    {
+     "scope": "Renderer3D::EndScene",
+     "meanMs": 40.548
+    },
+    {
+     "scope": "RG::Execute",
+     "meanMs": 40.251
+    },
+    {
+     "scope": "Groom::UploadDeformation",
+     "meanMs": 34.949
+    },
+    {
+     "scope": "Groom::Simulate",
+     "meanMs": 29.075
+    },
+    {
+     "scope": "Groom::RootEvaluate",
+     "meanMs": 26.973
+    },
+    {
+     "scope": "Groom::PackFrame",
+     "meanMs": 18.019
+    },
+    {
+     "scope": "Groom::CasterPose",
+     "meanMs": 1.864
+    },
+    {
+     "scope": "EditorLayer::OnImGuiRender",
+     "meanMs": 0.654
+    },
+    {
+     "scope": "RayTracing::SceneUpdate",
+     "meanMs": 0.207
+    },
+    {
+     "scope": "RayTracing::RecordBlas",
+     "meanMs": 0.169
+    }
+   ]
+  },
+  {
+   "repeat": 0,
+   "cell": "hybrid",
+   "camera": "head-closeup",
+   "rayTracedShadows": true,
+   "frameTimeMs": {
+    "count": 120,
+    "p50Ms": 246.9,
+    "p95Ms": 326.7,
+    "p99Ms": 472.66,
+    "maxMs": 975.63,
+    "deadlineMisses": 120
+   },
+   "cpuMs": {
+    "count": 120,
+    "p50Ms": 242.78,
+    "p95Ms": 322.57,
+    "p99Ms": 469.32,
+    "maxMs": 971.87,
+    "deadlineMisses": 120
+   },
+   "gpuMs": {
+    "count": 120,
+    "p50Ms": 79.17,
+    "p95Ms": 136.02,
+    "p99Ms": 220.53,
+    "maxMs": 541.52,
+    "deadlineMisses": 120
+   },
+   "fenceWaitMs": {
+    "count": 120,
+    "p50Ms": 0.0,
+    "p95Ms": 0.01,
+    "p99Ms": 0.01,
+    "maxMs": 0.01,
+    "deadlineMisses": 0
+   },
+   "presentWaitMs": {
+    "count": 120,
+    "p50Ms": 245.84,
+    "p95Ms": 326.59,
+    "p99Ms": 473.01,
+    "maxMs": 975.06,
+    "deadlineMisses": 119
+   },
+   "topPasses": [
+    {
+     "pass": "GroomPass",
+     "gpuMs": 33.944,
+     "subPasses": {
+      "RootFrames": 7.835,
+      "StrandPrepass": 0.146,
+      "StrandShade": 0.075
+     }
+    },
+    {
+     "pass": "ShadowPass",
+     "gpuMs": 29.256,
+     "subPasses": {
+      "FoliageCull": 0.246,
+      "FoliageCasters": 0.004
+     }
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "gpuMs": 6.106,
+     "subPasses": {
+      "VegetationDeformToBuffer": 0.529,
+      "GroomProxyDeformToBuffer": 1.892,
+      "AccelerationStructureBuild": 3.67
+     }
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "gpuMs": 3.614,
+     "subPasses": {}
+    },
+    {
+     "pass": "FoliageCull",
+     "gpuMs": 2.927,
+     "subPasses": {}
+    },
+    {
+     "pass": "ScenePass",
+     "gpuMs": 2.034,
+     "subPasses": {
+      "DepthPrepass": 0.782,
+      "LightCulling": 0.112,
+      "Color": 1.023
+     }
+    }
+   ],
+   "topCpuPasses": [
+    {
+     "pass": "GroomPass",
+     "cpuMs": 56.633
+    },
+    {
+     "pass": "ShadowPass",
+     "cpuMs": 11.29
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "cpuMs": 0.932
+    },
+    {
+     "pass": "ScenePass",
+     "cpuMs": 0.351
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "cpuMs": 0.071
+    },
+    {
+     "pass": "GTAOPass",
+     "cpuMs": 0.055
+    }
+   ],
+   "groomStats": {
+    "groom": {
+     "byRepresentation": [
+      {
+       "bytes": 181761760,
+       "grooms": 1,
+       "representation": "Strand",
+       "strands": 44235
+      },
+      {
+       "bytes": 284788256,
+       "grooms": 43,
+       "representation": "Card",
+       "strands": 372774
+      },
+      {
+       "bytes": 0,
+       "grooms": 0,
+       "representation": "Mesh",
+       "strands": 0
+      }
+     ],
+     "dominantFallbackReason": "the apparent size selects the shell tier, which the measured comparison did not select (see docs/analysis/groom-representation-lod-1252.md)",
+     "groomsAtCompensationCap": 1,
+     "groomsFellBack": 2,
+     "groomsOnSelectedTier": 42,
+     "groomsSubmitted": 44,
+     "maxWidthCompensation": 8.0,
+     "representationChanges": 0,
+     "segmentsDrawn": 2703155,
+     "strandsDrawn": 417009
+    },
+    "coatShadow": {
+     "bakeMicroseconds": 22562,
+     "deformedRebakes": 3,
+     "dominantFallbackReason": "None",
+     "fallback": 0,
+     "maxDriftVoxels": 0.0,
+     "rebuilds": 3,
+     "residentBytes": 5515776,
+     "resolutionInForce": 64,
+     "shadowed": 44,
+     "unshadowedByChoice": 0
+    },
+    "sceneShadow": {
+     "atlasDraws": 0,
+     "cascadeDraws": 0,
+     "groomsAskedToCast": 5,
+     "groomsCasting": 5,
+     "segmentsCast": 651433,
+     "segmentsWhole": 2576520,
+     "virtualShadowLevelDraws": 9
+    },
+    "animalBudget": {
+     "animalsAtDesired": 1,
+     "animalsAtPoseStepCap": 0,
+     "animalsAtVisibilityFloor": 0,
+     "animalsCapHeld": 40,
+     "animalsCoarsened": 0,
+     "animalsConsidered": 41,
+     "animalsHeldByHysteresis": 0,
+     "budgetExceeded": true,
+     "byAxis": [
+      {
+       "axis": "Deformation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 413.2798156738281,
+       "scheduledCostUnits": 413.2798156738281,
+       "shareOfScheduled": 0.005914788693189621
+      },
+      {
+       "axis": "Simulation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 49055.7890625,
+       "scheduledCostUnits": 49055.7890625,
+       "shareOfScheduled": 0.7020778656005859
+      },
+      {
+       "axis": "Visibility",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 8545.580078125,
+       "scheduledCostUnits": 8545.580078125,
+       "shareOfScheduled": 0.12230285257101059
+      },
+      {
+       "axis": "Shadow",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 77384.9296875,
+       "scheduledCostUnits": 11324.623046875,
+       "shareOfScheduled": 0.16207602620124817
+      }
+     ],
+     "drawCallCostUnits": 533.0,
+     "drawCalls": 82,
+     "enabled": true,
+     "estimatedCostUnits": 69872.2890625,
+     "frameBudgetUnits": 6000.0,
+     "heroesCoarsened": 0,
+     "heroesConsidered": 1,
+     "maxStarvedFrames": 1141,
+     "stepChanges": 0
+    }
+   },
+   "rtScene": {
+    "availability": {
+     "available": true,
+     "enabled": true,
+     "hasData": true,
+     "status": "ready"
+    },
+    "capability": {
+     "properties": {
+      "maxGeometryCount": 16777215,
+      "maxInstanceCount": 16777215,
+      "maxPrimitiveCount": 536870911,
+      "minScratchOffsetAlignment": 128
+     },
+     "rayTracingPipeline": true,
+     "reason": "supported",
+     "supported": true
+    },
+    "deformedSurfaces": {
+     "allocated": 0,
+     "dispatched": 44,
+     "paletteBytes": 131072,
+     "reallocated": 0,
+     "refused": 0,
+     "requested": 44,
+     "residentBytes": 3203072,
+     "residentSurfaces": 44,
+     "retired": 0,
+     "skippedUnchanged": 0,
+     "verticesDeformed": 96996
+    },
+    "frame": {
+     "blasBuildGpuTimeChannel": "olo_perf_pass_timings -> AccelerationStructureBuild sub-pass",
+     "blasBuilds": 0,
+     "blasCompactions": 0,
+     "blasRefits": 150,
+     "blasRetired": 0,
+     "deformedBuildsDeferred": 0,
+     "instancesSkipped": 0,
+     "instancesTraced": 152,
+     "tlasBuilds": 0,
+     "tlasUpdates": 1
+    },
+    "freshness": {
+     "model": "previousFrame",
+     "sampleAgeFrames": null,
+     "stale": false
+    },
+    "gpuScene": {
+     "animated": {
+      "canonicalEntities": 44,
+      "canonicalInstances": 46,
+      "surfacesWithHistory": 46,
+      "surfacesWithoutHistory": 0,
+      "unsupportedInstances": 0,
+      "unsupportedVariants": 0
+     },
+     "available": true,
+     "foliage": {
+      "authoredMeshInstances": 671769,
+      "canonicalInstances": 671769,
+      "impostorInstances": 0,
+      "meshCardInstances": 0,
+      "spatialGroups": 1044,
+      "unsupportedInstances": 0,
+      "unsupportedVariants": 0
+     },
+     "geometries": 151,
+     "instances": 152,
+     "lights": 4,
+     "materials": 98,
+     "notStagedByCategory": {
+      "cloth": 0,
+      "fluids": 0,
+      "foliage": 1,
+      "groom": 44,
+      "legacyModel": 0,
+      "legacySubmesh": 0,
+      "notExtractable": 0,
+      "particles": 0,
+      "procedural": 1,
+      "skinned": 0,
+      "softwareRaster": 0,
+      "terrain": 1,
+      "tiles": 0,
+      "virtualized": 0
+     },
+     "notStagedTotal": 47
+    },
+    "grooms": {
+     "complete": true,
+     "considered": 44,
+     "detailedCoats": 1,
+     "dominantRefusalDetail": "The coat is in the ray-traced scene at the tier its apparent size selects.",
+     "dominantRefusalReason": "None",
+     "gpuDispatchFailures": 0,
+     "gpuDispatched": 44,
+     "maxWidthCompensation": 12.8180513381958,
+     "proxyCoats": 43,
+     "rebuilds": 44,
+     "refreshDeferred": 0,
+     "refused": 0,
+     "represented": 44,
+     "residentBytes": 82818416,
+     "residentTriangles": 1089716,
+     "reused": 0,
+     "segmentsConverted": 272429,
+     "tierChanges": 0,
+     "trianglesBuilt": 1089716,
+     "updateMicroseconds": 50772,
+     "widthCompensationCap": 48.0
+    },
+    "lastTlasReason": "Update",
+    "resident": {
+     "accelerationStructureBytes": 100142784,
+     "animatedInstancesRefused": 0,
+     "blasByClass": {
+      "deformed": 150,
+      "masked": 0,
+      "rigidDynamic": 0,
+      "static": 1,
+      "unsupported": 0
+     },
+     "compactionSavedBytes": 2688,
+     "scratchBytes": 9155584,
+     "tlasInstances": 152,
+     "unsupportedInstances": 0
+    },
+    "vegetation": {
+     "beyondReflectionBudget": 0,
+     "cadenceHolds": 0,
+     "carriedBuilds": 0,
+     "castersComplete": false,
+     "castingDemandBuilds": 60.0,
+     "castingDemandVertices": 1023800.0,
+     "castingFallbackGroups": 3,
+     "castingGroupsLeftOut": 94,
+     "castingGroupsPlanned": 148,
+     "complete": false,
+     "deferredReflectionGroups": 0,
+     "deferredReflectionPlants": 0,
+     "detailedGroups": 0,
+     "dispatchBatches": 6,
+     "dispatched": 54,
+     "fallbackEngagements": 1,
+     "groupsCreated": 0,
+     "groupsRetired": 0,
+     "historyReset": false,
+     "nearestCastingFallback": 36.128787994384766,
+     "oldestSnapshotAge": 0.0,
+     "oldestSnapshotError": 0.0,
+     "planFrameSeconds": 0.09999847412109375,
+     "plantsBeyondReflectionBudget": 0,
+     "plantsRepresented": 162975,
+     "pressure": "frameWork",
+     "pressureGroups": {
+      "accelerationMemory": 0,
+      "buildDebt": 0,
+      "frameWork": 97,
+      "geometryMemory": 0,
+      "invalidContent": 0,
+      "producerFailure": 0,
+      "residentGroups": 0
+     },
+     "producerFailed": false,
+     "proxyGroups": 54,
+     "ready": false,
+     "recovery": {
+      "accelerationBytes": 274734464,
+      "builds": 220,
+      "geometryBytes": 230108792,
+      "triangles": 4342646,
+      "vertices": 15415627
+     },
+     "recoveryFramesRemaining": 8,
+     "reflectionDetailReach": 0.0,
+     "reflectionReach": 0.0,
+     "refreshReasons": {
+      "due": 54,
+      "invalid": 0,
+      "new": 0,
+      "reset": 0
+     },
+     "refused": 94,
+     "requested": 148,
+     "residentBytes": 37768504,
+     "reused": 0,
+     "shadowFallbackEngagements": 1,
+     "shadowReady": false,
+     "shadowRecoveryFramesRemaining": 8,
+     "shadowTlasWithheld": true,
+     "stagedAccelerationBytes": 27125632,
+     "staleReflectionSnapshots": 0,
+     "tlasWithheld": true,
+     "verticesDeformed": 775856
+    }
+   },
+   "cpuScopes": [
+    {
+     "scope": "EditorLayer::OnUpdate",
+     "meanMs": 265.932
+    },
+    {
+     "scope": "Scene::OnUpdateEditor",
+     "meanMs": 265.919
+    },
+    {
+     "scope": "Renderer3D::EndScene",
+     "meanMs": 145.482
+    },
+    {
+     "scope": "RG::Execute",
+     "meanMs": 90.134
+    },
+    {
+     "scope": "Scene::PublishGroomStrandRequests",
+     "meanMs": 89.907
+    },
+    {
+     "scope": "Groom::Request",
+     "meanMs": 89.826
+    },
+    {
+     "scope": "Groom::Deform",
+     "meanMs": 88.823
+    },
+    {
+     "scope": "Groom::UploadDeformation",
+     "meanMs": 53.308
+    },
+    {
+     "scope": "Groom::PackFrame",
+     "meanMs": 51.555
+    },
+    {
+     "scope": "Groom::Simulate",
+     "meanMs": 45.698
+    },
+    {
+     "scope": "Groom::RootEvaluate",
+     "meanMs": 42.526
+    },
+    {
+     "scope": "GroomProxy::Deform",
+     "meanMs": 28.908
+    },
+    {
+     "scope": "Vegetation::Queue",
+     "meanMs": 26.683
+    },
+    {
+     "scope": "GroomProxy::Pack",
+     "meanMs": 25.939
+    },
+    {
+     "scope": "GroomProxy::GpuStage",
+     "meanMs": 25.572
+    }
+   ]
+  },
+  {
+   "repeat": 0,
+   "cell": "hybrid",
+   "camera": "head-backlit",
+   "rayTracedShadows": true,
+   "frameTimeMs": {
+    "count": 120,
+    "p50Ms": 67.43,
+    "p95Ms": 82.55,
+    "p99Ms": 92.16,
+    "maxMs": 92.79,
+    "deadlineMisses": 120
+   },
+   "cpuMs": {
+    "count": 120,
+    "p50Ms": 65.71,
+    "p95Ms": 79.74,
+    "p99Ms": 90.23,
+    "maxMs": 91.23,
+    "deadlineMisses": 120
+   },
+   "gpuMs": {
+    "count": 120,
+    "p50Ms": 24.15,
+    "p95Ms": 42.01,
+    "p99Ms": 44.4,
+    "maxMs": 44.96,
+    "deadlineMisses": 120
+   },
+   "fenceWaitMs": {
+    "count": 120,
+    "p50Ms": 0.0,
+    "p95Ms": 0.0,
+    "p99Ms": 0.0,
+    "maxMs": 0.02,
+    "deadlineMisses": 0
+   },
+   "presentWaitMs": {
+    "count": 120,
+    "p50Ms": 67.65,
+    "p95Ms": 81.78,
+    "p99Ms": 92.25,
+    "maxMs": 92.83,
+    "deadlineMisses": 119
+   },
+   "topPasses": [
+    {
+     "pass": "ShadowPass",
+     "gpuMs": 8.518,
+     "subPasses": {
+      "FoliageCull": 0.117,
+      "FoliageCasters": 0.002
+     }
+    },
+    {
+     "pass": "GroomPass",
+     "gpuMs": 3.266,
+     "subPasses": {
+      "RootFrames": 0.001,
+      "StrandPrepass": 0.047,
+      "StrandShade": 0.054
+     }
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "gpuMs": 0.925,
+     "subPasses": {
+      "VegetationDeformToBuffer": 0.131,
+      "GroomProxyDeformToBuffer": 0.197,
+      "AccelerationStructureBuild": 0.59
+     }
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "gpuMs": 0.612,
+     "subPasses": {}
+    },
+    {
+     "pass": "GTAOPass",
+     "gpuMs": 0.582,
+     "subPasses": {
+      "HZB": 0.067,
+      "GTAO": 0.412,
+      "GTAO_Denoise": 0.082
+     }
+    },
+    {
+     "pass": "ScenePass",
+     "gpuMs": 0.575,
+     "subPasses": {
+      "DepthPrepass": 0.207,
+      "LightCulling": 0.073,
+      "Color": 0.249
+     }
+    }
+   ],
+   "topCpuPasses": [
+    {
+     "pass": "GroomPass",
+     "cpuMs": 13.585
+    },
+    {
+     "pass": "ShadowPass",
+     "cpuMs": 4.507
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "cpuMs": 0.481
+    },
+    {
+     "pass": "ScenePass",
+     "cpuMs": 0.216
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "cpuMs": 0.048
+    },
+    {
+     "pass": "GTAOPass",
+     "cpuMs": 0.044
+    }
+   ],
+   "groomStats": {
+    "groom": {
+     "byRepresentation": [
+      {
+       "bytes": 181761760,
+       "grooms": 1,
+       "representation": "Strand",
+       "strands": 44235
+      },
+      {
+       "bytes": 29183648,
+       "grooms": 2,
+       "representation": "Card",
+       "strands": 17780
+      },
+      {
+       "bytes": 0,
+       "grooms": 0,
+       "representation": "Mesh",
+       "strands": 0
+      }
+     ],
+     "dominantFallbackReason": "the groom is on the representation its apparent size selects",
+     "groomsAtCompensationCap": 0,
+     "groomsFellBack": 0,
+     "groomsOnSelectedTier": 3,
+     "groomsSubmitted": 3,
+     "maxWidthCompensation": 1.0,
+     "representationChanges": 0,
+     "segmentsDrawn": 689567,
+     "strandsDrawn": 62015
+    },
+    "coatShadow": {
+     "bakeMicroseconds": 0,
+     "deformedRebakes": 0,
+     "dominantFallbackReason": "None",
+     "fallback": 0,
+     "maxDriftVoxels": 0.05199876427650452,
+     "rebuilds": 0,
+     "residentBytes": 4995584,
+     "resolutionInForce": 64,
+     "shadowed": 3,
+     "unshadowedByChoice": 0
+    },
+    "sceneShadow": {
+     "atlasDraws": 0,
+     "cascadeDraws": 0,
+     "groomsAskedToCast": 2,
+     "groomsCasting": 2,
+     "segmentsCast": 276870,
+     "segmentsWhole": 1030608,
+     "virtualShadowLevelDraws": 9
+    },
+    "animalBudget": {
+     "animalsAtDesired": 1,
+     "animalsAtPoseStepCap": 0,
+     "animalsAtVisibilityFloor": 0,
+     "animalsCapHeld": 40,
+     "animalsCoarsened": 0,
+     "animalsConsidered": 41,
+     "animalsHeldByHysteresis": 0,
+     "budgetExceeded": true,
+     "byAxis": [
+      {
+       "axis": "Deformation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 413.2798156738281,
+       "scheduledCostUnits": 413.2798156738281,
+       "shareOfScheduled": 0.005914788693189621
+      },
+      {
+       "axis": "Simulation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 49055.7890625,
+       "scheduledCostUnits": 49055.7890625,
+       "shareOfScheduled": 0.7020778656005859
+      },
+      {
+       "axis": "Visibility",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 8545.580078125,
+       "scheduledCostUnits": 8545.580078125,
+       "shareOfScheduled": 0.12230285257101059
+      },
+      {
+       "axis": "Shadow",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 77384.9296875,
+       "scheduledCostUnits": 11324.623046875,
+       "shareOfScheduled": 0.16207602620124817
+      }
+     ],
+     "drawCallCostUnits": 533.0,
+     "drawCalls": 82,
+     "enabled": true,
+     "estimatedCostUnits": 69872.2890625,
+     "frameBudgetUnits": 6000.0,
+     "heroesCoarsened": 0,
+     "heroesConsidered": 1,
+     "maxStarvedFrames": 1477,
+     "stepChanges": 0
+    }
+   },
+   "rtScene": {
+    "availability": {
+     "available": true,
+     "enabled": true,
+     "hasData": true,
+     "status": "ready"
+    },
+    "capability": {
+     "properties": {
+      "maxGeometryCount": 16777215,
+      "maxInstanceCount": 16777215,
+      "maxPrimitiveCount": 536870911,
+      "minScratchOffsetAlignment": 128
+     },
+     "rayTracingPipeline": true,
+     "reason": "supported",
+     "supported": true
+    },
+    "deformedSurfaces": {
+     "allocated": 0,
+     "dispatched": 43,
+     "paletteBytes": 131072,
+     "reallocated": 0,
+     "refused": 0,
+     "requested": 44,
+     "residentBytes": 3203072,
+     "residentSurfaces": 44,
+     "retired": 0,
+     "skippedUnchanged": 1,
+     "verticesDeformed": 87416
+    },
+    "frame": {
+     "blasBuildGpuTimeChannel": "olo_perf_pass_timings -> AccelerationStructureBuild sub-pass",
+     "blasBuilds": 0,
+     "blasCompactions": 0,
+     "blasRefits": 108,
+     "blasRetired": 0,
+     "deformedBuildsDeferred": 0,
+     "instancesSkipped": 0,
+     "instancesTraced": 111,
+     "tlasBuilds": 0,
+     "tlasUpdates": 1
+    },
+    "freshness": {
+     "model": "previousFrame",
+     "sampleAgeFrames": null,
+     "stale": false
+    },
+    "gpuScene": {
+     "animated": {
+      "canonicalEntities": 44,
+      "canonicalInstances": 46,
+      "surfacesWithHistory": 46,
+      "surfacesWithoutHistory": 0,
+      "unsupportedInstances": 0,
+      "unsupportedVariants": 0
+     },
+     "available": true,
+     "foliage": {
+      "authoredMeshInstances": 671769,
+      "canonicalInstances": 671769,
+      "impostorInstances": 0,
+      "meshCardInstances": 0,
+      "spatialGroups": 1044,
+      "unsupportedInstances": 0,
+      "unsupportedVariants": 0
+     },
+     "geometries": 110,
+     "instances": 111,
+     "lights": 4,
+     "materials": 57,
+     "notStagedByCategory": {
+      "cloth": 0,
+      "fluids": 0,
+      "foliage": 1,
+      "groom": 44,
+      "legacyModel": 0,
+      "legacySubmesh": 0,
+      "notExtractable": 0,
+      "particles": 0,
+      "procedural": 1,
+      "skinned": 0,
+      "softwareRaster": 0,
+      "terrain": 1,
+      "tiles": 0,
+      "virtualized": 0
+     },
+     "notStagedTotal": 47
+    },
+    "grooms": {
+     "complete": true,
+     "considered": 3,
+     "detailedCoats": 1,
+     "dominantRefusalDetail": "The coat is in the ray-traced scene at the tier its apparent size selects.",
+     "dominantRefusalReason": "None",
+     "gpuDispatchFailures": 0,
+     "gpuDispatched": 3,
+     "maxWidthCompensation": 12.809799194335938,
+     "proxyCoats": 2,
+     "rebuilds": 3,
+     "refreshDeferred": 0,
+     "refused": 0,
+     "represented": 3,
+     "residentBytes": 25150528,
+     "residentTriangles": 330928,
+     "reused": 0,
+     "segmentsConverted": 82732,
+     "tierChanges": 0,
+     "trianglesBuilt": 330928,
+     "updateMicroseconds": 2522,
+     "widthCompensationCap": 48.0
+    },
+    "lastTlasReason": "Update",
+    "resident": {
+     "accelerationStructureBytes": 52090560,
+     "animatedInstancesRefused": 0,
+     "blasByClass": {
+      "deformed": 109,
+      "masked": 0,
+      "rigidDynamic": 0,
+      "static": 1,
+      "unsupported": 0
+     },
+     "compactionSavedBytes": 2688,
+     "scratchBytes": 9155584,
+     "tlasInstances": 111,
+     "unsupportedInstances": 0
+    },
+    "vegetation": {
+     "beyondReflectionBudget": 0,
+     "cadenceHolds": 0,
+     "carriedBuilds": 0,
+     "castersComplete": false,
+     "castingDemandBuilds": 60.0,
+     "castingDemandVertices": 1023892.0,
+     "castingFallbackGroups": 3,
+     "castingGroupsLeftOut": 94,
+     "castingGroupsPlanned": 148,
+     "complete": false,
+     "deferredReflectionGroups": 0,
+     "deferredReflectionPlants": 0,
+     "detailedGroups": 0,
+     "dispatchBatches": 6,
+     "dispatched": 54,
+     "fallbackEngagements": 1,
+     "groupsCreated": 0,
+     "groupsRetired": 0,
+     "historyReset": false,
+     "nearestCastingFallback": 35.95180892944336,
+     "oldestSnapshotAge": 0.0,
+     "oldestSnapshotError": 0.0,
+     "planFrameSeconds": 0.0502471923828125,
+     "plantsBeyondReflectionBudget": 0,
+     "plantsRepresented": 162998,
+     "pressure": "frameWork",
+     "pressureGroups": {
+      "accelerationMemory": 0,
+      "buildDebt": 0,
+      "frameWork": 97,
+      "geometryMemory": 0,
+      "invalidContent": 0,
+      "producerFailure": 0,
+      "residentGroups": 0
+     },
+     "producerFailed": false,
+     "proxyGroups": 54,
+     "ready": false,
+     "recovery": {
+      "accelerationBytes": 275149056,
+      "builds": 220,
+      "geometryBytes": 230447136,
+      "triangles": 4349184,
+      "vertices": 15422775
+     },
+     "recoveryFramesRemaining": 8,
+     "reflectionDetailReach": 0.0,
+     "reflectionReach": 0.0,
+     "refreshReasons": {
+      "due": 54,
+      "invalid": 0,
+      "new": 0,
+      "reset": 0
+     },
+     "refused": 94,
+     "requested": 148,
+     "residentBytes": 37773104,
+     "reused": 0,
+     "shadowFallbackEngagements": 1,
+     "shadowReady": false,
+     "shadowRecoveryFramesRemaining": 8,
+     "shadowTlasWithheld": true,
+     "stagedAccelerationBytes": 27132288,
+     "staleReflectionSnapshots": 0,
+     "tlasWithheld": true,
+     "verticesDeformed": 775948
+    }
+   },
+   "cpuScopes": [
+    {
+     "scope": "EditorLayer::OnUpdate",
+     "meanMs": 63.679
+    },
+    {
+     "scope": "Scene::OnUpdateEditor",
+     "meanMs": 63.667
+    },
+    {
+     "scope": "Renderer3D::EndScene",
+     "meanMs": 35.054
+    },
+    {
+     "scope": "RG::Execute",
+     "meanMs": 31.953
+    },
+    {
+     "scope": "Vegetation::Queue",
+     "meanMs": 21.738
+    },
+    {
+     "scope": "Scene::PublishGroomStrandRequests",
+     "meanMs": 5.305
+    },
+    {
+     "scope": "Groom::Request",
+     "meanMs": 5.29
+    },
+    {
+     "scope": "Groom::Deform",
+     "meanMs": 5.065
+    },
+    {
+     "scope": "Groom::UploadDeformation",
+     "meanMs": 3.586
+    },
+    {
+     "scope": "Groom::PackFrame",
+     "meanMs": 2.905
+    },
+    {
+     "scope": "Groom::Simulate",
+     "meanMs": 2.534
+    },
+    {
+     "scope": "Groom::RootEvaluate",
+     "meanMs": 2.393
+    },
+    {
+     "scope": "GroomProxy::Deform",
+     "meanMs": 1.503
+    },
+    {
+     "scope": "Vegetation::QueueCasters",
+     "meanMs": 1.352
+    },
+    {
+     "scope": "GroomProxy::Pack",
+     "meanMs": 1.343
+    }
+   ]
+  },
+  {
+   "repeat": 0,
+   "cell": "hybrid",
+   "camera": "coats-closeup",
+   "rayTracedShadows": true,
+   "frameTimeMs": {
+    "count": 120,
+    "p50Ms": 136.66,
+    "p95Ms": 163.29,
+    "p99Ms": 176.79,
+    "maxMs": 179.72,
+    "deadlineMisses": 120
+   },
+   "cpuMs": {
+    "count": 120,
+    "p50Ms": 134.42,
+    "p95Ms": 161.44,
+    "p99Ms": 173.81,
+    "maxMs": 177.12,
+    "deadlineMisses": 120
+   },
+   "gpuMs": {
+    "count": 120,
+    "p50Ms": 46.68,
+    "p95Ms": 49.99,
+    "p99Ms": 53.49,
+    "maxMs": 53.49,
+    "deadlineMisses": 120
+   },
+   "fenceWaitMs": {
+    "count": 120,
+    "p50Ms": 0.0,
+    "p95Ms": 0.0,
+    "p99Ms": 0.01,
+    "maxMs": 0.01,
+    "deadlineMisses": 0
+   },
+   "presentWaitMs": {
+    "count": 120,
+    "p50Ms": 136.71,
+    "p95Ms": 163.3,
+    "p99Ms": 176.46,
+    "maxMs": 180.45,
+    "deadlineMisses": 119
+   },
+   "topPasses": [
+    {
+     "pass": "ShadowPass",
+     "gpuMs": 27.72,
+     "subPasses": {
+      "FoliageCull": 0.114,
+      "FoliageCasters": 0.676
+     }
+    },
+    {
+     "pass": "ScenePass",
+     "gpuMs": 5.342,
+     "subPasses": {
+      "DepthPrepass": 2.997,
+      "LightCulling": 0.057,
+      "Color": 2.257
+     }
+    },
+    {
+     "pass": "GroomPass",
+     "gpuMs": 4.011,
+     "subPasses": {
+      "RootFrames": 0.259,
+      "StrandPrepass": 0.316,
+      "StrandShade": 0.114
+     }
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "gpuMs": 0.867,
+     "subPasses": {
+      "VegetationDeformToBuffer": 0.086,
+      "GroomProxyDeformToBuffer": 0.348,
+      "AccelerationStructureBuild": 0.426
+     }
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "gpuMs": 0.453,
+     "subPasses": {}
+    },
+    {
+     "pass": "GTAOPass",
+     "gpuMs": 0.423,
+     "subPasses": {
+      "HZB": 0.05,
+      "GTAO": 0.295,
+      "GTAO_Denoise": 0.061
+     }
+    }
+   ],
+   "topCpuPasses": [
+    {
+     "pass": "GroomPass",
+     "cpuMs": 41.621
+    },
+    {
+     "pass": "ShadowPass",
+     "cpuMs": 10.443
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "cpuMs": 0.543
+    },
+    {
+     "pass": "ScenePass",
+     "cpuMs": 0.282
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "cpuMs": 0.055
+    },
+    {
+     "pass": "GTAOPass",
+     "cpuMs": 0.045
+    }
+   ],
+   "groomStats": {
+    "groom": {
+     "byRepresentation": [
+      {
+       "bytes": 295898176,
+       "grooms": 2,
+       "representation": "Strand",
+       "strands": 99719
+      },
+      {
+       "bytes": 140967920,
+       "grooms": 16,
+       "representation": "Card",
+       "strands": 142525
+      },
+      {
+       "bytes": 0,
+       "grooms": 0,
+       "representation": "Mesh",
+       "strands": 0
+      }
+     ],
+     "dominantFallbackReason": "the groom is on the representation its apparent size selects",
+     "groomsAtCompensationCap": 0,
+     "groomsFellBack": 0,
+     "groomsOnSelectedTier": 18,
+     "groomsSubmitted": 18,
+     "maxWidthCompensation": 6.998494625091553,
+     "representationChanges": 0,
+     "segmentsDrawn": 1761973,
+     "strandsDrawn": 242244
+    },
+    "coatShadow": {
+     "bakeMicroseconds": 25006,
+     "deformedRebakes": 2,
+     "dominantFallbackReason": "None",
+     "fallback": 0,
+     "maxDriftVoxels": 0.0,
+     "rebuilds": 2,
+     "residentBytes": 1903488,
+     "resolutionInForce": 64,
+     "shadowed": 18,
+     "unshadowedByChoice": 0
+    },
+    "sceneShadow": {
+     "atlasDraws": 0,
+     "cascadeDraws": 0,
+     "groomsAskedToCast": 5,
+     "groomsCasting": 5,
+     "segmentsCast": 1490119,
+     "segmentsWhole": 3435360,
+     "virtualShadowLevelDraws": 12
+    },
+    "animalBudget": {
+     "animalsAtDesired": 1,
+     "animalsAtPoseStepCap": 0,
+     "animalsAtVisibilityFloor": 0,
+     "animalsCapHeld": 40,
+     "animalsCoarsened": 0,
+     "animalsConsidered": 41,
+     "animalsHeldByHysteresis": 0,
+     "budgetExceeded": true,
+     "byAxis": [
+      {
+       "axis": "Deformation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 413.2798156738281,
+       "scheduledCostUnits": 413.2798156738281,
+       "shareOfScheduled": 0.005627049598842859
+      },
+      {
+       "axis": "Simulation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 59347.7109375,
+       "scheduledCostUnits": 52432.62109375,
+       "shareOfScheduled": 0.7139012217521667
+      },
+      {
+       "axis": "Visibility",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 9329.91015625,
+       "scheduledCostUnits": 8741.6630859375,
+       "shareOfScheduled": 0.1190229281783104
+      },
+      {
+       "axis": "Shadow",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 77384.9296875,
+       "scheduledCostUnits": 11324.623046875,
+       "shareOfScheduled": 0.15419146418571472
+      }
+     ],
+     "drawCallCostUnits": 533.0,
+     "drawCalls": 82,
+     "enabled": true,
+     "estimatedCostUnits": 73445.203125,
+     "frameBudgetUnits": 6000.0,
+     "heroesCoarsened": 0,
+     "heroesConsidered": 1,
+     "maxStarvedFrames": 1644,
+     "stepChanges": 0
+    }
+   },
+   "rtScene": {
+    "availability": {
+     "available": true,
+     "enabled": true,
+     "hasData": true,
+     "status": "ready"
+    },
+    "capability": {
+     "properties": {
+      "maxGeometryCount": 16777215,
+      "maxInstanceCount": 16777215,
+      "maxPrimitiveCount": 536870911,
+      "minScratchOffsetAlignment": 128
+     },
+     "rayTracingPipeline": true,
+     "reason": "supported",
+     "supported": true
+    },
+    "deformedSurfaces": {
+     "allocated": 0,
+     "dispatched": 43,
+     "paletteBytes": 131072,
+     "reallocated": 0,
+     "refused": 0,
+     "requested": 44,
+     "residentBytes": 3203072,
+     "residentSurfaces": 44,
+     "retired": 0,
+     "skippedUnchanged": 1,
+     "verticesDeformed": 87416
+    },
+    "frame": {
+     "blasBuildGpuTimeChannel": "olo_perf_pass_timings -> AccelerationStructureBuild sub-pass",
+     "blasBuilds": 14,
+     "blasCompactions": 0,
+     "blasRefits": 317,
+     "blasRetired": 0,
+     "deformedBuildsDeferred": 0,
+     "instancesSkipped": 0,
+     "instancesTraced": 334,
+     "tlasBuilds": 0,
+     "tlasUpdates": 1
+    },
+    "freshness": {
+     "model": "previousFrame",
+     "sampleAgeFrames": null,
+     "stale": false
+    },
+    "gpuScene": {
+     "animated": {
+      "canonicalEntities": 44,
+      "canonicalInstances": 46,
+      "surfacesWithHistory": 46,
+      "surfacesWithoutHistory": 0,
+      "unsupportedInstances": 0,
+      "unsupportedVariants": 0
+     },
+     "available": true,
+     "foliage": {
+      "authoredMeshInstances": 671769,
+      "canonicalInstances": 671769,
+      "impostorInstances": 0,
+      "meshCardInstances": 0,
+      "spatialGroups": 1044,
+      "unsupportedInstances": 0,
+      "unsupportedVariants": 0
+     },
+     "geometries": 333,
+     "instances": 334,
+     "lights": 4,
+     "materials": 71,
+     "notStagedByCategory": {
+      "cloth": 0,
+      "fluids": 0,
+      "foliage": 1,
+      "groom": 44,
+      "legacyModel": 0,
+      "legacySubmesh": 0,
+      "notExtractable": 0,
+      "particles": 0,
+      "procedural": 1,
+      "skinned": 0,
+      "softwareRaster": 0,
+      "terrain": 1,
+      "tiles": 0,
+      "virtualized": 0
+     },
+     "notStagedTotal": 47
+    },
+    "grooms": {
+     "complete": true,
+     "considered": 18,
+     "detailedCoats": 2,
+     "dominantRefusalDetail": "The coat is in the ray-traced scene at the tier its apparent size selects.",
+     "dominantRefusalReason": "None",
+     "gpuDispatchFailures": 0,
+     "gpuDispatched": 18,
+     "maxWidthCompensation": 15.497188568115234,
+     "proxyCoats": 16,
+     "rebuilds": 18,
+     "refreshDeferred": 0,
+     "refused": 0,
+     "represented": 18,
+     "residentBytes": 58663488,
+     "residentTriangles": 771888,
+     "reused": 0,
+     "segmentsConverted": 192972,
+     "tierChanges": 0,
+     "trianglesBuilt": 771888,
+     "updateMicroseconds": 20336,
+     "widthCompensationCap": 48.0
+    },
+    "lastTlasReason": "Update",
+    "resident": {
+     "accelerationStructureBytes": 77778368,
+     "animatedInstancesRefused": 0,
+     "blasByClass": {
+      "deformed": 332,
+      "masked": 0,
+      "rigidDynamic": 0,
+      "static": 1,
+      "unsupported": 0
+     },
+     "compactionSavedBytes": 2688,
+     "scratchBytes": 9155584,
+     "tlasInstances": 334,
+     "unsupportedInstances": 0
+    },
+    "vegetation": {
+     "beyondReflectionBudget": 0,
+     "cadenceHolds": 0,
+     "carriedBuilds": 0,
+     "castersComplete": false,
+     "castingDemandBuilds": 268.0,
+     "castingDemandVertices": 986727.0,
+     "castingFallbackGroups": 219,
+     "castingGroupsLeftOut": 117,
+     "castingGroupsPlanned": 379,
+     "complete": false,
+     "deferredReflectionGroups": 0,
+     "deferredReflectionPlants": 0,
+     "detailedGroups": 185,
+     "dispatchBatches": 6,
+     "dispatched": 262,
+     "fallbackEngagements": 1,
+     "groupsCreated": 0,
+     "groupsRetired": 0,
+     "historyReset": false,
+     "nearestCastingFallback": 3.131714344024658,
+     "oldestSnapshotAge": 0.0,
+     "oldestSnapshotError": 0.0,
+     "planFrameSeconds": 0.100006103515625,
+     "plantsBeyondReflectionBudget": 0,
+     "plantsRepresented": 130463,
+     "pressure": "frameWork",
+     "pressureGroups": {
+      "accelerationMemory": 0,
+      "buildDebt": 0,
+      "frameWork": 336,
+      "geometryMemory": 0,
+      "invalidContent": 0,
+      "producerFailure": 0,
+      "residentGroups": 0
+     },
+     "producerFailed": false,
+     "proxyGroups": 77,
+     "ready": false,
+     "recovery": {
+      "accelerationBytes": 1271168768,
+      "builds": 243,
+      "geometryBytes": 923104320,
+      "triangles": 20131180,
+      "vertices": 30989316
+     },
+     "recoveryFramesRemaining": 8,
+     "reflectionDetailReach": 0.0,
+     "reflectionReach": 0.0,
+     "refreshReasons": {
+      "due": 262,
+      "invalid": 0,
+      "new": 0,
+      "reset": 0
+     },
+     "refused": 117,
+     "requested": 379,
+     "residentBytes": 32559480,
+     "reused": 0,
+     "shadowFallbackEngagements": 1,
+     "shadowReady": false,
+     "shadowRecoveryFramesRemaining": 8,
+     "shadowTlasWithheld": true,
+     "stagedAccelerationBytes": 24865664,
+     "staleReflectionSnapshots": 0,
+     "tlasWithheld": true,
+     "verticesDeformed": 676797
+    }
+   },
+   "cpuScopes": [
+    {
+     "scope": "EditorLayer::OnUpdate",
+     "meanMs": 142.654
+    },
+    {
+     "scope": "Scene::OnUpdateEditor",
+     "meanMs": 142.641
+    },
+    {
+     "scope": "Renderer3D::EndScene",
+     "meanMs": 74.039
+    },
+    {
+     "scope": "RG::Execute",
+     "meanMs": 54.584
+    },
+    {
+     "scope": "Scene::PublishGroomStrandRequests",
+     "meanMs": 36.136
+    },
+    {
+     "scope": "Groom::Request",
+     "meanMs": 36.098
+    },
+    {
+     "scope": "Groom::Deform",
+     "meanMs": 35.611
+    },
+    {
+     "scope": "Vegetation::Queue",
+     "meanMs": 30.227
+    },
+    {
+     "scope": "Groom::UploadDeformation",
+     "meanMs": 20.186
+    },
+    {
+     "scope": "Groom::PackFrame",
+     "meanMs": 19.62
+    },
+    {
+     "scope": "Groom::Simulate",
+     "meanMs": 18.37
+    },
+    {
+     "scope": "Groom::RootEvaluate",
+     "meanMs": 16.789
+    },
+    {
+     "scope": "GroomProxy::Deform",
+     "meanMs": 10.617
+    },
+    {
+     "scope": "GroomProxy::Pack",
+     "meanMs": 9.59
+    },
+    {
+     "scope": "GroomProxy::GpuStage",
+     "meanMs": 7.825
+    }
+   ]
+  },
+  {
+   "repeat": 0,
+   "cell": "hybrid",
+   "camera": "population-dolly",
+   "rayTracedShadows": true,
+   "frameTimeMs": {
+    "count": 120,
+    "p50Ms": 200.5,
+    "p95Ms": 259.32,
+    "p99Ms": 1397.77,
+    "maxMs": 2085.22,
+    "deadlineMisses": 120
+   },
+   "cpuMs": {
+    "count": 120,
+    "p50Ms": 197.13,
+    "p95Ms": 254.65,
+    "p99Ms": 1394.66,
+    "maxMs": 2081.94,
+    "deadlineMisses": 120
+   },
+   "gpuMs": {
+    "count": 120,
+    "p50Ms": 56.64,
+    "p95Ms": 70.55,
+    "p99Ms": 1005.06,
+    "maxMs": 1357.1,
+    "deadlineMisses": 120
+   },
+   "fenceWaitMs": {
+    "count": 120,
+    "p50Ms": 0.0,
+    "p95Ms": 0.01,
+    "p99Ms": 0.01,
+    "maxMs": 0.02,
+    "deadlineMisses": 0
+   },
+   "presentWaitMs": {
+    "count": 120,
+    "p50Ms": 199.75,
+    "p95Ms": 259.44,
+    "p99Ms": 1449.75,
+    "maxMs": 2084.32,
+    "deadlineMisses": 119
+   },
+   "topPasses": [
+    {
+     "pass": "ShadowPass",
+     "gpuMs": 31.313,
+     "subPasses": {
+      "FoliageCull": 0.392,
+      "FoliageCasters": 0.003
+     }
+    },
+    {
+     "pass": "ScenePass",
+     "gpuMs": 9.169,
+     "subPasses": {
+      "DepthPrepass": 5.454,
+      "LightCulling": 0.052,
+      "Color": 3.63
+     }
+    },
+    {
+     "pass": "GroomPass",
+     "gpuMs": 5.185,
+     "subPasses": {
+      "RootFrames": 0.885,
+      "StrandPrepass": 0.616,
+      "StrandShade": 0.697
+     }
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "gpuMs": 1.069,
+     "subPasses": {
+      "VegetationDeformToBuffer": 0.092,
+      "GroomProxyDeformToBuffer": 0.502,
+      "AccelerationStructureBuild": 0.469
+     }
+    },
+    {
+     "pass": "GTAOPass",
+     "gpuMs": 0.365,
+     "subPasses": {
+      "HZB": 0.063,
+      "GTAO": 0.198,
+      "GTAO_Denoise": 0.074
+     }
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "gpuMs": 0.327,
+     "subPasses": {}
+    }
+   ],
+   "topCpuPasses": [
+    {
+     "pass": "GroomPass",
+     "cpuMs": 55.656
+    },
+    {
+     "pass": "ShadowPass",
+     "cpuMs": 9.054
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "cpuMs": 0.703
+    },
+    {
+     "pass": "ScenePass",
+     "cpuMs": 0.327
+    },
+    {
+     "pass": "BloomPass",
+     "cpuMs": 0.069
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "cpuMs": 0.053
+    }
+   ],
+   "groomStats": {
+    "groom": {
+     "byRepresentation": [
+      {
+       "bytes": 470785600,
+       "grooms": 2,
+       "representation": "Strand",
+       "strands": 245761
+      },
+      {
+       "bytes": 238892880,
+       "grooms": 36,
+       "representation": "Card",
+       "strands": 320952
+      },
+      {
+       "bytes": 0,
+       "grooms": 0,
+       "representation": "Mesh",
+       "strands": 0
+      }
+     ],
+     "dominantFallbackReason": "the groom is on the representation its apparent size selects",
+     "groomsAtCompensationCap": 1,
+     "groomsFellBack": 0,
+     "groomsOnSelectedTier": 38,
+     "groomsSubmitted": 38,
+     "maxWidthCompensation": 8.0,
+     "representationChanges": 0,
+     "segmentsDrawn": 3221664,
+     "strandsDrawn": 566713
+    },
+    "coatShadow": {
+     "bakeMicroseconds": 0,
+     "deformedRebakes": 0,
+     "dominantFallbackReason": "None",
+     "fallback": 0,
+     "maxDriftVoxels": 0.0,
+     "rebuilds": 0,
+     "residentBytes": 2931456,
+     "resolutionInForce": 128,
+     "shadowed": 38,
+     "unshadowedByChoice": 0
+    },
+    "sceneShadow": {
+     "atlasDraws": 0,
+     "cascadeDraws": 0,
+     "groomsAskedToCast": 5,
+     "groomsCasting": 5,
+     "segmentsCast": 9309984,
+     "segmentsWhole": 24986752,
+     "virtualShadowLevelDraws": 16
+    },
+    "animalBudget": {
+     "animalsAtDesired": 1,
+     "animalsAtPoseStepCap": 0,
+     "animalsAtVisibilityFloor": 0,
+     "animalsCapHeld": 40,
+     "animalsCoarsened": 0,
+     "animalsConsidered": 41,
+     "animalsHeldByHysteresis": 0,
+     "budgetExceeded": true,
+     "byAxis": [
+      {
+       "axis": "Deformation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 413.2798156738281,
+       "scheduledCostUnits": 413.2798156738281,
+       "shareOfScheduled": 0.004607475362718105
+      },
+      {
+       "axis": "Simulation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 102605.1875,
+       "scheduledCostUnits": 65939.9375,
+       "shareOfScheduled": 0.7351354360580444
+      },
+      {
+       "axis": "Visibility",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 15044.423828125,
+       "scheduledCostUnits": 11486.8173828125,
+       "shareOfScheduled": 0.12806148827075958
+      },
+      {
+       "axis": "Shadow",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 76441.2109375,
+       "scheduledCostUnits": 11324.623046875,
+       "shareOfScheduled": 0.12625326216220856
+      }
+     ],
+     "drawCallCostUnits": 533.0,
+     "drawCalls": 82,
+     "enabled": true,
+     "estimatedCostUnits": 89697.671875,
+     "frameBudgetUnits": 6000.0,
+     "heroesCoarsened": 0,
+     "heroesConsidered": 1,
+     "maxStarvedFrames": 1755,
+     "stepChanges": 0
+    }
+   },
+   "rtScene": {
+    "availability": {
+     "available": true,
+     "enabled": true,
+     "hasData": true,
+     "status": "ready"
+    },
+    "capability": {
+     "properties": {
+      "maxGeometryCount": 16777215,
+      "maxInstanceCount": 16777215,
+      "maxPrimitiveCount": 536870911,
+      "minScratchOffsetAlignment": 128
+     },
+     "rayTracingPipeline": true,
+     "reason": "supported",
+     "supported": true
+    },
+    "deformedSurfaces": {
+     "allocated": 0,
+     "dispatched": 44,
+     "paletteBytes": 131072,
+     "reallocated": 0,
+     "refused": 0,
+     "requested": 44,
+     "residentBytes": 3203072,
+     "residentSurfaces": 44,
+     "retired": 0,
+     "skippedUnchanged": 0,
+     "verticesDeformed": 96996
+    },
+    "frame": {
+     "blasBuildGpuTimeChannel": "olo_perf_pass_timings -> AccelerationStructureBuild sub-pass",
+     "blasBuilds": 0,
+     "blasCompactions": 0,
+     "blasRefits": 366,
+     "blasRetired": 0,
+     "deformedBuildsDeferred": 0,
+     "instancesSkipped": 0,
+     "instancesTraced": 368,
+     "tlasBuilds": 0,
+     "tlasUpdates": 1
+    },
+    "freshness": {
+     "model": "previousFrame",
+     "sampleAgeFrames": null,
+     "stale": false
+    },
+    "gpuScene": {
+     "animated": {
+      "canonicalEntities": 44,
+      "canonicalInstances": 46,
+      "surfacesWithHistory": 46,
+      "surfacesWithoutHistory": 0,
+      "unsupportedInstances": 0,
+      "unsupportedVariants": 0
+     },
+     "available": true,
+     "foliage": {
+      "authoredMeshInstances": 671769,
+      "canonicalInstances": 671769,
+      "impostorInstances": 0,
+      "meshCardInstances": 0,
+      "spatialGroups": 1044,
+      "unsupportedInstances": 0,
+      "unsupportedVariants": 0
+     },
+     "geometries": 367,
+     "instances": 368,
+     "lights": 4,
+     "materials": 91,
+     "notStagedByCategory": {
+      "cloth": 0,
+      "fluids": 0,
+      "foliage": 1,
+      "groom": 44,
+      "legacyModel": 0,
+      "legacySubmesh": 0,
+      "notExtractable": 0,
+      "particles": 0,
+      "procedural": 1,
+      "skinned": 0,
+      "softwareRaster": 0,
+      "terrain": 1,
+      "tiles": 0,
+      "virtualized": 0
+     },
+     "notStagedTotal": 47
+    },
+    "grooms": {
+     "complete": true,
+     "considered": 38,
+     "detailedCoats": 2,
+     "dominantRefusalDetail": "The coat is in the ray-traced scene at the tier its apparent size selects.",
+     "dominantRefusalReason": "None",
+     "gpuDispatchFailures": 0,
+     "gpuDispatched": 38,
+     "maxWidthCompensation": 39.86174774169922,
+     "proxyCoats": 36,
+     "rebuilds": 38,
+     "refreshDeferred": 0,
+     "refused": 0,
+     "represented": 38,
+     "residentBytes": 77213568,
+     "residentTriangles": 1015968,
+     "reused": 0,
+     "segmentsConverted": 253992,
+     "tierChanges": 0,
+     "trianglesBuilt": 1015968,
+     "updateMicroseconds": 41991,
+     "widthCompensationCap": 48.0
+    },
+    "lastTlasReason": "Update",
+    "resident": {
+     "accelerationStructureBytes": 95452224,
+     "animatedInstancesRefused": 0,
+     "blasByClass": {
+      "deformed": 366,
+      "masked": 0,
+      "rigidDynamic": 0,
+      "static": 1,
+      "unsupported": 0
+     },
+     "compactionSavedBytes": 2688,
+     "scratchBytes": 9155584,
+     "tlasInstances": 368,
+     "unsupportedInstances": 0
+    },
+    "vegetation": {
+     "beyondReflectionBudget": 0,
+     "cadenceHolds": 0,
+     "carriedBuilds": 0,
+     "castersComplete": false,
+     "castingDemandBuilds": 282.0,
+     "castingDemandVertices": 1013112.0,
+     "castingFallbackGroups": 231,
+     "castingGroupsLeftOut": 134,
+     "castingGroupsPlanned": 410,
+     "complete": false,
+     "deferredReflectionGroups": 0,
+     "deferredReflectionPlants": 0,
+     "detailedGroups": 153,
+     "dispatchBatches": 5,
+     "dispatched": 276,
+     "fallbackEngagements": 1,
+     "groupsCreated": 0,
+     "groupsRetired": 0,
+     "historyReset": false,
+     "nearestCastingFallback": 3.4107494354248047,
+     "oldestSnapshotAge": 0.0,
+     "oldestSnapshotError": 0.0,
+     "planFrameSeconds": 0.100006103515625,
+     "plantsBeyondReflectionBudget": 0,
+     "plantsRepresented": 160303,
+     "pressure": "frameWork",
+     "pressureGroups": {
+      "accelerationMemory": 0,
+      "buildDebt": 0,
+      "frameWork": 365,
+      "geometryMemory": 0,
+      "invalidContent": 0,
+      "producerFailure": 0,
+      "residentGroups": 0
+     },
+     "producerFailed": false,
+     "proxyGroups": 123,
+     "ready": false,
+     "recovery": {
+      "accelerationBytes": 1445189888,
+      "builds": 260,
+      "geometryBytes": 1061854248,
+      "triangles": 22888838,
+      "vertices": 34293681
+     },
+     "recoveryFramesRemaining": 8,
+     "reflectionDetailReach": 0.0,
+     "reflectionReach": 0.0,
+     "refreshReasons": {
+      "due": 276,
+      "invalid": 0,
+      "new": 0,
+      "reset": 0
+     },
+     "refused": 134,
+     "requested": 410,
+     "residentBytes": 37234104,
+     "reused": 0,
+     "shadowFallbackEngagements": 1,
+     "shadowReady": false,
+     "shadowRecoveryFramesRemaining": 8,
+     "shadowTlasWithheld": true,
+     "stagedAccelerationBytes": 27039488,
+     "staleReflectionSnapshots": 0,
+     "tlasWithheld": true,
+     "verticesDeformed": 765168
+    }
+   },
+   "cpuScopes": [
+    {
+     "scope": "EditorLayer::OnUpdate",
+     "meanMs": 207.263
+    },
+    {
+     "scope": "Scene::OnUpdateEditor",
+     "meanMs": 207.249
+    },
+    {
+     "scope": "Renderer3D::EndScene",
+     "meanMs": 89.451
+    },
+    {
+     "scope": "Scene::PublishGroomStrandRequests",
+     "meanMs": 79.475
+    },
+    {
+     "scope": "Groom::Request",
+     "meanMs": 79.415
+    },
+    {
+     "scope": "Groom::Deform",
+     "meanMs": 78.601
+    },
+    {
+     "scope": "RG::Execute",
+     "meanMs": 46.332
+    },
+    {
+     "scope": "Groom::PackFrame",
+     "meanMs": 42.854
+    },
+    {
+     "scope": "Groom::Simulate",
+     "meanMs": 40.418
+    },
+    {
+     "scope": "Groom::UploadDeformation",
+     "meanMs": 40.258
+    },
+    {
+     "scope": "Groom::RootEvaluate",
+     "meanMs": 37.825
+    },
+    {
+     "scope": "Vegetation::Queue",
+     "meanMs": 34.459
+    },
+    {
+     "scope": "GroomProxy::Deform",
+     "meanMs": 24.565
+    },
+    {
+     "scope": "GroomProxy::Pack",
+     "meanMs": 21.847
+    },
+    {
+     "scope": "GroomProxy::GpuStage",
+     "meanMs": 17.405
+    }
+   ]
+  },
+  {
+   "repeat": 0,
+   "cell": "hybrid",
+   "camera": "rapid-turn",
+   "rayTracedShadows": true,
+   "frameTimeMs": {
+    "count": 120,
+    "p50Ms": 165.74,
+    "p95Ms": 202.54,
+    "p99Ms": 213.15,
+    "maxMs": 235.95,
+    "deadlineMisses": 120
+   },
+   "cpuMs": {
+    "count": 120,
+    "p50Ms": 162.92,
+    "p95Ms": 198.85,
+    "p99Ms": 210.22,
+    "maxMs": 232.17,
+    "deadlineMisses": 120
+   },
+   "gpuMs": {
+    "count": 120,
+    "p50Ms": 42.46,
+    "p95Ms": 50.41,
+    "p99Ms": 51.16,
+    "maxMs": 53.62,
+    "deadlineMisses": 120
+   },
+   "fenceWaitMs": {
+    "count": 120,
+    "p50Ms": 0.0,
+    "p95Ms": 0.01,
+    "p99Ms": 0.01,
+    "maxMs": 0.01,
+    "deadlineMisses": 0
+   },
+   "presentWaitMs": {
+    "count": 120,
+    "p50Ms": 166.04,
+    "p95Ms": 203.87,
+    "p99Ms": 213.29,
+    "maxMs": 235.19,
+    "deadlineMisses": 119
+   },
+   "topPasses": [
+    {
+     "pass": "ShadowPass",
+     "gpuMs": 26.682,
+     "subPasses": {
+      "FoliageCull": 0.118,
+      "FoliageCasters": 0.003
+     }
+    },
+    {
+     "pass": "ScenePass",
+     "gpuMs": 9.059,
+     "subPasses": {
+      "DepthPrepass": 4.968,
+      "LightCulling": 0.063,
+      "Color": 3.995
+     }
+    },
+    {
+     "pass": "GroomPass",
+     "gpuMs": 3.161,
+     "subPasses": {
+      "RootFrames": 0.681,
+      "StrandPrepass": 0.045,
+      "StrandShade": 0.035
+     }
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "gpuMs": 0.569,
+     "subPasses": {
+      "VegetationDeformToBuffer": 0.095,
+      "GroomProxyDeformToBuffer": 0.28,
+      "AccelerationStructureBuild": 0.188
+     }
+    },
+    {
+     "pass": "GTAOPass",
+     "gpuMs": 0.55,
+     "subPasses": {
+      "HZB": 0.069,
+      "GTAO": 0.388,
+      "GTAO_Denoise": 0.071
+     }
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "gpuMs": 0.41,
+     "subPasses": {}
+    }
+   ],
+   "topCpuPasses": [
+    {
+     "pass": "GroomPass",
+     "cpuMs": 21.304
+    },
+    {
+     "pass": "ShadowPass",
+     "cpuMs": 8.715
+    },
+    {
+     "pass": "RayTracingScenePass",
+     "cpuMs": 1.065
+    },
+    {
+     "pass": "ScenePass",
+     "cpuMs": 0.326
+    },
+    {
+     "pass": "DeferredLightingPass",
+     "cpuMs": 0.052
+    },
+    {
+     "pass": "GTAOPass",
+     "cpuMs": 0.043
+    }
+   ],
+   "groomStats": {
+    "groom": {
+     "byRepresentation": [
+      {
+       "bytes": 0,
+       "grooms": 0,
+       "representation": "Strand",
+       "strands": 0
+      },
+      {
+       "bytes": 210077392,
+       "grooms": 28,
+       "representation": "Card",
+       "strands": 249604
+      },
+      {
+       "bytes": 0,
+       "grooms": 0,
+       "representation": "Mesh",
+       "strands": 0
+      }
+     ],
+     "dominantFallbackReason": "the groom is on the representation its apparent size selects",
+     "groomsAtCompensationCap": 0,
+     "groomsFellBack": 0,
+     "groomsOnSelectedTier": 28,
+     "groomsSubmitted": 28,
+     "maxWidthCompensation": 1.0,
+     "representationChanges": 0,
+     "segmentsDrawn": 1431076,
+     "strandsDrawn": 249604
+    },
+    "coatShadow": {
+     "bakeMicroseconds": 0,
+     "deformedRebakes": 0,
+     "dominantFallbackReason": "None",
+     "fallback": 0,
+     "maxDriftVoxels": 0.0,
+     "rebuilds": 0,
+     "residentBytes": 193536,
+     "resolutionInForce": 16,
+     "shadowed": 28,
+     "unshadowedByChoice": 0
+    },
+    "sceneShadow": {
+     "atlasDraws": 0,
+     "cascadeDraws": 0,
+     "groomsAskedToCast": 5,
+     "groomsCasting": 5,
+     "segmentsCast": 1775234,
+     "segmentsWhole": 3721640,
+     "virtualShadowLevelDraws": 13
+    },
+    "animalBudget": {
+     "animalsAtDesired": 1,
+     "animalsAtPoseStepCap": 0,
+     "animalsAtVisibilityFloor": 0,
+     "animalsCapHeld": 40,
+     "animalsCoarsened": 0,
+     "animalsConsidered": 41,
+     "animalsHeldByHysteresis": 0,
+     "budgetExceeded": true,
+     "byAxis": [
+      {
+       "axis": "Deformation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 413.2798156738281,
+       "scheduledCostUnits": 413.2798156738281,
+       "shareOfScheduled": 0.005627049598842859
+      },
+      {
+       "axis": "Simulation",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 93766.15625,
+       "scheduledCostUnits": 52432.62109375,
+       "shareOfScheduled": 0.7139012217521667
+      },
+      {
+       "axis": "Visibility",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 13700.7421875,
+       "scheduledCostUnits": 8741.6630859375,
+       "shareOfScheduled": 0.1190229281783104
+      },
+      {
+       "axis": "Shadow",
+       "budgetUnits": 1366.75,
+       "desiredCostUnits": 77384.9296875,
+       "scheduledCostUnits": 11324.623046875,
+       "shareOfScheduled": 0.15419146418571472
+      }
+     ],
+     "drawCallCostUnits": 533.0,
+     "drawCalls": 82,
+     "enabled": true,
+     "estimatedCostUnits": 73445.203125,
+     "frameBudgetUnits": 6000.0,
+     "heroesCoarsened": 0,
+     "heroesConsidered": 1,
+     "maxStarvedFrames": 1921,
+     "stepChanges": 0
+    }
+   },
+   "rtScene": {
+    "availability": {
+     "available": true,
+     "enabled": true,
+     "hasData": true,
+     "status": "ready"
+    },
+    "capability": {
+     "properties": {
+      "maxGeometryCount": 16777215,
+      "maxInstanceCount": 16777215,
+      "maxPrimitiveCount": 536870911,
+      "minScratchOffsetAlignment": 128
+     },
+     "rayTracingPipeline": true,
+     "reason": "supported",
+     "supported": true
+    },
+    "deformedSurfaces": {
+     "allocated": 0,
+     "dispatched": 43,
+     "paletteBytes": 131072,
+     "reallocated": 0,
+     "refused": 0,
+     "requested": 44,
+     "residentBytes": 3203072,
+     "residentSurfaces": 44,
+     "retired": 0,
+     "skippedUnchanged": 1,
+     "verticesDeformed": 87416
+    },
+    "frame": {
+     "blasBuildGpuTimeChannel": "olo_perf_pass_timings -> AccelerationStructureBuild sub-pass",
+     "blasBuilds": 0,
+     "blasCompactions": 0,
+     "blasRefits": 366,
+     "blasRetired": 0,
+     "deformedBuildsDeferred": 0,
+     "instancesSkipped": 0,
+     "instancesTraced": 369,
+     "tlasBuilds": 0,
+     "tlasUpdates": 1
+    },
+    "freshness": {
+     "model": "previousFrame",
+     "sampleAgeFrames": null,
+     "stale": false
+    },
+    "gpuScene": {
+     "animated": {
+      "canonicalEntities": 44,
+      "canonicalInstances": 46,
+      "surfacesWithHistory": 46,
+      "surfacesWithoutHistory": 0,
+      "unsupportedInstances": 0,
+      "unsupportedVariants": 0
+     },
+     "available": true,
+     "foliage": {
+      "authoredMeshInstances": 671769,
+      "canonicalInstances": 671769,
+      "impostorInstances": 0,
+      "meshCardInstances": 0,
+      "spatialGroups": 1044,
+      "unsupportedInstances": 0,
+      "unsupportedVariants": 0
+     },
+     "geometries": 368,
+     "instances": 369,
+     "lights": 4,
+     "materials": 82,
+     "notStagedByCategory": {
+      "cloth": 0,
+      "fluids": 0,
+      "foliage": 1,
+      "groom": 44,
+      "legacyModel": 0,
+      "legacySubmesh": 0,
+      "notExtractable": 0,
+      "particles": 0,
+      "procedural": 1,
+      "skinned": 0,
+      "softwareRaster": 0,
+      "terrain": 1,
+      "tiles": 0,
+      "virtualized": 0
+     },
+     "notStagedTotal": 47
+    },
+    "grooms": {
+     "complete": true,
+     "considered": 28,
+     "detailedCoats": 0,
+     "dominantRefusalDetail": "The coat is in the ray-traced scene at the tier its apparent size selects.",
+     "dominantRefusalReason": "None",
+     "gpuDispatchFailures": 0,
+     "gpuDispatched": 28,
+     "maxWidthCompensation": 12.8180513381958,
+     "proxyCoats": 28,
+     "rebuilds": 28,
+     "refreshDeferred": 0,
+     "refused": 0,
+     "represented": 28,
+     "residentBytes": 40277568,
+     "residentTriangles": 529968,
+     "reused": 0,
+     "segmentsConverted": 132492,
+     "tierChanges": 0,
+     "trianglesBuilt": 529968,
+     "updateMicroseconds": 27175,
+     "widthCompensationCap": 48.0
+    },
+    "lastTlasReason": "Update",
+    "resident": {
+     "accelerationStructureBytes": 64096832,
+     "animatedInstancesRefused": 0,
+     "blasByClass": {
+      "deformed": 367,
+      "masked": 0,
+      "rigidDynamic": 0,
+      "static": 1,
+      "unsupported": 0
+     },
+     "compactionSavedBytes": 2688,
+     "scratchBytes": 9155584,
+     "tlasInstances": 369,
+     "unsupportedInstances": 0
+    },
+    "vegetation": {
+     "beyondReflectionBudget": 0,
+     "cadenceHolds": 0,
+     "carriedBuilds": 0,
+     "castersComplete": false,
+     "castingDemandBuilds": 293.0,
+     "castingDemandVertices": 992340.0,
+     "castingFallbackGroups": 240,
+     "castingGroupsLeftOut": 144,
+     "castingGroupsPlanned": 431,
+     "complete": false,
+     "deferredReflectionGroups": 0,
+     "deferredReflectionPlants": 0,
+     "detailedGroups": 171,
+     "dispatchBatches": 6,
+     "dispatched": 287,
+     "fallbackEngagements": 1,
+     "groupsCreated": 0,
+     "groupsRetired": 0,
+     "historyReset": false,
+     "nearestCastingFallback": 3.2768807411193848,
+     "oldestSnapshotAge": 0.0,
+     "oldestSnapshotError": 0.0,
+     "planFrameSeconds": 0.100006103515625,
+     "plantsBeyondReflectionBudget": 0,
+     "plantsRepresented": 155110,
+     "pressure": "frameWork",
+     "pressureGroups": {
+      "accelerationMemory": 0,
+      "buildDebt": 0,
+      "frameWork": 384,
+      "geometryMemory": 0,
+      "invalidContent": 0,
+      "producerFailure": 0,
+      "residentGroups": 0
+     },
+     "producerFailed": false,
+     "proxyGroups": 116,
+     "ready": false,
+     "recovery": {
+      "accelerationBytes": 1469075840,
+      "builds": 270,
+      "geometryBytes": 1055236288,
+      "triangles": 23265484,
+      "vertices": 33849377
+     },
+     "recoveryFramesRemaining": 8,
+     "reflectionDetailReach": 0.0,
+     "reflectionReach": 0.0,
+     "refreshReasons": {
+      "due": 287,
+      "invalid": 0,
+      "new": 0,
+      "reset": 0
+     },
+     "refused": 144,
+     "requested": 431,
+     "residentBytes": 36195504,
+     "reused": 0,
+     "shadowFallbackEngagements": 1,
+     "shadowReady": false,
+     "shadowRecoveryFramesRemaining": 8,
+     "shadowTlasWithheld": true,
+     "stagedAccelerationBytes": 26381696,
+     "staleReflectionSnapshots": 0,
+     "tlasWithheld": true,
+     "verticesDeformed": 744396
+    }
+   },
+   "cpuScopes": [
+    {
+     "scope": "EditorLayer::OnUpdate",
+     "meanMs": 170.227
+    },
+    {
+     "scope": "Scene::OnUpdateEditor",
+     "meanMs": 170.212
+    },
+    {
+     "scope": "Renderer3D::EndScene",
+     "meanMs": 68.612
+    },
+    {
+     "scope": "Scene::PublishGroomStrandRequests",
+     "meanMs": 56.588
+    },
+    {
+     "scope": "Groom::Request",
+     "meanMs": 56.537
+    },
+    {
+     "scope": "Groom::Deform",
+     "meanMs": 55.919
+    },
+    {
+     "scope": "Vegetation::Queue",
+     "meanMs": 41.925
+    },
+    {
+     "scope": "RG::Execute",
+     "meanMs": 36.13
+    },
+    {
+     "scope": "Groom::PackFrame",
+     "meanMs": 31.699
+    },
+    {
+     "scope": "Groom::UploadDeformation",
+     "meanMs": 30.322
+    },
+    {
+     "scope": "Groom::Simulate",
+     "meanMs": 28.582
+    },
+    {
+     "scope": "Groom::RootEvaluate",
+     "meanMs": 27.099
+    },
+    {
+     "scope": "GroomProxy::Deform",
+     "meanMs": 18.272
+    },
+    {
+     "scope": "GroomProxy::Pack",
+     "meanMs": 16.346
+    },
+    {
+     "scope": "GroomProxy::GpuStage",
+     "meanMs": 12.96
+    }
+   ]
+  }
+ ],
+ "memory": {
+  "aliases": {
+   "count": 2,
+   "logicalBytes": 671088640,
+   "orphanCount": 0
+  },
+  "backend": {
+   "allocatorBlockBytes": 4596654224,
+   "name": "Vulkan",
+   "reconciliation": {
+    "differenceBytes": 0,
+    "observedAllocationBytes": 3644930544,
+    "status": "reconciled",
+    "trackedCommittedBytes": 3644930544
+   },
+   "residency": {
+    "heaps": [
+     {
+      "allocatorAllocationBytes": 3644929344,
+      "allocatorBlockBytes": 4563099792,
+      "budgetBytes": 24505221120,
+      "deviceLocal": true,
+      "heapSizeBytes": 25310527488,
+      "index": 0,
+      "usageBytes": 4809302016
+     },
+     {
+      "allocatorAllocationBytes": 1200,
+      "allocatorBlockBytes": 33554432,
+      "budgetBytes": 33443772416,
+      "deviceLocal": false,
+      "heapSizeBytes": 34249076736,
+      "index": 1,
+      "usageBytes": 105984000
+     }
+    ],
+    "status": "osReported"
+   }
+  },
+  "byType": [
+   {
+    "bytes": 608929280,
+    "count": 793,
+    "type": "VertexBuffer"
+   },
+   {
+    "bytes": 97781168,
+    "count": 397,
+    "type": "IndexBuffer"
+   },
+   {
+    "bytes": 515653600,
+    "count": 228,
+    "type": "StorageBuffer"
+   },
+   {
+    "bytes": 10629120,
+    "count": 7,
+    "type": "TextureCubemap"
+   },
+   {
+    "bytes": 1816174592,
+    "count": 147,
+    "type": "RenderTarget"
+   },
+   {
+    "bytes": 64084224,
+    "count": 369,
+    "type": "AccelerationStructure"
+   },
+   {
+    "bytes": 131808604,
+    "count": 91,
+    "type": "Other"
+   }
+  ],
+  "capacity": [
+   {
+    "activeDemandBytes": 536870912,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 536870912,
+    "category": "Directional CSM cascades",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "ShadowMap",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 0,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 134217728,
+    "category": "Local-light shadow atlas (demand = occupied tiles)",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "ShadowMap",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 99182944,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 99182944,
+    "category": "Virtual shadow map pool and page tables",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "ShadowMap",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 88880,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 236800,
+    "category": "Instance, geometry, material, light and environment tables",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "GPUScene",
+    "source": "formatEstimate",
+    "unknownReason": "Vulkan replacement tables awaiting reclaim are counted as retiring, not here"
+   },
+   {
+    "activeDemandBytes": 64096832,
+    "aliasSavingsBytes": 2688,
+    "capacityBytes": 64096832,
+    "category": "Acceleration structures (BLAS, TLAS, instance ring)",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "RayTracingScene",
+    "source": "committed",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": null,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 9155584,
+    "category": "Acceleration-structure build scratch (grow-only)",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "RayTracingScene",
+    "source": "committed",
+    "unknownReason": "active demand: the per-build scratch size is not retained"
+   },
+   {
+    "activeDemandBytes": 3203072,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 3203072,
+    "category": "Deformed-surface RT geometry (skinned/morphed)",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "RayTracingScene",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 40277568,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 40277568,
+    "category": "Groom RT proxies (independent of the strand cache)",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "RayTracingScene",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": null,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 554090192,
+    "category": "Groom RT proxy rest streams and conversion scratch (CPU)",
+    "domain": "cpu",
+    "lifetime": "persistent",
+    "owner": "RayTracingScene",
+    "source": "formatEstimate",
+    "unknownReason": "active demand: retained streams and reused scratch have no per-frame demand figure"
+   },
+   {
+    "activeDemandBytes": 36195504,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 36195504,
+    "category": "Vegetation RT proxies",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "RayTracingScene",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 47857808,
+    "aliasSavingsBytes": 543808880,
+    "capacityBytes": 522904624,
+    "category": "Groom shared rest streams (once per stream)",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "GroomRenderPass",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 162219584,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 276840656,
+    "category": "Groom per-entity strand geometry and deformation",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "GroomRenderPass",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 193536,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 2952192,
+    "category": "Groom coat-volume rings (every slot)",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "GroomRenderPass",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": null,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 557348424,
+    "category": "Groom CPU pose, deformation mirror and coat-bake storage",
+    "domain": "cpu",
+    "lifetime": "persistent",
+    "owner": "GroomRenderPass",
+    "source": "formatEstimate",
+    "unknownReason": "active demand: reused scratch and retained poses have no per-frame demand figure"
+   },
+   {
+    "activeDemandBytes": null,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 327400,
+    "category": "Groom evaluation scratch: caster pose and root skinning (every owner, CPU)",
+    "domain": "cpu",
+    "lifetime": "persistent",
+    "owner": "GroomRenderPass",
+    "source": "committed",
+    "unknownReason": "active demand: reused scratch has no per-frame demand figure"
+   },
+   {
+    "activeDemandBytes": 1780304,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 33554432,
+    "category": "Per-frame root-data arena (one slot per frame in flight)",
+    "domain": "gpu",
+    "lifetime": "perFrame",
+    "owner": "VulkanFrameArena",
+    "source": "committed",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 251841780,
+    "aliasSavingsBytes": 82944000,
+    "capacityBytes": 251841780,
+    "category": "Render-graph transients",
+    "domain": "gpu",
+    "lifetime": "pooled",
+    "owner": "TransientPool",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 16588800,
+    "aliasSavingsBytes": 16588800,
+    "capacityBytes": 16588800,
+    "category": "Skin hand-off (SceneColor attachment 4; bytes inside the TransientPool row)",
+    "domain": "gpu",
+    "lifetime": "pooled",
+    "owner": "RenderGraph",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 589403476,
+    "aliasSavingsBytes": 854824276,
+    "capacityBytes": 0,
+    "category": "Attachment views (no backing of their own)",
+    "domain": "gpu",
+    "lifetime": "pooled",
+    "owner": "RenderGraph",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 16588800,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 16588800,
+    "category": "TAA history",
+    "domain": "gpu",
+    "lifetime": "history",
+    "owner": "TemporalHistory",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 49766400,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 49766400,
+    "category": "Ray-traced shadow history",
+    "domain": "gpu",
+    "lifetime": "history",
+    "owner": "TemporalHistory",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 91238400,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 91238400,
+    "category": "G-buffer",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "SceneRenderPass",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 0,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 0,
+    "category": "ReSTIR PT path-reservoir pools",
+    "domain": "gpu",
+    "lifetime": "persistent",
+    "owner": "ReSTIRPTPass",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 32249280,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 32249280,
+    "category": "Pinned: instance buffers",
+    "domain": "gpu",
+    "lifetime": "asset",
+    "owner": "FoliageRenderer",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 2720772,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 2720772,
+    "category": "Pinned: GPU cull group tables",
+    "domain": "gpu",
+    "lifetime": "asset",
+    "owner": "FoliageRenderer",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 12200012,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 12200012,
+    "category": "Pinned: GPU cull streams, main view",
+    "domain": "gpu",
+    "lifetime": "asset",
+    "owner": "FoliageRenderer",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 24369616,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 24369616,
+    "category": "Pinned: GPU cull streams, shadow views",
+    "domain": "gpu",
+    "lifetime": "asset",
+    "owner": "FoliageRenderer",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 912,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 912,
+    "category": "Pinned: card geometry",
+    "domain": "gpu",
+    "lifetime": "asset",
+    "owner": "FoliageRenderer",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 17093965,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 17093965,
+    "category": "Pinned: card albedo and leaf maps",
+    "domain": "gpu",
+    "lifetime": "asset",
+    "owner": "FoliageRenderer",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 8388608,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 8388608,
+    "category": "Pinned: impostor atlases (albedo + normal-depth)",
+    "domain": "gpu",
+    "lifetime": "asset",
+    "owner": "FoliageRenderer",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 1885164,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 1885164,
+    "category": "Optional: authored mesh vertex/index copies",
+    "domain": "gpu",
+    "lifetime": "asset",
+    "owner": "FoliageRenderer",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 35618814,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 35618814,
+    "category": "Optional: authored mesh part textures",
+    "domain": "gpu",
+    "lifetime": "asset",
+    "owner": "FoliageRenderer",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 86586716,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 86586716,
+    "category": "Canonical instance and spatial-group arrays (CPU)",
+    "domain": "cpu",
+    "lifetime": "asset",
+    "owner": "FoliageRenderer",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 0,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 0,
+    "category": "Prepared optional representation payloads (CPU)",
+    "domain": "cpu",
+    "lifetime": "asset",
+    "owner": "FoliageRenderer",
+    "source": "formatEstimate",
+    "unknownReason": null
+   },
+   {
+    "activeDemandBytes": 1254674,
+    "aliasSavingsBytes": null,
+    "capacityBytes": 1254674,
+    "category": "Mesh and pinned impostor index, surface and coverage metadata (CPU)",
+    "domain": "cpu",
+    "lifetime": "asset",
+    "owner": "FoliageRenderer",
+    "source": "formatEstimate",
+    "unknownReason": null
+   }
+  ],
+  "cpu": {
+   "committedBytes": 0,
+   "estimatedBytes": 86586716,
+   "liveBytes": 86586716,
+   "liveCount": 1,
+   "peakBytes": 86586716,
+   "residentBytes": 86586716,
+   "retiringBytes": 0,
+   "retiringCount": 0,
+   "windowPeakBytes": 86586716
+  },
+  "gpu": {
+   "committedBytes": 3644930544,
+   "estimatedBytes": 0,
+   "liveBytes": 3158849168,
+   "liveCount": 2042,
+   "peakBytes": 10142778640,
+   "residentBytes": 3644930544,
+   "retiringBytes": 486081376,
+   "retiringCount": 863,
+   "windowPeakBytes": 10142778640
+  },
+  "longLivedAllocations": {
+   "count": 895,
+   "thresholdSeconds": 30.0
+  },
+  "owners": [
+   {
+    "committedBytes": 900919344,
+    "count": 1205,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 658195408,
+    "gpuRetiringBytes": 242723936,
+    "lifetime": "unattributed",
+    "owner": "Unattributed"
+   },
+   {
+    "committedBytes": 774120720,
+    "count": 64,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 730279536,
+    "gpuRetiringBytes": 43841184,
+    "lifetime": "passOwned",
+    "owner": "ShadowPass"
+   },
+   {
+    "committedBytes": 671088672,
+    "count": 4,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 671088672,
+    "gpuRetiringBytes": 0,
+    "lifetime": "persistent",
+    "owner": "ShadowMap"
+   },
+   {
+    "committedBytes": 404755696,
+    "count": 210,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 208670352,
+    "gpuRetiringBytes": 196085344,
+    "lifetime": "passOwned",
+    "owner": "GroomPass"
+   },
+   {
+    "committedBytes": 285981696,
+    "count": 27,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 285981696,
+    "gpuRetiringBytes": 0,
+    "lifetime": "pooled",
+    "owner": "TransientPool"
+   },
+   {
+    "committedBytes": 138237600,
+    "count": 103,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 138237600,
+    "gpuRetiringBytes": 0,
+    "lifetime": "persistent",
+    "owner": "RendererInit"
+   },
+   {
+    "committedBytes": 132502848,
+    "count": 743,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 132429824,
+    "gpuRetiringBytes": 73024,
+    "lifetime": "asset",
+    "owner": "Foliage pinned representations"
+   },
+   {
+    "committedBytes": 106168320,
+    "count": 7,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 106168320,
+    "gpuRetiringBytes": 0,
+    "lifetime": "persistent",
+    "owner": "GBuffer"
+   },
+   {
+    "committedBytes": 76150784,
+    "count": 417,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 73288448,
+    "gpuRetiringBytes": 2862336,
+    "lifetime": "persistent",
+    "owner": "RayTracing"
+   },
+   {
+    "committedBytes": 70778880,
+    "count": 4,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 70778880,
+    "gpuRetiringBytes": 0,
+    "lifetime": "history",
+    "owner": "TemporalHistory"
+   },
+   {
+    "committedBytes": 37181440,
+    "count": 3,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 37181440,
+    "gpuRetiringBytes": 0,
+    "lifetime": "asset",
+    "owner": "Texture2D"
+   },
+   {
+    "committedBytes": 33554432,
+    "count": 2,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 33554432,
+    "gpuRetiringBytes": 0,
+    "lifetime": "perFrame",
+    "owner": "VulkanFrameArena"
+   },
+   {
+    "committedBytes": 4686080,
+    "count": 14,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 4686080,
+    "gpuRetiringBytes": 0,
+    "lifetime": "asset",
+    "owner": "Foliage streaming detail"
+   },
+   {
+    "committedBytes": 4308992,
+    "count": 3,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 4308992,
+    "gpuRetiringBytes": 0,
+    "lifetime": "asset",
+    "owner": "EnvironmentMap"
+   },
+   {
+    "committedBytes": 3742208,
+    "count": 65,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 3742208,
+    "gpuRetiringBytes": 0,
+    "lifetime": "asset",
+    "owner": "MeshSource"
+   },
+   {
+    "committedBytes": 531712,
+    "count": 7,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 236800,
+    "gpuRetiringBytes": 294912,
+    "lifetime": "persistent",
+    "owner": "GPUScene"
+   },
+   {
+    "committedBytes": 200608,
+    "count": 24,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 0,
+    "gpuRetiringBytes": 200608,
+    "lifetime": "passOwned",
+    "owner": "RayTracingScenePass"
+   },
+   {
+    "committedBytes": 20480,
+    "count": 1,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 20480,
+    "gpuRetiringBytes": 0,
+    "lifetime": "passOwned",
+    "owner": "ScenePrepassPass"
+   },
+   {
+    "committedBytes": 32,
+    "count": 2,
+    "cpuLiveBytes": 0,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 0,
+    "gpuLiveBytes": 0,
+    "gpuRetiringBytes": 32,
+    "lifetime": "passOwned",
+    "owner": "ScenePass"
+   },
+   {
+    "committedBytes": 0,
+    "count": 1,
+    "cpuLiveBytes": 86586716,
+    "cpuRetiringBytes": 0,
+    "estimatedBytes": 86586716,
+    "gpuLiveBytes": 0,
+    "gpuRetiringBytes": 0,
+    "lifetime": "asset",
+    "owner": "Foliage canonical arrays"
+   }
+  ],
+  "units": "bytes"
+ }
+}

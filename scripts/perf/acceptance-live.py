@@ -1,9 +1,9 @@
 """Live Vulkan (or GL) acceptance cells through a running editor's MCP server (#1259).
 
-The editor host's benchmark capture reopens the scene, and with the acceptance
-scene's 44 bound coats a second load in one editor process grows past ~11 GB of
-private memory and stalls (filed). So the editor cells are measured live, on the
-scene opened once: for each render path (and hybrid ray-traced shadows), with
+The editor host's benchmark capture reopens the scene, and loading the acceptance
+scene's 44 bound coats outlasts the MCP main-thread wait (a reload briefly holds
+~13 GB of private memory), so every capture attempt failed. The editor cells are
+therefore measured live, on the scene opened once: for each render path (and hybrid ray-traced shadows), with
 virtual shadow maps on, at each manifest camera, after a settle, the last
 `--frames` completed editor frames from olo_perf_frame_history (frame, CPU, GPU,
 fence and present split) plus one olo_perf_pass_timings snapshot. The editor runs
@@ -80,8 +80,8 @@ def main() -> int:
 
     # Opening the 96-entity scene with 44 bound coats takes longer than the
     # MCP main-thread wait on Vulkan; the open carries on, so wait for it.
-    # A second open in one editor process is the load that stalls, so a follow-up
-    # pass on the same editor skips it.
+    # A follow-up pass on the same editor skips the open: a reload is another
+    # ~13 GB transient and another long main-thread wait.
     try:
         if not args.skip_open:
             client.tool("olo_scene_open", path=manifest["Scene"])
