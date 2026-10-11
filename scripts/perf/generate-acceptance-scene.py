@@ -357,7 +357,9 @@ def compose() -> str:
         by_distance.append((abs(z), tag_of(block)))
     pushers = {tag for _, tag in sorted(by_distance)[:interaction_left]}
     for block in population:
-        if not parent_of(block) and has_component(block, "AnimalBudgetComponent"):
+        # The animal bodies are the root, animated entities; their coats are
+        # parented to them (and carry the AnimalBudgetComponent), so they follow.
+        if not parent_of(block) and has_component(block, "AnimationStateComponent"):
             block = set_translation(block, herd_world(translation_of(block)))
             block = add_yaw(block, theta)
             if has_component(block, "AnimalPathComponent"):
