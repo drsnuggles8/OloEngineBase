@@ -121,6 +121,9 @@ namespace OloEngine
 
       private:
         // Model processing
+        // A one-mesh model's mesh gets the material table the combined source
+        // carries; called once at the end of LoadModel's cache and import paths.
+        void AttachOneMeshMaterialTable();
         void ProcessNode(const aiNode* node, const aiScene* scene, const glm::mat4& parentTransform);
         Ref<MeshSource> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
 

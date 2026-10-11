@@ -660,6 +660,7 @@ namespace OloEngine
 
                         OLO_CORE_INFO("AnimatedModel::LoadModel: Loaded from cache - {} meshes, {} animations",
                                       static_cast<sizet>(m_Meshes.Num()), static_cast<sizet>(m_Animations.Num()));
+                        AttachOneMeshMaterialTable();
                         m_MeshLoadedFromCache = true;
                         return;
                     } // end animation-cache-valid block
@@ -747,6 +748,8 @@ namespace OloEngine
             MeshCache::SaveAnimationsToCache(sourcePath, GetAnimations());
         }
 
+        AttachOneMeshMaterialTable();
+
         OLO_CORE_INFO("AnimatedModel::LoadModel: Successfully loaded animated model with {} meshes, {} animations",
                       static_cast<sizet>(m_Meshes.Num()), static_cast<sizet>(m_Animations.Num()));
     }
@@ -815,6 +818,29 @@ namespace OloEngine
         return combined;
     }
 
+    void AnimatedModel::AttachOneMeshMaterialTable()
+    {
+        // A one-mesh model's mesh carries its material table too (#1259), the
+        // way the combined source does. Without it the mesh resolved no
+        // imported material at all, so an entity with no MaterialComponent
+        // drew the engine default and a MaterialOverridesComponent had nothing
+        // to patch: the rigged scan head could not be made skin. m_Materials
+        // holds one entry per mesh, so every submesh of the one mesh is entry 0.
+        // Done once, at load, on the model's own mesh -- not by the const
+        // getter, which rewrote it for every caller in turn.
+        if (m_Meshes.Num() != 1 || m_Materials.IsEmpty() || !m_Meshes[0]->GetImportedMaterials().empty())
+        {
+            return;
+        }
+        TArray<Ref<Material>> materials;
+        materials.Add(Ref<Material>::Create(m_Materials[0]));
+        for (Submesh& submesh : m_Meshes[0]->GetSubmeshes())
+        {
+            submesh.m_MaterialIndex = 0;
+        }
+        m_Meshes[0]->SetImportedMaterials(MoveTemp(materials));
+    }
+
     Ref<MeshSource> AnimatedModel::GetEntityMeshSource() const
     {
         if (m_Meshes.Num() <= 1)
@@ -823,24 +849,8 @@ namespace OloEngine
             {
                 return nullptr;
             }
-            // A one-mesh model's mesh carries its material table too (#1259), the
-            // way the combined source does. Without it the mesh resolved no
-            // imported material at all, so an entity with no MaterialComponent
-            // drew the engine default and a MaterialOverridesComponent had nothing
-            // to patch: the rigged scan head could not be made skin. Every
-            // submesh of one mesh is that mesh's material, entry 0.
-            Ref<MeshSource> only = m_Meshes[0]; // a non-const handle: the table is attached in place
-            if (only->GetImportedMaterials().empty() && !m_Materials.IsEmpty())
-            {
-                TArray<Ref<Material>> materials;
-                materials.Add(Ref<Material>::Create(m_Materials[0]));
-                for (Submesh& submesh : only->GetSubmeshes())
-                {
-                    submesh.m_MaterialIndex = 0;
-                }
-                only->SetImportedMaterials(MoveTemp(materials));
-            }
-            return only;
+            // Its material table was attached at load (AttachOneMeshMaterialTable).
+            return m_Meshes[0];
         }
         if (!m_EntityMeshSource)
         {
