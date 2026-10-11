@@ -38,6 +38,7 @@ The upstream licence text is kept verbatim in [`LICENSE.md`](LICENSE.md). Its ow
 | `Textures/bump-lowRes.png` | a BUMP map, not a tangent-space normal map — do not bind it to `u_NormalMap` without converting it first |
 | `HeadRigged.gltf` + `.bin` | the same scan in metres (0.43 m bust, base on the origin, face toward +Z), skinned to a `Chest → Neck → Head` rig, with one looping clip, `LookAround` (6 s). The human hair subject of the groom epic (#1223) |
 | `prepare_head_rig.py` | the Blender 5.x script that writes `HeadRigged.*` from `Head.fbx` |
+| `Textures/HeadRigged_Thickness.png` | the skin **thickness map of `HeadRigged`** (issue #1259), baked from `HeadRigged.gltf`'s own mesh at its own size by [`tools/skin-thickness`](../../../../tools/skin-thickness/README.md) `--mesh HeadRigged.gltf`. `HeadSkin` carries it as a `KHR_materials_volume` thickness texture with `thicknessFactor` 0.02, so the glTF brings it into any scene. The UV layout is the scan's own (the rig keeps every UV), but the bust is 1.34x the size `DigitalHuman.olo` gives `Head.fbx`, so the two maps are separate measurements. Derived from the scan: CC BY 3.0, same attribution |
 | `SandboxProject/Assets/Textures/InfiniteScanHead_Thickness.png` | a skin **thickness map** baked from this mesh (issue #1394) by [`tools/skin-thickness`](../../../../tools/skin-thickness/README.md). It lives in the project, not here, because scene texture paths resolve against the project asset root. Author it with `ThicknessFactor: 0.02` |
 
 `HeadRigged` exists because the groom epic needs a head that MOVES and a scan is a still bust. The
@@ -50,7 +51,7 @@ CC BY 3.0 attribution.
 
 ## Using it
 
-It is authored at roughly 1.4 units tall for the whole bust and its origin is at the base of the
+`Head.fbx` is 0.84 units tall for the whole bust (as loaded; measured by `SkinRiggedHeadEvidenceTest`) and its origin is at the base of the
 neck, **not** at the head's centre. `DigitalHuman.olo` therefore scales it by `0.38` and drops it
 by `0.285` to put the head on the scene origin. Anything positioned relative to the face must be
 placed against that transform — the first attempt kept coordinates authored for a 0.2 m sphere and

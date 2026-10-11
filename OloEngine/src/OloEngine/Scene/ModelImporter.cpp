@@ -107,7 +107,15 @@ namespace OloEngine
         }
 
         // MaterialComponent — never clobber an explicitly assigned shader graph.
-        if (material)
+        //
+        // And never ADD one to an entity that patches its imported materials one
+        // by one (MaterialOverridesComponent, #1533): a MaterialComponent replaces
+        // the material of every submesh, so it would switch every patch off. A
+        // one-mesh rigged model is exactly the case -- the rigged scan head's skin
+        // kind and profile ride in a patch on "HeadSkin" (#1259). An existing
+        // MaterialComponent is still refreshed: the author put both on the entity,
+        // and the Scene says out loud that the patches are shadowed.
+        if (material && (entity.HasComponent<MaterialComponent>() || !entity.HasComponent<MaterialOverridesComponent>()))
         {
             if (!entity.HasComponent<MaterialComponent>())
             {

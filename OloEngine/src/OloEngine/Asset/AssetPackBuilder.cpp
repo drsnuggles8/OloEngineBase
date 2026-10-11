@@ -267,6 +267,7 @@ namespace OloEngine
             note(desc.MetallicRoughness, false);
             note(desc.Normal, false);
             note(desc.AO, false);
+            note(desc.Thickness, false); // a thickness, not a colour (#1242)
         }
 
         std::unordered_map<AssetHandle, bool> intents;
@@ -277,7 +278,7 @@ namespace OloEngine
             if (asColour && asData)
             {
                 OLO_CORE_WARN("AssetPackBuilder: texture {} fills both a colour slot (base colour / emissive) and a "
-                              "linear data slot (normal / metallic-roughness / AO); cooking it sRGB. Give it a "
+                              "linear data slot (normal / metallic-roughness / AO / thickness); cooking it sRGB. Give it a "
                               ".oloimport ColorSpace to decide explicitly.",
                               static_cast<u64>(handle));
             }

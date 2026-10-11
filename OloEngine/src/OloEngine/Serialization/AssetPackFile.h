@@ -19,8 +19,9 @@ namespace OloEngine
         // blob in MeshSource records changed layout (#1499), so older packs must be
         // rebuilt, not half-read. v7: the builder places the data by the ON-DISK record
         // sizes below; every v6 pack's offsets ran 4 bytes per index entry past the
-        // bytes they name, so none of them can be read (#1533).
-        static constexpr u32 Version = 7;
+        // bytes they name, so none of them can be read (#1533). v8: the embedded
+        // ImportedMaterialCodec blob gained the thickness-map slot (codec v4, #1259).
+        static constexpr u32 Version = 8;
 
         // ON-DISK record sizes. Every field is written with WriteRaw, so a record is
         // the sum of its fields, never sizeof() of the struct: AssetInfo's 28 bytes pad

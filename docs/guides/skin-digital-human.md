@@ -6,6 +6,7 @@ matters — they cover different things and it is easy to credit one with the ot
 | | subject | transport coverage | what it is for |
 |---|---|---|---|
 | [`Assets/Scenes/DigitalHuman.olo`](../../OloEditor/SandboxProject/Assets/Scenes/DigitalHuman.olo) | a **scanned human head** (`InfiniteScanHead`, CC BY 3.0) carrying `ReferenceHead.oloskin` | **transport version 3** — diffusion, transmission through a thickness map baked from the scan, layered specular | the **live** half — the editor, the Vulkan rows, the MCP debug views |
+| [`SkinRiggedHeadEvidenceTest.cpp`](../../OloEngine/tests/Rendering/PropertyTests/SkinRiggedHeadEvidenceTest.cpp) | the **rigged** scan (`HeadRigged.gltf`, `LookAround` clip) with GroomAnimals' cooked hair coat, GL only | version 3, the same profile; its own baked thickness map rides in the glTF | the **animated** close-up of #1259's acceptance scene; `kAcceptanceHumanEntity` there is the scene block to copy |
 | [`SkinDigitalHumanEvidenceTest.cpp`](../../OloEngine/tests/Rendering/PropertyTests/SkinDigitalHumanEvidenceTest.cpp) | a **procedural multi-profile probe** (primitives), GL only | **version 5**, so the whole cumulative ladder | the **asserted** half — tones, expression, cross-talk, cost |
 
 **Versions 4 and 5 are covered by the procedural probe only.** `ReferenceHead.oloskin` is at
@@ -15,6 +16,12 @@ eye, because it has no separable mouth or eyes (#1402). The scan's own asserted 
 which renders the real mesh with the real profile and thickness map. That map is **baked from the
 geometry**, because one mesh has one `ThicknessFactor` and needs a map for the ear to be thin. See
 [`tools/skin-thickness`](../../tools/skin-thickness/README.md).
+
+**The rigged head's skin is a patch, not a component.** A glTF cannot name a skin kind or profile, so
+the scene adds a `MaterialOverridesComponent` on `HeadSkin` (kind 2, `ReferenceHead.oloskin`,
+`ThicknessFactor` 0.02). The thickness map is not in the patch: it is the glTF's
+`KHR_materials_volume` texture. Do not give that entity a `MaterialComponent`; it overrides every
+submesh and switches the patch off (the Scene logs it).
 
 The split is not arbitrary. The tone ladder and the expression need several authored profiles and a
 morph target, and both are things a static scene can display but cannot *check*; the Vulkan rows

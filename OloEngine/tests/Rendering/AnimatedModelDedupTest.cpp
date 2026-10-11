@@ -37,6 +37,7 @@
 #include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Renderer/MeshSource.h"
+#include "OloEngine/Renderer/SubmeshMaterialResolve.h"
 
 #include "Rendering/PropertyTests/RenderPropertyTest.h"
 
@@ -244,5 +245,68 @@ namespace OloEngine::Tests
         (void)ModelImporter::PopulateAnimatedEntity(c, simple, simplePath.string());
         EXPECT_EQ(c.GetComponent<MeshComponent>().m_MeshSource, simple->GetMeshes()[0]);
         EXPECT_TRUE(c.HasComponent<MaterialComponent>());
+    }
+
+    // #1259: a ONE-mesh rigged model whose entity patches its imported material
+    // must load WITHOUT an entity-wide MaterialComponent. The deserializer
+    // re-wires the model before the generated blocks add the
+    // MaterialOverridesComponent, so the importer used to give the entity a copy
+    // of its imported material -- which overrides every submesh, and the Scene
+    // then reported every patch inactive. That is how the rigged scan head's skin
+    // patch on "HeadSkin" was switched off. The control entity, with no patches,
+    // keeps today's behaviour, and the patch must resolve through the Scene.
+    TEST(AnimatedModelDedup, AOneMeshModelThatPatchesItsMaterialLoadsWithoutAShadowingMaterialComponent)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (!Renderer3D::IsInitialized())
+        {
+            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
+        }
+        GLStateGuard glGuard("AnimatedModelDedup.PatchedOneMesh", GLStateGuard::Policy::Restore);
+
+        const fs::path modelPath = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets/models/RiggedSimple/RiggedSimple.gltf";
+        ASSERT_TRUE(fs::exists(modelPath)) << modelPath.string();
+        const auto model = Ref<AnimatedModel>::Create(modelPath.string());
+        ASSERT_TRUE(model);
+        ASSERT_EQ(model->GetMeshes().size(), 1u) << "the case is a ONE-mesh model";
+        ASSERT_FALSE(model->GetMaterials().empty());
+        const std::string materialName = model->GetMaterials().front().GetName().ToStdString();
+
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity patched = scene->CreateEntity("Patched");
+            patched.AddComponent<AnimationStateComponent>().m_SourceFilePath = modelPath.string();
+            MaterialOverride patch;
+            patch.MaterialName = materialName.c_str();
+            patch.Kind = MaterialKind::Skin;
+            patch.ThicknessFactor = 0.02f;
+            patched.AddComponent<MaterialOverridesComponent>().m_Overrides.Add(patch);
+
+            Entity plain = scene->CreateEntity("Plain");
+            plain.AddComponent<AnimationStateComponent>().m_SourceFilePath = modelPath.string();
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+
+        auto reloaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(yaml));
+        Entity patched = FindByTag(*reloaded, "Patched");
+        Entity plain = FindByTag(*reloaded, "Plain");
+        ASSERT_TRUE(patched && plain);
+        ASSERT_TRUE(patched.HasComponent<MeshComponent>());
+        ASSERT_TRUE(patched.HasComponent<MaterialOverridesComponent>());
+        EXPECT_FALSE(patched.HasComponent<MaterialComponent>())
+            << "the loader invented a MaterialComponent, which overrides every submesh and switches the "
+            << materialName << " patch off";
+        EXPECT_TRUE(plain.HasComponent<MaterialComponent>())
+            << "control: a one-mesh model with no patches still gets its imported material as a component";
+
+        const Ref<MeshSource> source = patched.GetComponent<MeshComponent>().m_MeshSource;
+        ASSERT_TRUE(source);
+        const MaterialOverrideCache* patches = reloaded->PrepareMaterialOverrides(patched, source->GetImportedMaterials());
+        ASSERT_NE(patches, nullptr) << "the patch is inactive after load";
+        const Material* resolved = ResolveMaterialPatch(patches, source->GetImportedMaterialPtrForSubmesh(0));
+        ASSERT_NE(resolved, nullptr) << "submesh 0 does not resolve to the patched copy";
+        EXPECT_EQ(resolved->GetMaterialKind(), MaterialKind::Skin);
     }
 } // namespace OloEngine::Tests

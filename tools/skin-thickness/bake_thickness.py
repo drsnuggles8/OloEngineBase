@@ -84,6 +84,48 @@ def load_fbx_triangles(path: Path):
     return positions, tri_pos_idx, tri_uv, tri_nrm
 
 
+def load_gltf_triangles(path: Path):
+    """The same four arrays as load_fbx_triangles, from a .gltf + .bin.
+
+    For HeadRigged.gltf (issue #1259): the rigged head is the scan re-exported by
+    Blender, so it is baked from ITS OWN vertices at its own size rather than
+    from Head.fbx at a derived scale. One mesh, one primitive, the bind pose as
+    stored (the skin's mesh node carries no transform). glTF stores v DOWN; it
+    is flipped to the v-up convention rasterize_uv and the FBX path use, so both
+    meshes bake into the same image layout as their shared albedo.
+    """
+    import json
+
+    gltf = json.loads(path.read_text(encoding="utf-8"))
+    if len(gltf.get("meshes", [])) != 1 or len(gltf["meshes"][0]["primitives"]) != 1:
+        sys.exit(f"{path}: expected exactly one mesh with one primitive")
+    buffers = [(path.parent / b["uri"]).read_bytes() for b in gltf["buffers"]]
+    component = {5126: np.float32, 5125: np.uint32, 5123: np.uint16, 5121: np.uint8}
+    width = {"SCALAR": 1, "VEC2": 2, "VEC3": 3, "VEC4": 4}
+
+    def accessor(index):
+        a = gltf["accessors"][index]
+        view = gltf["bufferViews"][a["bufferView"]]
+        if view.get("byteStride", 0) not in (0, np.dtype(component[a["componentType"]]).itemsize * width[a["type"]]):
+            sys.exit(f"{path}: interleaved buffer views are not supported")
+        offset = view.get("byteOffset", 0) + a.get("byteOffset", 0)
+        n = width[a["type"]]
+        data = np.frombuffer(buffers[view["buffer"]], dtype=component[a["componentType"]],
+                             count=a["count"] * n, offset=offset)
+        return data.reshape(a["count"], n) if n > 1 else data
+
+    primitive = gltf["meshes"][0]["primitives"][0]
+    attributes = primitive["attributes"]
+    if "TEXCOORD_0" not in attributes or "NORMAL" not in attributes or "indices" not in primitive:
+        sys.exit(f"{path}: the mesh needs indices, normals and TEXCOORD_0")
+    positions = accessor(attributes["POSITION"]).astype(np.float64)
+    normals = accessor(attributes["NORMAL"]).astype(np.float64)
+    uvs = accessor(attributes["TEXCOORD_0"]).astype(np.float64)
+    uvs[:, 1] = 1.0 - uvs[:, 1]
+    tri_pos_idx = accessor(primitive["indices"]).astype(np.int64).reshape(-1, 3)
+    return positions, tri_pos_idx, uvs[tri_pos_idx], normals[tri_pos_idx]
+
+
 def rasterize_uv(tri_uv, resolution):
     """For every texel centre inside a UV triangle: (row, col, triangle, barycentrics).
 
@@ -171,7 +213,10 @@ def main():
     # The scene's own scale: DigitalHuman.olo scales Head.fbx by 0.38, so one
     # mesh unit is 0.38 m in the frame a viewer judges. See the README for why
     # the scene's scale and not an anthropometric one.
-    parser.add_argument("--scale", type=float, default=0.38, help="metres per mesh unit")
+    # A glTF is in metres by specification (and HeadRigged.gltf is authored at
+    # the size its scenes place it, scale 1), so its default is 1.
+    parser.add_argument("--scale", type=float, default=None,
+                        help="metres per mesh unit (default: 0.38 for an FBX, 1 for a glTF)")
     parser.add_argument("--max-thickness-mm", type=float, default=20.0)
     parser.add_argument("--rays", type=int, default=16)
     parser.add_argument("--cone-deg", type=float, default=30.0)
@@ -187,7 +232,11 @@ def main():
 
     import trimesh
 
-    positions, tri_pos_idx, tri_uv, tri_nrm = load_fbx_triangles(args.mesh)
+    is_gltf = args.mesh.suffix.lower() == ".gltf"
+    if args.scale is None:
+        args.scale = 1.0 if is_gltf else 0.38
+    loader = load_gltf_triangles if is_gltf else load_fbx_triangles
+    positions, tri_pos_idx, tri_uv, tri_nrm = loader(args.mesh)
     mesh = trimesh.Trimesh(vertices=positions, faces=tri_pos_idx, process=False)
     intersector = trimesh.ray.ray_pyembree.RayMeshIntersector(mesh)
 

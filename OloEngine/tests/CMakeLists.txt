@@ -721,6 +721,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/SkinOcularSurfaceEvidenceTest.cpp
 		Rendering/PropertyTests/SkinDigitalHumanEvidenceTest.cpp
 		Rendering/PropertyTests/SkinReferenceHeadEvidenceTest.cpp
+		Rendering/PropertyTests/SkinRiggedHeadEvidenceTest.cpp
 		Rendering/PropertyTests/ForwardPlusInactiveBindingTest.cpp
 		Rendering/PropertyTests/ProceduralSkyBakeTest.cpp
 		Rendering/PropertyTests/ProceduralSkyVisualTest.cpp
@@ -745,6 +746,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/MeshAssetBoneInfluenceImportTest.cpp
 		Rendering/PropertyTests/StaticMeshCoincidentCornerImportTest.cpp
 		Rendering/PropertyTests/AnimatedModelCacheSurfaceTest.cpp
+		Rendering/PropertyTests/GroomAnimalsCookedBindingTest.cpp
 		Rendering/PropertyTests/VirtualGeometryRasterParityTest.cpp
 		Rendering/PropertyTests/VirtualRasterSubSampleEvidenceTest.cpp
 		Rendering/PropertyTests/VirtualMeshAssetPackTest.cpp

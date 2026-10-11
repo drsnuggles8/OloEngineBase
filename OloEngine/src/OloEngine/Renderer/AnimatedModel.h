@@ -55,7 +55,7 @@ namespace OloEngine
         [[nodiscard]] Ref<MeshSource> CreateCombinedMeshSource() const;
 
         // The mesh an ENTITY draws (issue #1533). A model with one mesh draws that
-        // mesh. A model with several -- one per material, which is how Assimp
+        // mesh, with its material as the imported table (#1259). A model with several -- one per material, which is how Assimp
         // splits a glTF mesh with several primitives -- draws ALL of them, as the
         // submeshes of CreateCombinedMeshSource() with the imported material
         // table, so each submesh shades with its own material. Before this the
