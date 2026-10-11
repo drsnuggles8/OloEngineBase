@@ -171,3 +171,26 @@ TEST(AnimalPathFollowsTerrain, ACaptureStepWalksTheHerdOneFixedStepPerFrame)
               0.1f)
         << "the animal did not move: the capture step is not advancing the path";
 }
+
+// A parented animal stands on the ground under where it IS. The path writes
+// the LOCAL translation; sampling the terrain at it and writing the world
+// height back into local Y left an animal under an offset group floating or
+// sunk by the group's offset.
+TEST(AnimalPathFollowsTerrain, AParentedAnimalStandsOnTheGroundUnderItsWorldPosition)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    TerrainScene world;
+    Entity group = world.SceneRef->CreateEntity("Herd group");
+    group.GetComponent<TransformComponent>().Translation = { 8.0f, 5.0f, -6.0f };
+    Entity animal = world.AddAnimal("Grouped", { 34.0f, 0.0f, 58.0f }, /*followTerrain=*/true);
+    animal.SetParent(group);
+
+    for (u32 step = 0; step < 120; ++step)
+    {
+        world.SceneRef->AdvanceAnimalPaths(Timestep{ kDt });
+        const glm::mat4 parentWorld = group.GetComponent<TransformComponent>().GetTransform();
+        const glm::vec3 p = glm::vec3(parentWorld * glm::vec4(animal.GetComponent<TransformComponent>().Translation, 1.0f));
+        ASSERT_NEAR(p.y, ExpectedGround(world.Heights, p.x, p.z), 1.0e-3f)
+            << "step " << step << ": the parented animal is not on the ground at (" << p.x << ", " << p.z << ")";
+    }
+}

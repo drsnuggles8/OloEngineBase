@@ -4353,9 +4353,12 @@ namespace OloEngine
             // sine per animal is not work worth paying that bill for. The
             // expensive half of this feature is the scheduling, which runs at
             // the frame boundary and not in this graph at all.
+            // Reads the terrains' world matrices to stand a ground-following
+            // animal on them (#1259).
             sched.AddSystem("AnimalPaths", [](Scene& s, Timestep ts)
                             { s.UpdateAnimalPaths(ts); })
-                .ReadsWrites(kLocalTransforms);
+                .ReadsWrites(kLocalTransforms)
+                .Reads(kWorldTransforms);
 
             // Place the camera on its spring arm (issue #645). Registered
             // DEAD LAST on purpose: a follow camera must observe the target's
@@ -4992,6 +4995,9 @@ namespace OloEngine
             return;
         }
 
+        // The terrains and their inverse matrices, gathered at the first animal
+        // that follows the ground rather than once per animal (#1259).
+        std::optional<TerrainGroundSampler> ground;
         auto view = m_Registry.view<TransformComponent, AnimalPathComponent>();
         for (const auto e : view)
         {
@@ -5037,9 +5043,21 @@ namespace OloEngine
                 // Issue #1259. Off every terrain (or before a height field
                 // exists, which a headless host never builds) the animal keeps
                 // its height, and says so once rather than silently.
-                if (const auto ground = SampleTerrainGroundHeight(*this, transform.Translation.x, transform.Translation.z))
+                //
+                // Sampled where the animal IS: the path writes its LOCAL
+                // translation, so a parented animal is taken into world space
+                // through its parent, set on the ground there, and brought back.
+                if (!ground)
+                    ground.emplace(*this);
+                const entt::entity parent = ResolveTransformParent(e);
+                const glm::mat4 parentWorld = parent == entt::null ? glm::mat4(1.0f) : GetWorldTransform(parent);
+                glm::vec3 world = glm::vec3(parentWorld * glm::vec4(transform.Translation, 1.0f));
+                if (const auto height = ground->HeightAt(world.x, world.z))
                 {
-                    transform.Translation.y = *ground;
+                    world.y = *height;
+                    transform.Translation = parent == entt::null
+                                                ? world
+                                                : glm::vec3(glm::inverse(parentWorld) * glm::vec4(world, 1.0f));
                 }
                 else
                 {
