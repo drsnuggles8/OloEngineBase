@@ -9618,6 +9618,10 @@ namespace OloEngine
             // a groom with no GroomLodComponent has no decision to read one
             // off. One measurement feeds both, so the two can never disagree
             // about how big this coat is.
+            // The coat's rest bounds where it is drawn: shared by the LOD size
+            // below and the view cull, so the two cannot disagree about where
+            // the coat is.
+            BoundingBox placedRestBounds;
             {
                 const LODViewParams& lodView = Renderer3D::GetLODViewParams();
                 BoundingBox localBounds;
@@ -9634,6 +9638,7 @@ namespace OloEngine
                     localBounds.Min += offset;
                     localBounds.Max += offset;
                 }
+                placedRestBounds = localBounds;
                 request.ApparentPixelSize = EstimateProjectedPixelSize(localBounds, worldTransform, lodView);
             }
 
@@ -9738,14 +9743,12 @@ namespace OloEngine
 
             if (cullGroomsByView)
             {
-                // The rest bounds, posed by the entity and padded: a bound coat
-                // follows a skinned body and its simulation sways, so neither
-                // stays inside the bind-pose box. A quarter of the extent plus
-                // 0.25 m covers a walk cycle's reach with room to spare.
-                BoundingBox restBounds;
-                restBounds.Min = groom->GetBoundsMin();
-                restBounds.Max = groom->GetBoundsMax();
-                BoundingBox worldBounds = restBounds.Transform(worldTransform);
+                // The rest bounds where the coat is drawn (placed through its
+                // binding, as the LOD size above is), posed by the entity and
+                // padded: a bound coat follows a skinned body and its simulation
+                // sways, so neither stays inside the bind-pose box. A quarter of
+                // the extent plus 0.25 m covers a walk cycle's reach.
+                BoundingBox worldBounds = placedRestBounds.Transform(worldTransform);
                 const glm::vec3 pad = (worldBounds.Max - worldBounds.Min) * 0.25f + glm::vec3(0.25f);
                 worldBounds.Min -= pad;
                 worldBounds.Max += pad;
