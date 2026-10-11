@@ -36,6 +36,8 @@
 #include "OloEngine/Serialization/ImportedMaterialCodec.h"
 #include "OloEngine/Task/ParallelFor.h"
 
+#include "OloEngine/Renderer/PercentDecodingAssimpIO.h"
+
 #include <assimp/GltfMaterial.h>
 #include <assimp/config.h> // AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE (issue #653)
 #include <stb_image/stb_image.h>
@@ -111,6 +113,8 @@ namespace OloEngine
         // The importer properties that go with kStaticImportFlags. Same reason for sharing.
         void ConfigureStaticImporter(Assimp::Importer& importer)
         {
+            // A glTF's external files are named by percent-encoded URIs (#1259).
+            importer.SetIOHandler(new PercentDecodingAssimpIO());
             // GenSmoothNormals, not GenNormals, for meshes that arrive WITHOUT normals: flat per-face
             // normals split every shared vertex, so JoinIdenticalVertices cannot re-weld them and the
             // mesh reaches meshoptimizer as a disconnected triangle soup — no usable LOD (classic OR

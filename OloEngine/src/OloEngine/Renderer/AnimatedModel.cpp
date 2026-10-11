@@ -8,6 +8,8 @@
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
+#include "OloEngine/Renderer/PercentDecodingAssimpIO.h"
+
 #include <assimp/GltfMaterial.h>
 #include <assimp/config.h>
 #include <algorithm>
@@ -44,6 +46,8 @@ namespace OloEngine
 
         void ConfigureAnimatedImporter(Assimp::Importer& importer)
         {
+            // A glTF's external files are named by percent-encoded URIs (#1259).
+            importer.SetIOHandler(new PercentDecodingAssimpIO());
             // Only triangles are drawn. SortByPType moves line and point primitives into
             // meshes of their own and this removes those meshes. Skipping their faces one by
             // one in ProcessMesh instead left a mesh with no indices at all, which
