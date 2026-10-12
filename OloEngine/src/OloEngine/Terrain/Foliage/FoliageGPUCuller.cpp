@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <exception>
 #include <limits>
 
 namespace OloEngine
@@ -243,9 +244,24 @@ namespace OloEngine
         const u64 bytes = static_cast<u64>(prepared.Words.Num()) * sizeof(u32);
         if (bytes > std::numeric_limits<u32>::max())
             return false;
-        out.LayerBuffer = StorageBuffer::Create(static_cast<u32>(bytes), kLayerBinding, StorageBufferUsage::DynamicDraw);
-        if (!out.LayerBuffer || !out.LayerBuffer->GetRHIHandle().IsValid())
+        try
+        {
+            out.LayerBuffer = StorageBuffer::Create(static_cast<u32>(bytes), kLayerBinding, StorageBufferUsage::DynamicDraw);
+        }
+        catch (const std::exception& error)
+        {
+            OLO_CORE_ERROR("FoliageGPUCuller: {} byte layer buffer allocation failed: {}", bytes, error.what());
+            out.LayerBuffer.Reset();
+            out.RefusedForBuiltGeneration = true;
             return false;
+        }
+        if (!out.LayerBuffer || !out.LayerBuffer->GetRHIHandle().IsValid())
+        {
+            OLO_CORE_ERROR("FoliageGPUCuller: could not allocate the {} byte layer buffer", bytes);
+            out.LayerBuffer.Reset();
+            out.RefusedForBuiltGeneration = true;
+            return false;
+        }
         out.GroupCount = prepared.GroupCount;
         out.LocalBounds = prepared.LocalBounds;
         return true;
