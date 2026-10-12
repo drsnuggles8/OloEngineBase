@@ -387,7 +387,7 @@ jobs:
           used_mib=$((kept_bytes / 1048576))
           if [ "${used_mib}" -gt "${headroom_floor_mib}" ]; then
             echo "::error::Actions cache store is ${used_mib} MiB after pruning, over the ${headroom_floor_mib} MiB working ceiling."
-            echo "::error::Past the cap (25 GB, ~23841 MiB) GitHub does not evict -- it makes the whole store READ-ONLY and refuses every save in the repo, silently (actions/cache/save warns and exits 0). Nothing left here is superseded, so this needs a human: docs/agent-rules/actions-cache-budget.md."
+            echo "::error::The repository storage limit (25 GB, ~23841 MiB) can evict useful snapshots; a configured billing budget can refuse new writes earlier. Nothing left here is superseded; review docs/agent-rules/actions-cache-budget.md."
             exit 1
           fi
           echo "headroom: $((headroom_floor_mib - used_mib)) MiB below the working ceiling."
