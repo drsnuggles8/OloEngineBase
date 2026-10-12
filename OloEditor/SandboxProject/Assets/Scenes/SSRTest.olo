@@ -1,5 +1,6 @@
 Scene: SSRTest.olo
 Version: 1
+RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Screen-Space Reflections demo scene.
 #
@@ -8,10 +9,9 @@ Version: 1
 # at its base and is easy to read. An equirect HDR drives IBL + skybox so metals
 # have a base reflection; SSR adds the on-screen object reflections on top.
 #
-# IMPORTANT: SSR is DEFERRED-ONLY. The render path lives in editor RendererSettings
-# (not in this .olo), so after opening this scene:
-#   1. Renderer Settings  -> Rendering Path -> Deferred
-#   2. Post Processing    -> Screen-Space Reflections -> Enable  (already on below)
+# IMPORTANT: SSR is DEFERRED-ONLY. The scene file selects Deferred (RenderingPath
+# below), so opening it switches the renderer; then:
+#   Post Processing -> Screen-Space Reflections -> Enable  (already on below)
 # Toggle "Debug View" in that panel to see the raw reflection buffer in isolation.
 # ─────────────────────────────────────────────────────────────────────────────
 PostProcessSettings:

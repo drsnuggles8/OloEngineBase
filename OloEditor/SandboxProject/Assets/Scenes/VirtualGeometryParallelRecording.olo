@@ -1,5 +1,6 @@
 Scene: VirtualGeometryParallelRecording.olo
 Version: 1
+RenderingPath: Deferred
 # ---------------------------------------------------------------------------
 # VIRTUAL GEOMETRY x PARALLEL RECORDING (#1013)
 #

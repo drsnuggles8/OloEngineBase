@@ -1,5 +1,6 @@
 Scene: VirtualGeometryStress.olo
 Version: 1
+RenderingPath: Deferred
 # ---------------------------------------------------------------------------
 # THE NANITE STRESS SCENE (issue #629) - the "can it actually do the thing" scene.
 #
@@ -53,9 +54,9 @@ Version: 1
 # Credit: Stanford Computer Graphics Laboratory, 3D Scanning Repository.
 #
 # REQUIRES THE DEFERRED PATH. VirtualGeometryPass self-disables on Forward and
-# Forward+. The renderer starts on Forward and the path is not scene-serialized,
-# so on load: Renderer Settings -> Rendering Path -> Deferred. The Virtual Mesh
-# inspector shows a warning and a one-click switch while the wrong path is active.
+# Forward+. The scene file selects Deferred (RenderingPath below), so opening it
+# switches the renderer. The Virtual Mesh inspector shows a warning and a
+# one-click switch if the path is changed away afterwards.
 #
 # FIRST LOAD IS SLOW: cooking a cluster LOD DAG for 7.2M triangles takes a couple
 # of minutes. The cook is cached (.omesh), so later loads are fast.

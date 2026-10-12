@@ -1,5 +1,6 @@
 Scene: VirtualGeometrySponzaControl.olo
 Version: 1
+RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Nanite-style virtualized geometry on a real production asset (issue #629).
 #
@@ -26,10 +27,9 @@ Version: 1
 # REQUIRES THE DEFERRED RENDERING PATH. VirtualGeometryPass self-disables on
 # Forward / Forward+ (the compute rasterizer writes a visibility buffer that the
 # material-resolve pass reconstructs the G-Buffer from, and the forward paths have
-# no G-Buffer to resolve into). The renderer starts on Forward and the path is not
-# scene-serialized, so on load: Renderer Settings -> Rendering Path -> Deferred.
-# The Virtual Mesh inspector shows a warning + a one-click switch while the wrong
-# path is active.
+# no G-Buffer to resolve into). The scene file selects Deferred (RenderingPath
+# below), so opening it switches the renderer. The Virtual Mesh inspector shows a
+# warning + a one-click switch if the path is changed away afterwards.
 #
 # NOTE: the first load cooks the DAG for all 103 submeshes and is slow. The cook is
 # cached (.omesh) and shipped in the asset pack, so every later load is instant.

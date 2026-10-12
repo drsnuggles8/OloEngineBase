@@ -1,5 +1,6 @@
 Scene: FSR2UpscaleTest.olo
 Version: 1
+RenderingPath: Deferred
 # FSR2 temporal upscaling (#684) — the scene this feature is verified in.
 #
 # Geometry and lighting are SponzaDeferred's, deliberately: dense thin geometry
@@ -7,9 +8,8 @@ Version: 1
 # either reconstructs or smears, and it is already a scene people A/B against.
 # What differs is only the PostProcessSettings block below.
 #
-# HOW TO USE IT. Open the scene, set the renderer to the DEFERRED path (the path
-# lives on RendererSettings, not in the .olo — same caveat as SponzaDeferred),
-# and then MOVE THE CAMERA. A still frame proves almost nothing here: ghosting,
+# HOW TO USE IT. Open the scene (it selects the DEFERRED path itself, through
+# RenderingPath below) and then MOVE THE CAMERA. A still frame proves almost nothing here: ghosting,
 # disocclusion trails and a motion-vector sign error all look correct until
 # something moves. Fly the camera along the nave, stop, and look at the trailing
 # edges of the pillars.
