@@ -527,7 +527,16 @@ namespace OloEngine::Tests
         foliage.m_Layers[0].AlphaCutoff = 0.35f;
         foliage.m_Layers[0].ImpostorFramesPerAxis = 4;
         foliage.m_NeedsRebuild = true;
-        RunFrames(1);
+        // The rebuild is prepared off the frame and published when it is ready
+        // (#1582, e9e1e4908), so wait for the re-baked atlas rather than assume
+        // it lands on the next frame.
+        ASSERT_TRUE(WaitForPlants(
+            [this](const FFoliageStreamingStats&)
+            {
+                const auto* rebuilt = Plants().GetImpostorAtlas(0);
+                return rebuilt != nullptr && rebuilt->FramesPerAxis == 4u;
+            }))
+            << "the re-bake must publish";
         atlas = Plants().GetImpostorAtlas(0);
         ASSERT_NE(atlas, nullptr);
         EXPECT_EQ(atlas->FramesPerAxis, 4u);
@@ -538,8 +547,8 @@ namespace OloEngine::Tests
         const auto pinnedAtlas = atlas->Albedo->GetRHIHandle();
 
         GetScene().GetStreamingSettings().RepresentationResidentMegabytes = 0.001f;
-        RunFrames(2);
-        EXPECT_EQ(Plants().GetStreamingStats().ResidentLayers, 0u);
+        EXPECT_TRUE(WaitForPlants([](const FFoliageStreamingStats& stats) { return stats.ResidentLayers == 0u; }))
+            << "the resident budget must evict the detail layer";
         atlas = Plants().GetImpostorAtlas(0);
         ASSERT_NE(atlas, nullptr);
         EXPECT_EQ(atlas->Albedo->GetRHIHandle(), pinnedAtlas);
