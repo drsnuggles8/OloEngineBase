@@ -1856,6 +1856,25 @@ namespace OloEngine
         }
     }
 
+    bool FoliageRenderer::HasTerrainSourceChanges(const TerrainData& terrainData, const TerrainMaterial* material,
+                                                  f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const
+    {
+        return m_RequestedTerrain != &terrainData || m_RequestedMaterial != material ||
+               m_RequestedHeightRevision != terrainData.GetHeightRevision() ||
+               m_RequestedSplatmapRevision != (material ? material->GetSplatmapRevision() : 0u) ||
+               !Math::BitwiseEqual(m_RequestedTerrainSize, glm::vec3(worldSizeX, worldSizeZ, heightScale));
+    }
+
+    void FoliageRenderer::RecordTerrainSources(const TerrainData& terrainData, const TerrainMaterial* material,
+                                               f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
+    {
+        m_RequestedTerrain = &terrainData;
+        m_RequestedMaterial = material;
+        m_RequestedHeightRevision = terrainData.GetHeightRevision();
+        m_RequestedSplatmapRevision = material ? material->GetSplatmapRevision() : 0u;
+        m_RequestedTerrainSize = glm::vec3(worldSizeX, worldSizeZ, heightScale);
+    }
+
     void FoliageRenderer::GenerateInstances(
         const TArray<FoliageLayer>& layers,
         const TerrainData& terrainData,
@@ -2274,6 +2293,7 @@ namespace OloEngine
         }
 
         m_Registry.EndGeneration();
+        RecordTerrainSources(terrainData, material, worldSizeX, worldSizeZ, heightScale);
     }
 
     void FoliageRenderer::ClearInstances()

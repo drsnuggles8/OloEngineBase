@@ -548,6 +548,9 @@ namespace OloEngine
             const TerrainMaterial* material,
             f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
 
+        [[nodiscard]] bool HasTerrainSourceChanges(const TerrainData& terrainData, const TerrainMaterial* material,
+                                                   f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const;
+
         // The whole system stopped drawing — the component was disabled, or its
         // last layer was removed. Retires every canonical instance rather than
         // leaving records that claim plants exist (issue #1230); ids are not
@@ -933,6 +936,16 @@ namespace OloEngine
         bool m_WarnedTooManyParts = false;
         bool m_WarnedCullBracketSkipped = false;
         glm::mat4 m_TerrainTransform{ 1.0f };
+        // Non-owning identity tokens, never dereferenced. Compare the last
+        // requested snapshot, so unchanged input does not cancel a running task.
+        const TerrainData* m_RequestedTerrain = nullptr;
+        const TerrainMaterial* m_RequestedMaterial = nullptr;
+        u64 m_RequestedHeightRevision = 0;
+        u64 m_RequestedSplatmapRevision = 0;
+        glm::vec3 m_RequestedTerrainSize{ 0.0f };
+        void RecordTerrainSources(const TerrainData& terrainData, const TerrainMaterial* material,
+                                  f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
+
         // The interaction boxes CollectVsmInvalidations submitted last frame:
         // invalidated once more after an influence moves or retires, so its
         // last bend does not stay baked into a page (#1580).

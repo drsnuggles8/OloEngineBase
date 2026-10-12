@@ -75,6 +75,9 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
+#include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Terrain/TerrainMaterial.h"
+#include <stb_image/stb_image_write.h>
 #include "OloEngine/Utils/PlatformUtils.h" // Time::SetMockTime
 
 #include <glad/gl.h>
@@ -1003,6 +1006,72 @@ namespace OloEngine::Tests
                 }
             }
         }
+    }
+
+    TEST_F(FoliageCostBaselineTest, HeightEditsAttachRootsWithoutAFoliageDirtyFlag)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        const auto poses = DeriveTraversal();
+        ASSERT_TRUE(poses);
+        const auto& registry = Plants().GetInstanceRegistry();
+        ASSERT_FALSE(registry.GetRecords().IsEmpty());
+        const auto first = registry.GetRecords()[0];
+        auto& terrain = m_Loaded->Terrain.GetComponent<TerrainComponent>();
+        auto heights = terrain.m_TerrainData->GetHeightData();
+        for (auto& height : heights)
+            height += 0.0001f;
+        terrain.m_TerrainData->SetHeights(terrain.m_TerrainData->GetResolution(), std::move(heights));
+        Tick((*poses)[4], 1);
+        const auto* updated = registry.Find(first.m_Id);
+        ASSERT_TRUE(updated);
+        EXPECT_NEAR(updated->m_Position.y, first.m_Position.y + 0.0001f * terrain.m_HeightScale, 0.0001f);
+        Tick((*poses)[4], 8);
+    }
+
+    TEST_F(FoliageCostBaselineTest, TerrainMaskReloadReplacesItsInitializedCpuMirror)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const auto directory = TempDir("mask-reload");
+        TArray<u8> pixels;
+        pixels.Init(0u, 16u * 16u * 4u);
+        for (i32 index = 0; index < pixels.Num(); index += 4)
+        {
+            pixels[index] = 255u;
+            pixels[index + 3] = 255u;
+        }
+        const auto red = directory / "red.png";
+        const auto green = directory / "green.png";
+        ASSERT_NE(stbi_write_png(red.string().c_str(), 16, 16, 4, pixels.GetData(), 16 * 4), 0);
+        for (i32 index = 0; index < pixels.Num(); index += 4)
+        {
+            pixels[index] = 0u;
+            pixels[index + 1] = 255u;
+        }
+        ASSERT_NE(stbi_write_png(green.string().c_str(), 16, 16, 4, pixels.GetData(), 16 * 4), 0);
+        TerrainMaterial material;
+        material.SetSplatmapPath(0u, red.generic_string());
+        material.LoadSplatmaps();
+        material.InitializeCPUSplatmaps(16u);
+        ASSERT_EQ(std::as_const(material).GetSplatmapData(0u)[0], 255u);
+        const auto revision = material.GetSplatmapRevision();
+        material.SetSplatmapPath(0u, green.generic_string());
+        material.LoadSplatmaps();
+        EXPECT_GT(material.GetSplatmapRevision(), revision);
+        EXPECT_TRUE(material.AreCPUSplatmapsStale());
+        EXPECT_EQ(std::as_const(material).GetSplatmapData(0u), pixels);
+        EXPECT_FALSE(material.AreCPUSplatmapsStale());
+        const auto handle = material.GetSplatmap(0u)->GetRHIHandle();
+        const auto acceptedRevision = material.GetSplatmapRevision();
+        const auto larger = directory / "larger.png";
+        TArray<u8> different;
+        different.Init(0u, 32u * 32u * 4u);
+        ASSERT_NE(stbi_write_png(larger.string().c_str(), 32, 32, 4, different.GetData(), 32 * 4), 0);
+        material.SetSplatmapPath(0u, larger.generic_string());
+        material.LoadSplatmaps();
+        EXPECT_EQ(material.GetSplatmapRevision(), acceptedRevision);
+        EXPECT_EQ(material.GetSplatmap(0u)->GetRHIHandle(), handle);
+        EXPECT_EQ(std::as_const(material).GetSplatmapData(0u), pixels);
     }
 
     TEST_F(FoliageCostBaselineTest, MeasureBaseline)

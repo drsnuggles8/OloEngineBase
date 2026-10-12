@@ -93,6 +93,12 @@ namespace OloEngine
         void MarkSplatmapsGPUModified()
         {
             m_CPUSplatmapsStale = true;
+            ++m_SplatmapRevision;
+        }
+
+        [[nodiscard]] u64 GetSplatmapRevision() const
+        {
+            return m_SplatmapRevision;
         }
 
         // The one splatmap readback left on the authoring path.
@@ -132,6 +138,7 @@ namespace OloEngine
         // it from the const read accessor.
         mutable std::array<TArray<u8>, 2> m_CPUSplatmaps;
         mutable bool m_CPUSplatmapsStale = false;
+        u64 m_SplatmapRevision = 0;
         u32 m_SplatmapResolution = 0;
     };
 

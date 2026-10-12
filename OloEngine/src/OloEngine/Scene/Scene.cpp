@@ -12681,7 +12681,7 @@ namespace OloEngine
                     auto& terrain = foliageView.get<TerrainComponent>(entity);
                     auto& foliage = foliageView.get<FoliageComponent>(entity);
 
-                    if (!foliage.m_Enabled || foliage.m_Layers.IsEmpty())
+                    if (!foliage.m_Enabled || foliage.m_Layers.IsEmpty() || !terrain.m_TerrainData)
                     {
                         // Nothing draws, so nothing should still be claiming to
                         // exist. Without this the registry kept the records of a
@@ -12724,6 +12724,11 @@ namespace OloEngine
                     // takes its foliage with it.
                     foliage.m_Renderer->SetTerrainTransform(
                         foliageView.get<TransformComponent>(entity).GetTransform());
+
+                    if (terrain.m_TerrainData && foliage.m_Renderer->HasTerrainSourceChanges(
+                                                     *terrain.m_TerrainData, terrain.m_Material.get(),
+                                                     terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale))
+                        foliage.m_NeedsRebuild = true;
 
                     if (foliage.m_NeedsRebuild && terrain.m_TerrainData)
                     {
