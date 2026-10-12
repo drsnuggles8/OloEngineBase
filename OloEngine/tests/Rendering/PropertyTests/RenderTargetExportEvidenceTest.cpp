@@ -532,6 +532,11 @@ namespace OloEngine::Tests
                     Frames(kWarmFrames);
                     RenderGraph* graph = const_cast<RenderGraph*>(RenderGraphDebugRuntime::GetActiveGraph().Raw());
                     ASSERT_NE(graph, nullptr);
+                    if (!baseline && (late & 2u) != 0u && (!perSample || samples == 1u))
+                    {
+                        EXPECT_EQ(graph->FindAttachmentViewParent("OpaqueDecalProjectionDepth"), "OpaqueDecalProjectionDepthBacking")
+                            << "projection depth must inherit framebuffer filtering and clamp-to-edge wrapping";
+                    }
                     ScopedPassSnapshot captureScope;
                     auto& snapshot = captureScope.m_Snapshot;
                     TDoubleLinkedList<RenderGraphPassSnapshot::Request> requests;

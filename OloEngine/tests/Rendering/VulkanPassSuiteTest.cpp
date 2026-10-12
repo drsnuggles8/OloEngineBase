@@ -10166,7 +10166,7 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
                 RenderCommand::ClearFramebufferDepth(gbufferFB->GetRHIHandle(), 1.0f);
                 RenderCommand::ClearFramebufferDepth(depthSourceFB->GetRHIHandle(), kSceneDepth);
 
-                decalPass->ExecuteOnGBuffer(gbufferFB, depthSourceFB);
+                decalPass->ExecuteOnGBuffer(gbufferFB, depthSourceFB->GetDepthAttachmentHandle());
 
                 // Every colour attachment plus the entity RT to the readback
                 // layout, each naming its OWN last producer as the barrier's

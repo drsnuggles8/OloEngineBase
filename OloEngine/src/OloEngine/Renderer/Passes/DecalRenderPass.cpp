@@ -393,14 +393,12 @@ namespace OloEngine
     }
 
     void DecalRenderPass::ExecuteOnGBuffer(Ref<Framebuffer> writeTargetFB,
-                                           Ref<Framebuffer> depthSamplingFB)
+                                           RHI::ResourceHandle depthTexture)
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!writeTargetFB || m_CommandBucket.GetCommandCount() == 0)
+        if (!writeTargetFB || !depthTexture.IsValid() || m_CommandBucket.GetCommandCount() == 0)
             return;
-        if (!depthSamplingFB)
-            depthSamplingFB = writeTargetFB;
 
         const RHI::ResourceHandle gbufferID = writeTargetFB->GetRHIHandle();
         writeTargetFB->Bind();
@@ -412,9 +410,8 @@ namespace OloEngine
         // (resolved single-sample in MSAA mode) at TEX_POSTPROCESS_DEPTH so
         // the decal fragment shader can reconstruct world positions via
         // plain sampler2D regardless of the write target's sample count.
-        // Safe to sample the currently-bound depth since decal render state
-        // disables depth writes.
-        const RHI::ResourceHandle depthTexture = depthSamplingFB->GetDepthAttachmentHandle();
+        // The caller supplies storage independent of the raster depth attachment.
+        // Disabling depth writes does not make attachment feedback legal on Vulkan.
         // Published, not bound — see the OIT variant above.
         HeapBinding::PublishTextureOffsetAndBind(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, depthTexture,
                                                  RHI::HeapSlotLifetime::FrameTransient);

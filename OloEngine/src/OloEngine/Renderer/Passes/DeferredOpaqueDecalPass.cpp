@@ -27,6 +27,7 @@ namespace OloEngine
         m_SelectedGBufferAlbedoExport = {};
         m_SelectedGBufferNormalExport = {};
         m_SelectedGBufferEmissiveExport = {};
+        m_ProjectionDepth = {};
         if (!m_GBuffer)
             return;
         const bool multisample = m_PerSampleLighting && board.Config.GBufferSamples > 1u;
@@ -39,8 +40,24 @@ namespace OloEngine
                 builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
                 // Execute transfers first, then samples this independent backing.
                 builder.AllowSamePassReadWrite(board.Scene.SceneDepth);
+                m_ProjectionDepth = board.Scene.SceneDepth;
             }
-            [[maybe_unused]] const auto depth = builder.Read(board.Scene.SceneDepth, RGReadUsage::ShaderSample);
+            else
+            {
+                auto desc = RGResourceDesc::FromHandleKind(RGResourceHandle::Kind::Framebuffer, "OpaqueDecalProjectionDepthBacking");
+                desc.Format = RGResourceFormat::Depth24Stencil8;
+                desc.Attachments = { RGResourceFormat::Depth24Stencil8 };
+                desc.Width = board.Config.GBufferWidth;
+                desc.Height = board.Config.GBufferHeight;
+                const auto backing = builder.CreateFramebuffer("OpaqueDecalProjectionDepthBacking", desc);
+                // Attachment storage preserves the source's clamp/linear sampler
+                // contract, unlike a bare transient texture's repeat defaults.
+                m_ProjectionDepth = builder.CreateFramebufferDepthAttachmentView("OpaqueDecalProjectionDepth", backing);
+                [[maybe_unused]] const auto source = builder.ReadTransferSourceBeforeWrite(board.Scene.SceneDepth);
+                builder.Write(m_ProjectionDepth, RGWriteUsage::TransferDest);
+                builder.AllowSamePassReadWrite(m_ProjectionDepth);
+            }
+            [[maybe_unused]] const auto depth = builder.Read(m_ProjectionDepth, RGReadUsage::ShaderSample);
         }
         m_SelectedSceneNormalsExport = multisample ? board.GBuffer.GBufferNormalMS : board.Scene.SceneNormals;
         m_SelectedGBufferAlbedoExport = multisample ? board.GBuffer.GBufferAlbedoMS : board.GBuffer.GBufferAlbedo;
@@ -62,7 +79,7 @@ namespace OloEngine
         }
     }
 
-    void DeferredOpaqueDecalPass::Execute(RGCommandContext& /*context*/)
+    void DeferredOpaqueDecalPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -74,17 +91,24 @@ namespace OloEngine
         // Mirror the original synchronous call that used to live inline in
         // SceneRenderPass::Execute(). The MSAA per-sample path writes into
         // the multisample FBO but samples resolved depth; non-per-sample
-        // paths operate entirely on the resolved FBO.
+        // paths snapshot depth before rasterizing into the resolved FBO.
         if (hasDecalWork && m_PerSampleLighting && m_GBuffer->GetSampleCount() > 1)
         {
             m_GBuffer->ResolveDepthOnly();
             RenderCommand::TextureBarrier();
             m_DecalPass->ExecuteOnGBuffer(m_GBuffer->GetFramebuffer(),
-                                          m_GBuffer->GetSamplingFramebuffer());
+                                          m_GBuffer->GetDepthAttachmentHandle());
         }
         else if (hasDecalWork)
         {
-            m_DecalPass->ExecuteOnGBuffer(m_GBuffer->GetSamplingFramebuffer());
+            const auto projectionDepth = context.ResolveTextureHandle(m_ProjectionDepth);
+            if (!projectionDepth.IsValid())
+                return;
+            RenderCommand::CopyImageSubData(m_GBuffer->GetDepthAttachmentHandle(), RendererAPI::TextureTargetType::Texture2D,
+                                            projectionDepth, RendererAPI::TextureTargetType::Texture2D,
+                                            m_GBuffer->GetWidth(), m_GBuffer->GetHeight());
+            RenderCommand::TextureBarrier();
+            m_DecalPass->ExecuteOnGBuffer(m_GBuffer->GetSamplingFramebuffer(), projectionDepth);
         }
         else
         {

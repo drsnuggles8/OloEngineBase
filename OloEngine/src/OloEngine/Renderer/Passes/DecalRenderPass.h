@@ -54,17 +54,12 @@ namespace OloEngine
         //
         // writeTargetFB:      framebuffer decals rasterize into (MS in MSAA
         //                     per-sample mode, resolved FB otherwise).
-        // depthSamplingFB:    framebuffer whose depth attachment the decal
-        //                     fragment shader samples to reconstruct world
-        //                     position (always single-sample so the shader
-        //                     can use a plain `sampler2D`). When equal to
-        //                     writeTargetFB, the single-arg form is used.
-        void ExecuteOnGBuffer(Ref<Framebuffer> gbufferFB)
-        {
-            ExecuteOnGBuffer(gbufferFB, gbufferFB);
-        }
+        // projectionDepth:    independent single-sample texture used to
+        //                     reconstruct world position. It must not be an
+        //                     attachment of writeTargetFB, even with depth
+        //                     writes disabled.
         void ExecuteOnGBuffer(Ref<Framebuffer> writeTargetFB,
-                              Ref<Framebuffer> depthSamplingFB);
+                              RHI::ResourceHandle projectionDepth);
 
         // WB-OIT wiring (forward-path only). In the deferred path decals are
         // written into the G-Buffer via `ExecuteOnGBuffer` and are naturally
