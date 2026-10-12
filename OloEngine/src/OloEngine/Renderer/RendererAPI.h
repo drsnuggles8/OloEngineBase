@@ -743,6 +743,11 @@ namespace OloEngine
         virtual void* AllocatePersistentUploadStorage(RHI::ResourceHandle buffer, u64 sizeBytes) = 0;
         virtual void UnmapBuffer(RHI::ResourceHandle buffer) = 0;
         virtual void UploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, const void* data) = 0;
+        [[nodiscard]] virtual bool TryUploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, const void* data)
+        {
+            UploadBufferSubData(buffer, offsetBytes, sizeBytes, data);
+            return true;
+        }
         virtual void ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest) = 0;
         virtual void CopyBufferSubData(RHI::ResourceHandle srcBuffer, RHI::ResourceHandle dstBuffer,
                                        u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes) = 0;

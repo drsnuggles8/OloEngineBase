@@ -254,18 +254,6 @@ namespace OloEngine::FoliagePlacement
             i32 m_ChannelInPlane = 0;
         };
 
-        [[nodiscard]] SplatSource ResolveSplat(const TerrainMaterial* material, i32 channel)
-        {
-            if (!material || channel < 0 || channel >= 8 || !material->HasCPUSplatmaps())
-                return {};
-
-            const auto& plane = material->GetSplatmapData(static_cast<u32>(channel / 4));
-            if (plane.IsEmpty())
-                return {};
-
-            return SplatSource{ plane.GetData(), material->GetSplatmapResolution(), channel % 4 };
-        }
-
         [[nodiscard]] f32 SampleSplat(const SplatSource& source, f32 nx, f32 nz)
         {
             const u32 sx = std::min(static_cast<u32>(nx * static_cast<f32>(source.m_Resolution)),
@@ -387,9 +375,31 @@ namespace OloEngine::FoliagePlacement
                              normalizedHeight, upDot);
     }
 
+    MaskSnapshot SnapshotMasks(const TerrainMaterial* material)
+    {
+        MaskSnapshot snapshot;
+        if (material && material->HasCPUSplatmaps())
+        {
+            snapshot.Resolution = material->GetSplatmapResolution();
+            for (u32 plane = 0; plane < 2; ++plane)
+                snapshot.Planes[plane] = material->GetSplatmapData(plane);
+        }
+        return snapshot;
+    }
+
     void GenerateLayer(const FoliageLayer& layer, u32 layerIndex,
                        const TArray<f32>& heights, u32 resolution,
                        const TerrainMaterial* material,
+                       f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
+                       TArray<Placement>& out)
+    {
+        GenerateLayer(layer, layerIndex, heights, resolution, SnapshotMasks(material),
+                      worldSizeX, worldSizeZ, heightScale, out);
+    }
+
+    void GenerateLayer(const FoliageLayer& layer, u32 layerIndex,
+                       const TArray<f32>& heights, u32 resolution,
+                       const MaskSnapshot& masks,
                        f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
                        TArray<Placement>& out)
     {
@@ -406,8 +416,18 @@ namespace OloEngine::FoliagePlacement
         const auto countX = static_cast<u32>(std::ceil(worldSizeX / spacing));
         const auto countZ = static_cast<u32>(std::ceil(worldSizeZ / spacing));
 
-        const SplatSource density = ResolveSplat(material, layer.SplatmapChannel);
-        const SplatSource exclusion = ResolveSplat(material, layer.ExclusionSplatmapChannel);
+        const auto resolve = [&masks](i32 channel) -> SplatSource
+        {
+            if (channel < 0 || channel >= 8 || masks.Resolution == 0)
+                return {};
+            const auto& plane = masks.Planes[static_cast<u32>(channel / 4)];
+            const u64 required = static_cast<u64>(masks.Resolution) * masks.Resolution * 4u;
+            if (static_cast<u64>(plane.Num()) < required)
+                return {};
+            return { plane.GetData(), masks.Resolution, channel % 4 };
+        };
+        const SplatSource density = resolve(layer.SplatmapChannel);
+        const SplatSource exclusion = resolve(layer.ExclusionSplatmapChannel);
 
         out.Reserve(static_cast<sizet>(countX) * countZ / 4); // Estimate ~25% coverage
 

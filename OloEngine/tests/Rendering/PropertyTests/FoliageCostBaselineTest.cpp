@@ -61,6 +61,7 @@
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Core/FrameTimeTail.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Renderer/AlphaCoverageMips.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
@@ -73,11 +74,14 @@
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Task/NamedThreads.h"
+#include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include <stb_image/stb_image_write.h>
+#include "OloEngine/Memory/PlatformMemoryBackend.h"
 #include "OloEngine/Utils/PlatformUtils.h" // Time::SetMockTime
 
 #include <glad/gl.h>
@@ -249,6 +253,14 @@ namespace OloEngine::Tests
         struct Window
         {
             std::vector<f64> WallMs;
+            std::vector<FFoliageRebuildTimings> RebuildTimings;
+            std::vector<u32> PublicationIndices;
+            std::vector<f64> PublicationLatencyMs;
+            u64 PeakKnownStagingArrayBytes = 0;
+            u64 PeakProcessWorkingSetBytes = 0;
+            u64 PeakProcessCommitBytes = 0;
+            u64 StartGpuResidentBytes = 0;
+            u64 PeakGpuResidentBytes = 0;
             std::vector<u64> Frames;        // frame numbers with a valid GPU sample
             std::vector<f64> GpuMs;         // aligned with Frames
             std::vector<PassTotals> Passes; // aligned with Frames
@@ -341,6 +353,9 @@ namespace OloEngine::Tests
             m_PreviousProject = Project::GetActive();
             m_PreviousAssetManager = Project::HasAssetManager() ? Project::GetAssetManager() : nullptr;
             RendererAttachedTest::SetUp();
+            LowLevelTasks::InitGameThreadId();
+            Tasks::FNamedThreadManager::Get().AttachToThread(Tasks::ENamedThread::GameThread);
+            LowLevelTasks::FScheduler::Get().StartWorkers();
             // AFTER the base SetUp: the first GPU fixture in a process moves
             // into OloEditor/ there, and restoring the directory from before
             // it would leave every later GPU suite unable to open its shaders.
@@ -380,7 +395,7 @@ namespace OloEngine::Tests
 
         // Deserialize a committed scene from a temp copy (its .scenebin sidecar
         // must not land in the working tree) and tick until the flora exists.
-        void Load(const fs::path& sceneAssetPath)
+        void Load(const fs::path& sceneAssetPath, bool useRuntimeFixture = false)
         {
             m_Loaded.reset();
             ASSERT_NO_FATAL_FAILURE(EnterEditorProject());
@@ -393,7 +408,7 @@ namespace OloEngine::Tests
             ASSERT_FALSE(ec) << "cannot copy " << source.string() << ": " << ec.message();
 
             Loaded loaded;
-            loaded.SceneRef = Scene::Create();
+            loaded.SceneRef = useRuntimeFixture ? GetSceneRef() : Scene::Create();
             SceneSerializer serializer(loaded.SceneRef);
             ASSERT_TRUE(serializer.Deserialize(copy)) << copy.string();
             for (auto entity : loaded.SceneRef->GetAllEntitiesWith<FoliageComponent>())
@@ -416,7 +431,7 @@ namespace OloEngine::Tests
         {
             return m_Loaded->Foliage.GetComponent<FoliageComponent>();
         }
-        [[nodiscard]] const FoliageRenderer& Plants()
+        [[nodiscard]] FoliageRenderer& Plants()
         {
             return *FoliageOf().m_Renderer;
         }
@@ -433,6 +448,14 @@ namespace OloEngine::Tests
         void Tick(const Pose& pose, u32 frames)
         {
             RunEditorFramesOn(*m_Loaded->SceneRef, MakeCamera(pose, m_Width, m_Height), frames);
+        }
+
+        void AwaitRebuild(const Pose& pose)
+        {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            while (Plants().IsRebuilding() && std::chrono::steady_clock::now() < deadline)
+                Tick(pose, 1);
+            ASSERT_FALSE(Plants().IsRebuilding()) << "replacement never reached publication";
         }
 
         static void SetPath(RenderingPath path, u32 msaa = 1u)
@@ -507,7 +530,11 @@ namespace OloEngine::Tests
             };
 
             Window window;
+            auto& memoryTracker = RendererMemoryTracker::GetInstance();
+            window.StartGpuResidentBytes = memoryTracker.BuildReport().Gpu.ResidentBytes();
+            memoryTracker.BeginPeakWindow();
             window.WallMs.reserve(count);
+            u64 publishedSerial = Plants().GetPublishedRebuildSerial();
             for (u32 i = 0; i < count; ++i)
             {
                 if (beforeFrame)
@@ -515,6 +542,20 @@ namespace OloEngine::Tests
                 const auto t0 = std::chrono::steady_clock::now();
                 RunEditorFramesOn(*m_Loaded->SceneRef, camera, 1);
                 window.WallMs.push_back(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count());
+                window.RebuildTimings.push_back(Plants().GetRebuildTimings());
+                window.PeakKnownStagingArrayBytes = std::max(window.PeakKnownStagingArrayBytes, Plants().GetRebuildStagingCpuBytes());
+                PlatformMemoryBackend::BackendStats memory;
+                if (PlatformMemoryBackend::QueryStats(memory))
+                {
+                    window.PeakProcessWorkingSetBytes = std::max(window.PeakProcessWorkingSetBytes, memory.UsedPhysical);
+                    window.PeakProcessCommitBytes = std::max(window.PeakProcessCommitBytes, memory.UsedVirtual);
+                }
+                if (Plants().GetPublishedRebuildSerial() != publishedSerial)
+                {
+                    publishedSerial = Plants().GetPublishedRebuildSerial();
+                    window.PublicationIndices.push_back(i);
+                    window.PublicationLatencyMs.push_back(Plants().GetRebuildLatencyMs());
+                }
                 harvest();
             }
             // Drain: the last frames resolve 1-3 frames later, under the SAME
@@ -534,6 +575,7 @@ namespace OloEngine::Tests
             window.MissingGpu = count - static_cast<u32>(resolved.size());
             window.OverflowFrames = overflow;
             window.LastFrameBracketCounts = std::move(lastCounts);
+            window.PeakGpuResidentBytes = memoryTracker.BuildReport().Gpu.WindowPeakBytes;
             return window;
         }
 
@@ -988,8 +1030,11 @@ namespace OloEngine::Tests
         ASSERT_FALSE(records.IsEmpty());
         for (u32 rebuild = 0; rebuild < 3; ++rebuild)
         {
+            const u64 serial = Plants().GetPublishedRebuildSerial();
             FoliageOf().m_NeedsRebuild = true;
             Tick((*poses)[4], 1);
+            ASSERT_NO_FATAL_FAILURE(AwaitRebuild((*poses)[4]));
+            ASSERT_GT(Plants().GetPublishedRebuildSerial(), serial) << "the old generation alone cannot satisfy this test";
             EXPECT_EQ(registry.GetGeneration(), generation) << "unchanged regeneration must not invalidate cull tables";
             ASSERT_EQ(registry.GetRecords().Num(), records.Num());
             for (i32 i = 0; i < records.Num(); ++i)
@@ -1008,25 +1053,197 @@ namespace OloEngine::Tests
         }
     }
 
-    TEST_F(FoliageCostBaselineTest, HeightEditsAttachRootsWithoutAFoliageDirtyFlag)
+    TEST_F(FoliageCostBaselineTest, WarmEditsKeepTheWholePublishedGenerationAndNewestRequestWins)
     {
         OLO_ENSURE_GPU_OR_SKIP();
         ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
         const auto poses = DeriveTraversal();
         ASSERT_TRUE(poses);
         const auto& registry = Plants().GetInstanceRegistry();
-        ASSERT_FALSE(registry.GetRecords().IsEmpty());
-        const auto first = registry.GetRecords()[0];
-        auto& terrain = m_Loaded->Terrain.GetComponent<TerrainComponent>();
-        auto heights = terrain.m_TerrainData->GetHeightData();
-        for (auto& height : heights)
-            height += 0.0001f;
-        terrain.m_TerrainData->SetHeights(terrain.m_TerrainData->GetResolution(), std::move(heights));
+        const auto before = registry.GetRecords();
+        const auto serial = Plants().GetPublishedRebuildSerial();
+        FoliageOf().m_Layers[0].BaseColor = glm::vec3(0.7f, 0.6f, 0.5f);
+        FoliageOf().m_NeedsRebuild = true;
         Tick((*poses)[4], 1);
-        const auto* updated = registry.Find(first.m_Id);
-        ASSERT_TRUE(updated);
-        EXPECT_NEAR(updated->m_Position.y, first.m_Position.y + 0.0001f * terrain.m_HeightScale, 0.0001f);
+        ASSERT_TRUE(Plants().IsRebuilding());
+        EXPECT_EQ(Plants().GetPublishedRebuildSerial(), serial);
+        ASSERT_EQ(registry.GetRecords().Num(), before.Num());
+        EXPECT_EQ(registry.GetRecords()[0].m_StateHash, before[0].m_StateHash);
+        // Supersede both a resource-stage request and a launched CPU request.
+        FoliageOf().m_Layers[0].BaseColor = glm::vec3(0.5f, 0.7f, 0.6f);
+        FoliageOf().m_NeedsRebuild = true;
         Tick((*poses)[4], 8);
+        FoliageOf().m_Layers[0].BaseColor = glm::vec3(0.6f, 0.5f, 0.7f);
+        FoliageOf().m_NeedsRebuild = true;
+        Tick((*poses)[4], 1);
+        ASSERT_NO_FATAL_FAILURE(AwaitRebuild((*poses)[4]));
+        EXPECT_GE(Plants().GetPublishedRebuildSerial(), serial + 3);
+        ASSERT_EQ(registry.GetRecords().Num(), before.Num());
+        for (i32 index = 0; index < before.Num(); ++index)
+            EXPECT_EQ(registry.GetRecords()[index].m_Id, before[index].m_Id);
+        const auto* material = registry.GetMaterial(registry.GetRecords()[0].m_MaterialKey);
+        ASSERT_TRUE(material);
+        EXPECT_EQ(material->m_BaseColor, FoliageOf().m_Layers[0].BaseColor);
+        // Disable while a replacement is being prepared; it must never return.
+        FoliageOf().m_NeedsRebuild = true;
+        Tick((*poses)[4], 8);
+        FoliageOf().m_Enabled = false;
+        Tick((*poses)[4], 2);
+        EXPECT_FALSE(Plants().IsRebuilding());
+        EXPECT_EQ(Plants().GetTotalInstanceCount(), 0u);
+        Tick((*poses)[4], 8);
+        EXPECT_EQ(Plants().GetTotalInstanceCount(), 0u);
+    }
+
+    TEST_F(FoliageCostBaselineTest, StreamingMeshPathEditPublishesCompleteFallbackAndCanRebuildAgain)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        const auto poses = DeriveTraversal();
+        ASSERT_TRUE(poses);
+        Plants().SetStreamingEnabled(true);
+        const auto count = Plants().GetTotalInstanceCount();
+        const auto serial = Plants().GetPublishedRebuildSerial();
+        // An absent optional source exercises exactly the same publication
+        // state as a valid new source waiting for streaming admission.
+        auto& layer = FoliageOf().m_Layers.Last();
+        ASSERT_TRUE(layer.UseAuthoredMesh);
+        layer.MeshPath = "assets/models/foliage/no-such-optional-mesh-1582.glb";
+        FoliageOf().m_NeedsRebuild = true;
+        Tick((*poses)[4], 1);
+        ASSERT_NO_FATAL_FAILURE(AwaitRebuild((*poses)[4]));
+        ASSERT_GT(Plants().GetPublishedRebuildSerial(), serial);
+        EXPECT_EQ(Plants().GetTotalInstanceCount(), count);
+        EXPECT_GT(Plants().GetInstanceRegistry().GetCensus().m_UnsupportedVariants, 0u);
+        FoliageOf().m_NeedsRebuild = true;
+        Tick((*poses)[4], 1);
+        ASSERT_NO_FATAL_FAILURE(AwaitRebuild((*poses)[4]));
+        EXPECT_GT(Plants().GetPublishedRebuildSerial(), serial + 1);
+        EXPECT_EQ(Plants().GetTotalInstanceCount(), count);
+    }
+
+    TEST_F(FoliageCostBaselineTest, SceneDestructionDrainsPreparationAndAFreshSceneStillDraws)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        const auto poses = DeriveTraversal();
+        ASSERT_TRUE(poses);
+        const auto census = Plants().GetInstanceRegistry().GetCensus().m_CanonicalInstances;
+        FoliageOf().m_NeedsRebuild = true;
+        Tick((*poses)[4], 8);
+        ASSERT_TRUE(Plants().IsRebuilding());
+        m_Loaded.reset();
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        Tick((*poses)[4], 8);
+        EXPECT_EQ(Plants().GetInstanceRegistry().GetCensus().m_CanonicalInstances, census);
+        EXPECT_GT(Plants().GetTotalInstanceCount(), 0u);
+    }
+
+    TEST_F(FoliageCostBaselineTest, CullingModeCanChangeDuringReplacement)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        const auto poses = DeriveTraversal();
+        ASSERT_TRUE(poses);
+        const auto serial = Plants().GetPublishedRebuildSerial();
+        FoliageOf().m_NeedsRebuild = true;
+        Tick((*poses)[4], 1);
+        // Reach the upload stage, then hold culling disabled through completion.
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        while (Plants().GetRebuildStagingCpuBytes() < 10u * 1024u * 1024u &&
+               Plants().IsRebuilding() && std::chrono::steady_clock::now() < deadline)
+            Tick((*poses)[4], 1);
+        ASSERT_TRUE(Plants().IsRebuilding());
+        Tick((*poses)[4], 8);
+        FoliageRenderer::SetGPUCullingEnabled(false);
+        ASSERT_NO_FATAL_FAILURE(AwaitRebuild((*poses)[4]));
+        EXPECT_GT(Plants().GetPublishedRebuildSerial(), serial);
+        FoliageRenderer::SetGPUCullingEnabled(true);
+        Tick((*poses)[4], 2);
+        EXPECT_GT(Plants().GetTotalInstanceCount(), 0u);
+    }
+
+    TEST_F(FoliageCostBaselineTest, CheckedStagingUploadRefusesInvalidRangesWithoutChangingPublishedBacking)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        auto buffer = VertexBuffer::Create(32u);
+        ASSERT_TRUE(buffer);
+        const std::array<u32, 4> expected{ 17u, 23u, 29u, 31u };
+        const auto handle = buffer->GetRHIHandle();
+        ASSERT_TRUE(RenderCommand::TryUploadBufferSubData(handle, 0u, sizeof(expected), expected.data()));
+        EXPECT_FALSE(RenderCommand::TryUploadBufferSubData(handle, 31u, sizeof(expected), expected.data()));
+        EXPECT_FALSE(RenderCommand::TryUploadBufferSubData(handle, 0u, sizeof(expected), nullptr));
+        std::array<u32, 4> actual{};
+        RenderCommand::ReadBufferSubData(handle, 0u, sizeof(actual), actual.data());
+        EXPECT_EQ(actual, expected);
+    }
+
+    TEST_F(FoliageCostBaselineTest, PrivateAlphaUploadChecksThePixelsAndEveryMipBeforePublication)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        TextureSpecification specification;
+        specification.Width = specification.Height = 128u;
+        specification.Format = ImageFormat::RGBA8;
+        auto texture = Texture2D::Create(specification);
+        ASSERT_TRUE(texture);
+        TArray64<u8> pixels;
+        pixels.Init(255u, 128u * 128u * 4u);
+        for (i64 index = 0; index < pixels.Num() / 4; ++index)
+            pixels[index * 4 + 3] = index % 2 == 0 ? 0u : 255u;
+        ASSERT_TRUE(texture->TryReplaceAlphaCoveragePixels(pixels.GetData(), static_cast<u32>(pixels.Num()), 0.5f));
+        EXPECT_EQ(texture->GetAlphaCoverageCutoff(), 0.5f);
+        TArray64<u8> actual;
+        ASSERT_TRUE(texture->GetData(actual));
+        EXPECT_EQ(actual, pixels);
+        const auto levels = AlphaCoverageMips::CappedLevelCount(128u, 128u, 8u);
+        const auto expected = AlphaCoverageMips::Build(
+            { pixels.GetData(), static_cast<sizet>(pixels.Num()) }, 128u, 128u, levels, specification.SRGB, true);
+        for (i32 index = 0; index < expected.Levels.Num(); ++index)
+        {
+            ASSERT_TRUE(texture->GetData(actual, index + 1));
+            const auto& level = expected.Levels[index];
+            ASSERT_EQ(actual.Num(), level.Width * level.Height * 4u);
+            EXPECT_EQ(std::memcmp(actual.GetData(), expected.Bytes.GetData() + level.Offset, actual.Num()), 0);
+        }
+        // Refused client data cannot report success or mutate the old backing.
+        const auto handle = texture->GetRHIHandle();
+        EXPECT_FALSE(texture->TryReplaceAlphaCoveragePixels(pixels.GetData(), 4u, 0.8f));
+        EXPECT_FALSE(texture->TryReplaceAlphaCoveragePixels(nullptr, static_cast<u32>(pixels.Num()), 0.8f));
+        EXPECT_EQ(texture->GetRHIHandle(), handle);
+        EXPECT_EQ(texture->GetAlphaCoverageCutoff(), 0.5f);
+        ASSERT_TRUE(texture->GetData(actual));
+        EXPECT_EQ(actual, pixels);
+    }
+
+    TEST_F(FoliageCostBaselineTest, RunningScenePublishesAReplacementThroughTheRuntimeTick)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene, true));
+        auto scene = GetSceneRef();
+        struct StopRuntime
+        {
+            Ref<Scene> SceneRef;
+            ~StopRuntime()
+            {
+                SceneRef->SetRunning(false);
+            }
+        } stop{ scene };
+        // RendererAttachedTest has no Application singleton. Its established
+        // runtime seam drives OnUpdateRuntime with the running flag; real
+        // application start/stop is exercised separately in live Editor Play.
+        scene->SetRunning(true);
+        const auto count = Plants().GetTotalInstanceCount();
+        const auto serial = Plants().GetPublishedRebuildSerial();
+        FoliageOf().m_Layers[0].BaseColor = glm::vec3(0.6f, 0.5f, 0.7f);
+        FoliageOf().m_NeedsRebuild = true;
+        RunFrames(1);
+        EXPECT_EQ(Plants().GetTotalInstanceCount(), count);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        while (Plants().IsRebuilding() && std::chrono::steady_clock::now() < deadline)
+            RunFrames(1);
+        ASSERT_FALSE(Plants().IsRebuilding());
+        ASSERT_GT(Plants().GetPublishedRebuildSerial(), serial);
+        EXPECT_EQ(Plants().GetTotalInstanceCount(), count);
     }
 
     TEST_F(FoliageCostBaselineTest, TerrainMaskReloadReplacesItsInitializedCpuMirror)
@@ -1072,6 +1289,124 @@ namespace OloEngine::Tests
         EXPECT_EQ(material.GetSplatmapRevision(), acceptedRevision);
         EXPECT_EQ(material.GetSplatmap(0u)->GetRHIHandle(), handle);
         EXPECT_EQ(std::as_const(material).GetSplatmapData(0u), pixels);
+    }
+
+    TEST_F(FoliageCostBaselineTest, GrayscaleAlbedoCutoffEditsCanPublishWithoutChangingItsPixels)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const auto file = TempDir("grayscale-cutoff") / "albedo.png";
+        TArray<u8> pixels;
+        pixels.Init(180u, 64u * 64u);
+        ASSERT_NE(stbi_write_png(file.string().c_str(), 64, 64, 1, pixels.GetData(), 64), 0);
+        TerrainData terrain;
+        terrain.CreateFlat(16u);
+        TArray<FoliageLayer> layers;
+        layers.Add(FoliageLayer{});
+        layers[0].AlbedoPath = file.generic_string();
+        auto plants = Ref<FoliageRenderer>::Create();
+        plants->GenerateInstances(layers, terrain, nullptr, 8.0f, 8.0f, 1.0f);
+        const auto count = plants->GetTotalInstanceCount();
+        ASSERT_GT(count, 0u);
+        const auto serial = plants->GetPublishedRebuildSerial();
+        const auto oldDraws = plants->GetActiveLayerDrawInfo();
+        ASSERT_FALSE(oldDraws.IsEmpty());
+        layers[0].AlphaCutoff = 0.7f;
+        plants->RequestRebuild(layers, terrain, nullptr, 8.0f, 8.0f, 1.0f);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        while (plants->IsRebuilding() && std::chrono::steady_clock::now() < deadline)
+        {
+            plants->AdvanceRebuild();
+            std::this_thread::yield();
+        }
+        ASSERT_FALSE(plants->IsRebuilding());
+        ASSERT_GT(plants->GetPublishedRebuildSerial(), serial);
+        EXPECT_EQ(plants->GetTotalInstanceCount(), count);
+        const auto draws = plants->GetActiveLayerDrawInfo();
+        ASSERT_FALSE(draws.IsEmpty());
+        EXPECT_EQ(draws[0].AlbedoTextureID, oldDraws[0].AlbedoTextureID);
+        EXPECT_EQ(draws[0].AlphaCutoff, 0.7f);
+        TArray<u8> actual;
+        actual.SetNum(pixels.Num());
+        ASSERT_TRUE(RenderCommand::ReadTextureImage(draws[0].AlbedoTextureID, 0u, RHI::Format::R8UNorm,
+                                                    actual.Num(), actual.GetData()));
+        EXPECT_EQ(std::memcmp(actual.GetData(), pixels.GetData(), pixels.Num()), 0);
+    }
+
+    TEST_F(FoliageCostBaselineTest, HeightEditsSupersedePreparationAndAttachRootsWithoutAFoliageDirtyFlag)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        const auto poses = DeriveTraversal();
+        ASSERT_TRUE(poses);
+        const auto& registry = Plants().GetInstanceRegistry();
+        ASSERT_FALSE(registry.GetRecords().IsEmpty());
+        const auto first = registry.GetRecords()[0];
+        const auto serial = Plants().GetPublishedRebuildSerial();
+        FoliageOf().m_Layers[0].BaseColor = glm::vec3(0.6f, 0.5f, 0.7f);
+        FoliageOf().m_NeedsRebuild = true;
+        Tick((*poses)[4], 8);
+        ASSERT_TRUE(Plants().IsRebuilding());
+        auto& terrain = m_Loaded->Terrain.GetComponent<TerrainComponent>();
+        auto heights = terrain.m_TerrainData->GetHeightData();
+        for (auto& height : heights)
+            height += 0.0001f;
+        terrain.m_TerrainData->SetHeights(terrain.m_TerrainData->GetResolution(), std::move(heights));
+        Tick((*poses)[4], 1);
+        EXPECT_FALSE(Plants().IsRebuilding()) << "old roots may not remain below an already changed surface";
+        ASSERT_GT(Plants().GetPublishedRebuildSerial(), serial);
+        const auto* updated = registry.Find(first.m_Id);
+        ASSERT_TRUE(updated);
+        EXPECT_NEAR(updated->m_Position.y, first.m_Position.y + 0.0001f * terrain.m_HeightScale, 0.0001f);
+        Tick((*poses)[4], 8);
+        EXPECT_FALSE(Plants().IsRebuilding());
+        EXPECT_EQ(Plants().GetPublishedRebuildSerial(), serial + 2);
+    }
+
+    TEST_F(FoliageCostBaselineTest, MaskPaintSupersedesThePendingSnapshotWithoutAFoliageDirtyFlag)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        const auto poses = DeriveTraversal();
+        ASSERT_TRUE(poses);
+        auto& terrain = m_Loaded->Terrain.GetComponent<TerrainComponent>();
+        ASSERT_TRUE(terrain.m_Material);
+        auto& material = *terrain.m_Material;
+        const auto serial = Plants().GetPublishedRebuildSerial();
+        const auto before = Plants().GetInstanceRegistry().GetRecords();
+        const i32 densityChannel = FoliageOf().m_Layers[0].SplatmapChannel;
+        ASSERT_GE(densityChannel, 0);
+        ASSERT_LT(densityChannel, 8);
+        FoliageOf().m_Layers[0].BaseColor = glm::vec3(0.6f, 0.5f, 0.7f);
+        FoliageOf().m_NeedsRebuild = true;
+        Tick((*poses)[4], 8);
+        ASSERT_TRUE(Plants().IsRebuilding());
+        const u32 plane = static_cast<u32>(densityChannel / 4);
+        auto& mask = material.GetSplatmapData(plane);
+        ASSERT_FALSE(mask.IsEmpty());
+        for (i32 index = 0; index < mask.Num(); index += 4)
+            mask[index + densityChannel % 4] = 0u;
+        const auto resolution = material.GetSplatmapResolution();
+        material.UploadSplatmapRegion(plane, 0u, 0u, resolution, resolution);
+        Tick((*poses)[4], 1);
+        ASSERT_NO_FATAL_FAILURE(AwaitRebuild((*poses)[4]));
+        ASSERT_GE(Plants().GetPublishedRebuildSerial(), serial + 2);
+        // Independent synchronous placement oracle, using the final paint data.
+        u32 expected = 0;
+        TArray<FoliagePlacement::Placement> placements;
+        const auto& heights = terrain.m_TerrainData->GetHeightData();
+        for (i32 index = 0; index < FoliageOf().m_Layers.Num(); ++index)
+        {
+            FoliagePlacement::GenerateLayer(FoliageOf().m_Layers[index], static_cast<u32>(index), heights,
+                                            terrain.m_TerrainData->GetResolution(), &material,
+                                            terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale, placements);
+            expected += static_cast<u32>(placements.Num());
+        }
+        EXPECT_LT(expected, before.Num());
+        EXPECT_EQ(Plants().GetTotalInstanceCount(), expected);
+        const auto& registry = Plants().GetInstanceRegistry();
+        for (const auto& record : before)
+            if (record.m_LayerIndex == 0u)
+                ASSERT_FALSE(registry.Find(record.m_Id));
     }
 
     TEST_F(FoliageCostBaselineTest, MeasureBaseline)
@@ -1366,15 +1701,25 @@ namespace OloEngine::Tests
         result["coldRebuild"] = { { "frames", coldRebuildFrames }, { "wallMs", TailJson(coldRebuildWallMs) }, { "rawWallMs", RoundedArray(coldRebuildWallMs) } };
 
         // ── Tails: steady windows, and the same with an in-place rebuild ─────
+        const char* editKindEnvironment = std::getenv("OLO_FOLIAGE_COST_EDIT_KIND");
+        const std::string editKind = editKindEnvironment ? editKindEnvironment : "cached";
+        ASSERT_TRUE(editKind == "cached" || editKind == "cutoff" || editKind == "height");
+        const auto originalLayers = FoliageOf().m_Layers;
         nlohmann::json tails = nlohmann::json::array();
         for (const RenderingPath renderPath : paths)
         {
+            if (!EnvSelects("OLO_FOLIAGE_COST_PATHS", PathName(renderPath)))
+                continue;
             SetPath(renderPath);
             for (const bool vsm : { false, true })
             {
+                if (!EnvSelects("OLO_FOLIAGE_COST_SHADOWS", vsm ? "VSM" : "CSM"))
+                    continue;
                 ASSERT_TRUE(SetVsm(vsm));
                 for (const auto& pose : ends)
                 {
+                    if (!EnvSelects("OLO_FOLIAGE_COST_POSES", pose.Name))
+                        continue;
                     for (const bool rebuild : { false, true })
                     {
                         Tick(pose, warmup);
@@ -1384,21 +1729,50 @@ namespace OloEngine::Tests
                                                       {
                                                           if (rebuild && i > 0u && i % rebuildEvery == 0u)
                                                           {
+                                                              if (editKind == "cutoff")
+                                                                  for (i32 layer = 0; layer < FoliageOf().m_Layers.Num(); ++layer)
+                                                                      FoliageOf().m_Layers[layer].AlphaCutoff = std::clamp(
+                                                                          originalLayers[layer].AlphaCutoff + (i / rebuildEvery % 2u == 0u ? 0.0f : 0.02f), 0.0f, 1.0f);
+                                                              if (editKind == "height")
+                                                              {
+                                                                  auto& data = m_Loaded->Terrain.GetComponent<TerrainComponent>().m_TerrainData;
+                                                                  auto heights = std::as_const(*data).GetHeightData();
+                                                                  for (auto& height : heights)
+                                                                      height += 0.0001f;
+                                                                  data->SetHeights(data->GetResolution(), std::move(heights));
+                                                              }
                                                               FoliageOf().m_NeedsRebuild = true;
                                                               rebuildIndices.push_back(i);
                                                           }
                                                       });
                         std::vector<f64> rebuildWall;
+                        nlohmann::json rebuildStages = nlohmann::json::array();
                         for (const u32 i : rebuildIndices)
                             rebuildWall.push_back(window.WallMs[i]);
+                        std::vector<f64> publicationWall;
+                        for (const u32 i : window.PublicationIndices)
+                        {
+                            publicationWall.push_back(window.WallMs[i]);
+                            const auto& stages = window.RebuildTimings[i];
+                            rebuildStages.push_back({ { "frameIndex", i }, { "totalMs", stages.TotalMs }, { "terrainSnapshotMs", stages.TerrainSnapshotMs }, { "geometryMaterialMs", stages.GeometryMaterialMs }, { "placementMs", stages.PlacementMs }, { "registryMs", stages.RegistryMs }, { "instanceUploadMs", stages.InstanceUploadMs }, { "impostorMs", stages.ImpostorMs }, { "alphaCoverageMs", stages.AlphaCoverageMs }, { "boundsMs", stages.BoundsMs }, { "cullPreparationMs", stages.CullPreparationMs } });
+                        }
                         tails.push_back({ { "pose", pose.Name },
                                           { "path", PathName(renderPath) },
                                           { "shadows", vsm ? "VSM" : "CSM" },
                                           { "rebuildEvery", rebuild ? rebuildEvery : 0u },
+                                          { "editKind", editKind },
                                           { "wallMs", TailJson(window.WallMs) },
                                           { "gpuMs", TailJson(window.GpuMs) },
                                           { "missingGpuSamples", window.MissingGpu },
                                           { "rebuildFrameWallMs", RoundedArray(rebuildWall) },
+                                          { "publicationFrameWallMs", RoundedArray(publicationWall) },
+                                          { "publicationLatencyMs", RoundedArray(window.PublicationLatencyMs) },
+                                          { "peakKnownStagingArrayBytes", window.PeakKnownStagingArrayBytes },
+                                          { "peakProcessWorkingSetBytes", window.PeakProcessWorkingSetBytes },
+                                          { "peakProcessCommitBytes", window.PeakProcessCommitBytes },
+                                          { "startGpuResidentBytes", window.StartGpuResidentBytes },
+                                          { "peakGpuResidentBytes", window.PeakGpuResidentBytes },
+                                          { "rebuildStages", std::move(rebuildStages) },
                                           { "raw", { { "wallMs", RoundedArray(window.WallMs) }, { "gpuMs", RoundedArray(window.GpuMs) } } } });
                         std::printf("[foliage-cost] tail %s %s %s rebuild=%d done\n", pose.Name.c_str(),
                                     PathName(renderPath), vsm ? "VSM" : "CSM", rebuild ? 1 : 0);

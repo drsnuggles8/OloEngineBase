@@ -782,6 +782,11 @@ namespace OloEngine
             s_RendererAPI->UploadBufferSubData(buffer, offsetBytes, sizeBytes, data);
         }
 
+        [[nodiscard]] static bool TryUploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, const void* data)
+        {
+            return s_RendererAPI->TryUploadBufferSubData(buffer, offsetBytes, sizeBytes, data);
+        }
+
         static void ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest)
         {
             s_RendererAPI->ReadBufferSubData(buffer, offsetBytes, sizeBytes, dest);

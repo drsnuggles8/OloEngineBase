@@ -51,7 +51,54 @@ namespace OloEngine
             return h;
         }
 
+        [[nodiscard]] u64 LayerStateHash(const FoliageLayer& layer, const FoliageBoundsProfile& boundsProfile)
+        {
+            u64 h = 0xA5A5F00DC0FFEE11ull;
+            HashCombine(h, HashString(layer.MeshPath.ToView()));
+            HashCombine(h, HashString(layer.AlbedoPath.ToView()));
+            HashCombine(h, FloatBits(layer.BaseColor.r));
+            HashCombine(h, FloatBits(layer.BaseColor.g));
+            HashCombine(h, FloatBits(layer.BaseColor.b));
+            HashCombine(h, FloatBits(layer.Roughness));
+            HashCombine(h, FloatBits(layer.AlphaCutoff));
+            HashCombine(h, FloatBits(layer.WindStrength));
+            HashCombine(h, FloatBits(layer.WindSpeed));
+            HashCombine(h, FloatBits(layer.WindStiffness));
+            HashCombine(h, FloatBits(layer.WindBranchWeight));
+            HashCombine(h, FloatBits(layer.WindLeafWeight));
+            HashCombine(h, layer.WindDebugDisplacement ? 1ull : 0ull);
+            // The bounds profile too, because AddInstance derives m_LocalBounds
+            // from it: without this a placement that survives a regeneration
+            // with a DIFFERENT profile changes its bounds while its state hash
+            // does not, so the reconcile counts no update and GetGeneration()
+            // does not advance — the one thing the generation counter promises.
+            //
+            // The narrow case it covers is a mesh edited in place: MeshPath is
+            // already hashed above, and a mesh that appears or fails to load
+            // flips m_Representation (also hashed), so only "same path, changed
+            // geometry" reaches here. That is exactly the reimport path.
+            HashCombine(h, FloatBits(boundsProfile.m_HalfExtentXZ));
+            HashCombine(h, FloatBits(boundsProfile.m_HalfExtentXZHeightScaled));
+            HashCombine(h, FloatBits(boundsProfile.m_MinY));
+            HashCombine(h, FloatBits(boundsProfile.m_MaxY));
+            HashCombine(h, FloatBits(boundsProfile.m_WindDisplacement));
+            HashCombine(h, FloatBits(boundsProfile.m_InteractionDisplacement));
+            return h;
+        }
+
     } // namespace
+
+    void FoliageInstanceRegistry::SeedRebuildIdentity(const FoliageInstanceRegistry& published, bool includeRecords)
+    {
+        OLO_CORE_ASSERT(!m_Generating, "Cannot seed an active foliage generation");
+        if (includeRecords)
+            m_Records = published.m_Records;
+        m_LayerKeysByName = published.m_LayerKeysByName;
+        m_NextLayerKey = published.m_NextLayerKey;
+        m_NextId = published.m_NextId;
+        m_Generation = published.m_Generation + (includeRecords ? 0u : 1u);
+        m_RecordsEpoch = published.m_RecordsEpoch + (includeRecords ? 0u : 1u);
+    }
 
     void FoliageInstanceRegistry::BeginGeneration(const TArray<FoliageLayer>& layers)
     {
@@ -61,6 +108,7 @@ namespace OloEngine
         m_Generating = true;
         m_InLayer = false;
         m_PendingUnsupportedVariants = 0;
+        m_UnsupportedVariantByLayer.Init(false, layers.Num());
 
         // Ordinals over the WHOLE list, so a skipped layer cannot shift a
         // sibling with the same name onto a different stable key.
@@ -143,41 +191,7 @@ namespace OloEngine
         m_CurrentRepresentation = representation;
         m_CurrentBoundsProfile = boundsProfile;
         m_CurrentMaterialKey = InternMaterial(layer);
-        // The material's CONTENT, not its intern index — the table is rebuilt
-        // every generation, so an index can move while the material did not.
-        {
-            u64 h = 0xA5A5F00DC0FFEE11ull;
-            HashCombine(h, HashString(layer.MeshPath.ToView()));
-            HashCombine(h, HashString(layer.AlbedoPath.ToView()));
-            HashCombine(h, FloatBits(layer.BaseColor.r));
-            HashCombine(h, FloatBits(layer.BaseColor.g));
-            HashCombine(h, FloatBits(layer.BaseColor.b));
-            HashCombine(h, FloatBits(layer.Roughness));
-            HashCombine(h, FloatBits(layer.AlphaCutoff));
-            HashCombine(h, FloatBits(layer.WindStrength));
-            HashCombine(h, FloatBits(layer.WindSpeed));
-            HashCombine(h, FloatBits(layer.WindStiffness));
-            HashCombine(h, FloatBits(layer.WindBranchWeight));
-            HashCombine(h, FloatBits(layer.WindLeafWeight));
-            HashCombine(h, layer.WindDebugDisplacement ? 1ull : 0ull);
-            // The bounds profile too, because AddInstance derives m_LocalBounds
-            // from it: without this a placement that survives a regeneration
-            // with a DIFFERENT profile changes its bounds while its state hash
-            // does not, so the reconcile counts no update and GetGeneration()
-            // does not advance — the one thing the generation counter promises.
-            //
-            // The narrow case it covers is a mesh edited in place: MeshPath is
-            // already hashed above, and a mesh that appears or fails to load
-            // flips m_Representation (also hashed), so only "same path, changed
-            // geometry" reaches here. That is exactly the reimport path.
-            HashCombine(h, FloatBits(boundsProfile.m_HalfExtentXZ));
-            HashCombine(h, FloatBits(boundsProfile.m_HalfExtentXZHeightScaled));
-            HashCombine(h, FloatBits(boundsProfile.m_MinY));
-            HashCombine(h, FloatBits(boundsProfile.m_MaxY));
-            HashCombine(h, FloatBits(boundsProfile.m_WindDisplacement));
-            HashCombine(h, FloatBits(boundsProfile.m_InteractionDisplacement));
-            m_CurrentMaterialHash = h;
-        }
+        m_CurrentMaterialHash = LayerStateHash(layer, boundsProfile);
 
         const u32 ordinal = layerIndex < m_OrdinalByLayerIndex.Num() ? m_OrdinalByLayerIndex[layerIndex] : 0;
 
@@ -210,6 +224,7 @@ namespace OloEngine
             .m_CellZ = 0,
         };
 
+        m_UnsupportedVariantByLayer[layerIndex] = variantUnavailable;
         if (variantUnavailable)
         {
             ++m_PendingUnsupportedVariants;
@@ -347,6 +362,105 @@ namespace OloEngine
         m_Generating = false;
     }
 
+    void FoliageInstanceRegistry::BeginMetadataUpdate()
+    {
+        OLO_CORE_ASSERT(!m_Generating, "Metadata update cannot overlap generation");
+        m_LastDelta.m_Added.Empty();
+        m_LastDelta.m_Retired.Empty();
+        m_LastDelta.m_Updated = 0;
+        m_LastDelta.m_Survived = static_cast<u32>(m_Records.Num());
+    }
+
+    bool FoliageInstanceRegistry::UpdateLayerMetadata(u32 layerIndex, const FoliageLayer& layer,
+                                                      FoliageRepresentation representation, bool variantUnavailable,
+                                                      const FoliageBoundsProfile& profile)
+    {
+        OLO_CORE_ASSERT(!m_Generating, "Metadata update cannot overlap generation");
+        const auto material = InternMaterial(layer);
+        const u64 materialHash = LayerStateHash(layer, profile);
+        const bool sameVariant = layerIndex < static_cast<u32>(m_UnsupportedVariantByLayer.Num()) &&
+                                 m_UnsupportedVariantByLayer[layerIndex] == variantUnavailable;
+        // Every record of a layer has the same representation/profile/material
+        // inputs. Test one row before scanning a large, unaffected sibling.
+        const auto* firstRecord = Find(GetIdForBufferRow(layerIndex, 0));
+        if (sameVariant)
+        {
+            if (!firstRecord)
+                return false;
+            auto desired = *firstRecord;
+            desired.m_Representation = representation;
+            if (StateHash(desired, materialHash) == firstRecord->m_StateHash)
+                return false;
+        }
+        const auto countFor = [this](FoliageRepresentation value) -> u32&
+        {
+            switch (value)
+            {
+                case FoliageRepresentation::MeshCard:
+                    return m_Census.m_MeshCardInstances;
+                case FoliageRepresentation::Impostor:
+                    return m_Census.m_ImpostorInstances;
+                case FoliageRepresentation::AuthoredMesh:
+                    return m_Census.m_AuthoredMeshInstances;
+                default:
+                    return m_Census.m_UnsupportedInstances;
+            }
+        };
+        bool changed = false;
+        for (auto& record : m_Records)
+        {
+            if (record.m_LayerIndex != layerIndex)
+                continue;
+            const u64 previousHash = record.m_StateHash;
+            --countFor(record.m_Representation);
+            record.m_Representation = representation;
+            ++countFor(representation);
+            record.m_MaterialKey = material;
+            record.m_LocalBounds = FoliageInstanceBounds(record.m_Position, record.m_Scale, record.m_Height, profile);
+            record.m_StateHash = StateHash(record, materialHash);
+            if (record.m_StateHash != previousHash)
+            {
+                ++m_LastDelta.m_Updated;
+                changed = true;
+            }
+        }
+        for (auto& group : m_Groups)
+        {
+            if (group.m_LayerIndex != layerIndex)
+                continue;
+            group.m_RepresentedCount = 0;
+            group.m_UnsupportedCount = 0;
+            bool first = true;
+            for (const u32 index : group.m_RecordIndices)
+            {
+                const auto& record = m_Records[index];
+                group.m_LocalBounds = first ? record.m_LocalBounds : group.m_LocalBounds.Union(record.m_LocalBounds);
+                first = false;
+                if (record.m_Representation == FoliageRepresentation::Unsupported)
+                    ++group.m_UnsupportedCount;
+                else
+                    ++group.m_RepresentedCount;
+            }
+            group.m_WorldBounds = group.m_LocalBounds.Transform(m_TerrainTransform);
+        }
+        if (layerIndex < static_cast<u32>(m_UnsupportedVariantByLayer.Num()) &&
+            m_UnsupportedVariantByLayer[layerIndex] != variantUnavailable)
+        {
+            if (variantUnavailable)
+                ++m_Census.m_UnsupportedVariants;
+            else
+                --m_Census.m_UnsupportedVariants;
+            m_UnsupportedVariantByLayer[layerIndex] = variantUnavailable;
+            changed = true;
+        }
+        if (changed)
+        {
+            ++m_Generation;
+            ++m_RecordsEpoch;
+        }
+        return changed;
+    }
+
     void FoliageInstanceRegistry::RebuildGroups()
     {
         OLO_PROFILE_FUNCTION();
@@ -444,6 +558,7 @@ namespace OloEngine
         m_Census = FoliageCensus{};
         m_Materials.Reset();
         m_OrdinalByLayerIndex.Reset();
+        m_UnsupportedVariantByLayer.Reset();
 
         // m_NextId and m_NextLayerKey deliberately NOT reset: an id this
         // registry once issued must never name a different plant, even after a

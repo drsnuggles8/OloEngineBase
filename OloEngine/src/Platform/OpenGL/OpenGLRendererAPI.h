@@ -216,6 +216,7 @@ namespace OloEngine
         void* AllocatePersistentUploadStorage(RHI::ResourceHandle buffer, u64 sizeBytes) override;
         void UnmapBuffer(RHI::ResourceHandle buffer) override;
         void UploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, const void* data) override;
+        [[nodiscard]] bool TryUploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, const void* data) override;
         void ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest) override;
         void CopyBufferSubData(RHI::ResourceHandle srcBuffer, RHI::ResourceHandle dstBuffer,
                                u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes) override;

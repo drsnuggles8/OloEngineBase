@@ -1471,6 +1471,7 @@
 		"OloEngine/Terrain/Foliage/FoliageAlphaCoverage.cpp"
 		"OloEngine/Terrain/Foliage/FoliageRenderer.h"
 		"OloEngine/Terrain/Foliage/FoliageRenderer.cpp"
+		"OloEngine/Terrain/Foliage/FoliageGeneration.cpp"
 		"OloEngine/Terrain/Foliage/FoliageStreamingPayload.h"
 		"OloEngine/Terrain/Foliage/FoliageStreamingPayload.cpp"
 

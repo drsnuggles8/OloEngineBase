@@ -359,6 +359,15 @@ namespace OloEngine
     class FoliageInstanceRegistry
     {
       public:
+        // Worker seed from an immutable published record set. World bounds and
+        // the terrain transform are deliberately excluded: only the owner may
+        // update those while preparation is running.
+        void SeedRebuildIdentity(const FoliageInstanceRegistry& published, bool includeRecords = true);
+        // Residency changes geometry/representation, never placement or rows.
+        // Refresh only affected metadata without rebuilding identity indexes.
+        void BeginMetadataUpdate();
+        bool UpdateLayerMetadata(u32 layerIndex, const FoliageLayer& layer, FoliageRepresentation representation,
+                                 bool variantUnavailable, const FoliageBoundsProfile& profile);
         // Group edge length in terrain-local units. 16 m buckets a 100 m
         // island into ~40 groups per layer — coarse enough that the per-group
         // bookkeeping is negligible, fine enough to be a useful visibility
@@ -574,5 +583,6 @@ namespace OloEngine
         FoliageRepresentation m_CurrentRepresentation = FoliageRepresentation::MeshCard;
         FoliageBoundsProfile m_CurrentBoundsProfile{};
         u32 m_PendingUnsupportedVariants = 0;
+        TArray<bool> m_UnsupportedVariantByLayer;
     };
 } // namespace OloEngine

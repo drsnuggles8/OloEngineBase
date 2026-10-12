@@ -65,6 +65,8 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Task/NamedThreads.h"
+#include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -76,6 +78,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <chrono>
 #include <array>
 #include <cmath>
 #include <cstring>
@@ -443,6 +446,9 @@ namespace OloEngine::Tests
             m_PreviousProject = Project::GetActive();
             m_PreviousAssetManager = Project::HasAssetManager() ? Project::GetAssetManager() : nullptr;
             RendererAttachedTest::SetUp();
+            LowLevelTasks::InitGameThreadId();
+            Tasks::FNamedThreadManager::Get().AttachToThread(Tasks::ENamedThread::GameThread);
+            LowLevelTasks::FScheduler::Get().StartWorkers();
             // AFTER the base SetUp: the first GPU fixture in a process moves
             // into OloEditor/ there, and restoring the directory from before
             // it would leave every later GPU suite unable to open its shaders.
@@ -778,6 +784,46 @@ namespace OloEngine::Tests
             CompareCensus(looseCensus, TakeCensus(relaunch->Foliage.GetComponent<FoliageComponent>()));
         EXPECT_TRUE(secondLaunch.empty()) << "the cooked game (second launch, .scenebin) differs from loose:"
                                           << Join(secondLaunch);
+    }
+
+    TEST_F(FloraLooseCookedParityEvidenceTest, WarmCutoffEditsPublishWithStableIdsInLooseAndCookedContent)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedRenderPath restorePath;
+        ScopedRenderPath::Set(RenderingPath::Deferred);
+        const ScopedMockTime mockTime(kCaptureTime);
+        ASSERT_NO_FATAL_FAILURE(StageCookedGame());
+        for (const Source source : { Source::Loose, Source::Cooked })
+        {
+            SCOPED_TRACE(source == Source::Loose ? "loose" : "cooked");
+            Arm* arm = LoadArm(source, source == Source::Loose ? FreshLooseSceneCopy("warm-cutoff") : CookedScenePath());
+            ASSERT_TRUE(arm);
+            auto& foliage = arm->Foliage.GetComponent<FoliageComponent>();
+            auto& renderer = *foliage.m_Renderer;
+            const auto& registry = renderer.GetInstanceRegistry();
+            const auto records = registry.GetRecords();
+            const auto serial = renderer.GetPublishedRebuildSerial();
+            ASSERT_FALSE(records.IsEmpty());
+            const auto camera = MakeCamera(CameraPose{ "warm-cutoff", glm::vec3(128.0f, 60.0f, 300.0f), 0.0f, 0.3f });
+            foliage.m_Layers[0].AlphaCutoff *= 0.9f;
+            foliage.m_NeedsRebuild = true;
+            RunEditorFramesOn(*arm->SceneRef, camera, 1);
+            ASSERT_TRUE(renderer.IsRebuilding());
+            EXPECT_EQ(registry.GetRecords()[0].m_StateHash, records[0].m_StateHash);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            while (renderer.IsRebuilding() && std::chrono::steady_clock::now() < deadline)
+                RunEditorFramesOn(*arm->SceneRef, camera, 1);
+            ASSERT_FALSE(renderer.IsRebuilding());
+            ASSERT_GT(renderer.GetPublishedRebuildSerial(), serial);
+            ASSERT_EQ(registry.GetRecords().Num(), records.Num());
+            for (i32 index = 0; index < records.Num(); ++index)
+                EXPECT_EQ(registry.GetRecords()[index].m_Id, records[index].m_Id);
+            const auto* material = registry.GetMaterial(registry.GetRecords()[0].m_MaterialKey);
+            ASSERT_TRUE(material);
+            EXPECT_FLOAT_EQ(material->m_AlphaCutoff, foliage.m_Layers[0].AlphaCutoff);
+            const auto census = TakeCensus(foliage);
+            EXPECT_TRUE(AuthoredButNotDelivered(census).empty()) << Join(AuthoredButNotDelivered(census));
+        }
     }
 
     // ── Item 5: pixels, near and far, on every GL rendering path ────────────

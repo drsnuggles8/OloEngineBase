@@ -122,6 +122,22 @@ namespace OloEngine
             return false;
         };
 
+        const auto prepared = PrepareLayer(registry, layerIndex, instanceCount, profile);
+        if (!BeginLayerUpload(out, prepared))
+            return refuse();
+        out.LayerBuffer->SetData(prepared.Words.GetData(), static_cast<u32>(prepared.Words.Num() * sizeof(u32)), 0);
+        return true;
+    }
+
+    FoliageGPUCuller::PreparedLayer FoliageGPUCuller::PrepareLayer(const FoliageInstanceRegistry& registry,
+                                                                   u32 layerIndex, u32 instanceCount,
+                                                                   const FoliageBoundsProfile& profile)
+    {
+        PreparedLayer out;
+        out.InstanceCount = instanceCount;
+        out.Generation = registry.GetGeneration();
+        if (instanceCount == 0)
+            return out;
         // Layer-local group indices. The registry's groups are a flat list over
         // every layer, and the shader indexes the tail densely, so the two need
         // a translation rather than a filter.
@@ -140,7 +156,7 @@ namespace OloEngine
         const auto groupCount = static_cast<u32>(localToGlobal.Num());
         if (groupCount == 0)
         {
-            return refuse();
+            return out;
         }
 
         TArray<u32> rowGroup(instanceCount, kUnmappedRow);
@@ -165,7 +181,7 @@ namespace OloEngine
                            "culling disabled for this layer (it would drop those plants silently). Logged once "
                            "per regeneration.",
                            layerIndex, unmapped, instanceCount);
-            return refuse();
+            return out;
         }
 
         // Tail: 8 uints of group AABB per group (min.xyz + pad, max.xyz + pad),
@@ -174,7 +190,8 @@ namespace OloEngine
         const u32 tailWords = boundsWords + instanceCount;
         const u32 sizeBytes = static_cast<u32>(sizeof(FoliageCullLayerHeader)) + tailWords * 4u;
 
-        TArray<u32> scratch(sizeBytes / 4u, 0u);
+        auto& scratch = out.Words;
+        scratch.Init(0u, sizeBytes / 4u);
 
         FoliageCullLayerHeader header{};
         header.GroupCount = groupCount;
@@ -210,34 +227,27 @@ namespace OloEngine
         }
         std::memcpy(scratch.GetData() + tailBase + boundsWords, rowGroup.GetData(), instanceCount * sizeof(u32));
 
-        // A same-sized generation still needs a new Vulkan allocation: a
-        // previous frame may be culling through the persistent input address.
-        if (!out.LayerBuffer || out.LayerBuffer->GetSize() != sizeBytes ||
-            RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
-        {
-            try
-            {
-                auto replacement = StorageBuffer::Create(sizeBytes, kLayerBinding, StorageBufferUsage::DynamicDraw);
-                out.LayerBuffer = std::move(replacement);
-            }
-            catch (const std::exception& e)
-            {
-                OLO_CORE_ERROR("FoliageGPUCuller: layer {} allocation failed: {}", layerIndex, e.what());
-                return refuse();
-            }
-        }
-        if (!out.LayerBuffer)
-        {
-            OLO_CORE_ERROR("FoliageGPUCuller: could not allocate the {} byte layer buffer for layer {}", sizeBytes,
-                           layerIndex);
-            return refuse();
-        }
-
-        out.LayerBuffer->SetData(scratch.GetData(), sizeBytes, 0);
         out.LocalBounds = BoundingBox(unionMin, unionMax);
         out.GroupCount = groupCount;
-        out.InstanceCount = instanceCount;
-        out.BuiltGeneration = generation;
+        return out;
+    }
+
+    bool FoliageGPUCuller::BeginLayerUpload(LayerResources& out, const PreparedLayer& prepared)
+    {
+        out = {};
+        out.InstanceCount = prepared.InstanceCount;
+        out.BuiltGeneration = prepared.Generation;
+        out.RefusedForBuiltGeneration = prepared.Words.IsEmpty();
+        if (prepared.Words.IsEmpty())
+            return false;
+        const u64 bytes = static_cast<u64>(prepared.Words.Num()) * sizeof(u32);
+        if (bytes > std::numeric_limits<u32>::max())
+            return false;
+        out.LayerBuffer = StorageBuffer::Create(static_cast<u32>(bytes), kLayerBinding, StorageBufferUsage::DynamicDraw);
+        if (!out.LayerBuffer || !out.LayerBuffer->GetRHIHandle().IsValid())
+            return false;
+        out.GroupCount = prepared.GroupCount;
+        out.LocalBounds = prepared.LocalBounds;
         return true;
     }
 

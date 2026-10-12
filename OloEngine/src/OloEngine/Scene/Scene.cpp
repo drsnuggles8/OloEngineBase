@@ -12732,7 +12732,7 @@ namespace OloEngine
 
                     if (foliage.m_NeedsRebuild && terrain.m_TerrainData)
                     {
-                        foliage.m_Renderer->GenerateInstances(
+                        foliage.m_Renderer->RequestRebuild(
                             foliage.m_Layers,
                             *terrain.m_TerrainData,
                             terrain.m_Material.get(),
@@ -12740,16 +12740,15 @@ namespace OloEngine
                         foliage.m_NeedsRebuild = false;
                     }
 
+                    foliage.m_Renderer->AdvanceRebuild();
+
                     if (foliage.m_Renderer->UpdateStreamingResidency(foliage.m_Layers, cameraPosition))
                     {
                         Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
                                                                 TemporalHistoryEffect::TAA);
                         // Reconcile representation census/bounds without clearing
                         // the registry that owns canonical plant IDs.
-                        if (terrain.m_TerrainData)
-                            foliage.m_Renderer->GenerateInstances(foliage.m_Layers, *terrain.m_TerrainData,
-                                                                  terrain.m_Material.get(), terrain.m_WorldSizeX,
-                                                                  terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                        foliage.m_Renderer->RefreshStreamingRepresentations(foliage.m_Layers);
                     }
 
                     // Publish this system's representation census (issue #1230).

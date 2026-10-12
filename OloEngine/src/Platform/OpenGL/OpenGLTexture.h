@@ -48,6 +48,7 @@ namespace OloEngine
         void SubImage(u32 x, u32 y, u32 width, u32 height, const void* data, u32 dataSize) override;
         void RegenerateMips() override;
         void SetAlphaCoverageCutoff(f32 cutoff) override;
+        [[nodiscard]] bool TryReplaceAlphaCoveragePixels(const void* data, u32 size, f32 cutoff) override;
         [[nodiscard("Store this!")]] f32 GetAlphaCoverageCutoff() const override
         {
             return m_AlphaCoverageCutoff;
