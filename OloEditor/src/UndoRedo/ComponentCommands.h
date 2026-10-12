@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <memory>
+#include <type_traits>
 #include <utility>
 
 namespace OloEngine
@@ -140,7 +141,7 @@ namespace OloEngine
             auto entityOpt = m_Scene->TryGetEntityWithUUID(m_EntityUUID);
             if (entityOpt && entityOpt->HasComponent<T>())
             {
-                entityOpt->GetComponent<T>() = m_NewData;
+                ApplySnapshot(entityOpt->GetComponent<T>(), m_NewData);
             }
         }
 
@@ -149,7 +150,7 @@ namespace OloEngine
             auto entityOpt = m_Scene->TryGetEntityWithUUID(m_EntityUUID);
             if (entityOpt && entityOpt->HasComponent<T>())
             {
-                entityOpt->GetComponent<T>() = m_OldData;
+                ApplySnapshot(entityOpt->GetComponent<T>(), m_OldData);
             }
         }
 
@@ -159,6 +160,20 @@ namespace OloEngine
         }
 
       private:
+        static void ApplySnapshot(T& component, const T& snapshot)
+        {
+            if constexpr (std::is_same_v<T, FoliageComponent>)
+            {
+                // A scene copy needs a fresh renderer, but replaying authoring
+                // on this entity must retain its published canopy and ID source.
+                component.m_Layers = snapshot.m_Layers;
+                component.m_Enabled = snapshot.m_Enabled;
+                component.m_NeedsRebuild = true;
+            }
+            else
+                component = snapshot;
+        }
+
         Ref<Scene> m_Scene;
         UUID m_EntityUUID;
         T m_OldData;
