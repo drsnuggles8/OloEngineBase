@@ -76,15 +76,16 @@ GPU_USERS = ['OloEditor', 'OloRuntime', 'OloEngine-Tests', 'OloServer', 'WowB', 
 SAMPLE_SECONDS = 30.0
 
 
-def sample_gpu_users(own_exe: Path) -> dict:
+def sample_gpu_users(own_pid: int | None = None) -> dict:
     script = ("Get-Process -Name " + ",".join(GPU_USERS) + " -ErrorAction SilentlyContinue | "
               "ForEach-Object { '{0}|{1}|{2}' -f $_.Id,$_.CPU,$_.Path }")
     out = subprocess.run(['pwsh', '-NoProfile', '-Command', script], capture_output=True, text=True).stdout
-    own = str(own_exe).lower()
     foreign = []
     for line in out.splitlines():
         parts = line.split('|', 2)
-        if len(parts) == 3 and parts[2].lower() != own:
+        # Another process from this checkout still shares the GPU. Excluding
+        # the executable path hid it along with the measured child.
+        if len(parts) == 3 and int(parts[0]) != own_pid:
             foreign.append({'pid': int(parts[0]), 'cpuSeconds': float(parts[1] or 0.0), 'path': parts[2]})
     try:
         gpu = subprocess.check_output(['nvidia-smi', '--query-gpu=clocks.gr,power.draw,utilization.gpu',
@@ -117,32 +118,35 @@ def run_once(exe: Path, repo: Path, out: Path, environment: dict, timeout_second
     out.mkdir(parents=True, exist_ok=False)
     before = probe_host()
     env = {**os.environ, **environment, 'OLO_FOLIAGE_COST': '1', 'OLO_FOLIAGE_COST_OUT': str(out.resolve())}
-    samples = [sample_gpu_users(exe)]
+    samples = [sample_gpu_users()]
     stop = threading.Event()
 
-    def sampler():
+    def sampler(own_pid):
         while not stop.wait(SAMPLE_SECONDS):
-            samples.append(sample_gpu_users(exe))
+            samples.append(sample_gpu_users(own_pid))
 
-    thread = threading.Thread(target=sampler, daemon=True)
-    thread.start()
+    thread = None
     started = time.perf_counter()
     exit_code = None
     timed_out = False
     try:
         with (out / 'stdout.log').open('w', encoding='utf-8') as stdout:
-            # A stalled measurement must not hold the runner forever; run kills
-            # the child when the timeout expires.
-            exit_code = subprocess.run([str(exe), '--gtest_filter=FoliageCostBaselineTest.MeasureBaseline'],
-                                       cwd=repo, env=env, stdout=stdout, stderr=subprocess.STDOUT,
-                                       timeout=timeout_seconds).returncode
-    except subprocess.TimeoutExpired:
-        timed_out = True
+            with subprocess.Popen([str(exe), '--gtest_filter=FoliageCostBaselineTest.MeasureBaseline'],
+                                  cwd=repo, env=env, stdout=stdout, stderr=subprocess.STDOUT) as process:
+                thread = threading.Thread(target=sampler, args=(process.pid,), daemon=True)
+                thread.start()
+                try:
+                    exit_code = process.wait(timeout=timeout_seconds)
+                except subprocess.TimeoutExpired:
+                    timed_out = True
+                    process.kill()
+                    process.wait()
     finally:
         stop.set()
-        thread.join()
+        if thread is not None:
+            thread.join()
     elapsed = time.perf_counter() - started
-    samples.append(sample_gpu_users(exe))
+    samples.append(sample_gpu_users())
     after = probe_host()
     host = {'before': before, 'after': after, 'exitCode': exit_code, 'timedOut': timed_out,
             'elapsedSeconds': round(elapsed, 1),
