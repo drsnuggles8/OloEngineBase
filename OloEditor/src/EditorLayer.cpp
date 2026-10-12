@@ -5094,6 +5094,12 @@ namespace OloEngine
         AttachGameplayEventLogger(*m_ActiveScene);
 
         BindPanelsToScene(m_ActiveScene, nullptr);
+        // The settings panels record renderer-settings edits as edits of the edit
+        // scene. Play-time edits die at Stop, which restores the settings captured
+        // above, so they must not land in its history. (Simulate restores nothing,
+        // so its edits stay recorded.)
+        m_PostProcessSettingsPanel.SetCommandHistory(nullptr);
+        m_RendererSettingsPanel.SetCommandHistory(nullptr);
         m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
 
         // Register the Play scene with networking so an editor session participates
@@ -5128,11 +5134,6 @@ namespace OloEngine
         m_TilemapPainterPanel.SetContext(scene);
         m_TilemapPainterPanel.SetCommandHistory(history);
         m_AudioEventsPanel.SetActiveScene(scene);
-        // Not scene-observing, but they record renderer-settings edits as edits
-        // of the edit scene. In Play those edits die at Stop (which restores the
-        // settings captured at Play), so they must not land in its history.
-        m_PostProcessSettingsPanel.SetCommandHistory(history);
-        m_RendererSettingsPanel.SetCommandHistory(history);
     }
 
     bool EditorLayer::SwitchPlayScene(const std::string& request, const std::string& saveSlot)
@@ -5245,6 +5246,8 @@ namespace OloEngine
         }
 
         BindPanelsToScene(m_ActiveScene, &m_CommandHistory);
+        m_PostProcessSettingsPanel.SetCommandHistory(&m_CommandHistory);
+        m_RendererSettingsPanel.SetCommandHistory(&m_CommandHistory);
         m_SaveGamePanel.SetContext(nullptr, nullptr);
     }
 
