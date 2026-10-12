@@ -1,0 +1,301 @@
+{
+  "cell": "Before_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3",
+  "backend": "vulkan",
+  "effectiveUpscale": {
+    "setting": "upscale",
+    "value": "off",
+    "changed": false
+  },
+  "copies": [
+    {
+      "pass": "DeferredGPUOcclusionPass",
+      "sourceAttachment": "0",
+      "destinationAttachment": "0",
+      "count": 1,
+      "bytes": 8294400
+    },
+    {
+      "pass": "DeferredGPUOcclusionPass",
+      "sourceAttachment": "1",
+      "destinationAttachment": "1",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "pass": "DeferredGPUOcclusionPass",
+      "sourceAttachment": "2",
+      "destinationAttachment": "2",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "pass": "DeferredGPUOcclusionPass",
+      "sourceAttachment": "3",
+      "destinationAttachment": "3",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "pass": "DeferredGPUOcclusionPass",
+      "sourceAttachment": "4",
+      "destinationAttachment": "4",
+      "count": 1,
+      "bytes": 8294400
+    },
+    {
+      "pass": "DeferredGPUOcclusionPass",
+      "sourceAttachment": "5",
+      "destinationAttachment": "5",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "pass": "DeferredGPUOcclusionPass",
+      "sourceAttachment": "depth",
+      "destinationAttachment": "depth",
+      "count": 1,
+      "bytes": 8294400
+    },
+    {
+      "pass": "DeferredOpaqueDecalPass",
+      "sourceAttachment": "0",
+      "destinationAttachment": "0",
+      "count": 1,
+      "bytes": 8294400
+    },
+    {
+      "pass": "DeferredOpaqueDecalPass",
+      "sourceAttachment": "1",
+      "destinationAttachment": "1",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "pass": "DeferredOpaqueDecalPass",
+      "sourceAttachment": "2",
+      "destinationAttachment": "2",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "pass": "DeferredOpaqueDecalPass",
+      "sourceAttachment": "3",
+      "destinationAttachment": "3",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "pass": "DeferredOpaqueDecalPass",
+      "sourceAttachment": "4",
+      "destinationAttachment": "4",
+      "count": 1,
+      "bytes": 8294400
+    },
+    {
+      "pass": "DeferredOpaqueDecalPass",
+      "sourceAttachment": "5",
+      "destinationAttachment": "5",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "pass": "DeferredOpaqueDecalPass",
+      "sourceAttachment": "depth",
+      "destinationAttachment": "depth",
+      "count": 1,
+      "bytes": 8294400
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "0",
+      "destinationAttachment": "0",
+      "count": 1,
+      "bytes": 8294400
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "1",
+      "destinationAttachment": "1",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "2",
+      "destinationAttachment": "2",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "3",
+      "destinationAttachment": "3",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "4",
+      "destinationAttachment": "4",
+      "count": 1,
+      "bytes": 8294400
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "5",
+      "destinationAttachment": "5",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "depth",
+      "destinationAttachment": "depth",
+      "count": 1,
+      "bytes": 8294400
+    }
+  ],
+  "resolveBytes": 273715200,
+  "ledger": [
+    "[CopyLedger] graph frame 121: 27 copies and blits, 333849600 bytes of known size",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredGPUOcclusionPass: blit GBufferMS[0] -> GBufferResolved[0] x1 (8294400 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredGPUOcclusionPass: blit GBufferMS[1] -> GBufferResolved[1] x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredGPUOcclusionPass: blit GBufferMS[2] -> GBufferResolved[2] x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredGPUOcclusionPass: blit GBufferMS[3] -> GBufferResolved[3] x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredGPUOcclusionPass: blit GBufferMS[4] -> GBufferResolved[4] x1 (8294400 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredGPUOcclusionPass: blit GBufferMS[5] -> GBufferResolved[5] x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredGPUOcclusionPass: blit GBufferMS[depth] -> GBufferResolved[depth] x1 (8294400 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredLightingPass: blit GBufferResolved[4] -> SceneColor[1] x1 (8294400 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredLightingPass: blit GBufferResolved[depth] -> SceneColor[depth] x1 (8294400 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredOpaqueDecalPass: blit GBufferMS[0] -> GBufferResolved[0] x1 (8294400 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredOpaqueDecalPass: blit GBufferMS[1] -> GBufferResolved[1] x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredOpaqueDecalPass: blit GBufferMS[2] -> GBufferResolved[2] x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredOpaqueDecalPass: blit GBufferMS[3] -> GBufferResolved[3] x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredOpaqueDecalPass: blit GBufferMS[4] -> GBufferResolved[4] x1 (8294400 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredOpaqueDecalPass: blit GBufferMS[5] -> GBufferResolved[5] x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DeferredOpaqueDecalPass: blit GBufferMS[depth] -> GBufferResolved[depth] x1 (8294400 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DiffusionDepthSnapshotPass: copy SceneDepthAttachment -> DiffusionDepthSnapshot x1 (8294400 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   DiffusionHandoffSnapshotPass: copy SceneSkinDiffuse -> DiffusionHandoffSnapshot x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   GTAOPass: copy GTAODenoisePong -> AOBuffer x1 (2073600 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[0] -> GBufferResolved[0] x1 (8294400 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[1] -> GBufferResolved[1] x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[2] -> GBufferResolved[2] x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[3] -> GBufferResolved[3] x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[4] -> GBufferResolved[4] x1 (8294400 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[5] -> GBufferResolved[5] x1 (16588800 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[depth] -> GBufferResolved[depth] x1 (8294400 bytes)",
+    "[23:52:35] [info] OloEngine: [CopyLedger]   SceneVelocitySeedPass: copy Velocity -> SceneVelocity x1 (16588800 bytes)"
+  ],
+  "captures": {
+    "Front": {
+      "bytesWritten": 561478,
+      "camera": "editor camera",
+      "frameIndex": 177,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 177,
+        "iconified": false,
+        "msSinceLastFrame": 90.03,
+        "ticking": true,
+        "visible": true
+      },
+      "relativePath": "assets/tests/visual/Before_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Front.png",
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    },
+    "Oblique": {
+      "bytesWritten": 688938,
+      "camera": "editor camera",
+      "frameIndex": 189,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 189,
+        "iconified": false,
+        "msSinceLastFrame": 95.79,
+        "ticking": true,
+        "visible": true
+      },
+      "relativePath": "assets/tests/visual/Before_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Oblique.png",
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  "albedo": {
+    "afterPass": "DeferredLightingPass",
+    "forcedFreshFrame": false,
+    "format": "RGBA8UNorm",
+    "frameIndex": 194,
+    "frameIndexNote": "frameIndex is the collect-time frame; the snapshot was cloned mid-frame during the immediately preceding rendered frame.",
+    "height": 1080,
+    "isDepth": false,
+    "layer": 0,
+    "liveness": {
+      "captureUnready": false,
+      "focused": true,
+      "frameIndex": 194,
+      "iconified": false,
+      "msSinceLastFrame": 135.09,
+      "ticking": true,
+      "visible": true
+    },
+    "maxValue": 1.0,
+    "minValue": 0.0,
+    "name": "GBufferAlbedo",
+    "normalized": false,
+    "note": "This is whatever was last rendered into the target. If the scene/settings changed moments ago (e.g. after olo_scene_open), pass forceFrame:true to render and settle a fresh frame first, or compare 'frameIndex' between calls.",
+    "region": {
+      "h": 1080,
+      "nativeResolution": true,
+      "w": 1920,
+      "x": 0,
+      "y": 0
+    },
+    "snapshotSourceIdentity": "#2715:1",
+    "snapshotSourceNativeHandle": "0x26681B7A2D0",
+    "sourceHeight": 1080,
+    "sourceWidth": 1920,
+    "stale": false,
+    "timestampMs": 1791841956074,
+    "width": 1920
+  },
+  "normal": {
+    "afterPass": "DeferredLightingPass",
+    "forcedFreshFrame": false,
+    "format": "RGBA16Float",
+    "frameIndex": 198,
+    "frameIndexNote": "frameIndex is the collect-time frame; the snapshot was cloned mid-frame during the immediately preceding rendered frame.",
+    "height": 1080,
+    "isDepth": false,
+    "layer": 0,
+    "liveness": {
+      "captureUnready": false,
+      "focused": true,
+      "frameIndex": 198,
+      "iconified": false,
+      "msSinceLastFrame": 144.01,
+      "ticking": true,
+      "visible": true
+    },
+    "maxValue": 1.0,
+    "minValue": -1.0,
+    "name": "GBufferNormal",
+    "normalized": false,
+    "note": "This is whatever was last rendered into the target. If the scene/settings changed moments ago (e.g. after olo_scene_open), pass forceFrame:true to render and settle a fresh frame first, or compare 'frameIndex' between calls.",
+    "region": {
+      "h": 1080,
+      "nativeResolution": true,
+      "w": 1920,
+      "x": 0,
+      "y": 0
+    },
+    "snapshotSourceIdentity": "#2716:1",
+    "snapshotSourceNativeHandle": "0x26681B7A8D0",
+    "sourceHeight": 1080,
+    "sourceWidth": 1920,
+    "stale": false,
+    "timestampMs": 1791841956238,
+    "width": 1920
+  }
+}

@@ -1,0 +1,114 @@
+[
+  {
+    "before": "Before_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_Albedo.png",
+    "after": "After_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_Albedo.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_Normal.png",
+    "after": "After_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_Normal.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_UpscalePerformance_Albedo.png",
+    "after": "After_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_UpscalePerformance_Albedo.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_UpscalePerformance_Normal.png",
+    "after": "After_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_UpscalePerformance_Normal.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_Albedo.png",
+    "after": "After_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_Albedo.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_Normal.png",
+    "after": "After_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_Normal.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_UpscalePerformance_Albedo.png",
+    "after": "After_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_UpscalePerformance_Albedo.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_UpscalePerformance_Normal.png",
+    "after": "After_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_UpscalePerformance_Normal.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Albedo.png",
+    "after": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Albedo.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Normal.png",
+    "after": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Normal.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_UpscalePerformance_Albedo.png",
+    "after": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_UpscalePerformance_Albedo.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_UpscalePerformance_Normal.png",
+    "after": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_UpscalePerformance_Normal.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_Albedo.png",
+    "after": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_Albedo.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_Normal.png",
+    "after": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_Normal.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_UpscalePerformance_Albedo.png",
+    "after": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_UpscalePerformance_Albedo.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  },
+  {
+    "before": "Before_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_UpscalePerformance_Normal.png",
+    "after": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_UpscalePerformance_Normal.png",
+    "rmse": 0.0,
+    "changedPixels": 0,
+    "maxDelta": 0
+  }
+]

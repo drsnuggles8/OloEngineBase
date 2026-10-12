@@ -1,0 +1,573 @@
+{
+  "cell": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3",
+  "backend": "vulkan",
+  "samples": 4,
+  "perSample": true,
+  "lateGeometryMask": 3,
+  "upscale": "off",
+  "path": "deferred",
+  "hybridRT": false,
+  "copies": [
+    {
+      "passName": "DeferredGPUOcclusionPass",
+      "sourceAttachment": "depth",
+      "destinationAttachment": "depth",
+      "count": 1,
+      "bytes": 8294400
+    },
+    {
+      "passName": "DeferredOpaqueDecalPass",
+      "sourceAttachment": "depth",
+      "destinationAttachment": "depth",
+      "count": 1,
+      "bytes": 8294400
+    },
+    {
+      "passName": "GBufferResolvePass",
+      "sourceAttachment": "0",
+      "destinationAttachment": "0",
+      "count": 1,
+      "bytes": 8294400
+    },
+    {
+      "passName": "GBufferResolvePass",
+      "sourceAttachment": "1",
+      "destinationAttachment": "1",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "passName": "GBufferResolvePass",
+      "sourceAttachment": "2",
+      "destinationAttachment": "2",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "passName": "GBufferResolvePass",
+      "sourceAttachment": "3",
+      "destinationAttachment": "3",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "passName": "GBufferResolvePass",
+      "sourceAttachment": "4",
+      "destinationAttachment": "4",
+      "count": 1,
+      "bytes": 8294400
+    },
+    {
+      "passName": "GBufferResolvePass",
+      "sourceAttachment": "5",
+      "destinationAttachment": "5",
+      "count": 1,
+      "bytes": 16588800
+    },
+    {
+      "passName": "GBufferResolvePass",
+      "sourceAttachment": "depth",
+      "destinationAttachment": "depth",
+      "count": 1,
+      "bytes": 8294400
+    }
+  ],
+  "resolveBytes": 107827200,
+  "ledger": [
+    "[CopyLedger] graph frame 3961: 15 copies and blits, 167961600 bytes of known size",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   DeferredGPUOcclusionPass: blit GBufferMS[depth] -> GBufferResolved[depth] x1 (8294400 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   DeferredLightingPass: blit GBufferResolved[4] -> SceneColor[1] x1 (8294400 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   DeferredLightingPass: blit GBufferResolved[depth] -> SceneColor[depth] x1 (8294400 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   DeferredOpaqueDecalPass: blit GBufferMS[depth] -> GBufferResolved[depth] x1 (8294400 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   DiffusionDepthSnapshotPass: copy SceneDepthAttachment -> DiffusionDepthSnapshot x1 (8294400 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   DiffusionHandoffSnapshotPass: copy SceneSkinDiffuse -> DiffusionHandoffSnapshot x1 (16588800 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   GBufferResolvePass: blit GBufferMS[0] -> GBufferResolved[0] x1 (8294400 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   GBufferResolvePass: blit GBufferMS[1] -> GBufferResolved[1] x1 (16588800 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   GBufferResolvePass: blit GBufferMS[2] -> GBufferResolved[2] x1 (16588800 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   GBufferResolvePass: blit GBufferMS[3] -> GBufferResolved[3] x1 (16588800 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   GBufferResolvePass: blit GBufferMS[4] -> GBufferResolved[4] x1 (8294400 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   GBufferResolvePass: blit GBufferMS[5] -> GBufferResolved[5] x1 (16588800 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   GBufferResolvePass: blit GBufferMS[depth] -> GBufferResolved[depth] x1 (8294400 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   GTAOPass: copy GTAODenoisePong -> AOBuffer x1 (2073600 bytes)",
+    "[00:03:17] [info] OloEngine: [CopyLedger]   SceneVelocitySeedPass: copy Velocity -> SceneVelocity x1 (16588800 bytes)"
+  ],
+  "settings": {
+    "settings": [
+      {
+        "currentValue": "off",
+        "description": "FSR1 spatial-upscale quality preset (PostProcess.Upscale). Off is native resolution; the other presets render below display resolution and EASU-upscale the HDR scene colour back to display res (#480).",
+        "setting": "upscale",
+        "values": [
+          {
+            "description": "Native resolution \u2014 no FSR1 upscale (render scale 1.0)",
+            "token": "off"
+          },
+          {
+            "description": "FSR1 Quality (0.667x linear render scale)",
+            "token": "quality"
+          },
+          {
+            "description": "FSR1 Balanced (0.59x linear render scale)",
+            "token": "balanced"
+          },
+          {
+            "description": "FSR1 Performance (0.5x linear render scale)",
+            "token": "performance"
+          },
+          {
+            "description": "FSR1 Ultra Performance (0.333x linear render scale)",
+            "token": "ultraperformance"
+          }
+        ]
+      },
+      {
+        "currentValue": "spatial",
+        "description": "Which algorithm reconstructs display resolution from the 'upscale' render scale (PostProcess.Technique, #684): 'spatial' = FSR1, 'temporal' = FSR2. Ignored while upscale is off. FSR2 runs on OpenGL with a single-sample scene band only; elsewhere the frame falls back to FSR1 at the same render scale, which nothing on screen announces. So 'value' is the REQUEST and the reply's 'upscaler' block is the RESULT: read upscaler.resolved, and upscaler.reason when it differs.",
+        "setting": "technique",
+        "values": [
+          {
+            "description": "FSR1 EASU + RCAS: single-frame spatial upscale (every backend)",
+            "token": "spatial"
+          },
+          {
+            "description": "FSR2 temporal upscale: reconstructs from jittered history. OpenGL only and single-sample only; anywhere else the frame falls back to spatial at the same render scale, and the reply's upscaler block says so",
+            "token": "temporal"
+          }
+        ]
+      },
+      {
+        "currentValue": "reinhard",
+        "description": "Tone-mapping operator applied to the HDR scene colour (PostProcess.Tonemap).",
+        "setting": "tonemap",
+        "values": [
+          {
+            "description": "No tone mapping (raw HDR clamp)",
+            "token": "none"
+          },
+          {
+            "description": "Reinhard",
+            "token": "reinhard"
+          },
+          {
+            "description": "ACES filmic",
+            "token": "aces"
+          },
+          {
+            "description": "Uncharted 2 filmic",
+            "token": "uncharted2"
+          }
+        ]
+      },
+      {
+        "currentValue": "deferred",
+        "description": "High-level rendering path (RendererSettings.Path). Switching rebuilds the render-graph topology; Deferred is required for SSR / SSGI.",
+        "setting": "renderpath",
+        "values": [
+          {
+            "description": "Classic forward (all lights via UBO loop; low overhead)",
+            "token": "forward"
+          },
+          {
+            "description": "Tiled Forward+ (compute-culled per-tile light lists)",
+            "token": "forwardplus"
+          },
+          {
+            "description": "G-buffer + tiled deferred lighting (enables SSR/SSGI)",
+            "token": "deferred"
+          }
+        ]
+      },
+      {
+        "currentValue": "4",
+        "description": "Deferred G-buffer multisample count (1|2|4|8). The requested value is clamped to the driver cap.",
+        "setting": "msaa",
+        "values": [
+          {
+            "description": "No multisampling",
+            "token": "1"
+          },
+          {
+            "description": "2x MSAA",
+            "token": "2"
+          },
+          {
+            "description": "4x MSAA",
+            "token": "4"
+          },
+          {
+            "description": "8x MSAA",
+            "token": "8"
+          }
+        ]
+      },
+      {
+        "currentValue": "on",
+        "description": "Evaluate deferred lighting independently for every MSAA sample instead of lighting a resolved G-buffer.",
+        "setting": "persamplelighting",
+        "values": [
+          {
+            "description": "Resolve the G-buffer before deferred lighting",
+            "token": "off"
+          },
+          {
+            "description": "Evaluate deferred lighting independently for every MSAA sample",
+            "token": "on"
+          }
+        ]
+      },
+      {
+        "currentValue": "on",
+        "description": "Depth-prepass perf lever (Renderer3D live toggle, #316). 'on'/'off' force the live state for this session; 'auto' restores the settings-derived value. Forward+/Deferred derive it ON because their tile culling reads the prepass depth for 2.5D active-cluster compaction. Forcing 'off' is a valid perf A/B: lighting remains image-identical through the fixed-grid fallback, while LightCulling GPU time may increase. A later settings apply (e.g. a renderpath switch) re-derives it.",
+        "setting": "depthprepass",
+        "values": [
+          {
+            "description": "Force the depth prepass off for this session (single geometry pass; full overdraw cost)",
+            "token": "off"
+          },
+          {
+            "description": "Force the depth prepass on for this session (depth-only pass first, then color with GL_EQUAL)",
+            "token": "on"
+          },
+          {
+            "description": "Restore the settings-derived value (on when the user toggle or the Forward+/Deferred path requires it)",
+            "token": "auto"
+          }
+        ]
+      },
+      {
+        "currentValue": "on",
+        "description": "Clustered-light algorithm A/B lever (issue #722). 'off' keeps the depth prepass and colour-pass raster state unchanged but runs the fixed-grid cull; 'on' uses 2.5D depth occupancy and compact indirect dispatch when a readable prepass depth exists. Use this lever for pixel and GPU-timing comparisons.",
+        "setting": "depthawareculling",
+        "values": [
+          {
+            "description": "Fixed-grid clustered culling while leaving the depth prepass and raster state unchanged",
+            "token": "off"
+          },
+          {
+            "description": "Depth-aware 2.5D occupancy rejection plus active-cluster indirect dispatch when prepass depth is usable",
+            "token": "on"
+          }
+        ]
+      },
+      {
+        "currentValue": "pcf",
+        "description": "Directional-shadow filtering (ShadowSettings.SoftShadows): 'pcss' = contact-hardening soft shadows, 'pcf' = fixed 3x3 hardware PCF. THE dominant ScenePass perf lever in shadowed scenes (#316: PCSS was ~93% of ScenePass at 1080p Sponza).",
+        "setting": "softshadows",
+        "values": [
+          {
+            "description": "Fixed 3x3 hardware PCF (cheap, hard-edged shadows)",
+            "token": "pcf"
+          },
+          {
+            "description": "Percentage-Closer Soft Shadows (contact-hardening variable penumbra; expensive blocker search)",
+            "token": "pcss"
+          }
+        ]
+      },
+      {
+        "currentValue": "off",
+        "description": "Directional shadow technique (ShadowSettings.VSM.Enabled, issue #702): 'on' = sparse page-table Virtual Shadow Maps, 'off' = the fixed 4-cascade CSM. VSM covers static/skinned meshes, terrain, voxels and foliage in directional and local maps; virtual geometry and grooms currently cover directional maps only. Reads back the EFFECTIVE value: a request that failed to initialise reports 'off'.",
+        "setting": "virtualshadowmaps",
+        "values": [
+          {
+            "description": "Fixed 4-cascade CSM for the directional light",
+            "token": "off"
+          },
+          {
+            "description": "Sparse page-table Virtual Shadow Maps. Directional maps cover static/skinned meshes, terrain, voxels, foliage, virtualized geometry and grooms. The separate vsmlocallights switch selects VSM point/spot layers.",
+            "token": "on"
+          }
+        ]
+      },
+      {
+        "currentValue": "on",
+        "description": "Local-shadow route while VSM is active: 'on' uses VSM point/spot layers, 'off' uses the shadow atlas. Preserves the directional VSM request; reads back the configured local-layer mode.",
+        "setting": "vsmlocallights",
+        "values": [
+          {
+            "description": "Use the local-light shadow atlas",
+            "token": "off"
+          },
+          {
+            "description": "Use VSM point/spot layers while VSM is active",
+            "token": "on"
+          }
+        ]
+      },
+      {
+        "currentValue": "off",
+        "description": "Shadow technique (ShadowSettings.Technique, issue #1056): 'on' = ray-query visibility mask with a temporal + variance-guided denoiser, 'off' = the raster shadow-map tier. THE A/B lever for the hybrid shadow work: it changes only which mechanism answers the visibility question, so a paired capture isolates the technique from every other renderer setting.",
+        "setting": "raytracedshadows",
+        "values": [
+          {
+            "description": "Every light shadows from its shadow map (CSM / atlas / VSM)",
+            "token": "off"
+          },
+          {
+            "description": "Arm the ray-query shadow tier (issue #1056). A light ALSO needs its own m_RayTracedShadows flag, and at most four lights fit the mask's four channels. Needs Vulkan + a hardware ray-tracing device + the Deferred path; anything missing falls back per light with a counted reason. This lever reports what was REQUESTED, so use it as the A/B switch and read the fallback counters for what actually happened",
+            "token": "on"
+          }
+        ]
+      },
+      {
+        "currentValue": "sun",
+        "description": "Ray-traced light angular radius (RayTracedShadowSettings.LightAngularRadiusDegrees, issue #1056). THE knob that makes the penumbra a geometric fact rather than a filter width: the ray is jittered inside this cone, so a distant occluder softens on its own. Sweep sharp -> exaggerated from one camera pose to show contact hardening. Ignored unless raytracedshadows is on.",
+        "setting": "raytracedsoftness",
+        "values": [
+          {
+            "description": "0.02 deg \u2014 a near-point source; the reference for what a HARD ray-traced shadow looks like",
+            "token": "sharp"
+          },
+          {
+            "description": "0.265 deg \u2014 the real sun's angular radius, and the default",
+            "token": "sun"
+          },
+          {
+            "description": "2 deg \u2014 a visibly soft source; the penumbra widens with occluder distance",
+            "token": "overcast"
+          },
+          {
+            "description": "6 deg \u2014 deliberately unphysical, for SEEING contact hardening in a capture: the shadow is sharp where an occluder meets the floor and broad where it is metres above it",
+            "token": "exaggerated"
+          }
+        ]
+      },
+      {
+        "currentValue": "off",
+        "description": "Virtual Shadow Map diagnostic view: clip level, page address, residency, comparison and depth stages.",
+        "setting": "vsmdebug",
+        "values": [
+          {
+            "description": "Normal shadowed rendering",
+            "token": "off"
+          },
+          {
+            "description": "Tint by selected virtual clip level",
+            "token": "cliplevel"
+          },
+          {
+            "description": "Visualize virtual page addresses",
+            "token": "pageaddress"
+          },
+          {
+            "description": "Visualize physical-page residency",
+            "token": "residency"
+          },
+          {
+            "description": "Visualize the shadow comparison result",
+            "token": "shadowtest"
+          },
+          {
+            "description": "Visualize stored physical-page depth",
+            "token": "storeddepth"
+          },
+          {
+            "description": "Visualize receiver depth",
+            "token": "receiverdepth"
+          },
+          {
+            "description": "Visualize the final shadow factor seen by lighting",
+            "token": "shadowfactor"
+          }
+        ]
+      },
+      {
+        "currentValue": "off",
+        "description": "Camera-centred realtime-GI probe cascades (RendererSettings.DDGICascadesEnabled, issue #707). Off by default: turning it on gives realtime GI to every scene without an authored probe volume. Gated by EnableDDGI and Deferred.EnableLightProbes, so it is a no-op while either of those is off \u2014 and a no-op in a scene whose authored volume already claims the field. Pair it with olo_screenshot from several poses: the failure modes (a field that stops at a cascade boundary, a blend band that steps) are invisible from one viewpoint.",
+        "setting": "ddgicascades",
+        "values": [
+          {
+            "description": "Realtime GI comes only from an authored Realtime/Hybrid LightProbeVolumeComponent; a scene without one gets no DDGI at all",
+            "token": "off"
+          },
+          {
+            "description": "Camera-centred probe cascades (issue #707): N grids centred on the camera, each twice the previous one's spacing, so GI covers a large scene with NO authored volume. An ACTIVE authored volume still takes precedence where one exists, so turning this on in a scene that HAS one changes nothing \u2014 check for a LightProbeVolumeComponent before concluding the lever did not work",
+            "token": "on"
+          }
+        ]
+      },
+      {
+        "currentValue": "on",
+        "description": "GPU Hi-Z occlusion culling (Renderer3D::EnableHZBOcclusionCulling), off by default. Drives BOTH two-phase culls: instanced static batches (#431/#486) and virtualized-geometry clusters (#682, where phase 1 tests the PREVIOUS frame's pyramid so virtual geometry can occlude virtual geometry). Toggling it off invalidates the retained pyramid, so the first frame after re-enabling is frustum-only. This is the A/B lever for occlusion work \u2014 pair it with olo_virtual_geometry_stats / the RendererProfiler to see the drawn-cluster and instance counts move.",
+        "setting": "hzbocclusion",
+        "values": [
+          {
+            "description": "No Hi-Z occlusion culling \u2014 instanced batches and virtual-geometry clusters are frustum-culled only",
+            "token": "off"
+          },
+          {
+            "description": "Two-phase Hi-Z occlusion culling for instanced batches (#431/#486) and virtual-geometry clusters (#682)",
+            "token": "on"
+          }
+        ]
+      },
+      {
+        "currentValue": "honour",
+        "description": "Whether a scene's request for a temporal resolve is honoured (RendererSettings::HonourSceneTemporalResolveRequests, issue #1429). A scene holding a groom on StochasticAlpha asks for one every frame, because that mode's no-resolve fallback draws no sub-pixel hair. 'ignore' is the A/B lever: the coats go bald and the viewport shows the red BALD banner. Diagnostic only; not persisted.",
+        "setting": "scenetemporalresolve",
+        "values": [
+          {
+            "description": "Engine TAA runs only when PostProcess.TAAEnabled is ticked; a stochastic groom without it falls back to the opaque tier and renders BALD (the #1429 failure, reproduced on purpose)",
+            "token": "ignore"
+          },
+          {
+            "description": "Default: a scene holding a groom on StochasticAlpha requests a temporal resolve and engine TAA runs for it even with TAAEnabled unticked",
+            "token": "honour"
+          }
+        ]
+      },
+      {
+        "currentValue": "gpu",
+        "description": "Where a groom bound to an animating body is deformed (RendererSettings::GroomGpuDeformation, issue #1427). 'gpu' is the shipped path; 'cpu' is the reference it replaced. The two must draw the same coat, so an A/B screenshot pair from one pose is the check, and olo_groom_budget_stats shows the frame-time difference. Diagnostic only; not persisted.",
+        "setting": "groomdeformation",
+        "values": [
+          {
+            "description": "Every bound coat is rebuilt and re-uploaded on the CPU each frame \u2014 the pre-#1427 path, kept as the reference. Hundreds of MB per coat per frame: expect the frame time to collapse on a herd",
+            "token": "cpu"
+          },
+          {
+            "description": "Default: a bound coat is deformed in the strand vertex shader from a stream built once and a small per-frame buffer of root transforms and guide displacements",
+            "token": "gpu"
+          }
+        ]
+      },
+      {
+        "currentValue": "off",
+        "description": "Weighted-blended order-independent transparency for decals and particles (RendererSettings::OITEnabled, the Renderer Settings panel's checkbox). The graph fingerprint carries it, so a flip rebuilds the frame graph on the next frame. An A/B screenshot pair from one pose shows a transparent decal or particle composited both ways (#1417). Not persisted.",
+        "setting": "oit",
+        "values": [
+          {
+            "description": "Transparent decals and particles blend straight into scene colour, in submission order",
+            "token": "off"
+          },
+          {
+            "description": "Transparent decals and particles accumulate into the weighted-blended OIT targets and OITResolve composites them",
+            "token": "on"
+          }
+        ]
+      }
+    ],
+    "upscaler": {
+      "pending": false,
+      "requested": {
+        "technique": "spatial",
+        "upscale": "off"
+      },
+      "resolved": "native",
+      "sceneSampleCount": 4,
+      "temporalUpscalerStatus": "unsupported on the active RHI backend"
+    }
+  },
+  "captures": {
+    "Front": {
+      "bytesWritten": 561478,
+      "camera": "editor camera",
+      "frameIndex": 4170,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 4170,
+        "iconified": false,
+        "msSinceLastFrame": 72.42,
+        "ticking": true,
+        "visible": true
+      },
+      "relativePath": "assets/tests/visual/After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Front.png",
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    },
+    "Oblique": {
+      "bytesWritten": 688938,
+      "camera": "editor camera",
+      "frameIndex": 4183,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 4183,
+        "iconified": false,
+        "msSinceLastFrame": 82.18,
+        "ticking": true,
+        "visible": true
+      },
+      "relativePath": "assets/tests/visual/After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Oblique.png",
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  "albedo": {
+    "afterPass": "DeferredLightingPass",
+    "forcedFreshFrame": false,
+    "format": "RGBA8UNorm",
+    "frameIndex": 4189,
+    "frameIndexNote": "frameIndex is the collect-time frame; the snapshot was cloned mid-frame during the immediately preceding rendered frame.",
+    "height": 1080,
+    "isDepth": false,
+    "layer": 0,
+    "liveness": {
+      "captureUnready": false,
+      "focused": true,
+      "frameIndex": 4189,
+      "iconified": false,
+      "msSinceLastFrame": 88.22,
+      "ticking": true,
+      "visible": true
+    },
+    "maxValue": 1.0,
+    "minValue": 0.0,
+    "name": "GBufferAlbedo",
+    "normalized": false,
+    "note": "This is whatever was last rendered into the target. If the scene/settings changed moments ago (e.g. after olo_scene_open), pass forceFrame:true to render and settle a fresh frame first, or compare 'frameIndex' between calls.",
+    "region": {
+      "h": 1080,
+      "nativeResolution": true,
+      "w": 1920,
+      "x": 0,
+      "y": 0
+    },
+    "snapshotSourceIdentity": "#2730:1",
+    "snapshotSourceNativeHandle": "0x167BE22C6D0",
+    "sourceHeight": 1080,
+    "sourceWidth": 1920,
+    "stale": false,
+    "timestampMs": 1791842597788,
+    "width": 1920
+  },
+  "normal": {
+    "afterPass": "DeferredLightingPass",
+    "forcedFreshFrame": false,
+    "format": "RGBA16Float",
+    "frameIndex": 4193,
+    "frameIndexNote": "frameIndex is the collect-time frame; the snapshot was cloned mid-frame during the immediately preceding rendered frame.",
+    "height": 1080,
+    "isDepth": false,
+    "layer": 0,
+    "liveness": {
+      "captureUnready": false,
+      "focused": true,
+      "frameIndex": 4193,
+      "iconified": false,
+      "msSinceLastFrame": 104.92,
+      "ticking": true,
+      "visible": true
+    },
+    "maxValue": 1.0,
+    "minValue": -1.0,
+    "name": "GBufferNormal",
+    "normalized": false,
+    "note": "This is whatever was last rendered into the target. If the scene/settings changed moments ago (e.g. after olo_scene_open), pass forceFrame:true to render and settle a fresh frame first, or compare 'frameIndex' between calls.",
+    "region": {
+      "h": 1080,
+      "nativeResolution": true,
+      "w": 1920,
+      "x": 0,
+      "y": 0
+    },
+    "snapshotSourceIdentity": "#2731:1",
+    "snapshotSourceNativeHandle": "0x167C4884ED0",
+    "sourceHeight": 1080,
+    "sourceWidth": 1920,
+    "stale": false,
+    "timestampMs": 1791842597902,
+    "width": 1920
+  }
+}

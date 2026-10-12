@@ -1,0 +1,12 @@
+{
+  "baseline": false,
+  "cameraPoseRmse": 35.36824412178572,
+  "cell": "DeferredResolve_GL_Deferred_Msaa1_PerSample_Late2",
+  "colourResolves": 0,
+  "depthResolves": 0,
+  "lateGeometryMask": 2,
+  "noiseFloorRmse": 0.0,
+  "perSample": true,
+  "resolveBytes": 0,
+  "samples": 1
+}

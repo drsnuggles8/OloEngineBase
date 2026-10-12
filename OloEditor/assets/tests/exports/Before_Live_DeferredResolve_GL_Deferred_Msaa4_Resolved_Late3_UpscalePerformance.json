@@ -1,0 +1,200 @@
+{
+  "cell": "Before_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_UpscalePerformance",
+  "backend": "opengl",
+  "effectiveUpscale": {
+    "changed": true,
+    "previousValue": "off",
+    "setting": "upscale",
+    "upscaler": {
+      "pending": false,
+      "requested": {
+        "technique": "spatial",
+        "upscale": "performance"
+      },
+      "resolved": "spatial",
+      "sceneSampleCount": 4,
+      "temporalUpscalerStatus": "available"
+    },
+    "value": "performance"
+  },
+  "copies": [
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "0",
+      "destinationAttachment": "0",
+      "count": 1,
+      "bytes": 2073600
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "1",
+      "destinationAttachment": "1",
+      "count": 1,
+      "bytes": 4147200
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "2",
+      "destinationAttachment": "2",
+      "count": 1,
+      "bytes": 4147200
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "3",
+      "destinationAttachment": "3",
+      "count": 1,
+      "bytes": 4147200
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "4",
+      "destinationAttachment": "4",
+      "count": 1,
+      "bytes": 2073600
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "5",
+      "destinationAttachment": "5",
+      "count": 1,
+      "bytes": 4147200
+    },
+    {
+      "pass": "ScenePass",
+      "sourceAttachment": "depth",
+      "destinationAttachment": "depth",
+      "count": 1,
+      "bytes": 2073600
+    }
+  ],
+  "resolveBytes": 22809600,
+  "ledger": [
+    "[CopyLedger] graph frame 721: 13 copies and blits, 37843200 bytes of known size",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   DeferredLightingPass: blit GBufferResolved[4] -> SceneColor[1] x1 (2073600 bytes)",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   DeferredLightingPass: blit GBufferResolved[depth] -> SceneColor[depth] x1 (2073600 bytes)",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   DiffusionDepthSnapshotPass: copy SceneDepthAttachment -> DiffusionDepthSnapshot x1 (2073600 bytes)",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   DiffusionHandoffSnapshotPass: copy SceneSkinDiffuse -> DiffusionHandoffSnapshot x1 (4147200 bytes)",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   GTAOPass: copy GTAODenoisePong -> AOBuffer x1 (518400 bytes)",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[0] -> GBufferResolved[0] x1 (2073600 bytes)",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[1] -> GBufferResolved[1] x1 (4147200 bytes)",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[2] -> GBufferResolved[2] x1 (4147200 bytes)",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[3] -> GBufferResolved[3] x1 (4147200 bytes)",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[4] -> GBufferResolved[4] x1 (2073600 bytes)",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[5] -> GBufferResolved[5] x1 (4147200 bytes)",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   ScenePass: blit GBufferMS[depth] -> GBufferResolved[depth] x1 (2073600 bytes)",
+    "[23:53:25] [info] OloEngine: [CopyLedger]   SceneVelocitySeedPass: copy Velocity -> SceneVelocity x1 (4147200 bytes)"
+  ],
+  "captures": {
+    "Front": {
+      "bytesWritten": 1006261,
+      "camera": "editor camera",
+      "frameIndex": 765,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 765,
+        "iconified": false,
+        "msSinceLastFrame": 102.14,
+        "ticking": true,
+        "visible": true
+      },
+      "relativePath": "assets/tests/visual/Before_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_UpscalePerformance_Front.png",
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    },
+    "Oblique": {
+      "bytesWritten": 1107254,
+      "camera": "editor camera",
+      "frameIndex": 778,
+      "liveness": {
+        "captureUnready": false,
+        "focused": true,
+        "frameIndex": 778,
+        "iconified": false,
+        "msSinceLastFrame": 109.58,
+        "ticking": true,
+        "visible": true
+      },
+      "relativePath": "assets/tests/visual/Before_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_UpscalePerformance_Oblique.png",
+      "sceneState": "edit-or-simulate",
+      "stale": false
+    }
+  },
+  "albedo": {
+    "afterPass": "DeferredLightingPass",
+    "forcedFreshFrame": false,
+    "format": "RGBA8UNorm",
+    "frameIndex": 784,
+    "frameIndexNote": "frameIndex is the collect-time frame; the snapshot was cloned mid-frame during the immediately preceding rendered frame.",
+    "height": 540,
+    "isDepth": false,
+    "layer": 0,
+    "liveness": {
+      "captureUnready": false,
+      "focused": true,
+      "frameIndex": 784,
+      "iconified": false,
+      "msSinceLastFrame": 24.0,
+      "ticking": true,
+      "visible": true
+    },
+    "maxValue": 1.0,
+    "minValue": 0.0,
+    "name": "GBufferAlbedo",
+    "normalized": false,
+    "note": "This is whatever was last rendered into the target. If the scene/settings changed moments ago (e.g. after olo_scene_open), pass forceFrame:true to render and settle a fresh frame first, or compare 'frameIndex' between calls.",
+    "region": {
+      "h": 540,
+      "nativeResolution": true,
+      "w": 960,
+      "x": 0,
+      "y": 0
+    },
+    "snapshotSourceIdentity": "#2661:7",
+    "snapshotSourceNativeHandle": "0x96",
+    "sourceHeight": 540,
+    "sourceWidth": 960,
+    "stale": false,
+    "timestampMs": 1791842005905,
+    "width": 960
+  },
+  "normal": {
+    "afterPass": "DeferredLightingPass",
+    "forcedFreshFrame": false,
+    "format": "RGBA16Float",
+    "frameIndex": 788,
+    "frameIndexNote": "frameIndex is the collect-time frame; the snapshot was cloned mid-frame during the immediately preceding rendered frame.",
+    "height": 540,
+    "isDepth": false,
+    "layer": 0,
+    "liveness": {
+      "captureUnready": false,
+      "focused": true,
+      "frameIndex": 788,
+      "iconified": false,
+      "msSinceLastFrame": 31.32,
+      "ticking": true,
+      "visible": true
+    },
+    "maxValue": 1.0,
+    "minValue": -1.0,
+    "name": "GBufferNormal",
+    "normalized": false,
+    "note": "This is whatever was last rendered into the target. If the scene/settings changed moments ago (e.g. after olo_scene_open), pass forceFrame:true to render and settle a fresh frame first, or compare 'frameIndex' between calls.",
+    "region": {
+      "h": 540,
+      "nativeResolution": true,
+      "w": 960,
+      "x": 0,
+      "y": 0
+    },
+    "snapshotSourceIdentity": "#2660:7",
+    "snapshotSourceNativeHandle": "0x97",
+    "sourceHeight": 540,
+    "sourceWidth": 960,
+    "stale": false,
+    "timestampMs": 1791842005949,
+    "width": 960
+  }
+}

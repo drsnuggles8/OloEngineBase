@@ -1,0 +1,131 @@
+{
+  "cell": "GL_Forward_UpscalePerformance_LateGeometry",
+  "width": 1920,
+  "height": 1080,
+  "lateGeometry": true,
+  "copies": [
+    {
+      "bytes": 2073600,
+      "declared": true,
+      "destination": "ForwardAODepth",
+      "height": 540,
+      "kind": "copy",
+      "pass": "ScenePrepassPass",
+      "source": "SceneDepthAttachment",
+      "sourceSamples": 1,
+      "width": 960
+    },
+    {
+      "bytes": 2073600,
+      "declared": true,
+      "destination": "ForwardAODepth",
+      "height": 540,
+      "kind": "copy",
+      "pass": "GPUDrivenOcclusionPrepassPass",
+      "source": "SceneDepthAttachment",
+      "sourceSamples": 1,
+      "width": 960
+    },
+    {
+      "bytes": 2073600,
+      "declared": true,
+      "destination": "ForwardAODepth",
+      "height": 540,
+      "kind": "copy",
+      "pass": "FoliagePrepassPass",
+      "source": "SceneDepthAttachment",
+      "sourceSamples": 1,
+      "width": 960
+    },
+    {
+      "bytes": 518400,
+      "declared": true,
+      "destination": "AOBuffer",
+      "height": 540,
+      "kind": "copy",
+      "pass": "GTAOPass",
+      "source": "GTAODenoisePing",
+      "sourceSamples": 1,
+      "width": 960
+    },
+    {
+      "bytes": 2073600,
+      "declared": true,
+      "destination": "SceneDepthSnapshot",
+      "height": 540,
+      "kind": "copy",
+      "pass": "SceneDepthSnapshotPass",
+      "source": "SceneDepth",
+      "sourceSamples": 1,
+      "width": 960
+    },
+    {
+      "bytes": 2073600,
+      "declared": true,
+      "destination": "SceneViewNormalsSnapshot",
+      "height": 540,
+      "kind": "copy",
+      "pass": "SceneViewNormalsSnapshotPass",
+      "source": "SceneViewNormals",
+      "sourceSamples": 1,
+      "width": 960
+    },
+    {
+      "bytes": 4147200,
+      "declared": true,
+      "destination": "WaterRefraction",
+      "height": 540,
+      "kind": "copy",
+      "pass": "WaterPass",
+      "source": "SceneColorTexture",
+      "sourceSamples": 1,
+      "width": 960
+    },
+    {
+      "bytes": 2073600,
+      "declared": true,
+      "destination": "DiffusionDepthSnapshot",
+      "height": 540,
+      "kind": "copy",
+      "pass": "DiffusionDepthSnapshotPass",
+      "source": "SceneDepthAttachment",
+      "sourceSamples": 1,
+      "width": 960
+    },
+    {
+      "bytes": 4147200,
+      "declared": true,
+      "destination": "DiffusionHandoffSnapshot",
+      "height": 540,
+      "kind": "copy",
+      "pass": "DiffusionHandoffSnapshotPass",
+      "source": "SceneSkinDiffuse",
+      "sourceSamples": 1,
+      "width": 960
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "TAASurfaceHistory",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "<extraction>",
+      "source": "UpscaledVelocityTexture@DepthVelocityUpscalePass",
+      "sourceSamples": 1,
+      "width": 1920
+    },
+    {
+      "bytes": 16588800,
+      "declared": true,
+      "destination": "TAAHistory",
+      "height": 1080,
+      "kind": "copy",
+      "pass": "<extraction>",
+      "source": "TAAColor[1]",
+      "sourceSamples": 1,
+      "width": 1920
+    }
+  ],
+  "copyCount": 11,
+  "copyBytes": 54432000
+}

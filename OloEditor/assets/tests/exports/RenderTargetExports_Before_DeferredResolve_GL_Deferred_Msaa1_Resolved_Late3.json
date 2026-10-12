@@ -1,0 +1,10 @@
+{
+  "baseline": true,
+  "cell": "DeferredResolve_GL_Deferred_Msaa1_Resolved_Late3",
+  "colourResolves": 0,
+  "depthResolves": 0,
+  "lateGeometryMask": 3,
+  "perSample": false,
+  "resolveBytes": 0,
+  "samples": 1
+}
