@@ -33,10 +33,13 @@
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Renderer/MeshSource.h"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -110,6 +113,7 @@ namespace OloEngine::Tests
         const std::vector<Subject> subjects = {
             { "SandboxProject/Assets/Models/Horse", "Horse.gltf", { "ShortCoatHorse", "LongCoatHorse" } },
             { "assets/models/InfiniteScanHead", "HeadRigged.gltf", { "Human" } },
+            { "assets/models/Fox", "Fox.gltf", { "FoxShortCoat", "FoxLongCoat" } },
         };
 
         for (const Subject& subject : subjects)
@@ -157,5 +161,51 @@ namespace OloEngine::Tests
             MeshCache::InvalidateCache(path);
             MeshCache::InvalidateCache(path, AnimatedModel::kCachePrefix);
         }
+    }
+
+    // Anatomical clearances of the authored rest curves, independent of the
+    // renderer's coverage and shading. A straight downward regroom from the
+    // brow puts points in the eye/cheek corridor and fails this contract.
+    TEST(GroomAnimalsCookedBinding, HumanHairFramesTheFaceAndClearsTheShoulders)
+    {
+        const auto groom = LoadCooked<GroomAsset>("Human.ologroom");
+        const auto binding = LoadCooked<GroomBindingAsset>("Human.ologroombinding");
+        ASSERT_TRUE(groom);
+        ASSERT_TRUE(binding);
+        EXPECT_EQ(binding->GetRootCount(), groom->GetCurveCount());
+        EXPECT_LT(binding->GetMaxRestDistance(), 0.0005f) << "the export is not on the actual bind surface";
+        constexpr glm::vec3 origin{ 0.0f, 1.24f, 3.6f }; // GroomAnimals' authored groom frame
+        u32 crownRoots = 0;
+        u32 facePoints = 0;
+        bool finite = true;
+        f32 lowestPoint = std::numeric_limits<f32>::max();
+        const auto view = groom->GetCurveView();
+        for (u32 curve = 0; curve < groom->GetCurveCount(); ++curve)
+        {
+            const u32 first = view.CurveOffsets[curve];
+            const auto points = view.Points.subspan(first, view.CurveOffsets[curve + 1u] - first);
+            ASSERT_GE(points.size(), 2u);
+            const glm::vec3 root = points.front() - origin;
+            if (root.y > 0.40f)
+            {
+                ++crownRoots;
+            }
+            for (const auto& point : points)
+            {
+                const glm::vec3 local = point - origin;
+                finite = finite && std::isfinite(local.x) && std::isfinite(local.y) && std::isfinite(local.z);
+                // The bust's shoulders lie below 0.15 m, its eye/cheek corridor
+                // at |x| < 55 mm, y 0.23..0.35 m, z > 80 mm (HeadRigged.gltf).
+                lowestPoint = std::min(lowestPoint, local.y);
+                if (std::abs(local.x) < 0.055f && local.y > 0.23f && local.y < 0.35f && local.z > 0.08f)
+                {
+                    ++facePoints;
+                }
+            }
+        }
+        EXPECT_GT(crownRoots, 0u) << "hair must grow on the crown as well as the sides";
+        EXPECT_EQ(facePoints, 0u) << "authored strands cross the eye/cheek corridor";
+        EXPECT_TRUE(finite);
+        EXPECT_GT(lowestPoint, 0.15f) << "rest hair reaches the shoulders";
     }
 } // namespace OloEngine::Tests

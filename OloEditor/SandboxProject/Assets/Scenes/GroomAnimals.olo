@@ -353,7 +353,7 @@ Entities:
       GuardLength: 1
       GuardWidth: 1
       GuardClump: 1
-      LengthJitter: 0.2
+      LengthJitter: 0
       WidthJitter: 0
       ShadeJitter: 0.1
       ClumpCellSize: 0.03
@@ -373,7 +373,7 @@ Entities:
       Groom: 15952688685437936319
       RootMarkerSize: 0.01
       MaxPreviewStrands: 2000
-      MaxRenderStrands: 44235
+      MaxRenderStrands: 123974
       WidthScale: 1
       StrandColor: [1, 1, 1]
       ShowPreview: false
@@ -387,13 +387,13 @@ Entities:
     GroomFibreComponent:
       BaseColor: [0.42, 0.26, 0.14]
       Absorption: [0.84, 1.39, 2.74]
-      Eumelanin: 3
-      Pheomelanin: 0.25
-      LongitudinalRoughness: 0.3
-      AzimuthalRoughness: 0.3
+      Eumelanin: 0.5
+      Pheomelanin: 0.1
+      LongitudinalRoughness: 0.18
+      AzimuthalRoughness: 0.22
       TiltDegrees: 2
       IndexOfRefraction: 1.55
-      Intensity: 3
+      Intensity: 1
       HSamples: 4
       PigmentMode: 0
       DebugMode: 0
@@ -412,9 +412,9 @@ Entities:
       ShadowSteps: 3
       Enabled: true
     GroomSimulationComponent:
-      Gravity: [0, -9.81, 0]
-      Stiffness: 90
-      Damping: 6
+      Gravity: [0, -4, 0]
+      Stiffness: 2000
+      Damping: 12
       VelocityCorrection: 0.85
       FixedHz: 60
       StretchTolerance: 0.01

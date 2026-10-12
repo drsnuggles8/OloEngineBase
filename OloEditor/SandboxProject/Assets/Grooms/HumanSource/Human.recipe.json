@@ -1,0 +1,34 @@
+{
+  "recipe": 1593,
+  "strands": 123974,
+  "pointsPerStrand": 32,
+  "tools": {
+    "python": "3.13.7",
+    "blender": "5.2.2 LTS",
+    "numpy": "2.5.4",
+    "scipy": "1.18.1"
+  },
+  "locks": 711,
+  "guides": 1149,
+  "scalpClearance": {
+    "controlsProjected": 1031642,
+    "maxCorrection": 0.010025072171657485,
+    "regrowthStrands": 17512
+  },
+  "generatorSha256": "2fb10e4d7970157cc1eef51867f2b986134315eed8b340fa81b6a6563731f17e",
+  "meshSha256": "d7fd26171110629e88965057ca597cab11f79fe0946bbc0a4bc3e2d6fcf6ca00",
+  "bufferSha256": {
+    "HeadRigged.bin": "fd5a2d5bdcd18e6c2f873dd9e8e7e93bd8dcd21e2b4bb350c5b47b5e1da882a3"
+  },
+  "curveSha256": "fd77e4daa29d524b99eafe55d91e1fcf7f3bd2eb97478aa9fc9edd733b524477",
+  "boundsMin": [
+    -0.11272127195649533,
+    0.17420390023914684,
+    -0.13635755850781456
+  ],
+  "boundsMax": [
+    0.10464214479973351,
+    0.43598300218582153,
+    0.11750753418165019
+  ]
+}
