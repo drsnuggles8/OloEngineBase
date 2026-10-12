@@ -56,6 +56,10 @@ brought it in, 2023.1's does not, so the macro reads as 0 and USD compiles its l
 `cmake/vendor/patch-usd-tbb-version.cmake` adds the include. A oneTBB bump changes the cache key;
 check the patch still applies.
 
+USD's objects carry `/DEFAULTLIB:"tbb12.lib"` (`tbb12_debug.lib` in Debug) from oneTBB's headers.
+Both linkers satisfy it from the full-path `TBB::tbb` already on the link line, so no link directory
+is needed: a `link.exe` probe links with the full path and fails `LNK1104` without it.
+
 `cmake/OneTbbGuard.cmake` fails the build (before `OloEngine` compiles) if any executable or shared
 library links more than one `tbb12*` archive. It reads the link line CMake generated, per config,
 from the File API codemodel, so a raw path, a genexpr or another directory's imported target cannot
@@ -139,13 +143,13 @@ ExternalProject_Add(openusd GIT_REPOSITORY .../OpenUSD.git GIT_TAG v25.11 GIT_SH
    path**, not the bare `usd_m` — see gotcha 7.
 5. **Cost.** `usd_m.lib` ≈ **2.1 GB** Release / **2.4 GB** Debug (static archive — dead-stripped at
    the final exe link). Cold build ≈ 8–15 min per config. Config-matched builds both.
-6. **oneTBB static-Debug teardown assert.** A static Debug oneTBB trips a benign worker-teardown
-   assert (`small_object_pool.cpp:143`, `m_private_counter >= 0`) that aborts the process at exit —
-   all work completes, but it would pop an assert dialog on every Debug editor close. Fixed by
-   building oneTBB with `-DCMAKE_CXX_FLAGS=-DTBB_USE_ASSERT=0` (the `#ifndef TBB_USE_ASSERT` guard
-   respects a command-line define; disables `__TBB_ASSERT` in the compiled lib; Release already has
-   it off via `NDEBUG`). Verify a fix took by grepping the assert string out of `tbb12_debug.lib`
-   AND clean-relinking the consumer (MSBuild won't relink on a same-path `.lib` content change).
+6. **oneTBB static-Debug teardown assert.** A static Debug oneTBB can trip a benign worker-teardown
+   assert (`small_object_pool.cpp:143`, `m_private_counter >= 0`) at process exit. USD's own oneTBB
+   build was compiled with `-DTBB_USE_ASSERT=0` for it. Since #1575 the Debug runtime is vcpkg's
+   `tbb12_debug.lib`, which keeps its asserts (the string is in the archive). The Debug test binary
+   exits 0 after a USD stage import and the OpenVDB imports; the Debug editor's close was not
+   measured. If the assert returns, set the define for the `tbb` port in an overlay port, not in the
+   triplet, which every port's ABI hash reads.
 7. **`/WHOLEARCHIVE:` needs a FULL PATH — a bare library name is not portable across the two
    Windows linkers** (#697). `link.exe` resolves a bare `/WHOLEARCHIVE:usd_m` against `/LIBPATH`;
    **`lld-link` does not** — it opens the argument as a path relative to the working directory only,
