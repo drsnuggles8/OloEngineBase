@@ -128,10 +128,23 @@ locked build completed and checked dependencies for 2,072 objects; pre-commit pa
 - Authored serialized fields, scene/save-game/asset-pack formats and C#/Lua entry points do not
   change. Terrain transforms continue through the existing owner update; physics is not moved.
 
-Final test SHA256: `f202f3ac29ad8cce6f2fed83a68b2a8e74a25649a9f19651b33b5b2bce080603`.
-Final editor: `a22291d65d1da49333a92475e130991585d59b362a44059dee7540e283835dbd`.
-Final runtime: `2f55820e72da3c10dfdab578c2769ec4f6490b37cd8c2ccacf1a7add05bcbb6a`.
-Recorded production source is `a1eb7d038`; later commits contain documentation only.
+The measurement matrix above uses production source `a1eb7d038`.
+Measured test SHA256: `f202f3ac29ad8cce6f2fed83a68b2a8e74a25649a9f19651b33b5b2bce080603`.
+Measured editor: `a22291d65d1da49333a92475e130991585d59b362a44059dee7540e283835dbd`.
+Measured runtime: `2f55820e72da3c10dfdab578c2769ec4f6490b37cd8c2ccacf1a7add05bcbb6a`.
+
+Review follow-ups `acfd00665` and `b16ff4f5b` restore allocation-exception refusal, exclude
+cached cull checks from rebuild timing while retaining actual buffer/VAO allocations, and use
+float-aware test assertions. A separate Release rerun passes all 34 CPU/automation and 13 GPU
+checks, including a settled-view timing regression. GL/Vulkan Forward/CSM lifecycle captures
+were inspected again. One uncontended matched 600-frame warm-edit rerun publishes all five
+replacements: wall p50/p95/p99/max 15.07/16.31/18.39/30.94 ms; request frames 15.97–18.48 ms,
+publication frames 14.76–15.97 ms, latency 800–855 ms, and no missing GPU samples. This single
+follow-up run does not replace the three-run campaign above. Evidence stays in ignored
+`.v-build/review-checks-{cpu,gpu}/`, `.v-build/review-current-live-{opengl,vulkan}/` and
+`.v-build/review-current-matched-step4/`.
+Follow-up test SHA256: `59d6dd5ebb47936d1da7edef37984f4d0ef5ead603f62a764f106ebada5eb752`.
+Follow-up editor: `ffc0d7452e20a8344ff478df698fdc9c689b03165e350779b07695c72d8ad931`.
 
 Raw samples, host records, XML, logs, hashes and captures are **local, ignored evidence**, under
 `.v-build/pr-evidence-retained/`, with full protocol notes in `.v-build/pr-evidence-report-full.md`.
