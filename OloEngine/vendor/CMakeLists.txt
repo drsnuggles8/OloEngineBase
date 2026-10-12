@@ -349,7 +349,7 @@ target_include_directories(stb_image INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/stb_
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
-	GIT_TAG 64944b4520b30772de8dbf0b37d0311746477a32  # docking @ 2026-06-05
+	GIT_TAG 778992face67ecefaa5c2932db4b2101545ea4df  # docking @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if(imgui_ADDED)
@@ -373,7 +373,7 @@ endif()
 
 CPMAddPackage(NAME imguizmo
 	GITHUB_REPOSITORY CedricGuillemet/ImGuizmo
-	GIT_TAG 18cef5e031d8c6973d80284c67f60549fafd78c1  # master @ 2026-06-05
+	GIT_TAG 105e4fde45e4e74aae8973d98750820ef7aca7e2  # master @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if (imguizmo_ADDED)
