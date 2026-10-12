@@ -192,6 +192,15 @@ ExternalProject_Add(openusd GIT_REPOSITORY .../OpenUSD.git GIT_TAG v25.11 GIT_SH
    `OloEngine_USD_LIB` carries a `$<CONFIG>` genexpr and `target_link_options` expands
    it per config, so the full-path spelling is also config-matched where the bare name depended on
    `/LIBPATH` search order to land on the right one.
+8. **On Windows USD is built by MSVC's `cl`, through the Visual Studio generator.** An
+   ExternalProject inherits the generator, not the compilers. Under a Ninja tree with no MSVC
+   environment its configure found LLVM's GNU-style `clang++` on `PATH`, and USD stopped at
+   `'cxxabi.h' file not found` (`arch/demangle.cpp`). The parent's `clang-cl` fails too: USD's
+   defaults treat any Clang as GNU-style and pass `-Wno-deprecated`, which clang-cl reads as `/wd`.
+   So a non-VS tree builds USD with the Visual Studio generator, which locates the toolset itself.
+   The bug was latent until #1575 changed the cache key: every earlier cache had been seeded by a
+   Visual Studio tree, and the Ninja trees only ever hit it.
+
 Silent-correctness handling in `UsdMeshImporter`: stage up-axis (Z-up → -90° X rotation),
 `metersPerUnit` scale, `orientation` (leftHanded → reversed winding), primvar interpolation
 (constant/uniform/vertex/faceVarying) indexing incl. indexed primvars, `st` V-flip to the glTF

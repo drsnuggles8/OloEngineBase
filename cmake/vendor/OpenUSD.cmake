@@ -139,6 +139,32 @@ endif()
 set(_olo_usd_byproducts
     "${_olo_usd_install}/Release/lib/${_olo_usd_libfile}" "${_olo_usd_install}/Debug/lib/${_olo_usd_libfile}")
 
+# Which toolchain builds USD. An ExternalProject inherits the generator but NOT the compilers.
+#
+# On Windows USD must be built by MSVC's cl. Under a Ninja tree with no MSVC environment, the
+# nested configure searched PATH and found LLVM's GNU-style clang++, for which USD takes its
+# non-MSVC path and stops at `'cxxabi.h' file not found` in arch/demangle.cpp. Handing it the
+# parent's clang-cl does not work either: USD's compiler defaults treat any Clang as GNU-style and
+# pass -Wno-deprecated, which clang-cl reads as `/wd`. So a Ninja (or any non-VS) parent builds USD
+# with the Visual Studio generator, which locates the toolset itself. Every cache that ever built
+# was seeded that way, by an msvc-preset tree; the other trees only ever hit the cache.
+#
+# Elsewhere the parent's compilers are passed through, so USD and the engine share one toolchain.
+set(_olo_usd_generator_args "")
+set(_olo_usd_toolchain_args "")
+if(WIN32)
+    if(NOT CMAKE_GENERATOR MATCHES "^Visual Studio")
+        # Keep in step with the msvc preset in CMakePresets.json.
+        set(_olo_usd_generator_args CMAKE_GENERATOR "Visual Studio 18 2026" CMAKE_GENERATOR_PLATFORM x64)
+    endif()
+else()
+    foreach(_olo_var CMAKE_C_COMPILER CMAKE_CXX_COMPILER CMAKE_LINKER CMAKE_AR)
+        if(${_olo_var})
+            list(APPEND _olo_usd_toolchain_args "-D${_olo_var}=${${_olo_var}}")
+        endif()
+    endforeach()
+endif()
+
 ExternalProject_Add(olo_openusd
     GIT_REPOSITORY  https://github.com/PixarAnimationStudios/OpenUSD.git
     GIT_TAG         ${_OLO_USD_TAG}
@@ -146,6 +172,7 @@ ExternalProject_Add(olo_openusd
     GIT_CONFIG      core.longpaths=true
     SOURCE_DIR      "${_olo_usd_cache}/usd-src"
     BINARY_DIR      "${_olo_usd_cache}/usd-build"
+    ${_olo_usd_generator_args}
     # Guard the static-lib PDB-install bug before configure (see patch-usd-pdb.cmake), and make
     # the work library include oneTBB's version header itself, which vcpkg's oneTBB no longer
     # brings in transitively (see patch-usd-tbb-version.cmake).
@@ -179,6 +206,7 @@ ExternalProject_Add(olo_openusd
         # usd_m.lib by path), and every destination we DO consume is relative and therefore
         # correctly per-config via --prefix.
         -DCMAKE_INSTALL_PREFIX=${_olo_usd_install}/Release
+        ${_olo_usd_toolchain_args}
         -DTBB_DIR=${TBB_DIR}
         -DPXR_FIND_TBB_IN_CONFIG=ON
         -DBUILD_SHARED_LIBS=OFF
