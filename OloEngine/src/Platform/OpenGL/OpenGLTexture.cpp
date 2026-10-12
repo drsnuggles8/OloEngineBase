@@ -941,6 +941,30 @@ namespace OloEngine
         PopulateMipChain(nullptr);
     }
 
+    bool OpenGLTexture2D::TryReplaceAlphaCoveragePixels(const void* data, u32 size, f32 cutoff)
+    {
+        const u32 channels = m_Specification.Format == ImageFormat::RGBA8 ? 4u : m_Specification.Format == ImageFormat::RGB8 ? 3u
+                                                                                                                             : 0u;
+        if (!data || channels == 0u || m_Specification.Samples > 1u ||
+            m_Width == 0u || m_Height == 0u || size != static_cast<u64>(m_Width) * m_Height * channels)
+            return false;
+        // Attribute errors to this replacement, without silently swallowing an
+        // earlier caller's error. All GPU work stays on the texture owner.
+        for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+            OLO_CORE_WARN("OpenGLTexture2D: GL error {} preceded a checked alpha upload", error);
+        m_AlphaCoverageCutoff = AlphaCoverageMips::SanitizeCutoff(cutoff);
+        const FString path = m_Path;
+        InvalidateImpl(path.ToView(), m_Width, m_Height, data, channels);
+        bool succeeded = m_RendererID != 0u && m_RHIHandle.Get().IsValid();
+        for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+        {
+            OLO_CORE_ERROR("OpenGLTexture2D: checked alpha upload failed with GL error {}", error);
+            succeeded = false;
+        }
+        m_IsLoaded = succeeded;
+        return succeeded;
+    }
+
     void OpenGLTexture2D::SetAlphaCoverageCutoff(f32 cutoff)
     {
         OLO_PROFILE_FUNCTION();

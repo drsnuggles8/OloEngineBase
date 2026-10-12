@@ -695,6 +695,12 @@ namespace OloEngine
     u32 Renderer3D::InvalidateTemporalHistories(
         TemporalHistoryInvalidationCause cause, std::optional<TemporalHistoryEffect> effect)
     {
+        // An unscoped explicit reset includes the upscaler's private history,
+        // which is not a TemporalHistoryRegistry plane. Do not restart clocks
+        // or sampling sequences merely because visible content was replaced.
+        if (cause == TemporalHistoryInvalidationCause::Manual && !effect && s_Data.Pipeline)
+            if (auto fsr2 = s_Data.Pipeline->PostProcessPasses.FSR2)
+                fsr2->RequestHistoryReset();
         return s_Data.RGraph ? s_Data.RGraph->InvalidateTemporalHistories(cause, effect) : 0u;
     }
 

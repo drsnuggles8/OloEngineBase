@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
+#include "OloEngine/Terrain/Foliage/FoliageCullTable.h"
 
 #include <glm/glm.hpp>
 #include <array>
@@ -279,6 +280,14 @@ namespace OloEngine
         {
             return m_LoadFailed;
         }
+
+        // Immutable CPU table, prepared without allocating render resources.
+        using PreparedLayer = FFoliageCullTable;
+
+        [[nodiscard]] static PreparedLayer PrepareLayer(const FoliageInstanceRegistry& registry, u32 layerIndex,
+                                                        u32 instanceCount, const FoliageBoundsProfile& profile);
+        // Fresh backing is private until all chunks and metadata are uploaded.
+        static bool BeginLayerUpload(LayerResources& out, const PreparedLayer& prepared);
 
         // (Re)build `out` from the registry if the generation moved. Returns
         // false when the layer has nothing to cull (no instances, or no groups),

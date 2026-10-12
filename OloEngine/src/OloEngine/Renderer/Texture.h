@@ -233,6 +233,14 @@ namespace OloEngine
         // Not for per-frame use: it re-uploads the chain. A cutoff animated for a
         // dissolve effect must not be routed here.
         virtual void SetAlphaCoverageCutoff(f32 cutoff) = 0;
+        // Checked replacement of RGB8/RGBA8 pixels and their alpha mip chain.
+        // Use on private backing: failure can leave its contents unspecified,
+        // so retain the independently published texture until this succeeds.
+        // Unsupported implementations refuse rather than claiming an upload.
+        [[nodiscard]] virtual bool TryReplaceAlphaCoveragePixels(const void*, u32, f32)
+        {
+            return false;
+        }
         // 0 when the chain is the plain box filter.
         [[nodiscard("Store this!")]] virtual f32 GetAlphaCoverageCutoff() const = 0;
 

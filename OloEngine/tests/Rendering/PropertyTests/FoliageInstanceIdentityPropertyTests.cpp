@@ -41,6 +41,8 @@
 #include "OloEngine/Containers/Array.h"
 
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
+#include "OloEngine/Terrain/Foliage/FoliageGeneration.h"
+#include "OloEngine/Terrain/Foliage/FoliageWind.h"
 #include "OloEngine/Terrain/Foliage/FoliagePlacement.h"
 
 #include <gtest/gtest.h>
@@ -157,6 +159,119 @@ namespace
 namespace OloEngine::Tests
 {
     // ── Regeneration ─────────────────────────────────────────────────────
+
+    TEST(FoliageInstanceIdentity, PreparedGenerationMatchesTheRealSynchronousGeneratorAndKeepsIds)
+    {
+        auto previous = Ref<FFoliageCanonicalState>::Create();
+        auto input = Ref<FFoliageGenerationInput>::Create();
+        input->Layers = { MakeLayer("Grass"), MakeLayer("Flowers", 0.1f) };
+        input->Heights = FlatField(0.5f);
+        input->Resolution = kResolution;
+        input->WorldSizeX = kWorldSizeX;
+        input->WorldSizeZ = kWorldSizeZ;
+        input->HeightScale = kHeightScale;
+        input->Specs.SetNum(input->Layers.Num());
+        Regenerate(previous->Registry, input->Layers, input->Heights);
+        input->Previous = previous;
+        const auto sourceEpoch = previous->Registry.GetRecordsEpoch();
+        const auto output = PrepareFoliageGeneration(input);
+        ASSERT_TRUE(output);
+        EXPECT_TRUE(input->IdentityCopied.load());
+        EXPECT_EQ(previous->Registry.GetRecordsEpoch(), sourceEpoch) << "the published registry must not be mutated";
+        EXPECT_EQ(output->Canonical->Registry.GetCensus(), previous->Registry.GetCensus());
+        EXPECT_EQ(LiveIds(output->Canonical->Registry), LiveIds(previous->Registry));
+        EXPECT_EQ(output->Canonical->Registry.GetGeneration(), previous->Registry.GetGeneration());
+        const auto& expected = previous->Registry.GetRecords();
+        const auto& actual = output->Canonical->Registry.GetRecords();
+        ASSERT_EQ(actual.Num(), expected.Num());
+        for (i32 index = 0; index < actual.Num(); ++index)
+        {
+            EXPECT_EQ(actual[index].m_StateHash, expected[index].m_StateHash);
+            const auto& row = output->Layers[actual[index].m_LayerIndex].Instances[actual[index].m_BufferIndex];
+            EXPECT_FLOAT_EQ(row.RotationHeight.w, FoliageWindPhase(actual[index].m_Id));
+        }
+    }
+
+    TEST(FoliageInstanceIdentity, PreparationOwnsItsMaskSnapshotAndCancellationProducesNoPayload)
+    {
+        auto input = Ref<FFoliageGenerationInput>::Create();
+        input->Layers = { MakeLayer("Grass") };
+        input->Layers[0].SplatmapChannel = 0;
+        input->Heights = FlatField(0.5f);
+        input->Resolution = kResolution;
+        input->WorldSizeX = kWorldSizeX;
+        input->WorldSizeZ = kWorldSizeZ;
+        input->HeightScale = kHeightScale;
+        input->Specs.SetNum(1);
+        FoliagePlacement::MaskSnapshot source;
+        source.Resolution = 2;
+        source.Planes[0].Init(255, 16);
+        input->Masks = source;
+        source.Planes[0].Init(0, 16);
+        const auto output = PrepareFoliageGeneration(input);
+        ASSERT_TRUE(output);
+        EXPECT_GT(output->Canonical->Registry.GetRecords().Num(), 100);
+        input->IdentityCopied.store(false);
+        input->Cancelled.store(true);
+        EXPECT_FALSE(PrepareFoliageGeneration(input));
+        EXPECT_TRUE(input->IdentityCopied.load());
+    }
+
+    TEST(FoliageInstanceIdentity, DensityGrowthDerivesFromGeometryAndLeavesDisplacementPadsUnscaled)
+    {
+        FoliageBoundsProfile geometry;
+        geometry.m_HalfExtentXZHeightScaled = 2.0f;
+        geometry.m_MinY = -0.5f;
+        geometry.m_MaxY = 3.0f;
+        geometry.m_WindDisplacement = 0.75f;
+        geometry.m_InteractionDisplacement = 1.25f;
+        const auto original = geometry;
+        for (const f32 scale : { 2.0f, 2.0f, 1.0f, 3.0f, 1.0f })
+        {
+            const auto grown = WithFoliageDensityGrowth(geometry, scale);
+            const auto bounds = FoliageInstanceBounds(glm::vec3(0.0f), 1.0f, 1.0f, grown);
+            EXPECT_FLOAT_EQ(bounds.Min.x, -2.0f * scale - 2.0f);
+            EXPECT_FLOAT_EQ(bounds.Min.y, -0.5f * scale - 2.0f);
+            EXPECT_FLOAT_EQ(bounds.Max.y, 3.0f * scale + 2.0f);
+            EXPECT_TRUE(geometry == original);
+        }
+    }
+
+    TEST(FoliageInstanceIdentity, ResidencyMetadataRefreshPreservesPlacementsAndMatchesFullGeneration)
+    {
+        const TArray<FoliageLayer> layers{ MakeLayer("Grass"), MakeLayer("Flowers", 0.1f) };
+        const auto heights = FlatField(0.5f);
+        FoliageInstanceRegistry registry;
+        Regenerate(registry, layers, heights);
+        const auto before = registry.GetRecords();
+        const auto ids = LiveIds(registry);
+        const auto initialGeneration = registry.GetGeneration();
+        registry.BeginMetadataUpdate();
+        EXPECT_FALSE(registry.UpdateLayerMetadata(0, layers[0], FoliageRepresentation::MeshCard, false, {}));
+        EXPECT_EQ(registry.GetGeneration(), initialGeneration);
+        EXPECT_TRUE(registry.UpdateLayerMetadata(0, layers[0], FoliageRepresentation::AuthoredMesh, false, {}));
+        EXPECT_EQ(LiveIds(registry), ids);
+        EXPECT_TRUE(registry.GetLastDelta().m_Added.IsEmpty());
+        EXPECT_TRUE(registry.GetLastDelta().m_Retired.IsEmpty());
+        EXPECT_EQ(registry.GetCensus().m_CanonicalInstances, before.Num());
+        for (i32 index = 0; index < before.Num(); ++index)
+        {
+            const auto& row = registry.GetRecords()[index];
+            EXPECT_EQ(row.m_Key, before[index].m_Key);
+            EXPECT_EQ(row.m_BufferIndex, before[index].m_BufferIndex);
+            EXPECT_EQ(registry.GetIdForBufferRow(row.m_LayerIndex, row.m_BufferIndex), row.m_Id);
+            if (row.m_LayerIndex == 1)
+                EXPECT_EQ(row.m_StateHash, before[index].m_StateHash);
+        }
+        registry.BeginMetadataUpdate();
+        EXPECT_TRUE(registry.UpdateLayerMetadata(0, layers[0], FoliageRepresentation::MeshCard, true, {}));
+        EXPECT_EQ(registry.GetCensus().m_UnsupportedVariants, 1u);
+        EXPECT_EQ(registry.GetCensus().m_MeshCardInstances, registry.GetCensus().m_CanonicalInstances);
+        registry.BeginMetadataUpdate();
+        EXPECT_TRUE(registry.UpdateLayerMetadata(0, layers[0], FoliageRepresentation::MeshCard, false, {}));
+        for (i32 index = 0; index < before.Num(); ++index)
+            EXPECT_EQ(registry.GetRecords()[index].m_StateHash, before[index].m_StateHash);
+    }
 
     TEST(FoliageInstanceIdentity, IdenticalRegenerationKeepsEveryId)
     {

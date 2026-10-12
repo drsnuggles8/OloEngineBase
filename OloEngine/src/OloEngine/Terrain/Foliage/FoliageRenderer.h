@@ -8,7 +8,7 @@
 #include "OloEngine/Terrain/Foliage/FoliageAlphaCoverage.h"
 #include "OloEngine/Terrain/Foliage/FoliageGPUCuller.h"
 #include "OloEngine/Terrain/Foliage/FoliageLodTransition.h"
-#include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
+#include "OloEngine/Terrain/Foliage/FoliageGeneration.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 #include "OloEngine/Terrain/Foliage/FoliageWind.h"
 #include "OloEngine/Renderer/Model.h"
@@ -18,6 +18,8 @@
 
 #include <glm/glm.hpp>
 #include <array>
+#include <chrono>
+#include <optional>
 #include <span>
 #include <functional>
 #include <string>
@@ -195,6 +197,9 @@ namespace OloEngine
         u32 MeshVertexCount = 0;
         u32 MeshIndexCount = 0;
         BoundingBox MeshBounds{}; // Exact optional geometry bounds used for resident impostor rebakes
+        // The pinned card/mesh shape before density compensation. Preserved
+        // through optional-detail eviction, then composed afresh per generation.
+        FoliageBoundsProfile GeometryBoundsProfile{};
         FoliageBoundsProfile BoundsProfile{};
         f32 MeshViewDistance = 0.0f;
         f32 MeshFadeStartDistance = 0.0f;
@@ -359,6 +364,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshVertexCount)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshIndexCount)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshBounds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::GeometryBoundsProfile)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::BoundsProfile)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshViewDistance)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshFadeStartDistance)>::Value &&
@@ -515,6 +521,22 @@ namespace OloEngine
         }
     };
 
+    // CPU wall time at rebuild boundaries. GPU execution is measured by the
+    // existing pass timers; these counters never issue a GPU wait or readback.
+    struct FFoliageRebuildTimings
+    {
+        f64 TotalMs = 0;
+        f64 TerrainSnapshotMs = 0;
+        f64 GeometryMaterialMs = 0;
+        f64 PlacementMs = 0;
+        f64 RegistryMs = 0;
+        f64 InstanceUploadMs = 0;
+        f64 ImpostorMs = 0;
+        f64 AlphaCoverageMs = 0;
+        f64 BoundsMs = 0;
+        f64 CullPreparationMs = 0;
+    };
+
     class FoliageRenderer : public RefCounted
     {
       public:
@@ -545,11 +567,39 @@ namespace OloEngine
             const TerrainMaterial* material,
             f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
 
+        // Warm authored edits retain the complete published generation until
+        // CPU preparation and staged uploads finish. Cold/source-height changes
+        // use the synchronous path to keep roots coherent with the terrain.
+        void RequestRebuild(const TArray<FoliageLayer>& layers, const TerrainData& terrainData,
+                            const TerrainMaterial* material, f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
+        void AdvanceRebuild();
+        [[nodiscard]] bool HasTerrainSourceChanges(const TerrainData& terrainData, const TerrainMaterial* material,
+                                                   f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const;
+        void RefreshStreamingRepresentations(const TArray<FoliageLayer>& layers);
+        [[nodiscard]] bool IsRebuilding() const
+        {
+            return m_Rebuild.has_value();
+        }
+        [[nodiscard]] u64 GetPublishedRebuildSerial() const
+        {
+            return m_PublishedRebuildSerial;
+        }
+        [[nodiscard]] f64 GetRebuildLatencyMs() const
+        {
+            return m_RebuildLatencyMs;
+        }
+        [[nodiscard]] u64 GetRebuildStagingCpuBytes() const;
+
         // The whole system stopped drawing — the component was disabled, or its
         // last layer was removed. Retires every canonical instance rather than
         // leaving records that claim plants exist (issue #1230); ids are not
         // reused afterwards. Idempotent, so Scene can call it unconditionally.
         void ClearInstances();
+
+        [[nodiscard]] const FFoliageRebuildTimings& GetRebuildTimings() const
+        {
+            return m_RebuildTimings;
+        }
 
         // Render all visible foliage layers (frustum culled per-chunk groups)
         void Render(
@@ -725,7 +775,7 @@ namespace OloEngine
             // invalidates no identity (issue #1230) -- only the groups' cached
             // world bounds change, and the registry no-ops when the matrix is
             // unchanged, which is the common case since this runs every frame.
-            m_Registry.SetTerrainTransform(transform);
+            m_Canonical->Registry.SetTerrainTransform(transform);
         }
 
         // Canonical per-instance identity, spatial groups and the
@@ -733,7 +783,7 @@ namespace OloEngine
         // a PROJECTION of these records; nothing may key state on a buffer row.
         [[nodiscard]] const FoliageInstanceRegistry& GetInstanceRegistry() const
         {
-            return m_Registry;
+            return m_Canonical->Registry;
         }
 
         // What each texture a layer draws passes at its AlphaCutoff (issue
@@ -853,6 +903,40 @@ namespace OloEngine
         // capacity grow replaces it.
         void RebuildVertexArrays(LayerRenderData& data) const;
         void UploadInstances(LayerRenderData& data, const TArray<FoliageInstanceData>& instances);
+        FFoliageRebuildTimings m_RebuildTimings;
+        FFoliageGenerationLayerSpec PrepareLayerRenderData(LayerRenderData& data, const FoliageLayer& layer);
+        using FRebuildLoads = TCancellableLoadSet<u64, Ref<FFoliageGenerationPayload>, Ref<FFoliageGenerationInput>>;
+        using FRebuildLoadRecord = FRebuildLoads::FRecord;
+        struct FRebuildState
+        {
+            Ref<FoliageRenderer> Staged;
+            Ref<FFoliageGenerationInput> Input;
+            Ref<FFoliageGenerationPayload> Ready;
+            TArray<u32> BorrowedAtlasNodes;
+            u64 Serial = 0;
+            i32 ResourceLayer = 0;
+            i32 UploadLayer = 0;
+            u32 UploadOffset = 0;
+            u32 CullUploadOffset = 0;
+            bool Launched = false;
+            std::chrono::steady_clock::time_point Started;
+        };
+        std::optional<FRebuildState> m_Rebuild;
+        FRebuildLoads m_RebuildLoads;
+        TArray<Ref<FFoliageGenerationInput>> m_CancelledIdentityReaders;
+        u64 m_NextRebuildSerial = 1;
+        u64 m_PublishedRebuildSerial = 0;
+        f64 m_RebuildLatencyMs = 0;
+        TArray<f32> m_PublishedHeights;
+        TArray<FoliageLayer> m_PublishedLayers;
+        u32 m_PublishedResolution = 0;
+        glm::vec3 m_PublishedTerrainSize{ 0.0f };
+        f32 m_PublishedWindEnvelope = 0;
+        void CancelRebuild();
+        void FenceIdentityReaders();
+        void ShutdownRebuilds();
+        void PublishRebuild();
+        static void RetireRebuildRecords(TArray<FRebuildLoadRecord> records);
 
         // Bakes (or re-bakes) the layer's octahedral impostor atlas if UseImpostor
         // and the mesh/grid/layout differs from what was last baked. No-op otherwise.
@@ -912,7 +996,7 @@ namespace OloEngine
         mutable f32 m_PlanFieldStep = 0.0f;
 
         TArray<LayerRenderData> m_Layers;
-        FoliageInstanceRegistry m_Registry;
+        Ref<FFoliageCanonicalState> m_Canonical = Ref<FFoliageCanonicalState>::Create();
         FoliageGPUCuller m_Culler;
         // The overflow readback (#1581): entry layer * kViewSlotCount + slot.
         FoliageCullDemandReadback m_CullDemand;
@@ -930,6 +1014,15 @@ namespace OloEngine
         bool m_WarnedTooManyParts = false;
         bool m_WarnedCullBracketSkipped = false;
         glm::mat4 m_TerrainTransform{ 1.0f };
+        // Non-owning identity tokens, never dereferenced. Compare the last
+        // requested snapshot, so unchanged input does not cancel a running task.
+        const TerrainData* m_RequestedTerrain = nullptr;
+        const TerrainMaterial* m_RequestedMaterial = nullptr;
+        u64 m_RequestedHeightRevision = 0;
+        u64 m_RequestedSplatmapRevision = 0;
+        glm::vec3 m_RequestedTerrainSize{ 0.0f };
+        void RecordTerrainSources(const TerrainData& terrainData, const TerrainMaterial* material,
+                                  f32 worldSizeX, f32 worldSizeZ, f32 heightScale);
         // The interaction boxes CollectVsmInvalidations submitted last frame:
         // invalidated once more after an influence moves or retires, so its
         // last bend does not stay baked into a page (#1580).

@@ -4,6 +4,7 @@
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
 
 #include "OloEngine/Containers/Array.h"
+#include <array>
 
 namespace OloEngine
 {
@@ -25,6 +26,15 @@ namespace OloEngine
 // cell rather than its row in that buffer.
 namespace OloEngine::FoliagePlacement
 {
+    // Immutable CPU mask snapshot. No TerrainMaterial or GPU-backed texture is
+    // retained by a generation worker.
+    struct MaskSnapshot
+    {
+        std::array<TArray<u8>, 2> Planes;
+        u32 Resolution = 0;
+    };
+
+    [[nodiscard]] MaskSnapshot SnapshotMasks(const TerrainMaterial* material);
     struct Placement
     {
         // The generator grid cell this plant came from. Together with the
@@ -126,6 +136,12 @@ namespace OloEngine::FoliagePlacement
     void GenerateLayer(const FoliageLayer& layer, u32 layerIndex,
                        const TArray<f32>& heights, u32 resolution,
                        const TerrainMaterial* material,
+                       f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
+                       TArray<Placement>& out);
+
+    void GenerateLayer(const FoliageLayer& layer, u32 layerIndex,
+                       const TArray<f32>& heights, u32 resolution,
+                       const MaskSnapshot& masks,
                        f32 worldSizeX, f32 worldSizeZ, f32 heightScale,
                        TArray<Placement>& out);
 } // namespace OloEngine::FoliagePlacement

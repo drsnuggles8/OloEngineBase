@@ -1259,6 +1259,21 @@ namespace OloEngine
                m_Specification.Format == ImageFormat::RGBA8;
     }
 
+    bool VulkanTexture2D::TryReplaceAlphaCoveragePixels(const void* data, u32 size, f32 cutoff)
+    {
+        const u32 channels = m_Specification.Format == ImageFormat::RGBA8 ? 4u : m_Specification.Format == ImageFormat::RGB8 ? 3u
+                                                                                                                             : 0u;
+        if (!data || channels == 0u || m_Specification.Samples > 1u ||
+            m_Width == 0u || m_Height == 0u || size != static_cast<u64>(m_Width) * m_Height * channels)
+            return false;
+        m_AlphaCoverageCutoff = AlphaCoverageMips::SanitizeCutoff(cutoff);
+        const FString path = m_Path;
+        // Invalidate derives the capped chain before allocation and sets Loaded
+        // from UploadPixels' actual result, unlike legacy void SetData.
+        Invalidate(path.ToView(), m_Width, m_Height, data, channels);
+        return m_IsLoaded && m_RHIHandle.Get().IsValid();
+    }
+
     void VulkanTexture2D::SetAlphaCoverageCutoff(f32 cutoff)
     {
         OLO_PROFILE_FUNCTION();

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include <limits>
 #include "OloEngine/Core/PerformanceProfiler.h"
+#include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include "OloEngine/Terrain/Foliage/FoliageWind.h"
@@ -52,6 +53,9 @@
 #include <atomic>
 #include <chrono>
 #include <filesystem>
+#include <cstring>
+#include <stdexcept>
+#include <thread>
 #include <format>
 #include <span>
 #include <string>
@@ -229,7 +233,7 @@ namespace OloEngine
                 contentKey = (contentKey ^ value) * 0x100000001b3ull;
                 contentKey ^= contentKey >> 29u;
             };
-            mixKey(m_Registry.GetGeneration());
+            mixKey(m_Canonical->Registry.GetGeneration());
             mixKey(RHI::HashKey(input.Rest->GetRHIHandle()));
             mixKey(input.VertexCount);
             mixKey(std::bit_cast<u32>(layer.BaseColor.x) | (static_cast<u64>(std::bit_cast<u32>(layer.BaseColor.y)) << 32u));
@@ -244,7 +248,7 @@ namespace OloEngine
             }
             input.ContentKey = contentKey != 0u ? contentKey : 1u;
             input.PlantSetSum = plantSet != 0u ? plantSet : 1u;
-            input.ContentGeneration = m_Registry.GetGeneration();
+            input.ContentGeneration = m_Canonical->Registry.GetGeneration();
             if (cache.HoldsContent(owner, input.FirstPlantId, input.Rest, input.ContentKey))
                 input.HeldPlantCount = static_cast<u32>(records.size());
             else
@@ -313,7 +317,7 @@ namespace OloEngine
                 mixLayers(part.IndexCount);
         }
         const bool splitReused = reflectionsReadVegetation && m_ReflectionSplit.Valid &&
-                                 m_ReflectionSplit.RecordsEpoch == m_Registry.GetRecordsEpoch() &&
+                                 m_ReflectionSplit.RecordsEpoch == m_Canonical->Registry.GetRecordsEpoch() &&
                                  m_ReflectionSplit.LayersKey == layersKey &&
                                  Math::BitwiseEqual(m_ReflectionSplit.Terrain, m_TerrainTransform) &&
                                  glm::length(cameraPosition - m_ReflectionSplit.Camera) < kReflectionSplitTolerance;
@@ -444,7 +448,7 @@ namespace OloEngine
                    lane(RayTracing::VegetationPolicy::CastingAreaCoordinate(registryCell.y, ratio));
         };
         u32 cell = 0u;
-        for (const auto& group : m_Registry.GetGroups())
+        for (const auto& group : m_Canonical->Registry.GetGroups())
         {
             const u32 groupCell = cell++;
             if (group.m_LayerIndex >= m_Layers.Num())
@@ -465,7 +469,7 @@ namespace OloEngine
             TArray<f32> meshDistances, impostorDistances, cardDistances;
             // RebuildGroups keeps these in ascending canonical ID for us, with
             // each one's record index alongside: no lookup per plant.
-            const auto& allRecords = m_Registry.GetRecords();
+            const auto& allRecords = m_Canonical->Registry.GetRecords();
             for (const u32 index : group.m_RecordIndices)
             {
                 const auto* record = &allRecords[static_cast<i32>(index)];
@@ -660,7 +664,7 @@ namespace OloEngine
             m_ReflectionSplit.Valid = reflectionsReadVegetation;
             m_ReflectionSplit.Camera = cameraPosition;
             m_ReflectionSplit.Terrain = m_TerrainTransform;
-            m_ReflectionSplit.RecordsEpoch = m_Registry.GetRecordsEpoch();
+            m_ReflectionSplit.RecordsEpoch = m_Canonical->Registry.GetRecordsEpoch();
             m_ReflectionSplit.LayersKey = layersKey;
         }
         using RayTracing::VegetationPolicy;
@@ -717,16 +721,19 @@ namespace OloEngine
     FoliageRenderer::~FoliageRenderer()
     {
         m_StreamingMemoryReporter.Reset();
+        ShutdownRebuilds();
         m_StreamingLoads.Shutdown();
         for (auto& [index, state] : m_StreamingLayers)
             DropStreamingLayer(state);
         RepresentationStreaming::Get().Release(m_StreamingPinnedKey);
         if (m_StreamingStats.CanonicalCpuBytes)
-            OLO_TRACK_DEALLOC(&m_Registry);
+            OLO_TRACK_DEALLOC(&m_Canonical);
         if (m_StreamingStats.PreparedCpuBytes)
             OLO_TRACK_DEALLOC(&m_StreamingLoads);
         for (auto& layer : m_Layers)
             ImpostorBaker::Free(layer.Impostor);
+        if (LowLevelTasks::FScheduler::Get().GetNumWorkers() > 0)
+            (void)Tasks::Launch("RetireDestroyedFoliageRegistry", [canonical = std::move(m_Canonical)]() {}, Tasks::ETaskPriority::BackgroundNormal);
     }
 
     void FoliageRenderer::BuildQuadGeometry(LayerRenderData& data) const
@@ -937,7 +944,7 @@ namespace OloEngine
         data.MeshIndexCount = 0;
         data.MeshBounds = BoundingBox{};
         data.MeshGeometryPath.Empty();
-        data.BoundsProfile = FoliageBoundsProfile{};
+        data.GeometryBoundsProfile = FoliageBoundsProfile{};
         data.CardNormalTilt = 0.0f;
         data.CardUsesMeshBake = false;
 
@@ -997,10 +1004,10 @@ namespace OloEngine
         // The profile keeps the CARD terms as well, because a layer with a mesh
         // still draws its card past MeshViewDistance — the bound has to hold
         // for both shapes, not just the near one.
-        data.BoundsProfile = FoliageBoundsProfile{};
-        data.BoundsProfile.m_HalfExtentXZHeightScaled = std::max(radiusXZ * glm::root_two<f32>(), 1e-3f);
-        data.BoundsProfile.m_MinY = std::min(box.Min.y, 0.0f);
-        data.BoundsProfile.m_MaxY = std::max(box.Max.y, 1.0f);
+        data.GeometryBoundsProfile = FoliageBoundsProfile{};
+        data.GeometryBoundsProfile.m_HalfExtentXZHeightScaled = std::max(radiusXZ * glm::root_two<f32>(), 1e-3f);
+        data.GeometryBoundsProfile.m_MinY = std::min(box.Min.y, 0.0f);
+        data.GeometryBoundsProfile.m_MaxY = std::max(box.Max.y, 1.0f);
 
         // The authoring convention both this path and the impostor bake assume:
         // base at the origin, unit height. Neither rescales — a mesh authored at
@@ -1148,7 +1155,7 @@ namespace OloEngine
         data.AlphaCoverageDirty = true;
         m_ReflectionSplit.Valid = false;
         m_MainViewCulled = false;
-        // BoundsProfile, CardNormalTilt and CardUsesMeshBake describe the pinned
+        // GeometryBoundsProfile, CardNormalTilt and CardUsesMeshBake describe the pinned
         // card too and intentionally survive. Identity and instances survive.
     }
 
@@ -1309,9 +1316,9 @@ namespace OloEngine
         const auto& box = payload->Bounds;
         data.MeshBounds = box;
         const f32 radius = std::max({ std::abs(box.Min.x), std::abs(box.Max.x), std::abs(box.Min.z), std::abs(box.Max.z) });
-        data.BoundsProfile.m_HalfExtentXZHeightScaled = std::max(data.BoundsProfile.m_HalfExtentXZHeightScaled, radius * glm::root_two<f32>());
-        data.BoundsProfile.m_MinY = std::min(data.BoundsProfile.m_MinY, box.Min.y);
-        data.BoundsProfile.m_MaxY = std::max(data.BoundsProfile.m_MaxY, box.Max.y);
+        data.GeometryBoundsProfile.m_HalfExtentXZHeightScaled = std::max(data.GeometryBoundsProfile.m_HalfExtentXZHeightScaled, radius * glm::root_two<f32>());
+        data.GeometryBoundsProfile.m_MinY = std::min(data.GeometryBoundsProfile.m_MinY, box.Min.y);
+        data.GeometryBoundsProfile.m_MaxY = std::max(data.GeometryBoundsProfile.m_MaxY, box.Max.y);
         data.AlphaCoverageDirty = true;
         // Bake the pinned atlas from this SAME held preparation and geometry.
         if (layer.UseImpostor)
@@ -1408,6 +1415,8 @@ namespace OloEngine
 
     bool FoliageRenderer::UpdateStreamingResidency(const TArray<FoliageLayer>& layers, const glm::vec3& cameraPosition)
     {
+        if (IsRebuilding() || (!m_PublishedLayers.IsEmpty() && m_PublishedLayers != layers))
+            return false;
         bool changed = std::exchange(m_StreamingModeChanged, false);
         m_StreamingLoads.ReapAbandoned();
         TArray<FCompletedRepresentationLoad> completed;
@@ -1486,7 +1495,7 @@ namespace OloEngine
                 state.Path = layer.MeshPath;
             }
             f32 nearest = std::numeric_limits<f32>::max();
-            for (const auto& group : m_Registry.GetGroups())
+            for (const auto& group : m_Canonical->Registry.GetGroups())
             {
                 if (group.m_LayerIndex != i)
                     continue;
@@ -1605,12 +1614,12 @@ namespace OloEngine
         const u64 previouslyPreparedCpu = m_StreamingStats.PreparedCpuBytes;
         m_StreamingStats.PinnedGpuBytes = 0;
         m_StreamingStats.OptionalGpuBytes = 0;
-        m_StreamingStats.CanonicalCpuBytes = m_Registry.GetRecords().GetAllocatedSize() + m_Registry.GetGroups().GetAllocatedSize();
+        m_StreamingStats.CanonicalCpuBytes = m_Canonical->Registry.GetRecords().GetAllocatedSize() + m_Canonical->Registry.GetGroups().GetAllocatedSize();
         m_StreamingStats.ResidentLayers = 0;
         m_StreamingStats.PendingLayers = 0;
         m_StreamingStats.FallbackLayers = 0;
         m_StreamingStats.PreparedCpuBytes = 0;
-        for (const auto& group : m_Registry.GetGroups())
+        for (const auto& group : m_Canonical->Registry.GetGroups())
             m_StreamingStats.CanonicalCpuBytes += group.m_Instances.GetAllocatedSize() + group.m_RecordIndices.GetAllocatedSize();
         const FFoliageMemoryBreakdown breakdown = GetMemoryBreakdown();
         m_StreamingStats.PinnedGpuBytes = breakdown.PinnedBytes();
@@ -1644,9 +1653,9 @@ namespace OloEngine
         if (previouslyTrackedCpu != m_StreamingStats.CanonicalCpuBytes)
         {
             if (previouslyTrackedCpu)
-                OLO_TRACK_DEALLOC(&m_Registry);
+                OLO_TRACK_DEALLOC(&m_Canonical);
             if (m_StreamingStats.CanonicalCpuBytes)
-                OLO_TRACK_CPU_ALLOC(&m_Registry, m_StreamingStats.CanonicalCpuBytes, RendererMemoryTracker::ResourceType::Other, "Foliage canonical arrays");
+                OLO_TRACK_CPU_ALLOC(&m_Canonical, m_StreamingStats.CanonicalCpuBytes, RendererMemoryTracker::ResourceType::Other, "Foliage canonical arrays");
         }
         if (previouslyPreparedCpu != m_StreamingStats.PreparedCpuBytes)
         {
@@ -1856,6 +1865,734 @@ namespace OloEngine
         }
     }
 
+    FFoliageGenerationLayerSpec FoliageRenderer::PrepareLayerRenderData(LayerRenderData& renderData, const FoliageLayer& layer)
+    {
+        auto stageStart = std::chrono::steady_clock::now();
+        const auto finishStage = [&stageStart](f64& accumulatedMs)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            accumulatedMs += std::chrono::duration<f64, std::milli>(now - stageStart).count();
+            stageStart = now;
+        };
+        // Geometry. The card is always built — it is what covers the
+        // distance band and what a layer with no authored mesh draws
+        // everywhere. The authored mesh (issue #1233) is built beside it,
+        // never instead of it, and only re-imported when the path changes.
+        bool geometryChanged = false;
+        if (!renderData.QuadVBO)
+        {
+            BuildQuadGeometry(renderData);
+            geometryChanged = true;
+        }
+
+        const bool meshRequested = layer.UseAuthoredMesh && !layer.MeshPath.IsEmpty();
+        if (!meshRequested)
+        {
+            if (renderData.MeshVBO || !renderData.MeshGeometryPath.IsEmpty())
+            {
+                renderData.MeshVAO = nullptr;
+                renderData.MeshVBO = nullptr;
+                renderData.MeshIBO = nullptr;
+                renderData.MeshParts.Reset();
+                renderData.MeshPartSurfaceUVs.Reset();
+                renderData.AlphaCoverageDirty = true;
+                renderData.MeshModel = nullptr;
+                renderData.MeshVertexCount = 0;
+                renderData.MeshIndexCount = 0;
+                renderData.MeshBounds = BoundingBox{};
+                renderData.MeshGeometryPath.Empty();
+                renderData.CardUsesMeshBake = false;
+                renderData.CardNormalTilt = 0.0f;
+                renderData.GeometryBoundsProfile = FoliageBoundsProfile{};
+                geometryChanged = true;
+            }
+        }
+        else if (renderData.MeshGeometryPath != layer.MeshPath)
+        {
+            if (!m_StreamingEnabled)
+                BuildMeshGeometry(renderData, layer);
+            else
+            {
+                EvictStreamingMesh(renderData);
+                renderData.GeometryBoundsProfile = FoliageBoundsProfile{};
+                renderData.CardUsesMeshBake = false;
+                renderData.CardNormalTilt = 0.0f;
+            }
+            // Recorded even when the import FAILED, so a broken path is
+            // reported once per edit rather than re-imported and re-logged
+            // on every regeneration.
+            renderData.MeshGeometryPath = layer.MeshPath;
+            geometryChanged = true;
+        }
+        renderData.MeshRequested = meshRequested;
+
+        if (geometryChanged || !renderData.VAO)
+        {
+            RebuildVertexArrays(renderData);
+        }
+
+        renderData.BoundsProfile = renderData.GeometryBoundsProfile;
+
+        // Store layer render properties
+        renderData.ViewDistance = layer.ViewDistance;
+        renderData.FadeStartDistance = layer.FadeStartDistance;
+        renderData.WindStrength = layer.WindStrength;
+        renderData.WindSpeed = layer.WindSpeed;
+        renderData.WindWeights = SanitizeFoliageWind(layer.WindStiffness, layer.WindBranchWeight, layer.WindLeafWeight, layer.WindDebugDisplacement);
+        // Sanitised here, once, rather than at each of the three UBO-fill
+        // sites: this number scales a displacement AND derives the bound
+        // that displacement is padded into, so the two must come from the
+        // same value or a layer can bend further than its own AABB.
+        renderData.InteractionResponse =
+            std::isfinite(layer.InteractionResponse) ? std::clamp(layer.InteractionResponse, 0.0f, 8.0f) : 1.0f;
+        renderData.BaseColor = layer.BaseColor;
+        renderData.AlphaCutoff = layer.AlphaCutoff;
+        renderData.CastShadows = layer.CastShadows;
+
+        // LOD transitions + coverage-preserving density (issue #1237).
+        // Sanitised HERE, once, for the same reason InteractionResponse
+        // above is: these numbers reach a smoothstep and a reciprocal
+        // square root in four shader stages AND the cull kernel's drop
+        // test, and the cull may only remove plants the draw would have
+        // drawn transparent — which is only true while both sides read the
+        // same sanitised value.
+        {
+            FoliageLod::Params authored;
+            authored.Enabled = layer.UseDensityLod;
+            authored.StochasticCoverage = layer.LodStochasticCoverage;
+            authored.Start = layer.DensityLodStartDistance;
+            authored.End = layer.DensityLodEndDistance;
+            authored.MinFraction = layer.DensityLodMinFraction;
+            authored.FadeFraction = layer.DensityLodFadeFraction;
+            authored.MaxScale = layer.DensityLodMaxScale;
+            authored.TransitionSpread = layer.LodTransitionSpread;
+            authored.Hysteresis = layer.LodHysteresis;
+            renderData.Lod = FoliageLod::Sanitise(authored);
+        }
+
+        // Near-field hand-over band (issue #1233). Sanitised here rather
+        // than trusted: these reach a smoothstep in the vertex and fragment
+        // stages, where a NaN or an inverted band silently drops the layer.
+        const bool meshDrawable = meshRequested && renderData.MeshVBO && !renderData.MeshParts.IsEmpty();
+        if (meshDrawable)
+        {
+            renderData.MeshViewDistance = std::isfinite(layer.MeshViewDistance)
+                                              ? std::max(layer.MeshViewDistance, 0.0f)
+                                              : 30.0f;
+            renderData.MeshFadeStartDistance = std::isfinite(layer.MeshFadeStartDistance)
+                                                   ? std::clamp(layer.MeshFadeStartDistance, 0.0f,
+                                                                renderData.MeshViewDistance)
+                                                   : std::min(22.0f, renderData.MeshViewDistance);
+        }
+        else
+        {
+            // No mesh: the card covers everything, exactly as before #1233.
+            renderData.MeshViewDistance = 0.0f;
+            renderData.MeshFadeStartDistance = 0.0f;
+        }
+
+        // Load the albedo — foliage albedo is authored colour and needs
+        // sRGB->linear conversion on sample. Keyed on the PATH, the same
+        // rule as the leaf maps below: it used to load only while the Ref
+        // was null, so editing Albedo Path in the inspector kept drawing
+        // the first texture forever — and re-baked the impostor with that
+        // old texture while recording the new path as baked.
+        if (renderData.LoadedAlbedoPath != layer.AlbedoPath)
+        {
+            renderData.LoadedAlbedoPath = layer.AlbedoPath;
+            // An albedo path that resolves to no file (logged by the resolver)
+            // draws with no albedo texture, never a read against the cwd.
+            const std::filesystem::path albedoFile =
+                layer.AlbedoPath.IsEmpty() ? std::filesystem::path{} : ResolveContentPath(layer.AlbedoPath.ToView());
+            renderData.AlbedoTexture = albedoFile.empty()
+                                           ? nullptr
+                                           : Texture2D::Create(albedoFile.generic_string(), /*srgb=*/true);
+            renderData.AlphaCoverageDirty = true;
+        }
+
+        // Every albedo this layer draws is alpha-tested at the LAYER's
+        // cutoff, the card's and each mesh part's alike, so each gets the
+        // mip chain that keeps its passing fraction at every level (issue
+        // #1441). A plain box chain thins a cutout with distance. A no-op
+        // when the cutoff is unchanged, so this costs nothing per
+        // regeneration; editing the cutoff rebuilds the chains.
+        if (renderData.AlbedoTexture)
+            renderData.AlbedoTexture->SetAlphaCoverageCutoff(layer.AlphaCutoff);
+        for (const auto& part : renderData.MeshParts)
+        {
+            // By value: Ref<T> propagates the constness of the handle.
+            if (Ref<Texture2D> partAlbedo = part.Albedo)
+            {
+                if (!m_StreamingEnabled)
+                    partAlbedo->SetAlphaCoverageCutoff(layer.AlphaCutoff);
+            }
+        }
+
+        // ── The leaf material (issue #1234) ─────────────────────────────
+        // All three maps are LINEAR data, not authored colour: a tangent
+        // normal, a roughness and a thickness. sRGB-decoding any of them
+        // would bend the normals and darken the roughness by a gamma
+        // nobody could see in the inspector.
+        //
+        // Keyed on the PATH: a changed path re-opens, an unchanged one does
+        // not, and CLEARING the path drops the Ref so the map bitfield goes
+        // back to "not authored" instead of leaving the last texture bound.
+        const auto loadLeafMap = [](const FString& path, FString& loadedPath,
+                                    Ref<Texture2D>& texture)
+        {
+            // The PATH is the cache key, and it is recorded even when the
+            // load FAILS — same rule as the authored mesh above, for the
+            // same reason: a broken path is re-opened and re-logged on
+            // every regeneration otherwise. Clearing the path in the
+            // inspector drops the Ref, so the map bitfield goes back to
+            // "not authored" rather than leaving the last texture bound.
+            if (loadedPath == path)
+                return;
+            loadedPath = path;
+            const std::filesystem::path file =
+                path.IsEmpty() ? std::filesystem::path{} : ResolveContentPath(path.ToView());
+            texture = file.empty() ? nullptr : Texture2D::Create(file.generic_string(), /*srgb=*/false);
+
+            // Texture2D::Create NEVER RETURNS NULL — a file that will not
+            // open still yields a Ref, and IsLoaded() is the only thing
+            // that says so. Dropping the Ref here is what makes the failure
+            // behave as "no map authored" (the shader uses the layer's
+            // constant, because the map bitfield is derived from the
+            // HANDLE) instead of sampling whatever the failed texture
+            // object contains. Never a silent fallback: a leaf shaded by a
+            // normal the author did not write is worse than one shaded by
+            // the constant they did.
+            if (texture && !texture->IsLoaded())
+            {
+                OLO_CORE_WARN("FoliageRenderer - leaf map '{}' could not be loaded; the layer shades with its "
+                              "authored constant instead of the map.",
+                              path.ToView());
+                texture = nullptr;
+            }
+        };
+        loadLeafMap(layer.NormalMapPath, renderData.LoadedNormalPath, renderData.LeafNormalTexture);
+        loadLeafMap(layer.RoughnessMapPath, renderData.LoadedRoughnessPath, renderData.LeafRoughnessTexture);
+        loadLeafMap(layer.ThicknessMapPath, renderData.LoadedThicknessPath, renderData.LeafThicknessTexture);
+
+        // The scalars, sanitised here as well as at both deserializers —
+        // the inspector writes straight into the component, so a value
+        // typed into the editor never passes through either of those.
+        // Every one of these reaches a pow() exponent, a normalize() or a
+        // clamp bound in the shared shader evaluation.
+        const auto finiteOr = [](f32 v, f32 fallback, f32 lo, f32 hi)
+        { return std::isfinite(v) ? std::clamp(v, lo, hi) : fallback; };
+        renderData.LeafRoughness = finiteOr(layer.Roughness, 0.8f, 0.02f, 1.0f);
+        renderData.LeafNormalStrength = finiteOr(layer.NormalStrength, 1.0f, 0.0f, 4.0f);
+        renderData.LeafThickness = finiteOr(layer.Thickness, 0.5f, 0.0f, 1.0f);
+        renderData.LeafTransmissionStrength = finiteOr(layer.TransmissionStrength, 0.0f, 0.0f, 8.0f);
+        renderData.LeafTransmissionColor =
+            glm::vec3(finiteOr(layer.TransmissionColor.x, 0.42f, 0.0f, 1.0f),
+                      finiteOr(layer.TransmissionColor.y, 0.62f, 0.0f, 1.0f),
+                      finiteOr(layer.TransmissionColor.z, 0.18f, 0.0f, 1.0f));
+        renderData.LeafTransmissionDistortion = finiteOr(layer.TransmissionDistortion, 0.35f, 0.0f, 1.0f);
+        renderData.LeafTransmissionPower = finiteOr(layer.TransmissionPower, 4.0f, 1.0f, 64.0f);
+        renderData.LeafTransmissionWrap = finiteOr(layer.TransmissionWrap, 0.5f, 0.0f, 1.0f);
+        renderData.LeafTransmissionAmbient = finiteOr(layer.TransmissionAmbient, 0.35f, 0.0f, 4.0f);
+
+        // Octahedral impostor LOD (issue #433): store the per-layer params and
+        // bake/re-bake the atlas from the layer mesh if needed.
+        renderData.UseImpostor = layer.UseImpostor;
+        renderData.ImpostorStartDistance = layer.ImpostorStartDistance;
+        renderData.ImpostorTransitionBand = layer.ImpostorTransitionBand;
+        finishStage(m_RebuildTimings.GeometryMaterialMs);
+        UpdateImpostorAtlas(renderData, layer);
+        finishStage(m_RebuildTimings.ImpostorMs);
+
+        // Explicit representation metadata, not a flag a consumer has to
+        // re-derive. A layer that asked for an authored mesh or an impostor
+        // and got neither still draws as a flat card, so its instances are
+        // MeshCard — but the VARIANT it authored is unavailable, and that is
+        // counted rather than left to the one-off log line.
+        const bool impostorRequested = layer.UseImpostor;
+        const bool impostorAvailable = impostorRequested && renderData.Impostor.IsValid();
+
+        // Judged against exactly what EnumerateLayerDraws will draw: the
+        // mesh only while it has a band to cover, the impostor in place of
+        // the flat card when there is one.
+        UpdateAlphaCoverage(renderData, layer, meshDrawable && renderData.MeshViewDistance > 0.0f,
+                            impostorAvailable);
+        finishStage(m_RebuildTimings.AlphaCoverageMs);
+        if (impostorAvailable)
+        {
+            if (!m_ImpostorDepthShader)
+                m_ImpostorDepthShader = Shader::Create("assets/shaders/Foliage_Impostor_Depth.glsl");
+            const f32 radius = FoliageImpostorBoundsRadius(renderData.Impostor.Radius);
+            renderData.BoundsProfile.m_HalfExtentXZHeightScaled = std::max(renderData.BoundsProfile.m_HalfExtentXZHeightScaled, radius);
+            renderData.BoundsProfile.m_MinY = std::min(renderData.BoundsProfile.m_MinY, 0.5f - radius);
+            renderData.BoundsProfile.m_MaxY = std::max(renderData.BoundsProfile.m_MaxY, 0.5f + radius);
+        }
+        // The NEAR field names the representation, because that is what the
+        // instance's bounds and its material assignment are derived from:
+        // an authored-mesh plant still hands over to a card or an impostor
+        // at distance, and reporting it as a card would hide the geometry
+        // that actually costs and actually bounds (issue #1233).
+        FoliageRepresentation representation = FoliageRepresentation::Unsupported;
+        if (meshDrawable)
+        {
+            representation = FoliageRepresentation::AuthoredMesh;
+        }
+        else if (impostorAvailable)
+        {
+            representation = FoliageRepresentation::Impostor;
+        }
+        else if (renderData.VAO)
+        {
+            representation = FoliageRepresentation::MeshCard;
+        }
+
+        // Either authored variant asked for and not delivered counts, and
+        // BuildMeshGeometry / UpdateImpostorAtlas have already said which,
+        // loudly, in the log.
+        const bool variantUnavailable = (impostorRequested && !impostorAvailable) ||
+                                        (meshRequested && !meshDrawable);
+
+        renderData.BoundsProfile.m_WindDisplacement = FoliageWindMaximumDisplacement(layer.WindStrength, renderData.WindWeights, m_LegacyWindEnvelope);
+        // Derived from the AUTHORED response, not from whatever the field
+        // happens to hold this frame: the profile is hashed into every
+        // instance's identity, so a bound that moved with a passing actor
+        // would retire and re-issue the whole layer's ids as it walked past.
+        renderData.BoundsProfile.m_InteractionDisplacement =
+            FoliageInteractionMaximumDisplacement(renderData.InteractionResponse);
+
+        // Coverage-preserving density GROWS the surviving plants (issue
+        // #1237), and a plant is culled by its bound. Uncompensated, the
+        // bound describes the authored size while the vertex stages draw up
+        // to MaxScale times it, so a grown plant is rejected by a box
+        // smaller than the plant and pops in at the edge of the frustum.
+        //
+        // Inflated by the CAP rather than by the distance-dependent factor,
+        // for two reasons that both matter more than the tightness lost: a
+        // bound has to be CONSERVATIVE, and it is hashed into every
+        // instance's identity — a bound that moved with the camera would
+        // retire and re-issue the whole layer's ids every frame, exactly
+        // the trap the interaction displacement above documents.
+        //
+        // Applied here, after every other term, so the registry, the CPU
+        // per-layer AABB and the GPU cull's oloFoliageInstanceBounds all
+        // read the same inflated profile with no shader change at all.
+        if (renderData.Lod.Enabled)
+        {
+            renderData.BoundsProfile = WithFoliageDensityGrowth(renderData.BoundsProfile, renderData.Lod.MaxScale);
+        }
+
+        return { renderData.BoundsProfile, representation, variantUnavailable };
+    }
+
+    void FoliageRenderer::RetireRebuildRecords(TArray<FRebuildLoadRecord> records)
+    {
+        if (records.IsEmpty())
+            return;
+        // These records contain CPU snapshots/results only. Destruction of the
+        // registry's node maps must not become a publication/cancellation stall.
+        (void)Tasks::Launch("RetireFoliageGeneration", [records = std::move(records)]() {}, Tasks::ETaskPriority::BackgroundNormal);
+    }
+
+    void FoliageRenderer::CancelRebuild()
+    {
+        if (!m_Rebuild)
+            return;
+        auto old = std::move(*m_Rebuild);
+        m_Rebuild.reset();
+        old.Input->Cancelled.store(true, std::memory_order_relaxed);
+        TArray<FRebuildLoadRecord> dropped;
+        const auto cancelled = m_RebuildLoads.Cancel(old.Serial, dropped);
+        if (!old.Launched || cancelled == EAssetLoadCancelResult::CancelledBeforeStart)
+            old.Input->IdentityCopied.store(true, std::memory_order_release);
+        else if (!old.Input->IdentityCopied.load(std::memory_order_acquire))
+            m_CancelledIdentityReaders.Add(old.Input);
+        RetireRebuildRecords(std::move(dropped));
+        // Release GPU aliases and atlas claims here, on the owner thread.
+        old.Staged.Reset();
+        (void)Tasks::Launch("RetireFoliageGenerationInput", [input = std::move(old.Input), ready = std::move(old.Ready)]() {}, Tasks::ETaskPriority::BackgroundNormal);
+    }
+
+    void FoliageRenderer::ShutdownRebuilds()
+    {
+        CancelRebuild();
+        m_RebuildLoads.CancelUnstarted();
+        TArray<Tasks::TTask<Ref<FFoliageGenerationPayload>>> tasks;
+        m_RebuildLoads.CollectTasks(tasks);
+        for (auto& task : tasks)
+            task.Wait();
+        TArray<FRebuildLoadRecord> dropped;
+        m_RebuildLoads.Clear(dropped);
+        RetireRebuildRecords(std::move(dropped));
+    }
+
+    void FoliageRenderer::FenceIdentityReaders()
+    {
+        for (const auto& input : m_CancelledIdentityReaders)
+            while (!input->IdentityCopied.load(std::memory_order_acquire))
+                std::this_thread::yield();
+        m_CancelledIdentityReaders.Empty();
+    }
+
+    u64 FoliageRenderer::GetRebuildStagingCpuBytes() const
+    {
+        if (!m_Rebuild)
+            return 0;
+        const auto& input = *m_Rebuild->Input;
+        u64 bytes = input.Heights.GetAllocatedSize() + input.Layers.GetAllocatedSize() + input.Specs.GetAllocatedSize();
+        for (const auto& plane : input.Masks.Planes)
+            bytes += plane.GetAllocatedSize();
+        if (m_Rebuild->Ready)
+            bytes += m_Rebuild->Ready->GetCpuBytes();
+        return bytes;
+    }
+
+    bool FoliageRenderer::HasTerrainSourceChanges(const TerrainData& terrainData, const TerrainMaterial* material,
+                                                  f32 worldSizeX, f32 worldSizeZ, f32 heightScale) const
+    {
+        return m_RequestedTerrain != &terrainData || m_RequestedMaterial != material ||
+               m_RequestedHeightRevision != terrainData.GetHeightRevision() ||
+               m_RequestedSplatmapRevision != (material ? material->GetSplatmapRevision() : 0u) ||
+               !Math::BitwiseEqual(m_RequestedTerrainSize, glm::vec3(worldSizeX, worldSizeZ, heightScale));
+    }
+
+    void FoliageRenderer::RecordTerrainSources(const TerrainData& terrainData, const TerrainMaterial* material,
+                                               f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
+    {
+        m_RequestedTerrain = &terrainData;
+        m_RequestedMaterial = material;
+        m_RequestedHeightRevision = terrainData.GetHeightRevision();
+        m_RequestedSplatmapRevision = material ? material->GetSplatmapRevision() : 0u;
+        m_RequestedTerrainSize = glm::vec3(worldSizeX, worldSizeZ, heightScale);
+    }
+
+    void FoliageRenderer::RequestRebuild(const TArray<FoliageLayer>& layers, const TerrainData& terrainData,
+                                         const TerrainMaterial* material, f32 worldSizeX, f32 worldSizeZ, f32 heightScale)
+    {
+        const auto& heights = terrainData.GetHeightData();
+        const glm::vec3 dimensions(worldSizeX, worldSizeZ, heightScale);
+        const bool sameTerrain = m_PublishedResolution == terrainData.GetResolution() &&
+                                 Math::BitwiseEqual(m_PublishedTerrainSize, dimensions) &&
+                                 m_PublishedHeights.Num() == heights.Num() &&
+                                 (heights.IsEmpty() || std::memcmp(m_PublishedHeights.GetData(), heights.GetData(), static_cast<sizet>(heights.Num()) * sizeof(f32)) == 0);
+        // A changed height field is already visible on the terrain. Commit its
+        // roots in this frame; holding old Y coordinates would detach plants.
+        // Cold generation has no complete previous canopy to retain.
+        if (LowLevelTasks::FScheduler::Get().GetNumWorkers() == 0 || GetTotalInstanceCount() == 0 || !sameTerrain ||
+            !Math::BitwiseEqual(m_PublishedWindEnvelope, m_LegacyWindEnvelope))
+        {
+            GenerateInstances(layers, terrainData, material, worldSizeX, worldSizeZ, heightScale);
+            return;
+        }
+        CancelRebuild();
+        FRebuildState next;
+        next.Started = std::chrono::steady_clock::now();
+        next.Serial = m_NextRebuildSerial++;
+        next.Input = Ref<FFoliageGenerationInput>::Create();
+        next.Input->Layers = layers;
+        for (auto& layer : next.Input->Layers)
+        {
+            layer.AlbedoTexture.Reset();
+            layer.NormalTexture.Reset();
+            layer.RoughnessTexture.Reset();
+            layer.ThicknessTexture.Reset();
+        }
+        next.Input->Heights = heights;
+        next.Input->Masks = FoliagePlacement::SnapshotMasks(material);
+        // A GPU mirror synchronization may itself advance the height revision.
+        RecordTerrainSources(terrainData, material, worldSizeX, worldSizeZ, heightScale);
+        next.Input->Resolution = terrainData.GetResolution();
+        next.Input->WorldSizeX = worldSizeX;
+        next.Input->WorldSizeZ = worldSizeZ;
+        next.Input->HeightScale = heightScale;
+        next.Input->Previous = m_Canonical;
+        next.Input->Specs.SetNum(layers.Num());
+        next.Staged = Ref<FoliageRenderer>::Create();
+        next.Staged->m_StreamingEnabled = m_StreamingEnabled;
+        next.Staged->m_LegacyWindEnvelope = m_LegacyWindEnvelope;
+        next.Staged->m_ImpostorDepthShader = m_ImpostorDepthShader;
+        next.Staged->m_Layers = m_Layers;
+        next.BorrowedAtlasNodes.Init(AtlasAllocator::kInvalidNode, layers.Num());
+        for (i32 index = 0; index < next.Staged->m_Layers.Num(); ++index)
+        {
+            auto& data = next.Staged->m_Layers[index];
+            if (index < layers.Num())
+                next.BorrowedAtlasNodes[index] = data.Impostor.BudgetNode;
+            // Texture aliases may be shared, but an atlas budget claim has one
+            // owner. Transfer unchanged claims only at coherent publication.
+            data.Impostor.BudgetNode = AtlasAllocator::kInvalidNode;
+            data.InstanceVBO.Reset();
+            data.InstanceCapacity = 0;
+            data.InstanceCount = 0;
+            data.CullLayer = {};
+            for (auto& view : data.CullViews)
+                view.Active = false;
+        }
+        next.Staged->m_Layers.SetNum(layers.Num());
+        next.Staged->m_RebuildTimings.TerrainSnapshotMs = std::chrono::duration<f64, std::milli>(
+                                                              std::chrono::steady_clock::now() - next.Started)
+                                                              .count();
+        m_Rebuild.emplace(std::move(next));
+    }
+
+    void FoliageRenderer::AdvanceRebuild()
+    {
+        for (i32 index = m_CancelledIdentityReaders.Num() - 1; index >= 0; --index)
+            if (m_CancelledIdentityReaders[index]->IdentityCopied.load(std::memory_order_acquire))
+                m_CancelledIdentityReaders.RemoveAtSwap(index);
+        TArray<FRebuildLoadRecord> dropped;
+        m_RebuildLoads.ReapAbandoned(dropped);
+        RetireRebuildRecords(std::move(dropped));
+        if (!m_Rebuild)
+            return;
+        auto& next = *m_Rebuild;
+        RendererMemoryOwnerScope owner("Foliage rebuild staging", MemoryLifetime::Asset);
+        try
+        {
+            if (next.ResourceLayer < next.Input->Layers.Num())
+            {
+                const i32 index = next.ResourceLayer++;
+                const auto& layer = next.Input->Layers[index];
+                auto& data = next.Staged->m_Layers[index];
+                if (layer.Enabled && layer.Density > 0.0f)
+                {
+                    // Alpha mip generation mutates its texture. Give a changed
+                    // cutoff private backing, keeping the old canopy untouched.
+                    const auto privatize = [&layer](Ref<Texture2D>& texture)
+                    {
+                        if (!texture || Math::BitwiseEqual(texture->GetAlphaCoverageCutoff(), AlphaCoverageMips::SanitizeCutoff(layer.AlphaCutoff)))
+                            return;
+                        // Only RGBA8 mip pixels (or a decoded compressed chain)
+                        // are mutated by the cutoff setter. R/RG/float albedos
+                        // can retain shared backing without blocking the edit.
+                        const auto format = texture->GetSpecification().Format;
+                        if (format != ImageFormat::RGBA8 && !IsCompressedFormat(format))
+                            return;
+                        TArray64<u8> pixels;
+                        if (!texture->GetData(pixels))
+                            throw std::runtime_error("could not snapshot a foliage albedo for a cutoff edit");
+                        auto specification = texture->GetSpecification();
+                        // Compressed GetData decodes to RGBA8. Its BC backing
+                        // cannot accept client pixels; retain the colour space.
+                        if (IsCompressedFormat(specification.Format) ||
+                            (specification.Format == ImageFormat::RGB8 && pixels.Num() == static_cast<u64>(specification.Width) * specification.Height * 4u))
+                            specification.Format = ImageFormat::RGBA8;
+                        auto replacement = Texture2D::Create(specification);
+                        if (!replacement || !replacement->IsLoaded() || !replacement->GetRHIHandle().IsValid())
+                            throw std::runtime_error("could not allocate a private foliage albedo");
+                        if (pixels.Num() > std::numeric_limits<u32>::max() ||
+                            !replacement->TryReplaceAlphaCoveragePixels(pixels.GetData(), static_cast<u32>(pixels.Num()), layer.AlphaCutoff))
+                            throw std::runtime_error("could not upload private foliage albedo pixels and alpha mips");
+                        texture = std::move(replacement);
+                    };
+                    const auto alphaStart = std::chrono::steady_clock::now();
+                    privatize(data.AlbedoTexture);
+                    for (auto& part : data.MeshParts)
+                        privatize(part.Albedo);
+                    next.Staged->m_RebuildTimings.AlphaCoverageMs += std::chrono::duration<f64, std::milli>(
+                                                                         std::chrono::steady_clock::now() - alphaStart)
+                                                                         .count();
+                    next.Input->Specs[index] = next.Staged->PrepareLayerRenderData(data, layer);
+                    if (next.Input->Specs[index].Representation == FoliageRepresentation::Unsupported)
+                        throw std::runtime_error("no drawable foliage representation could be prepared; retaining the published generation");
+                }
+                else
+                    data.AlphaCoverage.Reset();
+                return; // one resource layer per frame; visibility stays whole
+            }
+            if (!next.Launched)
+            {
+                // Coalesce rapid edits. An abandoned worker must drain before
+                // another large registry working set is allocated.
+                if (m_RebuildLoads.AbandonedRunningCount() != 0)
+                    return;
+                auto input = next.Input;
+                m_RebuildLoads.Launch("PrepareFoliageGeneration", next.Serial, input, [input]() mutable -> Ref<FFoliageGenerationPayload>
+                                      {
+                                          try { return PrepareFoliageGeneration(input); }
+                                          catch (const std::exception& error)
+                                          {
+                                              input->IdentityCopied.store(true, std::memory_order_release);
+                                              OLO_CORE_ERROR("Foliage CPU generation failed: {}", error.what());
+                                              return {};
+                                          }
+                                          catch (...)
+                                          {
+                                              input->IdentityCopied.store(true, std::memory_order_release);
+                                              OLO_CORE_ERROR("Foliage CPU generation failed with an unknown exception");
+                                              return {};
+                                          } }, std::nullopt);
+                next.Launched = true;
+                return;
+            }
+            if (!next.Ready)
+            {
+                TArray<FRebuildLoadRecord> completed;
+                m_RebuildLoads.ExtractCompleted(completed);
+                if (completed.IsEmpty())
+                    return;
+                for (auto& record : completed)
+                    if (record.Key == next.Serial)
+                        next.Ready = record.Task.GetResult();
+                RetireRebuildRecords(std::move(completed));
+                if (!next.Ready)
+                    throw std::runtime_error("foliage CPU preparation produced no replacement");
+                next.Staged->m_Canonical = next.Ready->Canonical;
+            }
+            if (next.UploadLayer >= next.Ready->Layers.Num())
+            {
+                PublishRebuild();
+                return;
+            }
+            const i32 index = next.UploadLayer;
+            auto& data = next.Staged->m_Layers[index];
+            const auto& rows = next.Ready->Layers[index];
+            const u64 bytes64 = static_cast<u64>(rows.Instances.Num()) * sizeof(FoliageInstanceData);
+            if (bytes64 > std::numeric_limits<u32>::max())
+                throw std::runtime_error("foliage instance stream exceeds the buffer API range");
+            const auto bytes = static_cast<u32>(bytes64);
+            const auto started = std::chrono::steady_clock::now();
+            if (bytes > 0 && !data.InstanceVBO)
+            {
+                data.InstanceCapacity = static_cast<u32>(rows.Instances.Num());
+                data.InstanceVBO = VertexBuffer::Create(bytes);
+                if (!data.InstanceVBO || !data.InstanceVBO->GetRHIHandle().IsValid())
+                    throw std::runtime_error("foliage instance buffer allocation failed");
+                data.InstanceVBO->SetLayout({ { ShaderDataType::Float4, "a_PositionScale" },
+                                              { ShaderDataType::Float4, "a_RotationHeight" },
+                                              { ShaderDataType::Float4, "a_ColorAlpha" } });
+            }
+            // Fresh backing has no old draw reader. No in-place update waits;
+            // each frame transfers at most 2 MiB, including the largest layer.
+            constexpr u32 kUploadBytesPerFrame = 2u * 1024u * 1024u;
+            const u32 transfer = std::min(bytes - next.UploadOffset, kUploadBytesPerFrame);
+            if (transfer > 0)
+                if (!RenderCommand::TryUploadBufferSubData(data.InstanceVBO->GetRHIHandle(), next.UploadOffset, transfer,
+                                                           reinterpret_cast<const u8*>(rows.Instances.GetData()) + next.UploadOffset))
+                    throw std::runtime_error("foliage instance transfer failed");
+            next.UploadOffset += transfer;
+            next.Staged->m_RebuildTimings.InstanceUploadMs += std::chrono::duration<f64, std::milli>(
+                                                                  std::chrono::steady_clock::now() - started)
+                                                                  .count();
+            if (next.UploadOffset != bytes)
+                return;
+            const auto cullStart = std::chrono::steady_clock::now();
+            const auto& table = rows.CullTable;
+            // A draw-mode toggle cannot change an in-flight transfer's target.
+            // Prepare the table once so either draw mode is ready at publication.
+            const u32 cullBytes = static_cast<u32>(table.Words.Num() * sizeof(u32));
+            if (cullBytes > 0)
+            {
+                if (!data.CullLayer.LayerBuffer && !FoliageGPUCuller::BeginLayerUpload(data.CullLayer, table))
+                    throw std::runtime_error("foliage cull buffer allocation failed");
+                const auto cullTransfer = std::min(cullBytes - next.CullUploadOffset, kUploadBytesPerFrame - transfer);
+                if (cullTransfer > 0 && !RenderCommand::TryUploadBufferSubData(data.CullLayer.LayerBuffer->GetRHIHandle(),
+                                                                               next.CullUploadOffset, cullTransfer,
+                                                                               reinterpret_cast<const u8*>(table.Words.GetData()) + next.CullUploadOffset))
+                    throw std::runtime_error("foliage cull table transfer failed");
+                next.CullUploadOffset += cullTransfer;
+            }
+            next.Staged->m_RebuildTimings.CullPreparationMs += std::chrono::duration<f64, std::milli>(
+                                                                   std::chrono::steady_clock::now() - cullStart)
+                                                                   .count();
+            if (next.CullUploadOffset == cullBytes)
+            {
+                data.InstanceCount = static_cast<u32>(rows.Instances.Num());
+                data.Bounds = rows.Bounds;
+                data.PlantReach = rows.PlantReach;
+                next.Staged->RebuildVertexArrays(data);
+                ++next.UploadLayer;
+                next.UploadOffset = 0;
+                next.CullUploadOffset = 0;
+            }
+        }
+        catch (const std::exception& error)
+        {
+            OLO_CORE_ERROR("Foliage replacement failed: {}", error.what());
+            CancelRebuild();
+        }
+    }
+
+    void FoliageRenderer::RefreshStreamingRepresentations(const TArray<FoliageLayer>& layers)
+    {
+        FenceIdentityReaders();
+        m_Canonical->Registry.BeginMetadataUpdate();
+        for (i32 index = 0; index < layers.Num(); ++index)
+        {
+            const auto& layer = layers[index];
+            if (!layer.Enabled || layer.Density <= 0.0f || index >= m_Layers.Num())
+                continue;
+            auto& data = m_Layers[index];
+            const auto spec = PrepareLayerRenderData(data, layer);
+            if (!m_Canonical->Registry.UpdateLayerMetadata(static_cast<u32>(index), layer, spec.Representation,
+                                                           spec.VariantUnavailable, spec.BoundsProfile))
+                continue;
+            const auto& records = m_Canonical->Registry.GetRecords();
+            bool first = true;
+            data.PlantReach = 0;
+            for (const auto& record : records)
+            {
+                if (record.m_LayerIndex != static_cast<u32>(index))
+                    continue;
+                data.Bounds = first ? record.m_LocalBounds : data.Bounds.Union(record.m_LocalBounds);
+                first = false;
+                const auto reach = glm::max(record.m_LocalBounds.Max - record.m_Position, record.m_Position - record.m_LocalBounds.Min);
+                data.PlantReach = std::max({ data.PlantReach, reach.x, reach.y, reach.z });
+            }
+        }
+        m_ReflectionSplit.Valid = false;
+        m_WindHistory.Reset();
+    }
+
+    void FoliageRenderer::PublishRebuild()
+    {
+        auto next = std::move(*m_Rebuild);
+        m_Rebuild.reset();
+        const bool visibleChanged = m_PublishedLayers != next.Input->Layers ||
+                                    m_Canonical->Registry.GetGeneration() != next.Ready->Canonical->Registry.GetGeneration();
+        for (i32 index = 0; index < next.Staged->m_Layers.Num(); ++index)
+        {
+            auto& atlas = next.Staged->m_Layers[index].Impostor;
+            if (atlas.IsValid() && atlas.BudgetNode == AtlasAllocator::kInvalidNode && index < m_Layers.Num())
+            {
+                atlas.BudgetNode = next.BorrowedAtlasNodes[index];
+                m_Layers[index].Impostor.BudgetNode = AtlasAllocator::kInvalidNode;
+            }
+        }
+        for (auto& layer : m_Layers)
+            ImpostorBaker::Free(layer.Impostor);
+        m_Layers = std::move(next.Staged->m_Layers);
+        // Keep the public registry object stable for callers holding its
+        // reference across frames; move only the completed backing containers.
+        std::swap(m_Canonical->Registry, next.Ready->Canonical->Registry);
+        m_Canonical->Registry.SetTerrainTransform(m_TerrainTransform);
+        m_ImpostorDepthShader = next.Staged->m_ImpostorDepthShader;
+        m_CullDemand.DiscardInFlight();
+        if (visibleChanged)
+        {
+            m_WindHistory.Reset();
+            // Instance motion has no previous placement/size endpoint. Break
+            // raster and upscaler history exactly when new pixels can appear.
+            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
+        }
+        m_ReflectionSplit.Valid = false;
+        m_MainViewCulled = false;
+        m_RebuildTimings = next.Staged->m_RebuildTimings;
+        m_RebuildTimings.PlacementMs = next.Ready->PlacementMs;
+        m_RebuildTimings.RegistryMs = next.Ready->RegistryMs;
+        m_RebuildTimings.BoundsMs = next.Ready->BoundsMs;
+        m_RebuildTimings.CullPreparationMs += next.Ready->CullPreparationMs;
+        m_RebuildTimings.TotalMs = m_RebuildTimings.TerrainSnapshotMs + m_RebuildTimings.GeometryMaterialMs + m_RebuildTimings.ImpostorMs +
+                                   m_RebuildTimings.AlphaCoverageMs + m_RebuildTimings.InstanceUploadMs +
+                                   m_RebuildTimings.PlacementMs + m_RebuildTimings.RegistryMs + m_RebuildTimings.BoundsMs +
+                                   m_RebuildTimings.CullPreparationMs;
+        m_PublishedLayers = next.Input->Layers;
+        m_PublishedRebuildSerial = next.Serial;
+        m_RebuildLatencyMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - next.Started).count();
+        // Drop the child's alias before scheduling retirement: otherwise a
+        // fast retirement task could leave the child as the last CPU owner.
+        next.Staged->m_Canonical = Ref<FFoliageCanonicalState>::Create();
+        (void)Tasks::Launch("RetirePublishedFoliageGeneration", [input = std::move(next.Input), ready = std::move(next.Ready)]() {}, Tasks::ETaskPriority::BackgroundNormal);
+    }
+
     void FoliageRenderer::GenerateInstances(
         const TArray<FoliageLayer>& layers,
         const TerrainData& terrainData,
@@ -1865,7 +2602,21 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         RendererMemoryOwnerScope foliageOwner("Foliage pinned representations", MemoryLifetime::Asset);
 
-        m_WindHistory.Reset();
+        CancelRebuild();
+        FenceIdentityReaders();
+        auto publishedCanonical = m_Canonical;
+        m_Canonical = Ref<FFoliageCanonicalState>::Create();
+        m_Canonical->Registry.SeedRebuildIdentity(publishedCanonical->Registry);
+        m_Canonical->Registry.SetTerrainTransform(m_TerrainTransform);
+        m_RebuildTimings = {};
+        const auto rebuildStart = std::chrono::steady_clock::now();
+        auto stageStart = rebuildStart;
+        const auto finishStage = [&stageStart](f64& accumulatedMs)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            accumulatedMs += std::chrono::duration<f64, std::milli>(now - stageStart).count();
+            stageStart = now;
+        };
 
         // A shrinking layer list drops the trailing LayerRenderData entries
         // below — free their impostor VRAM budget claims first, or resize()
@@ -1882,13 +2633,15 @@ namespace OloEngine
         // for survival; a placement this pass does not re-emit — because its
         // layer vanished, was disabled, or its cell stopped qualifying — retires
         // at EndGeneration and its id is never handed to another plant.
-        m_Registry.BeginGeneration(layers);
+        m_Canonical->Registry.BeginGeneration(layers);
+        finishStage(m_RebuildTimings.RegistryMs);
 
         // One CPU/GPU height sync for the whole generation rather than two per
         // grid cell, which is what going through TerrainData::GetHeightAt and
         // GetNormalAt cost (each calls SyncFromGPU).
         const TArray<f32>& heights = terrainData.GetHeightData();
         const u32 heightResolution = terrainData.GetResolution();
+        finishStage(m_RebuildTimings.TerrainSnapshotMs);
 
         TArray<FoliagePlacement::Placement> placements;
         TArray<FoliageInstanceData> instances;
@@ -1914,319 +2667,17 @@ namespace OloEngine
                 continue;
             }
 
-            // Geometry. The card is always built — it is what covers the
-            // distance band and what a layer with no authored mesh draws
-            // everywhere. The authored mesh (issue #1233) is built beside it,
-            // never instead of it, and only re-imported when the path changes.
-            bool geometryChanged = false;
-            if (!renderData.QuadVBO)
-            {
-                BuildQuadGeometry(renderData);
-                geometryChanged = true;
-            }
-
-            const bool meshRequested = layer.UseAuthoredMesh && !layer.MeshPath.IsEmpty();
-            if (!meshRequested)
-            {
-                if (renderData.MeshVBO || !renderData.MeshGeometryPath.IsEmpty())
-                {
-                    renderData.MeshVAO = nullptr;
-                    renderData.MeshVBO = nullptr;
-                    renderData.MeshIBO = nullptr;
-                    renderData.MeshParts.Reset();
-                    renderData.MeshPartSurfaceUVs.Reset();
-                    renderData.AlphaCoverageDirty = true;
-                    renderData.MeshModel = nullptr;
-                    renderData.MeshVertexCount = 0;
-                    renderData.MeshIndexCount = 0;
-                    renderData.MeshBounds = BoundingBox{};
-                    renderData.MeshGeometryPath.Empty();
-                    renderData.CardUsesMeshBake = false;
-                    renderData.CardNormalTilt = 0.0f;
-                    renderData.BoundsProfile = FoliageBoundsProfile{};
-                    geometryChanged = true;
-                }
-            }
-            else if (renderData.MeshGeometryPath != layer.MeshPath)
-            {
-                if (!m_StreamingEnabled)
-                    BuildMeshGeometry(renderData, layer);
-                else
-                {
-                    EvictStreamingMesh(renderData);
-                    renderData.BoundsProfile = FoliageBoundsProfile{};
-                    renderData.CardUsesMeshBake = false;
-                    renderData.CardNormalTilt = 0.0f;
-                }
-                // Recorded even when the import FAILED, so a broken path is
-                // reported once per edit rather than re-imported and re-logged
-                // on every regeneration.
-                renderData.MeshGeometryPath = layer.MeshPath;
-                geometryChanged = true;
-            }
-            renderData.MeshRequested = meshRequested;
-
-            if (geometryChanged || !renderData.VAO)
-            {
-                RebuildVertexArrays(renderData);
-            }
-
-            // Store layer render properties
-            renderData.ViewDistance = layer.ViewDistance;
-            renderData.FadeStartDistance = layer.FadeStartDistance;
-            renderData.WindStrength = layer.WindStrength;
-            renderData.WindSpeed = layer.WindSpeed;
-            renderData.WindWeights = SanitizeFoliageWind(layer.WindStiffness, layer.WindBranchWeight, layer.WindLeafWeight, layer.WindDebugDisplacement);
-            // Sanitised here, once, rather than at each of the three UBO-fill
-            // sites: this number scales a displacement AND derives the bound
-            // that displacement is padded into, so the two must come from the
-            // same value or a layer can bend further than its own AABB.
-            renderData.InteractionResponse =
-                std::isfinite(layer.InteractionResponse) ? std::clamp(layer.InteractionResponse, 0.0f, 8.0f) : 1.0f;
-            renderData.BaseColor = layer.BaseColor;
-            renderData.AlphaCutoff = layer.AlphaCutoff;
-            renderData.CastShadows = layer.CastShadows;
-
-            // LOD transitions + coverage-preserving density (issue #1237).
-            // Sanitised HERE, once, for the same reason InteractionResponse
-            // above is: these numbers reach a smoothstep and a reciprocal
-            // square root in four shader stages AND the cull kernel's drop
-            // test, and the cull may only remove plants the draw would have
-            // drawn transparent — which is only true while both sides read the
-            // same sanitised value.
-            {
-                FoliageLod::Params authored;
-                authored.Enabled = layer.UseDensityLod;
-                authored.StochasticCoverage = layer.LodStochasticCoverage;
-                authored.Start = layer.DensityLodStartDistance;
-                authored.End = layer.DensityLodEndDistance;
-                authored.MinFraction = layer.DensityLodMinFraction;
-                authored.FadeFraction = layer.DensityLodFadeFraction;
-                authored.MaxScale = layer.DensityLodMaxScale;
-                authored.TransitionSpread = layer.LodTransitionSpread;
-                authored.Hysteresis = layer.LodHysteresis;
-                renderData.Lod = FoliageLod::Sanitise(authored);
-            }
-
-            // Near-field hand-over band (issue #1233). Sanitised here rather
-            // than trusted: these reach a smoothstep in the vertex and fragment
-            // stages, where a NaN or an inverted band silently drops the layer.
-            const bool meshDrawable = meshRequested && renderData.MeshVBO && !renderData.MeshParts.IsEmpty();
-            if (meshDrawable)
-            {
-                renderData.MeshViewDistance = std::isfinite(layer.MeshViewDistance)
-                                                  ? std::max(layer.MeshViewDistance, 0.0f)
-                                                  : 30.0f;
-                renderData.MeshFadeStartDistance = std::isfinite(layer.MeshFadeStartDistance)
-                                                       ? std::clamp(layer.MeshFadeStartDistance, 0.0f,
-                                                                    renderData.MeshViewDistance)
-                                                       : std::min(22.0f, renderData.MeshViewDistance);
-            }
-            else
-            {
-                // No mesh: the card covers everything, exactly as before #1233.
-                renderData.MeshViewDistance = 0.0f;
-                renderData.MeshFadeStartDistance = 0.0f;
-            }
-
-            // Load the albedo — foliage albedo is authored colour and needs
-            // sRGB->linear conversion on sample. Keyed on the PATH, the same
-            // rule as the leaf maps below: it used to load only while the Ref
-            // was null, so editing Albedo Path in the inspector kept drawing
-            // the first texture forever — and re-baked the impostor with that
-            // old texture while recording the new path as baked.
-            if (renderData.LoadedAlbedoPath != layer.AlbedoPath)
-            {
-                renderData.LoadedAlbedoPath = layer.AlbedoPath;
-                // An albedo path that resolves to no file (logged by the resolver)
-                // draws with no albedo texture, never a read against the cwd.
-                const std::filesystem::path albedoFile =
-                    layer.AlbedoPath.IsEmpty() ? std::filesystem::path{} : ResolveContentPath(layer.AlbedoPath.ToView());
-                renderData.AlbedoTexture = albedoFile.empty()
-                                               ? nullptr
-                                               : Texture2D::Create(albedoFile.generic_string(), /*srgb=*/true);
-                renderData.AlphaCoverageDirty = true;
-            }
-
-            // Every albedo this layer draws is alpha-tested at the LAYER's
-            // cutoff, the card's and each mesh part's alike, so each gets the
-            // mip chain that keeps its passing fraction at every level (issue
-            // #1441). A plain box chain thins a cutout with distance. A no-op
-            // when the cutoff is unchanged, so this costs nothing per
-            // regeneration; editing the cutoff rebuilds the chains.
-            if (renderData.AlbedoTexture)
-                renderData.AlbedoTexture->SetAlphaCoverageCutoff(layer.AlphaCutoff);
-            for (const auto& part : renderData.MeshParts)
-            {
-                // By value: Ref<T> propagates the constness of the handle.
-                if (Ref<Texture2D> partAlbedo = part.Albedo)
-                {
-                    if (!m_StreamingEnabled)
-                        partAlbedo->SetAlphaCoverageCutoff(layer.AlphaCutoff);
-                }
-            }
-
-            // ── The leaf material (issue #1234) ─────────────────────────────
-            // All three maps are LINEAR data, not authored colour: a tangent
-            // normal, a roughness and a thickness. sRGB-decoding any of them
-            // would bend the normals and darken the roughness by a gamma
-            // nobody could see in the inspector.
-            //
-            // Keyed on the PATH: a changed path re-opens, an unchanged one does
-            // not, and CLEARING the path drops the Ref so the map bitfield goes
-            // back to "not authored" instead of leaving the last texture bound.
-            const auto loadLeafMap = [](const FString& path, FString& loadedPath,
-                                        Ref<Texture2D>& texture)
-            {
-                // The PATH is the cache key, and it is recorded even when the
-                // load FAILS — same rule as the authored mesh above, for the
-                // same reason: a broken path is re-opened and re-logged on
-                // every regeneration otherwise. Clearing the path in the
-                // inspector drops the Ref, so the map bitfield goes back to
-                // "not authored" rather than leaving the last texture bound.
-                if (loadedPath == path)
-                    return;
-                loadedPath = path;
-                const std::filesystem::path file =
-                    path.IsEmpty() ? std::filesystem::path{} : ResolveContentPath(path.ToView());
-                texture = file.empty() ? nullptr : Texture2D::Create(file.generic_string(), /*srgb=*/false);
-
-                // Texture2D::Create NEVER RETURNS NULL — a file that will not
-                // open still yields a Ref, and IsLoaded() is the only thing
-                // that says so. Dropping the Ref here is what makes the failure
-                // behave as "no map authored" (the shader uses the layer's
-                // constant, because the map bitfield is derived from the
-                // HANDLE) instead of sampling whatever the failed texture
-                // object contains. Never a silent fallback: a leaf shaded by a
-                // normal the author did not write is worse than one shaded by
-                // the constant they did.
-                if (texture && !texture->IsLoaded())
-                {
-                    OLO_CORE_WARN("FoliageRenderer - leaf map '{}' could not be loaded; the layer shades with its "
-                                  "authored constant instead of the map.",
-                                  path.ToView());
-                    texture = nullptr;
-                }
-            };
-            loadLeafMap(layer.NormalMapPath, renderData.LoadedNormalPath, renderData.LeafNormalTexture);
-            loadLeafMap(layer.RoughnessMapPath, renderData.LoadedRoughnessPath, renderData.LeafRoughnessTexture);
-            loadLeafMap(layer.ThicknessMapPath, renderData.LoadedThicknessPath, renderData.LeafThicknessTexture);
-
-            // The scalars, sanitised here as well as at both deserializers —
-            // the inspector writes straight into the component, so a value
-            // typed into the editor never passes through either of those.
-            // Every one of these reaches a pow() exponent, a normalize() or a
-            // clamp bound in the shared shader evaluation.
-            const auto finiteOr = [](f32 v, f32 fallback, f32 lo, f32 hi)
-            { return std::isfinite(v) ? std::clamp(v, lo, hi) : fallback; };
-            renderData.LeafRoughness = finiteOr(layer.Roughness, 0.8f, 0.02f, 1.0f);
-            renderData.LeafNormalStrength = finiteOr(layer.NormalStrength, 1.0f, 0.0f, 4.0f);
-            renderData.LeafThickness = finiteOr(layer.Thickness, 0.5f, 0.0f, 1.0f);
-            renderData.LeafTransmissionStrength = finiteOr(layer.TransmissionStrength, 0.0f, 0.0f, 8.0f);
-            renderData.LeafTransmissionColor =
-                glm::vec3(finiteOr(layer.TransmissionColor.x, 0.42f, 0.0f, 1.0f),
-                          finiteOr(layer.TransmissionColor.y, 0.62f, 0.0f, 1.0f),
-                          finiteOr(layer.TransmissionColor.z, 0.18f, 0.0f, 1.0f));
-            renderData.LeafTransmissionDistortion = finiteOr(layer.TransmissionDistortion, 0.35f, 0.0f, 1.0f);
-            renderData.LeafTransmissionPower = finiteOr(layer.TransmissionPower, 4.0f, 1.0f, 64.0f);
-            renderData.LeafTransmissionWrap = finiteOr(layer.TransmissionWrap, 0.5f, 0.0f, 1.0f);
-            renderData.LeafTransmissionAmbient = finiteOr(layer.TransmissionAmbient, 0.35f, 0.0f, 4.0f);
-
-            // Octahedral impostor LOD (issue #433): store the per-layer params and
-            // bake/re-bake the atlas from the layer mesh if needed.
-            renderData.UseImpostor = layer.UseImpostor;
-            renderData.ImpostorStartDistance = layer.ImpostorStartDistance;
-            renderData.ImpostorTransitionBand = layer.ImpostorTransitionBand;
-            UpdateImpostorAtlas(renderData, layer);
-
+            const auto spec = PrepareLayerRenderData(renderData, layer);
+            stageStart = std::chrono::steady_clock::now();
             FoliagePlacement::GenerateLayer(layer, static_cast<u32>(layerIdx), heights, heightResolution,
                                             material, worldSizeX, worldSizeZ, heightScale, placements);
+            finishStage(m_RebuildTimings.PlacementMs);
 
-            // Explicit representation metadata, not a flag a consumer has to
-            // re-derive. A layer that asked for an authored mesh or an impostor
-            // and got neither still draws as a flat card, so its instances are
-            // MeshCard — but the VARIANT it authored is unavailable, and that is
-            // counted rather than left to the one-off log line.
-            const bool impostorRequested = layer.UseImpostor;
-            const bool impostorAvailable = impostorRequested && renderData.Impostor.IsValid();
-
-            // Judged against exactly what EnumerateLayerDraws will draw: the
-            // mesh only while it has a band to cover, the impostor in place of
-            // the flat card when there is one.
-            UpdateAlphaCoverage(renderData, layer, meshDrawable && renderData.MeshViewDistance > 0.0f,
-                                impostorAvailable);
-            if (impostorAvailable)
-            {
-                if (!m_ImpostorDepthShader)
-                    m_ImpostorDepthShader = Shader::Create("assets/shaders/Foliage_Impostor_Depth.glsl");
-                const f32 radius = FoliageImpostorBoundsRadius(renderData.Impostor.Radius);
-                renderData.BoundsProfile.m_HalfExtentXZHeightScaled = std::max(renderData.BoundsProfile.m_HalfExtentXZHeightScaled, radius);
-                renderData.BoundsProfile.m_MinY = std::min(renderData.BoundsProfile.m_MinY, 0.5f - radius);
-                renderData.BoundsProfile.m_MaxY = std::max(renderData.BoundsProfile.m_MaxY, 0.5f + radius);
-            }
-            // The NEAR field names the representation, because that is what the
-            // instance's bounds and its material assignment are derived from:
-            // an authored-mesh plant still hands over to a card or an impostor
-            // at distance, and reporting it as a card would hide the geometry
-            // that actually costs and actually bounds (issue #1233).
-            FoliageRepresentation representation = FoliageRepresentation::Unsupported;
-            if (meshDrawable)
-            {
-                representation = FoliageRepresentation::AuthoredMesh;
-            }
-            else if (impostorAvailable)
-            {
-                representation = FoliageRepresentation::Impostor;
-            }
-            else if (renderData.VAO)
-            {
-                representation = FoliageRepresentation::MeshCard;
-            }
-
-            // Either authored variant asked for and not delivered counts, and
-            // BuildMeshGeometry / UpdateImpostorAtlas have already said which,
-            // loudly, in the log.
-            const bool variantUnavailable = (impostorRequested && !impostorAvailable) ||
-                                            (meshRequested && !meshDrawable);
-
-            renderData.BoundsProfile.m_WindDisplacement = FoliageWindMaximumDisplacement(layer.WindStrength, renderData.WindWeights, m_LegacyWindEnvelope);
-            // Derived from the AUTHORED response, not from whatever the field
-            // happens to hold this frame: the profile is hashed into every
-            // instance's identity, so a bound that moved with a passing actor
-            // would retire and re-issue the whole layer's ids as it walked past.
-            renderData.BoundsProfile.m_InteractionDisplacement =
-                FoliageInteractionMaximumDisplacement(renderData.InteractionResponse);
-
-            // Coverage-preserving density GROWS the surviving plants (issue
-            // #1237), and a plant is culled by its bound. Uncompensated, the
-            // bound describes the authored size while the vertex stages draw up
-            // to MaxScale times it, so a grown plant is rejected by a box
-            // smaller than the plant and pops in at the edge of the frustum.
-            //
-            // Inflated by the CAP rather than by the distance-dependent factor,
-            // for two reasons that both matter more than the tightness lost: a
-            // bound has to be CONSERVATIVE, and it is hashed into every
-            // instance's identity — a bound that moved with the camera would
-            // retire and re-issue the whole layer's ids every frame, exactly
-            // the trap the interaction displacement above documents.
-            //
-            // Applied here, after every other term, so the registry, the CPU
-            // per-layer AABB and the GPU cull's oloFoliageInstanceBounds all
-            // read the same inflated profile with no shader change at all.
-            if (renderData.Lod.Enabled)
-            {
-                const f32 grow = std::max(renderData.Lod.MaxScale, 1.0f);
-                renderData.BoundsProfile.m_HalfExtentXZ *= grow;
-                renderData.BoundsProfile.m_HalfExtentXZHeightScaled *= grow;
-                renderData.BoundsProfile.m_MinY *= grow;
-                renderData.BoundsProfile.m_MaxY *= grow;
-            }
-
-            m_Registry.BeginLayer(static_cast<u32>(layerIdx), layer,
-                                  FoliagePlacement::SeedForLayer(static_cast<u32>(layerIdx)),
-                                  FoliagePlacement::SpacingForDensity(layer.Density),
-                                  worldSizeX, worldSizeZ,
-                                  representation, variantUnavailable, renderData.BoundsProfile);
+            m_Canonical->Registry.BeginLayer(static_cast<u32>(layerIdx), layer,
+                                             FoliagePlacement::SeedForLayer(static_cast<u32>(layerIdx)),
+                                             FoliagePlacement::SpacingForDensity(layer.Density),
+                                             worldSizeX, worldSizeZ,
+                                             spec.Representation, spec.VariantUnavailable, spec.BoundsProfile);
 
             // The buffer row is assigned here and recorded as a PROJECTION of
             // the record. Identity comes from the placement cell, so a
@@ -2236,13 +2687,14 @@ namespace OloEngine
             instances.Reserve(placements.Num());
             for (const auto& placement : placements)
             {
-                m_Registry.AddInstance(placement.m_CellX, placement.m_CellZ, placement.m_Row,
-                                       static_cast<u32>(instances.Num()));
+                m_Canonical->Registry.AddInstance(placement.m_CellX, placement.m_CellZ, placement.m_Row,
+                                                  static_cast<u32>(instances.Num()));
                 auto row = placement.m_Row;
-                row.RotationHeight.w = FoliageWindPhase(m_Registry.GetRecords().Last().m_Id);
+                row.RotationHeight.w = FoliageWindPhase(m_Canonical->Registry.GetRecords().Last().m_Id);
                 instances.Add(row);
             }
-            m_Registry.EndLayer();
+            m_Canonical->Registry.EndLayer();
+            finishStage(m_RebuildTimings.RegistryMs);
 
             // Compute bounding box from all instance positions (with height expansion)
             if (!instances.IsEmpty())
@@ -2272,14 +2724,44 @@ namespace OloEngine
                 renderData.PlantReach = 0.0f;
             }
 
+            finishStage(m_RebuildTimings.BoundsMs);
             UploadInstances(renderData, instances);
+            finishStage(m_RebuildTimings.InstanceUploadMs);
         }
 
-        m_Registry.EndGeneration();
+        m_Canonical->Registry.EndGeneration();
+        const bool visibleChanged = m_PublishedLayers != layers ||
+                                    publishedCanonical->Registry.GetGeneration() != m_Canonical->Registry.GetGeneration();
+        finishStage(m_RebuildTimings.RegistryMs);
+        m_RebuildTimings.TotalMs = std::chrono::duration<f64, std::milli>(
+                                       std::chrono::steady_clock::now() - rebuildStart)
+                                       .count();
+        m_RebuildLatencyMs = m_RebuildTimings.TotalMs;
+        m_PublishedHeights = heights;
+        m_PublishedLayers = layers;
+        m_PublishedResolution = heightResolution;
+        m_PublishedTerrainSize = glm::vec3(worldSizeX, worldSizeZ, heightScale);
+        m_PublishedWindEnvelope = m_LegacyWindEnvelope;
+        m_PublishedRebuildSerial = m_NextRebuildSerial++;
+        RecordTerrainSources(terrainData, material, worldSizeX, worldSizeZ, heightScale);
+        if (visibleChanged)
+        {
+            m_WindHistory.Reset();
+            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
+        }
+        std::swap(publishedCanonical->Registry, m_Canonical->Registry);
+        auto retiredCanonical = std::move(m_Canonical);
+        m_Canonical = std::move(publishedCanonical);
+        if (LowLevelTasks::FScheduler::Get().GetNumWorkers() > 0)
+            (void)Tasks::Launch("RetireSynchronousFoliageGeneration", [retired = std::move(retiredCanonical)]() {}, Tasks::ETaskPriority::BackgroundNormal);
     }
 
     void FoliageRenderer::ClearInstances()
     {
+        if (GetTotalInstanceCount() != 0u)
+            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
+        CancelRebuild();
+        FenceIdentityReaders();
         if (m_StreamingEnabled)
         {
             // Disabled and empty components bypass UpdateStreamingResidency.
@@ -2295,7 +2777,15 @@ namespace OloEngine
             if (hadDetail)
                 m_WindHistory.Reset();
         }
-        m_Registry.Clear();
+        if (!m_Canonical->Registry.GetRecords().IsEmpty() || m_Canonical->Registry.GetCensus() != FoliageCensus{})
+        {
+            auto retired = Ref<FFoliageCanonicalState>::Create();
+            retired->Registry.SeedRebuildIdentity(m_Canonical->Registry, false);
+            std::swap(m_Canonical->Registry, retired->Registry);
+            m_Canonical->Registry.SetTerrainTransform(m_TerrainTransform);
+            if (LowLevelTasks::FScheduler::Get().GetNumWorkers() > 0)
+                (void)Tasks::Launch("RetireClearedFoliageGeneration", [retired = std::move(retired)]() {}, Tasks::ETaskPriority::BackgroundNormal);
+        }
         for (auto& layer : m_Layers)
         {
             layer.InstanceCount = 0;
@@ -2504,7 +2994,7 @@ namespace OloEngine
             for (sizet i = 0; i < size; ++i)
                 h = (h ^ p[i]) * 1099511628211ull;
         };
-        const u64 generation = m_Registry.GetGeneration();
+        const u64 generation = m_Canonical->Registry.GetGeneration();
         mix(&generation, sizeof(generation));
         mix(&m_TerrainTransform, sizeof(m_TerrainTransform));
         mix(&m_LegacyWindEnvelope, sizeof(m_LegacyWindEnvelope));
@@ -2999,6 +3489,7 @@ namespace OloEngine
             return;
         }
 
+        const bool upToDate = data.Impostor.IsValid() && data.ImpostorBakedMeshPath == layer.MeshPath && data.ImpostorBakedFrames == layer.ImpostorFramesPerAxis && data.ImpostorBakedResolution == layer.ImpostorAtlasResolution && data.ImpostorBakedHemi == layer.ImpostorHemiOctahedral && data.ImpostorBakedAlbedoPath == layer.AlbedoPath && Math::BitwiseEqual(data.ImpostorBakedBaseColor, layer.BaseColor) && Math::BitwiseEqual(data.ImpostorBakedAlphaCutoff, layer.AlphaCutoff);
         const bool streamingGeometry = m_StreamingEnabled && layer.UseAuthoredMesh;
         if (streamingGeometry)
         {
@@ -3006,7 +3497,22 @@ namespace OloEngine
             // admitted geometry, including during later material/layout edits;
             // a sibling's ready payload for the same path cannot supply it.
             if (!data.MeshVBO || !data.MeshIBO || data.MeshParts.IsEmpty() || data.MeshGeometryPath != layer.MeshPath)
-                return; // retain the pinned atlas/card while optional geometry is absent
+            {
+                // A pinned atlas belongs to its exact authored inputs. Optional
+                // detail may be absent, but a different mesh/material must use
+                // the complete card fallback until new geometry is admitted.
+                if (!upToDate)
+                {
+                    ImpostorBaker::Free(data.Impostor);
+                    data.Impostor = {};
+                    data.ImpostorBakedMeshPath.Empty();
+                    data.ImpostorPartTextures.Reset();
+                    data.ImpostorPartSurfaceUVs.Reset();
+                    data.ImpostorPartCoverage.Reset();
+                    data.AlphaCoverageDirty = true;
+                }
+                return;
+            }
             const f32 cutoff = AlphaCoverageMips::SanitizeCutoff(layer.AlphaCutoff);
             for (const auto& part : data.MeshParts)
                 if (part.Albedo && !Math::BitwiseEqual(part.Albedo->GetAlphaCoverageCutoff(), cutoff))
@@ -3017,7 +3523,6 @@ namespace OloEngine
         // atlas resolution, layout, AND the material inputs (albedo texture path,
         // tint, alpha cutoff) — the bake bakes those in, so a tint/cutoff change
         // with the same mesh must still re-bake or the atlas goes stale.
-        const bool upToDate = data.Impostor.IsValid() && data.ImpostorBakedMeshPath == layer.MeshPath && data.ImpostorBakedFrames == layer.ImpostorFramesPerAxis && data.ImpostorBakedResolution == layer.ImpostorAtlasResolution && data.ImpostorBakedHemi == layer.ImpostorHemiOctahedral && data.ImpostorBakedAlbedoPath == layer.AlbedoPath && Math::BitwiseEqual(data.ImpostorBakedBaseColor, layer.BaseColor) && Math::BitwiseEqual(data.ImpostorBakedAlphaCutoff, layer.AlphaCutoff);
         if (upToDate)
             return;
 
@@ -3481,8 +3986,15 @@ namespace OloEngine
             if (layer.InstanceCount == 0 || !layer.InstanceVBO)
                 continue;
 
-            if (!m_Culler.BuildLayer(layer.CullLayer, m_Registry, layerIndex, layer.InstanceCount,
-                                     layer.BoundsProfile))
+            const auto layerStart = std::chrono::steady_clock::now();
+            const u64 builtBefore = layer.CullLayer.BuiltGeneration;
+            const bool layerBuilt = m_Culler.BuildLayer(layer.CullLayer, m_Canonical->Registry, layerIndex, layer.InstanceCount,
+                                                        layer.BoundsProfile);
+            if (layer.CullLayer.BuiltGeneration != builtBefore)
+                m_RebuildTimings.CullPreparationMs += std::chrono::duration<f64, std::milli>(
+                                                          std::chrono::steady_clock::now() - layerStart)
+                                                          .count();
+            if (!layerBuilt)
                 continue;
 
             // THE list, the same one the beauty and shadow paths walk. Part i of
@@ -3534,7 +4046,7 @@ namespace OloEngine
             // streamed mesh going resident): its region is sized the same way.
             if (!view.Resources.Compacted || (hasMeshPart && view.Resources.MeshCapacity == 0u))
             {
-                const auto estimate = FoliageGPUCuller::EstimateSurvivors(m_Registry, layerIndex, layerInputs, meshReach);
+                const auto estimate = FoliageGPUCuller::EstimateSurvivors(m_Canonical->Registry, layerIndex, layerInputs, meshReach);
                 listWanted = FoliageGPUCuller::StreamCapacityFor(estimate.List, layer.InstanceCount);
                 meshWanted = hasMeshPart ? FoliageGPUCuller::StreamCapacityFor(estimate.Mesh, layer.InstanceCount) : 0u;
             }
@@ -3560,10 +4072,20 @@ namespace OloEngine
                 if (slotIndex != static_cast<u32>(FoliageGPUCuller::ViewSlot::Main))
                     m_VsmRefreshAfterShadowGrow = true;
             }
+            const auto capacityStart = std::chrono::steady_clock::now();
+            const auto stateBefore = view.Resources.State ? view.Resources.State->GetRHIHandle() : RHI::ResourceHandle{};
+            const auto argsBefore = view.Resources.DrawArgs ? view.Resources.DrawArgs->GetRHIHandle() : RHI::ResourceHandle{};
             const bool recreated = m_Culler.EnsureViewCapacity(view.Resources, listWanted, meshWanted,
                                                                layer.CullLayer.GroupCount);
-            if (recreated || (!view.CardVAO && !view.MeshVAO))
+            const auto stateAfter = view.Resources.State ? view.Resources.State->GetRHIHandle() : RHI::ResourceHandle{};
+            const auto argsAfter = view.Resources.DrawArgs ? view.Resources.DrawArgs->GetRHIHandle() : RHI::ResourceHandle{};
+            const bool rebuildArrays = recreated || (!view.CardVAO && !view.MeshVAO);
+            if (rebuildArrays)
                 RebuildCulledVertexArrays(layer, slotIndex);
+            if (rebuildArrays || stateBefore != stateAfter || argsBefore != argsAfter)
+                m_RebuildTimings.CullPreparationMs += std::chrono::duration<f64, std::milli>(
+                                                          std::chrono::steady_clock::now() - capacityStart)
+                                                          .count();
 
             // Only the MAIN view publishes the ratio counters — see the
             // s_EmitStats comment in FoliageCullCommon.glsl.

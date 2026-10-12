@@ -8,8 +8,11 @@
 #include "Automation/AutomationSceneDocument.h"
 #include "MCP/McpServer.h"
 #include "MCP/McpTools.h"
+#include "MCP/McpToolsCommon.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
+#include "UndoRedo/ComponentCommands.h"
 #include "UndoRedo/EntityCommands.h"
 #include "TestTempDir.h"
 
@@ -144,6 +147,60 @@ namespace OloEngine::Automation::Tests
         std::unique_ptr<DocumentHost> m_Host;
         AutomationRegistry m_Registry;
     };
+
+    TEST_F(McpAutomationSceneLifecycle, FoliageAuthoringReplayKeepsItsRendererWhileSceneCopiesStartFresh)
+    {
+        Entity entity = m_Host->Document.SceneRef->CreateEntity("Foliage");
+        auto& component = entity.AddComponent<FoliageComponent>();
+        component.m_Layers.Add(FoliageLayer{});
+        component.m_Layers[0].Density = 0.5f;
+        const auto renderer = Ref<FoliageRenderer>::Create();
+        component.m_Renderer = renderer;
+        component.m_NeedsRebuild = false;
+        const auto before = component;
+        EXPECT_FALSE(before.m_Renderer) << "a scene copy must not share rendering state";
+        auto after = before;
+        after.m_Layers[0].Density = 0.75f;
+        m_Host->History.Execute(std::make_unique<ComponentChangeCommand<FoliageComponent>>(
+            m_Host->Document.SceneRef, entity.GetUUID(), before, after));
+        EXPECT_EQ(component.m_Renderer, renderer);
+        EXPECT_FLOAT_EQ(component.m_Layers[0].Density, 0.75f);
+        EXPECT_TRUE(component.m_NeedsRebuild);
+        component.m_NeedsRebuild = false;
+        Success("olo_editor_undo");
+        EXPECT_EQ(component.m_Renderer, renderer);
+        EXPECT_FLOAT_EQ(component.m_Layers[0].Density, 0.5f);
+        EXPECT_TRUE(component.m_NeedsRebuild);
+        component.m_NeedsRebuild = false;
+        Success("olo_editor_redo");
+        EXPECT_EQ(component.m_Renderer, renderer);
+        EXPECT_FLOAT_EQ(component.m_Layers[0].Density, 0.75f);
+        EXPECT_TRUE(component.m_NeedsRebuild);
+    }
+
+    TEST_F(McpAutomationSceneLifecycle, FoliageRebuildUsesTheSceneFlagAndRequiresWriteConsent)
+    {
+        MCP::RegisterStreamingResidencyTools(m_Registry);
+        Entity entity = m_Host->Document.SceneRef->CreateEntity("Terrain");
+        entity.AddComponent<TerrainComponent>();
+        auto& foliage = entity.AddComponent<FoliageComponent>();
+        foliage.m_Layers.Add(FoliageLayer{});
+        foliage.m_NeedsRebuild = false;
+        const Json arguments{ { "entity", std::to_string(static_cast<u64>(entity.GetUUID())) } };
+        const auto refused = m_Registry.Invoke(*m_Host, "olo_foliage_rebuild", arguments);
+        EXPECT_EQ(refused.Outcome, AutomationInvocation::Status::WriteConsentWithheld);
+        EXPECT_FALSE(foliage.m_NeedsRebuild);
+
+        const auto before = SceneSerializer(m_Host->Document.SceneRef).SerializeToYAML();
+        EXPECT_TRUE(Success("olo_foliage_rebuild", arguments)["ok"]);
+        EXPECT_TRUE(foliage.m_NeedsRebuild);
+        EXPECT_EQ(SceneSerializer(m_Host->Document.SceneRef).SerializeToYAML(), before);
+
+        foliage.m_Enabled = false;
+        foliage.m_NeedsRebuild = false;
+        EXPECT_FALSE(Success("olo_foliage_rebuild", arguments)["ok"]);
+        EXPECT_FALSE(foliage.m_NeedsRebuild);
+    }
 
     TEST_F(McpAutomationSceneLifecycle, NewUndoRestoresActualSceneSelectionPathAndCheckpoint)
     {

@@ -1924,6 +1924,31 @@ namespace OloEngine
         glNamedBufferSubData(bufferID, static_cast<GLintptr>(offsetBytes), static_cast<GLsizeiptr>(sizeBytes), data);
     }
 
+    bool OpenGLRendererAPI::TryUploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes,
+                                                   const void* data)
+    {
+        const GLuint bufferID = Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer);
+        if (bufferID == 0u || (sizeBytes != 0u && data == nullptr))
+            return false;
+        for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+            OLO_CORE_WARN("OpenGLRendererAPI: GL error {} preceded a checked buffer upload", error);
+        // Query allocation metadata, not buffer contents. A name can be valid
+        // even when its storage allocation failed; that backing must not publish.
+        GLint64 capacity = 0;
+        glGetNamedBufferParameteri64v(bufferID, GL_BUFFER_SIZE, &capacity);
+        if (glGetError() != GL_NO_ERROR || capacity < 0 || offsetBytes > static_cast<u64>(capacity) ||
+            sizeBytes > static_cast<u64>(capacity) - offsetBytes)
+            return false;
+        glNamedBufferSubData(bufferID, static_cast<GLintptr>(offsetBytes), static_cast<GLsizeiptr>(sizeBytes), data);
+        bool succeeded = true;
+        for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+        {
+            OLO_CORE_ERROR("OpenGLRendererAPI: checked buffer upload failed with GL error {}", error);
+            succeeded = false;
+        }
+        return succeeded;
+    }
+
     void OpenGLRendererAPI::ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest)
     {
         OLO_PROFILE_FUNCTION();

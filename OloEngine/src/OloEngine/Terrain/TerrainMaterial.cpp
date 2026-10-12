@@ -256,7 +256,24 @@ namespace OloEngine
         {
             if (!m_SplatmapPaths[i].IsEmpty())
             {
-                m_Splatmaps[i] = Texture2D::Create(m_SplatmapPaths[i].ToStdString());
+                auto replacement = Texture2D::Create(m_SplatmapPaths[i].ToStdString());
+                if (!replacement || !replacement->IsLoaded())
+                    continue;
+                // A paint/foliage mirror has a fixed common grid. Refuse a
+                // differently sized reload coherently, rather than displaying
+                // new GPU weights while CPU consumers silently keep old ones.
+                // Reinitializing the material establishes a different grid.
+                if (HasCPUSplatmaps() &&
+                    (replacement->GetWidth() != m_SplatmapResolution || replacement->GetHeight() != m_SplatmapResolution))
+                {
+                    OLO_CORE_WARN("TerrainMaterial: splatmap {} reload refused ({}x{}); the active CPU/GPU grid is {}x{}. "
+                                  "Retaining its prior weights; reinitialize the material to change grid size.",
+                                  i, replacement->GetWidth(), replacement->GetHeight(), m_SplatmapResolution, m_SplatmapResolution);
+                    continue;
+                }
+                m_Splatmaps[i] = std::move(replacement);
+                ++m_SplatmapRevision;
+                m_CPUSplatmapsStale = HasCPUSplatmaps();
             }
         }
     }
@@ -287,6 +304,7 @@ namespace OloEngine
 
         const u64 totalPixels = pixelCount * 4; // RGBA8
         m_SplatmapResolution = resolution;
+        ++m_SplatmapRevision;
         // Initialisation loads the mirror and the GPU textures together, so any
         // pending GPU-newer flag from a previous material configuration is void.
         m_CPUSplatmapsStale = false;
@@ -432,6 +450,8 @@ namespace OloEngine
 
         if (w == 0 || h == 0)
             return;
+
+        ++m_SplatmapRevision;
 
         // Extract contiguous sub-region
         TArray<u8> regionData(static_cast<sizet>(w) * h * 4);

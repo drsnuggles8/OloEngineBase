@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
@@ -49,7 +50,25 @@ namespace OloEngine::MCP
                             if (!foliage.m_Renderer)
                                 continue;
                             const auto s = foliage.m_Renderer->GetStreamingStats();
+                            const auto& t = foliage.m_Renderer->GetRebuildTimings();
+                            const auto& registry = foliage.m_Renderer->GetInstanceRegistry();
+                            const auto& census = registry.GetCensus();
                             result["vegetation"].push_back({ { "entity", static_cast<u64>(view.get<IDComponent>(entity).ID) },
+                                                             { "canonicalInstances", census.m_CanonicalInstances },
+                                                             { "generation", registry.GetGeneration() },
+                                                             { "recordsEpoch", registry.GetRecordsEpoch() },
+                                                             { "unsupportedVariants", census.m_UnsupportedVariants },
+                                                             { "needsRebuild", foliage.m_NeedsRebuild },
+                                                             { "isRebuilding", foliage.m_Renderer->IsRebuilding() },
+                                                             { "publishedRebuildSerial", foliage.m_Renderer->GetPublishedRebuildSerial() },
+                                                             { "lastRebuildLatencyMs", foliage.m_Renderer->GetRebuildLatencyMs() },
+                                                             { "rebuildKnownArrayBytes", foliage.m_Renderer->GetRebuildStagingCpuBytes() },
+                                                             { "rebuildCpuWallMs", {
+                                                                 { "total", t.TotalMs }, { "terrainSnapshot", t.TerrainSnapshotMs },
+                                                                 { "geometryMaterial", t.GeometryMaterialMs }, { "placement", t.PlacementMs },
+                                                                 { "registry", t.RegistryMs }, { "instanceUpload", t.InstanceUploadMs },
+                                                                 { "impostor", t.ImpostorMs }, { "alphaCoverage", t.AlphaCoverageMs },
+                                                                 { "bounds", t.BoundsMs }, { "cullPreparationSinceRebuild", t.CullPreparationMs } } },
                                                              { "canonicalCpuBytes", s.CanonicalCpuBytes },
                                                              { "pinnedGpuBytes", s.PinnedGpuBytes }, { "optionalGpuBytes", s.OptionalGpuBytes },
                                                              { "pendingCpuBytes", s.PendingCpuBytes }, { "residentLayers", s.ResidentLayers },
@@ -61,6 +80,37 @@ namespace OloEngine::MCP
                 return result; }));
         };
         registry.Register(std::move(stats));
+
+        ToolDef rebuild;
+        rebuild.Name = "olo_foliage_rebuild";
+        rebuild.Toolset = "render";
+        rebuild.Title = "Request foliage regeneration";
+        rebuild.Description = "Mark a terrain entity's foliage for regeneration at the next scene update, using the same path as an inspector edit. Does not change authored layers or save the scene. Read olo_representation_streaming_stats for completion and CPU stage costs.";
+        rebuild.Annotations = MutatingAnnotations(/*idempotent*/ true);
+        rebuild.ProjectWrite = true;
+        rebuild.InputSchema = Schema::Object().Prop("entity", Schema::String()).Required({ "entity" }).NoAdditional();
+        rebuild.OutputSchema = Schema::Object().Prop("ok", Schema::Bool()).Required({ "ok" });
+        rebuild.MainMarshaled = true;
+        rebuild.Handler = [](IAutomationHost& host, const Json& arguments) -> ToolResult
+        {
+            u64 uuid = 0;
+            if (!arguments.contains("entity") || !ParseUuid(arguments.at("entity"), uuid))
+                return ToolResult::Error("Expected a terrain entity UUID.");
+            return ToolResult::Structured(host.MarshalRead([&host, uuid]() -> Json
+                                                           {
+                Ref<Scene> scene = host.Context().GetActiveScene ? host.Context().GetActiveScene() : nullptr;
+                if (!scene)
+                    return { { "ok", false }, { "error", "No active scene" } };
+                Entity entity = scene->GetEntityByUUID(UUID(uuid));
+                if (!entity || !entity.HasComponent<FoliageComponent>() || !entity.HasComponent<TerrainComponent>())
+                    return { { "ok", false }, { "error", "Entity needs terrain and foliage components" } };
+                auto& foliage = entity.GetComponent<FoliageComponent>();
+                if (!foliage.m_Enabled || foliage.m_Layers.IsEmpty())
+                    return { { "ok", false }, { "error", "Foliage is disabled or has no layers" } };
+                foliage.m_NeedsRebuild = true;
+                return { { "ok", true } }; }));
+        };
+        registry.Register(std::move(rebuild));
 
         ToolDef settings;
         settings.Name = "olo_representation_streaming_settings_set";

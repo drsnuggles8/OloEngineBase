@@ -7,6 +7,7 @@
 
 #include <glm/glm.hpp>
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <unordered_map>
 #include "OloEngine/Containers/Array.h"
@@ -150,6 +151,19 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+
+    // Density compensation grows geometry, not the world-space displacement
+    // pads. Always derive this from the uninflated geometry: applying it to the
+    // last published profile compounds the bound on every unchanged rebuild.
+    [[nodiscard]] inline FoliageBoundsProfile WithFoliageDensityGrowth(FoliageBoundsProfile geometry, f32 maximumScale)
+    {
+        const f32 grow = std::isfinite(maximumScale) ? std::max(maximumScale, 1.0f) : 1.0f;
+        geometry.m_HalfExtentXZ *= grow;
+        geometry.m_HalfExtentXZHeightScaled *= grow;
+        geometry.m_MinY *= grow;
+        geometry.m_MaxY *= grow;
+        return geometry;
+    }
 
     // The AABB one placed instance occupies, in the same TERRAIN-LOCAL space as
     // the instance rows. Shared by the registry's per-instance records and
@@ -345,6 +359,15 @@ namespace OloEngine
     class FoliageInstanceRegistry
     {
       public:
+        // Worker seed from an immutable published record set. World bounds and
+        // the terrain transform are deliberately excluded: only the owner may
+        // update those while preparation is running.
+        void SeedRebuildIdentity(const FoliageInstanceRegistry& published, bool includeRecords = true);
+        // Residency changes geometry/representation, never placement or rows.
+        // Refresh only affected metadata without rebuilding identity indexes.
+        void BeginMetadataUpdate();
+        bool UpdateLayerMetadata(u32 layerIndex, const FoliageLayer& layer, FoliageRepresentation representation,
+                                 bool variantUnavailable, const FoliageBoundsProfile& profile);
         // Group edge length in terrain-local units. 16 m buckets a 100 m
         // island into ~40 groups per layer — coarse enough that the per-group
         // bookkeeping is negligible, fine enough to be a useful visibility
@@ -560,5 +583,6 @@ namespace OloEngine
         FoliageRepresentation m_CurrentRepresentation = FoliageRepresentation::MeshCard;
         FoliageBoundsProfile m_CurrentBoundsProfile{};
         u32 m_PendingUnsupportedVariants = 0;
+        TArray<bool> m_UnsupportedVariantByLayer;
     };
 } // namespace OloEngine
