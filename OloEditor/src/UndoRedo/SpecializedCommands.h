@@ -168,6 +168,20 @@ namespace OloEngine
         RenderingPath m_NewPath;
     };
 
+    // The one way an editor control changes the path: applies it, and records
+    // it on `history` when there is one (Play passes none: Stop restores the
+    // path that was live when Play started).
+    inline void ChangeRenderingPath(CommandHistory* history, RenderingPath path)
+    {
+        const RenderingPath previous = Renderer3D::GetRendererSettings().Path;
+        if (previous == path)
+            return;
+        auto command = std::make_unique<RenderingPathChangeCommand>(previous, path);
+        command->Execute();
+        if (history)
+            history->PushAlreadyExecuted(std::move(command));
+    }
+
     // =========================================================================
     // Script field undo — stores entity UUID, field name, old/new float value
     // Currently only Float fields are editable in the UI; extend for other types as needed

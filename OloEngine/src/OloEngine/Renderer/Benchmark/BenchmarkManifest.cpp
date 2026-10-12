@@ -622,7 +622,7 @@ namespace OloEngine::Benchmark
                 }
                 else
                 {
-                    errors.Add("RendererSettings.Path must be Forward | ForwardPlus | Deferred");
+                    errors.Add("RendererSettings.Path must be " + RenderingPathTokenList(" | "));
                 }
             }
             if (rs["EnableDDGI"])

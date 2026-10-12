@@ -8531,12 +8531,7 @@ namespace OloEngine
                 if (ImGui::Button("Switch to Deferred"))
                 {
                     // A scene edit since #1601: the path is saved with the scene.
-                    const RenderingPath previous = rendererSettings.Path;
-                    rendererSettings.Path = RenderingPath::Deferred;
-                    Renderer3D::ApplyRendererSettings();
-                    if (m_CommandHistory)
-                        m_CommandHistory->PushAlreadyExecuted(
-                            std::make_unique<RenderingPathChangeCommand>(previous, RenderingPath::Deferred));
+                    ChangeRenderingPath(m_CommandHistory, RenderingPath::Deferred);
                 }
                 ImGui::Separator();
             }

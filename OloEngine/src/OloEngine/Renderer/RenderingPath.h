@@ -4,6 +4,7 @@
 
 #include <array>
 #include <optional>
+#include <string>
 #include <string_view>
 
 namespace OloEngine
@@ -78,6 +79,20 @@ namespace OloEngine
                 return path;
         }
         return std::nullopt;
+    }
+
+    // The accepted spellings, joined, for a refusal message: built from the
+    // same table so the message cannot list a different set than the parser.
+    [[nodiscard]] inline std::string RenderingPathTokenList(std::string_view separator = ", ")
+    {
+        std::string list;
+        for (const RenderingPath path : kRenderingPaths)
+        {
+            if (!list.empty())
+                list += separator;
+            list += ToToken(path);
+        }
+        return list;
     }
 
     // @brief Deferred renderer configuration.

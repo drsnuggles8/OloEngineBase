@@ -4630,6 +4630,9 @@ namespace OloEngine
         }
 
         Ref<Scene> newScene = Ref<Scene>::Create();
+        // A new scene keeps the live renderer settings, as it always has; record
+        // the path it is drawn with so the scene and the renderer agree (#1601).
+        newScene->SetRenderingPath(Renderer3D::GetRendererSettings().Path);
         SetEditorScene(newScene);
         m_EditorScenePath = std::filesystem::path();
 

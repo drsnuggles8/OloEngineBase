@@ -7624,11 +7624,8 @@ namespace OloEngine
             const auto path = TryParseRenderingPath(token);
             if (!path)
             {
-                std::string expected;
-                for (const RenderingPath known : kRenderingPaths)
-                    expected += (expected.empty() ? "" : ", ") + std::string(ToToken(known));
                 throw std::runtime_error("RenderingPath '" + token + "' is not a rendering path (expected one of: " +
-                                         expected + ")");
+                                         RenderingPathTokenList() + ")");
             }
             scene.SetRenderingPath(*path);
         }

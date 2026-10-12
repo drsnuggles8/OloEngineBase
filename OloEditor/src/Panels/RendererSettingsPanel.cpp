@@ -761,11 +761,7 @@ namespace OloEngine
             };
             if (int currentPath = static_cast<int>(std::to_underlying(settings.Path)); ImGui::Combo("Active Path", &currentPath, pathItems, IM_ARRAYSIZE(pathItems)))
             {
-                const RenderingPath previous = settings.Path;
-                settings.Path = static_cast<RenderingPath>(currentPath);
-                Renderer3D::ApplyRendererSettings();
-                if (m_CommandHistory && previous != settings.Path)
-                    m_CommandHistory->PushAlreadyExecuted(std::make_unique<RenderingPathChangeCommand>(previous, settings.Path));
+                ChangeRenderingPath(m_CommandHistory, static_cast<RenderingPath>(currentPath));
             }
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Saved with the scene: opening a scene selects its path, and a game\n"
