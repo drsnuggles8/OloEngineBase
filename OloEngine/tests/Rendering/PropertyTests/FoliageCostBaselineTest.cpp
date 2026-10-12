@@ -973,6 +973,38 @@ namespace OloEngine::Tests
 
     // ── The measurement ──────────────────────────────────────────────────────
 
+    TEST_F(FoliageCostBaselineTest, RepeatedRebuildPreservesCanonicalBoundsAndCullGeneration)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        const auto poses = DeriveTraversal();
+        ASSERT_TRUE(poses.has_value());
+        const auto& registry = Plants().GetInstanceRegistry();
+        const u64 generation = registry.GetGeneration();
+        const auto records = registry.GetRecords();
+        ASSERT_FALSE(records.IsEmpty());
+        for (u32 rebuild = 0; rebuild < 3; ++rebuild)
+        {
+            FoliageOf().m_NeedsRebuild = true;
+            Tick((*poses)[4], 1);
+            EXPECT_EQ(registry.GetGeneration(), generation) << "unchanged regeneration must not invalidate cull tables";
+            ASSERT_EQ(registry.GetRecords().Num(), records.Num());
+            for (i32 i = 0; i < records.Num(); ++i)
+            {
+                const auto& actual = registry.GetRecords()[i];
+                EXPECT_EQ(actual.m_Id, records[i].m_Id);
+                // Compare one representative per layer, with a failure cap:
+                // bounds inflation affects every row in that layer.
+                if (i == 0 || records[i].m_LayerIndex != records[i - 1].m_LayerIndex)
+                {
+                    EXPECT_EQ(actual.m_StateHash, records[i].m_StateHash) << "layer " << actual.m_LayerIndex;
+                    EXPECT_NEAR(actual.m_LocalBounds.Min.x, records[i].m_LocalBounds.Min.x, 1e-5f);
+                    EXPECT_NEAR(actual.m_LocalBounds.Max.y, records[i].m_LocalBounds.Max.y, 1e-5f);
+                }
+            }
+        }
+    }
+
     TEST_F(FoliageCostBaselineTest, MeasureBaseline)
     {
         if (!EnvFlag("OLO_FOLIAGE_COST"))

@@ -195,6 +195,8 @@ namespace OloEngine
         u32 MeshVertexCount = 0;
         u32 MeshIndexCount = 0;
         BoundingBox MeshBounds{}; // Exact optional geometry bounds used for resident impostor rebakes
+        // Unexpanded geometry survives optional-detail eviction.
+        FoliageBoundsProfile GeometryBoundsProfile{};
         FoliageBoundsProfile BoundsProfile{};
         f32 MeshViewDistance = 0.0f;
         f32 MeshFadeStartDistance = 0.0f;
@@ -359,6 +361,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshVertexCount)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshIndexCount)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshBounds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::GeometryBoundsProfile)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::BoundsProfile)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshViewDistance)>::Value &&
                                       TIsTriviallyRelocatable<decltype(FoliageLayerRenderData::MeshFadeStartDistance)>::Value &&

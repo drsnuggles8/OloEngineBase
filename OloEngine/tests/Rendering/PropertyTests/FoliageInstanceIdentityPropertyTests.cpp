@@ -158,6 +158,26 @@ namespace OloEngine::Tests
 {
     // ── Regeneration ─────────────────────────────────────────────────────
 
+    TEST(FoliageInstanceIdentity, DensityGrowthDerivesFromGeometryAndLeavesDisplacementPadsUnscaled)
+    {
+        FoliageBoundsProfile geometry;
+        geometry.m_HalfExtentXZHeightScaled = 2.0f;
+        geometry.m_MinY = -0.5f;
+        geometry.m_MaxY = 3.0f;
+        geometry.m_WindDisplacement = 0.75f;
+        geometry.m_InteractionDisplacement = 1.25f;
+        const auto original = geometry;
+        for (const f32 scale : { 2.0f, 2.0f, 1.0f, 3.0f, 1.0f })
+        {
+            const auto grown = WithFoliageDensityGrowth(geometry, scale);
+            const auto bounds = FoliageInstanceBounds(glm::vec3(0.0f), 1.0f, 1.0f, grown);
+            EXPECT_FLOAT_EQ(bounds.Min.x, -2.0f * scale - 2.0f);
+            EXPECT_FLOAT_EQ(bounds.Min.y, -0.5f * scale - 2.0f);
+            EXPECT_FLOAT_EQ(bounds.Max.y, 3.0f * scale + 2.0f);
+            EXPECT_TRUE(geometry == original);
+        }
+    }
+
     TEST(FoliageInstanceIdentity, IdenticalRegenerationKeepsEveryId)
     {
         FoliageInstanceRegistry registry;

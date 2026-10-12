@@ -7,6 +7,7 @@
 
 #include <glm/glm.hpp>
 #include <algorithm>
+#include <cmath>
 #include <string>
 #include <unordered_map>
 #include "OloEngine/Containers/Array.h"
@@ -150,6 +151,19 @@ namespace OloEngine
             return Math::BitwiseEqual(*this, other);
         }
     };
+
+    // Density compensation grows geometry, not the world-space displacement
+    // pads. Always derive this from the uninflated geometry: applying it to the
+    // last published profile compounds the bound on every unchanged rebuild.
+    [[nodiscard]] inline FoliageBoundsProfile WithFoliageDensityGrowth(FoliageBoundsProfile geometry, f32 maximumScale)
+    {
+        const f32 grow = std::isfinite(maximumScale) ? std::max(maximumScale, 1.0f) : 1.0f;
+        geometry.m_HalfExtentXZ *= grow;
+        geometry.m_HalfExtentXZHeightScaled *= grow;
+        geometry.m_MinY *= grow;
+        geometry.m_MaxY *= grow;
+        return geometry;
+    }
 
     // The AABB one placed instance occupies, in the same TERRAIN-LOCAL space as
     // the instance rows. Shared by the registry's per-instance records and

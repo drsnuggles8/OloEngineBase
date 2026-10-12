@@ -937,7 +937,7 @@ namespace OloEngine
         data.MeshIndexCount = 0;
         data.MeshBounds = BoundingBox{};
         data.MeshGeometryPath.Empty();
-        data.BoundsProfile = FoliageBoundsProfile{};
+        data.GeometryBoundsProfile = FoliageBoundsProfile{};
         data.CardNormalTilt = 0.0f;
         data.CardUsesMeshBake = false;
 
@@ -997,10 +997,10 @@ namespace OloEngine
         // The profile keeps the CARD terms as well, because a layer with a mesh
         // still draws its card past MeshViewDistance — the bound has to hold
         // for both shapes, not just the near one.
-        data.BoundsProfile = FoliageBoundsProfile{};
-        data.BoundsProfile.m_HalfExtentXZHeightScaled = std::max(radiusXZ * glm::root_two<f32>(), 1e-3f);
-        data.BoundsProfile.m_MinY = std::min(box.Min.y, 0.0f);
-        data.BoundsProfile.m_MaxY = std::max(box.Max.y, 1.0f);
+        data.GeometryBoundsProfile = FoliageBoundsProfile{};
+        data.GeometryBoundsProfile.m_HalfExtentXZHeightScaled = std::max(radiusXZ * glm::root_two<f32>(), 1e-3f);
+        data.GeometryBoundsProfile.m_MinY = std::min(box.Min.y, 0.0f);
+        data.GeometryBoundsProfile.m_MaxY = std::max(box.Max.y, 1.0f);
 
         // The authoring convention both this path and the impostor bake assume:
         // base at the origin, unit height. Neither rescales — a mesh authored at
@@ -1309,9 +1309,9 @@ namespace OloEngine
         const auto& box = payload->Bounds;
         data.MeshBounds = box;
         const f32 radius = std::max({ std::abs(box.Min.x), std::abs(box.Max.x), std::abs(box.Min.z), std::abs(box.Max.z) });
-        data.BoundsProfile.m_HalfExtentXZHeightScaled = std::max(data.BoundsProfile.m_HalfExtentXZHeightScaled, radius * glm::root_two<f32>());
-        data.BoundsProfile.m_MinY = std::min(data.BoundsProfile.m_MinY, box.Min.y);
-        data.BoundsProfile.m_MaxY = std::max(data.BoundsProfile.m_MaxY, box.Max.y);
+        data.GeometryBoundsProfile.m_HalfExtentXZHeightScaled = std::max(data.GeometryBoundsProfile.m_HalfExtentXZHeightScaled, radius * glm::root_two<f32>());
+        data.GeometryBoundsProfile.m_MinY = std::min(data.GeometryBoundsProfile.m_MinY, box.Min.y);
+        data.GeometryBoundsProfile.m_MaxY = std::max(data.GeometryBoundsProfile.m_MaxY, box.Max.y);
         data.AlphaCoverageDirty = true;
         // Bake the pinned atlas from this SAME held preparation and geometry.
         if (layer.UseImpostor)
@@ -1943,7 +1943,7 @@ namespace OloEngine
                     renderData.MeshGeometryPath.Empty();
                     renderData.CardUsesMeshBake = false;
                     renderData.CardNormalTilt = 0.0f;
-                    renderData.BoundsProfile = FoliageBoundsProfile{};
+                    renderData.GeometryBoundsProfile = FoliageBoundsProfile{};
                     geometryChanged = true;
                 }
             }
@@ -1954,7 +1954,7 @@ namespace OloEngine
                 else
                 {
                     EvictStreamingMesh(renderData);
-                    renderData.BoundsProfile = FoliageBoundsProfile{};
+                    renderData.GeometryBoundsProfile = FoliageBoundsProfile{};
                     renderData.CardUsesMeshBake = false;
                     renderData.CardNormalTilt = 0.0f;
                 }
@@ -1970,6 +1970,8 @@ namespace OloEngine
             {
                 RebuildVertexArrays(renderData);
             }
+
+            renderData.BoundsProfile = renderData.GeometryBoundsProfile;
 
             // Store layer render properties
             renderData.ViewDistance = layer.ViewDistance;
@@ -2215,11 +2217,7 @@ namespace OloEngine
             // read the same inflated profile with no shader change at all.
             if (renderData.Lod.Enabled)
             {
-                const f32 grow = std::max(renderData.Lod.MaxScale, 1.0f);
-                renderData.BoundsProfile.m_HalfExtentXZ *= grow;
-                renderData.BoundsProfile.m_HalfExtentXZHeightScaled *= grow;
-                renderData.BoundsProfile.m_MinY *= grow;
-                renderData.BoundsProfile.m_MaxY *= grow;
+                renderData.BoundsProfile = WithFoliageDensityGrowth(renderData.BoundsProfile, renderData.Lod.MaxScale);
             }
 
             m_Registry.BeginLayer(static_cast<u32>(layerIdx), layer,
