@@ -1052,6 +1052,12 @@ namespace OloEngine::Tests
                 }
             }
         }
+        // Settle fenced survivor-demand growth, then a stable view must not
+        // add generation-match or capacity-match no-ops to rebuild timings.
+        Tick((*poses)[4], 32);
+        const f64 settledCullPreparation = Plants().GetRebuildTimings().CullPreparationMs;
+        Tick((*poses)[4], 16);
+        EXPECT_DOUBLE_EQ(Plants().GetRebuildTimings().CullPreparationMs, settledCullPreparation);
     }
 
     TEST_F(FoliageCostBaselineTest, WarmEditsKeepTheWholePublishedGenerationAndNewestRequestWins)
@@ -1084,7 +1090,9 @@ namespace OloEngine::Tests
             EXPECT_EQ(registry.GetRecords()[index].m_Id, before[index].m_Id);
         const auto* material = registry.GetMaterial(registry.GetRecords()[0].m_MaterialKey);
         ASSERT_TRUE(material);
-        EXPECT_EQ(material->m_BaseColor, FoliageOf().m_Layers[0].BaseColor);
+        EXPECT_FLOAT_EQ(material->m_BaseColor.r, FoliageOf().m_Layers[0].BaseColor.r);
+        EXPECT_FLOAT_EQ(material->m_BaseColor.g, FoliageOf().m_Layers[0].BaseColor.g);
+        EXPECT_FLOAT_EQ(material->m_BaseColor.b, FoliageOf().m_Layers[0].BaseColor.b);
         // Disable while a replacement is being prepared; it must never return.
         FoliageOf().m_NeedsRebuild = true;
         Tick((*poses)[4], 8);
@@ -1192,7 +1200,7 @@ namespace OloEngine::Tests
         for (i64 index = 0; index < pixels.Num() / 4; ++index)
             pixels[index * 4 + 3] = index % 2 == 0 ? 0u : 255u;
         ASSERT_TRUE(texture->TryReplaceAlphaCoveragePixels(pixels.GetData(), static_cast<u32>(pixels.Num()), 0.5f));
-        EXPECT_EQ(texture->GetAlphaCoverageCutoff(), 0.5f);
+        EXPECT_FLOAT_EQ(texture->GetAlphaCoverageCutoff(), 0.5f);
         TArray64<u8> actual;
         ASSERT_TRUE(texture->GetData(actual));
         EXPECT_EQ(actual, pixels);
@@ -1211,7 +1219,7 @@ namespace OloEngine::Tests
         EXPECT_FALSE(texture->TryReplaceAlphaCoveragePixels(pixels.GetData(), 4u, 0.8f));
         EXPECT_FALSE(texture->TryReplaceAlphaCoveragePixels(nullptr, static_cast<u32>(pixels.Num()), 0.8f));
         EXPECT_EQ(texture->GetRHIHandle(), handle);
-        EXPECT_EQ(texture->GetAlphaCoverageCutoff(), 0.5f);
+        EXPECT_FLOAT_EQ(texture->GetAlphaCoverageCutoff(), 0.5f);
         ASSERT_TRUE(texture->GetData(actual));
         EXPECT_EQ(actual, pixels);
     }
@@ -1325,7 +1333,7 @@ namespace OloEngine::Tests
         const auto draws = plants->GetActiveLayerDrawInfo();
         ASSERT_FALSE(draws.IsEmpty());
         EXPECT_EQ(draws[0].AlbedoTextureID, oldDraws[0].AlbedoTextureID);
-        EXPECT_EQ(draws[0].AlphaCutoff, 0.7f);
+        EXPECT_FLOAT_EQ(draws[0].AlphaCutoff, 0.7f);
         TArray<u8> actual;
         actual.SetNum(pixels.Num());
         ASSERT_TRUE(RenderCommand::ReadTextureImage(draws[0].AlbedoTextureID, 0u, RHI::Format::R8UNorm,

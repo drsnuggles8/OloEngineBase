@@ -3987,11 +3987,13 @@ namespace OloEngine
                 continue;
 
             const auto layerStart = std::chrono::steady_clock::now();
+            const u64 builtBefore = layer.CullLayer.BuiltGeneration;
             const bool layerBuilt = m_Culler.BuildLayer(layer.CullLayer, m_Canonical->Registry, layerIndex, layer.InstanceCount,
                                                         layer.BoundsProfile);
-            m_RebuildTimings.CullPreparationMs += std::chrono::duration<f64, std::milli>(
-                                                      std::chrono::steady_clock::now() - layerStart)
-                                                      .count();
+            if (layer.CullLayer.BuiltGeneration != builtBefore)
+                m_RebuildTimings.CullPreparationMs += std::chrono::duration<f64, std::milli>(
+                                                          std::chrono::steady_clock::now() - layerStart)
+                                                          .count();
             if (!layerBuilt)
                 continue;
 
@@ -4071,13 +4073,19 @@ namespace OloEngine
                     m_VsmRefreshAfterShadowGrow = true;
             }
             const auto capacityStart = std::chrono::steady_clock::now();
+            const auto stateBefore = view.Resources.State ? view.Resources.State->GetRHIHandle() : RHI::ResourceHandle{};
+            const auto argsBefore = view.Resources.DrawArgs ? view.Resources.DrawArgs->GetRHIHandle() : RHI::ResourceHandle{};
             const bool recreated = m_Culler.EnsureViewCapacity(view.Resources, listWanted, meshWanted,
                                                                layer.CullLayer.GroupCount);
-            if (recreated || (!view.CardVAO && !view.MeshVAO))
+            const auto stateAfter = view.Resources.State ? view.Resources.State->GetRHIHandle() : RHI::ResourceHandle{};
+            const auto argsAfter = view.Resources.DrawArgs ? view.Resources.DrawArgs->GetRHIHandle() : RHI::ResourceHandle{};
+            const bool rebuildArrays = recreated || (!view.CardVAO && !view.MeshVAO);
+            if (rebuildArrays)
                 RebuildCulledVertexArrays(layer, slotIndex);
-            m_RebuildTimings.CullPreparationMs += std::chrono::duration<f64, std::milli>(
-                                                      std::chrono::steady_clock::now() - capacityStart)
-                                                      .count();
+            if (rebuildArrays || stateBefore != stateAfter || argsBefore != argsAfter)
+                m_RebuildTimings.CullPreparationMs += std::chrono::duration<f64, std::milli>(
+                                                          std::chrono::steady_clock::now() - capacityStart)
+                                                          .count();
 
             // Only the MAIN view publishes the ratio counters — see the
             // s_EmitStats comment in FoliageCullCommon.glsl.
