@@ -151,9 +151,9 @@ namespace OloEngine::MCP::CapturePath
         return std::nullopt;
     }
 
-    // The full resolve: `ValidateRelative`, then create the parent directory and
-    // confirm the result really is inside the captures root once symlinks have
-    // been followed. `outAbsolute` is what the tool reports back.
+    // Check canonical containment before creating directories, and again after
+    // creation. Rejected symlink escapes must not change the outside tree.
+    // `outAbsolute` is what the tool reports back.
     //
     // The lexical checks stop '..' and absolute paths; they do NOT stop a
     // symlinked component inside the root redirecting the write outside it.
@@ -168,6 +168,21 @@ namespace OloEngine::MCP::CapturePath
             return error;
 
         std::error_code ec;
+        const auto checkContainment = [&]() -> std::optional<std::string>
+        {
+            const fs::path root = fs::weakly_canonical(Root(), ec);
+            if (ec)
+                return "Could not resolve the capture root (" + RootDisplay() + ").";
+            const fs::path candidate = fs::weakly_canonical(outRelative, ec);
+            if (ec)
+                return "Could not resolve 'path' to a canonical location.";
+            if (const fs::path rel = candidate.lexically_relative(root); rel.empty() || *rel.begin() == "..")
+                return "Invalid 'path': resolves outside " + RootDisplay() + " (possible symlink escape). The capture was not written.";
+            outAbsolute = candidate;
+            return std::nullopt;
+        };
+        if (auto error = checkContainment())
+            return error;
         fs::create_directories(outRelative.parent_path(), ec);
         if (ec)
         {
@@ -175,19 +190,6 @@ namespace OloEngine::MCP::CapturePath
                    "': " + ec.message();
         }
 
-        const fs::path canonicalRoot = fs::weakly_canonical(Root(), ec);
-        if (ec)
-            return "Could not resolve the capture root (" + RootDisplay() + ").";
-        const fs::path canonicalOut = fs::weakly_canonical(outRelative, ec);
-        if (ec)
-            return "Could not resolve 'path' to a canonical location.";
-        if (const fs::path rel = canonicalOut.lexically_relative(canonicalRoot); rel.empty() || *rel.begin() == "..")
-        {
-            return "Invalid 'path': resolves outside " + RootDisplay() +
-                   " (possible symlink escape). The capture was not written.";
-        }
-
-        outAbsolute = canonicalOut;
-        return std::nullopt;
+        return checkContainment();
     }
 } // namespace OloEngine::MCP::CapturePath
