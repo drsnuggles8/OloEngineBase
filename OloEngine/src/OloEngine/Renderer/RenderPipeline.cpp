@@ -2296,6 +2296,16 @@ namespace OloEngine
                 deferred ? data.PostProcess.MaterialDebug : MaterialDebugView::None);
         }
 
+        for (auto* resolve : { SceneCompositePasses.GBufferEarlyResolve.Raw(), SceneCompositePasses.GBufferResolve.Raw() })
+        {
+            if (resolve && FrameCorePasses.Scene)
+            {
+                const bool deferred = data.Settings.Path == RenderingPath::Deferred;
+                resolve->SetGBuffer(deferred ? FrameCorePasses.Scene->GetGBuffer() : nullptr);
+                resolve->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
+            }
+        }
+
         // Wire the opaque-decal graph shim: in Deferred mode it drains the
         // DecalRenderPass bucket into the G-Buffer between ScenePass and
         // DeferredLightingPass. Safe to update unconditionally — the pass
@@ -5936,6 +5946,8 @@ namespace OloEngine
         inputs.Passes.DeferredLighting = SceneCompositePasses.DeferredLighting.Raw();
         inputs.Passes.DeferredOpaqueDecal = SceneCompositePasses.DeferredOpaqueDecal.Raw();
         inputs.Passes.DeferredGPUOcclusion = SceneCompositePasses.DeferredGPUOcclusion.Raw();
+        inputs.Passes.GBufferEarlyResolve = SceneCompositePasses.GBufferEarlyResolve.Raw();
+        inputs.Passes.GBufferResolve = SceneCompositePasses.GBufferResolve.Raw();
         inputs.Passes.PlanarReflection = SceneCompositePasses.PlanarReflection.Raw();
         inputs.Passes.GPUOcclusion = RenderStreamPasses.GPUOcclusion.Raw();
         inputs.Passes.ForwardOverlay = RenderStreamPasses.ForwardOverlay.Raw();
@@ -6082,6 +6094,8 @@ namespace OloEngine
         SceneCompositePasses.DeferredGPUOcclusion = Ref<DeferredGPUOcclusionPass>::Create();
         SceneCompositePasses.DeferredGPUOcclusion->SetName("DeferredGPUOcclusionPass");
         SceneCompositePasses.DeferredGPUOcclusion->Init(scenePassSpec);
+        SceneCompositePasses.GBufferEarlyResolve = Ref<GBufferResolvePass>::Create(false);
+        SceneCompositePasses.GBufferResolve = Ref<GBufferResolvePass>::Create(true);
 
         // Planar reflection — runs after ScenePass (replays its batched opaque
         // bucket from the mirrored camera) and before WaterPass (which samples

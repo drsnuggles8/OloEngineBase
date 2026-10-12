@@ -29,6 +29,10 @@
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
+#include "OloEngine/Renderer/FrameBlackboard.h"
+#include "OloEngine/Renderer/RenderingPath.h"
+#include "OloEngine/Renderer/Passes/GBufferWriteDeclarations.h"
+#include "OloEngine/Renderer/Passes/GBufferResolvePass.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 
 #include <algorithm>
@@ -749,5 +753,71 @@ TEST(RenderGraphAttachmentFeedback, SnapshotViewCopiesKeepTheirTransitionWithout
                                                          transition.ToAccess == RHI::Access::ShaderSampleRead; }));
             }
         }
+    }
+}
+TEST(RenderGraphAttachmentViewExports, DeferredResolveOrdersLateWritersAndEveryResolvedConsumer)
+{
+    for (const bool perSample : { false, true })
+    {
+        RenderGraph graph;
+        graph.SetRuntimeBarrierExecutionEnabled(false);
+        auto desc = SceneTargetDesc();
+        desc.Attachments = { RGResourceFormat::RGBA8UNorm, RGResourceFormat::RGBA16Float,
+                             RGResourceFormat::RGBA16Float, RGResourceFormat::RGBA16Float,
+                             RGResourceFormat::R32Int, RGResourceFormat::RGBA16Float,
+                             RGResourceFormat::Depth24Stencil8 };
+        desc.Samples = 4u;
+        const auto multisample = graph.DeclareTransientFramebuffer("GBufferMS", desc);
+        desc.Samples = 1u;
+        const auto resolved = graph.DeclareTransientFramebuffer("GBufferResolved", desc);
+        auto& board = graph.GetBlackboard();
+        board.GBuffer.ResolvedFramebuffer = resolved;
+        board.GBuffer.MultisampleFramebuffer = multisample;
+        board.Config.Path = RenderingPath::Deferred;
+        board.Config.GBufferSamples = 4u;
+        board.GBuffer.GBufferEmissiveMS = graph.CreateFramebufferAttachmentView("GBufferEmissiveMS", multisample, 2u);
+        board.GBuffer.GBufferEmissive = graph.CreateFramebufferAttachmentView("GBufferEmissive", resolved, 2u);
+        const auto depth = graph.CreateFramebufferDepthAttachmentView("SceneDepth", resolved);
+        board.Scene.SceneDepth = depth;
+        board.GBuffer.SceneDepthMS = graph.CreateFramebufferDepthAttachmentView("SceneDepthMS", multisample);
+        const auto albedo = graph.CreateFramebufferAttachmentView("GBufferAlbedo", resolved, 0u);
+        const auto entityID = graph.CreateFramebufferAttachmentView("GBufferEntityID", resolved, 4u);
+        Add(graph, "ScenePass", [multisample](RGBuilder& builder)
+            { builder.Write(multisample, RGWriteUsage::RenderTarget); });
+        auto early = Ref<GBufferResolvePass>::Create(false);
+        early->SetPerSampleLighting(perSample);
+        graph.AddNode(early);
+        const auto target = perSample ? multisample : resolved;
+        for (const std::string name : { "VirtualGeometryPass", "DeferredGPUOcclusionPass", "DeferredOpaqueDecalPass" })
+            Add(graph, name, [target, &board, perSample](RGBuilder& builder)
+                {
+                    [[maybe_unused]] const auto previous = builder.Read(target, RGReadUsage::RenderTargetRead);
+                    builder.Write(target, RGWriteUsage::RenderTarget);
+                    if (perSample)
+                        DeclareGBufferDepthResolve(builder, board); });
+        auto late = Ref<GBufferResolvePass>::Create(true);
+        late->SetPerSampleLighting(perSample);
+        graph.AddNode(late);
+        Add(graph, "LightingAndPicking", [depth, albedo, entityID](RGBuilder& builder)
+            {
+                for (const auto view : { depth, albedo, entityID })
+                {
+                    [[maybe_unused]] const auto read = builder.Read(view, RGReadUsage::ShaderSample);
+                } });
+        graph.SetFinalPass("LightingAndPicking");
+        graph.BuildFrameGraph();
+        graph.Execute();
+        const std::string_view active = perSample ? "GBufferResolvePass" : "GBufferEarlyResolvePass";
+        const std::string_view inactive = perSample ? "GBufferEarlyResolvePass" : "GBufferResolvePass";
+        ASSERT_GE(IndexOf(graph, active), 0);
+        EXPECT_LT(IndexOf(graph, "ScenePass"), IndexOf(graph, active));
+        EXPECT_LT(IndexOf(graph, active), IndexOf(graph, "LightingAndPicking"));
+        EXPECT_TRUE(graph.ValidateCompiledResourceHazards().IsEmpty());
+        const auto* inactiveAccesses = graph.GetDeclaredPassAccesses(inactive);
+        EXPECT_TRUE(!inactiveAccesses || inactiveAccesses->IsEmpty());
+        if (perSample)
+            EXPECT_LT(IndexOf(graph, "DeferredOpaqueDecalPass"), IndexOf(graph, active));
+        else
+            EXPECT_LT(IndexOf(graph, active), IndexOf(graph, "VirtualGeometryPass"));
     }
 }

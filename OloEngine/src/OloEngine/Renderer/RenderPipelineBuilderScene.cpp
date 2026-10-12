@@ -163,6 +163,8 @@ namespace OloEngine::RenderPipelineBuilderInternal
         }
 
         AddExistingNode(graph, inputs.Passes->Scene);
+        if (inputs.Deferred && inputs.Passes->GBufferEarlyResolve)
+            AddExistingNode(graph, inputs.Passes->GBufferEarlyResolve);
 
         // Virtualized geometry (#629): DAG-cut cull compute + hardware MDI
         // raster into the borrowed G-Buffer. Registered right after ScenePass
@@ -212,6 +214,10 @@ namespace OloEngine::RenderPipelineBuilderInternal
         {
             graph.AddNode(PrepareGraphNode("DeferredOpaqueDecalPass", inputs.Passes->DeferredOpaqueDecal));
         }
+
+        // Publish multisample attachments once before resolved consumers.
+        if (inputs.Deferred && inputs.Passes->GBufferResolve)
+            AddExistingNode(graph, inputs.Passes->GBufferResolve);
 
         // Deferred: the AO writer is registered between the last G-Buffer
         // producer (Scene + DeferredOpaqueDecalPass) and DeferredLightingPass so

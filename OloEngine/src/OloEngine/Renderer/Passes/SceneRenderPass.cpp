@@ -135,15 +135,14 @@ namespace OloEngine
         }
         if (board.Config.Path == RenderingPath::Deferred)
         {
+            const auto target = board.GBuffer.MultisampleFramebuffer.IsValid()
+                                    ? board.GBuffer.MultisampleFramebuffer
+                                    : board.GBuffer.ResolvedFramebuffer;
+            if (target.IsValid())
+                builder.Write(target, RGWriteUsage::RenderTarget);
+            // BeginSceneFrame clears the lit target and its overlay attachments.
             if (board.Scene.SceneColor.IsValid())
                 builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
-            // The deferred exports are attachment views of the G-Buffer this
-            // pass renders: these writes give their readers a producer. Nothing
-            // is copied (the views ARE the attachments).
-            if (board.Scene.SceneDepth.IsValid())
-                builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
-            if (board.GBuffer.Velocity.IsValid())
-                builder.Write(board.GBuffer.Velocity, RGWriteUsage::TransferDest);
         }
         else if (board.Scene.SceneColor.IsValid())
         {
@@ -665,51 +664,7 @@ namespace OloEngine
 
         renderFB->Unbind();
 
-        // Deferred G-Buffer MSAA resolve. Two sub-modes:
-        //   1. Per-sample lighting (MSAASampleCount > 1 && PerSampleLighting)
-        //      — resolve ONLY the depth attachment so decals can sample
-        //      reconstructed world positions, while colour attachments stay
-        //      multisample for DeferredLighting_MSAA to shade per-sample.
-        //   2. Resolve-before-lighting — full resolve (colour + depth) so
-        //      the standard DeferredLighting shader samples a single-sample
-        //      copy; loses per-sample shading detail but keeps a single code
-        //      path for non-MSAA and resolve-path MSAA.
-        //   Non-MSAA always falls into #2 (Resolve is a no-op).
-        const bool perSampleLighting = deferredActive && m_GBuffer && m_GBuffer->GetSampleCount() > 1 && rendererSettings.Deferred.PerSampleLighting;
-        const bool debugNeedsColour = rendererSettings.Deferred.DebugChannel != 0;
-        if (deferredActive && m_GBuffer)
-        {
-            // When per-sample lighting is active, resolve ONLY depth here so
-            // decals can reconstruct world position from single-sample depth.
-            // Colour resolve is deferred until after decals so the debug blit
-            // (if any) sees post-decal texels. When per-sample is off, do a
-            // full resolve now — decals write into the resolved FB directly.
-            if (perSampleLighting)
-                m_GBuffer->ResolveDepthOnly();
-            else
-                m_GBuffer->Resolve();
-        }
-
-        // Per-sample path: force a color resolve whenever a downstream pass
-        // samples resolved G-Buffer color attachments (debug overlay, SSAO, GTAO).
-        // This keeps the resolved single-sample G-Buffer attachments current
-        // for AO/export consumers while preserving the multisample
-        // attachments for per-sample deferred lighting.
-        const auto& postProcessSettings = Renderer3D::GetPostProcessSettings();
-        const bool aoNeedsResolvedNormals =
-            (postProcessSettings.ActiveAOTechnique == AOTechnique::SSAO && postProcessSettings.SSAOEnabled) ||
-            (postProcessSettings.ActiveAOTechnique == AOTechnique::GTAO && postProcessSettings.GTAOEnabled);
-        // The G-Buffer velocity view is published on every Deferred frame and
-        // this pass cannot see which later passes read it, so a per-sample
-        // G-Buffer is always resolved for it -- what the export copy's
-        // always-valid handle used to decide here.
-        if (const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || Renderer3D::IsEngineTAAWanted() || deferredActive; perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
-        {
-            // Colour only: depth was resolved above and nothing has drawn since.
-            // A full Resolve() blitted it a second time (#1332's copy ledger).
-            m_GBuffer->ResolveColorOnly();
-        }
-
+        // Deferred resolves and debug display are graph-owned, after their writers.
         if (!deferredActive && rendererSettings.DebugVelocityOverlayForward)
         {
             // Forward / Forward+ velocity overlay: mirror the Deferred

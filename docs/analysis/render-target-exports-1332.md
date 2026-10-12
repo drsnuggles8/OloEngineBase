@@ -93,7 +93,7 @@ figures are a measurement.
 | ForwardAODepth (1 per prepass writer, Forward with screen-space AO) | ScenePrepassPass, the GPU-driven and foliage prepass shares | Every forward shader samples it for the AO upsample while it depth-tests against the live attachment. A view would be a feedback loop. |
 | SceneDepthSnapshot (Forward, when decals, water or soft particles draw) | SceneDepthSnapshotPass, after GroomPass | Decals, water and the soft-particle fade sample depth while drawing into SceneColor. On Deferred the snapshot is SceneDepth itself, the G-Buffer's depth, which they do not draw into. |
 | SceneViewNormalsSnapshot (every path, when water draws) | SceneViewNormalsSnapshotPass, right before WaterPass | Water marches view normals while `Water.glsl` writes them to the same attachment. Before #1332 it sampled that attachment live. |
-| GBufferMS -> GBufferResolved blits (Deferred MSAA) | ScenePass, DeferredGPUOcclusionPass, DeferredOpaqueDecalPass | A real MSAA resolve. Each late writer that draws into the multisample G-Buffer resolves all seven attachments again, 91 MB each at 1080p. See *Not changed* below. |
+| GBufferMS -> GBufferResolved blits (Deferred MSAA, #1553) | GBufferEarlyResolvePass or GBufferResolvePass | One full resolve after the last MS writer; late Hi-Z and decal consumers receive depth-only resolves. See [the Deferred resolve report](deferred-msaa-gbuffer-resolve-1553.md). |
 | G-Buffer depth and entity ID -> SceneColor blits (Deferred) | DeferredLightingPass | The forward overlay, groom and decals depth-test in SceneColor, and picking reads its entity ID. |
 | SceneColorTexture -> WaterRefraction | WaterPass | The refraction colour is read while the water draws over it. |
 | G-Buffer Velocity -> SceneVelocity (Deferred, #1552) | SceneVelocitySeedPass, before the forward overlay | The groom, foliage, particles and water drawn over the lit frame write SceneColor RT3, and the resolves must read every surface's motion. The opaque scene's is in the G-Buffer's RT3, a different attachment, so it is copied in once before they draw. |
@@ -150,10 +150,9 @@ Forward and 11.8x on Forward+ and Deferred.
 
 ## Not changed, and why
 
-- **Deferred MSAA resolves.** With late geometry, the G-Buffer is resolved three times a frame (ScenePass,
-  DeferredGPUOcclusionPass, DeferredOpaqueDecalPass: 21 blits, about 270 MB at 1080p). Resolving once after
-  the last multisample writer is the deferred family's migration, #1553. This PR removes only ScenePass's
-  second depth blit on the per-sample path (`GBuffer::ResolveColorOnly`).
+- **Deferred MSAA resolves.** The original #1332 migration retained per-writer full resolves.
+  Resolved by #1553: one full resolve per frame, plus depth-only resolves before late depth consumers.
+  The measurement and mode-specific order are in [the Deferred resolve report](deferred-msaa-gbuffer-resolve-1553.md).
 - **The validator's blind spot.** A pass that samples an attachment view while writing a renamed version of
   the same framebuffer is never reported as feedback, which is how water's loop went unseen: #1554.
 - **Deferred depth blit into SceneColor.** It is needed for overlay depth testing, as listed above.
