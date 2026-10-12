@@ -348,7 +348,7 @@ namespace OloEngine
                 feedback,
                 velocityID.IsValid() ? 1.0f : 0.0f,
                 (m_TemporalResolveEnabled && historyID.IsValid()) ? 1.0f : 0.0f,
-                m_TemporalClipGamma);
+                0.0f); // reserved; stochastic radiance is not spatially clipped
             m_SSRUBO->SetData(&temporalParams, static_cast<u32>(sizeof(glm::vec4)),
                               static_cast<u32>(offsetof(SSRUBOData, TemporalParams)));
         }

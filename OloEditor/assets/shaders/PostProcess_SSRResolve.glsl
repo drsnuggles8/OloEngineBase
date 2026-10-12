@@ -63,8 +63,8 @@ void main()
 //                               frame (there is no depth history buffer, and a
 //                               fixed tolerance on device depth would be
 //                               centimetres near the camera and kilometres far)
-//   3. still plausible?      -> 3x3 neighbourhood variance CLIP (not a
-//                               componentwise clamp — see the header)
+//   3. still plausible?      -> motion-conditioned history rejection; radiance
+//                               is not bounded by a noisy spatial draw
 //   4. how much do I keep?   -> motion-scaled feedback with a sub-pixel dead
 //                               zone, so a stationary camera does not read as
 //                               motion and bleed the current frame through
@@ -99,7 +99,7 @@ layout(std140, binding = 38) uniform SSRParams
     vec4 u_ScreenParams;    // x = width, y = height, z = 1/width, w = 1/height
     vec4 u_Flags;
     vec4 u_HZBParams;
-    vec4 u_TemporalParams;  // x = Feedback, y = HasVelocity, z = HistoryUsable, w = ClipGamma
+    vec4 u_TemporalParams;  // x = Feedback, y = HasVelocity, z = HistoryUsable, w = reserved
     vec4 u_DenoiseParams; // #708: x = PreBlurRadius (px), y = unused, z = PostBlurMaxRadius, w = unused
     vec4 u_DenoiseGuide;  // #708: x = PlaneTolerance, y = NormalPower, z = RoughnessKnee, w = MaxRoughness
 };
@@ -163,13 +163,10 @@ void main()
 
     float confidence = OloTemporalDepthConfidence(current.a, history.a, SSR_DEPTH_TOLERANCE);
 
-    OloTemporalStats stats;
-    OLO_TEMPORAL_GATHER_3X3(u_StochasticSignal, uv, texel, stats);
-
     vec2 velocityPixels = velocity / max(texel, vec2(1.0e-8));
     float feedback = OloTemporalMotionFeedback(u_TemporalParams.x, velocityPixels, 1.0, 5.0, 0.5);
 
-    vec3 resolved = OloTemporalResolve(current.rgb, history.rgb, stats, u_TemporalParams.w, feedback, confidence);
+    vec3 resolved = OloTemporalResolveStochastic(current.rgb, history.rgb, feedback, confidence, velocityPixels);
 
     // NOT clamped to non-negative: the SSR signal is a signed DELTA — a
     // reflection darker than the surface it replaces is a legitimate negative,

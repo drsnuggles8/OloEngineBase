@@ -392,14 +392,6 @@ namespace OloEngine
             return r;
         }
 
-        // Neighbourhood variance-clip width for the screen-space temporal
-        // resolves (issue #902). 1.25 is the common default and the value TAA
-        // uses; it is the ONE knob that trades ghosting against noise, so SSR
-        // and SSGI share it deliberately rather than drifting apart. Not a
-        // user setting: a per-pass gamma would be a fourth thing to tune with
-        // no evidence that the two passes want different values.
-        constexpr f32 kScreenSpaceTemporalClipGamma = 1.25f;
-
         // The ONE mockable per-frame dt idiom (issue #974) shared by every
         // renderer-side accumulator (auto-exposure adaptation, fog noise, wind
         // field, wake decay, cloud advection): sample Time::GetTime() — the
@@ -1664,10 +1656,9 @@ namespace OloEngine
                 ssgi.TemporalParams = glm::vec4(data.PostProcess.SSGITemporalFeedback,
                                                 0.0f,
                                                 data.PostProcess.SSGITemporalResolve ? 1.0f : 0.0f,
-                                                kScreenSpaceTemporalClipGamma);
+                                                0.0f); // reserved: no radiance clip (#1586)
                 PostProcessPasses.SSGI->SetTemporalSettings(data.PostProcess.SSGITemporalResolve,
-                                                            data.PostProcess.SSGITemporalFeedback,
-                                                            kScreenSpaceTemporalClipGamma);
+                                                            data.PostProcess.SSGITemporalFeedback);
 
                 // Denoiser chain (issue #708). TraceParams is deliberately left
                 // alone here — SSGIRenderPass::Execute patches it from the size
@@ -1900,10 +1891,9 @@ namespace OloEngine
                 ssr.TemporalParams = glm::vec4(data.PostProcess.SSRTemporalFeedback,
                                                0.0f,
                                                data.PostProcess.SSRTemporalResolve ? 1.0f : 0.0f,
-                                               kScreenSpaceTemporalClipGamma);
+                                               0.0f); // reserved: no radiance clip (#1586)
                 PostProcessPasses.SSR->SetTemporalSettings(data.PostProcess.SSRTemporalResolve,
-                                                           data.PostProcess.SSRTemporalFeedback,
-                                                           kScreenSpaceTemporalClipGamma);
+                                                           data.PostProcess.SSRTemporalFeedback);
 
                 // Denoiser chain (issue #708). Same sanitizing reason as the
                 // SSGI block above: these radii can arrive from a live edit, a

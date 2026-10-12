@@ -15,15 +15,16 @@
 // of the *functions* would still pass.
 //
 // So each invocation reads the centre texel of a 3x3 RGBA signal and emits
-// three vec4s:
+// four vec4s:
 //
-//   [3i + 0] the RGBA resolve
-//   [3i + 1] the RGB-ONLY resolve, via the original OLO_TEMPORAL_GATHER_3X3.
+//   [4i + 0] the RGBA resolve
+//   [4i + 1] the RGB-ONLY resolve, via the original OLO_TEMPORAL_GATHER_3X3.
 //            The rgb halves of these two must agree exactly, which is what
 //            pins that the new macro did not disturb the colour path.
-//   [3i + 2] the raw alpha statistics (mean, stddev, min, max), so the test can
+//   [4i + 2] the raw alpha statistics (mean, stddev, min, max), so the test can
 //            check them against hand-computed values without duplicating a
 //            mirror of the kernel.
+//   [4i + 3] the sparse-radiance resolve (#1586); params.w is motion in pixels.
 // =============================================================================
 
 layout(local_size_x = 1, local_size_y = 1) in;
@@ -32,7 +33,7 @@ layout(binding = 0) uniform sampler2D u_Signal;
 
 #include "../include/TemporalResolve.glsl"
 
-// Two vec4s per case: the history RGBA, then (gamma, feedback, confidence, _).
+// Two vec4s per case: history RGBA, then (gamma, feedback, confidence, motion).
 layout(std430, binding = 2) readonly buffer Inputs
 {
     vec4 u_Inputs[];
@@ -62,14 +63,16 @@ void main()
     OloTemporalStats stats;
     OloTemporalScalarStats alphaStats;
     OLO_TEMPORAL_GATHER_3X3_RGBA(u_Signal, uv, texel, stats, alphaStats);
-    u_Outputs[3u * caseIndex] =
+    u_Outputs[4u * caseIndex] =
         OloTemporalResolveRGBA(current, history, stats, alphaStats, gamma, feedback, confidence);
 
     OloTemporalStats rgbOnlyStats;
     OLO_TEMPORAL_GATHER_3X3(u_Signal, uv, texel, rgbOnlyStats);
-    u_Outputs[3u * caseIndex + 1u] =
+    u_Outputs[4u * caseIndex + 1u] =
         vec4(OloTemporalResolve(current.rgb, history.rgb, rgbOnlyStats, gamma, feedback, confidence), 0.0);
 
-    u_Outputs[3u * caseIndex + 2u] =
+    u_Outputs[4u * caseIndex + 2u] =
         vec4(alphaStats.Mean, alphaStats.StdDev, alphaStats.MinC, alphaStats.MaxC);
+    u_Outputs[4u * caseIndex + 3u] = vec4(OloTemporalResolveStochastic(
+        current.rgb, history.rgb, feedback, confidence, vec2(params.w, 0.0)), 0.0);
 }

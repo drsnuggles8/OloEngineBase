@@ -66,9 +66,13 @@
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
+#include "TestOptions.h"
 #include "Rendering/Oracles/OracleStatistics.h"
 
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Build/GameBuildPipeline.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -83,6 +87,7 @@
 #include "OloEngine/Renderer/TemporalSequenceMetrics.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <glad/gl.h>
@@ -91,14 +96,19 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <limits>
+#include <numbers>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -316,7 +326,7 @@ namespace OloEngine::Tests
         // A float target's luminance, read at the target's own size. With
         // transient aliasing off (the fixture's SetUp) a target read after the
         // frame still holds its own pass's output.
-        [[nodiscard]] std::vector<f32> ReadTargetLuma(std::string_view name)
+        [[nodiscard]] std::vector<f32> ReadTargetLuma(std::string_view name, u32 gridStride = 1u)
         {
             u32 texture = 0;
             if (const Ref<Framebuffer> fb = Renderer3D::ResolveFrameGraphFramebuffer(name); fb)
@@ -333,7 +343,21 @@ namespace OloEngine::Tests
                 return {};
             std::vector<f32> rgba;
             ReadbackRgbaFloat(texture, static_cast<u32>(width), static_cast<u32>(height), rgba);
-            return LumaOf(rgba);
+            if (rgba.size() != static_cast<sizet>(width) * static_cast<u32>(height) * 4u)
+                return {};
+            if (gridStride <= 1u)
+                return LumaOf(rgba);
+            // The native-size matrix renders and captures the full target, but
+            // retains a fixed pixel grid for the long sequence's statistics.
+            // This is per-pixel subsampling, not a spatial blur of the signal.
+            std::vector<f32> luma;
+            for (u32 y = 0; y < static_cast<u32>(height); y += gridStride)
+                for (u32 x = 0; x < static_cast<u32>(width); x += gridStride)
+                {
+                    const sizet i = (static_cast<sizet>(y) * static_cast<u32>(width) + x) * 4u;
+                    luma.push_back(0.2126f * rgba[i] + 0.7152f * rgba[i + 1u] + 0.0722f * rgba[i + 2u]);
+                }
+            return luma;
         }
 
         // The run-level reset check of one event: did the resolve at the
@@ -603,11 +627,11 @@ namespace OloEngine::Tests
             SetOccluderInPath(p == Perturbation::SecondaryOccluder && perturbed);
         }
 
-        [[nodiscard]] static EditorCamera MakeCamera(f32 fovDegrees = 60.0f, const glm::vec3& eye = kEye,
-                                                     f32 yaw = 0.0f)
+        [[nodiscard]] EditorCamera MakeCamera(f32 fovDegrees = 60.0f, const glm::vec3& eye = kEye,
+                                              f32 yaw = 0.0f)
         {
-            EditorCamera camera(fovDegrees, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 500.0f);
-            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            EditorCamera camera(fovDegrees, static_cast<f32>(m_ViewportSize.x) / static_cast<f32>(m_ViewportSize.y), 0.05f, 500.0f);
+            camera.SetViewportSize(static_cast<f32>(m_ViewportSize.x), static_cast<f32>(m_ViewportSize.y));
             camera.SetPose(eye, yaw, kPitch);
             return camera;
         }
@@ -659,21 +683,21 @@ namespace OloEngine::Tests
         // The raw signal and the reconstruction an estimator writes. TAA's raw
         // signal is its input, which this reads from the paired feedback-0 arm
         // instead (see RunCell), so TAA returns the reconstruction alone.
-        static void CaptureSignals(Estimator e, std::vector<f32>& raw, std::vector<f32>& resolved)
+        void CaptureSignals(Estimator e, std::vector<f32>& raw, std::vector<f32>& resolved)
         {
             switch (e)
             {
                 case Estimator::TAA:
                     raw.clear();
-                    resolved = ReadTargetLuma(ResourceNames::TAAColor);
+                    resolved = ReadTargetLuma(ResourceNames::TAAColor, m_SignalGridStride);
                     return;
                 case Estimator::SSR:
-                    raw = ReadTargetLuma(ResourceNames::SSRSignal);
-                    resolved = ReadTargetLuma(ResourceNames::SSRResolved);
+                    raw = ReadTargetLuma(ResourceNames::SSRSignal, m_SignalGridStride);
+                    resolved = ReadTargetLuma(ResourceNames::SSRResolved, m_SignalGridStride);
                     return;
                 case Estimator::SSGI:
-                    raw = ReadTargetLuma(ResourceNames::SSGISignal);
-                    resolved = ReadTargetLuma(ResourceNames::SSGIResolved);
+                    raw = ReadTargetLuma(ResourceNames::SSGISignal, m_SignalGridStride);
+                    resolved = ReadTargetLuma(ResourceNames::SSGIResolved, m_SignalGridStride);
                     return;
             }
         }
@@ -690,6 +714,8 @@ namespace OloEngine::Tests
         {
             ConfigureEstimator(e, feedback);
             ApplyPerturbation(p, role == ArmRole::New);
+            if (m_MoveCameraDuringReplay)
+                GetScene().FindEntityByName("Camera").GetComponent<TransformComponent>().Translation = kEye;
             Renderer3D::ResetFrameSequences(seed);
 
             ArmRecord record;
@@ -700,6 +726,12 @@ namespace OloEngine::Tests
             // frame, and a perturbation that moves an entity moves its icon.
             for (u32 frame = 0u; frame < frames; ++frame)
             {
+                if (m_MoveCameraDuringReplay)
+                {
+                    const f32 phase = 2.0f * std::numbers::pi_v<f32> * static_cast<f32>(frame % 64u) / 64.0f;
+                    GetScene().FindEntityByName("Camera").GetComponent<TransformComponent>().Translation =
+                        kEye + glm::vec3(1.6f * std::sin(phase), 0.0f, 0.0f);
+                }
                 if (role == ArmRole::Step && frame == kStep)
                     ApplyPerturbation(p, true);
                 if (role == ArmRole::Step && frame == kRestore)
@@ -801,6 +833,33 @@ namespace OloEngine::Tests
             return total / static_cast<f64>(pixels);
         }
 
+        // Three visits to each camera pose carry different stochastic samples.
+        // Pool variance within a pose, not across the changing integrand of a
+        // camera move; the latter confounds real signal changes with noise.
+        [[nodiscard]] static f64 MeanRepeatedPoseVariance(std::span<const std::vector<f32>> fields)
+        {
+            constexpr sizet period = 64u;
+            if (fields.size() < period * 2u || fields.front().empty())
+                return 0.0;
+            const sizet pixels = fields.front().size();
+            const sizet frames = fields.size();
+            f64 total = 0.0;
+            for (sizet phase = 0; phase < period; ++phase)
+                for (sizet pixel = 0; pixel < pixels; ++pixel)
+                {
+                    f64 sum = 0.0, squares = 0.0, count = 0.0;
+                    for (sizet frame = phase; frame < frames; frame += period)
+                    {
+                        const f64 value = fields[frame][pixel];
+                        sum += value;
+                        squares += value * value;
+                        count += 1.0;
+                    }
+                    total += std::max(squares / count - (sum / count) * (sum / count), 0.0);
+                }
+            return total / static_cast<f64>(pixels * period);
+        }
+
         // One cell of the long-sequence matrix: three seeds, each a paired
         // replay of OLD / NEW / STEP arms (plus a feedback-0 OLD arm for TAA's
         // raw signal), asserted and summarised.
@@ -810,7 +869,7 @@ namespace OloEngine::Tests
             const f32 feedback = ShippedFeedback(e);
             const u32 bound = ExponentialResponseBound(feedback);
             const std::string cell = std::string("TemporalLongSeq_") + EstimatorName(e) + "_GL_" + PathName(path) +
-                                     "_" + PerturbationName(p);
+                                     "_" + PerturbationName(p) + m_CellSuffix;
 
             std::vector<RunSummary> runs;
             std::vector<std::vector<f32>> firstRawOfSeed;
@@ -828,7 +887,8 @@ namespace OloEngine::Tests
                 // whose resolve blends nothing. For TAA that is its input, the
                 // raw signal; for SSR and SSGI it is the raw signal after the
                 // spatial pre-blur, which is what separates the two stages.
-                const ArmRecord noHistoryArm = RunArm(e, p, ArmRole::Old, seed, 0.0f, kOldEnd);
+                const ArmRecord noHistoryArm = RunArm(e, p, ArmRole::Old, seed, 0.0f, kOldEnd,
+                                                      e != Estimator::TAA && seed == kSeeds[0] ? cell + "_NoHistory" : std::string{});
                 std::vector<std::vector<f32>> oldRaw = oldArm.Raw;
                 std::vector<std::vector<f32>> stepRaw = stepArm.Raw;
                 std::vector<std::vector<f32>> newRaw = newArm.Raw;
@@ -953,7 +1013,7 @@ namespace OloEngine::Tests
             const RunInterval drift = MeanOverIndependentRuns(drifts, SampleProvenance::IndependentRunSummaries);
             const RunInterval ratio = MeanOverIndependentRuns(ratios, SampleProvenance::IndependentRunSummaries);
             ASSERT_TRUE(bias.Valid && spatialBias.Valid && drift.Valid && ratio.Valid);
-            std::printf("[temporal-long-seq] %s: clip gamma 1.25, feedback %.2f (biased: clipped history); "
+            std::printf("[temporal-long-seq] %s: feedback %.2f, consumer history-rejection policy; "
                         "temporal bias %s; spatial bias %s; drift %s; variance ratio %s\n",
                         cell.c_str(), feedback, bias.Describe().c_str(), spatialBias.Describe().c_str(),
                         drift.Describe().c_str(), ratio.Describe().c_str());
@@ -967,6 +1027,14 @@ namespace OloEngine::Tests
             // A reconstruction keeps less temporal variance than the same frames
             // resolved with no history.
             EXPECT_LT(ratio.Hi(), 1.0) << cell << ": " << ratio.Describe();
+            if (e != Estimator::TAA)
+            {
+                // One percent leaves room above the matched no-spatial-clip
+                // control's ~0.4% endpoint/precision residual, while rejecting
+                // both shipped defects (2.7% SSR and 12.8% SSGI).
+                EXPECT_LT(std::abs(bias.Mean) + bias.HalfWidth, 0.01)
+                    << cell << ": temporal rejection changed the estimator's time mean: " << bias.Describe();
+            }
         }
 
         // The pixels a step must move by more than 2% of the still arm's mean
@@ -994,7 +1062,8 @@ namespace OloEngine::Tests
                 ConfigureEstimator(e, arm == 0u ? ShippedFeedback(e) : 0.0f);
                 ApplyPerturbation(Perturbation::SecondaryLight, false);
                 Renderer3D::SetRenderScale(1.0f);
-                Renderer3D::GetPostProcessSettings().Upscale = UpscaleMode::Off;
+                if (!m_KeepUpscaleDuringReset)
+                    Renderer3D::GetPostProcessSettings().Upscale = UpscaleMode::Off;
                 GetScene().SetPaused(false);
                 Renderer3D::ResetFrameSequences(seed);
                 EditorCamera camera = MakeCamera();
@@ -1048,7 +1117,8 @@ namespace OloEngine::Tests
             }
             GetScene().SetPaused(false);
             Renderer3D::SetRenderScale(1.0f);
-            Renderer3D::GetPostProcessSettings().Upscale = UpscaleMode::Off;
+            if (!m_KeepUpscaleDuringReset)
+                Renderer3D::GetPostProcessSettings().Upscale = UpscaleMode::Off;
             return { .BeforeDifference = MaxAbsDifference(before[0], before[1]),
                      .EventDifference = MaxAbsDifference(at[0], at[1]),
                      .AfterDifference = MaxAbsDifference(after[0], after[1]),
@@ -1066,7 +1136,7 @@ namespace OloEngine::Tests
         void CheckResetPolicy(Estimator e, RenderingPath path, ResetEvent event)
         {
             SetPath(path);
-            const std::string cell = std::string(EstimatorName(e)) + "_GL_" + PathName(path) + "_" + EventName(event);
+            const std::string cell = std::string(EstimatorName(e)) + "_GL_" + PathName(path) + "_" + EventName(event) + m_CellSuffix;
             const std::optional<TemporalHistoryInvalidationCause> expected = ExpectedReset(event);
             for (const u32 seed : { kSeeds[0], kSeeds[1] })
             {
@@ -1115,7 +1185,11 @@ namespace OloEngine::Tests
             const std::string cell = std::string(EstimatorName(e)) + "_GL_" + PathName(path) + "_" + EventName(event);
             std::printf("[temporal-reset] FAULT %s: event frame %.6f, lineage age %u\n", cell.c_str(),
                         o.EventDifference, o.Lineage.Age);
-            EXPECT_FALSE(LooksReset(o)) << cell << ": the stale-history fault did not reach the image check";
+            // Motion/surface rejection can independently make a cut's image
+            // cold even when the registry wrongly kept the old lineage. The
+            // reset contract includes BOTH the image and its new lineage.
+            EXPECT_FALSE(LooksReset(o) && o.Lineage.Age <= 3u)
+                << cell << ": the stale-history fault passed the complete reset contract";
             EXPECT_GT(o.Lineage.Age, 3u) << cell << ": the stale-history fault did not reach the lineage check";
         }
 
@@ -1125,7 +1199,7 @@ namespace OloEngine::Tests
         void CheckFeatureToggle(Estimator e, RenderingPath path)
         {
             SetPath(path);
-            const std::string cell = std::string(EstimatorName(e)) + "_GL_" + PathName(path) + "_FeatureToggle";
+            const std::string cell = std::string(EstimatorName(e)) + "_GL_" + PathName(path) + "_FeatureToggle" + m_CellSuffix;
             ConfigureEstimator(e, ShippedFeedback(e));
             ApplyPerturbation(Perturbation::SecondaryLight, false);
             Renderer3D::ResetFrameSequences(kSeeds[0]);
@@ -1240,7 +1314,56 @@ namespace OloEngine::Tests
                 EXPECT_EQ(MaxAbsDifference(raw[0], raw[1]), 0.0f) << cell << ": raw signal";
         }
 
+        void RunSettingsMatrix(bool motionOnly);
+
+        void CheckCameraMotionRadianceAndNoise(Estimator estimator)
+        {
+            m_MoveCameraDuringReplay = true;
+            std::vector<f64> biases;
+            std::vector<f64> ratios;
+            for (const auto seed : kSeeds)
+            {
+                const ArmRecord resolved = RunArm(estimator, Perturbation::SecondaryLight, ArmRole::Old, seed,
+                                                  ShippedFeedback(estimator), kOldEnd,
+                                                  seed == kSeeds[0] ? std::string("TemporalMotion_") + EstimatorName(estimator) + "_GL_Deferred" + m_CellSuffix : std::string{});
+                const ArmRecord control = RunArm(estimator, Perturbation::SecondaryLight, ArmRole::Old, seed, 0.0f, kOldEnd,
+                                                 seed == kSeeds[0] ? std::string("TemporalMotion_") + EstimatorName(estimator) + "Off_GL_Deferred" + m_CellSuffix : std::string{});
+                ASSERT_FALSE(resolved.Resolved.empty());
+                ASSERT_FALSE(control.Resolved.empty());
+                ASSERT_FALSE(resolved.Resolved.front().empty());
+                ASSERT_FALSE(resolved.Raw.front().empty());
+                ASSERT_EQ(resolved.Raw.size(), control.Raw.size());
+                EXPECT_EQ(resolved.StartFingerprint, control.StartFingerprint);
+                const sizet frames = resolved.Raw.size();
+                for (sizet frame = 0; frame < frames; ++frame)
+                    ASSERT_LE(MaxAbsDifference(resolved.Raw[frame], control.Raw[frame]), 1.0e-6f);
+                const f64 bias = RelativeBias(Window(resolved.Resolved, kStep, kOldEnd), Window(control.Resolved, kStep, kOldEnd));
+                const f64 controlVariance = MeanRepeatedPoseVariance(Window(control.Resolved, kStep, kOldEnd));
+                ASSERT_GT(controlVariance, 0.0);
+                const f64 ratio = MeanRepeatedPoseVariance(Window(resolved.Resolved, kStep, kOldEnd)) / controlVariance;
+                biases.push_back(bias);
+                ratios.push_back(ratio);
+                std::printf("[temporal-motion] %s%s seed %u: bias %+.6f, repeated-pose noise ratio %.6f\n", EstimatorName(estimator), m_CellSuffix.c_str(), seed, bias, ratio);
+            }
+            const auto bias = MeanOverIndependentRuns(biases, SampleProvenance::IndependentRunSummaries);
+            const auto ratio = MeanOverIndependentRuns(ratios, SampleProvenance::IndependentRunSummaries);
+            ASSERT_TRUE(bias.Valid && ratio.Valid);
+            std::printf("[temporal-motion] %s%s: bias %s, repeated-pose noise ratio %s\n", EstimatorName(estimator), m_CellSuffix.c_str(),
+                        bias.Describe().c_str(), ratio.Describe().c_str());
+            std::fflush(stdout);
+            EXPECT_LT(std::abs(bias.Mean) + bias.HalfWidth, 0.01)
+                << "history rejection biased the moving receiver: " << bias.Describe();
+            EXPECT_LT(ratio.Hi(), 1.0) << "history rejection amplified noise at repeated camera poses";
+            m_MoveCameraDuringReplay = false;
+            GetScene().FindEntityByName("Camera").GetComponent<TransformComponent>().Translation = kEye;
+        }
+
         bool m_SavedDisableAliasing = false;
+        u32 m_SignalGridStride = 1u;
+        std::string m_CellSuffix;
+        glm::uvec2 m_ViewportSize{ kWidth, kHeight };
+        bool m_KeepUpscaleDuringReset = false;
+        bool m_MoveCameraDuringReplay = false;
         Entity m_Lamp;
         Entity m_Occluder;
     };
@@ -1268,6 +1391,184 @@ namespace OloEngine::Tests
     }
 
     // SSR and SSGI run on Deferred only (RenderPipeline: ptOwnership && deferredPath).
+    TEST_F(TemporalLongSequenceEvidenceTest, ExportFixtureForLiveAndCookedVerification)
+    {
+        SetPath(RenderingPath::Deferred);
+        ConfigureEstimator(Estimator::SSR, ShippedFeedback(Estimator::SSR));
+        ConfigureEstimator(Estimator::SSGI, ShippedFeedback(Estimator::SSGI));
+        Renderer3D::GetPostProcessSettings().SSREnabled = true;
+        GetScene().SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+        GetScene().SetName("TemporalBiasFixture");
+        Renderer3D::ResetFrameSequences();
+        RunFrames(2);
+        ASSERT_FALSE(ReadTargetLuma(ResourceNames::SSRResolved).empty());
+        ASSERT_FALSE(ReadTargetLuma(ResourceNames::SSGIResolved).empty());
+        const fs::path directory = fs::path("assets") / "tests" / "visual";
+        fs::create_directories(directory);
+        const fs::path scenePath = directory / "TemporalBiasFixture.olo";
+        SceneSerializer(GetSceneRef()).Serialize(scenePath);
+        ASSERT_TRUE(fs::is_regular_file(scenePath));
+        WriteCompositePng("TemporalBiasFixture_GL_Deferred");
+        std::printf("[temporal-bias] live/cooked fixture: %s\n", fs::absolute(scenePath).string().c_str());
+        if (!Options().CaptureOutDir.empty())
+        {
+            struct ProjectScope
+            {
+                Ref<Project> Previous = Project::GetActive();
+                Ref<AssetManagerBase> Manager = Project::HasAssetManager() ? Project::GetAssetManager() : nullptr;
+                ~ProjectScope()
+                {
+                    Project::Unload();
+                    if (Previous)
+                        Project::NewInMemory(Previous->GetDirectory(), Previous->GetConfig());
+                    if (Manager)
+                        Project::SetAssetManager(Manager);
+                }
+            } projectScope;
+            const fs::path output = fs::absolute(Options().CaptureOutDir);
+            const fs::path source = output / "Source";
+            const fs::path projectPath = source / "TemporalBias.oloproj";
+            fs::create_directories(source / "Assets/Scenes");
+            fs::copy_file(scenePath, source / "Assets/Scenes/TemporalBiasFixture.olo", fs::copy_options::overwrite_existing);
+            std::ofstream(projectPath) << "Project:\n  Name: TemporalBias\n  StartScene: Scenes/TemporalBiasFixture.olo\n"
+                                          "  AssetDirectory: Assets\n  ScriptModulePath: \"\"\n";
+            ASSERT_TRUE(Project::Load(projectPath));
+            auto assets = Ref<EditorAssetManager>::Create();
+            assets->Initialize(false);
+            Project::SetAssetManager(assets);
+            const AssetHandle sceneHandle = assets->ImportAsset(source / "Assets/Scenes/TemporalBiasFixture.olo");
+            ASSERT_NE(static_cast<u64>(sceneHandle), 0u);
+            ASSERT_TRUE(assets->SerializeAssetRegistry());
+            GameBuildSettings settings;
+            settings.GameName = "TemporalBiasCooked";
+            settings.OutputDirectory = output;
+            settings.IncludeScriptModule = false;
+            settings.BuildConfiguration = "Release";
+            settings.StartScene = "Scenes/TemporalBiasFixture.olo";
+            std::atomic<f32> progress{ 0.0f };
+            const GameBuildResult built = GameBuildPipeline::Build(settings, progress);
+            ASSERT_TRUE(built.Success) << built.ErrorMessage;
+            std::printf("[temporal-bias] Build Game fixture: %s\n", built.OutputPath.string().c_str());
+        }
+    }
+
+    // The complete native-resolution export is explicitly requested, like the
+    // benchmark/shader-pack producers. The ordinary three-seed regression below
+    // remains in the normal suite; this campaign also retains full-size PNGs.
+    void TemporalLongSequenceEvidenceTest::RunSettingsMatrix(bool motionOnly)
+    {
+        if (Options().CaptureOutDir.empty())
+            GTEST_SKIP() << "Pass --olo-capture-out to request the full settings evidence campaign";
+        struct UpscaleCase
+        {
+            UpscaleMode Mode;
+            UpscalerTechnique Technique;
+            const char* Name;
+        };
+        constexpr std::array<UpscaleCase, 5> upscalers{ {
+            { UpscaleMode::Off, UpscalerTechnique::Spatial, "Native" },
+            { UpscaleMode::Quality, UpscalerTechnique::Spatial, "SpatialQuality" },
+            { UpscaleMode::Performance, UpscalerTechnique::Spatial, "SpatialPerformance" },
+            { UpscaleMode::Quality, UpscalerTechnique::Temporal, "TemporalQuality" },
+            { UpscaleMode::Performance, UpscalerTechnique::Temporal, "TemporalPerformance" },
+        } };
+        const char* selectedCell = std::getenv("OLO_TEMPORAL_MATRIX_CELL");
+        u32 measuredConfigurations = 0u;
+        const u32 maximumSamples = Renderer3D::GetMaxMSAASamples();
+        std::printf("[temporal-matrix] OpenGL max MSAA samples %u, temporal upscaler available %u\n",
+                    maximumSamples, TemporalUpscalerUsable() ? 1u : 0u);
+        for (const auto size : { glm::uvec2(320, 240), glm::uvec2(449, 307), glm::uvec2(1920, 1080) })
+        {
+            const std::string resolutionPrefix = "_" + std::to_string(size.x) + "x" + std::to_string(size.y) + "_";
+            if (selectedCell && !std::string_view(selectedCell).starts_with(resolutionPrefix))
+                continue;
+            ResizeRenderTarget(size.x, size.y);
+            m_ViewportSize = size;
+            m_SignalGridStride = size.x >= 1920u ? 4u : 1u;
+            m_KeepUpscaleDuringReset = true;
+            for (const u32 samples : { 1u, 2u, 4u, 8u })
+            {
+                const std::string samplePrefix = resolutionPrefix + "MSAA" + std::to_string(samples) + "_";
+                if (selectedCell && !std::string_view(selectedCell).starts_with(samplePrefix))
+                    continue;
+                if (samples > maximumSamples)
+                {
+                    std::printf("[temporal-matrix] NOT RUN MSAA %u: driver maximum %u\n", samples, maximumSamples);
+                    continue;
+                }
+                SetPath(RenderingPath::Deferred);
+                Renderer3D::GetRendererSettings().Deferred.MSAASampleCount = samples;
+                Renderer3D::ApplyRendererSettings();
+                for (const auto& upscale : upscalers)
+                {
+                    m_CellSuffix = samplePrefix + upscale.Name;
+                    if (selectedCell && m_CellSuffix != selectedCell)
+                        continue;
+                    auto& pp = Renderer3D::GetPostProcessSettings();
+                    pp.Upscale = upscale.Mode;
+                    pp.Technique = upscale.Technique;
+                    ConfigureEstimator(Estimator::SSGI, ShippedFeedback(Estimator::SSGI));
+                    Renderer3D::ResetFrameSequences();
+                    RunFrames(2);
+                    const auto& selected = Renderer3D::GetUpscaleResolution();
+                    ASSERT_TRUE(selected.Latched);
+                    EXPECT_EQ(selected.SceneSampleCount, samples);
+                    std::printf("[temporal-matrix] %s: requested %s; selected %s, fallback %s, samples %u, grid stride %u\n",
+                                m_CellSuffix.c_str(), upscale.Name,
+                                TemporalUpscalePolicy::ToToken(selected.Result.Resolved),
+                                TemporalUpscalePolicy::ToToken(selected.Result.Fallback), selected.SceneSampleCount,
+                                m_SignalGridStride);
+                    std::fflush(stdout);
+                    if (upscale.Technique == UpscalerTechnique::Temporal &&
+                        selected.Result.Resolved != TemporalUpscalePolicy::ResolvedUpscaler::Temporal)
+                    {
+                        // The fallback is the spatial cell at the same scale,
+                        // measured above. Record the real refusal, never claim
+                        // that an unavailable temporal path was exercised.
+                        continue;
+                    }
+                    ++measuredConfigurations;
+                    for (const auto estimator : { Estimator::SSR, Estimator::SSGI })
+                    {
+                        if (motionOnly)
+                        {
+                            CheckCameraMotionRadianceAndNoise(estimator);
+                            ASSERT_FALSE(HasFatalFailure());
+                            continue;
+                        }
+                        RunCell(estimator, RenderingPath::Deferred, Perturbation::SecondaryLight);
+                        ASSERT_FALSE(HasFatalFailure());
+                        CheckResetPolicy(estimator, RenderingPath::Deferred, ResetEvent::CameraCut);
+                        CheckResetPolicy(estimator, RenderingPath::Deferred, ResetEvent::ProjectionChange);
+                        CheckResetPolicy(estimator, RenderingPath::Deferred, ResetEvent::SequenceRestart);
+                        CheckFeatureToggle(estimator, RenderingPath::Deferred);
+                    }
+                }
+            }
+        }
+        ASSERT_GT(measuredConfigurations, 0u) << "No reachable temporal settings cell matched OLO_TEMPORAL_MATRIX_CELL";
+    }
+
+    TEST_F(TemporalLongSequenceEvidenceTest, ExportSSRAndSSGISettingsMatrix)
+    {
+        RunSettingsMatrix(false);
+    }
+
+    TEST_F(TemporalLongSequenceEvidenceTest, ExportSSRAndSSGIMotionSettingsMatrix)
+    {
+        RunSettingsMatrix(true);
+    }
+
+    TEST_F(TemporalLongSequenceEvidenceTest, CameraMotionRadianceAndNoise)
+    {
+        SetPath(RenderingPath::Deferred);
+        ResizeRenderTarget(1920u, 1080u);
+        m_ViewportSize = { 1920u, 1080u };
+        m_SignalGridStride = 4u;
+        for (const auto estimator : { Estimator::SSR, Estimator::SSGI })
+            CheckCameraMotionRadianceAndNoise(estimator);
+    }
+
     TEST_F(TemporalLongSequenceEvidenceTest, SSRRespondsToASecondaryLight)
     {
         RunCell(Estimator::SSR, RenderingPath::Deferred, Perturbation::SecondaryLight);

@@ -51,6 +51,7 @@
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -1071,6 +1072,7 @@ namespace OloEngine::Tests
             std::array<f32, 4> Rgba{};       // OloTemporalResolveRGBA
             std::array<f32, 4> RgbOnly{};    // OloTemporalResolve via the original macro
             std::array<f32, 4> AlphaStats{}; // mean, stddev, min, max
+            std::array<f32, 4> Stochastic{}; // motion-conditioned radiance resolve
         };
 
         // `signal` is 9 RGBA texels; `cases` is one {history, (gamma, feedback,
@@ -1094,7 +1096,7 @@ namespace OloEngine::Tests
                 inputs.insert(inputs.end(), params.begin(), params.end());
             }
 
-            const auto outputFloats = results.size() * 12u; // 3 vec4 per case
+            const auto outputFloats = results.size() * 16u; // 4 vec4 per case
             // Row-major from the bottom-left texel (GL's origin), so index 4 is
             // the centre the probe samples. CLAMP_TO_EDGE is belt-and-braces:
             // the 3x3 gather stays inside the texture, so nothing wraps anyway.
@@ -1132,10 +1134,11 @@ namespace OloEngine::Tests
 
             for (std::size_t i = 0; i < results.size(); ++i)
             {
-                const f32* base = raw.data() + i * 12u;
+                const f32* base = raw.data() + i * 16u;
                 std::memcpy(results[i].Rgba.data(), base, 4u * sizeof(f32));
                 std::memcpy(results[i].RgbOnly.data(), base + 4u, 4u * sizeof(f32));
                 std::memcpy(results[i].AlphaStats.data(), base + 8u, 4u * sizeof(f32));
+                std::memcpy(results[i].Stochastic.data(), base + 12u, 4u * sizeof(f32));
             }
             return results;
         }
@@ -1168,6 +1171,77 @@ namespace OloEngine::Tests
             { { 0.9f, 0.0f, 0.8f, 0.6f } },
         } };
     } // namespace
+
+    TEST(ShaderUnitTemporalResolveTest, AStationaryEmptyNeighbourhoodKeepsRareSampleEnergy)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        std::array<std::array<f32, 4>, 9> signal{};
+        const std::array<f32, 4> history{ 2.0f, -1.0f, 0.5f, 0.0f };
+        const auto results = RunTemporalRgbaProbe(signal, { { history, { 1.25f, 0.92f, 1.0f, 0.0f } } });
+        ASSERT_EQ(results.size(), 1u);
+        for (sizet channel = 0; channel < 3u; ++channel)
+        {
+            EXPECT_NEAR(results[0].Stochastic[channel], 0.92f * history[channel], 1.0e-5f);
+            // The shipped spatial policy erases a converged estimate on this
+            // perfectly valid, empty draw of a sparse estimator.
+            EXPECT_LT(std::abs(results[0].RgbOnly[channel]), 1.0e-4f);
+        }
+    }
+
+    TEST(ShaderUnitTemporalResolveTest, BrightRareSamplesDoNotChangeTheStationaryBlend)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        std::array<std::array<f32, 4>, 9> signal{};
+        signal[0] = { 10000.0f, 150.0f, -500.0f, 0.0f };
+        const std::array<f32, 4> history{ 5.0f, 2.0f, -1.0f, 0.0f };
+        const auto results = RunTemporalRgbaProbe(signal, { { history, { 1.25f, 0.92f, 1.0f, 0.25f } } });
+        ASSERT_EQ(results.size(), 1u);
+        for (sizet channel = 0; channel < 3u; ++channel)
+            EXPECT_NEAR(results[0].Stochastic[channel], 0.92f * history[channel], 1.0e-5f);
+    }
+
+    TEST(ShaderUnitTemporalResolveTest, MotionRejectsHistoryWithoutSelectingSampleEnergy)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        std::array<std::array<f32, 4>, 9> signal{};
+        signal.fill({ 0.6f, 0.6f, 0.6f, 1.0f });
+        const std::array<f32, 4> history{ 1.2f, 1.2f, 1.2f, 1.0f };
+        const auto results = RunTemporalRgbaProbe(signal, {
+                                                              { history, { 1.25f, 0.92f, 1.0f, 0.25f } },
+                                                              { history, { 1.25f, 0.92f, 1.0f, 0.625f } },
+                                                              { history, { 1.25f, 0.92f, 1.0f, 1.0f } },
+                                                          });
+        ASSERT_EQ(results.size(), 3u);
+        for (sizet channel = 0; channel < 3u; ++channel)
+        {
+            EXPECT_NEAR(results[0].Stochastic[channel], 0.08f * 0.6f + 0.92f * 1.2f, 1.0e-5f);
+            EXPECT_NEAR(results[2].Stochastic[channel], results[2].RgbOnly[channel], 1.0e-5f);
+            EXPECT_NEAR(results[2].Stochastic[channel], 0.6f, 1.0e-5f);
+            EXPECT_NEAR(results[1].Stochastic[channel],
+                        0.5f * (results[0].Stochastic[channel] + results[2].Stochastic[channel]), 1.0e-5f);
+        }
+    }
+
+    TEST(ShaderUnitTemporalResolveTest, RejectedOrNonFiniteHistoryCannotPoisonTheCurrentFrame)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        std::array<std::array<f32, 4>, 9> signal{};
+        signal.fill({ 0.6f, -0.2f, 0.0f, 1.0f });
+        const std::array<f32, 4> history{ std::numeric_limits<f32>::quiet_NaN(),
+                                          std::numeric_limits<f32>::infinity(), 2.0f, 1.0f };
+        const auto results = RunTemporalRgbaProbe(signal, {
+                                                              { history, { 1.25f, 0.92f, 0.0f, 0.0f } },
+                                                              { history, { 1.25f, 0.92f, 1.0f, 0.0f } },
+                                                              { history, { 1.25f, 0.0f, 1.0f, 5.0f } },
+                                                          });
+        ASSERT_EQ(results.size(), 3u);
+        for (const auto& result : results)
+            for (sizet channel = 0; channel < 3u; ++channel)
+            {
+                EXPECT_TRUE(std::isfinite(result.Stochastic[channel]));
+                EXPECT_NEAR(result.Stochastic[channel], signal[4][channel], 1.0e-6f);
+            }
+    }
 
     // The alpha statistics must come from the alpha channel and nothing else.
     // Hand-computed for kFlatColourVariedAlpha: the nine alphas are
