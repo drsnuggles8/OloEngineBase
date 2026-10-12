@@ -240,9 +240,12 @@ namespace OloEngine::Tests
             }
 
             Entity decal = scene.CreateEntity("Decal");
-            decal.GetComponent<TransformComponent>().Translation = { 122.0f, 4.0f, 140.0f };
+            // Project onto Cube0's visible front face. The old terrain placement
+            // contained no receiver, despite issuing a draw and a full resolve.
+            decal.GetComponent<TransformComponent>().Translation = { 134.0f, 8.0f, 137.0f };
             auto& dc = decal.AddComponent<DecalComponent>();
-            dc.m_Size = { 6.0f, 8.0f, 6.0f };
+            dc.m_Size = { 3.0f, 3.0f, 3.0f };
+            dc.m_FadeDistance = 0.05f;
             dc.m_Color = { 0.9f, 0.1f, 0.1f, 1.0f };
             dc.m_Mode = DecalMode::Albedo;
             m_LateGeometry.Add(decal);
