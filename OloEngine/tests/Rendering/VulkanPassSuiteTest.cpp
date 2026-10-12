@@ -5340,6 +5340,170 @@ TEST_F(VulkanPassSuite, SsrPassesThroughAtZeroIntensityWithTheHzbChainLive)
     m_ExtraSetup = nullptr;
 }
 
+TEST_F(VulkanPassSuite, SsrResolvePreservesSignedRareHistoryAndRejectsMotion)
+{
+    // VulkanPassSuite::SetUp gates the device before bring-up. A second probe
+    // here would reset Volk's pointers underneath that already-live device.
+    constexpr u32 kSize = 64;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    // A zero current delta and flat neighbours cannot justify clipping a rare
+    // signed history draw. Drive the actual five-stage SSR Execute, including
+    // its UBO patch and composite, against an analytic linear-blend reference.
+    constexpr u8 kBase = 128;
+    constexpr f32 kFeedback = 0.92f;
+    const glm::vec3 historySignal{ 0.25f, -0.125f, 0.0625f };
+    auto patternTexture = MakeSolidTexture(kSize, kBase, kBase, kBase, 255);
+    ASSERT_NE(patternTexture, nullptr);
+    auto makeFloatTexture = [&](const glm::vec4& value)
+    {
+        TextureSpecification spec;
+        spec.Width = kSize;
+        spec.Height = kSize;
+        spec.Format = ImageFormat::RGBA32F;
+        spec.GenerateMips = false;
+        auto texture = Texture2D::Create(spec);
+        TArray64<glm::vec4> pixels(static_cast<sizet>(kSize) * kSize);
+        std::fill(pixels.begin(), pixels.end(), value);
+        if (texture)
+            texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num() * sizeof(glm::vec4)));
+        return texture;
+    };
+    Ref<Texture2D> historyTexture;
+    Ref<Texture2D> velocityTexture;
+    auto depthTexture = MakeSolidTexture(kSize, 128, 128, 128, 255); // mid depth — NOT sky
+    ASSERT_NE(depthTexture, nullptr);
+    auto normalTexture = MakeSolidTexture(kSize, 0, 0, 0, 255); // oct(0,0) -> +Z, roughness 0
+    ASSERT_NE(normalTexture, nullptr);
+    auto albedoTexture = MakeSolidTexture(kSize, 200, 200, 200, 0); // metallic 0
+    ASSERT_NE(albedoTexture, nullptr);
+    // The indirect specular term SSR replaces and its weight (issue #1325).
+    // Zero: at intensity 0 the delta is zero whatever they hold.
+    auto specularTexture = MakeSolidTexture(kSize, 0, 0, 0, 0);
+    ASSERT_NE(specularTexture, nullptr);
+    auto blitShader = Shader::Create("assets/shaders/FullscreenBlit.glsl");
+    ASSERT_TRUE(blitShader);
+    ASSERT_EQ(blitShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    DRSUBOData drsData{};
+    auto drsUbo = UniformBuffer::Create(sizeof(DRSUBOData), 33);
+    drsUbo->SetData(&drsData, sizeof(drsData));
+
+    m_ExtraSetup = [&](RenderGraph& graph, FrameBlackboard& blackboard)
+    {
+        RGResourceDesc auxDesc;
+        auxDesc.Kind = RGResourceHandle::Kind::Texture2D;
+        auxDesc.Format = RGResourceFormat::RGBA8UNorm;
+        auxDesc.Width = kSize;
+        auxDesc.Height = kSize;
+        blackboard.Scene.SceneDepth =
+            graph.ImportTextureHandle(ResourceNames::SceneDepth, depthTexture->GetRHIHandle(), auxDesc);
+        blackboard.GBuffer.GBufferNormal =
+            graph.ImportTextureHandle(ResourceNames::GBufferNormal, normalTexture->GetRHIHandle(), auxDesc);
+        blackboard.GBuffer.GBufferAlbedo =
+            graph.ImportTextureHandle(ResourceNames::GBufferAlbedo, albedoTexture->GetRHIHandle(), auxDesc);
+        blackboard.Post.IndirectSpecularTexture = graph.ImportTextureHandle(
+            ResourceNames::IndirectSpecularTexture, specularTexture->GetRHIHandle(), auxDesc);
+        blackboard.Post.IndirectSpecularWeightTexture = graph.ImportTextureHandle(
+            ResourceNames::IndirectSpecularWeightTexture, specularTexture->GetRHIHandle(), auxDesc);
+
+        auxDesc.Format = RGResourceFormat::RGBA32Float;
+        blackboard.GBuffer.Velocity = graph.ImportTextureHandle(
+            ResourceNames::Velocity, velocityTexture->GetRHIHandle(), auxDesc);
+        blackboard.Temporal.SSRHistory = graph.ImportHistoryHandle(
+            ResourceNames::SSRHistory, historyTexture->GetRHIHandle(), auxDesc);
+
+        // Match the production scratch bands. The trace writes zero current
+        // delta; the imported history carries the signed rare-sample energy.
+        RGResourceDesc signalDesc;
+        signalDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        signalDesc.Format = RGResourceFormat::RGBA16Float;
+        signalDesc.Width = kSize;
+        signalDesc.Height = kSize;
+        signalDesc.DebugName = std::string(ResourceNames::SSRSignal);
+        // Attachment 1 is the roughness guide. The uniform signal preserves
+        // the analytic accumulated result through the spatial filtering stages.
+        signalDesc.Attachments = {
+            RGResourceFormat::RGBA16Float,
+            RGResourceFormat::RGBA16Float,
+        };
+        blackboard.Scratch.SSRSignal =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSRSignal, signalDesc);
+        signalDesc.Attachments.Reset();
+        signalDesc.DebugName = std::string(ResourceNames::SSRPreBlurred);
+        blackboard.Scratch.SSRPreBlurred =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSRPreBlurred, signalDesc);
+        signalDesc.DebugName = std::string(ResourceNames::SSRResolved);
+        blackboard.Scratch.SSRResolved =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSRResolved, signalDesc);
+        signalDesc.DebugName = std::string(ResourceNames::SSRDenoised);
+        blackboard.Scratch.SSRDenoised =
+            graph.DeclareTransientFramebuffer(ResourceNames::SSRDenoised, signalDesc);
+    };
+
+    auto ssr = Ref<SSRRenderPass>::Create();
+    FramebufferSpecification initSpec;
+    initSpec.Width = kSize;
+    initSpec.Height = kSize;
+    initSpec.Attachments = { FramebufferTextureFormat::RGBA8 };
+    ssr->Init(initSpec); // compiles PostProcess_SSR + brings up the min-HZB generator
+    ssr->SetEnabled(true);
+
+    SSRUBOData ssrData{};
+    ssrData.Projection = glm::perspectiveRH_NO(glm::radians(90.0f), 1.0f, 0.1f, 100.0f);
+    ssrData.InverseProjection = glm::inverse(ssrData.Projection);
+    ssrData.View = glm::mat4(1.0f);
+    ssrData.RayParams = glm::vec4(32.0f, 10.0f, 0.5f, 0.25f);
+    ssrData.ShadeParams = glm::vec4(0.0f, 0.6f, 0.1f, 4.0f); // Zero current trace contribution; imported history remains active
+    ssrData.ScreenParams = glm::vec4(static_cast<f32>(kSize), static_cast<f32>(kSize),
+                                     1.0f / static_cast<f32>(kSize), 1.0f / static_cast<f32>(kSize));
+    ssrData.Flags = glm::vec4(0.0f);
+    const glm::vec2 hzbUVFactor = ssr->GetHZBUVFactor();
+    ssrData.HZBParams = glm::vec4(hzbUVFactor.x, hzbUVFactor.y, static_cast<f32>(ssr->GetHZBMipCount()), 1.0f);
+    auto ssrUbo = UniformBuffer::Create(sizeof(SSRUBOData), 38);
+    ssrUbo->SetData(&ssrData, sizeof(ssrData));
+    ssr->SetSSRUBO(ssrUbo);
+    ssr->SetTemporalSettings(true, kFeedback);
+
+    auto producer = Ref<PatternProducerPass>::Create(
+        patternTexture, blitShader, std::string(ResourceNames::SceneColor),
+        std::string(ResourceNames::SceneColorTexture),
+        [](FrameBlackboard& blackboard) -> RGFramebufferHandle&
+        { return blackboard.Scene.SceneColor; });
+    // The depth sampler is UNorm; resolve alpha is positive GL-convention
+    // view depth. Use the projection/inverse pair the trace itself consumes.
+    const glm::vec4 view = ssrData.InverseProjection * glm::vec4(0.0f, 0.0f, 2.0f * (128.0f / 255.0f) - 1.0f, 1.0f);
+    const f32 viewDepth = -view.z / view.w;
+    EXPECT_FALSE(RHI::RenderTargetRowsAreBottomUp());
+    for (const auto& sample : std::array<glm::vec2, 5>{ glm::vec2(0.0f, 1.0f), glm::vec2(0.25f, 1.0f),
+                                                        glm::vec2(0.625f, 1.0f), glm::vec2(1.0f, 1.0f), glm::vec2(0.0f, 10.0f) })
+    {
+        const f32 motion = sample.x;
+        SCOPED_TRACE(motion);
+        SCOPED_TRACE(sample.y);
+        historyTexture = makeFloatTexture(glm::vec4(historySignal, viewDepth * sample.y));
+        velocityTexture = makeFloatTexture({ motion / static_cast<f32>(kSize), 0.0f, 0.0f, 0.0f });
+        ASSERT_NE(historyTexture, nullptr);
+        ASSERT_NE(velocityTexture, nullptr);
+        const auto rendered = RunSinglePassChain(kSize, producer, ssr, "SSRPass", ResourceNames::SSRColor, [](FrameBlackboard& blackboard, RGFramebufferHandle handle)
+                                                 { blackboard.Post.SSRColor = handle; }, 6u);
+        ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4u);
+        const f32 moving = std::clamp((motion - 0.25f) / 0.75f, 0.0f, 1.0f);
+        const f32 weight = sample.y > 2.0f ? 0.0f : kFeedback * (1.0f - moving);
+        const glm::vec3 expected = glm::vec3(static_cast<f32>(kBase) / 255.0f) + historySignal * weight;
+        int maxDifference = 0;
+        for (u32 y = 8u; y < kSize - 8u; ++y)
+            for (u32 x = 8u; x < kSize - 8u; ++x)
+                for (u32 channel = 0u; channel < 3u; ++channel)
+                {
+                    const sizet index = (static_cast<sizet>(y) * kSize + x) * 4u + channel;
+                    const int target = static_cast<int>(std::lround(expected[channel] * 255.0f));
+                    maxDifference = std::max(maxDifference, std::abs(static_cast<int>(rendered[index]) - target));
+                }
+        EXPECT_LE(maxDifference, 2) << "signed history must follow the analytic motion/surface weight";
+    }
+    m_ExtraSetup = nullptr;
+}
+
 // =============================================================================
 // UIComposite: ClearAllAttachments over a mixed float/int MRT (this suite's
 // sibling VulkanFramebuffer::ClearAllAttachments implementation exists for

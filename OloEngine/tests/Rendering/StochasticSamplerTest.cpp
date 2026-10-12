@@ -1103,6 +1103,60 @@ TEST(StochasticSampler, ZeroConfidenceReturnsTheCurrentFrameExactly)
 // read the same at 5 units and at 5000, or the rejection only works at one
 // distance — which is worse than not testing at all, because it looks like it
 // works while you are standing near the thing you tested it on.
+// At stationarity the GPU probe pins that the sparse-radiance resolve is this
+// linear blend. Summing h[t] = (1-a)x[t] + a*h[t-1] over a complete period proves
+// equal time means once the initial transient has decayed. The spatial envelope
+// contains one rare bright sample and eight zero neighbours on the bright frame,
+// then only zeros. It cannot bound the temporal mean of those draws.
+TEST(StochasticSampler, LinearHistoryPreservesTheMeanOfSparseSignedRadiance)
+{
+    constexpr u32 period = 127u;
+    constexpr u32 warmPeriods = 32u;
+    constexpr u32 measuredPeriods = 128u;
+    constexpr f32 feedback = 0.92f;
+    const glm::vec3 bright(32.0f, -8.0f, 64.0f);
+    glm::vec3 history(0.0f);
+    glm::vec3 spatialHistory(0.0f);
+    glm::dvec3 rawSum(0.0), historySum(0.0), spatialSum(0.0);
+    for (u32 frame = 0; frame < period * (warmPeriods + measuredPeriods); ++frame)
+    {
+        const glm::vec3 current = frame % period == 0u ? bright : glm::vec3(0.0f);
+        history = Temporal::Blend(current, history, feedback, 1.0f);
+        spatialHistory = Temporal::Blend(current,
+                                         Temporal::ClipToAABB(spatialHistory, glm::min(current, glm::vec3(0.0f)),
+                                                              glm::max(current, glm::vec3(0.0f))),
+                                         feedback, 1.0f);
+        if (frame >= period * warmPeriods)
+        {
+            rawSum += glm::dvec3(current);
+            historySum += glm::dvec3(history);
+            spatialSum += glm::dvec3(spatialHistory);
+        }
+    }
+    for (sizet channel = 0; channel < 3u; ++channel)
+    {
+        EXPECT_NEAR(historySum[channel] / rawSum[channel], 1.0, 1.0e-4);
+        EXPECT_LT(spatialSum[channel] / rawSum[channel], 0.1)
+            << "negative control must erase the energy to discriminate the spatial bias";
+    }
+}
+
+TEST(StochasticSampler, AValidLinearHistoryReleasesASecondaryStepWithinItsFeedbackBound)
+{
+    constexpr f32 feedback = 0.92f;
+    const u32 bound = static_cast<u32>(std::ceil(std::log(0.1) / std::log(static_cast<f64>(feedback))));
+    glm::vec3 history(4.0f, -2.0f, 1.0f);
+    const glm::vec3 initial = history;
+    for (u32 frame = 0; frame < bound; ++frame)
+        history = Temporal::Blend(glm::vec3(0.0f), history, feedback, 1.0f);
+    for (sizet channel = 0; channel < 3u; ++channel)
+    {
+        EXPECT_LE(std::abs(history[channel] / initial[channel]), 0.1f);
+        EXPECT_GT(std::abs(history[channel] / (feedback * initial[channel])), 0.1f)
+            << "the preceding frame must still exceed the response target";
+    }
+}
+
 TEST(StochasticSampler, DepthConfidenceIsRelativeNotAbsolute)
 {
     constexpr float tolerance = 0.02f;
