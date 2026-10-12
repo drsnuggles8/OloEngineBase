@@ -381,6 +381,7 @@ namespace OloEngine
         source.BaseCurveCount = base.GetCurveCount();
         source.BaseGroupRanges = base.GetGroupRanges();
         source.CoverageGrowth = { level.PointCoverageGrowth.GetData(), static_cast<sizet>(level.PointCoverageGrowth.Num()) };
+        source.CoverageGrowthReach = GroomCardCoverageGrowthReach(base.GetCurveCount(), level.GetCurveCount());
         return source;
     }
 
@@ -842,8 +843,9 @@ namespace OloEngine
                     segment.Radius1 = widths[first + i + 1u] * 0.5f * widthScale;
                     if (!source.CoverageGrowth.empty())
                     {
-                        segment.Growth0 = source.CoverageGrowth[first + i];
-                        segment.Growth1 = source.CoverageGrowth[first + i + 1u];
+                        segment.Growth0 = GroomCardReachedGrowth(source.CoverageGrowth[first + i], source.CoverageGrowthReach);
+                        segment.Growth1 =
+                            GroomCardReachedGrowth(source.CoverageGrowth[first + i + 1u], source.CoverageGrowthReach);
                     }
                     else
                     {

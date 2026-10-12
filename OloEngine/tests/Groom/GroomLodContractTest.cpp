@@ -44,6 +44,7 @@
 #include <span>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 using namespace OloEngine;
@@ -890,9 +891,13 @@ TEST(GroomLodCook, ACardCarriesHowMuchWiderItsMembersCoverFarAway)
     EXPECT_NE(reason.find("coverage growth"), std::string::npos) << reason;
 
     // The stream carries it to the shader per corner, the level's value at each
-    // segment's end; the strand tier carries 1. (The level was rebuilt above, so
-    // its view is taken again: the old one's spans point at freed arrays.)
+    // segment's end, reached as far as this coat's cards stand for a lock
+    // (#1595): two cards of sixteen strands each reach 15/31 of it. The strand
+    // tier carries 1. (The level was rebuilt above, so its view is taken again:
+    // the old one's spans point at freed arrays.)
     const GroomCurveView cards = level.GetCurveView();
+    const f32 reach = GroomCardCoverageGrowthReach(groom->GetCurveCount(), cards.GetCurveCount());
+    ASSERT_NEAR(reach, 15.0f / 31.0f, 1.0e-6f);
     GroomStrandBuildSettings build;
     build.MaxStrands = groom->GetCurveCount();
     std::vector<GroomStrandVertex> vertices;
@@ -905,8 +910,8 @@ TEST(GroomLodCook, ACardCarriesHowMuchWiderItsMembersCoverFarAway)
         const u32 first = cards.GetCurveFirstPoint(card);
         for (u32 s = 0; s + 1u < cards.GetCurvePointCount(card); ++s)
         {
-            const f32 g0 = level.PointCoverageGrowth[first + s];
-            const f32 g1 = level.PointCoverageGrowth[first + s + 1u];
+            const f32 g0 = GroomCardReachedGrowth(level.PointCoverageGrowth[first + s], reach);
+            const f32 g1 = GroomCardReachedGrowth(level.PointCoverageGrowth[first + s + 1u], reach);
             expected.insert(expected.end(), { g0, g0, g1, g1 });
         }
     }
@@ -999,6 +1004,80 @@ TEST(GroomLodCook, AWidenedCardCoversWhatItsMembersCoverFartherAway)
             EXPECT_GE(widen, 1.0f) << cookedWidth << " at " << phi;
             EXPECT_LE(widen * cookedWidth, 1.0f + 1.0e-5f) << cookedWidth << " at " << phi;
         }
+    }
+}
+
+TEST(GroomLodCook, AThinCoatsCardsGrowOnlyAsFarAsTheyStandForALock)
+{
+    // #1595. The growth law widens a card toward what its members cover as a
+    // LOCK; a card standing for one strand is that strand. The GroomAnimals
+    // horses, 9 and 14 strands a card, cover their strands at 32 m with no
+    // growth at all (1.145 and 1.013), and full growth put the short coat at
+    // 1.211, past the card tier's 1.2 ceiling. The foxes (26-30 a card) and the
+    // dogs (45-127) fall 4-15% short without it. So a coat reaches the share
+    // (strands per card - 1) / 31 of its cooked growth, all of it from a lock of 32.
+    EXPECT_FLOAT_EQ(GroomCardCoverageGrowthReach(100u, 100u), 0.0f) << "a card per strand is the strand";
+    EXPECT_NEAR(GroomCardCoverageGrowthReach(56895u, 6243u), (56895.0f / 6243.0f - 1.0f) / 31.0f, 1.0e-6f)
+        << "the short horse: a quarter of its growth";
+    EXPECT_LT(GroomCardCoverageGrowthReach(56895u, 6243u), 0.3f);
+    EXPECT_LT(GroomCardCoverageGrowthReach(93727u, 6620u), 0.5f) << "the long horse";
+    EXPECT_GT(GroomCardCoverageGrowthReach(265724u, 8947u), 0.9f) << "the short fox keeps nearly all of it";
+    for (const auto [strands, cards] : { std::pair{ 409940u, 9111u }, std::pair{ 1999138u, 15688u },
+                                         std::pair{ 1615603u, 14938u }, std::pair{ 32u, 1u } })
+    {
+        EXPECT_FLOAT_EQ(GroomCardCoverageGrowthReach(strands, cards), 1.0f) << strands << " / " << cards;
+    }
+    // Monotone in how many strands stand behind a card, and never past [0, 1].
+    f32 previous = 0.0f;
+    for (u32 strands = 1u; strands <= 64u; ++strands)
+    {
+        const f32 reach = GroomCardCoverageGrowthReach(strands, 1u);
+        EXPECT_GE(reach, previous) << strands;
+        EXPECT_LE(reach, 1.0f) << strands;
+        previous = reach;
+    }
+    // Nothing to stand for, or nothing standing: no growth.
+    EXPECT_FLOAT_EQ(GroomCardCoverageGrowthReach(0u, 10u), 0.0f);
+    EXPECT_FLOAT_EQ(GroomCardCoverageGrowthReach(10u, 0u), 0.0f);
+
+    // The drawn growth: the cooked excess over 1 times the reach, the identity at
+    // a full lock and 1 for anything unmeasurable.
+    EXPECT_FLOAT_EQ(GroomCardReachedGrowth(3.0f, 1.0f), 3.0f);
+    EXPECT_FLOAT_EQ(GroomCardReachedGrowth(3.0f, 0.25f), 1.5f);
+    EXPECT_FLOAT_EQ(GroomCardReachedGrowth(3.0f, 0.0f), 1.0f);
+    EXPECT_FLOAT_EQ(GroomCardReachedGrowth(3.0f, 2.0f), 3.0f) << "the reach is a share";
+    EXPECT_FLOAT_EQ(GroomCardReachedGrowth(3.0f, -1.0f), 1.0f);
+    EXPECT_FLOAT_EQ(GroomCardReachedGrowth(0.5f, 1.0f), 1.0f) << "never under the cooked width";
+    for (const f32 bad : { std::numeric_limits<f32>::quiet_NaN(), std::numeric_limits<f32>::infinity() })
+    {
+        EXPECT_FLOAT_EQ(GroomCardReachedGrowth(bad, 1.0f), 1.0f);
+        EXPECT_FLOAT_EQ(GroomCardReachedGrowth(3.0f, bad), 1.0f);
+    }
+
+    // Through the real cook and stream: a full lock carries its cooked growth to
+    // the shader unchanged, a lock of eight carries 7/31 of it.
+    for (const u32 strands : { 32u, 8u })
+    {
+        SCOPED_TRACE(strands);
+        const Ref<GroomAsset> groom = MakeSpreadLock(strands, 4.5e-3f, 5.0e-4f);
+        ASSERT_TRUE(groom);
+        GroomCardSettings settings;
+        settings.SourcePixelSize = 12.5f;
+        GroomLodLevel level;
+        std::string reason;
+        ASSERT_TRUE(GroomLodBuilder::BuildCardLevel(*groom, settings, level, reason, nullptr)) << reason;
+        ASSERT_EQ(level.GetCurveCount(), 1u);
+        ASSERT_GT(level.PointCoverageGrowth[1], 1.05f) << "a lock whose strands barely overlap tests nothing";
+        GroomStrandBuildSettings build;
+        build.MaxStrands = groom->GetCurveCount();
+        std::vector<GroomStrandVertex> vertices;
+        std::vector<u32> indices;
+        (void)BuildGroomStrandMesh(GroomBuildSource::FromLevel(*groom, level), build, vertices, indices);
+        ASSERT_FALSE(vertices.empty());
+        // Corners 2 and 3 are the first segment's far end: the card's point 1.
+        const f32 cooked = level.PointCoverageGrowth[1];
+        const f32 expected = strands == 32u ? cooked : 1.0f + (cooked - 1.0f) * (7.0f / 31.0f);
+        EXPECT_NEAR(vertices[2].CoverageGrowth, expected, 1.0e-5f);
     }
 }
 

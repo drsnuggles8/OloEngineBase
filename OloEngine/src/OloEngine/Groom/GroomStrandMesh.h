@@ -407,6 +407,11 @@ namespace OloEngine
         /// for the base groom, which reads as 1 everywhere.
         std::span<const f32> CoverageGrowth{};
 
+        /// The share of CoverageGrowth the stream carries (#1595): the level's
+        /// GroomCardCoverageGrowthReach, so a thin coat's cards grow less than a
+        /// lock's. Unused when CoverageGrowth is empty.
+        f32 CoverageGrowthReach = 1.0f;
+
         [[nodiscard]] u32 SourceCurve(u32 curve) const noexcept
         {
             return SourceCurves.empty() ? curve : SourceCurves[curve];

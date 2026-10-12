@@ -633,6 +633,31 @@ namespace OloEngine
     /// "draw the card as cooked".
     [[nodiscard]] f32 GroomCardCoverageGrowthBlend(f32 pixelSize, f32 sourcePixelSize) noexcept;
 
+    /// How many strands a card must stand for before its coverage growth applies
+    /// in full (#1595): a lock, the population GroomCardCoverageWiden's law
+    /// describes and was validated on (GroomLodCook.AWidenedCardCoversWhatItsMembers
+    /// CoverFartherAway's 32-strand lock).
+    inline constexpr f32 kGroomCardFullLockStrands = 32.0f;
+
+    /// The share of its cooked coverage growth a card level reaches (#1595):
+    /// (strands per card - 1) / (kGroomCardFullLockStrands - 1), clamped to
+    /// [0, 1], from the base groom's and the card level's curve counts.
+    ///
+    /// The growth law widens a card toward what its members cover as a LOCK.
+    /// A card standing for one strand is that strand and has nothing to grow; a
+    /// thin coat, a handful of strands behind each card, is between the two.
+    /// Measured on the GroomAnimals horses (9 and 14 strands a card), whose
+    /// cards cover their strands without any growth (1.145 and 1.013 at 32 m) and
+    /// whose full growth put the short coat at 1.21x its strands, past the 1.2
+    /// ceiling. The foxes (26-30) and the dogs (45-127) fall 4-15% short of
+    /// their strands without it and keep it. 0 for no cards or no strands.
+    [[nodiscard]] f32 GroomCardCoverageGrowthReach(u32 baseStrands, u32 cards) noexcept;
+
+    /// A card point's growth as drawn: 1 + reach (growth - 1), the cooked growth's
+    /// excess over 1 scaled by GroomCardCoverageGrowthReach. A growth that is not
+    /// finite or not above 1, or a reach that is not finite, draws as cooked (1).
+    [[nodiscard]] f32 GroomCardReachedGrowth(f32 growth, f32 reach) noexcept;
+
     /// How much wider a card is drawn than it was cooked (#1558): the CPU
     /// mirror of GroomStrand.glsl's oloGroomCardCoverageWiden. Every argument is
     /// in units of a pixel now: the card's cooked width, its members' summed
