@@ -889,10 +889,14 @@ namespace OloEngine::Tests
                   << "   accepted = " << movingDiagnostics.AcceptedFraction
                   << "   dominant reason = " << movingDiagnostics.DominantReason << std::endl;
 
-        ASSERT_GT(toStale, 0.75)
-            << "moving the subject did not materially alter the frame, so this fixture cannot reveal a ghost";
         ASSERT_GT(staleRedExcess, 20.0)
             << "the old-position band did not contain enough red signal to expose retained history";
+        // Prove the perturbation on the COLD control in the band the ghost
+        // assertion measures. The first-moved reconstruction is the candidate:
+        // using its whole-frame distance as the presence guard makes a quieter
+        // temporal policy fail the instrument before its rejection is checked.
+        ASSERT_GT(staleRedExcess - coldMovedRedExcess, 20.0)
+            << "the cold moved control did not clear the old red-block band, so this fixture cannot reveal a ghost";
         EXPECT_LT(std::abs(firstMovedRedExcess - coldMovedRedExcess), 2.0)
             << "the vacated block region retained more than 2/255 mean red excess versus a cold new-pose frame";
         EXPECT_LT(movingDiagnostics.AcceptedFraction, 0.999)

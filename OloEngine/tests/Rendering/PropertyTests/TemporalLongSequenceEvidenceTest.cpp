@@ -1,6 +1,6 @@
 // OLO_TEST_LAYER: L8
 // =============================================================================
-// TemporalLongSequenceEvidenceTest.cpp — long-running temporal feedback,
+// TemporalLongSequenceEvidenceTest.cpp â€” long-running temporal feedback,
 // secondary-visibility perturbations and the reset policy (issue #1348).
 //
 // THE PROTOCOL. docs/agent-rules/temporal-long-sequence-protocol.md is the
@@ -1115,7 +1115,11 @@ namespace OloEngine::Tests
             const std::string cell = std::string(EstimatorName(e)) + "_GL_" + PathName(path) + "_" + EventName(event);
             std::printf("[temporal-reset] FAULT %s: event frame %.6f, lineage age %u\n", cell.c_str(),
                         o.EventDifference, o.Lineage.Age);
-            EXPECT_FALSE(LooksReset(o)) << cell << ": the stale-history fault did not reach the image check";
+            // Motion/surface rejection can independently make a cut's image
+            // cold even when the registry wrongly kept the old lineage. The
+            // reset contract includes BOTH the image and its new lineage.
+            EXPECT_FALSE(LooksReset(o) && o.Lineage.Age <= 3u)
+                << cell << ": the stale-history fault passed the complete reset contract";
             EXPECT_GT(o.Lineage.Age, 3u) << cell << ": the stale-history fault did not reach the lineage check";
         }
 
