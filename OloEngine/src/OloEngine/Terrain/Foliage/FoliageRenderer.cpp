@@ -2546,6 +2546,8 @@ namespace OloEngine
     {
         auto next = std::move(*m_Rebuild);
         m_Rebuild.reset();
+        const bool visibleChanged = m_PublishedLayers != next.Input->Layers ||
+                                    m_Canonical->Registry.GetGeneration() != next.Ready->Canonical->Registry.GetGeneration();
         for (i32 index = 0; index < next.Staged->m_Layers.Num(); ++index)
         {
             auto& atlas = next.Staged->m_Layers[index].Impostor;
@@ -2564,7 +2566,13 @@ namespace OloEngine
         m_Canonical->Registry.SetTerrainTransform(m_TerrainTransform);
         m_ImpostorDepthShader = next.Staged->m_ImpostorDepthShader;
         m_CullDemand.DiscardInFlight();
-        m_WindHistory.Reset();
+        if (visibleChanged)
+        {
+            m_WindHistory.Reset();
+            // Instance motion has no previous placement/size endpoint. Break
+            // raster and upscaler history exactly when new pixels can appear.
+            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
+        }
         m_ReflectionSplit.Valid = false;
         m_MainViewCulled = false;
         m_RebuildTimings = next.Staged->m_RebuildTimings;
@@ -2722,6 +2730,8 @@ namespace OloEngine
         }
 
         m_Canonical->Registry.EndGeneration();
+        const bool visibleChanged = m_PublishedLayers != layers ||
+                                    publishedCanonical->Registry.GetGeneration() != m_Canonical->Registry.GetGeneration();
         finishStage(m_RebuildTimings.RegistryMs);
         m_RebuildTimings.TotalMs = std::chrono::duration<f64, std::milli>(
                                        std::chrono::steady_clock::now() - rebuildStart)
@@ -2734,7 +2744,11 @@ namespace OloEngine
         m_PublishedWindEnvelope = m_LegacyWindEnvelope;
         m_PublishedRebuildSerial = m_NextRebuildSerial++;
         RecordTerrainSources(terrainData, material, worldSizeX, worldSizeZ, heightScale);
-        m_WindHistory.Reset();
+        if (visibleChanged)
+        {
+            m_WindHistory.Reset();
+            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
+        }
         std::swap(publishedCanonical->Registry, m_Canonical->Registry);
         auto retiredCanonical = std::move(m_Canonical);
         m_Canonical = std::move(publishedCanonical);
@@ -2744,6 +2758,8 @@ namespace OloEngine
 
     void FoliageRenderer::ClearInstances()
     {
+        if (GetTotalInstanceCount() != 0u)
+            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
         CancelRebuild();
         FenceIdentityReaders();
         if (m_StreamingEnabled)

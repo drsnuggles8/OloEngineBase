@@ -67,6 +67,7 @@
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/Shadow/FoliageShadowInvalidation.h"
@@ -1407,6 +1408,77 @@ namespace OloEngine::Tests
         for (const auto& record : before)
             if (record.m_LayerIndex == 0u)
                 ASSERT_FALSE(registry.Find(record.m_Id));
+    }
+
+    TEST_F(FoliageCostBaselineTest, ChangedPublicationBreaksRasterHistoryWhileNoOpPreparationPreservesIt)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        const auto poses = DeriveTraversal();
+        ASSERT_TRUE(poses);
+        struct RestoreSettings
+        {
+            PostProcessSettings Post = Renderer3D::GetPostProcessSettings();
+            RenderingPath Path = Renderer3D::GetRendererSettings().Path;
+            ~RestoreSettings()
+            {
+                Renderer3D::GetPostProcessSettings() = Post;
+                Renderer3D::GetRendererSettings().Path = Path;
+                Renderer3D::ApplyRendererSettings();
+            }
+        } restore;
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.TAAEnabled = post.SSREnabled = post.SSGIEnabled = true;
+        post.Upscale = UpscaleMode::Off;
+        SetPath(RenderingPath::Deferred);
+        Tick((*poses)[4], 8);
+        const auto lineage = [](TemporalHistoryEffect effect) -> std::optional<TemporalHistorySnapshot>
+        {
+            const auto& graph = RenderGraphDebugRuntime::GetActiveGraph();
+            if (!graph)
+                return std::nullopt;
+            for (const auto& history : graph->GetTemporalHistoryRegistry().Snapshot())
+                if (history.Key.Effect == effect && history.Key.Plane == TemporalHistoryPlane::Signal)
+                    return history;
+            return std::nullopt;
+        };
+        std::array<TemporalHistorySnapshot, 3> before;
+        const std::array effects{ TemporalHistoryEffect::TAA, TemporalHistoryEffect::SSR, TemporalHistoryEffect::SSGI };
+        for (sizet index = 0; index < effects.size(); ++index)
+        {
+            const auto history = lineage(effects[index]);
+            ASSERT_TRUE(history);
+            ASSERT_TRUE(history->Valid);
+            ASSERT_GT(history->Age, 1u);
+            before[index] = *history;
+        }
+        FoliageOf().m_NeedsRebuild = true;
+        Tick((*poses)[4], 1);
+        ASSERT_NO_FATAL_FAILURE(AwaitRebuild((*poses)[4]));
+        for (sizet index = 0; index < effects.size(); ++index)
+        {
+            const auto history = lineage(effects[index]);
+            ASSERT_TRUE(history);
+            EXPECT_EQ(history->Token.Generation, before[index].Token.Generation);
+            EXPECT_GT(history->Age, before[index].Age);
+            before[index] = *history;
+        }
+        const auto canonicalGeneration = Plants().GetInstanceRegistry().GetGeneration();
+        // This visible authored material field is absent from the registry hash;
+        // comparing canonical generation alone would miss its publication.
+        FoliageOf().m_Layers[0].NormalStrength += 0.25f;
+        FoliageOf().m_NeedsRebuild = true;
+        Tick((*poses)[4], 1);
+        ASSERT_NO_FATAL_FAILURE(AwaitRebuild((*poses)[4]));
+        EXPECT_EQ(Plants().GetInstanceRegistry().GetGeneration(), canonicalGeneration);
+        for (sizet index = 0; index < effects.size(); ++index)
+        {
+            const auto history = lineage(effects[index]);
+            ASSERT_TRUE(history);
+            EXPECT_GT(history->Token.Generation, before[index].Token.Generation);
+            EXPECT_EQ(history->LineageCause, TemporalHistoryInvalidationCause::Manual);
+            EXPECT_EQ(history->Age, 1u);
+        }
     }
 
     TEST_F(FoliageCostBaselineTest, MeasureBaseline)

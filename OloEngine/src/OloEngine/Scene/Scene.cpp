@@ -12744,8 +12744,7 @@ namespace OloEngine
 
                     if (foliage.m_Renderer->UpdateStreamingResidency(foliage.m_Layers, cameraPosition))
                     {
-                        Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
-                                                                TemporalHistoryEffect::TAA);
+                        Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
                         // Reconcile representation census/bounds without clearing
                         // the registry that owns canonical plant IDs.
                         foliage.m_Renderer->RefreshStreamingRepresentations(foliage.m_Layers);
