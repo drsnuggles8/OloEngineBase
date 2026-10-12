@@ -50,7 +50,8 @@ namespace OloEngine::MCP::CapturePath
 
     // The lexical, filesystem-free half. On success `outRelative` is the path
     // relative to the editor CWD (so a bare "shot.png" becomes
-    // assets/mcp-captures/shot.png) with a .png extension forced on. Returns a
+    // assets/mcp-captures/shot.png) with the caller's fixed extension forced on.
+    // Screenshot callers use .png; CPU scope dumps use .json. Returns a
     // human-readable error otherwise.
     //
     // Note the order: every rejection is decided on the path AS WRITTEN, before
@@ -59,7 +60,8 @@ namespace OloEngine::MCP::CapturePath
     // to something inside it whenever the root is deep enough, so the check
     // would pass for some roots and fail for others.
     [[nodiscard]] inline std::optional<std::string> ValidateRelative(std::string_view input,
-                                                                     std::filesystem::path& outRelative)
+                                                                     std::filesystem::path& outRelative,
+                                                                     std::string_view extension = ".png")
     {
         namespace fs = std::filesystem;
         if (input.empty())
@@ -126,10 +128,9 @@ namespace OloEngine::MCP::CapturePath
         const auto mm = std::mismatch(root.begin(), root.end(), normalized.begin(), normalized.end());
         fs::path candidate = (mm.first == root.end() ? normalized : (root / normalized)).lexically_normal();
 
-        // Force .png: the bytes are always a PNG, and a caller that named the
-        // file ".jpg" would otherwise get a file that lies about its format.
-        if (const fs::path ext = candidate.extension(); ext != ".png" && ext != ".PNG")
-            candidate += ".png";
+        // The format is chosen by the tool, never by an untrusted argument.
+        if (const fs::path ext = candidate.extension(); ext != extension && !(extension == ".png" && ext == ".PNG"))
+            candidate += extension;
 
         // CONTAINMENT, RE-CHECKED ON THE FINAL PATH — not on the input. Every
         // check above reasons about what the caller wrote; this one reasons
@@ -161,10 +162,11 @@ namespace OloEngine::MCP::CapturePath
     // root — and handles the not-yet-created file lexically.
     [[nodiscard]] inline std::optional<std::string> Resolve(std::string_view input,
                                                             std::filesystem::path& outRelative,
-                                                            std::filesystem::path& outAbsolute)
+                                                            std::filesystem::path& outAbsolute,
+                                                            std::string_view extension = ".png")
     {
         namespace fs = std::filesystem;
-        if (auto error = ValidateRelative(input, outRelative))
+        if (auto error = ValidateRelative(input, outRelative, extension))
             return error;
 
         std::error_code ec;

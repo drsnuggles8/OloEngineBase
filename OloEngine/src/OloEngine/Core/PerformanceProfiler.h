@@ -1,6 +1,8 @@
 #pragma once
 
 #include "OloEngine/Core/Timer.h"
+#include "OloEngine/Core/CpuScopeRing.h"
+#include "OloEngine/Core/PlatformTLS.h"
 #include "OloEngine/Debug/Instrumentor.h" // OLO_FUNC_SIG
 #include "OloEngine/Threading/Mutex.h"
 #include "OloEngine/Threading/UniqueLock.h"
@@ -19,6 +21,11 @@ namespace OloEngine
     class PerformanceProfiler
     {
       public:
+        [[nodiscard]] CpuScopeRing& GetCpuScopeRing()
+        {
+            return m_CpuScopeRing;
+        }
+
         void SetPerFrameTiming(const char* name, f32 timeMs)
         {
             TUniqueLock<FMutex> lock(m_Mutex);
@@ -51,6 +58,7 @@ namespace OloEngine
 
       private:
         FMutex m_Mutex;
+        CpuScopeRing m_CpuScopeRing;
         std::unordered_map<std::string, PerFrameData> m_CurrentFrameData;
         std::unordered_map<std::string, PerFrameData> m_PreviousFrameData;
     };
@@ -58,16 +66,31 @@ namespace OloEngine
     class ScopedPerformanceTimer
     {
       public:
-        ScopedPerformanceTimer(const char* name, PerformanceProfiler* profiler)
-            : m_Name(name), m_Profiler(profiler)
+        ScopedPerformanceTimer(const char* name, PerformanceProfiler* profiler, bool aggregate = true)
+            : m_Name(name), m_Profiler(profiler), m_Aggregate(aggregate)
         {
+            if (m_Profiler && m_Profiler->GetCpuScopeRing().IsArmed())
+            {
+                // Trivial TLS has no exit destructor and retains no owned storage.
+                static thread_local const u32 thread = FPlatformTLS::GetCurrentThreadId();
+                m_Recording = m_Profiler->GetCpuScopeRing().BeginScope(m_Name, s_Depth, thread, CpuScopeRing::NowNs());
+                if (m_Recording.FrameId != 0)
+                    ++s_Depth;
+            }
         }
 
         ~ScopedPerformanceTimer()
         {
             if (m_Profiler)
             {
-                m_Profiler->SetPerFrameTiming(m_Name, m_Timer.ElapsedMillis());
+                const f32 timeMs = m_Timer.ElapsedMillis();
+                if (m_Recording.FrameId != 0)
+                {
+                    --s_Depth;
+                    m_Profiler->GetCpuScopeRing().EndScope(m_Recording, CpuScopeRing::NowNs());
+                }
+                if (m_Aggregate)
+                    m_Profiler->SetPerFrameTiming(m_Name, timeMs);
             }
         }
 
@@ -78,6 +101,9 @@ namespace OloEngine
         const char* m_Name;
         PerformanceProfiler* m_Profiler;
         Timer m_Timer;
+        CpuScopeRing::Token m_Recording;
+        bool m_Aggregate;
+        inline static thread_local u32 s_Depth = 0;
     };
 } // namespace OloEngine
 

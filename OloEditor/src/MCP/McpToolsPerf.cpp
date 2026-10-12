@@ -523,6 +523,7 @@ namespace OloEngine::MCP
 
     void RegisterPerfTools(AutomationRegistry& registry)
     {
+        RegisterCpuScopeRingTools(registry);
         RegisterStreamingResidencyTools(registry);
         {
             ToolDef tool;

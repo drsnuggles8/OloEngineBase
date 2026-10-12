@@ -11,6 +11,50 @@ capture, golden-image comparison, and ephemeral render-override A/B; issue #316)
 Strategy is **"expose, don't embed"**: OloEditor does not ship a chat panel, an API key,
 or a model. It exposes data over a standard protocol; you bring your own agent. (Issue #285.)
 
+## CPU scope recording
+
+Use `olo_perf_cpu_scope_ring` to collect natural frames without polling
+`olo_perf_cpu_scopes` once per frame:
+
+```json
+{"action":"arm","frames":512,"eventsPerFrame":1024}
+```
+
+Let the editor run at the chosen camera, then call `{"action":"disarm"}` and
+`{"action":"dump","thresholdMs":300,"contextFrames":2,"path":"hitches.json"}`.
+Omit `path` for inline JSON; `status` inspects counters without copying events.
+The file is written under `assets/mcp-captures/`, with the same traversal and
+symlink containment checks as screenshots. `arm` starts a new recording and
+discards the previous one. `disarm` preserves completed frames for later dumps.
+
+Arm allocates and initializes all frame/event slots, up to 256 MiB. Steady
+recording performs bounded copies under a lock and grows no storage. The
+default retains 512 windowed application frames, with up to 1,024 scope events each.
+`framesOverwritten`, `partialFramesDiscarded`, per-frame `droppedEvents`, `lateCompletions`, and scope
+`complete`/`nameTruncated` expose loss. Names are copied into 96-byte slots;
+truncated names are marked. An unfinished event has `durationMs: null`.
+
+`frameTimeMs` is the whole application-loop wall interval, including event
+polling, task dispatch, UI, rendering, swap and pacing. Scope `startMs` is
+relative to that loop's start. Scope durations nest and overlap across threads;
+do not add them. `rendererCpuMs` describes the narrower renderer interval,
+identified by `rendererFrameId`; it is null when the renderer did not advance
+(for example an edit-mode throttled frame). GPU samples resolve later and carry
+`gpuMeasurementFrameId` and `gpuStatus`; unmeasured GPU time is null.
+`gpuMs` preserves that raw delayed observation. `sameFrameGpuMs` and
+`sameFrameGpuStatus` join available observations to the originating issue at
+dump time, using all retained frames before threshold filtering. They stay null
+and pending when a measurement has not been retained, or unavailable when no
+GPU frame was issued in that loop (`gpuFrameAdvanced: false`). The
+GPU timer pool advances independently of scene rendering, so a UI-only loop
+can have a measured GPU time while `rendererCpuMs` stays null. The
+recorder's local `frameId` starts at 1 on each arm and is a separate identity.
+
+Dumping copies the retained snapshot at a game-thread boundary. JSON encoding
+and disk writes run on the handler thread. Keep arm, dump and status calls
+outside measurement windows when evaluating recorder overhead. Distribution
+builds report `unavailable`, since their scope macros are compiled out.
+
 ## Security model
 
 - Binds **`127.0.0.1` only** — never a routable interface.
@@ -241,6 +285,7 @@ and for what to do when adding a tool.
 | `olo_perf_capture_frame` | triggers a real frame capture: stats + top-K draw commands by GPU time (per-draw times resolve via a deferred commit one-plus frames after the capture; draws carry their submesh debug names) |
 | `olo_perf_pass_timings` | whole-frame GPU time split by render-graph pass (Shadow vs Scene vs GTAO vs Bloom vs ToneMap…): per-pass GPU (always-on timestamp queries) + CPU dispatch ms, frame totals incl. `gpuWaitMs` (split into `fenceWaitMs`/`presentWaitMs`), and `unattributedGpuMs`. Since #1337 every `gpuMs` is a number or `null` with a `gpuStatus` beside it (`valid|pending|dropped|notStamped|outOfOrder|notTimed|unavailable`); `passGpuTotalMs` sums measured top-level passes only, so read `passGpuTotalIsComplete`/`unmeasuredPasses` first; `unattributedGpuMs` is `null` unless the frame span and every pass were measured; `gpuMeasurementFrameId`/`currentFrameId` say which frame each half describes; `gpuDroppedSlots`/`gpuUnstampedFrames` count frames the ring lost and frames the backend refused to stamp; `recordingBreakdown` labels each frame measurement ELAPSED or SUM. `ScenePass` carries `subPasses` splitting its GPU time into `DepthPrepass` vs `Color` (no DepthPrepass entry = prepass off; sub times are inside the parent's `gpuMs`, not additional). Since issue #806 the response also carries a `parallelRecording` block for the same frame: `regions` (`RecordParallel` calls that forked onto task workers), `inlineRegions` (calls that ran on the render thread), `secondariesExecuted` (secondary command buffers executed into the primary at the join), and `mergeConflicts`; the frame's recording times are in `recordingBreakdown` (`summedWorkerCpuMs` = summed per-item worker recording time, a SUM; `elapsedRecordingWallMs` = summed fork-to-join wall time; `joinWaitMs`; `summedCpuPrepareMs`), each published once. All zero on OpenGL, whose facade default reports nothing, while on Vulkan with `OLO_VK_PARALLEL_RECORDING` off only `inlineRegions` counts. `mergeConflicts` > 0 means two `RecordParallel` items transitioned the same subresource differently (ADR 0011 amendment (92) rule 5); that is a bug in the pass that forked, never a driver condition |
 | `olo_perf_cpu_scopes` | per-scope CPU time from `PerformanceProfiler` (every system in `Scene.cpp` wrapped in `OLO_PERF_SCOPE`/`OLO_PERF_SCOPE_AUTO`), sorted descending by time — mirrors the editor's PerformanceLayer CPU Scopes table. `OLO_PERF_SCOPE` is compiled out entirely in Distribution builds, so `status` reports `"unavailable"` there instead of a misleadingly empty list (`"ok_no_data"` = build supports it but nothing ran last frame; `"ok"` = real data). Optional `limit` truncates the returned list; `totalTimeMs`/`scopeCount` always reflect the full set |
+| `olo_perf_cpu_scope_ring` | Explicitly arm/disarm an in-process per-frame scope recorder, inspect its status, or dump retained complete frames. No per-frame MCP polling is needed. See [CPU scope recording](#cpu-scope-recording) for bounds, loss counters and the capture sandbox. |
 | `olo_render_frame_breakdown` | triggers a real frame capture and returns its **per-command / per-pipeline-stage** structural breakdown (the granularity `olo_perf_capture_frame` omits): pipeline stats + the ordered command list (type, debug-name pass label, draw key shader/material/depth, group, execution order, static flag, GPU time) + a command-type histogram, at the chosen `viewMode` (`presort`/`postsort`/`postbatch`); `format:"markdown"` returns the Command Bucket Inspector's LLM-analysis report (sort/state-change/batching analysis + optimization hints) |
 | `olo_memory_report` | **(issue #1342)** the physical renderer memory report: separate GPU and CPU totals (live, retiring, peak; committed vs format estimate), views/aliases counted once, per-owner attribution, capacity vs active demand per owner, and the backend reconciliation (Vulkan/VMA to the byte; OpenGL `notObservable`) and residency status (`osReported` / `allocatorHeuristic` / `unknown`, never 0). See [renderer-memory-accounting.md](../agent-rules/renderer-memory-accounting.md) |
 | `olo_gpu_resources` | **(issue #810)** the GPU objects that exist RIGHT NOW — textures, cubemaps, buffers, framebuffers, vertex arrays, shader programs — each carrying **both** identities: the RHI handle (index+generation, which survives a hot-reload and tells a recycled native name from a reused one) and the native id a RenderDoc / RGP capture shows. Textures report extent / mips / storage format, buffers their size. Works on **both backends**: under Vulkan the list is discovered from `RHI::ResourceRegistry` and enriched from the image / root-object registries, and `memoryHeaps` adds VMA's own per-heap usage-vs-budget — the number that answers "am I about to run out of VRAM?". Where `memoryHeaps` and `trackedBytes` disagree, believe the heaps: `trackedBytes` sums per-resource ESTIMATES that ignore tiling padding and suballocation slack. Sibling of `olo_memory_report`, which reports engine-tracked totals by category rather than the live object list. Debug-build instrument: a Release/Dist editor returns an empty list with a note |
@@ -748,7 +793,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 |---|---|
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_events_wait`, `olo_debug_levers`, `olo_cvar_set`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_simulate`, `olo_scene_stop`, `olo_reflection_probe_bake`, `olo_editor_select_entity`, `olo_scheduler_graph`, `olo_streaming_stats`, `olo_prefab_instantiate`, `olo_prefab_unpack`, `olo_prefab_overrides`, `olo_prefab_apply`, `olo_prefab_revert`, `olo_prefab_create`, `olo_groom_bind`, `olo_terrain_voxel_load` |
-| `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
+| `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes`, `olo_perf_cpu_scope_ring` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_graph_schedule`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_renderer_support`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_virtual_shadow_map_stats`, `olo_render_lod_stats`, `olo_groom_budget_stats`, `olo_skeletal_deformation_stats`, `olo_rt_scene_stats`, `olo_rt_trace_ray`, `olo_rt_vegetation_diagnostic`, `olo_pathtracer_stats`, `olo_restir_stats`, `olo_restir_gi_stats`, `olo_restir_pt_stats`, `olo_ddgi_probe_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_particle_stats`, `olo_material_get`, `olo_material_set`, `olo_shader_debug_draw`, `olo_terrain_virtual_texture_stats`, `olo_gpu_readback_stats`, `olo_gpu_resources` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_asset_pack_build`, `olo_assets_list`, `olo_assets_problems`, `olo_asset_get`, `olo_asset_references`, `olo_asset_create`, `olo_asset_move`, `olo_asset_delete`, `olo_asset_import`, `olo_asset_reimport`, `olo_asset_import_settings` |

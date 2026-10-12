@@ -523,6 +523,11 @@ namespace OloEngine
             return m_LastCompletedFrame;
         }
 
+        [[nodiscard]] u32 GetCurrentFrameNumber() const
+        {
+            return m_FrameNumber;
+        }
+
         // Main-thread only. Observe every finalized interval, including frames
         // between MCP requests. A second capture must not replace the owner.
         u64 BeginCompletedFrameTrace(std::function<void(u64)> observer)
