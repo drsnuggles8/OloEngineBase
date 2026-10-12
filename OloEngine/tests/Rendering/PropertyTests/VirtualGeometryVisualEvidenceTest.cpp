@@ -1030,7 +1030,10 @@ namespace OloEngine::Tests
         {
             settings.Deferred.MSAASampleCount = samples;
             settings.Deferred.PerSampleLighting = perSample;
+            const bool occlusionEnabled = Renderer3D::IsHZBOcclusionCullingEnabled();
             Renderer3D::ApplyRendererSettings();
+            // Applying settings restores its stored flag; preserve this cell's live toggle.
+            Renderer3D::EnableHZBOcclusionCulling(occlusionEnabled);
             return CaptureAngle(name, { 0.0f, 0.5f, 5.0f }, 0.0f, 0.05f, 1.0f);
         };
 
