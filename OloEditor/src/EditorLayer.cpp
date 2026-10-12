@@ -650,6 +650,7 @@ namespace OloEngine
                 result.EntityCount = m_ActiveScene
                                          ? static_cast<u32>(m_ActiveScene->GetAllEntitiesWith<IDComponent>().size())
                                          : 0;
+                result.RenderingPath = ToToken(Renderer3D::GetRendererSettings().Path);
                 result.Message = "Opened scene '" + result.SceneName + "' (" +
                                  std::to_string(result.EntityCount) + " entities).";
                 return result;
@@ -4918,15 +4919,12 @@ namespace OloEngine
         auto autoPath = m_EditorScenePath;
         autoPath += ".auto";
 
-        // Sync renderer settings into scene before saving
-        m_EditorScene->SetPostProcessSettings(
-            StripTieringOverlay(Renderer3D::GetPostProcessSettings(), m_EditorScene->GetPostProcessSettings()));
-        m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
-        m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
-        m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
-        m_EditorScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
-        m_EditorScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
-        m_EditorScene->SetFogSettings(Renderer3D::GetFogSettings());
+        // Sync renderer settings into scene before saving: the same capture an
+        // explicit save takes (CreateSceneDocumentAccess::PrepareSave), so the
+        // auto-save cannot drop a block, the rendering path included (#1601).
+        auto rendered = SceneTransition::SceneRenderSettings::CaptureRenderer();
+        rendered.PostProcess = StripTieringOverlay(rendered.PostProcess, m_EditorScene->GetPostProcessSettings());
+        rendered.Apply(*m_EditorScene);
         SerializeScene(m_EditorScene, autoPath);
 
         // Also save editor preferences alongside
@@ -5267,6 +5265,7 @@ namespace OloEngine
         m_AnimationPanel.SetContext(m_EditorScene);
         m_AnimationPanel.SetCommandHistory(&m_CommandHistory);
         m_PostProcessSettingsPanel.SetCommandHistory(&m_CommandHistory);
+        m_RendererSettingsPanel.SetCommandHistory(&m_CommandHistory);
         m_TerrainEditorPanel.SetContext(m_EditorScene);
         m_TerrainEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_InstanceScatterBrushPanel.SetContext(m_EditorScene);

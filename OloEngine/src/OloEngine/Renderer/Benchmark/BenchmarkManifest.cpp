@@ -616,18 +616,9 @@ namespace OloEngine::Benchmark
                              "RendererSettings", errors);
             if (rs["Path"])
             {
-                const auto pathName = rs["Path"].as<std::string>("");
-                if (pathName == "Forward")
+                if (const auto path = TryParseRenderingPath(rs["Path"].as<std::string>("")))
                 {
-                    manifest.RendererSettings.Path = RenderingPath::Forward;
-                }
-                else if (pathName == "ForwardPlus")
-                {
-                    manifest.RendererSettings.Path = RenderingPath::ForwardPlus;
-                }
-                else if (pathName == "Deferred")
-                {
-                    manifest.RendererSettings.Path = RenderingPath::Deferred;
+                    manifest.RendererSettings.Path = *path;
                 }
                 else
                 {

@@ -540,6 +540,7 @@ namespace OloEngine
         // slice — caught by live-editor verification, not by the headless test
         // suite, since FunctionalTest never routes through Scene::Copy()).
         newScene->m_PostProcessSettings = other->m_PostProcessSettings;
+        newScene->m_RenderingPath = other->m_RenderingPath;
         newScene->m_FogSettings = other->m_FogSettings;
         newScene->m_WindSettings = other->m_WindSettings;
         newScene->m_SnowSettings = other->m_SnowSettings;

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "RendererSettingsPanel.h"
 #include "SettingsChangeLog.h"
+#include "../UndoRedo/SpecializedCommands.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/BackendSelection.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
@@ -760,9 +761,15 @@ namespace OloEngine
             };
             if (int currentPath = static_cast<int>(std::to_underlying(settings.Path)); ImGui::Combo("Active Path", &currentPath, pathItems, IM_ARRAYSIZE(pathItems)))
             {
+                const RenderingPath previous = settings.Path;
                 settings.Path = static_cast<RenderingPath>(currentPath);
                 Renderer3D::ApplyRendererSettings();
+                if (m_CommandHistory && previous != settings.Path)
+                    m_CommandHistory->PushAlreadyExecuted(std::make_unique<RenderingPathChangeCommand>(previous, settings.Path));
             }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Saved with the scene: opening a scene selects its path, and a game\n"
+                                  "built with Build Game renders each scene on the path it was saved with.");
 
             if (settings.Path == RenderingPath::Forward)
             {

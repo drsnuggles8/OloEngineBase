@@ -2,6 +2,10 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <array>
+#include <optional>
+#include <string_view>
+
 namespace OloEngine
 {
     // @brief Selects the high-level rendering strategy for the scene.
@@ -41,6 +45,40 @@ namespace OloEngine
         // commented out to record that, rather than being deleted as if the
         // question had never been asked.
     };
+
+    // Every implemented path, in enum order.
+    inline constexpr std::array<RenderingPath, 3> kRenderingPaths{ RenderingPath::Forward, RenderingPath::ForwardPlus,
+                                                                   RenderingPath::Deferred };
+
+    // The on-disk spelling of a path: a scene's `RenderingPath` key (issue
+    // #1601) and a benchmark manifest's `RendererSettings.Path`. One table, so
+    // the two files cannot drift apart.
+    [[nodiscard]] constexpr const char* ToToken(RenderingPath path) noexcept
+    {
+        switch (path)
+        {
+            case RenderingPath::Forward:
+                return "Forward";
+            case RenderingPath::ForwardPlus:
+                return "ForwardPlus";
+            case RenderingPath::Deferred:
+                return "Deferred";
+        }
+        return "";
+    }
+
+    // Exact, case-sensitive match against ToToken's spellings; nullopt for
+    // anything else, so a caller can refuse an unknown value instead of
+    // quietly falling back to Forward.
+    [[nodiscard]] constexpr std::optional<RenderingPath> TryParseRenderingPath(std::string_view token) noexcept
+    {
+        for (const RenderingPath path : kRenderingPaths)
+        {
+            if (std::string_view(ToToken(path)) == token)
+                return path;
+        }
+        return std::nullopt;
+    }
 
     // @brief Deferred renderer configuration.
     //

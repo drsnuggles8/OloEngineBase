@@ -1222,22 +1222,9 @@ namespace OloEngine::Benchmark
         // The physical report (#1342): owners, capacity versus demand, reconciliation and
         // residency validity. Absent rather than empty when the host took none.
         json["memory"] = runInfo.MemoryReport ? RendererMemoryReportToJson(*runInfo.MemoryReport) : nlohmann::json(nullptr);
-        const auto pathName = [](RenderingPath path) -> const char*
-        {
-            switch (path)
-            {
-                case RenderingPath::Forward:
-                    return "Forward";
-                case RenderingPath::ForwardPlus:
-                    return "ForwardPlus";
-                case RenderingPath::Deferred:
-                    return "Deferred";
-            }
-            return "Unknown";
-        };
         json["configuration"] = {
-            { "requested", { { "path", manifest.RendererSettings.Path ? pathName(*manifest.RendererSettings.Path) : "unfixed" }, { "msaaSamples", manifest.RendererSettings.MSAASampleCount.value_or(1u) }, { "upscaleMode", static_cast<i32>(manifest.RendererSettings.Upscale.value_or(UpscaleMode::Off)) }, { "upscaleTechnique", static_cast<i32>(manifest.RendererSettings.UpscaleTechnique.value_or(UpscalerTechnique::Spatial)) }, { "rayTracedShadows", manifest.RendererSettings.RayTracedShadowsEnabled.value_or(false) }, { "virtualShadowMaps", manifest.RendererSettings.VirtualShadowMapsEnabled.value_or(false) }, { "lightingTap", ToToken(manifest.RendererSettings.LightingDebugTap.value_or(LightingTap::None)) } } },
-            { "selectedSettings", { { "path", pathName(runInfo.Configuration.Path) }, { "msaaSamples", runInfo.Configuration.MSAASampleCount }, { "upscaleMode", static_cast<i32>(runInfo.Configuration.Upscale) }, { "upscaleTechnique", static_cast<i32>(runInfo.Configuration.Technique) }, { "rayTracedShadowsRequested", runInfo.Configuration.RayTracedShadowsRequested }, { "virtualShadowMaps", runInfo.Configuration.VirtualShadowMapsEnabled }, { "lightingTap", ToToken(runInfo.Configuration.LightingDebugTap) } } },
+            { "requested", { { "path", manifest.RendererSettings.Path ? ToToken(*manifest.RendererSettings.Path) : "unfixed" }, { "msaaSamples", manifest.RendererSettings.MSAASampleCount.value_or(1u) }, { "upscaleMode", static_cast<i32>(manifest.RendererSettings.Upscale.value_or(UpscaleMode::Off)) }, { "upscaleTechnique", static_cast<i32>(manifest.RendererSettings.UpscaleTechnique.value_or(UpscalerTechnique::Spatial)) }, { "rayTracedShadows", manifest.RendererSettings.RayTracedShadowsEnabled.value_or(false) }, { "virtualShadowMaps", manifest.RendererSettings.VirtualShadowMapsEnabled.value_or(false) }, { "lightingTap", ToToken(manifest.RendererSettings.LightingDebugTap.value_or(LightingTap::None)) } } },
+            { "selectedSettings", { { "path", ToToken(runInfo.Configuration.Path) }, { "msaaSamples", runInfo.Configuration.MSAASampleCount }, { "upscaleMode", static_cast<i32>(runInfo.Configuration.Upscale) }, { "upscaleTechnique", static_cast<i32>(runInfo.Configuration.Technique) }, { "rayTracedShadowsRequested", runInfo.Configuration.RayTracedShadowsRequested }, { "virtualShadowMaps", runInfo.Configuration.VirtualShadowMapsEnabled }, { "lightingTap", ToToken(runInfo.Configuration.LightingDebugTap) } } },
             { "production", "unknown without pass and counter evidence" },
             { "consumption", "unknown without downstream evidence" }
         };
