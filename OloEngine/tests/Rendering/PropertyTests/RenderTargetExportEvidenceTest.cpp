@@ -281,6 +281,27 @@ namespace OloEngine::Tests
     // must have been declared by the pass that issued it: an undeclared write is
     // one no edge orders and no barrier covers.
     // -------------------------------------------------------------------------
+    TEST_F(RenderTargetExportEvidence, DeferredDebugAlbedoIncludesLateDecals)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.Path = RenderingPath::Deferred;
+        settings.Deferred.MSAASampleCount = 4u;
+        settings.Deferred.PerSampleLighting = true;
+        settings.Deferred.DebugChannel = 1u;
+        Renderer3D::GetPostProcessSettings().TAAEnabled = false;
+        Renderer3D::GetPostProcessSettings().Upscale = UpscaleMode::Off;
+        Renderer3D::ApplyRendererSettings();
+        SetLateGeometry(true, false, false);
+        Frames(kWarmFrames);
+        std::vector<u8> frame;
+        u32 width = 0, height = 0;
+        ASSERT_TRUE(ReadbackComposite(frame, width, height));
+        VisualEvidence::ExpectFrameHasSubject(frame, "DeferredDebugAlbedo", [](u32 r, u32 g, u32 b)
+                                              { return r > 100u && r > 2u * g && r > 2u * b; });
+        SetLateGeometry(false);
+    }
+
     TEST_F(RenderTargetExportEvidence, EveryCellReportsItsCopiesBytesTimeAndPeak)
     {
         OLO_ENSURE_GPU_OR_SKIP();

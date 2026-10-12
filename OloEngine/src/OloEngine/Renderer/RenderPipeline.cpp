@@ -2286,6 +2286,7 @@ namespace OloEngine
         {
             const bool deferred = (data.Settings.Path == RenderingPath::Deferred);
             SceneCompositePasses.DeferredLighting->SetGBuffer(deferred ? FrameCorePasses.Scene->GetGBuffer() : nullptr);
+            SceneCompositePasses.DeferredLighting->SetScenePass(FrameCorePasses.Scene.Raw());
             SceneCompositePasses.DeferredLighting->SetDebugChannel(deferred ? data.Settings.Deferred.DebugChannel : 0);
             SceneCompositePasses.DeferredLighting->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
             // Material debug view (issue #1231). Forced off outside Deferred so
@@ -3658,6 +3659,7 @@ namespace OloEngine
                 ResourceNames::GBufferResolved,
                 buildGBufferFramebufferDesc(1u, ResourceNames::GBufferResolved),
                 gbuffer->GetSamplingFramebuffer());
+            board.GBuffer.ResolvedFramebuffer = resolvedGBuffer;
 
             // Multisample companion handles. Declared only when MSAA is active
             // so the typed-handle path can drive per-sample shading without
@@ -3677,6 +3679,7 @@ namespace OloEngine
                     ResourceNames::GBufferMS,
                     buildGBufferFramebufferDesc(config.GBufferSamples, ResourceNames::GBufferMS),
                     gbuffer->GetFramebuffer());
+                board.GBuffer.MultisampleFramebuffer = multisampleGBuffer;
 
                 board.GBuffer.GBufferAlbedoMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferAlbedoMS, multisampleGBuffer, 0u);
                 board.GBuffer.GBufferNormalMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferNormalMS, multisampleGBuffer, 1u);

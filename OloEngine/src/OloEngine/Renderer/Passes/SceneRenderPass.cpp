@@ -135,6 +135,8 @@ namespace OloEngine
         }
         if (board.Config.Path == RenderingPath::Deferred)
         {
+            if (board.Scene.SceneColor.IsValid())
+                builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
             // The deferred exports are attachment views of the G-Buffer this
             // pass renders: these writes give their readers a producer. Nothing
             // is copied (the views ARE the attachments).
@@ -688,24 +690,6 @@ namespace OloEngine
                 m_GBuffer->Resolve();
         }
 
-        // Deferred opaque decals are drained by the dedicated
-        // `DeferredOpaqueDecalPass` graph node (runs between ScenePass and
-        // DeferredLightingPass) — see `Renderer3D::ConfigureRenderGraph`.
-        // The pass's resource declarations make the dependency visible to
-        // the L5 hazard validator.
-        //
-        // The per-sample "post-decal colour resolve" below still runs here
-        // because it must be observable to `BlitGBufferDebug` in the same
-        // Execute() call. By the time we reach this point the graph
-        // scheduler has NOT yet executed the opaque-decal pass (this is
-        // still inside ScenePass), so the debug blit will see *pre-decal*
-        // colour in per-sample + debug-channel mode. That matches the
-        // behaviour pre-extraction for every case except
-        // `perSampleLighting && debugNeedsColour`; callers relying on the
-        // debug overlay to reflect decal contributions should disable
-        // per-sample lighting. Documented as a known limitation of the
-        // debug overlay; non-debug paths are unaffected.
-
         // Per-sample path: force a color resolve whenever a downstream pass
         // samples resolved G-Buffer color attachments (debug overlay, SSAO, GTAO).
         // This keeps the resolved single-sample G-Buffer attachments current
@@ -726,15 +710,7 @@ namespace OloEngine
             m_GBuffer->ResolveColorOnly();
         }
 
-        // Deferred debug visualisation: until DeferredLightingPass lands in
-        // Copy the selected G-Buffer channel into the forward scene
-        // target's color[0] so post-process and the editor viewport display
-        // *something* instead of whatever is left of the cleared forward FB.
-        if (deferredActive && m_GBuffer)
-        {
-            BlitGBufferDebug(rendererSettings.Deferred.DebugChannel);
-        }
-        else if (!deferredActive && rendererSettings.DebugVelocityOverlayForward)
+        if (!deferredActive && rendererSettings.DebugVelocityOverlayForward)
         {
             // Forward / Forward+ velocity overlay: mirror the Deferred
             // DebugChannel=5 capability for the forward paths.
@@ -879,12 +855,14 @@ namespace OloEngine
         }
         // Channel 3 (RMA) needs data from TWO attachments — RT0.a (metallic)
         // and RT1.zw (roughness, AO). glBlitFramebuffer cannot swizzle, so
-        // use a dedicated fullscreen shader for this one channel.
-        if (channel == 3)
+        // use a dedicated fullscreen shader. Albedo also needs a shader: its
+        // RGBA8 source cannot blit into the RGBA16F scene target on Vulkan.
+        if (channel == 1 || channel == 3)
         {
-            if (!m_DebugRMAShader)
-                m_DebugRMAShader = Shader::Create("assets/shaders/DebugGBuffer_RMA.glsl");
-            if (!m_DebugRMAShader)
+            auto& shader = channel == 1 ? m_DebugAlbedoShader : m_DebugRMAShader;
+            if (!shader)
+                shader = Shader::Create(channel == 1 ? "assets/shaders/DebugGBuffer_Albedo.glsl" : "assets/shaders/DebugGBuffer_RMA.glsl");
+            if (!shader)
                 return;
 
             m_Target->Bind();
@@ -899,7 +877,7 @@ namespace OloEngine
             RenderCommand::SetDepthMask(false);
             RenderCommand::SetBlendState(false);
 
-            m_DebugRMAShader->Bind();
+            shader->Bind();
             // Persistent: these are the pass's OWN G-Buffer attachments, not
             // graph-pooled targets (issue #691).
             HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO,
