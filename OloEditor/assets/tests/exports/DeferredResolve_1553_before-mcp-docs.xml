@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuites tests="2" failures="2" disabled="0" errors="0" time="0.546" timestamp="2026-10-13T01:36:20.126" name="AllTests">
+  <testsuite name="McpDocsCoverage" tests="2" failures="2" disabled="0" skipped="0" errors="0" time="0.546" timestamp="2026-10-13T01:36:20.127">
+    <testcase name="EveryRegisteredToolAppearsInTheGuide" file="..\OloEngine\tests\MCP\McpDocsCoverageTest.cpp" line="186" status="run" result="completed" time="0.386" timestamp="2026-10-13T01:36:20.128" classname="McpDocsCoverage">
+      <failure message="..\OloEngine\tests\MCP\McpDocsCoverageTest.cpp:205&#x0A;Value of: undocumented.empty()&#x0A;  Actual: false&#x0A;Expected: true&#x0A;These MCP tools are registered but never mentioned in docs/guides/mcp-diagnostics-server.md, so nothing tells a reader they exist: olo_foliage_rebuild&#x0A;" type=""><![CDATA[..\OloEngine\tests\MCP\McpDocsCoverageTest.cpp:205
+Value of: undocumented.empty()
+  Actual: false
+Expected: true
+These MCP tools are registered but never mentioned in docs/guides/mcp-diagnostics-server.md, so nothing tells a reader they exist: olo_foliage_rebuild
+]]></failure>
+    </testcase>
+    <testcase name="EveryConsentGatedToolIsMarkedConsentedWriteInTheGuide" file="..\OloEngine\tests\MCP\McpDocsCoverageTest.cpp" line="217" status="run" result="completed" time="0.158" timestamp="2026-10-13T01:36:20.515" classname="McpDocsCoverage">
+      <failure message="..\OloEngine\tests\MCP\McpDocsCoverageTest.cpp:243&#x0A;Value of: unmarked.empty()&#x0A;  Actual: false&#x0A;Expected: true&#x0A;These tools set ToolDef::ProjectWrite (so they are refused until the human enables Agent writes, or the session was launched with OLO_MCP_ALLOW_WRITES=1) but are NOT marked &apos;(consented write)&apos; in the guide. A reader would expect them to just work: olo_foliage_rebuild&#x0A;" type=""><![CDATA[..\OloEngine\tests\MCP\McpDocsCoverageTest.cpp:243
+Value of: unmarked.empty()
+  Actual: false
+Expected: true
+These tools set ToolDef::ProjectWrite (so they are refused until the human enables Agent writes, or the session was launched with OLO_MCP_ALLOW_WRITES=1) but are NOT marked '(consented write)' in the guide. A reader would expect them to just work: olo_foliage_rebuild
+]]></failure>
+    </testcase>
+  </testsuite>
+</testsuites>
