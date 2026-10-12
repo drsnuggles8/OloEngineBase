@@ -200,8 +200,12 @@ ExternalProject_Add(olo_openusd
         -DPXR_ENABLE_HDF5_SUPPORT=OFF
         -DPXR_PREFER_SAFETY_OVER_SPEED=ON
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-    BUILD_COMMAND   ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release --parallel
-            COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config Debug --parallel
+    # No --parallel: a bare flag means the native tool's own default (every core for MSBuild,
+    # cores + 2 for Ninja) and outranks CMAKE_BUILD_PARALLEL_LEVEL, which build-lock.ps1 exports
+    # with its memory-aware job count. The nested build inherits that variable instead, so it runs
+    # at the lock's cap like every other build.
+    BUILD_COMMAND   ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release
+            COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config Debug
     INSTALL_COMMAND ${CMAKE_COMMAND} --install <BINARY_DIR> --config Release --prefix ${_olo_usd_install}/Release
             COMMAND ${CMAKE_COMMAND} --install <BINARY_DIR> --config Debug --prefix ${_olo_usd_install}/Debug
     BUILD_BYPRODUCTS "${_olo_usd_byproducts}")
