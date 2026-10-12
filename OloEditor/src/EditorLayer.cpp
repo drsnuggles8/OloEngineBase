@@ -5128,6 +5128,11 @@ namespace OloEngine
         m_TilemapPainterPanel.SetContext(scene);
         m_TilemapPainterPanel.SetCommandHistory(history);
         m_AudioEventsPanel.SetActiveScene(scene);
+        // Not scene-observing, but they record renderer-settings edits as edits
+        // of the edit scene. In Play those edits die at Stop (which restores the
+        // settings captured at Play), so they must not land in its history.
+        m_PostProcessSettingsPanel.SetCommandHistory(history);
+        m_RendererSettingsPanel.SetCommandHistory(history);
     }
 
     bool EditorLayer::SwitchPlayScene(const std::string& request, const std::string& saveSlot)
