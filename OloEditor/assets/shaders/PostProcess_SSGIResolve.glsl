@@ -59,8 +59,8 @@ void main()
 //                               frame (there is no depth history buffer, and a
 //                               fixed tolerance on device depth would be
 //                               centimetres near the camera and kilometres far)
-//   3. still plausible?      -> 3x3 neighbourhood variance CLIP (not a
-//                               componentwise clamp — see the header)
+//   3. still plausible?      -> motion-conditioned history rejection; radiance
+//                               is not bounded by a noisy spatial draw
 //   4. how much do I keep?   -> motion-scaled feedback with a sub-pixel dead
 //                               zone, so a stationary camera does not read as
 //                               motion and bleed the current frame through
@@ -114,7 +114,7 @@ layout(std140, binding = 40) uniform SSGIParams
     vec4 u_ShadeParams;
     vec4 u_ScreenParams;    // x = FULL-res width, y = height, z = 1/width, w = 1/height
     vec4 u_Flags;
-    vec4 u_TemporalParams;  // x = Feedback, y = HasVelocity, z = HistoryUsable, w = ClipGamma
+    vec4 u_TemporalParams;  // x = Feedback, y = HasVelocity, z = HistoryUsable, w = reserved
     vec4 u_TraceParams;     // x = trace width, y = trace height, z = 1/width, w = 1/height
     vec4 u_DenoiseParams;
     vec4 u_DenoiseGuide;
@@ -226,13 +226,10 @@ void main()
         currentSurface, previousSurface, prevUV, historyAvailable, validitySettings);
     float confidence = rejectionReasons == OLO_SURFACE_REJECT_NONE ? 1.0 : 0.0;
 
-    OloTemporalStats stats;
-    OLO_TEMPORAL_GATHER_3X3(u_StochasticSignal, uv, texel, stats);
-
     vec2 velocityPixels = velocity / max(texel, vec2(1.0e-8));
     float feedback = OloTemporalMotionFeedback(u_TemporalParams.x, velocityPixels, 1.0, 5.0, 0.5);
 
-    vec3 resolved = OloTemporalResolve(current.rgb, history.rgb, stats, u_TemporalParams.w, feedback, confidence);
+    vec3 resolved = OloTemporalResolveStochastic(current.rgb, history.rgb, feedback, confidence, velocityPixels);
 
     vec4 previousFirstPacked = historySampleAvailable ? texture(u_FirstMomentsHistory, prevUV) : vec4(0.0);
     vec4 previousSecondPacked = historySampleAvailable ? texture(u_SecondMomentsHistory, prevUV) : vec4(0.0);

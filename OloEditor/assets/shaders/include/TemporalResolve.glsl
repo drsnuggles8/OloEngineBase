@@ -332,6 +332,31 @@ vec3 OloTemporalResolve(vec3 current,
     return OloTemporalBlend(current, clipped, feedback, confidence);
 }
 
+// Sparse signed radiance estimates are not bounded by one frame's spatial
+// neighbourhood: an empty 3x3 can miss the rare samples that gave the history
+// its energy. On a stationary valid surface, keep the linear estimator and
+// let the capped feedback bound its response to secondary lighting changes.
+// Reject increasingly uncertain reprojection over 0.25..1 resolve texels.
+// A multi-texel survival window still loses moving energy at reduced resolution.
+// It changes history weight without selecting samples by radiance:
+// colour-dependent rejection also biases moving heavy-tailed signals.
+// Surface validity is supplied independently by the caller. TAA and
+// transmittance retain their existing spatial clip and flat-patch protection.
+vec3 OloTemporalResolveStochastic(vec3 current, vec3 history, float feedback,
+                                  float confidence, vec2 velocityPixels)
+{
+    if (any(isnan(current)) || any(isinf(current)))
+        return vec3(0.0);
+    float weight = OloTemporalFeedbackWeight(feedback, confidence);
+    if (weight <= 0.0 || isnan(weight) || isinf(weight) ||
+        any(isnan(history)) || any(isinf(history)) ||
+        any(isnan(velocityPixels)) || any(isinf(velocityPixels)))
+        return current;
+
+    float motionRejection = clamp((length(velocityPixels) - 0.25) / 0.75, 0.0, 1.0);
+    return mix(current, history, weight * (1.0 - motionRejection));
+}
+
 // Variance clip for one non-colour channel. Same box construction as
 // OloTemporalClipHistory — mean +/- gamma * stddev intersected with the hard
 // min/max, re-ordered so a near-flat neighbourhood cannot invert it — so a

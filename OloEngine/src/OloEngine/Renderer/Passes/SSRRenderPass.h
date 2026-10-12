@@ -63,7 +63,7 @@ namespace OloEngine
     // scene colour made the output un-accumulable, because temporally blending
     // it would smear the base colour along with the noise. And every stage here
     // gathers a NEIGHBOURHOOD of the stage before it - the pre-blur's Poisson
-    // disc, the resolve's 3x3 clip box, the post-blur's disc - so each one needs
+    // disc, the resolve's 3x3 depth dilation, the post-blur's disc - so each one needs
     // its input in a real texture that the whole previous draw has finished
     // writing. None of these can be folded into the one before it. The resolve
     // is also what pays for the raised SSRMaxRoughness default.
@@ -141,11 +141,10 @@ namespace OloEngine
         // and answering that from a snapshot taken before PopulateBlackboard ran
         // is how a first frame ends up blending against an uninitialised buffer.
         // Execute patches the TemporalParams vec4 in place before its draws.
-        void SetTemporalSettings(bool enabled, f32 feedback, f32 clipGamma) noexcept
+        void SetTemporalSettings(bool enabled, f32 feedback) noexcept
         {
             m_TemporalResolveEnabled = enabled;
             m_TemporalFeedback = feedback;
-            m_TemporalClipGamma = clipGamma;
         }
 
         // Min-depth HZB pyramid parameters for the current viewport, used to
@@ -180,7 +179,6 @@ namespace OloEngine
 
         bool m_TemporalResolveEnabled = true;
         f32 m_TemporalFeedback = 0.92f;
-        f32 m_TemporalClipGamma = 1.25f;
 
         // SSR owns a dedicated MIN-depth HZB (#284). It cannot share GTAO's HZB:
         // that one stores MAX depth and is only generated when GTAO is the
