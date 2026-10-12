@@ -76,6 +76,12 @@
         }
       ]
     },
+    "usd": {
+      "description": "OpenUSD (.usd/.usda/.usdc/.usdz) import — mirrors the OLO_WITH_USD CMake option. USD itself is built from source by cmake/vendor/OpenUSD.cmake; this feature supplies the one oneTBB that USD compiles against and every executable links (#1575).",
+      "dependencies": [
+        "tbb"
+      ]
+    },
     "tests": {
       "description": "GoogleTest — mirrors the BUILD_TESTS CMake option",
       "dependencies": [

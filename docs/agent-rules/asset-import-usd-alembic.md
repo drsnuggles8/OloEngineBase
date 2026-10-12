@@ -31,17 +31,36 @@ inside `MaterialAssetSerializer::TryLoadData` (it's XML, not the engine's YAML m
 ## OpenUSD — the big one (`OLO_WITH_USD`, **default ON**, config-matched auto-build)
 
 USD import is **on by default** (matching UE5's USD-by-default posture). `cmake/vendor/OpenUSD.cmake`
-resolves USD one of two ways:
-- **Prebuilt** — `-DOLO_USD_INSTALL_DIR=<prefix>` at an existing static-monolithic USD + oneTBB
-  install uses it directly (a flat single-config install; CI caches / a shared build).
-- **Auto-build (default)** — otherwise oneTBB + static-monolithic OpenUSD build **from source** via
-  `ExternalProject_Add`, ONCE, into a per-user version-keyed cache (`$LOCALAPPDATA/OloEngine/usd-<sha8>`
-  on Windows). To dodge the Windows CRT trap (USD returns `std::string` — a cross-CRT free crashes),
-  **both Debug and Release are built** into per-config prefixes (`install/Debug`, `install/Release`);
-  the engine links the CRT-matching one via a `$<CONFIG>` genexpr (Debug engine → Debug USD;
-  Release/RelWithDebInfo/MinSizeRel → Release USD; Debug oneTBB is `tbb12_debug.lib`, Release is
-  `tbb12.lib`). First build ≈ 30–45 min + ~10 GB; later builds are machine-wide cache hits.
-  **CI that doesn't need USD sets `-DOLO_WITH_USD=OFF`.**
+builds static-monolithic OpenUSD **from source** via `ExternalProject_Add`, ONCE, into a per-user
+cache keyed on the USD tag and the oneTBB version (`$LOCALAPPDATA/OloEngine/usd-<sha8>-tbb<major.minor>`
+on Windows). To dodge the Windows CRT trap (USD returns `std::string` — a cross-CRT free crashes),
+**both Debug and Release are built** into per-config prefixes (`install/Debug`, `install/Release`);
+the engine links the CRT-matching one via a `$<CONFIG>` genexpr (Debug engine → Debug USD;
+Release/RelWithDebInfo/MinSizeRel → Release USD). First build ≈ 30–45 min + ~10 GB; later builds
+are machine-wide cache hits. **CI that doesn't need USD sets `-DOLO_WITH_USD=OFF`**, and today every
+CI job does, so a USD change is verified on a local tree only.
+
+### One oneTBB: vcpkg's (#1575)
+
+**USD compiles against vcpkg's oneTBB and the engine links vcpkg's `TBB::tbb`; nothing else may
+bring a oneTBB archive.** The `usd` feature in `vcpkg.json` installs `tbb`; `OpenUSD.cmake` finds it
+`GLOBAL` (OpenVDB's lookup then reuses the same target) and hands its `TBB_DIR` to the USD build.
+USD used to build its own oneTBB 2022.2 beside vcpkg's 2023.1, so every USD-enabled executable linked
+two static oneTBB runtimes. USD's archive came first on the link line, so OpenVDB, compiled against
+2023.1 headers, ran on 2022.2's internals, and `/FORCE:MULTIPLE` would have hidden any clash.
+
+**USD v25.11 does not build against oneTBB 2023.1 unpatched.** Its `workTBB` headers test
+`TBB_INTERFACE_VERSION_MAJOR >= 12` without including `<tbb/version.h>`; 2022.2's `blocked_range.h`
+brought it in, 2023.1's does not, so the macro reads as 0 and USD compiles its legacy
+`tbb::task` path (`error C2516: 'tbb::v1::task': is not a valid base class`).
+`cmake/vendor/patch-usd-tbb-version.cmake` adds the include. A oneTBB bump changes the cache key;
+check the patch still applies.
+
+`cmake/OneTbbGuard.cmake` fails the build (before `OloEngine` compiles) if any executable or shared
+library links more than one `tbb12*` archive. It reads the link line CMake generated, per config,
+from the File API codemodel, so a raw path, a genexpr or another directory's imported target cannot
+slip past it. `-DOLO_USD_INSTALL_DIR` is refused at configure: a prebuilt install carries its own
+oneTBB.
 
 ### The cache is shared across worktrees — the stamps are not (fixed; know the failure it caused)
 
@@ -76,26 +95,19 @@ Two things that follow:
   [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) — sequence the first build; every
   tree after it is a lock-free cache hit.
 
-`-DOLO_USD_INSTALL_DIR` expects a **flat** prefix and now **probes** for `tbb12` vs `tbb12_debug`
-rather than assuming release. It previously hardcoded `tbb12.lib`, so pointing it at a Debug prefix
-(e.g. one config of the cache above) configured cleanly and then failed at link on a missing lib —
-which made the documented escape hatch useless for exactly the Debug build that hit the C2859 above.
-
 **Do NOT vendor OpenUSD via FetchContent `add_subdirectory`.** USD's CMake is install-centric: the
 runtime `plugInfo.json` resource tree it needs to open *even a plain `.usda`* is produced by the
 **install step**, and its `pxr_*` macros pollute the parent project — hence ExternalProject
 (build + install out-of-tree), not a subproject.
 
-The ExternalProject mirrors this standalone superbuild recipe (also handy for producing an
-`OLO_USD_INSTALL_DIR` prebuilt):
+The ExternalProject mirrors this standalone recipe. oneTBB is USD's one mandatory dependency (no
+Boost/Imath/zlib for core USD), and it comes from vcpkg:
 
 ```cmake
-# oneTBB (USD's ONE mandatory dep; no Boost/Imath/zlib for core USD)
-ExternalProject_Add(onetbb GIT_REPOSITORY .../oneTBB.git GIT_TAG v2022.2.0 GIT_SHALLOW TRUE
-  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<prefix> -DBUILD_SHARED_LIBS=OFF -DTBB_TEST=OFF -DTBB_STRICT=OFF)
 # OpenUSD static monolithic (usd_m), headless, data-import only
-ExternalProject_Add(openusd DEPENDS onetbb GIT_REPOSITORY .../OpenUSD.git GIT_TAG v25.11 GIT_SHALLOW TRUE
-  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<prefix> -DTBB_DIR=<prefix>/lib/cmake/TBB
+ExternalProject_Add(openusd GIT_REPOSITORY .../OpenUSD.git GIT_TAG v25.11 GIT_SHALLOW TRUE
+  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<prefix> -DTBB_DIR=<vcpkg_installed>/<triplet>/share/tbb
+    -DPXR_FIND_TBB_IN_CONFIG=ON
     -DBUILD_SHARED_LIBS=OFF -DPXR_BUILD_MONOLITHIC=ON -DPXR_ENABLE_PYTHON_SUPPORT=OFF
     -DPXR_BUILD_IMAGING=OFF -DPXR_BUILD_USD_IMAGING=OFF -DPXR_BUILD_USDVIEW=OFF
     -DPXR_BUILD_TESTS=OFF -DPXR_BUILD_EXAMPLES=OFF -DPXR_BUILD_TUTORIALS=OFF
@@ -107,7 +119,7 @@ ExternalProject_Add(openusd DEPENDS onetbb GIT_REPOSITORY .../OpenUSD.git GIT_TA
 
 ### Gotchas that actually bit (all confirmed on VS 18 2026 / MSVC 19.51 / CMake 4.2):
 
-1. **`MAX_PATH` on the clone.** oneTBB (and USD) have deeply-nested doc files that overflow Windows'
+1. **`MAX_PATH` on the clone.** USD (and oneTBB, when it was built here) has deeply-nested files that overflow Windows'
    260-char path limit during `git clone`. `git config --global core.longpaths true` **and** use a
    very short build-tree base path (this build used `D:/ou`), not a deep scratchpad path.
 2. **Static-monolithic PDB-install bug.** USD's `cmake/macros/Public.cmake` unconditionally does
@@ -180,7 +192,6 @@ ExternalProject_Add(openusd DEPENDS onetbb GIT_REPOSITORY .../OpenUSD.git GIT_TA
    `OloEngine_USD_LIB` carries a `$<CONFIG>` genexpr and `target_link_options` expands
    it per config, so the full-path spelling is also config-matched where the bare name depended on
    `/LIBPATH` search order to land on the right one.
-
 Silent-correctness handling in `UsdMeshImporter`: stage up-axis (Z-up → -90° X rotation),
 `metersPerUnit` scale, `orientation` (leftHanded → reversed winding), primvar interpolation
 (constant/uniform/vertex/faceVarying) indexing incl. indexed primvars, `st` V-flip to the glTF

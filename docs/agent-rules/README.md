@@ -502,7 +502,7 @@ No crash, no error, no log line; work or data disappears and the system keeps ru
 | [packaged-game-content-by-path.md](packaged-game-content-by-path.md) | Every authored plant and impostor in a shipped game, which drew flat cards because no `.obj` was ever packaged; and 91 animated models stored as `../../assets/...`. |
 | [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) | A component's teardown, when `m_Registry.destroy()` skips `OnComponentRemoved`. |
 | [vcpkg-dependency-management.md](vcpkg-dependency-management.md) | Three of five traps are silent, including a port option that never applied and one that switched on and killed TSan. |
-| [asset-import-usd-alembic.md](asset-import-usd-alembic.md) | Winding, up-axis, unit scale, UV origin. |
+| [asset-import-usd-alembic.md](asset-import-usd-alembic.md) | Winding, up-axis, unit scale, UV origin; and OpenVDB's oneTBB, which ran on USD's older bundled copy because its archive came first on the link line. |
 | [asset-import-openvdb-volumetric.md](asset-import-openvdb-volumetric.md) | A fog volume rendered as a solid box through every non-VDB-aware evaluator. |
 | [groom-curve-import.md](groom-curve-import.md) | Authored groom intent, when an unknown attribute is ignored rather than refused; and byte-identical cooks, to one unstable sort. |
 | [groom-strand-visibility.md](groom-strand-visibility.md) | A whole coat, to an alpha cutoff on sub-pixel strands; a coverage comparison, to a stability metric that scores "loses everything, consistently" as stable; every ribbon quad, to a per-corner tangent that makes it a bowtie. |
