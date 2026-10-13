@@ -32,7 +32,14 @@ if(NOT _jobs MATCHES "^[1-9][0-9]*$")
                         "the host reports no cores); set CMAKE_BUILD_PARALLEL_LEVEL")
 endif()
 
+if(NOT EXISTS "${USD_BUILD_DIR}/CMakeCache.txt")
+    message(FATAL_ERROR "build-usd-config: ${USD_BUILD_DIR}/CMakeCache.txt not found; is the USD tree configured?")
+endif()
 file(STRINGS "${USD_BUILD_DIR}/CMakeCache.txt" _generator REGEX "^CMAKE_GENERATOR:INTERNAL=")
+if(NOT _generator)
+    message(FATAL_ERROR "build-usd-config: no CMAKE_GENERATOR in ${USD_BUILD_DIR}/CMakeCache.txt, "
+                        "so the job count cannot be routed to the right flag")
+endif()
 if(_generator MATCHES "=Visual Studio")
     # /nodeReuse:false: reused MSBuild nodes outlive the build holding handles inside the shared
     # per-machine cache, which then cannot be moved or deleted until they time out.

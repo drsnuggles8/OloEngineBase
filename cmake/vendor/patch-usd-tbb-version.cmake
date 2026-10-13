@@ -7,9 +7,11 @@
 # version.h, so the macro arrived transitively. vcpkg's oneTBB 2023.1 dropped that include: the
 # macro is undefined, reads as 0, and USD compiles its legacy path, which fails with
 #   dispatcher_impl.h(73): error C2516: 'tbb::v1::task': is not a valid base class
-# Insert the include ahead of the first oneTBB header in the two files that test the macro before
-# anything else defines it (detachedTask_impl.h and dispatcher_impl.cpp get it through
-# dispatcher_impl.h; taskGraph_impl.h already includes it). Idempotent: a patched file is skipped.
+# Both patched files include <tbb/blocked_range.h> first, which under 2023.1 no longer brings the
+# macro in. The include goes ahead of it in the two files that test the macro first:
+# dispatcher_impl.h and threadLimits_impl.cpp. The other files that test it are covered without a
+# patch: detachedTask_impl.h and dispatcher_impl.cpp include dispatcher_impl.h, and taskGraph_impl.h
+# includes <tbb/version.h> itself. Idempotent: a patched file is skipped.
 
 # A -P script starts with every policy unset; pin them, as OneTbbGuard.cmake does.
 cmake_minimum_required(VERSION 3.27)
