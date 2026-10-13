@@ -30,7 +30,11 @@ without per-frame MCP polling during timing.
 - [Initial overhead](../testing/evidence/cpu-scope-ring-1594/idle-host-overhead/report.json) is retained
   separately under its original binary hash; it predates the additional per-pass labels.
 
-The final executable SHA-256 is
+These timing campaigns predate merge `23dbff0a8`, which imports master `23b502eec`'s groom
+coverage and Deferred resolve changes. They verify the instrumented campaign binary; they are
+not post-merge pacing proof. Recorder and sampler sources are unchanged by that merge.
+
+The measured campaign executable SHA-256 is
 `7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631`.
 Scope audits of the 105 original windows, 14 final windows, both final traces and all six final
 armed overhead captures found zero dropped events, overwritten frames, late completions or
