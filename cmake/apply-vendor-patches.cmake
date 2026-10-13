@@ -35,6 +35,9 @@
 # whose failure modes are listed above.
 # =============================================================================
 
+# A -P script starts with every policy unset, and CMake 3.x then applies OLD behaviour; pin them.
+cmake_minimum_required(VERSION 3.27)
+
 if(NOT DEFINED OLO_PATCH_DIR)
 	message(FATAL_ERROR "OLO_PATCH_DIR must be set")
 endif()

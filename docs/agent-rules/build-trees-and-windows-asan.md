@@ -555,8 +555,9 @@ patching that rule on top of the pin.)
 ### 5a. Use the native recipe (CMake 4.3+), not the manual gate below
 
 As of #822 this machine is on CMake 4.4.2. The repo's own `cmake_minimum_required` floor
-is unchanged (still `3.25` in the root `CMakeLists.txt`, and the presets' `cmakeMinimumRequired`
-is `4.2.0` — see the hard constraints in issue #822, not raised by this work); the
+is `3.27` in the root `CMakeLists.txt` since #1575 (for `cmake_file_api()`; the policies stay at
+`cmake_policy(VERSION 3.25)`), and the presets' `cmakeMinimumRequired`
+is `4.2.0` (see the hard constraints in issue #822, not raised by that work). The
 instrumentation and heavy-compile-pool blocks below are purely additive, each behind its own
 `if(CMAKE_VERSION VERSION_GREATER_EQUAL ...)` guard, and no-op cleanly on an older CMake.
 `cmake_instrumentation()` — the API described in §5b below, now stable — is wired
