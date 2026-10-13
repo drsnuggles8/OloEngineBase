@@ -2809,6 +2809,28 @@ namespace OloEngine::Tests
             const f64 energy = cardEnergy(m_LongCoat, k);
             EXPECT_GT(energy, kShippedEnergyFloor) << cell.Name;
             EXPECT_LT(energy, kShippedEnergyCeiling) << cell.Name;
+
+            // THE SHORT COAT on the other two paths, at the hand-over and far
+            // (#1595). It is the coat whose card growth crossed the ceiling, at
+            // 32 m on Forward, so its cells are held on every path; MSAA and the
+            // upscalers stay the long coat's. Its strands cover 360 px at 32 m.
+            if (cell.Samples != 1u || cell.Upscale != UpscaleMode::Off)
+            {
+                continue;
+            }
+            for (const Stop& stop : { handoverStop, farStop })
+            {
+                SCOPED_TRACE(stop.Name);
+                const Kept s = keep(m_ShortCoat, stop, cell.Name, true);
+                ASSERT_FALSE(HasFatalFailure());
+                EXPECT_GT(s.Off.Lit.Cov, 300.0) << cell.Name << ": the short coat must be measurable on this path";
+                EXPECT_EQ(s.On.Representation, GroomRepresentation::Card);
+                EXPECT_GT(s.Coverage, kCoverageFloor) << cell.Name;
+                EXPECT_LT(s.Coverage, kCoverageCeiling) << cell.Name;
+                const f64 shortEnergy = cardEnergy(m_ShortCoat, s);
+                EXPECT_GT(shortEnergy, kShippedEnergyFloor) << cell.Name;
+                EXPECT_LT(shortEnergy, kShippedEnergyCeiling) << cell.Name;
+            }
         }
     }
 
