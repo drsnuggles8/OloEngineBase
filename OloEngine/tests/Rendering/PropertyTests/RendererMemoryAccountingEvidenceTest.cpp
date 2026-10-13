@@ -819,6 +819,9 @@ TEST_F(RendererMemoryAccountingEvidence, AGroomAndALawnLeaveNoPooledFramebufferB
     {
         RunFrames(1);
     }
+    // The same drain usePath gives every other check, so the targets the newly
+    // admitted detail bound have settled before the pools are compared.
+    RunFrames(kDrainFrames);
     ASSERT_GT(groomPass->GetStats().StrandsDrawn, 0u) << "the groom pass never drew, so this says nothing about it";
     ASSERT_TRUE(foliage.m_Renderer && foliage.m_Renderer->GetActiveLayerDrawInfo().Num() > 0)
         << "the lawn never drew, so this says nothing about the foliage pass";
