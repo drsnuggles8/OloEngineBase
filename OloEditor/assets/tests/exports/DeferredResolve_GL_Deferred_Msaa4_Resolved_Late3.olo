@@ -159,6 +159,7 @@ PostProcessSettings:
   UpscaleTechnique: 0
   FSR2SharpeningEnabled: true
   FSR2Sharpness: 0.5
+RenderingPath: Deferred
 SnowSettings:
   Enabled: false
   HeightStart: -5

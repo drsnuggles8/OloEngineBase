@@ -51,6 +51,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <nlohmann/json.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include <algorithm>
 #include <array>
@@ -606,8 +607,11 @@ namespace OloEngine::Tests
                     }
                     if (samples == 4u && late == 3u)
                     {
+                        GetScene().SetRenderingPath(RenderingPath::Deferred);
                         GetScene().SetPostProcessSettings(post);
-                        SceneSerializer(GetSceneRef()).Serialize(fs::path("assets/tests/exports") / (cell + ".olo"));
+                        const fs::path sceneFile = fs::path("assets/tests/exports") / (cell + ".olo");
+                        SceneSerializer(GetSceneRef()).Serialize(sceneFile);
+                        EXPECT_EQ(YAML::LoadFile(sceneFile.string())["RenderingPath"].as<std::string>(), "Deferred");
                     }
                     std::vector<std::vector<u8>> captures;
                     f64 noiseFloor = 0.0;
