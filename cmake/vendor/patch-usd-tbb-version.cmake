@@ -11,6 +11,9 @@
 # anything else defines it (detachedTask_impl.h and dispatcher_impl.cpp get it through
 # dispatcher_impl.h; taskGraph_impl.h already includes it). Idempotent: a patched file is skipped.
 
+# A -P script starts with every policy unset; pin them, as OneTbbGuard.cmake does.
+cmake_minimum_required(VERSION 3.27)
+
 set(_marker "#include <tbb/version.h> // OloEngine #1575")
 foreach(_rel "pxr/base/work/workTBB/dispatcher_impl.h" "pxr/base/work/workTBB/threadLimits_impl.cpp")
     set(_file "${USD_SRC}/${_rel}")

@@ -28,6 +28,10 @@ set(_OLO_ONETBB_ARCHIVE_REGEX "(^|/)(lib)?tbb(12)?(_debug)?(\\.[0-9]+)*\\.(lib|a
 set(_OLO_ONETBB_FLAG_REGEX "^-ltbb(12)?(_debug)?$")
 
 if(CMAKE_SCRIPT_MODE_FILE)
+    # A -P script starts with every policy unset, so CMake 3.x applies OLD behaviour: if(IN_LIST)
+    # (CMP0057) is then "Unknown arguments" and the Linux CI jobs (CMake 3.31) failed here. CMake 4
+    # has no OLD left to fall back to, which is why only those jobs saw it.
+    cmake_minimum_required(VERSION 3.27)
     foreach(_var OLO_ONETBB_REPLY_DIR OLO_ONETBB_CONFIG OLO_ONETBB_TARGETS)
         if(NOT DEFINED ${_var})
             message(FATAL_ERROR "OneTbbGuard: ${_var} is not set")
