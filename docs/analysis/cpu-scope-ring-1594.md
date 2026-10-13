@@ -105,6 +105,12 @@ for all 2,075 Release and 956 Debug objects. Retained camera and final trace log
 their explicit backend, with zero `[error]` or VUID entries. Final population-dolly screenshots
 from both backends were visually inspected. Pre-commit passed after formatting.
 
+After merge `23dbff0a8`, Release editor/tests and Debug editor rebuilt successfully. The
+focused contracts again yielded 87 passes, one symlink-privilege skip and zero failures;
+all ten sampler regressions passed. OneTbbGuard checked eight binaries in each configuration.
+[Merge verification](../testing/evidence/cpu-scope-ring-1594/merge-integration-23dbff0a8.json)
+pins the new executable hash and separate contract XML. This checks integration, not pacing.
+
 The retained uninstrumented `b76e5b4be` executable completed all four bundled
 `olo_render_frame_breakdown` cells: Vulkan Forward+ 0.491 s, Vulkan Deferred 0.419 s, OpenGL
 Forward+ 0.486 s, OpenGL Deferred 0.443 s. The #607 body checkbox is ticked with

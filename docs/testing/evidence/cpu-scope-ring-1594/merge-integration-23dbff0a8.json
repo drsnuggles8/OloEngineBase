@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-13",
+  "mergeCommit": "23dbff0a8",
+  "master": "23b502eec",
+  "verifiedHead": "e9045cf7e",
+  "releaseEditorSha256": "5D7ACD1EFA9A30D37CA188E308ABD684DC0BF63FF88475EDCA0363720ABBC47C",
+  "build": {
+    "buildLock": true,
+    "exitCode": 0,
+    "releaseTargets": ["OloEditor", "OloEngine-Tests"],
+    "debugTargets": ["OloEditor"],
+    "localLog": ".v-build/post-master23b-build.log",
+    "oneTbbGuardBinariesPerConfiguration": 8
+  },
+  "contracts": {
+    "cases": 88,
+    "passed": 87,
+    "skipped": 1,
+    "failures": 0,
+    "skipReason": "Windows symlink privilege unavailable; separate real NTFS-junction proof is retained",
+    "xml": "post-master23b-contracts.xml",
+    "samplerPythonTestsPassed": 10
+  },
+  "reviews": {
+    "standardsSourceFindings": 0,
+    "specSourceFindings": 0,
+    "reportClarification": "Timings predate this merge and do not establish post-merge pacing"
+  },
+  "manualResolution": "One foliage rebuild guide row preserves consent, terrain-available consumption, asynchronous preparation and error semantics",
+  "recorderSamplerSourcesChangedByMerge": false,
+  "performanceRemeasuredAfterMerge": false,
+  "ciProfile": "ci-full-checks"
+}
