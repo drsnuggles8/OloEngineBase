@@ -1,5 +1,6 @@
 Scene: ReflectionHierarchyTest.olo
 Version: 1
+RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Reflection-hierarchy demo scene — issue #1057, the contract is ADR 0020.
 #
@@ -27,8 +28,7 @@ Version: 1
 # out completely and renders identically with it on or off.
 #
 # HOW TO USE IT (the tier is Deferred + hardware-ray-tracing only):
-#   1. Renderer Settings -> Active Path -> Deferred  (the ONLY manual step: the
-#      render path lives in editor settings, not in the scene file)
+#   The scene file selects Deferred (RenderingPath below); no manual step.
 #   SSR and the ray-query tier are already enabled in PostProcessSettings below.
 #   Then "Tier Debug View" colours each pixel by which tier answered it:
 #   magenta = planar, green = SSR, orange = ray query, blue = probe/IBL.

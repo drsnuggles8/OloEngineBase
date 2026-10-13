@@ -381,7 +381,8 @@ namespace OloEngine::MCP::RendererSettings
         { "tonemap", Setting::Tonemap, "Tone-mapping operator applied to the HDR scene colour (PostProcess.Tonemap)." },
         { "renderpath", Setting::RenderPath,
           "High-level rendering path (RendererSettings.Path). Switching rebuilds the render-graph topology; Deferred is "
-          "required for SSR / SSGI." },
+          "required for SSR / SSGI. A scene render setting: the next scene save writes it, and opening a scene "
+          "replaces it with that scene's path." },
         { "msaa", Setting::MSAA,
           "Deferred G-buffer multisample count (1|2|4|8). The requested value is clamped to the driver cap." },
         { "persamplelighting", Setting::PerSampleLighting,

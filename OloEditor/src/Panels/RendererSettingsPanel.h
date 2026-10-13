@@ -4,6 +4,8 @@
 
 namespace OloEngine
 {
+    class CommandHistory;
+
     // @brief Editor panel for global renderer settings:
     //        rendering path, culling, depth prepass, Forward+ tuning, debug overlays, quality tiering.
     class RendererSettingsPanel
@@ -13,6 +15,13 @@ namespace OloEngine
         ~RendererSettingsPanel() = default;
 
         void OnImGuiRender(bool* p_open = nullptr);
+
+        // The rendering path is a scene render setting (issue #1601), so a path
+        // change is recorded here as an undoable scene edit.
+        void SetCommandHistory(CommandHistory* history)
+        {
+            m_CommandHistory = history;
+        }
 
         // Returns true (and resets the flag) when a debug overlay toggle
         // changed since the last call.  EditorLayer polls this to keep
@@ -58,6 +67,7 @@ namespace OloEngine
         static void DrawPostProcessControls(QualityTieringSettings& qt, bool& changed);
 
         bool m_DebugSettingsChanged = false;
+        CommandHistory* m_CommandHistory = nullptr;
 
         // Backend-dropdown state: the choice written to config/renderer.yaml
         // this session (or read from it at first draw). -1 = not yet

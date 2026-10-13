@@ -7236,6 +7236,8 @@ namespace OloEngine
         EmitPostProcessSettings(out, m_Scene->GetPostProcessSettings());
         out << YAML::EndMap;
 
+        out << YAML::Key << "RenderingPath" << YAML::Value << ToToken(m_Scene->GetRenderingPath());
+
         SerializeSnowSettings(out, m_Scene->GetSnowSettings());
         SerializeFogSettings(out, m_Scene->GetFogSettings());
         SerializeWindSettings(out, m_Scene->GetWindSettings());
@@ -7363,6 +7365,25 @@ namespace OloEngine
     // truth for how a scene's post-process / weather / streaming settings load.
     void SceneSerializer::ApplySceneSettings(Scene& scene, const YAML::Node& data)
     {
+        // Issue #1601: the path the scene was authored on. No key means Forward,
+        // so a scene saved before the key existed renders as it always has. An
+        // unknown spelling fails the whole load: falling back to Forward would
+        // ship a game on a path its author never picked, with no sign of it.
+        // Validated before any settings block is applied, so a refused document
+        // changes none of the settings of a scene it is applied onto.
+        RenderingPath authoredPath = RenderingPath::Forward;
+        if (const auto pathNode = data["RenderingPath"]; pathNode)
+        {
+            const std::string token = pathNode.IsScalar() ? pathNode.Scalar() : std::string{};
+            const auto path = TryParseRenderingPath(token);
+            if (!path)
+            {
+                throw std::runtime_error("RenderingPath '" + token + "' is not a rendering path (expected one of: " +
+                                         RenderingPathTokenList() + ")");
+            }
+            authoredPath = *path;
+        }
+
         if (auto ppNode = data["PostProcessSettings"]; ppNode && ppNode.IsMap())
         {
             auto& pp = scene.GetPostProcessSettings();
@@ -7610,6 +7631,8 @@ namespace OloEngine
             SanitizeUpscale(pp);
             SanitizeSphereProxyAO(pp);
         }
+
+        scene.SetRenderingPath(authoredPath);
 
         DeserializeSnowSettings(data, scene.GetSnowSettings());
         DeserializeFogSettings(data, scene.GetFogSettings());
@@ -7916,6 +7939,8 @@ namespace OloEngine
         out << YAML::BeginMap;
         EmitPostProcessSettings(out, m_Scene->GetPostProcessSettings());
         out << YAML::EndMap;
+
+        out << YAML::Key << "RenderingPath" << YAML::Value << ToToken(m_Scene->GetRenderingPath());
 
         SerializeSnowSettings(out, m_Scene->GetSnowSettings());
         SerializeFogSettings(out, m_Scene->GetFogSettings());

@@ -33,11 +33,9 @@ Output:
   Resolution: [1280, 720]
   RenderScale: 1.0
 
-# NOTE: TAA is not toggleable here (v1 RendererSettings allowlist is Path /
-# EnableDDGI / DepthPrepassEnabled / OcclusionCullingEnabled /
-# HZBOcclusionCullingEnabled) and is not scene-serialized either — the
-# Warmup.PerFeature TAA entry below documents the intended temporal budget;
-# the live temporal state is the SSGI/SSR resolves + DDGI.
+# TAA is off in the scene; TAAEnabled below turns it on for the capture, and
+# the Warmup.PerFeature TAA entry below is its warm-up budget. The other live
+# temporal state is the SSGI/SSR resolves + DDGI.
 RendererSettings:
   Path: Deferred
   EnableDDGI: true

@@ -6,6 +6,7 @@
   "A sibling editor from OloEngine-deferred-msaa-gbuffer-resolve-1553 started outside the build gate at 09:18:23 local time.",
   "The subsequent overhead campaign refused to launch because that editor was running.",
   "The camera-cut hitches are real observations but cannot establish uncontended CPU-hitch attribution.",
+  "summary.metrics describes the natural window after the start probe; it excludes recorder frameIds 1-2 captured during the camera cut. dump and hitches also include those two setup frames.",
   "Raw scope dumps, complete histories and logs are retained locally under .v-build/trace-{backend}-armed-0/."
  ],
  "traces": {

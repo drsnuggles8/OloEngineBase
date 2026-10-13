@@ -9,6 +9,7 @@
 #include "OloEngine/Physics3D/BoatWakeSystem.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Core/FrameTimeTail.h"
 #include "OloEngine/Scene/AnimalScheduler.h"
 #include "OloEngine/Scene/BoneAttachment.h"
@@ -807,6 +808,20 @@ namespace OloEngine
             return m_SnowSettings;
         }
 
+        // The rendering path this scene is authored for (issue #1601): a scene
+        // render setting like the blocks around it, serialized in the .olo and
+        // published to Renderer3D by SceneTransition::ApplySceneRenderSettings
+        // whenever a host makes this scene the one it draws. Forward when the
+        // file carries no key.
+        void SetRenderingPath(RenderingPath path)
+        {
+            m_RenderingPath = path;
+        }
+        [[nodiscard]] RenderingPath GetRenderingPath() const
+        {
+            return m_RenderingPath;
+        }
+
         void SetFogSettings(const FogSettings& settings)
         {
             m_FogSettings = settings;
@@ -1413,21 +1428,22 @@ namespace OloEngine
         // Animation clock for water/foliage/wind. NOT the wall clock: it stops
         // while the scene is paused. See ProcessScene3DSharedLogic.
         f32 m_AnimationClock = 0.0f;
-        f32 m_AnimationClockWall = -1.0f;                      // last wall-clock sample, -1 = unseeded
-        bool m_PreviousMouseButtonDown = false;                // Track mouse state for UI input
-        bool m_UILayoutResolvedThisFrame = false;              // Guard against double ResolveLayout per frame
-        glm::vec2 m_RuntimeCameraLastMouse{ 0.0f, 0.0f };      // FPS fly-camera mouse tracking
-        SkeletonVisualizationSettings m_SkeletonVisualization; // Editor skeleton visualization
-        PostProcessSettings m_PostProcessSettings;             // Post-processing settings
-        SnowSettings m_SnowSettings;                           // Snow rendering settings
-        FogSettings m_FogSettings;                             // Fog & atmospheric scattering settings
-        WindSettings m_WindSettings;                           // Wind simulation settings
-        SnowAccumulationSettings m_SnowAccumulationSettings;   // Snow accumulation & deformation
-        SnowEjectaSettings m_SnowEjectaSettings;               // Snow ejecta particle settings
-        PrecipitationSettings m_PrecipitationSettings;         // Precipitation system settings
-        StreamingSettings m_StreamingSettings;                 // Scene streaming settings
-        WorldOriginSettings m_WorldOriginSettings;             // Floating-origin / rebase config (issue #429)
-        SceneLightmapSettings m_LightmapSettings;              // Baked-GI lightmap settings (issue #439)
+        f32 m_AnimationClockWall = -1.0f;                       // last wall-clock sample, -1 = unseeded
+        bool m_PreviousMouseButtonDown = false;                 // Track mouse state for UI input
+        bool m_UILayoutResolvedThisFrame = false;               // Guard against double ResolveLayout per frame
+        glm::vec2 m_RuntimeCameraLastMouse{ 0.0f, 0.0f };       // FPS fly-camera mouse tracking
+        SkeletonVisualizationSettings m_SkeletonVisualization;  // Editor skeleton visualization
+        PostProcessSettings m_PostProcessSettings;              // Post-processing settings
+        RenderingPath m_RenderingPath = RenderingPath::Forward; // Authored rendering path (issue #1601)
+        SnowSettings m_SnowSettings;                            // Snow rendering settings
+        FogSettings m_FogSettings;                              // Fog & atmospheric scattering settings
+        WindSettings m_WindSettings;                            // Wind simulation settings
+        SnowAccumulationSettings m_SnowAccumulationSettings;    // Snow accumulation & deformation
+        SnowEjectaSettings m_SnowEjectaSettings;                // Snow ejecta particle settings
+        PrecipitationSettings m_PrecipitationSettings;          // Precipitation system settings
+        StreamingSettings m_StreamingSettings;                  // Scene streaming settings
+        WorldOriginSettings m_WorldOriginSettings;              // Floating-origin / rebase config (issue #429)
+        SceneLightmapSettings m_LightmapSettings;               // Baked-GI lightmap settings (issue #439)
         // Runtime-resolved lightmap state (atlas texture + per-entity regions).
         // Deliberately NOT copied by Scene::Copy() — the runtime copy
         // re-resolves at Play start so stale state cannot survive a transition.

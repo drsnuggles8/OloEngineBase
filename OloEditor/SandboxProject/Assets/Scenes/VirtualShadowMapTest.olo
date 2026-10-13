@@ -1,5 +1,6 @@
 Scene: VirtualShadowMapTest.olo
 Version: 1
+RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Virtual Shadow Maps demo scene (issue #702).
 #
@@ -8,8 +9,8 @@ Version: 1
 # exactly the caster type VSM covers.
 #
 # HOW TO USE IT:
-#   1. Renderer Settings -> Active Path -> Deferred
-#   2. Renderer Settings -> Shadows -> Virtual Shadow Maps -> Enable VSM
+#   (the scene file selects Deferred itself, through RenderingPath below)
+#   Renderer Settings -> Shadows -> Virtual Shadow Maps -> Enable VSM
 #   Toggle it off/on: the floor shadows must stay in the SAME PLACE and get
 #   sharper near the camera. Watch "pages drawn / resident" underneath — with the
 #   camera held still it should settle to ~0 drawn, which is the entire point of
