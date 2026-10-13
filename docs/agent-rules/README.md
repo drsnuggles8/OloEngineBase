@@ -52,6 +52,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md): use `TestTempDir.h`, never a fixed temp path; heavy cases run one per process and light suites one per process, concurrently.
 - [renderer-state-machine-harness.md](renderer-state-machine-harness.md): a new renderer cache, lever or execution mode joins the state-machine manifest as an operation or an equivalence pair, with a negative control the harness demonstrably catches; generated sequences, not off/on tests, find the order that breaks it.
 - [cross-test-renderer-state.md](cross-test-renderer-state.md): never shut down a process-wide singleton you did not start, and leave the renderer configuration as you found it; plus the two traps that make single-process bisection lie.
+- [test-runtime-camera-defaults-to-orthographic.md](test-runtime-camera-defaults-to-orthographic.md): give a fixture's `CameraComponent` a projection; the default is orthographic with a -1..1 depth range, which culls a subject a few units away.
 - [world-anchored-renderer-state-in-tests.md](world-anchored-renderer-state-in-tests.md): a fixture that builds a `Scene` per test must also reset the process-static renderer state scene load resets.
 - [fixture-assets-outlive-the-case.md](fixture-assets-outlive-the-case.md): a renderer test case removes the memory-only assets it added, and the files it imported, in `TearDown`; the project and its asset manager outlive the case.
 - [ab-diff-peak-is-not-a-location.md](ab-diff-peak-is-not-a-location.md): place a measurement box by the highest-mean window of an A/B difference, never by its brightest pixel.
@@ -566,6 +567,7 @@ The check passes for a correct implementation and for a broken one.
 | [timed-wait-test-assertions.md](timed-wait-test-assertions.md) | `duration_cast<milliseconds>` truncates toward zero. |
 | [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md) | A CI comment asserted a safety property nobody had measured. |
 | [cross-test-renderer-state.md](cross-test-renderer-state.md) | A visual test that passes 10/10 in isolation and draws nothing in the full run, with identical engine logs; two poisoners are each necessary and neither sufficient, and a reduced repro reproduces a different bug. |
+| [test-runtime-camera-defaults-to-orthographic.md](test-runtime-camera-defaults-to-orthographic.md) | A groom culled by a default orthographic test camera kept the last editor capture's stats, so a simulation suite read the previous arm's numbers and a memory test passed only after other tests. |
 | [reference-path-tracer.md](reference-path-tracer.md) | A golden answers "did it change", never "is it correct". |
 | [vendor-golden-baseline-crosscheck.md](vendor-golden-baseline-crosscheck.md) | A per-vendor baseline validates itself; a small cross-vendor RMSE measures portability, not correctness. |
 | [stochastic-sampling-and-temporal-resolve.md](stochastic-sampling-and-temporal-resolve.md) | Every obvious noise metric passes on white noise; only the error spectrum separates blue from white. |
