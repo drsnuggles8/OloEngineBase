@@ -10708,10 +10708,21 @@ TEST_F(VulkanPassSuite, DeferredDebugDisplaysAlbedoAndRmaAfterTheSceneClear)
         // The pass branches on process-global renderer settings; force the
         // Deferred + RMA-debug configuration and restore on exit.
         auto& settings = Renderer3D::GetRendererSettings();
-        const RenderingPath prevPath = settings.Path;
-        const u32 prevDebugChannel = settings.Deferred.DebugChannel;
-        const u32 prevSamples = settings.Deferred.MSAASampleCount;
-        const bool prevPerSample = settings.Deferred.PerSampleLighting;
+        struct ScopedRendererSettings
+        {
+            RendererSettings& m_Settings;
+            const RenderingPath m_Path = m_Settings.Path;
+            const u32 m_DebugChannel = m_Settings.Deferred.DebugChannel;
+            const u32 m_Samples = m_Settings.Deferred.MSAASampleCount;
+            const bool m_PerSample = m_Settings.Deferred.PerSampleLighting;
+            ~ScopedRendererSettings()
+            {
+                m_Settings.Path = m_Path;
+                m_Settings.Deferred.DebugChannel = m_DebugChannel;
+                m_Settings.Deferred.MSAASampleCount = m_Samples;
+                m_Settings.Deferred.PerSampleLighting = m_PerSample;
+            }
+        } scopedSettings{ settings };
         settings.Path = RenderingPath::Deferred;
         settings.Deferred.DebugChannel = 3; // the RMA gather — the one channel that is a DRAW
         settings.Deferred.MSAASampleCount = 1;
@@ -10821,11 +10832,6 @@ TEST_F(VulkanPassSuite, DeferredDebugDisplaysAlbedoAndRmaAfterTheSceneClear)
         const auto* entityIds = reinterpret_cast<const i32*>(entityBytes.GetData());
         EXPECT_EQ(entityIds[static_cast<sizet>(64) * kSize + 64], -1)
             << "the Deferred path still clears the SCENE framebuffer's non-colour attachments";
-
-        settings.Path = prevPath;
-        settings.Deferred.DebugChannel = prevDebugChannel;
-        settings.Deferred.MSAASampleCount = prevSamples;
-        settings.Deferred.PerSampleLighting = prevPerSample;
     }
 }
 
