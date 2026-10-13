@@ -547,7 +547,8 @@ namespace OloEngine::Tests
         const auto pinnedAtlas = atlas->Albedo->GetRHIHandle();
 
         GetScene().GetStreamingSettings().RepresentationResidentMegabytes = 0.001f;
-        EXPECT_TRUE(WaitForPlants([](const FFoliageStreamingStats& stats) { return stats.ResidentLayers == 0u; }))
+        EXPECT_TRUE(WaitForPlants([](const FFoliageStreamingStats& stats)
+                                  { return stats.ResidentLayers == 0u; }))
             << "the resident budget must evict the detail layer";
         atlas = Plants().GetImpostorAtlas(0);
         ASSERT_NE(atlas, nullptr);
