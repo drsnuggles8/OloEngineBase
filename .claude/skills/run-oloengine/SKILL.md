@@ -222,8 +222,10 @@ Read-only work (screenshots, camera moves, `olo_render_capture_target`,
 actually intend to mutate the project.
 
 **`tools/list` shows a core set, not the whole surface (issue #1124).** The editor
-defaults to the `core` exposure profile: ~16 curated tools plus the discovery gateway,
-because listing all 96 costs ~270 KB / ~68k tokens of schemas before you ask anything.
+defaults to the `core` exposure profile: scene summary, performance/liveness and
+engine logs plus the four discovery tools. Detailed inspection schemas are fetched
+when needed; the builtin default has a 16 KB budget. See the current measurements in
+[the MCP guide](../../../docs/guides/mcp-diagnostics-server.md#exposure-profiles--toolslist-shows-a-core-set-by-default-issue-1124).
 Everything named above — `olo_scene_open`, `olo_renderer_settings_set`,
 `olo_entity_set_field`, the whole `olo_render_*` / `olo_physics_*` / `olo_perf_*`
 families — **is still callable by name**; exposure filters the listing, never dispatch.

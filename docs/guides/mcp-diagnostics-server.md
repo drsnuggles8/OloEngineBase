@@ -828,13 +828,13 @@ it lists is decided by the exposure profile below.
 
 ### Exposure profiles — `tools/list` shows a core set by default (issue #1124)
 
-**The default `tools/list` is not the whole surface.** The full catalogue is 102 tools /
-281 836 bytes / **~70k tokens** — a third of a 200k context window spent before the
-session asks its first question, on a list of which three or four entries are ever
-called. The default `core` profile lists **18 tools / 39 362 bytes / ~9.8k tokens**, a
-7x reduction, and everything else is one search away. (Both figures are measured, not
-estimated: `McpExposureProfileTest` prints them on every test run and asserts a ceiling
-on the first. Token counts are bytes/4.)
+**Fetch detailed inspection schemas when needed.** At #1604 the builtin `core`
+catalogue lists **7 tools / 12 922 bytes / ~3.2k tokens**, down about **72%** from
+17 tools / 46 101 bytes. The full registry has 162 tools / 455 798 bytes / ~114k
+tokens; core costs about 3% of that. `McpExposureProfileTest` prints current byte
+counts and enforces a **16 000-byte ceiling** for builtin core tools. User-provided
+script and bridged tools are additional and remain listed. Token counts are bytes/4
+estimates; byte counts measure the compact JSON catalogue.
 
 **Nothing is deleted, and nothing is unreachable.** Exposure filters the *listing*
 only:
@@ -860,23 +860,24 @@ choices as radio buttons for a running editor — switching there fires
 without reconnecting. The panel also reports the measured payload size, and the same
 numbers are logged once at server start.
 
-**The core set** (`OloEditor/src/MCP/McpExposure.h`, `CoreToolNames()`) is what a
-session needs to work out what to ask next — orientation, the two eyes on the frame,
-the camera to move them, and the two error channels:
+**The core set** (`OloEditor/src/MCP/McpExposure.h`, `CoreToolNames()`) provides
+scene orientation, frame liveness and engine errors before discovery:
 
 | Why | Tools |
 |---|---|
-| orientation | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_events_tail` |
-| error channels | `olo_log_tail`, `olo_shader_errors` |
-| eyes on the frame | `olo_screenshot`, `olo_render_list_targets`, `olo_render_capture_target` |
-| camera | `olo_camera_get`, `olo_camera_set_pose` |
+| orientation | `olo_scene_summary` |
+| engine errors | `olo_log_tail` |
 | is it running frames? | `olo_perf_snapshot` |
 
-No write tool is core: a narrowed default should not advertise mutation.
+The four discovery tools complete the seven-tool default. Entity details, events,
+shader errors, screenshots, intermediate captures and camera controls are fetched
+through `olo_tool_search` and `olo_tool_describe`; their full descriptions, schemas
+and annotations are preserved. Known names remain directly callable. Enable the
+relevant toolsets or `full` to list them up front. No write tool is core.
 
 ### The discovery gateway (`olo_capability` / `olo_tool_search` / `olo_tool_describe` / `olo_tool_execute`)
 
-Four tools, always listed, that let a session find and call the ~80 the profile hid
+Four tools, always listed, that let a session find and call the tools the profile hid
 without materialising all their schemas.
 
 | Tool | Does |
@@ -887,7 +888,7 @@ without materialising all their schemas.
 | `olo_tool_execute` | Run a tool by `{tool, arguments}`. An **alias** for `tools/call`: the target's input-schema validation, write-consent gate, progress and cancellation all apply unchanged, and the result is the target's result verbatim. You only need it if your client refuses to call a name it never saw in `tools/list`. |
 
 The loop is `olo_capability` → `olo_tool_search` → `olo_tool_describe` → call, and it
-costs a few KB where listing all 96 schemas costs ~67k tokens.
+costs a few KB instead of loading every schema up front.
 
 ```jsonc
 // "how do I raycast?" without paying for the catalogue

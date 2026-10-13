@@ -18,9 +18,9 @@
 // Registration-only where it touches the real surface: RegisterBuiltinTools builds
 // ToolDefs (names, schemas, annotations) and nothing else, so no handler runs, no
 // MarshalRead needs a pumped game thread and no GL context is required. The
-// end-to-end gateway round-trips use FAKE tools for the same reason — a real
-// handler cannot run in this binary (see docs/agent-rules/notes-mcp-tool-authoring.md
-// §2).
+// Gateway metadata handlers run against the real registry without scene/GL work.
+// Execution round-trips use fake targets to avoid handlers that need a pumped
+// game thread or a rendering context (notes-mcp-tool-authoring.md §2).
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -35,6 +35,7 @@
 #include "MCP/McpToolsCommon.h"
 
 #include <algorithm>
+#include <array>
 #include <iostream>
 #include <set>
 #include <string>
@@ -227,30 +228,11 @@ TEST(McpExposureProfile, DefaultToolsListIsASmallFractionOfTheFullCatalogue)
     // being made visible, which is the whole point — either the tool is worth the
     // bytes and this ceiling moves deliberately (say so in the commit), or it is
     // not and it stays discoverable through olo_tool_search.
-    // Measured at 38 144 bytes (16 of 96 tools) when this landed. The ceiling sits
-    // above that by enough that a core tool growing a description or a schema
-    // property does not fail the build, and tight enough that adding a whole tool to
-    // the core set does — one core tool is ~2 670 bytes at the current 17.
-    //
-    // MOVED 45 000 -> 46 000 by #1337, deliberately and with the arithmetic written
-    // down, because the comment above asks for exactly that rather than a silent bump:
-    //
-    //   * Before that change the payload measured ~44 737 bytes, i.e. 263 bytes of
-    //     headroom. The ratchet was already all but exhausted by growth that had
-    //     nothing to do with this change.
-    //   * #1337 added six properties to olo_perf_snapshot (a CORE tool) and widened
-    //     one: gpuStatus, fenceWaitMs, presentWaitMs, displayWidth, displayHeight,
-    //     renderScale, and a nullable gpuMs. 686 bytes. Every one of them exists so a
-    //     perf reading says whether it IS a measurement — which is the single most
-    //     load-bearing thing the most-called perf tool can report, and the exact
-    //     defect that issue was filed for. Trimming them to fit would mean shipping a
-    //     core tool whose gpuMs still cannot be told apart from a free frame.
-    //   * 340 bytes of genuine verbosity were trimmed out of this tool first,
-    //     including one pre-existing description, so the net cost is ~346 bytes.
-    //
-    // 46 000 leaves ~577 bytes of headroom at the 45 423 this now measures: still a
-    // fifth of one tool, so adding a tool to the core set fails here as designed.
-    constexpr sizet kCoreProfileByteCeiling = 46000;
+    // Reduced from 46 000 to 16 000 in #1604 at the user's request. Keep scene,
+    // liveness/performance and logs plus discovery up front; fetch the complete
+    // camera, capture, event and entity schemas only when needed. At ~12 922 bytes
+    // this leaves ~3 KB for growth, rather than consuming ~46 KB on every session.
+    constexpr sizet kCoreProfileByteCeiling = 16000;
     EXPECT_LE(metrics.ListedBytes, kCoreProfileByteCeiling)
         << "the default tools/list is " << metrics.ListedBytes << " bytes (~" << metrics.ApproxListedTokens()
         << " tokens); ceiling is " << kCoreProfileByteCeiling;
@@ -474,6 +456,53 @@ TEST(McpExposureGateway, SearchThenDescribeReachesAToolTheProfileHid)
                                    { return t["name"] == "olo_physics_raycast"; });
     ASSERT_NE(same, listedTools.end());
     EXPECT_EQ(listEntry, *same);
+}
+
+TEST(McpExposureGateway, DeferredInspectionToolsKeepTheirCompleteSchemas)
+{
+    // #1604's smaller default defers these formerly core tools. Exercise discovery
+    // against the real registry and compare every descriptor with profile=full;
+    // a cheap default must not lose arguments, result contracts or annotations.
+    McpServer server{ EditorMcpContext{} };
+    OloEngine::MCP::RegisterBuiltinTools(server);
+    const Json fullList = BuiltinToolsList(ExposureProfile::Full);
+    const Json& fullTools = fullList["result"]["tools"];
+    const auto coreNames = ToolNamesIn(server.HandleMessage(MakeRequest(1, "tools/list")));
+    const std::array deferredNames{
+        "olo_scene_list_entities", "olo_scene_get_entity", "olo_events_tail", "olo_events_wait",
+        "olo_shader_errors", "olo_screenshot", "olo_render_list_targets", "olo_render_capture_target",
+        "olo_camera_get", "olo_camera_set_pose"
+    };
+
+    int requestId = 2;
+    for (const char* name : deferredNames)
+    {
+        SCOPED_TRACE(name);
+        EXPECT_FALSE(coreNames.contains(std::string(name)));
+        const Json search = server.HandleMessage(MakeRequest(
+            requestId++, "tools/call", Json{ { "name", "olo_tool_search" }, { "arguments", { { "query", name }, { "limit", 200 } } } }));
+        ASSERT_TRUE(search.contains("result")) << search.dump(2);
+        const Json& hits = search["result"]["structuredContent"]["tools"];
+        const auto hit = std::find_if(hits.begin(), hits.end(),
+                                      [name](const Json& tool)
+                                      { return tool["name"] == name; });
+        ASSERT_NE(hit, hits.end());
+        EXPECT_FALSE((*hit)["listed"].get<bool>());
+
+        const Json describe = server.HandleMessage(MakeRequest(
+            requestId++, "tools/call", Json{ { "name", "olo_tool_describe" }, { "arguments", { { "name", name } } } }));
+        ASSERT_TRUE(describe.contains("result")) << describe.dump(2);
+        const Json& described = describe["result"]["structuredContent"]["tools"];
+        ASSERT_EQ(described.size(), 1u);
+        Json entry = described[0];
+        EXPECT_FALSE(entry["listed"].get<bool>());
+        entry.erase("listed");
+        const auto original = std::find_if(fullTools.begin(), fullTools.end(),
+                                           [name](const Json& tool)
+                                           { return tool["name"] == name; });
+        ASSERT_NE(original, fullTools.end());
+        EXPECT_EQ(entry, *original);
+    }
 }
 
 TEST(McpExposureGateway, DescribeReportsUnknownNamesInsteadOfFailingTheWholeCall)

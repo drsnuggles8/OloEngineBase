@@ -636,17 +636,13 @@ namespace OloEngine::MCP
             tool.DualAudienceContent = true;
             tool.Annotations = ReadOnlyAnnotations();
             tool.Description =
-                "Current-frame renderer performance: fps, frame/CPU/GPU time (ms), draw calls, instanced "
-                "draw calls, triangles, state/shader/texture binds, and the ACTUAL scene render resolution "
-                "(renderWidth/renderHeight — cross-check it against any olo_viewport_set_size override "
-                "before trusting timings). Server-computed snapshot from the live profiler. Map a low fps "
-                "back to draw calls / lack of instancing.\n\n"
-                "ALSO THE LIVENESS PROBE. Every counter here describes the last COMPLETED frame, which can be "
-                "arbitrarily old — a minimized editor parks its update/render loop entirely and then reports "
-                "these numbers, truthfully, about a frame from minutes ago while input injection silently "
-                "never drains and screenshots go stale. The 'liveness' block answers 'is the editor actually "
-                "running frames?' in ONE call: check liveness.ticking (with frameIndex, msSinceLastFrame, "
-                "iconified, focused) before trusting any other tool's view of the frame.";
+                "Live-profiler snapshot of the last completed frame: fps, frame/CPU/GPU time (ms), draw calls, "
+                "instanced draws, triangles, state/shader/texture binds, and actual scene render resolution. "
+                "Compare renderWidth/renderHeight with any olo_viewport_set_size override before trusting timings. "
+                "Use draw calls and instancing counts to investigate low fps.\n\n"
+                "Check liveness.ticking, frameIndex, msSinceLastFrame, iconified and focused before trusting frame "
+                "tools: a minimized editor parks update/render, leaving old counters, stale screenshots and "
+                "undrained input injection. Renderer-frame identity is separate from update-loop liveness.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema = Schema::Object()
                                     .Prop("fps", Schema::Number())
