@@ -1,0 +1,753 @@
+{
+ "date": "2026-10-13",
+ "purpose": "Live recorder functional evidence; NOT controlled hitch or overhead acceptance.",
+ "limitations": [
+  "Host records show 21-22% video-decoder utilization before launch and 6% after the traces.",
+  "A sibling editor from OloEngine-deferred-msaa-gbuffer-resolve-1553 started outside the build gate at 09:18:23 local time.",
+  "The subsequent overhead campaign refused to launch because that editor was running.",
+  "The camera-cut hitches are real observations but cannot establish uncontended CPU-hitch attribution.",
+  "Raw scope dumps, complete histories and logs are retained locally under .v-build/trace-{backend}-armed-0/."
+ ],
+ "traces": {
+  "vulkan": {
+   "provenance": {
+    "head": "c7d74431d4981c9bf18ee285bacd50d9c3260e98",
+    "binaryHash": "86A00954AE548A08D8ABEFE1F1BEE3773F9BCC3BAF0E94F7C13D646E38416C51",
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 36 %, 21 %, 18.15 W"
+    ],
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "processes": []
+   },
+   "summary": {
+    "backend": "vulkan",
+    "mode": "trace",
+    "state": "armed",
+    "repeat": "0",
+    "naturalSeconds": 66.86523250000027,
+    "completedFrames": 526,
+    "samples": 526,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 526,
+      "p50Ms": 120.4,
+      "p95Ms": 146.28,
+      "p99Ms": 161.03,
+      "maxMs": 174.52,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 526,
+      "p50Ms": 117.08,
+      "p95Ms": 142.69,
+      "p99Ms": 157.51,
+      "maxMs": 169.35,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 526,
+      "p50Ms": 41.83,
+      "p95Ms": 62.81,
+      "p99Ms": 67.84,
+      "maxMs": 72.74,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "37 %, 6 %, 148.08 W"
+   },
+   "dump": {
+    "armed": false,
+    "capturedFrames": 528,
+    "eventsPerFrame": 1024,
+    "frameCapacity": 1536,
+    "frames": [],
+    "framesOverwritten": 0,
+    "framesWritten": 528,
+    "lateCompletions": 0,
+    "partialFramesDiscarded": 1,
+    "path": "assets/mcp-captures/1594/trace-vulkan-armed-0.json",
+    "retainedBytes": 214081536,
+    "status": "ok"
+   },
+   "loss": {
+    "droppedEvents": 0
+   },
+   "hitches": [
+    {
+     "droppedEvents": 0,
+     "frameId": 1,
+     "frameTimeMs": 391.6636,
+     "gpuFrameAdvanced": true,
+     "gpuIssueFrameId": 243,
+     "gpuMeasurementFrameId": 241,
+     "gpuMs": 85.421056,
+     "gpuStatus": "valid",
+     "rendererCpuMs": 389.863,
+     "rendererFrameAdvanced": true,
+     "rendererFrameId": 243,
+     "sameFrameGpuMs": 155.467776,
+     "sameFrameGpuStatus": "valid",
+     "largestScopes": [
+      {
+       "complete": true,
+       "depth": 0,
+       "durationMs": 391.6416,
+       "name": "Application::SwapBuffers",
+       "nameTruncated": false,
+       "startMs": 0.0167,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 1,
+       "durationMs": 391.2779,
+       "name": "Application::RenderFrameLayers",
+       "nameTruncated": false,
+       "startMs": 0.2337,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 2,
+       "durationMs": 390.7465,
+       "name": "EditorLayer::OnUpdate",
+       "nameTruncated": false,
+       "startMs": 0.2341,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 3,
+       "durationMs": 390.7378,
+       "name": "Scene::OnUpdateEditor",
+       "nameTruncated": false,
+       "startMs": 0.2405,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 4,
+       "durationMs": 312.4828,
+       "name": "Renderer3D::EndScene",
+       "nameTruncated": false,
+       "startMs": 78.4947,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 303.6036,
+       "name": "RG::Execute",
+       "nameTruncated": false,
+       "startMs": 87.317,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 4,
+       "durationMs": 76.3404,
+       "name": "Scene::PublishGroomStrandRequests",
+       "nameTruncated": false,
+       "startMs": 1.1798,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 6,
+       "durationMs": 12.9005,
+       "name": "Groom::UploadDeformation",
+       "nameTruncated": false,
+       "startMs": 224.0506,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 8.4566,
+       "name": "Renderer3D::CompileFrameGraph",
+       "nameTruncated": false,
+       "startMs": 78.5912,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 6,
+       "durationMs": 6.5741,
+       "name": "Groom::UploadDeformation",
+       "nameTruncated": false,
+       "startMs": 140.5064,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 4.9755,
+       "name": "Groom::Request",
+       "nameTruncated": false,
+       "startMs": 20.117,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 6,
+       "durationMs": 4.9655,
+       "name": "Groom::Deform",
+       "nameTruncated": false,
+       "startMs": 20.1242,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 4.4927,
+       "name": "Groom::Request",
+       "nameTruncated": false,
+       "startMs": 37.3786,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 6,
+       "durationMs": 4.4822,
+       "name": "Groom::Deform",
+       "nameTruncated": false,
+       "startMs": 37.3878,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 6,
+       "durationMs": 4.4119,
+       "name": "RG::BuildFrameGraph",
+       "nameTruncated": false,
+       "startMs": 82.5398,
+       "thread": 56604
+      }
+     ]
+    },
+    {
+     "droppedEvents": 0,
+     "frameId": 2,
+     "frameTimeMs": 752.7321,
+     "gpuFrameAdvanced": true,
+     "gpuIssueFrameId": 244,
+     "gpuMeasurementFrameId": 242,
+     "gpuMs": 88.25344,
+     "gpuStatus": "valid",
+     "rendererCpuMs": 749.8493,
+     "rendererFrameAdvanced": true,
+     "rendererFrameId": 244,
+     "sameFrameGpuMs": 241.462272,
+     "sameFrameGpuStatus": "valid",
+     "largestScopes": [
+      {
+       "complete": true,
+       "depth": 0,
+       "durationMs": 752.6996,
+       "name": "Application::SwapBuffers",
+       "nameTruncated": false,
+       "startMs": 0.0257,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 1,
+       "durationMs": 752.3138,
+       "name": "Application::RenderFrameLayers",
+       "nameTruncated": false,
+       "startMs": 0.2892,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 2,
+       "durationMs": 751.7616,
+       "name": "EditorLayer::OnUpdate",
+       "nameTruncated": false,
+       "startMs": 0.2901,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 3,
+       "durationMs": 751.75,
+       "name": "Scene::OnUpdateEditor",
+       "nameTruncated": false,
+       "startMs": 0.2993,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 4,
+       "durationMs": 670.8616,
+       "name": "Renderer3D::EndScene",
+       "nameTruncated": false,
+       "startMs": 81.1868,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 661.7504,
+       "name": "RG::Execute",
+       "nameTruncated": false,
+       "startMs": 90.2427,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 4,
+       "durationMs": 75.4684,
+       "name": "Scene::PublishGroomStrandRequests",
+       "nameTruncated": false,
+       "startMs": 2.3613,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 6,
+       "durationMs": 61.7505,
+       "name": "Groom::UploadDeformation",
+       "nameTruncated": false,
+       "startMs": 452.7952,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 8.6601,
+       "name": "Renderer3D::CompileFrameGraph",
+       "nameTruncated": false,
+       "startMs": 81.3145,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 5.3218,
+       "name": "Groom::Request",
+       "nameTruncated": false,
+       "startMs": 72.4997,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 6,
+       "durationMs": 5.3109,
+       "name": "Groom::Deform",
+       "nameTruncated": false,
+       "startMs": 72.5088,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 6,
+       "durationMs": 4.5281,
+       "name": "RG::BuildFrameGraph",
+       "nameTruncated": false,
+       "startMs": 85.3508,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 6,
+       "durationMs": 3.975,
+       "name": "Renderer3D::PopulateBlackboard",
+       "nameTruncated": false,
+       "startMs": 81.3541,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 7,
+       "durationMs": 3.4232,
+       "name": "RG::BuildFrameGraph/SetupLoop",
+       "nameTruncated": false,
+       "startMs": 85.4138,
+       "thread": 56604
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 2.7725,
+       "name": "Groom::Request",
+       "nameTruncated": false,
+       "startMs": 29.0003,
+       "thread": 56604
+      }
+     ]
+    }
+   ]
+  },
+  "opengl": {
+   "provenance": {
+    "binaryHash": "86A00954AE548A08D8ABEFE1F1BEE3773F9BCC3BAF0E94F7C13D646E38416C51",
+    "processes": [],
+    "head": "c7d74431d4981c9bf18ee285bacd50d9c3260e98",
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 51 %, 22 %, 17.42 W"
+    ],
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []"
+   },
+   "summary": {
+    "backend": "opengl",
+    "mode": "trace",
+    "state": "armed",
+    "repeat": "0",
+    "naturalSeconds": 66.82484480000858,
+    "completedFrames": 434,
+    "samples": 434,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 434,
+      "p50Ms": 147.12,
+      "p95Ms": 186.61,
+      "p99Ms": 200.39,
+      "maxMs": 214.16,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 434,
+      "p50Ms": 135.46,
+      "p95Ms": 162.97,
+      "p99Ms": 185.08,
+      "maxMs": 195.52,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 434,
+      "p50Ms": 121.27,
+      "p95Ms": 178.07,
+      "p99Ms": 185.05,
+      "maxMs": 189.49,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "100 %, 6 %, 187.63 W"
+   },
+   "dump": {
+    "armed": false,
+    "capturedFrames": 436,
+    "eventsPerFrame": 1024,
+    "frameCapacity": 1536,
+    "frames": [],
+    "framesOverwritten": 0,
+    "framesWritten": 436,
+    "lateCompletions": 0,
+    "partialFramesDiscarded": 1,
+    "path": "assets/mcp-captures/1594/trace-opengl-armed-0.json",
+    "retainedBytes": 214081536,
+    "status": "ok"
+   },
+   "loss": {
+    "droppedEvents": 0
+   },
+   "hitches": [
+    {
+     "droppedEvents": 0,
+     "frameId": 1,
+     "frameTimeMs": 422.6571,
+     "gpuFrameAdvanced": true,
+     "gpuIssueFrameId": 413,
+     "gpuMeasurementFrameId": 411,
+     "gpuMs": 84.501504,
+     "gpuStatus": "valid",
+     "rendererCpuMs": 420.48560000000003,
+     "rendererFrameAdvanced": true,
+     "rendererFrameId": 413,
+     "sameFrameGpuMs": 333.309952,
+     "sameFrameGpuStatus": "valid",
+     "largestScopes": [
+      {
+       "complete": true,
+       "depth": 0,
+       "durationMs": 422.3568,
+       "name": "Application::RenderFrameLayers",
+       "nameTruncated": false,
+       "startMs": 0.0305,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 1,
+       "durationMs": 421.4783,
+       "name": "EditorLayer::OnUpdate",
+       "nameTruncated": false,
+       "startMs": 0.031,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 2,
+       "durationMs": 421.4669,
+       "name": "Scene::OnUpdateEditor",
+       "nameTruncated": false,
+       "startMs": 0.0403,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 3,
+       "durationMs": 343.5922,
+       "name": "Renderer3D::EndScene",
+       "nameTruncated": false,
+       "startMs": 77.9138,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 4,
+       "durationMs": 334.0902,
+       "name": "RG::Execute",
+       "nameTruncated": false,
+       "startMs": 87.3303,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 3,
+       "durationMs": 76.3357,
+       "name": "Scene::PublishGroomStrandRequests",
+       "nameTruncated": false,
+       "startMs": 1.0823,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 13.0211,
+       "name": "Groom::UploadDeformation",
+       "nameTruncated": false,
+       "startMs": 233.3143,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 4,
+       "durationMs": 9.0766,
+       "name": "Renderer3D::CompileFrameGraph",
+       "nameTruncated": false,
+       "startMs": 77.9935,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 8.2841,
+       "name": "Groom::UploadDeformation",
+       "nameTruncated": false,
+       "startMs": 145.0959,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 4,
+       "durationMs": 5.2999,
+       "name": "Groom::Request",
+       "nameTruncated": false,
+       "startMs": 30.9481,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 5.2888,
+       "name": "Groom::Deform",
+       "nameTruncated": false,
+       "startMs": 30.9566,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 4.7462,
+       "name": "RG::BuildFrameGraph",
+       "nameTruncated": false,
+       "startMs": 82.2274,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 6,
+       "durationMs": 4.5781,
+       "name": "Groom::RootEvaluate",
+       "nameTruncated": false,
+       "startMs": 30.9595,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 4,
+       "durationMs": 4.1635,
+       "name": "Groom::Request",
+       "nameTruncated": false,
+       "startMs": 19.7685,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 4.1481,
+       "name": "Groom::Deform",
+       "nameTruncated": false,
+       "startMs": 19.7821,
+       "thread": 49596
+      }
+     ]
+    },
+    {
+     "droppedEvents": 0,
+     "frameId": 2,
+     "frameTimeMs": 871.7556,
+     "gpuFrameAdvanced": true,
+     "gpuIssueFrameId": 414,
+     "gpuMeasurementFrameId": 413,
+     "gpuMs": 333.309952,
+     "gpuStatus": "valid",
+     "rendererCpuMs": 868.4023,
+     "rendererFrameAdvanced": true,
+     "rendererFrameId": 414,
+     "sameFrameGpuMs": 798.138368,
+     "sameFrameGpuStatus": "valid",
+     "largestScopes": [
+      {
+       "complete": true,
+       "depth": 0,
+       "durationMs": 871.1967,
+       "name": "Application::RenderFrameLayers",
+       "nameTruncated": false,
+       "startMs": 0.0278,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 1,
+       "durationMs": 870.345,
+       "name": "EditorLayer::OnUpdate",
+       "nameTruncated": false,
+       "startMs": 0.0285,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 2,
+       "durationMs": 870.3341,
+       "name": "Scene::OnUpdateEditor",
+       "nameTruncated": false,
+       "startMs": 0.0372,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 3,
+       "durationMs": 792.7578,
+       "name": "Renderer3D::EndScene",
+       "nameTruncated": false,
+       "startMs": 77.6123,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 4,
+       "durationMs": 780.9397,
+       "name": "RG::Execute",
+       "nameTruncated": false,
+       "startMs": 89.3399,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 3,
+       "durationMs": 72.0798,
+       "name": "Scene::PublishGroomStrandRequests",
+       "nameTruncated": false,
+       "startMs": 2.1295,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 63.8254,
+       "name": "Groom::UploadDeformation",
+       "nameTruncated": false,
+       "startMs": 556.9131,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 4,
+       "durationMs": 11.3516,
+       "name": "Renderer3D::CompileFrameGraph",
+       "nameTruncated": false,
+       "startMs": 77.7067,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 4,
+       "durationMs": 6.1179,
+       "name": "Groom::Request",
+       "nameTruncated": false,
+       "startMs": 68.0814,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 6.0968,
+       "name": "Groom::Deform",
+       "nameTruncated": false,
+       "startMs": 68.0982,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 5.9849,
+       "name": "Renderer3D::PopulateBlackboard",
+       "nameTruncated": false,
+       "startMs": 77.746,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 5.1062,
+       "name": "RG::BuildFrameGraph",
+       "nameTruncated": false,
+       "startMs": 83.845,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 6,
+       "durationMs": 3.9384,
+       "name": "RG::BuildFrameGraph/SetupLoop",
+       "nameTruncated": false,
+       "startMs": 83.9238,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 6,
+       "durationMs": 3.2588,
+       "name": "Groom::PackFrame",
+       "nameTruncated": false,
+       "startMs": 601.5364,
+       "thread": 49596
+      },
+      {
+       "complete": true,
+       "depth": 5,
+       "durationMs": 3.0183,
+       "name": "Groom::UploadDeformation",
+       "nameTruncated": false,
+       "startMs": 91.7729,
+       "thread": 49596
+      }
+     ]
+    }
+   ]
+  }
+ }
+}
