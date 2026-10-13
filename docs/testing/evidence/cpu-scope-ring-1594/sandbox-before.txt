@@ -1,0 +1,2 @@
+rejected=1 outsideDirectoryCreated=1
+Invalid 'path': resolves outside assets/mcp-captures/ (possible symlink escape). The capture was not written.

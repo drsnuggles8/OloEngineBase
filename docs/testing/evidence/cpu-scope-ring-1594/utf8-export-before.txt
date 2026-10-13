@@ -1,0 +1,25 @@
+[11:07:50] OloEngine: [Levers] active: OLO_RENDERGRAPH_DIAGNOSTICS=on (set at runtime)
+[11:07:50] OloEngine: Interactivity: non-interactive mode ON — blocking modals will take their safe default
+Note: Google Test filter = McpCpuScopeRingTest.TruncatedUtf8NamesStillProduceValidJson
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from McpCpuScopeRingTest
+[ RUN      ] McpCpuScopeRingTest.TruncatedUtf8NamesStillProduceValidJson
+C:\repos\OloEngine-mcp-cpu-scope-ring-hitches-1594\OloEngine\tests\MCP\McpCpuScopeRingTest.cpp(48): error: Expected: (void)json.dump() doesn't throw an exception.
+  Actual: it throws nlohmann::json_abi_v3_12_0::detail::type_error with description "[json.exception.type_error.316] incomplete UTF-8 string; last byte: 0xE2".
+
+unknown file: error: C++ exception with description "[json.exception.type_error.316] incomplete UTF-8 string; last byte: 0xE2" thrown in the test body.
+
+[  FAILED  ] McpCpuScopeRingTest.TruncatedUtf8NamesStillProduceValidJson (2 ms)
+[----------] 1 test from McpCpuScopeRingTest (2 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (2 ms total)
+[  PASSED  ] 0 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] McpCpuScopeRingTest.TruncatedUtf8NamesStillProduceValidJson
+
+ 1 FAILED TEST
+[11:07:50] OloEngine: Renderer Memory Tracker shutdown
+[11:07:50] OloEngine: ShaderResourceRegistry: Registered shader registry for shader ID 4059103368
+[11:07:50] OloEngine: ShaderResourceRegistry: Unregistered shader registry for shader ID 4059103368

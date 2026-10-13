@@ -1,0 +1,8 @@
+trim trailing whitespace.................................................................Passed
+fix end of files.........................................................................Passed
+check yaml...............................................................................Passed
+clang-format.............................................................................Passed
+every test file is classified............................................................Passed
+tests do not name the shared temp root directly..........................................Passed
+headers that profile include Instrumentor.h..............................................Passed
+documentation links, anchors, index and contract-doc names resolve.......................Passed

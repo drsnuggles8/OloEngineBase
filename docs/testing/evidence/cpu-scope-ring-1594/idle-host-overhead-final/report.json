@@ -1,0 +1,959 @@
+{
+ "date": "2026-10-13",
+ "machine": "Windows; Intel Core i7-14700KF; RTX 4090; driver 617.42",
+ "protocol": "Three fresh-process run pairs per backend, alternating AB/BA; same binary, 1920x1080 Deferred, population-dolly; throttles/autosave off; no per-frame MCP polling.",
+ "statistics": "Descriptive run-level comparisons; no individual-frame bootstrap or formal calibrated confidence claim. Legacy history has no frame IDs; GPU statistics are descriptive, not a validity-filtered GPU regression gate.",
+ "diagnosticThresholdMs": 300,
+ "legacyDeadlineMissesMeaning": "Samples strictly above the diagnostic threshold; not a 33.3ms frame deadline.",
+ "runs": [
+  {
+   "summary": {
+    "backend": "vulkan",
+    "mode": "overhead",
+    "state": "disarmed",
+    "repeat": "4",
+    "naturalSeconds": 129.25430249999044,
+    "completedFrames": 1217,
+    "samples": 1000,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 1000,
+      "p50Ms": 103.54,
+      "p95Ms": 118.8,
+      "p99Ms": 122.87,
+      "maxMs": 138.43,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 1000,
+      "p50Ms": 100.67,
+      "p95Ms": 115.85,
+      "p99Ms": 119.92,
+      "maxMs": 135.33,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 1000,
+      "p50Ms": 40.78,
+      "p95Ms": 42.51,
+      "p99Ms": 48.71,
+      "maxMs": 51.54,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "39 %, 0 %, 154.55 W"
+   },
+   "provenance": {
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 3 %, 0 %, 13.22 W"
+    ],
+    "processes": []
+   },
+   "hostAfter": {
+    "ownedEditorPid": 20120,
+    "gpu": [
+     "31 %, 0 %, 156.84 W"
+    ],
+    "processes": [
+     {
+      "ProcessId": 20120,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=vulkan"
+     }
+    ]
+   },
+   "rendererProbeIndices": [
+    446,
+    1663
+   ],
+   "historyFilename": "vulkan-disarmed-4-history.json"
+  },
+  {
+   "summary": {
+    "backend": "vulkan",
+    "mode": "overhead",
+    "state": "armed",
+    "repeat": "4",
+    "naturalSeconds": 134.10888800000248,
+    "completedFrames": 1233,
+    "samples": 1000,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 1000,
+      "p50Ms": 105.7,
+      "p95Ms": 123.09,
+      "p99Ms": 140.84,
+      "maxMs": 165.19,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 1000,
+      "p50Ms": 102.85,
+      "p95Ms": 120.27,
+      "p99Ms": 135.87,
+      "maxMs": 161.25,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 1000,
+      "p50Ms": 40.38,
+      "p95Ms": 45.69,
+      "p99Ms": 52.7,
+      "maxMs": 65.85,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "16 %, 0 %, 97.55 W"
+   },
+   "provenance": {
+    "processes": [],
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 2 %, 0 %, 108.29 W"
+    ]
+   },
+   "hostAfter": {
+    "ownedEditorPid": 10956,
+    "processes": [
+     {
+      "ProcessId": 10956,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=vulkan"
+     }
+    ],
+    "gpu": [
+     "0 %, 0 %, 87.22 W"
+    ]
+   },
+   "rendererProbeIndices": [
+    470,
+    1703
+   ],
+   "historyFilename": "vulkan-armed-4-history.json",
+   "ring": {
+    "armed": false,
+    "eventsPerFrame": 1024,
+    "frameCapacity": 1536,
+    "framesOverwritten": 0,
+    "framesWritten": 1237,
+    "lateCompletions": 0,
+    "partialFramesDiscarded": 1,
+    "retainedBytes": 214081536,
+    "status": "ok",
+    "capturedFrames": 1237,
+    "droppedEvents": 0,
+    "incompleteScopes": 0,
+    "maxFrameTimeMs": 166.8759,
+    "firstFrameId": 1,
+    "lastFrameId": 1237
+   },
+   "hitchFilename": "vulkan-armed-4-hitches.json"
+  },
+  {
+   "summary": {
+    "backend": "vulkan",
+    "mode": "overhead",
+    "state": "disarmed",
+    "repeat": "5",
+    "naturalSeconds": 231.3128480000014,
+    "completedFrames": 2160,
+    "samples": 1000,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 1000,
+      "p50Ms": 103.98,
+      "p95Ms": 119.66,
+      "p99Ms": 123.71,
+      "maxMs": 150.92,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 1000,
+      "p50Ms": 101.09,
+      "p95Ms": 116.62,
+      "p99Ms": 120.86,
+      "maxMs": 146.64,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 1000,
+      "p50Ms": 40.73,
+      "p95Ms": 42.35,
+      "p99Ms": 47.27,
+      "maxMs": 52.14,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "24 %, 0 %, 112.00 W"
+   },
+   "provenance": {
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+    "processes": [],
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 3 %, 0 %, 70.68 W"
+    ],
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []"
+   },
+   "hostAfter": {
+    "processes": [
+     {
+      "ProcessId": 46756,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=vulkan"
+     }
+    ],
+    "gpu": [
+     "40 %, 0 %, 110.88 W"
+    ],
+    "ownedEditorPid": 46756
+   },
+   "rendererProbeIndices": [
+    658,
+    2818
+   ],
+   "historyFilename": "vulkan-disarmed-5-history.json"
+  },
+  {
+   "summary": {
+    "backend": "vulkan",
+    "mode": "overhead",
+    "state": "armed",
+    "repeat": "5",
+    "naturalSeconds": 138.27671959999134,
+    "completedFrames": 1280,
+    "samples": 1000,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 1000,
+      "p50Ms": 106.59,
+      "p95Ms": 116.56,
+      "p99Ms": 128.71,
+      "maxMs": 162.21,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 1000,
+      "p50Ms": 102.76,
+      "p95Ms": 112.49,
+      "p99Ms": 124.16,
+      "maxMs": 155.72,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 1000,
+      "p50Ms": 40.61,
+      "p95Ms": 42.29,
+      "p99Ms": 44.26,
+      "maxMs": 59.49,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "31 %, 0 %, 112.65 W"
+   },
+   "provenance": {
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 2 %, 0 %, 57.69 W"
+    ],
+    "processes": []
+   },
+   "hostAfter": {
+    "processes": [
+     {
+      "ProcessId": 32608,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=vulkan"
+     }
+    ],
+    "gpu": [
+     "0 %, 0 %, 106.33 W"
+    ],
+    "ownedEditorPid": 32608
+   },
+   "rendererProbeIndices": [
+    400,
+    1680
+   ],
+   "historyFilename": "vulkan-armed-5-history.json",
+   "ring": {
+    "armed": false,
+    "eventsPerFrame": 1024,
+    "frameCapacity": 1536,
+    "framesOverwritten": 0,
+    "framesWritten": 1284,
+    "lateCompletions": 0,
+    "partialFramesDiscarded": 1,
+    "retainedBytes": 214081536,
+    "status": "ok",
+    "capturedFrames": 1284,
+    "droppedEvents": 0,
+    "incompleteScopes": 0,
+    "maxFrameTimeMs": 161.6608,
+    "firstFrameId": 1,
+    "lastFrameId": 1284
+   },
+   "hitchFilename": "vulkan-armed-5-hitches.json"
+  },
+  {
+   "summary": {
+    "backend": "vulkan",
+    "mode": "overhead",
+    "state": "disarmed",
+    "repeat": "6",
+    "naturalSeconds": 151.259733400002,
+    "completedFrames": 1424,
+    "samples": 1000,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 1000,
+      "p50Ms": 103.73,
+      "p95Ms": 118.96,
+      "p99Ms": 122.6,
+      "maxMs": 156.31,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 1000,
+      "p50Ms": 100.88,
+      "p95Ms": 116.07,
+      "p99Ms": 119.8,
+      "maxMs": 153.47,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 1000,
+      "p50Ms": 40.68,
+      "p95Ms": 42.54,
+      "p99Ms": 49.11,
+      "maxMs": 57.97,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "37 %, 0 %, 114.68 W"
+   },
+   "provenance": {
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 2 %, 0 %, 77.19 W"
+    ],
+    "processes": [],
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125"
+   },
+   "hostAfter": {
+    "ownedEditorPid": 3052,
+    "gpu": [
+     "26 %, 0 %, 104.12 W"
+    ],
+    "processes": [
+     {
+      "ProcessId": 3052,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=vulkan"
+     }
+    ]
+   },
+   "rendererProbeIndices": [
+    446,
+    1870
+   ],
+   "historyFilename": "vulkan-disarmed-6-history.json"
+  },
+  {
+   "summary": {
+    "backend": "vulkan",
+    "mode": "overhead",
+    "state": "armed",
+    "repeat": "6",
+    "naturalSeconds": 132.88394360001257,
+    "completedFrames": 1253,
+    "samples": 1000,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 1000,
+      "p50Ms": 103.61,
+      "p95Ms": 119.22,
+      "p99Ms": 122.17,
+      "maxMs": 127.83,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 1000,
+      "p50Ms": 100.77,
+      "p95Ms": 116.11,
+      "p99Ms": 119.25,
+      "maxMs": 124.88,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 1000,
+      "p50Ms": 41.62,
+      "p95Ms": 42.39,
+      "p99Ms": 48.11,
+      "maxMs": 51.8,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "40 %, 0 %, 153.69 W"
+   },
+   "provenance": {
+    "processes": [],
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 2 %, 0 %, 87.88 W"
+    ],
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125"
+   },
+   "hostAfter": {
+    "processes": [
+     {
+      "ProcessId": 34840,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=vulkan"
+     }
+    ],
+    "gpu": [
+     "41 %, 0 %, 145.36 W"
+    ],
+    "ownedEditorPid": 34840
+   },
+   "rendererProbeIndices": [
+    355,
+    1608
+   ],
+   "historyFilename": "vulkan-armed-6-history.json",
+   "ring": {
+    "armed": false,
+    "eventsPerFrame": 1024,
+    "frameCapacity": 1536,
+    "framesOverwritten": 0,
+    "framesWritten": 1257,
+    "lateCompletions": 0,
+    "partialFramesDiscarded": 1,
+    "retainedBytes": 214081536,
+    "status": "ok",
+    "capturedFrames": 1257,
+    "droppedEvents": 0,
+    "incompleteScopes": 0,
+    "maxFrameTimeMs": 135.7199,
+    "firstFrameId": 1,
+    "lastFrameId": 1257
+   },
+   "hitchFilename": "vulkan-armed-6-hitches.json"
+  },
+  {
+   "summary": {
+    "backend": "opengl",
+    "mode": "overhead",
+    "state": "disarmed",
+    "repeat": "4",
+    "naturalSeconds": 132.2743279000133,
+    "completedFrames": 1220,
+    "samples": 1000,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 1000,
+      "p50Ms": 105.39,
+      "p95Ms": 122.84,
+      "p99Ms": 128.89,
+      "maxMs": 163.12,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 1000,
+      "p50Ms": 102.38,
+      "p95Ms": 119.55,
+      "p99Ms": 125.59,
+      "maxMs": 159.98,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 1000,
+      "p50Ms": 69.9,
+      "p95Ms": 71.8,
+      "p99Ms": 73.59,
+      "maxMs": 81.07,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "54 %, 0 %, 158.26 W"
+   },
+   "provenance": {
+    "processes": [],
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 2 %, 0 %, 115.78 W"
+    ],
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631"
+   },
+   "hostAfter": {
+    "processes": [
+     {
+      "ProcessId": 44040,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=opengl"
+     }
+    ],
+    "gpu": [
+     "0 %, 0 %, 150.80 W"
+    ],
+    "ownedEditorPid": 44040
+   },
+   "rendererProbeIndices": [
+    739,
+    1959
+   ],
+   "historyFilename": "opengl-disarmed-4-history.json"
+  },
+  {
+   "summary": {
+    "backend": "opengl",
+    "mode": "overhead",
+    "state": "armed",
+    "repeat": "4",
+    "naturalSeconds": 134.39156170000206,
+    "completedFrames": 1236,
+    "samples": 1000,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 1000,
+      "p50Ms": 105.41,
+      "p95Ms": 123.11,
+      "p99Ms": 133.14,
+      "maxMs": 168.67,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 1000,
+      "p50Ms": 102.45,
+      "p95Ms": 119.89,
+      "p99Ms": 132.6,
+      "maxMs": 165.64,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 1000,
+      "p50Ms": 69.48,
+      "p95Ms": 71.41,
+      "p99Ms": 73.07,
+      "maxMs": 75.33,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "59 %, 0 %, 150.64 W"
+   },
+   "provenance": {
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 2 %, 0 %, 95.13 W"
+    ],
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "processes": []
+   },
+   "hostAfter": {
+    "gpu": [
+     "12 %, 0 %, 148.44 W"
+    ],
+    "ownedEditorPid": 42736,
+    "processes": [
+     {
+      "ProcessId": 42736,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=opengl"
+     }
+    ]
+   },
+   "rendererProbeIndices": [
+    964,
+    2200
+   ],
+   "historyFilename": "opengl-armed-4-history.json",
+   "ring": {
+    "armed": false,
+    "eventsPerFrame": 1024,
+    "frameCapacity": 1536,
+    "framesOverwritten": 0,
+    "framesWritten": 1240,
+    "lateCompletions": 0,
+    "partialFramesDiscarded": 1,
+    "retainedBytes": 214081536,
+    "status": "ok",
+    "capturedFrames": 1240,
+    "droppedEvents": 0,
+    "incompleteScopes": 0,
+    "maxFrameTimeMs": 170.4439,
+    "firstFrameId": 1,
+    "lastFrameId": 1240
+   },
+   "hitchFilename": "opengl-armed-4-hitches.json"
+  },
+  {
+   "summary": {
+    "backend": "opengl",
+    "mode": "overhead",
+    "state": "disarmed",
+    "repeat": "5",
+    "naturalSeconds": 133.53662240000267,
+    "completedFrames": 1226,
+    "samples": 1000,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 1000,
+      "p50Ms": 105.6,
+      "p95Ms": 122.93,
+      "p99Ms": 131.43,
+      "maxMs": 148.13,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 1000,
+      "p50Ms": 102.63,
+      "p95Ms": 119.74,
+      "p99Ms": 127.53,
+      "maxMs": 145.1,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 1000,
+      "p50Ms": 69.55,
+      "p95Ms": 71.43,
+      "p99Ms": 72.3,
+      "maxMs": 83.72,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "55 %, 0 %, 162.02 W"
+   },
+   "provenance": {
+    "processes": [],
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 2 %, 0 %, 132.21 W"
+    ],
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125"
+   },
+   "hostAfter": {
+    "ownedEditorPid": 30192,
+    "processes": [
+     {
+      "ProcessId": 30192,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=opengl"
+     }
+    ],
+    "gpu": [
+     "63 %, 0 %, 158.37 W"
+    ]
+   },
+   "rendererProbeIndices": [
+    931,
+    2157
+   ],
+   "historyFilename": "opengl-disarmed-5-history.json"
+  },
+  {
+   "summary": {
+    "backend": "opengl",
+    "mode": "overhead",
+    "state": "armed",
+    "repeat": "5",
+    "naturalSeconds": 153.24281450000126,
+    "completedFrames": 1415,
+    "samples": 1000,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 1000,
+      "p50Ms": 105.15,
+      "p95Ms": 122.53,
+      "p99Ms": 133.33,
+      "maxMs": 143.39,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 1000,
+      "p50Ms": 102.21,
+      "p95Ms": 119.29,
+      "p99Ms": 130.27,
+      "maxMs": 139.81,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 1000,
+      "p50Ms": 70.67,
+      "p95Ms": 72.35,
+      "p99Ms": 73.72,
+      "maxMs": 78.41,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "67 %, 0 %, 150.90 W"
+   },
+   "provenance": {
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+    "processes": [],
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 2 %, 0 %, 105.16 W"
+    ]
+   },
+   "hostAfter": {
+    "ownedEditorPid": 36568,
+    "gpu": [
+     "49 %, 0 %, 144.11 W"
+    ],
+    "processes": [
+     {
+      "ProcessId": 36568,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=opengl"
+     }
+    ]
+   },
+   "rendererProbeIndices": [
+    920,
+    2335
+   ],
+   "historyFilename": "opengl-armed-5-history.json",
+   "ring": {
+    "armed": false,
+    "eventsPerFrame": 1024,
+    "frameCapacity": 1536,
+    "framesOverwritten": 0,
+    "framesWritten": 1419,
+    "lateCompletions": 0,
+    "partialFramesDiscarded": 1,
+    "retainedBytes": 214081536,
+    "status": "ok",
+    "capturedFrames": 1419,
+    "droppedEvents": 0,
+    "incompleteScopes": 0,
+    "maxFrameTimeMs": 159.4349,
+    "firstFrameId": 1,
+    "lastFrameId": 1419
+   },
+   "hitchFilename": "opengl-armed-5-hitches.json"
+  },
+  {
+   "summary": {
+    "backend": "opengl",
+    "mode": "overhead",
+    "state": "disarmed",
+    "repeat": "6",
+    "naturalSeconds": 146.76842810001108,
+    "completedFrames": 1353,
+    "samples": 1000,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 1000,
+      "p50Ms": 105.35,
+      "p95Ms": 123.82,
+      "p99Ms": 134.6,
+      "maxMs": 165.62,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 1000,
+      "p50Ms": 102.43,
+      "p95Ms": 120.5,
+      "p99Ms": 131.18,
+      "maxMs": 162.34,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 1000,
+      "p50Ms": 68.05,
+      "p95Ms": 70.11,
+      "p99Ms": 72.05,
+      "maxMs": 92.46,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "50 %, 0 %, 157.52 W"
+   },
+   "provenance": {
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 2 %, 0 %, 111.82 W"
+    ],
+    "processes": []
+   },
+   "hostAfter": {
+    "processes": [
+     {
+      "ProcessId": 55832,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=opengl"
+     }
+    ],
+    "gpu": [
+     "65 %, 0 %, 147.65 W"
+    ],
+    "ownedEditorPid": 55832
+   },
+   "rendererProbeIndices": [
+    1038,
+    2391
+   ],
+   "historyFilename": "opengl-disarmed-6-history.json"
+  },
+  {
+   "summary": {
+    "backend": "opengl",
+    "mode": "overhead",
+    "state": "armed",
+    "repeat": "6",
+    "naturalSeconds": 131.23074660000566,
+    "completedFrames": 1204,
+    "samples": 1000,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 1000,
+      "p50Ms": 105.75,
+      "p95Ms": 124.62,
+      "p99Ms": 134.45,
+      "maxMs": 163.64,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 1000,
+      "p50Ms": 102.76,
+      "p95Ms": 121.14,
+      "p99Ms": 130.44,
+      "maxMs": 160.46,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 1000,
+      "p50Ms": 68.24,
+      "p95Ms": 70.13,
+      "p99Ms": 71.55,
+      "maxMs": 83.04,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "63 %, 0 %, 154.37 W"
+   },
+   "provenance": {
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 1 %, 0 %, 117.38 W"
+    ],
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+    "processes": []
+   },
+   "hostAfter": {
+    "gpu": [
+     "66 %, 0 %, 137.09 W"
+    ],
+    "processes": [
+     {
+      "ProcessId": 38360,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=opengl"
+     }
+    ],
+    "ownedEditorPid": 38360
+   },
+   "rendererProbeIndices": [
+    985,
+    2189
+   ],
+   "historyFilename": "opengl-armed-6-history.json",
+   "ring": {
+    "armed": false,
+    "eventsPerFrame": 1024,
+    "frameCapacity": 1536,
+    "framesOverwritten": 0,
+    "framesWritten": 1208,
+    "lateCompletions": 0,
+    "partialFramesDiscarded": 1,
+    "retainedBytes": 214081536,
+    "status": "ok",
+    "capturedFrames": 1208,
+    "droppedEvents": 0,
+    "incompleteScopes": 0,
+    "maxFrameTimeMs": 165.6878,
+    "firstFrameId": 1,
+    "lastFrameId": 1208
+   },
+   "hitchFilename": "opengl-armed-6-hitches.json"
+  }
+ ],
+ "pairedEffects": {
+  "vulkan": {
+   "p50Ms": {
+    "armedMinusDisarmedMs": [
+     2.16,
+     2.61,
+     -0.12
+    ],
+    "medianMs": 2.16,
+    "disarmedRepeatRangeMs": 0.4399999999999977
+   },
+   "p95Ms": {
+    "armedMinusDisarmedMs": [
+     4.29,
+     -3.1,
+     0.26
+    ],
+    "medianMs": 0.26,
+    "disarmedRepeatRangeMs": 0.8599999999999994
+   },
+   "p99Ms": {
+    "armedMinusDisarmedMs": [
+     17.97,
+     5.0,
+     -0.43
+    ],
+    "medianMs": 5.0,
+    "disarmedRepeatRangeMs": 1.1099999999999994
+   }
+  },
+  "opengl": {
+   "p50Ms": {
+    "armedMinusDisarmedMs": [
+     0.02,
+     -0.45,
+     0.4
+    ],
+    "medianMs": 0.02,
+    "disarmedRepeatRangeMs": 0.25
+   },
+   "p95Ms": {
+    "armedMinusDisarmedMs": [
+     0.27,
+     -0.4,
+     0.8
+    ],
+    "medianMs": 0.27,
+    "disarmedRepeatRangeMs": 0.9799999999999898
+   },
+   "p99Ms": {
+    "armedMinusDisarmedMs": [
+     4.25,
+     1.9,
+     -0.15
+    ],
+    "medianMs": 1.9,
+    "disarmedRepeatRangeMs": 5.710000000000008
+   }
+  }
+ },
+ "binarySha256": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631"
+}
