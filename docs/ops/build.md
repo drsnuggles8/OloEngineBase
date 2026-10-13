@@ -13,7 +13,7 @@
 
 | Tool        | Minimum Version | Notes                                  |
 |-------------|-----------------|----------------------------------------|
-| CMake       | 3.25 (raw) / **4.2+ for `CMakePresets.json`** | Root `CMakeLists.txt` requires 3.25. The shipped presets (`msvc`, `clangcl`, `clangcl-asan`) use the `Visual Studio 18 2026` generator and require CMake 4.2+. Plain `cmake -B build -G "Visual Studio 17 2022"` (no preset) still works at 3.25. |
+| CMake       | 3.27 (raw) / **4.2+ for `CMakePresets.json`** | Root `CMakeLists.txt` requires 3.27 (`cmake_file_api()`, used by the oneTBB link guard). The shipped presets (`msvc`, `clangcl`, `clangcl-asan`) use the `Visual Studio 18 2026` generator and require CMake 4.2+. Plain `cmake -B build -G "Visual Studio 17 2022"` (no preset) still works at 3.27. |
 | Git         | 2.x             | vcpkg registry + FetchContent clones   |
 | **vcpkg**   | bootstrapped    | **`VCPKG_ROOT` env var must be set** — see below |
 | Vulkan SDK  | **1.4.357.0+, enforced** | `VULKAN_SDK` env var must be set. An older SDK's glslang lacks `GL_EXT_descriptor_heap`, which seven production shaders declare `: require`, and an older SPIRV-Cross cannot parse the SPIR-V a conforming glslang emits — since #1139 the configure REFUSES a below-floor toolchain by name (`Shader toolchain is BELOW the floor this engine requires`) instead of failing two tests 4,000 cases in. There is no fallback: ADR 0011 amendment (97). |
@@ -149,7 +149,7 @@ Building the SDK in is only half of shipping on Steam — actually publishing a 
 Visual Studio 2026 is the default for the `msvc` CMake preset (`Visual Studio 18 2026`
 generator, requires CMake 4.2+). Visual Studio 2022 (v17.x) is also fully supported
 via `scripts/Win-GenerateProjectVS2022.bat`, which calls CMake directly without
-the preset and therefore only requires CMake 3.25+.
+the preset and therefore only requires CMake 3.27+.
 
 ### Generate & Build
 ```batch
@@ -208,7 +208,7 @@ OFF elsewhere.
 
 The following development libraries and tools are required on Linux:
 
-**Build tools:** C++23 compiler (GCC 14+), CMake 3.25+, Ninja, Git, pkg-config
+**Build tools:** C++23 compiler (GCC 14+), CMake 3.27+, Ninja, Git, pkg-config
 
 **Graphics & windowing:** OpenGL (Mesa), X11 (libx11, libxrandr, libxinerama, libxcursor, libxi, libxext), Wayland (libwayland, wayland-protocols, libxkbcommon)
 

@@ -36,10 +36,13 @@
 #include "OloEngine/Renderer/Instancing/InstancedMeshComponent.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/RenderGraph.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Passes/DeferredGPUOcclusionPass.h"
 #include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -48,9 +51,12 @@
 #include <stb_image/stb_image_write.h>
 
 #include <nlohmann/json.hpp>
+#include <yaml-cpp/yaml.h>
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -94,6 +100,16 @@ namespace OloEngine::Tests
           private:
             void (*m_Set)(bool);
             bool m_Previous;
+        };
+
+        struct ScopedPassSnapshot
+        {
+            RenderGraphPassSnapshot m_Snapshot;
+            ~ScopedPassSnapshot()
+            {
+                m_Snapshot.Disarm();
+                m_Snapshot.ReleaseScratch();
+            }
         };
 
         [[nodiscard]] f64 Median(std::vector<f64> values)
@@ -240,9 +256,12 @@ namespace OloEngine::Tests
             }
 
             Entity decal = scene.CreateEntity("Decal");
-            decal.GetComponent<TransformComponent>().Translation = { 122.0f, 4.0f, 140.0f };
+            // Project onto Cube0's visible front face. The old terrain placement
+            // contained no receiver, despite issuing a draw and a full resolve.
+            decal.GetComponent<TransformComponent>().Translation = { 134.0f, 8.0f, 137.0f };
             auto& dc = decal.AddComponent<DecalComponent>();
-            dc.m_Size = { 6.0f, 8.0f, 6.0f };
+            dc.m_Size = { 3.0f, 3.0f, 3.0f };
+            dc.m_FadeDistance = 0.05f;
             dc.m_Color = { 0.9f, 0.1f, 0.1f, 1.0f };
             dc.m_Mode = DecalMode::Albedo;
             m_LateGeometry.Add(decal);
@@ -272,6 +291,370 @@ namespace OloEngine::Tests
             ASSERT_FALSE(out.fail()) << "writing " << file.string() << " failed";
         }
     };
+
+    TEST_F(RenderTargetExportEvidence, DeferredResolveUsesTheUpscaledAttachmentSize)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedLever ledger(&Levers::RenderGraphCopyLedger, &Levers::SetRenderGraphCopyLedger, true);
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.Path = RenderingPath::Deferred;
+        settings.Deferred.MSAASampleCount = 4u;
+        settings.Deferred.PerSampleLighting = true;
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.Upscale = UpscaleMode::Performance;
+        post.TAAEnabled = false;
+        Renderer3D::ApplyRendererSettings();
+        SetLateGeometry(true, false, false);
+        Frames(kWarmFrames);
+        u32 resolves = 0;
+        u64 bytes = 0;
+        for (const auto& copy : RenderTargetCopyLedger::GetLastFrame().Copies)
+        {
+            if (!copy.IsBlit || !copy.Source.ToView().starts_with("GBufferMS["))
+                continue;
+            EXPECT_EQ(copy.Width, kWidth / 2u);
+            EXPECT_EQ(copy.Height, kHeight / 2u);
+            ++resolves;
+            bytes += copy.Bytes.value_or(0);
+        }
+        EXPECT_EQ(resolves, 9u);
+        EXPECT_EQ(bytes, static_cast<u64>(kWidth / 2u) * (kHeight / 2u) * 52u);
+        nlohmann::json report = { { "cell", "DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_UpscalePerformance" },
+                                  { "width", kWidth / 2u },
+                                  { "height", kHeight / 2u },
+                                  { "blits", resolves },
+                                  { "resolveBytes", bytes } };
+        ASSERT_NO_FATAL_FAILURE(WriteArtefact("After_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_UpscalePerformance", report));
+        std::vector<u8> frame;
+        u32 width = 0, height = 0;
+        ASSERT_TRUE(ReadbackComposite(frame, width, height));
+        VisualEvidence::FlipRgbaRowsInPlace(frame, width, height);
+        const auto file = fs::path("assets/tests/visual/After_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_UpscalePerformance.png");
+        ASSERT_NE(stbi_write_png(file.string().c_str(), static_cast<int>(width), static_cast<int>(height), 4, frame.data(), static_cast<int>(width) * 4), 0);
+        SetLateGeometry(false);
+    }
+
+    TEST_F(RenderTargetExportEvidence, DeferredDebugAlbedoIncludesLateDecals)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.Path = RenderingPath::Deferred;
+        settings.Deferred.MSAASampleCount = 4u;
+        settings.Deferred.PerSampleLighting = true;
+        settings.Deferred.DebugChannel = 1u;
+        Renderer3D::GetPostProcessSettings().TAAEnabled = false;
+        Renderer3D::GetPostProcessSettings().Upscale = UpscaleMode::Off;
+        Renderer3D::ApplyRendererSettings();
+        SetLateGeometry(true, false, false);
+        Frames(kWarmFrames);
+        std::vector<u8> frame;
+        u32 width = 0, height = 0;
+        ASSERT_TRUE(ReadbackComposite(frame, width, height));
+        VisualEvidence::ExpectFrameHasSubject(frame, "DeferredDebugAlbedo", [](u32 r, u32 g, u32 b)
+                                              { return r > 100u && r > 2u * g && r > 2u * b; });
+        SetLateGeometry(false);
+    }
+
+    TEST_F(RenderTargetExportEvidence, DeferredResolveIncludesRecoveredPhaseTwoInstances)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        for (const u32 samples : { 2u, 4u })
+        {
+            for (const bool perSample : { false, true })
+            {
+                auto& settings = Renderer3D::GetRendererSettings();
+                settings.Path = RenderingPath::Deferred;
+                settings.Deferred.MSAASampleCount = samples;
+                settings.Deferred.PerSampleLighting = perSample;
+                auto& post = Renderer3D::GetPostProcessSettings();
+                // Lighting's resolved depth/ID hand-over must retain the
+                // resolve even when no AO consumer reads resolved normals.
+                post.ActiveAOTechnique = AOTechnique::None;
+                post.GTAOEnabled = false;
+                post.SSAOEnabled = false;
+                post.TAAEnabled = false;
+                post.MotionBlurEnabled = false;
+                post.Upscale = UpscaleMode::Off;
+                Renderer3D::ApplyRendererSettings();
+                SetLateGeometry(false);
+                Frames(kWarmFrames);
+                RenderGraph* graph = const_cast<RenderGraph*>(RenderGraphDebugRuntime::GetActiveGraph().Raw());
+                ASSERT_NE(graph, nullptr);
+                const auto capture = [this, graph](std::vector<u8>& pixels)
+                {
+                    ScopedPassSnapshot captureScope;
+                    auto& snapshot = captureScope.m_Snapshot;
+                    TDoubleLinkedList<RenderGraphPassSnapshot::Request> requests;
+                    requests.AddTail(RenderGraphPassSnapshot::Request("GBufferAlbedo", [graph]()
+                                                                      { return graph->ResolveTextureHandle(graph->GetTextureHandle("GBufferAlbedo")); }));
+                    snapshot.Arm(graph, "DeferredLightingPass", std::move(requests));
+                    Frames(1);
+                    ASSERT_EQ(snapshot.GetResults().Num(), 1);
+                    const auto& result = snapshot.GetResults()[0];
+                    ASSERT_TRUE(result.Captured) << result.Error.ToStdString();
+                    pixels.resize(static_cast<sizet>(result.Width) * result.Height * 4u);
+                    ASSERT_TRUE(RenderCommand::ReadTextureImage(result.Handle, 0, RHI::Format::RGBA8UNorm, pixels.size(), pixels.data()));
+                    snapshot.Disarm();
+                    snapshot.ReleaseScratch();
+                };
+                const auto occlude = [this]()
+                {
+                    Entity wall = GetScene().CreateEntity("TemporaryOccluder");
+                    auto& mesh = wall.AddComponent<MeshComponent>();
+                    mesh.m_Primitive = MeshPrimitive::Cube;
+                    mesh.m_MeshSource = MeshPrimitives::CreateCube()->GetMeshSource();
+                    auto& transform = wall.GetComponent<TransformComponent>();
+                    transform.Translation = { 128.0f, 12.0f, 125.0f };
+                    transform.Scale = { 30.0f, 30.0f, 1.0f };
+                    Frames(kWarmFrames);
+                    GetScene().DestroyEntity(wall);
+                };
+                std::vector<u8> noLate;
+                ASSERT_NO_FATAL_FAILURE(capture(noLate));
+                SetLateGeometry(true, false, false);
+                Frames(kWarmFrames);
+                std::vector<u8> reference;
+                ASSERT_NO_FATAL_FAILURE(capture(reference));
+                occlude();
+                std::vector<u8> missingPhaseTwo;
+                {
+                    // Drop ONLY the queued phase-2 draws after phase 1 has
+                    // used the retained wall depth. This must produce holes;
+                    // otherwise the positive recovery comparison is vacuous.
+                    struct HookCleanup
+                    {
+                        RenderGraph* Graph;
+                        ~HookCleanup()
+                        {
+                            Graph->RemovePostPassHook("DeferredResolvePhase2Fault");
+                        }
+                    } cleanup{ graph };
+                    graph->AddPostPassHook("DeferredResolvePhase2Fault", [](std::string_view pass, RenderGraph& active)
+                                           {
+                                              if (pass == "ScenePass")
+                                                  if (auto gpu = active.GetNode<DeferredGPUOcclusionPass>("DeferredGPUOcclusionPass"))
+                                                      gpu->OnReset(); });
+                    ASSERT_NO_FATAL_FAILURE(capture(missingPhaseTwo));
+                }
+                occlude();
+                std::vector<u8> recovered;
+                ASSERT_NO_FATAL_FAILURE(capture(recovered));
+                const f64 missingRmse = VisualEvidence::Rgba8Rmse(reference, missingPhaseTwo);
+                const f64 recoveredRmse = VisualEvidence::Rgba8Rmse(reference, recovered);
+                EXPECT_GT(missingRmse, 0.1) << "the negative control did not remove any phase-2 geometry";
+                // Resolve-before-lighting deliberately rasterizes phase 2 into
+                // a single-sample target. Compare geometry interiors, excluding
+                // that path's expected MSAA edge difference from phase 1.
+                sizet interiorCount = 0;
+                f64 interiorSquaredError = 0.0;
+                for (u32 y = 1u; y + 1u < kHeight; ++y)
+                {
+                    for (u32 x = 1u; x + 1u < kWidth; ++x)
+                    {
+                        const sizet offset = (static_cast<sizet>(y) * kWidth + x) * 4u;
+                        const i32 signal = std::max({ std::abs(reference[offset] - noLate[offset]),
+                                                      std::abs(reference[offset + 1] - noLate[offset + 1]),
+                                                      std::abs(reference[offset + 2] - noLate[offset + 2]) });
+                        if (signal <= 6)
+                            continue;
+                        bool interior = true;
+                        for (i32 dy = -1; dy <= 1; ++dy)
+                            for (i32 dx = -1; dx <= 1; ++dx)
+                                for (sizet channel = 0; channel < 3u; ++channel)
+                                    interior &= reference[(static_cast<sizet>(static_cast<i32>(y) + dy) * kWidth +
+                                                           static_cast<u32>(static_cast<i32>(x) + dx)) *
+                                                              4u +
+                                                          channel] == reference[offset + channel];
+                        if (!interior)
+                            continue;
+                        ++interiorCount;
+                        for (sizet channel = 0; channel < 3u; ++channel)
+                        {
+                            const f64 delta = static_cast<f64>(reference[offset + channel]) - recovered[offset + channel];
+                            interiorSquaredError += delta * delta;
+                        }
+                    }
+                }
+                ASSERT_GT(interiorCount, 100u) << "no stable late-geometry interiors were visible";
+                const f64 interiorRmse = std::sqrt(interiorSquaredError / static_cast<f64>(3u * interiorCount));
+                EXPECT_LE(interiorRmse, 0.01) << "lighting's resolved albedo missed recovered phase-2 interiors";
+                std::cout << "[ deferred-resolve ] samples=" << samples << " perSample=" << perSample
+                          << " omittedPhaseTwoRmse=" << missingRmse << " recoveredRmse=" << recoveredRmse
+                          << " interiorPixels=" << interiorCount << " interiorRmse=" << interiorRmse << '\n';
+            }
+        }
+        SetLateGeometry(false);
+    }
+
+    TEST_F(RenderTargetExportEvidence, DeferredResolveMatrix)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedLever ledger(&Levers::RenderGraphCopyLedger, &Levers::SetRenderGraphCopyLedger, true);
+        const bool baseline = std::getenv("OLO_GBUFFER_RESOLVE_BASELINE") != nullptr;
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.ActiveAOTechnique = AOTechnique::GTAO;
+        post.GTAOEnabled = true;
+        post.TAAEnabled = false;
+        post.MotionBlurEnabled = false;
+        post.Upscale = UpscaleMode::Off;
+        for (const u32 samples : { 1u, 2u, 4u })
+        {
+            for (const bool perSample : { false, true })
+            {
+                std::vector<u8> noLateAlbedo;
+                for (const u32 late : { 0u, 1u, 2u, 3u })
+                {
+                    const std::string cell = "DeferredResolve_GL_Deferred_Msaa" + std::to_string(samples) +
+                                             (perSample ? "_PerSample" : "_Resolved") + "_Late" + std::to_string(late);
+                    SCOPED_TRACE(cell);
+                    auto& settings = Renderer3D::GetRendererSettings();
+                    settings.Path = RenderingPath::Deferred;
+                    settings.Deferred.MSAASampleCount = samples;
+                    settings.Deferred.PerSampleLighting = perSample;
+                    Renderer3D::ApplyRendererSettings();
+                    ASSERT_EQ(settings.Deferred.MSAASampleCount, samples) << "requested MSAA is unsupported";
+                    SetLateGeometry(late != 0u, false, false);
+                    TArray<Entity> kept;
+                    for (Entity entity : m_LateGeometry)
+                    {
+                        const bool remove = (entity.HasComponent<InstancedMeshComponent>() && (late & 1u) == 0u) ||
+                                            (entity.HasComponent<DecalComponent>() && (late & 2u) == 0u);
+                        if (remove)
+                            GetScene().DestroyEntity(entity);
+                        else
+                        {
+                            if (entity.HasComponent<InstancedMeshComponent>())
+                                entity.GetComponent<InstancedMeshComponent>().Primitive = MeshPrimitive::Cube;
+                            kept.Add(entity);
+                        }
+                    }
+                    m_LateGeometry = std::move(kept);
+                    Renderer3D::EnableHZBOcclusionCulling((late & 1u) != 0u);
+                    Frames(kWarmFrames);
+                    RenderGraph* graph = const_cast<RenderGraph*>(RenderGraphDebugRuntime::GetActiveGraph().Raw());
+                    ASSERT_NE(graph, nullptr);
+                    if (!baseline && (late & 2u) != 0u && (!perSample || samples == 1u))
+                    {
+                        EXPECT_EQ(graph->FindAttachmentViewParent("OpaqueDecalProjectionDepth"), "OpaqueDecalProjectionDepthBacking")
+                            << "projection depth must inherit framebuffer filtering and clamp-to-edge wrapping";
+                    }
+                    ScopedPassSnapshot captureScope;
+                    auto& snapshot = captureScope.m_Snapshot;
+                    TDoubleLinkedList<RenderGraphPassSnapshot::Request> requests;
+                    for (const std::string_view name : { "GBufferAlbedo", "GBufferNormal" })
+                        requests.AddTail(RenderGraphPassSnapshot::Request(name, [graph, name]()
+                                                                          { return graph->ResolveTextureHandle(graph->GetTextureHandle(name)); }));
+                    snapshot.Arm(graph, "DeferredLightingPass", std::move(requests));
+                    Frames(1);
+                    ASSERT_EQ(snapshot.GetResults().Num(), 2);
+                    for (const auto& result : snapshot.GetResults())
+                    {
+                        ASSERT_TRUE(result.Captured) << result.Error.ToStdString();
+                        std::vector<u8> pixels(static_cast<sizet>(result.Width) * result.Height * 4u);
+                        ASSERT_TRUE(RenderCommand::ReadTextureImage(result.Handle, 0, RHI::Format::RGBA8UNorm, pixels.size(), pixels.data()));
+                        VisualEvidence::FlipRgbaRowsInPlace(pixels, result.Width, result.Height);
+                        if (result.ResourceName.ToView() == "GBufferAlbedo")
+                        {
+                            if (late == 0u)
+                                noLateAlbedo = pixels;
+                            else
+                                EXPECT_GT(VisualEvidence::Rgba8Rmse(noLateAlbedo, pixels), 0.1) << "late geometry never reached the resolved albedo";
+                            if ((late & 2u) != 0u)
+                                VisualEvidence::ExpectFrameHasSubject(pixels, cell, [](u32 r, u32 g, u32 b)
+                                                                      { return r > 100u && r > 2u * g && r > 2u * b; });
+                        }
+                        const fs::path file = fs::path("assets/tests/visual") /
+                                              ((baseline ? "Before_" : "After_") + cell + "_" + result.ResourceName.ToStdString() + ".png");
+                        ASSERT_NE(stbi_write_png(file.string().c_str(), static_cast<int>(result.Width), static_cast<int>(result.Height),
+                                                 4, pixels.data(), static_cast<int>(result.Width) * 4),
+                                  0);
+                    }
+                    snapshot.Disarm();
+                    snapshot.ReleaseScratch();
+                    nlohmann::json report;
+                    report["cell"] = cell;
+                    report["baseline"] = baseline;
+                    report["samples"] = samples;
+                    report["perSample"] = perSample;
+                    report["lateGeometryMask"] = late;
+                    u32 colourResolves = 0;
+                    u32 depthResolves = 0;
+                    u64 bytes = 0;
+                    for (const auto& copy : RenderTargetCopyLedger::GetLastFrame().Copies)
+                    {
+                        if (!copy.IsBlit || !copy.Source.ToView().starts_with("GBufferMS["))
+                            continue;
+                        const bool depth = copy.Source.ToView().ends_with("[depth]");
+                        colourResolves += depth ? 0u : 1u;
+                        depthResolves += depth ? 1u : 0u;
+                        bytes += copy.Bytes.value_or(0);
+                        report["copies"].push_back({ { "pass", copy.Pass.ToStdString() },
+                                                     { "source", copy.Source.ToStdString() },
+                                                     { "destination", copy.Destination.ToStdString() },
+                                                     { "bytes", copy.Bytes.value_or(0) },
+                                                     { "declared", copy.DestinationDeclared } });
+                        EXPECT_TRUE(copy.DestinationDeclared);
+                    }
+                    report["colourResolves"] = colourResolves;
+                    report["depthResolves"] = depthResolves;
+                    report["resolveBytes"] = bytes;
+                    if (!baseline)
+                    {
+                        EXPECT_EQ(colourResolves, samples > 1u ? 6u : 0u);
+                        EXPECT_EQ(depthResolves, samples > 1u ? 1u + (perSample ? ((late & 1u) != 0u) + ((late & 2u) != 0u) : 0u) : 0u);
+                        // Six colours total 40 bytes/texel; depth adds four.
+                        EXPECT_EQ(bytes, static_cast<u64>(kWidth) * kHeight * (colourResolves == 0u ? 0u : 40u + 4u * depthResolves));
+                    }
+                    if (samples == 4u && late == 3u)
+                    {
+                        GetScene().SetRenderingPath(RenderingPath::Deferred);
+                        GetScene().SetPostProcessSettings(post);
+                        const fs::path sceneFile = fs::path("assets/tests/exports") / (cell + ".olo");
+                        SceneSerializer(GetSceneRef()).Serialize(sceneFile);
+                        EXPECT_EQ(YAML::LoadFile(sceneFile.string())["RenderingPath"].as<std::string>(), "Deferred");
+                    }
+                    std::vector<std::vector<u8>> captures;
+                    f64 noiseFloor = 0.0;
+                    for (const bool oblique : { false, true })
+                    {
+                        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / kHeight, 0.5f, 2000.0f);
+                        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+                        camera.SetPose(oblique ? glm::vec3(110.0f, 15.0f, 146.0f) : kEye,
+                                       oblique ? 0.42f : 0.0f, oblique ? 0.18f : 0.06f);
+                        RunEditorFrames(camera, kWarmFrames);
+                        std::vector<u8> frame;
+                        u32 width = 0;
+                        u32 height = 0;
+                        ASSERT_TRUE(ReadbackComposite(frame, width, height));
+                        VisualEvidence::FlipRgbaRowsInPlace(frame, width, height);
+                        if (!oblique)
+                        {
+                            RunEditorFrames(camera, kWarmFrames);
+                            std::vector<u8> repeat;
+                            u32 repeatWidth = 0;
+                            u32 repeatHeight = 0;
+                            ASSERT_TRUE(ReadbackComposite(repeat, repeatWidth, repeatHeight));
+                            ASSERT_EQ(width, repeatWidth);
+                            ASSERT_EQ(height, repeatHeight);
+                            VisualEvidence::FlipRgbaRowsInPlace(repeat, repeatWidth, repeatHeight);
+                            noiseFloor = VisualEvidence::Rgba8Rmse(frame, repeat);
+                        }
+                        const fs::path file = fs::path("assets/tests/visual") /
+                                              ((baseline ? "Before_" : "After_") + cell + (oblique ? "_Oblique.png" : "_Front.png"));
+                        ASSERT_NE(stbi_write_png(file.string().c_str(), static_cast<int>(width), static_cast<int>(height),
+                                                 4, frame.data(), static_cast<int>(width) * 4),
+                                  0);
+                        captures.push_back(std::move(frame));
+                    }
+                    VisualEvidence::ExpectCapturesAreDistinct(captures, { "Front", "Oblique" }, noiseFloor);
+                    report["noiseFloorRmse"] = noiseFloor;
+                    report["cameraPoseRmse"] = VisualEvidence::Rgba8Rmse(captures[0], captures[1]);
+                    ASSERT_NO_FATAL_FAILURE(WriteArtefact((baseline ? "Before_" : "After_") + cell, report));
+                }
+            }
+        }
+        SetLateGeometry(false);
+    }
 
     // -------------------------------------------------------------------------
     // AC1: the report, one artefact per cell. Every copy into a graph resource

@@ -511,7 +511,9 @@ runs:
         set -euo pipefail
         vcpkg_exe="$VCPKG_ROOT/vcpkg"
         [ -f "$VCPKG_ROOT/vcpkg.exe" ] && vcpkg_exe="$VCPKG_ROOT/vcpkg.exe"
-        if ! "$vcpkg_exe" help binarycaching | grep -qE '^\s*files,<path>'; then
+        # Consume all output: grep -q can close a successful help command's pipe
+        # early, causing SIGPIPE that pipefail misreports as an absent provider.
+        if ! "$vcpkg_exe" help binarycaching | grep -E '^\s*files,<path>' > /dev/null; then
           echo "::error::This vcpkg build does not list the 'files' binary-cache provider."                "VCPKG_BINARY_SOURCES would be accepted and ignored, and every port would be"                "rebuilt from source. See .github/actions/setup-vcpkg."
           exit 1
         fi

@@ -182,8 +182,8 @@ against `/LIBPATH`, so every executable died with
 `lld-link: error: could not open 'usd_m': no such file or directory`. The
 workaround was to configure with `-DOLO_WITH_USD=OFF`; that is **no longer
 needed** — the option now carries the full path and links under both linkers.
-If you see a bare-name `/WHOLEARCHIVE` failure again, see gotcha 7 in
-[asset-import-usd-alembic.md](asset-import-usd-alembic.md) before deleting
+If you see a bare-name `/WHOLEARCHIVE` failure again, see section 6 of
+[openusd-build-and-link.md](openusd-build-and-link.md) before deleting
 the option (deleting it moves the failure to runtime).
 
 The CI job (`.github/workflows/asan.yml`, "ASan (Windows/clang-cl)") works
@@ -555,8 +555,9 @@ patching that rule on top of the pin.)
 ### 5a. Use the native recipe (CMake 4.3+), not the manual gate below
 
 As of #822 this machine is on CMake 4.4.2. The repo's own `cmake_minimum_required` floor
-is unchanged (still `3.25` in the root `CMakeLists.txt`, and the presets' `cmakeMinimumRequired`
-is `4.2.0` — see the hard constraints in issue #822, not raised by this work); the
+is `3.27` in the root `CMakeLists.txt` since #1575 (for `cmake_file_api()`; the policies stay at
+`cmake_policy(VERSION 3.25)`), and the presets' `cmakeMinimumRequired`
+is `4.2.0` (see the hard constraints in issue #822, not raised by that work). The
 instrumentation and heavy-compile-pool blocks below are purely additive, each behind its own
 `if(CMAKE_VERSION VERSION_GREATER_EQUAL ...)` guard, and no-op cleanly on an older CMake.
 `cmake_instrumentation()` — the API described in §5b below, now stable — is wired

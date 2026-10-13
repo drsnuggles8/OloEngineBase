@@ -20,6 +20,9 @@
 #   cmake -DOLO_ARCHIVE=<path> -DOLO_ARCHIVE_WARN_BYTES=<n> -DOLO_ARCHIVE_FAIL_BYTES=<n>
 #         [-DOLO_ARCHIVE_QUIET=ON] -P cmake/CheckArchiveSize.cmake
 
+# A -P script starts with every policy unset, and CMake 3.x then applies OLD behaviour; pin them.
+cmake_minimum_required(VERSION 3.27)
+
 if(NOT DEFINED OLO_ARCHIVE)
     message(FATAL_ERROR "CheckArchiveSize.cmake: -DOLO_ARCHIVE=<path> is required")
 endif()

@@ -33,6 +33,13 @@ Execute must perform the copy before binding/drawing the destination.
 
 ## Depth and diffusion policy
 
+Resolve a multisample attachment family after its last multisample writer, and
+declare every color and depth lane. Intermediate depth consumers need depth-only
+resolves. Preserve the actual raster target in each mode: Deferred's
+resolve-before-lighting mode has single-sample late writers, so its full resolve
+must precede them; a resolve after those writers would overwrite their pixels.
+See [the #1553 measurements](../analysis/deferred-msaa-gbuffer-resolve-1553.md).
+
 Use an independent snapshot while the destination framebuffer retains writable
 depth/stencil state. Disabling depth writes alone does not change the Vulkan
 attachment layout: the current backend binds
@@ -45,6 +52,7 @@ The production choices are:
 
 | Pass | Sampling source | Copy point |
 |---|---|---|
+| DeferredOpaqueDecal | Resolved G-buffer depth for multisample raster; independent OpaqueDecalProjectionDepth for single-sample raster | Depth-only MS resolve or projection snapshot immediately before decals (#1553) |
 | Water | Existing depth and normal snapshots | Existing pre-decal depth and pre-water normals |
 | FluidIntermediates | SceneDepthAttachment | None: its splat/thickness targets are separate images |
 | FluidComposite | FluidSceneDepthSnapshot | Immediately before fluid composition, after water |

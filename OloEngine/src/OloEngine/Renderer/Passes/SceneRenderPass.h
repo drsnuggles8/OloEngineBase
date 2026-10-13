@@ -140,6 +140,7 @@ namespace OloEngine
         }
 
       private:
+        friend class DeferredLightingPass;
         // The frame's start: resolve the target, clear every attachment, reset
         // the fixed-function state, batch and sort the bucket. Shared by both
         // the forward prepass node and the deferred Execute().
@@ -169,8 +170,10 @@ namespace OloEngine
         bool m_DeferredRanLastFrame = false;
         // Fullscreen shader that gathers RT0.a (metallic), RT1.z (roughness),
         // RT1.w (AO) into one RGB image for DebugChannel == 3. The other
-        // debug channels are cheap single-attachment blits.
+        // albedo channel also uses a shader for format conversion; other
+        // debug channels use single-attachment blits.
         Ref<Shader> m_DebugRMAShader;
+        Ref<Shader> m_DebugAlbedoShader;
         // The forward prepass node's copy of its depth for the AO upsample.
         RGTextureHandle m_PrepassForwardAODepthExport{};
         // Set by ExecuteForwardPrepass, consumed by the Execute() that follows

@@ -56,8 +56,8 @@ namespace OloEngine
         }
         // Forwarded from RendererSettings. In MSAA per-sample mode,
         // decals rasterize into the multisample G-Buffer FBO but still
-        // sample resolved single-sample depth; otherwise both read and
-        // write target the resolved FBO.
+        // sample resolved single-sample depth. Other modes snapshot projection
+        // depth separately from the resolved FBO they rasterize into.
         void SetPerSampleLighting(bool enable) noexcept
         {
             m_PerSampleLighting = enable;
@@ -71,5 +71,6 @@ namespace OloEngine
         RGTextureHandle m_SelectedGBufferAlbedoExport{};
         RGTextureHandle m_SelectedGBufferNormalExport{};
         RGTextureHandle m_SelectedGBufferEmissiveExport{};
+        RGTextureHandle m_ProjectionDepth{};
     };
 } // namespace OloEngine

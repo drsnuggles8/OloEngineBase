@@ -32,6 +32,8 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Renderer/Debug/RenderTargetCopyLedger.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/GPUScene/GPUScene.h"
@@ -1020,18 +1022,48 @@ namespace OloEngine::Tests
     TEST_F(VirtualGeometryVisualEvidence, RendersUnderDeferredMSAA)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        struct ScopedLedger
+        {
+            bool Previous = Levers::RenderGraphCopyLedger();
+            ScopedLedger()
+            {
+                Levers::SetRenderGraphCopyLedger(true);
+            }
+            ~ScopedLedger()
+            {
+                Levers::SetRenderGraphCopyLedger(Previous);
+            }
+        } ledger;
 
         auto& settings = Renderer3D::GetRendererSettings();
         settings.Path = RenderingPath::Deferred;
         u32 const msaaWas = settings.Deferred.MSAASampleCount;
         bool const perSampleWas = settings.Deferred.PerSampleLighting;
 
-        auto renderMsaa = [&](u32 samples, bool perSample, const char* name) -> u32
+        auto renderMsaa = [&](u32 samples, bool perSample, const char* name, bool twoPhase = false) -> u32
         {
             settings.Deferred.MSAASampleCount = samples;
             settings.Deferred.PerSampleLighting = perSample;
             Renderer3D::ApplyRendererSettings();
-            return CaptureAngle(name, { 0.0f, 0.5f, 5.0f }, 0.0f, 0.05f, 1.0f);
+            // Applying settings restores its stored HZB flag. Toggle afterwards
+            // so the requested two-phase cells actually exercise phase 2.
+            Renderer3D::EnableHZBOcclusionCulling(twoPhase);
+            const u32 red = CaptureAngle(name, { 0.0f, 0.5f, 5.0f }, 0.0f, 0.05f, 1.0f);
+            u32 colors = 0u;
+            u32 depths = 0u;
+            for (const auto& copy : RenderTargetCopyLedger::GetLastFrame().Copies)
+            {
+                if (!copy.IsBlit || !copy.Source.ToView().starts_with("GBufferMS["))
+                    continue;
+                if (copy.Source.ToView().ends_with("[depth]"))
+                    ++depths;
+                else
+                    ++colors;
+                EXPECT_TRUE(copy.DestinationDeclared);
+            }
+            EXPECT_EQ(colors, 6u) << name;
+            EXPECT_EQ(depths, perSample && twoPhase ? 2u : 1u) << name;
+            return red;
         };
 
         u32 const redResolved = renderMsaa(4, false, "MSAA_Resolved");
@@ -1039,14 +1071,11 @@ namespace OloEngine::Tests
 
         // Both MSAA modes again with the two-phase occlusion cull ACTIVE (issue
         // #682). MSAA forces every cluster onto the hardware MDI path, and under
-        // PER-SAMPLE lighting the clusters land in the multisample G-Buffer, which
-        // is not resolved until the end of the pass — so the pyramid phase 2 builds
-        // from the resolved depth cannot see this frame's virtual geometry. That is
-        // conservative (it only under-culls), but it is a distinct code path from
-        // the non-MSAA one and nothing else exercises it.
-        Renderer3D::EnableHZBOcclusionCulling(true);
-        u32 const occludedResolved = renderMsaa(4, false, "MSAA_Resolved_TwoPhase");
-        u32 const occludedPerSample = renderMsaa(4, true, "MSAA_PerSample_TwoPhase");
+        // PER-SAMPLE lighting the clusters land in the multisample G-Buffer. The
+        // phase-2 pyramid must receive a depth-only resolve after phase 1, while
+        // the graph's final resolve publishes colors after phase 2 (#1553).
+        u32 const occludedResolved = renderMsaa(4, false, "MSAA_Resolved_TwoPhase", true);
+        u32 const occludedPerSample = renderMsaa(4, true, "MSAA_PerSample_TwoPhase", true);
         Renderer3D::EnableHZBOcclusionCulling(false); // don't leak the toggle
 
         settings.Deferred.MSAASampleCount = msaaWas;

@@ -168,6 +168,7 @@ namespace OloEngine::Tests
       public:
         Entity m_BodyEntity;
         Entity m_GroomEntity;
+        Entity m_RuntimeCamera;
         Ref<Skeleton> m_Skeleton;
         Ref<MeshSource> m_BodySurface;
         Ref<GroomAsset> m_Groom;
@@ -251,7 +252,17 @@ namespace OloEngine::Tests
                 cameraEntity.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f, 0.9f, 60.0f);
                 auto& cameraComponent = cameraEntity.AddComponent<CameraComponent>();
                 cameraComponent.Primary = true;
+                // PERSPECTIVE, and said outright. SceneCamera defaults to an
+                // orthographic projection with a -1..1 depth range, which from
+                // sixty units back clips the coat out of the frustum: the groom
+                // was never submitted, the solver never stepped, and every
+                // GroomRenderStats this file read came from the previous
+                // editor-camera capture instead -- the simulated arm reported
+                // the control arm's zero and the next control the simulated
+                // arm's one.
+                cameraComponent.Camera.SetPerspective(glm::radians(45.0f), 0.05f, 1000.0f);
                 cameraComponent.Camera.SetViewportSize(kWidth, kHeight);
+                m_RuntimeCamera = cameraEntity;
             }
 
             BuildSkinnedBody(scene);
@@ -723,6 +734,9 @@ namespace OloEngine::Tests
         // one-metre threshold.
         m_GroomEntity.GetComponent<TransformComponent>().Translation += glm::vec3(100.0f, 0.0f, 0.0f);
         m_BodyEntity.GetComponent<TransformComponent>().Translation += glm::vec3(100.0f, 0.0f, 0.0f);
+        // The runtime camera goes with them, or the frame that should re-seed
+        // never draws the coat and the counters below are the last capture's.
+        m_RuntimeCamera.GetComponent<TransformComponent>().Translation += glm::vec3(100.0f, 0.0f, 0.0f);
         RunFrames(1, 1.0f / 60.0f);
 
         const GroomRenderStats stats = PassStats();

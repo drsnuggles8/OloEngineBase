@@ -208,7 +208,10 @@ jobs:
     name: Detect sanitizer-relevant changes
     runs-on: ubuntu-latest
     outputs:
-      native: ${{ steps.filter.outputs.native }}
+      # Eligible full-check PRs bypass this job's filters and use hosted Linux shards.
+      # Set the label before the next head update/reopen; label-only edits do not
+      # interrupt the current run. Unlabelled PRs keep the existing routing.
+      native: ${{ steps.filter.outputs.native == 'true' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-full-checks')) }}
       # THE ONE PLACE THE LINUX ROUTING DECISION IS MADE (#1083 for Linux; PER ARM
       # since #1219).
       #
@@ -354,18 +357,21 @@ jobs:
         # on the box with no code change, which is the #1219 rollback lever.
         ASAN_LSAN_SELF_HOSTED: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
                          && github.event.inputs.force_hosted != 'true'
+                         && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-full-checks'))
                          && github.event_name != 'schedule'
                          && github.event_name != 'push'
                          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         UBSAN_SELF_HOSTED: ${{ vars.OLO_LINUX_UBSAN_SELF_HOSTED == 'true'
                          && vars.OLO_LINUX_SELF_HOSTED == 'true'
                          && github.event.inputs.force_hosted != 'true'
+                         && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-full-checks'))
                          && github.event_name != 'schedule'
                          && github.event_name != 'push'
                          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         TSAN_SELF_HOSTED: ${{ vars.OLO_LINUX_TSAN_SELF_HOSTED == 'true'
                          && vars.OLO_LINUX_SELF_HOSTED == 'true'
                          && github.event.inputs.force_hosted != 'true'
+                         && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-full-checks'))
                          && github.event_name != 'schedule'
                          && github.event_name != 'push'
                          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -1436,6 +1442,7 @@ jobs:
     # concurrency is not the scarce thing, they just run.
     runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && github.event.inputs.force_hosted != 'true'
+                 && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-full-checks'))
                  && github.event_name != 'schedule'
                  && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
@@ -1983,6 +1990,7 @@ jobs:
     runs-on: ${{ vars.OLO_LINUX_UBSAN_SELF_HOSTED == 'true'
                  && vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && github.event.inputs.force_hosted != 'true'
+                 && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-full-checks'))
                  && github.event_name != 'schedule'
                  && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
@@ -2501,6 +2509,7 @@ jobs:
     runs-on: ${{ vars.OLO_LINUX_TSAN_SELF_HOSTED == 'true'
                  && vars.OLO_LINUX_SELF_HOSTED == 'true'
                  && github.event.inputs.force_hosted != 'true'
+                 && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-full-checks'))
                  && github.event_name != 'schedule'
                  && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)

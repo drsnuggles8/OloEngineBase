@@ -353,6 +353,25 @@ namespace OloEngine
         return 1.0f - (pixelSize / sourcePixelSize);
     }
 
+    f32 GroomCardCoverageGrowthReach(u32 baseStrands, u32 cards) noexcept
+    {
+        if (cards == 0u || baseStrands == 0u)
+        {
+            return 0.0f;
+        }
+        const f32 strandsPerCard = static_cast<f32>(static_cast<f64>(baseStrands) / static_cast<f64>(cards));
+        return std::clamp((strandsPerCard - 1.0f) / (kGroomCardFullLockStrands - 1.0f), 0.0f, 1.0f);
+    }
+
+    f32 GroomCardReachedGrowth(f32 growth, f32 reach) noexcept
+    {
+        if (!std::isfinite(growth) || !std::isfinite(reach) || !(growth > 1.0f))
+        {
+            return 1.0f;
+        }
+        return 1.0f + (growth - 1.0f) * std::clamp(reach, 0.0f, 1.0f);
+    }
+
     namespace
     {
         // span (1 - exp(-summed / span)): bands of summed width `summed` spread

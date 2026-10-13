@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
+#include "OloEngine/Renderer/Passes/SceneRenderPass.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
@@ -185,6 +186,7 @@ namespace OloEngine
     {
         key.Add(static_cast<bool>(m_GBuffer));
         key.Add(m_PerSampleLighting);
+        key.Add(m_DebugChannel);
         key.Add(m_GBuffer ? m_GBuffer->GetSampleCount() : 0u);
         key.Add(static_cast<bool>(m_ShaderMSAA));
     }
@@ -198,6 +200,19 @@ namespace OloEngine
 
         if (!m_GBuffer)
             return;
+
+        // Even per-sample lighting copies resolved depth and entity IDs into
+        // SceneColor below. These reads retain the final resolve without AO.
+        if (blackboard.GBuffer.ResolvedFramebuffer.IsValid())
+        {
+            [[maybe_unused]] const auto handover =
+                builder.Read(blackboard.GBuffer.ResolvedFramebuffer, RGReadUsage::TransferSource);
+            if (m_DebugChannel != 0u)
+            {
+                [[maybe_unused]] const auto debug =
+                    builder.Read(blackboard.GBuffer.ResolvedFramebuffer, RGReadUsage::ShaderSample);
+            }
+        }
 
         // CPU / engine-slot state it binds rather than reads through the
         // graph (#1331): the Forward+ cluster lists ScenePass culled, and the
@@ -377,7 +392,13 @@ namespace OloEngine
         // The guards here are for genuine invalid states (shader load
         // failure, G-Buffer not yet lazily created, explicit debug-channel
         // override bypassing lighting) — not for path selection.
-        if (!m_Shader || !m_GBuffer || !m_SceneFramebuffer || !m_ControlsUBO || m_DebugChannel != 0)
+        if (m_DebugChannel != 0u)
+        {
+            if (m_ScenePass)
+                m_ScenePass->BlitGBufferDebug(m_DebugChannel);
+            return;
+        }
+        if (!m_Shader || !m_GBuffer || !m_SceneFramebuffer || !m_ControlsUBO)
             return;
 
         // Silent guard: kept in scope (rather than removed) so future leak

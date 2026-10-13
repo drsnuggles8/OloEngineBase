@@ -264,3 +264,12 @@ scripts/steam/generated/
 # Native human-hair authoring matrix (#1593); curate review images in docs.
 /OloEditor/assets/tests/visual/HumanHairNative_*.png
 /.v-build/
+
+# Render-target export and Deferred MSAA verification outputs (#1332, #1553).
+# Tests generate these reports, replay scenes and captures; they are not golden
+# inputs. Keep source tests and measurement summaries tracked, campaigns local
+# or in CI artifacts. Existing tracked #1332 reports are unaffected by this rule.
+/OloEditor/assets/tests/exports/
+/OloEditor/assets/tests/visual/*DeferredResolve_*.png
+/OloEditor/assets/tests/visual/*_Live_Control_*.png
+/OloEditor/assets/tests/visual/*_1553_VirtualGeometry_*.png

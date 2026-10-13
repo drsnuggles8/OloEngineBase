@@ -12,6 +12,7 @@
 #include "OloEngine/Renderer/Passes/DeferredGPUOcclusionPass.h"
 #include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
 #include "OloEngine/Renderer/Passes/DeferredOpaqueDecalPass.h"
+#include "OloEngine/Renderer/Passes/GBufferResolvePass.h"
 #include "OloEngine/Renderer/Passes/FinalRenderPass.h"
 #include "OloEngine/Renderer/Passes/FogRenderPass.h"
 #include "OloEngine/Renderer/Passes/FluidCompositePass.h"
@@ -186,6 +187,8 @@ namespace OloEngine
         Ref<DeferredLightingPass> DeferredLighting;
         Ref<DeferredOpaqueDecalPass> DeferredOpaqueDecal;
         Ref<DeferredGPUOcclusionPass> DeferredGPUOcclusion;
+        Ref<GBufferResolvePass> GBufferEarlyResolve;
+        Ref<GBufferResolvePass> GBufferResolve;
         Ref<PlanarReflectionRenderPass> PlanarReflection;
         Ref<SSAORenderPass> SSAO;
         Ref<GTAORenderPass> GTAO;
@@ -219,6 +222,8 @@ namespace OloEngine
                 &SceneCompositionPassSet::DeferredLighting,
                 &SceneCompositionPassSet::DeferredOpaqueDecal,
                 &SceneCompositionPassSet::DeferredGPUOcclusion,
+                &SceneCompositionPassSet::GBufferEarlyResolve,
+                &SceneCompositionPassSet::GBufferResolve,
                 &SceneCompositionPassSet::PlanarReflection,
                 &SceneCompositionPassSet::SSAO,
                 &SceneCompositionPassSet::GTAO,
