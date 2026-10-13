@@ -140,6 +140,8 @@ namespace OloEngine
         // unit-test contexts.
         struct GBufferSlot
         {
+            RGFramebufferHandle ResolvedFramebuffer;
+            RGFramebufferHandle MultisampleFramebuffer;
             RGTextureHandle GBufferAlbedo;   // RT0 — canonical single-sample albedo + metallic view (direct attachment or MSAA resolve view)
             RGTextureHandle GBufferNormal;   // RT1 — canonical single-sample normal + roughness + AO view (direct attachment or MSAA resolve view)
             RGTextureHandle GBufferEmissive; // RT2 — canonical single-sample emissive HDR view (direct attachment or MSAA resolve view)

@@ -104,7 +104,7 @@ jobs:
     name: Detect Steam-seam changes
     runs-on: ubuntu-latest
     outputs:
-      steam: ${{ steps.filter.outputs.steam == 'true' || steps.cmake-lines.outputs.steam == 'true' }}
+      steam: ${{ steps.filter.outputs.steam == 'true' || steps.cmake-lines.outputs.steam == 'true' || (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-full-checks')) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -243,12 +243,13 @@ jobs:
     # runners, and while it queues the next merge evicts it via the single-pending-slot
     # rule. asan.yml's Linux jobs carry the full note and the measurements.
     runs-on: ${{ vars.OLO_LINUX_SELF_HOSTED == 'true'
+                 && !(github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'ci-full-checks'))
                  && github.event_name != 'push'
                  && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
                  && fromJSON('["self-hosted","linux","x64","olo-ci"]') || 'ubuntu-24.04' }}
     needs: detect-changes
-    # On a pull_request only when the Steam seam changed (the trigger rationale at
-    # the top of this file); unconditionally on push / schedule / dispatch. The cheap
+    # On a pull_request when the Steam seam changed or ci-full-checks is requested;
+    # unconditionally on push / schedule / dispatch. The cheap
     # single-valve-tu guard above still runs on every PR regardless.
     if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.steam == 'true' }}
     steps:

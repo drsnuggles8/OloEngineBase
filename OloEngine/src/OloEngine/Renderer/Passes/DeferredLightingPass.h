@@ -14,6 +14,7 @@
 
 namespace OloEngine
 {
+    class SceneRenderPass;
     // @brief Deferred lighting composition pass.
     //
     // Reads the G-Buffer and writes fully-lit scene colour into the
@@ -57,9 +58,13 @@ namespace OloEngine
         {
             m_GBuffer = gbuffer;
         }
+        void SetScenePass(SceneRenderPass* scene) noexcept
+        {
+            m_ScenePass = scene;
+        }
         // SetSceneColorHandle removed; Execute() self-resolves
-        // Forwarded from RendererSettings; 0 = lighting, non-zero = skip
-        // (SceneRenderPass's BlitGBufferDebug already wrote a channel).
+        // Forwarded from RendererSettings; 0 = lighting, non-zero = display
+        // the finished G-Buffer after every late geometry writer.
         void SetDebugChannel(u32 channel) noexcept
         {
             m_DebugChannel = channel;
@@ -177,6 +182,7 @@ namespace OloEngine
         Ref<Shader> m_IndirectSpecularShaderMSAA;
         Ref<Shader> m_VirtualDebugOverlay; // lazily loaded; only when the debug overlay is on
         Ref<GBuffer> m_GBuffer;
+        SceneRenderPass* m_ScenePass = nullptr;
         Ref<Framebuffer> m_SceneFramebuffer;
         Ref<UniformBuffer> m_ControlsUBO;
         SelectedInputs m_SelectedInputs{};

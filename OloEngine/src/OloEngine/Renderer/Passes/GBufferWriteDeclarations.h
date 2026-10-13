@@ -5,26 +5,31 @@
 
 namespace OloEngine
 {
-    // What a pass that rasterizes into the Deferred G-Buffer after ScenePass
-    // declares (VirtualGeometryPass, DeferredGPUOcclusionPass): a write on every
-    // G-Buffer view the lighting, AO, SSR and temporal readers sample, so the
-    // graph orders it after ScenePass and before each of them. The views ARE the
-    // attachments it draws into, so nothing is copied (issue #1332).
-    //
-    // Declared unconditionally on every Deferred frame -- not gated on the
-    // frame's draw count, because the toggles that empty a pass's work flip at
-    // runtime without rebuilding the graph -- and including the multisample
-    // companions, which are only valid while the G-Buffer is multisample.
-    inline void DeclareGBufferWrites(RGBuilder& builder, const FrameBlackboard& board)
+    // Late geometry loads the previous writer's contents and rasterizes into
+    // exactly one attachment family. Resolved exports are produced by the
+    // resolve node, not by every multisample writer (#1553).
+    inline void DeclareGBufferWrites(RGBuilder& builder, const FrameBlackboard& board, const bool perSampleLighting)
     {
-        for (const RGTextureHandle handle :
-             { board.Scene.SceneDepth, board.Scene.SceneNormals, board.GBuffer.Velocity, board.GBuffer.GBufferAlbedo,
-               board.GBuffer.GBufferNormal, board.GBuffer.GBufferEmissive, board.GBuffer.GBufferAlbedoMS,
-               board.GBuffer.GBufferNormalMS, board.GBuffer.GBufferEmissiveMS, board.GBuffer.VelocityMS,
-               board.GBuffer.SceneDepthMS })
+        const auto target = perSampleLighting && board.GBuffer.MultisampleFramebuffer.IsValid()
+                                ? board.GBuffer.MultisampleFramebuffer
+                                : board.GBuffer.ResolvedFramebuffer;
+        if (target.IsValid())
         {
-            if (handle.IsValid())
-                builder.Write(handle, RGWriteUsage::TransferDest);
+            [[maybe_unused]] const auto previous = builder.Read(target, RGReadUsage::RenderTargetRead);
+            builder.Write(target, RGWriteUsage::RenderTarget);
         }
+    }
+
+    // These passes transfer current MS depth and then sample the resolved
+    // result before rasterizing again. Virtual geometry does this between its
+    // two raster phases; GPU occlusion does it before its phase-2 raster.
+    inline void DeclareGBufferDepthResolve(RGBuilder& builder, const FrameBlackboard& board)
+    {
+        if (!board.GBuffer.SceneDepthMS.IsValid() || !board.Scene.SceneDepth.IsValid())
+            return;
+        [[maybe_unused]] const auto source = builder.ReadTransferSourceBeforeWrite(board.GBuffer.SceneDepthMS);
+        builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
+        [[maybe_unused]] const auto depth = builder.Read(board.Scene.SceneDepth, RGReadUsage::ShaderSample);
+        builder.AllowSamePassReadWrite(board.Scene.SceneDepth);
     }
 } // namespace OloEngine

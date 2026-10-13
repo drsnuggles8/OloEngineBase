@@ -10166,7 +10166,7 @@ TEST_F(VulkanPassSuite, DecalGBufferModeMatrixMasksItsTargetRenderTargets)
                 RenderCommand::ClearFramebufferDepth(gbufferFB->GetRHIHandle(), 1.0f);
                 RenderCommand::ClearFramebufferDepth(depthSourceFB->GetRHIHandle(), kSceneDepth);
 
-                decalPass->ExecuteOnGBuffer(gbufferFB, depthSourceFB);
+                decalPass->ExecuteOnGBuffer(gbufferFB, depthSourceFB->GetDepthAttachmentHandle());
 
                 // Every colour attachment plus the entity RT to the readback
                 // layout, each naming its OWN last producer as the barrier's
@@ -10695,121 +10695,144 @@ TEST_F(VulkanPassSuite, OcclusionQueriesCountSamplesAndGateConditionalRendering)
 // (0.1, 1.0, 1.0) exactly. A narrowing that failed to restore, a blit that hit
 // the wrong attachment, or a G-Buffer that was never cleared all move it.
 // =============================================================================
-TEST_F(VulkanPassSuite, ScenePassDeferredFloorClearsTheGBufferAndBlitsTheRmaDebugChannel)
+TEST_F(VulkanPassSuite, DeferredDebugDisplaysAlbedoAndRmaAfterTheSceneClear)
 {
-    constexpr u32 kSize = 128;
-    VulkanFrameArena::Get().BeginFrame(0);
+    for (const u32 channel : { 1u, 3u })
+    {
+        SCOPED_TRACE(channel);
+        constexpr u32 kSize = 128;
+        VulkanFrameArena::Get().BeginFrame(0);
 
-    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+        auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
 
-    // The pass branches on process-global renderer settings; force the
-    // Deferred + RMA-debug configuration and restore on exit.
-    auto& settings = Renderer3D::GetRendererSettings();
-    const RenderingPath prevPath = settings.Path;
-    const u32 prevDebugChannel = settings.Deferred.DebugChannel;
-    const u32 prevSamples = settings.Deferred.MSAASampleCount;
-    const bool prevPerSample = settings.Deferred.PerSampleLighting;
-    settings.Path = RenderingPath::Deferred;
-    settings.Deferred.DebugChannel = 3; // the RMA gather — the one channel that is a DRAW
-    settings.Deferred.MSAASampleCount = 1;
-    settings.Deferred.PerSampleLighting = false;
-
-    // The scene FB the graph hands the pass: colour + an entity-ID attachment
-    // (so the "clear the scene FB even in Deferred" half has something to
-    // prove) + depth for the debug blit's destination.
-    FramebufferSpecification sceneSpec;
-    sceneSpec.Width = kSize;
-    sceneSpec.Height = kSize;
-    sceneSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER,
-                              FramebufferTextureFormat::Depth };
-    Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
-    ASSERT_TRUE(sceneFramebuffer);
-
-    auto scenePass = Ref<SceneRenderPass>::Create();
-    FramebufferSpecification initSpec;
-    initSpec.Width = kSize;
-    initSpec.Height = kSize;
-    initSpec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RED_INTEGER,
-                             FramebufferTextureFormat::Depth };
-    scenePass->Init(initSpec);
-
-    RenderGraph graph;
-    graph.SetTransientMaterializationEnabled(true);
-    auto& blackboard = graph.GetBlackboard();
-    // Setup() reads the path from the configuration the blackboard was
-    // populated from (issue #1333), not from the global settings; this graph
-    // is populated by hand, so the path is set here as well.
-    blackboard.Config.Path = RenderingPath::Deferred;
-
-    RGResourceDesc sceneDesc;
-    sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
-    sceneDesc.Format = RGResourceFormat::RGBA8UNorm;
-    sceneDesc.Width = kSize;
-    sceneDesc.Height = kSize;
-    blackboard.Scene.SceneColor =
-        graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc, sceneFramebuffer);
-    // Scene.SceneDepth / GBuffer.Velocity are deliberately left unset: those
-    // export slots lower to CopyImageSubData, and a D24S8 -> RGBA8 copy is a
-    // format-incompatible transfer (a depth/stencil source demands an exactly
-    // matching destination). Exporting into real depth-format transients is
-    // the graph's production shape and a separate concern from this floor.
-
-    graph.AddNode(scenePass);
-    graph.SetFinalPass("SceneRenderPass");
-    graph.BuildFrameGraph();
-
-    SubmitFrame(
-        [&]()
+        // The pass branches on process-global renderer settings; force the
+        // Deferred + RMA-debug configuration and restore on exit.
+        auto& settings = Renderer3D::GetRendererSettings();
+        struct ScopedRendererSettings
         {
-            graph.Execute();
+            RendererSettings& m_Settings;
+            const RenderingPath m_Path = m_Settings.Path;
+            const u32 m_DebugChannel = m_Settings.Deferred.DebugChannel;
+            const u32 m_Samples = m_Settings.Deferred.MSAASampleCount;
+            const bool m_PerSample = m_Settings.Deferred.PerSampleLighting;
+            ~ScopedRendererSettings()
+            {
+                m_Settings.Path = m_Path;
+                m_Settings.Deferred.DebugChannel = m_DebugChannel;
+                m_Settings.Deferred.MSAASampleCount = m_Samples;
+                m_Settings.Deferred.PerSampleLighting = m_PerSample;
+            }
+        } scopedSettings{ settings };
+        settings.Path = RenderingPath::Deferred;
+        settings.Deferred.DebugChannel = 3; // the RMA gather — the one channel that is a DRAW
+        settings.Deferred.MSAASampleCount = 1;
+        settings.Deferred.PerSampleLighting = false;
 
-            RHI::Barrier colorToSampled{};
-            colorToSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
-            colorToSampled.Before = RHI::Access::ColorAttachmentWrite;
-            colorToSampled.After = RHI::Access::ShaderSampleRead;
-            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &colorToSampled, 1 });
+        // The scene FB the graph hands the pass: colour + an entity-ID attachment
+        // (so the "clear the scene FB even in Deferred" half has something to
+        // prove) + depth for the debug blit's destination.
+        FramebufferSpecification sceneSpec;
+        sceneSpec.Width = kSize;
+        sceneSpec.Height = kSize;
+        sceneSpec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RED_INTEGER,
+                                  FramebufferTextureFormat::Depth };
+        Ref<Framebuffer> sceneFramebuffer = Framebuffer::Create(sceneSpec);
+        ASSERT_TRUE(sceneFramebuffer);
 
-            RHI::Barrier entityToSampled{};
-            entityToSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(1);
-            entityToSampled.Before = RHI::Access::TransferWrite; // its last write is the pass's clear
-            entityToSampled.After = RHI::Access::ShaderSampleRead;
-            api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &entityToSampled, 1 });
-        });
+        auto scenePass = Ref<SceneRenderPass>::Create();
+        FramebufferSpecification initSpec;
+        initSpec.Width = kSize;
+        initSpec.Height = kSize;
+        initSpec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::RED_INTEGER,
+                                 FramebufferTextureFormat::Depth };
+        scenePass->Init(initSpec);
 
-    EXPECT_TRUE(scenePass->GetTarget()) << "the pass early-returned before resolving its target";
-    ASSERT_TRUE(scenePass->GetGBuffer()) << "the Deferred path must have created a G-Buffer";
-    EXPECT_EQ(scenePass->GetGBuffer()->GetWidth(), kSize);
-    for (const auto& failure : graph.GetResolveFailures())
-    {
-        ADD_FAILURE() << "ScenePass resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
-                      << "' x" << failure.Count;
+        RenderGraph graph;
+        graph.SetTransientMaterializationEnabled(true);
+        auto& blackboard = graph.GetBlackboard();
+        // Setup() reads the path from the configuration the blackboard was
+        // populated from (issue #1333), not from the global settings; this graph
+        // is populated by hand, so the path is set here as well.
+        blackboard.Config.Path = RenderingPath::Deferred;
+
+        RGResourceDesc sceneDesc;
+        sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+        sceneDesc.Format = RGResourceFormat::RGBA16Float;
+        sceneDesc.Width = kSize;
+        sceneDesc.Height = kSize;
+        blackboard.Scene.SceneColor =
+            graph.DeclareTransientFramebuffer(ResourceNames::SceneColor, sceneDesc, sceneFramebuffer);
+        // Scene.SceneDepth / GBuffer.Velocity are deliberately left unset: those
+        // export slots lower to CopyImageSubData, and a D24S8 -> RGBA8 copy is a
+        // format-incompatible transfer (a depth/stencil source demands an exactly
+        // matching destination). Exporting into real depth-format transients is
+        // the graph's production shape and a separate concern from this floor.
+
+        graph.AddNode(scenePass);
+        auto debugPass = Ref<DeferredLightingPass>::Create();
+        debugPass->SetScenePass(scenePass.Raw());
+        debugPass->SetDebugChannel(channel);
+        graph.AddNode(debugPass);
+        graph.AddExecutionDependency("SceneRenderPass", "DeferredLightingPass");
+        graph.SetFinalPass("DeferredLightingPass");
+        graph.BuildFrameGraph();
+
+        SubmitFrame(
+            [&]()
+            {
+                graph.Execute();
+
+                RHI::Barrier colorToSampled{};
+                colorToSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(0);
+                colorToSampled.Before = RHI::Access::ColorAttachmentWrite;
+                colorToSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &colorToSampled, 1 });
+
+                RHI::Barrier entityToSampled{};
+                entityToSampled.Resource = sceneFramebuffer->GetColorAttachmentHandle(1);
+                entityToSampled.Before = RHI::Access::TransferWrite; // its last write is the pass's clear
+                entityToSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &entityToSampled, 1 });
+            });
+
+        EXPECT_TRUE(scenePass->GetTarget()) << "the pass early-returned before resolving its target";
+        ASSERT_TRUE(scenePass->GetGBuffer()) << "the Deferred path must have created a G-Buffer";
+        EXPECT_EQ(scenePass->GetGBuffer()->GetWidth(), kSize);
+        for (const auto& failure : graph.GetResolveFailures())
+        {
+            ADD_FAILURE() << "ScenePass resolve failure: pass='" << failure.PassName.ToView() << "' reason='" << failure.Reason.ToView()
+                          << "' x" << failure.Count;
+        }
+        EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "exactly the RMA debug gather";
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+        TArray64<u8> rendered;
+        auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
+        ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
+        ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 8);
+        const auto* halves = reinterpret_cast<const u16*>(rendered.GetData());
+        Ref<Framebuffer> sourceFramebuffer = scenePass->GetGBuffer()->GetSamplingFramebuffer();
+        TArray64<u8> albedo;
+        ASSERT_TRUE(static_cast<VulkanFramebuffer*>(sourceFramebuffer.Raw())->GetColorAttachmentImage(0)->GetData(albedo, 0));
+        ASSERT_EQ(albedo.Num(), static_cast<sizet>(kSize) * kSize * 4);
+        for (const auto& [x, y] : { std::pair<u32, u32>{ 8, 8 }, { 64, 64 }, { 120, 120 } })
+        {
+            const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+            // Pin conversion against the actual UNORM texels, rather than
+            // assuming which way the clear quantizes 0.1 * 255 = 25.5.
+            for (sizet component = 0; component < 3u; ++component)
+                EXPECT_NEAR(static_cast<f32>(albedo[i + component]), 25.5f, 0.5f);
+            EXPECT_NEAR(HalfToFloat(halves[i]), channel == 1u ? static_cast<f32>(albedo[i]) / 255.0f : 0.1f, 0.0001f);
+            EXPECT_NEAR(HalfToFloat(halves[i + 1]), channel == 1u ? static_cast<f32>(albedo[i + 1]) / 255.0f : 1.0f, 0.0001f);
+            EXPECT_NEAR(HalfToFloat(halves[i + 2]), channel == 1u ? static_cast<f32>(albedo[i + 2]) / 255.0f : 1.0f, 0.0001f);
+        }
+
+        TArray64<u8> entityBytes;
+        ASSERT_TRUE(vkScene->GetColorAttachmentImage(1)->GetData(entityBytes, 0));
+        const auto* entityIds = reinterpret_cast<const i32*>(entityBytes.GetData());
+        EXPECT_EQ(entityIds[static_cast<sizet>(64) * kSize + 64], -1)
+            << "the Deferred path still clears the SCENE framebuffer's non-colour attachments";
     }
-    EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 1u) << "exactly the RMA debug gather";
-    EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
-
-    TArray64<u8> rendered;
-    auto* vkScene = static_cast<VulkanFramebuffer*>(sceneFramebuffer.Raw());
-    ASSERT_TRUE(vkScene->GetColorAttachmentImage(0)->GetData(rendered, 0));
-    ASSERT_EQ(rendered.Num(), static_cast<sizet>(kSize) * kSize * 4);
-    for (const auto& [x, y] : { std::pair<u32, u32>{ 8, 8 }, { 64, 64 }, { 120, 120 } })
-    {
-        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
-        EXPECT_NEAR(rendered[i + 0], 26, 1) << "RMA red = roughness = the G-Buffer RT1.z clear (0.1) at (" << x
-                                            << "," << y << ")";
-        EXPECT_EQ(rendered[i + 1], 255) << "RMA green = metallic = the G-Buffer RT0.a clear (1.0)";
-        EXPECT_EQ(rendered[i + 2], 255) << "RMA blue = ao = the G-Buffer RT1.w clear (1.0)";
-    }
-
-    TArray64<u8> entityBytes;
-    ASSERT_TRUE(vkScene->GetColorAttachmentImage(1)->GetData(entityBytes, 0));
-    const auto* entityIds = reinterpret_cast<const i32*>(entityBytes.GetData());
-    EXPECT_EQ(entityIds[static_cast<sizet>(64) * kSize + 64], -1)
-        << "the Deferred path still clears the SCENE framebuffer's non-colour attachments";
-
-    settings.Path = prevPath;
-    settings.Deferred.DebugChannel = prevDebugChannel;
-    settings.Deferred.MSAASampleCount = prevSamples;
-    settings.Deferred.PerSampleLighting = prevPerSample;
 }
 
 // =============================================================================

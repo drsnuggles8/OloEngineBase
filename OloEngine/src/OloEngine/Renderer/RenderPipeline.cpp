@@ -2286,6 +2286,7 @@ namespace OloEngine
         {
             const bool deferred = (data.Settings.Path == RenderingPath::Deferred);
             SceneCompositePasses.DeferredLighting->SetGBuffer(deferred ? FrameCorePasses.Scene->GetGBuffer() : nullptr);
+            SceneCompositePasses.DeferredLighting->SetScenePass(FrameCorePasses.Scene.Raw());
             SceneCompositePasses.DeferredLighting->SetDebugChannel(deferred ? data.Settings.Deferred.DebugChannel : 0);
             SceneCompositePasses.DeferredLighting->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
             // Material debug view (issue #1231). Forced off outside Deferred so
@@ -2293,6 +2294,16 @@ namespace OloEngine
             // then surprise someone who switched paths back.
             SceneCompositePasses.DeferredLighting->SetMaterialDebugView(
                 deferred ? data.PostProcess.MaterialDebug : MaterialDebugView::None);
+        }
+
+        for (auto* resolve : { SceneCompositePasses.GBufferEarlyResolve.Raw(), SceneCompositePasses.GBufferResolve.Raw() })
+        {
+            if (resolve && FrameCorePasses.Scene)
+            {
+                const bool deferred = data.Settings.Path == RenderingPath::Deferred;
+                resolve->SetGBuffer(deferred ? FrameCorePasses.Scene->GetGBuffer() : nullptr);
+                resolve->SetPerSampleLighting(deferred && data.Settings.Deferred.PerSampleLighting);
+            }
         }
 
         // Wire the opaque-decal graph shim: in Deferred mode it drains the
@@ -3658,6 +3669,7 @@ namespace OloEngine
                 ResourceNames::GBufferResolved,
                 buildGBufferFramebufferDesc(1u, ResourceNames::GBufferResolved),
                 gbuffer->GetSamplingFramebuffer());
+            board.GBuffer.ResolvedFramebuffer = resolvedGBuffer;
 
             // Multisample companion handles. Declared only when MSAA is active
             // so the typed-handle path can drive per-sample shading without
@@ -3677,6 +3689,7 @@ namespace OloEngine
                     ResourceNames::GBufferMS,
                     buildGBufferFramebufferDesc(config.GBufferSamples, ResourceNames::GBufferMS),
                     gbuffer->GetFramebuffer());
+                board.GBuffer.MultisampleFramebuffer = multisampleGBuffer;
 
                 board.GBuffer.GBufferAlbedoMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferAlbedoMS, multisampleGBuffer, 0u);
                 board.GBuffer.GBufferNormalMS = graph.CreateFramebufferAttachmentView(ResourceNames::GBufferNormalMS, multisampleGBuffer, 1u);
@@ -5933,6 +5946,8 @@ namespace OloEngine
         inputs.Passes.DeferredLighting = SceneCompositePasses.DeferredLighting.Raw();
         inputs.Passes.DeferredOpaqueDecal = SceneCompositePasses.DeferredOpaqueDecal.Raw();
         inputs.Passes.DeferredGPUOcclusion = SceneCompositePasses.DeferredGPUOcclusion.Raw();
+        inputs.Passes.GBufferEarlyResolve = SceneCompositePasses.GBufferEarlyResolve.Raw();
+        inputs.Passes.GBufferResolve = SceneCompositePasses.GBufferResolve.Raw();
         inputs.Passes.PlanarReflection = SceneCompositePasses.PlanarReflection.Raw();
         inputs.Passes.GPUOcclusion = RenderStreamPasses.GPUOcclusion.Raw();
         inputs.Passes.ForwardOverlay = RenderStreamPasses.ForwardOverlay.Raw();
@@ -6079,6 +6094,8 @@ namespace OloEngine
         SceneCompositePasses.DeferredGPUOcclusion = Ref<DeferredGPUOcclusionPass>::Create();
         SceneCompositePasses.DeferredGPUOcclusion->SetName("DeferredGPUOcclusionPass");
         SceneCompositePasses.DeferredGPUOcclusion->Init(scenePassSpec);
+        SceneCompositePasses.GBufferEarlyResolve = Ref<GBufferResolvePass>::Create(false);
+        SceneCompositePasses.GBufferResolve = Ref<GBufferResolvePass>::Create(true);
 
         // Planar reflection — runs after ScenePass (replays its batched opaque
         // bucket from the mirrored camera) and before WaterPass (which samples

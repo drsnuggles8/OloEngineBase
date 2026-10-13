@@ -24,6 +24,7 @@ namespace OloEngine
     void DeferredGPUOcclusionPass::AppendDeclarationInputs(RGDeclarationKey& key) const
     {
         key.Add(static_cast<bool>(m_GBuffer));
+        key.Add(m_PerSampleLighting);
     }
 
     void DeferredGPUOcclusionPass::Setup(RGBuilder& builder, FrameBlackboard& board)
@@ -47,7 +48,14 @@ namespace OloEngine
         // deferred frame, not gated on the phase-2 count: the HZB-occlusion
         // toggle flips at runtime without forcing a graph rebuild. Execute
         // no-ops when there is no phase-2 work.
-        DeclareGBufferWrites(builder, board);
+        DeclareGBufferWrites(builder, board, m_PerSampleLighting);
+        if (m_PerSampleLighting && board.Config.GBufferSamples > 1u)
+            DeclareGBufferDepthResolve(builder, board);
+        else if (board.Scene.SceneDepth.IsValid())
+        {
+            [[maybe_unused]] const auto depth = builder.Read(board.Scene.SceneDepth, RGReadUsage::ShaderSample);
+            builder.AllowSamePassReadWrite(board.Scene.SceneDepth);
+        }
     }
 
     void DeferredGPUOcclusionPass::Execute(RGCommandContext& context)
@@ -69,10 +77,9 @@ namespace OloEngine
         auto& rendererAPI = RenderCommand::GetRendererAPI();
 
         // Draw target: per-sample MSAA rasterizes into the multisample G-Buffer
-        // FBO (depth still holds occluders + phase-1 there — ScenePass only
-        // resolved depth in that mode); otherwise straight into the resolved FBO
-        // (ScenePass fully resolved it, so its depth already carries the phase-1
-        // survivors). Matches DeferredOpaqueDecalPass's target rule.
+        // FBO, whose depth holds the occluders and phase-1 survivors. Other
+        // modes use the early-resolved FBO. Both target the same attachment
+        // family as DeferredOpaqueDecalPass.
         const bool perSampleMSAA = m_PerSampleLighting && m_GBuffer->GetSampleCount() > 1;
         Ref<Framebuffer> targetFB = perSampleMSAA ? m_GBuffer->GetFramebuffer()
                                                   : m_GBuffer->GetSamplingFramebuffer();
@@ -117,10 +124,12 @@ namespace OloEngine
         // Phase 2: build a Hi-Z from this frame's resolved G-Buffer depth
         // (occluders + phase-1 survivors laid down by ScenePass), re-test each
         // batch's reject list against it, and draw the disoccluded instances.
+        if (perSampleMSAA)
+            m_GBuffer->ResolveDepthOnly();
         const RHI::ResourceHandle depthTex = m_GBuffer->GetDepthAttachmentHandle();
 
-        // ScenePass wrote (and resolved) this depth via the fixed-function
-        // pipeline; the Hi-Z build samples it as a texture. Order the
+        // Rasterization wrote this depth; the current or early graph resolve
+        // made it single-sample. The Hi-Z build samples it as a texture. Order the
         // framebuffer-write → texture-fetch explicitly (the forward pass gets
         // the same guarantee from GPUDrivenOcclusionPass::Execute).
         RenderCommand::TextureBarrier();
@@ -138,12 +147,7 @@ namespace OloEngine
 
             targetFB->Unbind();
 
-            // Per-sample MSAA drew into the multisample FBO — resolve so the
-            // single-sample views (AO / SSR / lighting) see the phase-2 texels.
-            // Non-per-sample drew straight into the resolved FBO, so no resolve
-            // is needed. Mirrors DeferredOpaqueDecalPass.
-            if (perSampleMSAA)
-                m_GBuffer->Resolve();
+            // The final graph resolve publishes these multisample writes.
         }
 
         // Restore a sane default GL state for whatever runs next.

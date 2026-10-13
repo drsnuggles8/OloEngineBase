@@ -195,6 +195,7 @@ namespace OloEngine
         const auto& registry = VirtualMeshRegistry::Get();
         key.Add(registry.GetDebugMode());
         key.Add(registry.GetDebugColorTexture());
+        key.Add(m_PerSampleLighting);
     }
 
     void VirtualGeometryPass::Setup(RGBuilder& builder, FrameBlackboard& board)
@@ -212,7 +213,14 @@ namespace OloEngine
         // exactly like DeferredGPUOcclusionPass (the shared declaration). The
         // re-export this pass used to run never copied a texel (#1332's copy
         // ledger): the exports are views of the attachments it draws into.
-        DeclareGBufferWrites(builder, board);
+        DeclareGBufferWrites(builder, board, m_PerSampleLighting);
+        if (m_PerSampleLighting && board.Config.GBufferSamples > 1u)
+            DeclareGBufferDepthResolve(builder, board);
+        else if (board.Scene.SceneDepth.IsValid())
+        {
+            [[maybe_unused]] const auto depth = builder.Read(board.Scene.SceneDepth, RGReadUsage::ShaderSample);
+            builder.AllowSamePassReadWrite(board.Scene.SceneDepth);
+        }
 
         // The two-phase cluster cull (#682, #1331): phase 1 tests the RETAINED
         // occlusion pyramid, last frame's final depth, and phase 2 rebuilds it
@@ -711,6 +719,11 @@ namespace OloEngine
         // simply makes the pyramid a weaker occluder set, i.e. conservative.
         if (twoPhase)
         {
+            if (perSampleMSAA)
+            {
+                Ref<GBuffer> depthTarget = gbuffer;
+                depthTarget->ResolveDepthOnly();
+            }
             // The phase-1 draws just wrote this depth through the fixed-function
             // pipeline; the Hi-Z build samples it as a texture. Order the
             // framebuffer-write -> texture-fetch explicitly (a texture barrier).
@@ -1068,15 +1081,6 @@ namespace OloEngine
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderImageAccess | MemoryBarrierFlags::TextureFetch);
         }
 
-        // Per-sample MSAA rasterized into the multisample G-Buffer — resolve so
-        // the single-sample views (lighting, AO, SSR) see the clusters.
-        // Non-per-sample MSAA drew straight into the resolved FBO, so no resolve.
-        // Resolve() mutates, but we borrow the G-Buffer as a const ref — take a
-        // non-const Ref copy (cheap refcount bump) to call it.
-        if (perSampleMSAA)
-        {
-            Ref<GBuffer> resolveTarget = gbuffer;
-            resolveTarget->Resolve();
-        }
+        // The final graph resolve publishes these multisample writes.
     }
 } // namespace OloEngine

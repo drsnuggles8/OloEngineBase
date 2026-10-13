@@ -590,11 +590,13 @@ names and both overlays without building anything.
 `.github/actions/setup-vcpkg` is the single place CI wires this up. It resolves
 `VCPKG_ROOT` (the GitHub-hosted runners' preinstalled clone, or a fresh clone
 under `RUNNER_TEMP` for the self-hosted GPU runner), disables `core.fsmonitor`
-(trap 1), fetches the manifest's baseline commit, and selects vcpkg's `x-gha`
-binary source.
+(trap 1), fetches the manifest's baseline commit, and selects vcpkg's `files`
+binary source. Hosted runners restore/save the directory with Actions cache;
+self-hosted runners keep it in a persistent directory. The pinned tool removed
+the `x-gha` provider; its warning does not make setup fail.
 
-`x-gha` stores **one Actions-cache entry per package** (a few dozen), not one per
-object file. That distinction matters here: this repo previously had sccache's
-GitHub Actions backend flood its 10 GB cache cap with 20k+ tiny entries until
-every write failed (see the `SCCACHE_DIR` note in `Windows.yml`). Per-package
-granularity stays well inside the cap.
+Consume the complete `vcpkg help binarycaching` output when checking provider
+support under `pipefail`. `grep -q` can exit after finding `files`, close the pipe
+and make vcpkg fail with SIGPIPE. The resulting pipeline failure then incorrectly
+reports the supported provider as absent. Use `grep -E ... > /dev/null` so the
+reader drains the output while command failures and missing providers still fail.

@@ -85,7 +85,7 @@ namespace OloEngine::MCP
         rebuild.Name = "olo_foliage_rebuild";
         rebuild.Toolset = "render";
         rebuild.Title = "Request foliage regeneration";
-        rebuild.Description = "Mark a terrain entity's foliage for regeneration at the next scene update, using the same path as an inspector edit. Does not change authored layers or save the scene. Read olo_representation_streaming_stats for completion and CPU stage costs.";
+        rebuild.Description = "Mark a terrain entity's foliage for regeneration. The scene update consumes the request when terrain data is available, using the same path as an inspector edit. Does not change authored layers or save the scene. Read olo_representation_streaming_stats for completion and CPU stage costs.";
         rebuild.Annotations = MutatingAnnotations(/*idempotent*/ true);
         rebuild.ProjectWrite = true;
         rebuild.InputSchema = Schema::Object().Prop("entity", Schema::String()).Required({ "entity" }).NoAdditional();

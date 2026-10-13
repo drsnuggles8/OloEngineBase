@@ -135,13 +135,14 @@ namespace OloEngine
         }
         if (board.Config.Path == RenderingPath::Deferred)
         {
-            // The deferred exports are attachment views of the G-Buffer this
-            // pass renders: these writes give their readers a producer. Nothing
-            // is copied (the views ARE the attachments).
-            if (board.Scene.SceneDepth.IsValid())
-                builder.Write(board.Scene.SceneDepth, RGWriteUsage::TransferDest);
-            if (board.GBuffer.Velocity.IsValid())
-                builder.Write(board.GBuffer.Velocity, RGWriteUsage::TransferDest);
+            const auto target = board.GBuffer.MultisampleFramebuffer.IsValid()
+                                    ? board.GBuffer.MultisampleFramebuffer
+                                    : board.GBuffer.ResolvedFramebuffer;
+            if (target.IsValid())
+                builder.Write(target, RGWriteUsage::RenderTarget);
+            // BeginSceneFrame clears the lit target and its overlay attachments.
+            if (board.Scene.SceneColor.IsValid())
+                builder.Write(board.Scene.SceneColor, RGWriteUsage::RenderTarget);
         }
         else if (board.Scene.SceneColor.IsValid())
         {
@@ -663,78 +664,8 @@ namespace OloEngine
 
         renderFB->Unbind();
 
-        // Deferred G-Buffer MSAA resolve. Two sub-modes:
-        //   1. Per-sample lighting (MSAASampleCount > 1 && PerSampleLighting)
-        //      — resolve ONLY the depth attachment so decals can sample
-        //      reconstructed world positions, while colour attachments stay
-        //      multisample for DeferredLighting_MSAA to shade per-sample.
-        //   2. Resolve-before-lighting — full resolve (colour + depth) so
-        //      the standard DeferredLighting shader samples a single-sample
-        //      copy; loses per-sample shading detail but keeps a single code
-        //      path for non-MSAA and resolve-path MSAA.
-        //   Non-MSAA always falls into #2 (Resolve is a no-op).
-        const bool perSampleLighting = deferredActive && m_GBuffer && m_GBuffer->GetSampleCount() > 1 && rendererSettings.Deferred.PerSampleLighting;
-        const bool debugNeedsColour = rendererSettings.Deferred.DebugChannel != 0;
-        if (deferredActive && m_GBuffer)
-        {
-            // When per-sample lighting is active, resolve ONLY depth here so
-            // decals can reconstruct world position from single-sample depth.
-            // Colour resolve is deferred until after decals so the debug blit
-            // (if any) sees post-decal texels. When per-sample is off, do a
-            // full resolve now — decals write into the resolved FB directly.
-            if (perSampleLighting)
-                m_GBuffer->ResolveDepthOnly();
-            else
-                m_GBuffer->Resolve();
-        }
-
-        // Deferred opaque decals are drained by the dedicated
-        // `DeferredOpaqueDecalPass` graph node (runs between ScenePass and
-        // DeferredLightingPass) — see `Renderer3D::ConfigureRenderGraph`.
-        // The pass's resource declarations make the dependency visible to
-        // the L5 hazard validator.
-        //
-        // The per-sample "post-decal colour resolve" below still runs here
-        // because it must be observable to `BlitGBufferDebug` in the same
-        // Execute() call. By the time we reach this point the graph
-        // scheduler has NOT yet executed the opaque-decal pass (this is
-        // still inside ScenePass), so the debug blit will see *pre-decal*
-        // colour in per-sample + debug-channel mode. That matches the
-        // behaviour pre-extraction for every case except
-        // `perSampleLighting && debugNeedsColour`; callers relying on the
-        // debug overlay to reflect decal contributions should disable
-        // per-sample lighting. Documented as a known limitation of the
-        // debug overlay; non-debug paths are unaffected.
-
-        // Per-sample path: force a color resolve whenever a downstream pass
-        // samples resolved G-Buffer color attachments (debug overlay, SSAO, GTAO).
-        // This keeps the resolved single-sample G-Buffer attachments current
-        // for AO/export consumers while preserving the multisample
-        // attachments for per-sample deferred lighting.
-        const auto& postProcessSettings = Renderer3D::GetPostProcessSettings();
-        const bool aoNeedsResolvedNormals =
-            (postProcessSettings.ActiveAOTechnique == AOTechnique::SSAO && postProcessSettings.SSAOEnabled) ||
-            (postProcessSettings.ActiveAOTechnique == AOTechnique::GTAO && postProcessSettings.GTAOEnabled);
-        // The G-Buffer velocity view is published on every Deferred frame and
-        // this pass cannot see which later passes read it, so a per-sample
-        // G-Buffer is always resolved for it -- what the export copy's
-        // always-valid handle used to decide here.
-        if (const bool postNeedsResolvedVelocity = postProcessSettings.MotionBlurEnabled || Renderer3D::IsEngineTAAWanted() || deferredActive; perSampleLighting && (debugNeedsColour || aoNeedsResolvedNormals || postNeedsResolvedVelocity))
-        {
-            // Colour only: depth was resolved above and nothing has drawn since.
-            // A full Resolve() blitted it a second time (#1332's copy ledger).
-            m_GBuffer->ResolveColorOnly();
-        }
-
-        // Deferred debug visualisation: until DeferredLightingPass lands in
-        // Copy the selected G-Buffer channel into the forward scene
-        // target's color[0] so post-process and the editor viewport display
-        // *something* instead of whatever is left of the cleared forward FB.
-        if (deferredActive && m_GBuffer)
-        {
-            BlitGBufferDebug(rendererSettings.Deferred.DebugChannel);
-        }
-        else if (!deferredActive && rendererSettings.DebugVelocityOverlayForward)
+        // Deferred resolves and debug display are graph-owned, after their writers.
+        if (!deferredActive && rendererSettings.DebugVelocityOverlayForward)
         {
             // Forward / Forward+ velocity overlay: mirror the Deferred
             // DebugChannel=5 capability for the forward paths.
@@ -879,12 +810,14 @@ namespace OloEngine
         }
         // Channel 3 (RMA) needs data from TWO attachments — RT0.a (metallic)
         // and RT1.zw (roughness, AO). glBlitFramebuffer cannot swizzle, so
-        // use a dedicated fullscreen shader for this one channel.
-        if (channel == 3)
+        // use a dedicated fullscreen shader. Albedo also needs a shader: its
+        // RGBA8 source cannot blit into the RGBA16F scene target on Vulkan.
+        if (channel == 1 || channel == 3)
         {
-            if (!m_DebugRMAShader)
-                m_DebugRMAShader = Shader::Create("assets/shaders/DebugGBuffer_RMA.glsl");
-            if (!m_DebugRMAShader)
+            auto& shader = channel == 1 ? m_DebugAlbedoShader : m_DebugRMAShader;
+            if (!shader)
+                shader = Shader::Create(channel == 1 ? "assets/shaders/DebugGBuffer_Albedo.glsl" : "assets/shaders/DebugGBuffer_RMA.glsl");
+            if (!shader)
                 return;
 
             m_Target->Bind();
@@ -899,7 +832,7 @@ namespace OloEngine
             RenderCommand::SetDepthMask(false);
             RenderCommand::SetBlendState(false);
 
-            m_DebugRMAShader->Bind();
+            shader->Bind();
             // Persistent: these are the pass's OWN G-Buffer attachments, not
             // graph-pooled targets (issue #691).
             HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_GBUFFER_ALBEDO,
