@@ -83,8 +83,8 @@ function(olo_check_lto_support out_var out_output)
         # GIVE THE PROBE THE SAME LINKER THE BUILD USES. check_ipo_supported()
         # configures and links its own generated `_CMakeLTOTest-<lang>` project,
         # and CheckIPOSupported.cmake forwards only CMAKE_<LANG>_FLAGS and
-        # CMAKE_<LANG>_FLAGS_DEBUG into it (and only under CMP0138 NEW -- we are
-        # on cmake_minimum_required 3.25, so it is). No linker-flag variable is
+        # CMAKE_<LANG>_FLAGS_DEBUG into it (and only under CMP0138 NEW -- the root
+        # sets cmake_policy(VERSION 3.25), so it is). No linker-flag variable is
         # forwarded, in any configuration. Every Linux configure line in this
         # repo selects the linker there, as
         # `-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld`, so the probe alone ignored it

@@ -7,6 +7,13 @@
 # Guard it with BUILD_SHARED_LIBS so the PDB install only applies to the shared (usd_ms) build.
 # Idempotent: re-running finds the already-guarded form and no-ops.
 
+# A -P script starts with every policy unset, and CMake 3.x then applies OLD behaviour; pin them.
+cmake_minimum_required(VERSION 3.27)
+
+if(NOT DEFINED USD_SRC OR NOT IS_DIRECTORY "${USD_SRC}")
+    message(FATAL_ERROR "patch-usd-pdb: USD_SRC ('${USD_SRC}') is not the OpenUSD source directory")
+endif()
+
 set(_pub "${USD_SRC}/cmake/macros/Public.cmake")
 if(NOT EXISTS "${_pub}")
     message(FATAL_ERROR "patch-usd-pdb: Public.cmake not found at ${_pub}")

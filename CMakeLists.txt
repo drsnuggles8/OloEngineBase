@@ -1,4 +1,8 @@
-﻿cmake_minimum_required(VERSION 3.25)
+﻿# 3.27 for cmake_file_api(), which cmake/OneTbbGuard.cmake runs in every configuration (#1575).
+cmake_minimum_required(VERSION 3.27)
+# The policies stay at 3.25's, as they were before the floor moved: switching CMP0143-CMP0152 to NEW
+# is its own change, not a side effect of needing one 3.27 command.
+cmake_policy(VERSION 3.25)
 
 message(STATUS "CMake version: ${CMAKE_VERSION}")
 
@@ -75,7 +79,7 @@ endif()
 # only thing available is whatever the user put in the cache / on the command
 # line. Keep the two in sync — a mismatch means either an unused port build
 # (harmless, slow) or a missing one (a find_package failure at configure).
-foreach(_olo_feat alembic materialx openvdb vulkan)
+foreach(_olo_feat alembic materialx openvdb usd vulkan)
     string(TOUPPER "${_olo_feat}" _olo_feat_uc)
     if(NOT DEFINED OLO_WITH_${_olo_feat_uc} OR OLO_WITH_${_olo_feat_uc})
         list(APPEND VCPKG_MANIFEST_FEATURES "${_olo_feat}")
@@ -243,13 +247,13 @@ option(OLO_WARN_STATIC_INIT "Warn on global constructors / exit-time destructors
 # Asset-import format options (#655). All default ON — importing USD / Alembic / MaterialX works
 # out of the box, matching UE5's USD-by-default posture. Alembic + MaterialX are small static
 # FetchContent builds. OpenUSD is large + install-centric: it is built from source once via
-# ExternalProject (oneTBB + static-monolithic USD, ~10-15 min + ~2 GB on the FIRST build, then
-# cached), OR reused from a prebuilt install via -DOLO_USD_INSTALL_DIR=<prefix> (CI cache / a
-# shared build). CI that doesn't need USD should pass -DOLO_WITH_USD=OFF to skip the heavy build.
+# ExternalProject (static-monolithic USD against vcpkg's oneTBB, ~30-45 min + ~10 GB on the FIRST
+# build, then cached per machine). CI that doesn't need USD should pass -DOLO_WITH_USD=OFF to skip
+# the heavy build.
 # See docs/agent-rules/asset-import-usd-alembic.md.
 option(OLO_WITH_ALEMBIC "Import Alembic (.abc) geometry caches (vendors Imath + Alembic)" ON)
 option(OLO_WITH_MATERIALX "Import MaterialX (.mtlx) materials (vendors MaterialX)" ON)
-option(OLO_WITH_USD "Import OpenUSD stages (.usd/.usda/.usdc/.usdz); builds USD from source unless OLO_USD_INSTALL_DIR is set" ON)
+option(OLO_WITH_USD "Import OpenUSD stages (.usd/.usda/.usdc/.usdz); builds USD from source against vcpkg's oneTBB" ON)
 
 # OpenVDB (.vdb) volumetric import (#724). Unlike Alembic/USD/MaterialX above, this is
 # deliberately NOT linked onto the OloEngine target — the issue's second acceptance
@@ -709,6 +713,10 @@ add_subdirectory(OloCtl)
 
 # Every target has handed its heavy TUs to olo_bind_heavy_compile_pool() by now.
 olo_write_heavy_compile_manifest()
+
+# One oneTBB per linked binary (#1575): every target exists by now, so the check sees them all.
+include(cmake/OneTbbGuard.cmake)
+olo_add_onetbb_guard(OloEngine)
 
 set_target_properties(OloEngine-LuaScriptCore PROPERTIES FOLDER "Scripting")
 set_target_properties(OloServer PROPERTIES FOLDER "Applications")

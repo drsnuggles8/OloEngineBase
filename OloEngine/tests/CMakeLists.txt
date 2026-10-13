@@ -78,6 +78,8 @@ add_executable(OloEngine-Tests
 		BitwiseEqualLayoutTest.cpp
 		ModelImporterTest.cpp
 		MeshInterchangeTest.cpp
+		# A real OpenUSD stage through the importer registry (#1575); empty without OLO_WITH_USD.
+		UsdStageImportTest.cpp
 		VolumeImportTest.cpp
 		SceneMeshRaycastTest.cpp
 		SlugFontRenderingTest.cpp
@@ -1917,6 +1919,18 @@ olo_copy_ffmpeg_runtime(OloEngine-Tests)
 # any Steam test would have skipped. No-op unless OLO_WITH_STEAM is on with the real SDK.
 olo_copy_steam_runtime(OloEngine-Tests)
 olo_copy_aftermath_runtime(OloEngine-Tests)
+
+# UsdStageImportTest opens a real stage (#1575). It needs OLO_WITH_USD, which reaches only the TUs
+# that test it (#1386, see OloEngine/CMakeLists.txt), so it skips the precompiled header for the
+# same reason those do. UsdStage::Open needs USD's plugInfo tree next to the binary, staged the way
+# OloEditor/src/CMakeLists.txt stages it for the editor.
+if(OLO_WITH_USD AND OLO_USD_PLUGIN_TREE)
+	set_property(SOURCE UsdStageImportTest.cpp APPEND PROPERTY COMPILE_DEFINITIONS OLO_WITH_USD=1)
+	set_property(SOURCE UsdStageImportTest.cpp PROPERTY SKIP_PRECOMPILE_HEADERS ON)
+	add_custom_command(TARGET OloEngine-Tests POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory "${OLO_USD_PLUGIN_TREE}" "$<TARGET_FILE_DIR:OloEngine-Tests>/usd"
+		COMMENT "Staging USD plugInfo tree next to OloEngine-Tests")
+endif()
 
 target_compile_definitions(OloEngine-Tests PRIVATE SOL_ALL_SAFETIES_ON=1)
 

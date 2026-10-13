@@ -74,6 +74,13 @@ in [groom-representation-lod.md](groom-representation-lod.md).
    compact `f (1 - exp(-S/f))` up to 27%. Held at its cooked width, the adult dog's card tier fell
    10-15% short of every strand at 45 m.
 
+8a. **A card reaches its growth only as far as it stands for a lock (#1595).** The stream carries
+   `1 + reach (growth - 1)`, reach `(strands per card - 1) / 31` up to 1
+   (`GroomCardCoverageGrowthReach`, in `GroomBuildSource::FromLevel`; 32 is the lock rule 8 was
+   validated on). The horses (9 and 14 strands a card) cover their strands at 32 m without growth
+   (1.145, 1.013), and full growth put the short coat at 1.211. Foxes (26-30) and dogs (45-127) fall
+   4-15% short without it. With reach: short coat 1.167, long 1.035; the dogs are unchanged.
+
 9. **The card cell sets how far a card averages its lock (#1558).** A wide card reads the body's
    shadow across its ribbon (receiving no scene shadow recovered a third of the dog's step) and shows
    its lock's mean tip, not its outer tips. At the 12 mm cell the adult dogs' cards were 7-9% darker
@@ -104,7 +111,7 @@ per-pixel energy. At the shipped shadow LOD the hand-over bakes the strands at 1
 hand-over removes it but costs 3-4 ms of bake CPU per frame for three walking animals. That is filed
 as #1508, and the shipped cells hold a gross guard (0.75-1.40). The 32 m cell sits near its ceiling.
 
-The short coat's cards cover 1.14-1.17 of its strands. At range this coat is mostly mane and tail,
+The short coat's cards cover 1.14-1.18 of its strands (rule 8a). At range this coat is mostly mane and tail,
 flat fans seen face-on, and a card's width is the members' coverage averaged over every direction.
 
 ## The dog's hand-over, held (#1533)

@@ -59,6 +59,7 @@
 #include "OloEngine/Scene/Entity.h"
 
 #include <array>
+#include <chrono>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -776,6 +777,15 @@ TEST_F(RendererMemoryAccountingEvidence, AGroomAndALawnLeaveNoPooledFramebufferB
     groomComponent.m_ShowPreview = false;
     groomComponent.m_RenderStrands = true;
 
+    // A PERSPECTIVE camera for this case. The fixture's primary camera is a
+    // default SceneCamera, orthographic with a -1..1 depth range, which from
+    // z = 6 leaves the tuft at z = 3 outside its frustum: the groom was never
+    // submitted, and the case passed only after another fixture had left the
+    // renderer in a state that drew it anyway.
+    Entity primaryCamera = GetScene().FindEntityByName("PrimaryCamera");
+    ASSERT_TRUE(primaryCamera);
+    primaryCamera.GetComponent<CameraComponent>().Camera.SetPerspective(glm::radians(60.0f), 0.05f, 1000.0f);
+
     const auto usePath = [this](const RenderingPath path)
     {
         Renderer3D::GetRendererSettings().Path = path;
@@ -794,10 +804,28 @@ TEST_F(RendererMemoryAccountingEvidence, AGroomAndALawnLeaveNoPooledFramebufferB
     usePath(RenderingPath::Forward);
     const GroomRenderPass* groomPass = Renderer3D::GetGroomRenderPass();
     ASSERT_NE(groomPass, nullptr);
-    ASSERT_GT(groomPass->GetStats().StrandsDrawn, 0u) << "the groom pass never drew, so this says nothing about it";
     const auto& foliage = lawn.GetComponent<FoliageComponent>();
+    // The tuft's and the lawn's detail are prepared off the frame and admitted
+    // when ready (representation streaming), so a fixed frame count raced the
+    // preparation and failed whenever the box was busy. Tick until both draw,
+    // bounded by time.
+    const auto bothDraw = [&]()
+    {
+        return groomPass->GetStats().StrandsDrawn > 0u && foliage.m_Renderer &&
+               foliage.m_Renderer->GetActiveLayerDrawInfo().Num() > 0;
+    };
+    const auto drawDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (!bothDraw() && std::chrono::steady_clock::now() < drawDeadline)
+    {
+        RunFrames(1);
+    }
+    // Asserted on the frame that met the condition...
+    ASSERT_GT(groomPass->GetStats().StrandsDrawn, 0u) << "the groom pass never drew, so this says nothing about it";
     ASSERT_TRUE(foliage.m_Renderer && foliage.m_Renderer->GetActiveLayerDrawInfo().Num() > 0)
         << "the lawn never drew, so this says nothing about the foliage pass";
+    // ...then the same drain usePath gives every other check, so the targets the
+    // newly admitted detail bound have settled before the pools are compared.
+    RunFrames(kDrainFrames + 2);
     expectPoolsHoldEverything("Forward");
 
     // Deferred draws the lawn into the G-Buffer: the foliage pass's Forward target idles.

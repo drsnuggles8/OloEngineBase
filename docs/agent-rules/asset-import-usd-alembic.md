@@ -31,71 +31,32 @@ inside `MaterialAssetSerializer::TryLoadData` (it's XML, not the engine's YAML m
 ## OpenUSD — the big one (`OLO_WITH_USD`, **default ON**, config-matched auto-build)
 
 USD import is **on by default** (matching UE5's USD-by-default posture). `cmake/vendor/OpenUSD.cmake`
-resolves USD one of two ways:
-- **Prebuilt** — `-DOLO_USD_INSTALL_DIR=<prefix>` at an existing static-monolithic USD + oneTBB
-  install uses it directly (a flat single-config install; CI caches / a shared build).
-- **Auto-build (default)** — otherwise oneTBB + static-monolithic OpenUSD build **from source** via
-  `ExternalProject_Add`, ONCE, into a per-user version-keyed cache (`$LOCALAPPDATA/OloEngine/usd-<sha8>`
-  on Windows). To dodge the Windows CRT trap (USD returns `std::string` — a cross-CRT free crashes),
-  **both Debug and Release are built** into per-config prefixes (`install/Debug`, `install/Release`);
-  the engine links the CRT-matching one via a `$<CONFIG>` genexpr (Debug engine → Debug USD;
-  Release/RelWithDebInfo/MinSizeRel → Release USD; Debug oneTBB is `tbb12_debug.lib`, Release is
-  `tbb12.lib`). First build ≈ 30–45 min + ~10 GB; later builds are machine-wide cache hits.
-  **CI that doesn't need USD sets `-DOLO_WITH_USD=OFF`.**
+builds static-monolithic OpenUSD **from source** via `ExternalProject_Add`, ONCE, into a per-user
+cache keyed on the USD tag and the oneTBB version (`$LOCALAPPDATA/OloEngine/usd-<sha8>-tbb<major.minor>`
+on Windows). To dodge the Windows CRT trap (USD returns `std::string` — a cross-CRT free crashes),
+**both Debug and Release are built** into per-config prefixes (`install/Debug`, `install/Release`);
+the engine links the CRT-matching one via a `$<CONFIG>` genexpr (Debug engine → Debug USD;
+Release/RelWithDebInfo/MinSizeRel → Release USD). First build ≈ 30–45 min + ~10 GB; later builds
+are machine-wide cache hits. **CI that doesn't need USD sets `-DOLO_WITH_USD=OFF`**, and today every
+CI job does, so a USD change is verified on a local tree only.
 
-### The cache is shared across worktrees — the stamps are not (fixed; know the failure it caused)
-
-The cache holds the source/binary/install trees, but `ExternalProject`'s `STAMP_DIR` defaults to the
-**consuming** build tree. So a **second worktree** used to see no stamps, conclude every step was out
-of date, and re-run configure+build *inside the first worktree's* `usd-build` — which is not
-idempotent, because `BUILD_COMMAND` is `--config Release` **then** `--config Debug` in one binary dir.
-Re-entering a finished tree fails across USD's `arch` target with:
-
-```text
-error C2859: ...\arch.dir\Release\arch.pdb is not the pdb file that was used when this
-             precompiled header was created, recreate the precompiled header.
-```
-
-The artifacts were shared; the "already done" record was not. **Symptom to recognise:** a *fresh
-worktree* failing in `olo_openusd` while `install/{Debug,Release}` is demonstrably complete
-(`usd_m.lib` ≈ 2.4 GB Debug / 2.1 GB Release).
-
-`OpenUSD.cmake` now **short-circuits on a complete cache**: if `usd_m` + the config's oneTBB lib +
-`include/pxr` + the `lib/usd` plugInfo tree all exist for **both** configs, it skips
-`ExternalProject_Add` entirely (`olo_usd_ext` becomes a no-op) and consumes the cache as a prebuilt
-install — so no worktree after the first ever writes to the shared tree. A *partial* cache (an
-interrupted first build) fails the check and resumes the real build. Bumping `_OLO_USD_TAG` changes
-the cache key; to force a genuine rebuild, delete `$LOCALAPPDATA/OloEngine/usd-<sha8>`.
-
-Two things that follow:
-
-- **Moving `STAMP_DIR` into the cache would NOT have fixed this** — it only relocates the race to two
-  worktrees configuring for the first time simultaneously.
-- **Still unsafe: two worktrees running their FIRST USD build concurrently** (one shared binary dir).
-  Same rule as the msvc/clangcl trees in
-  [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) — sequence the first build; every
-  tree after it is a lock-free cache hit.
-
-`-DOLO_USD_INSTALL_DIR` expects a **flat** prefix and now **probes** for `tbb12` vs `tbb12_debug`
-rather than assuming release. It previously hardcoded `tbb12.lib`, so pointing it at a Debug prefix
-(e.g. one config of the cache above) configured cleanly and then failed at link on a missing lib —
-which made the documented escape hatch useless for exactly the Debug build that hit the C2859 above.
+**One oneTBB, vcpkg's (#1575).** USD compiles against vcpkg's oneTBB and the engine links
+`TBB::tbb`; how, the guard that keeps a second one out, and how the USD build gets its compiler and
+job count, the shared cache and the `/WHOLEARCHIVE` link are in [openusd-build-and-link.md](openusd-build-and-link.md).
 
 **Do NOT vendor OpenUSD via FetchContent `add_subdirectory`.** USD's CMake is install-centric: the
 runtime `plugInfo.json` resource tree it needs to open *even a plain `.usda`* is produced by the
 **install step**, and its `pxr_*` macros pollute the parent project — hence ExternalProject
 (build + install out-of-tree), not a subproject.
 
-The ExternalProject mirrors this standalone superbuild recipe (also handy for producing an
-`OLO_USD_INSTALL_DIR` prebuilt):
+The ExternalProject mirrors this standalone recipe. oneTBB is USD's one mandatory dependency (no
+Boost/Imath/zlib for core USD), and it comes from vcpkg:
 
 ```cmake
-# oneTBB (USD's ONE mandatory dep; no Boost/Imath/zlib for core USD)
-ExternalProject_Add(onetbb GIT_REPOSITORY .../oneTBB.git GIT_TAG v2022.2.0 GIT_SHALLOW TRUE
-  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<prefix> -DBUILD_SHARED_LIBS=OFF -DTBB_TEST=OFF -DTBB_STRICT=OFF)
 # OpenUSD static monolithic (usd_m), headless, data-import only
-ExternalProject_Add(openusd DEPENDS onetbb GIT_REPOSITORY .../OpenUSD.git GIT_TAG v25.11 GIT_SHALLOW TRUE
-  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<prefix> -DTBB_DIR=<prefix>/lib/cmake/TBB
+ExternalProject_Add(openusd GIT_REPOSITORY .../OpenUSD.git GIT_TAG v25.11 GIT_SHALLOW TRUE
+  CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=<prefix> -DTBB_DIR=<vcpkg_installed>/<triplet>/share/tbb
+    -DPXR_FIND_TBB_IN_CONFIG=ON
     -DBUILD_SHARED_LIBS=OFF -DPXR_BUILD_MONOLITHIC=ON -DPXR_ENABLE_PYTHON_SUPPORT=OFF
     -DPXR_BUILD_IMAGING=OFF -DPXR_BUILD_USD_IMAGING=OFF -DPXR_BUILD_USDVIEW=OFF
     -DPXR_BUILD_TESTS=OFF -DPXR_BUILD_EXAMPLES=OFF -DPXR_BUILD_TUTORIALS=OFF
@@ -107,7 +68,7 @@ ExternalProject_Add(openusd DEPENDS onetbb GIT_REPOSITORY .../OpenUSD.git GIT_TA
 
 ### Gotchas that actually bit (all confirmed on VS 18 2026 / MSVC 19.51 / CMake 4.2):
 
-1. **`MAX_PATH` on the clone.** oneTBB (and USD) have deeply-nested doc files that overflow Windows'
+1. **`MAX_PATH` on the clone.** USD (and oneTBB, when it was built here) has deeply-nested files that overflow Windows'
    260-char path limit during `git clone`. `git config --global core.longpaths true` **and** use a
    very short build-tree base path (this build used `D:/ou`), not a deep scratchpad path.
 2. **Static-monolithic PDB-install bug.** USD's `cmake/macros/Public.cmake` unconditionally does
@@ -127,59 +88,12 @@ ExternalProject_Add(openusd DEPENDS onetbb GIT_REPOSITORY .../OpenUSD.git GIT_TA
    path**, not the bare `usd_m` — see gotcha 7.
 5. **Cost.** `usd_m.lib` ≈ **2.1 GB** Release / **2.4 GB** Debug (static archive — dead-stripped at
    the final exe link). Cold build ≈ 8–15 min per config. Config-matched builds both.
-6. **oneTBB static-Debug teardown assert.** A static Debug oneTBB trips a benign worker-teardown
-   assert (`small_object_pool.cpp:143`, `m_private_counter >= 0`) that aborts the process at exit —
-   all work completes, but it would pop an assert dialog on every Debug editor close. Fixed by
-   building oneTBB with `-DCMAKE_CXX_FLAGS=-DTBB_USE_ASSERT=0` (the `#ifndef TBB_USE_ASSERT` guard
-   respects a command-line define; disables `__TBB_ASSERT` in the compiled lib; Release already has
-   it off via `NDEBUG`). Verify a fix took by grepping the assert string out of `tbb12_debug.lib`
-   AND clean-relinking the consumer (MSBuild won't relink on a same-path `.lib` content change).
-7. **`/WHOLEARCHIVE:` needs a FULL PATH — a bare library name is not portable across the two
-   Windows linkers** (#697). `link.exe` resolves a bare `/WHOLEARCHIVE:usd_m` against `/LIBPATH`;
-   **`lld-link` does not** — it opens the argument as a path relative to the working directory only,
-   and kills the whole link with
-
-   ```text
-   lld-link: error: could not open 'usd_m': no such file or directory
-   ```
-
-   even though `usd_m.lib` is already on the link line by full path and its directory is in
-   `/LIBPATH`. This is not a niche path: **CMake sets `MSVC` TRUE for clang-cl** (it targets the MSVC
-   ABI), so an `if(MSVC)` guard is taken under the `clangcl` / `clangcl-asan` presets too. The result
-   was that both of those presets could not link *at all* with the default `OLO_WITH_USD=ON`, while
-   the msvc preset was perfectly green — everything compiled, so it looked like a link-config problem
-   rather than an option-spelling one.
-
-   The fix is to spell the option with the full path CMake already has
-   (`target_link_options(OloEngine PUBLIC "/WHOLEARCHIVE:${OloEngine_USD_LIB}")`), which is accepted
-   by **both** linkers. Verified against **LLD 21.1.8** and **MSVC `link.exe` 14.51** with a minimal
-   force-link probe (a static lib whose only content is a static-init side effect, and a `main` that
-   never references it):
-
-   | `/WHOLEARCHIVE:` argument                   | `link.exe` | `lld-link` |
-   | ------------------------------------------ | ---------- | ---------- |
-   | bare name, lib reachable via `/LIBPATH`     | force-links | **link fails** |
-   | full path, lib also on the link line        | force-links | force-links |
-   | full path, lib *not* on the link line       | force-links | force-links |
-   | full path containing spaces                 | force-links | force-links |
-   | *(control)* no `/WHOLEARCHIVE` at all       | object dropped | object dropped |
-
-   The control row is the part worth keeping: it is what proves the probe measures force-linking
-   rather than incidental reachability.
-
-   Do **not** "fix" a `/WHOLEARCHIVE` failure by deleting the option. It is load-bearing under both
-   linkers, but in *different* ways — measured by relinking the engine with the option commented out:
-   under `link.exe` the link succeeds and USD fails at **runtime** (gotcha 4), while under `lld-link`
-   the link fails outright with
-   `undefined symbol: __declspec(dllimport) ... UsdGeomGetStageUpAxis` — because `usd_m`'s headers
-   declare its symbols `dllimport` (the `/IGNORE:4217` flood) and lld-link will not satisfy a
-   dllimport-declared symbol from the archive without the whole-archive pull. So "it linked after I
-   removed the flag" is a *link.exe-only* observation, and it is the silent-at-link,
-   broken-at-runtime case.
-
-   `OloEngine_USD_LIB` carries a `$<CONFIG>` genexpr and `target_link_options` expands
-   it per config, so the full-path spelling is also config-matched where the bare name depended on
-   `/LIBPATH` search order to land on the right one.
+6. **oneTBB static-Debug teardown assert.** See
+   [openusd-build-and-link.md](openusd-build-and-link.md) section 3.
+7. **`/WHOLEARCHIVE:` needs a FULL PATH.** See
+   [openusd-build-and-link.md](openusd-build-and-link.md) section 6.
+8. **On Windows USD is built by MSVC's `cl`.** See
+   [openusd-build-and-link.md](openusd-build-and-link.md) section 4.
 
 Silent-correctness handling in `UsdMeshImporter`: stage up-axis (Z-up → -90° X rotation),
 `metersPerUnit` scale, `orientation` (leftHanded → reversed winding), primvar interpolation
