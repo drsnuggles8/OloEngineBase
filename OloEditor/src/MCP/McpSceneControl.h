@@ -145,6 +145,7 @@ namespace OloEngine::MCP::SceneControl
             { "path", result.Path },
             { "sceneName", result.SceneName },
             { "entityCount", result.EntityCount },
+            { "renderingPath", result.RenderingPath },
             { "message", result.Message },
         };
     }

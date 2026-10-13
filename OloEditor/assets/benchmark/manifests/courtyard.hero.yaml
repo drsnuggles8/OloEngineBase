@@ -33,8 +33,8 @@ Output:
   Resolution: [3840, 2160]
   RenderScale: 1.0
 
-# NOTE: TAA is not toggleable here (v1 RendererSettings allowlist) and not
-# scene-serialized — see courtyard.golden.yaml.
+# TAA is off in the scene and this manifest does not set TAAEnabled, so the hero
+# frame is captured without TAA (golden and diagnostic turn it on).
 RendererSettings:
   Path: Deferred
   EnableDDGI: true

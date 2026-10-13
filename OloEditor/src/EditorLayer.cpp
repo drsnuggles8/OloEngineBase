@@ -650,6 +650,7 @@ namespace OloEngine
                 result.EntityCount = m_ActiveScene
                                          ? static_cast<u32>(m_ActiveScene->GetAllEntitiesWith<IDComponent>().size())
                                          : 0;
+                result.RenderingPath = ToToken(Renderer3D::GetRendererSettings().Path);
                 result.Message = "Opened scene '" + result.SceneName + "' (" +
                                  std::to_string(result.EntityCount) + " entities).";
                 return result;
@@ -4629,6 +4630,9 @@ namespace OloEngine
         }
 
         Ref<Scene> newScene = Ref<Scene>::Create();
+        // A new scene keeps the live renderer settings, as it always has; record
+        // the path it is drawn with so the scene and the renderer agree (#1601).
+        newScene->SetRenderingPath(Renderer3D::GetRendererSettings().Path);
         SetEditorScene(newScene);
         m_EditorScenePath = std::filesystem::path();
 
@@ -4918,15 +4922,12 @@ namespace OloEngine
         auto autoPath = m_EditorScenePath;
         autoPath += ".auto";
 
-        // Sync renderer settings into scene before saving
-        m_EditorScene->SetPostProcessSettings(
-            StripTieringOverlay(Renderer3D::GetPostProcessSettings(), m_EditorScene->GetPostProcessSettings()));
-        m_EditorScene->SetSnowSettings(Renderer3D::GetSnowSettings());
-        m_EditorScene->SetWindSettings(Renderer3D::GetWindSettings());
-        m_EditorScene->SetSnowAccumulationSettings(Renderer3D::GetSnowAccumulationSettings());
-        m_EditorScene->SetSnowEjectaSettings(Renderer3D::GetSnowEjectaSettings());
-        m_EditorScene->SetPrecipitationSettings(Renderer3D::GetPrecipitationSettings());
-        m_EditorScene->SetFogSettings(Renderer3D::GetFogSettings());
+        // Sync renderer settings into scene before saving: the same capture an
+        // explicit save takes (CreateSceneDocumentAccess::PrepareSave), so the
+        // auto-save cannot drop a block, the rendering path included (#1601).
+        auto rendered = SceneTransition::SceneRenderSettings::CaptureRenderer();
+        rendered.PostProcess = StripTieringOverlay(rendered.PostProcess, m_EditorScene->GetPostProcessSettings());
+        rendered.Apply(*m_EditorScene);
         SerializeScene(m_EditorScene, autoPath);
 
         // Also save editor preferences alongside
@@ -5039,6 +5040,18 @@ namespace OloEngine
             OnSceneStop();
         }
 
+        // Validate before anything changes: a Play that cannot start must not
+        // copy the scene, reset the renderer's histories or arm the settings
+        // restore (left armed, the next Simulate's Stop would put back a stale
+        // snapshot over its edits). Scene::Copy keeps the camera, so checking the
+        // edit scene is checking the copy.
+        if (!m_EditorScene->GetPrimaryCameraEntity())
+        {
+            OLO_CORE_ERROR("Cannot enter Play mode: no entity with a primary CameraComponent found in the scene. "
+                           "Add an entity with a CameraComponent and set Primary = true.");
+            return;
+        }
+
         m_SceneState = SceneState::Play;
         // Before anything runtime writes the renderer (a WeatherSystem drives
         // fog, wind and precipitation, a Play-mode scene switch publishes its
@@ -5051,16 +5064,7 @@ namespace OloEngine
         m_ActiveScene = Scene::Copy(m_EditorScene);
         ResetRendererForSceneSwap();
 
-        // Validate that the scene has a primary camera before starting runtime
         Entity cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
-        if (!cameraEntity)
-        {
-            OLO_CORE_ERROR("Cannot enter Play mode: no entity with a primary CameraComponent found in the scene. "
-                           "Add an entity with a CameraComponent and set Primary = true.");
-            m_ActiveScene = m_EditorScene;
-            m_SceneState = SceneState::Edit;
-            return;
-        }
 
         // Warn about orthographic cameras in 3D mode (common misconfiguration)
         if (m_Is3DMode)
@@ -5096,6 +5100,12 @@ namespace OloEngine
         AttachGameplayEventLogger(*m_ActiveScene);
 
         BindPanelsToScene(m_ActiveScene, nullptr);
+        // The settings panels record renderer-settings edits as edits of the edit
+        // scene. Play-time edits die at Stop, which restores the settings captured
+        // above, so they must not land in its history. (Simulate restores nothing,
+        // so its edits stay recorded.)
+        m_PostProcessSettingsPanel.SetCommandHistory(nullptr);
+        m_RendererSettingsPanel.SetCommandHistory(nullptr);
         m_SaveGamePanel.SetContext(m_ActiveScene, m_Framebuffer);
 
         // Register the Play scene with networking so an editor session participates
@@ -5242,6 +5252,8 @@ namespace OloEngine
         }
 
         BindPanelsToScene(m_ActiveScene, &m_CommandHistory);
+        m_PostProcessSettingsPanel.SetCommandHistory(&m_CommandHistory);
+        m_RendererSettingsPanel.SetCommandHistory(&m_CommandHistory);
         m_SaveGamePanel.SetContext(nullptr, nullptr);
     }
 
@@ -5267,6 +5279,7 @@ namespace OloEngine
         m_AnimationPanel.SetContext(m_EditorScene);
         m_AnimationPanel.SetCommandHistory(&m_CommandHistory);
         m_PostProcessSettingsPanel.SetCommandHistory(&m_CommandHistory);
+        m_RendererSettingsPanel.SetCommandHistory(&m_CommandHistory);
         m_TerrainEditorPanel.SetContext(m_EditorScene);
         m_TerrainEditorPanel.SetCommandHistory(&m_CommandHistory);
         m_InstanceScatterBrushPanel.SetContext(m_EditorScene);

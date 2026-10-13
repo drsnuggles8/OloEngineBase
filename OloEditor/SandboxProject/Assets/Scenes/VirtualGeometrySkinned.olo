@@ -1,13 +1,15 @@
 Scene: VirtualGeometrySkinned.olo
 Version: 1
+RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Skinned virtualized geometry (issue #1150) — a rigged character drawn through
 # the Nanite-style cluster LOD DAG.
 #
 # REQUIRES THE DEFERRED RENDERING PATH, like every virtual-geometry scene:
-# VirtualGeometryPass self-disables on Forward / Forward+. On load:
-# Renderer Settings -> Rendering Path -> Deferred. (The Virtual Mesh inspector
-# shows a warning plus a one-click switch while the wrong path is active.)
+# VirtualGeometryPass self-disables on Forward / Forward+. The scene file
+# selects Deferred (RenderingPath below), so opening it switches the renderer.
+# (The Virtual Mesh inspector shows a warning plus a one-click switch if the
+# path is changed away afterwards.)
 #
 # PRESS PLAY.
 #

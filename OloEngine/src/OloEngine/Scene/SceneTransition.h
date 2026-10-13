@@ -91,6 +91,9 @@ namespace OloEngine::SceneTransition
         SnowEjectaSettings SnowEjecta;
         PrecipitationSettings Precipitation;
         FogSettings Fog;
+        /// Issue #1601. Mirrors RendererSettings::Path; publishing it is what
+        /// makes a shipped game draw on the path the scene was authored on.
+        RenderingPath Path = RenderingPath::Forward;
 
         [[nodiscard]] static SceneRenderSettings Capture(const Scene& scene);
         /// What the renderer currently draws with, quality tiering included.

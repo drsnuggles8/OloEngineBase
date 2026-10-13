@@ -235,6 +235,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [binary-format-versioning.md](binary-format-versioning.md): every on-disk format reads exactly its current version and rejects any other with a fix message; a bump migrates the repo's content in the same PR, and a fixed-order archive is framed and length-checked.
 - [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md): a cache must refuse to store a name nothing can resolve; the failure shows on the second load only.
 - [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md): `Scene::Copy()` must carry every scene-level settings struct into Play.
+- [scene-render-settings.md](scene-render-settings.md): a setting the scene owns and the renderer draws with goes in `SceneRenderSettings` plus both scene emitters, the shared reader and `Scene::Copy`; an unknown value fails the load.
 - [terrain-voxel-authored-state.md](terrain-voxel-authored-state.md): component copies share the voxel volume and separate worlds detach it; only authored (not auto-seeded) volumes are persisted, and tests compare exact VOX1 bytes on an edited greedy volume.
 - [floating-origin-rebase-subsystems.md](floating-origin-rebase-subsystems.md): four subsystems hold world-space state outside the rebased set, each needing a different fix.
 - [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md): a precondition asserted in a constructor delegates safety to every call site.
@@ -301,6 +302,7 @@ The dominant archetype here. If your change is in one of these areas, a passing 
 
 | Doc | What stayed green |
 |---|---|
+| [scene-render-settings.md](scene-render-settings.md) | A game shipped through Build Game ran Forward whatever the scene was authored on: it booted and drew a plausible frame, and only the missing SSR and SSGI showed it. |
 | [terrain-voxel-authored-state.md](terrain-voxel-authored-state.md) | A greedy terrain that lost its authored voxel volume on undo, Play or reload re-seeded a plausible height-field copy, so every mesh and chunk-count check passed. |
 | [headless-input-window.md](headless-input-window.md) | A server executes its scene successfully, then cursor release dereferences its absent window during shutdown; require a real scene start before checking clean exit. |
 | [scene-registry-source-path.md](scene-registry-source-path.md) | Direct scene opens work, but Build Game cannot load a registered scene because its project-relative path is opened from the editor working directory. |

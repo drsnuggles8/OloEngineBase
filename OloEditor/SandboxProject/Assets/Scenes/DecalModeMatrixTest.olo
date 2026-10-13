@@ -1,13 +1,12 @@
 Scene: DecalModeMatrixTest.olo
 Version: 1
+RenderingPath: Deferred
 # Decal MODE MATRIX (issue #853).
 #
 # Four decals in a row on one flat, uniform ground plane — one per DecalMode —
 # so each mode's channel routing is observable in isolation against a known
-# neighbour. Run this scene with the renderer on the DEFERRED path
-# (RendererSettings::Path lives on the renderer, not in the .olo — use
-# olo_renderer_settings_set or the editor's renderer panel); on Forward /
-# Forward+ every mode collapses to the transparent albedo overlay and the
+# neighbour. The scene selects the DEFERRED path itself (RenderingPath below);
+# on Forward / Forward+ every mode collapses to the transparent albedo overlay and the
 # matrix is not exercised at all.
 #
 # What each mode owes, and what a leak looks like on THIS plane

@@ -200,6 +200,23 @@ namespace OloEngine
             }
         }
 
+        // ApplySceneSettings throws on a value this build refuses (an unknown
+        // RenderingPath, issue #1601). Count that as a decode failure: the YAML
+        // loader then reads the same value and fails the load with the reason,
+        // instead of the exception escaping Deserialize.
+        if (ok && settings && settings.IsMap())
+        {
+            try
+            {
+                ApplySceneSettings(*m_Scene, settings);
+            }
+            catch (const std::exception& e)
+            {
+                OLO_CORE_WARN("SceneSerializer: binary sidecar '{}' settings rejected: {}", sidecar.string(), e.what());
+                ok = false;
+            }
+        }
+
         if (!ok)
         {
             DiagnosticsEventLog::SuppressScope suppressSpawnFlood;
@@ -210,9 +227,6 @@ namespace OloEngine
         }
 
         // ─────────────────── commit ───────────────────
-        if (settings && settings.IsMap())
-            ApplySceneSettings(*m_Scene, settings);
-
         // Match the YAML path: the on-disk filename is the authoritative scene name.
         m_Scene->SetName(sourcePath.filename().string());
 

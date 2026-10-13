@@ -67,6 +67,7 @@
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
 #include "TestOptions.h"
+#include "TestTempDir.h"
 #include "Rendering/Oracles/OracleStatistics.h"
 
 #include "OloEngine/Core/DebugLevers.h"
@@ -88,6 +89,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Scene/SceneTransition.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
 #include <glad/gl.h>
@@ -1398,6 +1400,9 @@ namespace OloEngine::Tests
         ConfigureEstimator(Estimator::SSGI, ShippedFeedback(Estimator::SSGI));
         Renderer3D::GetPostProcessSettings().SSREnabled = true;
         GetScene().SetPostProcessSettings(Renderer3D::GetPostProcessSettings());
+        // Without this the cooked game ran Forward, where neither estimator
+        // exists (issue #1601).
+        GetScene().SetRenderingPath(RenderingPath::Deferred);
         GetScene().SetName("TemporalBiasFixture");
         Renderer3D::ResetFrameSequences();
         RunFrames(2);
@@ -1449,6 +1454,89 @@ namespace OloEngine::Tests
             const GameBuildResult built = GameBuildPipeline::Build(settings, progress);
             ASSERT_TRUE(built.Success) << built.ErrorMessage;
             std::printf("[temporal-bias] Build Game fixture: %s\n", built.OutputPath.string().c_str());
+        }
+    }
+
+    // Issue #1601: a scene's authored rendering path selects the render graph
+    // through the seam every host activates scenes with (LoadSceneFile, then
+    // ApplySceneRenderSettings), and the next activation selects the next
+    // scene's path. Each step starts from a different path than it asks for, so
+    // only the scene can have chosen the one that runs. The check is the graph,
+    // not the setting: SSR and SSGI exist only on Deferred, so their resolved
+    // targets carrying a signal is the engagement proof, and their absence the
+    // proof that a transition away from Deferred took them down.
+    TEST_F(TemporalLongSequenceEvidenceTest, AuthoredPathSelectsTheGraphThroughSceneActivation)
+    {
+        ConfigureEstimator(Estimator::SSR, ShippedFeedback(Estimator::SSR));
+        ConfigureEstimator(Estimator::SSGI, ShippedFeedback(Estimator::SSGI));
+        Renderer3D::GetPostProcessSettings().SSREnabled = true;
+        SetPath(RenderingPath::Forward);
+        RunFrames(2);
+        ASSERT_TRUE(ReadTargetLuma(ResourceNames::SSRResolved).empty()) << "SSR ran on Forward before any activation";
+
+        struct RootScope
+        {
+            fs::path Root = OloEngine::Tests::TempDir("scene-path-activation");
+            ~RootScope()
+            {
+                std::error_code ec;
+                fs::remove_all(Root, ec);
+            }
+        } scope;
+        const fs::path& root = scope.Root;
+        // Returns the load error, empty on success, so a failed load stops the
+        // test at its step instead of the next step measuring the previous graph.
+        const auto activate = [&root](RenderingPath path) -> std::string
+        {
+            // Saved and loaded the way the runtime does, so the key's
+            // serialization is part of the chain under test.
+            Ref<Scene> authored = Scene::Create();
+            authored->CreateEntity("Camera").AddComponent<CameraComponent>().Primary = true;
+            SceneTransition::SceneRenderSettings::CaptureRenderer().Apply(*authored);
+            authored->SetRenderingPath(path);
+            const fs::path file = root / (std::string(ToToken(path)) + ".olo");
+            SceneSerializer(authored).Serialize(file);
+            const auto loaded = SceneTransition::LoadSceneFile(file, /*requirePrimaryCamera=*/true);
+            if (!loaded)
+                return std::string(loaded.Error.ToView());
+            SceneTransition::ApplySceneRenderSettings(*loaded.LoadedScene, nullptr);
+            return {};
+        };
+
+        constexpr std::array<RenderingPath, 4> sequence{ RenderingPath::Deferred, RenderingPath::Forward,
+                                                         RenderingPath::ForwardPlus, RenderingPath::Deferred };
+        for (u32 step = 0; step < sequence.size(); ++step)
+        {
+            const RenderingPath path = sequence[step];
+            SCOPED_TRACE(std::string("step ") + std::to_string(step) + ": " + ToToken(path));
+            const std::string error = activate(path);
+            ASSERT_TRUE(error.empty()) << error;
+            RunFrames(2);
+
+            EXPECT_EQ(Renderer3D::GetRendererSettings().Path, path);
+            const bool deferred = path == RenderingPath::Deferred;
+            const auto mean = [](const std::vector<f32>& luma)
+            {
+                f64 sum = 0.0;
+                for (const f32 value : luma)
+                    sum += value;
+                return luma.empty() ? 0.0 : sum / static_cast<f64>(luma.size());
+            };
+            const std::vector<f32> ssr = ReadTargetLuma(ResourceNames::SSRResolved);
+            const std::vector<f32> ssgi = ReadTargetLuma(ResourceNames::SSGIResolved);
+            EXPECT_EQ(!ssr.empty(), deferred) << "SSRResolved in the graph";
+            EXPECT_EQ(!ssgi.empty(), deferred) << "SSGIResolved in the graph";
+            if (deferred)
+            {
+                EXPECT_GT(mean(ssr), 0.0) << "SSR resolved no signal";
+                EXPECT_GT(mean(ssgi), 0.0) << "SSGI resolved no signal";
+            }
+            // Forward+ and Deferred force the tile culling on; Forward never does.
+            EXPECT_EQ(Renderer3D::GetForwardPlus().GetMode() == ForwardPlusMode::Always, path != RenderingPath::Forward);
+            std::printf("[scene-path] step %u %s: SSR %zu px mean %.5f, SSGI %zu px mean %.5f\n", step, ToToken(path),
+                        ssr.size(), mean(ssr), ssgi.size(), mean(ssgi));
+            if (step < 3)
+                WriteCompositePng(std::string("ScenePathActivation_GL_") + ToToken(path));
         }
     }
 

@@ -229,14 +229,15 @@ namespace OloEngine::SceneTransition
     {
         return { scene.GetPostProcessSettings(), scene.GetSnowSettings(), scene.GetWindSettings(),
                  scene.GetSnowAccumulationSettings(), scene.GetSnowEjectaSettings(),
-                 scene.GetPrecipitationSettings(), scene.GetFogSettings() };
+                 scene.GetPrecipitationSettings(), scene.GetFogSettings(), scene.GetRenderingPath() };
     }
 
     SceneRenderSettings SceneRenderSettings::CaptureRenderer()
     {
         return { Renderer3D::GetPostProcessSettings(), Renderer3D::GetSnowSettings(), Renderer3D::GetWindSettings(),
                  Renderer3D::GetSnowAccumulationSettings(), Renderer3D::GetSnowEjectaSettings(),
-                 Renderer3D::GetPrecipitationSettings(), Renderer3D::GetFogSettings() };
+                 Renderer3D::GetPrecipitationSettings(), Renderer3D::GetFogSettings(),
+                 Renderer3D::GetRendererSettings().Path };
     }
 
     void SceneRenderSettings::Apply(Scene& scene) const
@@ -248,6 +249,7 @@ namespace OloEngine::SceneTransition
         scene.SetSnowEjectaSettings(SnowEjecta);
         scene.SetPrecipitationSettings(Precipitation);
         scene.SetFogSettings(Fog);
+        scene.SetRenderingPath(Path);
     }
 
     void SceneRenderSettings::PublishToRenderer() const
@@ -259,10 +261,18 @@ namespace OloEngine::SceneTransition
         Renderer3D::GetSnowEjectaSettings() = SnowEjecta;
         Renderer3D::GetPrecipitationSettings() = Precipitation;
         Renderer3D::GetFogSettings() = Fog;
+        Renderer3D::GetRendererSettings().Path = Path;
     }
 
     void ApplySceneRenderSettings(const Scene& scene, const QualityTieringSettings* tiering)
     {
+        // Said out loud, because a wrong path is otherwise invisible: the game
+        // boots, draws, and simply lacks every Deferred-only effect (#1601). It
+        // also tells an editor user why opening a scene switched their path.
+        const RenderingPath previousPath = Renderer3D::GetRendererSettings().Path;
+        OLO_CORE_INFO("[SceneTransition] Scene '{}' renders on the {} path (authored; was {})", scene.GetName(),
+                      ToToken(scene.GetRenderingPath()), ToToken(previousPath));
+
         SceneRenderSettings::Capture(scene).PublishToRenderer();
 
         if (tiering)

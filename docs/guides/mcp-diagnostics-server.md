@@ -3074,4 +3074,5 @@ than blocking it.
 | Tool | Result |
 |---|---|
 | `olo_representation_streaming_stats` | Read shared groom/vegetation detail admission, pinned fallback, retiring GPU backing, CPU staging, cancellation, preparation, measured read calls and upload cost. Family counters describe effective residency. Use `olo_memory_report` for physical allocation provenance and heap observations. |
+| `olo_foliage_rebuild` | **(consented write)** mark a terrain `entity`'s foliage for regeneration at the next scene update, through the same path as an inspector edit. Changes no authored layer and does not save the scene; read `olo_representation_streaming_stats` for completion and CPU stage costs. Gated behind **Agent writes** |
 | `olo_representation_streaming_settings_set` | **(consented write)** Set the active scene's optional GPU, upload per frame and CPU staging budgets with `residentMegabytes`, `uploadMegabytesPerFrame` and `stagingMegabytes`. Values are finite MiB in 0..1048576; zero is unlimited, and all three zeroes restore eager loading. The drawable fallback is pinned separately. Changes do not save the scene. |
