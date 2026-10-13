@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 
 #include "OloEngine/Debug/Profiler.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/Debug/RenderTargetCopyLedger.h"
@@ -145,6 +146,9 @@ namespace OloEngine::RenderGraphPlanExecutor
                 // state; attribute it to this member (#1331).
                 auto recording = [&]
                 {
+#if defined(OLO_DEBUG) || defined(OLO_RELEASE)
+                    ScopedPerformanceTimer scope(pass->NodeName.GetData(), GetGlobalPerformanceProfiler(), false);
+#endif
                     const RGOutOfBand::ScopedActivePass activePass(input.OutOfBandLedger, pass->NodeName.ToView());
                     const RenderTargetCopyLedger::ScopedPass copyPass(pass->NodeName.ToView());
                     const RendererMemoryOwnerScope memoryOwner(pass->NodeName.ToView(), MemoryLifetime::PassOwned);
@@ -183,6 +187,9 @@ namespace OloEngine::RenderGraphPlanExecutor
                 passNames.push_back(pass->NodeName.ToStdString());
             api.RecordParallelOrdered(static_cast<u32>(passes.size()), [&](u32 lane)
                                       {
+#if defined(OLO_DEBUG) || defined(OLO_RELEASE)
+                    ScopedPerformanceTimer scope(passes[lane]->NodeName.GetData(), GetGlobalPerformanceProfiler(), false);
+#endif
                     const auto start = std::chrono::steady_clock::now();
                     api.PushDebugGroup(0u, passes[lane]->NodeName.ToView());
                     struct EndDebugGroup
@@ -417,6 +424,9 @@ namespace OloEngine::RenderGraphPlanExecutor
                     std::chrono::steady_clock::time_point executeStart{};
                     std::chrono::steady_clock::time_point executeEnd{};
                     {
+#if defined(OLO_DEBUG) || defined(OLO_RELEASE)
+                        ScopedPerformanceTimer scope(cmd.NodeName.GetData(), GetGlobalPerformanceProfiler(), false);
+#endif
                         const DebugGroupScope debugGroup{ cmd.NodeName.ToView() };
                         const RGOutOfBand::ScopedActivePass activePass(input.OutOfBandLedger, cmd.NodeName.ToView());
                         const RenderTargetCopyLedger::ScopedPass copyPass(cmd.NodeName.ToView());
