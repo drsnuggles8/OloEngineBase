@@ -1,0 +1,1055 @@
+{
+ "problem": "Time-based wait selected 120 legacy history entries despite only 66 captured frames since arm/pose setup; previous-camera frames were necessarily included.",
+ "run": {
+  "repeat": 0,
+  "cell": "hybrid",
+  "camera": "head-closeup",
+  "rayTracedShadows": true,
+  "frameTimeMs": {
+   "count": 120,
+   "p50Ms": 242.12,
+   "p95Ms": 463.68,
+   "p99Ms": 530.31,
+   "maxMs": 1650.11,
+   "deadlineMisses": 120
+  },
+  "cpuMs": {
+   "count": 120,
+   "p50Ms": 237.92,
+   "p95Ms": 460.35,
+   "p99Ms": 527.01,
+   "maxMs": 1646.95,
+   "deadlineMisses": 120
+  },
+  "gpuMs": {
+   "count": 120,
+   "p50Ms": 121.2,
+   "p95Ms": 328.78,
+   "p99Ms": 411.1,
+   "maxMs": 1301.03,
+   "deadlineMisses": 120
+  },
+  "fenceWaitMs": {
+   "count": 120,
+   "p50Ms": 0.0,
+   "p95Ms": 0.0,
+   "p99Ms": 0.0,
+   "maxMs": 0.0,
+   "deadlineMisses": 0
+  },
+  "presentWaitMs": {
+   "count": 120,
+   "p50Ms": 240.92,
+   "p95Ms": 463.53,
+   "p99Ms": 530.4,
+   "maxMs": 1649.51,
+   "deadlineMisses": 119
+  },
+  "topPasses": [
+   {
+    "pass": "GroomPass",
+    "gpuMs": 37.827,
+    "subPasses": {
+     "RootFrames": 5.811,
+     "StrandPrepass": 0.148,
+     "StrandShade": 0.131
+    }
+   },
+   {
+    "pass": "ShadowPass",
+    "gpuMs": 17.345,
+    "subPasses": {
+     "FoliageCull": 0.271,
+     "FoliageCasters": 0.003
+    }
+   },
+   {
+    "pass": "RayTracingScenePass",
+    "gpuMs": 7.421,
+    "subPasses": {
+     "VegetationDeformToBuffer": 0.691,
+     "GroomProxyDeformToBuffer": 2.553,
+     "AccelerationStructureBuild": 4.164
+    }
+   },
+   {
+    "pass": "ScenePass",
+    "gpuMs": 2.711,
+    "subPasses": {
+     "DepthPrepass": 1.094,
+     "LightCulling": 0.14,
+     "Color": 1.348
+    }
+   },
+   {
+    "pass": "DeferredLightingPass",
+    "gpuMs": 1.721,
+    "subPasses": {}
+   },
+   {
+    "pass": "GTAOPass",
+    "gpuMs": 1.413,
+    "subPasses": {
+     "HZB": 0.194,
+     "GTAO": 1.004,
+     "GTAO_Denoise": 0.165
+    }
+   }
+  ],
+  "topCpuPasses": [
+   {
+    "pass": "GroomPass",
+    "cpuMs": 229.821
+   },
+   {
+    "pass": "ShadowPass",
+    "cpuMs": 11.956
+   },
+   {
+    "pass": "RayTracingScenePass",
+    "cpuMs": 0.407
+   },
+   {
+    "pass": "ScenePass",
+    "cpuMs": 0.386
+   },
+   {
+    "pass": "BloomPass",
+    "cpuMs": 0.047
+   },
+   {
+    "pass": "DeferredLightingPass",
+    "cpuMs": 0.045
+   }
+  ],
+  "series": [
+   {
+    "frameTimeMs": 78.56,
+    "cpuMs": 75.99,
+    "gpuMs": 34.93
+   },
+   {
+    "frameTimeMs": 77.77,
+    "cpuMs": 75.19,
+    "gpuMs": 34.93
+   },
+   {
+    "frameTimeMs": 79.21,
+    "cpuMs": 76.64,
+    "gpuMs": 35.31
+   },
+   {
+    "frameTimeMs": 78.81,
+    "cpuMs": 76.27,
+    "gpuMs": 34.87
+   },
+   {
+    "frameTimeMs": 78.76,
+    "cpuMs": 76.22,
+    "gpuMs": 35.09
+   },
+   {
+    "frameTimeMs": 77.86,
+    "cpuMs": 75.29,
+    "gpuMs": 35.18
+   },
+   {
+    "frameTimeMs": 77.31,
+    "cpuMs": 74.77,
+    "gpuMs": 34.93
+   },
+   {
+    "frameTimeMs": 79.24,
+    "cpuMs": 76.69,
+    "gpuMs": 34.99
+   },
+   {
+    "frameTimeMs": 88.37,
+    "cpuMs": 85.62,
+    "gpuMs": 34.76
+   },
+   {
+    "frameTimeMs": 89.41,
+    "cpuMs": 86.73,
+    "gpuMs": 34.79
+   },
+   {
+    "frameTimeMs": 78.48,
+    "cpuMs": 75.85,
+    "gpuMs": 35.17
+   },
+   {
+    "frameTimeMs": 77.63,
+    "cpuMs": 75.1,
+    "gpuMs": 35.01
+   },
+   {
+    "frameTimeMs": 78.23,
+    "cpuMs": 75.65,
+    "gpuMs": 35.21
+   },
+   {
+    "frameTimeMs": 77.79,
+    "cpuMs": 75.21,
+    "gpuMs": 34.88
+   },
+   {
+    "frameTimeMs": 78.11,
+    "cpuMs": 75.55,
+    "gpuMs": 34.87
+   },
+   {
+    "frameTimeMs": 77.18,
+    "cpuMs": 74.62,
+    "gpuMs": 34.88
+   },
+   {
+    "frameTimeMs": 78.99,
+    "cpuMs": 76.39,
+    "gpuMs": 34.77
+   },
+   {
+    "frameTimeMs": 78.97,
+    "cpuMs": 76.42,
+    "gpuMs": 34.94
+   },
+   {
+    "frameTimeMs": 77.8,
+    "cpuMs": 75.24,
+    "gpuMs": 35.02
+   },
+   {
+    "frameTimeMs": 78.34,
+    "cpuMs": 75.75,
+    "gpuMs": 34.68
+   },
+   {
+    "frameTimeMs": 86.88,
+    "cpuMs": 82.48,
+    "gpuMs": 35.04
+   },
+   {
+    "frameTimeMs": 85.4,
+    "cpuMs": 82.79,
+    "gpuMs": 34.84
+   },
+   {
+    "frameTimeMs": 77.76,
+    "cpuMs": 75.21,
+    "gpuMs": 34.87
+   },
+   {
+    "frameTimeMs": 79.38,
+    "cpuMs": 76.78,
+    "gpuMs": 35.17
+   },
+   {
+    "frameTimeMs": 78.12,
+    "cpuMs": 75.59,
+    "gpuMs": 35.05
+   },
+   {
+    "frameTimeMs": 77.6,
+    "cpuMs": 75.01,
+    "gpuMs": 34.72
+   },
+   {
+    "frameTimeMs": 78.12,
+    "cpuMs": 75.57,
+    "gpuMs": 35.35
+   },
+   {
+    "frameTimeMs": 78.55,
+    "cpuMs": 75.89,
+    "gpuMs": 35.23
+   },
+   {
+    "frameTimeMs": 78.54,
+    "cpuMs": 75.77,
+    "gpuMs": 34.7
+   },
+   {
+    "frameTimeMs": 77.27,
+    "cpuMs": 74.7,
+    "gpuMs": 34.85
+   },
+   {
+    "frameTimeMs": 80.12,
+    "cpuMs": 75.47,
+    "gpuMs": 34.59
+   },
+   {
+    "frameTimeMs": 78.44,
+    "cpuMs": 75.7,
+    "gpuMs": 34.97
+   },
+   {
+    "frameTimeMs": 84.53,
+    "cpuMs": 75.53,
+    "gpuMs": 35.37
+   },
+   {
+    "frameTimeMs": 95.8,
+    "cpuMs": 92.91,
+    "gpuMs": 34.69
+   },
+   {
+    "frameTimeMs": 80.76,
+    "cpuMs": 77.89,
+    "gpuMs": 34.45
+   },
+   {
+    "frameTimeMs": 83.19,
+    "cpuMs": 80.59,
+    "gpuMs": 34.56
+   },
+   {
+    "frameTimeMs": 80.95,
+    "cpuMs": 78.35,
+    "gpuMs": 34.69
+   },
+   {
+    "frameTimeMs": 79.84,
+    "cpuMs": 77.3,
+    "gpuMs": 34.9
+   },
+   {
+    "frameTimeMs": 79.27,
+    "cpuMs": 76.76,
+    "gpuMs": 35.15
+   },
+   {
+    "frameTimeMs": 78.99,
+    "cpuMs": 76.44,
+    "gpuMs": 34.81
+   },
+   {
+    "frameTimeMs": 80.72,
+    "cpuMs": 78.12,
+    "gpuMs": 35.49
+   },
+   {
+    "frameTimeMs": 83.87,
+    "cpuMs": 81.13,
+    "gpuMs": 35.29
+   },
+   {
+    "frameTimeMs": 81.96,
+    "cpuMs": 79.18,
+    "gpuMs": 35.4
+   },
+   {
+    "frameTimeMs": 79.43,
+    "cpuMs": 76.77,
+    "gpuMs": 35.39
+   },
+   {
+    "frameTimeMs": 81.88,
+    "cpuMs": 79.35,
+    "gpuMs": 34.68
+   },
+   {
+    "frameTimeMs": 95.81,
+    "cpuMs": 93.02,
+    "gpuMs": 35.14
+   },
+   {
+    "frameTimeMs": 81.24,
+    "cpuMs": 78.53,
+    "gpuMs": 35.22
+   },
+   {
+    "frameTimeMs": 82.59,
+    "cpuMs": 79.23,
+    "gpuMs": 35.62
+   },
+   {
+    "frameTimeMs": 79.34,
+    "cpuMs": 76.73,
+    "gpuMs": 34.95
+   },
+   {
+    "frameTimeMs": 79.24,
+    "cpuMs": 76.69,
+    "gpuMs": 34.99
+   },
+   {
+    "frameTimeMs": 343.34,
+    "cpuMs": 340.81,
+    "gpuMs": 34.73
+   },
+   {
+    "frameTimeMs": 202.95,
+    "cpuMs": 199.98,
+    "gpuMs": 35.54
+   },
+   {
+    "frameTimeMs": 205.22,
+    "cpuMs": 201.49,
+    "gpuMs": 36.68
+   },
+   {
+    "frameTimeMs": 195.28,
+    "cpuMs": 150.73,
+    "gpuMs": 36.84
+   },
+   {
+    "frameTimeMs": 149.15,
+    "cpuMs": 146.51,
+    "gpuMs": 35.27
+   },
+   {
+    "frameTimeMs": 1650.11,
+    "cpuMs": 1646.95,
+    "gpuMs": 35.27
+   },
+   {
+    "frameTimeMs": 488.1,
+    "cpuMs": 472.62,
+    "gpuMs": 35.7
+   },
+   {
+    "frameTimeMs": 293.68,
+    "cpuMs": 290.55,
+    "gpuMs": 1301.03
+   },
+   {
+    "frameTimeMs": 463.68,
+    "cpuMs": 460.35,
+    "gpuMs": 306.34
+   },
+   {
+    "frameTimeMs": 510.02,
+    "cpuMs": 506.8,
+    "gpuMs": 128.94
+   },
+   {
+    "frameTimeMs": 400.96,
+    "cpuMs": 397.76,
+    "gpuMs": 256.45
+   },
+   {
+    "frameTimeMs": 399.07,
+    "cpuMs": 395.92,
+    "gpuMs": 354.65
+   },
+   {
+    "frameTimeMs": 490.46,
+    "cpuMs": 486.94,
+    "gpuMs": 275.27
+   },
+   {
+    "frameTimeMs": 530.31,
+    "cpuMs": 527.01,
+    "gpuMs": 268.19
+   },
+   {
+    "frameTimeMs": 478.86,
+    "cpuMs": 475.51,
+    "gpuMs": 386.04
+   },
+   {
+    "frameTimeMs": 406.6,
+    "cpuMs": 402.17,
+    "gpuMs": 411.1
+   },
+   {
+    "frameTimeMs": 393.11,
+    "cpuMs": 389.94,
+    "gpuMs": 305.95
+   },
+   {
+    "frameTimeMs": 405.19,
+    "cpuMs": 401.86,
+    "gpuMs": 272.57
+   },
+   {
+    "frameTimeMs": 415.23,
+    "cpuMs": 410.0,
+    "gpuMs": 270.39
+   },
+   {
+    "frameTimeMs": 443.44,
+    "cpuMs": 440.29,
+    "gpuMs": 275.78
+   },
+   {
+    "frameTimeMs": 398.5,
+    "cpuMs": 395.12,
+    "gpuMs": 340.7
+   },
+   {
+    "frameTimeMs": 395.41,
+    "cpuMs": 391.85,
+    "gpuMs": 283.01
+   },
+   {
+    "frameTimeMs": 398.03,
+    "cpuMs": 394.73,
+    "gpuMs": 276.77
+   },
+   {
+    "frameTimeMs": 399.63,
+    "cpuMs": 396.22,
+    "gpuMs": 271.04
+   },
+   {
+    "frameTimeMs": 271.8,
+    "cpuMs": 268.59,
+    "gpuMs": 270.44
+   },
+   {
+    "frameTimeMs": 256.26,
+    "cpuMs": 253.04,
+    "gpuMs": 328.78
+   },
+   {
+    "frameTimeMs": 249.14,
+    "cpuMs": 245.76,
+    "gpuMs": 123.78
+   },
+   {
+    "frameTimeMs": 242.56,
+    "cpuMs": 237.92,
+    "gpuMs": 126.73
+   },
+   {
+    "frameTimeMs": 407.86,
+    "cpuMs": 404.33,
+    "gpuMs": 127.04
+   },
+   {
+    "frameTimeMs": 396.06,
+    "cpuMs": 392.59,
+    "gpuMs": 122.47
+   },
+   {
+    "frameTimeMs": 409.85,
+    "cpuMs": 406.65,
+    "gpuMs": 273.84
+   },
+   {
+    "frameTimeMs": 402.41,
+    "cpuMs": 398.66,
+    "gpuMs": 272.62
+   },
+   {
+    "frameTimeMs": 404.84,
+    "cpuMs": 401.65,
+    "gpuMs": 278.73
+   },
+   {
+    "frameTimeMs": 259.64,
+    "cpuMs": 256.36,
+    "gpuMs": 277.74
+   },
+   {
+    "frameTimeMs": 247.91,
+    "cpuMs": 244.76,
+    "gpuMs": 329.28
+   },
+   {
+    "frameTimeMs": 236.56,
+    "cpuMs": 233.4,
+    "gpuMs": 126.74
+   },
+   {
+    "frameTimeMs": 237.6,
+    "cpuMs": 233.07,
+    "gpuMs": 125.15
+   },
+   {
+    "frameTimeMs": 250.84,
+    "cpuMs": 247.75,
+    "gpuMs": 121.66
+   },
+   {
+    "frameTimeMs": 397.99,
+    "cpuMs": 394.54,
+    "gpuMs": 122.72
+   },
+   {
+    "frameTimeMs": 396.17,
+    "cpuMs": 393.0,
+    "gpuMs": 126.13
+   },
+   {
+    "frameTimeMs": 371.04,
+    "cpuMs": 367.71,
+    "gpuMs": 275.17
+   },
+   {
+    "frameTimeMs": 359.87,
+    "cpuMs": 356.48,
+    "gpuMs": 235.89
+   },
+   {
+    "frameTimeMs": 358.78,
+    "cpuMs": 355.41,
+    "gpuMs": 218.5
+   },
+   {
+    "frameTimeMs": 368.64,
+    "cpuMs": 365.26,
+    "gpuMs": 221.03
+   },
+   {
+    "frameTimeMs": 364.95,
+    "cpuMs": 361.7,
+    "gpuMs": 217.92
+   },
+   {
+    "frameTimeMs": 360.4,
+    "cpuMs": 356.89,
+    "gpuMs": 218.12
+   },
+   {
+    "frameTimeMs": 362.57,
+    "cpuMs": 359.33,
+    "gpuMs": 218.48
+   },
+   {
+    "frameTimeMs": 366.32,
+    "cpuMs": 363.04,
+    "gpuMs": 219.32
+   },
+   {
+    "frameTimeMs": 363.96,
+    "cpuMs": 360.71,
+    "gpuMs": 220.25
+   },
+   {
+    "frameTimeMs": 360.21,
+    "cpuMs": 356.86,
+    "gpuMs": 224.34
+   },
+   {
+    "frameTimeMs": 361.2,
+    "cpuMs": 357.91,
+    "gpuMs": 225.64
+   },
+   {
+    "frameTimeMs": 371.1,
+    "cpuMs": 367.72,
+    "gpuMs": 218.92
+   },
+   {
+    "frameTimeMs": 363.96,
+    "cpuMs": 360.71,
+    "gpuMs": 228.49
+   },
+   {
+    "frameTimeMs": 248.38,
+    "cpuMs": 245.15,
+    "gpuMs": 231.78
+   },
+   {
+    "frameTimeMs": 247.08,
+    "cpuMs": 242.62,
+    "gpuMs": 258.25
+   },
+   {
+    "frameTimeMs": 239.72,
+    "cpuMs": 236.5,
+    "gpuMs": 124.72
+   },
+   {
+    "frameTimeMs": 238.84,
+    "cpuMs": 235.37,
+    "gpuMs": 120.71
+   },
+   {
+    "frameTimeMs": 236.56,
+    "cpuMs": 233.41,
+    "gpuMs": 121.81
+   },
+   {
+    "frameTimeMs": 406.44,
+    "cpuMs": 403.14,
+    "gpuMs": 117.33
+   },
+   {
+    "frameTimeMs": 403.33,
+    "cpuMs": 399.9,
+    "gpuMs": 116.6
+   },
+   {
+    "frameTimeMs": 399.17,
+    "cpuMs": 395.87,
+    "gpuMs": 281.9
+   },
+   {
+    "frameTimeMs": 399.65,
+    "cpuMs": 396.23,
+    "gpuMs": 279.32
+   },
+   {
+    "frameTimeMs": 247.31,
+    "cpuMs": 244.17,
+    "gpuMs": 281.11
+   },
+   {
+    "frameTimeMs": 238.1,
+    "cpuMs": 233.82,
+    "gpuMs": 280.91
+   },
+   {
+    "frameTimeMs": 250.01,
+    "cpuMs": 246.7,
+    "gpuMs": 128.77
+   },
+   {
+    "frameTimeMs": 242.12,
+    "cpuMs": 238.12,
+    "gpuMs": 122.06
+   },
+   {
+    "frameTimeMs": 244.7,
+    "cpuMs": 241.53,
+    "gpuMs": 121.2
+   },
+   {
+    "frameTimeMs": 395.73,
+    "cpuMs": 392.44,
+    "gpuMs": 124.6
+   },
+   {
+    "frameTimeMs": 394.56,
+    "cpuMs": 391.27,
+    "gpuMs": 127.6
+   },
+   {
+    "frameTimeMs": 394.56,
+    "cpuMs": 395.13,
+    "gpuMs": 273.31
+   }
+  ],
+  "groomStats": {
+   "groom": {
+    "byRepresentation": [
+     {
+      "bytes": 533556576,
+      "grooms": 1,
+      "representation": "Strand",
+      "strands": 55733
+     },
+     {
+      "bytes": 284788256,
+      "grooms": 43,
+      "representation": "Card",
+      "strands": 372774
+     },
+     {
+      "bytes": 0,
+      "grooms": 0,
+      "representation": "Mesh",
+      "strands": 0
+     }
+    ],
+    "dominantFallbackReason": "the apparent size selects the shell tier, which the measured comparison did not select (see docs/analysis/groom-representation-lod-1252.md)",
+    "groomsAtCompensationCap": 1,
+    "groomsFellBack": 2,
+    "groomsOnSelectedTier": 42,
+    "groomsSubmitted": 44,
+    "maxWidthCompensation": 8.0,
+    "representationChanges": 0,
+    "segmentsDrawn": 3855823,
+    "strandsDrawn": 428507
+   },
+   "coatShadow": {
+    "bakeMicroseconds": 153170,
+    "deformedRebakes": 3,
+    "dominantFallbackReason": "None",
+    "fallback": 0,
+    "maxDriftVoxels": 0.0,
+    "rebuilds": 3,
+    "residentBytes": 5655936,
+    "resolutionInForce": 64,
+    "shadowed": 44,
+    "unshadowedByChoice": 0
+   },
+   "sceneShadow": {
+    "atlasDraws": 0,
+    "cascadeDraws": 0,
+    "groomsAskedToCast": 5,
+    "groomsCasting": 5,
+    "segmentsCast": 645334,
+    "segmentsWhole": 2576520,
+    "virtualShadowLevelDraws": 9
+   },
+   "animalBudget": {
+    "animalsAtDesired": 1,
+    "animalsAtPoseStepCap": 0,
+    "animalsAtVisibilityFloor": 0,
+    "animalsCapHeld": 40,
+    "animalsCoarsened": 0,
+    "animalsConsidered": 41,
+    "animalsHeldByHysteresis": 0,
+    "budgetExceeded": true,
+    "byAxis": [
+     {
+      "axis": "Deformation",
+      "budgetUnits": 1366.75,
+      "desiredCostUnits": 413.2798156738281,
+      "scheduledCostUnits": 413.2798156738281,
+      "shareOfScheduled": 0.005914788693189621
+     },
+     {
+      "axis": "Simulation",
+      "budgetUnits": 1366.75,
+      "desiredCostUnits": 49055.7890625,
+      "scheduledCostUnits": 49055.7890625,
+      "shareOfScheduled": 0.7020778656005859
+     },
+     {
+      "axis": "Visibility",
+      "budgetUnits": 1366.75,
+      "desiredCostUnits": 8545.580078125,
+      "scheduledCostUnits": 8545.580078125,
+      "shareOfScheduled": 0.12230285257101059
+     },
+     {
+      "axis": "Shadow",
+      "budgetUnits": 1366.75,
+      "desiredCostUnits": 77384.9296875,
+      "scheduledCostUnits": 11324.623046875,
+      "shareOfScheduled": 0.16207602620124817
+     }
+    ],
+    "drawCallCostUnits": 533.0,
+    "drawCalls": 82,
+    "enabled": true,
+    "estimatedCostUnits": 69872.2890625,
+    "frameBudgetUnits": 6000.0,
+    "heroesCoarsened": 0,
+    "heroesConsidered": 1,
+    "maxStarvedFrames": 3756,
+    "stepChanges": 0
+   }
+  },
+  "rtScene": {
+   "availability": {
+    "available": true,
+    "enabled": true,
+    "hasData": true,
+    "status": "ready"
+   },
+   "capability": {
+    "properties": {
+     "maxGeometryCount": 16777215,
+     "maxInstanceCount": 16777215,
+     "maxPrimitiveCount": 536870911,
+     "minScratchOffsetAlignment": 128
+    },
+    "rayTracingPipeline": true,
+    "reason": "supported",
+    "supported": true
+   },
+   "deformedSurfaces": {
+    "allocated": 0,
+    "dispatched": 44,
+    "paletteBytes": 131072,
+    "reallocated": 0,
+    "refused": 0,
+    "requested": 44,
+    "residentBytes": 3203072,
+    "residentSurfaces": 44,
+    "retired": 0,
+    "skippedUnchanged": 0,
+    "verticesDeformed": 96996
+   },
+   "frame": {
+    "blasBuildGpuTimeChannel": "olo_perf_pass_timings -> AccelerationStructureBuild sub-pass",
+    "blasBuilds": 2,
+    "blasCompactions": 0,
+    "blasRefits": 148,
+    "blasRetired": 0,
+    "deformedBuildsDeferred": 0,
+    "instancesSkipped": 0,
+    "instancesTraced": 152,
+    "tlasBuilds": 0,
+    "tlasUpdates": 1
+   },
+   "freshness": {
+    "model": "previousFrame",
+    "sampleAgeFrames": null,
+    "stale": false
+   },
+   "gpuScene": {
+    "animated": {
+     "canonicalEntities": 44,
+     "canonicalInstances": 46,
+     "surfacesWithHistory": 46,
+     "surfacesWithoutHistory": 0,
+     "unsupportedInstances": 0,
+     "unsupportedVariants": 0
+    },
+    "available": true,
+    "foliage": {
+     "authoredMeshInstances": 671769,
+     "canonicalInstances": 671769,
+     "impostorInstances": 0,
+     "meshCardInstances": 0,
+     "spatialGroups": 1044,
+     "unsupportedInstances": 0,
+     "unsupportedVariants": 0
+    },
+    "geometries": 151,
+    "instances": 152,
+    "lights": 4,
+    "materials": 98,
+    "notStagedByCategory": {
+     "cloth": 0,
+     "fluids": 0,
+     "foliage": 1,
+     "groom": 44,
+     "legacyModel": 0,
+     "legacySubmesh": 0,
+     "notExtractable": 0,
+     "particles": 0,
+     "procedural": 1,
+     "skinned": 0,
+     "softwareRaster": 0,
+     "terrain": 1,
+     "tiles": 0,
+     "virtualized": 0
+    },
+    "notStagedTotal": 47
+   },
+   "grooms": {
+    "complete": true,
+    "considered": 44,
+    "detailedCoats": 1,
+    "dominantRefusalDetail": "The coat is in the ray-traced scene at the tier its apparent size selects.",
+    "dominantRefusalReason": "None",
+    "gpuDispatchFailures": 0,
+    "gpuDispatched": 44,
+    "maxWidthCompensation": 21.213895797729492,
+    "proxyCoats": 43,
+    "rebuilds": 44,
+    "refreshDeferred": 0,
+    "refused": 0,
+    "represented": 44,
+    "residentBytes": 116037712,
+    "residentTriangles": 1526812,
+    "reused": 0,
+    "segmentsConverted": 381703,
+    "tierChanges": 0,
+    "trianglesBuilt": 1526812,
+    "updateMicroseconds": 55323,
+    "widthCompensationCap": 48.0
+   },
+   "lastTlasReason": "Update",
+   "resident": {
+    "accelerationStructureBytes": 127712960,
+    "animatedInstancesRefused": 0,
+    "blasByClass": {
+     "deformed": 150,
+     "masked": 0,
+     "rigidDynamic": 0,
+     "static": 1,
+     "unsupported": 0
+    },
+    "compactionSavedBytes": 2688,
+    "scratchBytes": 9297408,
+    "tlasInstances": 152,
+    "unsupportedInstances": 0
+   },
+   "vegetation": {
+    "beyondReflectionBudget": 0,
+    "cadenceHolds": 0,
+    "carriedBuilds": 0,
+    "castersComplete": false,
+    "castingDemandBuilds": 60.0,
+    "castingDemandVertices": 1023800.0,
+    "castingFallbackGroups": 3,
+    "castingGroupsLeftOut": 94,
+    "castingGroupsPlanned": 148,
+    "complete": false,
+    "deferredReflectionGroups": 0,
+    "deferredReflectionPlants": 0,
+    "detailedGroups": 0,
+    "dispatchBatches": 6,
+    "dispatched": 54,
+    "fallbackEngagements": 1,
+    "groupsCreated": 0,
+    "groupsRetired": 0,
+    "historyReset": false,
+    "nearestCastingFallback": 36.128787994384766,
+    "oldestSnapshotAge": 0.0,
+    "oldestSnapshotError": 0.0,
+    "planFrameSeconds": 0.100006103515625,
+    "plantsBeyondReflectionBudget": 0,
+    "plantsRepresented": 162975,
+    "pressure": "frameWork",
+    "pressureGroups": {
+     "accelerationMemory": 0,
+     "buildDebt": 0,
+     "frameWork": 97,
+     "geometryMemory": 0,
+     "invalidContent": 0,
+     "producerFailure": 0,
+     "residentGroups": 0
+    },
+    "producerFailed": false,
+    "proxyGroups": 54,
+    "ready": false,
+    "recovery": {
+     "accelerationBytes": 274734464,
+     "builds": 220,
+     "geometryBytes": 230108792,
+     "triangles": 4342646,
+     "vertices": 15415627
+    },
+    "recoveryFramesRemaining": 8,
+    "reflectionDetailReach": 0.0,
+    "reflectionReach": 0.0,
+    "refreshReasons": {
+     "due": 54,
+     "invalid": 0,
+     "new": 0,
+     "reset": 0
+    },
+    "refused": 94,
+    "requested": 148,
+    "residentBytes": 37768504,
+    "reused": 0,
+    "shadowFallbackEngagements": 1,
+    "shadowReady": false,
+    "shadowRecoveryFramesRemaining": 8,
+    "shadowTlasWithheld": true,
+    "stagedAccelerationBytes": 27125632,
+    "staleReflectionSnapshots": 0,
+    "tlasWithheld": true,
+    "verticesDeformed": 775856
+   }
+  }
+ },
+ "scopeDump": {
+  "armed": false,
+  "capturedFrames": 66,
+  "eventsPerFrame": 1024,
+  "frameCapacity": 1536,
+  "frames": [],
+  "framesOverwritten": 0,
+  "framesWritten": 66,
+  "lateCompletions": 0,
+  "partialFramesDiscarded": 1,
+  "path": "assets/mcp-captures/1594/vulkan-all-original-cameras-16.json",
+  "retainedBytes": 214081536,
+  "status": "ok"
+ },
+ "poseRequest": {
+  "pose": {
+   "position": [
+    -34.7,
+    1.48,
+    195.9
+   ],
+   "yaw": 98.13,
+   "pitch": 3.238,
+   "fov": 30.0
+  },
+  "requestedAtUnixSeconds": 1791881955.7253702
+ }
+}

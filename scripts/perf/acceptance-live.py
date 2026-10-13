@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import tempfile
 import time
 from pathlib import Path
@@ -54,6 +55,48 @@ def stats(values: list[float], deadline: float) -> dict:
             "deadlineMisses": sum(1 for v in values if v > deadline)}
 
 
+def live_frame_probe(client: Client) -> dict:
+    probe = client.tool("olo_perf_snapshot")
+    live = probe.get("liveness") or {}
+    if live.get("iconified") or live.get("captureUnready"):
+        raise RuntimeError("Cannot sample a parked or unready editor")
+    # ticking is diagnostic: a genuine >750ms hitch can make it false.
+    # Bound progress with the window timeout instead of discarding that hitch.
+    if not isinstance(probe.get("renderFrameNumber"), int) or not isinstance(probe.get("renderFrameGeneration"), int):
+        raise RuntimeError("Editor did not expose completed-frame identity")
+    return probe
+
+
+def finish_frame_window(client: Client, start_frame: int, frames: int, frame_ms: float, generation: int) -> int:
+    """Verify enough post-settle frames; probe per window, never per frame."""
+    deadline = time.monotonic() + max(300.0, 5 * frames * frame_ms / 1000.0)
+    while True:
+        probe = live_frame_probe(client)
+        if probe["renderFrameGeneration"] != generation:
+            raise RuntimeError("Renderer history reset during the camera window")
+        end_frame = probe["renderFrameNumber"]
+        completed = end_frame - start_frame
+        if completed < 0:
+            raise RuntimeError("Editor frame counter reset during the camera window")
+        if completed >= frames:
+            return end_frame
+        if time.monotonic() >= deadline:
+            raise RuntimeError("Camera window did not complete the requested frames")
+        fps = probe.get("fps")
+        estimate_ms = 1000.0 / fps if isinstance(fps, (int, float)) and math.isfinite(fps) and fps > 0 else frame_ms
+        time.sleep(max(0.1, 1.3 * (frames - completed) * estimate_ms / 1000.0))
+
+
+def camera_history(client: Client, frames: int, generation: int) -> list[dict]:
+    response = client.tool("olo_perf_frame_history", raw=True)
+    if response.get("renderFrameGeneration") != generation:
+        raise RuntimeError("Renderer history reset before camera history was fetched")
+    history = response.get("series", [])[-frames:]
+    if len(history) != frames or any(not f.get("frameTimeMs", 0) > 0 for f in history):
+        raise RuntimeError("Frame history cannot supply the requested completed camera window")
+    return history
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
     parser.add_argument("--port", type=int, default=7391)
@@ -70,6 +113,8 @@ def main() -> int:
     parser.add_argument("--keep-series", action="store_true", help="keep the per-frame series, not only its stats")
     parser.add_argument("--skip-open", action="store_true", help="the scene is already open in the editor")
     args = parser.parse_args()
+    if args.frames < 1:
+        parser.error("--frames must be positive")
 
     manifest = yaml.safe_load(args.manifest.read_text(encoding="utf-8"))
     client = Client(Path(tempfile.gettempdir()) / f"oloengine-mcp-{args.port}.json", timeout=900)
@@ -116,8 +161,11 @@ def main() -> int:
                                 pitch=cam["PitchDegrees"], fov=cam["FovDegrees"])
                     time.sleep(args.settle)
                     # Wait until the ring holds `frames` frames of THIS pose.
-                    probe = client.tool("olo_perf_frame_history", points=1)
-                    frame_ms = (probe.get("stats") or {}).get("meanMs") or 200.0
+                    probe = live_frame_probe(client)
+                    start_frame = probe["renderFrameNumber"]
+                    frame_ms = probe.get("frameTimeMs") or 200.0
+                    if not math.isfinite(frame_ms) or frame_ms <= 0:
+                        frame_ms = 200.0
                     # CPU scopes report the previous frame only, so sample them
                     # across the window and keep the per-scope mean.
                     scope_sums: dict[str, list[float]] = {}
@@ -128,12 +176,14 @@ def main() -> int:
                                 scope_sums.setdefault(scope["name"], []).append(scope["timeMs"])
                     if not args.scope_samples:
                         time.sleep(1.3 * args.frames * frame_ms / 1000.0)
-                    history = client.tool("olo_perf_frame_history", raw=True).get("series", [])[-args.frames:]
+                    end_frame = finish_frame_window(client, start_frame, args.frames, frame_ms, probe["renderFrameGeneration"])
+                    history = camera_history(client, args.frames, probe["renderFrameGeneration"])
                     timings = client.tool("olo_perf_pass_timings")
                     passes = sorted(((p.get("gpuMs") or 0.0, p.get("pass"),
                                       {s.get("name") or s.get("pass"): s.get("gpuMs") for s in p.get("subPasses") or []})
                                      for p in timings.get("passes", [])), key=lambda e: e[0], reverse=True)[:6]
-                    run = {"repeat": repeat, "cell": cell_id, "camera": cam["Id"], "rayTracedShadows": rt}
+                    run = {"repeat": repeat, "cell": cell_id, "camera": cam["Id"], "rayTracedShadows": rt,
+                           "rendererFrameWindow": [start_frame, end_frame], "renderFrameGeneration": probe["renderFrameGeneration"], "completedWindowFrames": end_frame - start_frame}
                     for key in ("frameTimeMs", "cpuMs", "gpuMs", "fenceWaitMs", "presentWaitMs"):
                         values = [f[key] for f in history if isinstance(f.get(key), (int, float))]
                         run[key] = stats(values, args.gate_ms)

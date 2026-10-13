@@ -25,6 +25,28 @@ namespace
         }
     };
 
+    TEST_F(RendererProfilerTimingTest, CompletedFrameIdentityWaitsForFinalization)
+    {
+        auto& profiler = OloEngine::RendererProfiler::GetInstance();
+        const u32 initialFrame = profiler.GetCurrentFrameNumber();
+        const u64 initialGeneration = profiler.GetFrameHistoryGeneration();
+        EXPECT_EQ(profiler.GetLastCompletedFrameNumber(), 0u);
+        profiler.BeginFrame();
+        EXPECT_EQ(profiler.GetLastCompletedFrameNumber(), 0u);
+        profiler.EndFrame();
+        EXPECT_EQ(profiler.GetLastCompletedFrameNumber(), 0u);
+        profiler.BeginFrame();
+        EXPECT_EQ(profiler.GetLastCompletedFrameNumber(), initialFrame + 1u);
+        profiler.EndFrame();
+        EXPECT_EQ(profiler.GetLastCompletedFrameNumber(), initialFrame + 1u);
+        profiler.BeginFrame();
+        EXPECT_EQ(profiler.GetLastCompletedFrameNumber(), initialFrame + 2u);
+        profiler.EndFrame();
+        profiler.Reset();
+        EXPECT_EQ(profiler.GetLastCompletedFrameNumber(), 0u);
+        EXPECT_NE(profiler.GetFrameHistoryGeneration(), initialGeneration);
+    }
+
     // Issue #519 bug 1: RendererProfiler measured m_FrameTime at BeginFrame()
     // (the previous frame's wall-clock delta) and m_CPUTime at EndFrame() (the
     // current bracket), so a consumer reading GetCurrentFrameData() mid-frame

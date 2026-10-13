@@ -146,6 +146,8 @@ namespace OloEngine::MCP
                 Json o;
                 o["fps"] = f.m_FrameTime > 0.0 ? Round2(1000.0 / f.m_FrameTime) : 0.0;
                 o["frameTimeMs"] = Round2(f.m_FrameTime);
+                o["renderFrameNumber"] = RendererProfiler::GetInstance().GetLastCompletedFrameNumber();
+                o["renderFrameGeneration"] = RendererProfiler::GetInstance().GetFrameHistoryGeneration();
                 o["cpuMs"] = Round2(f.m_CPUTime);
                 // The number AND its validity (#1337). A frame the timer pool
                 // could not measure reaches here as null with a reason, never
@@ -331,6 +333,7 @@ namespace OloEngine::MCP
                     }
                 }
                 Json out{ { "totalFrames", static_cast<u64>(n) },
+                          { "renderFrameGeneration", RendererProfiler::GetInstance().GetFrameHistoryGeneration() },
                           { "returned", static_cast<int>(series.size()) },
                           { "series", std::move(series) },
                           { "stats", std::move(stats) } };
@@ -648,6 +651,8 @@ namespace OloEngine::MCP
             tool.OutputSchema = Schema::Object()
                                     .Prop("fps", Schema::Number())
                                     .Prop("frameTimeMs", Schema::Number())
+                                    .Prop("renderFrameNumber", Schema::Int().Min(0).Desc("Finalized renderer-frame identity; advances only when rendering runs, unlike liveness.frameIndex. Reset by profiler reset."))
+                                    .Prop("renderFrameGeneration", Schema::Int().Min(0).Desc("Changes whenever renderer history is cleared; compare alongside renderFrameNumber across a sampling window."))
                                     .Prop("cpuMs", Schema::Number())
                                     .Prop("gpuMs", Schema::NullableNumber().Desc("Null when unmeasured; see gpuStatus. Never 0 for an unmeasured frame."))
                                     .Prop("gpuStatus", Schema::String().Desc("valid|pending|dropped|notStamped|outOfOrder|notTimed|unavailable."))
@@ -720,6 +725,7 @@ namespace OloEngine::MCP
                                    .NoAdditional();
             tool.OutputSchema = Schema::Object()
                                     .Prop("totalFrames", Schema::Int().Min(0).Desc("Frames in the profiler ring buffer, before downsampling."))
+                                    .Prop("renderFrameGeneration", Schema::Int().Min(0).Desc("History generation; must match the sampling window snapshot."))
                                     .Prop("returned", Schema::Int().Min(0).Desc("Samples actually emitted after downsampling."))
                                     .Prop("series", Schema::Array(Schema::Object()
                                                                       .Prop("frameTimeMs", Schema::Number())

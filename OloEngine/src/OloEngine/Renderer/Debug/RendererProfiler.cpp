@@ -60,6 +60,7 @@ namespace OloEngine
     void RendererProfiler::Initialize()
     {
         OLO_PROFILE_FUNCTION();
+        ++m_FrameHistoryGeneration;
         // Initialize performance counters
         for (u32 i = 0; i < static_cast<u32>(std::to_underlying(MetricType::COUNT)); ++i)
         {
@@ -101,6 +102,7 @@ namespace OloEngine
     void RendererProfiler::Reset()
     {
         OLO_PROFILE_FUNCTION();
+        ++m_FrameHistoryGeneration;
 
         for (auto& [type, counter] : m_Counters)
         {
@@ -116,6 +118,7 @@ namespace OloEngine
         m_CurrentFrame = {};
         m_PreviousFrame = {};
         m_LastCompletedFrame = {};
+        m_LastCompletedFrameNumber = 0;
         m_CompletedFrameObserver = {};
         m_CompletedTraceId = 0;
         m_HasCompletedFrame = false;
@@ -171,6 +174,7 @@ namespace OloEngine
             // m_PreviousFrame is now fully self-consistent (every field
             // describes the same completed frame) — publish it.
             m_LastCompletedFrame = m_PreviousFrame;
+            m_LastCompletedFrameNumber = m_FrameNumber - 1u;
             if (m_CompletedFrameObserver)
                 m_CompletedFrameObserver(static_cast<u64>(m_FrameNumber - 1u));
         }
@@ -264,6 +268,7 @@ namespace OloEngine
                            m_FrameHistory.Num(), OLO_FRAME_HISTORY_SIZE);
             m_FrameHistory.Reset();
             m_FrameHistory.SetNum(OLO_FRAME_HISTORY_SIZE, EAllowShrinking::No);
+            ++m_FrameHistoryGeneration;
             m_HistoryIndex = 0;
             m_LastWrittenHistoryIndex = 0;
         }
