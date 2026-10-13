@@ -1,0 +1,591 @@
+{
+ "date": "2026-10-13",
+ "cameraEventNote": "No exact recorder-frame camera event marker was recorded. Early frames are post-arm/setup observations; natural legacy windows and scope captures are separate populations.",
+ "gpuNote": "Legacy gpuMs may refer to older resolved queries. Attribution uses sameFrameGpuMs and its explicit status from the recorder.",
+ "traces": [
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 612,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "vulkan",
+   "summary": {
+    "backend": "vulkan",
+    "mode": "trace",
+    "state": "armed",
+    "repeat": "1",
+    "naturalSeconds": 65.10667729999113,
+    "completedFrames": 609,
+    "samples": 609,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 609,
+      "p50Ms": 103.58,
+      "p95Ms": 119.5,
+      "p99Ms": 122.87,
+      "maxMs": 159.64,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 609,
+      "p50Ms": 100.71,
+      "p95Ms": 116.55,
+      "p99Ms": 120.03,
+      "maxMs": 156.27,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 609,
+      "p50Ms": 40.67,
+      "p95Ms": 42.8,
+      "p99Ms": 47.22,
+      "maxMs": 231.4,
+      "deadlineMisses": 0
+     }
+    },
+    "hostAfter": "39 %, 0 %, 109.64 W"
+   },
+   "provenance": {
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 3 %, 0 %, 11.30 W"
+    ],
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "processes": []
+   },
+   "hostAfter": {
+    "gpu": [
+     "40 %, 0 %, 102.86 W"
+    ],
+    "processes": [
+     {
+      "ProcessId": 53660,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=vulkan"
+     }
+    ],
+    "ownedEditorPid": 53660
+   },
+   "capturedFrames": 612,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "2ac5d976fea8d8a5d460dc073f618c35f93fa1a29e7cb8d494ad6071c9908809"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 597,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "opengl",
+   "summary": {
+    "backend": "opengl",
+    "mode": "trace",
+    "state": "armed",
+    "repeat": "1",
+    "naturalSeconds": 65.03055540000787,
+    "completedFrames": 594,
+    "samples": 594,
+    "metrics": {
+     "frameTimeMs": {
+      "count": 594,
+      "p50Ms": 105.37,
+      "p95Ms": 124.6,
+      "p99Ms": 135.13,
+      "maxMs": 188.13,
+      "deadlineMisses": 0
+     },
+     "cpuMs": {
+      "count": 594,
+      "p50Ms": 102.37,
+      "p95Ms": 121.47,
+      "p99Ms": 130.0,
+      "maxMs": 184.25,
+      "deadlineMisses": 0
+     },
+     "gpuMs": {
+      "count": 594,
+      "p50Ms": 68.83,
+      "p95Ms": 70.85,
+      "p99Ms": 73.03,
+      "maxMs": 653.67,
+      "deadlineMisses": 2
+     }
+    },
+    "hostAfter": "56 %, 0 %, 154.13 W"
+   },
+   "provenance": {
+    "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+    "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+    "processes": [],
+    "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+    "gpu": [
+     "NVIDIA GeForce RTX 4090, 617.42, 2 %, 0 %, 93.63 W"
+    ]
+   },
+   "hostAfter": {
+    "ownedEditorPid": 47224,
+    "processes": [
+     {
+      "ProcessId": 47224,
+      "Name": "OloEditor.exe",
+      "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=opengl"
+     }
+    ],
+    "gpu": [
+     "0 %, 0 %, 146.82 W"
+    ]
+   },
+   "capturedFrames": 597,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "a379234d3012957fd732739dece89fc0b53ab1e9795146246480467547b5c81b"
+  }
+ ],
+ "windows": [
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 199,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "vulkan",
+   "cell": "forward",
+   "camera": "population-dolly",
+   "rendererFrameWindow": [
+    198,
+    349
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 199,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "7d7342d3c28146a222c04d943cdbbd580801fd6fc0ad60fe70965ebade3dfc17",
+   "over300FrameIds": [
+    1,
+    2
+   ],
+   "scopeEvidenceFilename": "vulkan-forward-population-dolly-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 234,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "vulkan",
+   "cell": "forward",
+   "camera": "rapid-turn",
+   "rendererFrameWindow": [
+    430,
+    593
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 234,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "204ad53a02f1bf5dbbd9df9b2a7af0d4801cf7be1212fc252be9234771352914",
+   "over300FrameIds": [],
+   "scopeEvidenceFilename": "vulkan-forward-rapid-turn-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 219,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "vulkan",
+   "cell": "forward-plus",
+   "camera": "population-dolly",
+   "rendererFrameWindow": [
+    667,
+    832
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 219,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "89c482e97ee4c6809fda06d5b9f6d8b0c72ec670bcc0279c4f472a2f296a7744",
+   "over300FrameIds": [
+    2
+   ],
+   "scopeEvidenceFilename": "vulkan-forward-plus-population-dolly-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 242,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "vulkan",
+   "cell": "forward-plus",
+   "camera": "rapid-turn",
+   "rendererFrameWindow": [
+    915,
+    1084
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 242,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "a68136e9988869c13895c382391f5baeea7d7d3f626f6e03fb3184877dff70d1",
+   "over300FrameIds": [],
+   "scopeEvidenceFilename": "vulkan-forward-plus-rapid-turn-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 219,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "vulkan",
+   "cell": "deferred",
+   "camera": "population-dolly",
+   "rendererFrameWindow": [
+    1159,
+    1323
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 219,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "5cfff3789bc85d24b27c18e086afcce420b100ea16b08a58b7d0f700b627d3e1",
+   "over300FrameIds": [
+    2
+   ],
+   "scopeEvidenceFilename": "vulkan-deferred-population-dolly-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 224,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "vulkan",
+   "cell": "deferred",
+   "camera": "rapid-turn",
+   "rendererFrameWindow": [
+    1406,
+    1557
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 224,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "85dc3ff0d732e55d1f2cea17c48af7b93d63c65189af55121925a822e5ea61d7",
+   "over300FrameIds": [],
+   "scopeEvidenceFilename": "vulkan-deferred-rapid-turn-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 219,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "vulkan",
+   "cell": "hybrid",
+   "camera": "population-dolly",
+   "rendererFrameWindow": [
+    1609,
+    1796
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 219,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "43e71245ef102e974e78966951fcaa4bb2d2d4375c4d1aeb899aa621866b7caa",
+   "over300FrameIds": [
+    1,
+    2
+   ],
+   "scopeEvidenceFilename": "vulkan-hybrid-population-dolly-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 198,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "vulkan",
+   "cell": "hybrid",
+   "camera": "rapid-turn",
+   "rendererFrameWindow": [
+    1849,
+    2005
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 198,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "4c99a57dfbcc673a8813a06a8e01810c6c07afa8a12be9d2bf16271961a2e09e",
+   "over300FrameIds": [
+    4
+   ],
+   "scopeEvidenceFilename": "vulkan-hybrid-rapid-turn-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 203,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "opengl",
+   "cell": "forward",
+   "camera": "population-dolly",
+   "rendererFrameWindow": [
+    816,
+    975
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 203,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "6ff1d3ec3e2b975d4c88999ba0117975908c9db6925ecb8f25eae60b916666b2",
+   "over300FrameIds": [
+    1,
+    2
+   ],
+   "scopeEvidenceFilename": "opengl-forward-population-dolly-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 217,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "opengl",
+   "cell": "forward",
+   "camera": "rapid-turn",
+   "rendererFrameWindow": [
+    1054,
+    1202
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 217,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "2667eaeb2ae8d1172e46d12a4bee390514a25775772d8d5e70bd566915e09bca",
+   "over300FrameIds": [],
+   "scopeEvidenceFilename": "opengl-forward-rapid-turn-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 217,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "opengl",
+   "cell": "forward-plus",
+   "camera": "population-dolly",
+   "rendererFrameWindow": [
+    1273,
+    1439
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 217,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "1016961064567ac79a38393e56f9aeb4cc0c3b8b0fadfad1c72442062ae934ef",
+   "over300FrameIds": [
+    1,
+    2
+   ],
+   "scopeEvidenceFilename": "opengl-forward-plus-population-dolly-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 240,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "opengl",
+   "cell": "forward-plus",
+   "camera": "rapid-turn",
+   "rendererFrameWindow": [
+    1520,
+    1689
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 240,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "b4e1248440064b89baac30f35eceb9dee6bfbfed4bd5d5aa8c82553727c191f2",
+   "over300FrameIds": [],
+   "scopeEvidenceFilename": "opengl-forward-plus-rapid-turn-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 223,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "opengl",
+   "cell": "deferred",
+   "camera": "population-dolly",
+   "rendererFrameWindow": [
+    1761,
+    1932
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 223,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "5c4a1ca2a3c01de17a2bb8555b6c3fb64c800671e838a5aa9bd2d395f20f77b7",
+   "over300FrameIds": [
+    2
+   ],
+   "scopeEvidenceFilename": "opengl-deferred-population-dolly-scope-frames.json"
+  },
+  {
+   "armed": false,
+   "eventsPerFrame": 1024,
+   "frameCapacity": 1536,
+   "framesOverwritten": 0,
+   "framesWritten": 252,
+   "lateCompletions": 0,
+   "partialFramesDiscarded": 1,
+   "retainedBytes": 214081536,
+   "status": "ok",
+   "backend": "opengl",
+   "cell": "deferred",
+   "camera": "rapid-turn",
+   "rendererFrameWindow": [
+    2010,
+    2193
+   ],
+   "renderFrameGeneration": 1,
+   "capturedFrames": 252,
+   "droppedEvents": 0,
+   "rendererNotAdvanced": 0,
+   "incompleteScopes": 0,
+   "sourceGzipSha256": "2dfcf3cb3abb553897735b8a6db9d4a85b95da6dff610d6f3394ed42e0468876",
+   "over300FrameIds": [],
+   "scopeEvidenceFilename": "opengl-deferred-rapid-turn-scope-frames.json"
+  }
+ ],
+ "vulkanTableProvenance": {
+  "provenance": {
+   "gpu": [
+    "NVIDIA GeForce RTX 4090, 617.42, 2 %, 0 %, 101.38 W"
+   ],
+   "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+   "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+   "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+   "processes": []
+  },
+  "hostAfter": {
+   "ownedEditorPid": 52104,
+   "gpu": [
+    "42 %, 0 %, 91.28 W"
+   ],
+   "processes": [
+    {
+     "ProcessId": 52104,
+     "Name": "OloEditor.exe",
+     "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=vulkan"
+    }
+   ]
+  }
+ },
+ "openglTableProvenance": {
+  "provenance": {
+   "head": "ed1826000592d89b9d21aeb72e6a34c65b10b125",
+   "binaryHash": "7A780F12BA0359D38761E8DD2F5050F88EA82121CEE6D32FB41C0CEE19B61631",
+   "gpu": [
+    "NVIDIA GeForce RTX 4090, 617.42, 2 %, 0 %, 50.76 W"
+   ],
+   "preferences": "EditorPreferences:\n  ShowGrid: false\n  GridSpacing: 1\n  TranslateSnap: 0.5\n  RotateSnap: 45\n  ScaleSnap: 0.5\n  CameraFlySpeed: 18\n  ShowPhysicsColliders: false\n  ShowLightGizmos: false\n  ShowBoundingBoxes: false\n  Is3DMode: true\n  CapturePhysicsOnPlay: false\n  ThrottleEditMode: false\n  ThrottlePlayMode: false\n  RenderBudgetMs: 33.3\n  FrameRateCap: 0\n  FrameTimeSmoothing: 1\n  RenderInterpolation: true\n  EnableAutoSave: false\n  AutoSaveIntervalSeconds: 300\n  McpAutoStart: false\n  McpPort: 7345\n  McpRedactPaths: false\n  Bookmarks:\n    []",
+   "processes": []
+  },
+  "hostAfter": {
+   "gpu": [
+    "65 %, 0 %, 183.28 W"
+   ],
+   "ownedEditorPid": 23276,
+   "processes": [
+    {
+     "ProcessId": 23276,
+     "Name": "OloEditor.exe",
+     "CommandLine": "\"C:\\repos\\OloEngine-mcp-cpu-scope-ring-hitches-1594\\bin\\Release\\OloEditor\\OloEditor.exe\" --rhi=opengl"
+    }
+   ]
+  }
+ }
+}

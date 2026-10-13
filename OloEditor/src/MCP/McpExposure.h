@@ -104,14 +104,11 @@ namespace OloEngine::MCP
 
     // ---- the core set ---------------------------------------------------------
     //
-    // THE CRITERION: a tool is core if a session that cannot see it would be unable to
-    // work out what to ask next. That is orientation (what scene, which entities, what
-    // just happened, is the editor even running frames), the two eyes on the frame
-    // (screenshot + intermediate target capture) and the camera controls those need to
-    // be useful, plus the two error channels an agent must check before believing any
-    // of it (engine log, shader errors). Everything else — the 30-odd render
-    // introspection tools, physics, perf, assets, scripting, the editor panels — is
-    // reachable in one `olo_tool_search` call and is not needed to form the question.
+    // THE CRITERION: core answers what scene is loaded, whether frames are running,
+    // and what the engine just logged. The gateway then supplies detailed inspection
+    // schemas on demand. Camera, capture, entity, event and shader tools remain fully
+    // registered and directly callable; loading their schemas up front exhausted the
+    // old 46 KB budget. The builtin core now has a 16 KB ceiling (#1604).
     //
     // Deliberately NOT core: every write tool. A narrowed default should not advertise
     // mutation; a session that wants it is already configuring consent, and can ask.
@@ -123,24 +120,10 @@ namespace OloEngine::MCP
     [[nodiscard]] inline std::span<const std::string_view> CoreToolNames()
     {
         static constexpr std::array kNames{
-            // orientation
+            // scene orientation
             std::string_view{ "olo_scene_summary" },
-            std::string_view{ "olo_scene_list_entities" },
-            std::string_view{ "olo_scene_get_entity" },
-            std::string_view{ "olo_events_tail" },
-            // the subscription half of the tail (#1131): an agent that can list the
-            // tail but not the wait polls, which is the loop the bus exists to end
-            std::string_view{ "olo_events_wait" },
-            // the two error channels
+            // engine errors and recent activity
             std::string_view{ "olo_log_tail" },
-            std::string_view{ "olo_shader_errors" },
-            // eyes on the frame
-            std::string_view{ "olo_screenshot" },
-            std::string_view{ "olo_render_list_targets" },
-            std::string_view{ "olo_render_capture_target" },
-            // camera control, without which the two above only ever see one angle
-            std::string_view{ "olo_camera_get" },
-            std::string_view{ "olo_camera_set_pose" },
             // "is it actually running frames?" — a parked editor answers every read
             // tool with a stale frame, so this is the check that validates the rest
             std::string_view{ "olo_perf_snapshot" },

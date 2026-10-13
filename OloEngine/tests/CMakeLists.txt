@@ -1175,6 +1175,7 @@ add_executable(OloEngine-Tests
 		QualityTieringTest.cpp
 		# PerformanceProfiler Tests
 		PerformanceProfilerTest.cpp
+		CpuScopeRingTest.cpp
 		# TransformComponent Tests
 		TransformComponentTest.cpp
 		Scene/WorldTransformPropagationBenchmarkTest.cpp
@@ -1394,6 +1395,7 @@ add_executable(OloEngine-Tests
 		# the Distribution-build "unavailable" degradation). Header-only
 		# (MCP/McpCpuScopes.h), no extra editor TU pulled in.
 		MCP/McpCpuScopesTest.cpp
+		MCP/McpCpuScopeRingTest.cpp
 		# The slowest-frames selection behind olo_perf_frame_history's worst list
 		# (#1533). Header-only (MCP/McpFrameHistory.h), no extra editor TU pulled in.
 		MCP/McpFrameHistoryTest.cpp

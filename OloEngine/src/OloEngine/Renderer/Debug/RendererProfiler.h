@@ -523,6 +523,23 @@ namespace OloEngine
             return m_LastCompletedFrame;
         }
 
+        [[nodiscard]] u32 GetCurrentFrameNumber() const
+        {
+            return m_FrameNumber;
+        }
+
+        // Identity of GetLastCompletedFrameData(), finalized by BeginFrame.
+        // Counts rendered frames, not editor updates that may skip rendering.
+        [[nodiscard]] u32 GetLastCompletedFrameNumber() const
+        {
+            return m_LastCompletedFrameNumber;
+        }
+
+        [[nodiscard]] u64 GetFrameHistoryGeneration() const
+        {
+            return m_FrameHistoryGeneration;
+        }
+
         // Main-thread only. Observe every finalized interval, including frames
         // between MCP requests. A second capture must not replace the owner.
         u64 BeginCompletedFrameTrace(std::function<void(u64)> observer)
@@ -671,6 +688,8 @@ namespace OloEngine
         FrameData m_CurrentFrame;
         FrameData m_PreviousFrame;      // raw EndFrame() output for the last frame; FrameTime/GPUWaitTime unpatched until the next BeginFrame()
         FrameData m_LastCompletedFrame; // fully patched, self-consistent snapshot — see GetLastCompletedFrameData()
+        u32 m_LastCompletedFrameNumber = 0;
+        u64 m_FrameHistoryGeneration = 0;
         std::function<void(u64)> m_CompletedFrameObserver;
         u64 m_TraceGeneration = 0;
         u64 m_CompletedTraceId = 0;

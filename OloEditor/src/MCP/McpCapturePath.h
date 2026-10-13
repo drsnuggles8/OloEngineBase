@@ -50,7 +50,8 @@ namespace OloEngine::MCP::CapturePath
 
     // The lexical, filesystem-free half. On success `outRelative` is the path
     // relative to the editor CWD (so a bare "shot.png" becomes
-    // assets/mcp-captures/shot.png) with a .png extension forced on. Returns a
+    // assets/mcp-captures/shot.png) with the caller's fixed extension forced on.
+    // Screenshot callers use .png; CPU scope dumps use .json. Returns a
     // human-readable error otherwise.
     //
     // Note the order: every rejection is decided on the path AS WRITTEN, before
@@ -59,7 +60,8 @@ namespace OloEngine::MCP::CapturePath
     // to something inside it whenever the root is deep enough, so the check
     // would pass for some roots and fail for others.
     [[nodiscard]] inline std::optional<std::string> ValidateRelative(std::string_view input,
-                                                                     std::filesystem::path& outRelative)
+                                                                     std::filesystem::path& outRelative,
+                                                                     std::string_view extension = ".png")
     {
         namespace fs = std::filesystem;
         if (input.empty())
@@ -126,10 +128,9 @@ namespace OloEngine::MCP::CapturePath
         const auto mm = std::mismatch(root.begin(), root.end(), normalized.begin(), normalized.end());
         fs::path candidate = (mm.first == root.end() ? normalized : (root / normalized)).lexically_normal();
 
-        // Force .png: the bytes are always a PNG, and a caller that named the
-        // file ".jpg" would otherwise get a file that lies about its format.
-        if (const fs::path ext = candidate.extension(); ext != ".png" && ext != ".PNG")
-            candidate += ".png";
+        // The format is chosen by the tool, never by an untrusted argument.
+        if (const fs::path ext = candidate.extension(); ext != extension && !(extension == ".png" && ext == ".PNG"))
+            candidate += extension;
 
         // CONTAINMENT, RE-CHECKED ON THE FINAL PATH — not on the input. Every
         // check above reasons about what the caller wrote; this one reasons
@@ -151,9 +152,9 @@ namespace OloEngine::MCP::CapturePath
         return std::nullopt;
     }
 
-    // The full resolve: `ValidateRelative`, then create the parent directory and
-    // confirm the result really is inside the captures root once symlinks have
-    // been followed. `outAbsolute` is what the tool reports back.
+    // Check canonical containment before creating directories, and again after
+    // creation. Rejected symlink escapes must not change the outside tree.
+    // `outAbsolute` is what the tool reports back.
     //
     // The lexical checks stop '..' and absolute paths; they do NOT stop a
     // symlinked component inside the root redirecting the write outside it.
@@ -161,13 +162,29 @@ namespace OloEngine::MCP::CapturePath
     // root — and handles the not-yet-created file lexically.
     [[nodiscard]] inline std::optional<std::string> Resolve(std::string_view input,
                                                             std::filesystem::path& outRelative,
-                                                            std::filesystem::path& outAbsolute)
+                                                            std::filesystem::path& outAbsolute,
+                                                            std::string_view extension = ".png")
     {
         namespace fs = std::filesystem;
-        if (auto error = ValidateRelative(input, outRelative))
+        if (auto error = ValidateRelative(input, outRelative, extension))
             return error;
 
         std::error_code ec;
+        const auto checkContainment = [&]() -> std::optional<std::string>
+        {
+            const fs::path root = fs::weakly_canonical(Root(), ec);
+            if (ec)
+                return "Could not resolve the capture root (" + RootDisplay() + ").";
+            const fs::path candidate = fs::weakly_canonical(outRelative, ec);
+            if (ec)
+                return "Could not resolve 'path' to a canonical location.";
+            if (const fs::path rel = candidate.lexically_relative(root); rel.empty() || *rel.begin() == "..")
+                return "Invalid 'path': resolves outside " + RootDisplay() + " (possible symlink escape). The capture was not written.";
+            outAbsolute = candidate;
+            return std::nullopt;
+        };
+        if (auto error = checkContainment())
+            return error;
         fs::create_directories(outRelative.parent_path(), ec);
         if (ec)
         {
@@ -175,19 +192,6 @@ namespace OloEngine::MCP::CapturePath
                    "': " + ec.message();
         }
 
-        const fs::path canonicalRoot = fs::weakly_canonical(Root(), ec);
-        if (ec)
-            return "Could not resolve the capture root (" + RootDisplay() + ").";
-        const fs::path canonicalOut = fs::weakly_canonical(outRelative, ec);
-        if (ec)
-            return "Could not resolve 'path' to a canonical location.";
-        if (const fs::path rel = canonicalOut.lexically_relative(canonicalRoot); rel.empty() || *rel.begin() == "..")
-        {
-            return "Invalid 'path': resolves outside " + RootDisplay() +
-                   " (possible symlink escape). The capture was not written.";
-        }
-
-        outAbsolute = canonicalOut;
-        return std::nullopt;
+        return checkContainment();
     }
 } // namespace OloEngine::MCP::CapturePath

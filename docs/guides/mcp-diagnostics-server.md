@@ -11,6 +11,50 @@ capture, golden-image comparison, and ephemeral render-override A/B; issue #316)
 Strategy is **"expose, don't embed"**: OloEditor does not ship a chat panel, an API key,
 or a model. It exposes data over a standard protocol; you bring your own agent. (Issue #285.)
 
+## CPU scope recording
+
+Use `olo_perf_cpu_scope_ring` to collect natural frames without polling
+`olo_perf_cpu_scopes` once per frame:
+
+```json
+{"action":"arm","frames":512,"eventsPerFrame":1024}
+```
+
+Let the editor run at the chosen camera, then call `{"action":"disarm"}` and
+`{"action":"dump","thresholdMs":300,"contextFrames":2,"path":"hitches.json"}`.
+Omit `path` for inline JSON; `status` inspects counters without copying events.
+The file is written under `assets/mcp-captures/`, with the same traversal and
+symlink containment checks as screenshots. `arm` starts a new recording and
+discards the previous one. `disarm` preserves completed frames for later dumps.
+
+Arm allocates and initializes all frame/event slots, up to 256 MiB. Steady
+recording performs bounded copies under a lock and grows no storage. The
+default retains 512 windowed application frames, with up to 1,024 scope events each.
+`framesOverwritten`, `partialFramesDiscarded`, per-frame `droppedEvents`, `lateCompletions`, and scope
+`complete`/`nameTruncated` expose loss. Names are copied into 96-byte slots;
+truncated names are marked; JSON export drops an incomplete trailing UTF-8 character. An unfinished event has `durationMs: null`.
+
+`frameTimeMs` is the whole application-loop wall interval, including event
+polling, task dispatch, UI, rendering, swap and pacing. Scope `startMs` is
+relative to that loop's start. Scope durations nest and overlap across threads;
+do not add them. `rendererCpuMs` describes the narrower renderer interval,
+identified by `rendererFrameId`; it is null when the renderer did not advance
+(for example an edit-mode throttled frame). GPU samples resolve later and carry
+`gpuMeasurementFrameId` and `gpuStatus`; unmeasured GPU time is null.
+`gpuMs` preserves that raw delayed observation. `sameFrameGpuMs` and
+`sameFrameGpuStatus` join available observations to the originating issue at
+dump time, using all retained frames before threshold filtering. They stay null
+and pending when a measurement has not been retained, or unavailable when no
+GPU frame was issued in that loop (`gpuFrameAdvanced: false`). The
+GPU timer pool advances independently of scene rendering, so a UI-only loop
+can have a measured GPU time while `rendererCpuMs` stays null. The
+recorder's local `frameId` starts at 1 on each arm and is a separate identity.
+
+Dumping copies the retained snapshot at a game-thread boundary. JSON encoding
+and disk writes run on the handler thread. Keep arm, dump and status calls
+outside measurement windows when evaluating recorder overhead. Distribution
+builds report `unavailable`, since their scope macros are compiled out.
+
 ## Security model
 
 - Binds **`127.0.0.1` only** — never a routable interface.
@@ -235,12 +279,13 @@ and for what to do when adding a tool.
 | `olo_material_set` | **(consented write)** set `baseColorFactor` (RGBA), `alphaMode`, `blend` (`MaterialFlag::Blend`) and `twoSided` on an entity's MaterialComponent. `olo_entity_set_field` can also edit RGBA through `AlbedoColor` with undo; blending flags require this tool. An `alphaMode` implies the matching `blend` flag unless `blend` is given. Edits the loaded scene in memory and is not undoable. A scene save keeps `baseColorFactor` RGB only: alpha reloads as 1.0, and `alphaMode`, `blend` and `twoSided` are not serialized. Read back with `olo_material_get`, which reports `blend` |
 | `olo_scheduler_graph` | the gameplay `SystemScheduler`'s **derived** dependency DAG as JSON / Mermaid / DOT: execution order, the full derived edge set (including the read/write hazard edges no source file shows), every named channel with its readers and writers, and — per `Parallelizable` system — `mayOverlapWith`, the other marked systems it can genuinely race. Sibling of `olo_render_graph_topology_export`. See [Looking at the two DAGs](#looking-at-the-two-dags-olo_scheduler_graph--olo_render_graph_topology_export) |
 | `olo_streaming_stats` | scene streaming's byte accounting and admission (#1365): resident and pending **bytes** (each total carries `unknownCount` — an unknown size is never counted as zero), the byte budgets (`null` = none), deferred / rejected regions and requests, cancellations, and evictions for count vs bytes; per region, its estimated size and the last admission outcome with its reason. `runtimeAssets` covers a `RuntimeAssetManager`'s async queue and is unavailable in the editor |
-| `olo_perf_snapshot` | fps, frame/CPU/GPU time (real whole-frame GPU timer; since #1337 `gpuMs` is `null` with a `gpuStatus` when no measurement exists — never 0 for an unmeasured frame), `gpuWaitMs` = `fenceWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal) + `presentWaitMs` (the SwapBuffers span: a vsync wait on OpenGL, but on Vulkan the frame renders inside SwapBuffers so it is not a pacing signal there), `displayWidth`/`displayHeight`/`renderScale`, draw calls, instancing, triangles, plus `renderWidth`/`renderHeight` — the ACTUAL SceneColor render resolution; cross-check it against any `olo_viewport_set_size` override before trusting timings. **Also the liveness probe**: the `liveness` block (`ticking`, `frameIndex`, `msSinceLastFrame`, `iconified`, `focused`) answers "is the editor actually running frames?" in one call — see [Editor liveness](#editor-liveness--is-it-actually-running-frames) |
+| `olo_perf_snapshot` | `renderFrameNumber` identifies the finalized renderer frame and advances only when rendering runs (unlike editor-update `liveness.frameIndex`); compare it and `renderFrameGeneration` (changes when history is cleared) across a camera window before selecting history. fps, frame/CPU/GPU time (real whole-frame GPU timer; since #1337 `gpuMs` is `null` with a `gpuStatus` when no measurement exists — never 0 for an unmeasured frame), `gpuWaitMs` = `fenceWaitMs` (CPU blocked on the GPU fence — the direct GPU-bound signal) + `presentWaitMs` (the SwapBuffers span: a vsync wait on OpenGL, but on Vulkan the frame renders inside SwapBuffers so it is not a pacing signal there), `displayWidth`/`displayHeight`/`renderScale`, draw calls, instancing, triangles, plus `renderWidth`/`renderHeight` — the ACTUAL SceneColor render resolution; cross-check it against any `olo_viewport_set_size` override before trusting timings. **Also the liveness probe**: the `liveness` block (`ticking`, `frameIndex`, `msSinceLastFrame`, `iconified`, `focused`) answers "is the editor actually running frames?" in one call — see [Editor liveness](#editor-liveness--is-it-actually-running-frames) |
 | `olo_perf_bottlenecks` | CPU/GPU/Memory/IO bottleneck + confidence + recommendations (uses real cpu/gpu/gpuWait numbers) |
 | `olo_perf_frame_history` | downsampled recent-frame time series; p50/p95/p99 over every frame in the ring; `worst: N` lists the N slowest frames with their CPU/GPU/fence/present split; `raw: true` returns every frame in the ring (up to 1024, oldest first), each with that split: the data a percentile claim rests on (#1533 E1) |
 | `olo_perf_capture_frame` | triggers a real frame capture: stats + top-K draw commands by GPU time (per-draw times resolve via a deferred commit one-plus frames after the capture; draws carry their submesh debug names) |
 | `olo_perf_pass_timings` | whole-frame GPU time split by render-graph pass (Shadow vs Scene vs GTAO vs Bloom vs ToneMap…): per-pass GPU (always-on timestamp queries) + CPU dispatch ms, frame totals incl. `gpuWaitMs` (split into `fenceWaitMs`/`presentWaitMs`), and `unattributedGpuMs`. Since #1337 every `gpuMs` is a number or `null` with a `gpuStatus` beside it (`valid|pending|dropped|notStamped|outOfOrder|notTimed|unavailable`); `passGpuTotalMs` sums measured top-level passes only, so read `passGpuTotalIsComplete`/`unmeasuredPasses` first; `unattributedGpuMs` is `null` unless the frame span and every pass were measured; `gpuMeasurementFrameId`/`currentFrameId` say which frame each half describes; `gpuDroppedSlots`/`gpuUnstampedFrames` count frames the ring lost and frames the backend refused to stamp; `recordingBreakdown` labels each frame measurement ELAPSED or SUM. `ScenePass` carries `subPasses` splitting its GPU time into `DepthPrepass` vs `Color` (no DepthPrepass entry = prepass off; sub times are inside the parent's `gpuMs`, not additional). Since issue #806 the response also carries a `parallelRecording` block for the same frame: `regions` (`RecordParallel` calls that forked onto task workers), `inlineRegions` (calls that ran on the render thread), `secondariesExecuted` (secondary command buffers executed into the primary at the join), and `mergeConflicts`; the frame's recording times are in `recordingBreakdown` (`summedWorkerCpuMs` = summed per-item worker recording time, a SUM; `elapsedRecordingWallMs` = summed fork-to-join wall time; `joinWaitMs`; `summedCpuPrepareMs`), each published once. All zero on OpenGL, whose facade default reports nothing, while on Vulkan with `OLO_VK_PARALLEL_RECORDING` off only `inlineRegions` counts. `mergeConflicts` > 0 means two `RecordParallel` items transitioned the same subresource differently (ADR 0011 amendment (92) rule 5); that is a bug in the pass that forked, never a driver condition |
 | `olo_perf_cpu_scopes` | per-scope CPU time from `PerformanceProfiler` (every system in `Scene.cpp` wrapped in `OLO_PERF_SCOPE`/`OLO_PERF_SCOPE_AUTO`), sorted descending by time — mirrors the editor's PerformanceLayer CPU Scopes table. `OLO_PERF_SCOPE` is compiled out entirely in Distribution builds, so `status` reports `"unavailable"` there instead of a misleadingly empty list (`"ok_no_data"` = build supports it but nothing ran last frame; `"ok"` = real data). Optional `limit` truncates the returned list; `totalTimeMs`/`scopeCount` always reflect the full set |
+| `olo_perf_cpu_scope_ring` | Explicitly arm/disarm an in-process per-frame scope recorder, inspect its status, or dump retained complete frames. No per-frame MCP polling is needed. See [CPU scope recording](#cpu-scope-recording) for bounds, loss counters and the capture sandbox. |
 | `olo_render_frame_breakdown` | triggers a real frame capture and returns its **per-command / per-pipeline-stage** structural breakdown (the granularity `olo_perf_capture_frame` omits): pipeline stats + the ordered command list (type, debug-name pass label, draw key shader/material/depth, group, execution order, static flag, GPU time) + a command-type histogram, at the chosen `viewMode` (`presort`/`postsort`/`postbatch`); `format:"markdown"` returns the Command Bucket Inspector's LLM-analysis report (sort/state-change/batching analysis + optimization hints) |
 | `olo_memory_report` | **(issue #1342)** the physical renderer memory report: separate GPU and CPU totals (live, retiring, peak; committed vs format estimate), views/aliases counted once, per-owner attribution, capacity vs active demand per owner, and the backend reconciliation (Vulkan/VMA to the byte; OpenGL `notObservable`) and residency status (`osReported` / `allocatorHeuristic` / `unknown`, never 0). See [renderer-memory-accounting.md](../agent-rules/renderer-memory-accounting.md) |
 | `olo_gpu_resources` | **(issue #810)** the GPU objects that exist RIGHT NOW — textures, cubemaps, buffers, framebuffers, vertex arrays, shader programs — each carrying **both** identities: the RHI handle (index+generation, which survives a hot-reload and tells a recycled native name from a reused one) and the native id a RenderDoc / RGP capture shows. Textures report extent / mips / storage format, buffers their size. Works on **both backends**: under Vulkan the list is discovered from `RHI::ResourceRegistry` and enriched from the image / root-object registries, and `memoryHeaps` adds VMA's own per-heap usage-vs-budget — the number that answers "am I about to run out of VRAM?". Where `memoryHeaps` and `trackedBytes` disagree, believe the heaps: `trackedBytes` sums per-resource ESTIMATES that ignore tiling padding and suballocation slack. Sibling of `olo_memory_report`, which reports engine-tracked totals by category rather than the live object list. Debug-build instrument: a Release/Dist editor returns an empty list with a note |
@@ -748,7 +793,7 @@ appear under the `script` toolset — see "Script-defined tools" below):
 |---|---|
 | `diagnostics` | `olo_log_tail`, `olo_events_tail`, `olo_events_wait`, `olo_debug_levers`, `olo_cvar_set`, `olo_crash_list`, `olo_crash_get` |
 | `scene` | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_entity_list_fields`, `olo_entity_set_field`, `olo_scene_open`, `olo_scene_play`, `olo_scene_simulate`, `olo_scene_stop`, `olo_reflection_probe_bake`, `olo_editor_select_entity`, `olo_scheduler_graph`, `olo_streaming_stats`, `olo_prefab_instantiate`, `olo_prefab_unpack`, `olo_prefab_overrides`, `olo_prefab_apply`, `olo_prefab_revert`, `olo_prefab_create`, `olo_groom_bind`, `olo_terrain_voxel_load` |
-| `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes` |
+| `perf` | `olo_memory_report`, `olo_perf_snapshot`, `olo_perf_bottlenecks`, `olo_perf_frame_history`, `olo_perf_capture_frame`, `olo_perf_pass_timings`, `olo_perf_cpu_scopes`, `olo_perf_cpu_scope_ring` |
 | `render` | `olo_render_frame_breakdown`, `olo_render_list_targets`, `olo_render_graph_topology_export`, `olo_render_graph_schedule`, `olo_render_capture_target`, `olo_render_probe_pixel`, `olo_render_target_stats`, `olo_render_validate`, `olo_render_toggle_pass`, `olo_postprocess_settings_get`, `olo_postprocess_settings_set`, `olo_render_transient_plan`, `olo_render_debug_set`, `olo_render_set_debug_view`, `olo_renderer_settings_set`, `olo_renderer_support`, `olo_scene_set_time_of_day`, `olo_scene_set_sun_angle`, `olo_scene_set_weather`, `olo_scene_get_atmosphere`, `olo_render_compare_golden`, `olo_render_why_not_visible`, `olo_froxel_fog_probe`, `olo_cluster_grid_stats`, `olo_virtual_shadow_map_stats`, `olo_render_lod_stats`, `olo_groom_budget_stats`, `olo_skeletal_deformation_stats`, `olo_rt_scene_stats`, `olo_rt_trace_ray`, `olo_rt_vegetation_diagnostic`, `olo_pathtracer_stats`, `olo_restir_stats`, `olo_restir_gi_stats`, `olo_restir_pt_stats`, `olo_ddgi_probe_stats`, `olo_shadow_atlas_layout`, `olo_virtual_geometry_set`, `olo_virtual_geometry_stats`, `olo_particle_stats`, `olo_material_get`, `olo_material_set`, `olo_shader_debug_draw`, `olo_terrain_virtual_texture_stats`, `olo_gpu_readback_stats`, `olo_gpu_resources` |
 | `shader` | `olo_shader_list`, `olo_shader_errors`, `olo_shader_get`, `olo_shader_reload` |
 | `assets` | `olo_asset_pack_build`, `olo_assets_list`, `olo_assets_problems`, `olo_asset_get`, `olo_asset_references`, `olo_asset_create`, `olo_asset_move`, `olo_asset_delete`, `olo_asset_import`, `olo_asset_reimport`, `olo_asset_import_settings` |
@@ -783,13 +828,13 @@ it lists is decided by the exposure profile below.
 
 ### Exposure profiles — `tools/list` shows a core set by default (issue #1124)
 
-**The default `tools/list` is not the whole surface.** The full catalogue is 102 tools /
-281 836 bytes / **~70k tokens** — a third of a 200k context window spent before the
-session asks its first question, on a list of which three or four entries are ever
-called. The default `core` profile lists **18 tools / 39 362 bytes / ~9.8k tokens**, a
-7x reduction, and everything else is one search away. (Both figures are measured, not
-estimated: `McpExposureProfileTest` prints them on every test run and asserts a ceiling
-on the first. Token counts are bytes/4.)
+**Fetch detailed inspection schemas when needed.** At #1604 the builtin `core`
+catalogue lists **7 tools / 12 922 bytes / ~3.2k tokens**, down about **72%** from
+17 tools / 46 101 bytes. The full registry has 162 tools / 455 798 bytes / ~114k
+tokens; core costs about 3% of that. `McpExposureProfileTest` prints current byte
+counts and enforces a **16 000-byte ceiling** for builtin core tools. User-provided
+script and bridged tools are additional and remain listed. Token counts are bytes/4
+estimates; byte counts measure the compact JSON catalogue.
 
 **Nothing is deleted, and nothing is unreachable.** Exposure filters the *listing*
 only:
@@ -815,23 +860,24 @@ choices as radio buttons for a running editor — switching there fires
 without reconnecting. The panel also reports the measured payload size, and the same
 numbers are logged once at server start.
 
-**The core set** (`OloEditor/src/MCP/McpExposure.h`, `CoreToolNames()`) is what a
-session needs to work out what to ask next — orientation, the two eyes on the frame,
-the camera to move them, and the two error channels:
+**The core set** (`OloEditor/src/MCP/McpExposure.h`, `CoreToolNames()`) provides
+scene orientation, frame liveness and engine errors before discovery:
 
 | Why | Tools |
 |---|---|
-| orientation | `olo_scene_summary`, `olo_scene_list_entities`, `olo_scene_get_entity`, `olo_events_tail` |
-| error channels | `olo_log_tail`, `olo_shader_errors` |
-| eyes on the frame | `olo_screenshot`, `olo_render_list_targets`, `olo_render_capture_target` |
-| camera | `olo_camera_get`, `olo_camera_set_pose` |
+| orientation | `olo_scene_summary` |
+| engine errors | `olo_log_tail` |
 | is it running frames? | `olo_perf_snapshot` |
 
-No write tool is core: a narrowed default should not advertise mutation.
+The four discovery tools complete the seven-tool default. Entity details, events,
+shader errors, screenshots, intermediate captures and camera controls are fetched
+through `olo_tool_search` and `olo_tool_describe`; their full descriptions, schemas
+and annotations are preserved. Known names remain directly callable. Enable the
+relevant toolsets or `full` to list them up front. No write tool is core.
 
 ### The discovery gateway (`olo_capability` / `olo_tool_search` / `olo_tool_describe` / `olo_tool_execute`)
 
-Four tools, always listed, that let a session find and call the ~80 the profile hid
+Four tools, always listed, that let a session find and call the tools the profile hid
 without materialising all their schemas.
 
 | Tool | Does |
@@ -842,7 +888,7 @@ without materialising all their schemas.
 | `olo_tool_execute` | Run a tool by `{tool, arguments}`. An **alias** for `tools/call`: the target's input-schema validation, write-consent gate, progress and cancellation all apply unchanged, and the result is the target's result verbatim. You only need it if your client refuses to call a name it never saw in `tools/list`. |
 
 The loop is `olo_capability` → `olo_tool_search` → `olo_tool_describe` → call, and it
-costs a few KB where listing all 96 schemas costs ~67k tokens.
+costs a few KB instead of loading every schema up front.
 
 ```jsonc
 // "how do I raycast?" without paying for the catalogue
@@ -3074,6 +3120,5 @@ than blocking it.
 | Tool | Result |
 |---|---|
 | `olo_representation_streaming_stats` | Read shared groom/vegetation detail admission, pinned fallback, retiring GPU backing, CPU staging, cancellation, preparation, measured read calls and upload cost. Family counters describe effective residency. Use `olo_memory_report` for physical allocation provenance and heap observations. |
-| `olo_foliage_rebuild` | **(consented write)** Request foliage regeneration for a terrain `entity` UUID. The scene update consumes the request when terrain data is available, through the same path as an inspector edit. The entity must have terrain and foliage components, enabled foliage and at least one layer. Gated behind **Agent writes**. Returns `ok`; changes neither authored layers nor the saved scene. Read `olo_representation_streaming_stats` for completion and CPU stage costs. |
 | `olo_representation_streaming_settings_set` | **(consented write)** Set the active scene's optional GPU, upload per frame and CPU staging budgets with `residentMegabytes`, `uploadMegabytesPerFrame` and `stagingMegabytes`. Values are finite MiB in 0..1048576; zero is unlimited, and all three zeroes restore eager loading. The drawable fallback is pinned separately. Changes do not save the scene. |
-| `olo_foliage_rebuild` | **(consented write)** Mark the terrain entity `entity` (UUID) for foliage regeneration at the next scene update, through the same path as an inspector edit. Replies `ok`, or `ok: false` with an `error` when there is no active scene, when the entity lacks either a `TerrainComponent` or a `FoliageComponent`, or when its foliage is disabled or has no layers; an `entity` that is not a UUID is a tool error. Rebuilding an existing canopy on an unchanged terrain is prepared off the frame and published when ready; a first generation, a changed height field or wind envelope, or a host with no task workers regenerates in the next scene update. Read `olo_representation_streaming_stats` for completion and the CPU stage costs. Does not change authored layers or save the scene. |
+| `olo_foliage_rebuild` | **(consented write)** Mark the terrain entity `entity` (UUID) for foliage regeneration. The scene update consumes the request when terrain data is available, through the same path as an inspector edit. Gated behind **Agent writes**. Replies `ok`, or `ok: false` with an `error` when there is no active scene, when the entity lacks either a `TerrainComponent` or a `FoliageComponent`, or when its foliage is disabled or has no layers; an `entity` that is not a UUID is a tool error. Rebuilding an existing canopy on an unchanged terrain is prepared off the frame and published when ready; a first generation, a changed height field or wind envelope, or a host with no task workers regenerates in the next scene update. Read `olo_representation_streaming_stats` for completion and the CPU stage costs. Does not change authored layers or save the scene. |

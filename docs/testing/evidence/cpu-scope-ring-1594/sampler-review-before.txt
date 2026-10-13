@@ -1,0 +1,29 @@
+.E...F
+======================================================================
+ERROR: test_long_hitch_with_progress_is_not_a_parked_editor (test_acceptance_live.CameraWindowTest.test_long_hitch_with_progress_is_not_a_parked_editor)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\repos\OloEngine-mcp-cpu-scope-ring-hitches-1594\scripts\perf\test_acceptance_live.py", line 45, in test_long_hitch_with_progress_is_not_a_parked_editor
+    self.assertEqual(acceptance.finish_frame_window(client, 100, 120, 1500), 220)
+                     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\repos\OloEngine-mcp-cpu-scope-ring-hitches-1594\scripts\perf\acceptance-live.py", line 72, in finish_frame_window
+    probe = live_frame_probe(client)
+  File "C:\repos\OloEngine-mcp-cpu-scope-ring-hitches-1594\scripts\perf\acceptance-live.py", line 62, in live_frame_probe
+    raise RuntimeError("Cannot sample a parked or unready editor")
+RuntimeError: Cannot sample a parked or unready editor
+
+======================================================================
+FAIL: test_throttled_update_ticks_do_not_count_as_rendered_frames (test_acceptance_live.CameraWindowTest.test_throttled_update_ticks_do_not_count_as_rendered_frames)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\repos\OloEngine-mcp-cpu-scope-ring-hitches-1594\scripts\perf\test_acceptance_live.py", line 41, in test_throttled_update_ticks_do_not_count_as_rendered_frames
+    sleep.assert_called_once()
+    ~~~~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\ole\AppData\Local\Programs\Python\Python313\Lib\unittest\mock.py", line 958, in assert_called_once
+    raise AssertionError(msg)
+AssertionError: Expected 'sleep' to have been called once. Called 0 times.
+
+----------------------------------------------------------------------
+Ran 6 tests in 0.010s
+
+FAILED (failures=1, errors=1)

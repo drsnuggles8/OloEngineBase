@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "TestTempDir.h"
 #include <gtest/gtest.h>
 
 // =============================================================================
@@ -199,3 +200,32 @@ namespace
         EXPECT_EQ(CapturePath::RootDisplay(), "assets/mcp-captures/");
     }
 } // namespace
+
+TEST(McpCapturePath, SymlinkEscapeIsRejectedBeforeCreatingOutsideDirectories)
+{
+    namespace fs = std::filesystem;
+    namespace Path = OloEngine::MCP::CapturePath;
+    const std::string suffix = OloEngine::Tests::TempRoot().filename().string();
+    const fs::path outside = OloEngine::Tests::TempDir("outside");
+    const fs::path link = Path::Root() / ("scope-sandbox-" + suffix);
+    std::error_code ec;
+    fs::create_directories(outside);
+    fs::create_directories(Path::Root());
+    struct Cleanup
+    {
+        fs::path Link;
+        ~Cleanup()
+        {
+            std::error_code ignored;
+            fs::remove(Link, ignored); // Remove the link itself, never recurse through it.
+        }
+    } cleanup{ link };
+    fs::create_directory_symlink(outside, link, ec);
+    if (ec)
+        GTEST_SKIP() << "Filesystem cannot create directory symlinks: " << ec.message();
+    fs::path relative;
+    fs::path absolute;
+    const auto error = Path::Resolve((link / "must-not-create" / "capture").generic_string(), relative, absolute);
+    EXPECT_TRUE(error.has_value());
+    EXPECT_FALSE(fs::exists(outside / "must-not-create"));
+}

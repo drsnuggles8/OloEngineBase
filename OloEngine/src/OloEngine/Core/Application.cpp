@@ -20,6 +20,7 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
@@ -526,6 +527,9 @@ namespace OloEngine
 
     bool Application::RenderFrameLayers(const Timestep timestep)
     {
+        // Diagnostic boundaries stay out of the aggregate map, which allocates
+        // map nodes for each scope name on every disarmed frame.
+        ScopedPerformanceTimer recordingScope("Application::RenderFrameLayers", &m_PerformanceProfiler, false);
         if (m_Minimized)
         {
             return false;
@@ -599,12 +603,21 @@ namespace OloEngine
 
         while (m_Running)
         {
+            auto& scopeRing = m_PerformanceProfiler.GetCpuScopeRing();
+            const bool recording = scopeRing.IsArmed();
+            const u32 rendererFrameBefore = recording ? RendererProfiler::GetInstance().GetCurrentFrameNumber() : 0;
+            const u64 gpuFrameBefore = recording ? GPUPassTimerPool::GetInstance().GetCurrentFrameNumber() : 0;
+            if (recording)
+                scopeRing.BeginFrame(CpuScopeRing::NowNs());
             // Console-variable changes land here and nowhere else: a write from
             // the console, an MCP worker or a test only MARKS its cvar, and this
             // is where the observers run — on the game thread, before anything
             // in the frame reads a value. Cheap when nothing changed, which is
             // every frame but the ones you are debugging.
-            CVars::DispatchPendingChanges();
+            {
+                ScopedPerformanceTimer scope("Application::DispatchCVars", &m_PerformanceProfiler, false);
+                CVars::DispatchPendingChanges();
+            }
 
             const auto timeNow = Time::GetTime();
             // Never negative: a mock clock pinned below the wall clock steps
@@ -620,7 +633,10 @@ namespace OloEngine
 
             // Poll OS events first so GLFW key state is fresh for this frame
             OLO_PROFILE_FRAMEMARK_START("Window PollEvents");
-            m_Window->PollEvents();
+            {
+                ScopedPerformanceTimer scope("Application::PollEvents", &m_PerformanceProfiler, false);
+                m_Window->PollEvents();
+            }
             OLO_PROFILE_FRAMEMARK_END("Window PollEvents");
 
             // A WindowCloseEvent during PollEvents may have set m_Running = false
@@ -660,7 +676,10 @@ namespace OloEngine
             OLO_PROFILE_FRAMEMARK_END("InputActionManager Update");
 
             // Process tasks targeted at the Game Thread
-            Tasks::FNamedThreadManager::Get().ProcessTasks(true);
+            {
+                ScopedPerformanceTimer scope("Application::ProcessTasks", &m_PerformanceProfiler, false);
+                Tasks::FNamedThreadManager::Get().ProcessTasks(true);
+            }
 
             // #691: with a backend that owns frame recording the layer
             // work happens inside SwapBuffers, in the backend's command-buffer
@@ -694,7 +713,10 @@ namespace OloEngine
             // GPU-wait spike on that one frame.
             const auto swapStart = std::chrono::high_resolution_clock::now();
             OLO_PROFILE_FRAMEMARK_START("Window SwapBuffers");
-            m_Window->SwapBuffers();
+            {
+                ScopedPerformanceTimer scope("Application::SwapBuffers", &m_PerformanceProfiler, false);
+                m_Window->SwapBuffers();
+            }
             OLO_PROFILE_FRAMEMARK_END("Window SwapBuffers");
             const auto swapEnd = std::chrono::high_resolution_clock::now();
             if (!m_Minimized)
@@ -707,11 +729,33 @@ namespace OloEngine
             // sleeps for the budget vsync (if on) didn't already consume — no
             // double-throttle. Measured from this frame's start (timeNow).
             OLO_PROFILE_FRAMEMARK_START("FramePacer LimitFrameRate");
-            m_FramePacer.LimitFrameRate(timeNow);
+            {
+                ScopedPerformanceTimer scope("Application::LimitFrameRate", &m_PerformanceProfiler, false);
+                m_FramePacer.LimitFrameRate(timeNow);
+            }
             OLO_PROFILE_FRAMEMARK_END("FramePacer LimitFrameRate");
 
             // Snapshot per-function performance data for this frame
             m_PerformanceProfiler.EndFrame();
+
+            if (scopeRing.IsArmed())
+            {
+                const auto& profiler = RendererProfiler::GetInstance();
+                const auto& frame = profiler.GetCurrentFrameData();
+                const auto& gpuTimers = GPUPassTimerPool::GetInstance();
+                // UI-only loops can issue/resolve GPU work without advancing
+                // the scene renderer profiler. Read the pool's actual identity.
+                const auto gpuSample = gpuTimers.GetLastFrameGpuSample();
+                scopeRing.EndFrame(CpuScopeRing::NowNs(),
+                                   { .RendererCpuMs = frame.m_CPUTime,
+                                     .GpuMs = gpuSample.RawMsForSerialization(),
+                                     .GpuStatus = gpuSample.Status,
+                                     .GpuFrameId = gpuTimers.GetLastResolvedFrameNumber(),
+                                     .GpuIssueFrameId = gpuTimers.GetCurrentFrameNumber(),
+                                     .RendererFrameId = profiler.GetCurrentFrameNumber(),
+                                     .RendererFrameAdvanced = profiler.GetCurrentFrameNumber() != rendererFrameBefore,
+                                     .GpuFrameAdvanced = gpuTimers.GetCurrentFrameNumber() != 0 && gpuTimers.GetCurrentFrameNumber() != gpuFrameBefore });
+            }
 
             // Launch-smoke-test mode: after the configured number of ticks the
             // app has proven it starts and the loop advances — close cleanly.
