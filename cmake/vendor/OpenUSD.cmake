@@ -54,6 +54,11 @@ set(_olo_usd_libfile "${CMAKE_STATIC_LIBRARY_PREFIX}usd_m${CMAKE_STATIC_LIBRARY_
 # The key names the full oneTBB version too: usd_m compiles oneTBB's headers into its objects, so
 # any vcpkg oneTBB bump, a patch release included, must rebuild USD rather than reuse objects built
 # against other headers.
+if(NOT TBB_VERSION MATCHES "^[0-9]+\\.[0-9]+")
+    message(FATAL_ERROR "find_package(TBB) reported no version (TBB_VERSION='${TBB_VERSION}', TBB_DIR=${TBB_DIR}). "
+                        "The OpenUSD cache key needs it: without it a oneTBB bump would reuse a usd_m "
+                        "compiled against other headers.")
+endif()
 string(SUBSTRING "${_OLO_USD_TAG}" 0 8 _olo_usd_key)
 string(APPEND _olo_usd_key "-tbb${TBB_VERSION}")
 if(WIN32)
