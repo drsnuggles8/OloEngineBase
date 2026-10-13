@@ -11,8 +11,7 @@
 # codemodel (cmake-file-api(7)), so it sees an archive whatever brought it in: an imported target,
 # a raw path in a variable, a generator expression, a target defined in another directory. It runs
 # as a custom command OloEngine depends on, before anything compiles, and again after every
-# reconfigure (the codemodel is rewritten by every generate; olo_add_onetbb_guard explains how a
-# fresh tree gets its first one). It cannot see a library named only
+# reconfigure (the codemodel is rewritten by every generate). It cannot see a library named only
 # by a `#pragma comment(lib)` inside an object file; those resolve through the link line's own
 # library search, which this check already covers.
 #
@@ -42,9 +41,10 @@ if(CMAKE_SCRIPT_MODE_FILE)
     list(SORT _indices)
     list(GET _indices -1 _index)
     file(READ "${_index}" _json)
-    string(JSON _codemodel_file ERROR_VARIABLE _err GET "${_json}" reply client-oloengine codemodel-v2 jsonFile)
+    # cmake_file_api(QUERY) files its reply as a shared, stateless one.
+    string(JSON _codemodel_file ERROR_VARIABLE _err GET "${_json}" reply codemodel-v2 jsonFile)
     if(_err)
-        message(FATAL_ERROR "OneTbbGuard: ${_index} has no codemodel-v2 reply for client-oloengine: ${_err}")
+        message(FATAL_ERROR "OneTbbGuard: ${_index} has no codemodel-v2 reply: ${_err}")
     endif()
     file(READ "${OLO_ONETBB_REPLY_DIR}/${_codemodel_file}" _json)
     string(JSON _config_count LENGTH "${_json}" configurations)
@@ -137,20 +137,11 @@ endfunction()
 # it, so the check runs before the first object compiles). Call at the end of the top-level
 # CMakeLists, after every add_subdirectory().
 function(olo_add_onetbb_guard gate_target)
-    # The File API query. CMake reads queries BEFORE it configures, so a query first written here
-    # is answered only by the next run: on a fresh tree this run's generate writes no reply. The
-    # marker below exists only once a run started with the query in place. It is a configure
-    # dependency, and a missing one makes the build system regenerate before it builds anything,
-    # so a fresh tree's first build regenerates once and that run answers the query.
-    set(_query "${CMAKE_BINARY_DIR}/.cmake/api/v1/query/client-oloengine/codemodel-v2")
-    set(_answered "${CMAKE_BINARY_DIR}/olo_onetbb_guard.answered")
-    if(EXISTS "${_query}")
-        file(WRITE "${_answered}" "this run's generate answers the File API query\n")
-    else()
-        file(WRITE "${_query}" "")
-        file(REMOVE "${_answered}")
-    endif()
-    set_property(DIRECTORY "${CMAKE_SOURCE_DIR}" APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${_answered}")
+    # The File API query, made with cmake_file_api() rather than a query file. CMake reads query
+    # FILES before it configures, so one first written during configure is answered only by the
+    # next run, and a fresh tree's first build had no codemodel to read. A query made with this
+    # command is answered at the end of the same generate, on every generator.
+    cmake_file_api(QUERY API_VERSION 1 CODEMODEL 2)
     _olo_onetbb_binaries("${CMAKE_SOURCE_DIR}" _binaries)
     list(JOIN _binaries "," _binaries_arg)
     # Rewritten on every configure, so the check re-runs once after each regenerate and is a
