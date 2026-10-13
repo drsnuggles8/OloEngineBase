@@ -34,6 +34,37 @@ TEST(McpCpuScopeRingTest, RealSnapshotReportsScopeNestingAndMissingGpuAsNull)
     EXPECT_DOUBLE_EQ(frame["scopes"][0]["durationMs"].get<f64>(), 1.5);
 }
 
+TEST(McpCpuScopeRingTest, TruncatedUtf8NamesStillProduceValidJson)
+{
+    // A three-byte character straddles the recorder's 95-byte name bound.
+    const std::string name = std::string(94, 'x') + "\xE2\x82\xAC";
+    OloEngine::CpuScopeRing ring;
+    ring.Arm(2, 2);
+    ring.BeginFrame(0);
+    const auto token = ring.BeginScope(name, 0, 1, 0);
+    ring.EndScope(token, 1000000);
+    ring.EndFrame(1000000, {});
+    const auto json = OloEngine::MCP::CpuScopeRecording::ToJson(ring.Capture());
+    EXPECT_NO_THROW((void)json.dump());
+    EXPECT_EQ(json["frames"][0]["scopes"][0]["name"], std::string(94, 'x'));
+    EXPECT_TRUE(json["frames"][0]["scopes"][0]["nameTruncated"]);
+}
+
+TEST(McpCpuScopeRingTest, CompleteUtf8CharactersAtTheByteBoundArePreserved)
+{
+    const std::string prefix = std::string(92, 'x') + "\xE2\x82\xAC";
+    OloEngine::CpuScopeRing ring;
+    ring.Arm(2, 2);
+    ring.BeginFrame(0);
+    const auto token = ring.BeginScope(prefix + "tail", 0, 1, 0);
+    ring.EndScope(token, 1000000);
+    ring.EndFrame(1000000, {});
+    const auto json = OloEngine::MCP::CpuScopeRecording::ToJson(ring.Capture());
+    EXPECT_NO_THROW((void)json.dump());
+    EXPECT_EQ(json["frames"][0]["scopes"][0]["name"], prefix);
+    EXPECT_TRUE(json["frames"][0]["scopes"][0]["nameTruncated"]);
+}
+
 TEST(McpCpuScopeRingTest, RenderAndGpuIdentitiesRemainSeparateFromTheLoop)
 {
     OloEngine::CpuScopeRing ring;
