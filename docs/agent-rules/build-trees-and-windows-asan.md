@@ -182,8 +182,8 @@ against `/LIBPATH`, so every executable died with
 `lld-link: error: could not open 'usd_m': no such file or directory`. The
 workaround was to configure with `-DOLO_WITH_USD=OFF`; that is **no longer
 needed** — the option now carries the full path and links under both linkers.
-If you see a bare-name `/WHOLEARCHIVE` failure again, see gotcha 7 in
-[asset-import-usd-alembic.md](asset-import-usd-alembic.md) before deleting
+If you see a bare-name `/WHOLEARCHIVE` failure again, see section 6 of
+[openusd-build-and-link.md](openusd-build-and-link.md) before deleting
 the option (deleting it moves the failure to runtime).
 
 The CI job (`.github/workflows/asan.yml`, "ASan (Windows/clang-cl)") works

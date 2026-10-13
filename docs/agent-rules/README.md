@@ -72,7 +72,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [vcpkg-dependency-management.md](vcpkg-dependency-management.md): read before adding, bumping or removing a dependency; the CRT triplet mismatch is heap corruption.
 - [configure-time-variable-visibility.md](configure-time-variable-visibility.md): a CMake variable must be set before the `add_subdirectory()` that reads it.
 - [asset-import-usd-alembic.md](asset-import-usd-alembic.md): the importer registry seam, and vendoring OpenUSD / Alembic / MaterialX statically.
-- [usd-onetbb-and-build-toolchain.md](usd-onetbb-and-build-toolchain.md): USD builds against vcpkg's oneTBB, a File API guard fails any link with a second one, and on Windows USD is built by MSVC through a Visual Studio generator at the build lock's job count.
+- [openusd-build-and-link.md](openusd-build-and-link.md): OpenUSD builds against vcpkg's oneTBB, and a File API guard fails any link with a second one; on Windows MSVC builds it at the build lock's job count; its per-machine cache is shared across worktrees; the engine force-links `usd_m` by full path.
 - [asset-import-openvdb-volumetric.md](asset-import-openvdb-volumetric.md): keep OpenVDB editor-only; derive the grid transform without hand-transposing; extend every exhaustive `switch`.
 - [groom-curve-import.md](groom-curve-import.md): polygon Alembic import is not curve support; reject malformed curve data instead of clamping it; the cook canonicalises and never resamples.
 - [groom-strand-visibility.md](groom-strand-visibility.md): real hair is sub-pixel at every practical framing, so a strand is widened to one pixel and pays for it in alpha; model the square-ended quad the GPU draws, and refuse a stochastic mode that has no temporal resolve to converge it.
@@ -505,7 +505,7 @@ No crash, no error, no log line; work or data disappears and the system keeps ru
 | [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md) | A component's teardown, when `m_Registry.destroy()` skips `OnComponentRemoved`. |
 | [vcpkg-dependency-management.md](vcpkg-dependency-management.md) | Three of five traps are silent, including a port option that never applied and one that switched on and killed TSan. |
 | [asset-import-usd-alembic.md](asset-import-usd-alembic.md) | Winding, up-axis, unit scale, UV origin. |
-| [usd-onetbb-and-build-toolchain.md](usd-onetbb-and-build-toolchain.md) | OpenVDB's oneTBB, which ran on USD's older bundled copy because USD's archive came first on the link line, with `/FORCE:MULTIPLE` on. |
+| [openusd-build-and-link.md](openusd-build-and-link.md) | OpenVDB's oneTBB, which ran on USD's older bundled copy because USD's archive came first on the link line, with `/FORCE:MULTIPLE` on. |
 | [asset-import-openvdb-volumetric.md](asset-import-openvdb-volumetric.md) | A fog volume rendered as a solid box through every non-VDB-aware evaluator. |
 | [groom-curve-import.md](groom-curve-import.md) | Authored groom intent, when an unknown attribute is ignored rather than refused; and byte-identical cooks, to one unstable sort. |
 | [groom-strand-visibility.md](groom-strand-visibility.md) | A whole coat, to an alpha cutoff on sub-pixel strands; a coverage comparison, to a stability metric that scores "loses everything, consistently" as stable; every ribbon quad, to a per-corner tangent that makes it a bowtie. |

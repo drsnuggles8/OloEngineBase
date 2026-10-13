@@ -42,40 +42,7 @@ CI job does, so a USD change is verified on a local tree only.
 
 **One oneTBB, vcpkg's (#1575).** USD compiles against vcpkg's oneTBB and the engine links
 `TBB::tbb`; how, the guard that keeps a second one out, and how the USD build gets its compiler and
-job count are in [usd-onetbb-and-build-toolchain.md](usd-onetbb-and-build-toolchain.md).
-
-### The cache is shared across worktrees — the stamps are not (fixed; know the failure it caused)
-
-The cache holds the source/binary/install trees, but `ExternalProject`'s `STAMP_DIR` defaults to the
-**consuming** build tree. So a **second worktree** used to see no stamps, conclude every step was out
-of date, and re-run configure+build *inside the first worktree's* `usd-build` — which is not
-idempotent, because `BUILD_COMMAND` is `--config Release` **then** `--config Debug` in one binary dir.
-Re-entering a finished tree fails across USD's `arch` target with:
-
-```text
-error C2859: ...\arch.dir\Release\arch.pdb is not the pdb file that was used when this
-             precompiled header was created, recreate the precompiled header.
-```
-
-The artifacts were shared; the "already done" record was not. **Symptom to recognise:** a *fresh
-worktree* failing in `olo_openusd` while `install/{Debug,Release}` is demonstrably complete
-(`usd_m.lib` ≈ 2.4 GB Debug / 2.1 GB Release).
-
-`OpenUSD.cmake` now **short-circuits on a complete cache**: if `usd_m` + the config's oneTBB lib +
-`include/pxr` + the `lib/usd` plugInfo tree all exist for **both** configs, it skips
-`ExternalProject_Add` entirely (`olo_usd_ext` becomes a no-op) and consumes the cache as a prebuilt
-install — so no worktree after the first ever writes to the shared tree. A *partial* cache (an
-interrupted first build) fails the check and resumes the real build. Bumping `_OLO_USD_TAG` changes
-the cache key; to force a genuine rebuild, delete `$LOCALAPPDATA/OloEngine/usd-<sha8>`.
-
-Two things that follow:
-
-- **Moving `STAMP_DIR` into the cache would NOT have fixed this** — it only relocates the race to two
-  worktrees configuring for the first time simultaneously.
-- **Still unsafe: two worktrees running their FIRST USD build concurrently** (one shared binary dir).
-  Same rule as the msvc/clangcl trees in
-  [build-trees-and-windows-asan.md](build-trees-and-windows-asan.md) — sequence the first build; every
-  tree after it is a lock-free cache hit.
+job count, the shared cache and the `/WHOLEARCHIVE` link are in [openusd-build-and-link.md](openusd-build-and-link.md).
 
 **Do NOT vendor OpenUSD via FetchContent `add_subdirectory`.** USD's CMake is install-centric: the
 runtime `plugInfo.json` resource tree it needs to open *even a plain `.usda`* is produced by the
@@ -122,55 +89,11 @@ ExternalProject_Add(openusd GIT_REPOSITORY .../OpenUSD.git GIT_TAG v25.11 GIT_SH
 5. **Cost.** `usd_m.lib` ≈ **2.1 GB** Release / **2.4 GB** Debug (static archive — dead-stripped at
    the final exe link). Cold build ≈ 8–15 min per config. Config-matched builds both.
 6. **oneTBB static-Debug teardown assert.** See
-   [usd-onetbb-and-build-toolchain.md](usd-onetbb-and-build-toolchain.md) section 3.
-7. **`/WHOLEARCHIVE:` needs a FULL PATH — a bare library name is not portable across the two
-   Windows linkers** (#697). `link.exe` resolves a bare `/WHOLEARCHIVE:usd_m` against `/LIBPATH`;
-   **`lld-link` does not** — it opens the argument as a path relative to the working directory only,
-   and kills the whole link with
-
-   ```text
-   lld-link: error: could not open 'usd_m': no such file or directory
-   ```
-
-   even though `usd_m.lib` is already on the link line by full path and its directory is in
-   `/LIBPATH`. This is not a niche path: **CMake sets `MSVC` TRUE for clang-cl** (it targets the MSVC
-   ABI), so an `if(MSVC)` guard is taken under the `clangcl` / `clangcl-asan` presets too. The result
-   was that both of those presets could not link *at all* with the default `OLO_WITH_USD=ON`, while
-   the msvc preset was perfectly green — everything compiled, so it looked like a link-config problem
-   rather than an option-spelling one.
-
-   The fix is to spell the option with the full path CMake already has
-   (`target_link_options(OloEngine PUBLIC "/WHOLEARCHIVE:${OloEngine_USD_LIB}")`), which is accepted
-   by **both** linkers. Verified against **LLD 21.1.8** and **MSVC `link.exe` 14.51** with a minimal
-   force-link probe (a static lib whose only content is a static-init side effect, and a `main` that
-   never references it):
-
-   | `/WHOLEARCHIVE:` argument                   | `link.exe` | `lld-link` |
-   | ------------------------------------------ | ---------- | ---------- |
-   | bare name, lib reachable via `/LIBPATH`     | force-links | **link fails** |
-   | full path, lib also on the link line        | force-links | force-links |
-   | full path, lib *not* on the link line       | force-links | force-links |
-   | full path containing spaces                 | force-links | force-links |
-   | *(control)* no `/WHOLEARCHIVE` at all       | object dropped | object dropped |
-
-   The control row is the part worth keeping: it is what proves the probe measures force-linking
-   rather than incidental reachability.
-
-   Do **not** "fix" a `/WHOLEARCHIVE` failure by deleting the option. It is load-bearing under both
-   linkers, but in *different* ways — measured by relinking the engine with the option commented out:
-   under `link.exe` the link succeeds and USD fails at **runtime** (gotcha 4), while under `lld-link`
-   the link fails outright with
-   `undefined symbol: __declspec(dllimport) ... UsdGeomGetStageUpAxis` — because `usd_m`'s headers
-   declare its symbols `dllimport` (the `/IGNORE:4217` flood) and lld-link will not satisfy a
-   dllimport-declared symbol from the archive without the whole-archive pull. So "it linked after I
-   removed the flag" is a *link.exe-only* observation, and it is the silent-at-link,
-   broken-at-runtime case.
-
-   `OloEngine_USD_LIB` carries a `$<CONFIG>` genexpr and `target_link_options` expands
-   it per config, so the full-path spelling is also config-matched where the bare name depended on
-   `/LIBPATH` search order to land on the right one.
+   [openusd-build-and-link.md](openusd-build-and-link.md) section 3.
+7. **`/WHOLEARCHIVE:` needs a FULL PATH.** See
+   [openusd-build-and-link.md](openusd-build-and-link.md) section 6.
 8. **On Windows USD is built by MSVC's `cl`.** See
-   [usd-onetbb-and-build-toolchain.md](usd-onetbb-and-build-toolchain.md) section 4.
+   [openusd-build-and-link.md](openusd-build-and-link.md) section 4.
 
 Silent-correctness handling in `UsdMeshImporter`: stage up-axis (Z-up → -90° X rotation),
 `metersPerUnit` scale, `orientation` (leftHanded → reversed winding), primvar interpolation

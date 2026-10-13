@@ -526,7 +526,7 @@ if(OLO_WITH_USD)
 	# OloEngine_USD_LIB's $<CONFIG> genexpr makes it config-matched into the bargain.
 	# Do NOT delete the option to "fix" a whole-archive error — it is load-bearing under
 	# both linkers, silently at runtime for link.exe and loudly at link for lld-link.
-	# Full linker matrix + failure modes: docs/agent-rules/asset-import-usd-alembic.md.
+	# Full linker matrix + failure modes: docs/agent-rules/openusd-build-and-link.md.
 	if(MSVC)
 		target_link_options(OloEngine PUBLIC "/WHOLEARCHIVE:${OloEngine_USD_LIB}")
 	endif()
