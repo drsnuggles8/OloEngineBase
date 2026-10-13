@@ -21,9 +21,11 @@
 #   cmake -DOLO_ONETBB_REPLY_DIR=... -DOLO_ONETBB_CONFIG=... -DOLO_ONETBB_TARGETS=... -P <this file>
 #       — the check itself.
 
-# A oneTBB core archive by file name: tbb12 / tbb12_debug, any platform prefix and suffix. The
-# separate tbbmalloc / tbbmalloc_proxy libraries are a different runtime and are not counted.
-set(_OLO_ONETBB_ARCHIVE_REGEX "(^|/)(lib)?tbb12(_debug)?\\.(lib|a|so|dylib)(\\.[0-9.]+)?$")
+# A oneTBB core library by file name. oneTBB names it tbb12 / tbb12_debug on Windows and
+# libtbb / libtbb_debug elsewhere (libtbb.a, libtbb.so.12, libtbb.12.dylib). The separate
+# tbbmalloc / tbbmalloc_proxy libraries are a different runtime and are not counted.
+set(_OLO_ONETBB_ARCHIVE_REGEX "(^|/)(lib)?tbb(12)?(_debug)?(\\.[0-9]+)*\\.(lib|a|so|dylib)(\\.[0-9.]+)?$")
+set(_OLO_ONETBB_FLAG_REGEX "^-ltbb(12)?(_debug)?$")
 
 if(CMAKE_SCRIPT_MODE_FILE)
     foreach(_var OLO_ONETBB_REPLY_DIR OLO_ONETBB_CONFIG OLO_ONETBB_TARGETS)
@@ -90,7 +92,7 @@ if(CMAKE_SCRIPT_MODE_FILE)
             string(REPLACE "\"" "" _fragment "${_fragment}")
             string(REPLACE "\\" "/" _fragment "${_fragment}")
             string(TOLOWER "${_fragment}" _fragment)
-            if(_fragment MATCHES "${_OLO_ONETBB_ARCHIVE_REGEX}" OR _fragment MATCHES "^-ltbb12(_debug)?$")
+            if(_fragment MATCHES "${_OLO_ONETBB_ARCHIVE_REGEX}" OR _fragment MATCHES "${_OLO_ONETBB_FLAG_REGEX}")
                 list(APPEND _archives "${_fragment}")
             endif()
         endforeach()
