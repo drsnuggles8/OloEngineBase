@@ -359,8 +359,19 @@ TEST_F(SceneRenderSettingsActivationTest, UnknownPathFailsTheLoad)
         EXPECT_FALSE(loaded);
         EXPECT_FALSE(loaded.Error.IsEmpty());
 
-        // The asset-pack form goes through the same reader.
-        EXPECT_FALSE(SceneSerializer(Scene::Create()).DeserializeFromYAML(text));
+        // Both readers (the file and the asset-pack form) refuse before changing
+        // the settings of a scene they are applied onto: neither its path nor a
+        // block ApplySceneSettings applies before the path (post-processing).
+        for (const bool fromFile : { true, false })
+        {
+            Ref<Scene> existing = DefaultScene();
+            existing->SetRenderingPath(RenderingPath::Deferred);
+            existing->GetPostProcessSettings().Exposure = 3.0f;
+            SceneSerializer serializer(existing);
+            EXPECT_FALSE(fromFile ? serializer.Deserialize(m_Root / "Bad.olo") : serializer.DeserializeFromYAML(text));
+            EXPECT_EQ(existing->GetRenderingPath(), RenderingPath::Deferred) << (fromFile ? "file" : "asset pack");
+            EXPECT_FLOAT_EQ(existing->GetPostProcessSettings().Exposure, 3.0f) << (fromFile ? "file" : "asset pack");
+        }
     }
 }
 
