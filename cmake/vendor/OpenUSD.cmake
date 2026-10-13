@@ -51,10 +51,11 @@ set(_olo_usd_libfile "${CMAKE_STATIC_LIBRARY_PREFIX}usd_m${CMAKE_STATIC_LIBRARY_
 
 # --- Build from source into a short, per-user, version-keyed cache (short path dodges Windows
 #     MAX_PATH; git long-paths handles USD's deeply-nested source tree) ---
-# The key names the oneTBB version too: usd_m compiles oneTBB's headers into its objects, so a
-# vcpkg oneTBB bump must rebuild USD rather than reuse objects built against another version.
+# The key names the full oneTBB version too: usd_m compiles oneTBB's headers into its objects, so
+# any vcpkg oneTBB bump, a patch release included, must rebuild USD rather than reuse objects built
+# against other headers.
 string(SUBSTRING "${_OLO_USD_TAG}" 0 8 _olo_usd_key)
-string(APPEND _olo_usd_key "-tbb${TBB_VERSION_MAJOR}.${TBB_VERSION_MINOR}")
+string(APPEND _olo_usd_key "-tbb${TBB_VERSION}")
 if(WIN32)
     set(_olo_usd_cache "$ENV{LOCALAPPDATA}/OloEngine/usd-${_olo_usd_key}")
 else()
@@ -153,9 +154,11 @@ set(_olo_usd_byproducts
 set(_olo_usd_generator_args "")
 set(_olo_usd_toolchain_args "")
 if(WIN32)
+    # The msvc preset's generator by default; a box with another Visual Studio overrides it.
+    set(OLO_USD_VS_GENERATOR "Visual Studio 18 2026" CACHE STRING
+        "Visual Studio generator that builds OpenUSD when the engine tree is not a Visual Studio one")
     if(NOT CMAKE_GENERATOR MATCHES "^Visual Studio")
-        # Keep in step with the msvc preset in CMakePresets.json.
-        set(_olo_usd_generator_args CMAKE_GENERATOR "Visual Studio 18 2026" CMAKE_GENERATOR_PLATFORM x64)
+        set(_olo_usd_generator_args CMAKE_GENERATOR "${OLO_USD_VS_GENERATOR}" CMAKE_GENERATOR_PLATFORM x64)
     endif()
 else()
     foreach(_olo_var CMAKE_C_COMPILER CMAKE_CXX_COMPILER CMAKE_LINKER CMAKE_AR)
@@ -228,12 +231,13 @@ ExternalProject_Add(olo_openusd
         -DPXR_ENABLE_HDF5_SUPPORT=OFF
         -DPXR_PREFER_SAFETY_OVER_SPEED=ON
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-    # No --parallel: a bare flag means the native tool's own default (every core for MSBuild,
-    # cores + 2 for Ninja) and outranks CMAKE_BUILD_PARALLEL_LEVEL, which build-lock.ps1 exports
-    # with its memory-aware job count. The nested build inherits that variable instead, so it runs
-    # at the lock's cap like every other build.
-    BUILD_COMMAND   ${CMAKE_COMMAND} --build <BINARY_DIR> --config Release
-            COMMAND ${CMAKE_COMMAND} --build <BINARY_DIR> --config Debug
+    # Each configuration through build-usd-config.cmake, which picks the job count at build time:
+    # build-lock.ps1's memory-aware CMAKE_BUILD_PARALLEL_LEVEL when it is set, else the physical
+    # core count. A bare --parallel here ran the native tool's own default and ignored the lock.
+    BUILD_COMMAND   ${CMAKE_COMMAND} -DUSD_BUILD_DIR=<BINARY_DIR> -DUSD_CONFIG=Release
+                    -P ${CMAKE_CURRENT_LIST_DIR}/build-usd-config.cmake
+            COMMAND ${CMAKE_COMMAND} -DUSD_BUILD_DIR=<BINARY_DIR> -DUSD_CONFIG=Debug
+                    -P ${CMAKE_CURRENT_LIST_DIR}/build-usd-config.cmake
     INSTALL_COMMAND ${CMAKE_COMMAND} --install <BINARY_DIR> --config Release --prefix ${_olo_usd_install}/Release
             COMMAND ${CMAKE_COMMAND} --install <BINARY_DIR> --config Debug --prefix ${_olo_usd_install}/Debug
     BUILD_BYPRODUCTS "${_olo_usd_byproducts}")
