@@ -7,7 +7,8 @@
   "The subsequent overhead campaign refused to launch because that editor was running.",
   "The post-arm/setup hitches are real observations but cannot establish uncontended CPU-hitch attribution.",
   "summary.metrics describes a separate legacy profiler-history snapshot fetched after disarm and dump, not the identical scope-ring window. Its samples lack frame IDs. The first two scope frames are post-arm/setup frames; no camera-cut event frame ID was recorded, so their cause is not attributed.",
-  "Raw scope dumps, complete histories and logs are retained locally under .v-build/trace-{backend}-armed-0/."
+  "Raw scope dumps, complete histories and logs are retained locally under .v-build/trace-{backend}-armed-0/.",
+  "The sibling editor start at 09:18:23 local overlaps the OpenGL natural window (start probe saved 09:18:13.714, end probe saved 09:19:18.843). That trace also includes competing editor load, reinforcing its exclusion from performance acceptance."
  ],
  "traces": {
   "vulkan": {
