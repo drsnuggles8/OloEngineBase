@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<testsuites tests="3" failures="0" disabled="0" errors="0" time="0.599" timestamp="2026-10-13T09:16:00.362" name="AllTests">
-  <testsuite name="VulkanPassSuite" tests="3" failures="0" disabled="0" skipped="0" errors="0" time="0.599" timestamp="2026-10-13T09:16:00.363">
-    <testcase name="DecalGBufferModeMatrixMasksItsTargetRenderTargets" file="..\OloEngine\tests\Rendering\VulkanPassSuiteTest.cpp" line="9977" status="run" result="completed" time="0.262" timestamp="2026-10-13T09:16:00.363" classname="VulkanPassSuite" />
-    <testcase name="DeferredOpaqueDecalExportsTheGBufferThroughTheGraph" file="..\OloEngine\tests\Rendering\VulkanPassSuiteTest.cpp" line="10354" status="run" result="completed" time="0.154" timestamp="2026-10-13T09:16:00.625" classname="VulkanPassSuite" />
-    <testcase name="DeferredDebugDisplaysAlbedoAndRmaAfterTheSceneClear" file="..\OloEngine\tests\Rendering\VulkanPassSuiteTest.cpp" line="10698" status="run" result="completed" time="0.182" timestamp="2026-10-13T09:16:00.780" classname="VulkanPassSuite" />
-  </testsuite>
-</testsuites>

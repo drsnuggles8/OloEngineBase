@@ -30,6 +30,8 @@ The ledger measures logical copied bytes, not physical memory bandwidth or elaps
 time. Concurrent builds make frame-time comparisons on this host unsuitable for a speed
 claim. Before/after reports use `Before_` and `After_DeferredResolve_` prefixes under
 `OloEditor/assets/tests/exports/`; visual evidence is under `assets/tests/visual/`.
+These are generated, git-ignored run artifacts, retained locally or as CI artifacts;
+the tests construct their fixtures and assertions without reading committed captures.
 
 Both live backends recorded these counts with both late writers active:
 
@@ -74,12 +76,21 @@ control copy-group lists match their baseline exactly. Vulkan's two hybrid shado
 cells report one ray-traced light and zero fallback lights. Both logs contain the
 explicit `--rhi` backend selection and zero errors/VUIDs.
 
-Committed comparison reports are `DeferredResolve_1553_{ImageComparison,
+Local comparison reports are `DeferredResolve_1553_{ImageComparison,
 LiveImageComparison,VirtualGeometryComparison,ControlComparison}.json`. Cell ledgers
 are `RenderTargetExports_{Before,After}_DeferredResolve_GL_Deferred_Msaa*_*.json`
 and `{Before,After}_Live_DeferredResolve_{GL,Vulkan}_*.json`. PNGs with the corresponding
 cell prefixes include the red receiving decal, recovered instance field and two camera
 angles. Historical #1332 goldens and incidental timing reports were restored.
+
+Regenerate the headless ledgers, captures and replay scenes by running
+`RenderTargetExportEvidence.DeferredResolveMatrix` and
+`RenderTargetExportEvidence.DeferredResolveUsesTheUpscaledAttachmentSize` in the
+Release test executable with a GL context. For baseline output, use the original
+renderer with the corrected fixtures and set `OLO_GBUFFER_RESOLVE_BASELINE=1`.
+The live reports and comparison summaries above record the verification session;
+they are not inputs to these tests. Run artifacts are excluded from the PR so
+verification does not add hundreds of captures and reports to the source tree.
 
 ## Bugs found while verifying
 
