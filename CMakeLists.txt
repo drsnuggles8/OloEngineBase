@@ -1,4 +1,10 @@
 ﻿cmake_minimum_required(VERSION 3.25)
+# The policies stay at 3.25's; the VERSION is 3.27. cmake/OneTbbGuard.cmake asks for its link-line
+# codemodel with cmake_file_api() (3.27), the only form a fresh tree's first configure answers
+# (#1575), and the guard runs in every configuration.
+if(CMAKE_VERSION VERSION_LESS 3.27)
+    message(FATAL_ERROR "OloEngine needs CMake 3.27 or newer (this is ${CMAKE_VERSION}); the presets need 4.2.")
+endif()
 
 message(STATUS "CMake version: ${CMAKE_VERSION}")
 
