@@ -2333,9 +2333,11 @@ namespace OloEngine::Tests
 
         // Known path-bearing field name set (substring match — any key
         // ending in Path / Filepath / File / ScriptFile counts).
+        // RenderingPath (issue #1601) is the scene's Forward/ForwardPlus/Deferred
+        // token, not a file.
         auto isPathField = [](const std::string& key)
         {
-            return key.ends_with("Path") || key == "Filepath" ||
+            return (key.ends_with("Path") && key != "RenderingPath") || key == "Filepath" ||
                    key == "FilePath" || key == "ScriptFile";
         };
 

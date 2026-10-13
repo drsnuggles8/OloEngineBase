@@ -1,5 +1,6 @@
 Scene: SponzaForwardPlus.olo
 Version: 1
+RenderingPath: ForwardPlus
 PostProcessSettings:
   TonemapOperator: 0
   Exposure: 1

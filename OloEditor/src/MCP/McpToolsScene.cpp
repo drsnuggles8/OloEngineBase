@@ -933,8 +933,10 @@ namespace OloEngine::MCP
                 "(relative paths resolve against the project asset directory, e.g. \"Scenes/Sandbox.olo\"; an absolute "
                 "path also works). Loads the scene directly, the same install path as the editor's File > Open Scene "
                 "but WITHOUT the auto-save recovery modal (a remote agent can't click it). If Play mode is running it "
-                "is stopped first. Returns whether the scene loaded (ok), the resolved path, the new scene name and "
-                "entity count. This is a WRITE tool: it is refused unless 'Allow writes' is enabled in the editor's "
+                "is stopped first. Returns whether the scene loaded (ok), the resolved path, the new scene name, "
+                "entity count and the rendering path the scene selected: the path is a scene render setting, so "
+                "opening a scene replaces the active path with the scene's (set 'renderpath' afterwards to override "
+                "it for this session). This is a WRITE tool: it is refused unless 'Allow writes' is enabled in the editor's "
                 "MCP Server panel (off by default).";
             tool.InputSchema = SceneControl::OpenInputSchema();
             tool.OutputSchema = Schema::Object()
@@ -943,8 +945,9 @@ namespace OloEngine::MCP
                                     .Prop("path", Schema::String().Desc("Resolved scene path."))
                                     .Prop("sceneName", Schema::String().Desc("Name of the newly active scene."))
                                     .Prop("entityCount", Schema::Int().Min(0))
+                                    .Prop("renderingPath", Schema::String().Desc("Rendering path the scene selected on open: Forward, ForwardPlus or Deferred. Empty when the load failed."))
                                     .Prop("message", Schema::String().Desc("Human-readable outcome detail."))
-                                    .Required({ "available", "ok", "path", "sceneName", "entityCount", "message" });
+                                    .Required({ "available", "ok", "path", "sceneName", "entityCount", "renderingPath", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneOpen;
             registry.Register(std::move(tool));

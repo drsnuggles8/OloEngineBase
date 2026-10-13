@@ -321,6 +321,7 @@ TEST(McpSceneControlShaping, OpenToJsonCarriesEveryField)
     r.Path = "C:/proj/Scenes/A.olo";
     r.SceneName = "A";
     r.EntityCount = 3;
+    r.RenderingPath = "Deferred";
     r.Message = "ok";
 
     const Json j = SceneControl::ToJson(r);
@@ -329,6 +330,7 @@ TEST(McpSceneControlShaping, OpenToJsonCarriesEveryField)
     EXPECT_EQ(j["path"], "C:/proj/Scenes/A.olo");
     EXPECT_EQ(j["sceneName"], "A");
     EXPECT_EQ(j["entityCount"], 3);
+    EXPECT_EQ(j["renderingPath"], "Deferred");
     EXPECT_EQ(j["message"], "ok");
 }
 

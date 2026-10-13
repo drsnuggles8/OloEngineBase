@@ -20,7 +20,14 @@
 //     leaving any of them behind,
 //   * the quality tier lands ON TOP of the authored values, as in the editor,
 //   * the manifest's tier block round-trips, because the shipped game only
-//     knows the project's tier through game.manifest.
+//     knows the project's tier through game.manifest,
+//   * the authored rendering path (issue #1601) is one of those settings: it
+//     survives every form a scene travels in, a file without the key means
+//     Forward, and a value this build does not know fails the load.
+//
+// The graph half of #1601 (the path actually rebuilding the render graph, SSR
+// and SSGI engaging) needs a GL context and lives in
+// TemporalLongSequenceEvidenceTest.AuthoredPathSelectsTheGraphThroughSceneActivation.
 // =============================================================================
 
 #include <gtest/gtest.h>
@@ -39,6 +46,8 @@
 
 #include <cmath>
 #include <filesystem>
+#include <fstream>
+#include <sstream>
 #include <string>
 
 using namespace OloEngine;
@@ -99,8 +108,25 @@ class SceneRenderSettingsActivationTest : public ::testing::Test
         m_Saved.PublishToRenderer();
         Renderer3D::GetShadowMap().SetSettings(m_SavedShadow);
         Renderer3D::GetRendererSettings() = m_SavedRenderer;
+        // ApplySceneRenderSettings rebuilds the live graph when Renderer3D is up
+        // (a GL suite earlier in the run); put the graph back on the restored path.
+        if (Renderer3D::HasInitialized())
+            Renderer3D::ApplyRendererSettings();
         std::error_code ec;
         std::filesystem::remove_all(m_Root, ec);
+    }
+
+    [[nodiscard]] std::string ReadText(const std::string& name) const
+    {
+        std::ifstream in(m_Root / (name + ".olo"));
+        std::stringstream text;
+        text << in.rdbuf();
+        return text.str();
+    }
+
+    void WriteText(const std::string& name, const std::string& text) const
+    {
+        std::ofstream(m_Root / (name + ".olo"), std::ios::trunc) << text;
     }
 
     // Save `scene` and load it back the way the runtime does.
@@ -235,4 +261,139 @@ TEST_F(SceneRenderSettingsActivationTest, ManifestTierBlockRoundTrips)
     DeserializeQualityTiering(YAML::Load("Preset: Custom\nSSAORadius: .nan\nGTAOPower: .inf\n"), hostile);
     EXPECT_TRUE(std::isfinite(hostile.SSAORadius));
     EXPECT_TRUE(std::isfinite(hostile.GTAOPower));
+}
+
+// ---- the authored rendering path (issue #1601) ------------------------------
+
+namespace
+{
+    // A different path than `path`, so a value that reaches the renderer can
+    // only have come from the scene.
+    [[nodiscard]] RenderingPath OtherThan(RenderingPath path)
+    {
+        return path == RenderingPath::Deferred ? RenderingPath::Forward : RenderingPath::Deferred;
+    }
+} // namespace
+
+TEST_F(SceneRenderSettingsActivationTest, EveryAuthoredPathRoundTripsAndReachesTheRenderer)
+{
+    for (const RenderingPath path : kRenderingPaths)
+    {
+        SCOPED_TRACE(ToToken(path));
+        Ref<Scene> authored = AuthoredScene();
+        authored->SetRenderingPath(path);
+        const std::string name = std::string("Path") + ToToken(path);
+        const Ref<Scene> scene = RoundTrip(authored, name);
+        ASSERT_TRUE(scene);
+        EXPECT_NE(ReadText(name).find(std::string("RenderingPath: ") + ToToken(path)), std::string::npos)
+            << "the key is written by name, not as an ordinal";
+        EXPECT_EQ(scene->GetRenderingPath(), path);
+
+        Renderer3D::GetRendererSettings().Path = OtherThan(path);
+        SceneTransition::ApplySceneRenderSettings(*scene, nullptr);
+        EXPECT_EQ(Renderer3D::GetRendererSettings().Path, path);
+    }
+}
+
+// Reload and script-driven switching, in both directions: the incoming scene's
+// path replaces the outgoing one's, including back to Forward.
+TEST_F(SceneRenderSettingsActivationTest, SwitchingScenesSwitchesThePathBothWays)
+{
+    Ref<Scene> deferredAuthored = DefaultScene();
+    deferredAuthored->SetRenderingPath(RenderingPath::Deferred);
+    const Ref<Scene> deferred = RoundTrip(deferredAuthored, "SwitchDeferred");
+    const Ref<Scene> forward = RoundTrip(DefaultScene(), "SwitchForward");
+    ASSERT_TRUE(deferred && forward);
+
+    SceneTransition::ApplySceneRenderSettings(*forward, nullptr);
+    EXPECT_EQ(Renderer3D::GetRendererSettings().Path, RenderingPath::Forward);
+    SceneTransition::ApplySceneRenderSettings(*deferred, nullptr);
+    EXPECT_EQ(Renderer3D::GetRendererSettings().Path, RenderingPath::Deferred);
+    SceneTransition::ApplySceneRenderSettings(*forward, nullptr);
+    EXPECT_EQ(Renderer3D::GetRendererSettings().Path, RenderingPath::Forward);
+}
+
+// Every scene saved before #1601 carries no key; each must keep rendering
+// Forward, whatever path the renderer happened to be on.
+TEST_F(SceneRenderSettingsActivationTest, SceneWithoutTheKeyRendersForward)
+{
+    Ref<Scene> authored = DefaultScene();
+    authored->SetRenderingPath(RenderingPath::Deferred);
+    SceneSerializer(authored).Serialize(m_Root / "NoKey.olo");
+    std::string text = ReadText("NoKey");
+    const std::string line = "RenderingPath: Deferred\n";
+    const auto at = text.find(line);
+    ASSERT_NE(at, std::string::npos);
+    text.erase(at, line.size());
+    ASSERT_EQ(text.find("RenderingPath"), std::string::npos);
+    WriteText("NoKey", text);
+
+    const auto loaded = SceneTransition::LoadSceneFile(m_Root / "NoKey.olo", /*requirePrimaryCamera=*/true);
+    ASSERT_TRUE(loaded) << loaded.Error.ToView();
+    EXPECT_EQ(loaded.LoadedScene->GetRenderingPath(), RenderingPath::Forward);
+
+    Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+    SceneTransition::ApplySceneRenderSettings(*loaded.LoadedScene, nullptr);
+    EXPECT_EQ(Renderer3D::GetRendererSettings().Path, RenderingPath::Forward);
+}
+
+// A value this build does not know is a load error, never a quiet Forward: the
+// game would boot, draw, and silently lack what the author picked the path for.
+TEST_F(SceneRenderSettingsActivationTest, UnknownPathFailsTheLoad)
+{
+    const Ref<Scene> authored = DefaultScene();
+    SceneSerializer(authored).Serialize(m_Root / "Source.olo");
+    const std::string source = ReadText("Source");
+    const std::string valid = "RenderingPath: Forward";
+    ASSERT_NE(source.find(valid), std::string::npos);
+
+    // Spellings a hand edit or another tool could plausibly produce.
+    for (const char* value : { "Hybrid", "deferred", "Forward+", "2", "\"\"", "[Deferred]" })
+    {
+        SCOPED_TRACE(value);
+        std::string text = source;
+        text.replace(text.find(valid), valid.size(), std::string("RenderingPath: ") + value);
+        WriteText("Bad", text);
+
+        const auto loaded = SceneTransition::LoadSceneFile(m_Root / "Bad.olo", /*requirePrimaryCamera=*/true);
+        EXPECT_FALSE(loaded);
+        EXPECT_FALSE(loaded.Error.IsEmpty());
+
+        // Both readers (the file and the asset-pack form) refuse before changing
+        // the settings of a scene they are applied onto: neither its path nor a
+        // block ApplySceneSettings applies before the path (post-processing).
+        for (const bool fromFile : { true, false })
+        {
+            Ref<Scene> existing = DefaultScene();
+            existing->SetRenderingPath(RenderingPath::Deferred);
+            existing->GetPostProcessSettings().Exposure = 3.0f;
+            SceneSerializer serializer(existing);
+            EXPECT_FALSE(fromFile ? serializer.Deserialize(m_Root / "Bad.olo") : serializer.DeserializeFromYAML(text));
+            EXPECT_EQ(existing->GetRenderingPath(), RenderingPath::Deferred) << (fromFile ? "file" : "asset pack");
+            EXPECT_FLOAT_EQ(existing->GetPostProcessSettings().Exposure, 3.0f) << (fromFile ? "file" : "asset pack");
+        }
+    }
+}
+
+// The path travels with the scene through every other form it takes: the
+// asset-pack YAML string, the Play-mode copy, and the binary sidecar cache a
+// second load of the same file is served from.
+TEST_F(SceneRenderSettingsActivationTest, PathSurvivesEveryOtherSceneForm)
+{
+    Ref<Scene> authored = DefaultScene();
+    authored->SetRenderingPath(RenderingPath::ForwardPlus);
+
+    const Ref<Scene> fromPack = Scene::Create();
+    ASSERT_TRUE(SceneSerializer(fromPack).DeserializeFromYAML(SceneSerializer(authored).SerializeToYAML()));
+    EXPECT_EQ(fromPack->GetRenderingPath(), RenderingPath::ForwardPlus);
+
+    EXPECT_EQ(Scene::Copy(authored)->GetRenderingPath(), RenderingPath::ForwardPlus);
+
+    const Ref<Scene> first = RoundTrip(authored, "Sidecar");
+    ASSERT_TRUE(first);
+    ASSERT_TRUE(std::filesystem::is_regular_file(m_Root / "Sidecar.olo.scenebin"))
+        << "the first load writes the sidecar the second one is served from";
+    const auto second = SceneTransition::LoadSceneFile(m_Root / "Sidecar.olo", /*requirePrimaryCamera=*/true);
+    ASSERT_TRUE(second) << second.Error.ToView();
+    EXPECT_EQ(second.LoadedScene->GetRenderingPath(), RenderingPath::ForwardPlus);
 }

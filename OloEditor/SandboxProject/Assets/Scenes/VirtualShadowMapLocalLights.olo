@@ -1,5 +1,6 @@
 Scene: VirtualShadowMapLocalLights.olo
 Version: 1
+RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Virtual shadow pages for POINT and SPOT lights (issue #703).
 #
@@ -11,8 +12,8 @@ Version: 1
 # `AtlasCasterRecord::Allocated == false` and simply have no shadow.
 #
 # HOW TO USE IT:
-#   1. Renderer Settings -> Active Path -> Deferred
-#   2. Renderer Settings -> Shadows -> Virtual Shadow Maps -> Enable VSM
+#   (the scene file selects Deferred itself, through RenderingPath below)
+#   Renderer Settings -> Shadows -> Virtual Shadow Maps -> Enable VSM
 #      ("Local Lights (point / spot)" is on by default underneath it)
 #   Toggle VSM off and on and watch the props' shadows: with it OFF only the
 #   highest-scoring handful of lamps cast at all, and the rest light the props

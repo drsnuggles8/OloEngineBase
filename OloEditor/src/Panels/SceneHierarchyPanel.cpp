@@ -8505,7 +8505,7 @@ namespace OloEngine
                                       "follows this entity and the grass springs up as it passes.\n"
                                       "About one stride is what reads as tracks through grass."); });
 
-        DrawComponent<VirtualMeshComponent>("Virtual Mesh", entity, [entity](auto& component)
+        DrawComponent<VirtualMeshComponent>("Virtual Mesh", entity, [this, entity](auto& component)
                                             {
             // Every "this will silently render nothing / render wrong" condition the
             // virtual-geometry path can hit is surfaced here. The engine only
@@ -8530,8 +8530,8 @@ namespace OloEngine
                 warnBanner("Not rendering: virtual geometry requires the Deferred rendering path.");
                 if (ImGui::Button("Switch to Deferred"))
                 {
-                    rendererSettings.Path = RenderingPath::Deferred;
-                    Renderer3D::ApplyRendererSettings();
+                    // A scene edit since #1601: the path is saved with the scene.
+                    ChangeRenderingPath(m_CommandHistory, RenderingPath::Deferred);
                 }
                 ImGui::Separator();
             }

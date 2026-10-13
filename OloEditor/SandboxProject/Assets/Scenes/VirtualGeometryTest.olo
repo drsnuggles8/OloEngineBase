@@ -1,15 +1,16 @@
 Scene: VirtualGeometryTest.olo
 Version: 1
+RenderingPath: Deferred
 # ─────────────────────────────────────────────────────────────────────────────
 # Nanite-style virtualized geometry (issue #629).
 #
 # REQUIRES THE DEFERRED RENDERING PATH. VirtualGeometryPass self-disables on
 # Forward / Forward+ (the compute software rasterizer writes a visibility buffer
 # that the material-resolve pass reconstructs the G-Buffer from, and the forward
-# paths have no G-Buffer to resolve into). The renderer starts on Forward and the
-# path is not scene-serialized, so on load: Renderer Settings -> Rendering Path ->
-# Deferred. The Virtual Mesh inspector shows a warning + a one-click switch button
-# while the wrong path is active.
+# paths have no G-Buffer to resolve into). The scene file selects Deferred
+# (RenderingPath below), so opening it switches the renderer. The Virtual Mesh
+# inspector shows a warning + a one-click switch button if the path is changed
+# away afterwards.
 #
 # What the scene shows:
 #   * Front row (z = 3.5) — three helmets at the SAME distance with different

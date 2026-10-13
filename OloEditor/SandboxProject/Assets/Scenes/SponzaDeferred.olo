@@ -1,5 +1,6 @@
 Scene: SponzaDeferred.olo
 Version: 1
+RenderingPath: Deferred
 # NOTE: SponzaDeferred.olo is the deferred-path companion to SponzaCSM.olo —
 # similar geometry, but NOT byte-for-byte identical. Differences to keep in
 # mind when A/B'ing the two:
@@ -8,9 +9,8 @@ Version: 1
 #   * Directional-light direction and intensity are tuned differently for the
 #     deferred path; IBL contribution is left at full strength here (SponzaCSM
 #     dims IBL to keep the sun dominant).
-# The rendering path is set on the renderer (RendererSettings::Path /
-# RenderingPath), not in the .olo file, so when running this scene make sure
-# the editor is configured to Deferred. Phase 5 (deferred MSAA, decals,
+# The scene file selects the Deferred path (RenderingPath below), so opening
+# it switches the renderer. Phase 5 (deferred MSAA, decals,
 # transparent OIT) is still WIP; use this scene to validate G-Buffer
 # correctness and tiled deferred lighting once it lands.
 PostProcessSettings:

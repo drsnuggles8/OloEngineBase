@@ -273,6 +273,10 @@ namespace OloEngine::MCP
         std::string Path;
         std::string SceneName;
         u32 EntityCount = 0;
+        // The rendering path the opened scene selected (issue #1601): opening a
+        // scene publishes its authored path, replacing whatever was active.
+        // Empty when the load failed.
+        std::string RenderingPath;
         std::string Message;
     };
 
