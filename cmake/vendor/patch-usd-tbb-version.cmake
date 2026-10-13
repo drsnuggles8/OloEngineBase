@@ -7,14 +7,19 @@
 # version.h, so the macro arrived transitively. vcpkg's oneTBB 2023.1 dropped that include: the
 # macro is undefined, reads as 0, and USD compiles its legacy path, which fails with
 #   dispatcher_impl.h(73): error C2516: 'tbb::v1::task': is not a valid base class
-# Both patched files include <tbb/blocked_range.h> first, which under 2023.1 no longer brings the
-# macro in. The include goes ahead of it in the two files that test the macro first:
-# dispatcher_impl.h and threadLimits_impl.cpp. The other files that test it are covered without a
-# patch: detachedTask_impl.h and dispatcher_impl.cpp include dispatcher_impl.h, and taskGraph_impl.h
-# includes <tbb/version.h> itself. Idempotent: a patched file is skipped.
+# The include goes ahead of the first oneTBB header (<tbb/blocked_range.h>, which under 2023.1 no
+# longer brings the macro in) in the two files that test the macro with nothing else defining it:
+# dispatcher_impl.h and threadLimits_impl.cpp. The others are covered without a patch:
+# detachedTask_impl.h and dispatcher_impl.cpp include dispatcher_impl.h; taskGraph_impl.h falls back
+# to <tbb/version.h> when <tbb/tbb_stddef.h> (legacy TBB only) is absent, and taskGraph_impl.cpp
+# includes it. Idempotent: a patched file is skipped.
 
-# A -P script starts with every policy unset; pin them, as OneTbbGuard.cmake does.
+# A -P script starts with every policy unset, and CMake 3.x then applies OLD behaviour; pin them.
 cmake_minimum_required(VERSION 3.27)
+
+if(NOT DEFINED USD_SRC OR NOT IS_DIRECTORY "${USD_SRC}")
+    message(FATAL_ERROR "patch-usd-tbb-version: USD_SRC ('${USD_SRC}') is not the OpenUSD source directory")
+endif()
 
 set(_marker "#include <tbb/version.h> // OloEngine #1575")
 foreach(_rel "pxr/base/work/workTBB/dispatcher_impl.h" "pxr/base/work/workTBB/threadLimits_impl.cpp")

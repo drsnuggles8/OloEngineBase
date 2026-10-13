@@ -11,7 +11,7 @@
 # core. One project at a time with CL_MPCount=N (the /MP count MSBuild passes to cl) keeps the total
 # at N.
 
-# A -P script starts with every policy unset; pin them, as OneTbbGuard.cmake does.
+# A -P script starts with every policy unset, and CMake 3.x then applies OLD behaviour; pin them.
 cmake_minimum_required(VERSION 3.27)
 
 foreach(_var USD_BUILD_DIR USD_CONFIG)

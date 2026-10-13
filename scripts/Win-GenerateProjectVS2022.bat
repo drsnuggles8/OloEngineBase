@@ -1,6 +1,6 @@
 @echo off
 rem Generate the Visual Studio 2022 solution WITHOUT CMakePresets (the presets file
-rem requires CMake 4.2+ for the VS 18 2026 generator; this path works at 3.25+).
+rem requires CMake 4.2+ for the VS 18 2026 generator; this path works at 3.27+).
 rem
 rem Because it bypasses the presets, the vcpkg toolchain has to be supplied here —
 rem see docs/ops/build.md. VCPKG_ROOT must point at a bootstrapped vcpkg clone.
