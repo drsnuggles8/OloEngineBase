@@ -1,0 +1,102 @@
+{
+  "engineSourceMergeCommit": "958525ab8f56bc7c9696de9506d62532a7e9fe65",
+  "validatedTestSourceHead": "f2e006e5e439ac04f96e050e3d983397957e7d13",
+  "mergedMaster": "355e913a9",
+  "releaseBuild": {
+    "exitCode": 0,
+    "targets": [
+      "OloEngine-Tests",
+      "OloEditor"
+    ],
+    "headerDependenciesVerified": 2073
+  },
+  "tests": {
+    "cpu": {
+      "artifact": "DeferredResolve_1553_after-merge-cpu.xml",
+      "tests": 62,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "rendering": {
+      "artifact": "DeferredResolve_1553_after-merge-rendering.xml",
+      "tests": 15,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    },
+    "vulkan": {
+      "artifact": "DeferredResolve_1553_after-merge-vulkan.xml",
+      "tests": 3,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
+    }
+  },
+  "totalDistinctChecks": 80,
+  "modifiedMatrixCaseRepeatedAfterFixturePathFix": "DeferredResolve_1553_after-fixture-path.xml",
+  "headlessImagesUnchanged": 97,
+  "headlessComparison": "DeferredResolve_1553_MergedHeadlessComparison.json",
+  "liveImageComparison": "DeferredResolve_1553_MergedLiveComparison.json",
+  "live": [
+    {
+      "artifact": "Merged_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3.json",
+      "backend": "opengl",
+      "perSample": true,
+      "resolveBlits": 9,
+      "resolveBytes": 107827200,
+      "fixtureActivationBeforeOverride": {
+        "openReply": "Deferred",
+        "livePath": "deferred"
+      }
+    },
+    {
+      "artifact": "Merged_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3.json",
+      "backend": "opengl",
+      "perSample": false,
+      "resolveBlits": 7,
+      "resolveBytes": 91238400,
+      "fixtureActivationBeforeOverride": {
+        "openReply": "Deferred",
+        "livePath": "deferred"
+      }
+    },
+    {
+      "artifact": "Merged_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3.json",
+      "backend": "vulkan",
+      "perSample": true,
+      "resolveBlits": 9,
+      "resolveBytes": 107827200,
+      "fixtureActivationBeforeOverride": {
+        "openReply": "Deferred",
+        "livePath": "deferred"
+      }
+    },
+    {
+      "artifact": "Merged_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3.json",
+      "backend": "vulkan",
+      "perSample": false,
+      "resolveBlits": 7,
+      "resolveBytes": 91238400,
+      "fixtureActivationBeforeOverride": {
+        "openReply": "Deferred",
+        "livePath": "deferred"
+      }
+    }
+  ],
+  "logs": {
+    "opengl": {
+      "backendLine": "[09:50:23] [info] OloEngine: [RHI] Backend: OpenGL (source: --rhi flag)",
+      "errorsOrVuids": 0
+    },
+    "vulkan": {
+      "backendLine": "[09:52:40] [info] OloEngine: [RHI] Backend: Vulkan (source: --rhi flag)",
+      "errorsOrVuids": 0
+    }
+  },
+  "binarySha256": {
+    "bin\\Release\\OloEditor\\OloEditor.exe": "6f24b04efcc8ec0e2ece1c0768032acd7a2dbde0ccd0ac3963f38ec2f44e0d6d",
+    "build-cached\\OloEngine\\tests\\Release\\OloEngine-Tests.exe": "8f1b2392b4c2b18e1c3bc324f33f14e59a456ac3f4d376e58fdec56fbfb0f95f"
+  },
+  "result": "PASS"
+}

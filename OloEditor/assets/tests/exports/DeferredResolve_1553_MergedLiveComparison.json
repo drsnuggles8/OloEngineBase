@@ -1,0 +1,118 @@
+{
+  "rows": [
+    {
+      "current": "Merged_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_Albedo.png",
+      "previous": "After_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_Albedo.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_Front.png",
+      "previous": "After_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_Front.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_Normal.png",
+      "previous": "After_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_Normal.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_Oblique.png",
+      "previous": "After_Live_DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_Oblique.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_Albedo.png",
+      "previous": "After_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_Albedo.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_Front.png",
+      "previous": "After_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_Front.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_Normal.png",
+      "previous": "After_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_Normal.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_Oblique.png",
+      "previous": "After_Live_DeferredResolve_GL_Deferred_Msaa4_Resolved_Late3_Oblique.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Albedo.png",
+      "previous": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Albedo.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Front.png",
+      "previous": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Front.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Normal.png",
+      "previous": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Normal.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Oblique.png",
+      "previous": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_PerSample_Late3_Oblique.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_Albedo.png",
+      "previous": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_Albedo.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_Front.png",
+      "previous": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_Front.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_Normal.png",
+      "previous": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_Normal.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    },
+    {
+      "current": "Merged_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_Oblique.png",
+      "previous": "After_Live_DeferredResolve_Vulkan_Deferred_Msaa4_Resolved_Late3_Oblique.png",
+      "rmse": 0.0,
+      "changedPixels": 0,
+      "maxDelta": 0
+    }
+  ],
+  "exactGBufferPairs": 8,
+  "result": "PASS"
+}
