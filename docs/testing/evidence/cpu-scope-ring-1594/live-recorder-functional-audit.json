@@ -5,8 +5,8 @@
   "Host records show 21-22% video-decoder utilization before launch and 6% after the traces.",
   "A sibling editor from OloEngine-deferred-msaa-gbuffer-resolve-1553 started outside the build gate at 09:18:23 local time.",
   "The subsequent overhead campaign refused to launch because that editor was running.",
-  "The camera-cut hitches are real observations but cannot establish uncontended CPU-hitch attribution.",
-  "summary.metrics describes the natural window after the start probe; it excludes recorder frameIds 1-2 captured during the camera cut. dump and hitches also include those two setup frames.",
+  "The post-arm/setup hitches are real observations but cannot establish uncontended CPU-hitch attribution.",
+  "summary.metrics describes a separate legacy profiler-history snapshot fetched after disarm and dump, not the identical scope-ring window. Its samples lack frame IDs. The first two scope frames are post-arm/setup frames; no camera-cut event frame ID was recorded, so their cause is not attributed.",
   "Raw scope dumps, complete histories and logs are retained locally under .v-build/trace-{backend}-armed-0/."
  ],
  "traces": {
@@ -54,7 +54,22 @@
       "deadlineMisses": 0
      }
     },
-    "hostAfter": "37 %, 6 %, 148.08 W"
+    "hostAfter": "37 %, 6 %, 148.08 W",
+    "window": {
+     "source": "Last completedFrames entries in legacy raw olo_perf_frame_history snapshot fetched after the end probe, disarm and dump.",
+     "sampleFrameIdsAvailable": false,
+     "startProbeApplicationFrameIndex": 244,
+     "endProbeApplicationFrameIndex": 770,
+     "sameWindowAsScopeDump": false,
+     "setupScopeFrameIds": [
+      1,
+      2
+     ],
+     "cameraCutFrameIdAvailable": false,
+     "warmupPolicy": "Camera setup occurs between arm and start probe; summary sample membership cannot be mapped exactly to ring frames."
+    },
+    "diagnosticThresholdMs": 300,
+    "deadlineMissesMeaning": "Legacy stats key: count of samples strictly above diagnosticThresholdMs, not the 33.3 ms render throttle budget or a performance acceptance deadline."
    },
    "dump": {
     "armed": false,
@@ -378,7 +393,13 @@
       }
      ]
     }
-   ]
+   ],
+   "scopeWindow": {
+    "firstFrameId": 1,
+    "lastFrameId": 528,
+    "includesPostArmSetup": true,
+    "hitchFilterThresholdMs": 300
+   }
   },
   "opengl": {
    "provenance": {
@@ -424,7 +445,22 @@
       "deadlineMisses": 0
      }
     },
-    "hostAfter": "100 %, 6 %, 187.63 W"
+    "hostAfter": "100 %, 6 %, 187.63 W",
+    "window": {
+     "source": "Last completedFrames entries in legacy raw olo_perf_frame_history snapshot fetched after the end probe, disarm and dump.",
+     "sampleFrameIdsAvailable": false,
+     "startProbeApplicationFrameIndex": 414,
+     "endProbeApplicationFrameIndex": 848,
+     "sameWindowAsScopeDump": false,
+     "setupScopeFrameIds": [
+      1,
+      2
+     ],
+     "cameraCutFrameIdAvailable": false,
+     "warmupPolicy": "Camera setup occurs between arm and start probe; summary sample membership cannot be mapped exactly to ring frames."
+    },
+    "diagnosticThresholdMs": 300,
+    "deadlineMissesMeaning": "Legacy stats key: count of samples strictly above diagnosticThresholdMs, not the 33.3 ms render throttle budget or a performance acceptance deadline."
    },
    "dump": {
     "armed": false,
@@ -748,7 +784,13 @@
       }
      ]
     }
-   ]
+   ],
+   "scopeWindow": {
+    "firstFrameId": 1,
+    "lastFrameId": 436,
+    "includesPostArmSetup": true,
+    "hitchFilterThresholdMs": 300
+   }
   }
  }
 }
