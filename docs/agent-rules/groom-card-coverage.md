@@ -75,13 +75,11 @@ in [groom-representation-lod.md](groom-representation-lod.md).
    10-15% short of every strand at 45 m.
 
 8a. **A card reaches its growth only as far as it stands for a lock (#1595).** The stream carries
-   `1 + reach (growth - 1)`, with reach `(strands per card - 1) / 31` clamped to 1
-   (`GroomCardCoverageGrowthReach`, applied in `GroomBuildSource::FromLevel`; 32 is the lock rule 8
-   was validated on). Without growth the horses' cards already cover their strands at 32 m (short
-   coat 1.145, long 1.013, at 9 and 14 strands a card), and full growth put the short coat at 1.211,
-   past the 1.2 ceiling. The foxes (26-30 a card) fall 4-9% short without growth and the dogs
-   (45-127) 10-15%, so they keep it. Measured with reach: short coat 1.167 at 32 m, long 1.035,
-   foxes 1.006 / 1.020; the dogs' reach is 1 and their stream is unchanged.
+   `1 + reach (growth - 1)`, reach `(strands per card - 1) / 31` up to 1
+   (`GroomCardCoverageGrowthReach`, in `GroomBuildSource::FromLevel`; 32 is the lock rule 8 was
+   validated on). The horses (9 and 14 strands a card) cover their strands at 32 m without growth
+   (1.145, 1.013), and full growth put the short coat at 1.211. Foxes (26-30) and dogs (45-127) fall
+   4-15% short without it. With reach: short coat 1.167, long 1.035; the dogs are unchanged.
 
 9. **The card cell sets how far a card averages its lock (#1558).** A wide card reads the body's
    shadow across its ribbon (receiving no scene shadow recovered a third of the dog's step) and shows

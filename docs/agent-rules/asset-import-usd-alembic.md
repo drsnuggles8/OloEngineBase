@@ -40,31 +40,9 @@ Release/RelWithDebInfo/MinSizeRel → Release USD). First build ≈ 30–45 min 
 are machine-wide cache hits. **CI that doesn't need USD sets `-DOLO_WITH_USD=OFF`**, and today every
 CI job does, so a USD change is verified on a local tree only.
 
-### One oneTBB: vcpkg's (#1575)
-
-**USD compiles against vcpkg's oneTBB and the engine links vcpkg's `TBB::tbb`; nothing else may
-bring a oneTBB archive.** The `usd` feature in `vcpkg.json` installs `tbb`; `OpenUSD.cmake` finds it
-`GLOBAL` (OpenVDB's lookup then reuses the same target) and hands its `TBB_DIR` to the USD build.
-USD used to build its own oneTBB 2022.2 beside vcpkg's 2023.1, so every USD-enabled executable linked
-two static oneTBB runtimes. USD's archive came first on the link line, so OpenVDB, compiled against
-2023.1 headers, ran on 2022.2's internals, and `/FORCE:MULTIPLE` would have hidden any clash.
-
-**USD v25.11 does not build against oneTBB 2023.1 unpatched.** Its `workTBB` headers test
-`TBB_INTERFACE_VERSION_MAJOR >= 12` without including `<tbb/version.h>`; 2022.2's `blocked_range.h`
-brought it in, 2023.1's does not, so the macro reads as 0 and USD compiles its legacy
-`tbb::task` path (`error C2516: 'tbb::v1::task': is not a valid base class`).
-`cmake/vendor/patch-usd-tbb-version.cmake` adds the include. A oneTBB bump changes the cache key;
-check the patch still applies.
-
-USD's objects carry `/DEFAULTLIB:"tbb12.lib"` (`tbb12_debug.lib` in Debug) from oneTBB's headers.
-Both linkers satisfy it from the full-path `TBB::tbb` already on the link line, so no link directory
-is needed: a `link.exe` probe links with the full path and fails `LNK1104` without it.
-
-`cmake/OneTbbGuard.cmake` fails the build (before `OloEngine` compiles) if any executable or shared
-library links more than one `tbb12*` archive. It reads the link line CMake generated, per config,
-from the File API codemodel, so a raw path, a genexpr or another directory's imported target cannot
-slip past it. `-DOLO_USD_INSTALL_DIR` is refused at configure: a prebuilt install carries its own
-oneTBB.
+**One oneTBB, vcpkg's (#1575).** USD compiles against vcpkg's oneTBB and the engine links
+`TBB::tbb`; how, the guard that keeps a second one out, and how the USD build gets its compiler and
+job count are in [usd-onetbb-and-build-toolchain.md](usd-onetbb-and-build-toolchain.md).
 
 ### The cache is shared across worktrees — the stamps are not (fixed; know the failure it caused)
 
@@ -143,13 +121,8 @@ ExternalProject_Add(openusd GIT_REPOSITORY .../OpenUSD.git GIT_TAG v25.11 GIT_SH
    path**, not the bare `usd_m` — see gotcha 7.
 5. **Cost.** `usd_m.lib` ≈ **2.1 GB** Release / **2.4 GB** Debug (static archive — dead-stripped at
    the final exe link). Cold build ≈ 8–15 min per config. Config-matched builds both.
-6. **oneTBB static-Debug teardown assert.** A static Debug oneTBB can trip a benign worker-teardown
-   assert (`small_object_pool.cpp:143`, `m_private_counter >= 0`) at process exit. USD's own oneTBB
-   build was compiled with `-DTBB_USE_ASSERT=0` for it. Since #1575 the Debug runtime is vcpkg's
-   `tbb12_debug.lib`, which keeps its asserts (the string is in the archive). The Debug test binary
-   exits 0 after a USD stage import and the OpenVDB imports; the Debug editor's close was not
-   measured. If the assert returns, set the define for the `tbb` port in an overlay port, not in the
-   triplet, which every port's ABI hash reads.
+6. **oneTBB static-Debug teardown assert.** See
+   [usd-onetbb-and-build-toolchain.md](usd-onetbb-and-build-toolchain.md) section 3.
 7. **`/WHOLEARCHIVE:` needs a FULL PATH — a bare library name is not portable across the two
    Windows linkers** (#697). `link.exe` resolves a bare `/WHOLEARCHIVE:usd_m` against `/LIBPATH`;
    **`lld-link` does not** — it opens the argument as a path relative to the working directory only,
@@ -196,14 +169,8 @@ ExternalProject_Add(openusd GIT_REPOSITORY .../OpenUSD.git GIT_TAG v25.11 GIT_SH
    `OloEngine_USD_LIB` carries a `$<CONFIG>` genexpr and `target_link_options` expands
    it per config, so the full-path spelling is also config-matched where the bare name depended on
    `/LIBPATH` search order to land on the right one.
-8. **On Windows USD is built by MSVC's `cl`, through the Visual Studio generator.** An
-   ExternalProject inherits the generator, not the compilers. Under a Ninja tree with no MSVC
-   environment its configure found LLVM's GNU-style `clang++` on `PATH`, and USD stopped at
-   `'cxxabi.h' file not found` (`arch/demangle.cpp`). The parent's `clang-cl` fails too: USD's
-   defaults treat any Clang as GNU-style and pass `-Wno-deprecated`, which clang-cl reads as `/wd`.
-   So a non-VS tree builds USD with the Visual Studio generator, which locates the toolset itself.
-   The bug was latent until #1575 changed the cache key: every earlier cache had been seeded by a
-   Visual Studio tree, and the Ninja trees only ever hit it.
+8. **On Windows USD is built by MSVC's `cl`.** See
+   [usd-onetbb-and-build-toolchain.md](usd-onetbb-and-build-toolchain.md) section 4.
 
 Silent-correctness handling in `UsdMeshImporter`: stage up-axis (Z-up → -90° X rotation),
 `metersPerUnit` scale, `orientation` (leftHanded → reversed winding), primvar interpolation
