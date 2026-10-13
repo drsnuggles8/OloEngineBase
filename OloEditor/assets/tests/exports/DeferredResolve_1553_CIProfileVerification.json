@@ -1,0 +1,56 @@
+{
+  "baselineHead": "1b7037550b3293e406151815acbba0131376d55d",
+  "packages": {
+    "@actions/expressions": "0.3.61",
+    "@actions/workflow-parser": "0.3.61"
+  },
+  "schemaAndTemplateValidations": 4,
+  "schemaJsonAdapter": "Node ESM loader exports the unmodified package JSON schema",
+  "defaultRoutingCases": 3072,
+  "defaultAxes": {
+    "events": [
+      "pull_request",
+      "push",
+      "schedule",
+      "workflow_dispatch"
+    ],
+    "labels": [
+      "absent",
+      "unrelated-label",
+      "ci-full-checks-extra"
+    ],
+    "repositories": [
+      "same",
+      "fork"
+    ],
+    "variableCombinations": 8,
+    "forceHosted": [
+      false,
+      true
+    ],
+    "nativeChanges": [
+      false,
+      true
+    ],
+    "steamChanges": [
+      false,
+      true
+    ],
+    "cmakeSteamChanges": [
+      false,
+      true
+    ]
+  },
+  "fullProfileCases": 512,
+  "fullProfileLabels": [
+    "ci-full-checks",
+    "CI-FULL-CHECKS"
+  ],
+  "fullProfileResult": "All build/shard/coverage predicates enabled; Linux plans use four hosted shards; Steam hosted and enabled",
+  "negativeControls": [
+    "Missing override on both copies of ASan routing is detected",
+    "Missing Steam path-filter override is detected",
+    "Removed fork boundary is detected"
+  ],
+  "result": "PASS"
+}

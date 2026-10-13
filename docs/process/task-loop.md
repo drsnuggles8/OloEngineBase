@@ -279,6 +279,12 @@ All real failures across all jobs plus all review findings, fixed together, push
 
 ### 5d. CI mechanics
 
+- For the literal all-`SUCCESS` gate, apply the `ci-full-checks` PR label before
+  the next head update or reopen. For eligible PR runs, it enables the Steam stub build and routes Linux
+  sanitizers to hosted shards, including their coverage jobs. Ordinary PR routing
+  stays unchanged, including workflow-level path filters. Label-only edits do not start or cancel a run; wait for the current
+  checks to become terminal before the next push. A successful manual dispatch can
+  coexist with a `SKIPPED` PR check; inspect the PR rollup instead of assuming replacement.
 - **`mergeable == CONFLICTING`**: merge master in (`git fetch origin && git merge origin/master`),
   never rebase or force-push. If either side touched an ECS component, re-check the cross-binding
   touch-points. Rebuild after. **Resolve within the same turn**: the `Stop` hook clang-formats a
