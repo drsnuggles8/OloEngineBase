@@ -5040,6 +5040,18 @@ namespace OloEngine
             OnSceneStop();
         }
 
+        // Validate before anything changes: a Play that cannot start must not
+        // copy the scene, reset the renderer's histories or arm the settings
+        // restore (left armed, the next Simulate's Stop would put back a stale
+        // snapshot over its edits). Scene::Copy keeps the camera, so checking the
+        // edit scene is checking the copy.
+        if (!m_EditorScene->GetPrimaryCameraEntity())
+        {
+            OLO_CORE_ERROR("Cannot enter Play mode: no entity with a primary CameraComponent found in the scene. "
+                           "Add an entity with a CameraComponent and set Primary = true.");
+            return;
+        }
+
         m_SceneState = SceneState::Play;
         // Before anything runtime writes the renderer (a WeatherSystem drives
         // fog, wind and precipitation, a Play-mode scene switch publishes its
@@ -5052,16 +5064,7 @@ namespace OloEngine
         m_ActiveScene = Scene::Copy(m_EditorScene);
         ResetRendererForSceneSwap();
 
-        // Validate that the scene has a primary camera before starting runtime
         Entity cameraEntity = m_ActiveScene->GetPrimaryCameraEntity();
-        if (!cameraEntity)
-        {
-            OLO_CORE_ERROR("Cannot enter Play mode: no entity with a primary CameraComponent found in the scene. "
-                           "Add an entity with a CameraComponent and set Primary = true.");
-            m_ActiveScene = m_EditorScene;
-            m_SceneState = SceneState::Edit;
-            return;
-        }
 
         // Warn about orthographic cameras in 3D mode (common misconfiguration)
         if (m_Is3DMode)
