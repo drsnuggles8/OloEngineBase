@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Groom/GroomSoftIntersection.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 
 #include "OloEngine/Groom/GroomAsset.h"
@@ -1850,5 +1851,29 @@ namespace OloEngine
             *outAnyCapped = anyCapped;
         }
         return largest;
+    }
+    GroomIntersectionDimensions MeasureGroomIntersectionDimensions(const GroomAsset& groom, const GroomCoatContext* coat,
+                                                                   const glm::mat3& transform)
+    {
+        GroomStrandBuildSettings sample;
+        sample.MaxStrands = 64u;
+        sample.MaxSegments = 64u * GroomLimits::MaxPointsPerCurve;
+        sample.MaxWidthCompensation = 1.0f;
+        GroomStrandMeshStats stats;
+        u32 curves = 0;
+        f64 length = 0.0;
+        f64 diameter = 0.0;
+        WalkStrandSegments(GroomBuildSource::FromAsset(groom), sample, coat, stats, [](u32, u32) {}, [&](const RestSegment& segment)
+                           {
+            length += glm::length(transform * (segment.Rest1 - segment.Rest0));
+            if (segment.Segment == 0u)
+            {
+                diameter += segment.Radius0 * 2.0f;
+                ++curves;
+            } });
+        if (curves == 0u)
+            return {};
+        return { static_cast<f32>(diameter / curves), static_cast<f32>(length / curves), curves,
+                 glm::transpose(transform) * transform };
     }
 } // namespace OloEngine

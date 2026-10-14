@@ -567,6 +567,16 @@ if (entity.HasComponent<GroomSimulationComponent>())
     SceneBinIO::Write(out, comp.m_Collide);
 }
 
+if (entity.HasComponent<GroomSoftIntersectionComponent>())
+{
+    SceneBinIO::WriteU32(out, 325289423u); // GroomSoftIntersectionComponent
+    auto const& comp = entity.GetComponent<GroomSoftIntersectionComponent>();
+    SceneBinIO::Write(out, comp.m_FadeDistance);
+    SceneBinIO::Write(out, comp.m_ProtectedRoot);
+    SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_Automatic);
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     SceneBinIO::WriteU32(out, 1784713623u); // InstancePortalComponent

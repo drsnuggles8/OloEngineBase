@@ -53,6 +53,7 @@
 #include "OloEngine/Groom/GroomCoatShadowTechnique.h"
 #include "OloEngine/Groom/GroomGpuDeformation.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
+#include "OloEngine/Groom/GroomSoftIntersection.h"
 #include "OloEngine/Groom/GroomStrandRequest.h"
 #include "OloEngine/Groom/GroomStreaming.h"
 #include "OloEngine/Groom/GroomVisibility.h"
@@ -445,6 +446,7 @@ namespace OloEngine
         {
             key.Add(!m_Requests.empty());
             key.Add(!m_StreamingDetails.empty());
+            key.Add(UsesSoftIntersections());
         }
         void Execute(RGCommandContext& context) override;
 
@@ -736,6 +738,7 @@ namespace OloEngine
             Ref<IndexBuffer> Indices;
             GroomStrandBuildSettings Settings;
             GroomStrandMeshStats Stats;
+            std::optional<GroomIntersectionDimensions> IntersectionDimensions;
             /// The shadow caster's order (#1533 E1) of an entry that owns its
             /// stream. A GPU-deformed entry casts its rest stream's instead.
             GroomCasterStream Caster;
@@ -1207,6 +1210,10 @@ namespace OloEngine
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_ParamsUBO;
         Ref<Framebuffer> m_SceneFramebuffer;
+        RGTextureHandle m_IntersectionDepth{};
+        RGTextureHandle m_IntersectionEntity{};
+        RGTextureHandle m_IntersectionWaterDepth{};
+        [[nodiscard]] bool UsesSoftIntersections() const noexcept;
 
         /// A 1x1x1 zero volume, bound whenever a draw has no coat volume of its
         /// own. A dangling sampler is undefined behaviour, not a zero read, so

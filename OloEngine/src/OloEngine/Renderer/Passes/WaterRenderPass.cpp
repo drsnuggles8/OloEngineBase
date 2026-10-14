@@ -121,6 +121,43 @@ namespace OloEngine
         }
     }
 
+    void WaterRenderPass::CaptureSurfaceDepth(RGCommandContext& context, Ref<Framebuffer> target,
+                                              u32 width, u32 height)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!target || width == 0u || height == 0u || !HasSubmittedCommands())
+            return;
+        // Restore runs first at scope exit. Raw GL restoration must then
+        // invalidate the dispatch cache before the colour replay can use it.
+        struct InvalidateBindings
+        {
+            ~InvalidateBindings()
+            {
+                CommandDispatch::InvalidateBindingCaches();
+            }
+        } invalidateBindings;
+        GLStateGuard guard("WaterSurfaceDepth", GLStateGuard::Policy::Restore);
+        target->Bind();
+        context.SetViewport(0, 0, width, height);
+        CommandDispatch::SetWaterTargetSize(width, height);
+        WaterDisturbanceSystem::BindFieldTexture();
+        HeapBinding::FlushOffsets();
+        RenderCommand::SetDepthMask(true);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+        RenderCommand::SetClearDepth(1.0f);
+        RenderCommand::ClearDepthOnly();
+        m_CommandBucket.SortCommands();
+        CommandDispatch::SetWaterDepthCaptureActive(true);
+        m_CommandBucket.ExecuteParallel(RenderCommand::GetRendererAPI());
+        CommandDispatch::SetWaterDepthCaptureActive(false);
+        CommandDispatch::InvalidateRenderStateCache();
+        target->Unbind();
+        context.SetDepthMask(true);
+        context.SetBlendState(false);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+        RenderCommand::BackCull();
+    }
+
     void WaterRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
@@ -289,18 +326,8 @@ namespace OloEngine
         // side is captured. The bound scene textures stay bound (unit state).
         if (m_WaterDepthFB)
         {
-            m_WaterDepthFB->Bind();
-            RenderCommand::SetDepthMask(true);
-            RenderCommand::SetClearDepth(1.0f);
-            // ClearDepthOnly() carries the clear-program guard inside the
-            // backend (NVIDIA revalidates the bound program against the new FBO
-            // during a clear, debug id 131218).
-            RenderCommand::ClearDepthOnly(); // far = "no water at this pixel"
-            CommandDispatch::SetWaterDepthCaptureActive(true);
-            m_CommandBucket.ExecuteParallel(rendererAPI);
-            CommandDispatch::SetWaterDepthCaptureActive(false);
-            CommandDispatch::InvalidateRenderStateCache();
-            m_WaterDepthFB->Unbind();
+            CaptureSurfaceDepth(context, m_WaterDepthFB, m_SceneFramebuffer->GetActiveViewportWidth(),
+                                m_SceneFramebuffer->GetActiveViewportHeight());
             Renderer3D::SetWaterSurfaceDepthTextureID(m_WaterDepthFB->GetDepthAttachmentHandle());
             // Rebind the scene target for the colour pass below.
             m_SceneFramebuffer->Bind();

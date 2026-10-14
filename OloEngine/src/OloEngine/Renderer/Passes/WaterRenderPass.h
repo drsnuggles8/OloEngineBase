@@ -37,6 +37,7 @@ namespace OloEngine
             key.Add(HasSubmittedCommands());
         }
         void Execute(RGCommandContext& context) override;
+        void CaptureSurfaceDepth(RGCommandContext& context, Ref<Framebuffer> target, u32 width, u32 height);
         [[nodiscard]] Ref<Framebuffer> GetTarget() const override;
         void ReleaseStaleFramebuffers(const std::function<bool(const Framebuffer*)>& isStale) override
         {

@@ -61,6 +61,7 @@ The production choices are:
 |---|---|---|
 | DeferredOpaqueDecal | Resolved G-buffer depth for multisample raster; independent OpaqueDecalProjectionDepth for single-sample raster | Depth-only MS resolve or projection snapshot immediately before decals (#1553) |
 | Water | Existing depth and normal snapshots | Existing pre-decal depth and pre-water normals |
+| Groom | Independent scene depth and entity-ID snapshots, plus displaced water depth | Before all groom depth writes, shared across coats and both draws |
 | FluidIntermediates | SceneDepthAttachment | None: its splat/thickness targets are separate images |
 | FluidComposite | FluidSceneDepthSnapshot | Immediately before fluid composition, after water |
 | SkinDiffusion and SSS | DiffusionDepthSnapshot and DiffusionHandoffSnapshot | Immediately before the diffusion band, after the geometry/modifier chain |
@@ -70,6 +71,11 @@ feedback exemption. Skin and snow share the unchanged pre-diffusion inputs. Thes
 are transient graph resources; ordinary reads order the snapshots before the
 writers, extend storage lifetimes, and cull unused copy nodes. Scene depth and
 normal exports remain attachment views, preserving downstream version publication.
+
+Read snapshot pixels within that declared lifetime, for example in a post-producer
+or post-consumer hook. After the last consumer, a compatible later resource can
+reuse the backing. An end-of-frame readback must first extract the resource to
+extend its lifetime; resolving its old name does not preserve its old contents.
 
 Preserve sampling state as well as texels. A bare transient `Texture2D` defaults
 to repeat wrapping, whereas framebuffer attachments use linear filtering and

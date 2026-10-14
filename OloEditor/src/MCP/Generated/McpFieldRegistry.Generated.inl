@@ -559,6 +559,12 @@ registry.push_back(OLO_GFW_FIELD(GroomSimulationComponent, "Collide", m_Collide)
 
 static void BuildRegistryChunk8(std::vector<FieldEntry>& registry)
 {
+// GroomSoftIntersectionComponent
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomSoftIntersectionComponent, "FadeDistance", m_FadeDistance, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(10.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomSoftIntersectionComponent, "ProtectedRoot", m_ProtectedRoot, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD(GroomSoftIntersectionComponent, "Enabled", m_Enabled));
+registry.push_back(OLO_GFW_FIELD(GroomSoftIntersectionComponent, "Automatic", m_Automatic));
+
 // IKTargetComponent
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimBoneIndex", AimBoneIndex));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimTarget", AimTarget));

@@ -56,8 +56,8 @@ namespace OloEngine
     // are no migrations and no per-field version gates (docs/agent-rules/
     // binary-format-versioning.md, #1498). Bump it when the payload layout
     // changes, once per PR. The history of past layouts is in git.
-    // 45: AnimalPathComponent::m_FollowTerrain (#1259) on top of 44, GroomComponent's authored segment budget (#1558).
-    static constexpr u32 kSaveGameFormatVersion = 45;
+    // 46: per-coat soft-intersection authoring (#1614).
+    static constexpr u32 kSaveGameFormatVersion = 46;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Compression flags (stored in Header.Flags)

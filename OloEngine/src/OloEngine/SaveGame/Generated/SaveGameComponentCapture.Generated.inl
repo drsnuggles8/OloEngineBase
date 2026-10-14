@@ -65,6 +65,7 @@ SAVE_COMPONENT(GroomFibreComponent, entity, writer);
 SAVE_COMPONENT(GroomLodComponent, entity, writer);
 SAVE_COMPONENT(GroomSceneShadowComponent, entity, writer);
 SAVE_COMPONENT(GroomSimulationComponent, entity, writer);
+SAVE_COMPONENT(GroomSoftIntersectionComponent, entity, writer);
 SAVE_COMPONENT(IDComponent, entity, writer);
 SAVE_COMPONENT(IKTargetComponent, entity, writer);
 SAVE_COMPONENT(InstancePortalComponent, entity, writer);

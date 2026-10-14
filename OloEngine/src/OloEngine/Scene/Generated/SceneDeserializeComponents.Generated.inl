@@ -758,6 +758,17 @@ if (auto node = entity["GroomSimulationComponent"]; node)
     comp.m_Collide = node["Collide"].as<bool>(comp.m_Collide);
 }
 
+if (auto node = entity["GroomSoftIntersectionComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomSoftIntersectionComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["FadeDistance"], v))
+        comp.m_FadeDistance = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["ProtectedRoot"], v))
+        comp.m_ProtectedRoot = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_Automatic = node["Automatic"].as<bool>(comp.m_Automatic);
+}
+
 if (auto node = entity["InstancePortalComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();

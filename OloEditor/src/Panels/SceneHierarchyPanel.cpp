@@ -2171,6 +2171,7 @@ namespace OloEngine
             DisplayAddComponentEntry<FoliageInteractionComponent>("Foliage Interaction");
             DisplayAddComponentEntry<VirtualMeshComponent>("Virtual Mesh");
             DisplayAddComponentEntry<GroomComponent>("Groom");
+            DisplayAddComponentEntry<GroomSoftIntersectionComponent>("Groom Soft Intersections");
             DisplayAddComponentEntry<GroomBindingComponent>("Groom Binding");
             DisplayAddComponentEntry<GroomFibreComponent>("Groom Fibre Material");
             DisplayAddComponentEntry<GroomCoatShadowComponent>("Groom Coat Shadow");
@@ -8650,6 +8651,14 @@ namespace OloEngine
         // guides is invisible unless the counts are on screen.
         // The entity is captured since #1251: the preview readout below applies the
         // coat's role visibility mask, which lives on a sibling component.
+        DrawComponent<GroomSoftIntersectionComponent>("Groom Soft Intersections", entity, [](auto& component)
+                                                      {
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+            ImGui::Checkbox("Automatic distance", &component.m_Automatic);
+            if (!component.m_Automatic)
+                ImGui::DragFloat("Fade distance (world units)", &component.m_FadeDistance, 0.0001f, 0.0f, 10.0f, "%.5f");
+            ImGui::SliderFloat("Protected root fraction", &component.m_ProtectedRoot, 0.0f, 1.0f); });
+
         DrawComponent<GroomComponent>("Groom", entity, [entity](auto& component)
                                       {
             const std::string groomLabel = component.m_Groom != 0

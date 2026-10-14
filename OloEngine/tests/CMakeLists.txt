@@ -775,8 +775,14 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShadowAtlasVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomPreviewVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomStrandVisualEvidenceTest.cpp
+		Rendering/PropertyTests/GroomSoftIntersectionPropertyTests.cpp
+		Rendering/PropertyTests/GroomSoftIntersectionPerfTest.cpp
+		Rendering/PropertyTests/GroomSoftIntersectionShaderTest.cpp
 		Rendering/PropertyTests/FramebufferIntegerSamplingTest.cpp
 		Rendering/PropertyTests/GBufferDepthEntityResolveTest.cpp
+		Rendering/PropertyTests/GroomSoftIntersectionWaterReplayTest.cpp
+		Rendering/PropertyTests/GroomSoftIntersectionVisualEvidenceTest.cpp
+		Groom/GroomSoftIntersectionSerializationTest.cpp
 		Rendering/PropertyTests/GroomFibreVisualEvidenceTest.cpp
 		# Dense-coat self-shadowing (#1248). The GL x {Forward, Forward+,
 		# Deferred} cells plus the MSAA and non-native-resolution ones, and the

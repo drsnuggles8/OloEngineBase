@@ -65,6 +65,7 @@ using AllComponents = ComponentGroup<
     GroomLodComponent,
     GroomSceneShadowComponent,
     GroomSimulationComponent,
+    GroomSoftIntersectionComponent,
     IKTargetComponent,
     InstancePortalComponent,
     InstancedMeshComponent,

@@ -3363,6 +3363,16 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomSoftIntersectionComponent& c)
+    {
+        ar << c.m_FadeDistance << c.m_ProtectedRoot << c.m_Enabled << c.m_Automatic;
+        if (ar.IsLoading())
+        {
+            c.m_FadeDistance = std::isfinite(c.m_FadeDistance) ? std::clamp(c.m_FadeDistance, 0.0f, 10.0f) : 0.0f;
+            c.m_ProtectedRoot = std::isfinite(c.m_ProtectedRoot) ? std::clamp(c.m_ProtectedRoot, 0.0f, 1.0f) : 0.25f;
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, FluidComponent& c)
     {
         ar << c.m_Enabled << c.m_Settings;
@@ -5339,6 +5349,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(FoliageInteractionComponent);
         REGISTER_SAVE_COMPONENT(VirtualMeshComponent);
         REGISTER_SAVE_COMPONENT(GroomComponent);
+        REGISTER_SAVE_COMPONENT(GroomSoftIntersectionComponent);
         REGISTER_SAVE_COMPONENT(GroomBindingComponent);
         REGISTER_SAVE_COMPONENT(GroomFibreComponent);
         REGISTER_SAVE_COMPONENT(GroomCoatShadowComponent);

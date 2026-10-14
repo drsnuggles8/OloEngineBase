@@ -3602,6 +3602,19 @@ namespace OloEngine
             if (sceneSpec.Width > 0u && sceneSpec.Height > 0u)
             {
                 board.Scene.FluidSceneDepthSnapshot = allocateAttachmentSnapshot("FluidSceneDepthSnapshot", RGResourceFormat::Depth24Stencil8);
+                board.Scene.GroomSceneDepthSnapshot = allocateAttachmentSnapshot("GroomSceneDepthSnapshot", RGResourceFormat::Depth24Stencil8);
+                board.Scene.GroomSceneEntitySnapshot = allocateAttachmentSnapshot("GroomSceneEntitySnapshot", RGResourceFormat::R32Int);
+                if (pipeline.RenderStreamPasses.Water && pipeline.RenderStreamPasses.Water->HasSubmittedCommands())
+                {
+                    RGResourceDesc waterDepth;
+                    waterDepth.Kind = RGResourceHandle::Kind::Framebuffer;
+                    waterDepth.Width = sceneSpec.Width;
+                    waterDepth.Height = sceneSpec.Height;
+                    waterDepth.Attachments = { RGResourceFormat::Depth32Float };
+                    waterDepth.DebugName = "GroomWaterSurface";
+                    board.Scene.GroomWaterSurface = graph.DeclareTransientFramebuffer("GroomWaterSurface", waterDepth);
+                    board.Scene.GroomWaterSurfaceDepth = graph.CreateFramebufferDepthAttachmentView("GroomWaterSurfaceDepth", board.Scene.GroomWaterSurface);
+                }
                 board.Scene.DiffusionDepthSnapshot = allocateAttachmentSnapshot("DiffusionDepthSnapshot", RGResourceFormat::Depth24Stencil8);
                 board.Scene.DiffusionHandoffSnapshot = allocateAttachmentSnapshot("DiffusionHandoffSnapshot", RGResourceFormat::RGBA16Float);
             }

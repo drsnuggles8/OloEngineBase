@@ -25,6 +25,25 @@ takes part whenever Vulkan RT shadows are armed and a light opts in.
 
 ## Opening it
 
+### Soft contacts with terrain, water and props
+
+Coats fade their coverage close to scene surfaces. The automatic world-space distance is
+the larger of two fibre diameters and 2% of representative strand length, capped at 5% of
+that length. It measures the shaped, authored base fibres in world space on both strands
+and cards, so changing representation
+does not widen the contact band.
+
+Add **Groom Soft Intersections** to a coat for overrides. **Enabled** switches the fade;
+turn **Automatic distance** off to author **Fade distance (world units)**, where zero
+disables it. **Protected root fraction** preserves the start of each curve and blends into
+the fade over the next equally sized interval (limited by the tip). Its default is 0.25;
+zero is the unprotected diagnostic control, and one protects the whole curve. These are
+renderer authoring fields, like the other groom controls, rather than C#/Lua gameplay fields.
+
+`Scenes/Tests/GroomSoftIntersectionDog.olo` and `GroomSoftIntersectionHorse.olo` reuse the
+reference bodies, cooked coats and bindings for terrain and shallow-water contacts.
+Their animation and simulation are frozen for matching before/after captures.
+
 **TAA runs by itself.** `StochasticAlpha` needs a temporal resolve, and without one #1246 falls back
 to its opaque tier, which cannot draw sub-pixel hair. Since #1429 a scene holding a stochastic groom
 requests the resolve every frame, so the coats are there on open with the TAA box unticked; the TAA

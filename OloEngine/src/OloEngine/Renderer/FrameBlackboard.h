@@ -105,6 +105,10 @@ namespace OloEngine
             // Copies made immediately before the affected writer, on every
             // path: writable Vulkan depth attachments cannot also be sampled.
             RGTextureHandle FluidSceneDepthSnapshot;
+            RGTextureHandle GroomSceneDepthSnapshot;
+            RGTextureHandle GroomSceneEntitySnapshot;
+            RGFramebufferHandle GroomWaterSurface;
+            RGTextureHandle GroomWaterSurfaceDepth;
             RGTextureHandle DiffusionDepthSnapshot;
             RGTextureHandle DiffusionHandoffSnapshot;
             RGTextureHandle SceneViewNormalsSnapshot;
