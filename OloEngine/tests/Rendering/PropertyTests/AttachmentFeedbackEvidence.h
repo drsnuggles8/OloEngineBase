@@ -114,6 +114,9 @@ namespace OloEngine::Tests
         const auto order = graph->GetExecutionOrder();
         EXPECT_TRUE(std::ranges::any_of(order, [passName](const FString& name)
                                         { return name.ToView() == passName; }))
+            << passName << " is absent from this graph";
+        EXPECT_FALSE(std::ranges::any_of(graph->GetCulledPasses(), [passName](const FString& name)
+                                         { return name.ToView() == passName; }))
             << passName << " was culled; this frame does not exercise the affected pass";
         const auto hazards = graph->ValidateCompiledResourceHazards();
         for (const auto& hazard : hazards)
