@@ -85,7 +85,7 @@ At 128 pixels, jittered shells retain only 51.0–74.0% of short-coat coverage a
 card arm retains 93.1–107.2% and 97.5–101.6%, respectively. This comparison is
 well separated from the full-strand reference's 128-pixel sampling error.
 
-This rejects this bake, proxy, lean/intersection construction and 8/12/16-layer
+This rejects the combined bake/proxy/lean/intersection candidate with 8/12/16-layer
 GL raster implementation for these assets and tested ranges. It does not reject
 textured shells generally or establish that fins are necessary. Keep #1613's
 measured-go prerequisite: completing #1611 with a negative result must not
@@ -274,6 +274,13 @@ The Release build and all pre-commit checks pass.
 The later indexed-rectangle cleanup passes the same six GPU contracts in
 `controls-after-rects.xml`; `controls-binary-sha256.json` and
 `controls-inputs-sha256.json` identify that separately rebuilt probe.
+The subsequent projection guard rejects dropped reference segments before
+ribbon pairing. Seven GPU contracts pass in `controls-after-projection.xml`,
+including a partial-projection regression and validation of every recorded
+static/motion camera for both cooked coats and cards. The campaign therefore
+satisfies the new guard; its bake, shaders and draw behavior are unchanged.
+`projection-binary-sha256.json`, `projection-inputs-sha256.json` and
+`projection-context.json` identify this functional run separately from timings.
 
 The offscreen experiment is reachable only in the GL fixture. Vulkan and all
 six production GL/Vulkan × Forward/Forward+/Deferred cells are unreachable for

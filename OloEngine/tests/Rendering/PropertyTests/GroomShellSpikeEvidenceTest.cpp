@@ -215,6 +215,13 @@ namespace OloEngine::Tests::GroomShellSpike
             {
                 throw std::runtime_error("empty reference projection");
             }
+            // The bounded probe requires the complete coat in front of the
+            // camera. Reject partial projections before positional pairing
+            // can attach another source segment's tangent or card growth.
+            if (stats.SegmentsDroppedBehindCamera != 0 || stats.SegmentsDroppedNonFinite != 0)
+            {
+                throw std::runtime_error("incomplete reference projection");
+            }
             std::vector<Vertex> vertices;
             vertices.reserve(segments.size() * 6);
             sizet segment = 0;
@@ -708,6 +715,62 @@ namespace OloEngine::Tests::GroomShellSpike
                 ASSERT_EQ(glGetError(), GL_NO_ERROR);
             }
         }
+        void CheckReferenceProjection()
+        {
+            ExtraState extra;
+            GLStateGuard guard("GroomShellSpikeProjectionContract", GLStateGuard::Policy::Restore);
+            Mesh mesh;
+            Target target(1280, 720, 1);
+            GroomBuilder builder;
+            u16 group = 0;
+            std::string reason;
+            ASSERT_TRUE(builder.AddGroup("/body#0", group, reason));
+            const std::array<glm::vec3, 3> points{ glm::vec3(0.0f, 0.0f, 0.1f), glm::vec3(0.001f, 0.0f, -0.1f), glm::vec3(0.002f, 0.001f, -0.1f) };
+            const std::array<f32, 3> widths{ 0.0002f, 0.0002f, 0.0002f };
+            GroomCurveInput curve;
+            curve.Points = points;
+            curve.Widths = widths;
+            curve.GroupId = group;
+            ASSERT_TRUE(builder.AddCurve(curve, reason));
+            const auto partial = builder.Build(reason);
+            ASSERT_TRUE(partial) << reason;
+            const Camera camera{ glm::mat4(1.0f), glm::perspective(glm::radians(45.0f), 16.0f / 9.0f, 0.001f, 1.0f) };
+            std::vector<GroomCoverage::ScreenSegment> segments;
+            const auto stats = GroomCoverage::ProjectGroom(*partial, glm::mat4(1.0f), camera.View, camera.Projection, target.Width, target.Height, 1.0f, segments);
+            ASSERT_EQ(stats.SegmentsProjected, 1u);
+            ASSERT_EQ(stats.SegmentsDroppedBehindCamera, 1u);
+            EXPECT_THROW(UploadRibbons(mesh, *partial, camera, target, 128.0f, nullptr, partial->GetCurveCount()), std::runtime_error);
+            EXPECT_EQ(mesh.Count, 0u);
+
+            // Every camera used by the recorded campaign must satisfy that
+            // precondition, for both the full strands and the cooked cards.
+            for (bool longCoat : { false, true })
+            {
+                const auto groom = Load(longCoat);
+                const auto& level = groom->GetLodLevels().at(0);
+                const auto cards = GroomLodFixture::MakeGroomFromLevel(*groom, level, reason);
+                ASSERT_TRUE(cards) << reason;
+                for (u32 config = 0; config < 3; ++config)
+                {
+                    Target campaignTarget(config == 2 ? 1920 : 1280, config == 2 ? 1080 : 720, config == 1 ? 4 : 1);
+                    for (f32 size : { 128.0f, 64.0f, 32.0f, 16.0f, 8.0f, 4.0f })
+                    {
+                        for (u32 angle = 0; angle < 3; ++angle)
+                        {
+                            const u32 frames = config == 0 && std::abs(size - 32.0f) < 0.1f ? Frames + 1 : 1;
+                            for (u32 frame = 0; frame < frames; ++frame)
+                            {
+                                const f32 offset = frame > 0 ? (static_cast<f32>(frame - 1) / (Frames - 1) - 0.5f) * 0.12f : 0.0f;
+                                const auto current = MakeCamera(*groom, campaignTarget, size, angle, offset);
+                                ASSERT_NO_THROW(UploadRibbons(mesh, *groom, current, campaignTarget, size, nullptr, groom->GetCurveCount()));
+                                ASSERT_NO_THROW(UploadRibbons(mesh, *cards, current, campaignTarget, size, &level, groom->GetCurveCount()));
+                            }
+                        }
+                    }
+                }
+            }
+            EXPECT_EQ(glGetError(), GL_NO_ERROR);
+        }
         void CheckStateRestoration()
         {
             ExtraState original;
@@ -781,4 +844,9 @@ TEST(GroomShellSpikeGpuContract, IndexedStateAndRangedBindingsSurviveTheProbe)
 {
     OLO_ENSURE_GPU_OR_SKIP();
     OloEngine::Tests::GroomShellSpike::CheckStateRestoration();
+}
+TEST(GroomShellSpikeGpuContract, PartialReferenceProjectionIsRejectedAndCampaignCamerasAreComplete)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+    OloEngine::Tests::GroomShellSpike::CheckReferenceProjection();
 }
