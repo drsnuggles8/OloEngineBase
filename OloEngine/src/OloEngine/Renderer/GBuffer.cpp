@@ -5,6 +5,8 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Debug/Instrumentor.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryFormat.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -191,6 +193,8 @@ namespace OloEngine
         // this is the safe pattern for an MRT MSAA resolve.
         for (u32 i = 0; i < std::to_underlying(Count); ++i)
         {
+            if (includeDepth && i == std::to_underlying(EntityID))
+                continue; // depth and ownership are resolved together below
             RenderCommand::SetFramebufferReadAttachment(srcFB, i);
             RenderCommand::SetFramebufferDrawAttachments(dstFB, std::array<u32, 1>{ i });
             RenderCommand::BlitFramebuffer(srcFB, dstFB,
@@ -199,18 +203,11 @@ namespace OloEngine
                                            RHI::BlitAspect::Color, RHI::Filter::Nearest);
         }
 
-        // Resolve depth (no sample filtering — GL_NEAREST is the only legal choice).
-        if (includeDepth)
-        {
-            RenderCommand::BlitFramebuffer(srcFB, dstFB,
-                                           0, 0, w, h,
-                                           0, 0, w, h,
-                                           RHI::BlitAspect::Depth, RHI::Filter::Nearest);
-        }
-
         // RT2's alpha is a BITFIELD, and the blit above just averaged it
         // (issue #996). Put back the one channel averaging cannot express.
         ResolveFlagsLane();
+        if (includeDepth)
+            ResolveDepthEntityPair();
 
         // Restore full draw-buffer set on the resolved FB so subsequent
         // passes that bind it for composition get all attachments.
@@ -287,13 +284,9 @@ namespace OloEngine
 
         m_FlagsResolveShader->Bind();
         // Through the seam, not RenderCommand::BindTexture directly (ADR 0011
-        // §5c / issue #691). GBufferFlagsResolve.glsl declares its input as a
-        // slot-based `sampler2DMS`, so the seam takes its fallback and issues a
-        // real bind — the same arrangement DeferredLighting_MSAA has, and for
-        // the same reason: the descriptor heap has no reserved MULTISAMPLE
-        // null, so there is no bindless form of this read to convert to. That
-        // pairing is recorded in BindlessShaderPipelineTest's
-        // kSlotBasedByDesign, beside the MSAA lighting variant's entry.
+        // §5c / issue #691). This recorded slot-based multisample consumer does
+        // not opt into the heap shader variant. The seam's bound-program gate
+        // therefore issues a real texture-unit bind even with the heap enabled.
         HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_GBUFFER_EMISSIVE, msEmissive,
                                          RHI::HeapSlotLifetime::FrameTransient);
 
@@ -312,6 +305,50 @@ namespace OloEngine
         // downstream pass overrides by binding its own target, and leaving the
         // RESOLVE TARGET bound — which would quietly turn the next unguarded
         // draw into a G-Buffer write. Unbind is the safe half of that pair.
+        m_ResolvedFramebuffer->Unbind();
+    }
+
+    void GBuffer::ResolveDepthEntityPair()
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!m_DepthEntityResolveShader)
+            m_DepthEntityResolveShader = Shader::Create("assets/shaders/GBufferDepthEntityResolve.glsl");
+        if (!m_DepthEntityResolveShader)
+            return;
+        struct InvalidateBindings
+        {
+            ~InvalidateBindings()
+            {
+                CommandDispatch::InvalidateBindingCaches();
+            }
+        } invalidateBindings;
+        GLStateGuard guard("GBufferDepthEntityResolve", GLStateGuard::Policy::Restore);
+        // Independent integer and depth blits do not identify the same sample
+        // portably (OpenGL 4.6 section 18.3.1). Take both from sample zero,
+        // matching Vulkan's existing depth-resolve convention. Colour averages
+        // and the flags lane retain their existing resolve behavior.
+        m_ResolvedFramebuffer->Bind();
+        RenderCommand::SetFramebufferDrawAttachments(m_ResolvedFramebuffer->GetRHIHandle(),
+                                                     std::array<u32, 1>{ std::to_underlying(EntityID) });
+        RenderCommand::SetViewport(0, 0, m_Width, m_Height);
+        RenderCommand::SetDepthTest(true);
+        RenderCommand::SetDepthMask(true);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Always);
+        RenderCommand::SetColorMask(true, true, true, true);
+        RenderCommand::SetBlendState(false);
+        RenderCommand::DisableCulling();
+        m_DepthEntityResolveShader->Bind();
+        HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_GBUFFER_DEPTH,
+                                         m_Framebuffer->GetDepthAttachmentHandle(), RHI::HeapSlotLifetime::FrameTransient);
+        HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_USER_2,
+                                         m_Framebuffer->GetColorAttachmentHandle(std::to_underlying(EntityID)),
+                                         RHI::HeapSlotLifetime::FrameTransient);
+        const auto triangle = MeshPrimitives::GetFullscreenTriangle();
+        triangle->Bind();
+        HeapBinding::FlushOffsets();
+        RenderCommand::DrawIndexed(triangle);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+        RenderCommand::BackCull();
         m_ResolvedFramebuffer->Unbind();
     }
 

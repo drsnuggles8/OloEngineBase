@@ -46,6 +46,12 @@ namespace OloEngine
             // The emissive alpha bitfield uses a shader resolve after the blits.
             [[maybe_unused]] const auto flags = builder.Read(board.GBuffer.GBufferEmissiveMS, RGReadUsage::ShaderSample);
             builder.Write(board.GBuffer.GBufferEmissive, RGWriteUsage::RenderTarget);
+            const auto entityMS = builder.CreateFramebufferAttachmentView("GBufferEntityOwnershipMS", multisample, 4u);
+            const auto entity = builder.CreateFramebufferAttachmentView("GBufferEntityOwnership", resolved, 4u);
+            [[maybe_unused]] const auto idRead = builder.Read(entityMS, RGReadUsage::ShaderSample);
+            [[maybe_unused]] const auto depthRead = builder.Read(board.GBuffer.SceneDepthMS, RGReadUsage::ShaderSample);
+            builder.Write(entity, RGWriteUsage::RenderTarget);
+            builder.Write(board.Scene.SceneDepth, RGWriteUsage::RenderTarget);
         }
     }
 

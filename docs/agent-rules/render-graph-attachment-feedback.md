@@ -40,6 +40,13 @@ resolve-before-lighting mode has single-sample late writers, so its full resolve
 must precede them; a resolve after those writers would overwrite their pixels.
 See [the #1553 measurements](../analysis/deferred-msaa-gbuffer-resolve-1553.md).
 
+Depth and entity ownership consumed together must come from the same MSAA sample.
+Independent integer-colour and depth blits do not guarantee that pairing on OpenGL
+([OpenGL 4.6 section 18.3.1](https://registry.khronos.org/OpenGL/specs/gl/glspec46.core.pdf)).
+The full G-buffer resolve selects sample zero for both lanes with
+`GBufferDepthEntityResolve.glsl`; radiometric colour averaging and flags resolution
+keep their existing policy. Declare both multisample shader reads and both writes.
+
 Use an independent snapshot while the destination framebuffer retains writable
 depth/stencil state. Disabling depth writes alone does not change the Vulkan
 attachment layout: the current backend binds

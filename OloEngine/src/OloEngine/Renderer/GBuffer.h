@@ -191,6 +191,7 @@ namespace OloEngine
         // that is a bitfield rather than radiometry (issue #996). Runs inside
         // Resolve() so no caller can forget it; a no-op when sampleCount == 1.
         void ResolveFlagsLane();
+        void ResolveDepthEntityPair();
         // Resolve()'s body; ResolveColorOnly skips the depth blit.
         void ResolveAttachments(bool includeDepth);
 
@@ -206,5 +207,6 @@ namespace OloEngine
         // every headless session that never resolves) compiles nothing.
         Ref<Shader> m_FlagsResolveShader;
         bool m_FlagsResolveShaderFailed = false;
+        Ref<Shader> m_DepthEntityResolveShader;
     };
 } // namespace OloEngine
