@@ -916,6 +916,9 @@ add_executable(OloEngine-Tests
 		# compensation, cooked cards, and the saturation measurement that decides
 		# whether a shell tier is honest on any of the reference coats.
 		Rendering/PropertyTests/GroomLodComparisonTest.cpp
+		Rendering/PropertyTests/GroomShellSpikeBakeTest.cpp
+		Rendering/PropertyTests/GroomShellSpikeEvidenceTest.cpp
+		Rendering/PropertyTests/GroomShellSpikeIntersectionTest.cpp
 		# ...and the same claims on real pixels: the hand-over's density on every
 		# rendering path, the compensation's A/B, and the two hysteresis bounds
 		# driven as CAMERA MOTION, which is the only shape in which "does not
