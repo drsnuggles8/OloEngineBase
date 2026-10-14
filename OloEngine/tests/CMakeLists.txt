@@ -775,6 +775,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/ShadowAtlasVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomPreviewVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomStrandVisualEvidenceTest.cpp
+		Rendering/PropertyTests/FramebufferIntegerSamplingTest.cpp
 		Rendering/PropertyTests/GroomFibreVisualEvidenceTest.cpp
 		# Dense-coat self-shadowing (#1248). The GL x {Forward, Forward+,
 		# Deferred} cells plus the MSAA and non-native-resolution ones, and the
