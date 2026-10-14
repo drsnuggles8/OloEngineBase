@@ -109,6 +109,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [analysis/vulkan-material-selection-805.md](analysis/vulkan-material-selection-805.md) — Vulkan per-instance material selection through the GPU Scene (#805, ADR 0011 amendment (101)).
 - [analysis/vulkan-parallel-recording-1013.md](analysis/vulkan-parallel-recording-1013.md) — Vulkan parallel command recording measurements (#1013): elapsed region time kept separate from summed worker time.
 - Groom (epic #1223) measured comparisons: [strand visibility (#1246)](analysis/groom-strand-visibility-1246.md), [fibre scattering (#1247)](analysis/groom-fibre-scattering-1247.md), [coat self-shadowing (#1248)](analysis/groom-coat-self-shadowing-1248.md), [guide simulation (#1250)](analysis/groom-guide-simulation-1250.md), [representation LOD (#1252)](analysis/groom-representation-lod-1252.md), [ray-tracing proxies (#1253)](analysis/groom-rt-proxies-1253.md).
+- [analysis/groom-textured-shell-spike-1611.md](analysis/groom-textured-shell-spike-1611.md) — cooked-coat alpha-tested shell bake, GL comparison and production go/no-go gate (#1611).
 - [analysis/renderer-docs-reconcile-1357.md](analysis/renderer-docs-reconcile-1357.md) — the renderer documentation reconcile (#1357); see the Renderer section above.
 
 ## ops/ — build & deployment
