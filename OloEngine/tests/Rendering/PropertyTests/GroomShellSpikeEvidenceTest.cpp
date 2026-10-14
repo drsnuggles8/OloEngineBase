@@ -6,6 +6,7 @@
 #include "OloEngine/Groom/GroomBuilder.h"
 #include "RenderPropertyTest.h"
 #include "OloEngine/Groom/GroomCoverage.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Shader.h"
 
@@ -721,6 +722,11 @@ namespace OloEngine::Tests::GroomShellSpike
             glBlendFuncSeparatei(1, GL_ZERO, GL_ONE, GL_ONE, GL_ZERO);
             glBlendEquationSeparatei(1, GL_FUNC_REVERSE_SUBTRACT, GL_FUNC_ADD);
             glColorMaski(1, GL_FALSE, GL_TRUE, GL_FALSE, GL_TRUE);
+            const std::array<GLfloat, 4> expectedViewport{ 0.25f, 0.5f, 13.25f, 17.5f };
+            const std::array<GLint, 4> expectedScissor{ 3, 5, 13, 17 };
+            glViewportIndexedfv(1, expectedViewport.data());
+            glScissorIndexedv(1, expectedScissor.data());
+            glEnablei(GL_SCISSOR_TEST, 1);
             RunControls("state_");
             GLint binding = 0;
             GLint64 start = 0;
@@ -742,6 +748,13 @@ namespace OloEngine::Tests::GroomShellSpike
             glGetBooleani_v(GL_COLOR_WRITEMASK, 1, mask.data());
             const std::array<GLboolean, 4> expected{ GL_FALSE, GL_TRUE, GL_FALSE, GL_TRUE };
             EXPECT_EQ(mask, expected);
+            std::array<GLfloat, 4> viewport{};
+            std::array<GLint, 4> scissor{};
+            glGetFloati_v(GL_VIEWPORT, 1, viewport.data());
+            glGetIntegeri_v(GL_SCISSOR_BOX, 1, scissor.data());
+            EXPECT_TRUE(Math::BitwiseEqual(viewport, expectedViewport));
+            EXPECT_EQ(scissor, expectedScissor);
+            EXPECT_TRUE(glIsEnabledi(GL_SCISSOR_TEST, 1));
             glBindBufferBase(GL_UNIFORM_BUFFER, 30, 0);
             glDeleteBuffers(1, &buffer);
             EXPECT_EQ(glGetError(), GL_NO_ERROR);

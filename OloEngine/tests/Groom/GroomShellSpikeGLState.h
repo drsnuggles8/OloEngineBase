@@ -34,7 +34,13 @@ namespace OloEngine::Tests::GroomShellSpike
         };
         const std::array<u32, 6> BlendNames{ GL_BLEND_SRC_RGB, GL_BLEND_DST_RGB, GL_BLEND_SRC_ALPHA, GL_BLEND_DST_ALPHA, GL_BLEND_EQUATION_RGB, GL_BLEND_EQUATION_ALPHA };
         std::vector<BlendSlot> BlendSlots;
-        std::vector<GLboolean> ScissorSlots;
+        struct ViewportSlot
+        {
+            GLboolean ScissorEnabled;
+            std::array<GLfloat, 4> Viewport;
+            std::array<GLint, 4> Scissor;
+        };
+        std::vector<ViewportSlot> ViewportSlots;
         ExtraState()
         {
             GLint drawBuffers = 0;
@@ -42,7 +48,7 @@ namespace OloEngine::Tests::GroomShellSpike
             glGetIntegerv(GL_MAX_DRAW_BUFFERS, &drawBuffers);
             glGetIntegerv(GL_MAX_VIEWPORTS, &viewports);
             BlendSlots.resize(static_cast<sizet>(drawBuffers));
-            ScissorSlots.resize(static_cast<sizet>(viewports));
+            ViewportSlots.resize(static_cast<sizet>(viewports));
             for (u32 slot = 0; slot < BlendSlots.size(); ++slot)
             {
                 auto& state = BlendSlots[slot];
@@ -53,9 +59,12 @@ namespace OloEngine::Tests::GroomShellSpike
                     glGetIntegeri_v(BlendNames[field], slot, &state.Values[field]);
                 }
             }
-            for (u32 slot = 0; slot < ScissorSlots.size(); ++slot)
+            for (u32 slot = 0; slot < ViewportSlots.size(); ++slot)
             {
-                ScissorSlots[slot] = glIsEnabledi(GL_SCISSOR_TEST, slot);
+                auto& state = ViewportSlots[slot];
+                state.ScissorEnabled = glIsEnabledi(GL_SCISSOR_TEST, slot);
+                glGetFloati_v(GL_VIEWPORT, slot, state.Viewport.data());
+                glGetIntegeri_v(GL_SCISSOR_BOX, slot, state.Scissor.data());
             }
             for (sizet i = 0; i < Enables.size(); ++i)
             {
@@ -104,9 +113,13 @@ namespace OloEngine::Tests::GroomShellSpike
                 glBlendEquationSeparatei(slot, state.Values[4], state.Values[5]);
                 glColorMaski(slot, state.Mask[0], state.Mask[1], state.Mask[2], state.Mask[3]);
             }
-            for (u32 slot = 0; slot < ScissorSlots.size(); ++slot)
+            // Legacy viewport/scissor calls also write every indexed slot.
+            for (u32 slot = 0; slot < ViewportSlots.size(); ++slot)
             {
-                if (ScissorSlots[slot])
+                const auto& state = ViewportSlots[slot];
+                glViewportIndexedfv(slot, state.Viewport.data());
+                glScissorIndexedv(slot, state.Scissor.data());
+                if (state.ScissorEnabled)
                     glEnablei(GL_SCISSOR_TEST, slot);
                 else
                     glDisablei(GL_SCISSOR_TEST, slot);

@@ -99,6 +99,8 @@ Release (`/O2 /Ob2 /DNDEBUG`), RTX 4090, OpenGL 4.6 / driver 617.42.
 The monitor recorded no competing engine, game, test or build processes.
 Base revision `99007908a0a66f7c5fc2e7e0ce4b5d5e677fc800` plus the experiment
 inputs recorded in `inputs-sha256.json`; measurement preceded the commits.
+The measured source is `368435cb1`. The later indexed viewport/scissor
+restoration fix is verified separately; bake, shaders and draw code are unchanged.
 Binary SHA-256: `023e1a469203b699b782c83ef82500127bc59a93f88bbde6e0d8db4b461ffae3`.
 There are 456 validated rows per coat and 58,368 retained GPU samples in total.
 Every timing/history case has unique frames 0–63. There are 62 short-coat and
@@ -269,6 +271,9 @@ existing strand GPU parity tests. `cpu.xml` records 96 passes covering the four
 new bake contracts plus nearby cook, coverage, LOD and binding contracts; 13
 existing binding visual cases intentionally skip with `--olo-gl-backend=none`.
 The Release build and all pre-commit checks pass.
+The later indexed-rectangle cleanup passes the same six GPU contracts in
+`controls-after-rects.xml`; `controls-binary-sha256.json` and
+`controls-inputs-sha256.json` identify that separately rebuilt probe.
 
 The offscreen experiment is reachable only in the GL fixture. Vulkan and all
 six production GL/Vulkan × Forward/Forward+/Deferred cells are unreachable for

@@ -263,6 +263,22 @@ Fixing it properly means the command layer owning per-attachment channel masks â
 express them â€” so it is a separate change with its own tenant, filed rather than
 folded in here.
 
+## Viewport and scissor arrays in raw probes
+
+Legacy `glViewport` and `glScissor` also overwrite every indexed rectangle;
+`glEnable`/`glDisable(GL_SCISSOR_TEST)` overwrite every scissor enable. Preserve
+all indexed rectangles and enables when a raw probe promises exact restoration.
+Query viewport rectangles with `glGetFloati_v`, since their bounds can be
+fractional, and scissor rectangles with `glGetIntegeri_v`. See the
+[Khronos viewport-array specification](https://registry.khronos.org/OpenGL/extensions/ARB/ARB_viewport_array.txt).
+
+`GLStateGuard::Policy::Restore` restores a core subset, including global viewport and
+scissor setters. A probe's indexed-state guard must therefore be constructed
+**before** the core guard, so reverse destruction restores the individual slots
+after the global setters. `GroomShellSpikeGpuContract.IndexedStateAndRangedBindingsSurviveTheProbe`
+pins this with divergent fractional viewport/scissor rectangles at index 1,
+alongside indexed blend/mask state and a ranged UBO binding.
+
 ## The checklist for the next facade entry point
 
 - Does the GL entry point this mirrors have an **indexed sibling**? If so, decide
