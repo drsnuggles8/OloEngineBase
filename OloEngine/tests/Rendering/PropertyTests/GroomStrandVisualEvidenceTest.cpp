@@ -709,6 +709,73 @@ namespace OloEngine::Tests
 
     // ── Criterion 2/3: several angles, for a human to look at ───────────────
 
+    TEST_F(GroomStrandVisualEvidenceTest, AnUnusedVariantCanBeEvictedAfterOneFrameUnderBudgetPressure)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetRenderStrands(true);
+        struct BudgetRestore
+        {
+            u64 Previous;
+            ~BudgetRestore()
+            {
+                (void)Renderer3D::SetGroomCacheBudgetBytes(Previous);
+            }
+        } restore{ Renderer3D::SetGroomCacheBudgetBytes(1u) };
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / kHeight, 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+        RunEditorFrames(camera, 1);
+        const auto* pass = Renderer3D::GetGroomRenderPass();
+        ASSERT_NE(pass, nullptr);
+        const auto first = pass->GetStats();
+        ASSERT_EQ(first.GroomsDrawn, 1u);
+        ASSERT_GT(first.SegmentsDrawn, 2u);
+        m_GroomEntity.GetComponent<GroomComponent>().m_MaxRenderSegments = first.SegmentsDrawn / 2u;
+        RunEditorFrames(camera, 1);
+        const auto& second = pass->GetStats();
+        EXPECT_EQ(second.GroomsDrawn, 1u) << "the active coat must survive pressure";
+        EXPECT_GT(second.SegmentsDrawn, 0u);
+        EXPECT_LT(second.SegmentsDrawn, first.SegmentsDrawn);
+        EXPECT_GT(second.CacheEvictions, 0u) << "the previous-frame variant is eligible immediately";
+        EXPECT_EQ(second.CachedGrooms, 1u);
+        EXPECT_EQ(second.CacheOverBudgetBytes, second.CachedBytes - 1u);
+    }
+
+    TEST_F(GroomStrandVisualEvidenceTest, TogglingAnUnthinnedLadderReusesItsGeometry)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetRenderStrands(true);
+        auto source = AssetManager::GetAsset<GroomAsset>(m_GroomHandle);
+        ASSERT_TRUE(source);
+        auto& groom = m_GroomEntity.GetComponent<GroomComponent>();
+        groom.m_MaxRenderStrands = source->GetCurveCount();
+        groom.m_MaxRenderSegments = source->GetPointCount() - source->GetCurveCount();
+        auto& lod = m_GroomEntity.AddComponent<GroomLodComponent>();
+        lod.m_Enabled = false;
+        lod.m_VisibilitySteps = 0u;
+        lod.m_HoldFrames = 0u;
+        lod.m_CardPixelSize = 0.5f;
+        lod.m_MaxWidthCompensation = 16.0f;
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / kHeight, 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+        RunEditorFrames(camera, 1);
+        const auto* pass = Renderer3D::GetGroomRenderPass();
+        ASSERT_NE(pass, nullptr);
+        const auto first = pass->GetStats();
+        ASSERT_EQ(first.GroomsDrawn, 1u);
+        ASSERT_GT(first.SegmentsDrawn, 0u);
+        lod.m_Enabled = true;
+        RunEditorFrames(camera, 1);
+        const auto& second = pass->GetStats();
+        EXPECT_EQ(second.StrandsDrawn, first.StrandsDrawn);
+        EXPECT_EQ(second.SegmentsDrawn, first.SegmentsDrawn);
+        EXPECT_EQ(second.CacheBuilds, 0u);
+        EXPECT_EQ(second.CachedGrooms, first.CachedGrooms);
+    }
+
     TEST_F(GroomStrandVisualEvidenceTest, CapturesTheCoatFromSeveralAngles)
     {
         Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;

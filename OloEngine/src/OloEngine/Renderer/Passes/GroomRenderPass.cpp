@@ -140,12 +140,6 @@ namespace OloEngine
             entry.CoatBakedWithSurface = false;
         }
 
-        // Frames an unused cache entry survives before eviction is allowed to
-        // consider it. One second at 60 fps — long enough that toggling a
-        // groom's visibility does not rebuild its buffers, short enough that a
-        // scene switch does not hold the old scene's grooms resident.
-        constexpr u32 kCacheRetentionFrames = 60;
-
         [[nodiscard]] BufferLayout StrandVertexLayout()
         {
             // Mirrors GroomStrandVertex and GroomStrand.glsl's attribute
@@ -2158,7 +2152,7 @@ namespace OloEngine
 
         // Oldest first, and never an entry used this frame — its draw has
         // already been recorded against the buffer this would free.
-        std::vector<std::pair<u32, u64>> candidates;
+        std::vector<std::pair<u64, u64>> candidates;
         candidates.reserve(m_Cache.size());
         for (const auto& [key, entry] : m_Cache)
         {
@@ -2166,7 +2160,7 @@ namespace OloEngine
             {
                 continue; // the representation consumer owns these admissions
             }
-            if (m_CacheTick - entry.LastUsedFrame < kCacheRetentionFrames)
+            if (entry.LastUsedFrame == m_CacheTick)
             {
                 continue;
             }
@@ -2200,14 +2194,14 @@ namespace OloEngine
         PruneRestStreams();
 
         m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
-        // Every resident groom is in use, so the budget cannot be met. Said out
+        // Remaining entries are protected, so the budget cannot be met. Said out
         // loud rather than dropping a draw: a groom that vanished to fit a
         // budget is indistinguishable from a broken asset. Said ONCE per entry
         // into the state and per material growth (#1431), not every frame.
         if (m_CacheBudgetWarning.Observe(m_Stats.CacheOverBudgetBytes))
         {
-            OLO_CORE_WARN("GroomRenderPass: strand cache is {:.1f} MiB over its {:.1f} MiB budget and every entry is "
-                          "in use this frame; nothing was evicted and every groom is still drawn",
+            OLO_CORE_WARN("GroomRenderPass: strand cache is {:.1f} MiB over its {:.1f} MiB budget; remaining entries "
+                          "are required by this frame or streaming admissions, and every groom is still drawn",
                           static_cast<f64>(m_CacheBytes - m_CacheBudgetBytes) / (1024.0 * 1024.0),
                           static_cast<f64>(m_CacheBudgetBytes) / (1024.0 * 1024.0));
         }

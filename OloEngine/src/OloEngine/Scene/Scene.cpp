@@ -9768,6 +9768,18 @@ namespace OloEngine
                     request.LodPolicy.Enabled ? request.LodPolicy.MaxWidthCompensation : 1.0f;
             }
 
+            // Full cooked-curve budgets leave every role at stride one, so
+            // its width compensation is one regardless of the authored cap.
+            // Keep that ineffective cap out of the geometry cache identity:
+            // toggling LOD otherwise duplicates the entire full-density stream.
+            const GroomCurveView buildCurves = request.BuildSource().Curves;
+            const u32 buildCurveCount = buildCurves.GetCurveCount();
+            const u32 buildPointCount = buildCurves.GetPointCount();
+            if (request.Lod.Representation == GroomRepresentation::Strand &&
+                buildPointCount >= buildCurveCount && request.Build.MaxStrands >= buildCurveCount &&
+                request.Build.MaxSegments >= buildPointCount - buildCurveCount)
+                request.Build.MaxWidthCompensation = 1.0f;
+
             request.Build.CoatDigest = GroomCoatDigest(request.Coat);
 
             liveGrooms.insert(groomComponent.m_Groom);
