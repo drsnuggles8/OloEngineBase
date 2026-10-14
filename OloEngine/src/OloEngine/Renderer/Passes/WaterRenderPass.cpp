@@ -178,6 +178,13 @@ namespace OloEngine
             return;
         }
 
+        // Scene-band reconstruction can resize the shared target independently
+        // of this pass's persistent fog-depth backing. Normalized UVs in the
+        // display-size tone mapper must cover the entire captured water image.
+        if (!m_WaterDepthFB || m_WaterDepthFB->GetSpecification().Width != fbWidth ||
+            m_WaterDepthFB->GetSpecification().Height != fbHeight)
+            ResizeFramebuffer(fbWidth, fbHeight);
+
         // Water always renders through the forward alpha-blend path now.
         // Copy scene colour for refraction sampling, then render into the
         // scene FB directly.

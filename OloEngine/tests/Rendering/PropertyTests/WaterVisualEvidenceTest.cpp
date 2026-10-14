@@ -53,6 +53,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -358,6 +359,20 @@ namespace OloEngine::Tests
                 EXPECT_GT(Rgba8Rmse(control, pixels), 0.1);
                 ExpectAttachmentFeedbackGraphClean("WaterPass");
                 ExpectAttachmentSnapshotSamplingMatchesSource("SceneDepth", "SceneDepthSnapshot");
+                ExpectRefractionExtentMatchesSceneDepth("WaterRefraction", "SceneDepthSnapshot");
+                const auto waterDepth = Renderer3D::GetWaterSurfaceDepthTextureID();
+                ASSERT_TRUE(waterDepth.IsValid());
+                const u32 depthNative = static_cast<u32>(RHI::ResourceRegistry::Get().ResolveNativeForBackend(waterDepth));
+                const auto graph = RenderGraphDebugRuntime::GetActiveGraph();
+                const u32 sceneDepth = graph->ResolveTexture(graph->GetTextureHandle("SceneDepthSnapshot"));
+                for (const GLenum parameter : { GL_TEXTURE_WIDTH, GL_TEXTURE_HEIGHT })
+                {
+                    GLint waterExtent = 0;
+                    GLint sceneExtent = 0;
+                    glGetTextureLevelParameteriv(depthNative, 0, parameter, &waterExtent);
+                    glGetTextureLevelParameteriv(sceneDepth, 0, parameter, &sceneExtent);
+                    EXPECT_EQ(waterExtent, sceneExtent) << cell << " tone-map water-depth extent";
+                }
                 ExpectAttachmentSnapshotSamplingMatchesSource("SceneViewNormals", "SceneViewNormalsSnapshot"); });
         }
     }

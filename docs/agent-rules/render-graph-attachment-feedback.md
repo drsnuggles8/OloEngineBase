@@ -79,6 +79,16 @@ sampling contract. Do not change texture parameters after minting a resident
 OpenGL bindless handle. The visual fixtures compare the production snapshot's
 filter and wrap parameters with its source.
 
+Size refraction scratch to the scene band that is copied and sampled, rather
+than the final display. Spatial upscaling can allocate a smaller scene image:
+copying it into a display-size water or fluid texture leaves an unwritten margin
+and makes normalized scene UVs sample the wrong region. Assert actual scratch
+and depth extents through native, reconstruction, and return-to-native frames.
+Keep the persistent water surface-depth backing at the same scene dimensions
+too. The tone mapper samples it with normalized UVs after reconstruction;
+writing a reduced corner of display-size storage moves the reconstructed water
+surface and puts underwater fog over dry geometry.
+
 `RenderGraphAttachmentFeedback.*` pins aliases, disjoint attachments and ranges,
 resolve backing, transfer-only declarations, snapshots, and both backend policies.
 The skin, snow, and fluid visual fixtures validate their real enabled graph and

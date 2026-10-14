@@ -4247,8 +4247,10 @@ namespace OloEngine
             RGResourceDesc refrDesc;
             refrDesc.Kind = RGResourceHandle::Kind::Texture2D;
             refrDesc.Format = RGResourceFormat::RGBA16Float;
-            refrDesc.Width = postProcessWidth;
-            refrDesc.Height = postProcessHeight;
+            // Copy and sampling both use scene-band coordinates. A display-size
+            // scratch would leave an unwritten margin when spatial upscaling.
+            refrDesc.Width = sceneBandWidth;
+            refrDesc.Height = sceneBandHeight;
             refrDesc.DebugName = "WaterRefraction";
             board.Scratch.WaterRefraction = declareGraphOnlyTexture("WaterRefraction", refrDesc);
         }
@@ -4262,8 +4264,8 @@ namespace OloEngine
             RGResourceDesc fluidRefrDesc;
             fluidRefrDesc.Kind = RGResourceHandle::Kind::Texture2D;
             fluidRefrDesc.Format = RGResourceFormat::RGBA16Float;
-            fluidRefrDesc.Width = postProcessWidth;
-            fluidRefrDesc.Height = postProcessHeight;
+            fluidRefrDesc.Width = sceneBandWidth;
+            fluidRefrDesc.Height = sceneBandHeight;
             fluidRefrDesc.DebugName = "FluidRefraction";
             board.Scratch.FluidRefraction = declareGraphOnlyTexture("FluidRefraction", fluidRefrDesc);
         }
