@@ -382,7 +382,8 @@ export function innerCommand(words: readonly string[]): string | undefined {
  */
 export function checkCommand(command: string, branch?: string): Violation[] {
   const all: Violation[] = []
-  for (const statement of splitStatements(command)) {
+  const statements = splitStatements(command)
+  for (const [index, statement] of statements.entries()) {
     const out: Found[] = []
     const words = commandWords(statement.words)
     const inner = innerCommand(words)
@@ -435,6 +436,15 @@ export function checkCommand(command: string, branch?: string): Violation[] {
         reason: 'Closing an issue is the user\'s call (CLAUDE.md): post the evidence, recommend closure, let the user close.',
       })
     }
+    // The write's own text, including a heredoc body on the lines after it, so an approved vote
+    // on one issue write never taints an unapproved write elsewhere in the same command.
+    if (isIssueWrite(words) && PULL_VOTE_RE.test(issueWriteScope(statements, index))) {
+      out.push(pullVoteViolation())
+    }
+    const script = words.findIndex(w => /(?:^|[\\/])issue_scores\.py$/.test(w))
+    if (script >= 0 && words[script + 1] === 'pull' && !words.includes('--dry-run')) {
+      out.push(pullVoteViolation())
+    }
 
     if (statement.separator === '|' && /^(?:Set-Content|sc|Add-Content|ac|Out-File)$/i.test(words[0] ?? '') && words.some(w => /^-NoNewline$/i.test(w))) {
       out.push({
@@ -450,6 +460,115 @@ export function checkCommand(command: string, branch?: string): Violation[] {
     all.push(...out.map(v => ({ ...v, isApproved: approved })))
   }
   return all
+}
+
+/**
+ * `fun_by: user` in an olo-score block is the user's confirmation that a Fun >= 8 should jump the
+ * queue (docs/process/issue-scoring.md §3.4). Agents scored Fun on the issues they filed, and on
+ * 2026-10-15 that put five fresh agent-filed issues at the front of /start-work's rank. So writing
+ * the field is gated like closing an issue: `issue_scores.py pull` or an issue body carrying it.
+ */
+export const PULL_VOTE_RE = /\bfun_by\s*[:=]\s*["']?user\b/i
+
+export function pullVoteViolation(): Found {
+  return {
+    rule: 'pull-vote',
+    isGated: true,
+    reason:
+      'Writing `fun_by: user` (or running `issue_scores.py pull`) records the USER\'s Pull-override; an agent never sets it on its own (docs/process/issue-scoring.md §3.4). ' +
+      'Score Fun honestly and leave the confirmation to the user.',
+  }
+}
+
+function isIssueWrite(words: readonly string[]): boolean {
+  const first = exeName(words[0])
+  return first === 'gh' && words[1] === 'issue' && (words[2] === 'create' || words[2] === 'edit')
+}
+
+/** An issue write's own text: its statement plus the lines up to the next issue write (a heredoc body). */
+function issueWriteScope(statements: readonly Statement[], index: number): string {
+  const parts = [statements[index]?.text ?? '']
+  for (const statement of statements.slice(index + 1)) {
+    if (isIssueWrite(commandWords(statement.words))) {
+      break
+    }
+    parts.push(statement.text)
+  }
+  return parts.join('\n')
+}
+
+/** Commands whose output to a file is spelled out in the command itself (arguments, heredoc, here-string). */
+const VISIBLE_WRITERS = new Set(['cat', 'tee', 'echo', 'printf', 'set-content', 'add-content', 'out-file', 'sc', 'ac', 'write-output'])
+const DIRECTORY_CHANGERS = new Set(['cd', 'pushd', 'chdir', 'set-location', 'sl'])
+
+export type IssueBodyFile = {
+  /** The path as the shell will read it: a Git Bash `/c/...` path becomes `C:/...`. */
+  path: string
+  isApproved: boolean
+  /** Set when an earlier statement writes the file with its content in the command: that text, to check instead of the stale file. */
+  written?: string
+  /** Set when the hook cannot know what `gh` will read; the write is refused rather than let through unchecked. */
+  unverifiable?: string
+}
+
+function shellPath(path: string): string {
+  const drive = /^\/([a-zA-Z])\/(.*)$/.exec(path)
+  return drive ? `${(drive[1] ?? '').toUpperCase()}:/${drive[2] ?? ''}` : path
+}
+
+/**
+ * The `--body-file` / `-F` of every `gh issue create|edit` in the command, with each statement's
+ * approval and what the hook can know about the file's content when `gh` reads it. The hook reads
+ * the file BEFORE the command runs, so an earlier statement that changes it (`cp vote.md body.md &&
+ * gh issue edit 1 --body-file body.md`) or moves the working directory makes the read meaningless.
+ */
+export function issueBodyFiles(command: string): IssueBodyFile[] {
+  const out: IssueBodyFile[] = []
+  const statements = splitStatements(command)
+  for (const [index, statement] of statements.entries()) {
+    const words = commandWords(statement.words)
+    const inner = innerCommand(words)
+    if (inner !== undefined) {
+      const outerApproved = isApprovedStatement(statement)
+      out.push(...issueBodyFiles(inner).map(f => ({ ...f, isApproved: f.isApproved || outerApproved })))
+      continue
+    }
+    if (!isIssueWrite(words)) {
+      continue
+    }
+    const earlier = statements.slice(0, index)
+    for (let i = 3; i < words.length; i += 1) {
+      const w = words[i] ?? ''
+      const raw = w === '--body-file' || w === '-F' ? words[i + 1] : w.startsWith('--body-file=') ? w.slice('--body-file='.length) : undefined
+      if (raw === undefined || raw === '-' || raw.length === 0) {
+        continue
+      }
+      const file: IssueBodyFile = { path: shellPath(raw), isApproved: isApprovedStatement(statement) }
+      const isAbsolute = /^(?:[A-Za-z]:[\\/]|[\\/])/.test(raw)
+      const moved = earlier.find(s => DIRECTORY_CHANGERS.has(exeName(commandWords(s.words)[0])))
+      const touching = earlier.filter(s => s.text.includes(raw))
+      const hidden = touching.find(s => !VISIBLE_WRITERS.has(exeName(commandWords(s.words)[0])))
+      if (!isAbsolute && moved !== undefined) {
+        file.unverifiable = `\`${exeName(commandWords(moved.words)[0])}\` earlier in the command moves the shell away from the directory the hook resolves \`${raw}\` against`
+      } else if (hidden !== undefined) {
+        file.unverifiable = `\`${exeName(commandWords(hidden.words)[0])}\` earlier in the command changes it after the hook would read it`
+      } else if (touching.length > 0) {
+        file.written = earlier.map(s => s.text).join('\n')
+      }
+      out.push(file)
+    }
+  }
+  return out
+}
+
+export function unverifiableBodyViolation(path: string, why: string): Found {
+  return {
+    rule: 'pull-vote-unverifiable',
+    isGated: true,
+    reason:
+      `The hook cannot check \`${path}\` for \`fun_by: user\`: ${why}. ` +
+      'Write the body file in its own command (an absolute Windows path is safest), then run the issue write on its own.',
+  }
 }
 
 /** What the guard refuses: everything ungated, and a gated rule unless its own statement carries the marker. */

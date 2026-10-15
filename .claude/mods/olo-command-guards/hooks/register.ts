@@ -5,13 +5,18 @@ import {
   contenders,
   formatRefusal,
   isTimingRun,
+  issueBodyFiles,
   loadNote,
   localChecksRunning,
   parseGpuSample,
   parseProcessRows,
+  PULL_VOTE_RE,
   publishes,
   publishingApproved,
+  pullVoteViolation,
   refusals,
+  unverifiableBodyViolation,
+  type Violation,
 } from './guards'
 
 const SHELL_TOOLS = ['Bash', 'PowerShell'] as const
@@ -30,13 +35,14 @@ export const register: Register = on => {
     }
 
     const branch = /\bpush\b/.test(command) ? await currentBranch($) : undefined
-    const refused = refusals(command, branch)
+    const bodyVotes = await bodyFilePullVotes($, command)
+    const refused = [...refusals(command, branch), ...bodyVotes.filter(v => !v.isApproved)]
     if (refused.length > 0) {
       $.ui.toast(`olo-command-guards refused: ${refused.map(v => v.rule).join(', ')}`, { timeoutMs: 6000 })
       return { deny: formatRefusal(refused) }
     }
 
-    const approvedGated = checkCommand(command, branch).filter(v => v.isGated && v.isApproved)
+    const approvedGated = [...checkCommand(command, branch), ...bodyVotes].filter(v => v.isGated && v.isApproved)
     if (approvedGated.length > 0) {
       await audit($, command, approvedGated.map(v => v.rule))
     }
@@ -73,6 +79,36 @@ export const register: Register = on => {
     const refused = refusals(command)
     return refused.length > 0 ? { deny: formatRefusal(refused) } : next(e)
   })
+}
+
+/**
+ * A `gh issue create|edit --body-file` hides the body from the text rules, so read each file and
+ * apply the `fun_by: user` rule to it. Fails closed: a body the hook cannot inspect (unreadable,
+ * changed earlier in the same command, behind a `cd`) is refused, because letting it through would
+ * make the user-owned Pull decision depend on how the path happened to resolve.
+ */
+async function bodyFilePullVotes($: EngineInterface, command: string): Promise<Violation[]> {
+  const out: Violation[] = []
+  for (const file of issueBodyFiles(command)) {
+    if (file.unverifiable !== undefined) {
+      out.push({ ...unverifiableBodyViolation(file.path, file.unverifiable), isApproved: file.isApproved })
+      continue
+    }
+    let text = file.written ?? ''
+    try {
+      text += `\n${await $.fs.read(file.path)}`
+    } catch {
+      // A file an earlier statement creates in this command does not exist yet; its content is `written`.
+      if (file.written === undefined) {
+        out.push({ ...unverifiableBodyViolation(file.path, 'the hook could not read it'), isApproved: file.isApproved })
+        continue
+      }
+    }
+    if (PULL_VOTE_RE.test(text)) {
+      out.push({ ...pullVoteViolation(), isApproved: file.isApproved })
+    }
+  }
+  return out
 }
 
 async function currentBranch($: EngineInterface): Promise<string | undefined> {

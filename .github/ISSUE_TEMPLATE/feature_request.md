@@ -21,7 +21,7 @@ Add any other context or screenshots about the feature request here.
 
 <!-- olo-score:begin -->
 ## Score
-<!-- Rate this issue per docs/process/issue-scoring.md (Fibonacci 1/2/3/5/8/13). Leave the 3s if unsure. -->
+<!-- Rate this issue per docs/process/issue-scoring.md (Fibonacci 1/2/3/5/8/13). Leave the 3s if unsure. Fun >= 8 jumps the queue only once the user confirms it with `issue_scores.py pull`. -->
 ```olo-score
 capability: 3
 craft: 3

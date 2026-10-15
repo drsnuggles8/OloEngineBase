@@ -37,3 +37,28 @@ test('an ordinary command passes straight through', async ($, on) => {
   const r = await $.tool.call({ tool: 'PowerShell', command: 'git status' })
   expect(r.text).toBe('ok')
 })
+
+test('a body file that sets fun_by: user is refused; an ordinary body file is not', async ($, on) => {
+  const files = new Map<string, string>([
+    ['vote.md', '```olo-score\nfun: 13\nfun_by: user\n```'],
+    ['plain.md', '```olo-score\nfun: 5\n```'],
+  ])
+  // The engine resolves a relative path against the session's cwd before the read.
+  on('fs.read', ($, e) => {
+    const text = files.get(e.path.replace(/^.*[\\/]/, ''))
+    return text === undefined ? { deny: 'ENOENT' } : { value: text }
+  })
+  on('tool.call', () => ran)
+  const voted = await $.tool.call({ tool: 'Bash', command: 'gh issue edit 1615 --body-file vote.md' })
+  expect(String(voted.deny ?? voted.text)).toContain('fun_by: user')
+  const plain = await $.tool.call({ tool: 'Bash', command: 'gh issue edit 1615 --body-file plain.md' })
+  expect(plain.text).toBe('ok')
+  // Fails closed: an unreadable body could hold the vote, so the write is refused.
+  const missing = await $.tool.call({ tool: 'Bash', command: 'gh issue edit 1615 --body-file gone.md' })
+  expect(String(missing.deny ?? missing.text)).toContain('cannot check')
+  // A body the same command writes is checked from the command's text before it exists.
+  const written = await $.tool.call({ tool: 'Bash', command: "cat > new.md <<'EOF'\nfun: 5\nEOF\ngh issue create --body-file new.md" })
+  expect(written.text).toBe('ok')
+  const writtenVote = await $.tool.call({ tool: 'Bash', command: "cat > new.md <<'EOF'\nfun_by: user\nEOF\ngh issue create --body-file new.md" })
+  expect(String(writtenVote.deny ?? writtenVote.text)).toContain('fun_by: user')
+})
