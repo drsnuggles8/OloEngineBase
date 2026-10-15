@@ -191,6 +191,13 @@ namespace OloEngine
             // Skip the compare entirely — used to temporarily disable a
             // known-leaking region without removing the guard.
             Ignore,
+            // Restore the core subset like Restore, without the compare or its
+            // log: for a pass that runs EVERY FRAME and whose restores are its
+            // contract rather than a leak being hunted (the water surface-depth
+            // capture replays the water's draw bucket and must hand its caller
+            // back its VAO, program, framebuffers and blend factors). Restore's
+            // per-field trace there was thousands of lines a session.
+            RestoreQuiet,
         };
 
         // Captures entry state immediately.

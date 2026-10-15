@@ -213,6 +213,11 @@ namespace OloEngine
         {
             if (m_Finalized || m_Policy == Policy::Ignore)
                 return;
+            if (m_Policy == Policy::RestoreQuiet)
+            {
+                m_EntryState.ApplyCore();
+                return;
+            }
 
             const GLStateSnapshot exit = GLStateSnapshot::Capture();
             if (const auto diffs = m_EntryState.DiffAgainst(exit); !diffs.IsEmpty())

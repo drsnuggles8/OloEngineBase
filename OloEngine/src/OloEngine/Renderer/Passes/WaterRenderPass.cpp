@@ -136,7 +136,11 @@ namespace OloEngine
                 CommandDispatch::InvalidateBindingCaches();
             }
         } invalidateBindings;
-        GLStateGuard guard("WaterSurfaceDepth", GLStateGuard::Policy::Restore);
+        // QUIET: this runs every frame (twice, with the groom's water-depth
+        // pass), and handing the caller back its VAO, program, framebuffers and
+        // blend factors is this capture's contract, not a leak -- Restore's
+        // per-field trace of it was thousands of lines a session.
+        GLStateGuard guard("WaterSurfaceDepth", GLStateGuard::Policy::RestoreQuiet);
         target->Bind();
         context.SetViewport(0, 0, width, height);
         CommandDispatch::SetWaterTargetSize(width, height);
