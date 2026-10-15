@@ -70,7 +70,7 @@ namespace OloEngine::Tests
         // A generated cubemap has no file to key a cache entry on.
         config.UseDiskCache = false;
         auto& env = entity.HasComponent<EnvironmentMapComponent>() ? entity.GetComponent<EnvironmentMapComponent>()
-                                                                    : entity.AddComponent<EnvironmentMapComponent>();
+                                                                   : entity.AddComponent<EnvironmentMapComponent>();
         env.m_EnableSkybox = false;
         env.m_EnableIBL = true;
         env.m_UseSphericalHarmonics = sphericalHarmonics;
