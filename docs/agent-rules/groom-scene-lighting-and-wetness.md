@@ -63,3 +63,19 @@ CPU-deformed path applies the same record through `GroomDeformWetLocal`, and
 
 The optical response (absorption, gloss, sheen) is per vertex from UBO lanes, so an unbound coat
 gets it too. An unbound coat has no root frame, so it has no geometric response.
+
+## 4. A feature that is off costs nothing on the coat's per-point CPU paths
+
+The coat self-shadow evaluates every posed point on the CPU every frame
+(`EvaluateGroomDeformedPose`, about a million points on the long-coated horse), and so does the
+CPU-deformed stream. Anything added per point there must be decided once per loop, not per point:
+`DeformedPoint<Wet>` is a template, picked once, with the root span and the simulated flag hoisted
+out. The first version put the wet hook inside `EvaluateGroomDeformedPoint`. That made the function
+too large to inline and added a per-point test, and a dry horse's GroomPass doubled
+(GL 5.2 → 11.0 ms).
+
+**GroomPass's GPU time counts this CPU work.** The pass's timer brackets the whole pass, and the GPU
+idles while the CPU builds the pose, so a CPU regression reads as GPU milliseconds. When the
+sub-passes (`StrandPrepass`, `StrandShade` in `olo_perf_pass_timings`) add up to far less than the
+pass, time the pass's sections on the CPU instead of bisecting the shader. To compare against
+base, alternate a base editor and the branch editor on the same scene and camera.
