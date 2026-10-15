@@ -929,9 +929,16 @@ namespace OloEngine
                     streamingUploadedBytes += end - begin;
                 }
             };
+            // The wet record the frame packed, against the one the GPU holds:
+            // two dry records are the same record to the shader, which reads
+            // nothing past a dry frame's flag.
+            const GroomDeformWetRecord& wetRecord = entry.DeformCpu.Wet();
+            const bool wetUnchanged = (!(wetRecord.Frame.w > 0.5f) && !(entry.DeformWetSent.Frame.w > 0.5f)) ||
+                                      std::memcmp(&wetRecord, &entry.DeformWetSent, sizeof(GroomDeformWetRecord)) == 0;
             if (relayout)
             {
                 send(0u, bytes.size());
+                entry.DeformWetSent = wetRecord;
             }
             else
             {
@@ -948,9 +955,19 @@ namespace OloEngine
                 if (layout.RootsOnGpu())
                 {
                     // The wet record (#1615) sits just before the root region the
-                    // kernel writes, so it goes up on its own.
-                    send(layout.DynamicOffsetBytes(), layout.WetEndBytes());
+                    // kernel writes, so it goes up on its own -- and only when it
+                    // changed: an upload per frame into a buffer the frame's
+                    // kernel and draws are using cost GroomPass a driver sync.
+                    if (!wetUnchanged)
+                    {
+                        send(layout.DynamicOffsetBytes(), layout.WetEndBytes());
+                        entry.DeformWetSent = wetRecord;
+                    }
                     send(layout.PaletteOffsetBytes(), bytes.size());
+                }
+                else
+                {
+                    entry.DeformWetSent = wetRecord; // inside the dynamic region just sent
                 }
             }
             if (layout.RootsOnGpu())

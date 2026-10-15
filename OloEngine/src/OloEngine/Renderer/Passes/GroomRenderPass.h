@@ -938,6 +938,9 @@ namespace OloEngine
             /// (#1615): computed the first time the coat is wet with a clump to
             /// gather, and kept until the next relayout.
             bool DeformClumpWritten = false;
+            /// The wet record the GPU buffer holds (#1615), so a frame whose
+            /// record did not change -- every frame of a dry coat -- sends none.
+            GroomDeformWetRecord DeformWetSent{};
             /// The bound surface the GPU root evaluation's static regions were
             /// written from (GroomStrandRequest::GpuRootSurfaceKey); a different
             /// one relays the buffer out.
