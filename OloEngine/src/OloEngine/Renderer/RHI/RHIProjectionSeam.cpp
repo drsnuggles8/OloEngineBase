@@ -81,6 +81,17 @@ namespace OloEngine::RHI
         return BackendFlips() ? DepthOnlyFlipMatrix() * projection : projection;
     }
 
+    FrontFace CaptureFrontFaceForBackend(const FrontFace glWinding)
+    {
+        // Same predicate as the capture matrix above: the backend that drops the
+        // y flip there is exactly the one whose facing is left inverted.
+        if (!BackendFlips())
+        {
+            return glWinding;
+        }
+        return glWinding == FrontFace::CounterClockwise ? FrontFace::Clockwise : FrontFace::CounterClockwise;
+    }
+
     bool RenderTargetRowsAreBottomUp()
     {
         // Same BackendFlips() question the matrices ask, answered for rows:

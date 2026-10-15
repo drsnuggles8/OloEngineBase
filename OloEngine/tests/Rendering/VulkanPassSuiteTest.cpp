@@ -53,6 +53,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Renderer/OITBlendState.h"
 #include "OloEngine/Renderer/Camera/Camera.h"
+#include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
@@ -12268,6 +12269,227 @@ TEST_F(VulkanPassSuite, DdgiCaptureFaceBasisCancelsTheSeamRowMirror)
     EXPECT_LT(maxRow, kSize / 2u)
         << "the caster must land in the first half of the stored face (rows " << minRow << ".." << maxRow
         << ") — the second half means the screen seam's clip-y negation reached the capture projection";
+}
+
+// =============================================================================
+// DDGI: the capture's FACING convention
+// =============================================================================
+//
+// The row-mirror tenant above settles WHERE a capture stores a caster. This one
+// settles WHICH SIDE of it the capture thinks it sees. DDGI_Capture.glsl writes
+// gl_FrontFacing into RT0.a (1.0 front, 0.5 back), DDGI_Relocate.comp calls a
+// probe whose hits are more than a quarter backfaces in-wall (Inactive), and an
+// Inactive probe is never relit. The capture projection drops the seam's y flip,
+// which drops half of the facing composition: under the engine's CCW default
+// every Vulkan front face read as a backface, every probe of every volume went
+// Inactive, the irradiance atlas stayed zero and the lit passes fell back to
+// ambient. Live, a horse lit by a 32-probe volume moved by 0.02-0.4 luma on
+// Vulkan against 1-2.6 on GL, with no error and no VUID.
+//
+// The fix is the winding RHI::CaptureFrontFaceForBackend returns, set by
+// DDGIProbeUpdatePass::ApplyCaptureRasterState — which this tenant calls, so it
+// pins the production state rather than a copy. Two casters through the real
+// DDGI_Capture.glsl, one wound to face the probe (GL-front: its right-hand
+// normal points at the eye) and one wound away, told apart by base colour:
+//   * production state: the facing one is tagged front, the other back;
+//   * the pre-fix state (the engine's raw CCW default) inverts both tags. That
+//     is the negative control — it proves the tenant can still see the bug.
+TEST_F(VulkanPassSuite, DdgiCaptureFrontFacingMatchesGlUnderTheCaptureSeam)
+{
+    constexpr u32 kSize = 64;
+    VulkanFrameArena::Get().BeginFrame(0);
+
+    auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+
+    auto captureShader = Shader::Create("assets/shaders/DDGI_Capture.glsl");
+    ASSERT_TRUE(captureShader);
+    ASSERT_EQ(captureShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+
+    auto whiteAlbedo = MakeSolidTexture(4, 255, 255, 255, 255);
+    ASSERT_NE(whiteAlbedo, nullptr);
+    // Probe data: offset 0, so the vertex stage's eye sits at the lattice point.
+    auto probeData = MakeSolidTexture(4, 0, 0, 0, 0);
+    ASSERT_NE(probeData, nullptr);
+
+    // One cascade of one probe at the origin, spacing 1 — the minimum the
+    // vertex stage's index -> tile -> position helpers need to resolve probe 0.
+    UBOStructures::DDGIVolumeUBO volume{};
+    volume.GridDimensions = glm::ivec4(1, 1, 1, 1);
+    volume.ProbeSpacing = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    volume.CascadeCount = 1;
+    volume.CascadeSpacing[0] = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    auto volumeUbo = UniformBuffer::Create(UBOStructures::DDGIVolumeUBO::GetSize(), ShaderBindingLayout::UBO_DDGI);
+    volumeUbo->SetData(&volume, UBOStructures::DDGIVolumeUBO::GetSize());
+
+    // DDGIProbeUpdatePass's face 0 (+X) basis and projection, verbatim.
+    const glm::mat4 projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.05f, 50.0f);
+    const glm::mat4 view = glm::lookAt(glm::vec3(0.0f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f));
+    ShaderBindingLayout::CameraUBO cameraData{};
+    cameraData.ViewProjection = RHI::AdjustCaptureProjectionForBackend(projection * view);
+    cameraData.View = view;
+    cameraData.Projection = RHI::AdjustCaptureProjectionForBackend(projection);
+    cameraData.PrevViewProjection = cameraData.ViewProjection;
+    auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+    cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
+    auto passDataUbo =
+        UniformBuffer::Create(UBOStructures::DDGIPassDataUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
+
+    // Two quads in the x = 2 plane, either side of z = 0. The engine Vertex
+    // stream (32 B) the capture's V1 pull reads.
+    struct EngineVertex
+    {
+        glm::vec3 Position;
+        glm::vec3 Normal;
+        glm::vec2 TexCoord;
+    };
+    const auto makeQuad = [](f32 zMin, f32 zMax, bool facesProbe)
+    {
+        const std::array<EngineVertex, 4> vertices{
+            EngineVertex{ { 2.0f, 0.2f, zMin }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f } },
+            EngineVertex{ { 2.0f, 0.2f, zMax }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f } },
+            EngineVertex{ { 2.0f, 0.9f, zMax }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f } },
+            EngineVertex{ { 2.0f, 0.9f, zMin }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f } },
+        };
+        // (v1 - v0) x (v2 - v0) = (0,0,dz) x (0,dy,dz) = (-dy*dz, 0, 0): the
+        // 0-1-2 order's right-hand normal points at the probe (-x), which is
+        // front-facing under GL's CCW. The reversed order faces away.
+        u32 facing[] = { 0u, 1u, 2u, 2u, 3u, 0u };
+        u32 away[] = { 0u, 2u, 1u, 0u, 3u, 2u };
+        auto va = VertexArray::Create();
+        auto vb = VertexBuffer::Create(const_cast<f32*>(reinterpret_cast<const f32*>(vertices.data())),
+                                       static_cast<u32>(sizeof(vertices)));
+        vb->SetLayout({ { ShaderDataType::Float3, "a_Position" },
+                        { ShaderDataType::Float3, "a_Normal" },
+                        { ShaderDataType::Float2, "a_TexCoord" } });
+        va->AddVertexBuffer(vb);
+        va->SetIndexBuffer(IndexBuffer::Create(facesProbe ? facing : away, 6));
+        return va;
+    };
+    auto facingQuad = makeQuad(-0.9f, -0.2f, true); // drawn red
+    auto awayQuad = makeQuad(0.2f, 0.9f, false);    // drawn green
+
+    // The production capture target's attachment shape.
+    FramebufferSpecification spec;
+    spec.Width = kSize;
+    spec.Height = kSize;
+    spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::RGBA16F,
+                         FramebufferTextureFormat::ShadowDepth };
+    Ref<Framebuffer> target = Framebuffer::Create(spec);
+    ASSERT_TRUE(target);
+
+    struct FacingCounts
+    {
+        u32 FacingTaggedFront = 0;
+        u32 FacingTaggedBack = 0;
+        u32 AwayTaggedFront = 0;
+        u32 AwayTaggedBack = 0;
+        u32 Unclassified = 0;
+    };
+
+    const auto capture = [&](bool productionWinding) -> FacingCounts
+    {
+        FacingCounts counts;
+        SubmitFrame(
+            [&]()
+            {
+                target->Bind();
+                RenderCommand::SetViewport(0, 0, kSize, kSize);
+                target->ClearAttachment(0, glm::vec4(0.0f));
+                target->ClearAttachment(1, glm::vec4(0.0f, 0.0f, -1.0f, 0.0f));
+                RenderCommand::ClearDepthOnly();
+
+                DDGIProbeUpdatePass::ApplyCaptureRasterState();
+                if (!productionWinding)
+                {
+                    RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise); // the pre-fix state
+                }
+
+                captureShader->Bind();
+                cameraUbo->Bind();
+                volumeUbo->Bind();
+                passDataUbo->Bind();
+                RenderCommand::BindTexture(0, whiteAlbedo->GetRHIHandle());
+                RenderCommand::BindTexture(1, probeData->GetRHIHandle());
+
+                const auto drawCaster = [&](const Ref<VertexArray>& va, const glm::vec4& baseColor)
+                {
+                    UBOStructures::DDGIPassDataUBO data{};
+                    data.Model = glm::mat4(1.0f);
+                    data.NormalMatrix = glm::mat4(1.0f);
+                    data.BaseColor = baseColor;
+                    data.ProbePosition = glm::vec4(0.0f);
+                    passDataUbo->SetData(&data, sizeof(data));
+                    va->Bind();
+                    RenderCommand::DrawIndexed(va, 6);
+                };
+                drawCaster(facingQuad, glm::vec4(1.0f, 0.0f, 0.0f, 1.0f));
+                drawCaster(awayQuad, glm::vec4(0.0f, 1.0f, 0.0f, 1.0f));
+
+                DDGIProbeUpdatePass::RestoreCaptureRasterState();
+
+                RHI::Barrier toSampled{};
+                toSampled.Resource = target->GetColorAttachmentHandle(0);
+                toSampled.Before = RHI::Access::ColorAttachmentWrite;
+                toSampled.After = RHI::Access::ShaderSampleRead;
+                api.IssueBarrierBatch(MemoryBarrierFlags::None, std::span{ &toSampled, 1 });
+            });
+
+        EXPECT_EQ(api.GetPreparedDrawsThisRecording(), 2u) << "both casters must draw";
+        EXPECT_EQ(api.GetDroppedDrawsThisRecording(), 0u);
+
+        TArray64<u8> pixels;
+        auto* vkTarget = static_cast<VulkanFramebuffer*>(target.Raw());
+        if (vkTarget->GetColorAttachmentImage(0) == nullptr || !vkTarget->GetColorAttachmentImage(0)->GetData(pixels, 0) ||
+            pixels.Num() != static_cast<sizet>(kSize) * kSize * 4)
+        {
+            ADD_FAILURE() << "capture RT0 readback failed";
+            return counts;
+        }
+        for (sizet i = 0; i < pixels.Num(); i += 4)
+        {
+            const bool red = pixels[i + 0] > 200 && pixels[i + 1] < 50;
+            const bool green = pixels[i + 1] > 200 && pixels[i + 0] < 50;
+            if (!red && !green)
+            {
+                continue; // the 0-alpha clear
+            }
+            const int alpha = static_cast<int>(pixels[i + 3]);
+            const bool front = alpha >= 250;                // DDGI_HIT_FRONTFACE = 1.0
+            const bool back = alpha >= 120 && alpha <= 136; // DDGI_HIT_BACKFACE = 0.5
+            if (!front && !back)
+            {
+                ++counts.Unclassified;
+            }
+            else if (red)
+            {
+                ++(front ? counts.FacingTaggedFront : counts.FacingTaggedBack);
+            }
+            else
+            {
+                ++(front ? counts.AwayTaggedFront : counts.AwayTaggedBack);
+            }
+        }
+        return counts;
+    };
+
+    const FacingCounts production = capture(true);
+    EXPECT_GT(production.FacingTaggedFront, 50u) << "the caster facing the probe rasterized nothing tagged front";
+    EXPECT_EQ(production.FacingTaggedBack, 0u)
+        << "a caster facing the probe was tagged BACKFACE — the capture winding is not compensating the capture "
+           "seam (RHI::CaptureFrontFaceForBackend), and every probe it sees will classify as in-wall";
+    EXPECT_GT(production.AwayTaggedBack, 50u) << "the caster facing away rasterized nothing tagged back";
+    EXPECT_EQ(production.AwayTaggedFront, 0u) << "a caster facing AWAY from the probe was tagged front";
+    EXPECT_EQ(production.Unclassified, 0u) << "RT0.a must hold exactly the 1.0 / 0.5 facing tags";
+
+    // Negative control: the engine's raw CCW default, i.e. the pre-fix state.
+    // On Vulkan it must invert both tags — if it does not, this tenant has lost
+    // the ability to see the bug it pins.
+    const FacingCounts preFix = capture(false);
+    EXPECT_GT(preFix.FacingTaggedBack, 50u)
+        << "negative control: without the capture winding a GL-front caster must read back-facing on Vulkan";
+    EXPECT_EQ(preFix.FacingTaggedFront, 0u);
+    EXPECT_GT(preFix.AwayTaggedFront, 50u);
+    EXPECT_EQ(preFix.AwayTaggedBack, 0u);
 }
 
 // =============================================================================

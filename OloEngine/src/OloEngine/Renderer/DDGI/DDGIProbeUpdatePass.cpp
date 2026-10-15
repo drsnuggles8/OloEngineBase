@@ -1363,18 +1363,7 @@ namespace OloEngine
         resources.Target->ClearAttachment(1, glm::vec4(0.0f, 0.0f, -1.0f, 0.0f));
         RenderCommand::ClearDepthOnly();
 
-        // Capture render state: depth-tested opaque mini-G-buffer. Culling is
-        // DISABLED for every caster — the capture must SEE backfaces so
-        // in-wall probes read backface-heavy caches (classification signal);
-        // the fragment stage tags them via gl_FrontFacing.
-        RenderCommand::SetDepthTest(true);
-        RenderCommand::SetDepthMask(true);
-        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
-        RenderCommand::SetBlendState(false);
-        RenderCommand::DisableCulling();
-        RenderCommand::DisableScissorTest();
-        RenderCommand::SetColorMask(true, true, true, true);
-        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
+        ApplyCaptureRasterState();
 
         m_CaptureShader->Bind();
         resources.Camera->Bind();
@@ -1443,6 +1432,38 @@ namespace OloEngine
                 RenderCommand::DrawIndexedRaw(caster.vaoID, caster.indexCount, caster.baseIndex);
             }
         }
+
+        RestoreCaptureRasterState();
+    }
+
+    void DDGIProbeUpdatePass::ApplyCaptureRasterState()
+    {
+        // Depth-tested opaque mini-G-buffer. Culling is DISABLED for every
+        // caster — the capture must SEE backfaces so in-wall probes read
+        // backface-heavy caches (classification signal); the fragment stage
+        // tags them via gl_FrontFacing.
+        RenderCommand::SetDepthTest(true);
+        RenderCommand::SetDepthMask(true);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+        RenderCommand::SetBlendState(false);
+        RenderCommand::DisableCulling();
+        RenderCommand::DisableScissorTest();
+        RenderCommand::SetColorMask(true, true, true, true);
+        RenderCommand::SetPolygonMode(RHI::PolygonMode::Fill);
+        // ...and that tag is only as right as the WINDING, culling or not. The
+        // capture projection keeps clip y (AdjustCaptureProjectionForBackend),
+        // which leaves Vulkan's facing inverted relative to GL's under the
+        // engine's CCW default: every front face was tagged a backface, every
+        // probe classified Inactive, and Vulkan rendered no realtime GI at all.
+        RenderCommand::SetFrontFace(RHI::CaptureFrontFaceForBackend(RHI::FrontFace::CounterClockwise));
+    }
+
+    void DDGIProbeUpdatePass::RestoreCaptureRasterState()
+    {
+        // The engine default every other pass assumes (PlanarReflectionRenderPass
+        // restores the same value after its mirrored replay). The capture runs
+        // on parallel recording items, so each one restores its own.
+        RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise);
     }
 
     void DDGIProbeUpdatePass::ResampleProbe(i32 probeIdx, CaptureResources& resources)
