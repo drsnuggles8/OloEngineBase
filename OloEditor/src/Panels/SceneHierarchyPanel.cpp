@@ -2171,6 +2171,7 @@ namespace OloEngine
             DisplayAddComponentEntry<FoliageInteractionComponent>("Foliage Interaction");
             DisplayAddComponentEntry<VirtualMeshComponent>("Virtual Mesh");
             DisplayAddComponentEntry<GroomComponent>("Groom");
+            DisplayAddComponentEntry<GroomSoftIntersectionComponent>("Groom Soft Intersections");
             DisplayAddComponentEntry<GroomBindingComponent>("Groom Binding");
             DisplayAddComponentEntry<GroomFibreComponent>("Groom Fibre Material");
             DisplayAddComponentEntry<GroomCoatShadowComponent>("Groom Coat Shadow");
@@ -8643,6 +8644,14 @@ namespace OloEngine
                                   "bake's unwrap, so a mesh with a pre-cooked virtual blob has to "
                                   "be re-imported before it can receive baked GI.");
             } });
+
+        DrawComponent<GroomSoftIntersectionComponent>("Groom Soft Intersections", entity, [](auto& component)
+                                                      {
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+            ImGui::Checkbox("Automatic distance", &component.m_Automatic);
+            if (!component.m_Automatic)
+                ImGui::DragFloat("Fade distance (world units)", &component.m_FadeDistance, 0.0001f, 0.0f, 10.0f, "%.5f");
+            ImGui::SliderFloat("Protected root fraction", &component.m_ProtectedRoot, 0.0f, 1.0f); });
 
         // Groom curve preview (issue #1232). The panel's job here is to make
         // the STATIC DEBUG PREVIEW steerable and to report what the groom

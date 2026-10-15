@@ -470,6 +470,33 @@ TEST(GroomStrandMesh, TheBuildIsPureSoACacheMayKeyOnTheGroomAndTheSettings)
         << "two builds of the same groom differed, so GroomRenderPass's cache key is unsound";
 }
 
+TEST(GroomStrandMesh, AnUnthinnedCoatDoesNotDependOnTheCompensationCap)
+{
+    const auto coat = Tests::GroomStrandFixture::MakePelt(300u, 4u);
+    ASSERT_TRUE(coat.Groom) << coat.FailureReason;
+    for (const u32 maxStrands : { 300u, 97u })
+    {
+        GroomStrandBuildSettings settings;
+        settings.MaxStrands = maxStrands;
+        settings.MaxSegments = coat.Groom->GetPointCount() - coat.Groom->GetCurveCount();
+        settings.MaxWidthCompensation = 1.0f;
+        std::vector<GroomStrandVertex> narrow;
+        std::vector<u32> narrowIndices;
+        const auto first = BuildGroomStrandMesh(*coat.Groom, settings, narrow, narrowIndices);
+        settings.MaxWidthCompensation = 16.0f;
+        std::vector<GroomStrandVertex> wide;
+        std::vector<u32> wideIndices;
+        const auto second = BuildGroomStrandMesh(*coat.Groom, settings, wide, wideIndices);
+        ASSERT_FALSE(narrow.empty());
+        ASSERT_EQ(narrow.size(), wide.size());
+        EXPECT_EQ(narrowIndices, wideIndices);
+        EXPECT_EQ(first.SegmentCount, second.SegmentCount);
+        const bool identical = std::memcmp(narrow.data(), wide.data(), narrow.size() * sizeof(GroomStrandVertex)) == 0;
+        EXPECT_EQ(identical, maxStrands == 300u)
+            << "a full coat ignores the cap; a thinned coat must retain its widening";
+    }
+}
+
 // ── The shadow caster's order (#1533 E1) ────────────────────────────────────
 //
 // A shadow view whose width floor draws every strand several times its true

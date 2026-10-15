@@ -9516,6 +9516,17 @@ namespace OloEngine
             request.PreviousTransform = Renderer3D::GetAndRecordPrevTransform(entityID, worldTransform);
             request.Color = groomComponent.m_StrandColor;
             request.WidthScale = groomComponent.m_WidthScale;
+            if (const auto* intersection = m_Registry.try_get<GroomSoftIntersectionComponent>(entity))
+            {
+                request.SoftIntersections = intersection->m_Enabled;
+                request.AutomaticIntersectionDistance = intersection->m_Automatic;
+                request.IntersectionFadeDistance = std::isfinite(intersection->m_FadeDistance)
+                                                       ? std::clamp(intersection->m_FadeDistance, 0.0f, 10.0f)
+                                                       : 0.0f;
+                request.IntersectionProtectedRoot = std::isfinite(intersection->m_ProtectedRoot)
+                                                        ? std::clamp(intersection->m_ProtectedRoot, 0.0f, 1.0f)
+                                                        : 0.25f;
+            }
             request.EntityID = entityID;
             request.RequestedMode = RequestedGroomMode(groomComponent);
             request.Build.MaxStrands = groomComponent.m_MaxRenderStrands;
@@ -9756,6 +9767,18 @@ namespace OloEngine
                 request.Build.MaxWidthCompensation =
                     request.LodPolicy.Enabled ? request.LodPolicy.MaxWidthCompensation : 1.0f;
             }
+
+            // Full cooked-curve budgets leave every role at stride one, so
+            // its width compensation is one regardless of the authored cap.
+            // Keep that ineffective cap out of the geometry cache identity:
+            // toggling LOD otherwise duplicates the entire full-density stream.
+            const GroomCurveView buildCurves = request.BuildSource().Curves;
+            const u32 buildCurveCount = buildCurves.GetCurveCount();
+            const u32 buildPointCount = buildCurves.GetPointCount();
+            if (request.Lod.Representation == GroomRepresentation::Strand &&
+                buildPointCount >= buildCurveCount && request.Build.MaxStrands >= buildCurveCount &&
+                request.Build.MaxSegments >= buildPointCount - buildCurveCount)
+                request.Build.MaxWidthCompensation = 1.0f;
 
             request.Build.CoatDigest = GroomCoatDigest(request.Coat);
 
@@ -10724,6 +10747,7 @@ namespace OloEngine
             refuse(GroomBindingRejectReason::NoTarget);
             return;
         }
+        request.IntersectionBodyEntityID = static_cast<i32>(static_cast<u32>(targetEntity));
         auto* meshComponent = m_Registry.try_get<MeshComponent>(targetEntity);
         if (meshComponent == nullptr)
         {

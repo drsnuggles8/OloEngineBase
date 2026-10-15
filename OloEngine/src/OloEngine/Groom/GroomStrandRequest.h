@@ -112,12 +112,18 @@ namespace OloEngine
         /// Alpha cutoff for the OpaqueRibbon tier.
         f32 AlphaCutoff = 0.5f;
 
+        f32 IntersectionFadeDistance = 0.0f;
+        f32 IntersectionProtectedRoot = 0.25f;
+        bool SoftIntersections = true;
+        bool AutomaticIntersectionDistance = true;
+
         /// What this groom ASKED for. What it gets is
         /// SelectGroomComposition's answer, which the pass records.
         GroomCompositionMode RequestedMode = GroomCompositionMode::StochasticAlpha;
 
         /// Editor picking id.
         i32 EntityID = -1;
+        i32 IntersectionBodyEntityID = -1;
 
         /// How much of the groom to turn into geometry.
         GroomStrandBuildSettings Build;

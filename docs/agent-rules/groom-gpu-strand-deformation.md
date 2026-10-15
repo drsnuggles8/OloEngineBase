@@ -101,6 +101,22 @@ evaluates only the simulation's guides.
     guides. A triangle that collapses in one pose is not counted, because that would take a
     readback.
 
+## Geometry cache pressure
+
+Evict unused variants immediately when the cache exceeds its budget; protect
+entries used by the current recording. Retaining every recently used variant
+for 60 ticks let alternating 40-frame reference/LOD arms keep several full
+streams above budget indefinitely. Keep the last-use counter as wide as the
+cache tick. Under budget, variants remain available for reuse.
+
+Normalize an ineffective width-compensation cap before caching. When both
+base-strand budgets cover every valid cooked curve and segment, all role strides are one
+and a cap of 1 or 16 produces identical vertices. Keeping those distinct made
+the Bernese reference duplicate its 1778 MiB full stream when LOD was toggled.
+CPU mesh equality and real pipeline cache-reuse/pressure tests pin both rules.
+Keep card caps intact: an unbound card's shadow bake can still sample the base
+coat at a thinned budget even when its card geometry uses every cooked card.
+
 ## Measured
 
 `GroomAnimalsAcceptanceEvidenceTest.CostScalesAcrossAHerd`, Release, RTX 4090, 1280x720, Forward,

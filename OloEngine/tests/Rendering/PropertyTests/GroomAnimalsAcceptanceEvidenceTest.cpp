@@ -77,6 +77,7 @@
 #include "OloEngine/Renderer/TemporalSequenceMetrics.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
+#include "OloEngine/Utils/PlatformUtils.h"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
@@ -97,7 +98,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
+#include <unordered_set>
 #include <vector>
 
 #ifndef OLO_TEST_EDITOR_ROOT
@@ -911,6 +914,41 @@ namespace OloEngine::Tests
         SubjectRig m_Human;
         AssetHandle m_HorseColorMap = 0;
         fs::path m_ProjectDir;
+        Ref<AssetManagerBase> m_CaseAssets;
+        std::optional<std::unordered_set<AssetHandle>> m_MemoryAssetsAtStart;
+        std::vector<AssetHandle> m_CaseImports;
+
+        [[nodiscard]] static std::unordered_set<AssetHandle> MemoryAssets(const Ref<AssetManagerBase>& assets)
+        {
+            std::unordered_set<AssetHandle> handles;
+            for (u16 type = 1; type <= std::to_underlying(AssetType::GroomBinding); ++type)
+                for (const AssetHandle handle : assets->GetAllAssetsWithType(static_cast<AssetType>(type)))
+                    if (assets->IsMemoryAsset(handle))
+                        handles.insert(handle);
+            return handles;
+        }
+
+        void TearDown() override
+        {
+            Time::ClearMockTime();
+            RendererAttachedTest::TearDown();
+            // The manager owns these registrations beyond the scene's lifetime.
+            // Keep their owner: export cases replace the globally active manager.
+            if (m_CaseAssets && m_MemoryAssetsAtStart)
+            {
+                u32 removed = 0;
+                for (const AssetHandle handle : MemoryAssets(m_CaseAssets))
+                    if (!m_MemoryAssetsAtStart->contains(handle))
+                    {
+                        m_CaseAssets->RemoveAsset(handle);
+                        ++removed;
+                    }
+                for (const AssetHandle handle : m_CaseImports)
+                    m_CaseAssets->RemoveAsset(handle);
+                EXPECT_EQ(MemoryAssets(m_CaseAssets), *m_MemoryAssetsAtStart);
+                ::testing::Test::RecordProperty("case_memory_assets_removed", std::to_string(removed));
+            }
+        }
 
         static constexpr glm::vec3 kShortCoatPosition{ -1.4f, 0.0f, 0.0f };
         static constexpr glm::vec3 kLongCoatPosition{ 1.4f, 0.0f, 0.0f };
@@ -950,6 +988,9 @@ namespace OloEngine::Tests
             {
                 m_ProjectDir = Project::GetProjectDirectory();
             }
+
+            m_CaseAssets = Project::GetAssetManager();
+            m_MemoryAssetsAtStart = MemoryAssets(m_CaseAssets);
 
             EnableRendering(kWidth, kHeight);
             Scene& scene = GetScene();
@@ -3100,8 +3141,14 @@ namespace OloEngine::Tests
             std::ofstream(bindingPath, std::ios::binary)
                 .write(reinterpret_cast<const char*>(bindingBytes.data()),
                        static_cast<std::streamsize>(bindingBytes.size()));
+            const AssetHandle existingGroom = editorAssets->GetAssetHandleFromFilePath(groomPath);
+            const AssetHandle existingBinding = editorAssets->GetAssetHandleFromFilePath(bindingPath);
             const AssetHandle looseGroom = editorAssets->ImportAsset(groomPath);
             const AssetHandle looseBinding = editorAssets->ImportAsset(bindingPath);
+            if (static_cast<u64>(looseGroom) != 0u && static_cast<u64>(existingGroom) == 0u)
+                m_CaseImports.push_back(looseGroom);
+            if (static_cast<u64>(looseBinding) != 0u && static_cast<u64>(existingBinding) == 0u)
+                m_CaseImports.push_back(looseBinding);
             ASSERT_NE(static_cast<u64>(looseGroom), 0u);
             ASSERT_NE(static_cast<u64>(looseBinding), 0u);
             auto loadedGroom = AssetManager::GetAsset<GroomAsset>(looseGroom);

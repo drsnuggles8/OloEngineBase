@@ -65,6 +65,7 @@ TRY_LOAD_COMPONENT(GroomFibreComponent);
 TRY_LOAD_COMPONENT(GroomLodComponent);
 TRY_LOAD_COMPONENT(GroomSceneShadowComponent);
 TRY_LOAD_COMPONENT(GroomSimulationComponent);
+TRY_LOAD_COMPONENT(GroomSoftIntersectionComponent);
 TRY_LOAD_COMPONENT(IDComponent);
 TRY_LOAD_COMPONENT(IKTargetComponent);
 TRY_LOAD_COMPONENT(InstancePortalComponent);

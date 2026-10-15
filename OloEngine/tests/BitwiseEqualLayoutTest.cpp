@@ -143,6 +143,7 @@ namespace
     /* and its header comment names this test as the guard;    */  \
     /* only the sizeof static_asserts held that promise before. */ \
     X(OloEngine::GroomComponent)                                   \
+    X(OloEngine::GroomSoftIntersectionComponent)                   \
     X(OloEngine::GroomBindingComponent)                            \
     X(OloEngine::GroomFibreComponent)                              \
     X(OloEngine::GroomCoatShadowComponent)                         \

@@ -23,6 +23,12 @@ namespace OloEngine
             case Attachment::FluidDepth:
                 SetName("FluidSceneDepthSnapshotPass");
                 break;
+            case Attachment::GroomDepth:
+                SetName("GroomSceneDepthSnapshotPass");
+                break;
+            case Attachment::GroomEntityID:
+                SetName("GroomSceneEntitySnapshotPass");
+                break;
             case Attachment::DiffusionDepth:
                 SetName("DiffusionDepthSnapshotPass");
                 break;
@@ -54,6 +60,14 @@ namespace OloEngine
             case Attachment::FluidDepth:
                 source = blackboard.Scene.SceneDepthAttachment;
                 snapshot = blackboard.Scene.FluidSceneDepthSnapshot;
+                break;
+            case Attachment::GroomDepth:
+                source = blackboard.Scene.SceneDepthAttachment;
+                snapshot = blackboard.Scene.GroomSceneDepthSnapshot;
+                break;
+            case Attachment::GroomEntityID:
+                source = blackboard.Scene.SceneEntityID;
+                snapshot = blackboard.Scene.GroomSceneEntitySnapshot;
                 break;
             case Attachment::DiffusionDepth:
                 source = blackboard.Scene.SceneDepthAttachment;

@@ -789,6 +789,17 @@ case 3851266605u: // GroomSimulationComponent
     if (!SceneBinIO::Read(reader, comp.m_Collide)) return false;
     break;
 }
+case 325289423u: // GroomSoftIntersectionComponent
+{
+    auto& comp = deserializedEntity.AddComponent<GroomSoftIntersectionComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_FadeDistance)) return false;
+    comp.m_FadeDistance = std::clamp(comp.m_FadeDistance, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.m_ProtectedRoot)) return false;
+    comp.m_ProtectedRoot = std::clamp(comp.m_ProtectedRoot, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Automatic)) return false;
+    break;
+}
 case 1784713623u: // InstancePortalComponent
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();

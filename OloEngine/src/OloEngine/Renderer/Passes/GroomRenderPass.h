@@ -53,6 +53,7 @@
 #include "OloEngine/Groom/GroomCoatShadowTechnique.h"
 #include "OloEngine/Groom/GroomGpuDeformation.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
+#include "OloEngine/Groom/GroomSoftIntersection.h"
 #include "OloEngine/Groom/GroomStrandRequest.h"
 #include "OloEngine/Groom/GroomStreaming.h"
 #include "OloEngine/Groom/GroomVisibility.h"
@@ -251,9 +252,9 @@ namespace OloEngine
         };
         MemoryBreakdown Memory;
         /// The strand-cache budget in force, and how far over it the cache
-        /// stayed after this frame's eviction: non-zero means every resident
-        /// entry was in use, nothing could be freed and every groom was still
-        /// drawn. Reported every frame; the log line says it only on change.
+        /// stayed after this frame's eviction: non-zero means protected entries
+        /// still exceed it (current-frame use or streaming admissions). Every
+        /// groom is still drawn. Reported every frame; the log says it on change.
         u64 CacheBudgetBytes = 0;
         u64 CacheOverBudgetBytes = 0;
         u32 CachedGrooms = 0;
@@ -445,6 +446,7 @@ namespace OloEngine
         {
             key.Add(!m_Requests.empty());
             key.Add(!m_StreamingDetails.empty());
+            key.Add(UsesSoftIntersections());
         }
         void Execute(RGCommandContext& context) override;
 
@@ -736,11 +738,12 @@ namespace OloEngine
             Ref<IndexBuffer> Indices;
             GroomStrandBuildSettings Settings;
             GroomStrandMeshStats Stats;
+            std::optional<GroomIntersectionDimensions> IntersectionDimensions;
             /// The shadow caster's order (#1533 E1) of an entry that owns its
             /// stream. A GPU-deformed entry casts its rest stream's instead.
             GroomCasterStream Caster;
             u64 Bytes = 0;
-            u32 LastUsedFrame = 0;
+            u64 LastUsedFrame = 0;
 
             /// True when the buffers were created for repeated refills, which is
             /// what a bound groom needs: its vertices change every frame with
@@ -1207,6 +1210,10 @@ namespace OloEngine
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_ParamsUBO;
         Ref<Framebuffer> m_SceneFramebuffer;
+        RGTextureHandle m_IntersectionDepth{};
+        RGTextureHandle m_IntersectionEntity{};
+        RGTextureHandle m_IntersectionWaterDepth{};
+        [[nodiscard]] bool UsesSoftIntersections() const noexcept;
 
         /// A 1x1x1 zero volume, bound whenever a draw has no coat volume of its
         /// own. A dangling sampler is undefined behaviour, not a zero read, so

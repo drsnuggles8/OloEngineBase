@@ -3602,6 +3602,19 @@ namespace OloEngine
             if (sceneSpec.Width > 0u && sceneSpec.Height > 0u)
             {
                 board.Scene.FluidSceneDepthSnapshot = allocateAttachmentSnapshot("FluidSceneDepthSnapshot", RGResourceFormat::Depth24Stencil8);
+                board.Scene.GroomSceneDepthSnapshot = allocateAttachmentSnapshot("GroomSceneDepthSnapshot", RGResourceFormat::Depth24Stencil8);
+                board.Scene.GroomSceneEntitySnapshot = allocateAttachmentSnapshot("GroomSceneEntitySnapshot", RGResourceFormat::R32Int);
+                if (pipeline.RenderStreamPasses.Water && pipeline.RenderStreamPasses.Water->HasSubmittedCommands())
+                {
+                    RGResourceDesc waterDepth;
+                    waterDepth.Kind = RGResourceHandle::Kind::Framebuffer;
+                    waterDepth.Width = sceneSpec.Width;
+                    waterDepth.Height = sceneSpec.Height;
+                    waterDepth.Attachments = { RGResourceFormat::Depth32Float };
+                    waterDepth.DebugName = "GroomWaterSurface";
+                    board.Scene.GroomWaterSurface = graph.DeclareTransientFramebuffer("GroomWaterSurface", waterDepth);
+                    board.Scene.GroomWaterSurfaceDepth = graph.CreateFramebufferDepthAttachmentView("GroomWaterSurfaceDepth", board.Scene.GroomWaterSurface);
+                }
                 board.Scene.DiffusionDepthSnapshot = allocateAttachmentSnapshot("DiffusionDepthSnapshot", RGResourceFormat::Depth24Stencil8);
                 board.Scene.DiffusionHandoffSnapshot = allocateAttachmentSnapshot("DiffusionHandoffSnapshot", RGResourceFormat::RGBA16Float);
             }
@@ -4247,8 +4260,10 @@ namespace OloEngine
             RGResourceDesc refrDesc;
             refrDesc.Kind = RGResourceHandle::Kind::Texture2D;
             refrDesc.Format = RGResourceFormat::RGBA16Float;
-            refrDesc.Width = postProcessWidth;
-            refrDesc.Height = postProcessHeight;
+            // Copy and sampling both use scene-band coordinates. A display-size
+            // scratch would leave an unwritten margin when spatial upscaling.
+            refrDesc.Width = sceneBandWidth;
+            refrDesc.Height = sceneBandHeight;
             refrDesc.DebugName = "WaterRefraction";
             board.Scratch.WaterRefraction = declareGraphOnlyTexture("WaterRefraction", refrDesc);
         }
@@ -4262,8 +4277,8 @@ namespace OloEngine
             RGResourceDesc fluidRefrDesc;
             fluidRefrDesc.Kind = RGResourceHandle::Kind::Texture2D;
             fluidRefrDesc.Format = RGResourceFormat::RGBA16Float;
-            fluidRefrDesc.Width = postProcessWidth;
-            fluidRefrDesc.Height = postProcessHeight;
+            fluidRefrDesc.Width = sceneBandWidth;
+            fluidRefrDesc.Height = sceneBandHeight;
             fluidRefrDesc.DebugName = "FluidRefraction";
             board.Scratch.FluidRefraction = declareGraphOnlyTexture("FluidRefraction", fluidRefrDesc);
         }

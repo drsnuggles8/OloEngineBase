@@ -3,6 +3,8 @@
 
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.h"
+#include "OloEngine/Renderer/Passes/GroomWaterDepthPass.h"
+#include "OloEngine/Renderer/Passes/WaterRenderPass.h"
 
 namespace OloEngine::RenderPipelineBuilderInternal
 {
@@ -64,6 +66,9 @@ namespace OloEngine::RenderPipelineBuilderInternal
         }
 
         AddExistingNode(graph, inputs.Passes->Foliage);
+        graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::GroomDepth));
+        graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::GroomEntityID));
+        graph.AddNode(Ref<GroomWaterDepthPass>::Create(dynamic_cast<WaterRenderPass*>(inputs.Passes->Water)));
 
         // Groom strands (#1246). Registered on EVERY path and EVERY backend
         // and self-disabling in Execute when no groom was submitted: the

@@ -50,6 +50,8 @@ namespace OloEngine
             Depth,
             ViewNormals,
             FluidDepth,
+            GroomDepth,
+            GroomEntityID,
             DiffusionDepth,
             DiffusionHandoff,
         };

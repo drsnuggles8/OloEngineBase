@@ -41,6 +41,7 @@ gl_fluid_step_no_proxies 16300
 gl_particle_emit_staging_64 1600
 gpu_frustum_cull_safe_root_bindings_1024 132700
 gpu_scene_extract_1024 1535700
+groom_intersection_dimensions_4096 87800
 render_graph_fence_execute_32_edges 34926
 scene_draw_burst_512x512 328704
 tone_map_512x512 9216

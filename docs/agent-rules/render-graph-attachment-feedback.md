@@ -40,6 +40,13 @@ resolve-before-lighting mode has single-sample late writers, so its full resolve
 must precede them; a resolve after those writers would overwrite their pixels.
 See [the #1553 measurements](../analysis/deferred-msaa-gbuffer-resolve-1553.md).
 
+Depth and entity ownership consumed together must come from the same MSAA sample.
+Independent integer-colour and depth blits do not guarantee that pairing on OpenGL
+([OpenGL 4.6 section 18.3.1](https://registry.khronos.org/OpenGL/specs/gl/glspec46.core.pdf)).
+The full G-buffer resolve selects sample zero for both lanes with
+`GBufferDepthEntityResolve.glsl`; radiometric colour averaging and flags resolution
+keep their existing policy. Declare both multisample shader reads and both writes.
+
 Use an independent snapshot while the destination framebuffer retains writable
 depth/stencil state. Disabling depth writes alone does not change the Vulkan
 attachment layout: the current backend binds
@@ -54,6 +61,7 @@ The production choices are:
 |---|---|---|
 | DeferredOpaqueDecal | Resolved G-buffer depth for multisample raster; independent OpaqueDecalProjectionDepth for single-sample raster | Depth-only MS resolve or projection snapshot immediately before decals (#1553) |
 | Water | Existing depth and normal snapshots | Existing pre-decal depth and pre-water normals |
+| Groom | Independent scene depth and entity-ID snapshots, plus displaced water depth | Before all groom depth writes, shared across coats and both draws |
 | FluidIntermediates | SceneDepthAttachment | None: its splat/thickness targets are separate images |
 | FluidComposite | FluidSceneDepthSnapshot | Immediately before fluid composition, after water |
 | SkinDiffusion and SSS | DiffusionDepthSnapshot and DiffusionHandoffSnapshot | Immediately before the diffusion band, after the geometry/modifier chain |
@@ -64,6 +72,11 @@ are transient graph resources; ordinary reads order the snapshots before the
 writers, extend storage lifetimes, and cull unused copy nodes. Scene depth and
 normal exports remain attachment views, preserving downstream version publication.
 
+Read snapshot pixels within that declared lifetime, for example in a post-producer
+or post-consumer hook. After the last consumer, a compatible later resource can
+reuse the backing. An end-of-frame readback must first extract the resource to
+extend its lifetime; resolving its old name does not preserve its old contents.
+
 Preserve sampling state as well as texels. A bare transient `Texture2D` defaults
 to repeat wrapping, whereas framebuffer attachments use linear filtering and
 clamp-to-edge. Allocate screen-space snapshots as views of independent,
@@ -71,6 +84,16 @@ single-sample graph-owned framebuffers so both backends inherit the attachment
 sampling contract. Do not change texture parameters after minting a resident
 OpenGL bindless handle. The visual fixtures compare the production snapshot's
 filter and wrap parameters with its source.
+
+Size refraction scratch to the scene band that is copied and sampled, rather
+than the final display. Spatial upscaling can allocate a smaller scene image:
+copying it into a display-size water or fluid texture leaves an unwritten margin
+and makes normalized scene UVs sample the wrong region. Assert actual scratch
+and depth extents through native, reconstruction, and return-to-native frames.
+Keep the persistent water surface-depth backing at the same scene dimensions
+too. The tone mapper samples it with normalized UVs after reconstruction;
+writing a reduced corner of display-size storage moves the reconstructed water
+surface and puts underwater fog over dry geometry.
 
 `RenderGraphAttachmentFeedback.*` pins aliases, disjoint attachments and ranges,
 resolve backing, transfer-only declarations, snapshots, and both backend policies.

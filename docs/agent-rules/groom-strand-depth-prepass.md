@@ -34,3 +34,14 @@ lane, or the discard block at the top of `GroomStrand.glsl`'s fragment stage.
 6. **Leave the depth mask on and the compare at Less.** The shading draw ends with depth writes
    off; the next geometry pass that inherits that renders without depth, which reads as a sorting
    bug several passes away (see PreparedFullscreenPass).
+
+7. **Use the same independent intersection inputs for every coat and both draws.**
+   `GroomSceneDepthSnapshotPass` copies the scene attachment before the first groom writes
+   depth; `GroomSceneEntitySnapshotPass` preserves the matching scene ownership so a
+   coat can exclude its bound body without excluding other geometry. On Deferred MSAA,
+   the G-buffer resolves depth and entity ownership from the same explicit sample.
+   `GroomWaterDepthPass` replays the real displaced water geometry at that point:
+   water colour runs later and writes no scene depth. Never replace these inputs with a
+   version alias of live depth or recopy between coats. The coverage multiplier runs before
+   alpha rejection, using device depth reconstructed with `u_ProjectionForReconstruction`
+   on both backends, and integer framebuffer pixel coordinates within the active viewport.

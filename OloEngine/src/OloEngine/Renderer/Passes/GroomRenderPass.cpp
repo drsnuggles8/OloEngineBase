@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
+#include "OloEngine/Groom/GroomSoftIntersection.h"
 
 #include "OloEngine/Core/PerformanceProfiler.h"
 
@@ -139,12 +140,6 @@ namespace OloEngine
             entry.CoatBakedWithSurface = false;
         }
 
-        // Frames an unused cache entry survives before eviction is allowed to
-        // consider it. One second at 60 fps — long enough that toggling a
-        // groom's visibility does not rebuild its buffers, short enough that a
-        // scene switch does not hold the old scene's grooms resident.
-        constexpr u32 kCacheRetentionFrames = 60;
-
         [[nodiscard]] BufferLayout StrandVertexLayout()
         {
             // Mirrors GroomStrandVertex and GroomStrand.glsl's attribute
@@ -264,16 +259,43 @@ namespace OloEngine
         return SelectGroomComposition(inputs);
     }
 
+    bool GroomRenderPass::UsesSoftIntersections() const noexcept
+    {
+        return std::ranges::any_of(m_Requests, [](const GroomStrandRequest& request)
+                                   { return request.SoftIntersections && (request.AutomaticIntersectionDistance ||
+                                                                          (std::isfinite(request.IntersectionFadeDistance) && request.IntersectionFadeDistance > 0.0f)); });
+    }
+
     void GroomRenderPass::Setup(RGBuilder& builder, FrameBlackboard& board)
     {
         // Cancellation/retirement is real work even after the last groom left
         // the scene. Otherwise graph culling would strand the resident set.
         SetSideEffects(m_StreamingDetails.empty() ? SideEffect::None : SideEffect::NeverCull);
         RenderGraphNode::Setup(builder, board);
+        m_IntersectionDepth = {};
+        m_IntersectionEntity = {};
+        m_IntersectionWaterDepth = {};
 
         if (m_Requests.empty())
         {
             return;
+        }
+
+        const bool softIntersections = UsesSoftIntersections();
+        if (softIntersections && board.Scene.GroomSceneDepthSnapshot.IsValid())
+        {
+            m_IntersectionDepth = board.Scene.GroomSceneDepthSnapshot;
+            [[maybe_unused]] const auto depthRead = builder.Read(m_IntersectionDepth, RGReadUsage::ShaderSample);
+        }
+        if (softIntersections && board.Scene.GroomWaterSurfaceDepth.IsValid())
+        {
+            m_IntersectionWaterDepth = board.Scene.GroomWaterSurfaceDepth;
+            [[maybe_unused]] const auto waterRead = builder.Read(m_IntersectionWaterDepth, RGReadUsage::ShaderSample);
+        }
+        if (softIntersections && board.Scene.GroomSceneEntitySnapshot.IsValid())
+        {
+            m_IntersectionEntity = board.Scene.GroomSceneEntitySnapshot;
+            [[maybe_unused]] const auto entityRead = builder.Read(m_IntersectionEntity, RGReadUsage::ShaderSample);
         }
 
         if (board.Scene.SceneColor.IsValid())
@@ -2130,7 +2152,7 @@ namespace OloEngine
 
         // Oldest first, and never an entry used this frame — its draw has
         // already been recorded against the buffer this would free.
-        std::vector<std::pair<u32, u64>> candidates;
+        std::vector<std::pair<u64, u64>> candidates;
         candidates.reserve(m_Cache.size());
         for (const auto& [key, entry] : m_Cache)
         {
@@ -2138,7 +2160,7 @@ namespace OloEngine
             {
                 continue; // the representation consumer owns these admissions
             }
-            if (m_CacheTick - entry.LastUsedFrame < kCacheRetentionFrames)
+            if (entry.LastUsedFrame == m_CacheTick)
             {
                 continue;
             }
@@ -2172,14 +2194,14 @@ namespace OloEngine
         PruneRestStreams();
 
         m_Stats.CacheOverBudgetBytes = m_CacheBytes > m_CacheBudgetBytes ? m_CacheBytes - m_CacheBudgetBytes : 0;
-        // Every resident groom is in use, so the budget cannot be met. Said out
+        // Remaining entries are protected, so the budget cannot be met. Said out
         // loud rather than dropping a draw: a groom that vanished to fit a
         // budget is indistinguishable from a broken asset. Said ONCE per entry
         // into the state and per material growth (#1431), not every frame.
         if (m_CacheBudgetWarning.Observe(m_Stats.CacheOverBudgetBytes))
         {
-            OLO_CORE_WARN("GroomRenderPass: strand cache is {:.1f} MiB over its {:.1f} MiB budget and every entry is "
-                          "in use this frame; nothing was evicted and every groom is still drawn",
+            OLO_CORE_WARN("GroomRenderPass: strand cache is {:.1f} MiB over its {:.1f} MiB budget; remaining entries "
+                          "are required by this frame or streaming admissions, and every groom is still drawn",
                           static_cast<f64>(m_CacheBytes - m_CacheBudgetBytes) / (1024.0 * 1024.0),
                           static_cast<f64>(m_CacheBudgetBytes) / (1024.0 * 1024.0));
         }
@@ -2275,6 +2297,10 @@ namespace OloEngine
             }
             gpuSubTimers.EndSubPass();
         }
+
+        const auto intersectionDepth = m_IntersectionDepth.IsValid() ? context.ResolveTextureHandle(m_IntersectionDepth) : RHI::ResourceHandle{};
+        const auto intersectionWater = m_IntersectionWaterDepth.IsValid() ? context.ResolveTextureHandle(m_IntersectionWaterDepth) : RHI::ResourceHandle{};
+        const auto intersectionEntity = m_IntersectionEntity.IsValid() ? context.ResolveTextureHandle(m_IntersectionEntity) : RHI::ResourceHandle{};
 
         m_SceneFramebuffer->Bind();
 
@@ -2616,11 +2642,36 @@ namespace OloEngine
             // cell crossing — a whole-screen smear once per grid cell.
             params.PrevModel = MakeModelRelative(request.PreviousTransform, renderOrigin);
             params.Color = glm::vec4(request.Color, 1.0f);
-            params.IDs = glm::ivec4(request.EntityID, 0, 0, 0);
+            params.IDs = glm::ivec4(request.EntityID, intersectionEntity.IsValid() ? request.IntersectionBodyEntityID : -1, 0, 0);
             params.Viewport = glm::vec4(static_cast<f32>(viewportWidth), static_cast<f32>(viewportHeight),
                                         GroomCardCoverageGrowthBlend(request), GroomStrandStrideCap(request));
             params.RampWidth =
                 glm::vec4(request.RampFloor, request.WidthScale, objectScale, request.AlphaCutoff);
+            f32 fadeDistance = request.IntersectionFadeDistance;
+            // Measure only when the fade will be used: the measurement samples
+            // the whole groom, and an inactive fade zeroes the result below.
+            const bool fadeActive = request.SoftIntersections && intersectionDepth.IsValid();
+            if (fadeActive && request.AutomaticIntersectionDistance && request.Groom)
+            {
+                // Sample shaped BASE fibres once per geometry/coat digest.
+                // Card widening and visibility budgets do not change the band.
+                const glm::mat3 linear(request.Transform);
+                if (!entry->IntersectionDimensions || !GroomIntersectionMetricMatches(*entry->IntersectionDimensions, linear))
+                {
+                    const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
+                    entry->IntersectionDimensions = MeasureGroomIntersectionDimensions(*request.Groom, &coat, linear);
+                }
+                const auto& dimensions = *entry->IntersectionDimensions;
+                fadeDistance = GroomIntersectionDistance(dimensions.MeanDiameter * request.WidthScale * objectScale,
+                                                         dimensions.MeanLength);
+            }
+            if (!fadeActive || !std::isfinite(fadeDistance))
+                fadeDistance = 0.0f;
+            const f32 protectedRoot = std::isfinite(request.IntersectionProtectedRoot)
+                                          ? std::clamp(request.IntersectionProtectedRoot, 0.0f, 1.0f)
+                                          : 0.25f;
+            params.SoftIntersection = glm::vec4(std::clamp(fadeDistance, 0.0f, 10.0f), protectedRoot,
+                                                intersectionWater.IsValid() ? 1.0f : 0.0f, 0.0f);
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),
                                           static_cast<i32>(m_FrameState.FrameIndex),
                                           static_cast<i32>(kStochasticSeed), 0);
@@ -2841,6 +2892,16 @@ namespace OloEngine
             }
 
             entry->Array->Bind();
+            // Rebind after the coat's compute/upload work. Both draws and all
+            // coats see the same pre-groom images; neither samples live depth.
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, intersectionDepth,
+                                            RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_2, intersectionEntity,
+                                            RHI::HeapSlotLifetime::FrameTransient);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH,
+                                            intersectionWater.IsValid() ? intersectionWater : intersectionDepth,
+                                            RHI::HeapSlotLifetime::FrameTransient);
+            HeapBinding::FlushOffsets();
 
             // THE DEPTH PREPASS (#1533 E1): coverage and depth first, colour
             // writes off, then the shading draw at depth EQUAL with depth
@@ -2903,6 +2964,9 @@ namespace OloEngine
         // irradiance cube. Telling the cache the slot was clobbered is the
         // documented way out (CommandDispatch::InvalidateTextureSlot).
         CommandDispatch::InvalidateTextureSlot(ShaderBindingLayout::TEX_USER_0);
+        CommandDispatch::InvalidateTextureSlot(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH);
+        CommandDispatch::InvalidateTextureSlot(ShaderBindingLayout::TEX_USER_2);
+        CommandDispatch::InvalidateTextureSlot(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH);
         m_SceneFramebuffer->Unbind();
 
         // A change of dominant reason, not a per-frame line: the same warning

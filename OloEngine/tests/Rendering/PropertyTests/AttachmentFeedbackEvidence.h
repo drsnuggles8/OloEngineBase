@@ -14,6 +14,27 @@
 
 namespace OloEngine::Tests
 {
+    inline void ExpectRefractionExtentMatchesSceneDepth(std::string_view refraction, std::string_view depth)
+    {
+        auto graph = RenderGraphDebugRuntime::GetActiveGraph();
+        ASSERT_TRUE(graph);
+        const u32 scratchTexture = graph->ResolveTexture(graph->GetTextureHandle(refraction));
+        const u32 depthTexture = graph->ResolveTexture(graph->GetTextureHandle(depth));
+        ASSERT_NE(scratchTexture, 0u);
+        ASSERT_NE(depthTexture, 0u);
+        // Dimensions are properties of the allocation, independent of texel
+        // lifetime. Compare the actual storage used by normalized scene UVs.
+        for (const GLenum parameter : { GL_TEXTURE_WIDTH, GL_TEXTURE_HEIGHT })
+        {
+            GLint scratchExtent = 0;
+            GLint depthExtent = 0;
+            glGetTextureLevelParameteriv(scratchTexture, 0, parameter, &scratchExtent);
+            glGetTextureLevelParameteriv(depthTexture, 0, parameter, &depthExtent);
+            EXPECT_GT(depthExtent, 0);
+            EXPECT_EQ(scratchExtent, depthExtent) << refraction << " extent " << parameter;
+        }
+    }
+
     inline void ExpectAttachmentSnapshotSamplingMatchesSource(std::string_view source, std::string_view snapshot)
     {
         auto graph = RenderGraphDebugRuntime::GetActiveGraph();
@@ -53,7 +74,7 @@ namespace OloEngine::Tests
         const u32 supportedSamples = std::clamp(Renderer3D::GetMaxMSAASamples(), 1u, 4u);
         for (const u32 samples : { 1u, supportedSamples })
         {
-            for (const std::string_view arm : { "Native", "Bilinear", "FSR2" })
+            for (const std::string_view arm : { "Native", "Bilinear", "FSR2", "NativeReturn" })
             {
                 const u32 effectiveSamples = path == RenderingPath::Deferred ? samples : 1u;
                 const std::string sampleName = samples != effectiveSamples ? "MSAARequest" + std::to_string(samples) + "xActual1x" : std::to_string(samples) + "x";
@@ -114,6 +135,9 @@ namespace OloEngine::Tests
         const auto order = graph->GetExecutionOrder();
         EXPECT_TRUE(std::ranges::any_of(order, [passName](const FString& name)
                                         { return name.ToView() == passName; }))
+            << passName << " is absent from this graph";
+        EXPECT_FALSE(std::ranges::any_of(graph->GetCulledPasses(), [passName](const FString& name)
+                                         { return name.ToView() == passName; }))
             << passName << " was culled; this frame does not exercise the affected pass";
         const auto hazards = graph->ValidateCompiledResourceHazards();
         for (const auto& hazard : hazards)

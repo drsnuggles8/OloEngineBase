@@ -5989,6 +5989,28 @@ namespace OloEngine
     };
     static_assert(sizeof(GroomComponent) == 48, "GroomComponent must have no padding: see BitwiseEqualLayoutTest");
 
+    // Optional overrides for soft scene intersections (#1614). Without this
+    // component a coat uses a distance derived from its fibres and protects
+    // its first quarter. Like the other groom authoring components, these
+    // renderer controls are not a C#/Lua gameplay binding surface.
+    struct GroomSoftIntersectionComponent
+    {
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_FadeDistance = 0.0f; // world units; zero disables when Automatic is off
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_ProtectedRoot = 0.25f;
+        bool m_Enabled = true;
+        bool m_Automatic = true;
+        OLO_SERIALIZE(Skip)
+        u16 Pad0 = 0;
+
+        auto operator==(const GroomSoftIntersectionComponent& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+    static_assert(sizeof(GroomSoftIntersectionComponent) == 12);
+
     // ── Groom surface binding (issue #1249) ──────────────────────
     //
     // Attaches the GroomComponent on this entity to a body surface, so the coat

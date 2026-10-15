@@ -656,6 +656,18 @@ if (entity.HasComponent<GroomSimulationComponent>())
     out << YAML::EndMap; // GroomSimulationComponent
 }
 
+if (entity.HasComponent<GroomSoftIntersectionComponent>())
+{
+    out << YAML::Key << "GroomSoftIntersectionComponent";
+    out << YAML::BeginMap; // GroomSoftIntersectionComponent
+    auto const& comp = entity.GetComponent<GroomSoftIntersectionComponent>();
+    out << YAML::Key << "FadeDistance" << YAML::Value << comp.m_FadeDistance;
+    out << YAML::Key << "ProtectedRoot" << YAML::Value << comp.m_ProtectedRoot;
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "Automatic" << YAML::Value << comp.m_Automatic;
+    out << YAML::EndMap; // GroomSoftIntersectionComponent
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     out << YAML::Key << "InstancePortalComponent";

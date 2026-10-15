@@ -224,6 +224,7 @@
 		# on; neither needs a GL context, which is what lets both run in CI.
 		"OloEngine/Groom/GroomVisibility.h"
 		"OloEngine/Groom/GroomCoverage.h"
+		"OloEngine/Groom/GroomSoftIntersection.h"
 		"OloEngine/Groom/GroomCoverage.cpp"
 		"OloEngine/Groom/GroomStrandMesh.h"
 		"OloEngine/Groom/GroomStrandMesh.cpp"
@@ -1144,6 +1145,8 @@
 		"OloEngine/Renderer/Passes/GroomRenderPass.cpp"
 		"OloEngine/Renderer/Passes/GroomRenderPassMemory.cpp"
 		"OloEngine/Renderer/Passes/GroomRenderPassStreaming.cpp"
+		"OloEngine/Renderer/Passes/GroomWaterDepthPass.h"
+		"OloEngine/Renderer/Passes/GroomWaterDepthPass.cpp"
 		"OloEngine/Groom/GroomStreaming.h"
 		"OloEngine/Renderer/Passes/ForwardOverlayRenderPass.h"
 		"OloEngine/Renderer/Passes/ForwardOverlayRenderPass.cpp"

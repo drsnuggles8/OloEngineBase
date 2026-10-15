@@ -40,6 +40,7 @@ ids.insert(entt::type_hash<GroomFibreComponent>::value());
 ids.insert(entt::type_hash<GroomLodComponent>::value());
 ids.insert(entt::type_hash<GroomSceneShadowComponent>::value());
 ids.insert(entt::type_hash<GroomSimulationComponent>::value());
+ids.insert(entt::type_hash<GroomSoftIntersectionComponent>::value());
 ids.insert(entt::type_hash<InstancePortalComponent>::value());
 ids.insert(entt::type_hash<LocalizedTextComponent>::value());
 ids.insert(entt::type_hash<LocomotionComponent>::value());

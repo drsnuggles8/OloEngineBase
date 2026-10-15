@@ -89,7 +89,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	mat4 u_GroomModel;
 	mat4 u_GroomPrevModel;
 	vec4 u_GroomColor;       // rgb = neutral albedo, a unused
-	ivec4 u_GroomIDs;        // x = EntityID, yzw unused
+	ivec4 u_GroomIDs;        // x = EntityID, y = bound body ID (-1 absent)
     vec4 u_GroomViewport;    // xy = width/height in pixels, z = card coverage growth blend, w = strand width cap
 	vec4 u_GroomRampWidth;   // x = ramp floor, y = width scale, z = object scale, w = alpha cutoff
 	ivec4 u_GroomModeFrame;  // x = composition mode, y = frame index, z = stochastic seed, w = depth prepass
@@ -135,6 +135,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	// mode is BaseColorPerStrand, and then neither is read.
 	vec4 u_GroomFibrePigment;         // rgb = the base colour each strand's tint multiplies, w = 1 per strand
 	vec4 u_GroomFibrePigmentTable[8]; // sigma_a at 32 albedos, 2^-10 to 1 (GroomFibreParams::PigmentTable)
+    vec4 u_GroomSoftIntersection; // world distance, protected root, water available, reserved
 };
 
 layout(location = 0) out vec2 v_Coords;
@@ -483,8 +484,19 @@ void main()
 #include "include/GroomCoatShadowCommon.glsl"
 #include "include/GroomQuat.glsl"
 #include "include/SurfaceCoverageMark.glsl"
+#include "include/GroomSoftIntersection.glsl"
 
 #include "include/BindlessHeap.glsl"
+
+#ifdef OLO_BINDLESS
+#define u_GroomSceneDepth OLO_HEAP_TEX_2D(19)
+#define u_GroomSceneEntity OLO_HEAP_TEX_2D_INT(12)
+#define u_GroomWaterSurfaceDepth OLO_HEAP_TEX_2D(32)
+#else
+layout(binding = 19) uniform sampler2D u_GroomSceneDepth;
+layout(binding = 12) uniform isampler2D u_GroomSceneEntity;
+layout(binding = 32) uniform sampler2D u_GroomWaterSurfaceDepth;
+#endif
 
 // PBRCommon supplies LightData, MAX_LIGHTS and the light-type constants the
 // block below is declared in terms of. It is included for the DECLARATIONS,
@@ -644,7 +656,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	mat4 u_GroomModel;
 	mat4 u_GroomPrevModel;
 	vec4 u_GroomColor;       // rgb = neutral albedo, a unused
-	ivec4 u_GroomIDs;        // x = EntityID, yzw unused
+	ivec4 u_GroomIDs;        // x = EntityID, y = bound body ID (-1 absent)
     vec4 u_GroomViewport;    // xy = width/height in pixels, z = card coverage growth blend, w = strand width cap
 	vec4 u_GroomRampWidth;   // x = ramp floor, y = width scale, z = object scale, w = alpha cutoff
 	ivec4 u_GroomModeFrame;  // x = composition mode, y = frame index, z = stochastic seed, w = depth prepass
@@ -690,6 +702,7 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	// mode is BaseColorPerStrand, and then neither is read.
 	vec4 u_GroomFibrePigment;         // rgb = the base colour each strand's tint multiplies, w = 1 per strand
 	vec4 u_GroomFibrePigmentTable[8]; // sigma_a at 32 albedos, 2^-10 to 1 (GroomFibreParams::PigmentTable)
+    vec4 u_GroomSoftIntersection; // world distance, protected root, water available, reserved
 };
 
 vec2 octEncode(vec3 n)
@@ -1440,6 +1453,24 @@ vec3 oloGroomComposite(OloGroomShading shading, int debugMode, vec3 tint)
 void main()
 {
 	float alpha = clamp(v_Alpha, 0.0, 1.0);
+    if (u_GroomSoftIntersection.x > 0.0)
+    {
+        ivec2 pixel = ivec2(gl_FragCoord.xy);
+        float depth = texelFetch(u_GroomSceneDepth, pixel, 0).r;
+        // Ignore only this coat's bound body. Other scene geometry remains
+        // a contact, and water still supplies its own independent depth.
+        if (u_GroomIDs.y != -1 && texelFetch(u_GroomSceneEntity, pixel, 0).r == u_GroomIDs.y)
+            depth = 1.0;
+        if (u_GroomSoftIntersection.z > 0.5)
+            depth = min(depth, texelFetch(u_GroomWaterSurfaceDepth, pixel, 0).r);
+        if (depth < 1.0)
+        {
+            float separation = oloGroomViewDistance(depth, u_ProjectionForReconstruction) -
+                               oloGroomViewDistance(gl_FragCoord.z, u_ProjectionForReconstruction);
+            alpha *= oloGroomIntersectionCoverage(separation, u_GroomSoftIntersection.x,
+                                                  v_Coords.x, u_GroomSoftIntersection.y);
+        }
+    }
 
 	if (u_GroomModeFrame.x == OLO_GROOM_MODE_STOCHASTIC_ALPHA)
 	{

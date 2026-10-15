@@ -278,6 +278,7 @@ namespace OloEngine::Tests
                 ExpectAttachmentFeedbackGraphClean("FluidIntermediatesPass");
                 ExpectAttachmentFeedbackGraphClean("FluidCompositePass");
                 ExpectAttachmentSnapshotSamplingMatchesSource("SceneDepthAttachment", "FluidSceneDepthSnapshot");
+                ExpectRefractionExtentMatchesSceneDepth("FluidRefraction", "FluidSceneDepthSnapshot");
                 m_Fluid.GetComponent<FluidComponent>().m_Enabled = false;
                 RunFrames(settleFrames);
                 std::vector<u8> control;

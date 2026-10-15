@@ -32,6 +32,7 @@
 #include "OloEngine/Renderer/Passes/SelectionOutlineRenderPass.h"
 #include "OloEngine/Renderer/Passes/SSSRenderPass.h"
 #include "OloEngine/Renderer/Passes/SceneAttachmentSnapshotPass.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Passes/TAARenderPass.h"
 #include "OloEngine/Renderer/Passes/ToneMapRenderPass.h"
 #include "OloEngine/Renderer/Passes/UICompositeRenderPass.h"
@@ -13459,4 +13460,64 @@ TEST(RenderGraphReachability, AReachablePassNeverLosesItsDeclaredProducer)
     EXPECT_FALSE(!IsCulledPass(graph, "W") && IsCulledPass(graph, "D"))
         << "W runs while D, the producer it depends on, was culled";
     EXPECT_TRUE(IsCulledPass(graph, "W")) << "W overwrites what Final read after it; nothing consumes it";
+}
+
+TEST(RenderGraph, GroomReadsIndependentDepthCapturedBeforeItsOwnWrites)
+{
+    RenderGraph graph;
+    graph.SetRuntimeBarrierExecutionEnabled(false);
+    RGResourceDesc sceneDesc;
+    sceneDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    sceneDesc.Width = 640u;
+    sceneDesc.Height = 360u;
+    sceneDesc.Attachments = { RGResourceFormat::RGBA16Float, RGResourceFormat::R32Int,
+                              RGResourceFormat::RG16Float, RGResourceFormat::RGBA16Float,
+                              RGResourceFormat::RGBA16Float, RGResourceFormat::Depth24Stencil8 };
+    auto scene = Ref<MultiAttachmentStubFramebuffer>::Create(16140u, std::initializer_list<u32>{ 16141u, 16142u, 16143u, 16144u, 16145u }, 16146u);
+    auto& board = graph.GetBlackboard();
+    board.Scene.SceneColor = graph.ImportFramebuffer(ResourceNames::SceneColor, scene, sceneDesc);
+    board.Scene.SceneDepthAttachment = graph.CreateFramebufferDepthAttachmentView("SceneDepthAttachment", board.Scene.SceneColor);
+    board.Scene.SceneEntityID = graph.CreateFramebufferAttachmentView("SceneEntityID", board.Scene.SceneColor, 1u);
+    RGResourceDesc depthDesc;
+    depthDesc.Kind = RGResourceHandle::Kind::Framebuffer;
+    depthDesc.Width = 640u;
+    depthDesc.Height = 360u;
+    depthDesc.Attachments = { RGResourceFormat::Depth24Stencil8 };
+    const auto backing = graph.DeclareTransientFramebuffer("GroomDepthBacking", depthDesc);
+    board.Scene.GroomSceneDepthSnapshot = graph.CreateFramebufferDepthAttachmentView("GroomSceneDepthSnapshot", backing);
+    RGResourceDesc entityDesc = depthDesc;
+    entityDesc.Attachments = { RGResourceFormat::R32Int };
+    const auto entityBacking = graph.DeclareTransientFramebuffer("GroomEntitySnapshotBacking", entityDesc);
+    board.Scene.GroomSceneEntitySnapshot = graph.CreateFramebufferAttachmentView("GroomSceneEntitySnapshot", entityBacking, 0u);
+
+    auto opaque = Ref<CallbackStyleStubPass>::Create("Opaque");
+    opaque->SetSetupBehavior([](RGBuilder& builder, FrameBlackboard& blackboard)
+                             { builder.Write(blackboard.Scene.SceneColor, RGWriteUsage::RenderTarget); });
+    auto groom = Ref<GroomRenderPass>::Create();
+    groom->SetName("GroomPass");
+    const std::array<GroomStrandRequest, 2> requests{};
+    groom->SetRequests(std::span<const GroomStrandRequest>(requests));
+    graph.AddNode(opaque);
+    graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::GroomDepth));
+    graph.AddNode(Ref<SceneAttachmentSnapshotPass>::Create(nullptr, SceneAttachmentSnapshotPass::Attachment::GroomEntityID));
+    graph.AddNode(groom);
+    graph.SetFinalPass("GroomPass");
+    graph.BuildFrameGraph();
+
+    EXPECT_NE(board.Scene.GroomSceneDepthSnapshot, board.Scene.SceneDepthAttachment);
+    EXPECT_NE(board.Scene.GroomSceneEntitySnapshot, board.Scene.SceneEntityID);
+    EXPECT_TRUE(graph.ValidateCompiledResourceHazards().IsEmpty());
+    const auto order = graph.GetExecutionOrder();
+    const auto opaquePosition = std::ranges::find(order, FString("Opaque"));
+    const auto snapshotPosition = std::ranges::find(order, FString("GroomSceneDepthSnapshotPass"));
+    const auto groomPosition = std::ranges::find(order, FString("GroomPass"));
+    ASSERT_NE(opaquePosition, order.end());
+    ASSERT_NE(snapshotPosition, order.end());
+    ASSERT_NE(groomPosition, order.end());
+    EXPECT_LT(opaquePosition, snapshotPosition);
+    EXPECT_LT(snapshotPosition, groomPosition);
+    const auto entityPosition = std::ranges::find(order, FString("GroomSceneEntitySnapshotPass"));
+    ASSERT_NE(entityPosition, order.end());
+    EXPECT_LT(opaquePosition, entityPosition);
+    EXPECT_LT(entityPosition, groomPosition);
 }

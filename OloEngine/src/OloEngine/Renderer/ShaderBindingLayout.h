@@ -1696,6 +1696,7 @@ namespace OloEngine
             // mode, and then neither is read.
             glm::vec4 FibrePigment{ 0.0f };
             std::array<glm::vec4, 8> FibrePigmentTable{};
+            glm::vec4 SoftIntersection{ 0.0f }; // distance, protected root, water available, reserved
 
             static constexpr u32 GetSize()
             {
@@ -1713,8 +1714,8 @@ namespace OloEngine
         // so the std140 layout is the C++ layout and the number is a plain sum
         // — which is what makes this assertion able to catch a lane added to
         // one side and not the other.
-        static_assert(sizeof(GroomStrandParamsUBO) == 624,
-                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (480 B)");
+        static_assert(sizeof(GroomStrandParamsUBO) == 640,
+                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (640 B)");
 
         // @brief One groom shadow-caster draw (issue #1323), uploaded at
         // UBO_USER_0 (7). GLSL twin: the GroomShadowParams block, declared
