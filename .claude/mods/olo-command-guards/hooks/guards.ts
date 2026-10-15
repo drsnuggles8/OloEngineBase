@@ -435,6 +435,14 @@ export function checkCommand(command: string, branch?: string): Violation[] {
         reason: 'Closing an issue is the user\'s call (CLAUDE.md): post the evidence, recommend closure, let the user close.',
       })
     }
+    // The whole command, not the statement: a heredoc body sits on lines of its own.
+    if (isIssueWrite(words) && PULL_VOTE_RE.test(command)) {
+      out.push(pullVoteViolation())
+    }
+    const script = words.findIndex(w => /(?:^|[\\/])issue_scores\.py$/.test(w))
+    if (script >= 0 && words[script + 1] === 'pull' && !words.includes('--dry-run')) {
+      out.push(pullVoteViolation())
+    }
 
     if (statement.separator === '|' && /^(?:Set-Content|sc|Add-Content|ac|Out-File)$/i.test(words[0] ?? '') && words.some(w => /^-NoNewline$/i.test(w))) {
       out.push({
@@ -450,6 +458,54 @@ export function checkCommand(command: string, branch?: string): Violation[] {
     all.push(...out.map(v => ({ ...v, isApproved: approved })))
   }
   return all
+}
+
+/**
+ * `fun_by: user` in an olo-score block is the user's confirmation that a Fun >= 8 should jump the
+ * queue (docs/process/issue-scoring.md §3.4). Agents scored Fun on the issues they filed, and on
+ * 2026-10-15 that put five fresh agent-filed issues at the front of /start-work's rank. So writing
+ * the field is gated like closing an issue: `issue_scores.py pull` or an issue body carrying it.
+ */
+export const PULL_VOTE_RE = /\bfun_by\s*[:=]\s*["']?user\b/i
+
+export function pullVoteViolation(): Found {
+  return {
+    rule: 'pull-vote',
+    isGated: true,
+    reason:
+      'Writing `fun_by: user` (or running `issue_scores.py pull`) records the USER\'s Pull-override; an agent never sets it on its own (docs/process/issue-scoring.md §3.4). ' +
+      'Score Fun honestly and leave the confirmation to the user.',
+  }
+}
+
+function isIssueWrite(words: readonly string[]): boolean {
+  const first = exeName(words[0])
+  return first === 'gh' && words[1] === 'issue' && (words[2] === 'create' || words[2] === 'edit')
+}
+
+/** The `--body-file` / `-F` paths of every `gh issue create|edit` in the command, with each statement's approval. */
+export function issueBodyFiles(command: string): { path: string; isApproved: boolean }[] {
+  const out: { path: string; isApproved: boolean }[] = []
+  for (const statement of splitStatements(command)) {
+    const words = commandWords(statement.words)
+    const inner = innerCommand(words)
+    if (inner !== undefined) {
+      const outerApproved = isApprovedStatement(statement)
+      out.push(...issueBodyFiles(inner).map(f => ({ ...f, isApproved: f.isApproved || outerApproved })))
+      continue
+    }
+    if (!isIssueWrite(words)) {
+      continue
+    }
+    for (let i = 3; i < words.length; i += 1) {
+      const w = words[i] ?? ''
+      const path = w === '--body-file' || w === '-F' ? words[i + 1] : w.startsWith('--body-file=') ? w.slice('--body-file='.length) : undefined
+      if (path !== undefined && path !== '-' && path.length > 0) {
+        out.push({ path, isApproved: isApprovedStatement(statement) })
+      }
+    }
+  }
+  return out
 }
 
 /** What the guard refuses: everything ungated, and a gated rule unless its own statement carries the marker. */

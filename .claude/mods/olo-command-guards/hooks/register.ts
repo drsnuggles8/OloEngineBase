@@ -5,13 +5,17 @@ import {
   contenders,
   formatRefusal,
   isTimingRun,
+  issueBodyFiles,
   loadNote,
   localChecksRunning,
   parseGpuSample,
   parseProcessRows,
+  PULL_VOTE_RE,
   publishes,
   publishingApproved,
+  pullVoteViolation,
   refusals,
+  type Violation,
 } from './guards'
 
 const SHELL_TOOLS = ['Bash', 'PowerShell'] as const
@@ -30,13 +34,14 @@ export const register: Register = on => {
     }
 
     const branch = /\bpush\b/.test(command) ? await currentBranch($) : undefined
-    const refused = refusals(command, branch)
+    const bodyVotes = await bodyFilePullVotes($, command)
+    const refused = [...refusals(command, branch), ...bodyVotes.filter(v => !v.isApproved)]
     if (refused.length > 0) {
       $.ui.toast(`olo-command-guards refused: ${refused.map(v => v.rule).join(', ')}`, { timeoutMs: 6000 })
       return { deny: formatRefusal(refused) }
     }
 
-    const approvedGated = checkCommand(command, branch).filter(v => v.isGated && v.isApproved)
+    const approvedGated = [...checkCommand(command, branch), ...bodyVotes].filter(v => v.isGated && v.isApproved)
     if (approvedGated.length > 0) {
       await audit($, command, approvedGated.map(v => v.rule))
     }
@@ -73,6 +78,25 @@ export const register: Register = on => {
     const refused = refusals(command)
     return refused.length > 0 ? { deny: formatRefusal(refused) } : next(e)
   })
+}
+
+/**
+ * A `gh issue create|edit --body-file` hides the body from the text rules, so read each file and
+ * apply the `fun_by: user` rule to it. An unreadable file is let through with a toast: refusing
+ * would block every issue edit whose path this process resolves differently (Git Bash `/tmp`).
+ */
+async function bodyFilePullVotes($: EngineInterface, command: string): Promise<Violation[]> {
+  const out: Violation[] = []
+  for (const file of issueBodyFiles(command)) {
+    try {
+      if (PULL_VOTE_RE.test(await $.fs.read(file.path))) {
+        out.push({ ...pullVoteViolation(), isApproved: file.isApproved })
+      }
+    } catch {
+      $.ui.toast(`olo-command-guards: could not read ${file.path} to check it for fun_by: user`, { timeoutMs: 6000 })
+    }
+  }
+  return out
 }
 
 async function currentBranch($: EngineInterface): Promise<string | undefined> {

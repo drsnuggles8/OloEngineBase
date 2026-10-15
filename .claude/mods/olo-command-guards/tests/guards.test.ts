@@ -6,6 +6,7 @@ import {
   commentOf,
   contenders,
   isTimingRun,
+  issueBodyFiles,
   loadNote,
   localChecksRunning,
   parseGpuSample,
@@ -78,6 +79,30 @@ test('other gated actions: reset --hard, --no-verify, gh pr merge, gh issue clos
   expect(rules('git commit --no-verify -m x')).toEqual(['no-verify'])
   expect(rules('gh pr merge 1577 --squash')).toEqual(['pr-merge'])
   expect(rules('gh issue close 1528 --reason completed')).toEqual(['issue-close'])
+})
+
+test('recording the user\'s Pull-override is gated: issue_scores.py pull and fun_by: user in an issue body', () => {
+  expect(rules('python scripts/issue_scores.py pull 1558 1559')).toEqual(['pull-vote'])
+  expect(rules('python "$BASE/scripts/issue_scores.py" pull 1558 --off')).toEqual(['pull-vote'])
+  expect(rules('gh issue edit 1615 --body "fun: 8\nfun_by: user"')).toEqual(['pull-vote'])
+  expect(rules("gh issue create --title t --body-file - <<'EOF'\nfun: 13\nfun_by: user\nEOF")).toEqual(['pull-vote'])
+  expect(refusals('python scripts/issue_scores.py pull 1558 # OLO_USER_APPROVED')).toEqual([])
+  // Re-scoring, reading and mentioning the field are not a vote.
+  expect(rules('python scripts/issue_scores.py set 1584 effort=2')).toEqual([])
+  expect(rules('python scripts/issue_scores.py rank')).toEqual([])
+  expect(rules('python scripts/issue_scores.py pull 1558 --dry-run')).toEqual([])
+  expect(rules('grep -n "fun_by: user" docs/process/issue-scoring.md')).toEqual([])
+  expect(rules('gh issue comment 1615 --body "needs fun_by: user from Ole"')).toEqual([])
+})
+
+test('issue body files are found for create and edit, with their own approval', () => {
+  expect(issueBodyFiles('gh issue edit 1 --body-file body.md && gh issue create -F "/tmp/x y.md"')).toEqual([
+    { path: 'body.md', isApproved: false },
+    { path: '/tmp/x y.md', isApproved: false },
+  ])
+  expect(issueBodyFiles('gh issue edit 1 --body-file=b.md # OLO_USER_APPROVED')).toEqual([{ path: 'b.md', isApproved: true }])
+  expect(issueBodyFiles('gh issue edit 1 --body-file - <<EOF\nx\nEOF')).toEqual([])
+  expect(issueBodyFiles('gh pr create --body-file b.md')).toEqual([])
 })
 
 test('the approval marker lets gated actions through, never ungated ones', () => {

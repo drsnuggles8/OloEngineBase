@@ -5,19 +5,30 @@ Scores live in each GitHub issue body inside an `olo-score` fenced block
 (only the raw inputs; the score is derived here, never stored). Subcommands:
 
     rank   pull every open issue, parse its block, print the ranked list
-           (default lens; Pull-override applied). This is what /start-work calls.
-    lint   list open issues with no olo-score block (the "needs-score" nudge),
-           plus stale tech-tree edges (a `blocked_by` naming an issue that is
-           already closed) and edges whose state could not be resolved at all.
-           Exits non-zero on any of the three.
+           (default lens; Pull-override and the Tier-1 slot applied). This is
+           what /start-work calls.
+    lint   everything that makes the backlog lie: open issues with no olo-score
+           block, stale tech-tree edges (a `blocked_by` naming a closed issue),
+           unresolvable edges, scores older than STALE_DAYS, work merged since
+           the last score, and a Fun >= 8 the user never confirmed.
+           Exits non-zero on any of them.
+    set    re-score one issue: `set 1584 effort=2 confidence=1.0`. Writes the
+           given axes and stamps `scored:` with today's date, which is also how
+           a stale or merged-work flag is acknowledged (`set N` with no axes).
+    pull   record the USER's Pull decision: `pull 1558 1559` writes
+           `fun_by: user` (and raises Fun to 8); `pull --off N` writes
+           `fun_by: agent` (declined: Fun stays a tie-break, lint stops asking).
+           Gated by olo-command-guards: run only with the user's approval.
     apply  one-time/migration: write blocks into issue bodies from a local
            JSON source (--from issue-scores.json). Supports --dry-run / --only.
 
 Requires the `gh` CLI authenticated against the repo. `rank` and `lint` each make
-exactly one extra `gh api graphql` call to resolve every distinct `blocked_by`
-number in one shot; see resolve_blocker_states.
+one `gh api graphql` call to resolve every distinct `blocked_by` number in one
+shot (see resolve_blocker_states) and one `gh pr list` for merged work; `rank`
+makes one more graphql call for the Tier-1 slot.
 """
 import argparse
+import datetime as dt
 import json
 import re
 import subprocess
@@ -57,6 +68,32 @@ LOW_VALUE_COD = 6
 # this is not part of the base issue-scoring.md rubric, just a temporary lens.
 FREEZE_LABELS = {"performance", "robustness", "architecture", "bug", "tooling", "cleanup"}
 
+# Pull-override (§3.4). Fun is a personal axis about the USER, but the session that
+# files an issue scores it too, and on 2026-10-15 five of the seven Fun >= 8 issues
+# were 2-10 days old and agent-scored: the agent was voting its own fresh issues to
+# the front of the queue. So Fun >= 8 jumps the queue only with `fun_by: user`,
+# which only `pull` writes and olo-command-guards gates. A Fun >= 8 the user has not
+# ruled on is still a tie-break, flagged `PULL?`, and reported by `lint`; `pull --off`
+# records the user's "no" as `fun_by: agent`, which keeps the Fun and ends the asking.
+PULL_FUN = 8
+
+# Staleness (§6.4). A score is a claim about the issue on the day it was made, and
+# nothing used to revisit it: the scoring session's enthusiasm stayed in the ranking
+# for months. A block older than this (its `scored:` date, or the day the issue was
+# filed when there is none) is flagged `stale:<days>d` and reported by `lint`.
+STALE_DAYS = 45
+
+# Tier-1 slot (§3.7). Tier 1 is start-work's force-multiplier work (CI, test infra,
+# MCP / dev tooling), marked with these labels. If none of the last TIER1_EVERY
+# started tasks (feature/* PRs, open or merged) closed a Tier-1 issue or carried
+# the label, `next:` becomes the top Tier-1 row. Derived from PR history, no state.
+TIER1_LABELS = {"tooling", "ci-nightly-red"}
+TIER1_EVERY = 3
+
+# Fields `render_section` writes in this order; anything else in a block is kept,
+# after these, rather than silently dropped on a rewrite.
+META_FIELDS = ("kano", "blocked_by", "blocks", "blocked_by_external", "fun_by", "scored")
+
 BEGIN, END = "<!-- olo-score:begin -->", "<!-- olo-score:end -->"
 SECTION_RE = re.compile(r"\n*" + re.escape(BEGIN) + r".*?" + re.escape(END) + r"\n*", re.DOTALL)
 FENCE_RE = re.compile(r"```olo-score\s*\n(.*?)\n```", re.DOTALL)
@@ -74,12 +111,125 @@ def open_issues():
     """Open issues eligible for scoring — excludes bot-authored tracking issues
     (e.g. Renovate's "Dependency Dashboard"), which aren't backlog work items."""
     issues = gh_json(["issue", "list", "--repo", REPO, "--state", "open",
-                       "--limit", "300", "--json", "number,title,body,labels,author"])
+                       "--limit", "300", "--json", "number,title,body,labels,author,createdAt"])
     return [it for it in issues if not it.get("author", {}).get("is_bot")]
 
 
 def label_names(it):
     return {l["name"] for l in it.get("labels", [])}
+
+
+def gh_day(stamp):
+    """`2026-10-15T08:17:47Z` -> date(2026, 10, 15)."""
+    return dt.date.fromisoformat(stamp[:10])
+
+
+# ---- merged work ------------------------------------------------------------
+# A merged PR "names" an issue through its branch's trailing numbers (the task-loop
+# convention: feature/voxel-state-runtime-postfx-1561-1566-1563) or a `#N` in its
+# title. Either is a claim that work for the issue landed. It is not proof the issue
+# is finished (umbrellas and partial deliveries are real), which is why it asks for
+# triage instead of closing anything.
+BRANCH_NUMS_RE = re.compile(r"((?:-\d+)+)$")
+TITLE_NUM_RE = re.compile(r"#(\d+)\b")
+
+
+def delivered_numbers(head_ref, title):
+    nums = set()
+    m = BRANCH_NUMS_RE.search(head_ref or "")
+    if m:
+        nums |= {int(x) for x in m.group(1).split("-") if x}
+    nums |= {int(x) for x in TITLE_NUM_RE.findall(title or "")}
+    return nums
+
+
+def merged_work_index():
+    """{issue number: [(PR number, merge date), ...]} over recent human-authored merges."""
+    prs = gh_json(["pr", "list", "--repo", REPO, "--state", "merged", "--limit", "500",
+                    "--json", "number,title,headRefName,mergedAt,author"])
+    index = {}
+    for pr in prs:
+        if pr.get("author", {}).get("is_bot") or not pr.get("mergedAt"):
+            continue
+        for n in delivered_numbers(pr.get("headRefName"), pr.get("title")):
+            index.setdefault(n, []).append((pr["number"], gh_day(pr["mergedAt"])))
+    return index
+
+
+def score_date(d, filed):
+    """(day this score was last looked at, source): `scored:` if set, else the filing day.
+
+    An unparseable `scored:` returns (None, "invalid"); callers treat that as stale
+    and `lint` names it, rather than guessing a date.
+    """
+    raw = d.get("scored")
+    if raw in (None, ""):
+        return filed, "filed"
+    try:
+        return dt.date.fromisoformat(str(raw)), "scored"
+    except ValueError:
+        return None, "invalid"
+
+
+def merged_since(num, since, index):
+    """PR numbers that named `num` and merged after `since` (all of them if `since` is None)."""
+    return sorted(pr for pr, day in index.get(num, []) if since is None or day > since)
+
+
+def freshness(d, filed, num, index, today):
+    """Everything staleness needs about one scored issue, as a dict."""
+    since, source = score_date(d, filed)
+    age = (today - since).days if since else None
+    return {"since": since, "source": source, "age": age,
+            "stale": age is None or age > STALE_DAYS,
+            "merged": merged_since(num, since, index)}
+
+
+def is_pull(d, states):
+    return d.get("fun", 0) >= PULL_FUN and d.get("fun_by") == "user" and not is_blocked(d, states)
+
+
+def is_unconfirmed_pull(d):
+    """Fun >= 8 the user has neither confirmed (`user`) nor declined (`agent`)."""
+    return d.get("fun", 0) >= PULL_FUN and d.get("fun_by") not in ("user", "agent")
+
+
+# ---- Tier-1 slot -------------------------------------------------------------
+def recent_started_tasks():
+    """The last TIER1_EVERY feature/* PRs (open or merged) as [(PR, is_tier1)], or None.
+
+    None means the history could not be read; `rank` then says so and follows the
+    plain order instead of guessing that a slot is or is not due.
+    """
+    query = (f'query {{ repository(owner: "{REPO_OWNER}", name: "{REPO_NAME}") {{ '
+             'pullRequests(first: 40, states: [OPEN, MERGED], '
+             'orderBy: {field: CREATED_AT, direction: DESC}) { nodes { number headRefName '
+             'labels(first: 20) { nodes { name } } '
+             'closingIssuesReferences(first: 10) { nodes { labels(first: 20) { nodes { name } } } } '
+             '} } } }')
+    try:
+        out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
+                             capture_output=True, text=True, encoding="utf-8",
+                             check=False, timeout=_BLOCKER_TIMEOUT_S)
+        nodes = json.loads(out.stdout)["data"]["repository"]["pullRequests"]["nodes"]
+    except (subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
+        return None
+    started = []
+    for pr in nodes:
+        if not (pr.get("headRefName") or "").startswith("feature/"):
+            continue
+        labels = {l["name"] for l in pr["labels"]["nodes"]}
+        for issue in pr["closingIssuesReferences"]["nodes"]:
+            labels |= {l["name"] for l in issue["labels"]["nodes"]}
+        started.append((pr["number"], bool(labels & TIER1_LABELS)))
+        if len(started) == TIER1_EVERY:
+            break
+    return started
+
+
+def tier1_due(started):
+    """True when none of the last TIER1_EVERY started tasks was Tier 1."""
+    return len(started) == TIER1_EVERY and not any(t for _, t in started)
 
 
 # ---- blocker state ----------------------------------------------------------
@@ -242,7 +392,7 @@ def parse_block(body):
     return d
 
 
-def render_section(d):
+def render_fence(d):
     lines = [f"{a}: {d.get(a, 3)}" for a in ALL_AXES]
     lines.append(f"kano: {d.get('kano', 'table-stakes')}")
     lines.append(f"blocked_by: {json.dumps(d.get('blocked_by', []))}")
@@ -251,18 +401,37 @@ def render_section(d):
     # absent-means-empty default already reads correctly in parse_block.
     if d.get("blocked_by_external"):
         lines.append(f"blocked_by_external: {json.dumps(d['blocked_by_external'])}")
-    block = "\n".join(lines)
+    for k in ("fun_by", "scored"):
+        if d.get(k):
+            lines.append(f"{k}: {d[k]}")
+    # A field this file does not know is kept, not dropped on rewrite.
+    for k, v in d.items():
+        if k not in ALL_AXES and k not in META_FIELDS:
+            lines.append(f"{k}: {json.dumps(v) if isinstance(v, list) else v}")
+    return "```olo-score\n" + "\n".join(lines) + "\n```"
+
+
+def render_section(d):
     caption = ("<sub>Rated per [issue-scoring](" + DOC_URL + ") · "
                "score = confidence × (capability + craft + stability + decay) / effort, "
                "derived by the picker.</sub>")
-    return f"{BEGIN}\n## Score\n```olo-score\n{block}\n```\n{caption}\n{END}"
+    return f"{BEGIN}\n## Score\n{render_fence(d)}\n{caption}\n{END}"
 
 
-def splice(body, section):
+def splice(body, d):
+    """`body` with its score block replaced by `d`, or `d` appended as a new section.
+
+    Some bodies carry the fence without the begin/end markers (hand-written or
+    filed from a template copy). Replacing only the fence there matters: appending
+    a second section would leave the old fence first, and parse_block reads the
+    first one, so the edit would silently not take.
+    """
     body = body or ""
     if SECTION_RE.search(body):
-        return SECTION_RE.sub("\n\n" + section + "\n", body).strip() + "\n"
-    return body.rstrip() + "\n\n" + section + "\n"
+        return SECTION_RE.sub(lambda _: "\n\n" + render_section(d) + "\n", body).strip() + "\n"
+    if FENCE_RE.search(body):
+        return FENCE_RE.sub(lambda _: render_fence(d), body, count=1)
+    return body.rstrip() + "\n\n" + render_section(d) + "\n"
 
 
 # ---- scoring ----------------------------------------------------------------
@@ -313,12 +482,18 @@ def is_blocked(d, states):
     return bool(still_open) or bool(unresolved) or bool(d.get("blocked_by_external"))
 
 
-def row_flags(d, states, floor):
-    """The `flags` column for one ranked row."""
+def row_flags(d, states, floor, fresh=None):
+    """The `flags` column for one ranked row. `fresh` is freshness(), when known."""
     still_open, unresolved = split_blockers(d, states)
     flags = []
-    if d.get("fun", 0) >= 8 and not is_blocked(d, states):
+    if is_pull(d, states):
         flags.append("PULL")
+    elif is_unconfirmed_pull(d) and not is_blocked(d, states):
+        flags.append("PULL?")
+    if fresh and fresh["merged"]:
+        flags.append("merged:" + ",".join(f"#{n}" for n in fresh["merged"]))
+    if fresh and fresh["stale"]:
+        flags.append(f"stale:{fresh['age']}d" if fresh["age"] is not None else "scored?")
     if still_open:
         flags.append("blocked:" + ",".join(map(str, still_open)))
     if unresolved:
@@ -335,32 +510,55 @@ def is_low_value(d):
 
 
 # ---- commands ---------------------------------------------------------------
-def cmd_rank(args):
-    rows = []
-    excluded = 0
-    for it in open_issues():
+def ranked_rows(args, today):
+    """Score every open scored issue. Returns (rows, states, excluded, unscored).
+
+    A row is (number, title, score, block, labels, freshness).
+    """
+    rows, excluded, unscored = [], 0, []
+    issues = open_issues()
+    index = merged_work_index()
+    for it in issues:
         d = parse_block(it.get("body"))
         if d is None:
+            unscored.append((it["number"], it["title"]))
             continue
-        if args.freeze and not (label_names(it) & FREEZE_LABELS):
+        labels = label_names(it)
+        if getattr(args, "freeze", False) and not (labels & FREEZE_LABELS):
             excluded += 1
             continue
-        rows.append((it["number"], it["title"], score(d), d))
-    floor = not args.no_low_value_floor
-    states = resolve_blocker_states(k for _, _, _, d in rows for k in blocker_keys(d))
+        fresh = freshness(d, gh_day(it["createdAt"]), it["number"], index, today)
+        rows.append((it["number"], it["title"], score(d), d, labels, fresh))
+    states = resolve_blocker_states(k for r in rows for k in blocker_keys(r[3]))
+    return rows, states, excluded, unscored
 
-    # Sort order, outermost first (§3): Pull-override, then unblocked-before-blocked,
-    # then normal-value-before-low-value, then score desc, then the documented
-    # Learning/Fun tie-break, then issue number as a stable final key.
+
+def row_group(row, states):
+    """Outermost sort key (§3): 0 Pull, 1 startable, 2 needs triage, 3 blocked.
+
+    Needs-triage is work merged since the last score: the issue may be finished, so
+    it must be looked at before it can be picked, but it is not hidden.
+    """
+    d, fresh = row[3], row[5]
+    if is_blocked(d, states):
+        return 3
+    if fresh["merged"]:
+        return 2
+    return 0 if is_pull(d, states) else 1
+
+
+def cmd_rank(args):
+    rows, states, excluded, _ = ranked_rows(args, dt.date.today())
+    floor = not args.no_low_value_floor
+
+    # Sort order, outermost first (§3): the row group (Pull, startable, needs
+    # triage, blocked), then normal-value-before-low-value, then score desc, then
+    # the documented Learning/Fun tie-break, then issue number as a stable final key.
     #
-    # Pull is deliberately OUTSIDE the low-value floor: scoring Fun >= 8 is an explicit
-    # human "I want this", whereas the floor exists to catch work that floated up on
-    # arithmetic alone. A cheap *and* fun task is exactly the case §3 says stays
-    # pickable, so Pull is the documented exception to the floor's guarantee (§3.5) --
-    # not an oversight. `next:` therefore just takes the first unblocked row, so the
-    # recommendation can never disagree with the printed order.
-    rows.sort(key=lambda r: (not (r[3].get("fun", 0) >= 8 and not is_blocked(r[3], states)),
-                             is_blocked(r[3], states),
+    # Pull is deliberately OUTSIDE the low-value floor: a user-confirmed Fun >= 8 is
+    # an explicit human "I want this", whereas the floor exists to catch work that
+    # floated up on arithmetic alone (§3.5).
+    rows.sort(key=lambda r: (row_group(r, states),
                              floor and is_low_value(r[3]),
                              -r[2],
                              -r[3].get("learning", 0), -r[3].get("fun", 0),
@@ -372,7 +570,7 @@ def cmd_rank(args):
     # Loud and counted, above the table: an unresolvable blocker is the one case
     # where the printed order may be wrong, and it must not be inferred from a
     # `blocked?:` flag somebody has to spot. See is_blocked.
-    unresolved_edges = [(num, k) for num, _, _, d in rows for k in split_blockers(d, states)[1]]
+    unresolved_edges = [(r[0], k) for r in rows for k in split_blockers(r[3], states)[1]]
     if unresolved_edges:
         listed = ", ".join(f"#{k} (blocks #{num})" for num, k in
                            sorted(unresolved_edges, key=lambda e: (e[0], blocker_sort_key(e[1]))))
@@ -382,49 +580,91 @@ def cmd_rank(args):
               f"blocker is never assumed delivered.\n"
               f"    Check `gh auth status` / the network, or run "
               f"`issue_scores.py lint` for the per-edge detail.\n")
+    triage = [r for r in rows if row_group(r, states) == 2]
+    stale = [r for r in rows if r[5]["stale"]]
+    if triage or stale:
+        print(f"[!] {len(triage)} issue(s) have work merged since their score (`merged:`, sorted "
+              f"below startable work) and {len(stale)} score(s) are older than {STALE_DAYS} days "
+              f"(`stale:`).\n    Triage them before picking: `issue_scores.py lint`.\n")
 
-    print(f"{'#':>5} {'score':>5} {'flags':<20} title")
-    for num, title, s, d in rows:
-        print(f"{num:>5} {s:>5} {' '.join(row_flags(d, states, floor)):<20} {title[:64]}")
-    nxt = next((r for r in rows if not is_blocked(r[3], states)), None)
+    print(f"{'#':>5} {'score':>5} {'flags':<28} title")
+    for num, title, s, d, _, fresh in rows:
+        print(f"{num:>5} {s:>5} {' '.join(row_flags(d, states, floor, fresh)):<28} {title[:60]}")
+
+    startable = [r for r in rows if row_group(r, states) <= 1]
+    plain = startable[0] if startable else None
+    tier1 = next((r for r in startable if r[4] & TIER1_LABELS), None)
+    started = recent_started_tasks()
+    nxt, why = plain, ""
+    if plain and is_pull(plain[3], states):
+        why = " (Pull-override: Fun >= 8, confirmed by the user)"
+    print()
+    if tier1:
+        print(f"tier-1: #{tier1[0]} — {tier1[1]}")
+    if started is None:
+        print("tier-1 slot: UNKNOWN — the PR history could not be read; `next:` follows the plain rank")
+    else:
+        listed = ", ".join(f"#{n}{' (tier 1)' if t else ''}" for n, t in started)
+        due = tier1_due(started)
+        print(f"tier-1 slot: {'DUE' if due else 'not due'} — last {len(started)} started task(s): {listed}")
+        if due and tier1 and plain and tier1[0] != plain[0]:
+            nxt = tier1
+            why = (f" (Tier-1 slot: none of the last {TIER1_EVERY} started tasks was Tier 1; "
+                   f"the plain rank would pick #{plain[0]})")
     if nxt:
-        why = " (Pull-override: fun>=8)" if nxt[3].get("fun", 0) >= 8 else ""
-        print(f"\nnext: #{nxt[0]} — {nxt[1]}{why}")
+        print(f"next: #{nxt[0]} — {nxt[1]}{why}")
 
 
 def cmd_lint(args):
-    missing, scored = [], []
-    for it in open_issues():
-        d = parse_block(it.get("body"))
-        if d is None:
-            missing.append((it["number"], it["title"]))
-        else:
-            scored.append((it["number"], d))
+    rows, states, _, missing = ranked_rows(args, dt.date.today())
 
     # A stale edge no longer hides its issue from `rank` — that is fixed at read
     # time. It is still worth reporting: the body says something untrue, and the
     # cheap moment to correct it is now, not the next time somebody reads it.
-    states = resolve_blocker_states(k for _, d in scored for k in blocker_keys(d))
-    stale, unresolved = [], []
-    for num, d in scored:
+    stale_edges, unresolved = [], []
+    for num, _, _, d, _, _ in rows:
         for k in blocker_keys(d):
             state = states.get(k, UNRESOLVED)
             if state == CLOSED:
-                stale.append((num, k))
+                stale_edges.append((num, k))
             elif state == UNRESOLVED:
                 unresolved.append((num, k))
+    merged = [r for r in rows if r[5]["merged"]]
+    old = sorted((r for r in rows if r[5]["stale"]), key=lambda r: -(r[5]["age"] or 10 ** 6))
+    unconfirmed = [r for r in rows if is_unconfirmed_pull(r[3])]
 
-    if not (missing or stale or unresolved):
-        print("all open issues have an olo-score block; no stale blocker edges.")
+    if not (missing or stale_edges or unresolved or merged or old or unconfirmed):
+        print("all open issues have a current olo-score block; no stale edges, merged work "
+              "or unconfirmed Pulls.")
         return
     if missing:
         print(f"{len(missing)} open issue(s) need scoring:")
         for num, title in missing:
             print(f"  #{num} {title[:70]}")
-    if stale:
-        print(f"\n{len(stale)} stale blocker edge(s) — blocker already closed, "
+    if merged:
+        print(f"\n{len(merged)} issue(s) with work merged since their score — the work may be "
+              f"done. Check the code: if it is, post the evidence and recommend closure; if "
+              f"not, re-score with what remains (`issue_scores.py set N ...`):")
+        for num, title, _, _, _, fresh in merged:
+            print(f"  #{num} merged since {fresh['since']}: "
+                  f"{', '.join(f'#{n}' for n in fresh['merged'])} — {title[:50]}")
+    if old:
+        print(f"\n{len(old)} score(s) older than {STALE_DAYS} days — re-check the issue against "
+              f"the code, then re-score it (`set N ...`, which stamps `scored:`) or recommend closure:")
+        for num, title, _, _, _, fresh in old:
+            when = (f"{fresh['source']} {fresh['since']} ({fresh['age']}d)" if fresh["since"]
+                    else "`scored:` is not a YYYY-MM-DD date")
+            print(f"  #{num} {when} — {title[:50]}")
+    if unconfirmed:
+        print(f"\n{len(unconfirmed)} Fun >= {PULL_FUN} the user has not ruled on — the Pull-override "
+              f"does not apply. Ask the user, then record their answer: `issue_scores.py pull N` "
+              f"(yes) or `pull --off N` (no):")
+        for num, title, _, d, _, _ in unconfirmed:
+            print(f"  #{num} fun {d.get('fun')} — {title[:60]}")
+    if stale_edges:
+        print(f"\n{len(stale_edges)} stale blocker edge(s) — blocker already closed, "
               f"drop it from `blocked_by`:")
-        for num, k in stale:
+        for num, k in stale_edges:
             print(f"  #{num} blocked_by #{k} (closed)")
     if unresolved:
         print(f"\n{len(unresolved)} unresolvable blocker edge(s) — state could not be "
@@ -435,25 +675,77 @@ def cmd_lint(args):
     sys.exit(1)
 
 
+def write_body(num, body, dry_run):
+    if dry_run:
+        print(f"\n===== #{num} (spliced body preview) =====\n{body}")
+        return True
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8",
+                                     newline="\n") as f:
+        f.write(body)
+        path = f.name
+    r = subprocess.run(["gh", "issue", "edit", str(num), "--repo", REPO, "--body-file", path],
+                       capture_output=True, text=True, encoding="utf-8")
+    print(f"#{num}: {'ok' if r.returncode == 0 else 'FAIL ' + r.stderr.strip()}")
+    return r.returncode == 0
+
+
+def parse_assignment(text):
+    """`effort=2` / `blocked_by=[1611]` / `kano=performance` -> (key, value)."""
+    key, sep, value = text.partition("=")
+    key = key.strip()
+    if not sep or not key:
+        sys.exit(f"expected axis=value, got {text!r}")
+    if key == "fun_by":
+        sys.exit("fun_by is the user's confirmation and only `issue_scores.py pull` writes it.")
+    if key == "scored":
+        sys.exit("`scored` is stamped by `set` itself; it is not an input.")
+    if key not in ALL_AXES and key not in META_FIELDS:
+        sys.exit(f"unknown field {key!r}; fields are {', '.join(ALL_AXES + META_FIELDS)}")
+    return key, _coerce(value)
+
+
+def cmd_set(args):
+    cur = gh_json(["issue", "view", str(args.number), "--repo", REPO, "--json", "body"])["body"]
+    d = parse_block(cur) or {}
+    for text in args.fields:
+        key, value = parse_assignment(text)
+        d[key] = value
+    if d.get("blocked_by_external") in ([], ""):
+        d.pop("blocked_by_external")
+    d["scored"] = dt.date.today().isoformat()
+    sys.exit(0 if write_body(args.number, splice(cur, d), args.dry_run) else 1)
+
+
+def cmd_pull(args):
+    ok = True
+    for num in args.numbers:
+        cur = gh_json(["issue", "view", str(num), "--repo", REPO, "--json", "body"])["body"]
+        d = parse_block(cur)
+        if d is None:
+            print(f"#{num}: no olo-score block — score it first (`set {num} ...`)")
+            ok = False
+            continue
+        if args.off:
+            d["fun_by"] = "agent"
+        else:
+            d["fun_by"] = "user"
+            if d.get("fun", 0) < PULL_FUN:
+                print(f"#{num}: fun {d.get('fun')} -> {PULL_FUN}")
+                d["fun"] = PULL_FUN
+        ok = write_body(num, splice(cur, d), args.dry_run) and ok
+    sys.exit(0 if ok else 1)
+
+
 def cmd_apply(args):
     src = json.load(open(args.src, encoding="utf-8"))["scores"]
     items = sorted(src.items(), key=lambda kv: int(kv[0]))
     if args.only:
         items = [(k, v) for k, v in items if k in set(map(str, args.only))]
     for num, d in items:
-        section = render_section(d)
-        if args.dry_run:
-            cur = gh_json(["issue", "view", num, "--repo", REPO, "--json", "body"])["body"]
-            print(f"\n===== #{num} (spliced body preview) =====\n{splice(cur, section)}")
-            continue
+        if "fun_by" in d:
+            sys.exit(f"#{num}: fun_by is the user's confirmation; `apply` does not write it (use `pull`).")
         cur = gh_json(["issue", "view", num, "--repo", REPO, "--json", "body"])["body"]
-        new_body = splice(cur, section)
-        with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
-            f.write(new_body)
-            path = f.name
-        r = subprocess.run(["gh", "issue", "edit", num, "--repo", REPO, "--body-file", path],
-                           capture_output=True, text=True, encoding="utf-8")
-        print(f"#{num}: {'ok' if r.returncode == 0 else 'FAIL ' + r.stderr.strip()}")
+        write_body(num, splice(cur, d), args.dry_run)
 
 
 # ---- self-test --------------------------------------------------------------
@@ -513,9 +805,50 @@ SELF_TEST_CASES = (
      {"blocked_by_external": ["vendor fix"]}, True, ["external"]),
     # A closed blocker must restore the Pull-override too, not just the row.
     ("Pull-override returns once the only blocker is closed",
-     {"blocked_by": [1123], "fun": 9}, False, ["PULL"]),
+     {"blocked_by": [1123], "fun": 9, "fun_by": "user"}, False, ["PULL"]),
     ("Pull-override stays suppressed while a blocker is open",
-     {"blocked_by": [1126], "fun": 9}, True, ["blocked:1126"]),
+     {"blocked_by": [1126], "fun": 9, "fun_by": "user"}, True, ["blocked:1126"]),
+    # 2026-10-15: agent-scored Fun was jumping fresh issues to the front.
+    ("an agent-scored Fun >= 8 is not a Pull; it is flagged PULL?",
+     {"fun": 8}, False, ["PULL?"]),
+    ("fun_by: user with Fun below 8 is no Pull",
+     {"fun": 5, "fun_by": "user"}, False, []),
+    ("a Pull the user declined (fun_by: agent) is no Pull and no longer asks",
+     {"fun": 13, "fun_by": "agent"}, False, []),
+)
+
+
+_D = dt.date
+_SELF_TEST_TODAY = _D(2026, 10, 15)
+_SELF_TEST_INDEX = {1593: [(1599, _D(2026, 10, 12))], 607: [(1551, _D(2026, 10, 1)), (1570, _D(2026, 10, 7))]}
+
+# (description, block, filed, issue number, expected freshness subset)
+FRESHNESS_CASES = (
+    ("no `scored:` falls back to the filing day", {}, _D(2026, 10, 1), 1, {"age": 14, "stale": False}),
+    ("older than STALE_DAYS is stale", {}, _D(2026, 7, 1), 1, {"age": 106, "stale": True}),
+    ("`scored:` overrides the filing day", {"scored": "2026-10-01"}, _D(2026, 1, 1), 1,
+     {"age": 14, "stale": False, "source": "scored"}),
+    ("an unparseable `scored:` is stale with no age, never guessed", {"scored": "last week"},
+     _D(2026, 10, 14), 1, {"age": None, "stale": True, "source": "invalid"}),
+    ("the #1593 case: work merged after the score", {}, _D(2026, 10, 11), 1593, {"merged": [1599]}),
+    ("re-scoring after the merge acknowledges it", {"scored": "2026-10-12"}, _D(2026, 10, 11), 1593,
+     {"merged": []}),
+    ("an umbrella keeps only the merges after its last score", {"scored": "2026-10-03"},
+     _D(2026, 6, 1), 607, {"merged": [1570]}),
+)
+
+DELIVERED_CASES = (
+    ("feature/voxel-state-runtime-postfx-1561-1566-1563", "fix(scene,terrain): x", {1561, 1566, 1563}),
+    ("feature/mcp-material-physics2d-asset-pack-607", "Expose material fields", {607}),
+    ("feature/claude-code-mods", "Claude Code mods", set()),
+    ("feature/bug-sweep-x", "fix(groom,build): a (#1595); b (#1575)", {1595, 1575}),
+    ("renovate/vendored-c++-deps", "chore(deps): update", set()),
+)
+
+TIER1_CASES = (
+    ("none of the last three was Tier 1", [(1, False), (2, False), (3, False)], True),
+    ("one Tier-1 task among them", [(1, False), (2, True), (3, False)], False),
+    ("too little history is never due", [(1, False)], False),
 )
 
 
@@ -552,19 +885,49 @@ def self_test():
                   f"  block   {d}\n"
                   f"  blocked want={want_blocked} got={got_blocked}\n"
                   f"  flags   want={list(want_flags)} got={got_flags}", file=sys.stderr)
+    for description, d, filed, num, want in FRESHNESS_CASES:
+        got = freshness(d, filed, num, _SELF_TEST_INDEX, _SELF_TEST_TODAY)
+        if any(got[k] != v for k, v in want.items()):
+            failures += 1
+            print(f"SELF-TEST FAILED (freshness: {description}):\n"
+                  f"  want={want}\n  got ={got}", file=sys.stderr)
+    for head, title, want in DELIVERED_CASES:
+        got = delivered_numbers(head, title)
+        if got != want:
+            failures += 1
+            print(f"SELF-TEST FAILED (delivered: {head} / {title}): want={want} got={got}",
+                  file=sys.stderr)
+    for description, started, want in TIER1_CASES:
+        if tier1_due(started) != want:
+            failures += 1
+            print(f"SELF-TEST FAILED (tier-1: {description}): want={want}", file=sys.stderr)
+    # A rewrite must keep every field, and replace a marker-less fence in place.
+    block = {"fun": 9, "fun_by": "user", "scored": "2026-10-15", "custom": "kept"}
+    bare = "text\n```olo-score\nfun: 3\n```\nmore"
+    rewritten = splice(bare, block)
+    if parse_block(rewritten) != {**{a: 3 for a in ALL_AXES}, **block, "kano": "table-stakes",
+                                  "blocked_by": [], "blocks": []} or rewritten.count("olo-score") != 1:
+        failures += 1
+        print(f"SELF-TEST FAILED (splice keeps fields, replaces a bare fence):\n{rewritten}",
+              file=sys.stderr)
     return failures
+
+
+def self_test_count():
+    return (len(SELF_TEST_CASES) + len(SORT_CASES) + len(FRESHNESS_CASES)
+            + len(DELIVERED_CASES) + len(TIER1_CASES) + 1)
 
 
 def cmd_selftest(args):
     failures = self_test()
-    print(f"{len(SELF_TEST_CASES) + len(SORT_CASES)} case(s), {failures} failure(s)")
+    print(f"{self_test_count()} case(s), {failures} failure(s)")
     sys.exit(1 if failures else 0)
 
 
 def main():
     if self_test():
-        sys.exit("\nissue_scores.py blocker handling is broken; fix it before trusting "
-                 "`rank` — a mis-blocked issue is missing from the output, not wrong in it.")
+        sys.exit("\nissue_scores.py self-test failed; fix it before trusting `rank` — a "
+                 "mis-blocked or mis-dated issue is missing from the output or wrong in it.")
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
     rp = sub.add_parser("rank")
@@ -580,7 +943,18 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--only", type=int, nargs="*", help="limit to these issue numbers")
     ap.set_defaults(func=cmd_apply)
-    sub.add_parser("selftest", help="run the blocker-handling cases and report the count")\
+    sp = sub.add_parser("set", help="re-score one issue and stamp `scored:` with today")
+    sp.add_argument("number", type=int)
+    sp.add_argument("fields", nargs="*", metavar="axis=value")
+    sp.add_argument("--dry-run", action="store_true")
+    sp.set_defaults(func=cmd_set)
+    pp = sub.add_parser("pull", help="record the USER's Pull-override (gated: user approval only)")
+    pp.add_argument("numbers", type=int, nargs="+")
+    pp.add_argument("--off", action="store_true",
+                    help="record the user's decline as `fun_by: agent` (no Pull, no more asking)")
+    pp.add_argument("--dry-run", action="store_true")
+    pp.set_defaults(func=cmd_pull)
+    sub.add_parser("selftest", help="run the picker's built-in cases and report the count")\
        .set_defaults(func=cmd_selftest)
     args = p.parse_args()
     args.func(args)

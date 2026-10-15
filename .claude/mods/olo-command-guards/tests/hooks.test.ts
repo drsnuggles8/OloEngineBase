@@ -37,3 +37,22 @@ test('an ordinary command passes straight through', async ($, on) => {
   const r = await $.tool.call({ tool: 'PowerShell', command: 'git status' })
   expect(r.text).toBe('ok')
 })
+
+test('a body file that sets fun_by: user is refused; an ordinary body file is not', async ($, on) => {
+  const files = new Map<string, string>([
+    ['vote.md', '```olo-score\nfun: 13\nfun_by: user\n```'],
+    ['plain.md', '```olo-score\nfun: 5\n```'],
+  ])
+  // The engine resolves a relative path against the session's cwd before the read.
+  on('fs.read', ($, e) => {
+    const text = files.get(e.path.replace(/^.*[\\/]/, ''))
+    return text === undefined ? { deny: 'ENOENT' } : { value: text }
+  })
+  on('tool.call', () => ran)
+  const voted = await $.tool.call({ tool: 'Bash', command: 'gh issue edit 1615 --body-file vote.md' })
+  expect(String(voted.deny ?? voted.text)).toContain('fun_by: user')
+  const plain = await $.tool.call({ tool: 'Bash', command: 'gh issue edit 1615 --body-file plain.md' })
+  expect(plain.text).toBe('ok')
+  const missing = await $.tool.call({ tool: 'Bash', command: 'gh issue edit 1615 --body-file gone.md' })
+  expect(missing.text).toBe('ok')
+})

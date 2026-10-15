@@ -1,279 +1,157 @@
 # Issue Scoring
 
-How we decide what to work on next. This replaces gut-feel / "whatever the
-roadmap doc says" backlog ordering with a small, explicit rubric tuned for a
-**personal game-engine project** — where there is no commercial "business
-value," the work is a dependency tree more than a backlog, and rendering
-changes can look done while being wrong.
+How we decide what to work on next. Each issue carries raw per-axis scores in its body; the picker
+(`scripts/issue_scores.py`) derives a ranking from them, and `/start-work` takes its pick from that
+ranking. The model is WSJF / Cost of Delay with *Business Value* replaced by engine-specific value axes,
+plus two personal axes (Learning, Fun) that never enter the arithmetic.
 
-It is derived from **WSJF / Cost of Delay** (the `value / job-size` model used
-in commercial agile) but with the one axis that doesn't survive the move to a
-hobby engine — *Business Value* — replaced by engine-specific value axes, and
-with two unapologetically personal axes (**Learning**, **Fun**) bolted on the
-side.
+**Store the axes, never a derived number.** Score, rank and tier are recomputed on every read; a
+stored one goes stale the moment an axis changes. Re-sorting by a single axis ("a Stability day") is
+free because the inputs are kept.
 
-> **Source of truth is the axes, not a single number.** We deliberately do
-> *not* store a priority score — only the raw per-axis inputs, which live in an
-> `olo-score` block **in each issue's body** (§5). The score is *derived on
-> read* by the picker; the ranking it produces is just the *default lens*
-> `/start-work` uses to pick the next task. On any given day you can re-sort by a
-> single axis ("today I want a high-Stability cleanup") — the raw axes make that
-> free. **Nothing derived (score, rank, tier) is ever stored** — that only goes
-> stale the moment you edit an axis.
+The reasons behind each rule are in the [appendix](#appendix--why-the-rules-are-shaped-this-way).
 
 ---
 
 ## §1 — The axes
 
-Every axis is scored on a **constrained Fibonacci scale** `{1, 2, 3, 5, 8, 13}`.
-Constrained because the gaps are the point: Fibonacci forces "is this *really*
-twice that?" decisions and kills the false precision of a 1–10 scale. Estimate
-**relative to the anchor issues** in §4, never in the abstract.
+Every axis uses the constrained Fibonacci scale `{1, 2, 3, 5, 8, 13}`. Score **relative to the §4
+anchors**, never in the abstract.
 
-### Value side — the Cost of Delay (what you lose by *not* doing it)
+### Value: the Cost of Delay
 
-These four are the only axes that feed the default ranking. They sum into a
-`CoD` (Cost of Delay) numerator.
+`CoD = Capability + Craft + Stability + Decay`.
 
-**Capability / Enablement** — *does it unlock the engine to do things it
-couldn't, including unblocking other queued issues?* This is the
-engine-completeness driver and usually the dominant axis, because the backlog
-is a tech tree.
+**Capability**: does it unlock things the engine could not do, including queued issues?
 
 | 1 | 3 | 5 | 8 | 13 |
 |---|---|---|---|---|
-| pure polish, nothing depends on it | self-contained feature, one subsystem | several workflows use it | a subsystem others build on | unblocks multiple queued features / foundational |
+| polish, nothing depends on it | self-contained feature, one subsystem | several workflows use it | a subsystem others build on | unblocks multiple queued features |
 
-**Craft** — *visible quality + portfolio value + screenshot-ability +
-architectural elegance.* This is our stand-in for "business value": the proxy
-for value-to-an-outside-viewer.
+**Craft**: visible quality, portfolio value, architectural elegance.
 
 | 1 | 3 | 5 | 8 | 13 |
 |---|---|---|---|---|
-| invisible, no portfolio value | debug view / visible-but-minor | solid visible feature | clearly impressive rendering/gameplay feature | flagship "this is the demo" piece |
+| invisible | debug view / visible-but-minor | solid visible feature | impressive rendering/gameplay feature | flagship demo piece |
 
-**Stability / Correctness** — *does it fix or prevent crashes, data loss,
-silent corruption, footguns?* Weighted to feel heavier than its number suggests,
-because in an engine a bug in a core path (ECS, serialization, memory, the
-cross-binding touch-points) poisons everything built on top of it.
+**Stability**: does it fix or prevent crashes, data loss, silent corruption, footguns? A bug in a core
+path (ECS, serialization, memory, the cross-binding touch-points) poisons everything above it.
 
 | 1 | 3 | 5 | 8 | 13 |
 |---|---|---|---|---|
-| no stability angle | minor / rare bug | bug that bites occasionally | data loss / silent scene-or-save corruption | crash/corruption in a core path everything depends on |
+| no stability angle | minor / rare bug | bites occasionally | data loss / silent scene-or-save corruption | crash/corruption in a core path |
 
-**Decay** — *does the cost rise if you wait?* WSJF's time-criticality,
-reframed. **Most engine work is a 1** (no external deadline), and that's a
-useful signal: when Decay is flat across the board, raw value-over-effort
-dominates. Decay earns its keep on compounding tech debt (touch-point sprawl
-that gets worse with every new component) and the rare real deadline (a demo).
+**Decay**: does the cost rise if you wait? Most engine work is a 1.
 
 | 1 | 3 | 5 | 8 | 13 |
 |---|---|---|---|---|
-| flat over time | mild compounding | harder each month / near milestone | actively metastasizing / blocks imminent demo | hard deadline or runaway debt |
+| flat | mild compounding | harder each month / near milestone | metastasizing / blocks imminent demo | hard deadline or runaway debt |
 
 ### Effort (the denominator)
 
-**Effort** — relative Fibonacci story-size. **Include verification cost**, not
-just authoring cost. For a rendering change the "capture screenshots from
-multiple angles and *actually look at the pixels*" tax (see
-[`CLAUDE.md`](../../CLAUDE.md) → "Rendering changes MUST be visually verified")
-is real and often dwarfs the code change. A logic-only task of the same LOC is
-cheaper here.
+Relative story size **including verification cost**. For a rendering change, capturing and inspecting
+frames from several angles often outweighs the code.
 
 | 1 | 2 | 3 | 5 | 8 | 13 |
 |---|---|---|---|---|---|
-| routine single PR — a day or two, ~hundreds of lines (**the common case**) | chunky single PR — ~900 LOC / 15+ files, one sitting | self-contained system — several days / 2–3 PRs | ~a week, multiple PRs | multi-week across subsystems | multi-feature epic — split it |
+| routine single PR, ~hundreds of lines (**the common case**) | chunky single PR, ~900 LOC / 15+ files | self-contained system, several days | ~a week, multiple PRs | multi-week across subsystems | multi-feature epic |
 
-**Effort is work size, not wall-clock-to-merge.** Calibrated against PR history
-(`gh pr list --state merged`): most features land as a *single* few-hundred-line
-PR — even substantial ones (area-light shadows #422 at +702/15f, ragdoll
-foundation #401 at +931/17f, motion vectors #416). The long pole on the calendar
-is CI + review latency, which is **not** effort. So the typical task is a **1**,
-the scale is deliberately compressed at the bottom, and an 8 or 13 is a genuine
-multi-subsystem epic that should probably be split.
+Effort is work size, not wall-clock to merge; CI and review latency are not effort.
 
 ### Confidence (the multiplier)
 
-**Confidence** ∈ `{1.0, 0.8, 0.5}` — how sure are you the approach will work
-*and* that "done" will actually be done?
+`1.0` known territory · `0.8` some unknowns, no fundamental risk · `0.5` spike first (rendering work
+where you will not know it looks right until you try).
 
-- `1.0` — known territory, clear approach.
-- `0.8` — some unknowns, but no fundamental risk.
-- `0.5` — **spike first.** This is where "tests green, screen wrong" lives:
-  rendering work where you won't know if it looks right until you try. A `0.5`
-  is a signal to prototype/timebox before committing, not to commit and hope.
+### Personal axes: never divided by effort
 
-### Personal axes — scored, stored, but **never divided by effort**
-
-These are about *you*, not about the artifact, so they stay out of the value
-math. They are tiebreakers and override levers.
-
-- **Learning** (`1` nothing new → `5` a technique you've read but not built →
-  `13` frontier stretch).
-- **Fun** (`1` chore → `5` enjoyable → `13` can't wait).
-
-Keeping them separate means a boring-but-educational task (high Learning, low
-Fun) and a shallow-but-delightful one (low Learning, high Fun) stay
-distinguishable instead of averaging into a meaningless middle.
+- **Learning**: `1` nothing new → `5` read about but never built → `13` frontier stretch.
+- **Fun**: `1` chore → `5` enjoyable → `13` can't wait. **Fun is about the user.** An agent scoring an
+  issue it filed leaves Fun at its honest estimate and never writes `fun_by` (§3.4).
 
 ---
 
 ## §2 — Tags (metadata, not scored)
 
-Two things that a number can't express but the picker needs:
-
-- **Kano class** — `table-stakes` / `performance` / `delighter`. This
-  operationalizes the "engine completeness" goal. Without it you systematically
-  starve the unsexy-but-required baseline ("every engine needs working X") in
-  favor of delighters. **Rule: the top of the ranked list must always carry
-  table-stakes coverage** — completeness is a conscious budget, not an accident.
-- **Tech-tree edges** — `blocked_by: [N, …]` / `blocks: [N, …]` (bare issue numbers;
-  `#N` is also accepted). The
-  dependency graph WSJF cannot model. **A `blocked_by` naming an issue that is
-  still open excludes the issue from the picker entirely, regardless of score**
-  — you can't pick what you can't start. **A closed blocker does not block**:
-  the picker resolves each number's state on every run, so an edge whose
-  blocker has merged stops holding its dependents back the moment it merges,
-  with no body edit. See §3.6.
-- **External blockers** — `blocked_by_external: ["…", …]`, a list of free-text
-  reasons. Same effect on the picker as `blocked_by`, for everything the
-  in-repo tech tree cannot name: an upstream release we are waiting on, a
-  compiler feature that has not shipped, a vendor fix. Omit the field entirely
-  when there is none — an empty list on every issue is noise.
-
-  The picker's question is *"can I start this today?"*, and an issue waiting on
-  someone else's release answers no just as firmly as one waiting on a sibling
-  issue. Without this the two looked different: **#815 sat at rank 7** with an
-  empty `blocked_by` while waiting on two upstream `repowise` fixes, so every
-  sweep re-derived "oh, not that one" by hand and then discarded the finding.
-  Ranked rows carry an `external` flag so the demotion is visible rather than
-  mysterious.
-
-  Use it for a genuine external dependency, **not** to park work you simply do
-  not want — that is what the low-value floor and the axes are for (§6.3: fix
-  the inputs, don't hide the issue). A standing `Track:` watch item, which can
-  never be "done" and only ever waits on someone else, is the archetypal case.
+- **Kano**: `table-stakes` / `performance` / `delighter`. The top of the rank must always carry
+  table-stakes coverage.
+- **Tech-tree edges**: `blocked_by: [N, …]` / `blocks: [N, …]` (bare numbers; `#N` is accepted). An
+  open blocker excludes the issue from the picker; a closed one does not (§3.6).
+- **External blockers**: `blocked_by_external: ["…"]`, free text for what the tech tree cannot name (an
+  upstream release, a vendor fix). Blocks unconditionally. Omit the field when there is none. Not a way
+  to park unwanted work; fix the axes instead.
+- **`scored: YYYY-MM-DD`**: the day the block was last checked against reality. Written by
+  `issue_scores.py set`, never by hand (§6.4).
+- **`fun_by`**: the user's ruling on a Fun ≥ 8. `user` = confirmed Pull, `agent` = declined (the Fun
+  stays a tie-break). Written only by `issue_scores.py pull` (§3.4).
 
 ---
 
-## §3 — The picker (default lens for `/start-work`)
+## §3 — The picker (`issue_scores.py rank`)
 
 ```
-CoD   = Capability + Craft + Stability + Decay
-Score = Confidence × CoD / Effort          # computed only over UNBLOCKED issues
+Score = Confidence × CoD / Effort
 ```
 
-1. Drop every issue still held by a blocker — a `blocked_by` entry whose issue
-   is **open**, a blocker whose state could not be read, or any
-   `blocked_by_external`. A `blocked_by` entry whose issue is already **closed**
-   does not count (§3.6).
-2. Pick the **max `Score`**.
-3. Break ties with **Learning, then Fun**.
-4. **Pull override:** any issue with `Fun ≥ 8` may be pulled to the front
-   regardless of `Score` — but the override is *logged* (a note in the pick).
-   Motivation is a first-class, deliberate input, not a guilty deviation from
-   "the correct task."
-5. **Low-value floor:** an issue whose `CoD < 6` sorts **below every
-   normal-value unblocked issue** and is flagged `low-value:<CoD>` — **except
-   when rule 4 applies.** The Pull-override outranks the floor: `Fun ≥ 8` is an
-   explicit "I want this", while the floor exists to catch work that floated up
-   on arithmetic alone, and a cheap *and* fun task is precisely the case the
-   floor is not meant to bury. So the exact guarantee is: *a low-value issue
-   never outranks normal-value unblocked work **unless it carries the
-   Pull-override**, in which case it is flagged `PULL low-value:<CoD>` and the
-   deviation is visible on the row.*
+Rows sort by group first, then within each group by: normal-value before low-value (§3.5), Score
+descending, Learning, Fun, issue number.
 
-The printed order is authoritative, and `next:` is simply the first unblocked
-row — so the recommendation can never disagree with what is printed at the top.
+| Group | Rows | Pickable |
+|---|---|---|
+| 0 | Pull-override (§3.4) | yes |
+| 1 | startable | yes |
+| 2 | needs triage: work merged since the last score (§6.4) | no, triage first |
+| 3 | blocked (§3.6) | no |
+
+`next:` is the first row of group 0 or 1, unless the Tier-1 slot is due (§3.7); it says why when it
+departs from the printed order.
+
+### §3.4 — Pull-override
+
+`Fun ≥ 8` **with `fun_by: user`** pulls an unblocked issue into group 0. Only the user grants it:
+`python scripts/issue_scores.py pull <N>…`. A decline is recorded too, with `pull --off <N>…`
+(`fun_by: agent`), so the question is asked once. `olo-command-guards` refuses `pull`, and any
+`gh issue create|edit` whose text or body file sets `fun_by: user`, unless the user approved it in the
+conversation (`# OLO_USER_APPROVED`). A Fun ≥ 8 the user has not ruled on is only a tie-break,
+flagged `PULL?`, and `lint` lists it until they answer.
+
+### §3.5 — Low-value floor
+
+`CoD < 6` sorts below every normal-value row in its group and is flagged `low-value:<CoD>`. It demotes,
+never hides. A confirmed Pull overrides the floor. `rank --no-low-value-floor` drops this step only.
 
 ### §3.6 — Blocker state is resolved, never assumed
 
-**A `blocked_by` entry blocks only while the issue it names is open.** The
-picker resolves every distinct blocker number on each run (one batched
-`gh api graphql` call, not one call per edge, and not cached between runs) and
-treats a closed issue — or a merged PR — as delivered. Three consequences:
+The picker resolves every distinct `blocked_by` number on each run (one batched GraphQL call, not
+cached). A closed issue or merged PR does not block. A partially delivered tree prints `blocked:` with
+only the open edges. A blocker whose state cannot be read keeps blocking, flagged `blocked?:<N>` with a
+counted banner: assuming open hides work, and assuming closed invents work out of a network error.
 
-- **A blocker that merges unblocks its dependents immediately**, with no body
-  edit. The number stays written down; it just stops being believed.
-- **A partially-delivered tech tree stays blocked, and the `blocked:` flag names
-  only the edges still open.** An issue blocked by a closed #1123 and an open
-  #1126 prints `blocked:1126` — never the delivered one.
-- **`blocked_by_external` is unaffected** and still blocks unconditionally. It
-  is free text naming something outside this repo; there is no state to query.
+### §3.7 — Tier-1 slot
 
-**If a blocker's state cannot be read, the issue stays blocked and says so.**
-An unresolvable edge — a number that does not exist, `gh` offline,
-unauthenticated or rate-limited — is flagged `blocked?:<N>` and counted in a
-banner above the table. The direction is chosen, not defaulted: assuming *open*
-recreates the bug below, and assuming *closed* invents startable work out of a
-network error, which costs a whole task slot. "We could not tell" must never
-read as "it is fine" (`CLAUDE.md` → *no silent fallbacks*).
-
-`issue_scores.py lint` reports stale edges (blocker already closed — tidy the
-body) and unresolvable ones, and exits non-zero on either, so neither waits for
-a sweep to trip over it. `issue_scores.py selftest` runs the blocker cases on
-their own; `rank` and `lint` run them too, on every invocation.
-
-Before this, a written-down number blocked forever. On 2026-09-09 the closed
-#1123 and #1139 were holding **seven** issues out of `rank` entirely, including
-#1126 and #1130, the two highest-scoring rows in the whole backlog. A stale row
-does not sort low, it is *absent* — so nothing in the picker's output could
-reveal it, and it took a `/start-work` sweep comparing the list against the
-tracker by hand to notice (#1161).
-
-### Why the floor exists
-
-A ratio model rewards cheap work, and that is usually right — a cheap enabler
-*should* out-rank an expensive feature. But `value / effort` cannot tell
-"cheap and worth doing" from "cheap and not worth a slot": shrink the
-denominator far enough and a near-valueless issue floats to the top on
-arithmetic alone.
-
-The motivating case was **#411** (`capability 1, craft 1, stability 2, decay 1`
-→ CoD 5, effort 2 → **1.25**), which ranked 5th of 13 while having no remaining
-actionable content at all. Nothing was mis-scored — every axis was honest. The
-formula was simply being asked a question it can't answer: *is this worth doing
-at all?* CoD answers that; the ratio doesn't.
-
-The floor **demotes, never hides** — a low-value issue still appears with its
-real score and a `low-value:<CoD>` flag, because a cheap chore you actually want
-on a Friday afternoon is a legitimate pick; it just shouldn't displace real work
-in the default lens — and, per rule 4 above, an explicit `Fun ≥ 8` still lets it
-through. `rank --no-low-value-floor` drops the demotion step only; blocked-handling,
-the Pull-override and the Learning/Fun tie-break all still apply.
-
-> Per §6.3, prefer fixing the inputs first: if an issue looks low-value but
-> isn't, the axes are wrong — raise them. Reach for the floor only when the
-> axes are honest and the *ranking* is still wrong.
-
-Because the raw axes are stored, the formula is just the default. Re-sorting by
-`Stability` desc (cleanup day), `Learning` desc (study day), or `Craft / Effort`
-(portfolio-screenshot day) is all legitimate and free.
+Tier 1 is start-work's force-multiplier work: CI, test infrastructure, MCP and dev tooling. It is
+marked with the `tooling` label (`ci-nightly-red` also counts). If none of the last **3** started tasks
+(`feature/*` PRs, open or merged) closed a Tier-1 issue or carried the label, the slot is **due** and
+`next:` becomes the top startable Tier-1 row. `rank` prints the `tier-1:` candidate and the slot state
+every run. If the PR history cannot be read it says so and `next:` follows the plain order. A
+`/start-work` batch of two or more always gives one slot to Tier 1.
 
 ---
 
 ## §4 — Anchors (reference issues)
 
-Relative Fibonacci only works if "an 8 looks like *this specific issue*" is
-written down **before** the backlog is scored. The anchors below are the
-canonical reference points per axis; score everything else by comparison to
-them. (A *closed* issue is a valid anchor — it's a reference point, not a task.)
-
 | Axis | anchored rungs |
 |---|---|
-| **Capability** | `3` = #424 (self-contained audio feature) · `8` = #430 (spatial index many subsystems reuse) · `13` = #452 (unblocks dead rollback netcode + replays) |
-| **Effort** | `1` = #424 (routine single PR) · `3` = #430 (multi-day self-contained system) · `13` = #435 (three rendering sub-features — split it) |
-| **Craft** | `3` = #457 (visible-but-minor UI polish) · `8` = #459 (impressive, demo-able gameplay) · `13` = #435, #439 (flagship atmosphere / baked GI) |
-| **Stability** | `3` = #446 (real but test-only) · `8` = #454 (prevents save/scene data loss) · `13` = #325 *(closed)* (silently dropped 28 components from every save — corruption across a core path) |
+| **Capability** | `3` = #424 (self-contained audio feature) · `8` = #430 (spatial index many subsystems reuse) · `13` = #452 (unblocks rollback netcode + replays) |
+| **Effort** | `1` = #424 (routine single PR) · `3` = #430 (multi-day self-contained system) · `13` = #435 (three rendering sub-features) |
+| **Craft** | `3` = #457 (visible-but-minor UI polish) · `8` = #459 (impressive gameplay) · `13` = #435, #439 (flagship atmosphere / baked GI) |
+| **Stability** | `3` = #446 (real but test-only) · `8` = #454 (prevents save/scene data loss) · `13` = #325 *(closed)* (silently dropped 28 components from every save) |
 
 ---
 
 ## §5 — Storage: the `olo-score` block
 
-The canonical scores live **in the GitHub issue body** — one source of truth,
-where the work is, born with the issue, can't rot out of sync with a separate
-file. Each scored issue carries a visible `## Score` section whose fenced
-`olo-score` block holds **only the raw inputs** (no derived score/tier):
+The scores live **in the issue body**, in a fenced `olo-score` block holding only raw inputs:
 
 ````markdown
 ## Score
@@ -289,64 +167,85 @@ fun: 3
 kano: table-stakes
 blocked_by: []
 blocks: []
+scored: 2026-10-15
 ```
-<sub>Rated per [issue-scoring](../../docs/process/issue-scoring.md) · score = confidence × (capability + craft + stability + decay) / effort, derived by the picker.</sub>
 ````
 
-The fenced ` ```olo-score ` info-string is the parse delimiter: visible and
-skimmable on GitHub web (renders as a code block), yet unambiguous to read back.
-The repo is public, so **learning/fun are public too** — that's an accepted
-trade for a single self-contained source of truth.
+The repo is public, so Learning and Fun are public too. There is no committed scores file and no tier
+label. [`scripts/issue_scores.py`](../../scripts/issue_scores.py):
 
-Tooling lives in [`scripts/issue_scores.py`](../../scripts/issue_scores.py):
-
-- `rank` — pull every open issue, parse its block, print the ranked list (with
-  the Pull-override and the §3 low-value floor applied). This is what
-  `/start-work` calls. `--no-low-value-floor` ranks without low-value demotion
-  (blocked-handling, the Pull-override and the tie-break are unaffected).
-- `lint` — list open issues with **no** `olo-score` block (the "needs-score"
-  nudge).
-- `apply` — one-time / migration helper: write blocks into issue bodies from a
-  local source (used to seed the backlog; not part of the steady state).
-
-There is **no committed scores file** and **no tier label** — ranking is always
-recomputed from the issues on demand.
+- `rank`: the ranked list, `tier-1:` / `tier-1 slot:` and `next:`. `--freeze` (§7),
+  `--no-low-value-floor` (§3.5).
+- `lint`: everything that makes the backlog lie. Unscored issues, merged work since the score, scores
+  older than 45 days, unconfirmed Pulls, stale and unresolvable blocker edges. Exits non-zero on any.
+- `set N axis=value …`: re-score and stamp `scored:` with today. `set N` with no axes re-stamps after a
+  check found nothing to change. Refuses `fun_by` and `scored`.
+- `pull N…` / `pull --off N…`: the user's Pull confirmation or decline (§3.4).
+- `apply`: one-time migration from a JSON file.
+- `selftest`: the picker's built-in cases. `rank` and `lint` run them first on every invocation.
 
 ---
 
 ## §6 — Workflow
 
-1. **New issues are born scored.** The feature issue template
-   (`.github/ISSUE_TEMPLATE/`) carries an `olo-score` block pre-seeded to neutral
-   (`3`s, `confidence: 0.8`, `kano: table-stakes`). Fill it in by comparison to
-   the §4 anchors — a rough score beats no score. `issue_scores.py lint` flags
-   any that slipped through unscored.
-2. **Re-score when reality changes** — edit the block in the issue body: a
-   dependency lands (clear `blocked_by`), a spike resolves the unknowns
-   (`Confidence` 0.5 → 1.0), debt compounds (`Decay` climbs), or the work ships
-   (close it).
-3. **Calibration gold:** when the derived rank disagrees with your gut about
-   what to do next, *that's the signal* — either an axis is mis-scored (fix the
-   number) or the rubric is missing something (fix the rubric). Don't silently
-   override; adjust the inputs so the system learns.
+1. **Issues are born scored.** Both issue templates carry a neutral block; the task-loop hook refuses an
+   agent-filed issue without one. A rough score beats none.
+2. **Re-score when reality changes**: a dependency lands, a spike resolves unknowns, debt compounds. Use
+   `set`, so the date moves with the change.
+3. **When the rank disagrees with your gut, fix an input** (an axis or the rubric), never silently
+   override it.
+
+### §6.4 — Staleness: a backlog that lies is triaged on sight
+
+`lint` fails on two kinds of stale issue, and `/start-work` clears them before it picks:
+
+- **Merged work since the score.** A merged PR whose branch ends in the issue's number
+  (`feature/foo-1561-1566`) or whose title names `#N`, merged after the block's `scored:` date (the
+  filing day when unset). The row moves to group 2 with `merged:#PR`. Check the code. If the work is
+  done, post the evidence and recommend closure (closing stays the user's call). If something remains,
+  re-score it with `set`, which also acknowledges the merge.
+- **A score older than 45 days** (`stale:<days>d`). Re-check the issue against the code, then re-score
+  it or recommend closure. An unparseable `scored:` is stale and flagged `scored?`.
 
 ---
 
 ## §7 — Temporary lenses: `--freeze`
 
-`issue_scores.py rank --freeze` re-sorts using the same axes but first drops any
-issue that carries **none** of the labels `performance`, `robustness`,
-`architecture`, `bug`, `tooling`, `cleanup` — i.e. it hides pure net-new-feature
-work. `tooling` is the standing exception for the MCP diagnostics server /
-dev-tooling / codegen line of work (it doesn't get its own value axis; it's a
-policy carve-out, applied by hand to the issues it covers). `cleanup` covers
-config/dead-code/smell work that isn't perf/robustness/architecture-labeled but
-still isn't a feature (e.g. #411's SonarQube setup issues).
+`rank --freeze` keeps only issues labelled `performance`, `robustness`, `architecture`, `bug`,
+`tooling` or `cleanup`, hiding pure feature work. It filters the candidates and leaves the scores
+unchanged. Last used for the 2026-07 feature freeze; opt-in, so plain `rank` is the live lens. A
+freeze-eligible issue that does not show up is mislabelled: fix the label.
 
-This is a **policy lens on top of the rubric, not a rubric change** — the
-underlying score/rank is untouched; `--freeze` only filters the candidate set
-before sorting. First used 2026-07 for a month-long feature freeze (perf /
-robustness / architecture / cleanup focus, MCP+codegen exempted), **ended
-2026-07-31**; the flag is opt-in, so plain `rank` is the live lens again and the
-lens stays available for the next one. If an issue that's clearly freeze-eligible
-doesn't show up, it's very likely mislabeled — fix the label, not the filter.
+---
+
+## Appendix — why the rules are shaped this way
+
+**Agent-scored Fun was jumping the queue (§3.4).** On 2026-10-15, five of the seven `Fun ≥ 8` issues
+were 2–10 days old, agent-filed (several from one Planet Zoo 2 capture study) and agent-scored. The
+ranking's top ten had a median age of 4 days, ranks 51–80 a median of 37, and #1615 (wet coats)
+outranked #1584 (Windows CI sccache hitting 0 of 2055 compiles, ~2 h per build). Fun exists to record
+the *user's* motivation; an agent rating its own fresh issue 8 was voting it to the front. Of the seven,
+the user confirmed #1558 and #1559 and declined the rest.
+
+**Old scores were never revisited (§6.4).** Nothing re-scored an issue after the session that filed it,
+and Decay is a fixed number, so an issue's rank kept the enthusiasm of the day it was filed. #1593 sat
+at rank 1 for days after #1599 merged its implementation, and each sweep skipped it by hand. The first
+`lint` run with these checks found 14 issues with merged work since their score (including #1259,
+#1584 and #1594 with delivering PRs merged) and 12 scores older than 45 days. Age alone is not
+demoted: it is evidence the score may be wrong, not that it is.
+
+**Force-multiplier work kept losing to features (§3.7).** start-work's tier list says CI, test infra and
+tooling compound and should come first, but the score had no notion of tier, so a run of groom features
+took every slot. One slot in three is a fixed share that needs no stored state.
+
+**The low-value floor (§3.5).** A ratio cannot tell "cheap and worth doing" from "cheap and not worth a
+slot". #411 (CoD 5, effort 2 → 1.25) ranked 5th of 13 with no actionable content left; nothing was
+mis-scored. CoD answers "is this worth doing at all", which the ratio cannot.
+
+**Blockers are resolved, not trusted (§3.6).** A written `blocked_by` used to block forever. On
+2026-09-09 the closed #1123 and #1139 held seven issues out of `rank` entirely, including #1126 and
+#1130, the two highest-scoring rows. A blocked row is absent, not low, so nothing in the output
+revealed it (#1161).
+
+**External blockers (§2).** #815 sat at rank 7 with an empty `blocked_by` while waiting on two upstream
+`repowise` fixes, and every sweep re-derived "not that one" by hand.

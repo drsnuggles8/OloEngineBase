@@ -47,7 +47,7 @@ Then refresh the registry:
     gh pr list --state merged --limit 40  # recently FINISHED work — often still looks "open" in docs/TODOs
     gh issue list --state closed --limit 40     # closed issues — ditto
     python "$BASE/scripts/issue_scores.py" rank # scored, ranked backlog — canonical priority for GitHub issues (docs/process/issue-scoring.md)
-    python "$BASE/scripts/issue_scores.py" lint # UNSCORED open issues — absent from `rank`, therefore invisible to this command; also stale/unresolvable `blocked_by` edges
+    python "$BASE/scripts/issue_scores.py" lint # everything that makes the backlog lie: UNSCORED issues (absent from `rank`), work merged since an issue's score, scores older than 45 days, unconfirmed Pulls, stale/unresolvable `blocked_by` edges
 Any topic represented by a worktree, a branch (local OR origin/*), an open PR, or an
 assigned issue is OFF-LIMITS as in-flight. Anything in a recently-merged PR or closed
 issue is OFF-LIMITS as already-done — this is your ground truth that a doc/TODO which
@@ -68,6 +68,22 @@ Score whatever `lint` returns **before** picking in step 3, against the anchors 
 re-run `rank` as canonical. Write the block into the issue body (that is the single source of
 truth — there is no scores file). Do not skip this because the unscored issues look minor: #847,
 unscored, scored rank #2 once it was scored.
+
+**Clear the rest of `lint` before picking too: the user hates stale issues.** Each finding is a
+registry item to heal now, per §2b (issue-scoring.md §6.4):
+
+- **`merged:` (work merged since the score)**: read the PR and the code. Done → evidence comment
+  plus the close list. Something remains → `issue_scores.py set N <changed axes>`, which stamps
+  `scored:` and acknowledges the merge. Never pick one of these without triaging it first; `rank`
+  already sorts them below startable work.
+- **`stale:` (score older than 45 days)**: re-check the premise against the code, then `set N ...`
+  (or `set N` alone if nothing changed) or recommend closure.
+- **Unconfirmed Pull (`PULL?`)**: never rule on it yourself. Ask the user (batch it with the other
+  upfront questions), then record the answer: `issue_scores.py pull N` for yes, `pull --off N` for
+  no. The command is gated, so you run it only on their explicit word, with `# OLO_USER_APPROVED`.
+
+Use `set` rather than hand-editing a body: it keeps every field, replaces a marker-less fence in
+place and writes UTF-8.
 
 > **Windows trap when writing the block:** read the existing body with an explicit
 > `encoding="utf-8"`, never bare `text=True` — `subprocess` decodes gh's output with the
@@ -127,9 +143,17 @@ your slate.
 **Selection rule — the issue score is canonical; tiers govern the rest.** For
 GitHub-issue work the ranked backlog from `issue_scores.py rank` (§2) IS the priority
 order: pick the top **unblocked** issue(s) not already in flight (step 2), honoring the
-**Pull-override** (a `Fun ≥ 8` issue legitimately jumps the queue — a designed lever, not a
-deviation; the rank already floats it). For N > 1, take the top-N unblocked that are also
-mutually distinct per the rule above. See docs/process/issue-scoring.md.
+**Pull-override** (a user-confirmed `Fun ≥ 8`, `fun_by: user`, jumps the queue — the user's lever;
+an agent-scored Fun ≥ 8 shows as `PULL?` and does not). For N > 1, take the top-N unblocked that
+are also mutually distinct per the rule above. See docs/process/issue-scoring.md.
+
+**Tier-1 slot (issue-scoring.md §3.7).** `rank` prints a `tier-1:` candidate (top startable
+`tooling`-labelled issue) and whether the slot is due: none of the last 3 started tasks was
+Tier 1. For N = 1, `next:` already switches to it when due; follow it. For N ≥ 2, **one slot
+always goes to the `tier-1:` candidate**, due or not. An MCP pick counts, so the standing
+one-MCP-branch preference and this slot are the same slot when the MCP task is the candidate.
+Work that is Tier 1 by nature (CI, test infra, MCP, dev tooling) but lacks the `tooling` label
+is mislabelled: add the label during the sweep.
 
 > **Read the printed ORDER, not the score column — they can disagree.** The list is not
 > sorted by score alone: an issue whose Cost of Delay is below the floor (flagged
@@ -138,8 +162,8 @@ mutually distinct per the rule above. See docs/process/issue-scoring.md.
 > bug — a ratio can't tell "cheap and worth doing" from "cheap and not worth a slot", so the
 > floor demotes near-valueless work that a small effort denominator would otherwise float
 > (issue-scoring.md §3). **Take the topmost unblocked rows in printed order**, and treat the
-> script's own `next:` line as the authoritative pick — it already applies both the
-> Pull-override and the floor. A `low-value` issue is still a legitimate deliberate pick
+> script's own `next:` line as the authoritative pick — it already applies the Pull-override,
+> the floor and the Tier-1 slot, and says why when it departs from the printed order. A `low-value` issue is still a legitimate deliberate pick
 > (a cheap Friday chore); it just must never displace real work by default.
 
 The leverage **tiers below still govern NON-issue work** — warnings, SonarQube smells,
@@ -519,4 +543,7 @@ N > 1) — **plus the stale-registry findings from §2b**: which issues you post
 comments on, which you recommend closing (and ask before closing them), **which unscored
 issues `lint` surfaced and what you scored them** (with their resulting rank — an issue that
 lands high is a candidate you would otherwise have missed, and the user should see that it
-existed even if you did not pick it), and any durable facts you wrote to memory.
+existed even if you did not pick it), **what you did with each `merged:` / `stale:` finding**
+(re-scored, or evidence comment + close recommendation), **every `PULL?` issue for the user to
+confirm or decline**, the `tier-1 slot:` state and whether you followed it, and any durable facts
+you wrote to memory.

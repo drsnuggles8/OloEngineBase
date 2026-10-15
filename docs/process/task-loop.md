@@ -86,7 +86,8 @@ Not fixed in #<PR> because: <needs a decision | needs access | too big | owned e
 
 Before the PR exists, write the branch name in place of `#<PR>`. Add an `olo-score` block ([issue-scoring.md §5](issue-scoring.md), scored against the §4
 anchors): `gh issue create --body` bypasses the issue templates, and an unscored issue is invisible
-to `/start-work`. For **owned elsewhere**, also message the owning session if it is live
+to `/start-work`. Score Fun honestly and never write `fun_by: user`: the Pull-override is the user's
+(issue-scoring.md §3.4), and `olo-command-guards` refuses it. For **owned elsewhere**, also message the owning session if it is live
 (`ListAgents`, then `SendMessage`) so the fix lands there instead of waiting in the backlog.
 
 A partial fix is still a fix: make the part you can, commit it, and file only the remainder with the
