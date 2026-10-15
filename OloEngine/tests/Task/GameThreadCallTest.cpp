@@ -98,7 +98,8 @@ TEST_F(GameThreadCallTest, AWorkersWorkRunsOnTheGameThreadWhileTheWorkerWaits)
 TEST_F(GameThreadCallTest, TheGameThreadItselfRunsTheWorkInline)
 {
     // No pump: a game-thread caller that queued its own work would wait on itself.
-    const std::optional<int> result = RunOnGameThreadAndWait<int>([] { return 7; });
+    const std::optional<int> result = RunOnGameThreadAndWait<int>([]
+                                                                  { return 7; });
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(*result, 7);
 }
@@ -126,7 +127,8 @@ TEST_F(GameThreadCallTest, ACancelWhileQueuedAbandonsTheWorkAndItNeverRuns)
     std::atomic<int> runs{ 0 };
     std::optional<int> result{ 1 };
     std::thread thread([&]
-                       { result = RunOnGameThreadAndWait<int>([&runs] { return ++runs; }, &cancel); });
+                       { result = RunOnGameThreadAndWait<int>([&runs]
+                                                              { return ++runs; }, &cancel); });
     ASSERT_TRUE(WaitForQueuedWork());
     cancel.store(true, std::memory_order_release);
     thread.join();
