@@ -326,6 +326,11 @@ TEST(SystemSchedulerTest, GameplayScheduleMatchesCanonicalOrder)
         "PhysicsFence",
         "Combat",
         "PropagateTransforms",
+        // Coat wetness (issue #1615) reads the world transforms PropagateTransforms
+        // composed (where each coat stands against the water) and the weather's
+        // surface wetness; Navigation, the next transform writer, is pulled behind
+        // it by the write-after-read edge.
+        "GroomWetness",
         "Navigation",
         "SpatialIndex",
         "Perception",
