@@ -139,6 +139,16 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	// The scene's ambient ladder (#1618), DeferredLightingPass::AmbientLadderControls:
 	// x = the IBL rung is available, y = the probe rung (DDGI / baked SH) is on, zw unused.
 	vec4 u_GroomAmbient;
+	// Wetness (#1615). u_GroomWetState: x = rain, y = the soaked line in metres
+	// above the coat's origin, z = the band either side of it, w = 1 when any
+	// of the coat is wet -- 0 leaves the strand exactly as it was.
+	// u_GroomWetResponse: x = absorption, y = longitudinal and z = azimuthal
+	// roughness scale at full wetness. u_GroomWetHeight.xyz: the world-up row
+	// of the coat's transform, so an object-space point p stands dot(p, xyz)
+	// metres above the coat's origin.
+	vec4 u_GroomWetState;
+	vec4 u_GroomWetResponse;
+	vec4 u_GroomWetHeight;
 };
 
 layout(location = 0) out vec2 v_Coords;
@@ -169,6 +179,9 @@ layout(location = 11) flat out vec4 v_CoatRestFrame;
 // The ribbon's half-width in world metres: the radius of the tube it stands
 // for, which the coat-shadow march starts outside of (see oloGroomCoatTauAndBody).
 layout(location = 12) out float v_TubeRadius;
+// The coat's wetness at this point (#1615), from its height above the coat's
+// origin against the soaked line: legs get wet before the back.
+layout(location = 13) out float v_Wetness;
 
 // The width bands of summed width `summed` cover when spread over a region
 // `span` wide (their extent plus one pixel), each drawn at alpha width/pixel
@@ -327,6 +340,7 @@ void main()
 		v_CoatRestPos = vec3(0.0);
 		v_CoatRestFrame = vec4(0.0, 0.0, 0.0, 1.0);
 		v_TubeRadius = 0.0;
+		v_Wetness = 0.0;
 		return;
 	}
 
@@ -477,6 +491,13 @@ void main()
 	v_CoatRestPos = coatRestPos;
 	v_CoatRestFrame = coatRestFrame;
 	v_TubeRadius = radiusWorld;
+	// THE WETNESS HERE (#1615), per vertex, from the point as drawn: object
+	// space, so a bound coat's deformed point -- the leg the body lifted -- is
+	// measured where it is now, as a height above the coat's origin in the
+	// metres the scene measured the water line in (GroomWetnessAt is the twin).
+	v_Wetness = u_GroomWetState.w > 0.5 ? oloGroomWetness(dot(position, u_GroomWetHeight.xyz), u_GroomWetState.x,
+	                                                      u_GroomWetState.y, u_GroomWetState.z)
+	                                    : 0.0;
 }
 
 #type fragment
@@ -488,6 +509,7 @@ void main()
 #include "include/GroomQuat.glsl"
 #include "include/SurfaceCoverageMark.glsl"
 #include "include/GroomSoftIntersection.glsl"
+#include "include/GroomWetness.glsl"
 
 #include "include/BindlessHeap.glsl"
 
@@ -663,6 +685,7 @@ layout(location = 9) in vec3 v_CoatTint;
 layout(location = 10) in vec3 v_CoatRestPos;
 layout(location = 11) flat in vec4 v_CoatRestFrame;
 layout(location = 12) in float v_TubeRadius;
+layout(location = 13) in float v_Wetness;
 
 // ONE block, on the shared PASS-LOCAL slot, declared IDENTICALLY in both
 // stages.
@@ -736,6 +759,16 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	// The scene's ambient ladder (#1618), DeferredLightingPass::AmbientLadderControls:
 	// x = the IBL rung is available, y = the probe rung (DDGI / baked SH) is on, zw unused.
 	vec4 u_GroomAmbient;
+	// Wetness (#1615). u_GroomWetState: x = rain, y = the soaked line in metres
+	// above the coat's origin, z = the band either side of it, w = 1 when any
+	// of the coat is wet -- 0 leaves the strand exactly as it was.
+	// u_GroomWetResponse: x = absorption, y = longitudinal and z = azimuthal
+	// roughness scale at full wetness. u_GroomWetHeight.xyz: the world-up row
+	// of the coat's transform, so an object-space point p stands dot(p, xyz)
+	// metres above the coat's origin.
+	vec4 u_GroomWetState;
+	vec4 u_GroomWetResponse;
+	vec4 u_GroomWetHeight;
 };
 
 vec2 octEncode(vec3 n)
@@ -744,6 +777,25 @@ vec2 octEncode(vec3 n)
 	if (n.z < 0.0)
 		n.xy = (1.0 - abs(n.yx)) * sign(n.xy);
 	return n.xy * 0.5 + 0.5;
+}
+
+// Whether this fragment's coat is wet here at all (#1615). A dry coat takes
+// none of the wet branches, so its arithmetic is exactly what it was.
+bool oloGroomIsWet()
+{
+	return u_GroomWetState.w > 0.5 && v_Wetness > 0.0;
+}
+
+// An ALBEDO -- a tint, the share of light the coat's other fibres forward or
+// send back -- wet: raised to the power its absorption grew by, which is what
+// sigma_a times that factor does to an albedo of exp(-c sigma_a) (#1615).
+vec3 oloGroomWetAlbedo(vec3 albedo)
+{
+	if (!oloGroomIsWet())
+	{
+		return albedo;
+	}
+	return pow(max(albedo, vec3(0.0)), vec3(oloGroomFibreWet(v_Wetness, u_GroomWetResponse).AlbedoPower));
 }
 
 OloGroomFibre oloGroomFibreFromUniforms()
@@ -764,6 +816,18 @@ OloGroomFibre oloGroomFibreFromUniforms()
 	fibre.Sin2kAlpha = u_GroomFibreSinAlpha.xyz;
 	fibre.Cos2kAlpha = u_GroomFibreCosAlpha.xyz;
 	fibre.HSamples = u_GroomFibreModes.y;
+	// WET (#1615): the water film lengthens the path light travels inside the
+	// fibre (sigma_a up: darker, more saturated), fills the cuticle's scales
+	// (longitudinal roughness down: glossier) and takes away the frosted spread
+	// across azimuths (the azimuthal scale down: no soft sheen at grazing).
+	// GroomWetFibre is the twin; GroomWetness.h has the why.
+	if (oloGroomIsWet())
+	{
+		OloGroomWetScales wet = oloGroomFibreWet(v_Wetness, u_GroomWetResponse);
+		fibre.SigmaA *= wet.SigmaA;
+		fibre.V0 *= wet.V0;
+		fibre.S *= wet.S;
+	}
 	return fibre;
 }
 
@@ -1386,8 +1450,11 @@ OloGroomShading oloGroomShadeFibre()
 	{
 		forwardScatter *= v_CoatTint;
 	}
+	// Wet (#1615), the neighbours forward and send back less, as the fibre
+	// itself absorbs more.
+	forwardScatter = oloGroomWetAlbedo(forwardScatter);
 	float densityForward = u_GroomFibreForwardScatter.w;
-	vec3 multipleBackScatter = u_GroomFibreBackScatter.rgb;
+	vec3 multipleBackScatter = oloGroomWetAlbedo(u_GroomFibreBackScatter.rgb);
 	float densityBack = u_GroomFibreBackScatter.w;
 	float sinThetaView = clamp(dot(T, V), -1.0, 1.0);
 	vec3 perpView = V - (T * sinThetaView);
@@ -1580,8 +1647,11 @@ OloGroomShading oloGroomShadeFibre()
 // (oloGroomFibreFromUniforms): the paths through it are not tinted again. The
 // coat's back-scatter is still: it is the neighbours' albedo, which the tint
 // scales as the forwarded light's (oloGroomShadeFibre).
-vec3 oloGroomComposite(OloGroomShading shading, int debugMode, vec3 tint)
+vec3 oloGroomComposite(OloGroomShading shading, int debugMode, vec3 coatTint)
 {
+	// Wet (#1615): the pigment's colour darkens and saturates with the fibre.
+	// Per strand it is already inside sigma_a, which the wet scale took.
+	vec3 tint = oloGroomWetAlbedo(coatTint);
 	vec3 pathTint = (u_GroomFibrePigment.w > 0.5) ? vec3(1.0) : tint;
 	OloGroomFibreLobes tinted = shading.Single;
 	tinted.TT *= pathTint;
@@ -1735,7 +1805,7 @@ void main()
 	}
 	else
 	{
-		colour = u_GroomColor.rgb * ramp;
+		colour = oloGroomWetAlbedo(u_GroomColor.rgb) * ramp;
 	}
 
 	// THE COAT TINT (#1251), applied LAST and to the shaded result — the root
@@ -1759,7 +1829,7 @@ void main()
 	// UNLIT one, whose neutral ramp has no paths to tell apart.
 	if (u_GroomFibreModes.x == 0)
 	{
-		colour *= v_CoatTint;
+		colour *= oloGroomWetAlbedo(v_CoatTint);
 	}
 	// An unlit coat and the tangent diagnostic are not lit, so the whole
 	// colour is the tap's remainder, as emission is.

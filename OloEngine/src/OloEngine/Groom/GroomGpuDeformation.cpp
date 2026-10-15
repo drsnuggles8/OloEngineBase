@@ -4,6 +4,7 @@
 #include "OloEngine/Task/ParallelFor.h"
 
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomWetness.h"
 #include "OloEngine/Math/Math.h"
 
 #include <glm/gtc/quaternion.hpp>
@@ -23,6 +24,8 @@ namespace OloEngine
         constexpr u32 kUnitBytes = 16u;
         constexpr u32 kUnitsPerWeights = 2u;
         constexpr u32 kUnitsPerBind = 2u;
+        constexpr u32 kUnitsPerClump = 1u;
+        constexpr u32 kUnitsPerWet = 4u;
         constexpr u32 kUnitsPerRoot = 4u;
         constexpr u32 kUnitsPerSlot = 1u;
         constexpr u32 kUnitsPerDisplacement = 2u;
@@ -35,6 +38,8 @@ namespace OloEngine
 
         static_assert(sizeof(GroomGuideWeights) == kUnitsPerWeights * kUnitBytes);
         static_assert(sizeof(GroomDeformBindRecord) == kUnitsPerBind * kUnitBytes);
+        static_assert(sizeof(glm::vec4) == kUnitsPerClump * kUnitBytes);
+        static_assert(sizeof(GroomDeformWetRecord) == kUnitsPerWet * kUnitBytes);
         static_assert(sizeof(GroomDeformRootRecord) == kUnitsPerRoot * kUnitBytes);
         static_assert(sizeof(GroomDeformSlotRecord) == kUnitsPerSlot * kUnitBytes);
         static_assert(sizeof(GroomDeformDisplacementRecord) == kUnitsPerDisplacement * kUnitBytes);
@@ -139,6 +144,17 @@ namespace OloEngine
             }
             return result / appliedWeight;
         }
+
+        // Twin of GroomStrandDeform.glsl's oloGroomDeformWetLocal (#1615): the
+        // bind-local point as the coat's wetness at this root lays it down, from
+        // the frame whose root is being evaluated.
+        [[nodiscard]] glm::vec3 DeformWetLocal(const GroomDeformBuffer& buffer, u32 rootSlot, const glm::vec3& origin,
+                                               const glm::quat& rotation, const glm::vec3& local, f32 t) noexcept
+        {
+            const auto clumps = buffer.ClumpGrowth();
+            const glm::vec3 clump = rootSlot < clumps.size() ? glm::vec3(clumps[rootSlot]) : glm::vec3(0.0f);
+            return GroomDeformWetLocal(buffer.Wet(), origin, rotation, clump, local, t);
+        }
     } // namespace
 
     GroomDeformBufferLayout GroomDeformBufferLayout::Make(u32 rootCount, u32 slotCount,
@@ -150,7 +166,10 @@ namespace OloEngine
         layout.DisplacementCapacity = displacementCapacity;
         // GroomStrandDeform.glsl derives BindBase as RootCount * 2; keep them twins.
         layout.BindBase = rootCount * kUnitsPerWeights;
-        layout.RootBase = layout.BindBase + rootCount * kUnitsPerBind;
+        // ...and ClumpBase as RootCount * 4, WetBase as RootCount * 5 (#1615).
+        layout.ClumpBase = layout.BindBase + rootCount * kUnitsPerBind;
+        layout.WetBase = layout.ClumpBase + rootCount * kUnitsPerClump;
+        layout.RootBase = layout.WetBase + kUnitsPerWet;
         layout.SlotBase = layout.RootBase + rootCount * kUnitsPerRoot;
         layout.DisplacementBase = layout.SlotBase + slotCount * kUnitsPerSlot;
         // Never zero units: a zero-sized storage buffer is not a legal
@@ -204,6 +223,9 @@ namespace OloEngine
         m_Weights.Init(GroomGuideWeights{}, static_cast<i32>(layout.RootCount));
         m_BindFrames.Init(GroomDeformBindRecord{}, static_cast<i32>(layout.RootCount));
         m_BindFramesWritten = false;
+        m_ClumpObject.clear();
+        m_Clump.Init(glm::vec4(0.0f), static_cast<i32>(layout.RootCount));
+        m_Wet = GroomDeformWetRecord{};
         m_Roots.Init(GroomDeformRootRecord{}, static_cast<i32>(layout.RootCount));
         m_Slots.Init(GroomDeformSlotRecord{}, static_cast<i32>(layout.SlotCount));
         m_Displacements.Init(GroomDeformDisplacementRecord{}, static_cast<i32>(layout.DisplacementCapacity));
@@ -227,6 +249,41 @@ namespace OloEngine
             }
         }
         WriteRegion(m_CpuOnly, m_Bytes, 0u, AsSpan(m_Weights, layout.RootCount));
+        if (m_HasLayout)
+        {
+            WriteRegion(m_CpuOnly, m_Bytes, layout.WetBase, std::span<const GroomDeformWetRecord>(&m_Wet, 1u));
+        }
+    }
+
+    void GroomDeformBuffer::SetClumpGrowth(std::span<const glm::vec3> objectGrowth)
+    {
+        m_ClumpObject.assign(objectGrowth.begin(), objectGrowth.end());
+        if (!m_BindFramesWritten || !m_HasLayout)
+        {
+            return; // PackFrame takes them into the bind frames as it writes those
+        }
+        // Handed over after the bind frames went up (a coat that got wet on a
+        // live entry): taken into them here, and the caller sends the region.
+        const u32 count = std::min(m_Layout.RootCount, static_cast<u32>(m_ClumpObject.size()));
+        for (u32 slot = 0; slot < count; ++slot)
+        {
+            m_Clump[slot] = glm::vec4(glm::conjugate(UnpackQuat(m_BindFrames[slot].Rotation)) * m_ClumpObject[slot], 0.0f);
+        }
+        WriteRegion(m_CpuOnly, m_Bytes, m_Layout.ClumpBase, AsSpan(m_Clump, m_Layout.RootCount));
+    }
+
+    void GroomDeformBuffer::SetWetness(const GroomDeformWetRecord& wet)
+    {
+        m_Wet = wet;
+        if (m_HasLayout)
+        {
+            WriteRegion(m_CpuOnly, m_Bytes, m_Layout.WetBase, std::span<const GroomDeformWetRecord>(&m_Wet, 1u));
+        }
+    }
+
+    std::span<const glm::vec4> GroomDeformBuffer::ClumpGrowth() const noexcept
+    {
+        return AsSpan(m_Clump, static_cast<sizet>(m_Clump.Num()));
     }
 
     GroomDeformFrameStats GroomDeformBuffer::PackFrame(std::span<const u32> rootCurves,
@@ -262,7 +319,16 @@ namespace OloEngine
                     m_BindFrames[slot].Rotation = PackQuat(rest.RestRotation);
                 }
             }
+            // The clump growth (#1615), into the frame each strand's points are
+            // in -- conjugate(bind rotation), as the rest stream took its points;
+            // the identity frame of a root the binding does not reach included.
+            const u32 clumps = std::min(rootCount, static_cast<u32>(m_ClumpObject.size()));
+            for (u32 slot = 0; slot < clumps; ++slot)
+            {
+                m_Clump[slot] = glm::vec4(glm::conjugate(UnpackQuat(m_BindFrames[slot].Rotation)) * m_ClumpObject[slot], 0.0f);
+            }
             WriteRegion(m_CpuOnly, m_Bytes, m_Layout.BindBase, AsSpan(m_BindFrames, m_Layout.RootCount));
+            WriteRegion(m_CpuOnly, m_Bytes, m_Layout.ClumpBase, AsSpan(m_Clump, m_Layout.RootCount));
             m_BindFramesWritten = true;
         }
         // THE GPU WRITES THE ROOTS (#1533 E1) when the layout carries the surface
@@ -689,9 +755,11 @@ namespace OloEngine
         const GroomDeformRootRecord& root = roots[rootSlot];
         // ApplyGroomRootTransform's second half, verbatim: the first half —
         // conjugate(RestRotation) * (rest - RestOrigin) — was taken once, when
-        // the rest stream was built.
-        glm::vec3 placed = previous ? glm::vec3(root.PrevOrigin) + UnpackQuat(root.PrevRotation) * local
-                                    : glm::vec3(root.Origin) + UnpackQuat(root.Rotation) * local;
+        // the rest stream was built. The point is first wet, as the shader wets
+        // it (#1615): a dry coat's record passes it through untouched.
+        const glm::vec3 origin(previous ? root.PrevOrigin : root.Origin);
+        const glm::quat rotation = UnpackQuat(previous ? root.PrevRotation : root.Rotation);
+        glm::vec3 placed = origin + rotation * DeformWetLocal(buffer, rootSlot, origin, rotation, local, t);
         if (buffer.GetFrameStats().Simulated)
         {
             placed += SampleDisplacement(buffer, rootSlot, t, previous);

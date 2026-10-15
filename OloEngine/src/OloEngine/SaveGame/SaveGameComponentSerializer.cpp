@@ -3373,6 +3373,34 @@ namespace OloEngine
         }
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomWetnessComponent& c)
+    {
+        ar << c.m_Enabled << c.m_AutomaticWaterline << c.m_Waterline << c.m_Band << c.m_RainSoak << c.m_SoakRate
+           << c.m_DryRate << c.m_Darkening << c.m_Gloss << c.m_Sheen << c.m_Flatten << c.m_Shorten << c.m_Clump
+           << c.m_Immersion << c.m_SoakedLine << c.m_Rain;
+        if (ar.IsLoading())
+        {
+            // The scene YAML's clamps, and the default where a value is not finite.
+            const GroomWetnessComponent defaults;
+            const auto clamp = [](f32 value, f32 lo, f32 hi, f32 fallback)
+            { return std::isfinite(value) ? std::clamp(value, lo, hi) : fallback; };
+            c.m_Waterline = std::isfinite(c.m_Waterline) ? c.m_Waterline : defaults.m_Waterline;
+            c.m_Band = clamp(c.m_Band, 0.005f, 1.0f, defaults.m_Band);
+            c.m_RainSoak = clamp(c.m_RainSoak, 0.0f, 1.0f, defaults.m_RainSoak);
+            c.m_SoakRate = clamp(c.m_SoakRate, 0.0f, 100.0f, defaults.m_SoakRate);
+            c.m_DryRate = clamp(c.m_DryRate, 0.0f, 100.0f, defaults.m_DryRate);
+            c.m_Darkening = clamp(c.m_Darkening, 1.0f, 8.0f, defaults.m_Darkening);
+            c.m_Gloss = clamp(c.m_Gloss, 0.05f, 1.0f, defaults.m_Gloss);
+            c.m_Sheen = clamp(c.m_Sheen, 0.05f, 1.0f, defaults.m_Sheen);
+            c.m_Flatten = clamp(c.m_Flatten, 0.0f, 1.0f, defaults.m_Flatten);
+            c.m_Shorten = clamp(c.m_Shorten, 0.0f, 0.9f, defaults.m_Shorten);
+            c.m_Clump = clamp(c.m_Clump, 0.0f, 1.0f, defaults.m_Clump);
+            c.m_Immersion = clamp(c.m_Immersion, 0.0f, 1.0f, 0.0f);
+            c.m_SoakedLine = clamp(c.m_SoakedLine, -1000000.0f, 1000000.0f, defaults.m_SoakedLine);
+            c.m_Rain = clamp(c.m_Rain, 0.0f, 1.0f, 0.0f);
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, FluidComponent& c)
     {
         ar << c.m_Enabled << c.m_Settings;
@@ -5350,6 +5378,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(VirtualMeshComponent);
         REGISTER_SAVE_COMPONENT(GroomComponent);
         REGISTER_SAVE_COMPONENT(GroomSoftIntersectionComponent);
+        REGISTER_SAVE_COMPONENT(GroomWetnessComponent);
         REGISTER_SAVE_COMPONENT(GroomBindingComponent);
         REGISTER_SAVE_COMPONENT(GroomFibreComponent);
         REGISTER_SAVE_COMPONENT(GroomCoatShadowComponent);

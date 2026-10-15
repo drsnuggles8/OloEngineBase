@@ -577,6 +577,28 @@ if (entity.HasComponent<GroomSoftIntersectionComponent>())
     SceneBinIO::Write(out, comp.m_Automatic);
 }
 
+if (entity.HasComponent<GroomWetnessComponent>())
+{
+    SceneBinIO::WriteU32(out, 658781743u); // GroomWetnessComponent
+    auto const& comp = entity.GetComponent<GroomWetnessComponent>();
+    SceneBinIO::Write(out, comp.m_Enabled);
+    SceneBinIO::Write(out, comp.m_AutomaticWaterline);
+    SceneBinIO::Write(out, comp.m_Waterline);
+    SceneBinIO::Write(out, comp.m_Band);
+    SceneBinIO::Write(out, comp.m_RainSoak);
+    SceneBinIO::Write(out, comp.m_SoakRate);
+    SceneBinIO::Write(out, comp.m_DryRate);
+    SceneBinIO::Write(out, comp.m_Darkening);
+    SceneBinIO::Write(out, comp.m_Gloss);
+    SceneBinIO::Write(out, comp.m_Sheen);
+    SceneBinIO::Write(out, comp.m_Flatten);
+    SceneBinIO::Write(out, comp.m_Shorten);
+    SceneBinIO::Write(out, comp.m_Clump);
+    SceneBinIO::Write(out, comp.m_Immersion);
+    SceneBinIO::Write(out, comp.m_SoakedLine);
+    SceneBinIO::Write(out, comp.m_Rain);
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     SceneBinIO::WriteU32(out, 1784713623u); // InstancePortalComponent

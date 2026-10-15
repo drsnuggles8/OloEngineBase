@@ -25,6 +25,8 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomPreview.h"
+#include "OloEngine/Groom/GroomWetness.h"
+#include "OloEngine/Physics3D/WaterProbe.h"
 #include "OloEngine/Asset/InstancePlacementAsset.h"
 #include "OloEngine/Tilemap/TilemapRenderer.h"
 #include "OloEngine/Tilemap/TilemapColliderBuilder.h"
@@ -4098,6 +4100,19 @@ namespace OloEngine
                 .Reads(kSkeletonPose)
                 .Writes(kWorldTransforms);
 
+            // Waterline-driven wet coats (issue #1615): every coat with a
+            // GroomWetnessComponent finds the water it stands in from THIS
+            // tick's world transforms -- after propagation, so a dog that just
+            // walked out of the lake is measured where it now is -- and advances
+            // its wetness with the weather's own integrator, reading the
+            // wetness the Weather system wrote this tick. Writes nothing but
+            // GroomWetnessComponent state, which only the render submission
+            // reads. Game thread (unmarked): it samples the water tiles.
+            sched.AddSystem("GroomWetness", [](Scene& s, Timestep ts)
+                            { s.UpdateGroomWetness(ts); })
+                .Reads(kWorldTransforms)
+                .Reads(kWeather);
+
             // Navigation reads agent positions AND writes them (crowd sync +
             // manual path following move TransformComponent.Translation). The
             // write is why it must stay out of the physics shadow, and it gives
@@ -4514,6 +4529,86 @@ namespace OloEngine
         {
             OLO_PROFILE_SCOPE("SubtitleSystem::Update");
             m_SubtitleSystem->Update(*this, ts);
+        }
+    }
+
+    // The floor a coat's wet line recedes to as it dries (#1615): its lowest
+    // point at rest, from the asset's bounds, on the coat's own up axis, one
+    // band below it so the last of the edge leaves the coat before the line is
+    // gone. A coat whose asset is not loaded measures from its origin.
+    static f32 GroomWetnessBottom(AssetHandle handle, const GroomWetnessAxis& axis, f32 band)
+    {
+        f32 lowest = 0.0f;
+        if (static_cast<u64>(handle) != 0u)
+        {
+            if (const Ref<GroomAsset> groom = AssetManager::GetAsset<GroomAsset>(handle))
+            {
+                lowest = GroomWetnessLowest(axis, groom->GetBoundsMin(), groom->GetBoundsMax());
+            }
+        }
+        const f32 edge = std::isfinite(band) ? std::clamp(band, GroomWetnessLimits::MinBand, GroomWetnessLimits::MaxBand)
+                                             : GroomWetnessLimits::MinBand;
+        return (std::isfinite(lowest) ? lowest : 0.0f) - edge;
+    }
+
+    void Scene::UpdateGroomWetness(Timestep ts)
+    {
+        OLO_PROFILE_FUNCTION();
+        auto coats = m_Registry.view<GroomWetnessComponent, GroomComponent>();
+        if (coats.begin() == coats.end())
+        {
+            return;
+        }
+        // The scene's surface wetness, if it has weather (WeatherSystem::Tick
+        // integrated it this tick); the coat takes its soak's share of it.
+        f32 weatherWetness = 0.0f;
+        for (const auto entity : m_Registry.view<WeatherStateComponent>())
+        {
+            const f32 wetness = m_Registry.get<WeatherStateComponent>(entity).m_Wetness;
+            weatherWetness = std::isfinite(wetness) ? std::clamp(wetness, 0.0f, 1.0f) : 0.0f;
+            break;
+        }
+        // The water: the surface buoyancy floats bodies on (WaterProbe), waves
+        // and FFT ocean included, so a coat is wet exactly as deep as a boat
+        // beside it sits.
+        const std::vector<WaterProbe::Volume> waters = WaterProbe::CollectEnabledVolumes(this);
+        for (const auto entity : coats)
+        {
+            auto& wet = coats.get<GroomWetnessComponent>(entity);
+            if (!wet.m_Enabled)
+            {
+                continue;
+            }
+            const auto& groom = coats.get<GroomComponent>(entity);
+            const GroomWetnessAxis axis = MakeGroomWetnessAxis(GetWorldTransform(entity));
+
+            std::optional<f32> waterline;
+            if (wet.m_AutomaticWaterline)
+            {
+                if (const WaterProbe::Volume* water = WaterProbe::FindVolumeAt(waters, axis.Origin))
+                {
+                    waterline = GroomWetnessLocalHeight(
+                        axis, WaterProbe::SampleSurfaceY(*water, glm::vec2(axis.Origin.x, axis.Origin.z), m_SimulationTime));
+                }
+            }
+            else
+            {
+                waterline = GroomWetnessLocalHeight(axis, wet.m_Waterline);
+            }
+
+            GroomWetnessInputs inputs;
+            inputs.Waterline = waterline;
+            inputs.Bottom = GroomWetnessBottom(groom.m_Groom, axis, wet.m_Band);
+            inputs.RainTarget = weatherWetness * wet.m_RainSoak;
+            inputs.SoakRate = wet.m_SoakRate;
+            inputs.DryRate = wet.m_DryRate;
+            inputs.DeltaSeconds = ts.GetSeconds();
+
+            GroomWetnessState state{ wet.m_Immersion, wet.m_SoakedLine, wet.m_Rain };
+            AdvanceGroomWetness(state, inputs);
+            wet.m_Immersion = state.Immersion;
+            wet.m_SoakedLine = state.SoakedLine;
+            wet.m_Rain = state.Rain;
         }
     }
 
@@ -9527,6 +9622,24 @@ namespace OloEngine
                                                         ? std::clamp(intersection->m_ProtectedRoot, 0.0f, 1.0f)
                                                         : 0.25f;
             }
+            // The coat's wetness this frame (#1615), from the state the scene
+            // advanced -- or, in the editor, the state the inspector holds.
+            if (const auto* wet = m_Registry.try_get<GroomWetnessComponent>(entity); wet != nullptr && wet->m_Enabled)
+            {
+                const GroomWetnessAxis axis = MakeGroomWetnessAxis(worldTransform);
+                const GroomWetnessState state{ wet->m_Immersion, wet->m_SoakedLine, wet->m_Rain };
+                request.Wetness.Rain = state.Rain;
+                request.Wetness.Line = GroomWetnessLine(state, GroomWetnessBottom(groomComponent.m_Groom, axis, wet->m_Band));
+                request.Wetness.Band = wet->m_Band;
+                request.Wetness.Height = axis.Height;
+                request.WetResponse.Absorption = wet->m_Darkening;
+                request.WetResponse.Roughness = wet->m_Gloss;
+                request.WetResponse.Azimuthal = wet->m_Sheen;
+                request.WetResponse.Flatten = wet->m_Flatten;
+                request.WetResponse.Shorten = wet->m_Shorten;
+                request.WetResponse.Clump = wet->m_Clump;
+                request.WetGravity = GroomWetGravityObject(worldTransform);
+            }
             request.EntityID = entityID;
             request.RequestedMode = RequestedGroomMode(groomComponent);
             request.Build.MaxStrands = groomComponent.m_MaxRenderStrands;
@@ -10198,6 +10311,23 @@ namespace OloEngine
         }
 
         const GroomSimulationParams params = MakeGroomSimulationParams(*component);
+        // HEAVIER WHEN WET (#1615): each guide's spring is weakened by the
+        // wetness at its own root, below in the guide loop. Dry coats: no frame.
+        std::optional<GroomWetnessFrame> wetFrame;
+        if (const auto* wet = m_Registry.try_get<GroomWetnessComponent>(groomEntity); wet != nullptr && wet->m_Enabled)
+        {
+            const GroomWetnessAxis axis = MakeGroomWetnessAxis(request.Transform);
+            GroomWetnessFrame frame;
+            frame.Rain = wet->m_Rain;
+            frame.Line = GroomWetnessLine(GroomWetnessState{ wet->m_Immersion, wet->m_SoakedLine, wet->m_Rain },
+                                          GroomWetnessBottom(request.Handle, axis, wet->m_Band));
+            frame.Band = wet->m_Band;
+            frame.Height = axis.Height;
+            if (frame.Any())
+            {
+                wetFrame = frame;
+            }
+        }
 
         // == The targets: the groomed coat, carried by the body, in WORLD space ==
         //
@@ -10267,7 +10397,13 @@ namespace OloEngine
             }
             offsets.Add(static_cast<u32>(state.m_Targets.Num()));
             guideCurves.Add(curve);
-            stiffnessScales.Add(coat.GroupDesc(groupIds[curve]).StiffnessScale);
+            f32 stiffnessScale = coat.GroupDesc(groupIds[curve]).StiffnessScale;
+            if (wetFrame)
+            {
+                const glm::vec3 rootObject = ApplyGroomRootTransform(binding.GetRoot(curve), transform, root, false);
+                stiffnessScale *= GroomWetGuideStiffness(GroomWetnessAt(glm::dot(rootObject, wetFrame->Height), *wetFrame));
+            }
+            stiffnessScales.Add(stiffnessScale);
         }
 
         // == The body proxy, re-fitted only when the surface's identity moved ==

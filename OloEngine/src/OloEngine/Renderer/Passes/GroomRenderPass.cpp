@@ -325,6 +325,31 @@ namespace OloEngine
         return CacheKey(request, true);
     }
 
+    const std::vector<glm::vec3>& GroomRenderPass::AcquireClumpGrowth(const GroomStrandRequest& request)
+    {
+        // The asset, the coat that shapes it and the guides-only switch are all
+        // a clump table depends on (ComputeGroomClumpGrowth).
+        u64 key = static_cast<u64>(request.Handle);
+        key ^= GroomCoatDigest(request.Coat) + 0x9E3779B97F4A7C15ull + (key << 6) + (key >> 2);
+        key ^= (request.Build.GuidesOnly ? 0xD1B54A32D192ED03ull : 0ull) + (key << 6) + (key >> 2);
+        if (const auto it = m_ClumpGrowth.find(key); it != m_ClumpGrowth.end())
+        {
+            return it->second;
+        }
+        // Only wet coats ask, and a scene holds a handful: forgetting them all
+        // past a few dozen keeps a long editing session from accumulating one
+        // per coat setting ever tried.
+        if (m_ClumpGrowth.size() >= 32u)
+        {
+            m_ClumpGrowth.clear();
+        }
+        OLO_PERF_SCOPE_AUTO("Groom::ClumpGrowth");
+        const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
+        std::vector<glm::vec3>& growth = m_ClumpGrowth[key];
+        ComputeGroomClumpGrowth(request.Groom->GetCurveView(), request.Build, &coat, growth);
+        return growth;
+    }
+
     u64 GroomRenderPass::CacheKey(const GroomStrandRequest& request, bool gpuDeformation) noexcept
     {
         // Handle AND settings. Two entities may reference one groom asset at
@@ -756,6 +781,7 @@ namespace OloEngine
             const GroomDeformBufferLayout layout = GroomDeformBufferLayout::Make(
                 rootCount, table != nullptr ? table->GetGuideCount() : 0u, capacity, vertexCount, boneCount);
             entry.DeformCpu.Reset(layout, rootCurves, table);
+            entry.DeformClumpWritten = false;
             entry.DeformWeightsFrom = simulated ? request.Influence : Ref<GroomGuideInfluenceTable>{};
             if (rootsOnGpu)
             {
@@ -792,6 +818,29 @@ namespace OloEngine
             // by the same `Bytes` subtraction every eviction already makes.
             entry.Bytes = entry.Bytes - std::min(entry.Bytes, oldBytes) + newBytes;
             m_CacheBytes = m_CacheBytes - std::min(m_CacheBytes, oldBytes) + newBytes;
+        }
+
+        // THE COAT'S WETNESS (#1615), the frame's record -- dry for a coat with
+        // none -- and, the first time this layout meets a coat that gathers its
+        // tufts, every drawn strand's clump growth. On a fresh layout PackFrame
+        // takes them into the bind frames with the relayout upload; on a live one
+        // SetClumpGrowth does, and the static region goes up below.
+        entry.DeformCpu.SetWetness(MakeGroomDeformWetRecord(request.Wetness, request.WetResponse, request.WetGravity));
+        bool clumpRegionChanged = false;
+        if (request.Wetness.Any() && request.WetResponse.Clump > 0.0f && !entry.DeformClumpWritten)
+        {
+            const std::vector<glm::vec3>& growth = AcquireClumpGrowth(request);
+            std::vector<glm::vec3> perSlot(rootCount, glm::vec3(0.0f));
+            for (u32 slot = 0; slot < rootCount; ++slot)
+            {
+                if (rootCurves[slot] < growth.size())
+                {
+                    perSlot[slot] = growth[rootCurves[slot]];
+                }
+            }
+            entry.DeformCpu.SetClumpGrowth(perSlot);
+            entry.DeformClumpWritten = true;
+            clumpRegionChanged = !relayout;
         }
 
         // Packed from the producer's transforms, which cover every drawn root
@@ -878,6 +927,10 @@ namespace OloEngine
             }
             else
             {
+                if (clumpRegionChanged)
+                {
+                    send(static_cast<u64>(layout.ClumpBase) * 16u, layout.DynamicOffsetBytes());
+                }
                 const u64 usedEnd = (static_cast<u64>(layout.DisplacementBase) +
                                      static_cast<u64>(entry.DeformCpu.GetFrameStats().DisplacementCount) * 2u) *
                                     16u;
@@ -886,6 +939,9 @@ namespace OloEngine
                 send(begin, std::max(usedEnd, begin));
                 if (layout.RootsOnGpu())
                 {
+                    // The wet record (#1615) sits just before the root region the
+                    // kernel writes, so it goes up on its own.
+                    send(layout.DynamicOffsetBytes(), layout.WetEndBytes());
                     send(layout.PaletteOffsetBytes(), bytes.size());
                 }
             }
@@ -1209,6 +1265,18 @@ namespace OloEngine
             // Evaluated here when the producer left the drawn roots to the GPU
             // (#1533 E1) and this coat takes the CPU path after all.
             deformation.RootTransforms = GroomCpuRootTransforms(request, std::nullopt, m_CpuRootScratch, CpuSkinScratch());
+        }
+        // A wet coat (#1615) on the CPU path: the same record and the same clump
+        // growth the GPU path's buffer carries, applied by the same function.
+        const GroomDeformWetRecord wetRecord =
+            MakeGroomDeformWetRecord(request.Wetness, request.WetResponse, request.WetGravity);
+        if (deformed && wetRecord.Frame.w > 0.5f)
+        {
+            deformation.Wet = &wetRecord;
+            if (request.WetResponse.Clump > 0.0f)
+            {
+                deformation.ClumpGrowth = AcquireClumpGrowth(request);
+            }
         }
 
         // A DEFORMED build writes straight into the caller's stream, because
@@ -2710,6 +2778,20 @@ namespace OloEngine
             // The rung the body's ambient ladder takes (#1618): the same
             // controls the deferred pass, the terrain and the foliage read.
             params.Ambient = glm::vec4(glm::vec2(ambientLadder), 0.0f, 0.0f);
+            // The coat's wetness (#1615): the fibre's optical response per
+            // vertex, from the same frame the deformation laid it down with.
+            {
+                const GroomDeformWetRecord wet =
+                    MakeGroomDeformWetRecord(request.Wetness, request.WetResponse, request.WetGravity);
+                params.WetState = wet.Frame;
+                params.WetHeight = wet.Height;
+                const GroomWetResponse& response = request.WetResponse;
+                const auto sane = [](f32 value, f32 lo, f32 hi, f32 fallback)
+                { return std::isfinite(value) ? std::clamp(value, lo, hi) : fallback; };
+                params.WetResponse = glm::vec4(
+                    sane(response.Absorption, GroomWetnessLimits::MinAbsorption, GroomWetnessLimits::MaxAbsorption, 1.0f),
+                    sane(response.Roughness, 0.05f, 1.0f, 1.0f), sane(response.Azimuthal, 0.05f, 1.0f, 1.0f), 0.0f);
+            }
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),
                                           static_cast<i32>(m_FrameState.FrameIndex),
                                           static_cast<i32>(kStochasticSeed), 0);

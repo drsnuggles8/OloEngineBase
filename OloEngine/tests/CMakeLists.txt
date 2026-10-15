@@ -787,6 +787,11 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GroomSceneLightingEvidenceTest.cpp
 		Rendering/PropertyTests/GroomAmbientShaderTest.cpp
 		Groom/GroomSoftIntersectionSerializationTest.cpp
+		# Waterline-driven wet coats (#1615): the wetting curve, the response,
+		# the wet strand's lie and the component in every format.
+		Groom/GroomWetnessTest.cpp
+		Rendering/PropertyTests/GroomWetnessShaderTest.cpp
+		Rendering/PropertyTests/GroomWetnessVisualEvidenceTest.cpp
 		Rendering/PropertyTests/GroomFibreVisualEvidenceTest.cpp
 		# Dense-coat self-shadowing (#1248). The GL x {Forward, Forward+,
 		# Deferred} cells plus the MSAA and non-native-resolution ones, and the

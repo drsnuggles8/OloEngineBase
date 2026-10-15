@@ -800,6 +800,40 @@ case 325289423u: // GroomSoftIntersectionComponent
     if (!SceneBinIO::Read(reader, comp.m_Automatic)) return false;
     break;
 }
+case 658781743u: // GroomWetnessComponent
+{
+    auto& comp = deserializedEntity.AddComponent<GroomWetnessComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_AutomaticWaterline)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Waterline)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Band)) return false;
+    comp.m_Band = std::clamp(comp.m_Band, static_cast<f32>(0.005f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_RainSoak)) return false;
+    comp.m_RainSoak = std::clamp(comp.m_RainSoak, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SoakRate)) return false;
+    comp.m_SoakRate = std::clamp(comp.m_SoakRate, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_DryRate)) return false;
+    comp.m_DryRate = std::clamp(comp.m_DryRate, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Darkening)) return false;
+    comp.m_Darkening = std::clamp(comp.m_Darkening, static_cast<f32>(1.0f), static_cast<f32>(8.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Gloss)) return false;
+    comp.m_Gloss = std::clamp(comp.m_Gloss, static_cast<f32>(0.05f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Sheen)) return false;
+    comp.m_Sheen = std::clamp(comp.m_Sheen, static_cast<f32>(0.05f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Flatten)) return false;
+    comp.m_Flatten = std::clamp(comp.m_Flatten, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Shorten)) return false;
+    comp.m_Shorten = std::clamp(comp.m_Shorten, static_cast<f32>(0.0f), static_cast<f32>(0.9f));
+    if (!SceneBinIO::Read(reader, comp.m_Clump)) return false;
+    comp.m_Clump = std::clamp(comp.m_Clump, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Immersion)) return false;
+    comp.m_Immersion = std::clamp(comp.m_Immersion, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (!SceneBinIO::Read(reader, comp.m_SoakedLine)) return false;
+    comp.m_SoakedLine = std::clamp(comp.m_SoakedLine, static_cast<f32>(-1000000.0f), static_cast<f32>(1000000.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Rain)) return false;
+    comp.m_Rain = std::clamp(comp.m_Rain, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    break;
+}
 case 1784713623u: // InstancePortalComponent
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();

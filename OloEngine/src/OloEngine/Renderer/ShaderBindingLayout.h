@@ -1701,6 +1701,16 @@ namespace OloEngine
             // AmbientLadderControls' x (IBL rung available) and y (probe rung
             // on), so a coat's ambient comes from the rung its body's does.
             glm::vec4 Ambient{ 0.0f };
+            // Wetness (#1615). WetState: x = rain, y = the soaked line in metres
+            // above the coat's origin, z = the band either side of it, w = 1
+            // when any of the coat is wet (0: the strand shades exactly as a
+            // coat with no wetness did). WetResponse: x = absorption, y =
+            // longitudinal and z = azimuthal roughness scale at full wetness.
+            // WetHeight.xyz: the world-up row of the coat's transform, the
+            // height an object-space point is measured on (GroomWetnessAxis).
+            glm::vec4 WetState{ 0.0f, -1.0e6f, 0.05f, 0.0f };
+            glm::vec4 WetResponse{ 1.0f, 1.0f, 1.0f, 0.0f };
+            glm::vec4 WetHeight{ 0.0f, 1.0f, 0.0f, 0.0f };
 
             static constexpr u32 GetSize()
             {
@@ -1710,17 +1720,17 @@ namespace OloEngine
 
         static_assert(sizeof(GroomStrandParamsUBO) % 16 == 0,
                       "GroomStrandParamsUBO must be 16-byte aligned for std140");
-        // 656 B, cumulatively: 208 through #1246's lanes, 288 with #1247's
+        // 704 B, cumulatively: 208 through #1246's lanes, 288 with #1247's
         // five fibre lanes, 400 with #1248's coat-shadow block (one mat4 and
         // three vec4-sized lanes), 432 with #1427's two deformation lanes, 480
         // with #1533's three dual-scattering lanes, 624 with #1558's pigment
-        // lane and eight-lane table, 640 with #1614's soft-intersection lane
-        // and 656 with #1618's ambient-ladder lane. Every lane is vec4-sized or
-        // a mat4, so the std140 layout is the C++ layout and the number is a
-        // plain sum — which is what makes this assertion able to catch a lane
-        // added to one side and not the other.
-        static_assert(sizeof(GroomStrandParamsUBO) == 656,
-                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (656 B)");
+        // lane and eight-lane table, 640 with #1614's soft-intersection lane,
+        // 656 with #1618's ambient-ladder lane and 704 with #1615's three wetness
+        // lanes. Every lane is vec4-sized or a mat4, so the std140 layout is the
+        // C++ layout and the number is a plain sum — which is what makes this
+        // assertion able to catch a lane added to one side and not the other.
+        static_assert(sizeof(GroomStrandParamsUBO) == 704,
+                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (704 B)");
 
         // @brief One groom shadow-caster draw (issue #1323), uploaded at
         // UBO_USER_0 (7). GLSL twin: the GroomShadowParams block, declared

@@ -64,6 +64,7 @@ void VisitComponentTypes(Visitor&& visitor)
     visitor.template operator()<GroomSceneShadowComponent, true>("GroomSceneShadowComponent");
     visitor.template operator()<GroomSimulationComponent, true>("GroomSimulationComponent");
     visitor.template operator()<GroomSoftIntersectionComponent, true>("GroomSoftIntersectionComponent");
+    visitor.template operator()<GroomWetnessComponent, true>("GroomWetnessComponent");
     visitor.template operator()<IDComponent, false>("IDComponent");
     visitor.template operator()<IKTargetComponent, true>("IKTargetComponent");
     visitor.template operator()<ImpactDecalComponent, false>("ImpactDecalComponent");

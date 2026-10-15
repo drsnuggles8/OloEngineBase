@@ -37,6 +37,10 @@
 //   [BindBase, +2R)         GroomDeformBindRecord per strand — STATIC, the
 //                           root's bind frame (#1533), written by the first
 //                           PackFrame after a Reset
+//   [ClumpBase, +R)         the strand's clump growth in its bind frame —
+//                           STATIC, what a wet coat gathers its tips toward
+//                           (#1615), written with the bind frames
+//   [WetBase, +4)           GroomDeformWetRecord, the coat's wetness  } per
 //   [RootBase, +4R)         GroomDeformRootRecord per strand          } per
 //   [SlotBase, +S)          GroomDeformSlotRecord per guide slot      } frame
 //   [DisplacementBase, +2D) GroomDeformDisplacementRecord per point   }
@@ -66,6 +70,7 @@
 #include "OloEngine/Groom/GroomDeformation.h"
 #include "OloEngine/Groom/GroomGuideInfluence.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
+#include "OloEngine/Groom/GroomWetness.h"
 
 #include <glm/glm.hpp>
 
@@ -159,6 +164,9 @@ namespace OloEngine
         /// Always RootCount * 2: the shader derives it from the root count, so it
         /// needs no lane of its own (see oloGroomDeformLayout).
         u32 BindBase = 0;
+        /// RootCount * 4 and RootCount * 5, derived the same way (#1615).
+        u32 ClumpBase = 0;
+        u32 WetBase = 0;
         u32 RootBase = 0;
         u32 SlotBase = 0;
         u32 DisplacementBase = 0;
@@ -193,8 +201,14 @@ namespace OloEngine
         {
             return static_cast<u64>(TotalUnits) * 16u;
         }
-        /// The per-frame part: everything from the first root record on.
+        /// The per-frame part: everything from the wet record on.
         [[nodiscard]] u64 DynamicOffsetBytes() const noexcept
+        {
+            return static_cast<u64>(WetBase) * 16u;
+        }
+        /// The wet record's end, for a layout whose roots the GPU writes: the
+        /// record is sent on its own, the root region not at all.
+        [[nodiscard]] u64 WetEndBytes() const noexcept
         {
             return static_cast<u64>(RootBase) * 16u;
         }
@@ -276,6 +290,16 @@ namespace OloEngine
                              const GroomSurfaceView& surface, const GroomSkinningView& skinning,
                              u32 baseCurveCount);
 
+        /// Each drawn strand's clump growth in groom object space at rest
+        /// (ComputeGroomClumpGrowth), in root-slot order (#1615). Taken into
+        /// each root's bind frame and written to the static region with the bind
+        /// frames, so call it after Reset and before the first PackFrame. Empty
+        /// leaves every record zero: no clump to gather toward.
+        void SetClumpGrowth(std::span<const glm::vec3> objectGrowth);
+
+        /// This frame's wetness (#1615), into its record.
+        void SetWetness(const GroomDeformWetRecord& wet);
+
         /// Writes this frame's palette and last frame's into the palette region;
         /// `previous` empty or short writes the current palette in its place.
         void WritePalette(std::span<const glm::mat4> current, std::span<const glm::mat4> previous);
@@ -307,6 +331,7 @@ namespace OloEngine
         [[nodiscard]] u64 GetCpuBytes() const noexcept
         {
             return static_cast<u64>(m_Weights.GetAllocatedSize() + m_BindFrames.GetAllocatedSize() +
+                                    m_Clump.GetAllocatedSize() +
                                     m_Roots.GetAllocatedSize() + m_Slots.GetAllocatedSize() +
                                     m_Displacements.GetAllocatedSize() + m_Bytes.GetAllocatedSize()) +
                    static_cast<u64>(m_CountedGuideOfSlot.capacity()) * sizeof(u32);
@@ -319,6 +344,12 @@ namespace OloEngine
 
         [[nodiscard]] std::span<const GroomGuideWeights> Weights() const noexcept;
         [[nodiscard]] std::span<const GroomDeformBindRecord> BindFrames() const noexcept;
+        /// The clump records, bind-local (w unused).
+        [[nodiscard]] std::span<const glm::vec4> ClumpGrowth() const noexcept;
+        [[nodiscard]] const GroomDeformWetRecord& Wet() const noexcept
+        {
+            return m_Wet;
+        }
         /// The CPU-packed root records. Identity frames when the layout's
         /// RootsOnGpu(): the GPU writes that region, and nothing reads it back.
         [[nodiscard]] std::span<const GroomDeformRootRecord> Roots() const noexcept;
@@ -346,6 +377,11 @@ namespace OloEngine
         // PackFrame after it writes them, into the region the relayout upload
         // sends whole.
         bool m_BindFramesWritten = false;
+        // The clump growth as it was handed over, in object space, taken into
+        // the bind frames when those are written (#1615).
+        std::vector<glm::vec3> m_ClumpObject;
+        TArray<glm::vec4> m_Clump;
+        GroomDeformWetRecord m_Wet;
         bool m_CpuOnly = false;
         bool m_HasLayout = false;
         TArray<GroomDeformRootRecord> m_Roots;

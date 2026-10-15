@@ -362,6 +362,51 @@ namespace OloEngine
         }
     } // namespace
 
+    void ComputeGroomClumpGrowth(const GroomCurveView& groom, const GroomStrandBuildSettings& settings,
+                                 const GroomCoatContext* coat, std::vector<glm::vec3>& outGrowth)
+    {
+        const u32 curveCount = groom.GetCurveCount();
+        outGrowth.assign(curveCount, glm::vec3(0.0f));
+        // The coat's own clumps where it has them, so a wet coat deepens the
+        // tufts it was groomed with (BuildClumpTable); the default cell at the
+        // cooked length otherwise.
+        const bool active = coat != nullptr && coat->IsActive();
+        const f32 cellSize = active ? coat->Settings->ClumpCellSize : GroomCoatSettings{}.ClumpCellSize;
+        const auto& points = groom.GetPoints();
+        ClumpTable table;
+        std::vector<u8> kept(curveCount, 0u);
+        std::vector<f32> lengths(curveCount, 1.0f);
+        for (u32 curve = 0; curve < curveCount; ++curve)
+        {
+            if (!CurveIsEligible(groom, curve, settings))
+            {
+                continue;
+            }
+            if (active)
+            {
+                const CurveCoat curveCoat = CoatOfCurve(groom, curve, coat);
+                if (!curveCoat.Params.Keep)
+                {
+                    continue;
+                }
+                lengths[curve] = curveCoat.Params.Length;
+            }
+            const u32 first = groom.GetCurveFirstPoint(curve);
+            const u32 count = groom.GetCurvePointCount(curve);
+            GroomCoatClumpAccum& accum = table[ClumpKeyOf(groom, curve, cellSize)];
+            accum.GrowthSum += (points[first + count - 1u] - points[first]) * lengths[curve];
+            ++accum.Count;
+            kept[curve] = 1u;
+        }
+        for (u32 curve = 0; curve < curveCount; ++curve)
+        {
+            if (kept[curve] != 0u)
+            {
+                outGrowth[curve] = ClumpGrowthFor(table, groom, curve, cellSize);
+            }
+        }
+    }
+
     GroomBuildSource GroomBuildSource::FromAsset(const GroomAsset& groom) noexcept
     {
         GroomBuildSource source;
@@ -1025,6 +1070,12 @@ namespace OloEngine
         const GroomRootBinding* record = nullptr;
         const GroomRootTransform* transform = nullptr;
         bool curveSimulated = false;
+        // A wet coat (#1615): the record the GPU path reads from its buffer,
+        // applied here through the same function, and this curve's clump growth
+        // in its root's bind frame.
+        const GroomDeformWetRecord* wet =
+            (deformed && deformation->Wet != nullptr && deformation->Wet->Frame.w > 0.5f) ? deformation->Wet : nullptr;
+        glm::vec3 curveClump{ 0.0f };
 
         GroomStrandMeshStats stats;
         const auto onCurve = [&](u32 /*curve*/, u32 sourceCurve)
@@ -1047,6 +1098,9 @@ namespace OloEngine
             {
                 record = &deformation->Binding->GetRoot(sourceCurve);
                 transform = &deformation->RootTransforms[sourceCurve];
+                curveClump = (wet != nullptr && sourceCurve < deformation->ClumpGrowth.size())
+                                 ? glm::conjugate(record->RestRotation) * deformation->ClumpGrowth[sourceCurve]
+                                 : glm::vec3(0.0f);
                 if (!transform->Valid)
                 {
                     // Held at rest, and counted, exactly as
@@ -1089,6 +1143,19 @@ namespace OloEngine
                 glm::vec3 placed = transform != nullptr
                                        ? ApplyGroomRootTransform(*record, *transform, restPoint, previous)
                                        : restPoint;
+                if (wet != nullptr && transform != nullptr)
+                {
+                    // ApplyGroomRootTransform with the bind-local point wet in
+                    // between, as GroomStrandDeform.glsl places it: the frame is
+                    // this frame's (or last frame's) root, or the bind frame for
+                    // a root held at rest -- the record the GPU path carries then.
+                    const glm::vec3 local = glm::conjugate(record->RestRotation) * (restPoint - record->RestOrigin);
+                    const bool valid = transform->Valid;
+                    const glm::vec3 origin = valid ? (previous ? transform->PrevOrigin : transform->Origin) : record->RestOrigin;
+                    const glm::quat rotation = valid ? (previous ? transform->PrevRotation : transform->Rotation)
+                                                     : record->RestRotation;
+                    placed = origin + rotation * GroomDeformWetLocal(*wet, origin, rotation, curveClump, local, t);
+                }
                 // ADDED TO the deformed rest position, never substituted for it.
                 // The displacement is measured from that same position, so a
                 // guide at rest contributes exactly zero and the coat is the one

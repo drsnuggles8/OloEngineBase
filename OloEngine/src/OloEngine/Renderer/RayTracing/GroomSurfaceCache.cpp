@@ -304,6 +304,30 @@ namespace OloEngine::RayTracing
                 entry.DeformGpu.Reset(); // sized to the new layout below
                 entry.DeformWeightsFrom = weightsFrom;
                 entry.DeformRelayout = false;
+                entry.DeformClumpWritten = false;
+            }
+            // A wet coat (#1615): the proxy is laid down as the drawn coat is,
+            // from the same record and the same clump growth. Late clump records
+            // on a live layout send the whole image again, the static region
+            // with them.
+            entry.DeformCpu.SetWetness(MakeGroomDeformWetRecord(request.Wetness, request.WetResponse, request.WetGravity));
+            if (request.Wetness.Any() && request.WetResponse.Clump > 0.0f && !entry.DeformClumpWritten)
+            {
+                OLO_PERF_SCOPE_AUTO("GroomProxy::ClumpGrowth");
+                const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
+                std::vector<glm::vec3> growth;
+                ComputeGroomClumpGrowth(request.Groom->GetCurveView(), request.Build, &coat, growth);
+                std::vector<glm::vec3> perSlot(rootCount, glm::vec3(0.0f));
+                for (u32 slot = 0; slot < rootCount; ++slot)
+                {
+                    if (entry.RootCurves[slot] < growth.size())
+                    {
+                        perSlot[slot] = growth[entry.RootCurves[slot]];
+                    }
+                }
+                entry.DeformCpu.SetClumpGrowth(perSlot);
+                entry.DeformClumpWritten = true;
+                entry.DeformGpu.Reset();
             }
             // This stream's roots only: the producer left the drawn ones to the
             // raster pass's GPU evaluation (#1533 E1).

@@ -931,6 +931,10 @@ namespace OloEngine
             /// asset re-derives its table, rewrites them rather than reading a
             /// freed table's weights.
             Ref<GroomGuideInfluenceTable> DeformWeightsFrom;
+            /// The frame buffer's clump records are written for this layout
+            /// (#1615): computed the first time the coat is wet with a clump to
+            /// gather, and kept until the next relayout.
+            bool DeformClumpWritten = false;
             /// The bound surface the GPU root evaluation's static regions were
             /// written from (GroomStrandRequest::GpuRootSurfaceKey); a different
             /// one relays the buffer out.
@@ -1176,6 +1180,11 @@ namespace OloEngine
         /// The drawn roots evaluated on the CPU for a request that left them to
         /// the GPU, when the pass takes a CPU path after all.
         TArray<GroomRootTransform> m_CpuRootScratch;
+        /// Each groom's clump growth per base curve (ComputeGroomClumpGrowth,
+        /// #1615), keyed by asset, coat digest and guides-only: a wet coat's
+        /// tufts, walked once rather than per relayout or per CPU-path frame.
+        std::unordered_map<u64, std::vector<glm::vec3>> m_ClumpGrowth;
+        [[nodiscard]] const std::vector<glm::vec3>& AcquireClumpGrowth(const GroomStrandRequest& request);
         /// The per-frame evaluations' working storage (#1533 review): the
         /// caster pose's, and the CPU root evaluation's skinned surface. Each
         /// keeps the capacity of the largest coat it served, so a coat posed

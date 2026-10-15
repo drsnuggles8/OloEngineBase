@@ -181,11 +181,14 @@ namespace
     u32 ExpectPathsAgree(const GroomBuildSource& source, const GroomStrandBuildSettings& settings,
                          const GroomBindingAsset& binding, std::span<const GroomRootTransform> transforms,
                          const GroomStrandSimulation* simulation, f32 heldTolerance = -1.0f,
-                         const GroomCoatContext* coat = nullptr)
+                         const GroomCoatContext* coat = nullptr, const GroomDeformWetRecord* wet = nullptr,
+                         std::span<const glm::vec3> clumpGrowth = {})
     {
         GroomStrandDeformation deformation;
         deformation.Binding = &binding;
         deformation.RootTransforms = transforms;
+        deformation.Wet = wet;
+        deformation.ClumpGrowth = clumpGrowth;
 
         std::vector<GroomStrandVertex> cpu;
         std::vector<u32> cpuIndices;
@@ -258,6 +261,20 @@ namespace
         buffer.Reset(GroomDeformBufferLayout::Make(static_cast<u32>(rootCurves.size()),
                                                    table != nullptr ? table->GetGuideCount() : 0u, displacements),
                      rootCurves, table);
+        if (wet != nullptr)
+        {
+            // What GroomRenderPass::UploadDeformation hands the buffer (#1615).
+            buffer.SetWetness(*wet);
+            std::vector<glm::vec3> perSlot(rootCurves.size(), glm::vec3(0.0f));
+            for (sizet slot = 0; slot < rootCurves.size(); ++slot)
+            {
+                if (rootCurves[slot] < clumpGrowth.size())
+                {
+                    perSlot[slot] = clumpGrowth[rootCurves[slot]];
+                }
+            }
+            buffer.SetClumpGrowth(perSlot);
+        }
         const GroomDeformFrameStats frame =
             buffer.PackFrame(rootCurves, binding, transforms, simulation, source.BaseCurveCount);
         EXPECT_EQ(frame.StrandsHeldAtRest, cpuStats.StrandsHeldAtRest);
@@ -535,6 +552,62 @@ TEST(GroomGpuDeformation, ABentCoatReproducesTheCpuStreamExactly)
     }
     EXPECT_GT(moved, bent.size() / 4u) << "the fixture's bend did not move the coat";
     EXPECT_GT(withMotion, bent.size() / 4u) << "the fixture's previous pose is not a different pose";
+}
+
+// A WET COAT (#1615): laid down, shortened and clumped by the same function on
+// both paths -- the buffer's record and clump records on the GPU path, the
+// request's record and the base curves' clump growth on the CPU path -- so the
+// two still agree bit for bit, simulated and bent.
+TEST(GroomGpuDeformation, AWetCoatReproducesTheCpuStreamExactly)
+{
+    const BoundScene scene = MakeBoundScene();
+    const std::span<const GroomRootTransform> transforms{ scene.Transforms.GetData(),
+                                                          static_cast<sizet>(scene.Transforms.Num()) };
+    const Simulation sim = MakeSimulation(*scene.Groom);
+    const GroomStrandSimulation view = sim.View();
+    GroomWetnessFrame frame;
+    frame.Line = 0.05f; // soaked to 5 cm above the fixture's origin
+    frame.Band = 0.02f;
+    GroomWetResponse response;
+    const GroomDeformWetRecord wet = MakeGroomDeformWetRecord(frame, response, glm::vec3(0.3f, -0.9f, 0.2f));
+    std::vector<glm::vec3> growth;
+    ComputeGroomClumpGrowth(scene.Groom->GetCurveView(), GroomStrandBuildSettings{}, nullptr, growth);
+    ASSERT_EQ(growth.size(), scene.Groom->GetCurveCount());
+    const u32 compared = ExpectPathsAgree(GroomBuildSource::FromAsset(*scene.Groom), GroomStrandBuildSettings{},
+                                          *scene.Binding, transforms, &view, -1.0f, nullptr, &wet, growth);
+    EXPECT_GT(compared, 0u);
+
+    // NEGATIVE CONTROL: wetness really moved the coat -- the agreement is about
+    // laid-down strands, not two copies of the dry pose.
+    GroomStrandDeformation dryDeformation{ scene.Binding.Raw(), transforms };
+    GroomStrandDeformation wetDeformation = dryDeformation;
+    wetDeformation.Wet = &wet;
+    wetDeformation.ClumpGrowth = growth;
+    std::vector<GroomStrandVertex> dry;
+    std::vector<GroomStrandVertex> wetVertices;
+    std::vector<u32> indices;
+    (void)BuildGroomStrandMesh(*scene.Groom, GroomStrandBuildSettings{}, dry, indices, &dryDeformation);
+    (void)BuildGroomStrandMesh(*scene.Groom, GroomStrandBuildSettings{}, wetVertices, indices, &wetDeformation);
+    ASSERT_EQ(dry.size(), wetVertices.size());
+    u32 moved = 0;
+    for (sizet i = 0; i < dry.size(); ++i)
+    {
+        moved += glm::length(wetVertices[i].Position - dry[i].Position) > 1.0e-4f ? 1u : 0u;
+    }
+    EXPECT_GT(moved, dry.size() / 8u) << "the wet record did not reach the coat";
+
+    // And a DRY record is no record: the coat is the dry coat bit for bit.
+    const GroomDeformWetRecord dryRecord = MakeGroomDeformWetRecord(GroomWetnessFrame{}, response, glm::vec3(0.0f, -1.0f, 0.0f));
+    EXPECT_FALSE(dryRecord.Frame.w > 0.5f);
+    GroomStrandDeformation dryRecordDeformation = dryDeformation;
+    dryRecordDeformation.Wet = &dryRecord;
+    std::vector<GroomStrandVertex> dryAgain;
+    (void)BuildGroomStrandMesh(*scene.Groom, GroomStrandBuildSettings{}, dryAgain, indices, &dryRecordDeformation);
+    ASSERT_EQ(dryAgain.size(), dry.size());
+    for (sizet i = 0; i < dry.size(); ++i)
+    {
+        EXPECT_TRUE(BitwiseEqual(dryAgain[i].Position, dry[i].Position)) << "corner " << i;
+    }
 }
 
 TEST(GroomGpuDeformation, ASimulatedCoatReproducesTheCpuStreamExactly)
@@ -1037,7 +1110,9 @@ TEST(GroomGpuDeformation, AFrameSendsSixtyFourBytesAStrandNotAWholeStream)
         static_cast<u32>(rootCurves.size()), simulation.Table->GetGuideCount(), displacements);
 
     EXPECT_EQ(rootCurves.size(), stats.StrandsSelected);
-    EXPECT_EQ(layout.DynamicBytes(), static_cast<u64>(rootCurves.size()) * sizeof(GroomDeformRootRecord) +
+    // The coat's wet record (#1615) rides at the head of the per-frame part.
+    EXPECT_EQ(layout.DynamicBytes(), sizeof(GroomDeformWetRecord) +
+                                         static_cast<u64>(rootCurves.size()) * sizeof(GroomDeformRootRecord) +
                                          static_cast<u64>(simulation.Table->GetGuideCount()) *
                                              sizeof(GroomDeformSlotRecord) +
                                          static_cast<u64>(displacements) * sizeof(GroomDeformDisplacementRecord));

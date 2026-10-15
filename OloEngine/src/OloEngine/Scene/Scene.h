@@ -1314,6 +1314,7 @@ namespace OloEngine
         void UpdateDialogue(Timestep ts);        // dialogue runner
         void UpdateSubtitles(Timestep ts);       // caption overlay (issue #458)
         void UpdateLocomotion(Timestep ts);      // velocity->animation-parameter controller (issue #631)
+        void UpdateGroomWetness(Timestep ts);    // waterline-driven wet coats (issue #1615)
         void UpdateRetargeting(Timestep ts);     // live-retarget clip bake (issue #631)
         void UpdateAnimation(Timestep ts);       // skeletal + morph-only sampling
         void UpdateAnimationGraphs(Timestep ts); // animation state machines
