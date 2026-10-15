@@ -1553,6 +1553,7 @@
 
 		"OloEngine/Task/CancellationToken.h"
 		"OloEngine/Task/ExtendedTaskPriority.h"
+		"OloEngine/Task/GameThreadCall.h"
 		"OloEngine/Task/InheritedContext.h"
 		"OloEngine/Task/LocalQueue.h"
 		"OloEngine/Task/LowLevelTask.h"

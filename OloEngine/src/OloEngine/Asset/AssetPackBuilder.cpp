@@ -17,6 +17,7 @@
 #include "OloEngine/Serialization/ImportedMaterialCodec.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
+#include "OloEngine/Task/GameThreadCall.h"
 
 #include <algorithm>
 #include <unordered_map>
@@ -119,6 +120,26 @@ namespace OloEngine
             // Pack builds read a snapshot; watcher callbacks could outlive this
             // temporary manager after Shutdown(), so do not start a watcher.
             tempAssetManager->Initialize(false);
+            // ...and released on the game thread, on every way out of this
+            // scope. Its assets own GPU resources the game thread created (the
+            // loads below run there); destroyed on this worker, they queued their
+            // Vulkan reclaims while the frame walked that queue, and the editor
+            // crashed the moment a build finished.
+            struct ReleaseOnGameThread
+            {
+                Ref<EditorAssetManager>& Manager;
+                ~ReleaseOnGameThread()
+                {
+                    if (Manager)
+                    {
+                        Tasks::PostToGameThread([manager = std::move(Manager)]() mutable
+                                                {
+                            manager->Shutdown();
+                            manager.Reset(); },
+                                                "AssetPackBuilder::ReleaseTempAssets");
+                    }
+                }
+            } releaseTempAssets{ tempAssetManager };
 
             // Load all assets from the provided registry
             auto allAssets = assetRegistry.GetAllAssets();
@@ -138,7 +159,6 @@ namespace OloEngine
                 if (cancelToken && cancelToken->load(std::memory_order_acquire))
                 {
                     OLO_CORE_INFO("AssetPackBuilder: Build cancelled during asset loading");
-                    tempAssetManager->Shutdown();
                     return { false, "Build cancelled by user", 0, 0, {} };
                 }
 
@@ -147,8 +167,21 @@ namespace OloEngine
                     // Add the metadata to the temporary manager's registry
                     tempAssetManager->SetMetadata(metadata.Handle, metadata);
 
-                    // Load the asset data
-                    auto asset = tempAssetManager->GetAsset(metadata.Handle);
+                    // Load the asset data ON THE GAME THREAD. A load creates the
+                    // asset's GPU resources (texture pixels, mesh buffers), and this
+                    // build runs on a worker: on Vulkan its load-time uploads
+                    // submitted to the frame's queue from a second thread and lost
+                    // the device. A cancel while the load is queued abandons it,
+                    // and the check at the top of the loop ends the build.
+                    const std::optional<Ref<Asset>> loaded = Tasks::RunOnGameThreadAndWait<Ref<Asset>>(
+                        [&tempAssetManager, handle = metadata.Handle]()
+                        { return tempAssetManager->GetAsset(handle); },
+                        cancelToken, "AssetPackBuilder::LoadAsset");
+                    if (!loaded.has_value())
+                    {
+                        continue;
+                    }
+                    const Ref<Asset>& asset = *loaded;
                     // A load that fails comes back as the type's PLACEHOLDER, not
                     // null, and is not cached, so it never reaches the pack. It
                     // used to be counted as loaded: a build that dropped every
@@ -187,7 +220,6 @@ namespace OloEngine
             // Check if we have any loaded assets to pack
             if (loadedCount == 0)
             {
-                tempAssetManager->Shutdown();
                 return { false, "No assets could be loaded from the registry", 0, 0, settings.m_OutputPath, failedCount };
             }
 
@@ -195,7 +227,6 @@ namespace OloEngine
             if (cancelToken && cancelToken->load(std::memory_order_acquire))
             {
                 OLO_CORE_INFO("AssetPackBuilder: Build cancelled before packing");
-                tempAssetManager->Shutdown();
                 return { false, "Build cancelled by user", 0, 0, {} };
             }
 
@@ -204,9 +235,6 @@ namespace OloEngine
             // thread whenever no task worker was free to take it.
             result = BuildImpl(tempAssetManager, settings, ProgressRange{ progress, 0.3f, 0.7f }, cancelToken);
             result.m_FailedAssetCount = failedCount;
-
-            // Clean up the temporary asset manager
-            tempAssetManager->Shutdown();
 
             // Update final progress; a failed build keeps the value it stopped at.
             if (result.m_Success)
@@ -761,6 +789,28 @@ namespace OloEngine
         const u64 assetDataStartOffset = headerSize + indexSize + assetInfosSize + sceneInfosSize + scriptBinarySize;
         assetPackFile.TempDataStartOffset = assetDataStartOffset;
         u64 currentOffset = assetDataStartOffset;
+
+        // EVERY ASSET THE SERIALIZERS WILL READ, resident first -- loaded on the
+        // game thread. A serializer reads its asset (and a material its textures)
+        // through the editor's AssetManager, which loads whatever is not resident,
+        // GPU resources and all, on the caller's thread: this worker. Loaded here,
+        // every one of those reads hits the cache.
+        {
+            const auto preload = [cancelToken](AssetHandle handle)
+            {
+                (void)Tasks::RunOnGameThreadAndWait<bool>([handle]()
+                                                          { return static_cast<bool>(AssetManager::GetAsset<Asset>(handle)); },
+                                                          cancelToken, "AssetPackBuilder::PreloadForSerialize");
+            };
+            for (const auto& assetInfo : assetPackFile.AssetInfos)
+            {
+                preload(assetInfo.Handle);
+            }
+            for (const auto& sceneInfo : assetPackFile.SceneInfos)
+            {
+                preload(sceneInfo.Handle);
+            }
+        }
 
         // Create temporary files for each asset and calculate sizes
         std::vector<std::pair<AssetHandle, std::filesystem::path>> tempAssetFiles;

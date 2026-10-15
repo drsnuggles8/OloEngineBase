@@ -1084,6 +1084,7 @@ add_executable(OloEngine-Tests
 		Task/SchedulerConfigTest.cpp
 		Task/LocalQueueTest.cpp
 		Task/ParallelForContextTest.cpp
+		Task/GameThreadCallTest.cpp
 		# Localization tests
 		LocalizationTest.cpp
 		# Dialogue system tests
