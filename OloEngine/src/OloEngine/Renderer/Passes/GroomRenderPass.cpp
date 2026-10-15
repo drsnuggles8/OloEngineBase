@@ -17,6 +17,9 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
+#include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -280,6 +283,10 @@ namespace OloEngine
         {
             return;
         }
+
+        // The cluster light lists (#1618): a strand on Forward+ walks its
+        // cluster's lights, which ScenePass culls and publishes outside the graph.
+        builder.ConsumePublication(RGOutOfBandBoundaries::ForwardPlusLightClusters);
 
         const bool softIntersections = UsesSoftIntersections();
         if (softIntersections && board.Scene.GroomSceneDepthSnapshot.IsValid())
@@ -2347,6 +2354,33 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_0, Renderer3D::GetGlobalIrradianceMapHandle(),
                                         RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
 
+        // THE CLUSTER LIGHT LISTS (#1618), re-published from this frame's
+        // snapshot, the way VolumetricFogPass takes them. ScenePass's
+        // UnbindAfterShading empties bindings 9-12 and 18 after an active frame,
+        // GPUScene's tables are the other tenant of 9 and 10, and every pass
+        // that rebinds the shared scene resources uploads Enabled = 0 to 25 --
+        // so by the time a coat draws, nothing of the cull is guaranteed to be
+        // bound. The snapshot says Enabled = 0 whenever Forward+ is not live,
+        // and the strand shader then walks the whole multi-light buffer.
+        {
+            const TiledForwardPlus::ShadingSnapshot lighting = Renderer3D::GetForwardPlus().CaptureShadingBindings();
+            if (!m_ForwardPlusUBO)
+            {
+                m_ForwardPlusUBO = UniformBuffer::Create(UBOStructures::ForwardPlusUBO::GetSize(),
+                                                         ShaderBindingLayout::UBO_FORWARD_PLUS);
+            }
+            m_ForwardPlusUBO->SetData(&lighting.Parameters, UBOStructures::ForwardPlusUBO::GetSize());
+            m_ForwardPlusUBO->Bind();
+            for (const Ref<StorageBuffer>& buffer : lighting.Buffers)
+            {
+                if (buffer)
+                {
+                    buffer->Bind();
+                }
+            }
+            m_Stats.ClusteredLightLists = lighting.Parameters.Params.z != 0u;
+        }
+
         // The frame's shadow inputs (#1323) -- the CSM array, the local-light
         // atlas, their comparison-off raw views and the Virtual Shadow Map's
         // sampling publish -- through the ONE function the queued PBR draws use,
@@ -2391,6 +2425,7 @@ namespace OloEngine
         // amount — invisible near the world origin, which is where every test
         // scene sits, and wrong everywhere else.
         const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
+        const glm::vec4 ambientLadder = DeferredLightingPass::AmbientLadderControls();
 
         // Coat volumes resident across the WHOLE cache, against
         // kMaxResidentCoatVolumes. Seeded from the cache rather than from zero:
@@ -2672,6 +2707,9 @@ namespace OloEngine
                                           : 0.25f;
             params.SoftIntersection = glm::vec4(std::clamp(fadeDistance, 0.0f, 10.0f), protectedRoot,
                                                 intersectionWater.IsValid() ? 1.0f : 0.0f, 0.0f);
+            // The rung the body's ambient ladder takes (#1618): the same
+            // controls the deferred pass, the terrain and the foliage read.
+            params.Ambient = glm::vec4(glm::vec2(ambientLadder), 0.0f, 0.0f);
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),
                                           static_cast<i32>(m_FrameState.FrameIndex),
                                           static_cast<i32>(kStochasticSeed), 0);

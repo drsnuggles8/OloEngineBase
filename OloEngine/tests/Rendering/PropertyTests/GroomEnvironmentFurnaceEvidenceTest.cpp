@@ -20,8 +20,10 @@
 //      percentile and not the mean. The /pi reads about 0.3.
 //   2. THE COAT MATCHES THE LAMBERTIAN SPHERE beside it, as a ratio of that
 //      percentile to the sphere's centre.
-//   3. NOTHING BUT THE SKY LIGHTS IT. With IBL off, the coat is black, so 1
-//      and 2 measure the environment term and not a stray light.
+//   3. NOTHING BUT THE SKY LIGHTS IT. With IBL off, the coat and the sphere
+//      both fall to the ambient ladder's flat fill (#1618) and read exactly
+//      what it predicts, so 1 and 2 measure the environment term and not a
+//      stray light.
 //   4. THE SKY'S IBL INTENSITY SCALES THE COAT AS IT SCALES THE SPHERE.
 //
 // On all three rendering paths and for both producers the scene can pick (the
@@ -634,10 +636,15 @@ namespace OloEngine::Tests
             << "THE COAT IGNORES THE SKY'S IBL INTENSITY while the sphere beside it doubles";
     }
 
-    TEST_F(GroomEnvironmentFurnaceEvidenceTest, WithTheSkyOffNothingLightsTheCoat)
+    TEST_F(GroomEnvironmentFurnaceEvidenceTest, WithTheSkyOffTheCoatTakesTheFlatFillLikeTheSphere)
     {
         // The control for the test above: its ratios mean something only if the
-        // sky is the coat's only light.
+        // sky is the coat's only light. With the sky off, the coat drops to the
+        // ambient ladder's flat fill, as the sphere beside it does (#1618), so
+        // what is left is predicted exactly: the coat's ambient is linear in
+        // the irradiance it is handed, the flat fill hands it 0.03 where the
+        // sky handed it the sky's radiance, and the sphere reads 0.03 * albedo.
+        // A stray light would add to both.
         Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
         Renderer3D::ApplyRendererSettings();
 
@@ -671,10 +678,19 @@ namespace OloEngine::Tests
             }
             darkBright = Percentile(values, 0.9f);
         }
-        std::printf("[groom-env-furnace] sky off: coat p90 %.5f vs %.4f with the sky\n", darkBright, litBright);
+        const f32 sphereDark = SphereCentreGreen(dark);
+        constexpr f32 kFlatFill = 0.03f; // AmbientLadder.glsl's OLO_AMBIENT_FLAT_FILL
+        const f32 predictedRatio = kFlatFill / kSkyRadiance.g;
+        std::printf("[groom-env-furnace] sky off: coat p90 %.5f vs %.4f with the sky (ratio %.4f, flat fill predicts "
+                    "%.4f); sphere %.5f (predicts %.5f)\n",
+                    darkBright, litBright, darkBright / std::max(litBright, 1.0e-6f), predictedRatio, sphereDark,
+                    kFlatFill * kAlbedo.g);
 
         ASSERT_GT(litBright, 0.05f) << "the lit arm rendered no coat, so this control proves nothing";
-        EXPECT_LT(darkBright, 0.02f * litBright)
-            << "the coat is lit with the sky off, so something other than the environment term reaches it";
+        EXPECT_NEAR(darkBright / litBright, predictedRatio, 0.15f * predictedRatio)
+            << "with the sky off the coat is not at the flat fill: above it, a stray light reaches the coat; "
+               "below it, the coat skipped the ladder's last rung the sphere takes";
+        EXPECT_NEAR(sphereDark, kFlatFill * kAlbedo.g, 0.15f * kFlatFill * kAlbedo.g)
+            << "the sphere is not at the flat fill with the sky off, so this frame is not the ladder's last rung";
     }
 } // namespace OloEngine::Tests

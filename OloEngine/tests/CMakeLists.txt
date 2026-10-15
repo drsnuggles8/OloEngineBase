@@ -782,6 +782,10 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GBufferDepthEntityResolveTest.cpp
 		Rendering/PropertyTests/GroomSoftIntersectionWaterReplayTest.cpp
 		Rendering/PropertyTests/GroomSoftIntersectionVisualEvidenceTest.cpp
+		# A coat lit by its body's scene (#1618): fog, the probe volume's
+		# ambient, the Forward+ cluster lists and their cost.
+		Rendering/PropertyTests/GroomSceneLightingEvidenceTest.cpp
+		Rendering/PropertyTests/GroomAmbientShaderTest.cpp
 		Groom/GroomSoftIntersectionSerializationTest.cpp
 		Rendering/PropertyTests/GroomFibreVisualEvidenceTest.cpp
 		# Dense-coat self-shadowing (#1248). The GL x {Forward, Forward+,

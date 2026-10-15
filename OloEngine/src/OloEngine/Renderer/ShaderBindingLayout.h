@@ -1697,6 +1697,10 @@ namespace OloEngine
             glm::vec4 FibrePigment{ 0.0f };
             std::array<glm::vec4, 8> FibrePigmentTable{};
             glm::vec4 SoftIntersection{ 0.0f }; // distance, protected root, water available, reserved
+            // The scene's ambient ladder (#1618): DeferredLightingPass::
+            // AmbientLadderControls' x (IBL rung available) and y (probe rung
+            // on), so a coat's ambient comes from the rung its body's does.
+            glm::vec4 Ambient{ 0.0f };
 
             static constexpr u32 GetSize()
             {
@@ -1706,16 +1710,17 @@ namespace OloEngine
 
         static_assert(sizeof(GroomStrandParamsUBO) % 16 == 0,
                       "GroomStrandParamsUBO must be 16-byte aligned for std140");
-        // 480 B: 208 through #1246's lanes, the five vec4/ivec4 lanes #1247's
-        // fibre material added (288), #1248's coat-shadow block — one mat4
-        // and three vec4-sized lanes (112) — #1427's two deformation lanes
-        // (32), #1533's three dual-scattering lanes (48) and #1558's pigment
-        // lane and eight-lane table (144). Every lane is vec4-sized or a mat4,
-        // so the std140 layout is the C++ layout and the number is a plain sum
-        // — which is what makes this assertion able to catch a lane added to
-        // one side and not the other.
-        static_assert(sizeof(GroomStrandParamsUBO) == 640,
-                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (640 B)");
+        // 656 B, cumulatively: 208 through #1246's lanes, 288 with #1247's
+        // five fibre lanes, 400 with #1248's coat-shadow block (one mat4 and
+        // three vec4-sized lanes), 432 with #1427's two deformation lanes, 480
+        // with #1533's three dual-scattering lanes, 624 with #1558's pigment
+        // lane and eight-lane table, 640 with #1614's soft-intersection lane
+        // and 656 with #1618's ambient-ladder lane. Every lane is vec4-sized or
+        // a mat4, so the std140 layout is the C++ layout and the number is a
+        // plain sum — which is what makes this assertion able to catch a lane
+        // added to one side and not the other.
+        static_assert(sizeof(GroomStrandParamsUBO) == 656,
+                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (656 B)");
 
         // @brief One groom shadow-caster draw (issue #1323), uploaded at
         // UBO_USER_0 (7). GLSL twin: the GroomShadowParams block, declared

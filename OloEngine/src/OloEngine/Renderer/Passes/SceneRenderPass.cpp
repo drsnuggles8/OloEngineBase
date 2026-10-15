@@ -537,6 +537,7 @@ namespace OloEngine
                 .HasBlendedGeometry = inspectDepthContributors && HasForwardLitBlendedGeometry(m_CommandBucket),
                 .HasVirtualGeometry = !VirtualMeshRegistry::Get().GetSubmissions().empty(),
                 .HasVolumetricFog = fog.Enabled && fog.EnableVolumetric,
+                .HasGroomGeometry = Renderer3D::GetGroomStrandRequests().Num() > 0,
             };
             forwardPlus.DispatchCulling(
                 Renderer3D::GetViewMatrix(),

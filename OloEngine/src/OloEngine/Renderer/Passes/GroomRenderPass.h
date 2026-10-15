@@ -295,6 +295,10 @@ namespace OloEngine
         /// The same for the local-light atlas: grooms drawn with its opaque
         /// copy bound, so a shadowed spot or point light is stopped by the body.
         u32 GroomsShadowedByOpaqueAtlas = 0;
+        /// The strands walked this frame's Forward+ cluster lists for their
+        /// point, spot and sphere lights (#1618), rather than the whole
+        /// multi-light buffer: Forward+ was live when the coats drew.
+        bool ClusteredLightLists = false;
         /// Bound casters whose runs the shadow views decided from THIS frame's
         /// pose (#1533; GroomCasterPose.h), and bound casters cast from their
         /// rest runs because no pose could be measured -- each one a coat whose
@@ -1209,6 +1213,9 @@ namespace OloEngine
 
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_ParamsUBO;
+        // The Forward+ parameters this frame's coats read (#1618), re-uploaded
+        // from TiledForwardPlus's snapshot before the draws.
+        Ref<UniformBuffer> m_ForwardPlusUBO;
         Ref<Framebuffer> m_SceneFramebuffer;
         RGTextureHandle m_IntersectionDepth{};
         RGTextureHandle m_IntersectionEntity{};
