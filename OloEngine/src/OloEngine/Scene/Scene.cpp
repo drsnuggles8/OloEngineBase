@@ -4559,14 +4559,20 @@ namespace OloEngine
         {
             return;
         }
-        // The scene's surface wetness, if it has weather (WeatherSystem::Tick
-        // integrated it this tick); the coat takes its soak's share of it.
+        // The scene's surface wetness (WeatherSystem::Tick integrated it this
+        // tick); the coat takes its soak's share of it. Selected exactly as the
+        // renderer selects the SurfaceWetness the ground draws with -- the first
+        // weather entity, enabled and blended -- so a disabled director rains
+        // on neither the ground nor the coat.
         f32 weatherWetness = 0.0f;
-        for (const auto entity : m_Registry.view<WeatherStateComponent>())
+        auto weatherView = m_Registry.view<WeatherStateComponent>();
+        if (auto weatherIt = weatherView.begin(); weatherIt != weatherView.end())
         {
-            const f32 wetness = m_Registry.get<WeatherStateComponent>(entity).m_Wetness;
-            weatherWetness = std::isfinite(wetness) ? std::clamp(wetness, 0.0f, 1.0f) : 0.0f;
-            break;
+            if (const auto& weather = m_Registry.get<WeatherStateComponent>(*weatherIt);
+                weather.m_Enabled && weather.m_BlendedValid && std::isfinite(weather.m_Wetness))
+            {
+                weatherWetness = std::clamp(weather.m_Wetness, 0.0f, 1.0f);
+            }
         }
         // The water: the surface buoyancy floats bodies on (WaterProbe), waves
         // and FFT ocean included, so a coat is wet exactly as deep as a boat
@@ -9897,6 +9903,7 @@ namespace OloEngine
 
             liveGrooms.insert(groomComponent.m_Groom);
 
+            request.InView = true;
             if (cullGroomsByView)
             {
                 // The rest bounds where the coat is drawn (placed through its
@@ -9909,6 +9916,7 @@ namespace OloEngine
                 worldBounds.Min -= pad;
                 worldBounds.Max += pad;
                 bool relevant = groomViewFrustum.IsBoxVisible(worldBounds.Min, worldBounds.Max);
+                request.InView = relevant;
                 if (!relevant && request.CastsSceneShadow)
                 {
                     for (const glm::vec3& sweep : groomSunSweeps)

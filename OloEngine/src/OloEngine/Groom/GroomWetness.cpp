@@ -32,8 +32,12 @@ namespace OloEngine
         {
             return rain;
         }
-        const f32 band = std::isfinite(frame.Band) ? std::max(frame.Band, GroomWetnessLimits::MinBand)
-                                                   : GroomWetnessLimits::MinBand;
+        // Clamped as MakeGroomDeformWetRecord and the render request clamp it,
+        // so the guides the simulation weakens and the coat that is drawn
+        // share one wet edge whatever the authored value.
+        const f32 band = std::isfinite(frame.Band)
+                             ? std::clamp(frame.Band, GroomWetnessLimits::MinBand, GroomWetnessLimits::MaxBand)
+                             : GroomWetnessLimits::MinBand;
         // smoothstep(line - band, line + band, height), spelled out in the
         // shader's order.
         const f32 x = Saturate((height - (frame.Line - band)) / (2.0f * band));

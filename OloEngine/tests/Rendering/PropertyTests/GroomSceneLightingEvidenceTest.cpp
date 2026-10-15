@@ -491,6 +491,12 @@ namespace OloEngine::Tests
         }
         const glm::vec3 target(0.0f, 1.1f, 0.0f);
         const std::array eyes{ glm::vec3(3.0f, 1.4f, 4.0f), glm::vec3(-3.5f, 2.4f, -2.5f) };
+        // Depth-aware culling ARMED, so "a coat in view stands it down" below is
+        // a statement about the gate and not about a lever that was off.
+        const bool prepassWas = Renderer3D::IsDepthPrepassEnabled();
+        const bool depthAwareWas = Renderer3D::IsDepthAwareClusterCullingEnabled();
+        Renderer3D::EnableDepthPrepass(true);
+        Renderer3D::EnableDepthAwareClusterCulling(true);
         for (sizet angle = 0; angle < eyes.size(); ++angle)
         {
             const std::string cell = std::to_string(angle);
@@ -532,6 +538,51 @@ namespace OloEngine::Tests
             ASSERT_GT(coatPixels, 2000u);
             EXPECT_LE(changed, noise + coatPixels / 200u) << "the cluster walk lights the coat differently";
         }
+
+        // THE CONTROL: the same room on Forward+, the camera turned away from
+        // the coat, and a shadow-casting lamp at the coat whose reach is in
+        // view, so the coat is still submitted -- for its shadow. It is marked
+        // out of view, and the cull goes depth-aware again: only a coat on
+        // screen stands the cull down.
+        {
+            Entity lamp = GetScene().CreateEntity("ShadowLampAtTheCoat");
+            lamp.GetComponent<TransformComponent>().Translation = target + glm::vec3(0.0f, 0.6f, 0.0f);
+            auto& shadowLamp = lamp.AddComponent<PointLightComponent>();
+            shadowLamp.m_Intensity = 1.0f;
+            shadowLamp.m_Range = 6.0f;
+            shadowLamp.m_CastShadows = true;
+            const bool hadSceneShadow = m_Coat.HasComponent<GroomSceneShadowComponent>();
+            auto& sceneShadow = hadSceneShadow ? m_Coat.GetComponent<GroomSceneShadowComponent>()
+                                               : m_Coat.AddComponent<GroomSceneShadowComponent>();
+            const bool castWas = sceneShadow.m_CastShadows;
+            sceneShadow.m_CastShadows = true;
+            std::vector<u8> away;
+            Capture("", glm::vec3(0.0f, 1.4f, 3.0f), glm::vec3(0.0f, 1.4f, 6.0f), 12u, away);
+            const i64 submitted = Renderer3D::GetGroomStrandRequests().Num();
+            u32 inView = 0;
+            for (const GroomStrandRequest& request : Renderer3D::GetGroomStrandRequests())
+            {
+                inView += request.InView ? 1u : 0u;
+            }
+            std::printf("[groom-clusters] turned away: %lld coat(s) submitted, %u in view, depth-aware=%d\n",
+                        static_cast<long long>(submitted), inView,
+                        Renderer3D::GetForwardPlus().WasLastCullingDepthAware() ? 1 : 0);
+            EXPECT_GE(submitted, 1) << "the coat was dropped, so this frame says nothing about a shadow-only coat";
+            EXPECT_EQ(inView, 0u) << "a coat behind the camera was counted as in view";
+            EXPECT_TRUE(Renderer3D::GetForwardPlus().WasLastCullingDepthAware())
+                << "with no coat on screen the cull should be depth-aware again";
+            GetScene().DestroyEntity(lamp);
+            if (hadSceneShadow)
+            {
+                m_Coat.GetComponent<GroomSceneShadowComponent>().m_CastShadows = castWas;
+            }
+            else
+            {
+                m_Coat.RemoveComponent<GroomSceneShadowComponent>();
+            }
+        }
+        Renderer3D::EnableDepthPrepass(prepassWas);
+        Renderer3D::EnableDepthAwareClusterCulling(depthAwareWas);
     }
 
     // ── 4. Cost ──────────────────────────────────────────────────────────────

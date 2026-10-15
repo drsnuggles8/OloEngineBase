@@ -308,8 +308,7 @@ namespace OloEngine::RayTracing
             }
             // A wet coat (#1615): the proxy is laid down as the drawn coat is,
             // from the same record and the same clump growth. Late clump records
-            // on a live layout send the whole image again, the static region
-            // with them.
+            // on a live layout send their region with the next refresh.
             entry.DeformCpu.SetWetness(MakeGroomDeformWetRecord(request.Wetness, request.WetResponse, request.WetGravity));
             if (request.Wetness.Any() && request.WetResponse.Clump > 0.0f && !entry.DeformClumpWritten)
             {
@@ -317,17 +316,9 @@ namespace OloEngine::RayTracing
                 const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
                 std::vector<glm::vec3> growth;
                 ComputeGroomClumpGrowth(request.Groom->GetCurveView(), request.Build, &coat, growth);
-                std::vector<glm::vec3> perSlot(rootCount, glm::vec3(0.0f));
-                for (u32 slot = 0; slot < rootCount; ++slot)
-                {
-                    if (entry.RootCurves[slot] < growth.size())
-                    {
-                        perSlot[slot] = growth[entry.RootCurves[slot]];
-                    }
-                }
-                entry.DeformCpu.SetClumpGrowth(perSlot);
+                entry.DeformCpu.SetClumpGrowth(growth, entry.RootCurves);
                 entry.DeformClumpWritten = true;
-                entry.DeformGpu.Reset();
+                entry.DeformClumpPending = static_cast<bool>(entry.DeformGpu);
             }
             // This stream's roots only: the producer left the drawn ones to the
             // raster pass's GPU evaluation (#1533 E1).
@@ -567,6 +558,15 @@ namespace OloEngine::RayTracing
             const u64 end = std::min<u64>(relayout ? image.size() : std::max(usedEnd, begin), image.size());
             if (end > begin)
                 entry.DeformGpu->SetData(image.data() + begin, static_cast<u32>(end - begin), static_cast<u32>(begin));
+            if (!relayout && entry.DeformClumpPending)
+            {
+                const u64 clumpBegin = static_cast<u64>(layout.ClumpBase) * 16u;
+                const u64 clumpEnd = std::min<u64>(layout.DynamicOffsetBytes(), image.size());
+                if (clumpEnd > clumpBegin)
+                    entry.DeformGpu->SetData(image.data() + clumpBegin, static_cast<u32>(clumpEnd - clumpBegin),
+                                             static_cast<u32>(clumpBegin));
+            }
+            entry.DeformClumpPending = false;
 
             // The rest stream's segments, rebuilt with the rest stream: corners 0
             // and 2, the corners the CPU conversion reads.

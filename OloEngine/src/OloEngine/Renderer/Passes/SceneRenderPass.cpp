@@ -23,6 +23,24 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // A coat drawn in this view (#1618): its strands are absent from the
+        // depth the depth-aware light cull reads. A coat submitted only for its
+        // shadow draws nothing here and leaves the cull alone.
+        [[nodiscard]] bool AnyGroomInView()
+        {
+            for (const GroomStrandRequest& request : Renderer3D::GetGroomStrandRequests())
+            {
+                if (request.InView)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+    } // namespace
+
     // Draw slot 0 -> colour attachment 0, nothing else. Hoisted to file
     // scope so the several blit helpers below share one definition.
     static constexpr std::array<u32, 1> kAttachment0Only = { 0u };
@@ -537,7 +555,7 @@ namespace OloEngine
                 .HasBlendedGeometry = inspectDepthContributors && HasForwardLitBlendedGeometry(m_CommandBucket),
                 .HasVirtualGeometry = !VirtualMeshRegistry::Get().GetSubmissions().empty(),
                 .HasVolumetricFog = fog.Enabled && fog.EnableVolumetric,
-                .HasGroomGeometry = Renderer3D::GetGroomStrandRequests().Num() > 0,
+                .HasGroomGeometry = AnyGroomInView(),
             };
             forwardPlus.DispatchCulling(
                 Renderer3D::GetViewMatrix(),

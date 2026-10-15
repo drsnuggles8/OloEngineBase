@@ -166,6 +166,22 @@ namespace OloEngine
                                  { ShaderDataType::Float3, "a_PrevPosition" },
                                  { ShaderDataType::Float, "a_CoverageGrowth" } };
         }
+
+        // How far a wet coat's points can sit from its dry pose (#1615), for the
+        // caster runs the shadow views cull and thin by: the wet deformation
+        // keeps every point within its strand's length of its root, so twice
+        // the longest strand. Zero for a dry coat or a response that leaves the
+        // geometry alone.
+        [[nodiscard]] f32 GroomWetCasterDisplacement(const GroomStrandRequest& request, f32 maxStrandLength) noexcept
+        {
+            const GroomWetResponse& response = request.WetResponse;
+            const bool reshapes = response.Flatten > 0.0f || response.Shorten > 0.0f || response.Clump > 0.0f;
+            if (!request.Wetness.Any() || !reshapes || !std::isfinite(maxStrandLength))
+            {
+                return 0.0f;
+            }
+            return 2.0f * std::max(maxStrandLength, 0.0f);
+        }
     } // namespace
 
     GroomRenderPass::GroomRenderPass()
@@ -330,7 +346,7 @@ namespace OloEngine
         // The asset, the coat that shapes it and the guides-only switch are all
         // a clump table depends on (ComputeGroomClumpGrowth).
         u64 key = static_cast<u64>(request.Handle);
-        key ^= GroomCoatDigest(request.Coat) + 0x9E3779B97F4A7C15ull + (key << 6) + (key >> 2);
+        key ^= request.Build.CoatDigest + 0x9E3779B97F4A7C15ull + (key << 6) + (key >> 2);
         key ^= (request.Build.GuidesOnly ? 0xD1B54A32D192ED03ull : 0ull) + (key << 6) + (key >> 2);
         if (const auto it = m_ClumpGrowth.find(key); it != m_ClumpGrowth.end())
         {
@@ -829,16 +845,7 @@ namespace OloEngine
         bool clumpRegionChanged = false;
         if (request.Wetness.Any() && request.WetResponse.Clump > 0.0f && !entry.DeformClumpWritten)
         {
-            const std::vector<glm::vec3>& growth = AcquireClumpGrowth(request);
-            std::vector<glm::vec3> perSlot(rootCount, glm::vec3(0.0f));
-            for (u32 slot = 0; slot < rootCount; ++slot)
-            {
-                if (rootCurves[slot] < growth.size())
-                {
-                    perSlot[slot] = growth[rootCurves[slot]];
-                }
-            }
-            entry.DeformCpu.SetClumpGrowth(perSlot);
+            entry.DeformCpu.SetClumpGrowth(AcquireClumpGrowth(request), rootCurves);
             entry.DeformClumpWritten = true;
             clumpRegionChanged = !relayout;
         }
@@ -864,9 +871,10 @@ namespace OloEngine
             const auto poseStart = std::chrono::steady_clock::now();
             const GroomCasterStream& caster = entry.Rest->Caster;
             const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
-            const GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
+            GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
                 simulated ? &simulation : nullptr, request.Groom->GetCurveGroupIds(), &coat,
                 entry.Rest->MaxRadius * std::max(request.WidthScale, 0.0f));
+            padding.WetDisplacement = GroomWetCasterDisplacement(request, caster.MaxStrandLength);
             GroomCasterPoseScratch& scratch = CasterPoseScratch();
             const bool posed =
                 rootsOnGpu ? PoseGroomCasterRunsBySurface(caster.Runs, caster.Pose, entry.CasterPoseSurface, rootInputs,
@@ -1467,8 +1475,9 @@ namespace OloEngine
         OLO_PERF_SCOPE_AUTO("Groom::CasterPose");
         const auto poseStart = std::chrono::steady_clock::now();
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
-        const GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
+        GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
             simulated ? &simulation : nullptr, request.Groom->GetCurveGroupIds(), &coat, 0.0f);
+        padding.WetDisplacement = GroomWetCasterDisplacement(request, entry.Caster.MaxStrandLength);
         if (PoseGroomCasterRunsByRoots(entry.Caster.Runs, entry.Caster.Pose, transforms, padding, CasterPoseScratch(),
                                        entry.PosedRuns))
         {
@@ -3403,6 +3412,13 @@ namespace OloEngine
         caster.Array->SetIndexBuffer(caster.Indices);
         caster.Runs = std::move(order.Runs);
         caster.MeanRadius = order.MeanRadius;
+        for (const GroomCasterStrand& strand : strands)
+        {
+            if (std::isfinite(strand.Length))
+            {
+                caster.MaxStrandLength = std::max(caster.MaxStrandLength, strand.Length);
+            }
+        }
         caster.Bytes = static_cast<u64>(order.Indices.size()) * sizeof(u32);
         return caster;
     }

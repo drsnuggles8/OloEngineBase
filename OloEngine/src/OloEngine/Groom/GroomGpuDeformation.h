@@ -290,12 +290,14 @@ namespace OloEngine
                              const GroomSurfaceView& surface, const GroomSkinningView& skinning,
                              u32 baseCurveCount);
 
-        /// Each drawn strand's clump growth in groom object space at rest
-        /// (ComputeGroomClumpGrowth), in root-slot order (#1615). Taken into
+        /// Each base curve's clump growth in groom object space at rest
+        /// (ComputeGroomClumpGrowth, indexed by curve), handed out to the drawn
+        /// strands `rootCurves` names, in root-slot order (#1615). Taken into
         /// each root's bind frame and written to the static region with the bind
-        /// frames, so call it after Reset and before the first PackFrame. Empty
-        /// leaves every record zero: no clump to gather toward.
-        void SetClumpGrowth(std::span<const glm::vec3> objectGrowth);
+        /// frames; after the bind frames went up, written into the region here,
+        /// and the caller sends [ClumpBase, DynamicOffsetBytes). Empty leaves
+        /// every record zero: no clump to gather toward.
+        void SetClumpGrowth(std::span<const glm::vec3> curveGrowth, std::span<const u32> rootCurves);
 
         /// This frame's wetness (#1615), into its record.
         void SetWetness(const GroomDeformWetRecord& wet);

@@ -255,9 +255,16 @@ namespace OloEngine
         }
     }
 
-    void GroomDeformBuffer::SetClumpGrowth(std::span<const glm::vec3> objectGrowth)
+    void GroomDeformBuffer::SetClumpGrowth(std::span<const glm::vec3> curveGrowth, std::span<const u32> rootCurves)
     {
-        m_ClumpObject.assign(objectGrowth.begin(), objectGrowth.end());
+        m_ClumpObject.assign(rootCurves.size(), glm::vec3(0.0f));
+        for (sizet slot = 0; slot < rootCurves.size(); ++slot)
+        {
+            if (rootCurves[slot] < curveGrowth.size())
+            {
+                m_ClumpObject[slot] = curveGrowth[rootCurves[slot]];
+            }
+        }
         if (!m_BindFramesWritten || !m_HasLayout)
         {
             return; // PackFrame takes them into the bind frames as it writes those

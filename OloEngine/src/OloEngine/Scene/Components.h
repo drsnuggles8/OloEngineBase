@@ -6053,7 +6053,9 @@ namespace OloEngine
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_Clump = 0.5f;
         // The state: how soaked the coat is from the water, how high the water
-        // reached on it (metres along its local +Y from its origin), and how wet
+        // reached on it (metres of world height above its origin, measured through
+        // its transform's world-up row -- GroomWetnessAxis -- so a coat whose rig
+        // is turned still soaks from its feet), and how wet
         // the rain has made it.
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_Immersion = 0.0f;

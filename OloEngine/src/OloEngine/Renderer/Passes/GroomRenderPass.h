@@ -661,6 +661,9 @@ namespace OloEngine
             GroomCasterPose Pose;
             /// The whole stream's length-weighted mean radius, for the log.
             f32 MeanRadius = 0.0f;
+            /// The longest strand's length along it: no point of the strand
+            /// sits farther from its root, wet or dry (#1615).
+            f32 MaxStrandLength = 0.0f;
             /// GPU bytes of the index buffer, counted with the stream's.
             u64 Bytes = 0;
         };

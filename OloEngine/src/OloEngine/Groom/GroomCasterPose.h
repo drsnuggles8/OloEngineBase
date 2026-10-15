@@ -230,6 +230,12 @@ namespace OloEngine
         std::vector<f32> SlotDisplacement;
         std::vector<f32> SlotVariation;
         bool SlotsComplete = false;
+        /// A wet coat's lay-down, clumping and shortening (#1615): how far any
+        /// of its points can sit from where the dry pose puts it. Each stays
+        /// within its strand's length of its root, so twice the longest strand
+        /// bounds it. Nonzero also forfeits every run's projected-length
+        /// credit, since a strand laid along the skin can project to nothing.
+        f32 WetDisplacement = 0.0f;
     };
 
     /// This frame's padding: each simulated guide's displacement and variation

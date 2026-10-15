@@ -208,7 +208,8 @@ namespace OloEngine
                     out.Moments[m] = static_cast<f32>(sum.Moments[m]);
                 }
                 out.TotalLength = static_cast<f32>(sum.Length);
-                out.ProjectedLengthLoss = static_cast<f32>(sum.Loss);
+                out.ProjectedLengthLoss = padding.WetDisplacement > 0.0f ? out.TotalLength : static_cast<f32>(sum.Loss);
+                displacement += std::max(padding.WetDisplacement, 0.0f);
                 if (sum.AtRest)
                 {
                     Grow(sum.Min, sum.Max, restRuns[r].BoundsMin, restRuns[r].BoundsMax);

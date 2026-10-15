@@ -270,6 +270,13 @@ namespace OloEngine
         /// Sample the scene's shadow term in the strand shader.
         bool ReceivesSceneShadow = false;
 
+        /// The coat's padded bounds are in the culling view (#1618), as
+        /// opposed to a coat submitted only because its shadow reaches the
+        /// view. Only an in-view coat draws pixels the depth-aware light cull
+        /// cannot see, so only it stands that cull down. True when the view
+        /// does not cull grooms.
+        bool InView = true;
+
         /// The width floor, in TEXELS of the shadow target, a strand is
         /// rasterised at from the light. One texel is the default and the
         /// derivation: below it a strand crosses a texel centre essentially

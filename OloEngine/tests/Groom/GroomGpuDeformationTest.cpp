@@ -265,15 +265,7 @@ namespace
         {
             // What GroomRenderPass::UploadDeformation hands the buffer (#1615).
             buffer.SetWetness(*wet);
-            std::vector<glm::vec3> perSlot(rootCurves.size(), glm::vec3(0.0f));
-            for (sizet slot = 0; slot < rootCurves.size(); ++slot)
-            {
-                if (rootCurves[slot] < clumpGrowth.size())
-                {
-                    perSlot[slot] = clumpGrowth[rootCurves[slot]];
-                }
-            }
-            buffer.SetClumpGrowth(perSlot);
+            buffer.SetClumpGrowth(clumpGrowth, rootCurves);
         }
         const GroomDeformFrameStats frame =
             buffer.PackFrame(rootCurves, binding, transforms, simulation, source.BaseCurveCount);
@@ -409,11 +401,15 @@ namespace
     [[nodiscard]] std::vector<RunTruth> MeasureTruth(const GroomAsset& groom, const GroomBindingAsset& binding,
                                                      const TArray<GroomRootTransform>& transforms,
                                                      const CasterSetup& setup,
-                                                     const GroomStrandSimulation* simulation = nullptr)
+                                                     const GroomStrandSimulation* simulation = nullptr,
+                                                     const GroomDeformWetRecord* wet = nullptr,
+                                                     std::span<const glm::vec3> clumpGrowth = {})
     {
         GroomStrandDeformation deformation;
         deformation.Binding = &binding;
         deformation.RootTransforms = { transforms.GetData(), static_cast<sizet>(transforms.Num()) };
+        deformation.Wet = wet;
+        deformation.ClumpGrowth = clumpGrowth;
         std::vector<GroomStrandVertex> cpu;
         std::vector<u32> cpuIndices;
         std::vector<u32> cpuFirst;
@@ -1531,6 +1527,60 @@ TEST(GroomGpuDeformation, AnIllConditionedRootTriangleEarnsNoCreditAndKeepsItsFu
     EXPECT_LT(posed.BySurface[healthy].ProjectedLengthLoss, 0.01f * posed.BySurface[healthy].TotalLength)
         << "the healthy triangle should be credited";
     EXPECT_TRUE(Holds(posed.BySurface[healthy], truth[healthy]));
+}
+
+TEST(GroomGpuDeformation, AWetCoatsCasterRunsHoldEveryLaidDownPointAndClaimNoLength)
+{
+    // #1615 review: a soaked coat lies its strands along the skin, clumps and
+    // shortens them, after the root transform, so the dry pose's boxes and
+    // projected lengths no longer describe it. Every wet point stays within its
+    // strand's length of its root, so a box padded by twice the longest strand
+    // holds it, and a strand laid along the light can project to nothing, so
+    // the run claims no length.
+    BoundScene scene = MakeBoundScene(40u, 8u);
+    ASSERT_TRUE(scene.Groom && scene.Binding);
+    GroomDeformationInputs inputs;
+    inputs.Surface = scene.Grid.View(2u);
+    inputs.Skinning = scene.Grid.Skinning(scene.Palette, scene.PrevPalette, true);
+    const CasterSetup setup = MakeCasterSetup(*scene.Groom, *scene.Binding);
+    GroomWetnessFrame frame;
+    frame.Rain = 1.0f; // the whole coat, so every run is wet
+    GroomWetResponse response;
+    response.Flatten = 1.0f;
+    response.Clump = 1.0f;
+    const GroomDeformWetRecord wet = MakeGroomDeformWetRecord(frame, response, glm::vec3(0.6f, -0.3f, 0.7f));
+    std::vector<glm::vec3> growth;
+    ComputeGroomClumpGrowth(scene.Groom->GetCurveView(), setup.Settings, nullptr, growth);
+    const std::vector<RunTruth> truth =
+        MeasureTruth(*scene.Groom, *scene.Binding, scene.Transforms, setup, nullptr, &wet, growth);
+
+    f32 longest = 0.0f;
+    for (const GroomCasterStrand& strand : setup.RestStrands)
+    {
+        longest = std::max(longest, strand.Length);
+    }
+    ASSERT_GT(longest, 0.0f);
+    GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(nullptr, scene.Groom->GetCurveGroupIds(), nullptr, 0.0f);
+    padding.WetDisplacement = 2.0f * longest;
+    const Posed posed = PoseBothWays(setup, inputs, scene.Transforms, padding);
+    // THE CONTROL: the same pose without the wet padding -- the dry boxes --
+    // must miss the laid-down coat somewhere, or this fixture proves nothing.
+    const Posed dry = PoseBothWays(setup, inputs, scene.Transforms,
+                                   MeasureGroomCasterPosePadding(nullptr, scene.Groom->GetCurveGroupIds(), nullptr, 0.0f));
+    u32 dryMisses = 0;
+    for (sizet r = 0; r < truth.size(); ++r)
+    {
+        SCOPED_TRACE("run " + std::to_string(r));
+        for (const auto* run : { &posed.BySurface[r], &posed.ByRoots[r] })
+        {
+            EXPECT_TRUE(Holds(*run, truth[r])) << "a padded box does not hold the wet coat";
+            EXPECT_GE(run->ProjectedLengthLoss, run->TotalLength) << "a wet run claimed projected length";
+        }
+        dryMisses += Holds(dry.ByRoots[r], truth[r]) ? 0u : 1u;
+    }
+    std::printf("[groom-gpu] wet coat: %u of %zu dry-padded runs miss it; padding %.4f\n", dryMisses, truth.size(),
+                padding.WetDisplacement);
+    EXPECT_GT(dryMisses, 0u) << "the control: the dry pose's boxes should miss the laid-down coat somewhere";
 }
 
 TEST(GroomGpuDeformation, TheCasterRunsHoldEverySimulatedPointAndPayForTheShortening)
