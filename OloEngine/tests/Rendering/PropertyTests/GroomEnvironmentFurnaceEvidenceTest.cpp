@@ -38,6 +38,7 @@
 
 #include "RendererAttachedTest.h"
 #include "TestTempDir.h"
+#include "UniformSkyFixture.h"
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -111,38 +112,6 @@ namespace OloEngine::Tests
             { "ForwardPlus", RenderingPath::ForwardPlus },
             { "Deferred", RenderingPath::Deferred },
         } };
-
-        [[nodiscard]] Ref<TextureCubemap> MakeUniformSky(const glm::vec3& radiance)
-        {
-            constexpr u32 kResolution = 32;
-            CubemapSpecification spec{};
-            spec.Width = kResolution;
-            spec.Height = kResolution;
-            spec.Format = ImageFormat::RGBA32F;
-            spec.GenerateMips = true;
-            Ref<TextureCubemap> sky = TextureCubemap::Create(spec);
-            if (!sky)
-            {
-                return nullptr;
-            }
-            std::vector<f32> face(static_cast<sizet>(kResolution) * kResolution * 4u);
-            for (sizet i = 0; i < face.size(); i += 4u)
-            {
-                face[i + 0u] = radiance.r;
-                face[i + 1u] = radiance.g;
-                face[i + 2u] = radiance.b;
-                face[i + 3u] = 1.0f;
-            }
-            for (u32 f = 0; f < 6u; ++f)
-            {
-                if (!sky->SetFaceDataMip(f, 0, face.data(), static_cast<u32>(face.size() * sizeof(f32))))
-                {
-                    return nullptr;
-                }
-            }
-            sky->GenerateMipmaps();
-            return sky;
-        }
 
         // The pixel a world point projects to, for the camera Capture uses:
         // at kEye, looking down -Z, no rotation.
@@ -272,7 +241,7 @@ namespace OloEngine::Tests
             m_PreviousAliasing = Levers::DisableTransientAliasing();
             Levers::SetDisableTransientAliasing(true);
 
-            m_Sky = MakeUniformSky(kSkyRadiance);
+            m_Sky = MakeUniformSkyCubemap(kSkyRadiance);
             ASSERT_TRUE(m_Sky);
             m_SkyEntity = scene.CreateEntity("UniformSky");
             auto& env = m_SkyEntity.AddComponent<EnvironmentMapComponent>();
@@ -336,15 +305,8 @@ namespace OloEngine::Tests
         // CreateFromCubemap + IBLConfiguration the scene's own loader uses.
         void SetProducer(const Producer& producer)
         {
-            IBLConfiguration config;
-            config.UseSphericalHarmonics = producer.SphericalHarmonics;
-            // A generated cubemap has no file to key a cache entry on.
-            config.UseDiskCache = false;
-            auto& env = m_SkyEntity.GetComponent<EnvironmentMapComponent>();
-            env.m_UseSphericalHarmonics = producer.SphericalHarmonics;
-            env.m_EnvironmentMap = EnvironmentMap::CreateFromCubemap(m_Sky, config);
-            ASSERT_TRUE(env.m_EnvironmentMap) << producer.Name << ": EnvironmentMap::CreateFromCubemap failed";
-            ASSERT_TRUE(env.m_EnvironmentMap->HasIBL()) << producer.Name << ": the environment baked no IBL";
+            SCOPED_TRACE(producer.Name);
+            SetUniformSkyEnvironment(m_SkyEntity, m_Sky, producer.SphericalHarmonics);
         }
 
         // A dense hemisphere of short strands, facing every way, so a good share

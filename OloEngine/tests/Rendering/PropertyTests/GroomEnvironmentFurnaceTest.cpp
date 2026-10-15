@@ -37,6 +37,7 @@
 // =============================================================================
 
 #include "PropertyTests/RenderPropertyTest.h"
+#include "PropertyTests/UniformSkyFixture.h"
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -130,41 +131,6 @@ namespace OloEngine::Tests
                     return "L2 SH projection";
             }
             return "?";
-        }
-
-        // A uniform sky of radiance kUniformRadiance, with the mip chain the
-        // importance-sampled producer reads.
-        [[nodiscard]] Ref<TextureCubemap> MakeUniformSky()
-        {
-            constexpr u32 kResolution = 32;
-            CubemapSpecification spec{};
-            spec.Width = kResolution;
-            spec.Height = kResolution;
-            spec.Format = ImageFormat::RGBA32F;
-            spec.GenerateMips = true;
-            Ref<TextureCubemap> sky = TextureCubemap::Create(spec);
-            if (!sky)
-            {
-                return nullptr;
-            }
-            std::vector<f32> face(static_cast<sizet>(kResolution) * kResolution * 4u);
-            for (sizet i = 0; i < face.size(); i += 4u)
-            {
-                face[i + 0u] = kUniformRadiance.r;
-                face[i + 1u] = kUniformRadiance.g;
-                face[i + 2u] = kUniformRadiance.b;
-                face[i + 3u] = 1.0f;
-            }
-            for (u32 f = 0; f < 6u; ++f)
-            {
-                if (!sky->SetFaceDataMip(f, 0, face.data(), static_cast<u32>(face.size() * sizeof(f32))))
-                {
-                    ADD_FAILURE() << "SetFaceDataMip failed for face " << f;
-                    return nullptr;
-                }
-            }
-            sky->GenerateMipmaps();
-            return sky;
         }
 
         // The irradiance cube, baked from `sky` by `producer` into the cube
@@ -273,7 +239,7 @@ namespace OloEngine::Tests
             << "GroomEnvironmentFurnaceProbe.glsl did not compile; check OloEngine.log. Every assertion below would "
                "otherwise measure a frame no shader wrote.";
 
-        const Ref<TextureCubemap> sky = MakeUniformSky();
+        const Ref<TextureCubemap> sky = MakeUniformSkyCubemap(kUniformRadiance);
         ASSERT_TRUE(sky);
 
         const GroomFibreParams params = ProbeParams();
