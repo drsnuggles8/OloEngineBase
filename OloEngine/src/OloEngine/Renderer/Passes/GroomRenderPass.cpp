@@ -2648,7 +2648,10 @@ namespace OloEngine
             params.RampWidth =
                 glm::vec4(request.RampFloor, request.WidthScale, objectScale, request.AlphaCutoff);
             f32 fadeDistance = request.IntersectionFadeDistance;
-            if (request.AutomaticIntersectionDistance && request.Groom)
+            // Measure only when the fade will be used: the measurement samples
+            // the whole groom, and an inactive fade zeroes the result below.
+            const bool fadeActive = request.SoftIntersections && intersectionDepth.IsValid();
+            if (fadeActive && request.AutomaticIntersectionDistance && request.Groom)
             {
                 // Sample shaped BASE fibres once per geometry/coat digest.
                 // Card widening and visibility budgets do not change the band.
@@ -2662,7 +2665,7 @@ namespace OloEngine
                 fadeDistance = GroomIntersectionDistance(dimensions.MeanDiameter * request.WidthScale * objectScale,
                                                          dimensions.MeanLength);
             }
-            if (!request.SoftIntersections || !intersectionDepth.IsValid() || !std::isfinite(fadeDistance))
+            if (!fadeActive || !std::isfinite(fadeDistance))
                 fadeDistance = 0.0f;
             const f32 protectedRoot = std::isfinite(request.IntersectionProtectedRoot)
                                           ? std::clamp(request.IntersectionProtectedRoot, 0.0f, 1.0f)

@@ -311,8 +311,18 @@ namespace OloEngine
     void GBuffer::ResolveDepthEntityPair()
     {
         OLO_PROFILE_FUNCTION();
-        if (!m_DepthEntityResolveShader)
+        if (!m_DepthEntityResolveShader && !m_DepthEntityResolveShaderFailed)
+        {
             m_DepthEntityResolveShader = Shader::Create("assets/shaders/GBufferDepthEntityResolve.glsl");
+            if (!m_DepthEntityResolveShader)
+            {
+                // Loud once, not once per frame: without this pass the resolved
+                // depth and entity-ID attachments keep stale contents.
+                m_DepthEntityResolveShaderFailed = true;
+                OLO_CORE_ERROR("GBuffer::ResolveDepthEntityPair: failed to create "
+                               "assets/shaders/GBufferDepthEntityResolve.glsl - resolved depth and entity IDs stay stale.");
+            }
+        }
         if (!m_DepthEntityResolveShader)
             return;
         struct InvalidateBindings

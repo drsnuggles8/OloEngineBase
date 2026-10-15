@@ -208,5 +208,6 @@ namespace OloEngine
         Ref<Shader> m_FlagsResolveShader;
         bool m_FlagsResolveShaderFailed = false;
         Ref<Shader> m_DepthEntityResolveShader;
+        bool m_DepthEntityResolveShaderFailed = false;
     };
 } // namespace OloEngine

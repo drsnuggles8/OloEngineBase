@@ -8645,12 +8645,6 @@ namespace OloEngine
                                   "be re-imported before it can receive baked GI.");
             } });
 
-        // Groom curve preview (issue #1232). The panel's job here is to make
-        // the STATIC DEBUG PREVIEW steerable and to report what the groom
-        // actually contains — an import that dropped its root UVs or its
-        // guides is invisible unless the counts are on screen.
-        // The entity is captured since #1251: the preview readout below applies the
-        // coat's role visibility mask, which lives on a sibling component.
         DrawComponent<GroomSoftIntersectionComponent>("Groom Soft Intersections", entity, [](auto& component)
                                                       {
             ImGui::Checkbox("Enabled", &component.m_Enabled);
@@ -8659,6 +8653,12 @@ namespace OloEngine
                 ImGui::DragFloat("Fade distance (world units)", &component.m_FadeDistance, 0.0001f, 0.0f, 10.0f, "%.5f");
             ImGui::SliderFloat("Protected root fraction", &component.m_ProtectedRoot, 0.0f, 1.0f); });
 
+        // Groom curve preview (issue #1232). The panel's job here is to make
+        // the STATIC DEBUG PREVIEW steerable and to report what the groom
+        // actually contains — an import that dropped its root UVs or its
+        // guides is invisible unless the counts are on screen.
+        // The entity is captured since #1251: the preview readout below applies the
+        // coat's role visibility mask, which lives on a sibling component.
         DrawComponent<GroomComponent>("Groom", entity, [entity](auto& component)
                                       {
             const std::string groomLabel = component.m_Groom != 0
