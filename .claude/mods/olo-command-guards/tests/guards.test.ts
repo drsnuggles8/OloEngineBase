@@ -103,6 +103,24 @@ test('issue body files are found for create and edit, with their own approval', 
   expect(issueBodyFiles('gh issue edit 1 --body-file=b.md # OLO_USER_APPROVED')).toEqual([{ path: 'b.md', isApproved: true }])
   expect(issueBodyFiles('gh issue edit 1 --body-file - <<EOF\nx\nEOF')).toEqual([])
   expect(issueBodyFiles('gh pr create --body-file b.md')).toEqual([])
+  expect(issueBodyFiles('gh issue edit 1 --body-file /c/repos/x/b.md')[0]?.path).toBe('C:/repos/x/b.md')
+})
+
+test('an approved vote on one issue write does not taint another write in the same command', () => {
+  expect(refusals('gh issue edit 1 --body x && gh issue edit 2 --body "fun_by: user" # OLO_USER_APPROVED')).toEqual([])
+  expect(refusals('gh issue edit 1 --body "fun_by: user" && gh issue edit 2 --body x # OLO_USER_APPROVED').map(v => v.rule)).toEqual(['pull-vote'])
+})
+
+test('a body file changed earlier in the command, or behind a cd, cannot be checked', () => {
+  const [copied] = issueBodyFiles('cp vote.md body.md && gh issue edit 1 --body-file body.md')
+  expect(copied?.unverifiable).toContain('`cp`')
+  const [moved] = issueBodyFiles('cd /tmp && gh issue edit 1 --body-file body.md')
+  expect(moved?.unverifiable).toContain('`cd`')
+  expect(issueBodyFiles('cd /tmp && gh issue edit 1 --body-file C:/t/body.md')[0]?.unverifiable).toBeUndefined()
+  // Content written in the command itself is checked from the command text instead of the stale file.
+  const [heredoc] = issueBodyFiles("cat > body.md <<'EOF'\nfun: 13\nfun_by: user\nEOF\ngh issue create --body-file body.md")
+  expect(heredoc?.unverifiable).toBeUndefined()
+  expect(heredoc?.written).toContain('fun_by: user')
 })
 
 test('the approval marker lets gated actions through, never ungated ones', () => {

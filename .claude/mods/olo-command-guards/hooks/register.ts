@@ -15,6 +15,7 @@ import {
   publishingApproved,
   pullVoteViolation,
   refusals,
+  unverifiableBodyViolation,
   type Violation,
 } from './guards'
 
@@ -82,18 +83,29 @@ export const register: Register = on => {
 
 /**
  * A `gh issue create|edit --body-file` hides the body from the text rules, so read each file and
- * apply the `fun_by: user` rule to it. An unreadable file is let through with a toast: refusing
- * would block every issue edit whose path this process resolves differently (Git Bash `/tmp`).
+ * apply the `fun_by: user` rule to it. Fails closed: a body the hook cannot inspect (unreadable,
+ * changed earlier in the same command, behind a `cd`) is refused, because letting it through would
+ * make the user-owned Pull decision depend on how the path happened to resolve.
  */
 async function bodyFilePullVotes($: EngineInterface, command: string): Promise<Violation[]> {
   const out: Violation[] = []
   for (const file of issueBodyFiles(command)) {
+    if (file.unverifiable !== undefined) {
+      out.push({ ...unverifiableBodyViolation(file.path, file.unverifiable), isApproved: file.isApproved })
+      continue
+    }
+    let text = file.written ?? ''
     try {
-      if (PULL_VOTE_RE.test(await $.fs.read(file.path))) {
-        out.push({ ...pullVoteViolation(), isApproved: file.isApproved })
-      }
+      text += `\n${await $.fs.read(file.path)}`
     } catch {
-      $.ui.toast(`olo-command-guards: could not read ${file.path} to check it for fun_by: user`, { timeoutMs: 6000 })
+      // A file an earlier statement creates in this command does not exist yet; its content is `written`.
+      if (file.written === undefined) {
+        out.push({ ...unverifiableBodyViolation(file.path, 'the hook could not read it'), isApproved: file.isApproved })
+        continue
+      }
+    }
+    if (PULL_VOTE_RE.test(text)) {
+      out.push({ ...pullVoteViolation(), isApproved: file.isApproved })
     }
   }
   return out

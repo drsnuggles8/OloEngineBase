@@ -382,7 +382,8 @@ export function innerCommand(words: readonly string[]): string | undefined {
  */
 export function checkCommand(command: string, branch?: string): Violation[] {
   const all: Violation[] = []
-  for (const statement of splitStatements(command)) {
+  const statements = splitStatements(command)
+  for (const [index, statement] of statements.entries()) {
     const out: Found[] = []
     const words = commandWords(statement.words)
     const inner = innerCommand(words)
@@ -435,8 +436,9 @@ export function checkCommand(command: string, branch?: string): Violation[] {
         reason: 'Closing an issue is the user\'s call (CLAUDE.md): post the evidence, recommend closure, let the user close.',
       })
     }
-    // The whole command, not the statement: a heredoc body sits on lines of its own.
-    if (isIssueWrite(words) && PULL_VOTE_RE.test(command)) {
+    // The write's own text, including a heredoc body on the lines after it, so an approved vote
+    // on one issue write never taints an unapproved write elsewhere in the same command.
+    if (isIssueWrite(words) && PULL_VOTE_RE.test(issueWriteScope(statements, index))) {
       out.push(pullVoteViolation())
     }
     const script = words.findIndex(w => /(?:^|[\\/])issue_scores\.py$/.test(w))
@@ -483,10 +485,47 @@ function isIssueWrite(words: readonly string[]): boolean {
   return first === 'gh' && words[1] === 'issue' && (words[2] === 'create' || words[2] === 'edit')
 }
 
-/** The `--body-file` / `-F` paths of every `gh issue create|edit` in the command, with each statement's approval. */
-export function issueBodyFiles(command: string): { path: string; isApproved: boolean }[] {
-  const out: { path: string; isApproved: boolean }[] = []
-  for (const statement of splitStatements(command)) {
+/** An issue write's own text: its statement plus the lines up to the next issue write (a heredoc body). */
+function issueWriteScope(statements: readonly Statement[], index: number): string {
+  const parts = [statements[index]?.text ?? '']
+  for (const statement of statements.slice(index + 1)) {
+    if (isIssueWrite(commandWords(statement.words))) {
+      break
+    }
+    parts.push(statement.text)
+  }
+  return parts.join('\n')
+}
+
+/** Commands whose output to a file is spelled out in the command itself (arguments, heredoc, here-string). */
+const VISIBLE_WRITERS = new Set(['cat', 'tee', 'echo', 'printf', 'set-content', 'add-content', 'out-file', 'sc', 'ac', 'write-output'])
+const DIRECTORY_CHANGERS = new Set(['cd', 'pushd', 'chdir', 'set-location', 'sl'])
+
+export type IssueBodyFile = {
+  /** The path as the shell will read it: a Git Bash `/c/...` path becomes `C:/...`. */
+  path: string
+  isApproved: boolean
+  /** Set when an earlier statement writes the file with its content in the command: that text, to check instead of the stale file. */
+  written?: string
+  /** Set when the hook cannot know what `gh` will read; the write is refused rather than let through unchecked. */
+  unverifiable?: string
+}
+
+function shellPath(path: string): string {
+  const drive = /^\/([a-zA-Z])\/(.*)$/.exec(path)
+  return drive ? `${(drive[1] ?? '').toUpperCase()}:/${drive[2] ?? ''}` : path
+}
+
+/**
+ * The `--body-file` / `-F` of every `gh issue create|edit` in the command, with each statement's
+ * approval and what the hook can know about the file's content when `gh` reads it. The hook reads
+ * the file BEFORE the command runs, so an earlier statement that changes it (`cp vote.md body.md &&
+ * gh issue edit 1 --body-file body.md`) or moves the working directory makes the read meaningless.
+ */
+export function issueBodyFiles(command: string): IssueBodyFile[] {
+  const out: IssueBodyFile[] = []
+  const statements = splitStatements(command)
+  for (const [index, statement] of statements.entries()) {
     const words = commandWords(statement.words)
     const inner = innerCommand(words)
     if (inner !== undefined) {
@@ -497,15 +536,39 @@ export function issueBodyFiles(command: string): { path: string; isApproved: boo
     if (!isIssueWrite(words)) {
       continue
     }
+    const earlier = statements.slice(0, index)
     for (let i = 3; i < words.length; i += 1) {
       const w = words[i] ?? ''
-      const path = w === '--body-file' || w === '-F' ? words[i + 1] : w.startsWith('--body-file=') ? w.slice('--body-file='.length) : undefined
-      if (path !== undefined && path !== '-' && path.length > 0) {
-        out.push({ path, isApproved: isApprovedStatement(statement) })
+      const raw = w === '--body-file' || w === '-F' ? words[i + 1] : w.startsWith('--body-file=') ? w.slice('--body-file='.length) : undefined
+      if (raw === undefined || raw === '-' || raw.length === 0) {
+        continue
       }
+      const file: IssueBodyFile = { path: shellPath(raw), isApproved: isApprovedStatement(statement) }
+      const isAbsolute = /^(?:[A-Za-z]:[\\/]|[\\/])/.test(raw)
+      const moved = earlier.find(s => DIRECTORY_CHANGERS.has(exeName(commandWords(s.words)[0])))
+      const touching = earlier.filter(s => s.text.includes(raw))
+      const hidden = touching.find(s => !VISIBLE_WRITERS.has(exeName(commandWords(s.words)[0])))
+      if (!isAbsolute && moved !== undefined) {
+        file.unverifiable = `\`${exeName(commandWords(moved.words)[0])}\` earlier in the command moves the shell away from the directory the hook resolves \`${raw}\` against`
+      } else if (hidden !== undefined) {
+        file.unverifiable = `\`${exeName(commandWords(hidden.words)[0])}\` earlier in the command changes it after the hook would read it`
+      } else if (touching.length > 0) {
+        file.written = earlier.map(s => s.text).join('\n')
+      }
+      out.push(file)
     }
   }
   return out
+}
+
+export function unverifiableBodyViolation(path: string, why: string): Found {
+  return {
+    rule: 'pull-vote-unverifiable',
+    isGated: true,
+    reason:
+      `The hook cannot check \`${path}\` for \`fun_by: user\`: ${why}. ` +
+      'Write the body file in its own command (an absolute Windows path is safest), then run the issue write on its own.',
+  }
 }
 
 /** What the guard refuses: everything ungated, and a gated rule unless its own statement carries the marker. */

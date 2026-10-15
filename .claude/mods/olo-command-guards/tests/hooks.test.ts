@@ -53,6 +53,12 @@ test('a body file that sets fun_by: user is refused; an ordinary body file is no
   expect(String(voted.deny ?? voted.text)).toContain('fun_by: user')
   const plain = await $.tool.call({ tool: 'Bash', command: 'gh issue edit 1615 --body-file plain.md' })
   expect(plain.text).toBe('ok')
+  // Fails closed: an unreadable body could hold the vote, so the write is refused.
   const missing = await $.tool.call({ tool: 'Bash', command: 'gh issue edit 1615 --body-file gone.md' })
-  expect(missing.text).toBe('ok')
+  expect(String(missing.deny ?? missing.text)).toContain('cannot check')
+  // A body the same command writes is checked from the command's text before it exists.
+  const written = await $.tool.call({ tool: 'Bash', command: "cat > new.md <<'EOF'\nfun: 5\nEOF\ngh issue create --body-file new.md" })
+  expect(written.text).toBe('ok')
+  const writtenVote = await $.tool.call({ tool: 'Bash', command: "cat > new.md <<'EOF'\nfun_by: user\nEOF\ngh issue create --body-file new.md" })
+  expect(String(writtenVote.deny ?? writtenVote.text)).toContain('fun_by: user')
 })

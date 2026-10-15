@@ -81,6 +81,11 @@ registry item to heal now, per §2b (issue-scoring.md §6.4):
 - **Unconfirmed Pull (`PULL?`)**: never rule on it yourself. Ask the user (batch it with the other
   upfront questions), then record the answer: `issue_scores.py pull N` for yes, `pull --off N` for
   no. The command is gated, so you run it only on their explicit word, with `# OLO_USER_APPROVED`.
+- **Stale `blocked_by` edge (blocker closed)**: drop it with `set N blocked_by=[...]`. If the
+  issue still cannot start, name what actually holds it: the open issues that now own the gap, or a
+  `blocked_by_external` reason. A closed blocker that merged as a no-go is not a green light.
+- **Unresolvable `blocked_by` edge**: fix the state lookup (`gh auth status`, network, a typo'd
+  number) and re-run `lint`. Until it resolves, the issue stays blocked and out of the slate.
 
 Use `set` rather than hand-editing a body: it keeps every field, replaces a marker-less fence in
 place and writes UTF-8.
