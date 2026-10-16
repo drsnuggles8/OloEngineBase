@@ -317,8 +317,11 @@ namespace OloEngine::Tests
             ++resolves;
             bytes += copy.Bytes.value_or(0);
         }
-        EXPECT_EQ(resolves, 9u);
-        EXPECT_EQ(bytes, static_cast<u64>(kWidth / 2u) * (kHeight / 2u) * 52u);
+        // Five colour blits (the entity ID and the base depth are resolved
+        // together by GBufferDepthEntityResolve from sample zero, 940aae9b6) and
+        // the two late-geometry depth blits: 36 + 2 * 4 bytes a texel.
+        EXPECT_EQ(resolves, 7u);
+        EXPECT_EQ(bytes, static_cast<u64>(kWidth / 2u) * (kHeight / 2u) * 44u);
         nlohmann::json report = { { "cell", "DeferredResolve_GL_Deferred_Msaa4_PerSample_Late3_UpscalePerformance" },
                                   { "width", kWidth / 2u },
                                   { "height", kHeight / 2u },
@@ -600,10 +603,14 @@ namespace OloEngine::Tests
                     report["resolveBytes"] = bytes;
                     if (!baseline)
                     {
-                        EXPECT_EQ(colourResolves, samples > 1u ? 6u : 0u);
-                        EXPECT_EQ(depthResolves, samples > 1u ? 1u + (perSample ? ((late & 1u) != 0u) + ((late & 2u) != 0u) : 0u) : 0u);
-                        // Six colours total 40 bytes/texel; depth adds four.
-                        EXPECT_EQ(bytes, static_cast<u64>(kWidth) * kHeight * (colourResolves == 0u ? 0u : 40u + 4u * depthResolves));
+                        // The entity ID (R32I) and the base depth are not blitted:
+                        // GBufferDepthEntityResolve takes both from sample zero
+                        // (940aae9b6). Five colours remain, and a depth blit per
+                        // late-geometry bit on the per-sample path.
+                        EXPECT_EQ(colourResolves, samples > 1u ? 5u : 0u);
+                        EXPECT_EQ(depthResolves, samples > 1u ? (perSample ? ((late & 1u) != 0u) + ((late & 2u) != 0u) : 0u) : 0u);
+                        // Five colours total 36 bytes/texel; each depth blit adds four.
+                        EXPECT_EQ(bytes, static_cast<u64>(kWidth) * kHeight * (colourResolves == 0u ? 0u : 36u + 4u * depthResolves));
                     }
                     if (samples == 4u && late == 3u)
                     {
