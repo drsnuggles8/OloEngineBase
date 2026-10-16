@@ -579,9 +579,18 @@ namespace OloEngine::Tests
             << "the budget did not thin the coat at this size, so there was nothing to compensate";
         EXPECT_GT(coatCompensated, coatUncompensated)
             << "widening the survivors did not put any coat back on screen";
-        // A real, visible difference rather than a few pixels of dither.
-        EXPECT_GT(static_cast<f64>(coatCompensated) / static_cast<f64>(coatUncompensated), 1.15)
-            << "the compensation changed the picture by less than a tone-map wobble";
+        // AGAINST THE FULL COAT (#1558), not against the thinned one: the
+        // compensation closes a real share of the coverage the thinning took
+        // away, and does not overshoot the coat it stands in for. (A fixed
+        // "1.15x the thinned coat" bar predated the reference arm, and it
+        // demanded an overshoot whenever thinning took less than 15%.)
+        ASSERT_GT(coatEvery, coatUncompensated) << "thinning took no coverage away, so there is nothing to put back";
+        const f64 gapThinned = static_cast<f64>(coatEvery) - static_cast<f64>(coatUncompensated);
+        const f64 gapCompensated = std::abs(static_cast<f64>(coatEvery) - static_cast<f64>(coatCompensated));
+        EXPECT_LT(gapCompensated, 0.7 * gapThinned)
+            << "the compensation put back less than a third of the coverage the thinning removed";
+        EXPECT_LE(static_cast<f64>(coatCompensated), 1.05 * static_cast<f64>(coatEvery))
+            << "the compensated coat covers more than the full coat it stands in for";
     }
 
     // =========================================================================
