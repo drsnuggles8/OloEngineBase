@@ -35,6 +35,32 @@
 
 namespace OloEngine::Tasks
 {
+    namespace Private
+    {
+        // One owner: the game thread claims a call (Pending -> Running) or the
+        // waiter abandons it (Pending -> Abandoned), never both. At namespace
+        // scope: MSVC rejects a function-local enum in a local struct's default
+        // member initializer inside a function template (C2653).
+        enum class GameThreadCallState
+        {
+            Pending,
+            Running,
+            Abandoned,
+            Finished,
+        };
+
+        template<typename T>
+        struct GameThreadCall
+        {
+            std::mutex Mutex;
+            std::condition_variable Done;
+            GameThreadCallState Status = GameThreadCallState::Pending;
+            std::function<T()> Work;
+            std::optional<T> Result;
+            std::exception_ptr Error;
+        };
+    } // namespace Private
+
     template<typename T>
     [[nodiscard]] std::optional<T> RunOnGameThreadAndWait(std::function<T()> work, const std::atomic<bool>* cancel = nullptr,
                                                           const char* debugName = "RunOnGameThreadAndWait")
@@ -46,25 +72,8 @@ namespace OloEngine::Tasks
             return work();
         }
 
-        // One owner: the game thread claims the call (Pending -> Running) or the
-        // waiter abandons it (Pending -> Abandoned), never both.
-        enum class State
-        {
-            Pending,
-            Running,
-            Abandoned,
-            Finished,
-        };
-        struct Call
-        {
-            std::mutex Mutex;
-            std::condition_variable Done;
-            State Status = State::Pending;
-            std::function<T()> Work;
-            std::optional<T> Result;
-            std::exception_ptr Error;
-        };
-        auto call = std::make_shared<Call>();
+        using State = Private::GameThreadCallState;
+        auto call = std::make_shared<Private::GameThreadCall<T>>();
         call->Work = std::move(work);
 
         threads.EnqueueTask(ENamedThread::GameThread,
