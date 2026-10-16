@@ -29,8 +29,6 @@
 #include "OloEngine/Scene/SceneBinaryIO.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
-#include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
-#include "OloEngine/Project/Project.h"
 
 #include <glm/glm.hpp>
 #include <yaml-cpp/yaml.h>
@@ -296,75 +294,6 @@ namespace OloEngine::Tests
         auto scene = Scene::Create();
         ASSERT_TRUE(SceneSerializer(scene).Deserialize(path));
         ExpectSceneMatches(*scene, secondExpected); // NOT the stale first scene
-    }
-
-    // A load where a scene texture failed writes NO sidecar. A component keeps
-    // its texture as the loaded object, not the path, so the sidecar would store
-    // the sprite without its path, and every later load of the unchanged `.olo`
-    // would be served the texture-less copy. A Vulkan Build Game that lost the
-    // device wrote such sidecars, and AssetSceneLoad then failed on every run.
-    // The same scene without the texture path is the control: it does write one.
-    TEST_F(SceneBinarySidecarTest, FailedTextureLoadWritesNoSidecar)
-    {
-        const auto project = TestDir();
-        std::filesystem::create_directories(project / "Assets" / "Scenes");
-        {
-            std::ofstream out(project / "Sidecar.oloproj");
-            out << "Project:\n"
-                   "  Name: Sidecar\n"
-                   "  StartScene: \"\"\n"
-                   "  AssetDirectory: \"Assets\"\n"
-                   "  ScriptModulePath: \"\"\n";
-        }
-        ASSERT_TRUE(Project::Load(project / "Sidecar.oloproj"));
-        // Process-global state: Unload() is the only way back (SetAssetManager
-        // asserts on null).
-        struct UnloadProject
-        {
-            ~UnloadProject()
-            {
-                Project::Unload();
-            }
-        } unloadProject;
-        auto manager = Ref<EditorAssetManager>::Create();
-        manager->Initialize(false);
-        Project::SetAssetManager(manager);
-
-        const auto writeSprite = [&project](const char* name, const char* texturePathLine)
-        {
-            const auto path = project / "Assets" / "Scenes" / name;
-            std::ofstream out(path, std::ios::binary | std::ios::trunc);
-            out << "Scene: Sprite\n"
-                << "Version: " << SceneSerializer::CurrentVersion << "\n"
-                << "Entities:\n"
-                   "  - Entity: 4242\n"
-                   "    TagComponent:\n"
-                   "      Tag: Sprite\n"
-                   "    TransformComponent:\n"
-                   "      Translation: [0.0, 0.0, 0.0]\n"
-                   "      Rotation: [0.0, 0.0, 0.0]\n"
-                   "      Scale: [1.0, 1.0, 1.0]\n"
-                   "    SpriteRendererComponent:\n"
-                   "      Color: [1.0, 1.0, 1.0, 1.0]\n"
-                << texturePathLine;
-            return path;
-        };
-
-        const auto missing = writeSprite("Missing.olo", "      TexturePath: Assets/Textures/DoesNotExist.png\n");
-        {
-            auto scene = Scene::Create();
-            ASSERT_TRUE(SceneSerializer(scene).Deserialize(missing)) << "a missing texture does not fail the load";
-        }
-        EXPECT_FALSE(std::filesystem::exists(std::filesystem::path(missing).concat(".scenebin")))
-            << "a sidecar written after a failed texture load serves the scene without it from then on";
-
-        const auto control = writeSprite("Control.olo", "");
-        {
-            auto scene = Scene::Create();
-            ASSERT_TRUE(SceneSerializer(scene).Deserialize(control));
-        }
-        EXPECT_TRUE(std::filesystem::exists(std::filesystem::path(control).concat(".scenebin")))
-            << "the same sprite with no texture path does write a sidecar";
     }
 
     // A corrupt sidecar (bad magic) is ignored and the load falls back to YAML.

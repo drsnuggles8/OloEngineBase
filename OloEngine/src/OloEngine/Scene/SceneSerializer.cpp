@@ -178,7 +178,8 @@ namespace OloEngine
                 return texture;
             }
 
-            ++t_SceneTextureLoadFailures;
+            // Not counted here: the raw load below is still tried, and its
+            // outcome is the one counted.
             OLO_CORE_WARN("SceneSerializer: texture path '{}' did not resolve to a Texture2D asset. Scene texture "
                           "paths resolve against the project asset root.",
                           texPath);
@@ -187,7 +188,8 @@ namespace OloEngine
         // Runtime path (no EditorAssetManager): legacy raw load. The runtime
         // asset manager works off handles, not paths, so a scene that still
         // carries raw paths can only be loaded via Texture2D::Create(). This
-        // bypass is intentional and scoped to the runtime fallback.
+        // bypass is intentional and scoped to the runtime fallback. The editor
+        // reaches it too, for a path the project did not resolve.
         Ref<Texture2D> texture = Texture2D::Create(texPath);
         if (!texture || !texture->IsLoaded())
         {
