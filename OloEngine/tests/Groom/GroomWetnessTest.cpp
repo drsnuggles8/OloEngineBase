@@ -337,6 +337,17 @@ namespace OloEngine::Tests
             c.m_Rain = 0.15f;
             return c;
         }
+
+        // The authored fields through operator==, and the state it leaves out
+        // (it is simulation output, so undo ignores it) field by field: every
+        // format below stores the state too, and must bring it back.
+        void ExpectSameWetness(const GroomWetnessComponent& loaded, const GroomWetnessComponent& expected)
+        {
+            EXPECT_TRUE(loaded == expected) << "the authored fields";
+            EXPECT_FLOAT_EQ(loaded.m_Immersion, expected.m_Immersion);
+            EXPECT_FLOAT_EQ(loaded.m_SoakedLine, expected.m_SoakedLine);
+            EXPECT_FLOAT_EQ(loaded.m_Rain, expected.m_Rain);
+        }
     } // namespace
 
     TEST(GroomWetnessSerialization, SceneYamlKeepsEveryFieldAndTheState)
@@ -349,7 +360,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(SceneSerializer(loaded).DeserializeFromYAML(yaml));
         const auto coat = loaded->FindEntityByName("Wet coat");
         ASSERT_TRUE(coat && coat.HasComponent<GroomWetnessComponent>());
-        EXPECT_TRUE(coat.GetComponent<GroomWetnessComponent>() == AuthoredWetness());
+        ExpectSameWetness(coat.GetComponent<GroomWetnessComponent>(), AuthoredWetness());
     }
 
     TEST(GroomWetnessSerialization, MissingFieldsAreTheDefaultsAndOutOfRangeOnesAreClamped)
@@ -361,7 +372,7 @@ namespace OloEngine::Tests
             "      Immersion: 7\n"));
         const auto coat = loaded->FindEntityByName("Coat");
         ASSERT_TRUE(coat && coat.HasComponent<GroomWetnessComponent>());
-        EXPECT_TRUE(coat.GetComponent<GroomWetnessComponent>() == GroomWetnessComponent{});
+        ExpectSameWetness(coat.GetComponent<GroomWetnessComponent>(), GroomWetnessComponent{});
         const auto wild = loaded->FindEntityByName("Wild");
         ASSERT_TRUE(wild && wild.HasComponent<GroomWetnessComponent>());
         const auto& w = wild.GetComponent<GroomWetnessComponent>();
@@ -381,7 +392,8 @@ namespace OloEngine::Tests
         SaveGameComponentSerializer::Serialize(reader, loaded);
         EXPECT_FALSE(reader.IsError());
         EXPECT_TRUE(reader.AtEnd());
-        EXPECT_TRUE(loaded == authored) << "a wet coat saved mid-walk loads exactly as wet";
+        SCOPED_TRACE("a wet coat saved mid-walk loads exactly as wet");
+        ExpectSameWetness(loaded, authored);
     }
 
     TEST(GroomWetnessSerialization, SaveGameSanitizesCorruptFloats)
@@ -418,7 +430,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(std::filesystem::exists(path.string() + ".scenebin"));
         auto cached = Scene::Create();
         ASSERT_TRUE(SceneSerializer(cached).Deserialize(path));
-        EXPECT_TRUE(cached->FindEntityByName("Packed coat").GetComponent<GroomWetnessComponent>() == AuthoredWetness());
+        ExpectSameWetness(cached->FindEntityByName("Packed coat").GetComponent<GroomWetnessComponent>(), AuthoredWetness());
 
         SceneAssetSerializer serializer;
         const auto yaml = serializer.SerializeToString(authored);
@@ -435,6 +447,6 @@ namespace OloEngine::Tests
         FileStreamReader reader(pack);
         auto loaded = serializer.DeserializeSceneFromAssetPack(reader, info);
         ASSERT_TRUE(loaded);
-        EXPECT_TRUE(loaded->FindEntityByName("Packed coat").GetComponent<GroomWetnessComponent>() == AuthoredWetness());
+        ExpectSameWetness(loaded->FindEntityByName("Packed coat").GetComponent<GroomWetnessComponent>(), AuthoredWetness());
     }
 } // namespace OloEngine::Tests
