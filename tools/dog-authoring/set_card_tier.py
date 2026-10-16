@@ -136,11 +136,17 @@ def set_card_tier(path, cell, points):
         if value is None:
             continue
         pod, fmt = POD[name]
-        targets = [(p, g) for p, kind, g in properties(archive) if p.endswith('/' + name)]
-        if not targets:
+        found = [(p, kind, g) for p, kind, g in properties(archive) if p.endswith('/' + name)]
+        if not found:
             raise ValueError(f'{path} authors no {name}: build_dog_groom.py writes it on every hair object')
+        # A property of another POD would be handed a sample of the wrong size and type.
+        wrong = [p for p, kind, _ in found if kind != pod]
+        if wrong:
+            raise ValueError(f'{path}: {wrong[0]} is not POD {pod}; refusing to write a {fmt} sample into it')
+        targets = [(p, g) for p, _, g in found]
         payload = struct.pack(fmt, value)
-        block = hashlib.md5(payload).digest() + payload
+        # The block's key is Ogawa's de-duplication digest (MD5 by the format), not a security hash.
+        block = hashlib.md5(payload, usedforsecurity=False).digest() + payload
         position = len(data)
         data.extend(struct.pack('<Q', len(block)) + block)
         for p, group in targets:
@@ -148,7 +154,8 @@ def set_card_tier(path, cell, points):
                 raise ValueError(f'{p}: not a one-sample property')
             struct.pack_into('<Q', data, group + 8, position | DATA)  # the group's first child: sample 0
         changed[name] = len(targets)
-    path.write_bytes(data)
+    # Read the edit back BEFORE touching the source, then replace it in one step: a failed check or
+    # an interrupted write must not leave a committed coat source half-edited.
     check = Archive(bytes(data))
     for name, value in values.items():
         if value is None:
@@ -157,6 +164,9 @@ def set_card_tier(path, cell, points):
                 for p, _, g in properties(check) if p.endswith('/' + name)}
         if seen != {value}:
             raise RuntimeError(f'{path}: {name} reads back {seen}, not {value}')
+    tmp = path.with_suffix(path.suffix + '.tmp')
+    tmp.write_bytes(data)
+    tmp.replace(path)
     print(f'{path}: ' + ', '.join(f'{n} = {values[n]} on {c} objects' for n, c in changed.items()))
 
 
