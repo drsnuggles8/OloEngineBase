@@ -177,7 +177,7 @@ namespace OloEngine
         // Restore the full core GL subset on exit (FBO / viewport / depth / cull /
         // front-face / program) so the second opaque pass cannot poison the
         // water / overlay / post passes that follow.
-        GLStateGuard guard("PlanarReflectionRenderPass", GLStateGuard::Policy::Restore);
+        GLStateGuard guard("PlanarReflectionRenderPass", GLStateGuard::Policy::RestoreQuiet); // every frame: restore without the per-field trace
 
         // The guard is a safety net, not the cleanup: its Restore policy logs every
         // field the pass failed to put back before rolling it back itself. This pass
