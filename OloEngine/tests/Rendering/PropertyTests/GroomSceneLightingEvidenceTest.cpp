@@ -86,6 +86,16 @@ namespace OloEngine::Tests
                 mean.Linear /= static_cast<f32>(mean.Pixels);
             return mean;
         }
+
+        // The mock clock cleared on every way out of a test, fatal assertions
+        // included, so a failure here cannot freeze the next test's clock.
+        struct RestoreClock
+        {
+            ~RestoreClock()
+            {
+                Time::ClearMockTime();
+            }
+        };
     } // namespace
 
     class GroomSceneLightingEvidenceTest : public RendererAttachedTest
@@ -191,13 +201,7 @@ namespace OloEngine::Tests
         void Capture(const std::string& name, const glm::vec3& eye, const glm::vec3& target, u32 frames,
                      std::vector<u8>& pixels)
         {
-            struct RestoreClock
-            {
-                ~RestoreClock()
-                {
-                    Time::ClearMockTime();
-                }
-            } restoreClock;
+            RestoreClock restoreClock;
             Time::SetMockTime(12.0f);
             EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 200.0f);
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
@@ -493,8 +497,18 @@ namespace OloEngine::Tests
         const std::array eyes{ glm::vec3(3.0f, 1.4f, 4.0f), glm::vec3(-3.5f, 2.4f, -2.5f) };
         // Depth-aware culling ARMED, so "a coat in view stands it down" below is
         // a statement about the gate and not about a lever that was off.
-        const bool prepassWas = Renderer3D::IsDepthPrepassEnabled();
-        const bool depthAwareWas = Renderer3D::IsDepthAwareClusterCullingEnabled();
+        // Restored on every way out, fatal assertions included: both levers
+        // are process-wide.
+        struct RestoreLevers
+        {
+            bool Prepass = Renderer3D::IsDepthPrepassEnabled();
+            bool DepthAware = Renderer3D::IsDepthAwareClusterCullingEnabled();
+            ~RestoreLevers()
+            {
+                Renderer3D::EnableDepthPrepass(Prepass);
+                Renderer3D::EnableDepthAwareClusterCulling(DepthAware);
+            }
+        } restoreLevers;
         Renderer3D::EnableDepthPrepass(true);
         Renderer3D::EnableDepthAwareClusterCulling(true);
         for (sizet angle = 0; angle < eyes.size(); ++angle)
@@ -581,8 +595,6 @@ namespace OloEngine::Tests
                 m_Coat.RemoveComponent<GroomSceneShadowComponent>();
             }
         }
-        Renderer3D::EnableDepthPrepass(prepassWas);
-        Renderer3D::EnableDepthAwareClusterCulling(depthAwareWas);
     }
 
     // ── 4. Cost ──────────────────────────────────────────────────────────────
@@ -637,6 +649,7 @@ namespace OloEngine::Tests
                         point.m_CastShadows = false;
                     }
                 }
+                RestoreClock restoreClock;
                 Time::SetMockTime(12.0f);
                 RunEditorFrames(camera, 30u, 0.0f);
                 auto& timer = GPUPassTimerPool::GetInstance();
@@ -657,7 +670,6 @@ namespace OloEngine::Tests
                             break;
                         }
                 }
-                Time::ClearMockTime();
                 ASSERT_GE(costs.size(), 10u) << pathName << " " << count;
                 std::ranges::sort(costs);
                 const f64 median = costs[costs.size() / 2u];
