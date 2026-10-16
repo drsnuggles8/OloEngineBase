@@ -79,6 +79,27 @@ is `OLO_STOCHASTIC_COVERAGE_MARK` (-1, `include/SurfaceCoverageMark.glsl`). TAA 
 current 4x4 and takes `max(.a, 0)` as the profile, so a coat pixel that shows the lawn behind it next
 frame has not changed material.
 
+## A stochastic estimator reprojects by its mean velocity
+
+**Reproject a stochastic coat's pixel by the mean velocity of the coat texels around it**, not by the
+closest-depth texel's. Each strand writes its own velocity, and which strand is frontmost is itself a
+draw, so `GetDilatedVelocityUV` sent two draws of the same frame into different history. TAA averages
+the velocities of the marked texels in the current 4x4 (`OloTaaStochasticMeanVelocity`, the window the
+coverage kind reads). On the Bernese walk from behind (#1615/#1618), as the ratio of what two draws of
+the same frames differ by to what the samples alone do:
+
+| region | closest strand | coat mean |
+|---|---|---|
+| face | 0.665 | 0.633 |
+| ears | 0.613 | 0.576 |
+| fringe | 0.566 | 0.524 |
+| tail | 0.465 | 0.435 |
+
+The lag stayed at 0.25. What did not help: the colour clip widened to 2.5 sigma (no change), and the
+profile term's band opened (no change). Opening the coverage term's band as well reached 0.499, 0.507
+and 0.491, but that term is what lets go of a coat that really changes. The remainder at a moving
+silhouette is disocclusion, which no history holds.
+
 ## How the numbers were found
 
 A test hook after `TAAPass` read the RT3 texture back each frame, and the CPU re-ran candidate tests

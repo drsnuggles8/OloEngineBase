@@ -216,9 +216,44 @@ bool OloTaaAnyProfileIsStochastic(vec4 profile)
         OUT_MEAN = oloCoverageSum * (1.0 / 64.0);                                                      \
     }
 
+// The mean velocity of the stochastic coat texels in the 4x4 around UV, in
+// eight gathers (the window OLO_TAA_COVERAGE_KIND_4X4 reads), or FALLBACK when
+// none of them holds the mark. A stochastic coat's pixel shows whichever strand
+// survived this draw's hashed test, and each strand writes its own velocity, so
+// the closest-depth velocity GetDilatedVelocityUV picks is itself a draw: two
+// draws of the same frame reprojected into different history. The mean of the
+// coat's texels is the motion the estimator converges on (#1615 / #1618, the
+// Bernese walk from behind; temporal-coverage-means-not-samples.md).
+vec2 OloTaaStochasticMeanVelocity(vec2 uv, vec2 fallback)
+{
+    vec2 sum = vec2(0.0);
+    float count = 0.0;
+    for (int gy = 0; gy < 2; ++gy)
+    {
+        for (int gx = 0; gx < 2; ++gx)
+        {
+            vec2 corner = uv + (((vec2(float(gx), float(gy)) * 2.0) - 0.5) * u_TexelSize);
+            vec4 coat = step(textureGather(u_Velocity, corner, 3), vec4(0.5 * OLO_STOCHASTIC_COVERAGE_MARK));
+            sum += vec2(dot(textureGather(u_Velocity, corner, 0), coat), dot(textureGather(u_Velocity, corner, 1), coat));
+            count += dot(coat, vec4(1.0));
+        }
+    }
+    return count > 0.0 ? sum / count : fallback;
+}
+
 void main()
 {
     vec2 uv = v_TexCoord;
+
+    // 0) What the current 4x4 says about its coverage (see step 4): whether
+    // any of it is fractional, and whether any of it is a stochastic coat.
+    // Read first, because a stochastic coat reprojects by its mean velocity.
+    bool estimatedCoverage = false;
+    bool stochasticCoverage = false;
+    if (u_HasVelocityTexture != 0 && u_HasSurfaceHistory)
+    {
+        OLO_TAA_COVERAGE_KIND_4X4(u_Velocity, uv, u_TexelSize, estimatedCoverage, stochasticCoverage);
+    }
 
     // 1) Sample velocity (G-Buffer RT3) or reconstruct camera motion
     vec2 velocity;
@@ -226,6 +261,15 @@ void main()
     {
         vec2 velocityUV = GetDilatedVelocityUV(uv);
         velocity = texture(u_Velocity, velocityUV).rg;
+        // A stochastic coat's closest-depth velocity is one draw's strand
+        // (OloTaaStochasticMeanVelocity). Measured on the Bernese walk from
+        // behind, two draws of the same frames then differ on the face by 0.633
+        // of what the samples alone do, 0.665 by the closest strand; ears 0.576
+        // from 0.613, fringe 0.524 from 0.566, and the lag 0.248 from 0.251.
+        if (stochasticCoverage)
+        {
+            velocity = OloTaaStochasticMeanVelocity(uv, velocity);
+        }
     }
     else
     {
@@ -292,13 +336,7 @@ void main()
     // left the meadow's over-blurred control ghosting where it should blur
     // (TemporalSubjectSequence's detail test), so the exemption keys on the
     // mark a stochastic writer leaves in the profile channel, read from the
-    // current frame's 4x4 as the coverage term reads its coverage.
-    bool estimatedCoverage = false;
-    bool stochasticCoverage = false;
-    if (u_HasVelocityTexture != 0 && u_HasSurfaceHistory)
-    {
-        OLO_TAA_COVERAGE_KIND_4X4(u_Velocity, uv, u_TexelSize, estimatedCoverage, stochasticCoverage);
-    }
+    // current frame's 4x4 as the coverage term reads its coverage (step 0).
     vec2 velocityPixels = velocity / u_TexelSize;
     float effectiveFeedback =
         stochasticCoverage ? u_Feedback : OloTemporalMotionFeedback(u_Feedback, velocityPixels, 1.0, 5.0, 0.5);
