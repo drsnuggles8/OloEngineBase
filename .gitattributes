@@ -44,6 +44,8 @@ OloEditor/SandboxProject/Assets/Grooms/Bernese/Bernese.ologroombinding filter=lf
 tools/dog-authoring/sources/Samoyed/Samoyed.bin filter=lfs diff=lfs merge=lfs -text
 tools/dog-authoring/sources/SamoyedLidSource/Samoyed.bin filter=lfs diff=lfs merge=lfs -text
 tools/dog-authoring/sources/Bernese/Bernese.bin filter=lfs diff=lfs merge=lfs -text
+# The golden's coat source (build_dog_groom.py's archive, which its cooked coat records).
+OloEditor/SandboxProject/Assets/Models/Dog/Dog.abc filter=lfs diff=lfs merge=lfs -text
 
 # Mark vendor as vendored (hides from GitHub linguist and other tooling)
 vendor/** linguist-vendored

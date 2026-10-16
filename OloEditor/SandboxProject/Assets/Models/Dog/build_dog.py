@@ -11,7 +11,8 @@ and it writes, into out_dir (default: this directory), everything the engine loa
                          Sit, Walk and Pant (30 fps, in place)
     DogCoatColor.png     the coat colours, both DogSkin's albedo and the groom's colour map
     Dog.rig.json         the eye radius, centres and gaze (the engine draws each eye as its own
-                         sphere entity attached to eye_L / eye_R), the clip list
+                         sphere entity attached to eye_L / eye_R), the clip list, the dressing
+                         (ASSEMBLY), the coat's source (COAT_SOURCE) and the walk's speed
     DogEyeball.gltf      the unit sphere each eye entity draws, at close-up tessellation
 
 Nothing is hand-edited after generation (issue #1533, criterion A6). The surface is a signed
@@ -3365,6 +3366,16 @@ def to_gltf(v):
     return [float(v[0]), float(v[2]), float(-v[1])]
 
 
+# How the golden is dressed (the engine's DogShowcaseEvidenceTest and the exported Dog.olo read it
+# from Dog.rig.json's "assembly", as they do the other breeds'), linear RGB: DogSkin's and DogLid's
+# base colours, which multiply the coat map, and the strands' base colour under it. "baseColor"
+# pigment tints the light the fibre returns, as #1533 graded the golden.
+ASSEMBLY = {"pelt": [0.58, 0.48, 0.38], "lid": [0.20, 0.14, 0.10], "fibre": [1.0, 0.93, 0.80], "pigment": "baseColor"}
+# Where the coat's Alembic source is (build_dog_groom.py's default_abc_path), as the cooked coat
+# records it: project-relative, beside the model, where the Content Browser imports it.
+COAT_SOURCE = "Assets/Models/Dog/Dog.abc"
+
+
 def write_rig_json(path):
     import json
 
@@ -3374,6 +3385,9 @@ def write_rig_json(path):
         eyes[side] = {"bone": f"eye_{side}", "centre": to_gltf(c), "gaze": to_gltf(f), "up": to_gltf(up)}
     data = {
         "units": "metres, glTF Y-up, the head faces +Z",
+        "assembly": ASSEMBLY,
+        "coatSource": COAT_SOURCE,
+        "walkSpeed": float(WALK_SPEED),
         "eyeRadius": float(EYE_R),
         "lidInnerRadius": float(EYE_R + LID_GAP),
         "socketRadius": float(EYE_R + SOCKET_CLEAR),
@@ -3647,8 +3661,8 @@ def main():
     """blender -b --factory-startup --python build_dog.py -- [out_dir] [preview_dir]
 
     Writes Dog.gltf + Dog.bin + DogCoatColor.png + DogNoseNormal.png + DogNoseOcclusion.png +
-    Dog.rig.json into out_dir, then the coat (build_dog_groom.py) into .dog-groom/Dog.abc (default: this
-    script's directory) and, when preview_dir is given, Workbench renders of the rest pose,
+    Dog.rig.json into out_dir, then the coat (build_dog_groom.py) into Dog.abc beside this script
+    (Assets/Models/Dog/, the rig's coatSource) and, when preview_dir is given, Workbench renders of the rest pose,
     every clip, a blink and the pant."""
     import bpy
 

@@ -4,14 +4,17 @@
 
 Imports Dog.gltf (build_dog.py's output, the mesh the engine binds the coat to) and Dog.rig.json,
 grows the coat on it, and writes one hair Curves object per coat group into an Alembic archive,
-by default .dog-groom/Dog.abc at the repository root. build_dog.py runs it last. The engine cooks
-the archive (AlembicGroomImporter) into the shipped Assets/Grooms/Dog/Dog.ologroom:
+by default Dog.abc beside the model (Assets/Models/Dog/Dog.abc, Dog.rig.json's coatSource), where
+the Content Browser lists it and its "Import as Groom" cooks it. build_dog.py runs it last. The
+engine cooks the archive (AlembicGroomImporter) into the shipped Assets/Grooms/Dog/Dog.ologroom:
 
     OLO_DOG_EXPORT=1 OloEngine-Tests --gtest_filter=DogShowcaseEvidenceTest.ExportsTheLiveScene
 
-and draws it straight from the .abc with OLO_DOG_ABC=1, for look development. The .abc is a ~60 MB
-build output: git-ignored, and outside SandboxProject/Assets, where the editor registers whatever it
-finds.
+and draws it straight from the .abc with OLO_DOG_ABC=1, for look development. The .abc is the
+coat's source, committed (Git LFS) as the other breeds' are: Blender's exporter writes the hair
+objects in a different order each run and the importer numbers the groups in archive order, so a
+regenerated archive is the same coat in another curve order. Cook the shipped coat from the
+committed archive; regenerate the archive only to change the coat, and re-export after it.
 
 WHAT THE .abc CARRIES. Blender's Alembic exporter writes a hair object's points, curve sizes and
 widths, and its CUSTOM PROPERTIES as `.userProperties` -- but no UVs and no custom attributes for
@@ -23,8 +26,13 @@ which AlembicGroomImporter reads:
     groom_clump, groom_curl_radius, groom_curl_frequency, groom_wave_amplitude,
     groom_wave_frequency, groom_stiffness      one float each, GroomCoatGroupDesc's fields
     groom_guide       one int per curve: 1 marks a simulation guide
-    groom_root_uv     two floats per curve: the root's UV on the pelt, in the ENGINE's convention
-                      (glTF's: v down), which keys the coat colour map and the clump cells
+    groom_root_uv     two floats per curve: the root's UV on the pelt, in the ENGINE's convention,
+                      which keys the coat colour map and the clump cells. That is Blender's own (v
+                      up), NOT glTF's: the engine loads every image bottom row first and Assimp flips
+                      glTF's v to match. Written as glTF's v down until #1560, every strand read its
+                      colour from the vertically mirrored place in the atlas.
+    groom_card_cell_size, groom_card_points    one float, one int: the card tier the importer
+                      cooks with the coat (CARDS), so the editor's "Import as Groom" cooks what ships
 
 The per-curve two are ALSO kept as curve attributes (groom_guide, and Blender's own
 surface_uv_coordinate), which follow the curves through sculpting; export_groom_abc() rebuilds the
@@ -47,17 +55,15 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SEED = 1533
+# The card tier the coat hands over to at range (cell size, points per card): a 1.2 cm root-UV cell
+# for a subject seen close, where the horses' 5 cm default made one card of a cheek. Written into
+# the archive (groom_card_cell_size, groom_card_points), so every cook of it builds these cards.
+CARDS = (0.012, 6)
 
 
 def default_abc_path():
-    """.dog-groom/Dog.abc at the repository root (the directory holding CMakePresets.json)."""
-    d = HERE
-    while not os.path.exists(os.path.join(d, "CMakePresets.json")):
-        up = os.path.dirname(d)
-        if up == d:
-            return os.path.join(HERE, "Dog.abc")
-        d = up
-    return os.path.join(d, ".dog-groom", "Dog.abc")
+    """Dog.abc beside the model (Assets/Models/Dog/), the path Dog.rig.json's coatSource names."""
+    return os.path.join(HERE, "Dog.abc")
 
 # ---------------------------------------------------------------------------------------------
 # Frames and hashing
@@ -738,8 +744,7 @@ def surface_of(body, arm, rig, log=print):
     co_e = to_engine(co)
     uvl = np.zeros(len(me.loops) * 2)
     me.uv_layers[0].data.foreach_get("uv", uvl)
-    uvl = uvl.reshape(-1, 2)
-    uvl[:, 1] = 1.0 - uvl[:, 1]  # the engine's convention (glTF's): v down
+    uvl = uvl.reshape(-1, 2)  # Blender's convention, v up: the engine's (see the header)
     cn = np.zeros(len(me.loops) * 3)
     me.corner_normals.foreach_get("vector", cn)
     cn = to_engine(cn.reshape(-1, 3) @ mw[:3, :3].T)
@@ -880,9 +885,7 @@ def make_curves(groups, body, collection_name="DogGroom"):
         guide = cv.attributes.new("groom_guide", "INT", "CURVE")
         guide.data.foreach_set("value", g["guide"].astype(np.int32))
         suv = cv.attributes.new("surface_uv_coordinate", "FLOAT2", "CURVE")
-        uv_b = g["uv"].copy()
-        uv_b[:, 1] = 1.0 - uv_b[:, 1]  # Blender's convention for the attachment
-        suv.data.foreach_set("vector", uv_b.reshape(-1).astype(np.float32))
+        suv.data.foreach_set("vector", g["uv"].reshape(-1).astype(np.float32))
         cv.surface = body
         if body.data.uv_layers:
             cv.surface_uv_map = body.data.uv_layers[0].name
@@ -901,9 +904,10 @@ def make_curves(groups, body, collection_name="DogGroom"):
     return objects
 
 
-def export_groom_abc(path, collection_name="DogGroom", log=print):
+def export_groom_abc(path, collection_name="DogGroom", log=print, cards=CARDS):
     """Write the coat collection to Alembic. The per-curve properties are rebuilt from the curve
-    attributes first, so curves added, deleted or combed in Blender export consistently."""
+    attributes first, so curves added, deleted or combed in Blender export consistently; `cards` is
+    the card tier's (cell size, points per card), carried on every group."""
     import bpy
 
     col = bpy.data.collections[collection_name]
@@ -916,10 +920,11 @@ def export_groom_abc(path, collection_name="DogGroom", log=print):
         uv = np.zeros(n * 2, dtype=np.float32)
         if "surface_uv_coordinate" in cv.attributes:
             cv.attributes["surface_uv_coordinate"].data.foreach_get("vector", uv)
-        uv = uv.reshape(-1, 2)
-        uv[:, 1] = 1.0 - uv[:, 1]
+        uv = uv.reshape(-1, 2)  # Blender's convention, v up: the engine's (see the header)
         cv["groom_guide"] = guide.tolist()
         cv["groom_root_uv"] = uv.reshape(-1).tolist()
+        cv["groom_card_cell_size"] = float(cards[0])
+        cv["groom_card_points"] = int(cards[1])
     # The collection, not the selection: `selected` exports nothing from a background session.
     t0 = time.time()
     bpy.ops.wm.alembic_export(filepath=path, collection=col.name, selected=False, start=1, end=1, export_hair=True,
