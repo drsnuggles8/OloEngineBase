@@ -37,8 +37,11 @@
 //     cuticle would have reflected is trapped by the water film and sent back
 //     in (Lekner & Dorf 1988; Jensen, Legakis & Dorsey 1999). The fibre's
 //     absorption sigma_a is multiplied by Absorption: for an albedo that goes
-//     as exp(-c sigma_a) that is albedo^Absorption, the "power curve of about
-//     2.2" shipped wet fur uses, and it saturates as it darkens.
+//     as exp(-c sigma_a) that is albedo^Absorption, and it saturates as it
+//     darkens. The default is 1.3, not the "about 2.2" shipped wet fur quotes:
+//     through a coat's multiple scattering the power compounds, and at 2.2 a
+//     saturated orange coat (the golden dog) went a vivid red instead of a
+//     deeper wet gold.
 //   * GLOSSIER. The water film fills the cuticle's scales: the longitudinal
 //     roughness is scaled by Roughness, so the variance V0 by its square.
 //   * NO SOFT SHEEN. The frosted spread a dry coat shows at grazing angles is
@@ -79,11 +82,12 @@ namespace OloEngine
         constexpr f32 DryLine = -1.0e6f;
     } // namespace GroomWetnessLimits
 
-    /// What full wetness does. Defaults are the issue's: albedo^2.2, half the
-    /// roughness, half the azimuthal spread, strands mostly laid down.
+    /// What full wetness does: albedo^1.3 (see the header for why not the
+    /// issue's 2.2), half the roughness, half the azimuthal spread, strands
+    /// mostly laid down.
     struct GroomWetResponse
     {
-        f32 Absorption = 2.2f;
+        f32 Absorption = 1.3f;
         f32 Roughness = 0.5f;
         f32 Azimuthal = 0.5f;
         f32 Flatten = 0.6f;

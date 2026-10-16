@@ -220,7 +220,7 @@ namespace OloEngine::Tests
         EXPECT_FLOAT_EQ(dry.V0, 1.0f);
         EXPECT_FLOAT_EQ(dry.S, 1.0f);
         const GroomWetFibreScales wet = GroomWetFibre(1.0f, response);
-        EXPECT_FLOAT_EQ(wet.SigmaA, 2.2f) << "the issue's power curve of 2.2";
+        EXPECT_FLOAT_EQ(wet.SigmaA, 1.3f) << "the default absorption power";
         EXPECT_FLOAT_EQ(wet.V0, 0.25f) << "half the roughness is a quarter of the variance";
         EXPECT_FLOAT_EQ(wet.S, 0.5f);
         EXPECT_FLOAT_EQ(wet.AlbedoPower, wet.SigmaA);
@@ -234,7 +234,7 @@ namespace OloEngine::Tests
             EXPECT_NEAR(wetAlbedo[i], std::pow(dryAlbedo[i], wet.AlbedoPower), 1.0e-6f);
         EXPECT_GT(wetAlbedo.r / wetAlbedo.b, dryAlbedo.r / dryAlbedo.b) << "wet is more saturated";
         const GroomWetFibreScales half = GroomWetFibre(0.5f, response);
-        EXPECT_FLOAT_EQ(half.SigmaA, 1.6f);
+        EXPECT_FLOAT_EQ(half.SigmaA, 1.15f) << "halfway between dry and the default power";
         EXPECT_FLOAT_EQ(GroomWetFibre(kNaN, response).SigmaA, 1.0f) << "unknown wetness is dry";
     }
 

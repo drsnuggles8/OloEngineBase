@@ -6041,7 +6041,7 @@ namespace OloEngine
         f32 m_DryRate = 0.02f;
         // The response at full wetness (GroomWetResponse).
         OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 8.0f)
-        f32 m_Darkening = 2.2f;
+        f32 m_Darkening = 1.3f;
         OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 1.0f)
         f32 m_Gloss = 0.5f;
         OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 1.0f)
@@ -6064,12 +6064,22 @@ namespace OloEngine
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
         f32 m_Rain = 0.0f;
 
+        // THE AUTHORED FIELDS ONLY, bit for bit. The state above is the
+        // simulation's output: the wetness system rewrites it every tick, and in
+        // a whole-object comparison those writes became part of an inspector
+        // edit and its undo command. It is still serialized (scene and
+        // save-game); edits to it are just not undo entries.
         auto operator==(const GroomWetnessComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(*this, other);
+            return m_Enabled == other.m_Enabled && m_AutomaticWaterline == other.m_AutomaticWaterline &&
+                   Math::BitwiseEqual(m_Waterline, other.m_Waterline) && Math::BitwiseEqual(m_Band, other.m_Band) &&
+                   Math::BitwiseEqual(m_RainSoak, other.m_RainSoak) && Math::BitwiseEqual(m_SoakRate, other.m_SoakRate) &&
+                   Math::BitwiseEqual(m_DryRate, other.m_DryRate) && Math::BitwiseEqual(m_Darkening, other.m_Darkening) &&
+                   Math::BitwiseEqual(m_Gloss, other.m_Gloss) && Math::BitwiseEqual(m_Sheen, other.m_Sheen) &&
+                   Math::BitwiseEqual(m_Flatten, other.m_Flatten) && Math::BitwiseEqual(m_Shorten, other.m_Shorten) &&
+                   Math::BitwiseEqual(m_Clump, other.m_Clump);
         }
     };
-    static_assert(sizeof(GroomWetnessComponent) == 60, "GroomWetnessComponent must have no padding: see BitwiseEqualLayoutTest");
 
     // ── Groom surface binding (issue #1249) ──────────────────────
     //
