@@ -143,6 +143,33 @@ namespace OloEngine::Tests
                 return {};
             }
 
+            // Drop the binary sidecars the copy brought along. They are
+            // git-ignored caches the developer's own editor wrote, and a load
+            // prefers one to the YAML: a stale sidecar (one written while a
+            // crashed session's textures failed to load) made these tests read
+            // that file instead of the code under test, red on one box only.
+            std::vector<fs::path> sidecars;
+            for (auto it = fs::recursive_directory_iterator(tempRoot, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+            {
+                if (it->is_regular_file() && it->path().extension() == ".scenebin")
+                {
+                    sidecars.push_back(it->path());
+                }
+            }
+            for (const auto& sidecar : sidecars)
+            {
+                if (!fs::remove(sidecar, ec) || ec)
+                {
+                    error = "could not remove the staged sidecar " + sidecar.string() + ": " + ec.message();
+                    return {};
+                }
+            }
+            if (ec)
+            {
+                error = "listing the staged sidecars under " + tempRoot.string() + " failed: " + ec.message();
+                return {};
+            }
+
             return tempRoot;
         }
 
