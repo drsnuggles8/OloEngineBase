@@ -260,13 +260,20 @@ void main()
     if (u_HasVelocityTexture != 0)
     {
         vec2 velocityUV = GetDilatedVelocityUV(uv);
-        velocity = texture(u_Velocity, velocityUV).rg;
+        vec4 dilated = texture(u_Velocity, velocityUV);
+        velocity = dilated.rg;
         // A stochastic coat's closest-depth velocity is one draw's strand
         // (OloTaaStochasticMeanVelocity). Measured on the Bernese walk from
         // behind, two draws of the same frames then differ on the face by 0.633
         // of what the samples alone do, 0.665 by the closest strand; ears 0.576
         // from 0.613, fringe 0.524 from 0.566, and the lag 0.248 from 0.251.
-        if (stochasticCoverage)
+        //
+        // Only where the dilated texel IS the coat: the 4x4 that flags the
+        // pixel reaches a texel past the 3x3 the dilation reads, and an opaque
+        // surface in front of the coat wins the dilation too. Such a pixel
+        // keeps its own surface's motion, or it would reproject the background
+        // beside a walking coat by the coat's.
+        if (stochasticCoverage && dilated.a <= 0.5 * OLO_STOCHASTIC_COVERAGE_MARK)
         {
             velocity = OloTaaStochasticMeanVelocity(uv, velocity);
         }
