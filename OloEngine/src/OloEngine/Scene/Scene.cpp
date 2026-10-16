@@ -4533,22 +4533,41 @@ namespace OloEngine
     }
 
     // The floor a coat's wet line recedes to as it dries (#1615): its lowest
-    // point at rest, from the asset's bounds, on the coat's own up axis, one
-    // band below it so the last of the edge leaves the coat before the line is
-    // gone. A coat whose asset is not loaded measures from its origin.
-    static f32 GroomWetnessBottom(AssetHandle handle, const GroomWetnessAxis& axis, f32 band)
+    // point at rest, from the asset's bounds where the coat is drawn (`placement`,
+    // GroomWetnessPlacement), on the coat's own up axis, one band below it so
+    // the last of the edge leaves the coat before the line is gone. A coat whose
+    // asset is not loaded measures from its origin.
+    static f32 GroomWetnessBottom(AssetHandle handle, const GroomWetnessAxis& axis, f32 band, const glm::vec3& placement)
     {
         f32 lowest = 0.0f;
         if (static_cast<u64>(handle) != 0u)
         {
             if (const Ref<GroomAsset> groom = AssetManager::GetAsset<GroomAsset>(handle))
             {
-                lowest = GroomWetnessLowest(axis, groom->GetBoundsMin(), groom->GetBoundsMax());
+                lowest = GroomWetnessLowest(axis, groom->GetBoundsMin() + placement, groom->GetBoundsMax() + placement);
             }
         }
         const f32 edge = std::isfinite(band) ? std::clamp(band, GroomWetnessLimits::MinBand, GroomWetnessLimits::MaxBand)
                                              : GroomWetnessLimits::MinBand;
         return (std::isfinite(lowest) ? lowest : 0.0f) - edge;
+    }
+
+    glm::vec3 Scene::GroomWetnessPlacement(Entity groomEntity, AssetHandle groom)
+    {
+        // A BOUND coat is drawn where its body is, which is not the groom's
+        // origin once the body has moved from the placement the binding was
+        // cooked at. Heights need no correction -- a deformed point already
+        // sits at its world height in the groom's frame -- but where the water
+        // is looked up, and where the coat's lowest point is, do.
+        glm::vec3 offset{ 0.0f };
+        if (static_cast<u64>(groom) != 0u)
+        {
+            if (const Ref<GroomAsset> asset = AssetManager::GetAsset<GroomAsset>(groom))
+            {
+                (void)BoundGroomPlacementOffset(groomEntity, *asset, offset);
+            }
+        }
+        return offset;
     }
 
     void Scene::UpdateGroomWetness(Timestep ts)
@@ -4586,15 +4605,20 @@ namespace OloEngine
                 continue;
             }
             const auto& groom = coats.get<GroomComponent>(entity);
-            const GroomWetnessAxis axis = MakeGroomWetnessAxis(GetWorldTransform(entity));
+            const glm::mat4 world = GetWorldTransform(entity);
+            const GroomWetnessAxis axis = MakeGroomWetnessAxis(world);
+            const glm::vec3 placement = GroomWetnessPlacement(Entity{ entity, this }, groom.m_Groom);
+            // The water under the coat where it is DRAWN: a bound coat's body may
+            // stand in a tile its groom's origin is outside.
+            const glm::vec3 probe(world * glm::vec4(placement, 1.0f));
 
             std::optional<f32> waterline;
             if (wet.m_AutomaticWaterline)
             {
-                if (const WaterProbe::Volume* water = WaterProbe::FindVolumeAt(waters, axis.Origin))
+                if (const WaterProbe::Volume* water = WaterProbe::FindVolumeAt(waters, probe))
                 {
                     waterline = GroomWetnessLocalHeight(
-                        axis, WaterProbe::SampleSurfaceY(*water, glm::vec2(axis.Origin.x, axis.Origin.z), m_SimulationTime));
+                        axis, WaterProbe::SampleSurfaceY(*water, glm::vec2(probe.x, probe.z), m_SimulationTime));
                 }
             }
             else
@@ -4604,7 +4628,7 @@ namespace OloEngine
 
             GroomWetnessInputs inputs;
             inputs.Waterline = waterline;
-            inputs.Bottom = GroomWetnessBottom(groom.m_Groom, axis, wet.m_Band);
+            inputs.Bottom = GroomWetnessBottom(groom.m_Groom, axis, wet.m_Band, placement);
             inputs.RainTarget = weatherWetness * wet.m_RainSoak;
             inputs.SoakRate = wet.m_SoakRate;
             inputs.DryRate = wet.m_DryRate;
@@ -6292,7 +6316,8 @@ namespace OloEngine
         // spending last frame's allocation, which is invisible in every test.
         ScheduleAnimalPopulationForFrame(ts);
 
-        if (!m_IsPaused || m_StepFrames-- > 0)
+        const bool stepped = !m_IsPaused || m_StepFrames-- > 0;
+        if (stepped)
         {
             // Advance the deterministic simulation clock so the buoyancy wave
             // phase below is tick-driven (see SimulateRuntimeStep).
@@ -6310,6 +6335,15 @@ namespace OloEngine
         // (even while paused) so gizmo edits made in play-in-editor "simulate"
         // mode still show composed parent transforms this frame (#499).
         PropagateWorldTransforms();
+
+        // Coat wetness (#1615) follows the bodies physics just moved through the
+        // water -- buoyancy runs here too -- so a coat wades and dries in
+        // Simulate as in Play. On the stepped frames only, from the transforms
+        // composed above; the rest of the gameplay schedule stays Play-only.
+        if (stepped)
+        {
+            UpdateGroomWetness(ts);
+        }
 
         // Render based on mode
         if (m_RenderingEnabled)
@@ -9635,7 +9669,9 @@ namespace OloEngine
                 const GroomWetnessAxis axis = MakeGroomWetnessAxis(worldTransform);
                 const GroomWetnessState state{ wet->m_Immersion, wet->m_SoakedLine, wet->m_Rain };
                 request.Wetness.Rain = state.Rain;
-                request.Wetness.Line = GroomWetnessLine(state, GroomWetnessBottom(groomComponent.m_Groom, axis, wet->m_Band));
+                request.Wetness.Line = GroomWetnessLine(
+                    state, GroomWetnessBottom(groomComponent.m_Groom, axis, wet->m_Band,
+                                              GroomWetnessPlacement(Entity{ entity, this }, groomComponent.m_Groom)));
                 request.Wetness.Band = wet->m_Band;
                 request.Wetness.Height = axis.Height;
                 request.WetResponse.Absorption = wet->m_Darkening;
@@ -10328,7 +10364,8 @@ namespace OloEngine
             GroomWetnessFrame frame;
             frame.Rain = wet->m_Rain;
             frame.Line = GroomWetnessLine(GroomWetnessState{ wet->m_Immersion, wet->m_SoakedLine, wet->m_Rain },
-                                          GroomWetnessBottom(request.Handle, axis, wet->m_Band));
+                                          GroomWetnessBottom(request.Handle, axis, wet->m_Band,
+                                                             GroomWetnessPlacement(groomEntity, request.Handle)));
             frame.Band = wet->m_Band;
             frame.Height = axis.Height;
             if (frame.Any())

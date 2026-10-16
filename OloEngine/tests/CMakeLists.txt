@@ -1715,6 +1715,7 @@ add_executable(OloEngine-Tests
 		Functional/Networking/ServerAuthoritativeLoopTest.cpp
 		Functional/Networking/InterpolatedComponentsSmoothOnRemoteClientTest.cpp
 		Functional/Scene/ScenePauseFreezesAllSubsystemsTest.cpp
+		Functional/Scene/GroomWetnessInSimulateTest.cpp
 		Functional/AnimationPhysics/EntityDestroyedMidTickTest.cpp
 		Functional/AnimationPhysics/PhysicsLayerFilteringTest.cpp
 		Functional/AnimationPhysics/EntityAddedAtRuntimeTest.cpp
