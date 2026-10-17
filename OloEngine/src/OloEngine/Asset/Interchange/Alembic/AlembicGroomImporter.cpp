@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.h"
+#include "OloEngine/Asset/Interchange/Alembic/AlembicTraversal.h"
 
 #if defined(OLO_WITH_ALEMBIC)
 
@@ -968,7 +969,14 @@ namespace OloEngine
                 }
             }
 
-            for (sizet i = 0; i < obj.getNumChildren(); ++i)
+            // Children in NAME order, never archive order (#1560). Group ids are
+            // assigned by first appearance and the cook sorts curves by group
+            // id, so the visit order IS the cooked curve order. Blender writes
+            // objects in pointer order, which changes on every export: in
+            // archive order a re-export of the same strands cooked to a
+            // different curve order, moving every stride-based LOD subset and
+            // every curve-keyed jitter.
+            for (const sizet i : AlembicTraversal::SortedChildIndices(obj))
             {
                 Visit(obj.getChild(i), worldXf, state, depth + 1u);
                 if (state.Failed)
@@ -998,7 +1006,9 @@ namespace OloEngine
             {
                 content.Polygons = true;
             }
-            for (sizet i = 0; i < obj.getNumChildren(); ++i)
+            // Name order too, so the two traversals in this file never disagree
+            // about which object comes first.
+            for (const sizet i : AlembicTraversal::SortedChildIndices(obj))
             {
                 ScanSchemas(obj.getChild(i), content, depth + 1u);
             }
