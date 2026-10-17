@@ -71,6 +71,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -258,13 +259,30 @@ namespace OloEngine::Tests
             }
         }
 
-        // Every layer in or out of the shadow maps; a regeneration applies it.
+        // Every layer in or out of the shadow maps; a regeneration applies it,
+        // and this returns once that regeneration is the one drawn.
         void SetFoliageCastsShadows(bool casts)
         {
             auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
             for (auto& layer : foliage.m_Layers)
                 layer.CastShadows = casts;
             foliage.m_NeedsRebuild = true;
+            ASSERT_NO_FATAL_FAILURE(RenderUntilPublished());
+        }
+
+        // Once an earlier fixture in the process has started the task workers,
+        // a regeneration publishes asynchronously, and a fixed frame count reads
+        // the layers from before it: the foliage-off arm then drew the shipped
+        // plants and the positive control saw nothing move.
+        void RenderUntilPublished()
+        {
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            do
+            {
+                (void)RenderAndTimeAtlas(1);
+            } while (Foliage() != nullptr && Foliage()->IsRebuilding() && std::chrono::steady_clock::now() < deadline);
+            ASSERT_NE(Foliage(), nullptr) << "the island has no foliage renderer";
+            ASSERT_FALSE(Foliage()->IsRebuilding()) << "the regeneration never reached publication";
         }
 
         [[nodiscard]] FoliageRenderer* Foliage()
@@ -376,6 +394,7 @@ namespace OloEngine::Tests
             // Warm up: the foliage generates, the atlas packs its faces, the
             // cull slots grow to their demand.
             (void)RenderAndTimeAtlas(12);
+            ASSERT_NO_FATAL_FAILURE(RenderUntilPublished());
             if (path.Path == paths.front().Path)
             {
                 ASSERT_NO_FATAL_FAILURE(PlaceLampsOnGround());
@@ -411,10 +430,10 @@ namespace OloEngine::Tests
             // POSITIVE CONTROL: the same frame with no foliage in the shadow
             // maps. It must differ, or nothing below can see a shadow move.
             std::vector<u8> noFoliageShadowPixels;
-            SetFoliageCastsShadows(false);
+            ASSERT_NO_FATAL_FAILURE(SetFoliageCastsShadows(false));
             (void)RenderAndTimeAtlas(12);
             ASSERT_NO_FATAL_FAILURE(ReadFrame(noFoliageShadowPixels));
-            SetFoliageCastsShadows(true);
+            ASSERT_NO_FATAL_FAILURE(SetFoliageCastsShadows(true));
             (void)RenderAndTimeAtlas(12);
 
             WriteEvidence(std::string("ShadowAtlasFoliageCull_GL_") + path.Name, batchedPixels);
