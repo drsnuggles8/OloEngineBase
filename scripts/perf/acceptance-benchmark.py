@@ -70,6 +70,11 @@ they appear in measurement-passes.jsonl; a sub-pass as "Parent/Sub"): a run in
 which a listed pass has no valid GPU sample in some scenario is not counted. Selected settings (configuration.selectedSettings)
 say what the renderer was set to, not that the technique did any work.
 
+A cell may also add "env", e.g. {"OLO_NO_SHADOWPASS_BRACKETS": "1"}: extra
+environment variables for that cell's processes only, so two cells can A/B one
+manifest under a lever inside the same interleaved campaign. Each run records
+the env it was given.
+
 Only buildConfig, compiler and cells are required; "exe" is required when a
 cell uses host "gl" (the test binary with --olo-capture-manifest) and
 "editorExe" when a cell uses host "vulkan" (the editor with --rhi=vulkan, driven
@@ -228,8 +233,12 @@ def load_plan(raw: dict, *, default_repo: Path, gate_ms=None, repeats=None, max_
         required = cell.get('requirePasses', [])
         if not isinstance(required, list) or not all(isinstance(name, str) and name for name in required):
             raise ValueError(f'cell {cell_id}: requirePasses must be a list of pass names')
+        cell_env = cell.get('env', {})
+        if not isinstance(cell_env, dict) or not all(isinstance(k, str) and k and isinstance(v, str)
+                                                     for k, v in cell_env.items()):
+            raise ValueError(f'cell {cell_id}: env must map variable names to string values')
         normalised_cells.append({'id': cell_id, 'host': cell['host'], 'manifest': str(manifest),
-                                 'requirePasses': required})
+                                 'requirePasses': required, 'env': dict(cell_env)})
     plan = {'repo': str(repo), 'buildConfig': 'Release', 'compiler': compiler.strip(), 'gateMs': float(gate),
             'repeats': count, 'maxRetries': retries,
             'timeoutSeconds': float(raw.get('timeoutSeconds', 1800)), 'mcpPort': int(raw.get('mcpPort', 7391)),
@@ -1009,7 +1018,7 @@ def run_attempt(plan: dict, cell: dict, round_index: int, attempt: int, output: 
               'directory': destination.relative_to(output).as_posix(), 'manifest': cell['manifest'],
               'manifestSha256': campaign['manifestSha256'][cell['manifest']],
               'binarySha256': campaign['fingerprint']['binaries'][host['exeKey']],
-              'requirePasses': cell.get('requirePasses', []),
+              'requirePasses': cell.get('requirePasses', []), 'env': cell.get('env', {}),
               'frameMetric': host['frameMetric'], 'queuedAt': now_iso()}
     quiet, history = wait_for_quiet(probe, plan['idleGpuUtilMax'], plan['contentionWaitSeconds'])
     record['preLaunch'] = history[-3:]
@@ -1029,6 +1038,7 @@ def run_attempt(plan: dict, cell: dict, round_index: int, attempt: int, output: 
         environment = {k: v for k, v in os.environ.items() if k != 'OLO_CAPTURE_TEST_DELAY_MS'}
         if plan['shaderCacheDir']:
             environment['OLO_SHADER_CACHE_DIR'] = plan['shaderCacheDir']
+        environment.update(cell.get('env', {}))
         record['shaderCacheDir'] = environment.get('OLO_SHADER_CACHE_DIR', 'inherited/default')
         record['hostBefore'] = safe_probe_host()
         record['startedAt'] = now_iso()

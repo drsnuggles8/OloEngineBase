@@ -168,6 +168,10 @@ OLO_LEVER_EXACT(FaultShadowFoliageCullCap, "OLO_FAULT_SHADOW_FOLIAGE_CULL_CAP",
                 "has, so every view past the foliage cull's shadow slots (FoliageGPUCuller::kMaxShadowViews) draws "
                 "the whole island's foliage uncompacted -- the cost a point light's last cube faces paid before "
                 "#1590. ShadowAtlasFoliageCullEvidenceTest proves its cull-coverage check sees it.")
+OLO_LEVER_EXACT(NoShadowPassBrackets, "OLO_NO_SHADOWPASS_BRACKETS",
+                "Open no ShadowPass family or caster-class GPU bracket (ShadowBrackets::Scope, #1590); the pass's "
+                "own bracket stays. The A/B lever for what the brackets cost: a VSM frame opens a class bracket "
+                "per clip level.")
 OLO_LEVER_EXACT(FaultCountAliasAsBacking, "OLO_FAULT_COUNT_ALIAS_AS_BACKING",
                 "FAULT (#1342 negative control): book every view/alias RendererMemoryTracker::TrackAlias receives "
                 "as its own BACKING allocation, so a view onto an existing image is counted twice in the physical "

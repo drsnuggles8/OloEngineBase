@@ -450,6 +450,14 @@ class PlanRefusalTest(TempCase):
         with self.assertRaisesRegex(ValueError, 'host'):
             self.load(cells=[{'id': 'x', 'host': 'dx12', 'manifest': 'm.yaml'}])
 
+    def test_cell_env_is_kept_and_must_map_names_to_strings(self):
+        self.assertEqual(self.load()['cells'][0]['env'], {})
+        lever = [{'id': 'gl', 'host': 'gl', 'manifest': 'm.yaml', 'env': {'OLO_NO_SHADOWPASS_BRACKETS': '1'}}]
+        self.assertEqual(self.load(cells=lever)['cells'][0]['env'], {'OLO_NO_SHADOWPASS_BRACKETS': '1'})
+        for bad in (['OLO_X'], {'OLO_X': 1}, {'': '1'}):
+            with self.assertRaisesRegex(ValueError, 'env'):
+                self.load(cells=[{'id': 'gl', 'host': 'gl', 'manifest': 'm.yaml', 'env': bad}])
+
     def test_cli_overrides(self):
         plan = acceptance.load_plan(copy.deepcopy(self.BASE), default_repo=self.root, gate_ms=33.333, repeats=5,
                                     max_retries=0, check_files=False)

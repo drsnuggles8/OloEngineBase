@@ -21,6 +21,7 @@
 // records sequentially on both backends.
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 
@@ -53,7 +54,7 @@ namespace OloEngine::ShadowBrackets
       public:
         explicit Scope(const char* name, bool active = true)
         {
-            if (!active || RenderCommand::IsRecordingParallelItem())
+            if (!active || RenderCommand::IsRecordingParallelItem() || Levers::NoShadowPassBrackets())
                 return;
             m_Pool = &GPUPassTimerPool::GetInstance();
             m_Pool->BeginSubPass(name);
