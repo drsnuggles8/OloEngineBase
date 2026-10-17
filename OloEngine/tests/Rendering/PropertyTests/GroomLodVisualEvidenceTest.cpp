@@ -1231,7 +1231,7 @@ namespace OloEngine::Tests
         // strands' shadow -- but a shadow that holds the outgoing tier for the
         // whole window and then steps at its END, a pop moved twelve frames
         // rather than removed. Measured with the caster discard taken out of
-        // GroomStrandDepth.glsl: the largest step was 0.86 of the hard
+        // include/GroomStrandDepthFragment.glsl: the largest step was 0.86 of the hard
         // switch's, against 0.31 masked. So the claim is the step, as for the
         // colour: the fade's largest frame-to-frame step in the ground's light
         // is under half the hard switch's.

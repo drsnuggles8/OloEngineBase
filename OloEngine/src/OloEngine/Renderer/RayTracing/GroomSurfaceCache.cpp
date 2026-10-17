@@ -94,8 +94,7 @@ namespace OloEngine::RayTracing
         // end on the first strand past the boundary.
         [[nodiscard]] bool IsDeformed(const GroomStrandRequest& request) noexcept
         {
-            return request.Groom && request.Binding &&
-                   static_cast<sizet>(request.RootTransforms.Num()) == request.Groom->GetCurveCount();
+            return request.Groom && request.Binding && request.DrawnRoots().size() == request.Groom->GetCurveCount();
         }
 
         [[nodiscard]] bool IsFiniteTransform(const glm::mat4& matrix) noexcept

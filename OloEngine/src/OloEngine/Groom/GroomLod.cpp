@@ -401,9 +401,14 @@ namespace OloEngine
         }
 
         const GroomRepresentation previous = state.To;
+        // A window HOLDS its slot through this frame if it would still be
+        // drawing after it; one on its last frame is closing and holds none, so
+        // keeping it alive (a reversal, a restart) needs a slot like a new one.
+        const bool holdsSlot = state.IsActive() && state.Frame < state.Frames;
+        const bool haveSlot = slotAvailable || holdsSlot;
         if (applied != previous)
         {
-            if (state.IsActive() && applied == state.From)
+            if (state.IsActive() && applied == state.From && haveSlot)
             {
                 // A REVERSAL. Last frame showed t of `To` and 1 - t of `From`;
                 // swapping the roles and mirroring the progress shows the same
@@ -414,7 +419,7 @@ namespace OloEngine
             }
             // A window already running holds its slot: a hand-over to a third
             // tier mid-window restarts it without asking for another.
-            else if (frames > 0u && (slotAvailable || state.IsActive()))
+            else if (frames > 0u && haveSlot)
             {
                 state.From = previous;
                 state.To = applied;
@@ -446,6 +451,7 @@ namespace OloEngine
         }
 
         out.Active = true;
+        out.TookSlot = !holdsSlot;
         out.Outgoing = state.From;
         out.Threshold = GroomCrossFadeThreshold(state.Frame, state.Frames);
         return out;

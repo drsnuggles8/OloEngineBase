@@ -189,7 +189,12 @@ parent: never add the two.
   happens, the step is 0.9–1.6% in coverage and 3.6–4.8% in energy, inside the near ladder's 5%
   (`TheCardHandOverStepsTheCoatWithinTheNearLaddersBar`). The remaining 4% is the cards' fibre model:
   a card shades at its kept strand's one tangent while its members spread around it
-  ([groom-card-coverage.md](../agent-rules/groom-card-coverage.md)).
+  ([groom-card-coverage.md](../agent-rules/groom-card-coverage.md)). Since #1612 the step is not
+  shown in one frame: both tiers are drawn through complementary dither masks for 12 frames, so the
+  energy step arrives at about a twelfth of its size per frame. On the LOD evidence coat a 3.4–3.9%
+  one-frame step became at most 0.81–0.88% per frame on every GL path
+  ([groom-lod-cross-fade-and-detail-bias.md](../agent-rules/groom-lod-cross-fade-and-detail-bias.md)).
+  The mismatch itself is unchanged (#1608).
 - **The 11 m visibility step moves coverage by up to 4.7%** while energy moves 1.0% and brightness
   0.5%. The dolly judges pops on energy and brightness, at half the 10% band.
 - **About 12–14% of the leg skin is groomed sparsely on purpose** (the inner legs) and is not judged

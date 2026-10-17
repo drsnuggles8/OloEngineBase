@@ -30,6 +30,8 @@
 #include "OloEngine/Renderer/VertexArray.h"
 
 #include <algorithm>
+#include <unordered_set>
+#include <optional>
 #include <cmath>
 #include <ranges>
 #include <cstdio>
@@ -132,6 +134,7 @@ namespace OloEngine
         // The cascade region forks, which is the only reason that one is a
         // per-item pool.
         m_GroomVsmDepthShader = Shader::Create("assets/shaders/VSM_GroomDepth.glsl");
+        m_GroomVsmCrossFadeShader = Shader::Create("assets/shaders/VSM_GroomDepthCrossFade.glsl");
         m_FamilyViewUBO = UniformBuffer::Create(sizeof(FamilyViewParams), ShaderBindingLayout::UBO_USER_0);
         m_FamilyVsmShaders.Terrain = Shader::Create("assets/shaders/VSM_Terrain_Depth.glsl");
         m_FamilyVsmShaders.Voxel = Shader::Create("assets/shaders/VSM_Terrain_VoxelDepth.glsl");
@@ -455,6 +458,18 @@ namespace OloEngine
                 if (casterShaders.Groom && !casterShaders.Groom->IsReady())
                 {
                     casterShaders.Groom = nullptr;
+                }
+                // The cross-fade variant (#1612), resolved here for the same
+                // reason, and only when a caster needs it.
+                if (std::ranges::any_of(m_GroomCasters, [](const ShadowGroomCaster& caster)
+                                        { return caster.crossFading; }))
+                {
+                    casterShaders.GroomCrossFade = Renderer3D::GetShaderLibrary().Get("GroomStrandDepthCrossFade");
+                    WarnIfGroomCrossFadeCasterFailed(casterShaders.GroomCrossFade.Raw());
+                    if (casterShaders.GroomCrossFade && !casterShaders.GroomCrossFade->IsReady())
+                    {
+                        casterShaders.GroomCrossFade = nullptr;
+                    }
                 }
             }
         };
@@ -1227,7 +1242,19 @@ namespace OloEngine
             const u32 groomViewResolution = (type == ShadowPassType::CSM)
                                                 ? groomShadowMap.GetResolution()
                                                 : groomShadowMap.GetAtlasEntryRect(layerOrLight).Size;
-            shaders.Groom->Bind();
+            // Bound per caster by RenderGroomCasters: the cross-fade variant for
+            // a fading coat (#1612), this program for every other.
+            const auto bindGroomProgram = [&shaders](bool crossFading)
+            {
+                if (crossFading && shaders.GroomCrossFade)
+                {
+                    shaders.GroomCrossFade->Bind();
+                }
+                else
+                {
+                    shaders.Groom->Bind();
+                }
+            };
             // Its own GPU bracket (#1533 E4): a coat's share of the shadow
             // pass is the scene-shadow cost of fur, and it is otherwise folded
             // into every other caster's. Not inside a parallel item: the timer
@@ -1236,7 +1263,7 @@ namespace OloEngine
             if (groomTimers)
                 groomTimers->BeginSubPass("GroomCasters");
             RenderGroomCasters(cullFrustum, lightVPRel, renderOrigin, static_cast<f32>(groomViewResolution), 0,
-                               *resources.Groom);
+                               *resources.Groom, bindGroomProgram);
             if (groomTimers)
                 groomTimers->EndSubPass();
         }
@@ -1469,6 +1496,17 @@ namespace OloEngine
         // which grooms exist this frame, and a second SetRequests call would be
         // a second copy to keep in step. Scene publishes it once per frame,
         // before the graph executes.
+        // PER COAT, not per request (#1612): a fading coat is two requests, one
+        // per tier, and it casts if EITHER tier produced a caster -- its
+        // incoming tier may still be streaming in while its outgoing one draws.
+        // Keyed like the VSM caster key, before the outgoing tier's mix.
+        const auto coatKey = [](const GroomStrandRequest& request)
+        {
+            return (static_cast<u64>(request.Handle) * 0x9E3779B97F4A7C15ull) ^
+                   static_cast<u64>(static_cast<u32>(request.EntityID));
+        };
+        std::unordered_set<u64> castingCoats;
+        std::unordered_set<u64> coatsWithoutGeometry;
         for (const auto& request : Renderer3D::GetGroomStrandRequests())
         {
             if (!request.Groom || (!request.CastsSceneShadow && !request.ReceivesSceneShadow))
@@ -1515,7 +1553,7 @@ namespace OloEngine
                 // A coat that renders and casts nothing is a different fault
                 // from a family that was never wired into a technique, and the
                 // panel has to be able to tell them apart.
-                ++stats.GroomsWithoutGeometry;
+                coatsWithoutGeometry.insert(coatKey(request));
                 continue;
             }
 
@@ -1548,8 +1586,7 @@ namespace OloEngine
             caster.deformBases = geometry.DeformBases;
             // Identity across frames for the VSM page invalidation: the entity
             // and the groom it wears, mixed so two coats on one entity differ.
-            caster.key = (static_cast<u64>(request.Handle) * 0x9E3779B97F4A7C15ull) ^
-                         static_cast<u64>(static_cast<u32>(request.EntityID));
+            caster.key = coatKey(request);
             // A fading coat's outgoing tier (#1612) is a second caster of the
             // same entity and groom: its own key, so the VSM invalidation keeps
             // both footprints and sees the outgoing one depart when the window
@@ -1585,8 +1622,12 @@ namespace OloEngine
             }
 
             m_GroomCasters.Add(caster);
-            ++stats.GroomsCasting;
+            castingCoats.insert(coatKey(request));
         }
+        stats.GroomsCasting += static_cast<u32>(castingCoats.size());
+        stats.GroomsWithoutGeometry += static_cast<u32>(std::ranges::count_if(
+            coatsWithoutGeometry, [&castingCoats](u64 key)
+            { return !castingCoats.contains(key); }));
 
         if (stats.GroomsCasting > 0u && vsmLocalLights > 0u)
         {
@@ -1672,9 +1713,34 @@ namespace OloEngine
         return VisitGroomCasterRanges(caster, viewProjection, origin, resolutionTexels, [](u32, u32) {});
     }
 
+    void ShadowRenderPass::WarnIfGroomCrossFadeCasterFailed(const Shader* program) const
+    {
+        const bool failed =
+            program == nullptr || program->GetCompilationStatus() == ShaderCompilationStatus::Failed;
+        if (!failed)
+        {
+            // Still compiling is not a failure; ready again re-arms the warning
+            // for the next one (a hot reload that breaks it).
+            if (program->IsReady())
+            {
+                m_WarnedGroomCrossFadeCaster = false;
+            }
+            return;
+        }
+        if (m_WarnedGroomCrossFadeCaster)
+        {
+            return;
+        }
+        m_WarnedGroomCrossFadeCaster = true;
+        OLO_CORE_WARN("ShadowRenderPass: the groom cross-fade caster program is not ready, so a coat fading between "
+                      "two LOD tiers casts both of them whole for its window (#1612). Check the shader log for "
+                      "GroomStrandDepthCrossFade / VSM_GroomDepthCrossFade.");
+    }
+
+    template<typename BindProgram>
     void ShadowRenderPass::RenderGroomCasters(const Frustum* cullFrustum, const glm::mat4& viewProjection,
                                               const glm::vec3& renderOrigin, f32 resolutionTexels, i32 clipLevel,
-                                              UniformBuffer& paramsUBO) const
+                                              UniformBuffer& paramsUBO, BindProgram&& bindProgram) const
     {
         if (m_GroomCasters.IsEmpty())
         {
@@ -1689,6 +1755,8 @@ namespace OloEngine
         // rely on the FrontCull the pass set once up front.
         RenderCommand::DisableCulling();
 
+        // The program the last caster drew with (#1612); empty until the first.
+        std::optional<bool> boundCrossFading;
         for (const auto& caster : m_GroomCasters)
         {
             if (!caster.vaoID.IsValid() || caster.indexCount == 0u)
@@ -1698,6 +1766,12 @@ namespace OloEngine
             if (cullFrustum != nullptr && ShouldCull(caster.WorldBounds, *cullFrustum))
             {
                 continue;
+            }
+
+            if (!boundCrossFading.has_value() || *boundCrossFading != caster.crossFading)
+            {
+                bindProgram(caster.crossFading);
+                boundCrossFading = caster.crossFading;
             }
 
             UBOStructures::GroomShadowParamsUBO params;
@@ -1794,8 +1868,19 @@ namespace OloEngine
             // imageAtomicMin being discarded: a silently unshadowed frame with
             // no error anywhere (virtual-geometry-into-a-second-shadow-technique.md
             // section 2).
-            m_GroomVsmDepthShader->Bind();
-            vsm.BindPhysicalPoolImage();
+            // ...and therefore inside the program switch RenderGroomCasters makes
+            // between a steady caster and a cross-fading one (#1612).
+            const bool crossFadeReady = m_GroomVsmCrossFadeShader && m_GroomVsmCrossFadeShader->IsReady();
+            if (std::ranges::any_of(m_GroomCasters, [](const ShadowGroomCaster& caster)
+                                    { return caster.crossFading; }))
+            {
+                WarnIfGroomCrossFadeCasterFailed(m_GroomVsmCrossFadeShader.Raw());
+            }
+            const auto bindGroomProgram = [this, &vsm, crossFadeReady](bool crossFading)
+            {
+                (crossFading && crossFadeReady ? m_GroomVsmCrossFadeShader : m_GroomVsmDepthShader)->Bind();
+                vsm.BindPhysicalPoolImage();
+            };
 
             // NO FRUSTUM here, deliberately: the level was already chosen
             // by the reach test above, and the fragment stage discards any
@@ -1803,7 +1888,7 @@ namespace OloEngine
             // would only remove draws the raster already throws away.
             RenderGroomCasters(/*cullFrustum=*/nullptr, clips[level].ViewProjection, renderOrigin,
                                static_cast<f32>(VSM::kVirtualResolution), static_cast<i32>(level),
-                               *m_GroomVsmParamsUBO);
+                               *m_GroomVsmParamsUBO, bindGroomProgram);
             ++levelDraws;
             // One sequential region, so the tally is kept as it draws.
             for (const auto& caster : m_GroomCasters)

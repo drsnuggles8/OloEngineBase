@@ -37,6 +37,7 @@
 #include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Groom/GroomLodBuilder.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
+#include "OloEngine/Groom/GroomStrandRequest.h"
 
 #include <algorithm>
 #include <array>
@@ -833,15 +834,59 @@ TEST(GroomLodCrossFade, WithoutASlotTheHandOverHardSwitchesAndSaysSo)
     EXPECT_FALSE(AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card), 12u, true, fade).Active)
         << "a slot freed later does not replay a hand-over that already happened";
 
-    // The reason row exists, is ordered last, and is counted.
+    // The reason row exists and is shown, but the coat IS on its tier: it is
+    // not a fallback, and it counts on the selected tier.
     GroomLodDecision refused = DecisionOn(GroomRepresentation::Card);
     refused.Reason = GroomLodFallbackReason::CrossFadeBudgetSpent;
-    EXPECT_TRUE(refused.IsFallback());
+    refused.CrossFadeRefused = true;
+    EXPECT_FALSE(refused.IsFallback());
     GroomLodStats stats;
     stats.Record(refused);
     EXPECT_EQ(stats.CrossFadesRefused, 1u);
-    EXPECT_EQ(stats.DominantFallbackReason(), GroomLodFallbackReason::CrossFadeBudgetSpent);
+    EXPECT_EQ(stats.GroomsOnSelectedTier, 1u);
+    EXPECT_EQ(stats.GroomsFellBack, 0u);
+    EXPECT_EQ(stats.DominantFallbackReason(), GroomLodFallbackReason::None)
+        << "the dominant fallback must agree with GroomsFellBack, which a budget refusal is not";
+    // A refusal whose coat a MORE fundamental reason explains is still counted
+    // as a refusal, from the flag rather than from the reason.
+    GroomLodDecision refusedAndUncooked = DecisionOn(GroomRepresentation::Strand);
+    refusedAndUncooked.Reason = GroomLodFallbackReason::LevelNotCooked;
+    refusedAndUncooked.CrossFadeRefused = true;
+    stats.Record(refusedAndUncooked);
+    EXPECT_EQ(stats.CrossFadesRefused, 2u);
     EXPECT_FALSE(ToString(GroomLodFallbackReason::CrossFadeBudgetSpent).empty());
+}
+
+TEST(GroomLodCrossFade, ASlotIsTakenByANewWindowAndByAClosingOneKeptAlive)
+{
+    // The caller's budget pays exactly the windows that report TookSlot, which
+    // is what keeps a frame at or under the cap.
+    constexpr u32 kFrames = 4;
+    GroomCrossFadeState fade;
+    (void)AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand), kFrames, true, fade);
+    const GroomCrossFadeDecision opened = AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card), kFrames, true, fade);
+    ASSERT_TRUE(opened.Active);
+    EXPECT_TRUE(opened.TookSlot) << "a new window takes a slot";
+    for (u32 frame = 2; frame <= kFrames; ++frame)
+    {
+        const GroomCrossFadeDecision running =
+            AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card), kFrames, false, fade);
+        ASSERT_TRUE(running.Active) << "frame " << frame;
+        EXPECT_FALSE(running.TookSlot) << "a running window holds the slot it took (frame " << frame << ")";
+    }
+    ASSERT_EQ(fade.Frame, fade.Frames) << "the window is on its last frame";
+
+    // A window on its last frame is closing and holds no slot, so keeping it
+    // alive -- a switch back -- asks like a new window does. Without a slot it
+    // is a hard switch back, reported; with one it takes it.
+    GroomCrossFadeState withSlot = fade;
+    const GroomCrossFadeDecision noSlot = AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand), kFrames, false, fade);
+    EXPECT_FALSE(noSlot.Active) << "a closing window kept alive without a slot runs the frame over its cap";
+    EXPECT_TRUE(noSlot.Refused);
+    const GroomCrossFadeDecision slot =
+        AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand), kFrames, true, withSlot);
+    EXPECT_TRUE(slot.Active);
+    EXPECT_TRUE(slot.TookSlot) << "a closing window kept alive takes a slot like a new one";
 }
 
 TEST(GroomLodCrossFade, ZeroFramesIsTheHardSwitchAndAnUnfadedCoatDrawsWhole)
@@ -863,6 +908,88 @@ TEST(GroomLodCrossFade, ADisabledPolicyDropsTheWindowSoTheControlIsAlwaysTheSame
         AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card, false), 12u, true, fade);
     EXPECT_FALSE(off.Active) << "turning LOD off mid-window played the window out";
     EXPECT_FALSE(fade.IsActive());
+}
+
+TEST(GroomLodCrossFade, ThePartnerIsTheSameCoatOnItsOwnTierAndViewsThePrimarysRoots)
+{
+    // The outgoing copy of a fading coat must be the primary in everything the
+    // producer wrote -- the body its soft intersection ignores included, which
+    // the first version's hand-mirrored list missed -- and its own only in its
+    // tier and its residency. Its roots are a VIEW of the primary's block.
+    // EVERY restored field differs between the two sides, so dropping any one
+    // restore line fails an assertion below.
+    GroomLodLevel cards;
+    GroomStrandRequest primary;
+    primary.EntityID = 7;
+    primary.LodLevel = &cards;
+    primary.StreamingKey = 11u;
+    primary.StreamingEntityKey = 12u;
+    primary.StreamingRequestedStrands = 13u;
+    primary.StreamingRequestedRepresentation = GroomRepresentation::Card;
+    primary.StreamingFallback = EGroomStreamingFallback::ResidentBudget;
+    primary.StreamingEnabled = false;
+    primary.StreamingFloor = true;
+    primary.StreamingPending = true;
+    primary.IntersectionBodyEntityID = 42;
+    primary.Lod.Representation = GroomRepresentation::Card;
+    primary.CrossFadeRole = GroomCrossFadeRole::Incoming;
+    primary.CrossFadeThreshold = 0.25f;
+    primary.Build.MaxStrands = 50u;
+    primary.RootTransforms.SetNum(100);
+    primary.SimulationDisplacements.SetNum(3);
+    primary.GpuRootInputs.HasHistory = true;
+
+    GroomStrandRequest partner;
+    partner.CrossFadeRole = GroomCrossFadeRole::Outgoing;
+    partner.CrossFadeThreshold = 0.75f;
+    partner.Lod.Representation = GroomRepresentation::Strand;
+    partner.LodLevel = nullptr;
+    partner.Build.MaxStrands = 400u;
+    partner.StreamingKey = 99u;
+    partner.StreamingEntityKey = 98u;
+    partner.StreamingRequestedStrands = 97u;
+    partner.StreamingRequestedRepresentation = GroomRepresentation::Strand;
+    partner.StreamingFallback = EGroomStreamingFallback::None;
+    partner.StreamingEnabled = true;
+    partner.StreamingFloor = false;
+    partner.StreamingPending = false;
+
+    AdoptGroomCrossFadePrimary(partner, primary);
+
+    EXPECT_EQ(partner.EntityID, 7);
+    EXPECT_EQ(partner.IntersectionBodyEntityID, 42) << "the outgoing tier lost the body its soft intersection ignores";
+    EXPECT_EQ(partner.SimulationDisplacements.Num(), 3);
+    EXPECT_TRUE(partner.GpuRootInputs.HasHistory);
+    EXPECT_EQ(partner.Lod.Representation, GroomRepresentation::Strand);
+    EXPECT_EQ(partner.Build.MaxStrands, 400u);
+    EXPECT_EQ(partner.LodLevel, nullptr) << "the partner drew the primary's card level";
+    EXPECT_FLOAT_EQ(partner.CrossFadeThreshold, 0.75f);
+    EXPECT_EQ(partner.StreamingKey, 99u);
+    EXPECT_EQ(partner.StreamingEntityKey, 98u);
+    EXPECT_EQ(partner.StreamingRequestedStrands, 97u);
+    EXPECT_EQ(partner.StreamingRequestedRepresentation, GroomRepresentation::Strand);
+    EXPECT_EQ(partner.StreamingFallback, EGroomStreamingFallback::None) << "the partner reports the primary's residency";
+    EXPECT_TRUE(partner.StreamingEnabled);
+    EXPECT_FALSE(partner.StreamingFloor);
+    EXPECT_FALSE(partner.StreamingPending);
+    EXPECT_EQ(partner.CrossFadeRole, GroomCrossFadeRole::Outgoing);
+    EXPECT_TRUE(partner.IsCrossFadeSecondary());
+
+    // The roots: the primary keeps its array, the partner views it, and the
+    // view survives the primary moving into the frame's growing list.
+    EXPECT_EQ(primary.RootTransforms.Num(), 100);
+    EXPECT_EQ(partner.RootTransforms.Num(), 0) << "the roots were copied";
+    EXPECT_EQ(partner.DrawnRoots().data(), primary.RootTransforms.GetData());
+    EXPECT_EQ(partner.DrawnRoots().size(), 100u);
+    TArray64<GroomStrandRequest> frame;
+    const GroomRootTransform* block = primary.RootTransforms.GetData();
+    frame.Add(std::move(primary));
+    for (u32 i = 0; i < 64u; ++i)
+    {
+        frame.Add(GroomStrandRequest{}); // growth relocates the primary bitwise
+    }
+    EXPECT_EQ(frame[0].RootTransforms.GetData(), block);
+    EXPECT_EQ(partner.DrawnRoots().data(), frame[0].RootTransforms.GetData());
 }
 
 // =============================================================================

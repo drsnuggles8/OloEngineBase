@@ -420,6 +420,31 @@ namespace OloEngine
         /// The incoming tier's share, t in (0, 1); 1 when not fading.
         f32 CrossFadeThreshold = 1.0f;
 
+        /// The PRIMARY's roots, for an Outgoing copy (#1612): a view of the
+        /// heap block behind the primary's RootTransforms, which lives in the
+        /// same frame's request list. A request is relocated bitwise and its
+        /// TArray header moves with it, but the block it owns does not, so the
+        /// view survives the list growing. Empty on every other request. A copy
+        /// of the array would be a curve-count memcpy per fading coat per frame
+        /// -- 12 MB on a 200k-strand coat, the cost the producer's swap exists
+        /// to avoid.
+        ///
+        /// COPYING A REQUEST COPIES THE VIEW, still into the source primary.
+        /// The producer moves its list (no copy); Renderer3D's copying
+        /// SetGroomStrandRequests re-points each partner at its copied primary.
+        /// Anything else that copies a partner must do the same.
+        std::span<const GroomRootTransform> CrossFadeRootTransforms{};
+
+        /// The roots this request draws from: its own, or its primary's.
+        [[nodiscard]] std::span<const GroomRootTransform> DrawnRoots() const noexcept
+        {
+            if (!CrossFadeRootTransforms.empty())
+            {
+                return CrossFadeRootTransforms;
+            }
+            return { RootTransforms.GetData(), static_cast<sizet>(RootTransforms.Num()) };
+        }
+
         /// True for the Outgoing copy of a fading coat: everything per GROOM
         /// (counters, the proxy, the "another coat casts" bit) skips it.
         [[nodiscard]] constexpr bool IsCrossFadeSecondary() const noexcept
@@ -533,6 +558,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::LodLevel)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CrossFadeRole)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CrossFadeThreshold)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CrossFadeRootTransforms)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingKey)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingEntityKey)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingSurfaceVertices)> &&
@@ -570,6 +596,42 @@ namespace OloEngine
     [[nodiscard]] inline u64 GroomStreamingResidencyToken(const GroomStrandRequest& request) noexcept
     {
         return request.StreamingFallback != EGroomStreamingFallback::None ? 1u : 0u;
+    }
+
+    /// Makes `partner` -- the Outgoing copy of a fading coat (#1612), carrying
+    /// its own tier and its own streaming resolve -- into a copy of `primary`
+    /// after the producer deformed it, keeping only what is the partner's own.
+    ///
+    /// A COPY AND A SHORT RESTORE, NOT A MIRROR of what deformation writes. The
+    /// partner is the same coat: whatever the producer sets on the primary (the
+    /// binding, the root inputs and history, the guide displacements, the body
+    /// it ignores for soft intersection, and any field added later) is the
+    /// partner's too. What is its own is the tier and its residency, and that
+    /// list is short and stable. The first version mirrored instead, and missed
+    /// the body: the outgoing tier's soft intersection faded it at the skin.
+    ///
+    /// The roots are not copied: `primary` keeps its array and `partner` views
+    /// it (CrossFadeRootTransforms).
+    inline void AdoptGroomCrossFadePrimary(GroomStrandRequest& partner, GroomStrandRequest& primary)
+    {
+        GroomStrandRequest own = std::move(partner);
+        TArray<GroomRootTransform> roots = std::move(primary.RootTransforms);
+        partner = primary;
+        primary.RootTransforms = std::move(roots);
+        partner.CrossFadeRootTransforms = primary.DrawnRoots();
+        partner.CrossFadeRole = own.CrossFadeRole;
+        partner.CrossFadeThreshold = own.CrossFadeThreshold;
+        partner.Lod.Representation = own.Lod.Representation;
+        partner.LodLevel = own.LodLevel;
+        partner.Build = own.Build;
+        partner.StreamingKey = own.StreamingKey;
+        partner.StreamingEntityKey = own.StreamingEntityKey;
+        partner.StreamingRequestedStrands = own.StreamingRequestedStrands;
+        partner.StreamingRequestedRepresentation = own.StreamingRequestedRepresentation;
+        partner.StreamingFallback = own.StreamingFallback;
+        partner.StreamingEnabled = own.StreamingEnabled;
+        partner.StreamingFloor = own.StreamingFloor;
+        partner.StreamingPending = own.StreamingPending;
     }
 
     /// The cross-fade lane every shader that rasterises a groom tier reads
@@ -611,7 +673,7 @@ namespace OloEngine
     {
         if (!request.GpuRootFrames || !request.Groom || !request.Binding)
         {
-            return { request.RootTransforms.GetData(), static_cast<sizet>(request.RootTransforms.Num()) };
+            return request.DrawnRoots();
         }
         (void)EvaluateGroomRootTransforms(*request.Groom, *request.Binding, request.GpuRootInputs, curves, scratch,
                                           skinScratch, onlyCurvesDefined);

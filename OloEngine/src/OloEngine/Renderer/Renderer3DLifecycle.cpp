@@ -115,6 +115,9 @@ namespace
         // must not call it, so ShadowRenderPass resolves it on the render
         // thread from a library that already has it.
         "assets/shaders/GroomStrandDepth.glsl",
+        // Its variant for a coat cross-fading between two LOD tiers (#1612):
+        // the same stages with the dither mask compiled in.
+        "assets/shaders/GroomStrandDepthCrossFade.glsl",
         "assets/shaders/DepthPrepass.glsl",
         "assets/shaders/DepthPrepass_Skinned.glsl",
         "assets/shaders/DepthPrepass_Mask.glsl",
@@ -518,8 +521,8 @@ namespace OloEngine
         s_Data.RGraph = Ref<RenderGraph>::Create();
         RenderGraphDebugRuntime::SetActiveGraph(s_Data.RGraph);
 
-        // The groom detail bias's console variable (#1616), once per process.
-        RegisterGroomDetailBiasCVar();
+        // The groom LOD console variables (#1616, #1612), once per process.
+        RegisterGroomCVars();
 
         // Flipping the aliasing lever has to evict the transient pool, or the
         // A/B compares a mixed state: objects acquired under the previous policy

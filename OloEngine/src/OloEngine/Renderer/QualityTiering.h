@@ -98,13 +98,16 @@ namespace OloEngine
     struct RendererSettings;
     void ApplyTieringToRendererSettings(const QualityTieringSettings& tiering, RendererSettings& renderer);
 
-    // The console variable OLO_GROOM_DETAIL_BIAS (issue #1616): a view of
-    // RendererSettings::GroomDetailBias, not a second copy of it, so a preset
-    // applied after a console write wins and the console reads back what the
-    // frame uses. Accepts a finite number in [kGroomDetailBiasMin,
-    // kGroomDetailBiasMax] and refuses anything else by name. Idempotent:
-    // registered once for the process, whoever calls first (Renderer3D::Init).
-    void RegisterGroomDetailBiasCVar();
+    // The groom LOD console variables: views of RendererSettings fields, not
+    // second copies of them, so a preset applied after a console write wins and
+    // the console reads back what the frame uses. Each refuses an unusable
+    // value by name. Idempotent: registered once for the process, whoever calls
+    // first (Renderer3D::Init).
+    //   OLO_GROOM_DETAIL_BIAS            GroomDetailBias (#1616), a finite number
+    //                                    in [kGroomDetailBiasMin, kGroomDetailBiasMax]
+    //   OLO_GROOM_LOD_CROSSFADE_FRAMES   GroomLodCrossFadeFrames (#1612), 0..120
+    //   OLO_GROOM_LOD_MAX_CROSSFADES     GroomLodMaxCrossFades (#1612), 0..64
+    void RegisterGroomCVars();
 
     // Copy tier-owned PP fields from tiering into pp (single mapping used by Apply and Strip).
     void CopyTierPPFields(const QualityTieringSettings& tiering, PostProcessSettings& pp);

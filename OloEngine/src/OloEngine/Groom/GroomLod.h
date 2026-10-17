@@ -547,15 +547,21 @@ namespace OloEngine
         /// set by AdvanceGroomLod: the producer sets it from
         /// AdvanceGroomCrossFade, and the renderer's counter sums it.
         bool CrossFading = false;
-        u8 Pad0 = 0;
+
+        /// True on the frame a hand-over hard-switched because the frame's
+        /// cross-fade budget was spent (#1612), whatever Reason names. Set by
+        /// the producer; counted in GroomLodStats::CrossFadesRefused.
+        bool CrossFadeRefused = false;
 
         /// True when the coat is NOT on the tier its apparent size selects.
         /// NotRequested is excluded for GroomCompositionDecision's reason: a
         /// scene full of grooms that never opted in is not a scene full of
-        /// failures.
+        /// failures. CrossFadeBudgetSpent is excluded because the coat IS on
+        /// its tier; it only got there by a hard switch.
         [[nodiscard]] constexpr bool IsFallback() const noexcept
         {
-            return Reason != GroomLodFallbackReason::None && Reason != GroomLodFallbackReason::NotRequested;
+            return Reason != GroomLodFallbackReason::None && Reason != GroomLodFallbackReason::NotRequested &&
+                   Reason != GroomLodFallbackReason::CrossFadeBudgetSpent;
         }
 
         [[nodiscard]] auto operator==(const GroomLodDecision& other) const -> bool
@@ -691,14 +697,20 @@ namespace OloEngine
         /// A hand-over that wanted a window and did not get one because the
         /// caller had no slot: it hard-switched, as before #1612.
         bool Refused = false;
-        u8 Pad0 = 0;
+        /// The window is drawing this frame on a slot it did not hold coming
+        /// in -- a new window, or a closing one kept alive by a reversal. The
+        /// caller's budget pays exactly these, so it never runs over.
+        bool TookSlot = false;
     };
 
     /// Advances `state` by one frame. `decision` is this frame's LOD answer;
     /// `frames` the window length (0: every hand-over is a hard switch, as
     /// before #1612); `slotAvailable` whether the caller's concurrency budget
-    /// can take a NEW window this frame -- a window already running keeps its
-    /// slot and never asks.
+    /// can take a slot this frame. A window that will still be drawing after
+    /// this frame keeps its slot and never asks; one on its last frame holds
+    /// none, so a reversal on that frame asks like a new window does, and is
+    /// refused (a hard switch back) without one. TookSlot says when one was
+    /// taken.
     ///
     /// A switch BACK mid-window (the coat refines the frame after it coarsened,
     /// which refinement's immediacy allows) reverses the window rather than
@@ -738,7 +750,9 @@ namespace OloEngine
         /// Coats drawing BOTH sides of a hand-over this frame through
         /// complementary dither masks (#1612), and the hand-overs that wanted a
         /// cross-fade and hard-switched because the frame's cross-fade budget
-        /// was spent (each also reports GroomLodFallbackReason::CrossFadeBudgetSpent).
+        /// was spent (GroomLodDecision::CrossFadeRefused; the decision also
+        /// names GroomLodFallbackReason::CrossFadeBudgetSpent where nothing more
+        /// fundamental explains the coat).
         u32 CrossFading = 0;
         u32 CrossFadesRefused = 0;
 
@@ -769,7 +783,7 @@ namespace OloEngine
             {
                 ++CrossFading;
             }
-            if (decision.Reason == GroomLodFallbackReason::CrossFadeBudgetSpent)
+            if (decision.CrossFadeRefused)
             {
                 ++CrossFadesRefused;
             }
@@ -781,14 +795,16 @@ namespace OloEngine
         }
 
         /// The reason to show when only one line fits. Skips None and
-        /// NotRequested — neither is something to fix — and breaks ties toward
-        /// the more fundamental (lower) reason, so the answer names a cause
-        /// rather than a symptom.
+        /// NotRequested — neither is something to fix — and CrossFadeBudgetSpent,
+        /// which IsFallback does not count either (the coat is on its tier; the
+        /// refusal has its own counter). Breaks ties toward the more fundamental
+        /// (lower) reason, so the answer names a cause rather than a symptom.
         [[nodiscard]] GroomLodFallbackReason DominantFallbackReason() const noexcept
         {
             auto dominant = GroomLodFallbackReason::None;
             u32 best = 0;
-            for (sizet i = static_cast<sizet>(GroomLodFallbackReason::NotRequested) + 1u; i < ByReason.size(); ++i)
+            for (sizet i = static_cast<sizet>(GroomLodFallbackReason::NotRequested) + 1u;
+                 i < static_cast<sizet>(GroomLodFallbackReason::CrossFadeBudgetSpent); ++i)
             {
                 if (ByReason[i] > best)
                 {

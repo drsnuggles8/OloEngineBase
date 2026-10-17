@@ -16,31 +16,40 @@ budgets and the width compensation are in [groom-representation-lod.md](groom-re
 
 2. **Every pass that rasterises a tier applies the mask, from the same two numbers.** The strand
    shader discards before its coverage test, so the depth prepass, the shading pass, velocity and
-   the G-buffer outputs agree. `GroomStrandDepth.glsl` and `VSM_GroomDepth.glsl` discard per shadow
-   texel through flat varyings, with the strand pass's frame index in `GroomShadowParams.Modes.y`.
-   The lane is built once, by `MakeGroomCrossFadeLane`.
+   the G-buffer outputs agree. The casters discard per shadow texel through flat varyings, with the
+   strand pass's frame index in `GroomShadowParams.Modes.y`, in a variant
+   (`GroomStrandDepthCrossFade.glsl`, `VSM_GroomDepthCrossFade.glsl`) that `RenderGroomCasters`
+   binds only for a fading caster. A discard in the shared caster program would have cost every
+   coat its early depth test, every frame. The lane is built once, by `MakeGroomCrossFadeLane`.
 
 3. **The outgoing copy is the same coat, not a second one.** Everything counted per groom skips it
    (`GroomStrandRequest::IsCrossFadeSecondary`): the composition, deformation, simulation,
-   coat-shadow and LOD counters, `GroomsSubmitted`, `GroomsDrawn`, `GroomsAskedToCast` and the
-   "another coat casts" bit. Strands, segments and bytes count it, because they are cost. The
+   coat-shadow and LOD counters, `GroomsSubmitted`, `GroomsDrawn`, the caster tallies
+   (`GroomsAskedToCast`, `GroomsCasting`, `GroomsWithoutGeometry`) and the "another coat casts"
+   bit. Strands, segments and bytes count it, because they are cost. The
    ray-traced proxy skips it, because the proxy's keys and hysteresis are per entity. Its VSM caster
    key is mixed with a constant, so both footprints are tracked and the outgoing one departs when the
    window closes. A fading caster invalidates its VSM pages every frame of the window.
 
-4. **Run the per-entity Scene work once and copy it to the partner.** `DeformGroomAgainstSurface`
-   takes the partner. It resolves the partner's streaming against the partner's own tier. On the
-   CPU root path it evaluates both tiers' drawn curves in one pass over the body, because the result
-   is indexed by base curve. It copies the binding, root inputs, history and guide displacements.
-   Stepping the simulation, advancing the binding history or writing the streaming-key map a second
-   time would double the solver's rate, zero the velocity, or reset TAA every frame.
+4. **Run the per-entity Scene work once, then copy the whole primary and restore the partner's own
+   fields.** `DeformGroomAgainstSurface` takes the partner. It resolves the partner's streaming
+   against the partner's own tier. On the CPU root path it evaluates both tiers' drawn curves in
+   one pass over the body, because the result is indexed by base curve. Then the partner becomes a
+   copy of the primary, with only its tier and streaming fields restored. Restore that short list;
+   do not mirror the fields deformation writes. The first version mirrored them and missed the body
+   ID, so the soft intersection faded the outgoing tier at the skin. The roots are shared through
+   `CrossFadeRootTransforms`, a view of the primary's heap block, because copying them costs 12 MB
+   per fading 200k-strand coat per frame. Read roots through `DrawnRoots()`. Running the simulation,
+   the binding history or the streaming-key map a second time would double the solver's rate, zero
+   the velocity, or reset TAA every frame.
 
 5. **A hand-over the budget cannot fade is a hard switch, reported by name.**
    `RendererSettings::GroomLodMaxCrossFades` (4) bounds a transition frame, which costs about both
-   tiers' GroomPass time. A running window keeps its slot. A refused hand-over reports
-   `GroomLodFallbackReason::CrossFadeBudgetSpent` on its frame and counts in
-   `GroomLodStats::CrossFadesRefused`. A switch back mid-window reverses the window instead of
-   restarting it, so the visible mix carries over.
+   tiers' GroomPass time. A running window keeps its slot until its last frame. A refused hand-over
+   sets `GroomLodDecision::CrossFadeRefused`, which `GroomLodStats::CrossFadesRefused` counts. It
+   also reports `CrossFadeBudgetSpent` when nothing more fundamental explains the coat. That reason
+   is not a fallback, because the coat is on its tier. A switch back mid-window reverses the window
+   instead of restarting it, so the visible mix carries over.
 
 6. **A capture after a pose change waits out the window.** The evidence fixture's `Capture` runs
    `6 + GroomLodCrossFadeFrames` frames. With six, a capture lands mid-fade and counts the outgoing

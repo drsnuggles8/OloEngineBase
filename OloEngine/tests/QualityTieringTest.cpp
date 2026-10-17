@@ -237,8 +237,8 @@ TEST(QualityTiering, TheGroomDetailBiasReachesRendererSettings)
 
 TEST(QualityTiering, TheGroomDetailBiasConsoleVariableIsAViewOfTheRendererSetting)
 {
-    RegisterGroomDetailBiasCVar();
-    RegisterGroomDetailBiasCVar(); // idempotent: one cvar, not two
+    RegisterGroomCVars();
+    RegisterGroomCVars(); // idempotent: one cvar, not two
 
     RendererSettings& settings = Renderer3D::GetRendererSettings();
     const f32 saved = settings.GroomDetailBias;
@@ -269,4 +269,36 @@ TEST(QualityTiering, TheGroomDetailBiasConsoleVariableIsAViewOfTheRendererSettin
     EXPECT_FLOAT_EQ(settings.GroomDetailBias, 0.5f) << "a refused write moved the setting";
 
     settings.GroomDetailBias = saved;
+}
+
+TEST(QualityTiering, TheCrossFadeConsoleVariablesAreViewsOfTheRendererSettings)
+{
+    // #1612's two knobs, settable at a console and over MCP (olo_cvar_set) so a
+    // live session can hold a long window to look at or time.
+    RegisterGroomCVars();
+    RendererSettings& settings = Renderer3D::GetRendererSettings();
+    const u32 savedFrames = settings.GroomLodCrossFadeFrames;
+    const u32 savedCap = settings.GroomLodMaxCrossFades;
+    settings.GroomLodCrossFadeFrames = RendererSettings{}.GroomLodCrossFadeFrames;
+    settings.GroomLodMaxCrossFades = RendererSettings{}.GroomLodMaxCrossFades;
+
+    ASSERT_TRUE(CVars::Find("OLO_GROOM_LOD_CROSSFADE_FRAMES").has_value());
+    ASSERT_TRUE(CVars::Find("OLO_GROOM_LOD_MAX_CROSSFADES").has_value());
+    EXPECT_TRUE(CVars::Find("OLO_GROOM_LOD_CROSSFADE_FRAMES")->IsDefault);
+    EXPECT_EQ(CVars::Find("OLO_GROOM_LOD_CROSSFADE_FRAMES")->Type, CVars::CVarType::Int);
+
+    EXPECT_TRUE(CVars::SetFromString("OLO_GROOM_LOD_CROSSFADE_FRAMES", "60").Ok);
+    EXPECT_EQ(settings.GroomLodCrossFadeFrames, 60u);
+    EXPECT_TRUE(CVars::SetFromString("OLO_GROOM_LOD_MAX_CROSSFADES", "0").Ok);
+    EXPECT_EQ(settings.GroomLodMaxCrossFades, 0u);
+    EXPECT_EQ(CVars::Find("OLO_GROOM_LOD_MAX_CROSSFADES")->Value, "0");
+    for (const char* bad : { "-1", "121", "1.5", "lots" })
+    {
+        EXPECT_FALSE(CVars::SetFromString("OLO_GROOM_LOD_CROSSFADE_FRAMES", bad).Ok) << "'" << bad << "' was accepted";
+    }
+    EXPECT_FALSE(CVars::SetFromString("OLO_GROOM_LOD_MAX_CROSSFADES", "65").Ok);
+    EXPECT_EQ(settings.GroomLodCrossFadeFrames, 60u) << "a refused write moved the setting";
+
+    settings.GroomLodCrossFadeFrames = savedFrames;
+    settings.GroomLodMaxCrossFades = savedCap;
 }

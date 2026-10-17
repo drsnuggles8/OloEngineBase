@@ -9576,9 +9576,13 @@ namespace OloEngine
         // says so (GroomLodFallbackReason::CrossFadeBudgetSpent).
         const u32 crossFadeFrames = Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames;
         u32 crossFadeSlots = Renderer3D::GetRendererSettings().GroomLodMaxCrossFades;
+        // A window on its last frame closes during this frame's advance, so it
+        // does not hold a slot against a hand-over that starts this frame; if
+        // a reversal keeps it alive instead, it takes one (TookSlot) like a new
+        // window, so the frame never draws more fading coats than the cap.
         for (const auto& [id, fade] : m_GroomCrossFadeRuntime)
         {
-            if (fade.IsActive() && crossFadeSlots > 0u)
+            if (fade.IsActive() && fade.Frame < fade.Frames && crossFadeSlots > 0u)
             {
                 --crossFadeSlots;
             }
@@ -9955,13 +9959,16 @@ namespace OloEngine
                 // frame RepresentationChanged does and nowhere else.
                 {
                     GroomCrossFadeState& fade = m_GroomCrossFadeRuntime[groomEntity.GetUUID()];
-                    const bool wasFading = fade.IsActive();
                     const GroomCrossFadeDecision crossFade =
                         AdvanceGroomCrossFade(request.Lod, crossFadeFrames, crossFadeSlots > 0u, fade);
-                    if (crossFade.Active && !wasFading && crossFadeSlots > 0u)
+                    if (crossFade.TookSlot && crossFadeSlots > 0u)
                     {
                         --crossFadeSlots;
                     }
+                    // Counted from the flag, whatever else explains the coat's
+                    // tier; named as the reason only where nothing more
+                    // fundamental already is.
+                    request.Lod.CrossFadeRefused = crossFade.Refused;
                     if (crossFade.Refused && request.Lod.Reason == GroomLodFallbackReason::None)
                     {
                         request.Lod.Reason = GroomLodFallbackReason::CrossFadeBudgetSpent;
@@ -10102,14 +10109,10 @@ namespace OloEngine
                 request.SimulationPrevDisplacements = request.SimulationDisplacements;
                 // The fading coat's other tier (#1612) drops the same history:
                 // it is the same coat, deformed from the same inputs.
+                // (Its roots are the primary's, reset just above.)
                 if (crossFadePartner.has_value())
                 {
                     crossFadePartner->GpuRootInputs.HasHistory = false;
-                    for (auto& root : crossFadePartner->RootTransforms)
-                    {
-                        root.PrevOrigin = root.Origin;
-                        root.PrevRotation = root.Rotation;
-                    }
                     crossFadePartner->SimulationPrevDisplacements = crossFadePartner->SimulationDisplacements;
                 }
                 Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
@@ -11481,27 +11484,13 @@ namespace OloEngine
         std::swap(request.RootTransforms, state.m_Transforms);
 
         // The fading coat's other tier (#1612) draws the same deformed coat:
-        // the same roots (both tiers' drawn curves were evaluated above), the
-        // same GPU root inputs and history, and the same guide displacements.
-        // Copied rather than recomputed, so the two tiers cannot disagree about
-        // where the coat is mid-fade.
+        // it becomes a copy of everything this function wrote and keeps only
+        // its own tier and streaming resolve (AdoptGroomCrossFadePrimary).
+        // Both tiers' drawn curves were evaluated above, into one base-curve
+        // array the partner views rather than copies.
         if (crossFadePartner != nullptr)
         {
-            GroomStrandRequest& partner = *crossFadePartner;
-            partner.Binding = request.Binding;
-            partner.BindingReject = request.BindingReject;
-            partner.RootTransforms = request.RootTransforms;
-            partner.DeformationStats = request.DeformationStats;
-            partner.GpuRootFrames = request.GpuRootFrames;
-            partner.GpuRootInputs = request.GpuRootInputs;
-            partner.GpuRootSurfaceKey = request.GpuRootSurfaceKey;
-            partner.Influence = request.Influence;
-            partner.SimulationDisplacements = request.SimulationDisplacements;
-            partner.SimulationPrevDisplacements = request.SimulationPrevDisplacements;
-            partner.SimulationGuideOffsets = request.SimulationGuideOffsets;
-            partner.SimulationGuideOfSlot = request.SimulationGuideOfSlot;
-            partner.SimulationSlotOfGuide = request.SimulationSlotOfGuide;
-            partner.SimulationStats = request.SimulationStats;
+            AdoptGroomCrossFadePrimary(*crossFadePartner, request);
         }
 
         // Recorded AFTER the evaluation, so the next frame compares against the

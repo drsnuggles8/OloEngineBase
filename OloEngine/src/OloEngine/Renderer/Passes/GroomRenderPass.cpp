@@ -442,8 +442,7 @@ namespace OloEngine
         // The transform array must span the whole groom, not merely be
         // non-empty: the build indexes it by curve, and a short array would read
         // past its end on the first strand past the boundary.
-        return request.Groom && request.Binding &&
-               static_cast<sizet>(request.RootTransforms.Num()) == request.Groom->GetCurveCount();
+        return request.Groom && request.Binding && request.DrawnRoots().size() == request.Groom->GetCurveCount();
     }
 
     u64 GroomRenderPass::RestStreamKey(const GroomStrandRequest& request) noexcept
@@ -854,8 +853,7 @@ namespace OloEngine
         // unless it left them to the GPU -- and then only the guides, which is
         // all PackFrame reads of them on the GPU layout.
         const std::span<const GroomRootTransform> transforms =
-            rootsOnGpu ? std::span<const GroomRootTransform>{ request.RootTransforms.GetData(),
-                                                              static_cast<sizet>(request.RootTransforms.Num()) }
+            rootsOnGpu ? request.DrawnRoots()
                        : GroomCpuRootTransforms(request, rootCurves, m_CpuRootScratch, CpuSkinScratch());
         const GroomDeformFrameStats packed = entry.DeformCpu.PackFrame(rootCurves, *request.Binding, transforms,
                                                                        simulated ? &simulation : nullptr, baseCurveCount);
@@ -3378,7 +3376,7 @@ namespace OloEngine
             }
             else
             {
-                for (const GroomRootTransform& root : request.RootTransforms)
+                for (const GroomRootTransform& root : request.DrawnRoots())
                 {
                     if (!root.Valid)
                     {
