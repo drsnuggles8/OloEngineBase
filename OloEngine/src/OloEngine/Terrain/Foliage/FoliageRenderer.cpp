@@ -3150,7 +3150,8 @@ namespace OloEngine
 
     void FoliageRenderer::RenderShadows(const Ref<Shader>& depthShader, f32 time, u32 shadowViewIndex,
                                         const Ref<Shader>& impostorDepthOverride,
-                                        const std::function<void()>& afterProgramBind) const
+                                        const std::function<void()>& afterProgramBind,
+                                        const FoliageShadowInvalidation::CardCutover& cardCutover) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -3202,11 +3203,14 @@ namespace OloEngine
                 continue;
 
             EnumerateLayerDraws(layer, draws);
+            const bool cardsOnly = LayerCastsCards(layer, cardCutover);
             const auto& shadowView = layer.CullViews[shadowSlot];
             u32 partIndex = 0;
             for (const auto& draw : draws)
             {
                 const u32 part = partIndex++;
+                if (cardsOnly && draw.IsAuthoredMesh)
+                    continue;
                 const bool impostor = !draw.IsAuthoredMesh && layer.UseImpostor && layer.Impostor.IsValid();
                 const auto& program = impostor ? (impostorDepthOverride ? impostorDepthOverride : m_ImpostorDepthShader) : depthShader;
                 if (!program || !program->IsReady())
@@ -3230,8 +3234,11 @@ namespace OloEngine
                 foliageUBOData.WindFlags = glm::vec4(Renderer3D::GetRenderOrigin(), wind.TimeAndFlags.y);
                 foliageUBOData.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;
                 foliageUBOData.AlphaCutoff = layer.AlphaCutoff;
-                foliageUBOData.MeshParams = glm::vec4(draw.IsAuthoredMesh ? 1.0f : 0.0f,
-                                                      draw.HandoverStart, draw.HandoverEnd, draw.CardNormalLane);
+                // A zero band gives every plant no mesh coverage
+                // (foliageMeshCoverageLod), so a cards-only view's card owns
+                // the near plants its mesh would have drawn.
+                foliageUBOData.MeshParams = glm::vec4(draw.IsAuthoredMesh ? 1.0f : 0.0f, cardsOnly ? 0.0f : draw.HandoverStart,
+                                                      cardsOnly ? 0.0f : draw.HandoverEnd, draw.CardNormalLane);
                 // The MAIN view's position, not this pass's camera — that one is
                 // the light. Without it the shadow pass would pick the mesh where
                 // the lit frame drew the card and the plant's shadow would be a
@@ -3302,6 +3309,72 @@ namespace OloEngine
                 }
             }
         }
+    }
+
+    f32 FoliageRenderer::LayerShadowMeshReach(const LayerRenderData& layer) const
+    {
+        const f32 terrainScale = std::max({ glm::length(glm::vec3(m_TerrainTransform[0])),
+                                            glm::length(glm::vec3(m_TerrainTransform[1])),
+                                            glm::length(glm::vec3(m_TerrainTransform[2])) });
+        TArray<LayerDraw> draws;
+        EnumerateLayerDraws(layer, draws);
+        for (const auto& draw : draws)
+        {
+            if (draw.IsAuthoredMesh)
+                return FoliageLod::MeshRegionReach(draw.HandoverStart, draw.HandoverEnd, layer.Lod.TransitionSpread,
+                                                   layer.Lod.Hysteresis) *
+                       terrainScale;
+        }
+        return 0.0f;
+    }
+
+    u32 FoliageRenderer::LayerFirstCardLevel(const LayerRenderData& layer, const FoliageShadowInvalidation::CardCutover& cutover) const
+    {
+        if (cutover.OverrideLevel >= 0)
+            return static_cast<u32>(std::min<i32>(cutover.OverrideLevel, static_cast<i32>(VSM::kClipLevels)));
+        const f32 reach = LayerShadowMeshReach(layer);
+        const i32 levelAtReach =
+            reach > 0.0f ? VirtualShadowMap::SelectClipLevel(reach, cutover.Clip0HalfExtent, cutover.ClipSelectionBias) : -1;
+        return FoliageShadowInvalidation::FirstCardLevel(levelAtReach, VSM::kClipLevels);
+    }
+
+    bool FoliageRenderer::LayerCastsCards(const LayerRenderData& layer, const FoliageShadowInvalidation::CardCutover& cutover) const
+    {
+        if (cutover.Level < 0)
+            return false;
+        // The frame's cached level when UpdateVsmCardCutover ran for this
+        // layer list; derived on the spot otherwise (a test driving one view).
+        const auto index = static_cast<i32>(&layer - m_Layers.GetData());
+        const u32 first = (index >= 0 && index < m_LayerFirstCardLevels.Num()) ? m_LayerFirstCardLevels[index]
+                                                                               : LayerFirstCardLevel(layer, cutover);
+        return static_cast<u32>(cutover.Level) >= first;
+    }
+
+    f32 FoliageRenderer::GetLayerShadowMeshReach(u32 layerIndex) const
+    {
+        return layerIndex < static_cast<u32>(m_Layers.Num()) ? LayerShadowMeshReach(m_Layers[static_cast<i32>(layerIndex)]) : 0.0f;
+    }
+
+    u32 FoliageRenderer::GetLayerFirstCardLevel(u32 layerIndex, const FoliageShadowInvalidation::CardCutover& cutover) const
+    {
+        return layerIndex < static_cast<u32>(m_Layers.Num()) ? LayerFirstCardLevel(m_Layers[static_cast<i32>(layerIndex)], cutover)
+                                                             : VSM::kClipLevels;
+    }
+
+    u64 FoliageRenderer::UpdateVsmCardCutover(const FoliageShadowInvalidation::CardCutover& cutover)
+    {
+        OLO_PROFILE_FUNCTION();
+        m_LayerFirstCardLevels.SetNum(m_Layers.Num());
+        u64 key = 0xcbf29ce484222325ull;
+        for (i32 i = 0; i < m_Layers.Num(); ++i)
+        {
+            const auto& layer = m_Layers[i];
+            m_LayerFirstCardLevels[i] = LayerFirstCardLevel(layer, cutover);
+            if (layer.InstanceCount == 0 || !layer.CastShadows)
+                continue;
+            key = (key ^ m_LayerFirstCardLevels[i]) * 0x100000001b3ull;
+        }
+        return key;
     }
 
     u32 FoliageRenderer::GetTotalInstanceCount() const
@@ -4033,9 +4106,12 @@ namespace OloEngine
             layerInputs.MaxDistance = layer.ViewDistance;
 
             // Every draw of a layer carries the same hand-over band.
-            const f32 meshReach = hasMeshPart ? FoliageLod::MeshRegionReach(draws[0].HandoverStart, draws[0].HandoverEnd,
-                                                                            layer.Lod.TransitionSpread, layer.Lod.Hysteresis)
-                                              : 0.0f;
+            // A cards-only view (#1580) needs no mesh region: its mesh parts are
+            // never drawn, so they are left to count every survivor.
+            const f32 meshReach = (hasMeshPart && !LayerCastsCards(layer, inputs.CardCutover))
+                                      ? FoliageLod::MeshRegionReach(draws[0].HandoverStart, draws[0].HandoverEnd,
+                                                                    layer.Lod.TransitionSpread, layer.Lod.Hysteresis)
+                                      : 0.0f;
 
             // SIZED FROM THIS VIEW (#1581), see FoliageGPUCuller::ViewResources:
             // a new slot from the groups its first view can survive, a slot

@@ -1350,11 +1350,11 @@ namespace OloEngine
                 caster.renderer->RenderShadows(foliageShader, caster.time, shadowViewIndex, shaders.FoliageImpostor,
                                                familyVsm ? std::function<void()>([familyVsm]()
                                                                                  { familyVsm->BindPhysicalPoolImage(); })
-                                                         : std::function<void()>{});
+                                                         : std::function<void()>{},
+                                               m_FoliageCardCutover);
             }
         }
-        if (foliageTimers)
-            foliageTimers->EndSubPass();
+        foliageBracket.reset();
         if (drawOpaque && !m_FoliageCasters.IsEmpty())
         {
             RenderCommand::EnableCulling();
@@ -2126,6 +2126,7 @@ namespace OloEngine
         // (FoliageShadowInvalidation.h has the policy and its error bound).
         namespace FSI = FoliageShadowInvalidation;
         const FSI::Mode foliageMode = FSI::GetMode();
+        const FoliageShadowInvalidation::CardCutover cutoverSettings = FoliageCardCutover(vsm, -1);
         for (const auto& caster : m_FoliageCasters)
         {
             if (!caster.renderer)
@@ -2133,8 +2134,11 @@ namespace OloEngine
             const auto bounds = caster.renderer->GetShadowBounds();
             if (bounds.Min.x >= std::numeric_limits<f32>::max())
                 continue;
+            // The card cut-over level is part of the silhouette (#1580): a level
+            // that changed representation must not keep the other one's pages.
+            const u64 revision = caster.renderer->GetShadowRevision() ^ caster.renderer->UpdateVsmCardCutover(cutoverSettings);
             footprints.Add({ static_cast<u64>(reinterpret_cast<uintptr_t>(caster.renderer)), bounds, glm::mat4(1.0f),
-                             caster.renderer->GetShadowRevision(), foliageMode == FSI::Mode::EveryFrame });
+                             revision, foliageMode == FSI::Mode::EveryFrame });
         }
         m_FamilyCaches[2].Update({ footprints.GetData(), static_cast<sizet>(footprints.Num()) }, invalidate);
 
@@ -2165,6 +2169,17 @@ namespace OloEngine
                 vsm.AddDynamicInvalidation(entry.WorldBounds.Min - origin, entry.WorldBounds.Max - origin,
                                            entry.ClipLevelMask);
         }
+    }
+
+    FoliageShadowInvalidation::CardCutover ShadowRenderPass::FoliageCardCutover(const VirtualShadowMap& vsm, i32 level)
+    {
+        FoliageShadowInvalidation::CardCutover cutover;
+        cutover.Level = level;
+        cutover.Clip0HalfExtent = vsm.GetSettings().Clip0HalfExtent;
+        cutover.ClipSelectionBias = vsm.GetSettings().ClipSelectionBias;
+        if (const std::optional<i64> lever = Levers::FoliageVsmCardLevel())
+            cutover.OverrideLevel = static_cast<i32>(std::min<i64>(*lever, VSM::kClipLevels));
+        return cutover;
     }
 
     u32 ShadowRenderPass::RenderFamilyVirtualViews(VirtualShadowMap& vsm, bool local)
@@ -2199,6 +2214,9 @@ namespace OloEngine
         u32 drawn = 0;
         for (u32 view = 0; view < count; ++view)
         {
+            // THE CARD CUT-OVER (#1580), decided per layer from this level. A
+            // local layer is not a clip level and keeps every mesh.
+            const FoliageShadowInvalidation::CardCutover cutover = FoliageCardCutover(vsm, local ? -1 : static_cast<i32>(view));
             glm::mat4 vp;
             if (local)
             {
@@ -2221,28 +2239,28 @@ namespace OloEngine
             m_FamilyViewUBO->Bind();
             // The same bracket the CSM region gives its culls (#1391); here
             // each view culls just before it draws.
-            auto* foliageCullTimers = (!m_FoliageCasters.IsEmpty() && !RenderCommand::IsRecordingParallelItem())
-                                          ? &GPUPassTimerPool::GetInstance()
-                                          : nullptr;
-            if (foliageCullTimers)
-                foliageCullTimers->BeginSubPass("FoliageCull");
-            for (const auto& caster : m_FoliageCasters)
             {
-                if (!caster.renderer)
-                    continue;
-                caster.renderer->ResetShadowViewCulling();
-                // A clip level culls against the dirty pages too (#1580), so a
-                // level holding cached foliage pages draws none of it.
-                caster.renderer->DispatchShadowViewCulling(
-                    0, local ? caster.renderer->MakeCullInputs(worldVP, Renderer3D::GetCullViewPosition())
-                             : caster.renderer->MakeVsmClipCullInputs(worldVP, Renderer3D::GetCullViewPosition(), view,
-                                                                      vsm.GetClipProjections()[view].PageOffset,
-                                                                      vsm.GetHPBHandle()));
+                const ShadowBrackets::Scope cullBracket(ShadowBrackets::kFoliageCull, !m_FoliageCasters.IsEmpty());
+                for (const auto& caster : m_FoliageCasters)
+                {
+                    if (!caster.renderer)
+                        continue;
+                    caster.renderer->ResetShadowViewCulling();
+                    // A clip level culls against the dirty pages too (#1580), so a
+                    // level holding cached foliage pages draws none of it.
+                    FoliageGPUCuller::ViewInputs inputs =
+                        local ? caster.renderer->MakeCullInputs(worldVP, Renderer3D::GetCullViewPosition())
+                              : caster.renderer->MakeVsmClipCullInputs(worldVP, Renderer3D::GetCullViewPosition(), view,
+                                                                       vsm.GetClipProjections()[view].PageOffset,
+                                                                       vsm.GetHPBHandle());
+                    inputs.CardCutover = cutover;
+                    caster.renderer->DispatchShadowViewCulling(0, inputs);
+                }
             }
-            if (foliageCullTimers)
-                foliageCullTimers->EndSubPass();
+            m_FoliageCardCutover = cutover;
             RenderCascadeOrFace(worldVP, local ? ShadowPassType::Atlas : ShadowPassType::CSM, view, &frustum,
                                 m_FamilyVsmShaders, m_ItemResources[0], nullptr, nullptr, 0, &vsm);
+            m_FoliageCardCutover = {};
             // The next view rewrites the foliage compacted streams and draw
             // args the previous draw reads. Views are sequential, with explicit
             // GPU ordering as well as command-ordered UBO uploads.

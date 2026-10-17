@@ -619,11 +619,42 @@ namespace OloEngine
         // ShadowRenderPass's RecordParallel region, where a buffer written by
         // two items is a hard Vulkan error. Every write happens earlier, in
         // DispatchShadowViewCulling.
+        //
+        // `cardCutover` (#1580, FoliageShadowInvalidation::FirstCardLevel): a
+        // layer whose first card level the view's clip level reaches skips its
+        // authored-mesh parts and draws each plant's card, the hand-over band
+        // zeroed so the card owns every plant, near ones included. The cull for
+        // the view must have been dispatched with the same ViewInputs::CardCutover.
         void RenderShadows(const Ref<Shader>& depthShader, f32 time, u32 shadowViewIndex,
                            const Ref<Shader>& impostorDepthOverride = {},
-                           const std::function<void()>& afterProgramBind = {}) const;
+                           const std::function<void()>& afterProgramBind = {},
+                           const FoliageShadowInvalidation::CardCutover& cardCutover = {}) const;
 
         [[nodiscard]] BoundingBox GetShadowBounds() const;
+
+        // The first VSM clip level layer `layerIndex` casts through cards under
+        // `cutover`'s settings (#1580): past the level a receiver at the layer's
+        // mesh reach selects; 0 for a layer with no mesh.
+        [[nodiscard]] u32 GetLayerFirstCardLevel(u32 layerIndex, const FoliageShadowInvalidation::CardCutover& cutover) const;
+        // The farthest from the main eye, in world metres, that the layer still
+        // draws its authored mesh (FoliageLod::MeshRegionReach of its hand-over
+        // band); 0 for a layer with no mesh.
+        [[nodiscard]] f32 GetLayerShadowMeshReach(u32 layerIndex) const;
+        // Computes every layer's first card level under `cutover`'s settings for
+        // this frame -- the cull and the draw then read it per view instead of
+        // re-deriving it -- and returns them folded into one key: a change of
+        // any is a silhouette change the VSM must invalidate for. Call once per
+        // frame before the VSM views (ShadowRenderPass's invalidation step).
+        [[nodiscard]] u64 UpdateVsmCardCutover(const FoliageShadowInvalidation::CardCutover& cutover);
+
+        // Shadow views asked to cull past the last cull slot since creation:
+        // each drew every generated plant, uncompacted. ShadowRenderPass
+        // records a region in batches of kMaxShadowViews so this stays 0
+        // (#1590); Levers::FaultShadowFoliageCullCap is what moves it.
+        [[nodiscard]] u64 GetShadowViewsPastCullSlots() const
+        {
+            return m_ShadowViewsPastCullSlots;
+        }
 
         // ── Virtual shadow map page caching (#1580) ──────────────────────
         //
@@ -872,6 +903,9 @@ namespace OloEngine
         // them decides what to draw.
         using LayerDraw = FoliageLayerDraw;
         void EnumerateLayerDraws(const LayerRenderData& data, TArray<LayerDraw>& out) const;
+        [[nodiscard]] f32 LayerShadowMeshReach(const LayerRenderData& layer) const;
+        [[nodiscard]] u32 LayerFirstCardLevel(const LayerRenderData& layer, const FoliageShadowInvalidation::CardCutover& cutover) const;
+        [[nodiscard]] bool LayerCastsCards(const LayerRenderData& layer, const FoliageShadowInvalidation::CardCutover& cutover) const;
         // The density LOD the layer's draws AND its cull read this frame: the
         // authored one, or none under OLO_FOLIAGE_NO_DENSITY_LOD (#1391). One
         // accessor, so the cull can never drop a plant the draw still thins
@@ -1011,6 +1045,9 @@ namespace OloEngine
         // note in docs/agent-rules).
         mutable bool m_WarnedCullUnavailable = false;
         bool m_WarnedShadowViewOverflow = false;
+        u64 m_ShadowViewsPastCullSlots = 0;
+        // Per layer, UpdateVsmCardCutover's result for this frame.
+        TArray<u32> m_LayerFirstCardLevels;
         bool m_WarnedTooManyParts = false;
         bool m_WarnedCullBracketSkipped = false;
         glm::mat4 m_TerrainTransform{ 1.0f };

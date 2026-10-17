@@ -5,6 +5,7 @@
 #include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+#include "OloEngine/Renderer/Shadow/FoliageShadowInvalidation.h"
 #include "OloEngine/Terrain/Foliage/FoliageInstanceRegistry.h"
 #include "OloEngine/Terrain/Foliage/FoliageCullTable.h"
 
@@ -164,6 +165,10 @@ namespace OloEngine
             // Terrain-local -> the level's clip space (MATH flavour).
             glm::mat4 VsmLocalToClip{ 1.0f };
             RHI::ResourceHandle VsmHPB{};
+            // #1580's card cut-over: a layer that casts this clip level through
+            // cards (FoliageRenderer decides per layer) gets no mesh region,
+            // since its mesh parts draw nothing.
+            FoliageShadowInvalidation::CardCutover CardCutover{};
         };
 
         // The layer's LOD transition + density parameters (issue #1237),

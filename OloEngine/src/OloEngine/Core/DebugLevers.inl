@@ -153,6 +153,11 @@ OLO_LEVER_EXACT(FaultGroomNoOtherFur, "OLO_FAULT_GROOM_NO_OTHER_FUR",
                 "FAULT (#1533 negative control): grooms that sample the opaque shadow copies never also sample the "
                 "full map at their coat's light-exit point, so one coat's fur does not shadow another coat -- the gap "
                 "the opaque copies left. GroomSceneShadowVisualEvidenceTest's coat-over-coat cases prove they see it.")
+OLO_LEVER_INT(FoliageVsmCardLevel, "OLO_FOLIAGE_VSM_CARD_LEVEL", 0,
+              "The first virtual-shadow-map clip level foliage casts through cards instead of its authored "
+              "mesh (#1580). Unset, FoliageShadowInvalidation::FirstCardLevel chooses it from the levels' "
+              "texel sizes; 16 (or more) casts the meshes into every level, the pre-#1580 behaviour, and 0 "
+              "casts cards everywhere. The A/B lever for the cut-over's cost and its shadow shape.")
 OLO_LEVER_EXACT(FaultVulkanStagingReuse, "OLO_FAULT_VULKAN_STAGING_REUSE",
                 "FAULT (#1543 negative control): on Vulkan, upload GPU particle emit batches, GPU fluid emit batches "
                 "and fluid body proxies into ONE persistent buffer each, rewritten in place, instead of a frame-arena "

@@ -160,6 +160,57 @@ namespace OloEngine::FoliageShadowInvalidation
                                      hi.z + r + reach));
     }
 
+    // THE CARD CUT-OVER (#1580, the second half of the decision). The levels a
+    // moving plant must redraw every frame are the fine ones -- every level
+    // whose texel is finer than its wind bound -- and in them foliage casts its
+    // authored mesh (a meadow tuft is ~1,250 triangles) into every dirty page.
+    // Past a level it casts through its card instead: one quad per plant, the
+    // quad the beauty pass draws past the mesh distance, facing the main view,
+    // a third of a mesh's cost per level on the traversal scene.
+    //
+    // WHICH LEVEL. A receiver at distance d samples the level
+    // VirtualShadowMap::SelectClipLevel(d) gives, and that only grows with d.
+    // Within the mesh reach R (FoliageRenderer::GetLayerShadowMeshReach) the beauty
+    // pass draws meshes; past it, cards. So every level past
+    // SelectClipLevel(R) is sampled only by receivers beyond the mesh band,
+    // where the plant in the frame already IS its card, and casting the card
+    // there keeps the shadow the shape of the plant beside it (the #1233
+    // rule). A level at or below it can be sampled by a receiver next to a
+    // mesh plant, so it keeps the meshes. What this does not cover: a long
+    // shadow, at a low sun, from a mesh plant inside R falling on a receiver
+    // beyond it, is cast by the card; and a receiver whose page is not resident
+    // walks up to two levels coarser (vsmShadowFactor), which can be a card
+    // level -- on Forward and Forward+ the densest foreground grass does, 44
+    // pixels by at most 31/255 at the traversal's woodland pose, accepted for
+    // the 11-30 % this saves over keeping that margin. Measured and shown in
+    // FoliageCostBaselineTest.VsmCardCutoverKeepsTheShadowOfTheMeshBand.
+    //
+    // PER LAYER: R is each layer's own reach, so a meadow whose tufts hand over
+    // at 12 m takes cards from a finer level than a pine stand meshed to 87 m
+    // (one shared R let the farthest layer hold every other one back).
+    //
+    // `levelAtMeshReach` is SelectClipLevel(R); negative means the layer has no
+    // mesh (every level may take cards). Returns the first card level,
+    // `levelCount` when no level does.
+    [[nodiscard]] inline u32 FirstCardLevel(i32 levelAtMeshReach, u32 levelCount)
+    {
+        if (levelAtMeshReach < 0)
+            return 0u;
+        return std::min<u32>(static_cast<u32>(levelAtMeshReach) + 1u, levelCount);
+    }
+
+    // What one VSM view hands the foliage cull and draw to decide the cut-over
+    // per layer: the clip level being drawn (negative: not a clip level, never
+    // cards), the settings SelectClipLevel reads, and the
+    // OLO_FOLIAGE_VSM_CARD_LEVEL override (negative: the policy decides).
+    struct CardCutover
+    {
+        i32 Level = -1;
+        f32 Clip0HalfExtent = 2.0f;
+        f32 ClipSelectionBias = 1.0f;
+        i32 OverrideLevel = -1;
+    };
+
     // Two invalidations merged into one box (the queue's saturation path)
     // invalidate the union of their levels; "every level" absorbs anything.
     [[nodiscard]] inline u32 MergeLevelMasks(u32 a, u32 b)

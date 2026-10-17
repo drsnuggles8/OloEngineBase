@@ -62,3 +62,44 @@ is redrawing, so the coarse levels, which have almost no resident pages, draw no
 Vulkan (traversal Step4 framing, 941x628 viewport) the VSM frame went from 39.0 to 15.1 ms
 (shadow pass 35.5 to 11.5 ms); from an elevated framing 18.9 to 9.6 ms. The OpenGL headless baseline cells
 did not show that drop; that discrepancy is open.
+
+## The card cut-over: cards in every level a receiver beyond the mesh band samples
+
+**Rule.** In a clip level past `SelectClipLevel(R)`, where R is how far from the eye the LAYER still
+draws its authored mesh (`FoliageRenderer::GetLayerShadowMeshReach`), that layer casts through cards
+(`FoliageShadowInvalidation::FirstCardLevel`, decided per layer in the cull and in `RenderShadows` from
+the view's `CardCutover`). A receiver samples the level `SelectClipLevel(d)` gives, which only grows
+with d, so such a level is read only beyond the layer's mesh band, where the lit plant already is its
+card. Per layer, because one pine stand meshed to 87 m would otherwise hold a meadow that hands over
+at 12 m to the pines' level. Every layer's level is part of the foliage's shadow revision
+(`GetVsmCardCutoverKey`), so a change invalidates every level. `OLO_FOLIAGE_VSM_CARD_LEVEL` overrides it
+for all layers (16: meshes everywhere; 0: cards everywhere).
+
+**Why there and not finer.** The per-level brackets (`ShadowPass/VsmSun/FoliageCasters`, one per level,
+in level order) show where the cost is: levels 2–6 on the traversal (texel 4 mm to 6 cm, all finer than
+the wind bound, so redrawn every frame), levels 9–15 near zero. A card costs about a third of a mesh in a
+level. GL, 1080p, Release, VSM foliage casters per frame:
+
+| cut-over level | Step0 | Step4 | Step8 |
+|---|---:|---:|---:|
+| 16 (meshes everywhere) | 12.9 ms | 22.1 ms | 8.4 ms |
+| 6 | 11.1 | 17.7 | 6.8 |
+| 5 | 10.1 | 15.8 | 5.8 |
+| 4 | 8.2 | 13.9 | 4.9 |
+| 3 | 6.2 | 11.7 | 4.5 |
+
+Below the mesh-band level the saving grows, but a receiver beside a mesh plant would then read a card
+shadow: the shadow and the plant would disagree, the #1233 rule. With one reach for all layers the
+farthest (pines meshed to 87 m) held every layer to L7 and saved 3–17 %; per layer (meadow grass, leaf
+litter and dune grass L5, wildflowers L6, shrubs and pines L7) it saves 11–30 %: Forward 13.0/21.4/8.4 to
+10.7/16.0/7.1 ms, Deferred 17.9/16.8/8.5 to 15.9/11.9/7.0 ms at Step0/4/8.
+`FoliageCostBaselineTest.VsmCardCutoverKeepsTheShadowOfTheMeshBand` measures 0–5 moved pixels of shadow
+factor on Deferred at every pose and on every path at Step0 and Step4 (a repeat of one arm moves 0–4),
+against 437–630,000 for cards everywhere.
+
+**What it does not cover.** A long shadow at a low sun, cast by a mesh plant inside R onto a receiver
+beyond it, comes from the card. A receiver whose page is not resident walks up to two levels coarser
+(`vsmShadowFactor`), and two coarser can be a card level: on Forward and Forward+ the densest foreground
+grass at the woodland pose does, 44 of 2,073,600 pixels by at most 31/255 (Deferred marks those pages and
+shows none). Covering the walk would have pushed most layers back to L7; the user accepted the 44 pixels
+for the saving (#1580). Local-light layers keep the meshes: a lamp's layer is not a clip level.
