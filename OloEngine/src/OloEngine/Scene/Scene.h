@@ -1789,6 +1789,9 @@ namespace OloEngine
         // m_GroomRegionMaps' reason: an entity destroyed mid-session would
         // otherwise leave its counters resident for the Scene's lifetime.
         std::unordered_map<UUID, GroomLodState> m_GroomLodRuntime;
+        // The dithered cross-fade's window per groom entity (#1612), beside the
+        // LOD state it follows and swept with it, for the same reasons.
+        std::unordered_map<UUID, GroomCrossFadeState> m_GroomCrossFadeRuntime;
 
         // ── Multi-animal scheduling budgets (issue #1258) ────────────────
         //
@@ -2000,7 +2003,16 @@ namespace OloEngine
         /// back to a nearest point: a coat that is quietly attached to the wrong
         /// part of the body is the failure this whole feature exists to prevent
         /// (GroomBinding.h says so at more length).
-        void DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request);
+        ///
+        /// `crossFadePartner` (#1612) is the Outgoing copy of a fading coat's
+        /// request, or null. It is the same coat on the other tier, so nothing
+        /// per ENTITY runs twice: it takes the primary's binding verdict, root
+        /// inputs, history and simulation, and only what depends on its own
+        /// tier -- its streaming resolve and, on the CPU root path, its drawn
+        /// curves' roots, evaluated in the same pass as the primary's -- is
+        /// its own.
+        void DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request,
+                                       GroomStrandRequest* crossFadePartner = nullptr);
         // Where a BOUND groom's coat is drawn, as a translation of the groom's
         // rest bounds in its own object space (#1259). False for an unbound
         // groom, or one whose binding cannot address the body: those draw at

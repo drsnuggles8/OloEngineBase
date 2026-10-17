@@ -88,20 +88,27 @@ layout(std140, binding = 0) uniform CameraMatrices
 // UBO_USER_0 (7), the shared PASS-LOCAL slot, filled per item by
 // ShadowRenderPass. C++ twin: ShaderBindingLayout::GroomShadowParamsUBO.
 //
-// The FRAGMENT stage declares nothing at all, so there is no cross-stage block
-// to keep in step — the trap GroomStrand.glsl's header describes does not
-// arise here.
+// The FRAGMENT stage declares no block: what it needs (#1612's cross-fade
+// mask) arrives as flat varyings, so there is still no cross-stage block to
+// keep in step — the trap GroomStrand.glsl's header describes does not arise
+// here.
 layout(std140, binding = 7) uniform GroomShadowParams
 {
 	mat4 u_GroomShadowModel;  // render-relative model matrix
 	vec4 u_GroomShadowWidth;  // x = width scale, y = object scale, z = target resolution in texels, w = min width in texels
-	ivec4 u_GroomShadowModes; // x = VSM clip level (the VSM route only), yzw unused
+	ivec4 u_GroomShadowModes; // x = VSM clip level (the VSM route only), y = frame index (#1612), zw unused
 	// GPU strand deformation (#1427), mirrored from GroomStrandParams:
 	// x = mode, y = simulated, z = roots, w = guide slots.
 	ivec4 u_GroomShadowDeformModes;
 	// x = root base, y = slot base, z = displacement base, w = displacements.
 	ivec4 u_GroomShadowDeformBases;
+	// The LOD cross-fade mask (#1612), GroomStrandParams' lane: x = t, y = role.
+	vec4 u_GroomShadowCrossFade;
 };
+
+// A fading coat's two tiers cast through the masks they are drawn with (#1612).
+layout(location = 0) flat out vec4 v_CrossFade;
+layout(location = 1) flat out uint v_CrossFadeFrame;
 
 void main()
 {
@@ -139,12 +146,26 @@ void main()
 	gl_Position = oloGroomShadowRibbonPosition(u_ViewProjection, u_GroomShadowModel, position, other,
 	                                           a_Radius, a_Side, u_GroomShadowWidth.x, u_GroomShadowWidth.y,
 	                                           u_GroomShadowWidth.z, u_GroomShadowWidth.w);
+	v_CrossFade = u_GroomShadowCrossFade;
+	v_CrossFadeFrame = uint(u_GroomShadowModes.y);
 }
 
 #type fragment
 #version 460 core
 
+#include "include/GroomStrandCommon.glsl"
+
+layout(location = 0) flat in vec4 v_CrossFade;
+layout(location = 1) flat in uint v_CrossFadeFrame;
+
 void main()
 {
-	// Depth is written automatically by the rasterizer.
+	// The cross-fade mask per SHADOW TEXEL (#1612): both tiers ask the same
+	// texel, so the pair casts each texel once and the coat's shadow fades with
+	// its colour. Depth is otherwise written automatically by the rasterizer.
+	if (!oloGroomCrossFadeKeeps(uint(floor(gl_FragCoord.x)), uint(floor(gl_FragCoord.y)), v_CrossFadeFrame,
+	                            v_CrossFade))
+	{
+		discard;
+	}
 }

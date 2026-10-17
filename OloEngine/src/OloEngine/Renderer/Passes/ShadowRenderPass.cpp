@@ -1475,7 +1475,8 @@ namespace OloEngine
             {
                 continue;
             }
-            if (request.CastsSceneShadow)
+            // Per groom: a fading coat's outgoing copy (#1612) is the same coat.
+            if (request.CastsSceneShadow && !request.IsCrossFadeSecondary())
             {
                 ++stats.GroomsAskedToCast;
             }
@@ -1549,7 +1550,17 @@ namespace OloEngine
             // and the groom it wears, mixed so two coats on one entity differ.
             caster.key = (static_cast<u64>(request.Handle) * 0x9E3779B97F4A7C15ull) ^
                          static_cast<u64>(static_cast<u32>(request.EntityID));
+            // A fading coat's outgoing tier (#1612) is a second caster of the
+            // same entity and groom: its own key, so the VSM invalidation keeps
+            // both footprints and sees the outgoing one depart when the window
+            // closes. The primary keeps the key it has outside a fade.
+            if (request.IsCrossFadeSecondary())
+            {
+                caster.key ^= 0xC2B2AE3D27D4EB4Full;
+            }
             caster.deforming = GroomRenderPass::IsDeformed(request);
+            caster.crossFade = MakeGroomCrossFadeLane(request);
+            caster.crossFading = request.CrossFadeRole != GroomCrossFadeRole::None;
 
             // THE COAT IN THIS POSE, not the asset's bind-pose bounds and not a
             // GPU-deformed stream's bind-local ones: the posed roots padded by
@@ -1692,7 +1703,11 @@ namespace OloEngine
             UBOStructures::GroomShadowParamsUBO params;
             params.Model = MakeModelRelative(caster.transform, renderOrigin);
             params.Width = glm::vec4(caster.widthScale, caster.objectScale, resolutionTexels, caster.minWidthTexels);
-            params.Modes = glm::ivec4(clipLevel, 0, 0, 0);
+            // y: the frame the cross-fade hash is taken at (#1612) -- the strand
+            // pass's own frame index, so a fading coat's shadow dither moves with
+            // its colour's.
+            params.Modes = glm::ivec4(clipLevel, static_cast<i32>(Renderer3D::GetStochasticFrameIndex()), 0, 0);
+            params.CrossFade = caster.crossFade;
             // GPU strand deformation (#1427): the SAME lanes and the same buffer
             // the strand draw uses, so a bound coat casts from the pose the
             // camera sees. BOUND BEFORE EVERY DRAW, never trusted to survive:
@@ -1938,7 +1953,7 @@ namespace OloEngine
             // bit-exactly, like ShadowCasterBounds::Moved: a rotation about the
             // centre of a symmetric coat leaves the box identical and the
             // silhouette not.
-            const bool moved = caster.deforming || isNew ||
+            const bool moved = caster.deforming || caster.crossFading || isNew ||
                                !Math::BitwiseEqual(previous->second.Transform, caster.transform);
             if (!moved)
             {

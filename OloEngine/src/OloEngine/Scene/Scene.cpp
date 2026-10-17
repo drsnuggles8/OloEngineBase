@@ -9569,6 +9569,35 @@ namespace OloEngine
         // Scene's lifetime.
         std::unordered_set<UUID> liveGroomLodEntities;
         std::unordered_set<UUID> liveGroomStreamingIdentities;
+        // THE CROSS-FADE BUDGET (#1612). A fading coat draws both of its tiers,
+        // so the number fading at once bounds what a transition frame costs.
+        // A window already running keeps its slot; the free ones go to new
+        // hand-overs in scene order, and one that finds none hard-switches and
+        // says so (GroomLodFallbackReason::CrossFadeBudgetSpent).
+        const u32 crossFadeFrames = Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames;
+        u32 crossFadeSlots = Renderer3D::GetRendererSettings().GroomLodMaxCrossFades;
+        for (const auto& [id, fade] : m_GroomCrossFadeRuntime)
+        {
+            if (fade.IsActive() && crossFadeSlots > 0u)
+            {
+                --crossFadeSlots;
+            }
+        }
+        // Full cooked-curve budgets leave every role at stride one, so its
+        // width compensation is one regardless of the authored cap. Keep that
+        // ineffective cap out of the geometry cache identity: toggling LOD
+        // otherwise duplicates the entire full-density stream. A lambda since
+        // #1612, because a fading coat's outgoing copy needs the same rule for
+        // its own tier.
+        const auto dropIneffectiveWidthCap = [](GroomStrandRequest& tier)
+        {
+            const GroomCurveView buildCurves = tier.BuildSource().Curves;
+            const u32 buildCurveCount = buildCurves.GetCurveCount();
+            const u32 buildPointCount = buildCurves.GetPointCount();
+            if (tier.Lod.Representation == GroomRepresentation::Strand && buildPointCount >= buildCurveCount &&
+                tier.Build.MaxStrands >= buildCurveCount && tier.Build.MaxSegments >= buildPointCount - buildCurveCount)
+                tier.Build.MaxWidthCompensation = 1.0f;
+        };
         // THE VIEW A COAT HAS TO REACH (#1259). A coat no view can see, and
         // whose shadow cannot fall into it, is not deformed, simulated or
         // drawn this frame: before this, every coat in a scene paid its
@@ -9833,6 +9862,8 @@ namespace OloEngine
                 request.ApparentPixelSize = EstimateProjectedPixelSize(localBounds, worldTransform, lodView);
             }
 
+            // The tier a fading coat is leaving (#1612), drawn beside this one.
+            std::optional<GroomRepresentation> crossFadeOutgoing;
             if (const auto* lod = m_Registry.try_get<GroomLodComponent>(entity); lod != nullptr)
             {
                 // The authored policy under the global detail bias (#1616):
@@ -9916,6 +9947,34 @@ namespace OloEngine
                     request.LodLevel = groom->FindLodLevel(GroomRepresentation::Card);
                 }
 
+                // ── The dithered cross-fade (#1612) ─────────────────────
+                //
+                // AFTER the population budget, so it follows the tier the coat
+                // is actually drawn on, and from the decision rather than from
+                // a second look at the apparent size: the window starts on the
+                // frame RepresentationChanged does and nowhere else.
+                {
+                    GroomCrossFadeState& fade = m_GroomCrossFadeRuntime[groomEntity.GetUUID()];
+                    const bool wasFading = fade.IsActive();
+                    const GroomCrossFadeDecision crossFade =
+                        AdvanceGroomCrossFade(request.Lod, crossFadeFrames, crossFadeSlots > 0u, fade);
+                    if (crossFade.Active && !wasFading && crossFadeSlots > 0u)
+                    {
+                        --crossFadeSlots;
+                    }
+                    if (crossFade.Refused && request.Lod.Reason == GroomLodFallbackReason::None)
+                    {
+                        request.Lod.Reason = GroomLodFallbackReason::CrossFadeBudgetSpent;
+                    }
+                    if (crossFade.Active)
+                    {
+                        request.Lod.CrossFading = true;
+                        request.CrossFadeRole = GroomCrossFadeRole::Incoming;
+                        request.CrossFadeThreshold = crossFade.Threshold;
+                        crossFadeOutgoing = crossFade.Outgoing;
+                    }
+                }
+
                 // The strand budget, scaled. THE CACHE IS KEYED ON THESE
                 // SETTINGS, which is why the budget moves in halvings rather
                 // than sliding with the camera: a continuously varying
@@ -9933,17 +9992,10 @@ namespace OloEngine
                     request.LodPolicy.Enabled ? request.LodPolicy.MaxWidthCompensation : 1.0f;
             }
 
-            // Full cooked-curve budgets leave every role at stride one, so
-            // its width compensation is one regardless of the authored cap.
-            // Keep that ineffective cap out of the geometry cache identity:
-            // toggling LOD otherwise duplicates the entire full-density stream.
-            const GroomCurveView buildCurves = request.BuildSource().Curves;
-            const u32 buildCurveCount = buildCurves.GetCurveCount();
-            const u32 buildPointCount = buildCurves.GetPointCount();
-            if (request.Lod.Representation == GroomRepresentation::Strand &&
-                buildPointCount >= buildCurveCount && request.Build.MaxStrands >= buildCurveCount &&
-                request.Build.MaxSegments >= buildPointCount - buildCurveCount)
-                request.Build.MaxWidthCompensation = 1.0f;
+            // The cap before the stride-one rule, which a fading coat's
+            // outgoing tier re-applies against its own curves.
+            const f32 lodWidthCap = request.Build.MaxWidthCompensation;
+            dropIneffectiveWidthCap(request);
 
             request.Build.CoatDigest = GroomCoatDigest(request.Coat);
 
@@ -9993,9 +10045,46 @@ namespace OloEngine
                 }
             }
 
+            std::optional<GroomStrandRequest> crossFadePartner;
             {
                 OLO_PERF_SCOPE_AUTO("Groom::Deform");
-                DeformGroomAgainstSurface(groomEntity, *groom, request);
+                // The outgoing tier of a fading coat (#1612): the same request
+                // on the tier it is leaving, through the complementary mask.
+                // Built HERE, after the cull and before the deformation, so it
+                // is everything the primary is except its tier, and the
+                // deformation fills both from one pass over the entity.
+                if (crossFadeOutgoing.has_value())
+                {
+                    const GroomLodLevel* outgoingLevel = *crossFadeOutgoing == GroomRepresentation::Strand
+                                                             ? nullptr
+                                                             : groom->FindLodLevel(*crossFadeOutgoing);
+                    if (*crossFadeOutgoing == GroomRepresentation::Strand || outgoingLevel != nullptr)
+                    {
+                        GroomStrandRequest& outgoing = crossFadePartner.emplace(request);
+                        outgoing.CrossFadeRole = GroomCrossFadeRole::Outgoing;
+                        outgoing.Lod.Representation = *crossFadeOutgoing;
+                        outgoing.LodLevel = outgoingLevel;
+                        outgoing.Build.MaxWidthCompensation = lodWidthCap;
+                        dropIneffectiveWidthCap(outgoing);
+                    }
+                }
+                DeformGroomAgainstSurface(groomEntity, *groom, request,
+                                          crossFadePartner.has_value() ? &*crossFadePartner : nullptr);
+                // A streaming resolve can put both tiers on the same floor, and
+                // then there is nothing to fade between: the primary alone
+                // draws the coat, every fragment of it.
+                if (crossFadePartner.has_value() && crossFadePartner->LodLevel == request.LodLevel &&
+                    crossFadePartner->Lod.Representation == request.Lod.Representation &&
+                    crossFadePartner->Build == request.Build)
+                {
+                    crossFadePartner.reset();
+                }
+                if (crossFadeOutgoing.has_value() && !crossFadePartner.has_value())
+                {
+                    request.CrossFadeRole = GroomCrossFadeRole::None;
+                    request.CrossFadeThreshold = 1.0f;
+                    request.Lod.CrossFading = false;
+                }
             }
 
             const UUID groomIdentity = groomEntity.GetUUID();
@@ -10010,6 +10099,18 @@ namespace OloEngine
                     root.PrevRotation = root.Rotation;
                 }
                 request.SimulationPrevDisplacements = request.SimulationDisplacements;
+                // The fading coat's other tier (#1612) drops the same history:
+                // it is the same coat, deformed from the same inputs.
+                if (crossFadePartner.has_value())
+                {
+                    crossFadePartner->GpuRootInputs.HasHistory = false;
+                    for (auto& root : crossFadePartner->RootTransforms)
+                    {
+                        root.PrevOrigin = root.Origin;
+                        root.PrevRotation = root.Rotation;
+                    }
+                    crossFadePartner->SimulationPrevDisplacements = crossFadePartner->SimulationDisplacements;
+                }
                 Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
                                                         TemporalHistoryEffect::TAA);
                 Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
@@ -10017,6 +10118,10 @@ namespace OloEngine
             }
             m_GroomStreamingEffectiveKeys[groomIdentity] = request.StreamingKey;
             groomRequests.Add(std::move(request));
+            if (crossFadePartner.has_value())
+            {
+                groomRequests.Add(std::move(*crossFadePartner));
+            }
         }
 
         // Drop the CPU copy of any root-UV map no groom asked for this frame.
@@ -10061,6 +10166,8 @@ namespace OloEngine
                           [&liveGroomLodEntities](const auto& entry)
                           { return !liveGroomLodEntities.contains(entry.first); });
         }
+        std::erase_if(m_GroomCrossFadeRuntime, [&liveGroomLodEntities](const auto& entry)
+                      { return !liveGroomLodEntities.contains(entry.first); });
         std::erase_if(m_GroomStreamingGuides, [&liveGrooms](const auto& entry)
                       { return !liveGrooms.contains(entry.first); });
         std::erase_if(m_GroomStreamingEffectiveKeys, [&liveGroomStreamingIdentities](const auto& entry)
@@ -10858,8 +10965,20 @@ namespace OloEngine
         return std::isfinite(outOffset.x) && std::isfinite(outOffset.y) && std::isfinite(outOffset.z);
     }
 
-    void Scene::DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request)
+    void Scene::DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request,
+                                          GroomStrandRequest* crossFadePartner)
     {
+        // The fading coat's other tier resolves its streaming against its own
+        // tier, and nothing else here is its own (see the declaration).
+        const auto resolvePartnerStreaming = [crossFadePartner]
+        {
+            if (crossFadePartner != nullptr)
+            {
+                if (auto* pass = Renderer3D::GetGroomRenderPass())
+                    pass->ResolveStreamingRequest(*crossFadePartner);
+            }
+        };
+
         auto* binding = m_Registry.try_get<GroomBindingComponent>(groomEntity);
         if (binding == nullptr || !binding->m_Enabled)
         {
@@ -10868,6 +10987,7 @@ namespace OloEngine
             // #1246 scene read as a scene full of errors.
             if (auto* pass = Renderer3D::GetGroomRenderPass())
                 pass->ResolveStreamingRequest(request);
+            resolvePartnerStreaming();
             return;
         }
 
@@ -10881,6 +11001,14 @@ namespace OloEngine
             request.RootTransforms.Reset();
             if (auto* pass = Renderer3D::GetGroomRenderPass())
                 pass->ResolveStreamingRequest(request);
+            // The other tier of the same coat is refused for the same reason.
+            if (crossFadePartner != nullptr)
+            {
+                crossFadePartner->BindingReject = reason;
+                crossFadePartner->Binding = nullptr;
+                crossFadePartner->RootTransforms.Reset();
+                resolvePartnerStreaming();
+            }
             // A refusal is a discontinuity: on the frame it happens, whatever
             // previous positions this entity held describe a coat that is no
             // longer being deformed. Clearing the flag makes the frame AFTER a
@@ -11086,6 +11214,18 @@ namespace OloEngine
         }
         if (auto* pass = Renderer3D::GetGroomRenderPass())
             pass->ResolveStreamingRequest(request);
+        if (crossFadePartner != nullptr)
+        {
+            // What the streaming resolve reads, from the same entity.
+            crossFadePartner->Binding = request.Binding;
+            crossFadePartner->GpuRootSurfaceKey = request.GpuRootSurfaceKey;
+            crossFadePartner->StreamingSurfaceVertices = request.StreamingSurfaceVertices;
+            crossFadePartner->StreamingBones = request.StreamingBones;
+            crossFadePartner->Influence = request.Influence;
+            crossFadePartner->StreamingGuideSlots = request.StreamingGuideSlots;
+            crossFadePartner->StreamingDisplacementPoints = request.StreamingDisplacementPoints;
+            resolvePartnerStreaming();
+        }
 
         // ── History: is the previous frame comparable? ───────────────────────
 
@@ -11226,6 +11366,26 @@ namespace OloEngine
         else
         {
             state.m_SelectedCurves = state.m_DrawnSelection;
+            // A FADING COAT DRAWS TWO CURVE SETS (#1612), and on the CPU path
+            // each drawn strand needs its root. The other tier's are selected
+            // here and evaluated in the SAME pass over the body as this tier's,
+            // so the two share one pose and one history; the result is indexed
+            // by base curve, which is what lets both requests read it. Not
+            // cached like m_DrawnSelection: a window lasts a few frames.
+            if (crossFadePartner != nullptr)
+            {
+                TArray<u32> partnerCurves;
+                const GroomBuildSource partnerSource = crossFadePartner->BuildSource();
+                SelectGroomStrandCurves(partnerSource, crossFadePartner->Build, partnerCurves, &coat);
+                for (const u32 curve : partnerCurves)
+                {
+                    state.m_SelectedCurves.Add(partnerSource.SourceCurve(curve));
+                }
+                u32* const first = state.m_SelectedCurves.GetData();
+                u32* const last = first + state.m_SelectedCurves.Num();
+                std::sort(first, last);
+                state.m_SelectedCurves.SetNum(static_cast<decltype(state.m_SelectedCurves.Num())>(std::unique(first, last) - first));
+            }
         }
         // ...WIDENED to cover every guide the simulation will solve (#1250).
         // A guide with no deformed root is a guide solved against the bind
@@ -11317,6 +11477,30 @@ namespace OloEngine
         // a 64-byte record per curve per frame — which for a 200k-strand coat is
         // 12 MB of memcpy that the scratch buffer exists to avoid.
         std::swap(request.RootTransforms, state.m_Transforms);
+
+        // The fading coat's other tier (#1612) draws the same deformed coat:
+        // the same roots (both tiers' drawn curves were evaluated above), the
+        // same GPU root inputs and history, and the same guide displacements.
+        // Copied rather than recomputed, so the two tiers cannot disagree about
+        // where the coat is mid-fade.
+        if (crossFadePartner != nullptr)
+        {
+            GroomStrandRequest& partner = *crossFadePartner;
+            partner.Binding = request.Binding;
+            partner.BindingReject = request.BindingReject;
+            partner.RootTransforms = request.RootTransforms;
+            partner.DeformationStats = request.DeformationStats;
+            partner.GpuRootFrames = request.GpuRootFrames;
+            partner.GpuRootInputs = request.GpuRootInputs;
+            partner.GpuRootSurfaceKey = request.GpuRootSurfaceKey;
+            partner.Influence = request.Influence;
+            partner.SimulationDisplacements = request.SimulationDisplacements;
+            partner.SimulationPrevDisplacements = request.SimulationPrevDisplacements;
+            partner.SimulationGuideOffsets = request.SimulationGuideOffsets;
+            partner.SimulationGuideOfSlot = request.SimulationGuideOfSlot;
+            partner.SimulationSlotOfGuide = request.SimulationSlotOfGuide;
+            partner.SimulationStats = request.SimulationStats;
+        }
 
         // Recorded AFTER the evaluation, so the next frame compares against the
         // state this frame actually deformed with rather than against what it

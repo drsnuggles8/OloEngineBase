@@ -135,6 +135,9 @@ namespace OloEngine
                          after.HonourSceneTemporalResolveRequests);
             AppendChange(changes, "GroomGpuDeformation", before.GroomGpuDeformation, after.GroomGpuDeformation);
             AppendChange(changes, "GroomGpuRootFrames", before.GroomGpuRootFrames, after.GroomGpuRootFrames);
+            AppendChange(changes, "GroomLodCrossFadeFrames", before.GroomLodCrossFadeFrames,
+                         after.GroomLodCrossFadeFrames);
+            AppendChange(changes, "GroomLodMaxCrossFades", before.GroomLodMaxCrossFades, after.GroomLodMaxCrossFades);
             AppendChange(changes, "Deferred.GBufferDecalsEnabled", before.Deferred.GBufferDecalsEnabled, after.Deferred.GBufferDecalsEnabled);
             AppendChange(changes, "Deferred.EnableLightProbes", before.Deferred.EnableLightProbes, after.Deferred.EnableLightProbes);
 
@@ -1275,6 +1278,33 @@ namespace OloEngine
                 ImGui::SetTooltip("Each drawn strand's root is skinned from the bone palette by a compute pass.\n"
                                   "Untick to skin, pack and upload every root on the CPU each frame: the\n"
                                   "reference path, for an A/B. Needs GPU deformation.");
+            }
+
+            // Read by Scene per frame; nothing to apply (#1612).
+            {
+                int frames = static_cast<int>(settings.GroomLodCrossFadeFrames);
+                if (ImGui::SliderInt("Groom LOD cross-fade frames", &frames, 0, 60))
+                {
+                    settings.GroomLodCrossFadeFrames = static_cast<u32>(std::clamp(frames, 0, 60));
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("Frames a groom's strand/card hand-over is dithered across: both tiers are\n"
+                                      "drawn through complementary per-pixel masks while the incoming tier's\n"
+                                      "share ramps up, so the step is spread over the window and TAA blends it.\n"
+                                      "0 is a hard switch.");
+                }
+                int fades = static_cast<int>(settings.GroomLodMaxCrossFades);
+                if (ImGui::SliderInt("Groom cross-fades at once", &fades, 0, 64))
+                {
+                    settings.GroomLodMaxCrossFades = static_cast<u32>(std::clamp(fades, 0, 64));
+                }
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::SetTooltip("A fading coat draws both of its tiers, so this bounds what a transition\n"
+                                      "frame costs. A hand-over past the cap hard-switches, and the Groom LOD\n"
+                                      "panel says so by name.");
+                }
             }
 
             ImGui::Unindent();

@@ -61,6 +61,8 @@ namespace OloEngine::MCP::GroomBudgetStats
         u32 GroomsOnSelectedTier = 0;
         u32 GroomsFellBack = 0;
         u32 RepresentationChanges = 0;
+        u32 CrossFading = 0;       // #1612: coats drawing both sides of a hand-over
+        u32 CrossFadesRefused = 0; // #1612: hand-overs hard-switched for want of a slot
         u32 GroomsAtCompensationCap = 0;
         f32 MaxWidthCompensation = 1.0f;
         std::string DominantFallbackReason = "None";
@@ -172,6 +174,10 @@ namespace OloEngine::MCP::GroomBudgetStats
             // representation is changing almost every frame for almost every
             // coat, which the hold and the hysteresis exist to prevent.
             { "representationChanges", snapshot.RepresentationChanges },
+            // #1612: a fading coat draws both tiers through complementary
+            // masks; a refusal is a hand-over the cross-fade budget hard-switched.
+            { "crossFading", snapshot.CrossFading },
+            { "crossFadesRefused", snapshot.CrossFadesRefused },
             { "groomsAtCompensationCap", snapshot.GroomsAtCompensationCap },
             { "maxWidthCompensation", snapshot.MaxWidthCompensation },
             { "dominantFallbackReason", snapshot.DominantFallbackReason },

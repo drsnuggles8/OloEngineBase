@@ -42,6 +42,8 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <optional>
 #include <span>
 #include <vector>
@@ -406,6 +408,25 @@ namespace OloEngine
         /// per frame would be a megabyte of memcpy per groom.
         const GroomLodLevel* LodLevel = nullptr;
 
+        /// The dithered cross-fade mask (#1612). Role None on every request
+        /// but a fading coat's two: the PRIMARY (the tier the decision
+        /// selected, Incoming) and a SECONDARY copy carrying the tier it is
+        /// leaving (Outgoing). Every pass that rasterises a tier discards the
+        /// fragments its mask does not keep (oloGroomCrossFadeKeeps), so the
+        /// pair covers each pixel exactly once. The secondary is the same coat:
+        /// the pass and the shadow casters count it as cost, never as a second
+        /// groom, and the ray-traced proxy skips it.
+        GroomCrossFadeRole CrossFadeRole = GroomCrossFadeRole::None;
+        /// The incoming tier's share, t in (0, 1); 1 when not fading.
+        f32 CrossFadeThreshold = 1.0f;
+
+        /// True for the Outgoing copy of a fading coat: everything per GROOM
+        /// (counters, the proxy, the "another coat casts" bit) skips it.
+        [[nodiscard]] constexpr bool IsCrossFadeSecondary() const noexcept
+        {
+            return CrossFadeRole == GroomCrossFadeRole::Outgoing;
+        }
+
         // Residency changes the effective build before binding/simulation select
         // roots. Every consumer (beauty, shadow and RT) receives that same answer.
         u64 StreamingKey = 0;
@@ -510,6 +531,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::LodPolicy)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::Lod)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::LodLevel)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CrossFadeRole)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CrossFadeThreshold)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingKey)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingEntityKey)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingSurfaceVertices)> &&
@@ -523,6 +546,22 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingFloor)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingPending)>;
     };
+
+    /// The cross-fade lane every shader that rasterises a groom tier reads
+    /// (#1612): x = the incoming tier's share t, y = the role (0 none, 1
+    /// incoming keeps h < t, 2 outgoing keeps h >= t). (1, 0) draws every
+    /// fragment, which is every request that is not fading. A threshold that is
+    /// not a usable number draws the tier whole rather than dropping it.
+    [[nodiscard]] inline glm::vec4 MakeGroomCrossFadeLane(const GroomStrandRequest& request) noexcept
+    {
+        if (request.CrossFadeRole == GroomCrossFadeRole::None)
+        {
+            return { 1.0f, 0.0f, 0.0f, 0.0f };
+        }
+        const f32 t = std::isfinite(request.CrossFadeThreshold) ? std::clamp(request.CrossFadeThreshold, 0.0f, 1.0f)
+                                                                : 1.0f;
+        return { t, static_cast<f32>(request.CrossFadeRole), 0.0f, 0.0f };
+    }
 
     /// The drawn roots on the CPU (#1533 E1): the request's own transforms when
     /// the producer evaluated them, otherwise `curves` (BASE curve indices, or

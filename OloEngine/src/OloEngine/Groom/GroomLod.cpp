@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace OloEngine
 {
@@ -371,6 +372,84 @@ namespace OloEngine
         return decision;
     }
 
+    f32 GroomCrossFadeThreshold(u32 frame, u32 frames) noexcept
+    {
+        if (frames == 0u || frame == 0u || frame > frames)
+        {
+            return 1.0f;
+        }
+        // In f64 so a long window's last steps stay distinct.
+        return static_cast<f32>(static_cast<f64>(frame) / (static_cast<f64>(frames) + 1.0));
+    }
+
+    GroomCrossFadeDecision AdvanceGroomCrossFade(const GroomLodDecision& decision, u32 frames, bool slotAvailable,
+                                                 GroomCrossFadeState& state) noexcept
+    {
+        const GroomRepresentation applied = decision.Representation;
+        GroomCrossFadeDecision out;
+
+        // A groom with no LOD policy has no hand-over to fade, and turning the
+        // policy off is the A/B control for every LOD capture: it must be the
+        // same picture on the first frame as on the hundredth, so the window
+        // is dropped rather than played out toward the identity tier.
+        if (decision.Reason == GroomLodFallbackReason::NotRequested)
+        {
+            state = GroomCrossFadeState{};
+            state.From = applied;
+            state.To = applied;
+            return out;
+        }
+
+        const GroomRepresentation previous = state.To;
+        if (applied != previous)
+        {
+            if (state.IsActive() && applied == state.From)
+            {
+                // A REVERSAL. Last frame showed t of `To` and 1 - t of `From`;
+                // swapping the roles and mirroring the progress shows the same
+                // mix again, and the step below moves it on by one frame.
+                std::swap(state.From, state.To);
+                state.Frame = state.Frames + 1u - state.Frame;
+                ++state.Frame;
+            }
+            // A window already running holds its slot: a hand-over to a third
+            // tier mid-window restarts it without asking for another.
+            else if (frames > 0u && (slotAvailable || state.IsActive()))
+            {
+                state.From = previous;
+                state.To = applied;
+                state.Frames = frames;
+                state.Frame = 1u;
+            }
+            else
+            {
+                out.Refused = frames > 0u;
+                state.Frame = 0u;
+                state.Frames = 0u;
+                state.From = applied;
+                state.To = applied;
+            }
+        }
+        else if (state.IsActive())
+        {
+            ++state.Frame;
+        }
+
+        if (!state.IsActive())
+        {
+            // Over, or never started: the coat is its tier alone.
+            state.Frame = 0u;
+            state.Frames = 0u;
+            state.From = applied;
+            state.To = applied;
+            return out;
+        }
+
+        out.Active = true;
+        out.Outgoing = state.From;
+        out.Threshold = GroomCrossFadeThreshold(state.Frame, state.Frames);
+        return out;
+    }
     f32 GroomCardCoverageGrowthBlend(f32 pixelSize, f32 sourcePixelSize) noexcept
     {
         if (!(sourcePixelSize > 0.0f) || !(pixelSize > 0.0f) || !std::isfinite(sourcePixelSize) ||

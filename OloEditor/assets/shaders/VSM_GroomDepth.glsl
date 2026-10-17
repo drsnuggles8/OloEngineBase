@@ -58,12 +58,16 @@ layout(std140, binding = 7) uniform GroomShadowParams
 {
 	mat4 u_GroomShadowModel;
 	vec4 u_GroomShadowWidth;
-	ivec4 u_GroomShadowModes; // x = clip level
+	ivec4 u_GroomShadowModes; // x = clip level, y = frame index (#1612)
 	ivec4 u_GroomShadowDeformModes; // #1427: x = mode, y = simulated, z = roots, w = guide slots
 	ivec4 u_GroomShadowDeformBases; // x = root base, y = slot base, z = displacement base, w = displacements
+	vec4 u_GroomShadowCrossFade;    // #1612: the LOD cross-fade mask, x = t, y = role
 };
 
 layout(location = 0) flat out uint v_VSMClipLevel;
+// A fading coat's two tiers cast through the masks they are drawn with (#1612).
+layout(location = 1) flat out vec4 v_CrossFade;
+layout(location = 2) flat out uint v_CrossFadeFrame;
 
 void main()
 {
@@ -99,6 +103,8 @@ void main()
 	// behaviour in a raster that writes into a shared physical pool.
 	int clipLevel = clamp(u_GroomShadowModes.x, 0, VSM_CLIP_LEVELS - 1);
 	v_VSMClipLevel = uint(clipLevel);
+	v_CrossFade = u_GroomShadowCrossFade;
+	v_CrossFadeFrame = uint(u_GroomShadowModes.y);
 
 	// ViewProjectionRaster, not ViewProjection: the raster flavour carries the
 	// backend's clip-space convention, and the page resolve downstream assumes
@@ -114,4 +120,24 @@ void main()
 #type fragment
 #version 460 core
 
-#include "include/VirtualShadowRasterStage.glsl"
+// VirtualShadowRasterStage.glsl's fragment stage plus the LOD cross-fade mask
+// (#1612): the include's main() cannot discard, so its two includes are taken
+// directly and the write is made here, after the mask, per VIRTUAL texel --
+// the same texel both tiers rasterise into.
+#include "include/GroomStrandCommon.glsl"
+#include "include/VirtualShadowResources.glsl"
+#include "include/VirtualShadowRasterWrite.glsl"
+
+layout(location = 0) flat in uint v_VSMClipLevel;
+layout(location = 1) flat in vec4 v_CrossFade;
+layout(location = 2) flat in uint v_CrossFadeFrame;
+
+void main()
+{
+	if (!oloGroomCrossFadeKeeps(uint(floor(gl_FragCoord.x)), uint(floor(gl_FragCoord.y)), v_CrossFadeFrame,
+	                            v_CrossFade))
+	{
+		discard;
+	}
+	vsmWriteRasterDepth(v_VSMClipLevel);
+}

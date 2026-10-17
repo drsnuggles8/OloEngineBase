@@ -6970,6 +6970,8 @@ namespace OloEngine::MCP
             snapshot.GroomsOnSelectedTier = groom.Lod.GroomsOnSelectedTier;
             snapshot.GroomsFellBack = groom.Lod.GroomsFellBack;
             snapshot.RepresentationChanges = groom.Lod.RepresentationChanges;
+            snapshot.CrossFading = groom.Lod.CrossFading;
+            snapshot.CrossFadesRefused = groom.Lod.CrossFadesRefused;
             snapshot.GroomsAtCompensationCap = groom.Lod.GroomsAtCompensationCap;
             snapshot.MaxWidthCompensation = groom.Lod.MaxWidthCompensation;
             snapshot.DominantFallbackReason = std::string(ToString(groom.Lod.DominantFallbackReason()));

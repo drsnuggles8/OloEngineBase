@@ -33,6 +33,7 @@
 #include "OloEngine/Groom/GroomBuilder.h"
 #include "OloEngine/Groom/GroomCoat.h"
 #include "OloEngine/Groom/GroomCooker.h"
+#include "OloEngine/Groom/GroomCoverage.h"
 #include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Groom/GroomLodBuilder.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
@@ -670,6 +671,198 @@ TEST(GroomLodDetailBias, AnUnusableBiasIsTheNeutralOneAndARangeIsClamped)
     EXPECT_FLOAT_EQ(SanitizeGroomDetailBias(1.5f), 1.5f);
     EXPECT_EQ(ApplyGroomDetailBias(EnabledPolicy(), std::numeric_limits<f32>::quiet_NaN()),
               SanitizeGroomLodPolicy(EnabledPolicy()));
+}
+
+// =============================================================================
+// The dithered cross-fade across a hand-over (#1612)
+// =============================================================================
+
+namespace
+{
+    // A LOD decision as the producer hands it over: on `tier`, with or without
+    // a policy.
+    [[nodiscard]] GroomLodDecision DecisionOn(GroomRepresentation tier, bool enabled = true)
+    {
+        GroomLodDecision decision = enabled ? GroomLodDecision{} : IdentityGroomLodDecision();
+        decision.Reason = enabled ? GroomLodFallbackReason::None : GroomLodFallbackReason::NotRequested;
+        decision.Representation = enabled ? tier : GroomRepresentation::Strand;
+        return decision;
+    }
+} // namespace
+
+TEST(GroomLodCrossFade, TheTwoMasksCoverEveryPixelExactlyOnceAtEveryThreshold)
+{
+    // THE CONTRACT THE WHOLE FEATURE RESTS ON. The two tiers of a fading coat
+    // are two draws; if a pixel could survive in both, the coat would be drawn
+    // twice there, and if in neither, a hole. Swept over every threshold a
+    // window can produce (and the ends), over the hash the shader computes.
+    std::vector<f32> thresholds{ 0.0f, 1.0f, 0.5f, std::nextafter(0.0f, 1.0f), std::nextafter(1.0f, 0.0f) };
+    for (u32 frames = 1; frames <= 32; ++frames)
+    {
+        for (u32 frame = 1; frame <= frames; ++frame)
+        {
+            thresholds.push_back(GroomCrossFadeThreshold(frame, frames));
+        }
+    }
+    for (const f32 t : thresholds)
+    {
+        u32 incoming = 0;
+        u32 samples = 0;
+        for (u32 y = 0; y < 64; ++y)
+        {
+            for (u32 x = 0; x < 64; ++x)
+            {
+                const f32 h = GroomCoverage::StochasticHash(x, y, 7u, 0u, kGroomCrossFadeSeed);
+                const bool in = GroomCrossFadeKeeps(GroomCrossFadeRole::Incoming, h, t);
+                const bool out = GroomCrossFadeKeeps(GroomCrossFadeRole::Outgoing, h, t);
+                ASSERT_NE(in, out) << "pixel (" << x << ", " << y << ") at t " << t << " drawn by "
+                                   << (in ? "both tiers" : "neither tier");
+                incoming += in ? 1u : 0u;
+                ++samples;
+            }
+        }
+        // And the expectation is the ramp: the incoming tier's share of the
+        // pixels IS t, which is what makes the expected coverage t C_in +
+        // (1 - t) C_out. 4096 samples: a 3-sigma band of 0.024.
+        EXPECT_NEAR(static_cast<f64>(incoming) / samples, static_cast<f64>(t), 0.025) << "t " << t;
+    }
+    // None draws everything, whatever the hash.
+    EXPECT_TRUE(GroomCrossFadeKeeps(GroomCrossFadeRole::None, 0.99f, 0.0f));
+}
+
+TEST(GroomLodCrossFade, TheRampRisesStrictlyInsideTheWindowAndIsWholeAfterIt)
+{
+    for (u32 frames = 1; frames <= 64; ++frames)
+    {
+        f32 previous = 0.0f;
+        for (u32 frame = 1; frame <= frames; ++frame)
+        {
+            const f32 t = GroomCrossFadeThreshold(frame, frames);
+            EXPECT_GT(t, previous) << "frame " << frame << " of " << frames << " did not move the ramp on";
+            EXPECT_GT(t, 0.0f);
+            EXPECT_LT(t, 1.0f) << "the last frame of the window must still show some of the outgoing tier";
+            previous = t;
+        }
+        EXPECT_FLOAT_EQ(GroomCrossFadeThreshold(frames + 1u, frames), 1.0f);
+    }
+    EXPECT_FLOAT_EQ(GroomCrossFadeThreshold(0u, 12u), 1.0f);
+    EXPECT_FLOAT_EQ(GroomCrossFadeThreshold(3u, 0u), 1.0f);
+}
+
+TEST(GroomLodCrossFade, AHandOverOpensAWindowThatRampsAndClosesOnTime)
+{
+    // Driven by the REAL ladder through a dolly out, so the window is opened by
+    // the frame the decision says the representation changed and nowhere else.
+    constexpr u32 kFrames = 12;
+    const GroomLodPolicy policy = EnabledPolicy();
+    GroomLodState lod;
+    GroomCrossFadeState fade;
+    u32 opened = 0;
+    u32 activeFrames = 0;
+    f32 previousT = 0.0f;
+    for (u32 frame = 0; frame < 200; ++frame)
+    {
+        const f32 pixelSize = 400.0f - static_cast<f32>(frame) * 1.5f;
+        const GroomLodDecision decision = AdvanceGroomLod(policy, InputsAt(pixelSize), lod);
+        const GroomCrossFadeDecision crossFade = AdvanceGroomCrossFade(decision, kFrames, true, fade);
+        EXPECT_FALSE(crossFade.Refused);
+        if (decision.RepresentationChanged)
+        {
+            ++opened;
+            EXPECT_TRUE(crossFade.Active) << "the hand-over frame did not open a window";
+            EXPECT_EQ(crossFade.Outgoing, GroomRepresentation::Strand);
+            previousT = 0.0f;
+        }
+        if (crossFade.Active)
+        {
+            ++activeFrames;
+            EXPECT_GT(crossFade.Threshold, previousT) << "the ramp went backwards at frame " << frame;
+            previousT = crossFade.Threshold;
+            EXPECT_EQ(decision.Representation, GroomRepresentation::Card) << "the primary is the INCOMING tier";
+        }
+        else
+        {
+            EXPECT_FLOAT_EQ(crossFade.Threshold, 1.0f);
+        }
+    }
+    EXPECT_EQ(opened, 1u);
+    EXPECT_EQ(activeFrames, kFrames) << "the window is exactly its length";
+    EXPECT_FALSE(fade.IsActive());
+}
+
+TEST(GroomLodCrossFade, ASwitchBackMidWindowReversesTheMixInsteadOfSnapping)
+{
+    constexpr u32 kFrames = 10;
+    GroomCrossFadeState fade;
+    (void)AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand), kFrames, true, fade);
+    // Three frames into strands -> cards: cards hold 3/11 of the pixels.
+    GroomCrossFadeDecision d{};
+    for (u32 i = 0; i < 3; ++i)
+    {
+        d = AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card), kFrames, true, fade);
+    }
+    ASSERT_TRUE(d.Active);
+    const f32 cardsShare = d.Threshold;
+    EXPECT_NEAR(cardsShare, 3.0f / 11.0f, 1e-6f);
+
+    // The coat refines back (refinement is immediate). The strands are the
+    // incoming tier now, and they must start from the share they HAD, 8/11, and
+    // move on by one step -- not from zero, which would snap most of the coat
+    // back to cards for a frame, and not from one, which is the old pop.
+    const GroomCrossFadeDecision back = AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand), kFrames, false, fade);
+    ASSERT_TRUE(back.Active) << "a reversal needs no new slot";
+    EXPECT_EQ(back.Outgoing, GroomRepresentation::Card);
+    EXPECT_NEAR(back.Threshold, 1.0f - cardsShare + 1.0f / 11.0f, 1e-6f);
+    // ...and closes when the strands reach the whole coat.
+    u32 remaining = 0;
+    while (AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand), kFrames, false, fade).Active)
+    {
+        ++remaining;
+        ASSERT_LT(remaining, kFrames) << "the reversed window never closed";
+    }
+    EXPECT_EQ(remaining, 1u) << "9/11 on the reversal frame, then 10/11, then the strands alone";
+}
+
+TEST(GroomLodCrossFade, WithoutASlotTheHandOverHardSwitchesAndSaysSo)
+{
+    GroomCrossFadeState fade;
+    (void)AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand), 12u, false, fade);
+    const GroomCrossFadeDecision d = AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card), 12u, false, fade);
+    EXPECT_FALSE(d.Active);
+    EXPECT_TRUE(d.Refused) << "a hand-over that wanted a window and got none must be reported, not swallowed";
+    EXPECT_FALSE(AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card), 12u, true, fade).Active)
+        << "a slot freed later does not replay a hand-over that already happened";
+
+    // The reason row exists, is ordered last, and is counted.
+    GroomLodDecision refused = DecisionOn(GroomRepresentation::Card);
+    refused.Reason = GroomLodFallbackReason::CrossFadeBudgetSpent;
+    EXPECT_TRUE(refused.IsFallback());
+    GroomLodStats stats;
+    stats.Record(refused);
+    EXPECT_EQ(stats.CrossFadesRefused, 1u);
+    EXPECT_EQ(stats.DominantFallbackReason(), GroomLodFallbackReason::CrossFadeBudgetSpent);
+    EXPECT_FALSE(ToString(GroomLodFallbackReason::CrossFadeBudgetSpent).empty());
+}
+
+TEST(GroomLodCrossFade, ZeroFramesIsTheHardSwitchAndAnUnfadedCoatDrawsWhole)
+{
+    GroomCrossFadeState fade;
+    (void)AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand), 0u, true, fade);
+    const GroomCrossFadeDecision d = AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card), 0u, true, fade);
+    EXPECT_FALSE(d.Active);
+    EXPECT_FALSE(d.Refused) << "a zero-length window is the setting, not a refusal";
+    EXPECT_FLOAT_EQ(d.Threshold, 1.0f);
+}
+
+TEST(GroomLodCrossFade, ADisabledPolicyDropsTheWindowSoTheControlIsAlwaysTheSamePicture)
+{
+    GroomCrossFadeState fade;
+    (void)AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand), 12u, true, fade);
+    ASSERT_TRUE(AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card), 12u, true, fade).Active);
+    const GroomCrossFadeDecision off =
+        AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card, false), 12u, true, fade);
+    EXPECT_FALSE(off.Active) << "turning LOD off mid-window played the window out";
+    EXPECT_FALSE(fade.IsActive());
 }
 
 // =============================================================================

@@ -760,7 +760,12 @@ namespace OloEngine::RayTracing
         order.reserve(requests.size());
         for (u32 index = 0; index < static_cast<u32>(requests.size()); ++index)
         {
-            if (requests[index].Groom)
+            // A fading coat's outgoing copy (#1612) is not another coat: the
+            // ray-traced scene holds ONE proxy per entity, on the tier its
+            // apparent size selects, and its keys and hysteresis are per entity.
+            // The proxy is therefore not dithered; it hands over on its own
+            // hysteresis, unaffected by the raster cross-fade.
+            if (requests[index].Groom && !requests[index].IsCrossFadeSecondary())
             {
                 order.push_back(index);
             }

@@ -170,6 +170,12 @@ namespace OloEngine
         // invalidation (SubmitGroomDynamicInvalidations).
         u64 key = 0;
         bool deforming = false;
+        // The LOD cross-fade mask (#1612, MakeGroomCrossFadeLane): a fading
+        // coat's two tiers cast through the masks they are drawn with. A fading
+        // caster changes every frame (the threshold and the hash both move), so
+        // its cached VSM pages are invalidated every frame of the window.
+        glm::vec4 crossFade{ 1.0f, 0.0f, 0.0f, 0.0f };
+        bool crossFading = false;
     };
 
     struct ShadowFoliageCaster
