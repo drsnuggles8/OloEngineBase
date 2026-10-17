@@ -409,14 +409,43 @@ def pass_key(entry: dict) -> str:
     return name
 
 
+def merge_repeated_sub_passes(entries: list) -> list:
+    """One row's entries with every repeated sub-pass folded into its first
+    occurrence: gpuMs summed while every part is `valid` and finite, else the
+    first offending part's status/value kept so the caller excludes it."""
+    merged, index = [], {}
+    for entry in entries:
+        if not entry.get('isSubPass'):
+            merged.append(entry)
+            continue
+        key = pass_key(entry)
+        if key not in index:
+            index[key] = len(merged)
+            merged.append(dict(entry))
+            continue
+        total = merged[index[key]]
+        value = entry.get('gpuMs')
+        if total.get('status') != 'valid':
+            continue
+        if entry.get('status') != 'valid' or isinstance(value, bool) or not isinstance(value, (int, float)):
+            total['status'], total['gpuMs'] = entry.get('status'), value
+            continue
+        if isinstance(total.get('gpuMs'), (int, float)) and not isinstance(total.get('gpuMs'), bool):
+            total['gpuMs'] = total['gpuMs'] + value
+    return merged
+
+
 def aggregate_passes(records, frame_counts: dict) -> tuple:
     """Valid per-pass GPU samples per camera.
 
     An entry counts once per distinct (gpuFrameId, pass) and only with status
     `valid` and a finite non-negative value; everything else is counted under
     its reason. Sub-passes go to `subPasses` with their parent and are never
-    added to the parent's samples. Returns (per camera, excluded by reason,
-    excluded by pass and reason, rows read)."""
+    added to the parent's samples. A sub-pass named more than once in ONE
+    row is several disjoint intervals of that frame (ShadowPass brackets each
+    clip level's foliage, #1590), so its entries are summed into one sample
+    first; any one of them invalid excludes the sum under that reason. Returns
+    (per camera, excluded by reason, excluded by pass and reason, rows read)."""
     out = {camera: {'passes': {}, 'subPasses': {}, 'parents': {}} for camera in frame_counts}
     excluded = {}
     by_pass = {}
@@ -429,7 +458,7 @@ def aggregate_passes(records, frame_counts: dict) -> tuple:
             raise ValueError(f'unexpected or duplicate per-pass row {camera!r}/{index!r}')
         seen_rows.add((camera, index))
         frame = record.get('gpuFrameId')
-        for entry in record.get('passes') or []:
+        for entry in merge_repeated_sub_passes(record.get('passes') or []):
             key = pass_key(entry)
             sub = bool(entry.get('isSubPass'))
             value = entry.get('gpuMs')

@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Shadow/VirtualShadowMap.h"
 #include "OloEngine/Renderer/Shadow/ShadowInvalidationQueue.h"
+#include "OloEngine/Renderer/Shadow/ShadowPassBrackets.h"
 
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -25,6 +26,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <optional>
 
 namespace OloEngine
 {
@@ -1649,6 +1651,7 @@ namespace OloEngine
         // ---- The cull ---------------------------------------------------------
         if (!m_CullInput.IsEmpty() && m_CullShader)
         {
+            const ShadowBrackets::Scope bracket(ShadowBrackets::kVsmCull);
             VSM::PassUBO pass{};
             pass.Params.x = static_cast<u32>(m_CullInput.Num());
             m_PassUBO->SetData(&pass, VSM::PassUBO::GetSize());
@@ -1698,9 +1701,18 @@ namespace OloEngine
         RenderCommand::FrontCull();
 
         u32 drawnBatches = 0;
+        // The sixteen clip levels' casters (#1590): the mesh classes here, and
+        // the external route's classes (virtual geometry, grooms, terrain,
+        // foliage) nested in the same region bracket.
+        std::optional<ShadowBrackets::Scope> sunBracket;
+        sunBracket.emplace(ShadowBrackets::kVsmSun);
         if (meshCastersFit)
         {
-            drawnBatches += RenderBatches(false);
+            {
+                const ShadowBrackets::Scope bracket(ShadowBrackets::kMeshCasters, !m_Batches.IsEmpty());
+                drawnBatches += RenderBatches(false);
+            }
+            const ShadowBrackets::Scope bracket(ShadowBrackets::kSkinnedCasters, !skinnedCasters.empty());
             drawnBatches += RenderSkinnedCasters(skinnedCasters, renderOrigin, skinnedBase, uploadBones);
         }
 
@@ -1717,15 +1729,21 @@ namespace OloEngine
         // must run while the viewport still is the clip levels'.
         if (renderExternalCasters)
             drawnBatches += renderExternalCasters();
+        sunBracket.reset();
 
         // ---- Local-light raster (issue #703) ---------------------------------
         //
         // A second pass over the same casters into the same pool, at the LOCAL
         // virtual resolution. It cannot share the directional draws: a different
         // projection source, a different viewport and a per-instance mip scale.
+        std::optional<ShadowBrackets::Scope> localBracket;
+        if (localFits || (localActive && renderExternalLocalCasters))
+            localBracket.emplace(ShadowBrackets::kVsmLocal);
         if (localFits)
         {
             RenderCommand::SetViewport(0, 0, VSM::kLocalVirtualResolution, VSM::kLocalVirtualResolution);
+            // Static and skinned together: one indirect pass schedules both.
+            const ShadowBrackets::Scope bracket(ShadowBrackets::kMeshCasters);
             drawnBatches += RenderLocalCasters(skinnedCasters, renderOrigin, m_LocalInstanceBase, uploadBones);
         }
         if (localActive && renderExternalLocalCasters)
@@ -1733,6 +1751,7 @@ namespace OloEngine
             RenderCommand::SetViewport(0, 0, VSM::kLocalVirtualResolution, VSM::kLocalVirtualResolution);
             drawnBatches += renderExternalLocalCasters();
         }
+        localBracket.reset();
 
         // Restore. The physical pool is read by the lit pass as a texture, so the
         // image writes above must be visible to a texture fetch, not just to

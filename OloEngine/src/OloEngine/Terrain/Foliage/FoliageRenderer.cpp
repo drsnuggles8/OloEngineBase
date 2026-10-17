@@ -3922,6 +3922,7 @@ namespace OloEngine
 
         if (shadowViewIndex >= FoliageGPUCuller::kMaxShadowViews)
         {
+            ++m_ShadowViewsPastCullSlots;
             // Bounded and named, not silent. The view still renders -- it just
             // draws every generated instance, which is what the pass did before
             // this feature existed.

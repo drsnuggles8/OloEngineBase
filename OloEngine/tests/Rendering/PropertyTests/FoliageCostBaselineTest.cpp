@@ -819,13 +819,25 @@ namespace OloEngine::Tests
             bool Vsm;
             std::vector<std::string> Brackets;
         };
+        // The shadow brackets sit in their view family's region (#1590):
+        // ShadowPass/Csm/... under cascades, ShadowPass/VsmSun/... under the
+        // virtual shadow map, whose page management has a bracket of its own.
+        const std::vector<std::string> csm{ "ShadowPass/Csm", "ShadowPass/Csm/FoliageCull", "ShadowPass/Csm/FoliageCasters",
+                                            "ShadowPass/Csm/TerrainCasters" };
+        const std::vector<std::string> vsm{ "ShadowPass/VsmPages", "ShadowPass/VsmSun", "ShadowPass/VsmSun/FoliageCull",
+                                            "ShadowPass/VsmSun/FoliageCasters", "ShadowPass/VsmSun/TerrainCasters" };
+        const auto with = [](std::vector<std::string> shadow, std::initializer_list<const char*> more)
+        {
+            shadow.insert(shadow.end(), more.begin(), more.end());
+            return shadow;
+        };
         const std::vector<Expectation> cells{
-            { RenderingPath::Forward, false, { "FoliageCull", "ShadowPass/FoliageCull", "ShadowPass/FoliageCasters", "FoliagePass" } },
-            { RenderingPath::ForwardPlus, false, { "FoliageCull", "ShadowPass/FoliageCull", "ShadowPass/FoliageCasters", "FoliagePass" } },
+            { RenderingPath::Forward, false, with(csm, { "FoliageCull", "FoliagePass" }) },
+            { RenderingPath::ForwardPlus, false, with(csm, { "FoliageCull", "FoliagePass" }) },
             // Deferred draws foliage into the G-Buffer inside ScenePass; its
             // share there is measured by difference (the NoFoliage arm).
-            { RenderingPath::Deferred, false, { "FoliageCull", "ShadowPass/FoliageCull", "ShadowPass/FoliageCasters", "ScenePass" } },
-            { RenderingPath::Deferred, true, { "FoliageCull", "ShadowPass/FoliageCull", "ShadowPass/FoliageCasters" } },
+            { RenderingPath::Deferred, false, with(csm, { "FoliageCull", "ScenePass" }) },
+            { RenderingPath::Deferred, true, with(vsm, { "FoliageCull" }) },
         };
         for (const auto& cell : cells)
         {
@@ -840,7 +852,8 @@ namespace OloEngine::Tests
             for (const auto& bracket : cell.Brackets)
                 EXPECT_TRUE(frame.contains(bracket) && std::isfinite(frame.at(bracket)))
                     << "no valid '" << bracket << "' bracket";
-            const auto culls = window.LastFrameBracketCounts.find("ShadowPass/FoliageCull");
+            const auto culls = window.LastFrameBracketCounts.find(cell.Vsm ? "ShadowPass/VsmSun/FoliageCull"
+                                                                           : "ShadowPass/Csm/FoliageCull");
             const u32 shadowCulls = culls == window.LastFrameBracketCounts.end() ? 0u : culls->second;
             std::printf("[foliage-cost] %s %s: %u shadow-view cull bracket(s), %zu bracket names\n", PathName(cell.Path),
                         cell.Vsm ? "VSM" : "CSM", shadowCulls, frame.size());

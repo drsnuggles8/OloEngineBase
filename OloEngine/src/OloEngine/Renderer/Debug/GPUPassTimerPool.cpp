@@ -54,7 +54,7 @@ namespace OloEngine
         m_FrameCounter = 0;
         m_Active = false;
         m_PassOpen = false;
-        m_SubPassOpen = false;
+        m_SubPassDepth = 0;
         m_LastFrameSample = GpuTimingSample::Absent(GpuTimingStatus::Pending);
         m_LastResolvedFrame = 0;
         m_DroppedSlots = 0;
@@ -94,7 +94,7 @@ namespace OloEngine
         m_Initialized = false;
         m_Active = false;
         m_PassOpen = false;
-        m_SubPassOpen = false;
+        m_SubPassDepth = 0;
 
         OLO_CORE_INFO("GPUPassTimerPool: Shutdown");
     }
@@ -154,7 +154,7 @@ namespace OloEngine
         StampQuery(slot, 0);
         m_Active = true;
         m_PassOpen = false;
-        m_SubPassOpen = false;
+        m_SubPassDepth = 0;
     }
 
     void GPUPassTimerPool::EndFrame()
@@ -167,7 +167,6 @@ namespace OloEngine
         // marked pending — a pair with one endpoint now resolves to NotStamped
         // rather than to a garbage duration, but closing the bracket is still
         // the honest thing to do because the work really did end here.
-        EndSubPass();
         EndPass();
 
         FrameSlot& slot = m_Slots[m_WriteSlot];
@@ -207,7 +206,8 @@ namespace OloEngine
             return;
 
         // A sub-pass left open must not outlive its parent bracket.
-        EndSubPass();
+        while (m_SubPassDepth > 0)
+            EndSubPass();
 
         FrameSlot& slot = m_Slots[m_WriteSlot];
         StampQuery(slot, 3 + (2 * m_CurrentPassIndex));
@@ -216,32 +216,39 @@ namespace OloEngine
 
     void GPUPassTimerPool::BeginSubPass(const std::string& name)
     {
-        if (!m_Active || !m_PassOpen || m_SubPassOpen)
+        if (!m_Active || !m_PassOpen)
             return;
 
         FrameSlot& slot = m_Slots[m_WriteSlot];
-        if (slot.PassCount >= m_MaxPasses)
+        const u32 level = m_SubPassDepth++;
+        u32 enclosing = m_CurrentPassIndex;
+        if (level > 0)
+            enclosing = level <= kMaxSubPassDepth ? m_SubPassStack[level - 1] : kNoBracket;
+        if (level >= kMaxSubPassDepth || enclosing == kNoBracket || slot.PassCount >= m_MaxPasses)
         {
+            // The work runs; it gets no bracket, and says so in the count.
             ++slot.UntimedPasses;
+            if (level < kMaxSubPassDepth)
+                m_SubPassStack[level] = kNoBracket;
             return;
         }
 
-        m_CurrentSubPassIndex = slot.PassCount++;
-        slot.PassNames[m_CurrentSubPassIndex] = slot.PassNames[m_CurrentPassIndex] + "/" + FString(name);
-        slot.PassIsSubPass[m_CurrentSubPassIndex] = 1u;
-        slot.PassParentNames[m_CurrentSubPassIndex] = slot.PassNames[m_CurrentPassIndex];
-        StampQuery(slot, 2 + (2 * m_CurrentSubPassIndex));
-        m_SubPassOpen = true;
+        const u32 index = slot.PassCount++;
+        m_SubPassStack[level] = index;
+        slot.PassNames[index] = slot.PassNames[enclosing] + "/" + FString(name);
+        slot.PassIsSubPass[index] = 1u;
+        slot.PassParentNames[index] = slot.PassNames[m_CurrentPassIndex];
+        StampQuery(slot, 2 + (2 * index));
     }
 
     void GPUPassTimerPool::EndSubPass()
     {
-        if (!m_Active || !m_SubPassOpen)
+        if (!m_Active || m_SubPassDepth == 0)
             return;
 
-        FrameSlot& slot = m_Slots[m_WriteSlot];
-        StampQuery(slot, 3 + (2 * m_CurrentSubPassIndex));
-        m_SubPassOpen = false;
+        const u32 level = --m_SubPassDepth;
+        if (level < kMaxSubPassDepth && m_SubPassStack[level] != kNoBracket)
+            StampQuery(m_Slots[m_WriteSlot], 3 + (2 * m_SubPassStack[level]));
     }
 
     GpuTimingSample GPUPassTimerPool::ResolvePair(const FrameSlot& slot, u32 beginIndex, u32 endIndex) const

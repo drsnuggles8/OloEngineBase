@@ -149,6 +149,12 @@ class Editor:
                         if sub.get('gpuMs') is not None:
                             name = entry['pass'] + '/' + sub.get('name', sub.get('pass', '?'))
                             passes[name] = passes.get(name, 0.0) + sub['gpuMs']
+                # Every view family's bracket of a class, summed (#1590:
+                # ShadowPass/Csm/FoliageCull, ShadowPass/VsmSun/FoliageCull, ...).
+                for cls in SHADOW_CLASSES:
+                    parts = [v for n, v in passes.items() if n.startswith('ShadowPass/') and n.endswith('/' + cls)]
+                    if parts:
+                        passes['ShadowPass/*/' + cls] = sum(parts)
                 seen[key] = {'frameTimeMs': frame.get('frameTimeMs'), 'gpuMs': frame.get('gpuMs'),
                              'gpuStatus': frame.get('gpuStatus'), 'passes': passes, 'nullPasses': nulls}
             time.sleep(spacing)
@@ -175,6 +181,9 @@ def summarise_arm(samples: list[dict]) -> dict:
             'nullPassEntries': sum(s['nullPasses'] for s in samples),
             'passMedianMs': {n: median([s['passes'].get(n) for s in samples]) for n in names},
             'raw': samples}
+
+
+SHADOW_CLASSES = ('FoliageCull', 'FoliageCasters')
 
 
 def pass_ms(arm: dict, name: str):
@@ -208,7 +217,7 @@ def render_summary(result: dict) -> str:
         shipped, none = arms['Shipped'], arms['NoFoliage']
         nulls = sum(a['gpuNullSamples'] + a['nullPassEntries'] for a in arms.values())
         values = [shipped['gpuMsMedian'], difference(shipped['gpuMsMedian'], none['gpuMsMedian']),
-                  pass_ms(shipped, 'FoliageCull'), pass_ms(shipped, 'ShadowPass/FoliageCull'),
+                  pass_ms(shipped, 'FoliageCull'), pass_ms(shipped, 'ShadowPass/*/FoliageCull'),
                   difference(pass_ms(shipped, 'ShadowPass'), pass_ms(none, 'ShadowPass')),
                   plus(pass_ms(shipped, 'FoliagePass'), pass_ms(shipped, 'FoliagePrepassPass')),
                   difference(pass_ms(shipped, 'ScenePass'), pass_ms(none, 'ScenePass')),

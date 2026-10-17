@@ -158,6 +158,11 @@ OLO_LEVER_EXACT(FaultVulkanStagingReuse, "OLO_FAULT_VULKAN_STAGING_REUSE",
                 "and fluid body proxies into ONE persistent buffer each, rewritten in place, instead of a frame-arena "
                 "range per batch -- so a dispatch still queued from an earlier frame reads the next batch. The "
                 "VulkanPassSuite delayed-read tests prove they see it.")
+OLO_LEVER_EXACT(FaultShadowFoliageCullCap, "OLO_FAULT_SHADOW_FOLIAGE_CULL_CAP",
+                "FAULT (#1590 negative control): record a cascade or atlas region in one batch however many views it "
+                "has, so every view past the foliage cull's shadow slots (FoliageGPUCuller::kMaxShadowViews) draws "
+                "the whole island's foliage uncompacted -- the cost a point light's last cube faces paid before "
+                "#1590. ShadowAtlasFoliageCullEvidenceTest proves its cull-coverage check sees it.")
 OLO_LEVER_EXACT(FaultCountAliasAsBacking, "OLO_FAULT_COUNT_ALIAS_AS_BACKING",
                 "FAULT (#1342 negative control): book every view/alias RendererMemoryTracker::TrackAlias receives "
                 "as its own BACKING allocation, so a view onto an existing image is counted twice in the physical "

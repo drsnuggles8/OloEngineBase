@@ -658,6 +658,7 @@ Code that exists, is tested, and has no production caller, or has more callers t
 | [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) §7 | The game scene never set `TessellationEnabled`, and no shipped scene ever set `UseImpostor`. A flag that appears only in its own test has no product coverage. |
 | [render-pass-published-state.md](render-pass-published-state.md) | `MeshComponent { Primitive: 0 }` is `None`: an entity that never renders. |
 | [foliage-vsm-page-caching.md](foliage-vsm-page-caching.md) | Foliage submitted to the VSM as deforming every frame redrew every layer into all sixteen clip levels (19-103 ms at 1080p), and the page cache never applied to it. |
+| [shadow-pass-attribution-and-cull-slots.md](shadow-pass-attribution-and-cull-slots.md) | The lamps' shadow atlas cost 0.1-0.9 s with no bracket naming it: every atlas view past the foliage cull's fourth slot drew every plant on the island, and the scripts counted one of sixteen per-level culls. |
 | [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) §5 | A `Setup()` that early-returns while a feature is off freezes that decision into the frame-graph fingerprint. |
 | [render-graph-setup-declaration-gates.md](render-graph-setup-declaration-gates.md) | Five passes declare nothing when they have no work; one frame rendered with the bucket empty culled the pass, and 1310 generated, culled and submitted plant instances were never drawn. |
 

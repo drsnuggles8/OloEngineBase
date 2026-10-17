@@ -131,6 +131,26 @@ class PassAggregationTest(TempCase):
         self.assertEqual(out['c']['subPasses'], {'Shadow/Cascade0': [1.0]})
         self.assertEqual((excluded, rows), ({}, 1))
 
+    def test_repeated_subpass_in_one_frame_is_summed(self):
+        # One frame brackets each VSM clip level's foliage separately (#1590):
+        # those intervals are disjoint, so the frame's sample is their sum.
+        sub = {'status': 'valid', 'isSubPass': True, 'parent': 'ShadowPass'}
+        records = [{'camera': 'c', 'index': 0, 'gpuFrameId': 5, 'passes': [
+            {'pass': 'ShadowPass', 'status': 'valid', 'gpuMs': 9.0},
+            dict(sub, **{'pass': 'VsmSun/FoliageCull', 'gpuMs': 1.0}),
+            dict(sub, **{'pass': 'VsmSun/FoliageCull', 'gpuMs': 2.5}),
+            dict(sub, **{'pass': 'Atlas/Terrain', 'gpuMs': 1.0}),
+            dict(sub, **{'pass': 'Atlas/Terrain', 'status': 'pending', 'gpuMs': None})]},
+            {'camera': 'c', 'index': 1, 'gpuFrameId': 5, 'passes': [
+                dict(sub, **{'pass': 'VsmSun/FoliageCull', 'gpuMs': 7.0})]}]
+        out, excluded, _, rows = acceptance.aggregate_passes(records, {'c': 2})
+        self.assertEqual(out['c']['passes'], {'ShadowPass': [9.0]})
+        self.assertEqual(out['c']['subPasses'], {'ShadowPass/VsmSun/FoliageCull': [3.5]})
+        # One part pending excludes the frame's whole sum; a second row that
+        # resolved the same frame is still a duplicate.
+        self.assertEqual(excluded, {'status:pending': 1, 'duplicate-frame-pass': 1})
+        self.assertEqual(rows, 2)
+
     def test_unexpected_pass_row_is_refused(self):
         records = [{'camera': 'elsewhere', 'index': 0, 'gpuFrameId': 1, 'passes': []}]
         with self.assertRaisesRegex(ValueError, 'unexpected or duplicate'):
