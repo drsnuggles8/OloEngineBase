@@ -240,11 +240,18 @@ namespace OloEngine::MCP::PassTimings
                     Json& parent = passes[*parentIdx];
                     if (!parent.contains("subPasses"))
                         parent["subPasses"] = Json::array();
-                    // The leaf name: the producer publishes "<Parent>/<leaf>",
-                    // and the parent is already named by the entry this hangs
-                    // off, so repeating it here would be noise.
+                    // The name below the parent: the producer publishes
+                    // "<Parent>/<sub>", and the parent is already named by the
+                    // entry this hangs off, so repeating it would be noise. Only
+                    // the parent's prefix comes off: a nested sub-pass keeps its
+                    // enclosing one ("Atlas/MeshCasters" under ShadowPass, #1590),
+                    // or it could not be told from the same class in another family.
+                    const std::string prefix = gpuPass.ParentName + "/";
+                    const bool underParent = gpuPass.Name.size() > prefix.size() && gpuPass.Name.starts_with(prefix);
                     const auto slash = gpuPass.Name.rfind('/');
-                    Json sub{ { "name", slash == std::string::npos ? gpuPass.Name : gpuPass.Name.substr(slash + 1) } };
+                    Json sub{ { "name", underParent                  ? gpuPass.Name.substr(prefix.size())
+                                        : slash == std::string::npos ? gpuPass.Name
+                                                                     : gpuPass.Name.substr(slash + 1) } };
                     EmitSample(sub, "gpuMs", "gpuStatus", gpuPass.Sample);
                     parent["subPasses"].push_back(std::move(sub));
                     continue;

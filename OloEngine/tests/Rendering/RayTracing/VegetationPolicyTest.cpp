@@ -640,6 +640,8 @@ namespace OloEngine::Tests
             << "capped";
         EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(1.0e6f, 0.0f), 1.0f) << "no reference: the bound never grows";
         EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(std::numeric_limits<f32>::infinity(), reference), 1.0f);
+        EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(100.0f, 1.0e-39f), static_cast<f32>(VegetationPolicy::MaximumFarErrorScale))
+            << "a reference so small the ratio overflows is the cap, not an undefined cast";
         // Banded, so a camera step inside a band leaves the deadline -- and so
         // the cache's refresh bucket -- where it was.
         EXPECT_FLOAT_EQ(VegetationPolicy::ProxyAgeLimit(5.0f, VegetationPolicy::FarErrorScale(120.0f, reference)),
@@ -677,5 +679,13 @@ namespace OloEngine::Tests
         const VegetationPolicy::PlanRoom room = VegetationPolicy::PlanRoom::Scaled(1u, 2u);
         EXPECT_DOUBLE_EQ(room.Builds, 2.0 * VegetationPolicy::UpdatesPerFrame);
         EXPECT_EQ(room.Geometry, VegetationPolicy::GeometryBytes) << "memory is not frame work and keeps its size";
+        // The upgrade margin is a fraction of the SCALED limit: a charge that
+        // leaves a sixteenth of the doubled build budget free fits with margin,
+        // one that leaves less does not.
+        VegetationPolicy::PlanCharge charge;
+        charge.Builds = 2.0 * VegetationPolicy::UpdatesPerFrame * (1.0 - 1.0 / VegetationPolicy::UpgradeMarginDivisor) - 1.0;
+        EXPECT_EQ(room.Misfit(charge, VegetationPolicy::UpgradeMarginDivisor), RayTracing::VegetationPressure::None);
+        charge.Builds += 2.0;
+        EXPECT_EQ(room.Misfit(charge, VegetationPolicy::UpgradeMarginDivisor), RayTracing::VegetationPressure::FrameWork);
     }
 } // namespace OloEngine::Tests

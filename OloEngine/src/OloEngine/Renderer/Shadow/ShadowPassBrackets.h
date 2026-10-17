@@ -31,10 +31,10 @@ namespace OloEngine::ShadowBrackets
     // View families: the region brackets.
     inline constexpr const char* kCsm = "Csm";
     inline constexpr const char* kAtlas = "Atlas";
-    inline constexpr const char* kVsmPages = "VsmPages";   // invalidation + page allocation/clear
-    inline constexpr const char* kVsmCull = "VsmCull";     // the GPU mesh cull, sun and local layers
-    inline constexpr const char* kVsmSun = "VsmSun";       // the sixteen directional clip levels
-    inline constexpr const char* kVsmLocal = "VsmLocal";   // the local-light layers
+    inline constexpr const char* kVsmPages = "VsmPages"; // invalidation + page allocation/clear
+    inline constexpr const char* kVsmCull = "VsmCull";   // the GPU mesh cull, sun and local layers
+    inline constexpr const char* kVsmSun = "VsmSun";     // the sixteen directional clip levels
+    inline constexpr const char* kVsmLocal = "VsmLocal"; // the local-light layers
 
     // Caster classes: nested inside a family.
     inline constexpr const char* kMeshCasters = "MeshCasters";

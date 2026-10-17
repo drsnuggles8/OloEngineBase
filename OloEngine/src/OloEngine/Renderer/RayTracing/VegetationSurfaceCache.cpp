@@ -485,8 +485,11 @@ namespace OloEngine::RayTracing
             }
 
             const f32 time = WindTime(input);
-            // #1578 option 3: a far casting group may lag further (FarErrorScale).
-            const f32 errorScale = VegetationPolicy::FarErrorScale(input.DistanceToView, VegetationDiagnostics::GetFarErrorReference());
+            // #1578 option 3: a far CASTING group may lag further (FarErrorScale);
+            // a reflection-only group keeps its own, separately tuned bounds.
+            const f32 errorScale = input.CastShadows
+                                       ? VegetationPolicy::FarErrorScale(input.DistanceToView, VegetationDiagnostics::GetFarErrorReference())
+                                       : 1.0f;
             const f32 ageLimit = VegetationPolicy::ProxyAgeLimit(input.VelocityBound, errorScale);
             bool proxy = !VegetationDiagnostics::GetForceDetailed() &&
                          input.DistanceToView > input.DetailedDistance && ageLimit > 0.0f;

@@ -307,9 +307,22 @@ namespace OloEngine
         {
             if (!m_EmitStagingSSBO)
             {
-                m_EmitStagingSSBO = StorageBuffer::Create(MAX_EMIT_BATCH * GPUParticle::GetSize(),
-                                                          ShaderBindingLayout::SSBO_EMIT_STAGING,
-                                                          StorageBufferUsage::DynamicDraw);
+                try
+                {
+                    m_EmitStagingSSBO = StorageBuffer::Create(MAX_EMIT_BATCH * GPUParticle::GetSize(),
+                                                              ShaderBindingLayout::SSBO_EMIT_STAGING,
+                                                              StorageBufferUsage::DynamicDraw);
+                }
+                catch (const std::exception& e)
+                {
+                    OLO_CORE_ERROR("GPUParticleSystem::EmitParticles: staging allocation failed — refusing emit: {}", e.what());
+                    return;
+                }
+                if (!m_EmitStagingSSBO)
+                {
+                    OLO_CORE_ERROR("GPUParticleSystem::EmitParticles: staging allocation failed — refusing emit");
+                    return;
+                }
             }
             m_EmitStagingSSBO->Bind();
             m_EmitStagingSSBO->SetData(newParticles.data(), emitBytes);

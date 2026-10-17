@@ -439,6 +439,27 @@ namespace OloEngine
         const u32 killBoxCount = static_cast<u32>(
             std::min<sizet>(killBoxes.size(), UBOStructures::FluidUBO::kMaxKillBoxes));
         const bool transient = UsesTransientStaging();
+
+        // ---- Body proxies, staged first ----------------------------------------
+        // On Vulkan the proxies are a frame-arena range bound once here and
+        // read by every displace iteration below (#1543): a later step's
+        // proxies take a range of their own, so a displace dispatch still
+        // queued from an earlier step keeps the proxies it was recorded with.
+        // Bound BEFORE the emit batch takes its range, so a refused step
+        // leaves the pending batch intact for the next one.
+        const bool transientProxies = transient && proxyCount > 0;
+        if (transientProxies)
+        {
+            const u32 proxyBytes = proxyCount * FluidBodyProxy::GetSize();
+            if (!RenderCommand::BindTransientStorage(ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES, bodyProxies.data(),
+                                                     proxyBytes))
+            {
+                OLO_CORE_ERROR("GPUFluidSolver::Step: the frame arena refused {} B of body proxies — refusing step",
+                               proxyBytes);
+                return;
+            }
+        }
+
         u32 emitCount = m_PendingEmitCount;
         if (transient && emitCount > 0)
         {
@@ -489,25 +510,11 @@ namespace OloEngine
         m_FluidUBO->Bind();
 
         // ---- Body proxies: clear last step's impulses + upload snapshots ----
-        // On Vulkan the proxies are a frame-arena range bound once here and
-        // read by every displace iteration below (#1543): a later step's
-        // proxies take a range of their own, so a displace dispatch still
-        // queued from an earlier step keeps the proxies it was recorded with.
-        const bool transientProxies = transient && proxyCount > 0;
         if (proxyCount > 0)
         {
-            const u32 proxyBytes = proxyCount * FluidBodyProxy::GetSize();
-            if (transientProxies &&
-                !RenderCommand::BindTransientStorage(ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES, bodyProxies.data(),
-                                                     proxyBytes))
-            {
-                OLO_CORE_ERROR("GPUFluidSolver::Step: the frame arena refused {} B of body proxies — refusing step",
-                               proxyBytes);
-                return;
-            }
             m_BodyImpulsesSSBO->ClearData();
-            if (!transientProxies)
-                m_BodyProxiesSSBO->SetData(bodyProxies.data(), proxyBytes);
+            if (!transientProxies) // the Vulkan range was bound above
+                m_BodyProxiesSSBO->SetData(bodyProxies.data(), proxyCount * FluidBodyProxy::GetSize());
         }
         m_LastProxyCount = proxyCount;
         m_LastSolverIterations = std::max(1u, params.SolverIterations);

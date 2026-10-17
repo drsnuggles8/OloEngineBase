@@ -295,6 +295,29 @@ TEST(McpPassTimingsTest, RoundsToThreeDecimals)
 // A "Parent/Sub" GPU entry attaches to its parent's subPasses instead of the
 // top-level list, and does NOT count toward passGpuTotalMs (its time is inside
 // the parent's bracket).
+// A nested sub-pass (ShadowPass/<Family>/<Class>, #1590) keeps its family in the
+// published name: only the parent's prefix comes off, so the same class in two
+// families stays two names, and a reader can tell the family bracket from the
+// classes nested inside it.
+TEST(McpPassTimingsTest, NestedSubPassKeepsItsFamily)
+{
+    const std::vector<GpuPassEntry> gpu = {
+        P("ShadowPass", 9.0),
+        Sub("ShadowPass", "Csm", 4.0),
+        Sub("ShadowPass", "Csm/MeshCasters", 1.0),
+        Sub("ShadowPass", "Atlas", 3.0),
+        Sub("ShadowPass", "Atlas/MeshCasters", 2.0),
+    };
+    const Json o = BuildPassTimings(gpu, {}, MakeTotals());
+    ASSERT_EQ(o["passes"].size(), 1u);
+    const Json& subs = o["passes"][0]["subPasses"];
+    ASSERT_EQ(subs.size(), 4u);
+    EXPECT_EQ(subs[0]["name"], "Csm");
+    EXPECT_EQ(subs[1]["name"], "Csm/MeshCasters");
+    EXPECT_EQ(subs[2]["name"], "Atlas");
+    EXPECT_EQ(subs[3]["name"], "Atlas/MeshCasters");
+}
+
 TEST(McpPassTimingsTest, GroupsSubPassEntriesUnderParent)
 {
     const std::vector<GpuPassEntry> gpu = {

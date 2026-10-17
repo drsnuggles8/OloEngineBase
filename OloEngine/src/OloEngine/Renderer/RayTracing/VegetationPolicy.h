@@ -247,8 +247,10 @@ namespace OloEngine::RayTracing
         {
             if (!(referenceDistance > 0.0f) || !std::isfinite(distance) || !(distance > referenceDistance))
                 return 1.0f;
-            const f32 ratio = distance / referenceDistance;
-            const u32 doublings = std::min(static_cast<u32>(std::floor(std::log2(ratio))), 30u);
+            // Clamped before the log: a tiny reference overflows the ratio to
+            // infinity, and casting an infinite log2 to u32 is undefined.
+            const f32 ratio = std::min(distance / referenceDistance, static_cast<f32>(MaximumFarErrorScale));
+            const u32 doublings = static_cast<u32>(std::floor(std::log2(ratio)));
             return static_cast<f32>(std::min(1u << doublings, MaximumFarErrorScale));
         }
 
@@ -454,6 +456,10 @@ namespace OloEngine::RayTracing
             u32 Groups = ResidentGroups;
             // The limits the margins are fractions of.
             u64 Divisor = 1u;
+            // The per-frame work limits' multiplier (Scaled's workScale): their
+            // margins are fractions of the SCALED limits, so a larger budget
+            // keeps the shipped proportions rather than a thinner margin.
+            u64 WorkScale = 1u;
 
             // Every limit at 1/divisor: VegetationDiagnostics::SetBudgetDivisor.
             // `workScale` multiplies the per-frame WORK limits (vertices,
@@ -463,7 +469,8 @@ namespace OloEngine::RayTracing
             [[nodiscard]] static PlanRoom Scaled(u32 divisor, u32 workScale = 1u) noexcept
             {
                 PlanRoom room;
-                const f64 w = static_cast<f64>(std::max(workScale, 1u));
+                room.WorkScale = std::max(workScale, 1u);
+                const f64 w = static_cast<f64>(room.WorkScale);
                 room.Vertices *= w;
                 room.Triangles *= w;
                 room.Builds *= w;
@@ -492,9 +499,10 @@ namespace OloEngine::RayTracing
                     return VegetationPressure::GeometryMemory;
                 if (!fits(static_cast<f64>(Acceleration), keep(AccelerationStructureBytes), static_cast<f64>(charge.Acceleration)))
                     return VegetationPressure::AccelerationMemory;
-                if (!fits(Vertices, keep(VerticesPerFrame), charge.Vertices) ||
-                    !fits(Triangles, keep(TrianglesPerFrame), charge.Triangles) ||
-                    !fits(Builds, keep(UpdatesPerFrame), charge.Builds))
+                const f64 work = static_cast<f64>(WorkScale);
+                if (!fits(Vertices, keep(VerticesPerFrame * work), charge.Vertices) ||
+                    !fits(Triangles, keep(TrianglesPerFrame * work), charge.Triangles) ||
+                    !fits(Builds, keep(UpdatesPerFrame * work), charge.Builds))
                     return VegetationPressure::FrameWork;
                 return VegetationPressure::None;
             }
