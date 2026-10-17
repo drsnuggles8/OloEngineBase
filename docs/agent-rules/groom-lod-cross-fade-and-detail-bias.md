@@ -51,9 +51,13 @@ budgets and the width compensation are in [groom-representation-lod.md](groom-re
    is not a fallback, because the coat is on its tier. A switch back mid-window reverses the window
    instead of restarting it, so the visible mix carries over.
 
-6. **A capture after a pose change waits out the window.** The evidence fixture's `Capture` runs
-   `6 + GroomLodCrossFadeFrames` frames. With six, a capture lands mid-fade and counts the outgoing
-   strands as drawn.
+6. **A test that forces a tier holds the cross-fade off; one that walks to it waits the window out.**
+   A coat that switches tier fades for `GroomLodCrossFadeFrames`, and under TAA a stochastic coat keeps
+   the outgoing tier in its history for longer than that. `GroomSoftIntersectionVisualEvidenceTest`
+   forces cards and settles 16 frames, past the 12-frame window, but its first card capture still
+   differed from its own repeat by 26k pixels. Its `Capture` now sets the window to 0 for the capture
+   and restores it. The LOD evidence fixture, which walks to a tier, runs `6 + GroomLodCrossFadeFrames`
+   frames. With six, a capture lands mid-fade and counts the outgoing strands as drawn.
 
 7. **The detail bias divides every pixel threshold once, where Scene assembles the policy.**
    `ApplyGroomDetailBias` divides the tier edges, the three budget curves, the coat shadow's
