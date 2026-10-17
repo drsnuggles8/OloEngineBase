@@ -42,8 +42,8 @@ Read before touching `OloEngine/src/OloEngine/Groom/`,
    machines. The leaks to keep closed: unordered iteration (group ids come from first-appearance
    order, never from hash-map order), archive object order (the importer visits each object's
    children in name order, because Blender writes them in pointer order;
-   `GroomCookDeterminismTest.ArchiveObjectOrderDoesNotReachTheCook`, #1560), an unstable sort (`std::stable_sort`, and
-   `GroomCookDeterminismTest.CookIsIndependentOfTheSourceCurveOrder` is the case that catches
+   `GroomCookDeterminism.ArchiveObjectOrderDoesNotReachTheCook`, #1560), an unstable sort (`std::stable_sort`, and
+   `GroomCookDeterminism.CookIsIndependentOfTheSourceCurveOrder` is the case that catches
    `std::sort`), uninitialised padding (every wire struct is explicitly padded and size-asserted),
    timestamps and absolute paths in provenance (there are none), and text-formatted floats (there
    are none — IEEE-754 bit patterns end to end).
