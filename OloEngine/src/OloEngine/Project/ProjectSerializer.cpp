@@ -3,6 +3,7 @@
 #include "OloEngine/Project/ProjectSerializer.h"
 #include "OloEngine/Physics3D/Physics3DSystem.h"
 #include "OloEngine/Physics3D/PhysicsLayer.h"
+#include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Renderer/QualityTiering.h"
 
 #include <fstream>
@@ -258,6 +259,7 @@ namespace OloEngine
         out << YAML::Key << "DDGIBudgetScale" << YAML::Value << qt.DDGIBudgetScale;
         out << YAML::Key << "AnimalSchedulingEnabled" << YAML::Value << qt.AnimalSchedulingEnabled;
         out << YAML::Key << "AnimalFrameBudgetUnits" << YAML::Value << qt.AnimalFrameBudgetUnits;
+        out << YAML::Key << "GroomDetailBias" << YAML::Value << qt.GroomDetailBias;
         out << YAML::EndMap;
     }
 
@@ -330,6 +332,8 @@ namespace OloEngine
         readFloat("DDGIBudgetScale", qt.DDGIBudgetScale, 0.0f, 16.0f);
         readBool("AnimalSchedulingEnabled", qt.AnimalSchedulingEnabled);
         readFloat("AnimalFrameBudgetUnits", qt.AnimalFrameBudgetUnits, 0.0f, 1.0e6f);
+        // A missing key keeps the preset's bias (1 on High and Custom).
+        readFloat("GroomDetailBias", qt.GroomDetailBias, kGroomDetailBiasMin, kGroomDetailBiasMax);
     }
 
     ProjectSerializer::ProjectSerializer(Ref<Project> project)

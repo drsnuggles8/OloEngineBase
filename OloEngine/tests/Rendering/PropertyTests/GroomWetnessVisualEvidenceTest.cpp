@@ -293,6 +293,21 @@ namespace OloEngine::Tests
         void Capture(const std::string& name, bool cards, i32 angle, f32 distance, CoatImage& out)
         {
             Time::SetMockTime(12.0f);
+            // THE TIER IS FORCED, NOT HANDED OVER TO (GroomSoftIntersectionVisual-
+            // EvidenceTest has the same guard, for the same reason): a #1612
+            // cross-fade from the previous capture's tier would leave the
+            // outgoing tier in the stochastic coat's TAA history through the
+            // settle, and a capture would differ from its own repeat by that
+            // tail rather than by the water. Held off for this capture only.
+            struct RestoreCrossFade
+            {
+                u32 Frames = Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames;
+                ~RestoreCrossFade()
+                {
+                    Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames = Frames;
+                }
+            } restoreCrossFade;
+            Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames = 0u;
             SetRepresentation(cards);
             EditorCamera camera(45.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.02f, 200.0f);
             camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));

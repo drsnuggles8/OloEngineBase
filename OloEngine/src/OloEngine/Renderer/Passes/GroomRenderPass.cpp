@@ -442,8 +442,7 @@ namespace OloEngine
         // The transform array must span the whole groom, not merely be
         // non-empty: the build indexes it by curve, and a short array would read
         // past its end on the first strand past the boundary.
-        return request.Groom && request.Binding &&
-               static_cast<sizet>(request.RootTransforms.Num()) == request.Groom->GetCurveCount();
+        return request.Groom && request.Binding && request.DrawnRoots().size() == request.Groom->GetCurveCount();
     }
 
     u64 GroomRenderPass::RestStreamKey(const GroomStrandRequest& request) noexcept
@@ -854,8 +853,7 @@ namespace OloEngine
         // unless it left them to the GPU -- and then only the guides, which is
         // all PackFrame reads of them on the GPU layout.
         const std::span<const GroomRootTransform> transforms =
-            rootsOnGpu ? std::span<const GroomRootTransform>{ request.RootTransforms.GetData(),
-                                                              static_cast<sizet>(request.RootTransforms.Num()) }
+            rootsOnGpu ? request.DrawnRoots()
                        : GroomCpuRootTransforms(request, rootCurves, m_CpuRootScratch, CpuSkinScratch());
         const GroomDeformFrameStats packed = entry.DeformCpu.PackFrame(rootCurves, *request.Binding, transforms,
                                                                        simulated ? &simulation : nullptr, baseCurveCount);
@@ -2505,9 +2503,10 @@ namespace OloEngine
         const bool opaqueAtlas = shadowMap.IsOpaqueCopyWritten(ShadowMap::OpaqueCopy::Atlas);
         // How many coats cast into the maps this frame: a receiver looks for
         // another's fur only when there is one (#1533).
+        // A fading coat's outgoing copy (#1612) is the same coat, not another.
         const auto castingGrooms = static_cast<u32>(std::ranges::count_if(
             m_Requests, [](const GroomStrandRequest& request)
-            { return request.CastsSceneShadow; }));
+            { return request.CastsSceneShadow && !request.IsCrossFadeSecondary(); }));
         context.FlushHeapOffsets();
 
         // Camera-relative rendering (#429). Every world matrix the GPU sees is
@@ -2539,18 +2538,27 @@ namespace OloEngine
             }
 
             const GroomCompositionDecision decision = DecideComposition(request.RequestedMode);
-            m_Stats.Composition.Record(decision);
+            // THE OUTGOING COPY OF A FADING COAT (#1612) IS THE SAME GROOM. What
+            // it draws is cost and is counted as such (strands, segments, bytes);
+            // everything counted per GROOM -- composition, binding, deformation,
+            // simulation, coat shadow, LOD, lighting, groom totals -- is counted
+            // once, by the primary.
+            const bool perGroom = !request.IsCrossFadeSecondary();
+            if (perGroom)
+            {
+                m_Stats.Composition.Record(decision);
+            }
 
             // Counted BEFORE the geometry is acquired, so a refused binding is
             // reported even on a frame whose groom produced no geometry at all.
             // Counting it after the `continue` below is how a counter that means
             // "a coat is stuck at its bind pose" reads zero on exactly the
             // frames it matters.
-            if (request.BindingReject != GroomBindingRejectReason::None)
+            if (perGroom && request.BindingReject != GroomBindingRejectReason::None)
             {
                 ++m_Stats.GroomsBindingRefused;
             }
-            if (IsDeformed(request))
+            if (perGroom && IsDeformed(request))
             {
                 ++m_Stats.GroomsDeformed;
                 m_Stats.CurveSelectMicroseconds += request.CurveSelectMicroseconds;
@@ -2573,7 +2581,7 @@ namespace OloEngine
             // reason the binding is: a coat whose solver refused produced no
             // geometry, and a counter that means "this coat is not moving"
             // must not read zero on exactly the frames it matters.
-            if (request.Influence)
+            if (perGroom && request.Influence)
             {
                 const GroomSimulationStats& simulation = request.SimulationStats;
                 ++m_Stats.GroomsSimulated;
@@ -2609,7 +2617,7 @@ namespace OloEngine
             {
                 continue;
             }
-            if (entry->GpuDeformed)
+            if (perGroom && entry->GpuDeformed)
             {
                 ++m_Stats.GroomsGpuDeformed;
             }
@@ -2634,7 +2642,10 @@ namespace OloEngine
                 wantsPose ? AcquireDrawnPose(request, *entry) : std::span<const GroomCoatShadow::CoatSegment>{};
             const GroomCoatShadowDecision coatDecision =
                 AcquireCoatVolume(request, *entry, residentCoatVolumes, drawnPose, bakeAtRest);
-            m_Stats.CoatShadow.Record(coatDecision);
+            if (perGroom)
+            {
+                m_Stats.CoatShadow.Record(coatDecision);
+            }
             // From whatever applied the guides, not from the request: the
             // interpolation happens in BuildGroomStrandMesh on the CPU path and
             // in the vertex shader on the GPU one, and the pack that feeds the
@@ -2722,7 +2733,10 @@ namespace OloEngine
             // produced no geometry never reaches here and is therefore not
             // counted against a representation it did not draw.
             const auto tier = static_cast<sizet>(request.Lod.Representation);
-            m_Stats.Lod.Record(request.Lod);
+            if (perGroom)
+            {
+                m_Stats.Lod.Record(request.Lod);
+            }
             m_Stats.Lod.StrandsByRepresentation[tier] += entry->Stats.StrandsSelected;
             // ONCE PER ENTRY PER FRAME, not once per draw: see
             // CacheEntry::BytesCountedTick. The tick is the pass's own
@@ -2821,6 +2835,10 @@ namespace OloEngine
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),
                                           static_cast<i32>(m_FrameState.FrameIndex),
                                           static_cast<i32>(kStochasticSeed), 0);
+            // The cross-fade mask (#1612): both draws of this request, the
+            // depth prepass and the shading pass, discard the same fragments,
+            // and so do this coat's colour, velocity and G-buffer outputs.
+            params.CrossFade = MakeGroomCrossFadeLane(request);
 
             // The DERIVED fibre parameters, straight across. Nothing is
             // recomputed here: Scene built them once with the same
@@ -2985,7 +3003,7 @@ namespace OloEngine
                     }
                 }
             }
-            if (request.Lit)
+            if (perGroom && request.Lit)
             {
                 ++m_Stats.GroomsLit;
                 m_Stats.FibreSamplesPerFragment = std::max(m_Stats.FibreSamplesPerFragment, request.Fibre.HSamples);
@@ -3086,7 +3104,10 @@ namespace OloEngine
             context.DrawIndexed(entry->Array, entry->Stats.IndexCount);
             gpuSubTimers.EndSubPass();
 
-            ++m_Stats.GroomsDrawn;
+            if (perGroom)
+            {
+                ++m_Stats.GroomsDrawn;
+            }
             m_Stats.StrandsDrawn += entry->Stats.StrandsSelected;
             m_Stats.SegmentsDrawn += entry->Stats.SegmentCount;
             m_Stats.TrianglesDrawn += entry->Stats.SegmentCount * 2u;
@@ -3217,7 +3238,9 @@ namespace OloEngine
     void GroomRenderPass::StartFrame()
     {
         m_Stats.Reset();
-        m_Stats.GroomsSubmitted = static_cast<u32>(m_Requests.size());
+        m_Stats.GroomsSubmitted = static_cast<u32>(std::ranges::count_if(
+            m_Requests, [](const GroomStrandRequest& request)
+            { return !request.IsCrossFadeSecondary(); }));
         // One tick per frame, 64-bit and owned by this pass. See m_CacheTick
         // for why GroomFrameState::FrameIndex cannot serve.
         ++m_CacheTick;
@@ -3353,7 +3376,7 @@ namespace OloEngine
             }
             else
             {
-                for (const GroomRootTransform& root : request.RootTransforms)
+                for (const GroomRootTransform& root : request.DrawnRoots())
                 {
                     if (!root.Valid)
                     {

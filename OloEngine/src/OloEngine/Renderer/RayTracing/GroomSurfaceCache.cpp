@@ -94,8 +94,7 @@ namespace OloEngine::RayTracing
         // end on the first strand past the boundary.
         [[nodiscard]] bool IsDeformed(const GroomStrandRequest& request) noexcept
         {
-            return request.Groom && request.Binding &&
-                   static_cast<sizet>(request.RootTransforms.Num()) == request.Groom->GetCurveCount();
+            return request.Groom && request.Binding && request.DrawnRoots().size() == request.Groom->GetCurveCount();
         }
 
         [[nodiscard]] bool IsFiniteTransform(const glm::mat4& matrix) noexcept
@@ -719,7 +718,8 @@ namespace OloEngine::RayTracing
         return dispatched;
     }
 
-    void GroomSurfaceCache::Extract(GPUScene& scene, std::span<const GroomStrandRequest> requests, bool wanted)
+    void GroomSurfaceCache::Extract(GPUScene& scene, std::span<const GroomStrandRequest> requests, bool wanted,
+                                    f32 detailBias)
     {
         const auto started = std::chrono::steady_clock::now();
         ++m_Frame;
@@ -759,7 +759,12 @@ namespace OloEngine::RayTracing
         order.reserve(requests.size());
         for (u32 index = 0; index < static_cast<u32>(requests.size()); ++index)
         {
-            if (requests[index].Groom)
+            // A fading coat's outgoing copy (#1612) is not another coat: the
+            // ray-traced scene holds ONE proxy per entity, on the tier its
+            // apparent size selects, and its keys and hysteresis are per entity.
+            // The proxy is therefore not dithered; it hands over on its own
+            // hysteresis, unaffected by the raster cross-fade.
+            if (requests[index].Groom && !requests[index].IsCrossFadeSecondary())
             {
                 order.push_back(index);
             }
@@ -787,6 +792,7 @@ namespace OloEngine::RayTracing
             GroomProxyInputs inputs;
             inputs.PixelSize = request.ApparentPixelSize;
             inputs.StrandsAvailable = request.Groom->GetCurveCount();
+            inputs.DetailBias = detailBias;
             inputs.Requested = active;
 
             const i64 entity = static_cast<i64>(request.EntityID);

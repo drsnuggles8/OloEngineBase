@@ -64,6 +64,28 @@ float oloGroomStochasticHash(uint pixelX, uint pixelY, uint frameIndex, uint seg
     return float(h >> 8) * (1.0 / 16777216.0);
 }
 
+// The LOD cross-fade mask (#1612). Twin of GroomCrossFadeKeeps and
+// kGroomCrossFadeSeed in OloEngine/Groom/GroomLod.h.
+//
+// ONE HASH PER PIXEL AND FRAME, NOT PER SEGMENT: a fading coat's two tiers are
+// drawn from different curves, and the masks are complementary only if both
+// ask the same question of the same pixel. The stochastic test's hash with
+// segment 0 and its own seed, so it does not correlate with the coat's alpha
+// test. role: 0 keeps everything, 1 (incoming) keeps h < t, 2 (outgoing)
+// keeps h >= t -- so for every pixel and every t exactly one tier draws.
+#define OLO_GROOM_CROSSFADE_SEED 1612u
+
+bool oloGroomCrossFadeKeeps(uint pixelX, uint pixelY, uint frameIndex, vec4 crossFade)
+{
+    int role = int(crossFade.y + 0.5);
+    if (role == 0)
+    {
+        return true;
+    }
+    float h = oloGroomStochasticHash(pixelX, pixelY, frameIndex, 0u, OLO_GROOM_CROSSFADE_SEED);
+    return (role == 1) ? (h < crossFade.x) : !(h < crossFade.x);
+}
+
 // Pixels per world unit at clip w == 1, from the projection matrix and the
 // viewport height. Exact for a perspective projection (where element [1][1] is
 // 1/tan(fovY/2)) and for an orthographic one (where clip w is 1 and [1][1] is

@@ -149,6 +149,9 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomWetState;
 	vec4 u_GroomWetResponse;
 	vec4 u_GroomWetHeight;
+	// The LOD cross-fade mask (#1612): x = the incoming tier's share t, y = the
+	// role (0 none, 1 incoming, 2 outgoing). See oloGroomCrossFadeKeeps.
+	vec4 u_GroomCrossFade;
 };
 
 layout(location = 0) out vec2 v_Coords;
@@ -769,6 +772,9 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomWetState;
 	vec4 u_GroomWetResponse;
 	vec4 u_GroomWetHeight;
+	// The LOD cross-fade mask (#1612): x = the incoming tier's share t, y = the
+	// role (0 none, 1 incoming, 2 outgoing). See oloGroomCrossFadeKeeps.
+	vec4 u_GroomCrossFade;
 };
 
 vec2 octEncode(vec3 n)
@@ -1687,6 +1693,17 @@ void main()
                                                   v_Coords.x, u_GroomSoftIntersection.y);
         }
     }
+
+	// THE LOD CROSS-FADE (#1612), before any other coverage decision. A fading
+	// coat is drawn as two requests, one per tier, and this keeps each pixel in
+	// exactly one of them; the prepass and the shading pass make the same call,
+	// so the depth they agree on is the surviving tier's. Per pixel at render
+	// resolution, per frame, so TAA integrates the screen door into the blend.
+	if (!oloGroomCrossFadeKeeps(uint(floor(gl_FragCoord.x)), uint(floor(gl_FragCoord.y)),
+	                            uint(u_GroomModeFrame.y), u_GroomCrossFade))
+	{
+		discard;
+	}
 
 	if (u_GroomModeFrame.x == OLO_GROOM_MODE_STOCHASTIC_ALPHA)
 	{

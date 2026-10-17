@@ -5,6 +5,7 @@
 // GroomLodVisualEvidenceTest — issue #1252, on real pixels.
 //
 // Writes OloEditor/assets/tests/visual/GroomLod[Off]_GL_<Path>[_<Distance>].png
+// and GroomDetailBias{High,Low}_GL_<Path>.png (#1616)
 //
 // The filename carries the {backend} x {path} cell it covers, including the
 // backend even though it is always GL here: a reader counting files then cannot
@@ -52,8 +53,10 @@
 #include "OloEngine/Groom/GroomLodBuilder.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
+#include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Scene/Components.h"
@@ -66,6 +69,7 @@
 
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -367,8 +371,10 @@ namespace OloEngine::Tests
             // Several frames: the LOD advances once per frame and REFINING is
             // immediate while COARSENING waits for the hold, so one frame at a
             // new distance would capture whichever tier the previous pose left
-            // behind. Six is past the fixture's hold of four.
-            RunEditorFrames(camera, 6);
+            // behind. Six is past the fixture's hold of four -- and the
+            // cross-fade's window on top (#1612), so a capture is the tier the
+            // coat SETTLED on rather than a frame of both through the dither.
+            RunEditorFrames(camera, 6u + Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames);
 
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
             if (!fb)
@@ -400,6 +406,213 @@ namespace OloEngine::Tests
             if (!saveAs.empty())
             {
                 WriteEvidence(saveAs, outPixels, kWidth, kHeight);
+            }
+        }
+
+        // ── The dolly through the hand-over (#1612) ─────────────────────────
+        //
+        // WHAT IS MEASURED: the coat's light on screen, frame to frame, while
+        // the camera walks slowly out through the card hand-over. A hard
+        // switch is one frame whose step stands far above every other; a
+        // cross-fade spreads the same total change over its window.
+        //
+        // THE DOLLY'S OWN TREND IS DIVIDED OUT. Walking away shrinks the coat,
+        // so its summed light falls about as fast as its projected AREA every
+        // frame -- at this pace a step comparable to the pop itself. The
+        // signal is therefore the coat's light per unit of projected area
+        // (summed |L - background| over the apparent size squared), which a
+        // coat that keeps its look holds roughly constant through the walk.
+        struct DollyResult
+        {
+            std::vector<f64> Signal;  // per frame, the area-normalised coat light
+            std::vector<u32> Changes; // per frame, representation changes the pass reported
+            std::vector<u32> Fading;  // per frame, coats the pass reported cross-fading
+            u32 HandOverFrame = 0;    // the frame the representation changed (0: none)
+            u32 HandOvers = 0;
+            u32 FadeFrames = 0;     // frames the pass reported the coat cross-fading
+            std::vector<f64> GpuMs; // per frame, GroomPass GPU ms (negative: no valid sample)
+            u32 Refused = 0;        // hand-overs that hard-switched for want of a slot
+            f64 MaxStep = 0.0;      // largest |relative frame-to-frame step|, whole walk
+            f64 MaxStepNearHandOver = 0.0;
+            f64 NoiseFloor = 0.0;  // median |step| away from the hand-over
+            f64 TotalChange = 0.0; // mean after the hand-over over mean before, minus 1
+        };
+
+        static constexpr u32 kDollyFrames = 192;
+        static constexpr f32 kDollyFrom = kCardPixelSize * 1.5f;
+        static constexpr f32 kDollyTo = kCardPixelSize * 0.55f;
+
+        [[nodiscard]] DollyResult Dolly(const std::string& saveAs)
+        {
+            DollyResult result;
+            EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 4000.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            const auto sizeAt = [](u32 frame)
+            {
+                const f32 t = static_cast<f32>(frame) / static_cast<f32>(kDollyFrames - 1u);
+                return kDollyFrom * std::pow(kDollyTo / kDollyFrom, t);
+            };
+
+            // A fresh ladder and a converged history at the start pose: the
+            // component off resets the state, and the resolve settles before
+            // anything is measured.
+            Lod().m_Enabled = false;
+            camera.SetPose(glm::vec3(0.0f, 0.35f, EyeDistanceFor(sizeAt(0))), 0.0f, 0.05f);
+            RunEditorFrames(camera, 2);
+            Lod().m_Enabled = true;
+            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
+            RunEditorFrames(camera, 24);
+
+            std::vector<u8> pixels;
+            std::vector<std::vector<u8>> strip;
+            for (u32 frame = 0; frame < kDollyFrames; ++frame)
+            {
+                const f32 pixelSize = sizeAt(frame);
+                camera.SetPose(glm::vec3(0.0f, 0.35f, EyeDistanceFor(pixelSize)), 0.0f, 0.05f);
+                RunEditorFrames(camera, 1);
+                const GroomRenderStats& stats = PassStats();
+                result.Changes.push_back(stats.Lod.RepresentationChanges);
+                result.Fading.push_back(stats.Lod.CrossFading);
+                result.FadeFrames += stats.Lod.CrossFading > 0u ? 1u : 0u;
+                result.Refused += stats.Lod.CrossFadesRefused;
+                f64 gpuMs = -1.0;
+                for (const auto& timing : GPUPassTimerPool::GetInstance().GetLastFrameTimings().Passes)
+                {
+                    if (timing.Name == "GroomPass" && timing.IsValid())
+                    {
+                        gpuMs = timing.Sample.GpuMs;
+                    }
+                }
+                result.GpuMs.push_back(gpuMs);
+                if (stats.Lod.RepresentationChanges > 0u)
+                {
+                    ++result.HandOvers;
+                    result.HandOverFrame = frame;
+                }
+
+                auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
+                if (!fb)
+                {
+                    fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
+                }
+                EXPECT_TRUE(fb);
+                if (!fb)
+                {
+                    return result;
+                }
+                ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+                // The clear colour from a corner the coat never reaches.
+                const f64 background = (0.2126 * pixels[0] + 0.7152 * pixels[1] + 0.0722 * pixels[2]) / 255.0;
+                f64 light = 0.0;
+                for (sizet i = 0; i + 3 < pixels.size(); i += 4)
+                {
+                    const f64 l = (0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2]) / 255.0;
+                    light += std::abs(l - background);
+                }
+                result.Signal.push_back(light / (static_cast<f64>(pixelSize) * static_cast<f64>(pixelSize)));
+                strip.push_back(pixels);
+            }
+
+            // Steps, the noise floor away from the hand-over, and the total
+            // change across it.
+            std::vector<f64> steps(result.Signal.size(), 0.0);
+            std::vector<f64> quiet;
+            for (sizet f = 1; f < result.Signal.size(); ++f)
+            {
+                steps[f] = std::abs(result.Signal[f] / std::max(result.Signal[f - 1], 1.0e-9) - 1.0);
+                result.MaxStep = std::max(result.MaxStep, steps[f]);
+                const i64 fromHandOver = static_cast<i64>(f) - static_cast<i64>(result.HandOverFrame);
+                if (result.HandOvers > 0u && fromHandOver >= -2 && fromHandOver <= 24)
+                {
+                    result.MaxStepNearHandOver = std::max(result.MaxStepNearHandOver, steps[f]);
+                }
+                else
+                {
+                    quiet.push_back(steps[f]);
+                }
+            }
+            if (!quiet.empty())
+            {
+                std::nth_element(quiet.begin(), quiet.begin() + static_cast<std::ptrdiff_t>(quiet.size() / 2), quiet.end());
+                result.NoiseFloor = quiet[quiet.size() / 2];
+            }
+            if (result.HandOvers > 0u && result.HandOverFrame >= 10u && result.HandOverFrame + 34u < kDollyFrames)
+            {
+                f64 before = 0.0;
+                f64 after = 0.0;
+                for (u32 k = 0; k < 8u; ++k)
+                {
+                    before += result.Signal[result.HandOverFrame - 8u + k];
+                    after += result.Signal[result.HandOverFrame + 26u + k];
+                }
+                result.TotalChange = after / std::max(before, 1.0e-9) - 1.0;
+            }
+
+            // The film strip: the coat's neighbourhood on eight frames from
+            // just before the hand-over through the cross-fade window.
+            if (!saveAs.empty() && result.HandOvers > 0u)
+            {
+                constexpr u32 kTile = 200;
+                constexpr u32 kTiles = 8;
+                std::vector<u8> film(static_cast<sizet>(kTile) * kTiles * kTile * 4u, 0u);
+                for (u32 t = 0; t < kTiles; ++t)
+                {
+                    const u32 frame = std::min<u32>(result.HandOverFrame - 1u + t * 3u, kDollyFrames - 1u);
+                    const std::vector<u8>& src = strip[frame];
+                    for (u32 y = 0; y < kTile; ++y)
+                    {
+                        // Bottom-up readback: flip into the strip's rows.
+                        const u32 sy = (kHeight / 2u) + (kTile / 2u) - 1u - y;
+                        const u32 sx = (kWidth / 2u) - (kTile / 2u);
+                        std::memcpy(film.data() + ((static_cast<sizet>(y) * kTile * kTiles) + t * kTile) * 4u,
+                                    src.data() + ((static_cast<sizet>(sy) * kWidth) + sx) * 4u, kTile * 4u);
+                    }
+                }
+                WriteEvidence(saveAs, film, kTile * kTiles, kTile);
+            }
+            return result;
+        }
+
+        static void PrintDolly(const char* label, const DollyResult& r)
+        {
+            std::printf("[groom-crossfade] %-30s hand-overs %u at frame %u   fading %u frames   refused %u   max "
+                        "step %.4f   near hand-over %.4f   noise floor %.4f   total change %+.4f\n",
+                        label, r.HandOvers, r.HandOverFrame, r.FadeFrames, r.Refused, r.MaxStep,
+                        r.MaxStepNearHandOver, r.NoiseFloor, r.TotalChange);
+            // THE COST OF A TRANSITION FRAME (#1612 acceptance): GroomPass GPU
+            // ms over the window against the strands before it and the cards
+            // after it. The timer pool reports a frame or two late, so the
+            // window's first two frames and the frames just after are left out.
+            if (r.HandOvers > 0u && r.HandOverFrame >= 14u && r.HandOverFrame + 40u < r.GpuMs.size())
+            {
+                const auto mean = [&r](u32 from, u32 to)
+                {
+                    f64 sum = 0.0;
+                    u32 n = 0;
+                    for (u32 f = from; f < to; ++f)
+                    {
+                        if (r.GpuMs[f] >= 0.0)
+                        {
+                            sum += r.GpuMs[f];
+                            ++n;
+                        }
+                    }
+                    return n > 0u ? sum / n : -1.0;
+                };
+                const u32 h = r.HandOverFrame;
+                std::printf("[groom-crossfade] %-30s GroomPass GPU ms: strands %.3f   window %.3f   cards %.3f\n",
+                            label, mean(h - 12u, h), mean(h + 2u, h + 2u + std::max(r.FadeFrames, 2u) - 2u),
+                            mean(h + 26u, h + 38u));
+            }
+            if (r.HandOvers > 0u)
+            {
+                std::printf("[groom-crossfade] %-30s signal around the hand-over:", label);
+                const u32 first = r.HandOverFrame >= 3u ? r.HandOverFrame - 3u : 0u;
+                for (u32 f = first; f < std::min<u32>(first + 22u, static_cast<u32>(r.Signal.size())); ++f)
+                {
+                    std::printf(" %.4f%s", r.Signal[f] / r.Signal[first], r.Fading[f] > 0u ? "*" : "");
+                }
+                std::printf("\n");
             }
         }
 
@@ -512,6 +725,86 @@ namespace OloEngine::Tests
         }
 
         Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+    }
+
+    // =========================================================================
+    // The global detail bias (#1616): the hand-over moves with the preset
+    // =========================================================================
+
+    TEST_F(GroomLodVisualEvidenceTest, TheDetailBiasMovesTheHandOverOnEveryPath)
+    {
+        struct PathCase
+        {
+            const char* Name;
+            RenderingPath Path;
+        };
+        const std::array<PathCase, 3> paths = { {
+            { "Forward", RenderingPath::Forward },
+            { "ForwardPlus", RenderingPath::ForwardPlus },
+            { "Deferred", RenderingPath::Deferred },
+        } };
+
+        // 300 px: above the fixture's 220 px card edge, below it divided by
+        // Low's 0.5 (440 px). At 1 the coat is on strands, at 0.5 on cards. The
+        // pair is the same camera, the bias the only thing moved.
+        constexpr f32 kPixelSize = 300.0f;
+        RendererSettings& settings = Renderer3D::GetRendererSettings();
+        const f32 savedBias = settings.GroomDetailBias;
+        const auto onCards = [this]
+        { return PassStats().Lod.ByRepresentation[static_cast<sizet>(GroomRepresentation::Card)] == 1u; };
+        // EACH ARM FROM A FRESH LADDER. The hysteresis holds whatever tier the
+        // previous arm left, and this pose sits inside the 15% dead band, so
+        // without the reset the second arm reads the first arm's tier. Turning
+        // the component off resets the state (ADisabledPolicyIsTheIdentity...).
+        const auto freshLadder = [this]
+        {
+            Lod().m_Enabled = false;
+            std::vector<u8> scratch;
+            Capture("", kPixelSize, scratch);
+            Lod().m_Enabled = true;
+        };
+
+        for (const PathCase& pathCase : paths)
+        {
+            settings.Path = pathCase.Path;
+            Renderer3D::ApplyRendererSettings();
+            Lod().m_Enabled = true;
+
+            settings.GroomDetailBias = 1.0f;
+            freshLadder();
+            std::vector<u8> asAuthored;
+            Capture(std::string("GroomDetailBiasHigh_GL_") + pathCase.Name, kPixelSize, asAuthored);
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+            const bool authoredOnCards = onCards();
+            const u32 strandsAuthored = PassStats().StrandsDrawn;
+
+            settings.GroomDetailBias = 0.5f;
+            freshLadder();
+            std::vector<u8> low;
+            Capture(std::string("GroomDetailBiasLow_GL_") + pathCase.Name, kPixelSize, low);
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+            const bool lowOnCards = onCards();
+            const u32 strandsLow = PassStats().StrandsDrawn;
+            const f64 coverage =
+                static_cast<f64>(CountCoatPixels(low)) / std::max(1.0, static_cast<f64>(CountCoatPixels(asAuthored)));
+
+            std::printf("[groom-detail-bias] %-11s  bias 1: %s, %6u strands   bias 0.5: %s, %6u strands   "
+                        "coverage %.3f\n",
+                        pathCase.Name, authoredOnCards ? "Card" : "Strand", strandsAuthored,
+                        lowOnCards ? "Card" : "Strand", strandsLow, coverage);
+            EXPECT_GT(MeanLuminance(asAuthored), 0.02) << pathCase.Name << ": the frame is (near-)black";
+            EXPECT_FALSE(authoredOnCards) << pathCase.Name << ": at bias 1 a 300 px coat left its strands";
+            EXPECT_TRUE(lowOnCards) << pathCase.Name << ": at bias 0.5 the 440 px card edge did not hand over";
+            EXPECT_LT(strandsLow, strandsAuthored / 2u) << pathCase.Name << ": the low preset saved nothing";
+            // The hand-over still preserves the coat, at a size the card was
+            // not cooked for: the bias is a cost trade, not a bald coat.
+            EXPECT_GT(coverage, 0.75) << pathCase.Name;
+            EXPECT_LT(coverage, 1.30) << pathCase.Name;
+        }
+
+        settings.GroomDetailBias = savedBias;
+        settings.Path = RenderingPath::Forward;
         Renderer3D::ApplyRendererSettings();
     }
 
@@ -672,6 +965,310 @@ namespace OloEngine::Tests
         EXPECT_EQ(inward, 1u) << "walking back crossed the hand-over " << inward << " times instead of once";
         EXPECT_EQ(PassStats().Lod.ByRepresentation[static_cast<sizet>(GroomRepresentation::Strand)], 1u)
             << "the coat did not come back to strands";
+    }
+
+    // =========================================================================
+    // #1612: the hand-over in motion
+    // =========================================================================
+
+    TEST_F(GroomLodVisualEvidenceTest, ADollyThroughTheHandOverSpreadsTheStepAcrossTheWindow)
+    {
+        // The coat as a real coat is drawn: stochastic composition under TAA,
+        // the configuration whose resolve the cross-fade's dither relies on.
+        auto& post = Renderer3D::GetPostProcessSettings();
+        RendererSettings& settings = Renderer3D::GetRendererSettings();
+        const bool savedTaa = post.TAAEnabled;
+        const u32 savedFrames = settings.GroomLodCrossFadeFrames;
+        const u32 savedCap = settings.GroomLodMaxCrossFades;
+        post.TAAEnabled = true;
+        m_GroomEntity.GetComponent<GroomComponent>().m_CompositionMode =
+            static_cast<u8>(GroomCompositionMode::StochasticAlpha);
+        const u32 window = savedFrames > 0u ? savedFrames : 12u;
+
+        struct PathCase
+        {
+            const char* Name;
+            RenderingPath Path;
+        };
+        const std::array<PathCase, 3> paths = { {
+            { "Forward", RenderingPath::Forward },
+            { "ForwardPlus", RenderingPath::ForwardPlus },
+            { "Deferred", RenderingPath::Deferred },
+        } };
+
+        for (const PathCase& pathCase : paths)
+        {
+            settings.Path = pathCase.Path;
+            Renderer3D::ApplyRendererSettings();
+            const std::string cell = std::string("_GL_") + pathCase.Name + "_Dolly";
+
+            // OFF: the hard switch every hand-over was before #1612, the A/B
+            // control, on the same walk.
+            settings.GroomLodCrossFadeFrames = 0u;
+            const DollyResult hard = Dolly("GroomLodCrossFadeOff" + cell);
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+            PrintDolly((std::string(pathCase.Name) + " hard switch").c_str(), hard);
+
+            settings.GroomLodCrossFadeFrames = window;
+            settings.GroomLodMaxCrossFades = 4u;
+            const DollyResult faded = Dolly("GroomLodCrossFade" + cell);
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+            PrintDolly((std::string(pathCase.Name) + " cross-fade").c_str(), faded);
+
+            ASSERT_EQ(hard.HandOvers, 1u) << pathCase.Name << ": the walk must cross the card hand-over once";
+            ASSERT_EQ(faded.HandOvers, 1u) << pathCase.Name;
+            EXPECT_EQ(hard.FadeFrames, 0u) << pathCase.Name << ": a zero-length window faded";
+            EXPECT_EQ(faded.FadeFrames, window) << pathCase.Name << ": the coat did not fade for exactly the window";
+
+            // THE CLAIM: the step at the hand-over is spread. The hard switch
+            // lands its whole change in one frame; the fade's largest step must
+            // be well under half of it.
+            EXPECT_LT(faded.MaxStepNearHandOver, hard.MaxStepNearHandOver * 0.5)
+                << pathCase.Name << ": the cross-fade did not spread the hand-over's step";
+            // ...without changing where the walk arrives: the fade hides the
+            // step, it does not change either tier (#1608 is the energy).
+            EXPECT_NEAR(faded.TotalChange, hard.TotalChange, 0.02)
+                << pathCase.Name << ": the faded walk arrived somewhere else";
+        }
+
+        // TAA OFF: the screen door is visible as noise, but the mask still
+        // covers each pixel once, so the coat neither doubles nor holes. Its
+        // light through the window stays between the two tiers' within the
+        // per-frame noise of an unresolved stochastic coat.
+        settings.Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        post.TAAEnabled = false;
+        settings.GroomLodCrossFadeFrames = window;
+        const DollyResult noTaa = Dolly("GroomLodCrossFadeNoTAA_GL_Forward_Dolly");
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        PrintDolly("Forward cross-fade, no TAA", noTaa);
+        ASSERT_EQ(noTaa.HandOvers, 1u);
+        EXPECT_EQ(noTaa.FadeFrames, window);
+        {
+            const u32 h = noTaa.HandOverFrame;
+            ASSERT_GE(h, 4u);
+            ASSERT_LT(h + window + 4u, static_cast<u32>(noTaa.Signal.size()));
+            const f64 before = noTaa.Signal[h - 2u];
+            const f64 after = noTaa.Signal[h + window + 2u];
+            const f64 slack = std::max(0.02, 4.0 * noTaa.NoiseFloor) * std::max(before, after);
+            for (u32 f = h; f < h + window; ++f)
+            {
+                EXPECT_GT(noTaa.Signal[f], std::min(before, after) - slack) << "a hole at window frame " << f - h;
+                EXPECT_LT(noTaa.Signal[f], std::max(before, after) + slack) << "a doubled coat at window frame " << f - h;
+            }
+        }
+
+        // NO SLOT: the hand-over hard-switches, as before, and says so by name.
+        post.TAAEnabled = true;
+        settings.GroomLodMaxCrossFades = 0u;
+        const DollyResult capped = Dolly("");
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        PrintDolly("Forward, cross-fade budget 0", capped);
+        EXPECT_EQ(capped.FadeFrames, 0u);
+        EXPECT_EQ(capped.Refused, 1u) << "the hard switch was not reported as CrossFadeBudgetSpent";
+
+        settings.GroomLodCrossFadeFrames = savedFrames;
+        settings.GroomLodMaxCrossFades = savedCap;
+        m_GroomEntity.GetComponent<GroomComponent>().m_CompositionMode =
+            static_cast<u8>(GroomCompositionMode::OpaqueRibbon);
+        post.TAAEnabled = savedTaa;
+        settings.Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+    }
+
+    TEST_F(GroomLodVisualEvidenceTest, TheCoatsShadowFadesWithItsColour)
+    {
+        // #1612: a fading coat's two tiers cast through the masks they are
+        // drawn with. Without them both tiers would cast whole for the window
+        // and the ground under the coat would go darker than under either
+        // tier -- a shadow that pulses at every hand-over. The hand-over is
+        // driven by the detail bias (#1616) at a FIXED camera, so the ground,
+        // the light and the view are the same picture on every frame and the
+        // only thing that changes is the tier.
+        Scene& scene = GetScene();
+        auto& post = Renderer3D::GetPostProcessSettings();
+        RendererSettings& settings = Renderer3D::GetRendererSettings();
+        const bool savedTaa = post.TAAEnabled;
+        const f32 savedBias = settings.GroomDetailBias;
+        const u32 savedFrames = settings.GroomLodCrossFadeFrames;
+        settings.Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        post.TAAEnabled = true;
+        m_GroomEntity.GetComponent<GroomComponent>().m_CompositionMode =
+            static_cast<u8>(GroomCompositionMode::StochasticAlpha);
+
+        // A pale ground just under the coat, and a coat that casts onto it but
+        // does not receive, so the coat's own pixels do not move with the cast.
+        Entity ground = scene.CreateEntity("Ground");
+        {
+            auto& tc = ground.GetComponent<TransformComponent>();
+            tc.Translation = glm::vec3(0.0f, -1.45f, 0.0f);
+            tc.Scale = glm::vec3(20.0f, 1.0f, 20.0f);
+            auto& mc = ground.AddComponent<MeshComponent>();
+            mc.m_Primitive = MeshPrimitive::Plane;
+            if (Ref<Mesh> mesh = MeshPrimitives::CreatePlane())
+            {
+                mc.m_MeshSource = mesh->GetMeshSource();
+            }
+            ground.AddComponent<MaterialComponent>().m_Material.SetBaseColorFactor(glm::vec4(0.6f, 0.6f, 0.62f, 1.0f));
+        }
+        auto& routing = m_GroomEntity.AddComponent<GroomSceneShadowComponent>();
+        routing.m_ReceiveShadows = false;
+        routing.m_CastShadows = true;
+
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 4000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        // 300 px: strands at bias 1, cards at 0.5 (the 220 px edge becomes 440).
+        camera.SetPose(glm::vec3(0.0f, 1.6f, EyeDistanceFor(300.0f)), 0.0f, 0.3f);
+
+        std::vector<u8> pixels;
+        const auto readLuma = [&](std::vector<f64>& luma)
+        {
+            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
+            if (!fb)
+            {
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
+            }
+            ASSERT_TRUE(fb);
+            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            luma.resize(static_cast<sizet>(kWidth) * kHeight);
+            for (sizet i = 0; i < luma.size(); ++i)
+            {
+                luma[i] = (0.2126 * pixels[i * 4u] + 0.7152 * pixels[i * 4u + 1u] + 0.0722 * pixels[i * 4u + 2u]) / 255.0;
+            }
+        };
+        // A settled, resolved frame on one tier.
+        const auto settled = [&](f32 bias, bool cast, std::vector<f64>& luma)
+        {
+            settings.GroomDetailBias = bias;
+            routing.m_CastShadows = cast;
+            Lod().m_Enabled = false;
+            RunEditorFrames(camera, 2);
+            Lod().m_Enabled = true;
+            RunEditorFrames(camera, 48);
+            readLuma(luma);
+        };
+
+        std::vector<f64> strandCast, strandBare, cardCast, cardBare;
+        settled(1.0f, true, strandCast);
+        settled(1.0f, false, strandBare);
+        settled(0.5f, true, cardCast);
+        settled(0.5f, false, cardBare);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        ASSERT_EQ(PassStats().Lod.ByRepresentation[static_cast<sizet>(GroomRepresentation::Card)], 1u);
+
+        // THE SHADOW'S PIXELS: the ground that either tier's cast darkens, and
+        // that is not coat in either tier (the two silhouettes differ).
+        std::vector<u8> mask(strandCast.size(), 0u);
+        u32 maskPixels = 0;
+        for (sizet i = 0; i < mask.size(); ++i)
+        {
+            const bool shadowed = (strandBare[i] - strandCast[i]) > 0.03 || (cardBare[i] - cardCast[i]) > 0.03;
+            const bool sameGround = std::abs(strandBare[i] - cardBare[i]) < 0.02;
+            if (shadowed && sameGround)
+            {
+                mask[i] = 1u;
+                ++maskPixels;
+            }
+        }
+        const auto shadowLight = [&](const std::vector<f64>& luma)
+        {
+            f64 sum = 0.0;
+            for (sizet i = 0; i < luma.size(); ++i)
+            {
+                sum += mask[i] ? luma[i] : 0.0;
+            }
+            return sum / std::max<u32>(maskPixels, 1u);
+        };
+        const f64 underStrands = shadowLight(strandCast);
+        const f64 underCards = shadowLight(cardCast);
+        const f64 bare = shadowLight(strandBare);
+        std::printf("[groom-crossfade-shadow] %u shadow px   ground light: bare %.4f   under strands %.4f   under cards "
+                    "%.4f\n",
+                    maskPixels, bare, underStrands, underCards);
+        ASSERT_GT(maskPixels, 500u) << "the coat casts no measurable shadow onto the ground, so this decides nothing";
+        ASSERT_LT(underStrands, bare - 0.05) << "the strands' shadow is too faint to measure a fade on";
+
+        // THE HAND-OVER, frame by frame, at the same pose: strands settled,
+        // then the bias that hands over.
+        const auto handOver = [&](u32 window, const char* label, const std::string& saveAs)
+        {
+            settings.GroomLodCrossFadeFrames = window;
+            std::vector<f64> luma;
+            settled(1.0f, true, luma);
+            settings.GroomDetailBias = 0.5f;
+            std::vector<f64> series;
+            for (u32 f = 0; f < 24u; ++f)
+            {
+                RunEditorFrames(camera, 1);
+                readLuma(luma);
+                series.push_back(shadowLight(luma));
+                if (f == window / 2u && !saveAs.empty())
+                {
+                    std::vector<u8> flipped(pixels.size());
+                    const sizet row = static_cast<sizet>(kWidth) * 4u;
+                    for (u32 y = 0; y < kHeight; ++y)
+                    {
+                        std::memcpy(flipped.data() + y * row, pixels.data() + (kHeight - 1u - y) * row, row);
+                    }
+                    WriteEvidence(saveAs, flipped, kWidth, kHeight);
+                }
+            }
+            std::printf("[groom-crossfade-shadow] %-12s ground light under the coat:", label);
+            for (const f64 v : series)
+            {
+                std::printf(" %.4f", v);
+            }
+            std::printf("\n");
+            return series;
+        };
+        const std::vector<f64> hard = handOver(0u, "hard switch", "");
+        const std::vector<f64> faded = handOver(12u, "cross-fade", "GroomLodCrossFadeShadow_GL_Forward");
+
+        // THE SHADOW'S STEP IS SPREAD WITH THE COLOUR'S. What two casters
+        // without the mask do on THIS coat is not a darker shadow -- the cards'
+        // shadow lies inside the strands', so the pair casts exactly the
+        // strands' shadow -- but a shadow that holds the outgoing tier for the
+        // whole window and then steps at its END, a pop moved twelve frames
+        // rather than removed. Measured with the caster discard taken out of
+        // include/GroomStrandDepthFragment.glsl: the largest step was 0.86 of the hard
+        // switch's, against 0.31 masked. So the claim is the step, as for the
+        // colour: the fade's largest frame-to-frame step in the ground's light
+        // is under half the hard switch's.
+        const auto largestStep = [](const std::vector<f64>& series)
+        {
+            f64 largest = 0.0;
+            for (sizet f = 1; f < series.size(); ++f)
+            {
+                largest = std::max(largest, std::abs(series[f] - series[f - 1]));
+            }
+            return largest;
+        };
+        const f64 hardStep = largestStep(hard);
+        const f64 fadedStep = largestStep(faded);
+        std::printf("[groom-crossfade-shadow] largest step: hard switch %.4f   cross-fade %.4f (%.2f of it)\n", hardStep,
+                    fadedStep, fadedStep / std::max(hardStep, 1.0e-9));
+        EXPECT_GT(hardStep, 4.0 * 0.003) << "the hard switch's shadow step is too small to judge a spread against";
+        EXPECT_LT(fadedStep, 0.5 * hardStep) << "the fading coat's shadow did not fade with its colour";
+        // And it lands where the cards' shadow is, without a hole or a doubled
+        // shadow on the way: every frame between the two tiers' shadows, with a
+        // little room for the resolve.
+        const f64 lo = std::min(underStrands, underCards) - 0.003;
+        const f64 hi = std::max(underStrands, underCards) + 0.003;
+        for (sizet f = 0; f < faded.size(); ++f)
+        {
+            EXPECT_GT(faded[f], lo) << "frame " << f << ": the ground under the fading coat went darker than "
+                                                        "under either tier";
+            EXPECT_LT(faded[f], hi) << "frame " << f << ": a hole in the fading coat's shadow";
+        }
+
+        m_GroomEntity.RemoveComponent<GroomSceneShadowComponent>();
+        scene.DestroyEntity(ground);
+        settings.GroomDetailBias = savedBias;
+        settings.GroomLodCrossFadeFrames = savedFrames;
+        post.TAAEnabled = savedTaa;
+        m_GroomEntity.GetComponent<GroomComponent>().m_CompositionMode =
+            static_cast<u8>(GroomCompositionMode::OpaqueRibbon);
     }
 
     // =========================================================================
