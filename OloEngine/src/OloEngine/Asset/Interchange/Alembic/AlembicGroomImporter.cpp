@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <format>
 #include <fstream>
@@ -968,7 +969,20 @@ namespace OloEngine
                 }
             }
 
-            for (sizet i = 0; i < obj.getNumChildren(); ++i)
+            // Children in NAME order, never archive order (#1560). Group ids are
+            // assigned by first appearance and the cook sorts curves by group
+            // id, so the visit order IS the cooked curve order. Blender writes
+            // objects in pointer order, which changes on every export: in
+            // archive order a re-export of the same strands cooked to a
+            // different curve order, moving every stride-based LOD subset and
+            // every curve-keyed jitter. Alembic requires sibling names to be
+            // unique, so this is a total order and the sort needs no tie-break.
+            std::vector<sizet> children(obj.getNumChildren());
+            std::iota(children.begin(), children.end(), sizet{ 0 });
+            std::sort(children.begin(), children.end(),
+                      [&obj](sizet lhs, sizet rhs)
+                      { return obj.getChildHeader(lhs).getName() < obj.getChildHeader(rhs).getName(); });
+            for (const sizet i : children)
             {
                 Visit(obj.getChild(i), worldXf, state, depth + 1u);
                 if (state.Failed)

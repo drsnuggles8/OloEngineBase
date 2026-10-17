@@ -14,6 +14,8 @@
 //     (catches anything keyed on an address or an allocation order)
 //   * cook an already-canonical vs a shuffled input   -> identical bytes
 //     (catches an unstable sort, the classic leak)
+//   * import one archive written in two OBJECT orders -> the same groom
+//     (catches group ids that follow archive order, #1560)
 //   * uninitialised padding                           -> every byte written is
 //     a byte some field owns
 //
@@ -36,6 +38,7 @@
 #include "OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.h"
 #endif
 
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -297,6 +300,77 @@ TEST(GroomCookDeterminism, ProvenanceHashIsAFunctionOfTheSourceBytesOnly)
     // And the importer's own version is recorded, so a cooked groom from an
     // older importer is identifiable without re-importing it.
     EXPECT_EQ(importA.Groom->GetProvenance().ImporterVersion, AlembicGroomImporter::kImporterVersion);
+}
+
+TEST(GroomCookDeterminism, ArchiveObjectOrderDoesNotReachTheCook)
+{
+    // #1560: Blender writes a groom's objects in pointer order, which changes on
+    // every export. Group ids follow the importer's visit order and the cook
+    // sorts curves by group id, so in archive order a re-export of the SAME
+    // strands cooked to a different curve order -- moving every stride-based
+    // LOD subset and every curve-keyed jitter. The same three objects written in
+    // two orders must cook to the same groom.
+    namespace Fixture = Tests::GroomFixture;
+
+    // Three top-level objects whose names sort differently from either write
+    // order: `scalp` sits under an xform, so its top-level object is
+    // `scalp_xf`, and the pelt carries sub-groups and roles, which must follow
+    // the same order.
+    Fixture::CurvesPrim scalp = Fixture::MakeHumanScalpGroom(96, 5, 6, "scalp");
+    scalp.Transform.setTranslation(Imath::V3d(0.0, 1.5, 0.0));
+    Fixture::CurvesPrim pelt = Fixture::MakeAnimalFurGroom(72, 4, 3, "pelt");
+    pelt.Type = Fixture::AbcG::kLinear; // one basis per archive
+    pelt.Basis = Fixture::AbcG::kNoBasis;
+    pelt.Roles.assign(pelt.SubGroups.begin(), pelt.SubGroups.end()); // constant per sub-group
+    const Fixture::CurvesPrim beard = Fixture::MakeHumanScalpGroom(40, 4, 5, "beard");
+
+    const std::filesystem::path pathA = Tests::TempFile("order-a.abc");
+    const std::filesystem::path pathB = Tests::TempFile("order-b.abc");
+    ASSERT_TRUE(Fixture::WriteArchive(pathA, { scalp, pelt, beard }));
+    ASSERT_TRUE(Fixture::WriteArchive(pathB, { beard, pelt, scalp }));
+
+    AlembicGroomImporter::Options options;
+    options.ProvenancePath = "grooms/order.abc";
+    const auto importA = AlembicGroomImporter::Import(pathA, options);
+    const auto importB = AlembicGroomImporter::Import(pathB, options);
+    ASSERT_TRUE(importA.Succeeded()) << importA.Diagnostic;
+    ASSERT_TRUE(importB.Succeeded()) << importB.Diagnostic;
+    const GroomAsset& a = *importA.Groom;
+    const GroomAsset& b = *importB.Groom;
+
+    // Ids in name order, whatever order the file holds them in.
+    const std::vector<std::string> expectedNames = { "/beard", "/pelt#0", "/pelt#1", "/pelt#2", "/scalp_xf/scalp" };
+    EXPECT_EQ(a.GetGroupNames(), expectedNames);
+    EXPECT_EQ(b.GetGroupNames(), expectedNames);
+
+    // The cooked bytes cannot be compared whole: the provenance hash is over
+    // the SOURCE bytes, and the two archives are different files. Everything
+    // the cook writes apart from that hash is compared instead, section by
+    // section.
+    EXPECT_NE(a.GetProvenance().SourceContentHash, b.GetProvenance().SourceContentHash)
+        << "the archives were meant to differ in byte order";
+    ASSERT_EQ(a.GetCurveCount(), b.GetCurveCount());
+    EXPECT_EQ(a.GetCurveOffsets(), b.GetCurveOffsets()) << "curve offsets";
+    EXPECT_EQ(a.GetPoints(), b.GetPoints()) << "control points";
+    EXPECT_EQ(a.GetPointWidths(), b.GetPointWidths()) << "widths";
+    EXPECT_EQ(a.GetRootUVs(), b.GetRootUVs()) << "root UVs";
+    EXPECT_EQ(a.GetCurveGroupIds(), b.GetCurveGroupIds()) << "curve group ids";
+    EXPECT_EQ(a.GetCurveFlags(), b.GetCurveFlags()) << "curve flags";
+    EXPECT_EQ(a.GetGroupNames(), b.GetGroupNames()) << "group names";
+    ASSERT_EQ(a.GetGroupCoats().size(), b.GetGroupCoats().size());
+    for (sizet g = 0; g < a.GetGroupCoats().size(); ++g)
+    {
+        // GroomCoatGroupDesc is explicitly padded (its size is pinned above), so
+        // its bytes are its fields.
+        EXPECT_EQ(std::memcmp(&a.GetGroupCoats()[g], &b.GetGroupCoats()[g], sizeof(GroomCoatGroupDesc)), 0)
+            << "coat of group " << a.GetGroupNames()[g];
+    }
+    EXPECT_EQ(a.GetLodLevels(), b.GetLodLevels()) << "cooked LOD levels";
+    EXPECT_EQ(a.GetBasis(), b.GetBasis());
+    EXPECT_EQ(a.GetBoundsMin(), b.GetBoundsMin());
+    EXPECT_EQ(a.GetBoundsMax(), b.GetBoundsMax());
+    EXPECT_EQ(a.GetProvenance().SourcePath, b.GetProvenance().SourcePath);
+    EXPECT_EQ(a.GetProvenance().ImporterVersion, b.GetProvenance().ImporterVersion);
 }
 
 #endif // OLO_WITH_ALEMBIC
