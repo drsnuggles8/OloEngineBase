@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Asset/Interchange/Alembic/AlembicMeshImporter.h"
+#include "OloEngine/Asset/Interchange/Alembic/AlembicTraversal.h"
 
 #if defined(OLO_WITH_ALEMBIC)
 
@@ -297,7 +298,10 @@ namespace OloEngine
             else if (AbcG::ISubD::matches(obj.getHeader()))
                 ReadSubD(out, obj, worldXf, flipV);
 
-            for (sizet i = 0; i < obj.getNumChildren(); ++i)
+            // Name order, not archive order (#1560): submeshes are appended in
+            // visit order, so a Blender re-export of the same objects would
+            // otherwise import to a different submesh and vertex order.
+            for (const sizet i : AlembicTraversal::SortedChildIndices(obj))
                 Visit(obj.getChild(i), worldXf, out, flipV);
         }
     } // namespace

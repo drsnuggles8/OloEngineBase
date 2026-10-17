@@ -40,6 +40,7 @@
 
 #include <glm/glm.hpp>
 
+#include <cstring>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -251,6 +252,69 @@ TEST(MeshInterchangeTest, AlembicRoundTripsGeometry)
     EXPECT_EQ(result.Source->GetIndices().Num(), 3) << "one triangle -> 3 indices";
 
     std::filesystem::remove(outPath);
+}
+
+TEST(MeshInterchangeTest, AlembicArchiveObjectOrderDoesNotReachTheImport)
+{
+    // #1560: Blender writes objects in pointer order, which changes on every
+    // export. Submeshes are appended in visit order, so the same three meshes
+    // written in two orders -- neither of them name order -- must import to the
+    // same submeshes and vertices, in name order.
+    namespace Abc = Alembic::Abc;
+    namespace AbcG = Alembic::AbcGeom;
+
+    auto write = [](const std::filesystem::path& path, const std::vector<int>& order)
+    {
+        std::filesystem::remove(path);
+        Abc::OArchive archive(Alembic::AbcCoreOgawa::WriteArchive(), path.string());
+        const char* names[] = { "alpha", "beta", "gamma" };
+        for (const int m : order)
+        {
+            AbcG::OPolyMesh meshObj(Abc::OObject(archive, Abc::kTop), names[m]);
+            const auto offset = static_cast<f32>(m);
+            const std::vector<Imath::V3f> positions = { { offset, 0, 0 }, { offset + 1, 0, 0 }, { offset, 1, 0 } };
+            const std::vector<int32_t> indices = { 0, 1, 2 };
+            const std::vector<int32_t> counts = { 3 };
+            meshObj.getSchema().set(AbcG::OPolyMeshSchema::Sample(
+                Abc::P3fArraySample(positions.data(), positions.size()),
+                Abc::Int32ArraySample(indices.data(), indices.size()),
+                Abc::Int32ArraySample(counts.data(), counts.size())));
+        }
+    };
+    const std::filesystem::path pathA = MakeTempPath("olo_alembic_order_a.abc");
+    const std::filesystem::path pathB = MakeTempPath("olo_alembic_order_b.abc");
+    write(pathA, { 2, 0, 1 });
+    write(pathB, { 1, 2, 0 });
+
+    AlembicMeshImporter importer;
+    const MeshImportResult a = importer.Import(pathA);
+    const MeshImportResult b = importer.Import(pathB);
+    ASSERT_TRUE(a.Succeeded()) << a.Error;
+    ASSERT_TRUE(b.Succeeded()) << b.Error;
+
+    const auto& subA = a.Source->GetSubmeshes();
+    const auto& subB = b.Source->GetSubmeshes();
+    ASSERT_EQ(subA.Num(), 3);
+    ASSERT_EQ(subB.Num(), 3);
+    const char* expected[] = { "alpha", "beta", "gamma" };
+    for (i32 s = 0; s < 3; ++s)
+    {
+        EXPECT_TRUE(subA[s].m_MeshName == expected[s]) << "archive A submesh " << s;
+        EXPECT_TRUE(subB[s].m_MeshName == expected[s]) << "archive B submesh " << s;
+        EXPECT_EQ(subA[s].m_BaseVertex, subB[s].m_BaseVertex);
+        EXPECT_EQ(subA[s].m_BaseIndex, subB[s].m_BaseIndex);
+    }
+
+    const auto& vertsA = a.Source->GetVertices();
+    const auto& vertsB = b.Source->GetVertices();
+    ASSERT_EQ(vertsA.Num(), vertsB.Num());
+    for (i32 v = 0; v < vertsA.Num(); ++v)
+    {
+        EXPECT_EQ(std::memcmp(&vertsA[v].Position, &vertsB[v].Position, sizeof(glm::vec3)), 0) << "vertex " << v;
+    }
+
+    std::filesystem::remove(pathA);
+    std::filesystem::remove(pathB);
 }
 #endif // OLO_WITH_ALEMBIC
 
