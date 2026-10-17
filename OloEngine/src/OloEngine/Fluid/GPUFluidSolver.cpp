@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Fluid/GPUFluidSolver.h"
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Fluid/FluidKernels.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -37,6 +38,7 @@ namespace OloEngine
           m_HasDispatched(other.m_HasDispatched),
           m_ParticleUpperBound(other.m_ParticleUpperBound),
           m_PendingEmitCount(other.m_PendingEmitCount),
+          m_PendingEmitEntries(std::move(other.m_PendingEmitEntries)),
           m_StepsSinceCountRefresh(other.m_StepsSinceCountRefresh),
           m_LastProxyCount(other.m_LastProxyCount),
           m_LastSolverIterations(other.m_LastSolverIterations),
@@ -75,6 +77,7 @@ namespace OloEngine
         other.m_MaxParticles = 0;
         other.m_ParticleUpperBound = 0;
         other.m_PendingEmitCount = 0;
+        other.m_PendingEmitEntries.Reset();
         other.m_StepsSinceCountRefresh = 0;
         other.m_LastProxyCount = 0;
         other.m_LastSolverIterations = 1;
@@ -91,6 +94,7 @@ namespace OloEngine
             m_HasDispatched = other.m_HasDispatched;
             m_ParticleUpperBound = other.m_ParticleUpperBound;
             m_PendingEmitCount = other.m_PendingEmitCount;
+            m_PendingEmitEntries = std::move(other.m_PendingEmitEntries);
             m_StepsSinceCountRefresh = other.m_StepsSinceCountRefresh;
             m_LastProxyCount = other.m_LastProxyCount;
             m_LastSolverIterations = other.m_LastSolverIterations;
@@ -128,6 +132,7 @@ namespace OloEngine
             other.m_MaxParticles = 0;
             other.m_ParticleUpperBound = 0;
             other.m_PendingEmitCount = 0;
+            other.m_PendingEmitEntries.Reset();
             other.m_StepsSinceCountRefresh = 0;
             other.m_LastProxyCount = 0;
             other.m_LastSolverIterations = 1;
@@ -155,6 +160,7 @@ namespace OloEngine
         m_HasDispatched = false;
         m_ParticleUpperBound = 0;
         m_PendingEmitCount = 0;
+        m_PendingEmitEntries.Reset();
         m_StepsSinceCountRefresh = 0;
         m_LastProxyCount = 0;
 
@@ -308,6 +314,7 @@ namespace OloEngine
         m_HasDispatched = false;
         m_ParticleUpperBound = 0;
         m_PendingEmitCount = 0;
+        m_PendingEmitEntries.Reset();
         m_StepsSinceCountRefresh = 0;
         m_LastProxyCount = 0;
         m_GridCellCount = 0;
@@ -353,7 +360,15 @@ namespace OloEngine
 
         m_ParticleUpperBound = count;
         m_PendingEmitCount = 0;
+        m_PendingEmitEntries.Reset();
         m_StepsSinceCountRefresh = 0;
+    }
+
+    bool GPUFluidSolver::UsesTransientStaging()
+    {
+        // Vulkan's per-batch frame-arena ranges (#1543); the fault lever puts
+        // Vulkan on GL's one-buffer reuse path, the negative control.
+        return RendererAPI::GetAPI() == RendererAPI::API::Vulkan && !Levers::FaultVulkanStagingReuse();
     }
 
     void GPUFluidSolver::Emit(std::span<const GPUFluidEmitEntry> entries)
@@ -372,33 +387,22 @@ namespace OloEngine
             return;
         }
 
-        // One staging allocation belongs to one pending emit batch. Vulkan
-        // compute resolves the persistent address, so the next batch cannot
-        // refill an allocation an earlier Step may still be reading.
-        if (m_PendingEmitCount == 0 && RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+        // Vulkan compute reads the batch when the emit dispatch EXECUTES, so
+        // the batch is kept on the CPU and Step binds it as one frame-arena
+        // range (#1543). A partial write into a mapped staging buffer inside a
+        // recording took a whole-buffer draw snapshot, filled by reading the
+        // other 4,000-odd entries back out of write-combined memory: the 3 ms
+        // the staging baseline charged a 32-entry emit. GL uploads are ordered
+        // against dispatches, so the batch goes straight into its one buffer.
+        if (UsesTransientStaging())
         {
-            Ref<StorageBuffer> replacement;
-            try
-            {
-                replacement = StorageBuffer::Create(kEmitStagingCapacity * GPUFluidEmitEntry::GetSize(),
-                                                    ShaderBindingLayout::SSBO_FLUID_EMIT_STAGING,
-                                                    StorageBufferUsage::DynamicDraw);
-            }
-            catch (const std::exception& e)
-            {
-                OLO_CORE_ERROR("GPUFluidSolver::Emit: staging allocation failed — refusing batch: {}", e.what());
-                return;
-            }
-            if (!replacement)
-            {
-                OLO_CORE_ERROR("GPUFluidSolver::Emit: staging allocation failed — refusing batch");
-                return;
-            }
-            m_EmitStagingSSBO = std::move(replacement);
+            m_PendingEmitEntries.Append(entries.data(), static_cast<i32>(count));
         }
-
-        m_EmitStagingSSBO->SetData(entries.data(), count * GPUFluidEmitEntry::GetSize(),
-                                   m_PendingEmitCount * GPUFluidEmitEntry::GetSize());
+        else
+        {
+            m_EmitStagingSSBO->SetData(entries.data(), count * GPUFluidEmitEntry::GetSize(),
+                                       m_PendingEmitCount * GPUFluidEmitEntry::GetSize());
+        }
         m_PendingEmitCount += count;
     }
 
@@ -434,7 +438,25 @@ namespace OloEngine
         const u32 proxyCount = static_cast<u32>(std::min<sizet>(bodyProxies.size(), kFluidMaxBodyProxies));
         const u32 killBoxCount = static_cast<u32>(
             std::min<sizet>(killBoxes.size(), UBOStructures::FluidUBO::kMaxKillBoxes));
-        const u32 emitCount = m_PendingEmitCount;
+        const bool transient = UsesTransientStaging();
+        u32 emitCount = m_PendingEmitCount;
+        if (transient && emitCount > 0)
+        {
+            const u32 emitBytes = emitCount * GPUFluidEmitEntry::GetSize();
+            const bool bound = RenderCommand::BindTransientStorage(ShaderBindingLayout::SSBO_FLUID_EMIT_STAGING,
+                                                                   m_PendingEmitEntries.GetData(), emitBytes);
+            m_PendingEmitEntries.Reset();
+            if (!bound)
+            {
+                // Dropped, not carried to the next step: an arena full now is
+                // full next frame too. The rest of the step still runs.
+                OLO_CORE_ERROR("GPUFluidSolver::Step: the frame arena refused {} B of emit staging — dropping {} "
+                               "emitted particles",
+                               emitBytes, emitCount);
+                emitCount = 0;
+                m_PendingEmitCount = 0;
+            }
+        }
 
         // ---- FluidUBO upload (StepFlags.x = 0: iteration 0 reads parity A) --
         const f32 poly6ScaleValue = FluidKernels::Poly6Scale(h);
@@ -467,31 +489,25 @@ namespace OloEngine
         m_FluidUBO->Bind();
 
         // ---- Body proxies: clear last step's impulses + upload snapshots ----
+        // On Vulkan the proxies are a frame-arena range bound once here and
+        // read by every displace iteration below (#1543): a later step's
+        // proxies take a range of their own, so a displace dispatch still
+        // queued from an earlier step keeps the proxies it was recorded with.
+        const bool transientProxies = transient && proxyCount > 0;
         if (proxyCount > 0)
         {
-            if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+            const u32 proxyBytes = proxyCount * FluidBodyProxy::GetSize();
+            if (transientProxies &&
+                !RenderCommand::BindTransientStorage(ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES, bodyProxies.data(),
+                                                     proxyBytes))
             {
-                Ref<StorageBuffer> replacement;
-                try
-                {
-                    replacement = StorageBuffer::Create(proxyCount * FluidBodyProxy::GetSize(),
-                                                        ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES,
-                                                        StorageBufferUsage::DynamicDraw);
-                }
-                catch (const std::exception& e)
-                {
-                    OLO_CORE_ERROR("GPUFluidSolver::Step: body-proxy allocation failed — refusing step: {}", e.what());
-                    return;
-                }
-                if (!replacement)
-                {
-                    OLO_CORE_ERROR("GPUFluidSolver::Step: body-proxy allocation failed — refusing step");
-                    return;
-                }
-                m_BodyProxiesSSBO = std::move(replacement);
+                OLO_CORE_ERROR("GPUFluidSolver::Step: the frame arena refused {} B of body proxies — refusing step",
+                               proxyBytes);
+                return;
             }
             m_BodyImpulsesSSBO->ClearData();
-            m_BodyProxiesSSBO->SetData(bodyProxies.data(), proxyCount * FluidBodyProxy::GetSize());
+            if (!transientProxies)
+                m_BodyProxiesSSBO->SetData(bodyProxies.data(), proxyBytes);
         }
         m_LastProxyCount = proxyCount;
         m_LastSolverIterations = std::max(1u, params.SolverIterations);
@@ -501,10 +517,11 @@ namespace OloEngine
         // ---- Emit staged particles ------------------------------------------
         if (emitCount > 0)
         {
+            if (!transient) // the batch was bound above, before the UBO took its count
+                m_EmitStagingSSBO->Bind();
             m_PositionsSSBO->Bind();
             m_VelocitiesSSBO->Bind();
             m_CountersSSBO->Bind();
-            m_EmitStagingSSBO->Bind();
             m_EmitShader->Bind();
             RenderCommand::DispatchCompute(GroupCount(emitCount), 1, 1);
             RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage);
@@ -512,6 +529,7 @@ namespace OloEngine
             // Conservative: the shader may reject entries past capacity.
             m_ParticleUpperBound = std::min(m_ParticleUpperBound + emitCount, m_MaxParticles);
             m_PendingEmitCount = 0;
+            m_PendingEmitEntries.Reset();
         }
 
         const u32 upperBound = m_ParticleUpperBound;
@@ -597,7 +615,8 @@ namespace OloEngine
             m_GridHeadSSBO->Bind();
             m_GridNextSSBO->Bind();
             m_CountersSSBO->Bind();
-            m_BodyProxiesSSBO->Bind();
+            if (!transientProxies) // the arena range bound above stays the occupant
+                m_BodyProxiesSSBO->Bind();
             m_BodyImpulsesSSBO->Bind();
             m_DisplaceShader->Bind();
             RenderCommand::DispatchCompute(particleGroups, 1, 1);

@@ -220,13 +220,14 @@ namespace OloEngine
         if (priorUsed != 0 && priorUsed > m_ReportedPeakBytes + m_ReportedPeakBytes / 8u)
         {
             m_ReportedPeakBytes = priorUsed;
-            OLO_CORE_INFO("VulkanFrameArena: new frame high-water {}/{} B; requested root={} uniform={} vertex={} storage={} rt={}",
+            OLO_CORE_INFO("VulkanFrameArena: new frame high-water {}/{} B; requested root={} uniform={} vertex={} storage={} rt={} dispatch={}",
                           priorUsed, kSlotCapacityBytes,
                           GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::RootData),
                           GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::UniformSnapshot),
                           GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::VertexSnapshot),
                           GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::StorageSnapshot),
-                          GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::RayTracingStaging));
+                          GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::RayTracingStaging),
+                          GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::DispatchStaging));
         }
         for (auto& bytes : m_ConsumerBytes)
             bytes.store(0, std::memory_order_relaxed);
@@ -447,6 +448,21 @@ namespace OloEngine
     u64 VulkanFrameArena::GetCurrentSlotUsedBytes() const
     {
         return m_Slots[m_CurrentSlot].Cursor.load(std::memory_order_relaxed);
+    }
+
+    bool VulkanFrameArena::ResolveAddress(VkDeviceAddress address, VkBuffer& buffer, u64& offset) const
+    {
+        for (const Slot& slot : m_Slots)
+        {
+            if (slot.Buffer != VK_NULL_HANDLE && address >= slot.BaseAddress &&
+                address < slot.BaseAddress + kSlotCapacityBytes)
+            {
+                buffer = slot.Buffer;
+                offset = address - slot.BaseAddress;
+                return true;
+            }
+        }
+        return false;
     }
 } // namespace OloEngine
 

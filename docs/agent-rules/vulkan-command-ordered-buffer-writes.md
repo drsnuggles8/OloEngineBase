@@ -208,25 +208,31 @@ with constructor data is also refused when its unwritten tail cannot be read.
 | Terrain virtual-texture bake requests and indirection parameters | CPU per compute dispatch, persistent compute address | `TerrainVirtualTexture` now records the bake request and each indirection-list/parameter update through `UploadBufferSubData`. Draw-only SSBO snapshots never protected these compute reads. A multi-mip Vulkan image-result test remains unrun. |
 | VSM invalidation and caster-cull inputs | CPU per shadow update, compute reads | `VirtualShadowMap` now records CPU invalidation and cull-input copies in command order; GPU-written VSM buffers use `DynamicCopy` ordered seeds/fills. The existing Vulkan full-frame VSM test covers the consumer, but a deliberately delayed shadow frame remains unrun, for the same reason as the cull inputs (#1538). |
 | Foliage GPU culler layer input | CPU on registry-generation change, persistent compute read | `FoliageGPUCuller::BuildLayer` now allocates a fresh Vulkan layer buffer even when the new generation has the same byte count; the prior version retires through deferred reclaim. GL keeps same-size reuse. `VulkanPassSuite.FoliageCullLayerInputSurvivesADelayedRead` holds a read of the old version and requires its bytes after a same-size regeneration (#1526). |
-| GPU particle emit staging at SSBO 5 | CPU per compute dispatch | On Vulkan, each `EmitParticles` call creates a staging SSBO sized to that batch. The previous allocation retires through deferred reclaim, so two dispatches and adjacent frames cannot read the final CPU upload from the same mapped range. GL reuses one full-capacity buffer because its uploads order against dispatches. |
-| GPU fluid emit staging and body proxies | CPU per solver step, compute reads | Vulkan allocates one emit staging SSBO per pending batch and one body-proxy SSBO per nonempty step; earlier versions retire through deferred reclaim. The GL path retains its existing buffer. `EmitCount` comes from the Fluid UBO, so no CPU write to the GPU-produced counters is needed. Vulkan refuses `SeedParticles` after the first dispatch because a direct reset could race GPU output; recreate the solver. The Vulkan device test covers two emit/step pairs, reset refusal, and shader reload followed by another emit/step. `FluidEmitStagingSurvivesADelayedRead` and `FluidBodyProxiesSurviveADelayedRead` hold a read of the previous batch and proxies across the next step (#1526). |
+| GPU particle emit staging at SSBO 5 | CPU per compute dispatch | On Vulkan, each `EmitParticles` call copies its batch into a frame-arena range (`RenderCommand::BindTransientStorage`, #1543) and binds that range's address at the SSBO, so two dispatches and adjacent frames cannot read the final CPU upload from the same range, and no allocation is made. GL reuses one full-capacity buffer because its uploads order against dispatches. `InterleavedParticleEmitUploadsKeepDistinctComputeInputs` pins two batches in one frame. |
+| GPU fluid emit staging and body proxies | CPU per solver step, compute reads | On Vulkan the pending emit batch is kept on the CPU and bound at `Step` as one frame-arena range, and a nonempty step's body proxies take a range of their own (`RenderCommand::BindTransientStorage`, #1543); nothing is allocated per batch. The GL path retains its existing buffers. `EmitCount` comes from the Fluid UBO, so no CPU write to the GPU-produced counters is needed. Vulkan refuses `SeedParticles` after the first dispatch because a direct reset could race GPU output; recreate the solver. The Vulkan device test covers two emit/step pairs, reset refusal, and shader reload followed by another emit/step. `FluidEmitStagingSurvivesADelayedRead` and `FluidBodyProxiesSurviveADelayedRead` hold a read of the previous batch and proxies across the next step (#1526). |
 | Emissive triangle, material texture and shader-heap tables reached through device addresses | CPU on table change, persistent for an in-flight consumer | Each table allocates a fresh SSBO when its bytes change and publishes the new address. The old buffer enters `VulkanDeferredReclaim` and survives until completed frame generations drain. |
 | `StreamCommandOrdered` SSBOs (the bound-coat deformation buffer in `GroomRenderPass`) | CPU, every frame, megabytes | `SetData` inside a recording is a transfer recorded in command order into the persistent buffer; no arena snapshot. A refused copy is counted (`VulkanStorageBuffer::GetTransferRefusedCount`) and leaves the previous bytes (#1427). |
 | RT skeletal palette reached by device address | CPU once per populated deformation frame, compute reads | `DeformedSurfaceCache::EnsurePaletteBuffer` publishes a fresh Vulkan `DynamicCopy` allocation even at stable capacity; the old allocation retires through deferred reclaim. GL retains its capacity-reuse upload. `SkeletalPaletteSurvivesADelayedRead` holds a read of the previous pose across a stable-capacity republish (#1526). |
 | RT surface vertex addresses (deformed, vegetation, groom) | GPU deformation or CPU groom conversion; persistent BLAS input | GPU deformation writes the persistent output by command, with explicit ordering needed before AS build. On Vulkan, `GroomSurfaceCache` publishes a fresh vertex allocation for each changed proxy while preserving the coat's logical GPU Scene identity. A same-shape, deformed vertex version refits its BLAS; a new index version rebuilds it. The old native buffer retires through deferred reclaim. GL continues to refill stable shapes in place. `GroomProxyVerticesSurviveADelayedRead` holds a read of the previous deformed strands across the next bend (#1526). |
 
-The per-dispatch GPU-particle and per-batch GPU-fluid staging allocations fix
-their aliases, and carry L6 CPU baselines beside their GL reuse-path twins in
-`perf_baselines.txt` (#1526): `VulkanPassSuite.StagingAllocationsStayWithinCpuBaselines`
-and `StagingPerf.ParticleAndFluidStagingStayWithinCpuBaselines`, keys
-`vk_*` / `gl_*` `particle_emit_staging_64`, `fluid_emit_staging_32`,
-`fluid_step_4_proxies` and `fluid_step_no_proxies` (the proxy staging's share of a
-step is the difference of the last two). The first baselines (RTX 4090, Debug,
-2026-10-01) say they are **not** performance-safe yet: a particle emit batch costs
-~0.2 ms of CPU on Vulkan against 1.6 µs on GL (one allocation per batch), the
-body-proxy staging ~0.24 ms per step, and a fluid emit batch ~3.1 ms, which is
-fifteen allocations' worth and happens only inside a recording. Attributing and
-pooling them is #1543.
+The per-dispatch staging families carry L6 CPU baselines beside their GL reuse-path
+twins in `perf_baselines.txt`: `VulkanPassSuite.StagingAllocationsStayWithinCpuBaselines`
+and `StagingPerf.ParticleAndFluidStagingStayWithinCpuBaselines`, keys `vk_*` / `gl_*`
+`particle_emit_staging_64`, `fluid_emit_step_32` (an emit AND the step that consumes it:
+Vulkan stages the batch in that step, GL in the emit), `fluid_step_4_proxies` and
+`fluid_step_no_proxies`. Since #1543 they take frame-arena ranges
+(`RenderCommand::BindTransientStorage`) and the test asserts a frame of them makes no
+device allocation at all.
+
+**A partial `SetData` on a mapped `DynamicDraw` buffer inside a recording reads the
+rest of the buffer back out of write-combined memory** to fill its whole-buffer draw
+snapshot (`PushSnapshot`), which runs at a few tens of MB/s. That, not the allocation,
+was the fluid emit's 3 ms (#1543): a 32-entry batch written into a 4,096-entry staging
+buffer filled the other 127 KB of the snapshot from the mapping, for a compute read that
+never looks at snapshots. RTX 4090, Release: `vk_fluid_emit_staging_32` 2,858.6 µs before;
+emit plus its step 8.2 µs after, against 8.8 µs for a step with nothing to emit. A buffer
+only dispatches read should not take a draw snapshot at all; the one-time warning
+"filled N unwritten bytes by reading write-combined mapped memory" names a site that does.
 
 A delayed-read test must prove the next version was written before it checks the old one
 survived; two of these first passed a revert vacuously

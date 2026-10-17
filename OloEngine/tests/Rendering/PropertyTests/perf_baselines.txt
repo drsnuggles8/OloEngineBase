@@ -35,7 +35,6 @@ foliage_wind_960x540_hierarchical_FoliagePass 181248
 foliage_wind_960x540_hierarchical_ShadowPass 247808
 foliage_wind_960x540_legacy_FoliagePass 272384
 foliage_wind_960x540_legacy_ShadowPass 336896
-gl_fluid_emit_staging_32 200
 gl_fluid_step_4_proxies 12800
 gl_fluid_step_no_proxies 16300
 gl_particle_emit_staging_64 1600
@@ -48,7 +47,6 @@ tone_map_512x512 9216
 virtual_geometry_frame_1280x720 4628480
 virtual_hwraster_frame_1280x720 1782784
 virtual_swraster_frame_1280x720 2304000
-vk_fluid_emit_staging_32 3164900
 vk_fluid_step_4_proxies 305900
 vk_fluid_step_no_proxies 62900
 vk_particle_emit_staging_64 250500

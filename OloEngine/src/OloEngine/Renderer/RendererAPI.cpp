@@ -25,6 +25,17 @@ namespace OloEngine
         BindTexture(slot, texture);
     }
 
+    bool RendererAPI::BindTransientStorage(u32 bindingPoint, const void* /*data*/, u32 size)
+    {
+        // A backend that orders buffer uploads against dispatches (GL) has its
+        // callers reuse one buffer and never comes here; reaching it means a
+        // caller skipped that branch, which drops a dispatch's input.
+        OLO_CORE_ERROR("RendererAPI::BindTransientStorage(binding {}, {} B): this backend has no frame-transient "
+                       "storage — the caller must upload into a buffer of its own",
+                       bindingPoint, size);
+        return false;
+    }
+
     [[nodiscard("Store this!")]] Scope<RendererAPI> RendererAPI::Create()
     {
         switch (s_API)

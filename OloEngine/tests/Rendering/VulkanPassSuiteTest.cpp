@@ -13952,44 +13952,61 @@ TEST_F(VulkanPassSuite, PartialUniformAndStorageRewritesPreserveBothDrawsAndTheU
 
 TEST_F(VulkanPassSuite, InterleavedParticleEmitUploadsKeepDistinctComputeInputs)
 {
-    GPUParticleSystem particles(8);
-    ASSERT_TRUE(particles.IsInitialized());
-    ASSERT_TRUE(particles.GetShaderHealth().Emit);
-    VulkanFrameArena::Get().BeginFrame(0);
-
     GPUParticle first{};
     first.PositionLifetime = glm::vec4(0.25f, 0.0f, 0.0f, 1.0f);
     GPUParticle second{};
     second.PositionLifetime = glm::vec4(0.75f, 0.0f, 0.0f, 1.0f);
-    SubmitFrame([&]()
-                {
-                    particles.EmitParticles(std::span<const GPUParticle>(&first, 1));
-                    particles.EmitParticles(std::span<const GPUParticle>(&second, 1)); });
+    // Two batches recorded into one frame; what the two dispatches emitted.
+    const auto emitTwo = [&](bool fault, std::array<GPUParticle, 8>& actual)
+    {
+        const bool previous = Levers::FaultVulkanStagingReuse();
+        Levers::SetFaultVulkanStagingReuse(fault);
+        GPUParticleSystem particles(8);
+        ASSERT_TRUE(particles.IsInitialized());
+        ASSERT_TRUE(particles.GetShaderHealth().Emit);
+        VulkanFrameArena::Get().BeginFrame(0);
+        SubmitFrame([&]()
+                    {
+                        particles.EmitParticles(std::span<const GPUParticle>(&first, 1));
+                        particles.EmitParticles(std::span<const GPUParticle>(&second, 1)); });
+        Levers::SetFaultVulkanStagingReuse(previous);
+        particles.GetParticleSSBO()->GetData(actual.data(), sizeof(actual));
+    };
 
     std::array<GPUParticle, 8> actual{};
-    particles.GetParticleSSBO()->GetData(actual.data(), sizeof(actual));
+    ASSERT_NO_FATAL_FAILURE(emitTwo(false, actual));
     EXPECT_NEAR(actual[7].PositionLifetime.x, 0.25f, 1e-6f)
-        << "the first dispatch must read its own staging allocation";
+        << "the first dispatch must read its own staging range";
     EXPECT_NEAR(actual[6].PositionLifetime.x, 0.75f, 1e-6f)
         << "the second dispatch must read the second upload";
     EXPECT_NEAR(actual[7].Misc.z, 1.0f, 1e-6f);
     EXPECT_NEAR(actual[6].Misc.z, 1.0f, 1e-6f);
+
+    // NEGATIVE CONTROL (#1543): one buffer rewritten in place hands BOTH
+    // dispatches the second batch, which this test must be able to see.
+    std::array<GPUParticle, 8> reused{};
+    ASSERT_NO_FATAL_FAILURE(emitTwo(true, reused));
+    EXPECT_NEAR(reused[7].PositionLifetime.x, 0.75f, 1e-6f)
+        << "in-place reuse did not reach the first dispatch, so the check above cannot see the race";
 }
 
 // =============================================================================
 // Delayed-frame reads of per-version buffers (issue #1526, item 4).
 //
-// Five producers publish a FRESH Vulkan allocation for every new version of a
-// buffer a compute or acceleration-structure consumer reads, and retire the
-// old one through VulkanDeferredReclaim, instead of rewriting it in place
+// Every new version of a buffer a compute or acceleration-structure consumer
+// reads goes to NEW memory instead of being rewritten in place
 // (docs/agent-rules/vulkan-command-ordered-buffer-writes.md, "Current
-// buffer-family audit"). Each test holds a read of the OLD version on the
-// async compute queue behind an unsignalled timeline semaphore — a consumer
-// from an earlier frame that has not executed yet — publishes the next
-// version through the production call, then releases the read and requires
-// the OLD bytes. In-place reuse overwrites them before the read executes, so
-// each test fails when its producer's fresh-allocation branch is reverted
-// (the negative controls in the PR body name the one-line revert for each).
+// buffer-family audit"): the foliage cull input, the skeletal palette and the
+// groom proxy publish a fresh allocation and retire the old one through
+// VulkanDeferredReclaim; the per-dispatch staging families (fluid emit and
+// body proxies, particle emit) take a frame-arena range (#1543). Each test
+// holds a read of the OLD version on the async compute queue behind an
+// unsignalled timeline semaphore — a consumer from an earlier frame that has
+// not executed yet — publishes the next version through the production call,
+// then releases the read and requires the OLD bytes. In-place reuse
+// overwrites them before the read executes, so each test fails when its
+// producer is reverted to rewriting one buffer (the negative controls in the
+// PR bodies name the revert for each).
 //
 // At most ONE SubmitFrame may run between the publish and the release: the
 // reclaim destroys an entry after two completed frames, which is the
@@ -14151,6 +14168,25 @@ namespace
         return buffer != nullptr ? buffer->GetVkBuffer() : VK_NULL_HANDLE;
     }
 
+    // Where a binding's bytes live now: its object's buffer, or the frame-arena
+    // range RenderCommand::BindTransientStorage published there (#1543).
+    struct BoundRange
+    {
+        VkBuffer Buffer = VK_NULL_HANDLE;
+        VkDeviceSize Offset = 0;
+    };
+    [[nodiscard]] BoundRange BoundStorageRange(u32 binding)
+    {
+        if (const VkBuffer buffer = BoundStorageBuffer(binding); buffer != VK_NULL_HANDLE)
+            return { buffer, 0 };
+        BoundRange range;
+        u64 offset = 0;
+        if (VulkanFrameArena::Get().ResolveAddress(VulkanBindingState::Get().GetStorageBufferAddress(binding),
+                                                   range.Buffer, offset))
+            range.Offset = offset;
+        return range;
+    }
+
     // The foliage registry driver loop from FoliageRenderer::GenerateInstances
     // (the same shape FoliageInstanceIdentityPropertyTests keeps), returning
     // layer 0's instance count.
@@ -14235,41 +14271,93 @@ TEST_F(VulkanPassSuite, FoliageCullLayerInputSurvivesADelayedRead)
     EXPECT_EQ(header.InstanceCount, instanceCount);
 }
 
-// GPU fluid emit staging: an earlier frame's emit dispatch keeps its batch.
+namespace
+{
+    // Levers::FaultVulkanStagingReuse for one arm of a delayed-read test, restored
+    // whatever the arm does (#1543's negative control).
+    struct ScopedStagingReuseFault
+    {
+        explicit ScopedStagingReuseFault(bool on)
+            : m_Previous(Levers::FaultVulkanStagingReuse())
+        {
+            Levers::SetFaultVulkanStagingReuse(on);
+        }
+        ~ScopedStagingReuseFault()
+        {
+            Levers::SetFaultVulkanStagingReuse(m_Previous);
+        }
+        ScopedStagingReuseFault(const ScopedStagingReuseFault&) = delete;
+        ScopedStagingReuseFault& operator=(const ScopedStagingReuseFault&) = delete;
+        ScopedStagingReuseFault(ScopedStagingReuseFault&&) = delete;
+        ScopedStagingReuseFault& operator=(ScopedStagingReuseFault&&) = delete;
+
+      private:
+        bool m_Previous;
+    };
+} // namespace
+
+// GPU fluid emit staging: an earlier frame's emit dispatch keeps its batch. The
+// fault arm rewrites one buffer in place, and must be seen doing so.
 TEST_F(VulkanPassSuite, FluidEmitStagingSurvivesADelayedRead)
 {
     if (!m_Device->HasAsyncComputeQueue())
         GTEST_SKIP() << "A separate compute queue is needed to hold the old read.";
-    GPUFluidSolver solver(16);
-    ASSERT_TRUE(solver.IsValid());
-    FluidSolverParams params;
-    params.BoundsMin = { -1.0f, -1.0f, -1.0f };
-    params.BoundsMax = { 1.0f, 1.0f, 1.0f };
-    params.SolverIterations = 1;
-
     const GPUFluidEmitEntry first{ .Position = { -0.5f, 0.0f, 0.0f, 0.0f }, .Velocity = { 0.0f, 0.0f, 0.0f, 0.0f } };
     const GPUFluidEmitEntry second{ .Position = { 0.5f, 0.0f, 0.0f, 0.0f }, .Velocity = { 0.0f, 0.0f, 0.0f, 0.0f } };
-    VkBuffer oldBuffer = VK_NULL_HANDLE;
-    SubmitFrame([&]()
-                {
-                    solver.Emit(std::span(&first, 1));
-                    oldBuffer = BoundStorageBuffer(ShaderBindingLayout::SSBO_FLUID_EMIT_STAGING);
-                    solver.Step(params, 1.0f / 60.0f, {}, {}); });
-    ASSERT_NE(oldBuffer, VK_NULL_HANDLE);
+    // What the held read of the first batch saw once the second was published.
+    const auto delayedRead = [&](bool fault, f32& seenX)
+    {
+        const ScopedStagingReuseFault reuse(fault);
+        GPUFluidSolver solver(16);
+        ASSERT_TRUE(solver.IsValid());
+        FluidSolverParams params;
+        params.BoundsMin = { -1.0f, -1.0f, -1.0f };
+        params.BoundsMax = { 1.0f, 1.0f, 1.0f };
+        params.SolverIterations = 1;
 
-    DelayedComputeRead read(*m_Device, oldBuffer, 0, sizeof(GPUFluidEmitEntry));
-    ASSERT_TRUE(read.IsPending());
-    SubmitFrame([&]()
-                {
-                    solver.Emit(std::span(&second, 1));
-                    solver.Step(params, 1.0f / 60.0f, {}, {}); });
+        BoundRange old;
+        SubmitFrame([&]()
+                    {
+                        solver.Emit(std::span(&first, 1));
+                        solver.Step(params, 1.0f / 60.0f, {}, {});
+                        old = BoundStorageRange(ShaderBindingLayout::SSBO_FLUID_EMIT_STAGING); });
+        ASSERT_NE(old.Buffer, VK_NULL_HANDLE);
 
-    const std::vector<u8> bytes = read.Release();
-    ASSERT_EQ(bytes.size(), sizeof(GPUFluidEmitEntry));
-    GPUFluidEmitEntry seen{};
-    std::memcpy(&seen, bytes.data(), sizeof(seen));
-    EXPECT_FLOAT_EQ(seen.Position.x, -0.5f) << "the delayed emit read the NEXT batch";
-    EXPECT_EQ(solver.RefreshExactCount(), 2u);
+        DelayedComputeRead read(*m_Device, old.Buffer, old.Offset, sizeof(GPUFluidEmitEntry));
+        ASSERT_TRUE(read.IsPending());
+        BoundRange next;
+        SubmitFrame([&]()
+                    {
+                        solver.Emit(std::span(&second, 1));
+                        solver.Step(params, 1.0f / 60.0f, {}, {});
+                        next = BoundStorageRange(ShaderBindingLayout::SSBO_FLUID_EMIT_STAGING); });
+        ASSERT_NE(next.Buffer, VK_NULL_HANDLE);
+        {
+            // The second batch really was published, so the check below cannot
+            // pass because nothing was rewritten.
+            DelayedComputeRead current(*m_Device, next.Buffer, next.Offset, sizeof(GPUFluidEmitEntry),
+                                       ReadTiming::Immediate);
+            const std::vector<u8> now = current.Release();
+            ASSERT_EQ(now.size(), sizeof(GPUFluidEmitEntry));
+            GPUFluidEmitEntry published{};
+            std::memcpy(&published, now.data(), sizeof(published));
+            ASSERT_FLOAT_EQ(published.Position.x, 0.5f) << "the step did not publish the second batch";
+        }
+
+        const std::vector<u8> bytes = read.Release();
+        ASSERT_EQ(bytes.size(), sizeof(GPUFluidEmitEntry));
+        GPUFluidEmitEntry seen{};
+        std::memcpy(&seen, bytes.data(), sizeof(seen));
+        seenX = seen.Position.x;
+        EXPECT_EQ(solver.RefreshExactCount(), 2u);
+    };
+    f32 shipped = 0.0f;
+    ASSERT_NO_FATAL_FAILURE(delayedRead(false, shipped));
+    EXPECT_FLOAT_EQ(shipped, -0.5f) << "the delayed emit read the NEXT batch";
+    f32 faulted = 0.0f;
+    ASSERT_NO_FATAL_FAILURE(delayedRead(true, faulted));
+    EXPECT_FLOAT_EQ(faulted, 0.5f) << "NEGATIVE CONTROL: in-place reuse did not reach the held read, so the test "
+                                      "cannot see the race it exists for";
 }
 
 // GPU fluid body proxies: an earlier step's collision read keeps its proxies.
@@ -14277,52 +14365,63 @@ TEST_F(VulkanPassSuite, FluidBodyProxiesSurviveADelayedRead)
 {
     if (!m_Device->HasAsyncComputeQueue())
         GTEST_SKIP() << "A separate compute queue is needed to hold the old read.";
-    GPUFluidSolver solver(16);
-    ASSERT_TRUE(solver.IsValid());
-    FluidSolverParams params;
-    params.BoundsMin = { -1.0f, -1.0f, -1.0f };
-    params.BoundsMax = { 1.0f, 1.0f, 1.0f };
-    params.SolverIterations = 1;
     const GPUFluidEmitEntry particle{ .Position = { 0.0f, 0.0f, 0.0f, 0.0f }, .Velocity = { 0.0f, 0.0f, 0.0f, 0.0f } };
-
-    FluidBodyProxy proxy{};
-    proxy.Position = { 0.8f, 0.8f, 0.8f, static_cast<f32>(FluidBodyProxyShape::Sphere) };
-    proxy.Rotation = { 0.0f, 0.0f, 0.0f, 1.0f };
-    proxy.HalfExtents = { 0.1f, 0.0f, 0.0f, 0.0f };
-    VkBuffer oldBuffer = VK_NULL_HANDLE;
-    SubmitFrame([&]()
-                {
-                    solver.Emit(std::span(&particle, 1));
-                    solver.Step(params, 1.0f / 60.0f, std::span(&proxy, 1), {});
-                    oldBuffer = BoundStorageBuffer(ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES); });
-    ASSERT_NE(oldBuffer, VK_NULL_HANDLE);
-
-    DelayedComputeRead read(*m_Device, oldBuffer, 0, sizeof(FluidBodyProxy));
-    ASSERT_TRUE(read.IsPending());
-    // The same proxy count, so a reverted (reused) buffer would take the write.
-    proxy.Position.x = -0.8f;
-    VkBuffer newBuffer = VK_NULL_HANDLE;
-    SubmitFrame([&]()
-                {
-                    solver.Step(params, 1.0f / 60.0f, std::span(&proxy, 1), {});
-                    newBuffer = BoundStorageBuffer(ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES); });
-    ASSERT_NE(newBuffer, VK_NULL_HANDLE);
+    const auto delayedRead = [&](bool fault, f32& seenX)
     {
-        // The next step really published the moved proxy, so the check below
-        // cannot pass because nothing was rewritten.
-        DelayedComputeRead current(*m_Device, newBuffer, 0, sizeof(FluidBodyProxy), ReadTiming::Immediate);
-        const std::vector<u8> now = current.Release();
-        ASSERT_EQ(now.size(), sizeof(FluidBodyProxy));
-        FluidBodyProxy published{};
-        std::memcpy(&published, now.data(), sizeof(published));
-        ASSERT_FLOAT_EQ(published.Position.x, -0.8f) << "the step did not publish the next proxies";
-    }
+        const ScopedStagingReuseFault reuse(fault);
+        GPUFluidSolver solver(16);
+        ASSERT_TRUE(solver.IsValid());
+        FluidSolverParams params;
+        params.BoundsMin = { -1.0f, -1.0f, -1.0f };
+        params.BoundsMax = { 1.0f, 1.0f, 1.0f };
+        params.SolverIterations = 1;
 
-    const std::vector<u8> bytes = read.Release();
-    ASSERT_EQ(bytes.size(), sizeof(FluidBodyProxy));
-    FluidBodyProxy seen{};
-    std::memcpy(&seen, bytes.data(), sizeof(seen));
-    EXPECT_FLOAT_EQ(seen.Position.x, 0.8f) << "the delayed collision read the NEXT step's proxies";
+        FluidBodyProxy proxy{};
+        proxy.Position = { 0.8f, 0.8f, 0.8f, static_cast<f32>(FluidBodyProxyShape::Sphere) };
+        proxy.Rotation = { 0.0f, 0.0f, 0.0f, 1.0f };
+        proxy.HalfExtents = { 0.1f, 0.0f, 0.0f, 0.0f };
+        BoundRange old;
+        SubmitFrame([&]()
+                    {
+                        solver.Emit(std::span(&particle, 1));
+                        solver.Step(params, 1.0f / 60.0f, std::span(&proxy, 1), {});
+                        old = BoundStorageRange(ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES); });
+        ASSERT_NE(old.Buffer, VK_NULL_HANDLE);
+
+        DelayedComputeRead read(*m_Device, old.Buffer, old.Offset, sizeof(FluidBodyProxy));
+        ASSERT_TRUE(read.IsPending());
+        // The same proxy count, so a reused buffer would take the write.
+        proxy.Position.x = -0.8f;
+        BoundRange next;
+        SubmitFrame([&]()
+                    {
+                        solver.Step(params, 1.0f / 60.0f, std::span(&proxy, 1), {});
+                        next = BoundStorageRange(ShaderBindingLayout::SSBO_FLUID_BODY_PROXIES); });
+        ASSERT_NE(next.Buffer, VK_NULL_HANDLE);
+        {
+            // The next step really published the moved proxy, so the check below
+            // cannot pass because nothing was rewritten.
+            DelayedComputeRead current(*m_Device, next.Buffer, next.Offset, sizeof(FluidBodyProxy), ReadTiming::Immediate);
+            const std::vector<u8> now = current.Release();
+            ASSERT_EQ(now.size(), sizeof(FluidBodyProxy));
+            FluidBodyProxy published{};
+            std::memcpy(&published, now.data(), sizeof(published));
+            ASSERT_FLOAT_EQ(published.Position.x, -0.8f) << "the step did not publish the next proxies";
+        }
+
+        const std::vector<u8> bytes = read.Release();
+        ASSERT_EQ(bytes.size(), sizeof(FluidBodyProxy));
+        FluidBodyProxy seen{};
+        std::memcpy(&seen, bytes.data(), sizeof(seen));
+        seenX = seen.Position.x;
+    };
+    f32 shipped = 0.0f;
+    ASSERT_NO_FATAL_FAILURE(delayedRead(false, shipped));
+    EXPECT_FLOAT_EQ(shipped, 0.8f) << "the delayed collision read the NEXT step's proxies";
+    f32 faulted = 0.0f;
+    ASSERT_NO_FATAL_FAILURE(delayedRead(true, faulted));
+    EXPECT_FLOAT_EQ(faulted, -0.8f) << "NEGATIVE CONTROL: in-place reuse did not reach the held read, so the test "
+                                       "cannot see the race it exists for";
 }
 
 // The ray-traced skeletal palette: a deformation dispatch from an earlier frame
@@ -14879,6 +14978,9 @@ TEST_F(VulkanPassSuite, StagingAllocationsStayWithinCpuBaselines)
                 {
                     solver.Emit(entries);
                     solver.Step(params, kDt, proxies, {}); });
+    // The emit AND the step that consumes it (#1543): Vulkan stages the batch
+    // in that step, GL in the emit, so only the pair is the same work on both.
+    // The staging's share is this minus fluid_step_no_proxies.
     const auto measureEmit = [&]() -> u64
     {
         std::array<u64, kSamples> samples{};
@@ -14886,8 +14988,11 @@ TEST_F(VulkanPassSuite, StagingAllocationsStayWithinCpuBaselines)
                     {
                         for (u64& sample : samples)
                         {
-                            sample = timed([&]() { solver.Emit(entries); });
-                            solver.Step(params, kDt, {}, {}); // consumes the batch, so the next Emit allocates
+                            sample = timed([&]()
+                                           {
+                                               solver.Emit(entries);
+                                               solver.Step(params, kDt, {}, {});
+                                           });
                         } });
         return minOf(samples);
     };
@@ -14903,13 +15008,47 @@ TEST_F(VulkanPassSuite, StagingAllocationsStayWithinCpuBaselines)
                         } });
         return minOf(samples);
     };
-    report("vk_fluid_emit_staging_32", MeasureBenchmarkStableNs("vk_fluid_emit_staging_32", measureEmit));
+    report("vk_fluid_emit_step_32", MeasureBenchmarkStableNs("vk_fluid_emit_step_32", measureEmit));
     report("vk_fluid_step_4_proxies",
            MeasureBenchmarkStableNs("vk_fluid_step_4_proxies", [&]()
                                     { return measureStep(true); }));
     report("vk_fluid_step_no_proxies",
            MeasureBenchmarkStableNs("vk_fluid_step_no_proxies", [&]()
                                     { return measureStep(false); }));
+
+    // What the numbers above stand for (#1543): the staging takes frame-arena
+    // ranges, so a frame of emits and proxy steps creates no device memory
+    // allocation at all. A per-batch StorageBuffer::Create adds one per call.
+    const auto liveAllocations = [&]() -> u64
+    {
+        std::array<VmaBudget, VK_MAX_MEMORY_HEAPS> budgets{};
+        vmaGetHeapBudgets(m_Device->GetAllocator(), budgets.data());
+        u64 count = 0u;
+        for (const VmaBudget& budget : budgets)
+            count += budget.statistics.allocationCount;
+        return count;
+    };
+    auto& arena = VulkanFrameArena::Get();
+    u64 before = 0u;
+    u64 after = 0u;
+    u64 stagedBytes = 0u;
+    SubmitFrame([&]()
+                {
+                    before = liveAllocations();
+                    const u64 stagedBefore = arena.GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::DispatchStaging);
+                    for (u32 i = 0; i < kSamples; ++i)
+                    {
+                        particles.EmitParticles(batch);
+                        solver.Emit(entries);
+                        solver.Step(params, kDt, proxies, {});
+                    }
+                    after = liveAllocations();
+                    stagedBytes = arena.GetConsumerBytesThisFrame(VulkanFrameArenaConsumer::DispatchStaging) - stagedBefore; });
+    EXPECT_EQ(after, before) << "per-dispatch staging allocated device memory";
+    EXPECT_GE(stagedBytes, static_cast<u64>(kSamples) * (batch.size() * GPUParticle::GetSize() +
+                                                         entries.size() * GPUFluidEmitEntry::GetSize() +
+                                                         proxies.size() * FluidBodyProxy::GetSize()))
+        << "the staging did not go through the frame arena";
 }
 
 // =============================================================================

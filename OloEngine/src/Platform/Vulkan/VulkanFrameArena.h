@@ -68,6 +68,8 @@ namespace OloEngine
         VertexSnapshot,
         StorageSnapshot,
         RayTracingStaging,
+        // Per-dispatch compute input, RenderCommand::BindTransientStorage (#1543).
+        DispatchStaging,
         Count,
     };
 
@@ -188,6 +190,10 @@ namespace OloEngine
         {
             return m_Slots[frameSlot % kFramesInFlight].Buffer;
         }
+        // The slot buffer and byte offset an arena address lies in, for a
+        // test that copies a bound range out (diagnostic affordance). False
+        // for an address outside every slot.
+        [[nodiscard]] bool ResolveAddress(VkDeviceAddress address, VkBuffer& buffer, u64& offset) const;
 
         // Device address of a persistent ZERO-FILLED block (kNullBlockBytes).
         // Root-data assembly substitutes this for an unfed buffer binding so
