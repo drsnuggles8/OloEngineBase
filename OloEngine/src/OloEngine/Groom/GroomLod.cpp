@@ -205,6 +205,34 @@ namespace OloEngine
         return out;
     }
 
+    f32 SanitizeGroomDetailBias(f32 bias) noexcept
+    {
+        if (!std::isfinite(bias) || bias <= 0.0f)
+        {
+            return 1.0f;
+        }
+        return std::clamp(bias, kGroomDetailBiasMin, kGroomDetailBiasMax);
+    }
+
+    f32 ApplyGroomDetailBias(f32 threshold, f32 bias) noexcept
+    {
+        return threshold / SanitizeGroomDetailBias(bias);
+    }
+
+    GroomLodPolicy ApplyGroomDetailBias(const GroomLodPolicy& policy, f32 bias) noexcept
+    {
+        GroomLodPolicy out = SanitizeGroomLodPolicy(policy);
+        out.CardPixelSize = ApplyGroomDetailBias(out.CardPixelSize, bias);
+        out.MeshPixelSize = ApplyGroomDetailBias(out.MeshPixelSize, bias);
+        out.Visibility.FullPixelSize = ApplyGroomDetailBias(out.Visibility.FullPixelSize, bias);
+        out.Simulation.FullPixelSize = ApplyGroomDetailBias(out.Simulation.FullPixelSize, bias);
+        out.Shadow.FullPixelSize = ApplyGroomDetailBias(out.Shadow.FullPixelSize, bias);
+        // Idempotent on an already-sanitised policy, so at bias 1 this returns
+        // exactly what the first call did; elsewhere it clamps a scaled
+        // threshold back inside the authoring bounds.
+        return SanitizeGroomLodPolicy(out);
+    }
+
     GroomLodDecision IdentityGroomLodDecision() noexcept
     {
         GroomLodDecision decision;

@@ -360,6 +360,15 @@ namespace OloEngine
         // instead of skinned, packed and uploaded by the CPU every frame. Off is
         // the CPU evaluation, kept as the reference. A diagnostic, not persisted.
         bool GroomGpuRootFrames = true;
+        // --- Groom detail bias (issue #1616) ---
+        // Divides every pixel threshold a groom's detail is chosen by: the
+        // GroomLodComponent tier edges and budget curves, the coat shadow's own
+        // LOD and the ray-tracing proxy's tier. Above 1 a coat keeps its detail
+        // farther away, below 1 it sheds it sooner. 1 is bit-identical to no
+        // bias at all. The quality tier writes it (ApplyTieringToRendererSettings)
+        // and the console variable OLO_GROOM_DETAIL_BIAS reads and writes this
+        // field; it is sanitised where it is applied (SanitizeGroomDetailBias).
+        f32 GroomDetailBias = 1.0f;
 
         // --- Debug overlays ---
         // Editor-only master switch. Kept process-global with the other renderer

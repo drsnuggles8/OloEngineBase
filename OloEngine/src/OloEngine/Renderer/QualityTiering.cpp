@@ -1,7 +1,15 @@
 #include "OloEnginePCH.h"
 #include "QualityTiering.h"
 
+#include "OloEngine/Core/CVar.h"
+#include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Groom/GroomLod.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+
+#include <cstring>
+#include <format>
+#include <string>
 
 namespace OloEngine
 {
@@ -47,6 +55,8 @@ namespace OloEngine
                 // one that needs it most and the small allowance is the point.
                 s.AnimalSchedulingEnabled = true;
                 s.AnimalFrameBudgetUnits = 2000.0f;
+                // A coat sheds its strands at twice the apparent size.
+                s.GroomDetailBias = 0.5f;
                 break;
 
             case QualityPreset::Medium:
@@ -71,6 +81,7 @@ namespace OloEngine
                 s.DDGIBudgetScale = 0.5f; // halved capture/relight budgets
                 s.AnimalSchedulingEnabled = true;
                 s.AnimalFrameBudgetUnits = 4000.0f;
+                s.GroomDetailBias = 0.75f;
                 break;
 
             case QualityPreset::High:
@@ -93,6 +104,7 @@ namespace OloEngine
                 s.ChromaticAberrationEnabled = false;
                 s.AnimalSchedulingEnabled = true;
                 s.AnimalFrameBudgetUnits = 6000.0f;
+                s.GroomDetailBias = 1.0f; // every coat as authored
                 break;
 
             case QualityPreset::Ultra:
@@ -119,6 +131,8 @@ namespace OloEngine
                 s.DDGIBudgetScale = 2.0f; // faster capture convergence on Ultra
                 s.AnimalSchedulingEnabled = true;
                 s.AnimalFrameBudgetUnits = 12000.0f;
+                // Strands down to two thirds of the authored hand-over size.
+                s.GroomDetailBias = 1.5f;
                 break;
 
             case QualityPreset::Custom:
@@ -182,6 +196,47 @@ namespace OloEngine
         renderer.DDGIBudgetScale = tiering.DDGIBudgetScale;
         renderer.AnimalSchedulingEnabled = tiering.AnimalSchedulingEnabled;
         renderer.AnimalFrameBudgetUnits = tiering.AnimalFrameBudgetUnits;
+        renderer.GroomDetailBias = tiering.GroomDetailBias;
+    }
+
+    void RegisterGroomDetailBiasCVar()
+    {
+        static const CVars::CVarHandle s_Handle = []
+        {
+            CVars::CVarBinding binding;
+            binding.Name = "OLO_GROOM_DETAIL_BIAS";
+            binding.Help = "Global groom detail bias (#1616): divides every pixel threshold a groom's detail is "
+                           "chosen by (GroomLodComponent tiers and budgets, the coat shadow LOD, the ray-traced "
+                           "proxy tier). 2 keeps strands to half the apparent size, 0.5 hands over at twice it; "
+                           "1 is the authored behaviour. The quality preset writes it; range [0.25, 4].";
+            binding.Type = CVars::CVarType::Float;
+            // Shortest round-trip, CVar<f32>'s rendering: the registry decides
+            // a change happened by comparing these strings.
+            binding.Render = [](void*)
+            { return std::format("{}", Renderer3D::GetRendererSettings().GroomDetailBias); };
+            binding.IsDefault = [](void*)
+            {
+                const f32 value = Renderer3D::GetRendererSettings().GroomDetailBias;
+                constexpr f32 kNeutral = 1.0f;
+                return std::memcmp(&value, &kNeutral, sizeof(f32)) == 0;
+            };
+            binding.Parse = [](void*, std::string_view raw, std::string& error)
+            {
+                const std::string buffer(CVars::TrimText(raw));
+                const std::optional<f32> parsed =
+                    Levers::ParseNumberLever(buffer.c_str(), kGroomDetailBiasMin, kGroomDetailBiasMax);
+                if (!parsed)
+                {
+                    error = std::format("expected a finite number in [{}, {}]", kGroomDetailBiasMin,
+                                        kGroomDetailBiasMax);
+                    return false;
+                }
+                Renderer3D::GetRendererSettings().GroomDetailBias = *parsed;
+                return true;
+            };
+            return CVars::Register(binding);
+        }();
+        (void)s_Handle;
     }
 
     std::string_view QualityPresetToString(QualityPreset preset)

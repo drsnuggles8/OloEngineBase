@@ -5,6 +5,7 @@
 // GroomLodVisualEvidenceTest — issue #1252, on real pixels.
 //
 // Writes OloEditor/assets/tests/visual/GroomLod[Off]_GL_<Path>[_<Distance>].png
+// and GroomDetailBias{High,Low}_GL_<Path>.png (#1616)
 //
 // The filename carries the {backend} x {path} cell it covers, including the
 // backend even though it is always GL here: a reader counting files then cannot
@@ -66,6 +67,7 @@
 
 #include <stb_image/stb_image_write.h>
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -512,6 +514,86 @@ namespace OloEngine::Tests
         }
 
         Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+    }
+
+    // =========================================================================
+    // The global detail bias (#1616): the hand-over moves with the preset
+    // =========================================================================
+
+    TEST_F(GroomLodVisualEvidenceTest, TheDetailBiasMovesTheHandOverOnEveryPath)
+    {
+        struct PathCase
+        {
+            const char* Name;
+            RenderingPath Path;
+        };
+        const std::array<PathCase, 3> paths = { {
+            { "Forward", RenderingPath::Forward },
+            { "ForwardPlus", RenderingPath::ForwardPlus },
+            { "Deferred", RenderingPath::Deferred },
+        } };
+
+        // 300 px: above the fixture's 220 px card edge, below it divided by
+        // Low's 0.5 (440 px). At 1 the coat is on strands, at 0.5 on cards. The
+        // pair is the same camera, the bias the only thing moved.
+        constexpr f32 kPixelSize = 300.0f;
+        RendererSettings& settings = Renderer3D::GetRendererSettings();
+        const f32 savedBias = settings.GroomDetailBias;
+        const auto onCards = [this]
+        { return PassStats().Lod.ByRepresentation[static_cast<sizet>(GroomRepresentation::Card)] == 1u; };
+        // EACH ARM FROM A FRESH LADDER. The hysteresis holds whatever tier the
+        // previous arm left, and this pose sits inside the 15% dead band, so
+        // without the reset the second arm reads the first arm's tier. Turning
+        // the component off resets the state (ADisabledPolicyIsTheIdentity...).
+        const auto freshLadder = [this]
+        {
+            Lod().m_Enabled = false;
+            std::vector<u8> scratch;
+            Capture("", kPixelSize, scratch);
+            Lod().m_Enabled = true;
+        };
+
+        for (const PathCase& pathCase : paths)
+        {
+            settings.Path = pathCase.Path;
+            Renderer3D::ApplyRendererSettings();
+            Lod().m_Enabled = true;
+
+            settings.GroomDetailBias = 1.0f;
+            freshLadder();
+            std::vector<u8> asAuthored;
+            Capture(std::string("GroomDetailBiasHigh_GL_") + pathCase.Name, kPixelSize, asAuthored);
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+            const bool authoredOnCards = onCards();
+            const u32 strandsAuthored = PassStats().StrandsDrawn;
+
+            settings.GroomDetailBias = 0.5f;
+            freshLadder();
+            std::vector<u8> low;
+            Capture(std::string("GroomDetailBiasLow_GL_") + pathCase.Name, kPixelSize, low);
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+            const bool lowOnCards = onCards();
+            const u32 strandsLow = PassStats().StrandsDrawn;
+            const f64 coverage =
+                static_cast<f64>(CountCoatPixels(low)) / std::max(1.0, static_cast<f64>(CountCoatPixels(asAuthored)));
+
+            std::printf("[groom-detail-bias] %-11s  bias 1: %s, %6u strands   bias 0.5: %s, %6u strands   "
+                        "coverage %.3f\n",
+                        pathCase.Name, authoredOnCards ? "Card" : "Strand", strandsAuthored,
+                        lowOnCards ? "Card" : "Strand", strandsLow, coverage);
+            EXPECT_GT(MeanLuminance(asAuthored), 0.02) << pathCase.Name << ": the frame is (near-)black";
+            EXPECT_FALSE(authoredOnCards) << pathCase.Name << ": at bias 1 a 300 px coat left its strands";
+            EXPECT_TRUE(lowOnCards) << pathCase.Name << ": at bias 0.5 the 440 px card edge did not hand over";
+            EXPECT_LT(strandsLow, strandsAuthored / 2u) << pathCase.Name << ": the low preset saved nothing";
+            // The hand-over still preserves the coat, at a size the card was
+            // not cooked for: the bias is a cost trade, not a bald coat.
+            EXPECT_GT(coverage, 0.75) << pathCase.Name;
+            EXPECT_LT(coverage, 1.30) << pathCase.Name;
+        }
+
+        settings.GroomDetailBias = savedBias;
+        settings.Path = RenderingPath::Forward;
         Renderer3D::ApplyRendererSettings();
     }
 

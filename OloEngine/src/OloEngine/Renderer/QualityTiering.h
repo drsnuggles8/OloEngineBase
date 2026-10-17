@@ -69,6 +69,12 @@ namespace OloEngine
         bool AnimalSchedulingEnabled = true;
         f32 AnimalFrameBudgetUnits = 6000.0f;
 
+        // Groom detail bias (issue #1616): divides every groom pixel threshold
+        // (see RendererSettings::GroomDetailBias). A tier trades groom detail
+        // for frame time with it the way it trades the herd's with the budget
+        // above; High is 1, the bias that leaves every coat as authored.
+        f32 GroomDetailBias = 1.0f;
+
         // Realtime DDGI (issue #632). Applied to RendererSettings via
         // ApplyTieringToRendererSettings — one-directional (not part of the
         // per-scene PP overlay StripTieringOverlay round-trips), since
@@ -91,6 +97,14 @@ namespace OloEngine
     // of the per-scene PP overlay round-trip — call it alongside at apply sites.
     struct RendererSettings;
     void ApplyTieringToRendererSettings(const QualityTieringSettings& tiering, RendererSettings& renderer);
+
+    // The console variable OLO_GROOM_DETAIL_BIAS (issue #1616): a view of
+    // RendererSettings::GroomDetailBias, not a second copy of it, so a preset
+    // applied after a console write wins and the console reads back what the
+    // frame uses. Accepts a finite number in [kGroomDetailBiasMin,
+    // kGroomDetailBiasMax] and refuses anything else by name. Idempotent:
+    // registered once for the process, whoever calls first (Renderer3D::Init).
+    void RegisterGroomDetailBiasCVar();
 
     // Copy tier-owned PP fields from tiering into pp (single mapping used by Apply and Strip).
     void CopyTierPPFields(const QualityTieringSettings& tiering, PostProcessSettings& pp);

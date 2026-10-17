@@ -84,6 +84,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomGpuDeformation.h"
+#include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Vertex.h"
@@ -378,6 +379,15 @@ namespace OloEngine
         /// Curves the cooked set this frame selected actually carries. Zero
         /// means there is nothing to represent.
         u32 StrandsAvailable = 0;
+
+        /// The global groom detail bias the frame resolved (#1616,
+        /// RendererSettings::GroomDetailBias). The detailed tier's threshold is
+        /// divided by it exactly as the raster ladder's are, so the proxy hands
+        /// over BELOW the raster card edge at every preset, as it does at 1:
+        /// left at 192 px, a bias of 2 would put a coat on the 768-strand proxy
+        /// while it still rasterised every strand, and a reflection of a
+        /// close coat would read sparser than the coat itself.
+        f32 DetailBias = 1.0f;
 
         /// The frame resolved a ray-traced consumer that would read this coat.
         bool Requested = false;

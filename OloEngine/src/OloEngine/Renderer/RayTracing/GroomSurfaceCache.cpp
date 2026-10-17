@@ -719,7 +719,8 @@ namespace OloEngine::RayTracing
         return dispatched;
     }
 
-    void GroomSurfaceCache::Extract(GPUScene& scene, std::span<const GroomStrandRequest> requests, bool wanted)
+    void GroomSurfaceCache::Extract(GPUScene& scene, std::span<const GroomStrandRequest> requests, bool wanted,
+                                    f32 detailBias)
     {
         const auto started = std::chrono::steady_clock::now();
         ++m_Frame;
@@ -787,6 +788,7 @@ namespace OloEngine::RayTracing
             GroomProxyInputs inputs;
             inputs.PixelSize = request.ApparentPixelSize;
             inputs.StrandsAvailable = request.Groom->GetCurveCount();
+            inputs.DetailBias = detailBias;
             inputs.Requested = active;
 
             const i64 entity = static_cast<i64>(request.EntityID);

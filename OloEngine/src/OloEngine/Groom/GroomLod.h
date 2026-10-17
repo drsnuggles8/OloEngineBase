@@ -382,6 +382,46 @@ namespace OloEngine
     [[nodiscard]] GroomLodPolicy SanitizeGroomLodPolicy(const GroomLodPolicy& policy) noexcept;
 
     // -------------------------------------------------------------------------
+    // The global detail bias (#1616)
+    // -------------------------------------------------------------------------
+    //
+    // ONE SCALAR A QUALITY PRESET TRADES GROOM DETAIL FOR FRAME TIME WITH.
+    // Every pixel threshold a groom's detail is chosen by is DIVIDED by it: at
+    // 2 a coat keeps its strands down to half the apparent size (twice the
+    // distance), at 0.5 it hands over at twice the size. The per-groom policy
+    // stays what was authored; the bias is applied on top of it, once, where
+    // the frame's policy is assembled, so an inspector still shows the numbers
+    // its author typed.
+    //
+    // DIVIDING BY EXACTLY 1 IS THE IDENTITY in IEEE arithmetic, so the default
+    // bias leaves every threshold, every decision and every capture bit for bit
+    // what it was before the bias existed. GroomLodContractTest pins that
+    // rather than assuming it.
+    //
+    // NOT SCALED: the hysteresis and the width cap, which are fractions and
+    // ratios rather than sizes, and the card level's SourcePixelSize, which is
+    // what the cook MEASURED the card at — a fact about the bytes, not a
+    // choice of where to draw them. A coat handed over away from its cook size
+    // is already handled by GroomCardCoverageGrowthBlend on the near side, and
+    // on the far side a low preset accepts cards drawn as cooked.
+
+    inline constexpr f32 kGroomDetailBiasMin = 0.25f;
+    inline constexpr f32 kGroomDetailBiasMax = 4.0f;
+
+    /// The bias as it is applied: a non-finite or non-positive value takes the
+    /// neutral 1 (never a clamp of a NaN, which std::clamp passes through), any
+    /// other is clamped to [kGroomDetailBiasMin, kGroomDetailBiasMax].
+    [[nodiscard]] f32 SanitizeGroomDetailBias(f32 bias) noexcept;
+
+    /// A pixel threshold under the bias: `threshold / SanitizeGroomDetailBias(bias)`.
+    [[nodiscard]] f32 ApplyGroomDetailBias(f32 threshold, f32 bias) noexcept;
+
+    /// `policy`, sanitised, with its two tier thresholds and its three budget
+    /// curves' full-rate sizes scaled by the bias, and sanitised again so the
+    /// result is inside the authoring bounds and still ordered.
+    [[nodiscard]] GroomLodPolicy ApplyGroomDetailBias(const GroomLodPolicy& policy, f32 bias) noexcept;
+
+    // -------------------------------------------------------------------------
     // What the frame resolved
     // -------------------------------------------------------------------------
 

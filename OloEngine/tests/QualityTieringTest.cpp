@@ -1,7 +1,10 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
+#include "OloEngine/Core/CVar.h"
+#include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Renderer/QualityTiering.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h" // RendererSettings, for the tier-to-renderer copy below
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
@@ -195,4 +198,75 @@ TEST(QualityTiering, TheAnimalBudgetReachesRendererSettings)
     ApplyTieringToRendererSettings(GetPresetSettings(QualityPreset::Low), renderer);
     EXPECT_FLOAT_EQ(renderer.AnimalFrameBudgetUnits,
                     GetPresetSettings(QualityPreset::Low).AnimalFrameBudgetUnits);
+}
+
+// =============================================================================
+// Groom detail bias across tiers (issue #1616)
+// =============================================================================
+
+TEST(QualityTiering, TheGroomDetailBiasIsOrderedByTierAndHighIsAsAuthored)
+{
+    // High is EXACTLY 1, the bias that is bit-identical to none: every groom
+    // capture committed before the bias existed was taken at High's numbers.
+    EXPECT_FLOAT_EQ(GetPresetSettings(QualityPreset::High).GroomDetailBias, 1.0f);
+    EXPECT_FLOAT_EQ(GetPresetSettings(QualityPreset::Custom).GroomDetailBias, 1.0f);
+    EXPECT_FLOAT_EQ(QualityTieringSettings{}.GroomDetailBias, 1.0f) << "the struct default is High's value";
+
+    const f32 low = GetPresetSettings(QualityPreset::Low).GroomDetailBias;
+    const f32 med = GetPresetSettings(QualityPreset::Medium).GroomDetailBias;
+    const f32 high = GetPresetSettings(QualityPreset::High).GroomDetailBias;
+    const f32 ultra = GetPresetSettings(QualityPreset::Ultra).GroomDetailBias;
+    EXPECT_LT(low, med);
+    EXPECT_LT(med, high);
+    EXPECT_LT(high, ultra);
+    for (const f32 bias : { low, med, high, ultra })
+    {
+        EXPECT_FLOAT_EQ(SanitizeGroomDetailBias(bias), bias) << "a preset outside the range the sanitiser keeps";
+    }
+}
+
+TEST(QualityTiering, TheGroomDetailBiasReachesRendererSettings)
+{
+    // The same hand-written copy the animal budget is guarded against.
+    RendererSettings renderer;
+    ApplyTieringToRendererSettings(GetPresetSettings(QualityPreset::Low), renderer);
+    EXPECT_FLOAT_EQ(renderer.GroomDetailBias, GetPresetSettings(QualityPreset::Low).GroomDetailBias);
+    ApplyTieringToRendererSettings(GetPresetSettings(QualityPreset::Ultra), renderer);
+    EXPECT_FLOAT_EQ(renderer.GroomDetailBias, GetPresetSettings(QualityPreset::Ultra).GroomDetailBias);
+}
+
+TEST(QualityTiering, TheGroomDetailBiasConsoleVariableIsAViewOfTheRendererSetting)
+{
+    RegisterGroomDetailBiasCVar();
+    RegisterGroomDetailBiasCVar(); // idempotent: one cvar, not two
+
+    RendererSettings& settings = Renderer3D::GetRendererSettings();
+    const f32 saved = settings.GroomDetailBias;
+    settings.GroomDetailBias = 1.0f;
+
+    const auto found = CVars::Find("olo_groom_detail_bias");
+    ASSERT_TRUE(found.has_value()) << "the console variable is not registered";
+    EXPECT_EQ(found->Type, CVars::CVarType::Float);
+    EXPECT_TRUE(found->IsDefault);
+    EXPECT_EQ(found->Value, "1");
+
+    const CVars::SetResult set = CVars::SetFromString("OLO_GROOM_DETAIL_BIAS", "2");
+    EXPECT_TRUE(set.Ok) << set.Error;
+    EXPECT_FLOAT_EQ(settings.GroomDetailBias, 2.0f) << "a console write must land in the setting the frame reads";
+    EXPECT_FALSE(CVars::Find("OLO_GROOM_DETAIL_BIAS")->IsDefault);
+
+    // A preset applied afterwards wins: the cvar has no copy of its own.
+    ApplyTieringToRendererSettings(GetPresetSettings(QualityPreset::Low), settings);
+    EXPECT_EQ(CVars::Find("OLO_GROOM_DETAIL_BIAS")->Value, "0.5");
+
+    // Refused by name rather than clamped or swallowed.
+    for (const char* bad : { "nan", "inf", "9", "0", "-1", "two" })
+    {
+        const CVars::SetResult refused = CVars::SetFromString("OLO_GROOM_DETAIL_BIAS", bad);
+        EXPECT_FALSE(refused.Ok) << "'" << bad << "' was accepted";
+        EXPECT_FALSE(refused.Error.empty()) << "'" << bad << "' was refused without a reason";
+    }
+    EXPECT_FLOAT_EQ(settings.GroomDetailBias, 0.5f) << "a refused write moved the setting";
+
+    settings.GroomDetailBias = saved;
 }

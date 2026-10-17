@@ -2,6 +2,7 @@
 #include "RendererSettingsPanel.h"
 #include "SettingsChangeLog.h"
 #include "../UndoRedo/SpecializedCommands.h"
+#include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/BackendSelection.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
@@ -634,6 +635,24 @@ namespace OloEngine
             changed = true;
     }
 
+    void RendererSettingsPanel::DrawGroomControls(QualityTieringSettings& qt, bool& changed)
+    {
+        ImGui::Spacing();
+        ImGui::TextDisabled("Grooms");
+        // The same range the console variable and the project file accept (#1616).
+        if (ImGui::SliderFloat("Groom detail bias##qt", &qt.GroomDetailBias, kGroomDetailBiasMin, kGroomDetailBiasMax,
+                               "%.2f", ImGuiSliderFlags_Logarithmic))
+            changed = true;
+        if (ImGui::IsItemHovered())
+        {
+            ImGui::SetTooltip("Divides every pixel threshold a groom's detail is chosen by: the Groom LOD\n"
+                              "tier edges and budgets, the coat shadow's LOD and the ray-traced proxy.\n"
+                              "2 keeps a coat on strands down to half the apparent size; 0.5 hands it to\n"
+                              "cards at twice the size. 1 draws every coat as its author set it up.\n"
+                              "Console: OLO_GROOM_DETAIL_BIAS.");
+        }
+    }
+
     void RendererSettingsPanel::DrawBackendSection()
     {
         if (!ImGui::CollapsingHeader("Backend"))
@@ -719,6 +738,7 @@ namespace OloEngine
             DrawShadowControls(qt, changed);
             DrawAOControls(qt, changed);
             DrawPostProcessControls(qt, changed);
+            DrawGroomControls(qt, changed);
 
             if (changed)
             {

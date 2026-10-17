@@ -65,6 +65,7 @@ namespace OloEngine
         static void DrawRayTracedShadowControls();
         static void DrawAOControls(QualityTieringSettings& qt, bool& changed);
         static void DrawPostProcessControls(QualityTieringSettings& qt, bool& changed);
+        static void DrawGroomControls(QualityTieringSettings& qt, bool& changed);
 
         bool m_DebugSettingsChanged = false;
         CommandHistory* m_CommandHistory = nullptr;

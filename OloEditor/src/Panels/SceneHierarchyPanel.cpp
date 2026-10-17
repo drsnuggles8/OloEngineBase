@@ -10383,6 +10383,16 @@ namespace OloEngine
             }
 
             ImGui::SeparatorText("Representation thresholds");
+            // The global detail bias (#1616) divides every threshold below.
+            // Shown here because a coat handing over at the "wrong" size under
+            // a Low or Ultra preset is otherwise a mystery from this panel.
+            if (const f32 bias = SanitizeGroomDetailBias(Renderer3D::GetRendererSettings().GroomDetailBias);
+                !Math::BitwiseEqual(bias, 1.0f))
+            {
+                ImGui::TextDisabled("Quality preset's groom detail bias %.2f: cards below %.0f px in effect",
+                                    static_cast<double>(bias),
+                                    static_cast<double>(ApplyGroomDetailBias(component.m_CardPixelSize, bias)));
+            }
             ImGui::DragFloat("Cards below (px)", &component.m_CardPixelSize, 1.0f, 0.5f, 16384.0f, "%.0f");
             if (ImGui::IsItemHovered())
             {

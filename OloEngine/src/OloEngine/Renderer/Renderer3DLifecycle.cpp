@@ -2,6 +2,7 @@
 #include "OloEngine/Core/CVar.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Terrain/TerrainGPUQuadtree.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
 
@@ -516,6 +517,9 @@ namespace OloEngine
 
         s_Data.RGraph = Ref<RenderGraph>::Create();
         RenderGraphDebugRuntime::SetActiveGraph(s_Data.RGraph);
+
+        // The groom detail bias's console variable (#1616), once per process.
+        RegisterGroomDetailBiasCVar();
 
         // Flipping the aliasing lever has to evict the transient pool, or the
         // A/B compares a mixed state: objects acquired under the previous policy

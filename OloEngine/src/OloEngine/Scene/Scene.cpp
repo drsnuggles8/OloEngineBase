@@ -9720,6 +9720,11 @@ namespace OloEngine
                 // those values cross on the way to the shader.
                 request.CoatKappa = MakeGroomCoatKappa(*coat);
                 request.CoatLod = MakeGroomCoatLodPolicy(*coat);
+                // The global groom detail bias (#1616) moves the volume's
+                // resolution ladder with the representation ladder, so a preset
+                // that keeps strands farther away keeps their shadow detail too.
+                request.CoatLod.PixelSizeForLod0 = ApplyGroomDetailBias(
+                    request.CoatLod.PixelSizeForLod0, Renderer3D::GetRendererSettings().GroomDetailBias);
                 request.CoatStepVoxels = MakeGroomCoatStepVoxels(*coat);
                 request.CoatMultipleScattering = coat->m_MultipleScattering;
                 request.CoatBakeAtRest = coat->m_BakeAtRest;
@@ -9830,7 +9835,12 @@ namespace OloEngine
 
             if (const auto* lod = m_Registry.try_get<GroomLodComponent>(entity); lod != nullptr)
             {
-                request.LodPolicy = MakeGroomLodPolicy(*lod);
+                // The authored policy under the global detail bias (#1616):
+                // every threshold divided by it, and bit-identical at 1. The
+                // component keeps the authored numbers; the request carries the
+                // ones this frame's decision is taken against.
+                request.LodPolicy =
+                    ApplyGroomDetailBias(MakeGroomLodPolicy(*lod), Renderer3D::GetRendererSettings().GroomDetailBias);
 
                 GroomLodInputs lodInputs;
                 lodInputs.PixelSize = request.ApparentPixelSize;
