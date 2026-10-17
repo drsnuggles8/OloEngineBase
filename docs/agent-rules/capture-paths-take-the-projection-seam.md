@@ -28,6 +28,14 @@ the screen path composes, so a culling bake drops on Vulkan exactly the faces GL
 compensate by hand-flipping winding at the call site; the seam header explains why that is a bug
 this engine has already shipped once.
 
+**A capture that reads facing records `RHI::CaptureFrontFaceForBackend`'s winding, culling or
+not.** `gl_FrontFacing` follows the winding even with culling off. The DDGI capture tags backface
+hits with it and classifies a probe with too many as in-wall; on Vulkan every front face read as
+a backface, every probe went Inactive and was never relit, and realtime GI was silently absent
+(no error, no VUID) until `DDGIProbeUpdatePass::ApplyCaptureRasterState` took the seam's winding.
+`VulkanPassSuite.DdgiCaptureFrontFacingMatchesGlUnderTheCaptureSeam` pins it. Judge GI on Vulkan
+by a probes-off/on A/B of the frame on both backends, never by "the frame looks lit".
+
 ## The story (issue #1264)
 
 `ImpostorBaker` rendered each of the 64 octahedral tiles with

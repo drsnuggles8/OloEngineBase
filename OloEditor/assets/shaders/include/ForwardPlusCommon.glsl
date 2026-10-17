@@ -126,6 +126,12 @@ uvec2 fplusGetTileData(float viewDepth)
     return fplusGrid[fplusClusterIndex(viewDepth)];
 }
 
+// FPLUS_DATA_ONLY: the declarations and the cluster lookup above, without the
+// surface evaluators below. For a consumer that is not a surface and walks the
+// cluster's lights with its own model -- the groom fibre (#1618), which has no
+// normal and so no use for the BRDF closures these call into.
+#ifndef FPLUS_DATA_ONLY
+
 // ---------------------------------------------------------------------------
 // Evaluate all Forward+ point & spot lights for a given surface point
 //
@@ -359,5 +365,6 @@ vec3 fplusEvaluateTileLights(vec3 N, vec3 V, vec3 worldPos,
     return fplusEvaluateTileLights(N, V, worldPos, albedo, metallic, roughness,
                                    viewDepth, OLO_PBR_MODEL_LEGACY);
 }
+#endif // FPLUS_DATA_ONLY
 
 #endif // FORWARD_PLUS_COMMON_GLSL

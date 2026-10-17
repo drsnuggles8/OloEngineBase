@@ -30,6 +30,7 @@
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
+#include "UniformSkyFixture.h"
 #include "RenderPropertyTest.h"
 #include "TestTempDir.h"
 #include "../../MemoryCeiling.h"
@@ -891,6 +892,8 @@ namespace OloEngine::Tests
     class GroomAnimalsAcceptanceEvidenceTest : public RendererAttachedTest
     {
       public:
+        Ref<TextureCubemap> m_BlackSky;
+
         // One animated body with one coat bound to it.
         struct SubjectRig
         {
@@ -1010,6 +1013,16 @@ namespace OloEngine::Tests
                 dl.m_Direction = glm::normalize(glm::vec3(-0.4f, -0.75f, -0.5f));
                 dl.m_Color = glm::vec3(1.0f, 0.97f, 0.92f);
                 dl.m_Intensity = 3.0f;
+            }
+            // NO AMBIENT, as these cases have always been measured. With no
+            // environment the ambient ladder ends at the flat fill, which the
+            // coat takes like its body since #1618; the card tier does not keep
+            // the short coat's self-occlusion of an ambient term (#1625), so a
+            // black sky holds the ladder to the direct light it was built for.
+            {
+                m_BlackSky = MakeUniformSkyCubemap(glm::vec3(0.0f));
+                ASSERT_TRUE(m_BlackSky);
+                SetUniformSkyEnvironment(scene.CreateEntity("BlackSky"), m_BlackSky);
             }
             {
                 // A primary runtime camera is what makes RunFrames render at

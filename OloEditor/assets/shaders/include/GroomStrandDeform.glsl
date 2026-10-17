@@ -38,6 +38,8 @@ layout(std430, binding = 79) readonly buffer GroomDeformation
 #error "include/GroomQuat.glsl must be included before include/GroomStrandDeform.glsl"
 #endif
 
+#include "GroomWetness.glsl"
+
 vec4 oloGroomDeformFloat4(uint unit)
 {
 	return uintBitsToFloat(b_GroomDeform[unit]);
@@ -51,6 +53,11 @@ struct OloGroomDeformLayout
 	uint RootCount;
 	uint SlotCount;
 	uint BindBase;
+	// The wet coat's regions (#1615), derived like BindBase:
+	// GroomDeformBufferLayout::Make writes ClumpBase = RootCount * 4 and
+	// WetBase = RootCount * 5.
+	uint ClumpBase;
+	uint WetBase;
 	uint RootBase;
 	uint SlotBase;
 	uint DisplacementBase;
@@ -67,6 +74,8 @@ OloGroomDeformLayout oloGroomDeformLayout(ivec4 modes, ivec4 bases)
 	// Right after the two-unit guide weights, so derived rather than given a
 	// lane: GroomDeformBufferLayout::Make writes BindBase = RootCount * 2.
 	buf.BindBase = buf.RootCount * 2u;
+	buf.ClumpBase = buf.RootCount * 4u;
+	buf.WetBase = buf.RootCount * 5u;
 	buf.RootBase = uint(max(bases.x, 0));
 	buf.SlotBase = uint(max(bases.y, 0));
 	buf.DisplacementBase = uint(max(bases.z, 0));
@@ -147,6 +156,35 @@ vec4 oloGroomDeformRootRotation(OloGroomDeformLayout buf, uint root)
 	return root < buf.RootCount ? oloGroomDeformFloat4(buf.RootBase + root * 4u + 1u) : vec4(0.0, 0.0, 0.0, 1.0);
 }
 
+// A WET COAT (#1615): the bind-local point laid down, shortened and clumped
+// as the coat's wetness at this strand's root says. The record is per frame --
+// the coat's gravity in object space; the world-up row a root's height above
+// the coat's origin is measured on; the rain, the soaked line, the band and an
+// "any of it wet" flag; the response -- and the clump record per strand is
+// static. A dry coat's flag is zero and the point passes
+// through untouched, so every coat that never gets wet deforms exactly as it
+// did. The wetness is the ROOT's: a strand lies down as one. The frame whose
+// root is evaluated supplies both the height and the gravity, so last frame's
+// point is last frame's wet shape and a still, wet coat has no velocity.
+// Twin: GroomDeformWetLocal in GroomGpuDeformation.cpp.
+vec3 oloGroomDeformWetLocal(OloGroomDeformLayout buf, uint root, vec3 origin, vec4 rotation, vec3 local, float t)
+{
+	vec4 frame = oloGroomDeformFloat4(buf.WetBase + 2u);
+	if (!(frame.w > 0.5))
+	{
+		return local;
+	}
+	vec4 gravity = oloGroomDeformFloat4(buf.WetBase + 0u);
+	float wetness = oloGroomWetness(dot(origin, oloGroomDeformFloat4(buf.WetBase + 1u).xyz), frame.x, frame.y, frame.z);
+	if (!(wetness > 0.0))
+	{
+		return local;
+	}
+	vec3 gravityLocal = oloGroomQuatRotate(oloGroomQuatConjugate(rotation), gravity.xyz);
+	vec3 clump = oloGroomDeformFloat4(buf.ClumpBase + root).xyz;
+	return oloGroomWetLocal(local, t, wetness, gravityLocal, clump, oloGroomDeformFloat4(buf.WetBase + 3u));
+}
+
 // One point of one strand, this frame (previous = false) or last.
 vec3 oloGroomDeformPoint(OloGroomDeformLayout buf, uint root, vec3 local, float t, bool previous)
 {
@@ -160,7 +198,7 @@ vec3 oloGroomDeformPoint(OloGroomDeformLayout buf, uint root, vec3 local, float 
 	uint base = buf.RootBase + root * 4u + (previous ? 2u : 0u);
 	vec3 origin = oloGroomDeformFloat4(base + 0u).xyz;
 	vec4 rotation = oloGroomDeformFloat4(base + 1u);
-	vec3 placed = origin + oloGroomQuatRotate(rotation, local);
+	vec3 placed = origin + oloGroomQuatRotate(rotation, oloGroomDeformWetLocal(buf, root, origin, rotation, local, t));
 	if (buf.Simulated)
 	{
 		placed += oloGroomSampleDisplacement(buf, root, t, previous);

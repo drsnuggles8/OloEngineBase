@@ -143,6 +143,33 @@ namespace OloEngine::Tests
                 return {};
             }
 
+            // Drop the binary sidecars the copy brought along. They are
+            // git-ignored caches the developer's own editor wrote, and a load
+            // prefers one to the YAML: a stale sidecar (one written while a
+            // crashed session's textures failed to load) made these tests read
+            // that file instead of the code under test, red on one box only.
+            std::vector<fs::path> sidecars;
+            for (auto it = fs::recursive_directory_iterator(tempRoot, ec); !ec && it != fs::recursive_directory_iterator(); it.increment(ec))
+            {
+                if (it->is_regular_file() && it->path().extension() == ".scenebin")
+                {
+                    sidecars.push_back(it->path());
+                }
+            }
+            for (const auto& sidecar : sidecars)
+            {
+                if (!fs::remove(sidecar, ec) || ec)
+                {
+                    error = "could not remove the staged sidecar " + sidecar.string() + ": " + ec.message();
+                    return {};
+                }
+            }
+            if (ec)
+            {
+                error = "listing the staged sidecars under " + tempRoot.string() + " failed: " + ec.message();
+                return {};
+            }
+
             return tempRoot;
         }
 
@@ -906,6 +933,87 @@ namespace OloEngine::Tests
                 << key << " was not written as a forward-slash project-relative path";
         }
         EXPECT_EQ(yaml.find("Assets\\"), std::string::npos) << "a texture path was written with backslashes";
+    }
+
+    // A load where a scene texture failed writes NO binary sidecar. A component keeps
+    // its texture as the loaded object, not the path, so the sidecar would store
+    // the sprite without its path, and every later load of the unchanged `.olo`
+    // would be served the texture-less copy. A Vulkan Build Game that lost the
+    // device wrote such sidecars, and AssetSceneLoad then failed on every run.
+    // The same scene without the texture path is the control: it does write one.
+    TEST(AssetSceneLoad, AFailedTextureLoadWritesNoBinarySidecar)
+    {
+        // A failed load still builds a texture object (the raw load's, or the
+        // placeholder), so this needs the GL context its neighbours need.
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        if (!Renderer3D::IsInitialized())
+        {
+            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
+        }
+
+        GLStateGuard glGuard("AssetSceneLoad.FailedTextureNoSidecar", GLStateGuard::Policy::Restore);
+
+        const fs::path project = OloEngine::Tests::TempDir("sidecar");
+        fs::create_directories(project / "Assets" / "Scenes");
+        {
+            std::ofstream out(project / "Sidecar.oloproj");
+            out << "Project:\n"
+                   "  Name: Sidecar\n"
+                   "  StartScene: \"\"\n"
+                   "  AssetDirectory: \"Assets\"\n"
+                   "  ScriptModulePath: \"\"\n";
+        }
+        ASSERT_TRUE(Project::Load(project / "Sidecar.oloproj"));
+        // Unloaded, not restored, as in DecalAndSpriteTexturePathsSurviveRoundTrip:
+        // a previous project can be a shut-down one, and adopting it poisons
+        // every later test in the process (#1074).
+        struct UnloadProject
+        {
+            ~UnloadProject()
+            {
+                Project::Unload();
+            }
+        } unloadProject;
+        auto manager = Ref<EditorAssetManager>::Create();
+        manager->Initialize(false);
+        Project::SetAssetManager(manager);
+
+        const auto writeSprite = [&project](const char* name, const char* texturePathLine)
+        {
+            const auto path = project / "Assets" / "Scenes" / name;
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            out << "Scene: Sprite\n"
+                << "Version: " << SceneSerializer::CurrentVersion << "\n"
+                << "Entities:\n"
+                   "  - Entity: 4242\n"
+                   "    TagComponent:\n"
+                   "      Tag: Sprite\n"
+                   "    TransformComponent:\n"
+                   "      Translation: [0.0, 0.0, 0.0]\n"
+                   "      Rotation: [0.0, 0.0, 0.0]\n"
+                   "      Scale: [1.0, 1.0, 1.0]\n"
+                   "    SpriteRendererComponent:\n"
+                   "      Color: [1.0, 1.0, 1.0, 1.0]\n"
+                << texturePathLine;
+            return path;
+        };
+
+        const auto missing = writeSprite("Missing.olo", "      TexturePath: Assets/Textures/DoesNotExist.png\n");
+        {
+            auto scene = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(scene).Deserialize(missing)) << "a missing texture does not fail the load";
+        }
+        EXPECT_FALSE(fs::exists(fs::path(missing).concat(".scenebin")))
+            << "a sidecar written after a failed texture load serves the scene without it from then on";
+
+        const auto control = writeSprite("Control.olo", "");
+        {
+            auto scene = Scene::Create();
+            ASSERT_TRUE(SceneSerializer(scene).Deserialize(control));
+        }
+        EXPECT_TRUE(fs::exists(fs::path(control).concat(".scenebin")))
+            << "the same sprite with no texture path does write a sidecar";
     }
 
 } // namespace OloEngine::Tests

@@ -44,6 +44,7 @@
 #include "OloEngine/Groom/GroomDeformation.h"
 #include "OloEngine/Groom/GroomGuideInfluence.h"
 #include "OloEngine/Groom/GroomVisibility.h"
+#include "OloEngine/Groom/GroomWetness.h"
 #include "OloEngine/Math/Math.h"
 
 #include <glm/glm.hpp>
@@ -360,6 +361,12 @@ namespace OloEngine
     {
         const GroomBindingAsset* Binding = nullptr;
         std::span<const GroomRootTransform> RootTransforms{};
+        /// A wet coat (#1615): the record GroomStrandDeform.glsl reads from the
+        /// GPU path's buffer, applied to each bind-local point the same way, and
+        /// each BASE curve's clump growth in object space at rest
+        /// (ComputeGroomClumpGrowth). Null / empty for a dry coat.
+        const GroomDeformWetRecord* Wet = nullptr;
+        std::span<const glm::vec3> ClumpGrowth{};
 
         [[nodiscard]] bool IsUsable(u32 curveCount) const noexcept
         {
@@ -456,6 +463,21 @@ namespace OloEngine
                                               std::vector<u32>* outStrandFirstIndex = nullptr,
                                               std::vector<GroomCasterStrand>* outCasterStrands = nullptr,
                                               std::vector<u32>* outStrandCurves = nullptr);
+
+    /**
+     * @brief Each curve's clump growth, for a wet coat to gather toward (#1615).
+     *
+     * The mean length-scaled growth (tip - root) of the clump each curve of
+     * `groom` grows in -- the coat's own clumps, keyed by (group, root-UV cell)
+     * exactly as the build's, over every coat-kept curve -- in groom object
+     * space at rest. It is the target ApplyGroomCoatShape pulls a clumped tip
+     * toward, computed for every coat whether it authored a clump or not: a
+     * coat with no coat settings clumps over the default cell at its cooked
+     * length. `outGrowth` is resized to the curve count; a curve the coat drops
+     * or the settings exclude gets zero, which gathers nothing.
+     */
+    void ComputeGroomClumpGrowth(const GroomCurveView& groom, const GroomStrandBuildSettings& settings,
+                                 const GroomCoatContext* coat, std::vector<glm::vec3>& outGrowth);
 
     /**
      * @brief The same strands as BuildGroomStrandMesh, in the GPU-deformed

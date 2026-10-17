@@ -571,6 +571,24 @@ registry.push_back(OLO_VSF_FIELD_RANGE(GroomSoftIntersectionComponent, "Protecte
 registry.push_back(OLO_VSF_FIELD(GroomSoftIntersectionComponent, "Enabled", m_Enabled, Bool));
 registry.push_back(OLO_VSF_FIELD(GroomSoftIntersectionComponent, "Automatic", m_Automatic, Bool));
 
+// GroomWetnessComponent
+registry.push_back(OLO_VSF_FIELD(GroomWetnessComponent, "Enabled", m_Enabled, Bool));
+registry.push_back(OLO_VSF_FIELD(GroomWetnessComponent, "AutomaticWaterline", m_AutomaticWaterline, Bool));
+registry.push_back(OLO_VSF_FIELD(GroomWetnessComponent, "Waterline", m_Waterline, Float));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "Band", m_Band, Float, OLO_VSF_BOUND(0.005f), OLO_VSF_BOUND(1.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "RainSoak", m_RainSoak, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(1.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "SoakRate", m_SoakRate, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(100.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "DryRate", m_DryRate, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(100.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "Darkening", m_Darkening, Float, OLO_VSF_BOUND(1.0f), OLO_VSF_BOUND(8.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "Gloss", m_Gloss, Float, OLO_VSF_BOUND(0.05f), OLO_VSF_BOUND(1.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "Sheen", m_Sheen, Float, OLO_VSF_BOUND(0.05f), OLO_VSF_BOUND(1.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "Flatten", m_Flatten, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(1.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "Shorten", m_Shorten, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(0.9f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "Clump", m_Clump, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(1.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "Immersion", m_Immersion, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(1.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "SoakedLine", m_SoakedLine, Float, OLO_VSF_BOUND(-1000000.0f), OLO_VSF_BOUND(1000000.0f)));
+registry.push_back(OLO_VSF_FIELD_RANGE(GroomWetnessComponent, "Rain", m_Rain, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(1.0f)));
+
 // IKTargetComponent
 registry.push_back(OLO_VSF_FIELD(IKTargetComponent, "AimBoneIndex", AimBoneIndex, Int));
 registry.push_back(OLO_VSF_FIELD(IKTargetComponent, "AimTarget", AimTarget, Vec3));
@@ -603,6 +621,10 @@ registry.push_back(OLO_VSF_FIELD(InstancePortalComponent, "TargetZoneID", Target
 registry.push_back(OLO_VSF_FIELD(InstancePortalComponent, "InstanceType", InstanceType, Int));
 registry.push_back(OLO_VSF_FIELD(InstancePortalComponent, "MaxPlayers", MaxPlayers, Int));
 
+}
+
+static void BuildRegistryChunk9(std::vector<ComponentFieldEntry>& registry)
+{
 // InstancedMeshComponent
 registry.push_back(OLO_VSF_FIELD(InstancedMeshComponent, "Primitive", Primitive, Int));
 registry.push_back(OLO_VSF_FIELD(InstancedMeshComponent, "LightmapStatic", LightmapStatic, Bool));
@@ -631,10 +653,6 @@ registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "PickupRadius", PickupRadi
 registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "AutoPickup", AutoPickup, Bool));
 registry.push_back(OLO_VSF_FIELD(ItemPickupComponent, "DespawnTimer", DespawnTimer, Float));
 
-}
-
-static void BuildRegistryChunk9(std::vector<ComponentFieldEntry>& registry)
-{
 // LODGroupComponent
 registry.push_back(OLO_VSF_FIELD(LODGroupComponent, "LODGroup.Bias", m_LODGroup.Bias, Float));
 registry.push_back(OLO_VSF_FIELD(LODGroupComponent, "Enabled", m_Enabled, Bool));
@@ -680,6 +698,10 @@ registry.push_back(OLO_VSF_FIELD_RANGE(LocomotionComponent, "WalkClipSpeed", Wal
 registry.push_back(OLO_VSF_FIELD_RANGE(LocomotionComponent, "RunClipSpeed", RunClipSpeed, Float, OLO_VSF_BOUND(0.0f), OLO_VSF_BOUND(100.0f)));
 registry.push_back(OLO_VSF_FIELD_RANGE(LocomotionComponent, "MaxStrideScale", MaxStrideScale, Float, OLO_VSF_BOUND(1.0f), OLO_VSF_BOUND(4.0f)));
 
+}
+
+static void BuildRegistryChunk10(std::vector<ComponentFieldEntry>& registry)
+{
 // LuaScriptComponent
 registry.push_back(OLO_VSF_FIELD(LuaScriptComponent, "ScriptFile", ScriptFile, String));
 
@@ -715,10 +737,6 @@ registry.push_back(OLO_VSF_FIELD(NameplateComponent, "ManaBarColor", m_ManaBarCo
 registry.push_back(OLO_VSF_FIELD(NameplateComponent, "BarBackgroundColor", m_BarBackgroundColor, Vec4));
 registry.push_back(OLO_VSF_FIELD(NameplateComponent, "ManaBarGap", m_ManaBarGap, Float));
 
-}
-
-static void BuildRegistryChunk10(std::vector<ComponentFieldEntry>& registry)
-{
 // NavAgentComponent
 registry.push_back(OLO_VSF_FIELD_RANGE(NavAgentComponent, "Radius", m_Radius, Float, OLO_VSF_BOUND(0.01f), OLO_VSF_BOUND(100.0f)));
 registry.push_back(OLO_VSF_FIELD_RANGE(NavAgentComponent, "Height", m_Height, Float, OLO_VSF_BOUND(0.01f), OLO_VSF_BOUND(100.0f)));

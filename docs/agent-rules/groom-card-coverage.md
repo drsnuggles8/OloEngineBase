@@ -84,7 +84,11 @@ in [groom-representation-lod.md](groom-representation-lod.md).
 9. **The card cell sets how far a card averages its lock (#1558).** A wide card reads the body's
    shadow across its ribbon (receiving no scene shadow recovered a third of the dog's step) and shows
    its lock's mean tip, not its outer tips. At the 12 mm cell the adult dogs' cards were 7-9% darker
-   than their strands; at 9 mm both coverage and energy are within the 5% bar. Widening the fibre
+   than their strands; at 9 mm both coverage and energy are within the 5% bar. **Size the cell by
+   the strands a card stands for, not by the dog.** The full-fur breeds (#1608, #1621: 1.6-2.0M
+   strands, over 100 strands a card at 9 mm) fell 5-10% short again at 9 mm; at 6 mm (60-70 a card,
+   the golden's 45 at 12 mm) Bernese and Samoyed are within 4% at every hand-over distance.
+   `tools/dog-authoring/set_card_tier.py` re-authors a committed archive's cell. Widening the fibre
    lobes by the members' tangent spread does not help: 0.25 rad moved the step 1.2%.
 
 ## Measured

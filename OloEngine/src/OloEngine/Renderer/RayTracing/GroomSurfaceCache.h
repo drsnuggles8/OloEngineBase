@@ -168,6 +168,11 @@ namespace OloEngine::RayTracing
             GroomDeformBuffer DeformCpu;
             Ref<GroomGuideInfluenceTable> DeformWeightsFrom;
             bool DeformRelayout = true;
+            /// DeformCpu's clump records are written for its layout (#1615).
+            bool DeformClumpWritten = false;
+            /// ...after the GPU image went up: the next refresh sends their
+            /// region, [ClumpBase, DynamicOffsetBytes), with the frame's.
+            bool DeformClumpPending = false;
             /// DeformCpu was laid out CPU-only (no byte image): the CPU build.
             bool DeformCpuOnly = true;
 

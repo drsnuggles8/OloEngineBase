@@ -207,6 +207,16 @@ namespace OloEngine
 
         void AddMeshCaster(const DDGIMeshCaster& caster);
 
+        // The capture stage's raster state: depth-tested opaque, culling OFF
+        // (the capture must see backfaces), and the capture flavour's winding
+        // from RHI::CaptureFrontFaceForBackend, so DDGI_Capture.glsl's
+        // gl_FrontFacing backface tag means the same on both backends. Public and
+        // static so the Vulkan pass suite drives the production state rather
+        // than a copy of it; RestoreCaptureRasterState puts the engine's default
+        // winding back.
+        static void ApplyCaptureRasterState();
+        static void RestoreCaptureRasterState();
+
         // ---------------------------------------------------------------------
         // Consumption info.
         // ---------------------------------------------------------------------

@@ -44,6 +44,8 @@ The output is an asset overlay for this checkout: `Assets/Models/<breed>`, the a
 - `Assets/Models/Samoyed/refine_samoyed.py`: eight ordered stages producing the final nineteen targets.
 - `Assets/Models/Bernese/build_bernese.py` and `refine_bernese*.py`: six stages producing the final eight targets and coat/iris maps. `authoring_maps.py` keeps this work independent of the Golden generator.
 - `Assets/Models/<breed>/<breed>.abc`: the full groom source. Preserve its `groom_` metadata; a generic Alembic re-export can lose strand groups, widths, pigment and card-authoring settings.
+- `tools/dog-authoring/set_card_tier.py`: re-authors the card tier an archive carries (`groom_card_cell_size`, `groom_card_points`) without re-exporting it, which would reorder its curves. Both breeds author a 6 mm cell: at 9 mm a card stood for over 100 strands and the hand-over to cards fell 5-10% under the strands (#1608, #1621; [groom-card-coverage.md](../agent-rules/groom-card-coverage.md) rule 9). Re-cook the coat and binding after it.
+- `tools/dog-authoring/retarget_front_walk.py`: re-solves a breed's front legs in its Walk clip so the paws stay planted, and sets the walk's travel. The Samoyed's elbows sit off their upper arms' axes, so the golden's rotations sank its front paws 20 mm through a stance and 18 mm into the ground at push-off, and its 0.353 m/s travel outran paws that move at the golden's 0.312. It runs on both the source and the shipped glTF, and the rig's `walkSpeed` carries the same speed.
 
 Edit a source or recipe, rebuild into a new directory, inspect front/side/three-quarter and blinking/panting views with the full coat, and only then install a new accepted version. A topology or skin-binding edit also requires a new native binding.
 

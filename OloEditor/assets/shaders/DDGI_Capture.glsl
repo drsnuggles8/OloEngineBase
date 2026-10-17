@@ -12,7 +12,11 @@
 //                   a = 0 (the resample canonicalizes the flag into HitGeo.a)
 //
 // Culling is disabled by the pass for every caster — backface texels are the
-// in-wall-probe classification signal, tagged via gl_FrontFacing here.
+// in-wall-probe classification signal, tagged via gl_FrontFacing here. The
+// pass records the winding from RHI::CaptureFrontFaceForBackend
+// (DDGIProbeUpdatePass::ApplyCaptureRasterState) so gl_FrontFacing means the
+// same on both backends; the capture projection keeps clip y, and without that
+// winding every Vulkan front face reads as a backface.
 // All positions are render-origin-relative (issue #429): the pass shifts the
 // model matrix and the probe position by the same origin.
 // =============================================================================

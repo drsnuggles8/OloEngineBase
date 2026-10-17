@@ -309,15 +309,23 @@ namespace OloEngine
                              groom.GetCurveGroupIds()[curveIndex] };
         }
 
+        /// The clump cell a coat groups its strands by: the coat's own, or the
+        /// default cell for a coat with no authoring (only a wet coat clumps
+        /// without one -- ComputeGroomClumpGrowth).
+        [[nodiscard]] f32 ClumpCellSizeOf(const GroomCoatContext* coat) noexcept
+        {
+            return (coat != nullptr && coat->IsActive()) ? coat->Settings->ClumpCellSize
+                                                         : GroomCoatSettings{}.ClumpCellSize;
+        }
+
+        /// Every eligible strand the coat keeps, its growth summed into its
+        /// (cell, group) bucket. With `kept`, also which curves went in.
         [[nodiscard]] ClumpTable BuildClumpTable(const GroomCurveView& groom, const GroomStrandBuildSettings& settings,
-                                                 const GroomCoatContext* coat)
+                                                 const GroomCoatContext* coat, std::vector<u8>* kept = nullptr)
         {
             ClumpTable table;
-            if (coat == nullptr || !coat->IsActive())
-            {
-                return table;
-            }
-            const f32 cellSize = coat->Settings->ClumpCellSize;
+            const bool active = coat != nullptr && coat->IsActive();
+            const f32 cellSize = ClumpCellSizeOf(coat);
             const auto& points = groom.GetPoints();
             const u32 curveCount = groom.GetCurveCount();
             for (u32 curve = 0; curve < curveCount; ++curve)
@@ -326,21 +334,28 @@ namespace OloEngine
                 {
                     continue;
                 }
-                const CurveCoat curveCoat = CoatOfCurve(groom, curve, coat);
-                if (!curveCoat.Params.Keep)
+                // The LENGTH-SCALED growth, so a clump of strands that were all
+                // shortened converges at the shortened tips rather than reaching
+                // for where the tips used to be. No coat: the cooked length.
+                f32 length = 1.0f;
+                if (active)
                 {
-                    continue;
+                    const CurveCoat curveCoat = CoatOfCurve(groom, curve, coat);
+                    if (!curveCoat.Params.Keep)
+                    {
+                        continue;
+                    }
+                    length = curveCoat.Params.Length;
                 }
                 const u32 first = groom.GetCurveFirstPoint(curve);
                 const u32 count = groom.GetCurvePointCount(curve);
-                const glm::vec3& root = points[first];
-                const glm::vec3& tip = points[first + count - 1u];
                 GroomCoatClumpAccum& accum = table[ClumpKeyOf(groom, curve, cellSize)];
-                // The LENGTH-SCALED growth, so a clump of strands that were all
-                // shortened converges at the shortened tips rather than reaching
-                // for where the tips used to be.
-                accum.GrowthSum += (tip - root) * curveCoat.Params.Length;
+                accum.GrowthSum += (points[first + count - 1u] - points[first]) * length;
                 ++accum.Count;
+                if (kept != nullptr)
+                {
+                    (*kept)[curve] = 1u;
+                }
             }
             return table;
         }
@@ -361,6 +376,25 @@ namespace OloEngine
             }
         }
     } // namespace
+
+    void ComputeGroomClumpGrowth(const GroomCurveView& groom, const GroomStrandBuildSettings& settings,
+                                 const GroomCoatContext* coat, std::vector<glm::vec3>& outGrowth)
+    {
+        const u32 curveCount = groom.GetCurveCount();
+        outGrowth.assign(curveCount, glm::vec3(0.0f));
+        // The coat's own clumps, the very table the dry build clumps with, so a
+        // wet coat deepens the tufts it was groomed with.
+        std::vector<u8> kept(curveCount, 0u);
+        const ClumpTable table = BuildClumpTable(groom, settings, coat, &kept);
+        const f32 cellSize = ClumpCellSizeOf(coat);
+        for (u32 curve = 0; curve < curveCount; ++curve)
+        {
+            if (kept[curve] != 0u)
+            {
+                outGrowth[curve] = ClumpGrowthFor(table, groom, curve, cellSize);
+            }
+        }
+    }
 
     GroomBuildSource GroomBuildSource::FromAsset(const GroomAsset& groom) noexcept
     {
@@ -695,7 +729,7 @@ namespace OloEngine
             // extra walk over the groom plus a hash-map insert per strand, and a
             // coat with no clumping is the common case.
             const ClumpTable clumps = selection.WantsClumping ? BuildClumpTable(groom, settings, coat) : ClumpTable{};
-            const f32 clumpCellSize = (coat != nullptr && coat->IsActive()) ? coat->Settings->ClumpCellSize : 0.0f;
+            const f32 clumpCellSize = ClumpCellSizeOf(coat);
 
             const auto& points = groom.GetPoints();
             const auto& widths = groom.GetPointWidths();
@@ -1025,6 +1059,12 @@ namespace OloEngine
         const GroomRootBinding* record = nullptr;
         const GroomRootTransform* transform = nullptr;
         bool curveSimulated = false;
+        // A wet coat (#1615): the record the GPU path reads from its buffer,
+        // applied here through the same function, and this curve's clump growth
+        // in its root's bind frame.
+        const GroomDeformWetRecord* wet =
+            (deformed && deformation->Wet != nullptr && deformation->Wet->Frame.w > 0.5f) ? deformation->Wet : nullptr;
+        glm::vec3 curveClump{ 0.0f };
 
         GroomStrandMeshStats stats;
         const auto onCurve = [&](u32 /*curve*/, u32 sourceCurve)
@@ -1047,6 +1087,9 @@ namespace OloEngine
             {
                 record = &deformation->Binding->GetRoot(sourceCurve);
                 transform = &deformation->RootTransforms[sourceCurve];
+                curveClump = (wet != nullptr && sourceCurve < deformation->ClumpGrowth.size())
+                                 ? glm::conjugate(record->RestRotation) * deformation->ClumpGrowth[sourceCurve]
+                                 : glm::vec3(0.0f);
                 if (!transform->Valid)
                 {
                     // Held at rest, and counted, exactly as
@@ -1086,9 +1129,24 @@ namespace OloEngine
             }
             const auto place = [&](const glm::vec3& restPoint, f32 t, bool previous)
             {
-                glm::vec3 placed = transform != nullptr
-                                       ? ApplyGroomRootTransform(*record, *transform, restPoint, previous)
-                                       : restPoint;
+                glm::vec3 placed = restPoint;
+                if (wet == nullptr && transform != nullptr)
+                {
+                    placed = ApplyGroomRootTransform(*record, *transform, restPoint, previous);
+                }
+                else if (transform != nullptr)
+                {
+                    // ApplyGroomRootTransform with the bind-local point wet in
+                    // between, as GroomStrandDeform.glsl places it: the frame is
+                    // this frame's (or last frame's) root, or the bind frame for
+                    // a root held at rest -- the record the GPU path carries then.
+                    const glm::vec3 local = glm::conjugate(record->RestRotation) * (restPoint - record->RestOrigin);
+                    const bool valid = transform->Valid;
+                    const glm::vec3 origin = valid ? (previous ? transform->PrevOrigin : transform->Origin) : record->RestOrigin;
+                    const glm::quat rotation = valid ? (previous ? transform->PrevRotation : transform->Rotation)
+                                                     : record->RestRotation;
+                    placed = origin + rotation * GroomDeformWetLocal(*wet, origin, rotation, curveClump, local, t);
+                }
                 // ADDED TO the deformed rest position, never substituted for it.
                 // The displacement is measured from that same position, so a
                 // guide at rest contributes exactly zero and the coat is the one

@@ -20,7 +20,7 @@
     "pigment": "perStrand"
   },
   "coatSource": "Assets/Models/Samoyed/Samoyed.abc",
-  "walkSpeed": 0.35347200000092527,
+  "walkSpeed": 0.312,
   "eyeRadius": 0.013803000000000001,
   "lidInnerRadius": 0.014104,
   "socketRadius": 0.015093000000000002,

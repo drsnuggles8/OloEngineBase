@@ -136,6 +136,19 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomFibrePigment;         // rgb = the base colour each strand's tint multiplies, w = 1 per strand
 	vec4 u_GroomFibrePigmentTable[8]; // sigma_a at 32 albedos, 2^-10 to 1 (GroomFibreParams::PigmentTable)
     vec4 u_GroomSoftIntersection; // world distance, protected root, water available, reserved
+	// The scene's ambient ladder (#1618), DeferredLightingPass::AmbientLadderControls:
+	// x = the IBL rung is available, y = the probe rung (DDGI / baked SH) is on, zw unused.
+	vec4 u_GroomAmbient;
+	// Wetness (#1615). u_GroomWetState: x = rain, y = the soaked line in metres
+	// above the coat's origin, z = the band either side of it, w = 1 when any
+	// of the coat is wet -- 0 leaves the strand exactly as it was.
+	// u_GroomWetResponse: x = absorption, y = longitudinal and z = azimuthal
+	// roughness scale at full wetness. u_GroomWetHeight.xyz: the world-up row
+	// of the coat's transform, so an object-space point p stands dot(p, xyz)
+	// metres above the coat's origin.
+	vec4 u_GroomWetState;
+	vec4 u_GroomWetResponse;
+	vec4 u_GroomWetHeight;
 };
 
 layout(location = 0) out vec2 v_Coords;
@@ -166,6 +179,9 @@ layout(location = 11) flat out vec4 v_CoatRestFrame;
 // The ribbon's half-width in world metres: the radius of the tube it stands
 // for, which the coat-shadow march starts outside of (see oloGroomCoatTauAndBody).
 layout(location = 12) out float v_TubeRadius;
+// The coat's wetness at this point (#1615), from its height above the coat's
+// origin against the soaked line: legs get wet before the back.
+layout(location = 13) out float v_Wetness;
 
 // The width bands of summed width `summed` cover when spread over a region
 // `span` wide (their extent plus one pixel), each drawn at alpha width/pixel
@@ -324,6 +340,7 @@ void main()
 		v_CoatRestPos = vec3(0.0);
 		v_CoatRestFrame = vec4(0.0, 0.0, 0.0, 1.0);
 		v_TubeRadius = 0.0;
+		v_Wetness = 0.0;
 		return;
 	}
 
@@ -474,6 +491,13 @@ void main()
 	v_CoatRestPos = coatRestPos;
 	v_CoatRestFrame = coatRestFrame;
 	v_TubeRadius = radiusWorld;
+	// THE WETNESS HERE (#1615), per vertex, from the point as drawn: object
+	// space, so a bound coat's deformed point -- the leg the body lifted -- is
+	// measured where it is now, as a height above the coat's origin in the
+	// metres the scene measured the water line in (GroomWetnessAt is the twin).
+	v_Wetness = u_GroomWetState.w > 0.5 ? oloGroomWetness(dot(position, u_GroomWetHeight.xyz), u_GroomWetState.x,
+	                                                      u_GroomWetState.y, u_GroomWetState.z)
+	                                    : 0.0;
 }
 
 #type fragment
@@ -485,6 +509,7 @@ void main()
 #include "include/GroomQuat.glsl"
 #include "include/SurfaceCoverageMark.glsl"
 #include "include/GroomSoftIntersection.glsl"
+#include "include/GroomWetness.glsl"
 
 #include "include/BindlessHeap.glsl"
 
@@ -503,6 +528,21 @@ layout(binding = 32) uniform sampler2D u_GroomWaterSurfaceDepth;
 // not for its BRDF: a fibre is not a surface and none of the surface shading
 // in there applies to a strand.
 #include "include/PBRCommon.glsl"
+
+// THE SCENE'S AMBIENT, CHOSEN AS THE BODY'S IS (#1618). The ladder's diffuse
+// rung -- the probe volume (DDGI, or baked SH), then the sky's irradiance cube,
+// then the flat fill -- is the average radiance the fibre's ambient response
+// multiplies, so a coat in a shaded interior reads the bounce its body does
+// rather than the open sky. Only the rung SELECTION is taken: the surface
+// diffuse it would feed is a Lambertian term a fibre does not have, and the
+// probes are sampled through include/GroomAmbient.glsl, which reads both of
+// the fibre's directions in one pass for a fraction of the registers. The DDGI
+// atlases are published once a frame with PublishTextureOffsetAndBind, which is
+// why their slot-based declarations are legal on the bindless route.
+#include "include/LightProbeSampling.glsl"
+#define OLO_AMBIENT_LADDER_EXPLICIT_CONTROLS
+#include "include/AmbientLadder.glsl"
+#include "include/GroomAmbient.glsl"
 
 // Multi-Light UBO (binding 5) — THE FULL BLOCK, matching PBR_MultiLight.glsl
 // and Foliage_Instance.glsl. Declared in full rather than truncated to the
@@ -573,6 +613,18 @@ layout(std140, binding = 6) uniform ShadowData {
 // wiring; ShadowRenderPass::RenderGroomVirtualShadowLevels is the casting half.
 #include "include/VirtualShadowSampling.glsl"
 
+// THE CLUSTER LIGHT LISTS (#1618), data only: the fibre walks a cluster's
+// lights through its own model, not through the surface evaluators.
+//
+// AFTER VirtualShadowSampling.glsl, and that order is load-bearing: the
+// engine's include processor inlines each file ONCE, textually, before the
+// preprocessor runs, and ForwardPlusCommon.glsl includes VirtualShadowSampling
+// inside #ifdef FPLUS_ATLAS_SHADOWS. Included first, the VSM file is spent in
+// that dead block and the include above is skipped: the fragment stage fails
+// to compile in the engine while glslc, a real preprocessor, passes it.
+#define FPLUS_DATA_ONLY
+#include "include/ForwardPlusCommon.glsl"
+
 #ifdef OLO_BINDLESS
 #define u_IrradianceMap OLO_HEAP_TEX_CUBE(10) // TEX_USER_0
 #else
@@ -633,6 +685,7 @@ layout(location = 9) in vec3 v_CoatTint;
 layout(location = 10) in vec3 v_CoatRestPos;
 layout(location = 11) flat in vec4 v_CoatRestFrame;
 layout(location = 12) in float v_TubeRadius;
+layout(location = 13) in float v_Wetness;
 
 // ONE block, on the shared PASS-LOCAL slot, declared IDENTICALLY in both
 // stages.
@@ -703,6 +756,19 @@ layout(std140, binding = 7) uniform GroomStrandParams {
 	vec4 u_GroomFibrePigment;         // rgb = the base colour each strand's tint multiplies, w = 1 per strand
 	vec4 u_GroomFibrePigmentTable[8]; // sigma_a at 32 albedos, 2^-10 to 1 (GroomFibreParams::PigmentTable)
     vec4 u_GroomSoftIntersection; // world distance, protected root, water available, reserved
+	// The scene's ambient ladder (#1618), DeferredLightingPass::AmbientLadderControls:
+	// x = the IBL rung is available, y = the probe rung (DDGI / baked SH) is on, zw unused.
+	vec4 u_GroomAmbient;
+	// Wetness (#1615). u_GroomWetState: x = rain, y = the soaked line in metres
+	// above the coat's origin, z = the band either side of it, w = 1 when any
+	// of the coat is wet -- 0 leaves the strand exactly as it was.
+	// u_GroomWetResponse: x = absorption, y = longitudinal and z = azimuthal
+	// roughness scale at full wetness. u_GroomWetHeight.xyz: the world-up row
+	// of the coat's transform, so an object-space point p stands dot(p, xyz)
+	// metres above the coat's origin.
+	vec4 u_GroomWetState;
+	vec4 u_GroomWetResponse;
+	vec4 u_GroomWetHeight;
 };
 
 vec2 octEncode(vec3 n)
@@ -711,6 +777,25 @@ vec2 octEncode(vec3 n)
 	if (n.z < 0.0)
 		n.xy = (1.0 - abs(n.yx)) * sign(n.xy);
 	return n.xy * 0.5 + 0.5;
+}
+
+// Whether this fragment's coat is wet here at all (#1615). A dry coat takes
+// none of the wet branches, so its arithmetic is exactly what it was.
+bool oloGroomIsWet()
+{
+	return u_GroomWetState.w > 0.5 && v_Wetness > 0.0;
+}
+
+// An ALBEDO -- a tint, the share of light the coat's other fibres forward or
+// send back -- wet: raised to the power its absorption grew by, which is what
+// sigma_a times that factor does to an albedo of exp(-c sigma_a) (#1615).
+vec3 oloGroomWetAlbedo(vec3 albedo)
+{
+	if (!oloGroomIsWet())
+	{
+		return albedo;
+	}
+	return pow(max(albedo, vec3(0.0)), vec3(oloGroomFibreWet(v_Wetness, u_GroomWetResponse).AlbedoPower));
 }
 
 OloGroomFibre oloGroomFibreFromUniforms()
@@ -731,6 +816,18 @@ OloGroomFibre oloGroomFibreFromUniforms()
 	fibre.Sin2kAlpha = u_GroomFibreSinAlpha.xyz;
 	fibre.Cos2kAlpha = u_GroomFibreCosAlpha.xyz;
 	fibre.HSamples = u_GroomFibreModes.y;
+	// WET (#1615): the water film lengthens the path light travels inside the
+	// fibre (sigma_a up: darker, more saturated), fills the cuticle's scales
+	// (longitudinal roughness down: glossier) and takes away the frosted spread
+	// across azimuths (the azimuthal scale down: no soft sheen at grazing).
+	// GroomWetFibre is the twin; GroomWetness.h has the why.
+	if (oloGroomIsWet())
+	{
+		OloGroomWetScales wet = oloGroomFibreWet(v_Wetness, u_GroomWetResponse);
+		fibre.SigmaA *= wet.SigmaA;
+		fibre.V0 *= wet.V0;
+		fibre.S *= wet.S;
+	}
 	return fibre;
 }
 
@@ -1108,6 +1205,226 @@ struct OloGroomShading
 // environment's share is the result minus this.
 OloGroomShading g_GroomDirectShading;
 
+// What every fragment shares across its lights, so the full-buffer walk and
+// the cluster walk (#1618) shade a light through one function.
+struct OloGroomLightContext
+{
+	vec3 T;
+	vec3 V;
+	bool DualScattering;
+	vec3 ForwardScatter;
+	float DensityForward;
+	vec3 MultipleBackScatter;
+	float DensityBack;
+	float SinThetaView;
+	vec3 PerpView;
+	float PerpViewLength;
+};
+
+// ONE LIGHT'S share of the lit fibre response, added to `total` and `multiple`.
+// `lightIndex` is the light's slot in the multi-light buffer -- only slot 0's
+// directional light has the cascades and records the lighting tap's sun -- and
+// -1 for a light read from a cluster list, which is never directional.
+void oloGroomShadeLight(LightData light, int lightIndex, OloGroomFibre fibre, OloGroomLightContext ctx,
+                        inout OloGroomFibreLobes total, inout vec3 multiple)
+{
+	vec3 T = ctx.T;
+	vec3 V = ctx.V;
+	bool dualScattering = ctx.DualScattering;
+	vec3 forwardScatter = ctx.ForwardScatter;
+	float densityForward = ctx.DensityForward;
+	vec3 multipleBackScatter = ctx.MultipleBackScatter;
+	float densityBack = ctx.DensityBack;
+	float sinThetaView = ctx.SinThetaView;
+	vec3 perpView = ctx.PerpView;
+	float perpViewLength = ctx.PerpViewLength;
+
+	int lightType = int(light.position.w);
+
+	vec3 L;
+	float attenuation = 1.0;
+	if (lightType == DIRECTIONAL_LIGHT)
+	{
+		// The stored direction points the way the light TRAVELS, so the
+		// direction towards the light is its negation — the same reading
+		// every other lit shader in the engine takes.
+		L = normalize(-light.direction.xyz);
+	}
+	else if (lightType == POINT_LIGHT || lightType == SPOT_LIGHT || lightType == SPHERE_AREA_LIGHT)
+	{
+		// SPHERE_AREA_LIGHT IS TREATED AS PUNCTUAL AT ITS CENTRE, and that
+		// is a stated approximation rather than an oversight. Scene.cpp does
+		// pack area lights into this buffer with the type tag 3 and their
+		// radius in SpotParams.z, and PBRCommon's oloLightSample REFUSES
+		// that type outright — it has no single L, because the surface
+		// evaluator picks a representative point on the sphere that depends
+		// on the shading normal. A fibre has no shading normal to pick one
+		// with, so there is no representative point to compute: the honest
+		// options are the centre or nothing.
+		//
+		// The centre is the radius -> 0 limit, so the coat stays lit and its
+		// highlight is narrower than the body's beside it, by roughly the
+		// angle the emitter subtends. Skipping instead would leave the coat
+		// black under a light the body clearly responds to, which is the
+		// worse of the two wrong answers. A real area-light fibre lobe is a
+		// cone-times-sphere integral and belongs with #1248's transport
+		// work, not here.
+		vec3 toLight = light.position.xyz - v_WorldPos;
+		float distance = length(toLight);
+		if (distance < 1e-6)
+		{
+			return;
+		}
+		L = toLight / distance;
+		attenuation = calculateAttenuation(light.position.xyz, v_WorldPos, light.attenuationParams);
+		if (lightType == SPOT_LIGHT)
+		{
+			attenuation *= calculateSpotIntensity(L, light.direction.xyz, light.spotParams);
+		}
+	}
+	else
+	{
+		// An unknown type tag. Skipping is the loud answer: shading it as
+		// something it is not would be a coat lit by a light nobody can
+		// find in the scene.
+		return;
+	}
+
+	if (attenuation <= 0.0)
+	{
+		return;
+	}
+
+	// The scene's occlusion of this light (#1323): 1 unless this coat
+	// receives scene shadows. FIRST, because a strand the scene shadows
+	// completely -- the far side of the body, since #1533 -- receives none
+	// of this light: the direct, forwarded and back-scattered terms below
+	// all scale with the radiance, so its coat march is skipped. `<=`, not
+	// `!(> 0)`, so a NaN still reaches the colour and shows.
+	bool occlusionKnown = false;
+	float sceneShadow = oloGroomSceneShadow(light, lightIndex, lightType, L, occlusionKnown);
+	// The primary sun's scene visibility, for the lighting tap (#1526).
+	if (lightIndex == 0 && lightType == DIRECTIONAL_LIGHT)
+	{
+		oloRecordLightingTapShadow(sceneShadow);
+	}
+	if (sceneShadow <= 0.0)
+	{
+		return;
+	}
+	// How much of this coat is between the fragment and this light. Zero
+	// crossings (or an inactive mode) gives transmittance 1, so a coat with
+	// no volume built renders exactly as it did before this existed.
+	//
+	// AND THE BODY, WHERE NO MAP SAID IT (#1533). A light whose map answered
+	// at the strand has the body in that answer already; every other one --
+	// a light that does not cast, the VSM at the coat's exit point, a map
+	// with no opaque copy -- is stopped by the body the volume holds, which
+	// multiplies the light arriving here as the scene's shadow does.
+	bool countBody = !occlusionKnown && oloGroomCoatHoldsBody();
+	float bodyTau = 0.0;
+	float coatTau = oloGroomCoatTauAndBody(L, countBody, bodyTau);
+	float coatShadow = oloGroomCoatTransmittance(coatTau, u_GroomCoatBoundsMin.w);
+	float bodyShadow = oloGroomBodyTransmittance(bodyTau);
+	// What the other fibres forwarded on top of it (dual scattering) —
+	// ONLY where the body is accounted for: by a map sampled AT THE STRAND
+	// (see the scene-shadow receive above), or by the body in the volume.
+	// A map sampled at the coat's exit point answers for what lies beyond
+	// the coat and not for the body inside it, and a volume of strands alone
+	// would forward a light nothing shadows straight through the animal: a
+	// rim light behind the head lit the front of the face through it, as a
+	// frost of backlit strands. Unscattered, such a light is still stopped
+	// by the coat's two root layers, which is the #1248 behaviour.
+	vec3 forwarded = vec3(0.0);
+	if (dualScattering && (occlusionKnown || countBody))
+	{
+		forwarded = max(oloGroomCoatForwardTransmittance(coatTau, u_GroomCoatBoundsMin.w, forwardScatter) -
+		                    vec3(coatShadow),
+		                vec3(0.0));
+	}
+
+	vec3 radiance = light.color.rgb * light.color.w * attenuation * sceneShadow * bodyShadow;
+
+	// THE FIBRE'S PROJECTED WIDTH, not a surface N.L. A strand lit along
+	// its own length intercepts almost no light per unit length, and this
+	// is the factor that says so. It is outside the BCSDF because the
+	// BCSDF is normalised over the sphere without it — see
+	// GroomFibreScattering.h.
+	float cosWeight = oloGroomFibreCosineWeight(T, L);
+	if (cosWeight <= 0.0)
+	{
+		return;
+	}
+
+	vec3 arriving = radiance * (vec3(coatShadow) + (forwarded * densityForward));
+	OloGroomFibreLobes lobes = oloGroomFibreConstantLobes();
+	if ((u_GroomFibreModes.w & OLO_GROOM_SUBSTITUTE_CONSTANT_FIBRE) == 0)
+	{
+		lobes = oloGroomFibreEvaluateDirections(fibre, T, V, L);
+	}
+	oloGroomAccumulate(total, lobes, arriving * cosWeight);
+
+	if (dualScattering)
+	{
+		float sinThetaLight = clamp(dot(T, L), -1.0, 1.0);
+		vec3 perpLight = L - (T * sinThetaLight);
+		float perpLightLength = length(perpLight);
+		float cosPhi = 0.0;
+		if (perpViewLength > 1.0e-6 && perpLightLength > 1.0e-6)
+		{
+			cosPhi = dot(perpView, perpLight) / (perpViewLength * perpLightLength);
+		}
+		// Projected: the lobe already carries cos(theta_i).
+		vec3 back = oloGroomFibreBackScatterProjected(multipleBackScatter, u_GroomFibreBackLobe.x,
+		                                              u_GroomFibreBackLobe.y, sinThetaView, sinThetaLight,
+		                                              cosPhi);
+		multiple += back * radiance *
+		            ((vec3(coatShadow) * densityBack) + (forwarded * (densityForward * OLO_GROOM_FIBRE_PI * densityBack)));
+	}
+}
+
+// A cluster list's light (ForwardPlusCommon.glsl) as the multi-light buffer
+// would hold it. Every field is the one GPUSceneLightAdapter::ToMultiLightData
+// writes for the same light, so a light shades identically whichever list the
+// fibre read it from: the falloff (1, 0, quadratic, range), the cone cosines in
+// spotParams.xy, and the shadow entry -- an atlas base or a VSM layer, patched
+// into both records by the same allocation -- in direction.w.
+LightData oloGroomClusterLight(uint packedIndex)
+{
+	uint typeTag = (packedIndex >> FPLUS_TYPE_TAG_SHIFT) & 0x3u;
+	uint index = packedIndex & FPLUS_INDEX_MASK;
+	LightData light;
+	light.spotParams = vec4(0.0);
+	if (typeTag == FPLUS_TYPE_TAG_POINT)
+	{
+		FPlusPointLight point = fplusPointLights[index];
+		light.position = vec4(point.PositionAndRadius.xyz, float(POINT_LIGHT));
+		light.direction = vec4(0.0, -1.0, 0.0, point.ShadowAndAttenuation.x);
+		light.color = point.ColorAndIntensity;
+		light.attenuationParams = vec4(1.0, 0.0, point.ShadowAndAttenuation.y, point.PositionAndRadius.w);
+		light.spotParams.w = float(POINT_LIGHT);
+	}
+	else if (typeTag == FPLUS_TYPE_TAG_SPHERE_AREA)
+	{
+		FPlusSphereAreaLight sphere = fplusSphereAreaLights[index];
+		light.position = vec4(sphere.PositionAndRadius.xyz, float(SPHERE_AREA_LIGHT));
+		light.direction = vec4(0.0, -1.0, 0.0, sphere.RangeAndPadding.y);
+		light.color = sphere.ColorAndIntensity;
+		light.attenuationParams = vec4(1.0, 0.0, 0.0, sphere.RangeAndPadding.x);
+		light.spotParams = vec4(0.0, 0.0, sphere.PositionAndRadius.w, float(SPHERE_AREA_LIGHT));
+	}
+	else
+	{
+		FPlusSpotLight spot = fplusSpotLights[index];
+		light.position = vec4(spot.PositionAndRadius.xyz, float(SPOT_LIGHT));
+		light.direction = vec4(spot.DirectionAndAngle.xyz, spot.SpotParams.z);
+		light.color = spot.ColorAndIntensity;
+		light.attenuationParams = vec4(1.0, 0.0, spot.SpotParams.y, spot.PositionAndRadius.w);
+		light.spotParams = vec4(spot.SpotParams.x, spot.DirectionAndAngle.w, 0.0, float(SPOT_LIGHT));
+	}
+	return light;
+}
+
 OloGroomShading oloGroomShadeFibre()
 {
 	OloGroomFibre fibre = oloGroomFibreFromUniforms();
@@ -1133,163 +1450,52 @@ OloGroomShading oloGroomShadeFibre()
 	{
 		forwardScatter *= v_CoatTint;
 	}
+	// Wet (#1615), the neighbours forward and send back less, as the fibre
+	// itself absorbs more.
+	forwardScatter = oloGroomWetAlbedo(forwardScatter);
 	float densityForward = u_GroomFibreForwardScatter.w;
-	vec3 multipleBackScatter = u_GroomFibreBackScatter.rgb;
+	vec3 multipleBackScatter = oloGroomWetAlbedo(u_GroomFibreBackScatter.rgb);
 	float densityBack = u_GroomFibreBackScatter.w;
 	float sinThetaView = clamp(dot(T, V), -1.0, 1.0);
 	vec3 perpView = V - (T * sinThetaView);
 	float perpViewLength = length(perpView);
 
-	int lightCount = min(u_LightCount, MAX_LIGHTS);
+	OloGroomLightContext ctx;
+	ctx.T = T;
+	ctx.V = V;
+	ctx.DualScattering = dualScattering;
+	ctx.ForwardScatter = forwardScatter;
+	ctx.DensityForward = densityForward;
+	ctx.MultipleBackScatter = multipleBackScatter;
+	ctx.DensityBack = densityBack;
+	ctx.SinThetaView = sinThetaView;
+	ctx.PerpView = perpView;
+	ctx.PerpViewLength = perpViewLength;
+
+	// THE LIGHTS, AS THE BODY BESIDE THE COAT TAKES THEM (#1618). With the
+	// clustered lists live (Forward+, enough lights to pass its threshold) the
+	// multi-light buffer is walked for its directional lights only -- they lead
+	// it -- and every point, spot and sphere light comes from this fragment's
+	// cluster, exactly as PBR_MultiLight.glsl splits them. Everywhere else the
+	// whole buffer, as before. A fur fragment then costs the lights near it, not
+	// every light in the scene.
+	bool clustered = fplus_Params.z != 0u;
+	int lightCount = clustered ? min(u_DirectionalLightCount, MAX_LIGHTS) : min(u_LightCount, MAX_LIGHTS);
 	for (int i = 0; i < MAX_LIGHTS; ++i)
 	{
 		if (i >= lightCount)
 		{
 			break;
 		}
-
-		LightData light = u_Lights[i];
-		int lightType = int(light.position.w);
-
-		vec3 L;
-		float attenuation = 1.0;
-		if (lightType == DIRECTIONAL_LIGHT)
+		oloGroomShadeLight(u_Lights[i], i, fibre, ctx, total, multiple);
+	}
+	if (clustered)
+	{
+		uvec2 cluster = fplusGetTileData(-(u_View * vec4(v_WorldPos, 1.0)).z);
+		for (uint k = 0u; k < cluster.y; ++k)
 		{
-			// The stored direction points the way the light TRAVELS, so the
-			// direction towards the light is its negation — the same reading
-			// every other lit shader in the engine takes.
-			L = normalize(-light.direction.xyz);
-		}
-		else if (lightType == POINT_LIGHT || lightType == SPOT_LIGHT || lightType == SPHERE_AREA_LIGHT)
-		{
-			// SPHERE_AREA_LIGHT IS TREATED AS PUNCTUAL AT ITS CENTRE, and that
-			// is a stated approximation rather than an oversight. Scene.cpp does
-			// pack area lights into this buffer with the type tag 3 and their
-			// radius in SpotParams.z, and PBRCommon's oloLightSample REFUSES
-			// that type outright — it has no single L, because the surface
-			// evaluator picks a representative point on the sphere that depends
-			// on the shading normal. A fibre has no shading normal to pick one
-			// with, so there is no representative point to compute: the honest
-			// options are the centre or nothing.
-			//
-			// The centre is the radius -> 0 limit, so the coat stays lit and its
-			// highlight is narrower than the body's beside it, by roughly the
-			// angle the emitter subtends. Skipping instead would leave the coat
-			// black under a light the body clearly responds to, which is the
-			// worse of the two wrong answers. A real area-light fibre lobe is a
-			// cone-times-sphere integral and belongs with #1248's transport
-			// work, not here.
-			vec3 toLight = light.position.xyz - v_WorldPos;
-			float distance = length(toLight);
-			if (distance < 1e-6)
-			{
-				continue;
-			}
-			L = toLight / distance;
-			attenuation = calculateAttenuation(light.position.xyz, v_WorldPos, light.attenuationParams);
-			if (lightType == SPOT_LIGHT)
-			{
-				attenuation *= calculateSpotIntensity(L, light.direction.xyz, light.spotParams);
-			}
-		}
-		else
-		{
-			// An unknown type tag. Skipping is the loud answer: shading it as
-			// something it is not would be a coat lit by a light nobody can
-			// find in the scene.
-			continue;
-		}
-
-		if (attenuation <= 0.0)
-		{
-			continue;
-		}
-
-		// The scene's occlusion of this light (#1323): 1 unless this coat
-		// receives scene shadows. FIRST, because a strand the scene shadows
-		// completely -- the far side of the body, since #1533 -- receives none
-		// of this light: the direct, forwarded and back-scattered terms below
-		// all scale with the radiance, so its coat march is skipped. `<=`, not
-		// `!(> 0)`, so a NaN still reaches the colour and shows.
-		bool occlusionKnown = false;
-		float sceneShadow = oloGroomSceneShadow(light, i, lightType, L, occlusionKnown);
-		// The primary sun's scene visibility, for the lighting tap (#1526).
-		if (i == 0 && lightType == DIRECTIONAL_LIGHT)
-		{
-			oloRecordLightingTapShadow(sceneShadow);
-		}
-		if (sceneShadow <= 0.0)
-		{
-			continue;
-		}
-		// How much of this coat is between the fragment and this light. Zero
-		// crossings (or an inactive mode) gives transmittance 1, so a coat with
-		// no volume built renders exactly as it did before this existed.
-		//
-		// AND THE BODY, WHERE NO MAP SAID IT (#1533). A light whose map answered
-		// at the strand has the body in that answer already; every other one --
-		// a light that does not cast, the VSM at the coat's exit point, a map
-		// with no opaque copy -- is stopped by the body the volume holds, which
-		// multiplies the light arriving here as the scene's shadow does.
-		bool countBody = !occlusionKnown && oloGroomCoatHoldsBody();
-		float bodyTau = 0.0;
-		float coatTau = oloGroomCoatTauAndBody(L, countBody, bodyTau);
-		float coatShadow = oloGroomCoatTransmittance(coatTau, u_GroomCoatBoundsMin.w);
-		float bodyShadow = oloGroomBodyTransmittance(bodyTau);
-		// What the other fibres forwarded on top of it (dual scattering) —
-		// ONLY where the body is accounted for: by a map sampled AT THE STRAND
-		// (see the scene-shadow receive above), or by the body in the volume.
-		// A map sampled at the coat's exit point answers for what lies beyond
-		// the coat and not for the body inside it, and a volume of strands alone
-		// would forward a light nothing shadows straight through the animal: a
-		// rim light behind the head lit the front of the face through it, as a
-		// frost of backlit strands. Unscattered, such a light is still stopped
-		// by the coat's two root layers, which is the #1248 behaviour.
-		vec3 forwarded = vec3(0.0);
-		if (dualScattering && (occlusionKnown || countBody))
-		{
-			forwarded = max(oloGroomCoatForwardTransmittance(coatTau, u_GroomCoatBoundsMin.w, forwardScatter) -
-			                    vec3(coatShadow),
-			                vec3(0.0));
-		}
-
-		vec3 radiance = light.color.rgb * light.color.w * attenuation * sceneShadow * bodyShadow;
-
-		// THE FIBRE'S PROJECTED WIDTH, not a surface N.L. A strand lit along
-		// its own length intercepts almost no light per unit length, and this
-		// is the factor that says so. It is outside the BCSDF because the
-		// BCSDF is normalised over the sphere without it — see
-		// GroomFibreScattering.h.
-		float cosWeight = oloGroomFibreCosineWeight(T, L);
-		if (cosWeight <= 0.0)
-		{
-			continue;
-		}
-
-		vec3 arriving = radiance * (vec3(coatShadow) + (forwarded * densityForward));
-		OloGroomFibreLobes lobes = oloGroomFibreConstantLobes();
-		if ((u_GroomFibreModes.w & OLO_GROOM_SUBSTITUTE_CONSTANT_FIBRE) == 0)
-		{
-			lobes = oloGroomFibreEvaluateDirections(fibre, T, V, L);
-		}
-		oloGroomAccumulate(total, lobes, arriving * cosWeight);
-
-		if (dualScattering)
-		{
-			float sinThetaLight = clamp(dot(T, L), -1.0, 1.0);
-			vec3 perpLight = L - (T * sinThetaLight);
-			float perpLightLength = length(perpLight);
-			float cosPhi = 0.0;
-			if (perpViewLength > 1.0e-6 && perpLightLength > 1.0e-6)
-			{
-				cosPhi = dot(perpView, perpLight) / (perpViewLength * perpLightLength);
-			}
-			// Projected: the lobe already carries cos(theta_i).
-			vec3 back = oloGroomFibreBackScatterProjected(multipleBackScatter, u_GroomFibreBackLobe.x,
-			                                              u_GroomFibreBackLobe.y, sinThetaView, sinThetaLight,
-			                                              cosPhi);
-			multiple += back * radiance *
-			            ((vec3(coatShadow) * densityBack) + (forwarded * (densityForward * OLO_GROOM_FIBRE_PI * densityBack)));
+			oloGroomShadeLight(oloGroomClusterLight(fplusLightIndices[cluster.x + k]), -1, fibre, ctx, total,
+			                   multiple);
 		}
 	}
 
@@ -1306,15 +1512,22 @@ OloGroomShading oloGroomShadeFibre()
 	// see oloGroomFibreEnvironmentRadiance for why there is no 1/pi (#1450).
 	//
 	// Sampled along the fibre's EYE-FACING NORMAL, the direction in the plane
-	// perpendicular to the strand that points at the viewer. With no
-	// environment bound the slot answers black and this term vanishes, which is
-	// the correct unlit-environment answer rather than a silent constant.
+	// perpendicular to the strand that points at the viewer, from the rung the
+	// body's ambient ladder picks (oloGroomAmbientPair, #1618).
 	float sinThetaO = clamp(dot(T, V), -1.0, 1.0);
 	vec3 perpV = V - (T * sinThetaO);
 	if (length(perpV) > 1e-6)
 	{
 		vec3 envDir = normalize(perpV);
-		vec3 averageRadiance = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, envDir, u_GroomFibreLobe.w);
+		// THE AVERAGE RADIANCE along the eye-facing normal and behind it
+		// (#1618), from the rung the body's ambient ladder selects with the
+		// controls the deferred pass, the terrain and the foliage read --
+		// the probe volume where one covers the strand, else the sky's cube
+		// at the sky's IBL intensity, else the flat fill.
+		vec3 averageRadiance;
+		vec3 behindRadiance;
+		oloGroomAmbientPair(v_WorldPos, envDir, V, u_IrradianceMap, u_GroomAmbient.x > 0.5, u_GroomAmbient.y > 0.5,
+		                    u_GroomFibreLobe.w, averageRadiance, behindRadiance);
 
 		// The environment is occluded by the coat too, and along the SAME
 		// direction it is sampled from — so this is the one extra march that is
@@ -1392,7 +1605,7 @@ OloGroomShading oloGroomShadeFibre()
 				                      vec3(0.0)) *
 				                  densityForward;
 			}
-			vec3 behind = oloGroomFibreEnvironmentRadiance(u_IrradianceMap, behindDir, u_GroomFibreLobe.w) *
+			vec3 behind = behindRadiance *
 			              behindArriving * behindBodyShadow;
 
 			total.R += ambient.R * front;
@@ -1434,8 +1647,11 @@ OloGroomShading oloGroomShadeFibre()
 // (oloGroomFibreFromUniforms): the paths through it are not tinted again. The
 // coat's back-scatter is still: it is the neighbours' albedo, which the tint
 // scales as the forwarded light's (oloGroomShadeFibre).
-vec3 oloGroomComposite(OloGroomShading shading, int debugMode, vec3 tint)
+vec3 oloGroomComposite(OloGroomShading shading, int debugMode, vec3 coatTint)
 {
+	// Wet (#1615): the pigment's colour darkens and saturates with the fibre.
+	// Per strand it is already inside sigma_a, which the wet scale took.
+	vec3 tint = oloGroomWetAlbedo(coatTint);
 	vec3 pathTint = (u_GroomFibrePigment.w > 0.5) ? vec3(1.0) : tint;
 	OloGroomFibreLobes tinted = shading.Single;
 	tinted.TT *= pathTint;
@@ -1589,7 +1805,7 @@ void main()
 	}
 	else
 	{
-		colour = u_GroomColor.rgb * ramp;
+		colour = oloGroomWetAlbedo(u_GroomColor.rgb) * ramp;
 	}
 
 	// THE COAT TINT (#1251), applied LAST and to the shaded result — the root
@@ -1613,7 +1829,7 @@ void main()
 	// UNLIT one, whose neutral ramp has no paths to tell apart.
 	if (u_GroomFibreModes.x == 0)
 	{
-		colour *= v_CoatTint;
+		colour *= oloGroomWetAlbedo(v_CoatTint);
 	}
 	// An unlit coat and the tangent diagnostic are not lit, so the whole
 	// colour is the tap's remainder, as emission is.

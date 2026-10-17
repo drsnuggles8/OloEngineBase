@@ -6011,6 +6011,76 @@ namespace OloEngine
     };
     static_assert(sizeof(GroomSoftIntersectionComponent) == 12);
 
+    // Waterline-driven wet coats (#1615). The coat gets wet below the water it
+    // stands in and under the scene's rain, and dries at its own rate; wet, it
+    // darkens, turns glossy, loses its soft sheen and lies down clumped toward
+    // gravity (Groom/GroomWetness.h). The last three fields are the state the
+    // scene advances (GroomWetnessState) and are serialized, so an authored or
+    // saved wet coat loads wet, and so the inspector can preview wetness in the
+    // editor. Like the other groom components, a renderer authoring surface and
+    // not a C#/Lua gameplay binding.
+    struct GroomWetnessComponent
+    {
+        bool m_Enabled = true;
+        // Find the water: every enabled WaterComponent whose surface spans the
+        // coat's origin. Off, m_Waterline is the water surface's world height.
+        bool m_AutomaticWaterline = true;
+        OLO_SERIALIZE(Skip)
+        u16 Pad0 = 0;
+        f32 m_Waterline = 0.0f;
+        // Half-width of the wet/dry edge, metres.
+        OLO_SERIALIZE(Clamp, Min = 0.005f, Max = 1.0f)
+        f32 m_Band = 0.04f;
+        // The share of the weather's surface wetness the coat takes up.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_RainSoak = 0.6f;
+        // 1/s toward soaked while in water (or rain), toward dry otherwise.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_SoakRate = 1.5f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_DryRate = 0.02f;
+        // The response at full wetness (GroomWetResponse).
+        OLO_SERIALIZE(Clamp, Min = 1.0f, Max = 8.0f)
+        f32 m_Darkening = 1.3f;
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 1.0f)
+        f32 m_Gloss = 0.5f;
+        OLO_SERIALIZE(Clamp, Min = 0.05f, Max = 1.0f)
+        f32 m_Sheen = 0.5f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_Flatten = 0.6f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 0.9f)
+        f32 m_Shorten = 0.15f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_Clump = 0.5f;
+        // The state: how soaked the coat is from the water, how high the water
+        // reached on it (metres of world height above its origin, measured through
+        // its transform's world-up row -- GroomWetnessAxis -- so a coat whose rig
+        // is turned still soaks from its feet), and how wet
+        // the rain has made it.
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_Immersion = 0.0f;
+        OLO_SERIALIZE(Clamp, Min = -1000000.0f, Max = 1000000.0f)
+        f32 m_SoakedLine = -1000000.0f;
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 1.0f)
+        f32 m_Rain = 0.0f;
+
+        // THE AUTHORED FIELDS ONLY, bit for bit. The state above is the
+        // simulation's output: the wetness system rewrites it every tick, and in
+        // a whole-object comparison those writes became part of an inspector
+        // edit and its undo command. It is still serialized (scene and
+        // save-game); edits to it are just not undo entries.
+        auto operator==(const GroomWetnessComponent& other) const -> bool
+        {
+            return m_Enabled == other.m_Enabled && m_AutomaticWaterline == other.m_AutomaticWaterline &&
+                   Math::BitwiseEqual(m_Waterline, other.m_Waterline) && Math::BitwiseEqual(m_Band, other.m_Band) &&
+                   Math::BitwiseEqual(m_RainSoak, other.m_RainSoak) && Math::BitwiseEqual(m_SoakRate, other.m_SoakRate) &&
+                   Math::BitwiseEqual(m_DryRate, other.m_DryRate) && Math::BitwiseEqual(m_Darkening, other.m_Darkening) &&
+                   Math::BitwiseEqual(m_Gloss, other.m_Gloss) && Math::BitwiseEqual(m_Sheen, other.m_Sheen) &&
+                   Math::BitwiseEqual(m_Flatten, other.m_Flatten) && Math::BitwiseEqual(m_Shorten, other.m_Shorten) &&
+                   Math::BitwiseEqual(m_Clump, other.m_Clump);
+        }
+    };
+
     // ── Groom surface binding (issue #1249) ──────────────────────
     //
     // Attaches the GroomComponent on this entity to a body surface, so the coat

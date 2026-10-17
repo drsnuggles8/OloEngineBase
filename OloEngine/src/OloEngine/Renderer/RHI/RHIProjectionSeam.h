@@ -65,6 +65,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <glm/glm.hpp>
 
@@ -100,12 +101,33 @@ namespace OloEngine::RHI
     // cross(forward, up), so negating up flips the RIGHT axis too — a 180-degree
     // roll, not a mirror.
     //
-    // A capture that CULLS would need its winding reconsidered (without the y
-    // flip the framebuffer-space facing determinant matches GL's window-space
-    // one, which is the opposite of what the screen path composes); the engine's
-    // face bakes all rasterize with culling disabled, so the question is moot
-    // today and is called out here rather than guessed at.
+    // Dropping the y flip also drops half of the facing composition, so a
+    // capture that reads FACING must record CaptureFrontFaceForBackend's winding
+    // (below) — and that includes a capture with culling disabled.
     [[nodiscard]] glm::mat4 AdjustCaptureProjectionForBackend(const glm::mat4& projection);
+
+    // The FACING half of the capture flavour: the winding to record so that
+    // fixed-function facing under AdjustCaptureProjectionForBackend — face
+    // culling AND gl_FrontFacing — calls the same triangles front-facing as GL
+    // does under `glWinding`. Identity on GL; the opposite winding on Vulkan.
+    //
+    // Why the capture flavour needs it and the screen flavour does not: Vulkan
+    // evaluates facing with the opposite sign convention to GL over the same
+    // numeric framebuffer coordinates. The screen seam's clip-y negation mirrors
+    // those coordinates, and the two inversions cancel (the A1 note above, and
+    // VulkanPipelineBuilder's vkCmdSetFrontFace note). The capture seam keeps
+    // clip y, so only one inversion is left and every front face reads as a back
+    // face.
+    //
+    // "Culling is disabled, so winding is inert" is the trap: gl_FrontFacing
+    // still follows the winding. DDGI_Capture.glsl tags backface hits with it,
+    // DDGI_Relocate.comp classifies a probe whose hits are more than a quarter
+    // backfaces as in-wall (Inactive), and Inactive probes are never relit. With
+    // the facing inverted on Vulkan, every probe of every volume went Inactive,
+    // the irradiance atlas stayed zero, and the lit passes fell back to the
+    // baked/ambient term — realtime GI silently absent, no error, no VUID.
+    // Pinned by VulkanPassSuite.DdgiCaptureFrontFacingMatchesGlUnderTheCaptureSeam.
+    [[nodiscard]] FrontFace CaptureFrontFaceForBackend(FrontFace glWinding);
 
     // The seam's third consumer: shader code that RASTERIZES BY HAND and has to
     // reproduce what fixed function would have done to ndc.z.

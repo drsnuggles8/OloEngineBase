@@ -200,6 +200,9 @@ TEST(ClusteredLightingMath, DepthAwareEligibilityRejectsMissingDepthContributors
     inputs.HasVirtualGeometry = false;
     inputs.HasBlendedGeometry = true;
     EXPECT_FALSE(CL::CanUseDepthAwareCulling(inputs));
+    inputs.HasBlendedGeometry = false;
+    inputs.HasGroomGeometry = true;
+    EXPECT_FALSE(CL::CanUseDepthAwareCulling(inputs)) << "groom strands read the clusters and are not in the prepass";
 }
 
 TEST(ClusteredLightingMath, DeviceDepthReconstructsPerspectiveAndOrthographicEndpoints)

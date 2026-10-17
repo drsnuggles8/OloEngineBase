@@ -332,7 +332,7 @@ namespace OloEngine
                 CommandDispatch::InvalidateBindingCaches();
             }
         } invalidateBindings;
-        GLStateGuard guard("GBufferDepthEntityResolve", GLStateGuard::Policy::Restore);
+        GLStateGuard guard("GBufferDepthEntityResolve", GLStateGuard::Policy::RestoreQuiet); // every frame: restore without the per-field trace
         // Independent integer and depth blits do not identify the same sample
         // portably (OpenGL 4.6 section 18.3.1). Take both from sample zero,
         // matching Vulkan's existing depth-resolve convention. Colour averages

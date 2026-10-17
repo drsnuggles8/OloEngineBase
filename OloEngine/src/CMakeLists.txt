@@ -230,6 +230,10 @@
 		"OloEngine/Groom/GroomStrandMesh.cpp"
 		"OloEngine/Groom/GroomGpuDeformation.h"
 		"OloEngine/Groom/GroomGpuDeformation.cpp"
+		# Waterline-driven wet coats (#1615): the state the scene advances and
+		# the twins of the shaders' wet shading and wet deformation.
+		"OloEngine/Groom/GroomWetness.h"
+		"OloEngine/Groom/GroomWetness.cpp"
 		# A bound coat's shadow caster runs re-posed every frame (#1533).
 		"OloEngine/Groom/GroomCasterPose.h"
 		"OloEngine/Groom/GroomCasterPose.cpp"
@@ -1549,6 +1553,7 @@
 
 		"OloEngine/Task/CancellationToken.h"
 		"OloEngine/Task/ExtendedTaskPriority.h"
+		"OloEngine/Task/GameThreadCall.h"
 		"OloEngine/Task/InheritedContext.h"
 		"OloEngine/Task/LocalQueue.h"
 		"OloEngine/Task/LowLevelTask.h"

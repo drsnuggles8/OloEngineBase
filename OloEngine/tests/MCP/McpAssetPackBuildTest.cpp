@@ -1,6 +1,8 @@
 // OLO_TEST_LAYER: unit
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
+
+#include "OloEngine/Task/NamedThreads.h"
 #include "MCP/McpAssetPackBuild.h"
 #include "MCP/McpToolsCommon.h"
 #include "TestTempDir.h"
@@ -173,6 +175,12 @@ TEST(McpAssetPackBuild, RealBuildAutoSavesPollsAndReturnsWarningsWithBothCompres
             completed = poll.Result.StructuredContent;
             if (completed["status"] != "running")
                 break;
+            // The editor's frame loop between two polls: the build loads its
+            // assets on the game thread (Tasks::RunOnGameThreadAndWait), so
+            // when this thread IS the game thread it drains that queue.
+            auto& threads = Tasks::FNamedThreadManager::Get();
+            if (threads.GetCurrentThreadIfKnown() == Tasks::ENamedThread::GameThread)
+                threads.GetQueue(Tasks::ENamedThread::GameThread).ProcessAll(true);
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         } while (std::chrono::steady_clock::now() < deadline);
         ASSERT_EQ(completed["status"], "succeeded") << completed.dump();

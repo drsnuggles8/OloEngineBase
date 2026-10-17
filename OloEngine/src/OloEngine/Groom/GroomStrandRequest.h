@@ -38,6 +38,7 @@
 #include "OloEngine/Groom/GroomFibreScattering.h"
 #include "OloEngine/Groom/GroomStrandMesh.h"
 #include "OloEngine/Groom/GroomVisibility.h"
+#include "OloEngine/Groom/GroomWetness.h"
 
 #include <glm/glm.hpp>
 
@@ -124,6 +125,15 @@ namespace OloEngine
         /// Editor picking id.
         i32 EntityID = -1;
         i32 IntersectionBodyEntityID = -1;
+
+        /// The coat's wetness this frame (#1615): dry by default, so a coat
+        /// without a GroomWetnessComponent draws exactly as it did. The fibre
+        /// reads Wetness and WetResponse's optical half per vertex; a deformed
+        /// coat's strands are laid down by its geometric half, along WetGravity
+        /// (unit gravity in groom object space).
+        GroomWetnessFrame Wetness;
+        GroomWetResponse WetResponse;
+        glm::vec3 WetGravity{ 0.0f, -1.0f, 0.0f };
 
         /// How much of the groom to turn into geometry.
         GroomStrandBuildSettings Build;
@@ -259,6 +269,13 @@ namespace OloEngine
 
         /// Sample the scene's shadow term in the strand shader.
         bool ReceivesSceneShadow = false;
+
+        /// The coat's padded bounds are in the culling view (#1618), as
+        /// opposed to a coat submitted only because its shadow reaches the
+        /// view. Only an in-view coat draws pixels the depth-aware light cull
+        /// cannot see, so only it stands that cull down. True when the view
+        /// does not cull grooms.
+        bool InView = true;
 
         /// The width floor, in TEXELS of the shadow target, a strand is
         /// rasterised at from the light. One texel is the default and the

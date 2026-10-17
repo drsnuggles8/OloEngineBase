@@ -1314,6 +1314,7 @@ namespace OloEngine
         void UpdateDialogue(Timestep ts);        // dialogue runner
         void UpdateSubtitles(Timestep ts);       // caption overlay (issue #458)
         void UpdateLocomotion(Timestep ts);      // velocity->animation-parameter controller (issue #631)
+        void UpdateGroomWetness(Timestep ts);    // waterline-driven wet coats (issue #1615)
         void UpdateRetargeting(Timestep ts);     // live-retarget clip bake (issue #631)
         void UpdateAnimation(Timestep ts);       // skeletal + morph-only sampling
         void UpdateAnimationGraphs(Timestep ts); // animation state machines
@@ -2005,6 +2006,9 @@ namespace OloEngine
         // groom, or one whose binding cannot address the body: those draw at
         // rest, where the asset's bounds already are.
         [[nodiscard]] bool BoundGroomPlacementOffset(Entity groomEntity, const GroomAsset& groom, glm::vec3& outOffset);
+        /// Where a coat is drawn, against its groom's origin, in groom space:
+        /// BoundGroomPlacementOffset for a bound coat, zero otherwise (#1615).
+        [[nodiscard]] glm::vec3 GroomWetnessPlacement(Entity groomEntity, AssetHandle groom);
 
         /// Drop every bound groom's previous-frame data, attributing the cause.
         /// For wholesale discontinuities: scene load, play-mode transitions —

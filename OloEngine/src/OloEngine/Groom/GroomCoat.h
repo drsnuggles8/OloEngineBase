@@ -38,8 +38,12 @@
 // GroomCoatAuthoringTest pins it by evaluating the same coat against two
 // different poses and demanding identical answers.
 //
-// WHAT IS DELIBERATELY NOT HERE. Wetness, mud and interactive grooming are the
-// issue's stated later extensions. Guide-driven interpolation is #1250. The
+// WHAT IS DELIBERATELY NOT HERE. Mud and interactive grooming are the issue's
+// stated later extensions. Wetness is not a coat-authoring property either: it
+// is a STATE the scene advances per entity (GroomWetnessComponent, #1615) and
+// it acts at draw time, in the fibre and the deformation, through
+// Groom/GroomWetness.h -- never through the cook or this file's shape. Guide-
+// driven interpolation is #1250. The
 // fibre BCSDF is #1247's and is not touched: a per-strand tint multiplies the
 // shaded radiance at the very end of GroomStrand.glsl rather than modulating
 // sigma_a, which is an approximation and is named as one at the point it is

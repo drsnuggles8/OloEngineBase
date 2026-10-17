@@ -14,6 +14,7 @@
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Project/ContentPath.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Asset/PlaceholderAsset.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
@@ -132,6 +133,15 @@ namespace OloEngine
     // graph. Falls back to a raw Texture2D::Create() when no EditorAssetManager
     // is active (e.g. the runtime path loading a scene with raw texture paths) --
     // matches the legacy behaviour exactly in that case.
+    //
+    // Every failure is counted in t_SceneTextureLoadFailures. A component keeps
+    // its texture as the loaded object, not the path, so a failed load loses
+    // the path, and the binary sidecar written after the load would store the
+    // component without it: every later load of the scene would then come up
+    // without the texture, with nothing in the log, until the `.olo` changed.
+    // Deserialize writes no sidecar after a load that counted a failure.
+    static thread_local u32 t_SceneTextureLoadFailures = 0;
+
     static Ref<Texture2D> LoadSceneTexture(const std::string& texPath)
     {
         if (texPath.empty())
@@ -148,8 +158,9 @@ namespace OloEngine
             if (imported != 0 && AssetManager::GetAssetType(imported) == AssetType::Texture2D)
             {
                 Ref<Texture2D> texture = AssetManager::GetAsset<Texture2D>(imported);
-                if (!texture)
+                if (!texture || PlaceholderAssetManager::IsPlaceholderAsset(texture))
                 {
+                    ++t_SceneTextureLoadFailures;
                     // The import registered a handle but nothing usable came
                     // back. Say so HERE, naming the path: the component-level
                     // consequence is silent and does not look like an asset
@@ -167,6 +178,8 @@ namespace OloEngine
                 return texture;
             }
 
+            // Not counted here: the raw load below is still tried, and its
+            // outcome is the one counted.
             OLO_CORE_WARN("SceneSerializer: texture path '{}' did not resolve to a Texture2D asset. Scene texture "
                           "paths resolve against the project asset root.",
                           texPath);
@@ -175,8 +188,14 @@ namespace OloEngine
         // Runtime path (no EditorAssetManager): legacy raw load. The runtime
         // asset manager works off handles, not paths, so a scene that still
         // carries raw paths can only be loaded via Texture2D::Create(). This
-        // bypass is intentional and scoped to the runtime fallback.
-        return Texture2D::Create(texPath);
+        // bypass is intentional and scoped to the runtime fallback. The editor
+        // reaches it too, for a path the project did not resolve.
+        Ref<Texture2D> texture = Texture2D::Create(texPath);
+        if (!texture || !texture->IsLoaded())
+        {
+            ++t_SceneTextureLoadFailures;
+        }
+        return texture;
     }
 
     // The roots a relative scene resource path is written against and read back
@@ -7789,6 +7808,10 @@ namespace OloEngine
             return true;
         }
 
+        // Compared, not reset, so a scene loaded inside this one cannot clear
+        // a failure this load counted.
+        const u32 textureFailuresBefore = t_SceneTextureLoadFailures;
+
         YAML::Node data;
         try
         {
@@ -7914,7 +7937,21 @@ namespace OloEngine
         // snapshot scene-level settings. This is the only sidecar write, and it
         // is reached only after CheckSceneVersion above passed, so a sidecar
         // never vouches for a `.olo` this build would reject (#1496).
-        WriteBinarySidecar(filepath, data);
+        //
+        // Not after a texture failed to load (t_SceneTextureLoadFailures): the
+        // sidecar would store the component without the texture's path, and
+        // every later load would be served from it. A Vulkan Build Game that
+        // lost the device wrote such sidecars for every scene it touched.
+        if (const u32 textureFailures = t_SceneTextureLoadFailures - textureFailuresBefore; textureFailures > 0)
+        {
+            OLO_CORE_WARN("SceneSerializer: {} texture(s) in '{}' failed to load; no binary sidecar written, so the "
+                          "next load reads the YAML again",
+                          textureFailures, filepath.string());
+        }
+        else
+        {
+            WriteBinarySidecar(filepath, data);
+        }
 
         return true;
     }

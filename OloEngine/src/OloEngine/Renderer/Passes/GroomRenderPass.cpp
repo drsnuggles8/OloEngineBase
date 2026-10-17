@@ -17,6 +17,9 @@
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/IndexBuffer.h"
+#include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
+#include "OloEngine/Renderer/Passes/DeferredLightingPass.h"
+#include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/RGBuilder.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -163,6 +166,22 @@ namespace OloEngine
                                  { ShaderDataType::Float3, "a_PrevPosition" },
                                  { ShaderDataType::Float, "a_CoverageGrowth" } };
         }
+
+        // How far a wet coat's points can sit from its dry pose (#1615), for the
+        // caster runs the shadow views cull and thin by: the wet deformation
+        // keeps every point within its strand's length of its root, so twice
+        // the longest strand. Zero for a dry coat or a response that leaves the
+        // geometry alone.
+        [[nodiscard]] f32 GroomWetCasterDisplacement(const GroomStrandRequest& request, f32 maxStrandLength) noexcept
+        {
+            const GroomWetResponse& response = request.WetResponse;
+            const bool reshapes = response.Flatten > 0.0f || response.Shorten > 0.0f || response.Clump > 0.0f;
+            if (!request.Wetness.Any() || !reshapes || !std::isfinite(maxStrandLength))
+            {
+                return 0.0f;
+            }
+            return 2.0f * std::max(maxStrandLength, 0.0f);
+        }
     } // namespace
 
     GroomRenderPass::GroomRenderPass()
@@ -281,6 +300,10 @@ namespace OloEngine
             return;
         }
 
+        // The cluster light lists (#1618): a strand on Forward+ walks its
+        // cluster's lights, which ScenePass culls and publishes outside the graph.
+        builder.ConsumePublication(RGOutOfBandBoundaries::ForwardPlusLightClusters);
+
         const bool softIntersections = UsesSoftIntersections();
         if (softIntersections && board.Scene.GroomSceneDepthSnapshot.IsValid())
         {
@@ -316,6 +339,31 @@ namespace OloEngine
     u64 GroomRenderPass::CacheKey(const GroomStrandRequest& request) noexcept
     {
         return CacheKey(request, true);
+    }
+
+    const std::vector<glm::vec3>& GroomRenderPass::AcquireClumpGrowth(const GroomStrandRequest& request)
+    {
+        // The asset, the coat that shapes it and the guides-only switch are all
+        // a clump table depends on (ComputeGroomClumpGrowth).
+        u64 key = static_cast<u64>(request.Handle);
+        key ^= request.Build.CoatDigest + 0x9E3779B97F4A7C15ull + (key << 6) + (key >> 2);
+        key ^= (request.Build.GuidesOnly ? 0xD1B54A32D192ED03ull : 0ull) + (key << 6) + (key >> 2);
+        if (const auto it = m_ClumpGrowth.find(key); it != m_ClumpGrowth.end())
+        {
+            return it->second;
+        }
+        // Only wet coats ask, and a scene holds a handful: forgetting them all
+        // past a few dozen keeps a long editing session from accumulating one
+        // per coat setting ever tried.
+        if (m_ClumpGrowth.size() >= 32u)
+        {
+            m_ClumpGrowth.clear();
+        }
+        OLO_PERF_SCOPE_AUTO("Groom::ClumpGrowth");
+        const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
+        std::vector<glm::vec3>& growth = m_ClumpGrowth[key];
+        ComputeGroomClumpGrowth(request.Groom->GetCurveView(), request.Build, &coat, growth);
+        return growth;
     }
 
     u64 GroomRenderPass::CacheKey(const GroomStrandRequest& request, bool gpuDeformation) noexcept
@@ -749,6 +797,7 @@ namespace OloEngine
             const GroomDeformBufferLayout layout = GroomDeformBufferLayout::Make(
                 rootCount, table != nullptr ? table->GetGuideCount() : 0u, capacity, vertexCount, boneCount);
             entry.DeformCpu.Reset(layout, rootCurves, table);
+            entry.DeformClumpWritten = false;
             entry.DeformWeightsFrom = simulated ? request.Influence : Ref<GroomGuideInfluenceTable>{};
             if (rootsOnGpu)
             {
@@ -787,6 +836,20 @@ namespace OloEngine
             m_CacheBytes = m_CacheBytes - std::min(m_CacheBytes, oldBytes) + newBytes;
         }
 
+        // THE COAT'S WETNESS (#1615), the frame's record -- dry for a coat with
+        // none -- and, the first time this layout meets a coat that gathers its
+        // tufts, every drawn strand's clump growth. On a fresh layout PackFrame
+        // takes them into the bind frames with the relayout upload; on a live one
+        // SetClumpGrowth does, and the static region goes up below.
+        entry.DeformCpu.SetWetness(MakeGroomDeformWetRecord(request.Wetness, request.WetResponse, request.WetGravity));
+        bool clumpRegionChanged = false;
+        if (request.Wetness.Any() && request.WetResponse.Clump > 0.0f && !entry.DeformClumpWritten)
+        {
+            entry.DeformCpu.SetClumpGrowth(AcquireClumpGrowth(request), rootCurves);
+            entry.DeformClumpWritten = true;
+            clumpRegionChanged = !relayout;
+        }
+
         // Packed from the producer's transforms, which cover every drawn root
         // unless it left them to the GPU -- and then only the guides, which is
         // all PackFrame reads of them on the GPU layout.
@@ -808,9 +871,10 @@ namespace OloEngine
             const auto poseStart = std::chrono::steady_clock::now();
             const GroomCasterStream& caster = entry.Rest->Caster;
             const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
-            const GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
+            GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
                 simulated ? &simulation : nullptr, request.Groom->GetCurveGroupIds(), &coat,
                 entry.Rest->MaxRadius * std::max(request.WidthScale, 0.0f));
+            padding.WetDisplacement = GroomWetCasterDisplacement(request, caster.MaxStrandLength);
             GroomCasterPoseScratch& scratch = CasterPoseScratch();
             const bool posed =
                 rootsOnGpu ? PoseGroomCasterRunsBySurface(caster.Runs, caster.Pose, entry.CasterPoseSurface, rootInputs,
@@ -865,12 +929,23 @@ namespace OloEngine
                     streamingUploadedBytes += end - begin;
                 }
             };
+            // The wet record the frame packed, against the one the GPU holds:
+            // two dry records are the same record to the shader, which reads
+            // nothing past a dry frame's flag.
+            const GroomDeformWetRecord& wetRecord = entry.DeformCpu.Wet();
+            const bool wetUnchanged = (!(wetRecord.Frame.w > 0.5f) && !(entry.DeformWetSent.Frame.w > 0.5f)) ||
+                                      std::memcmp(&wetRecord, &entry.DeformWetSent, sizeof(GroomDeformWetRecord)) == 0;
             if (relayout)
             {
                 send(0u, bytes.size());
+                entry.DeformWetSent = wetRecord;
             }
             else
             {
+                if (clumpRegionChanged)
+                {
+                    send(static_cast<u64>(layout.ClumpBase) * 16u, layout.DynamicOffsetBytes());
+                }
                 const u64 usedEnd = (static_cast<u64>(layout.DisplacementBase) +
                                      static_cast<u64>(entry.DeformCpu.GetFrameStats().DisplacementCount) * 2u) *
                                     16u;
@@ -879,7 +954,20 @@ namespace OloEngine
                 send(begin, std::max(usedEnd, begin));
                 if (layout.RootsOnGpu())
                 {
+                    // The wet record (#1615) sits just before the root region the
+                    // kernel writes, so it goes up on its own -- and only when it
+                    // changed: an upload per frame into a buffer the frame's
+                    // kernel and draws are using cost GroomPass a driver sync.
+                    if (!wetUnchanged)
+                    {
+                        send(layout.DynamicOffsetBytes(), layout.WetEndBytes());
+                        entry.DeformWetSent = wetRecord;
+                    }
                     send(layout.PaletteOffsetBytes(), bytes.size());
+                }
+                else
+                {
+                    entry.DeformWetSent = wetRecord; // inside the dynamic region just sent
                 }
             }
             if (layout.RootsOnGpu())
@@ -1203,6 +1291,18 @@ namespace OloEngine
             // (#1533 E1) and this coat takes the CPU path after all.
             deformation.RootTransforms = GroomCpuRootTransforms(request, std::nullopt, m_CpuRootScratch, CpuSkinScratch());
         }
+        // A wet coat (#1615) on the CPU path: the same record and the same clump
+        // growth the GPU path's buffer carries, applied by the same function.
+        const GroomDeformWetRecord wetRecord =
+            MakeGroomDeformWetRecord(request.Wetness, request.WetResponse, request.WetGravity);
+        if (deformed && wetRecord.Frame.w > 0.5f)
+        {
+            deformation.Wet = &wetRecord;
+            if (request.WetResponse.Clump > 0.0f)
+            {
+                deformation.ClumpGrowth = AcquireClumpGrowth(request);
+            }
+        }
 
         // A DEFORMED build writes straight into the caller's stream, because
         // that stream is the pose the coat volume is baked from (#1426) and
@@ -1392,8 +1492,9 @@ namespace OloEngine
         OLO_PERF_SCOPE_AUTO("Groom::CasterPose");
         const auto poseStart = std::chrono::steady_clock::now();
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
-        const GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
+        GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
             simulated ? &simulation : nullptr, request.Groom->GetCurveGroupIds(), &coat, 0.0f);
+        padding.WetDisplacement = GroomWetCasterDisplacement(request, entry.Caster.MaxStrandLength);
         if (PoseGroomCasterRunsByRoots(entry.Caster.Runs, entry.Caster.Pose, transforms, padding, CasterPoseScratch(),
                                        entry.PosedRuns))
         {
@@ -2347,6 +2448,33 @@ namespace OloEngine
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_USER_0, Renderer3D::GetGlobalIrradianceMapHandle(),
                                         RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
 
+        // THE CLUSTER LIGHT LISTS (#1618), re-published from this frame's
+        // snapshot, the way VolumetricFogPass takes them. ScenePass's
+        // UnbindAfterShading empties bindings 9-12 and 18 after an active frame,
+        // GPUScene's tables are the other tenant of 9 and 10, and every pass
+        // that rebinds the shared scene resources uploads Enabled = 0 to 25 --
+        // so by the time a coat draws, nothing of the cull is guaranteed to be
+        // bound. The snapshot says Enabled = 0 whenever Forward+ is not live,
+        // and the strand shader then walks the whole multi-light buffer.
+        {
+            const TiledForwardPlus::ShadingSnapshot lighting = Renderer3D::GetForwardPlus().CaptureShadingBindings();
+            if (!m_ForwardPlusUBO)
+            {
+                m_ForwardPlusUBO = UniformBuffer::Create(UBOStructures::ForwardPlusUBO::GetSize(),
+                                                         ShaderBindingLayout::UBO_FORWARD_PLUS);
+            }
+            m_ForwardPlusUBO->SetData(&lighting.Parameters, UBOStructures::ForwardPlusUBO::GetSize());
+            m_ForwardPlusUBO->Bind();
+            for (const Ref<StorageBuffer>& buffer : lighting.Buffers)
+            {
+                if (buffer)
+                {
+                    buffer->Bind();
+                }
+            }
+            m_Stats.ClusteredLightLists = lighting.Parameters.Params.z != 0u;
+        }
+
         // The frame's shadow inputs (#1323) -- the CSM array, the local-light
         // atlas, their comparison-off raw views and the Virtual Shadow Map's
         // sampling publish -- through the ONE function the queued PBR draws use,
@@ -2391,6 +2519,7 @@ namespace OloEngine
         // amount — invisible near the world origin, which is where every test
         // scene sits, and wrong everywhere else.
         const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
+        const glm::vec4 ambientLadder = DeferredLightingPass::AmbientLadderControls();
 
         // Coat volumes resident across the WHOLE cache, against
         // kMaxResidentCoatVolumes. Seeded from the cache rather than from zero:
@@ -2672,6 +2801,23 @@ namespace OloEngine
                                           : 0.25f;
             params.SoftIntersection = glm::vec4(std::clamp(fadeDistance, 0.0f, 10.0f), protectedRoot,
                                                 intersectionWater.IsValid() ? 1.0f : 0.0f, 0.0f);
+            // The rung the body's ambient ladder takes (#1618): the same
+            // controls the deferred pass, the terrain and the foliage read.
+            params.Ambient = glm::vec4(glm::vec2(ambientLadder), 0.0f, 0.0f);
+            // The coat's wetness (#1615): the fibre's optical response per
+            // vertex, from the same frame the deformation laid it down with.
+            {
+                const GroomDeformWetRecord wet =
+                    MakeGroomDeformWetRecord(request.Wetness, request.WetResponse, request.WetGravity);
+                params.WetState = wet.Frame;
+                params.WetHeight = wet.Height;
+                const GroomWetResponse& response = request.WetResponse;
+                const auto sane = [](f32 value, f32 lo, f32 hi, f32 fallback)
+                { return std::isfinite(value) ? std::clamp(value, lo, hi) : fallback; };
+                params.WetResponse = glm::vec4(
+                    sane(response.Absorption, GroomWetnessLimits::MinAbsorption, GroomWetnessLimits::MaxAbsorption, 1.0f),
+                    sane(response.Roughness, 0.05f, 1.0f, 1.0f), sane(response.Azimuthal, 0.05f, 1.0f, 1.0f), 0.0f);
+            }
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),
                                           static_cast<i32>(m_FrameState.FrameIndex),
                                           static_cast<i32>(kStochasticSeed), 0);
@@ -3283,6 +3429,13 @@ namespace OloEngine
         caster.Array->SetIndexBuffer(caster.Indices);
         caster.Runs = std::move(order.Runs);
         caster.MeanRadius = order.MeanRadius;
+        for (const GroomCasterStrand& strand : strands)
+        {
+            if (std::isfinite(strand.Length))
+            {
+                caster.MaxStrandLength = std::max(caster.MaxStrandLength, strand.Length);
+            }
+        }
         caster.Bytes = static_cast<u64>(order.Indices.size()) * sizeof(u32);
         return caster;
     }

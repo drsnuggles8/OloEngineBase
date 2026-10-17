@@ -6279,7 +6279,9 @@ namespace OloEngine::Tests
     // of it. On the adult dogs (#1558) the 12 mm card cell left the cards 7-9%
     // darker: a wide card reads the body's shadow across its ribbon (receiving
     // no scene shadow recovered a third of the step) and averages its lock's
-    // tips away. The 9 mm cell keeps both within the bar.
+    // tips away. The 9 mm cell kept both within the bar on those coats; the
+    // full-fur breeds, over 100 strands a card at 9 mm, need 6 mm (#1608,
+    // #1621, groom-card-coverage.md rule 9).
     // =========================================================================
     void DogShowcaseEvidenceTest::TheCardHandOverStepsTheCoatWithinTheNearLaddersBar()
     {

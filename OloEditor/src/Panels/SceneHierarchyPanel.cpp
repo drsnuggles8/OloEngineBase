@@ -2172,6 +2172,7 @@ namespace OloEngine
             DisplayAddComponentEntry<VirtualMeshComponent>("Virtual Mesh");
             DisplayAddComponentEntry<GroomComponent>("Groom");
             DisplayAddComponentEntry<GroomSoftIntersectionComponent>("Groom Soft Intersections");
+            DisplayAddComponentEntry<GroomWetnessComponent>("Groom Wetness");
             DisplayAddComponentEntry<GroomBindingComponent>("Groom Binding");
             DisplayAddComponentEntry<GroomFibreComponent>("Groom Fibre Material");
             DisplayAddComponentEntry<GroomCoatShadowComponent>("Groom Coat Shadow");
@@ -8652,6 +8653,30 @@ namespace OloEngine
             if (!component.m_Automatic)
                 ImGui::DragFloat("Fade distance (world units)", &component.m_FadeDistance, 0.0001f, 0.0f, 10.0f, "%.5f");
             ImGui::SliderFloat("Protected root fraction", &component.m_ProtectedRoot, 0.0f, 1.0f); });
+
+        // Waterline-driven wet coats (#1615). The state at the bottom is what
+        // the scene advances at runtime; editing it previews a wet coat here.
+        DrawComponent<GroomWetnessComponent>("Groom Wetness", entity, [](auto& component)
+                                             {
+            ImGui::Checkbox("Enabled", &component.m_Enabled);
+            ImGui::Checkbox("Find the water", &component.m_AutomaticWaterline);
+            if (!component.m_AutomaticWaterline)
+                ImGui::DragFloat("Water surface height (world)", &component.m_Waterline, 0.01f);
+            ImGui::DragFloat("Wet edge half-width (m)", &component.m_Band, 0.001f, 0.005f, 1.0f, "%.3f");
+            ImGui::SliderFloat("Rain soak", &component.m_RainSoak, 0.0f, 1.0f);
+            ImGui::DragFloat("Soak rate (1/s)", &component.m_SoakRate, 0.01f, 0.0f, 100.0f);
+            ImGui::DragFloat("Dry rate (1/s)", &component.m_DryRate, 0.001f, 0.0f, 100.0f, "%.3f");
+            ImGui::SeparatorText("When soaked");
+            ImGui::SliderFloat("Darkening (absorption x)", &component.m_Darkening, 1.0f, 8.0f);
+            ImGui::SliderFloat("Gloss (roughness x)", &component.m_Gloss, 0.05f, 1.0f);
+            ImGui::SliderFloat("Sheen (azimuthal spread x)", &component.m_Sheen, 0.05f, 1.0f);
+            ImGui::SliderFloat("Flatten", &component.m_Flatten, 0.0f, 1.0f);
+            ImGui::SliderFloat("Shorten", &component.m_Shorten, 0.0f, 0.9f);
+            ImGui::SliderFloat("Clump", &component.m_Clump, 0.0f, 1.0f);
+            ImGui::SeparatorText("State (advanced at runtime)");
+            ImGui::SliderFloat("Soaked", &component.m_Immersion, 0.0f, 1.0f);
+            ImGui::DragFloat("Water reached (m above origin)", &component.m_SoakedLine, 0.01f, -1000000.0f, 1000000.0f, "%.2f");
+            ImGui::SliderFloat("Rain wetness", &component.m_Rain, 0.0f, 1.0f); });
 
         // Groom curve preview (issue #1232). The panel's job here is to make
         // the STATIC DEBUG PREVIEW steerable and to report what the groom

@@ -163,7 +163,7 @@ namespace OloEngine
         // Same shape as PlanarReflectionRenderPass / OverdrawRenderPass /
         // ShaderDebugDrawPass, which replay geometry with their own
         // programs/VAOs under Policy::Restore.
-        GLStateGuard guard("DecalRenderPass", GLStateGuard::Policy::Restore);
+        GLStateGuard guard("DecalRenderPass", GLStateGuard::Policy::RestoreQuiet); // every frame: restore without the per-field trace
 
         // Helper: decide whether a packet should be drained by *this*
         // (the graph-scheduled) Execute. In the Deferred path the opaque

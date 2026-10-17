@@ -14,7 +14,8 @@ writes it as Alembic hair curves, which the engine cooks into `Grooms/Dog/Dog.ol
 | file | what it is |
 |---|---|
 | `build_dog.py` | the Blender 5.x script that writes everything below, from nothing, and runs the next one |
-| `build_dog_groom.py` | the coat: grown on `Dog.gltf`, written to `.dog-groom/Dog.abc` at the repository root |
+| `build_dog_groom.py` | the coat: grown on `Dog.gltf`, written to `Dog.abc` |
+| `Dog.abc` | the coat's source (Git LFS): one hair object per coat group, which the engine cooks into `Grooms/Dog/Dog.ologroom` |
 | `Dog.gltf` + `Dog.bin` | one skinned mesh (~256k triangles) on a 50-bone rig, eight materials, six clips |
 | `DogCoatColor.png` | 2048² coat colours: DogSkin's albedo and the groom's colour map |
 | `DogNoseNormal.png`, `DogNoseOcclusion.png` | 2048² each, the nose leather's own UV square: its cobblestones, and the occlusion that keeps its nostrils dark |
@@ -22,7 +23,7 @@ writes it as Alembic hair curves, which the engine cooks into `Grooms/Dog/Dog.ol
 | `DogGumColor.png`, `DogGumOcclusion.png` | 1024² each: pink gums with black pigment patches, and the oral cavity's occlusion |
 | `DogLipOcclusion.png`, `DogTeethOcclusion.png` | 1024² each: the lips' and teeth's occlusion, all of the mouth's baked in the Pant pose |
 | `DogIrisColor.png` | 2048², the eyeball's albedo on a planar UV across the gaze: the painted iris (fetched at the refracted iris point), its crisp pupil, and the sclera round it |
-| `Dog.rig.json` | eye radius, eye centres and gaze, lid and socket radii, the clip list |
+| `Dog.rig.json` | eye radius, eye centres and gaze, lid and socket radii, the clip list, the dressing (`assembly`: pelt, lid and fibre colours and the pigment mode), the coat source and the walk speed |
 | `DogEyeball.gltf` + `.bin` | the unit sphere each eye entity draws (128 x 64: the engine's primitive sphere reloads at 16 segments) |
 
 Units are metres, Y-up, and the head faces +Z, the convention `Horse.gltf` and `Fox.gltf` use. The
@@ -106,9 +107,18 @@ undercoat, guard hair, long hair and strays per region, Voronoi locks, darkened 
 sun-bleached tips. A last pass, `keep_off_other_parts`, cuts any strand short of the other side
 of an ear's edge: the face and cheek fur under a flap otherwise grew straight through it (52% of
 the face's guard hair) and showed as a slit of hair at the flap's front edge. Fur dipping into the
-skin it grows on is left alone. It writes one hair object per coat group into `.dog-groom/Dog.abc`: ~410k
-strands, 57 MB. The archive is a build output, git-ignored, and it stays out of `SandboxProject/Assets`,
-because the editor registers everything it finds there.
+skin it grows on is left alone. It writes one hair object per coat group into `Dog.abc`, beside
+the model: ~410k strands, 57 MB, the coat's source, committed through Git LFS as the other breeds'
+are. `Dog.rig.json` names it (`coatSource`), the shipped coat records it as its provenance, and the
+Content Browser's "Import as Groom" cooks it into the same bytes
+(`TheShippedCoatIsWhatTheEditorImportWrites`). The archive also carries the card tier
+(`groom_card_cell_size`, `groom_card_points`: `CARDS`), so every cook of it builds the same cards.
+Root UVs are written in the engine's convention, Blender's v up (#1560).
+
+Blender's Alembic exporter writes the hair objects in a different order on every run, and the
+importer numbers the groups in archive order, so a regenerated archive is the same coat in another
+curve order: every curve-indexed jitter and stride-based LOD subset moves. Cook the shipped coat from
+the committed archive, and regenerate the archive only to change the coat.
 
 Blender's Alembic exporter writes a hair object's points and widths and its custom properties, and
 nothing else a groom needs. So each group's coat description (`groom_role`, `groom_tint`,

@@ -44,6 +44,7 @@
 
 #include "RendererAttachedTest.h"
 #include "TestTempDir.h"
+#include "UniformSkyFixture.h"
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -171,6 +172,7 @@ namespace OloEngine::Tests
         AssetHandle m_GroomHandle = 0;
         Entity m_GroomEntity;
         Entity m_LightEntity;
+        Ref<TextureCubemap> m_BlackSky;
 
         void BuildScene() override
         {
@@ -215,6 +217,16 @@ namespace OloEngine::Tests
                 dl.m_Direction = glm::normalize(glm::vec3(-0.35f, -0.7f, -0.6f));
                 dl.m_Color = glm::vec3(1.0f, 0.97f, 0.93f);
                 dl.m_Intensity = 3.0f;
+            }
+
+            // ...and NOTHING ELSE: no ambient either. With no environment the
+            // ambient ladder ends at the flat fill, which the coat takes like
+            // its body since #1618 and which carries the pigment at every light
+            // angle; a black sky puts it on the IBL rung at zero irradiance.
+            {
+                m_BlackSky = MakeUniformSkyCubemap(glm::vec3(0.0f));
+                ASSERT_TRUE(m_BlackSky);
+                SetUniformSkyEnvironment(scene.CreateEntity("BlackSky"), m_BlackSky);
             }
 
             // A DARK body, so the coat is what the frame is measuring. A bright

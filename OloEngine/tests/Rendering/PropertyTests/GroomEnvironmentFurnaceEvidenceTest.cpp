@@ -20,8 +20,10 @@
 //      percentile and not the mean. The /pi reads about 0.3.
 //   2. THE COAT MATCHES THE LAMBERTIAN SPHERE beside it, as a ratio of that
 //      percentile to the sphere's centre.
-//   3. NOTHING BUT THE SKY LIGHTS IT. With IBL off, the coat is black, so 1
-//      and 2 measure the environment term and not a stray light.
+//   3. NOTHING BUT THE SKY LIGHTS IT. With IBL off, the coat and the sphere
+//      both fall to the ambient ladder's flat fill (#1618) and read exactly
+//      what it predicts, so 1 and 2 measure the environment term and not a
+//      stray light.
 //   4. THE SKY'S IBL INTENSITY SCALES THE COAT AS IT SCALES THE SPHERE.
 //
 // On all three rendering paths and for both producers the scene can pick (the
@@ -36,6 +38,7 @@
 
 #include "RendererAttachedTest.h"
 #include "TestTempDir.h"
+#include "UniformSkyFixture.h"
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -109,38 +112,6 @@ namespace OloEngine::Tests
             { "ForwardPlus", RenderingPath::ForwardPlus },
             { "Deferred", RenderingPath::Deferred },
         } };
-
-        [[nodiscard]] Ref<TextureCubemap> MakeUniformSky(const glm::vec3& radiance)
-        {
-            constexpr u32 kResolution = 32;
-            CubemapSpecification spec{};
-            spec.Width = kResolution;
-            spec.Height = kResolution;
-            spec.Format = ImageFormat::RGBA32F;
-            spec.GenerateMips = true;
-            Ref<TextureCubemap> sky = TextureCubemap::Create(spec);
-            if (!sky)
-            {
-                return nullptr;
-            }
-            std::vector<f32> face(static_cast<sizet>(kResolution) * kResolution * 4u);
-            for (sizet i = 0; i < face.size(); i += 4u)
-            {
-                face[i + 0u] = radiance.r;
-                face[i + 1u] = radiance.g;
-                face[i + 2u] = radiance.b;
-                face[i + 3u] = 1.0f;
-            }
-            for (u32 f = 0; f < 6u; ++f)
-            {
-                if (!sky->SetFaceDataMip(f, 0, face.data(), static_cast<u32>(face.size() * sizeof(f32))))
-                {
-                    return nullptr;
-                }
-            }
-            sky->GenerateMipmaps();
-            return sky;
-        }
 
         // The pixel a world point projects to, for the camera Capture uses:
         // at kEye, looking down -Z, no rotation.
@@ -270,7 +241,7 @@ namespace OloEngine::Tests
             m_PreviousAliasing = Levers::DisableTransientAliasing();
             Levers::SetDisableTransientAliasing(true);
 
-            m_Sky = MakeUniformSky(kSkyRadiance);
+            m_Sky = MakeUniformSkyCubemap(kSkyRadiance);
             ASSERT_TRUE(m_Sky);
             m_SkyEntity = scene.CreateEntity("UniformSky");
             auto& env = m_SkyEntity.AddComponent<EnvironmentMapComponent>();
@@ -334,15 +305,8 @@ namespace OloEngine::Tests
         // CreateFromCubemap + IBLConfiguration the scene's own loader uses.
         void SetProducer(const Producer& producer)
         {
-            IBLConfiguration config;
-            config.UseSphericalHarmonics = producer.SphericalHarmonics;
-            // A generated cubemap has no file to key a cache entry on.
-            config.UseDiskCache = false;
-            auto& env = m_SkyEntity.GetComponent<EnvironmentMapComponent>();
-            env.m_UseSphericalHarmonics = producer.SphericalHarmonics;
-            env.m_EnvironmentMap = EnvironmentMap::CreateFromCubemap(m_Sky, config);
-            ASSERT_TRUE(env.m_EnvironmentMap) << producer.Name << ": EnvironmentMap::CreateFromCubemap failed";
-            ASSERT_TRUE(env.m_EnvironmentMap->HasIBL()) << producer.Name << ": the environment baked no IBL";
+            SCOPED_TRACE(producer.Name);
+            SetUniformSkyEnvironment(m_SkyEntity, m_Sky, producer.SphericalHarmonics);
         }
 
         // A dense hemisphere of short strands, facing every way, so a good share
@@ -634,10 +598,15 @@ namespace OloEngine::Tests
             << "THE COAT IGNORES THE SKY'S IBL INTENSITY while the sphere beside it doubles";
     }
 
-    TEST_F(GroomEnvironmentFurnaceEvidenceTest, WithTheSkyOffNothingLightsTheCoat)
+    TEST_F(GroomEnvironmentFurnaceEvidenceTest, WithTheSkyOffTheCoatTakesTheFlatFillLikeTheSphere)
     {
         // The control for the test above: its ratios mean something only if the
-        // sky is the coat's only light.
+        // sky is the coat's only light. With the sky off, the coat drops to the
+        // ambient ladder's flat fill, as the sphere beside it does (#1618), so
+        // what is left is predicted exactly: the coat's ambient is linear in
+        // the irradiance it is handed, the flat fill hands it 0.03 where the
+        // sky handed it the sky's radiance, and the sphere reads 0.03 * albedo.
+        // A stray light would add to both.
         Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
         Renderer3D::ApplyRendererSettings();
 
@@ -671,10 +640,19 @@ namespace OloEngine::Tests
             }
             darkBright = Percentile(values, 0.9f);
         }
-        std::printf("[groom-env-furnace] sky off: coat p90 %.5f vs %.4f with the sky\n", darkBright, litBright);
+        const f32 sphereDark = SphereCentreGreen(dark);
+        constexpr f32 kFlatFill = 0.03f; // AmbientLadder.glsl's OLO_AMBIENT_FLAT_FILL
+        const f32 predictedRatio = kFlatFill / kSkyRadiance.g;
+        std::printf("[groom-env-furnace] sky off: coat p90 %.5f vs %.4f with the sky (ratio %.4f, flat fill predicts "
+                    "%.4f); sphere %.5f (predicts %.5f)\n",
+                    darkBright, litBright, darkBright / std::max(litBright, 1.0e-6f), predictedRatio, sphereDark,
+                    kFlatFill * kAlbedo.g);
 
         ASSERT_GT(litBright, 0.05f) << "the lit arm rendered no coat, so this control proves nothing";
-        EXPECT_LT(darkBright, 0.02f * litBright)
-            << "the coat is lit with the sky off, so something other than the environment term reaches it";
+        EXPECT_NEAR(darkBright / litBright, predictedRatio, 0.15f * predictedRatio)
+            << "with the sky off the coat is not at the flat fill: above it, a stray light reaches the coat; "
+               "below it, the coat skipped the ladder's last rung the sphere takes";
+        EXPECT_NEAR(sphereDark, kFlatFill * kAlbedo.g, 0.15f * kFlatFill * kAlbedo.g)
+            << "the sphere is not at the flat fill with the sky off, so this frame is not the ladder's last rung";
     }
 } // namespace OloEngine::Tests

@@ -17,8 +17,12 @@
 #include "OloEngine/Serialization/ImportedMaterialCodec.h"
 #include "OloEngine/Serialization/AssetPackFile.h"
 #include "OloEngine/Serialization/FileStream.h"
+#include "OloEngine/Task/GameThreadCall.h"
 
 #include <algorithm>
+#include <optional>
+#include <functional>
+#include <chrono>
 #include <unordered_map>
 #include <unordered_set>
 #include <format>
@@ -68,6 +72,53 @@ namespace OloEngine
           private:
             std::filesystem::path m_Path;
         };
+
+        // `step(i)` for every i in [0, count), ON THE GAME THREAD, a frame's
+        // worth at a time. An asset load creates GPU resources, which belong to
+        // the game thread (Tasks::RunOnGameThreadAndWait). One call per asset
+        // made a build load one asset per frame; one call for all of them would
+        // freeze the editor for the whole load. Each call loads for up to
+        // kGameThreadBatch, then hands back; `afterBatch(begin, end)` runs on
+        // this worker between calls. False when the build was cancelled.
+        constexpr auto kGameThreadBatch = std::chrono::milliseconds(8);
+
+        [[nodiscard]] bool ForEachOnGameThread(sizet count, const std::atomic<bool>* cancelToken, const char* name,
+                                               const std::function<void(sizet)>& step,
+                                               const std::function<void(sizet, sizet)>& afterBatch = {})
+        {
+            sizet next = 0;
+            while (next < count)
+            {
+                if (cancelToken && cancelToken->load(std::memory_order_acquire))
+                {
+                    return false;
+                }
+                const sizet begin = next;
+                const std::optional<sizet> end = Tasks::RunOnGameThreadAndWait<sizet>(
+                    [&step, begin, count]()
+                    {
+                        const auto start = std::chrono::steady_clock::now();
+                        sizet i = begin;
+                        do
+                        {
+                            step(i);
+                            ++i;
+                        } while (i < count && std::chrono::steady_clock::now() - start < kGameThreadBatch);
+                        return i;
+                    },
+                    cancelToken, name);
+                if (!end.has_value())
+                {
+                    return false;
+                }
+                if (afterBatch)
+                {
+                    afterBatch(begin, *end);
+                }
+                next = *end;
+            }
+            return true;
+        }
     } // namespace
 
     AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromActiveProject(const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
@@ -119,6 +170,26 @@ namespace OloEngine
             // Pack builds read a snapshot; watcher callbacks could outlive this
             // temporary manager after Shutdown(), so do not start a watcher.
             tempAssetManager->Initialize(false);
+            // ...and released on the game thread, on every way out of this
+            // scope. Its assets own GPU resources the game thread created (the
+            // loads below run there); destroyed on this worker, they queued their
+            // Vulkan reclaims while the frame walked that queue, and the editor
+            // crashed the moment a build finished.
+            struct ReleaseOnGameThread
+            {
+                Ref<EditorAssetManager>& Manager;
+                ~ReleaseOnGameThread()
+                {
+                    if (Manager)
+                    {
+                        Tasks::PostToGameThread([manager = std::move(Manager)]() mutable
+                                                {
+                            manager->Shutdown();
+                            manager.Reset(); },
+                                                "AssetPackBuilder::ReleaseTempAssets");
+                    }
+                }
+            } releaseTempAssets{ tempAssetManager };
 
             // Load all assets from the provided registry
             auto allAssets = assetRegistry.GetAllAssets();
@@ -131,55 +202,72 @@ namespace OloEngine
             sizet loadedCount = 0;
             sizet failedCount = 0;
 
-            // Load each asset from the registry into the temporary manager
-            for (const auto& metadata : allAssets)
+            // Load each asset from the registry into the temporary manager, ON
+            // THE GAME THREAD (ForEachOnGameThread). A load creates the asset's
+            // GPU resources (texture pixels, mesh buffers), and this build runs
+            // on a worker: on Vulkan its load-time uploads submitted to the
+            // frame's queue from a second thread and lost the device.
+            std::vector<Ref<Asset>> loadedAssets(allAssets.size());
+            std::vector<std::string> loadErrors(allAssets.size());
+            const bool loadsCompleted = ForEachOnGameThread(
+                allAssets.size(), cancelToken, "AssetPackBuilder::LoadAssets",
+                [&](sizet i)
+                {
+                    try
+                    {
+                        tempAssetManager->SetMetadata(allAssets[i].Handle, allAssets[i]);
+                        loadedAssets[i] = tempAssetManager->GetAsset(allAssets[i].Handle);
+                    }
+                    catch (const std::exception& e)
+                    {
+                        loadErrors[i] = e.what();
+                    }
+                },
+                [&](sizet begin, sizet end)
+                {
+                    for (sizet i = begin; i < end; ++i)
+                    {
+                        const auto& metadata = allAssets[i];
+                        const Ref<Asset>& asset = loadedAssets[i];
+                        if (!loadErrors[i].empty())
+                        {
+                            ++failedCount;
+                            OLO_CORE_ERROR("AssetPackBuilder: Exception loading asset {} ({}): {}", metadata.Handle,
+                                           metadata.FilePath.string(), loadErrors[i]);
+                        }
+                        // A load that fails comes back as the type's PLACEHOLDER,
+                        // not null, and is not cached, so it never reaches the
+                        // pack. It used to be counted as loaded: a build that
+                        // dropped every groom .abc reported "0 failed".
+                        else if (asset && PlaceholderAssetManager::IsPlaceholderAsset(asset))
+                        {
+                            ++failedCount;
+                            OLO_CORE_WARN("AssetPackBuilder: asset {} ({}) did not load and is NOT in the pack; the editor "
+                                          "draws a placeholder for it",
+                                          metadata.Handle, metadata.FilePath.string());
+                        }
+                        else if (asset)
+                        {
+                            ++loadedCount;
+                            OLO_CORE_TRACE("AssetPackBuilder: Loaded asset {} ({})", metadata.Handle, metadata.FilePath.string());
+                        }
+                        else
+                        {
+                            ++failedCount;
+                            OLO_CORE_WARN("AssetPackBuilder: Failed to load asset {} ({})", metadata.Handle,
+                                          metadata.FilePath.string());
+                        }
+                        loadProgress += progressPerAsset;
+                    }
+                    progress = loadProgress;
+                });
+            // The results hold references to assets the game thread created;
+            // the temporary manager owns them too, and it is released there.
+            loadedAssets.clear();
+            if (!loadsCompleted)
             {
-                // Check for cancellation during loading
-                if (cancelToken && cancelToken->load(std::memory_order_acquire))
-                {
-                    OLO_CORE_INFO("AssetPackBuilder: Build cancelled during asset loading");
-                    tempAssetManager->Shutdown();
-                    return { false, "Build cancelled by user", 0, 0, {} };
-                }
-
-                try
-                {
-                    // Add the metadata to the temporary manager's registry
-                    tempAssetManager->SetMetadata(metadata.Handle, metadata);
-
-                    // Load the asset data
-                    auto asset = tempAssetManager->GetAsset(metadata.Handle);
-                    // A load that fails comes back as the type's PLACEHOLDER, not
-                    // null, and is not cached, so it never reaches the pack. It
-                    // used to be counted as loaded: a build that dropped every
-                    // groom .abc reported "0 failed".
-                    if (asset && PlaceholderAssetManager::IsPlaceholderAsset(asset))
-                    {
-                        ++failedCount;
-                        OLO_CORE_WARN("AssetPackBuilder: asset {} ({}) did not load and is NOT in the pack; the editor "
-                                      "draws a placeholder for it",
-                                      metadata.Handle, metadata.FilePath.string());
-                    }
-                    else if (asset)
-                    {
-                        ++loadedCount;
-                        OLO_CORE_TRACE("AssetPackBuilder: Loaded asset {} ({})", metadata.Handle, metadata.FilePath.string());
-                    }
-                    else
-                    {
-                        ++failedCount;
-                        OLO_CORE_WARN("AssetPackBuilder: Failed to load asset {} ({})", metadata.Handle, metadata.FilePath.string());
-                    }
-                }
-                catch (const std::exception& e)
-                {
-                    ++failedCount;
-                    OLO_CORE_ERROR("AssetPackBuilder: Exception loading asset {} ({}): {}", metadata.Handle, metadata.FilePath.string(), e.what());
-                }
-
-                // Update progress
-                loadProgress += progressPerAsset;
-                progress = loadProgress;
+                OLO_CORE_INFO("AssetPackBuilder: Build cancelled during asset loading");
+                return { false, "Build cancelled by user", 0, 0, {} };
             }
 
             OLO_CORE_INFO("AssetPackBuilder: Loaded {}/{} assets successfully ({} failed)", loadedCount, allAssets.size(), failedCount);
@@ -187,7 +275,6 @@ namespace OloEngine
             // Check if we have any loaded assets to pack
             if (loadedCount == 0)
             {
-                tempAssetManager->Shutdown();
                 return { false, "No assets could be loaded from the registry", 0, 0, settings.m_OutputPath, failedCount };
             }
 
@@ -195,7 +282,6 @@ namespace OloEngine
             if (cancelToken && cancelToken->load(std::memory_order_acquire))
             {
                 OLO_CORE_INFO("AssetPackBuilder: Build cancelled before packing");
-                tempAssetManager->Shutdown();
                 return { false, "Build cancelled by user", 0, 0, {} };
             }
 
@@ -204,9 +290,6 @@ namespace OloEngine
             // thread whenever no task worker was free to take it.
             result = BuildImpl(tempAssetManager, settings, ProgressRange{ progress, 0.3f, 0.7f }, cancelToken);
             result.m_FailedAssetCount = failedCount;
-
-            // Clean up the temporary asset manager
-            tempAssetManager->Shutdown();
 
             // Update final progress; a failed build keeps the value it stopped at.
             if (result.m_Success)
@@ -761,6 +844,29 @@ namespace OloEngine
         const u64 assetDataStartOffset = headerSize + indexSize + assetInfosSize + sceneInfosSize + scriptBinarySize;
         assetPackFile.TempDataStartOffset = assetDataStartOffset;
         u64 currentOffset = assetDataStartOffset;
+
+        // EVERY ASSET THE SERIALIZERS WILL READ, resident first -- loaded on the
+        // game thread. A serializer reads its asset (and a material its textures)
+        // through the editor's AssetManager, which loads whatever is not resident,
+        // GPU resources and all, on the caller's thread: this worker. Loaded here,
+        // every one of those reads hits the cache.
+        {
+            std::vector<AssetHandle> handles;
+            handles.reserve(assetPackFile.AssetInfos.size() + assetPackFile.SceneInfos.size());
+            for (const auto& assetInfo : assetPackFile.AssetInfos)
+            {
+                handles.push_back(assetInfo.Handle);
+            }
+            for (const auto& sceneInfo : assetPackFile.SceneInfos)
+            {
+                handles.push_back(sceneInfo.Handle);
+            }
+            // A cancelled preload falls through to the serialize loop, whose own
+            // check ends the build.
+            (void)ForEachOnGameThread(handles.size(), cancelToken, "AssetPackBuilder::PreloadForSerialize",
+                                      [&handles](sizet i)
+                                      { (void)AssetManager::GetAsset<Asset>(handles[i]); });
+        }
 
         // Create temporary files for each asset and calculate sizes
         std::vector<std::pair<AssetHandle, std::filesystem::path>> tempAssetFiles;

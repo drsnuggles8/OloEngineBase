@@ -64,12 +64,18 @@ namespace OloEngine
             bool HasBlendedGeometry = false;
             bool HasVirtualGeometry = false;
             bool HasVolumetricFog = false;
+            // Groom strands (#1618) walk the cluster lists too, and are drawn
+            // after ScenePass, so they are absent from the depth the cull reads:
+            // a strand at the silhouette, in front of open sky, would find its
+            // tile's occupied depth range empty and lose every local light.
+            bool HasGroomGeometry = false;
         };
 
         [[nodiscard]] inline bool CanUseDepthAwareCulling(const DepthAwareFrameInputs& inputs)
         {
             return inputs.DepthPrepassAvailable && inputs.SingleSampleDepth && inputs.LeverEnabled &&
-                   !inputs.HasBlendedGeometry && !inputs.HasVirtualGeometry && !inputs.HasVolumetricFog;
+                   !inputs.HasBlendedGeometry && !inputs.HasVirtualGeometry && !inputs.HasVolumetricFog &&
+                   !inputs.HasGroomGeometry;
         }
 
         // Guard rails for degenerate camera planes: slicing needs 0 < near < far.

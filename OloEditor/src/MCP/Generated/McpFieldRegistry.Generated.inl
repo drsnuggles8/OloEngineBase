@@ -565,6 +565,24 @@ registry.push_back(OLO_GFW_FIELD_RANGE(GroomSoftIntersectionComponent, "Protecte
 registry.push_back(OLO_GFW_FIELD(GroomSoftIntersectionComponent, "Enabled", m_Enabled));
 registry.push_back(OLO_GFW_FIELD(GroomSoftIntersectionComponent, "Automatic", m_Automatic));
 
+// GroomWetnessComponent
+registry.push_back(OLO_GFW_FIELD(GroomWetnessComponent, "Enabled", m_Enabled));
+registry.push_back(OLO_GFW_FIELD(GroomWetnessComponent, "AutomaticWaterline", m_AutomaticWaterline));
+registry.push_back(OLO_GFW_FIELD(GroomWetnessComponent, "Waterline", m_Waterline));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "Band", m_Band, OLO_GFW_BOUND(0.005f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "RainSoak", m_RainSoak, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "SoakRate", m_SoakRate, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "DryRate", m_DryRate, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "Darkening", m_Darkening, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(8.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "Gloss", m_Gloss, OLO_GFW_BOUND(0.05f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "Sheen", m_Sheen, OLO_GFW_BOUND(0.05f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "Flatten", m_Flatten, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "Shorten", m_Shorten, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(0.9f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "Clump", m_Clump, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "Immersion", m_Immersion, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "SoakedLine", m_SoakedLine, OLO_GFW_BOUND(-1000000.0f), OLO_GFW_BOUND(1000000.0f)));
+registry.push_back(OLO_GFW_FIELD_RANGE(GroomWetnessComponent, "Rain", m_Rain, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(1.0f)));
+
 // IKTargetComponent
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimBoneIndex", AimBoneIndex));
 registry.push_back(OLO_GFW_FIELD(IKTargetComponent, "AimTarget", AimTarget));
@@ -597,6 +615,10 @@ registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "TargetZoneID", Target
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "InstanceType", InstanceType));
 registry.push_back(OLO_GFW_FIELD(InstancePortalComponent, "MaxPlayers", MaxPlayers));
 
+}
+
+static void BuildRegistryChunk9(std::vector<FieldEntry>& registry)
+{
 // InstancedMeshComponent
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "Primitive", Primitive));
 registry.push_back(OLO_GFW_FIELD(InstancedMeshComponent, "LightmapStatic", LightmapStatic));
@@ -625,10 +647,6 @@ registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "PickupRadius", PickupRadi
 registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "AutoPickup", AutoPickup));
 registry.push_back(OLO_GFW_FIELD(ItemPickupComponent, "DespawnTimer", DespawnTimer));
 
-}
-
-static void BuildRegistryChunk9(std::vector<FieldEntry>& registry)
-{
 // LODGroupComponent
 registry.push_back(OLO_GFW_FIELD(LODGroupComponent, "LODGroup.Bias", m_LODGroup.Bias));
 registry.push_back(OLO_GFW_FIELD(LODGroupComponent, "Enabled", m_Enabled));
@@ -674,6 +692,10 @@ registry.push_back(OLO_GFW_FIELD_RANGE(LocomotionComponent, "WalkClipSpeed", Wal
 registry.push_back(OLO_GFW_FIELD_RANGE(LocomotionComponent, "RunClipSpeed", RunClipSpeed, OLO_GFW_BOUND(0.0f), OLO_GFW_BOUND(100.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(LocomotionComponent, "MaxStrideScale", MaxStrideScale, OLO_GFW_BOUND(1.0f), OLO_GFW_BOUND(4.0f)));
 
+}
+
+static void BuildRegistryChunk10(std::vector<FieldEntry>& registry)
+{
 // LuaScriptComponent
 registry.push_back(OLO_GFW_FIELD(LuaScriptComponent, "ScriptFile", ScriptFile));
 
@@ -709,10 +731,6 @@ registry.push_back(OLO_GFW_FIELD(NameplateComponent, "ManaBarColor", m_ManaBarCo
 registry.push_back(OLO_GFW_FIELD(NameplateComponent, "BarBackgroundColor", m_BarBackgroundColor));
 registry.push_back(OLO_GFW_FIELD(NameplateComponent, "ManaBarGap", m_ManaBarGap));
 
-}
-
-static void BuildRegistryChunk10(std::vector<FieldEntry>& registry)
-{
 // NavAgentComponent
 registry.push_back(OLO_GFW_FIELD_RANGE(NavAgentComponent, "Radius", m_Radius, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(100.0f)));
 registry.push_back(OLO_GFW_FIELD_RANGE(NavAgentComponent, "Height", m_Height, OLO_GFW_BOUND(0.01f), OLO_GFW_BOUND(100.0f)));

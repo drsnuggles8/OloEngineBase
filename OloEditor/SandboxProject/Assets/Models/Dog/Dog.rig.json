@@ -1,5 +1,25 @@
 {
   "units": "metres, glTF Y-up, the head faces +Z",
+  "assembly": {
+    "pelt": [
+      0.58,
+      0.48,
+      0.38
+    ],
+    "lid": [
+      0.2,
+      0.14,
+      0.1
+    ],
+    "fibre": [
+      1.0,
+      0.93,
+      0.8
+    ],
+    "pigment": "baseColor"
+  },
+  "coatSource": "Assets/Models/Dog/Dog.abc",
+  "walkSpeed": 0.312,
   "eyeRadius": 0.0235,
   "lidInnerRadius": 0.0245,
   "socketRadius": 0.02625,

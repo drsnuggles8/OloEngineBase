@@ -769,6 +769,41 @@ if (auto node = entity["GroomSoftIntersectionComponent"]; node)
     comp.m_Automatic = node["Automatic"].as<bool>(comp.m_Automatic);
 }
 
+if (auto node = entity["GroomWetnessComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomWetnessComponent>();
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+    comp.m_AutomaticWaterline = node["AutomaticWaterline"].as<bool>(comp.m_AutomaticWaterline);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Waterline"], v))
+        comp.m_Waterline = v;
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Band"], v))
+        comp.m_Band = std::clamp(v, static_cast<f32>(0.005f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RainSoak"], v))
+        comp.m_RainSoak = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SoakRate"], v))
+        comp.m_SoakRate = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["DryRate"], v))
+        comp.m_DryRate = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Darkening"], v))
+        comp.m_Darkening = std::clamp(v, static_cast<f32>(1.0f), static_cast<f32>(8.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Gloss"], v))
+        comp.m_Gloss = std::clamp(v, static_cast<f32>(0.05f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Sheen"], v))
+        comp.m_Sheen = std::clamp(v, static_cast<f32>(0.05f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Flatten"], v))
+        comp.m_Flatten = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Shorten"], v))
+        comp.m_Shorten = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(0.9f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Clump"], v))
+        comp.m_Clump = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Immersion"], v))
+        comp.m_Immersion = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["SoakedLine"], v))
+        comp.m_SoakedLine = std::clamp(v, static_cast<f32>(-1000000.0f), static_cast<f32>(1000000.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Rain"], v))
+        comp.m_Rain = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(1.0f));
+}
+
 if (auto node = entity["InstancePortalComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<InstancePortalComponent>();

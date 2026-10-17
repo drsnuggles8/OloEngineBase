@@ -668,6 +668,30 @@ if (entity.HasComponent<GroomSoftIntersectionComponent>())
     out << YAML::EndMap; // GroomSoftIntersectionComponent
 }
 
+if (entity.HasComponent<GroomWetnessComponent>())
+{
+    out << YAML::Key << "GroomWetnessComponent";
+    out << YAML::BeginMap; // GroomWetnessComponent
+    auto const& comp = entity.GetComponent<GroomWetnessComponent>();
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::Key << "AutomaticWaterline" << YAML::Value << comp.m_AutomaticWaterline;
+    out << YAML::Key << "Waterline" << YAML::Value << comp.m_Waterline;
+    out << YAML::Key << "Band" << YAML::Value << comp.m_Band;
+    out << YAML::Key << "RainSoak" << YAML::Value << comp.m_RainSoak;
+    out << YAML::Key << "SoakRate" << YAML::Value << comp.m_SoakRate;
+    out << YAML::Key << "DryRate" << YAML::Value << comp.m_DryRate;
+    out << YAML::Key << "Darkening" << YAML::Value << comp.m_Darkening;
+    out << YAML::Key << "Gloss" << YAML::Value << comp.m_Gloss;
+    out << YAML::Key << "Sheen" << YAML::Value << comp.m_Sheen;
+    out << YAML::Key << "Flatten" << YAML::Value << comp.m_Flatten;
+    out << YAML::Key << "Shorten" << YAML::Value << comp.m_Shorten;
+    out << YAML::Key << "Clump" << YAML::Value << comp.m_Clump;
+    out << YAML::Key << "Immersion" << YAML::Value << comp.m_Immersion;
+    out << YAML::Key << "SoakedLine" << YAML::Value << comp.m_SoakedLine;
+    out << YAML::Key << "Rain" << YAML::Value << comp.m_Rain;
+    out << YAML::EndMap; // GroomWetnessComponent
+}
+
 if (entity.HasComponent<InstancePortalComponent>())
 {
     out << YAML::Key << "InstancePortalComponent";

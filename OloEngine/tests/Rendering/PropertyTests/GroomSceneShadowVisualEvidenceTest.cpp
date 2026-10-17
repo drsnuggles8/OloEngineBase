@@ -74,6 +74,7 @@
 
 #include "RendererAttachedTest.h"
 #include "TestTempDir.h"
+#include "UniformSkyFixture.h"
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -217,6 +218,7 @@ namespace OloEngine::Tests
         Entity m_LightEntity;
         Entity m_OccluderEntity;
         Entity m_BodyEntity;
+        Ref<TextureCubemap> m_BlackSky;
 
         // THE RENDERING PATH IS PROCESS-GLOBAL, and four cases here move it.
         // RendererStateListener restores it before the next test runs, but it
@@ -281,6 +283,17 @@ namespace OloEngine::Tests
                 dl.m_Color = glm::vec3(1.0f, 0.97f, 0.93f);
                 dl.m_Intensity = 3.0f;
                 dl.m_CastShadows = true;
+            }
+
+            // NO AMBIENT. These cases measure the direct light a shadow takes
+            // away, and count a coat pixel in full shadow as black. With no
+            // environment the ambient ladder ends at the flat fill, which the
+            // coat takes like its body since #1618 and which no shadow removes;
+            // a black sky puts body and coat on the IBL rung at zero irradiance.
+            {
+                m_BlackSky = MakeUniformSkyCubemap(glm::vec3(0.0f));
+                ASSERT_TRUE(m_BlackSky);
+                SetUniformSkyEnvironment(scene.CreateEntity("BlackSky"), m_BlackSky);
             }
 
             // A PALE ground, because it is the surface the coat's shadow has to

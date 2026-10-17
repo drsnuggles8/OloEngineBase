@@ -295,6 +295,10 @@ namespace OloEngine
         /// The same for the local-light atlas: grooms drawn with its opaque
         /// copy bound, so a shadowed spot or point light is stopped by the body.
         u32 GroomsShadowedByOpaqueAtlas = 0;
+        /// The strands walked this frame's Forward+ cluster lists for their
+        /// point, spot and sphere lights (#1618), rather than the whole
+        /// multi-light buffer: Forward+ was live when the coats drew.
+        bool ClusteredLightLists = false;
         /// Bound casters whose runs the shadow views decided from THIS frame's
         /// pose (#1533; GroomCasterPose.h), and bound casters cast from their
         /// rest runs because no pose could be measured -- each one a coat whose
@@ -657,6 +661,9 @@ namespace OloEngine
             GroomCasterPose Pose;
             /// The whole stream's length-weighted mean radius, for the log.
             f32 MeanRadius = 0.0f;
+            /// The longest strand's length along it: no point of the strand
+            /// sits farther from its root, wet or dry (#1615).
+            f32 MaxStrandLength = 0.0f;
             /// GPU bytes of the index buffer, counted with the stream's.
             u64 Bytes = 0;
         };
@@ -927,6 +934,13 @@ namespace OloEngine
             /// asset re-derives its table, rewrites them rather than reading a
             /// freed table's weights.
             Ref<GroomGuideInfluenceTable> DeformWeightsFrom;
+            /// The frame buffer's clump records are written for this layout
+            /// (#1615): computed the first time the coat is wet with a clump to
+            /// gather, and kept until the next relayout.
+            bool DeformClumpWritten = false;
+            /// The wet record the GPU buffer holds (#1615), so a frame whose
+            /// record did not change -- every frame of a dry coat -- sends none.
+            GroomDeformWetRecord DeformWetSent{};
             /// The bound surface the GPU root evaluation's static regions were
             /// written from (GroomStrandRequest::GpuRootSurfaceKey); a different
             /// one relays the buffer out.
@@ -1172,6 +1186,11 @@ namespace OloEngine
         /// The drawn roots evaluated on the CPU for a request that left them to
         /// the GPU, when the pass takes a CPU path after all.
         TArray<GroomRootTransform> m_CpuRootScratch;
+        /// Each groom's clump growth per base curve (ComputeGroomClumpGrowth,
+        /// #1615), keyed by asset, coat digest and guides-only: a wet coat's
+        /// tufts, walked once rather than per relayout or per CPU-path frame.
+        std::unordered_map<u64, std::vector<glm::vec3>> m_ClumpGrowth;
+        [[nodiscard]] const std::vector<glm::vec3>& AcquireClumpGrowth(const GroomStrandRequest& request);
         /// The per-frame evaluations' working storage (#1533 review): the
         /// caster pose's, and the CPU root evaluation's skinned surface. Each
         /// keeps the capacity of the largest coat it served, so a coat posed
@@ -1209,6 +1228,9 @@ namespace OloEngine
 
         Ref<Shader> m_Shader;
         Ref<UniformBuffer> m_ParamsUBO;
+        // The Forward+ parameters this frame's coats read (#1618), re-uploaded
+        // from TiledForwardPlus's snapshot before the draws.
+        Ref<UniformBuffer> m_ForwardPlusUBO;
         Ref<Framebuffer> m_SceneFramebuffer;
         RGTextureHandle m_IntersectionDepth{};
         RGTextureHandle m_IntersectionEntity{};

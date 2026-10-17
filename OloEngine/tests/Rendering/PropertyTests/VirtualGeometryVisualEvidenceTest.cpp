@@ -1061,8 +1061,11 @@ namespace OloEngine::Tests
                     ++colors;
                 EXPECT_TRUE(copy.DestinationDeclared);
             }
-            EXPECT_EQ(colors, 6u) << name;
-            EXPECT_EQ(depths, perSample && twoPhase ? 2u : 1u) << name;
+            // Five colour blits: the entity ID and the base depth are resolved
+            // together by GBufferDepthEntityResolve from sample zero (940aae9b6),
+            // so the only depth BLIT left is phase 2's depth-only resolve.
+            EXPECT_EQ(colors, 5u) << name;
+            EXPECT_EQ(depths, perSample && twoPhase ? 1u : 0u) << name;
             return red;
         };
 
