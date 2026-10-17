@@ -387,6 +387,7 @@ namespace OloEngine
             layerRates.Add(rates);
         }
         const bool forceDetailed = RayTracing::VegetationDiagnostics::GetForceDetailed();
+        const f32 farErrorReference = RayTracing::VegetationDiagnostics::GetFarErrorReference();
         TArray<const FoliageInstanceRecord*> castingRecords;
         // Keyed by registry cell, which a camera move does not re-slice.
         const auto castingKey = [](u32 layerIndex, u32 cell)
@@ -543,11 +544,12 @@ namespace OloEngine
                     candidate.Cost.WasRequested = m_CastingRequested.contains(castingKey(group.m_LayerIndex, groupCell));
                     // The steady refresh demand of each tier (RefreshRate).
                     const LayerRates& rates = layerRates[static_cast<i32>(group.m_LayerIndex)];
+                    const f32 errorScale = RayTracing::VegetationPolicy::FarErrorScale(nearest, farErrorReference);
                     candidate.Cost.RequestedRate = RayTracing::VegetationPolicy::RefreshRate(
                         forceDetailed || nearest <= castingDetailedDistance(layer, mesh), impostor ? rates.ImpostorVelocity : rates.MeshVelocity,
-                        impostor ? rates.ImpostorStep : rates.MeshStep);
+                        impostor ? rates.ImpostorStep : rates.MeshStep, errorScale);
                     candidate.Cost.FallbackRate = RayTracing::VegetationPolicy::RefreshRate(
-                        forceDetailed || nearest <= castingDetailedDistance(layer, false), rates.MeshVelocity, rates.MeshStep);
+                        forceDetailed || nearest <= castingDetailedDistance(layer, false), rates.MeshVelocity, rates.MeshStep, errorScale);
                     candidate.Distance = nearest;
                     candidate.FirstRecord = static_cast<u32>(castingRecords.Num());
                     candidate.RecordCount = static_cast<u32>(slice.size());
@@ -590,7 +592,8 @@ namespace OloEngine
                     }
                     candidate.Distance = nearest;
                     candidate.Cost.RequestedRate = RayTracing::VegetationPolicy::RefreshRate(
-                        forceDetailed || nearest <= castingDetailedDistance(layer, false), rates.MeshVelocity, rates.MeshStep);
+                        forceDetailed || nearest <= castingDetailedDistance(layer, false), rates.MeshVelocity, rates.MeshStep,
+                        RayTracing::VegetationPolicy::FarErrorScale(nearest, farErrorReference));
                     candidate.Cost.FallbackRate = candidate.Cost.RequestedRate;
                     castingCandidates.Add(std::move(candidate)); });
         }
@@ -613,7 +616,8 @@ namespace OloEngine
                 costs.Add(candidate.Cost);
                 tiers.Add(VegetationPolicy::CastingTier::Out);
             }
-            VegetationPolicy::PlanRoom room = VegetationPolicy::PlanRoom::Scaled(RayTracing::VegetationDiagnostics::GetBudgetDivisor());
+            VegetationPolicy::PlanRoom room = VegetationPolicy::PlanRoom::Scaled(RayTracing::VegetationDiagnostics::GetBudgetDivisor(),
+                                                                                 RayTracing::VegetationDiagnostics::GetBudgetScale());
             const auto& held = cache.GetStats();
             room.Take(cache.GetStagedBytes(), cache.GetStagedAccelerationBytes(), cache.GetQueuedGroups(), held.CastingDemandVertices,
                       held.CastingDemandTriangles, held.CastingDemandBuilds);

@@ -8,6 +8,7 @@
 
 #include "OloEngine/Memory/AlignmentTemplates.h"
 #include "OloEngine/Groom/GroomRayTracingProxy.h"
+#include "OloEngine/Renderer/RayTracing/VegetationDiagnostics.h"
 #include "OloEngine/Renderer/RayTracing/VegetationPolicy.h"
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanFrameArena.h"
@@ -429,7 +430,7 @@ namespace OloEngine::RayTracing
             if (entry.Groom)
                 groomBytes += entry.Storage.Size;
         }
-        VegetationFrameBudget vegetationWork;
+        VegetationFrameBudget vegetationWork = VegetationFrameBudget::Scaled(VegetationDiagnostics::GetBudgetScale());
         // The groom proxies' own per-frame conversion budget is spent at the
         // PRODUCER (GroomSurfaceCache), which knows the real triangle count
         // before any buffer exists. What is left for here is the one thing

@@ -27,6 +27,8 @@ namespace OloEngine::RayTracing
         {
             bool s_ForceDetailed = false;
             u32 s_BudgetDivisor = 1u;
+            u32 s_BudgetScale = 1u;
+            f32 s_FarErrorReference = VegetationPolicy::FarErrorReferenceDistance;
         } // namespace
         void SetForceDetailed(bool enabled)
         {
@@ -43,6 +45,22 @@ namespace OloEngine::RayTracing
         u32 GetBudgetDivisor()
         {
             return s_BudgetDivisor;
+        }
+        void SetBudgetScale(u32 scale)
+        {
+            s_BudgetScale = std::clamp(scale, 1u, 16u);
+        }
+        u32 GetBudgetScale()
+        {
+            return s_BudgetScale;
+        }
+        void SetFarErrorReference(f32 metres)
+        {
+            s_FarErrorReference = std::isfinite(metres) && metres > 0.0f ? metres : 0.0f;
+        }
+        f32 GetFarErrorReference()
+        {
+            return s_FarErrorReference;
         }
     } // namespace VegetationDiagnostics
     namespace
@@ -379,14 +397,13 @@ namespace OloEngine::RayTracing
             if (a.Casts != b.Casts)
                 return a.Casts;
             return a.SnapshotTime < b.SnapshotTime || (!(b.SnapshotTime < a.SnapshotTime) && a.Identity < b.Identity); });
-        VegetationFrameBudget budget;
+        VegetationFrameBudget budget = VegetationFrameBudget::Scaled(VegetationDiagnostics::GetBudgetScale());
         budget.Charge(m_BuildDebt);
         // The stress lever (VegetationDiagnostics::SetBudgetDivisor): all but
         // 1/divisor of the frame is spent before anything is reserved.
         if (const u32 divisor = VegetationDiagnostics::GetBudgetDivisor(); divisor > 1u)
-            budget.Charge({ VegetationPolicy::UpdatesPerFrame - VegetationPolicy::UpdatesPerFrame / divisor,
-                            VegetationPolicy::VerticesPerFrame - VegetationPolicy::VerticesPerFrame / divisor,
-                            VegetationPolicy::TrianglesPerFrame - VegetationPolicy::TrianglesPerFrame / divisor });
+            budget.Charge({ budget.UpdateLimit - budget.UpdateLimit / divisor, budget.VertexLimit - budget.VertexLimit / divisor,
+                            budget.TriangleLimit - budget.TriangleLimit / divisor });
         m_Stats.CarriedBuilds = m_BuildDebt.Builds;
         m_BuildDebt = {};
         const bool shaderReady = m_Inputs.IsEmpty() || EnsureShader();
@@ -468,7 +485,9 @@ namespace OloEngine::RayTracing
             }
 
             const f32 time = WindTime(input);
-            const f32 ageLimit = VegetationPolicy::ProxyAgeLimit(input.VelocityBound);
+            // #1578 option 3: a far casting group may lag further (FarErrorScale).
+            const f32 errorScale = VegetationPolicy::FarErrorScale(input.DistanceToView, VegetationDiagnostics::GetFarErrorReference());
+            const f32 ageLimit = VegetationPolicy::ProxyAgeLimit(input.VelocityBound, errorScale);
             bool proxy = !VegetationDiagnostics::GetForceDetailed() &&
                          input.DistanceToView > input.DetailedDistance && ageLimit > 0.0f;
             // Shift the refresh grid by canonical identity to spread refits and
@@ -492,7 +511,7 @@ namespace OloEngine::RayTracing
             const bool unchangedTime = !changed && Math::BitwiseEqual(time, found->second.SnapshotTime);
             const bool reuse = !reset && found->second.Valid &&
                                (unchangedTime || (proxy && found->second.SnapshotBucket == bucket &&
-                                                  VegetationPolicy::CanReuseSnapshot(time, found->second.SnapshotTime, input.VelocityBound, true)));
+                                                  VegetationPolicy::CanReuseSnapshot(time, found->second.SnapshotTime, input.VelocityBound, true, errorScale)));
             if (!reuse)
                 ++(changed ? m_Stats.RefreshNew : reset              ? m_Stats.RefreshReset
                                               : !found->second.Valid ? m_Stats.RefreshInvalid
@@ -519,7 +538,7 @@ namespace OloEngine::RayTracing
                 const VegetationPressure pressure = m_Stats.CarriedBuilds > 0u ? VegetationPressure::BuildDebt : VegetationPressure::FrameWork;
                 VegetationPolicy::Accumulate(m_Stats.Recovery, { 0u, 0u, vertices * parts, indexCount / 3u, parts });
                 const bool holdable = !reset && found->second.Valid &&
-                                      VegetationPolicy::CanHoldSnapshot(time, found->second.SnapshotTime, input.VelocityBound, input.CastShadows);
+                                      VegetationPolicy::CanHoldSnapshot(time, found->second.SnapshotTime, input.VelocityBound, input.CastShadows, errorScale);
                 CountPressure(pressure);
                 if (!holdable)
                 {
