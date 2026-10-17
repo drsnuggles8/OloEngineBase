@@ -64,6 +64,15 @@ namespace
         }
     }
 
+    // Bit equality of two float arrays: what a determinism check means, and the
+    // repo's rule against `==` on floats and glm types.
+    template<typename T>
+    [[nodiscard]] bool SameBits(const std::vector<T>& lhs, const std::vector<T>& rhs)
+    {
+        return lhs.size() == rhs.size() &&
+               (lhs.empty() || std::memcmp(lhs.data(), rhs.data(), lhs.size() * sizeof(T)) == 0);
+    }
+
     // `shuffleGroups` interleaves the two groups; otherwise the curves are
     // emitted group by group. Both must cook to the same bytes — that is what
     // makes the cook's sort a canonicalisation rather than a reordering.
@@ -312,10 +321,11 @@ TEST(GroomCookDeterminism, ArchiveObjectOrderDoesNotReachTheCook)
     // two orders must cook to the same groom.
     namespace Fixture = Tests::GroomFixture;
 
-    // Three top-level objects whose names sort differently from either write
-    // order: `scalp` sits under an xform, so its top-level object is
-    // `scalp_xf`, and the pelt carries sub-groups and roles, which must follow
-    // the same order.
+    // Three top-level objects, written in two orders NEITHER of which is name
+    // order -- were one of them, an archive-order importer would agree with
+    // this one on that archive and the case would rest on the other alone.
+    // `scalp` sits under an xform, so its top-level object is `scalp_xf`; the
+    // pelt carries sub-groups and roles, which must follow the same order.
     Fixture::CurvesPrim scalp = Fixture::MakeHumanScalpGroom(96, 5, 6, "scalp");
     scalp.Transform.setTranslation(Imath::V3d(0.0, 1.5, 0.0));
     Fixture::CurvesPrim pelt = Fixture::MakeAnimalFurGroom(72, 4, 3, "pelt");
@@ -327,7 +337,7 @@ TEST(GroomCookDeterminism, ArchiveObjectOrderDoesNotReachTheCook)
     const std::filesystem::path pathA = Tests::TempFile("order-a.abc");
     const std::filesystem::path pathB = Tests::TempFile("order-b.abc");
     ASSERT_TRUE(Fixture::WriteArchive(pathA, { scalp, pelt, beard }));
-    ASSERT_TRUE(Fixture::WriteArchive(pathB, { beard, pelt, scalp }));
+    ASSERT_TRUE(Fixture::WriteArchive(pathB, { pelt, scalp, beard }));
 
     AlembicGroomImporter::Options options;
     options.ProvenancePath = "grooms/order.abc";
@@ -346,17 +356,19 @@ TEST(GroomCookDeterminism, ArchiveObjectOrderDoesNotReachTheCook)
     // The cooked bytes cannot be compared whole: the provenance hash is over
     // the SOURCE bytes, and the two archives are different files. Everything
     // the cook writes apart from that hash is compared instead, section by
-    // section.
+    // section, and float data as bits (the CLAUDE.md rule: no float `==`).
     EXPECT_NE(a.GetProvenance().SourceContentHash, b.GetProvenance().SourceContentHash)
         << "the archives were meant to differ in byte order";
     ASSERT_EQ(a.GetCurveCount(), b.GetCurveCount());
     EXPECT_EQ(a.GetCurveOffsets(), b.GetCurveOffsets()) << "curve offsets";
-    EXPECT_EQ(a.GetPoints(), b.GetPoints()) << "control points";
-    EXPECT_EQ(a.GetPointWidths(), b.GetPointWidths()) << "widths";
-    EXPECT_EQ(a.GetRootUVs(), b.GetRootUVs()) << "root UVs";
+    EXPECT_TRUE(SameBits(a.GetPoints(), b.GetPoints())) << "control points";
+    EXPECT_TRUE(SameBits(a.GetPointWidths(), b.GetPointWidths())) << "widths";
+    EXPECT_TRUE(SameBits(a.GetRootUVs(), b.GetRootUVs())) << "root UVs";
     EXPECT_EQ(a.GetCurveGroupIds(), b.GetCurveGroupIds()) << "curve group ids";
     EXPECT_EQ(a.GetCurveFlags(), b.GetCurveFlags()) << "curve flags";
+    EXPECT_EQ(a.GetGuideCount(), b.GetGuideCount()) << "guide count";
     EXPECT_EQ(a.GetGroupNames(), b.GetGroupNames()) << "group names";
+    EXPECT_EQ(a.GetGroupRanges(), b.GetGroupRanges()) << "group ranges";
     ASSERT_EQ(a.GetGroupCoats().size(), b.GetGroupCoats().size());
     for (sizet g = 0; g < a.GetGroupCoats().size(); ++g)
     {
@@ -365,10 +377,10 @@ TEST(GroomCookDeterminism, ArchiveObjectOrderDoesNotReachTheCook)
         EXPECT_EQ(std::memcmp(&a.GetGroupCoats()[g], &b.GetGroupCoats()[g], sizeof(GroomCoatGroupDesc)), 0)
             << "coat of group " << a.GetGroupNames()[g];
     }
-    EXPECT_EQ(a.GetLodLevels(), b.GetLodLevels()) << "cooked LOD levels";
+    EXPECT_EQ(a.GetLodLevels(), b.GetLodLevels()) << "cooked LOD levels"; // bitwise on its floats
     EXPECT_EQ(a.GetBasis(), b.GetBasis());
-    EXPECT_EQ(a.GetBoundsMin(), b.GetBoundsMin());
-    EXPECT_EQ(a.GetBoundsMax(), b.GetBoundsMax());
+    EXPECT_EQ(std::memcmp(&a.GetBoundsMin(), &b.GetBoundsMin(), sizeof(glm::vec3)), 0) << "bounds min";
+    EXPECT_EQ(std::memcmp(&a.GetBoundsMax(), &b.GetBoundsMax(), sizeof(glm::vec3)), 0) << "bounds max";
     EXPECT_EQ(a.GetProvenance().SourcePath, b.GetProvenance().SourcePath);
     EXPECT_EQ(a.GetProvenance().ImporterVersion, b.GetProvenance().ImporterVersion);
 }
