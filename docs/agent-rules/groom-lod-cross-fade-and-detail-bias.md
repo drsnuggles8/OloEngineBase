@@ -55,7 +55,7 @@ budgets and the width compensation are in [groom-representation-lod.md](groom-re
    A coat that switches tier fades for `GroomLodCrossFadeFrames`, and under TAA a stochastic coat keeps
    the outgoing tier in its history for longer than that. `GroomSoftIntersectionVisualEvidenceTest`
    forces cards and settles 16 frames, past the 12-frame window, but its first card capture still
-   differed from its own repeat by 26k pixels. Its `Capture` now sets the window to 0 for the capture
+   differed from its own repeat by 26k pixels. Its `Capture`, and `GroomWetnessVisualEvidenceTest`'s, which forces tiers the same way, now set the window to 0 for the capture
    and restores it. The LOD evidence fixture, which walks to a tier, runs `6 + GroomLodCrossFadeFrames`
    frames. With six, a capture lands mid-fade and counts the outgoing strands as drawn.
 
