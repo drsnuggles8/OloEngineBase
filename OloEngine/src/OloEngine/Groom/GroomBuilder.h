@@ -46,7 +46,8 @@ namespace OloEngine
         // Registers a group name and returns its id. Calling it twice with the
         // same name returns the same id — group ids are assigned by FIRST
         // APPEARANCE, which is what makes them a deterministic function of the
-        // source file's traversal order rather than of hash-map iteration.
+        // importer's traversal order rather than of hash-map iteration. (The
+        // Alembic importer traverses in name order, not archive order, #1560.)
         // Returns false (and leaves outGroupId untouched) when the name is
         // empty, too long, or the group budget is exhausted.
         //
