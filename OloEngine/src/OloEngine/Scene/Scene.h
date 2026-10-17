@@ -1664,6 +1664,8 @@ namespace OloEngine
             u32 Points = 0;
         };
         std::unordered_map<AssetHandle, GroomStreamingGuideMetadata> m_GroomStreamingGuides;
+        // Per groom entity, last frame's GroomStreamingResidencyToken: what the
+        // temporal-history reset compares, not the geometry's StreamingKey.
         std::unordered_map<UUID, u64> m_GroomStreamingEffectiveKeys;
         /// The root evaluation's skinned surface (#1533 review), shared by every
         /// bound groom this scene evaluates, one at a time: it keeps the largest

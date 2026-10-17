@@ -120,6 +120,48 @@ TEST_F(GroomStreamingTest, DisabledResidencyLeavesTheAuthoredRequestUntouched)
     EXPECT_EQ(pass.GetStreamingStats().Requested, 0u);
 }
 
+TEST_F(GroomStreamingTest, ALodChangeIsNotAResidencyChangeAndOnlyADemotionIs)
+{
+    // Scene resets a streamed coat's temporal history (its deformation history
+    // and the frame's TAA and ray-traced shadow history) when its RESIDENCY
+    // changes. The geometry key changes with every LOD tier and every budget
+    // halving, so comparing on it read each hand-over of a streamed coat as a
+    // residency change and flickered the whole frame. The token is compared
+    // now, and it moves only when residency demotes the coat or restores it.
+    auto strands = Request();
+    strands.StreamingEnabled = true;
+    strands.StreamingKey = 0x1111u;
+    auto halved = strands;
+    halved.Build.MaxStrands = strands.Build.MaxStrands / 2u;
+    halved.StreamingKey = 0x2222u;
+    auto cards = strands;
+    cards.Lod.Representation = GroomRepresentation::Card;
+    cards.StreamingKey = 0x3333u;
+    EXPECT_EQ(GroomStreamingResidencyToken(strands), GroomStreamingResidencyToken(halved));
+    EXPECT_EQ(GroomStreamingResidencyToken(strands), GroomStreamingResidencyToken(cards));
+
+    // The resolve takes the FLOOR branch when the LOD's own request already is
+    // the floor (cards at the cooked card count). Nothing was demoted: the
+    // hand-over from strands to that tier is still a tier change.
+    auto ownFloor = Request();
+    ApplyGroomStreamingFloor(ownFloor, 24);
+    ownFloor.StreamingKey = 0x4444u;
+    ASSERT_TRUE(ownFloor.StreamingFloor);
+    ASSERT_EQ(ownFloor.StreamingFallback, EGroomStreamingFallback::None);
+    EXPECT_EQ(GroomStreamingResidencyToken(ownFloor), GroomStreamingResidencyToken(strands));
+
+    // A demotion is a residency change, whatever the floor's key -- and the
+    // floor's key moving with the budget while demoted is not.
+    auto demoted = ownFloor;
+    demoted.StreamingFallback = EGroomStreamingFallback::ResidentBudget;
+    EXPECT_NE(GroomStreamingResidencyToken(demoted), GroomStreamingResidencyToken(strands))
+        << "a swap from the detail to the floor must still reset the history";
+    auto demotedHalved = demoted;
+    demotedHalved.StreamingKey = 0x5555u;
+    demotedHalved.StreamingFallback = EGroomStreamingFallback::Pending;
+    EXPECT_EQ(GroomStreamingResidencyToken(demoted), GroomStreamingResidencyToken(demotedHalved));
+}
+
 TEST_F(GroomStreamingTest, QueuedPreparationDrawsFloorAndReadmitsTheSameIdentity)
 {
     Tasks::FTaskEvent gate("GroomStreamingPending");

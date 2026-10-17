@@ -547,6 +547,31 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::StreamingPending)>;
     };
 
+    /// What a streamed coat's TEMPORAL HISTORY is compared on across frames: 0
+    /// while the coat draws what its own LOD asked for, whatever tier and
+    /// budget that is, and 1 while residency DEMOTED it to the floor.
+    ///
+    /// Demoted means StreamingFallback names a reason. StreamingFloor alone is
+    /// not it: the resolve also takes the floor branch when the LOD's own
+    /// request already IS the floor (a card tier at the cooked card count), and
+    /// nothing was demoted there. And while demoted, the floor's own key moves
+    /// with the LOD's budget; that is a tier change like any other, not a
+    /// residency one.
+    ///
+    /// NOT StreamingKey itself. That key names the GEOMETRY, so it mixes the
+    /// tier and the strand budget, and comparing on it read every LOD hand-over
+    /// and every visibility halving of a streamed coat as a residency change:
+    /// the coat dropped its deformation history and the whole frame's TAA and
+    /// ray-traced shadow history were invalidated, a full-screen flicker at each
+    /// hand-over that an unstreamed coat on the same tier change never had. A
+    /// tier change draws a new stream with correct motion from the previous
+    /// pose; only a swap between the detail and the floor is the discontinuity
+    /// the reset exists for.
+    [[nodiscard]] inline u64 GroomStreamingResidencyToken(const GroomStrandRequest& request) noexcept
+    {
+        return request.StreamingFallback != EGroomStreamingFallback::None ? 1u : 0u;
+    }
+
     /// The cross-fade lane every shader that rasterises a groom tier reads
     /// (#1612): x = the incoming tier's share t, y = the role (0 none, 1
     /// incoming keeps h < t, 2 outgoing keeps h >= t). (1, 0) draws every

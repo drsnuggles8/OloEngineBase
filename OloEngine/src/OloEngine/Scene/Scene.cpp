@@ -10089,8 +10089,9 @@ namespace OloEngine
 
             const UUID groomIdentity = groomEntity.GetUUID();
             liveGroomStreamingIdentities.insert(groomIdentity);
+            const u64 residency = GroomStreamingResidencyToken(request);
             if (const auto previous = m_GroomStreamingEffectiveKeys.find(groomIdentity);
-                previous != m_GroomStreamingEffectiveKeys.end() && previous->second != request.StreamingKey)
+                previous != m_GroomStreamingEffectiveKeys.end() && previous->second != residency)
             {
                 request.GpuRootInputs.HasHistory = false;
                 for (auto& root : request.RootTransforms)
@@ -10116,7 +10117,7 @@ namespace OloEngine
                 Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
                                                         TemporalHistoryEffect::RayTracedShadow);
             }
-            m_GroomStreamingEffectiveKeys[groomIdentity] = request.StreamingKey;
+            m_GroomStreamingEffectiveKeys[groomIdentity] = residency;
             groomRequests.Add(std::move(request));
             if (crossFadePartner.has_value())
             {
@@ -11230,7 +11231,8 @@ namespace OloEngine
         // ── History: is the previous frame comparable? ───────────────────────
 
         if (const auto previous = m_GroomStreamingEffectiveKeys.find(groomId);
-            previous != m_GroomStreamingEffectiveKeys.end() && previous->second != request.StreamingKey)
+            previous != m_GroomStreamingEffectiveKeys.end() &&
+            previous->second != GroomStreamingResidencyToken(request))
         {
             state.m_HasHistory = false;
             state.m_ResetCause = GroomHistoryResetCause::Manual;
