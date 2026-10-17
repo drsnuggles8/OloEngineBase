@@ -100,4 +100,3 @@ void main()
 	                                           u_GroomShadowWidth.y, float(VSM_VIRTUAL_RESOLUTION),
 	                                           u_GroomShadowWidth.w);
 }
-

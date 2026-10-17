@@ -116,4 +116,3 @@ void main()
 	v_CrossFadeFrame = uint(u_GroomShadowModes.y);
 #endif
 }
-
