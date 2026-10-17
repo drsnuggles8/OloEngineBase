@@ -538,7 +538,7 @@ namespace OloEngine::RayTracing
                                                     ? existing->second.Storage.Size
                                                     : 0u;
             if (request.Vegetation && !item.IsUpdate &&
-                sizes.accelerationStructureSize > VegetationPolicy::AccelerationStructureBytes -
+                sizes.accelerationStructureSize > VegetationPolicy::AccelerationByteLimit(VegetationDiagnostics::GetMemoryScale()) -
                                                       (vegetationBytes - previousVegetationBytes))
                 continue;
             const u64 previousGroomBytes =

@@ -9991,21 +9991,23 @@ namespace OloEngine::MCP
             tool.Name = "olo_rt_vegetation_diagnostic";
             tool.Toolset = "render";
             tool.Title = "Vegetation update benchmark override";
-            tool.Description = "Transient diagnostic overrides for vegetation ray tracing. forceDetailed: every group refreshes at full detail every frame (the complete high-quality reference). budgetDivisor: every vegetation budget behaves as 1/N of itself, to stress the complete fallbacks (#1354); 1 restores it. budgetScale: the per-frame build/vertex/triangle limits times N (#1578 option 2); 1 restores it. farErrorReference: metres past which a casting proxy's error bound and deadline double per doubling of distance, up to 4x (#1578 option 3); 0 turns it off. Does not change canonical plants, raster LOD or wind. Not saved to scenes or assets. Omit all to read.";
+            tool.Description = "Transient diagnostic overrides for vegetation ray tracing. forceDetailed: every group refreshes at full detail every frame (the complete high-quality reference). budgetDivisor: every vegetation budget behaves as 1/N of itself, to stress the complete fallbacks (#1354); 1 restores it. budgetScale: the per-frame build/vertex/triangle limits times N (#1578 option 2); 1 restores it. memoryScale: the 64 MiB geometry and 64 MiB acceleration-structure limits times N, the limit the meadow reaches once the work limit is raised (#1578); 1 restores it. farErrorReference: metres past which a casting proxy's error bound and deadline double per doubling of distance, up to 4x (#1578 option 3); 0 turns it off. Does not change canonical plants, raster LOD or wind. Not saved to scenes or assets. Omit all to read.";
             tool.Annotations = MutatingAnnotations(true);
             tool.ProjectWrite = true;
             tool.InputSchema = Schema::Object()
                                    .Prop("forceDetailed", Schema::Bool())
                                    .Prop("budgetDivisor", Schema::Int().Min(1).Max(1024))
                                    .Prop("budgetScale", Schema::Int().Min(1).Max(16))
+                                   .Prop("memoryScale", Schema::Int().Min(1).Max(16))
                                    .Prop("farErrorReference", Schema::Number().Min(0.0))
                                    .NoAdditional();
             tool.OutputSchema = Schema::Object()
                                     .Prop("forceDetailed", Schema::Bool())
                                     .Prop("budgetDivisor", Schema::Int().Min(1))
                                     .Prop("budgetScale", Schema::Int().Min(1))
+                                    .Prop("memoryScale", Schema::Int().Min(1))
                                     .Prop("farErrorReference", Schema::Number().Min(0.0))
-                                    .Required({ "forceDetailed", "budgetDivisor", "budgetScale", "farErrorReference" });
+                                    .Required({ "forceDetailed", "budgetDivisor", "budgetScale", "memoryScale", "farErrorReference" });
             tool.MainMarshaled = true;
             tool.Handler = [](IAutomationHost& host, const Json& args) -> ToolResult
             {
@@ -10021,11 +10023,14 @@ namespace OloEngine::MCP
                         RayTracing::VegetationDiagnostics::SetBudgetDivisor(static_cast<u32>(std::clamp<i64>(args["budgetDivisor"].get<i64>(), 1, 1024)));
                     if (args.contains("budgetScale"))
                         RayTracing::VegetationDiagnostics::SetBudgetScale(static_cast<u32>(std::clamp<i64>(args["budgetScale"].get<i64>(), 1, 16)));
+                    if (args.contains("memoryScale"))
+                        RayTracing::VegetationDiagnostics::SetMemoryScale(static_cast<u32>(std::clamp<i64>(args["memoryScale"].get<i64>(), 1, 16)));
                     if (args.contains("farErrorReference"))
                         RayTracing::VegetationDiagnostics::SetFarErrorReference(args["farErrorReference"].get<f32>());
                     return Json{ { "forceDetailed", RayTracing::VegetationDiagnostics::GetForceDetailed() },
                                  { "budgetDivisor", RayTracing::VegetationDiagnostics::GetBudgetDivisor() },
                                  { "budgetScale", RayTracing::VegetationDiagnostics::GetBudgetScale() },
+                                 { "memoryScale", RayTracing::VegetationDiagnostics::GetMemoryScale() },
                                  { "farErrorReference", RayTracing::VegetationDiagnostics::GetFarErrorReference() } }; }));
             };
             registry.Register(std::move(tool));

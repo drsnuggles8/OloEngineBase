@@ -28,6 +28,7 @@ namespace OloEngine::RayTracing
             bool s_ForceDetailed = false;
             u32 s_BudgetDivisor = 1u;
             u32 s_BudgetScale = 1u;
+            u32 s_MemoryScale = 1u;
             f32 s_FarErrorReference = VegetationPolicy::FarErrorReferenceDistance;
         } // namespace
         void SetForceDetailed(bool enabled)
@@ -53,6 +54,14 @@ namespace OloEngine::RayTracing
         u32 GetBudgetScale()
         {
             return s_BudgetScale;
+        }
+        void SetMemoryScale(u32 scale)
+        {
+            s_MemoryScale = std::clamp(scale, 1u, 16u);
+        }
+        u32 GetMemoryScale()
+        {
+            return s_MemoryScale;
         }
         void SetFarErrorReference(f32 metres)
         {
@@ -314,15 +323,17 @@ namespace OloEngine::RayTracing
             sourceIndices += part.Indices.Num();
         const u64 stagedBytes = PlantCount(input) * (static_cast<u64>(input.VertexCount) * sizeof(Vertex) +
                                                      sourceIndices * sizeof(u32) + sizeof(FoliageInstanceData));
-        if (!HasQueueCapacity() || stagedBytes > VegetationPolicy::GeometryBytes - m_StagedBytes ||
-            input.AccelerationBytes > VegetationPolicy::AccelerationStructureBytes - m_Stats.StagedAccelerationBytes)
+        const u64 geometryLimit = VegetationPolicy::GeometryByteLimit(VegetationDiagnostics::GetMemoryScale());
+        const u64 accelerationLimit = VegetationPolicy::AccelerationByteLimit(VegetationDiagnostics::GetMemoryScale());
+        if (!HasQueueCapacity() || stagedBytes > geometryLimit - m_StagedBytes ||
+            input.AccelerationBytes > accelerationLimit - m_Stats.StagedAccelerationBytes)
         {
             ++m_Stats.Refused;
             m_Stats.Complete = false;
             m_Stats.CastersComplete = m_Stats.CastersComplete && !input.CastShadows;
             if (static_cast<u32>(m_Inputs.Num()) >= VegetationPolicy::ResidentGroups)
                 CountPressure(VegetationPressure::ResidentGroups);
-            else if (input.AccelerationBytes > VegetationPolicy::AccelerationStructureBytes - m_Stats.StagedAccelerationBytes)
+            else if (input.AccelerationBytes > accelerationLimit - m_Stats.StagedAccelerationBytes)
                 CountPressure(VegetationPressure::AccelerationMemory);
             else
                 CountPressure(VegetationPressure::GeometryMemory);
@@ -436,7 +447,8 @@ namespace OloEngine::RayTracing
                 refuse(VegetationPressure::ResidentGroups);
                 continue;
             }
-            if (bytes > VegetationPolicy::GeometryBytes - (m_Stats.ResidentBytes - oldBytes))
+            if (bytes > VegetationPolicy::GeometryByteLimit(VegetationDiagnostics::GetMemoryScale()) -
+                            (m_Stats.ResidentBytes - oldBytes))
             {
                 refuse(VegetationPressure::GeometryMemory);
                 continue;

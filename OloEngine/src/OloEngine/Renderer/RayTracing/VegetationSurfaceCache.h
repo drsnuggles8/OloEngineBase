@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/RayTracing/VegetationDiagnostics.h"
 #include "OloEngine/Renderer/RayTracing/VegetationPolicy.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Terrain/Foliage/FoliageLayer.h"
@@ -289,7 +290,8 @@ namespace OloEngine::RayTracing
         }
         [[nodiscard]] bool HasQueueCapacity() const
         {
-            return static_cast<u32>(m_Inputs.Num()) < VegetationPolicy::ResidentGroups && m_StagedBytes < VegetationPolicy::GeometryBytes;
+            return static_cast<u32>(m_Inputs.Num()) < VegetationPolicy::ResidentGroups &&
+                   m_StagedBytes < VegetationPolicy::GeometryByteLimit(VegetationDiagnostics::GetMemoryScale());
         }
         [[nodiscard]] const VegetationSurfaceStats& GetStats() const
         {

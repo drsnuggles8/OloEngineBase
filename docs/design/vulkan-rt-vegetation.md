@@ -32,14 +32,17 @@ canopy's wind, rather than asserting pixel identity with a baked atlas.
 
 ## Work, memory, and fallback
 
-Live output/row/index buffers are capped at 64 MiB and 4096 groups. Offered
+Live output/row/index buffers are capped at 128 MiB and 4096 groups. Offered
 extraction data is bounded by the same geometry estimate before GPU allocation.
-Each frame reserves at most 1024 group updates, 1048576 vertices, and 524288
+Each frame reserves at most 1024 group updates, 2097152 vertices, and 1048576
 triangles. AS recording has an independent reservation so retries cannot evade
-the work cap. Live vegetation BLAS storage is capped at 64 MiB using actual
+the work cap. Live vegetation BLAS storage is capped at 128 MiB using actual
 driver size queries. Every one of those numbers is sized from the measured
 reference fixture below, with headroom over a FULL refresh: a cap under the
-full refresh does not throttle the feature, it switches it off. These limits exclude shared source assets, TLAS, the
+full refresh does not throttle the feature, it switches it off. #1578 doubled
+the vertex, triangle and memory caps after the IntegratedRenderer meadow's
+casting plan left groups out at 64 MiB / 1M vertices; `olo_rt_vegetation_diagnostic`'s
+`budgetScale` and `memoryScale` raise them further for measurement. These limits exclude shared source assets, TLAS, the
 scene-wide scratch pool, transient dispatch tables, and fence-retired copies;
 diagnostics report scene-wide AS and scratch memory separately.
 

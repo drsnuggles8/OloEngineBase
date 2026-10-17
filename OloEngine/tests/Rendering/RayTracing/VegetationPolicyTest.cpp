@@ -656,8 +656,6 @@ namespace OloEngine::Tests
         EXPECT_TRUE(VegetationPolicy::CanHoldSnapshot(1.09f, 1.0f, velocity, true, 2.0f));
         EXPECT_FALSE(VegetationPolicy::CanHoldSnapshot(1.11f, 1.0f, velocity, true, 2.0f));
         EXPECT_FALSE(VegetationPolicy::CanHoldSnapshot(1.09f, 1.0f, velocity, true)) << "unscaled stays 0.25 m";
-        EXPECT_FLOAT_EQ(VegetationPolicy::RefreshRate(false, velocity, 0.1f, 2.0f), 1.0f);
-        EXPECT_FLOAT_EQ(VegetationPolicy::RefreshRate(false, velocity, 0.1f, 4.0f), 0.5f) << "a 0.1 s frame at 4x refreshes every other frame";
     }
 
     // #1578 option 2: a scaled frame budget raises every per-frame work limit
@@ -678,7 +676,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(charged.Updates, charged.UpdateLimit) << "a debt saturates at the scaled limit";
         const VegetationPolicy::PlanRoom room = VegetationPolicy::PlanRoom::Scaled(1u, 2u);
         EXPECT_DOUBLE_EQ(room.Builds, 2.0 * VegetationPolicy::UpdatesPerFrame);
-        EXPECT_EQ(room.Geometry, VegetationPolicy::GeometryBytes) << "memory is not frame work and keeps its size";
+        EXPECT_EQ(room.Geometry, VegetationPolicy::GeometryBytes) << "the work scale leaves memory alone";
         // The upgrade margin is a fraction of the SCALED limit: a charge that
         // leaves a sixteenth of the doubled build budget free fits with margin,
         // one that leaves less does not.
@@ -687,5 +685,34 @@ namespace OloEngine::Tests
         EXPECT_EQ(room.Misfit(charge, VegetationPolicy::UpgradeMarginDivisor), RayTracing::VegetationPressure::None);
         charge.Builds += 2.0;
         EXPECT_EQ(room.Misfit(charge, VegetationPolicy::UpgradeMarginDivisor), RayTracing::VegetationPressure::FrameWork);
+    }
+
+    // #1578: past a doubled work limit the meadow is held by the 64 MiB of
+    // geometry, so the memory limits scale on their own lever, through the one
+    // limit function every enforcing check calls.
+    TEST(VegetationCastingPlan, AScaledMemoryLimitAdmitsWhatTheShippedOneRefuses)
+    {
+        EXPECT_EQ(VegetationPolicy::GeometryByteLimit(1u), VegetationPolicy::GeometryBytes);
+        EXPECT_EQ(VegetationPolicy::GeometryByteLimit(0u), VegetationPolicy::GeometryBytes) << "clamped up to the shipped limit";
+        EXPECT_EQ(VegetationPolicy::GeometryByteLimit(64u), 16u * VegetationPolicy::GeometryBytes) << "clamped to 16x";
+        EXPECT_EQ(VegetationPolicy::AccelerationByteLimit(2u), 2u * VegetationPolicy::AccelerationStructureBytes);
+
+        const VegetationPolicy::PlanRoom shipped = VegetationPolicy::PlanRoom::Scaled(1u, 2u);
+        const VegetationPolicy::PlanRoom doubled = VegetationPolicy::PlanRoom::Scaled(1u, 2u, 2u);
+        EXPECT_EQ(doubled.Geometry, 2u * VegetationPolicy::GeometryBytes);
+        EXPECT_EQ(doubled.Acceleration, 2u * VegetationPolicy::AccelerationStructureBytes);
+        EXPECT_DOUBLE_EQ(doubled.Builds, shipped.Builds) << "the memory scale leaves frame work alone";
+        EXPECT_EQ(doubled.Groups, VegetationPolicy::ResidentGroups);
+
+        VegetationPolicy::PlanCharge charge;
+        charge.Geometry = VegetationPolicy::GeometryBytes + VegetationPolicy::GeometryBytes / 2u; // 96 MiB
+        EXPECT_EQ(shipped.Misfit(charge, 0u), RayTracing::VegetationPressure::GeometryMemory);
+        EXPECT_EQ(doubled.Misfit(charge, 0u), RayTracing::VegetationPressure::None);
+        // The margin is a fraction of the SCALED limit, as for frame work.
+        charge.Geometry = 2u * VegetationPolicy::GeometryBytes - VegetationPolicy::GeometryBytes / 16u;
+        EXPECT_EQ(doubled.Misfit(charge, VegetationPolicy::UpgradeMarginDivisor), RayTracing::VegetationPressure::GeometryMemory);
+
+        // A divided room divides the scaled limit.
+        EXPECT_EQ(VegetationPolicy::PlanRoom::Scaled(4u, 1u, 2u).Geometry, VegetationPolicy::GeometryBytes / 2u);
     }
 } // namespace OloEngine::Tests

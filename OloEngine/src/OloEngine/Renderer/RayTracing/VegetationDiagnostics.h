@@ -23,6 +23,11 @@ namespace OloEngine::RayTracing::VegetationDiagnostics
     // at VegetationPolicy::FarErrorReferenceDistance.
     void SetBudgetScale(u32 scale);
     [[nodiscard]] u32 GetBudgetScale();
+    // MemoryScale multiplies the geometry and acceleration-structure byte
+    // limits everywhere they are enforced (VegetationPolicy::GeometryByteLimit),
+    // clamped to [1, 16]; 1 is the shipped 64 MiB each.
+    void SetMemoryScale(u32 scale);
+    [[nodiscard]] u32 GetMemoryScale();
     void SetFarErrorReference(f32 metres);
     [[nodiscard]] f32 GetFarErrorReference();
 } // namespace OloEngine::RayTracing::VegetationDiagnostics

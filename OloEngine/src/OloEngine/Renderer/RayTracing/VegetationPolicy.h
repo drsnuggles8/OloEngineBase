@@ -75,11 +75,31 @@ namespace OloEngine::RayTracing
         // caster withheld the whole TLAS; since #1354 the casting plan
         // (ChooseCastingTiers) charges the full refresh and traces what does
         // not fit at its complete card tier instead.
-        static constexpr u64 GeometryBytes = 64u * 1024u * 1024u;
-        static constexpr u64 AccelerationStructureBytes = 64u * 1024u * 1024u;
+        //
+        // #1578 doubled the vertex, triangle and both memory limits after a
+        // live sweep of the IntegratedRenderer meadow (RTX 4090, Vulkan): at
+        // 64 MiB / 1 M vertices the casting plan left 31 groups out inside
+        // the meadow and 14 at its edge, withholding ray-traced shadows at
+        // both; doubled, it leaves none out at any of three poses, for 93 MB
+        // of resident geometry and 1.9 M vertices a frame inside. Builds were
+        // not the limit (274 of 1024; area-grouped far cards), so
+        // UpdatesPerFrame stays.
+        static constexpr u64 GeometryBytes = 128u * 1024u * 1024u;
+        static constexpr u64 AccelerationStructureBytes = 128u * 1024u * 1024u;
+        // The two memory limits times VegetationDiagnostics' memory scale
+        // (#1578): every check that enforces one goes through these, so the
+        // plan never admits what the cache or the backend would then refuse.
+        [[nodiscard]] static constexpr u64 GeometryByteLimit(u32 memoryScale) noexcept
+        {
+            return GeometryBytes * std::clamp(memoryScale, 1u, 16u);
+        }
+        [[nodiscard]] static constexpr u64 AccelerationByteLimit(u32 memoryScale) noexcept
+        {
+            return AccelerationStructureBytes * std::clamp(memoryScale, 1u, 16u);
+        }
         static constexpr u32 UpdatesPerFrame = 1024u;
-        static constexpr u32 VerticesPerFrame = 1048576u;
-        static constexpr u32 TrianglesPerFrame = 524288u;
+        static constexpr u32 VerticesPerFrame = 2097152u;
+        static constexpr u32 TrianglesPerFrame = 1048576u;
         static constexpr f32 MaximumProxyAge = 0.05f;
         static constexpr f32 MaximumWorldDisplacementError = 0.25f;
         // A REFLECTION-ONLY snapshot whose refresh did not fit may be held
@@ -238,7 +258,14 @@ namespace OloEngine::RayTracing
         // the cache buckets a proxy's refreshes by time / deadline, and a
         // deadline that slid with every camera step would rebucket, and so
         // rebuild, every group the camera moved relative to.
-        static constexpr f32 FarErrorReferenceDistance = 0.0f; // 0: the bound does not grow (set by the #1578 sweep)
+        //
+        // Off by default. The #1578 meadow sweep: at 25 m it halved the
+        // overview's builds (12 -> 6) but freed no pose the doubled budget did
+        // not, and it loosens a declared bound, so it stays a lever
+        // (olo_rt_vegetation_diagnostic farErrorReference). It changes only
+        // how long the cache reuses and holds a snapshot; plans keep charging
+        // the declared bound's refresh rate (RefreshRate).
+        static constexpr f32 FarErrorReferenceDistance = 0.0f;
         static constexpr u32 MaximumFarErrorScale = 4u;
 
         // The bound's multiplier for a group whose nearest plant is `distance`
@@ -460,16 +487,23 @@ namespace OloEngine::RayTracing
             // margins are fractions of the SCALED limits, so a larger budget
             // keeps the shipped proportions rather than a thinner margin.
             u64 WorkScale = 1u;
+            // The memory limits' multiplier (Scaled's memoryScale), likewise.
+            u64 MemoryScale = 1u;
 
             // Every limit at 1/divisor: VegetationDiagnostics::SetBudgetDivisor.
             // `workScale` multiplies the per-frame WORK limits (vertices,
             // triangles, builds) first: VegetationDiagnostics::SetBudgetScale,
-            // #1578's option 2. Memory and resident groups are not frame work
-            // and keep their size.
-            [[nodiscard]] static PlanRoom Scaled(u32 divisor, u32 workScale = 1u) noexcept
+            // #1578's option 2. `memoryScale` multiplies the geometry and
+            // acceleration-structure byte limits (SetMemoryScale): once the
+            // work limit is raised, the meadow's next limit is the 64 MiB of
+            // geometry. Resident groups keep their count.
+            [[nodiscard]] static PlanRoom Scaled(u32 divisor, u32 workScale = 1u, u32 memoryScale = 1u) noexcept
             {
                 PlanRoom room;
                 room.WorkScale = std::max(workScale, 1u);
+                room.MemoryScale = std::clamp(memoryScale, 1u, 16u);
+                room.Geometry = GeometryByteLimit(memoryScale);
+                room.Acceleration = AccelerationByteLimit(memoryScale);
                 const f64 w = static_cast<f64>(room.WorkScale);
                 room.Vertices *= w;
                 room.Triangles *= w;
@@ -495,9 +529,11 @@ namespace OloEngine::RayTracing
                 { return room >= reserve && cost <= room - reserve; };
                 if (!fits(Groups, std::floor(keep(ResidentGroups)), charge.Groups))
                     return VegetationPressure::ResidentGroups;
-                if (!fits(static_cast<f64>(Geometry), keep(GeometryBytes), static_cast<f64>(charge.Geometry)))
+                const f64 memory = static_cast<f64>(MemoryScale);
+                if (!fits(static_cast<f64>(Geometry), keep(static_cast<f64>(GeometryBytes) * memory), static_cast<f64>(charge.Geometry)))
                     return VegetationPressure::GeometryMemory;
-                if (!fits(static_cast<f64>(Acceleration), keep(AccelerationStructureBytes), static_cast<f64>(charge.Acceleration)))
+                if (!fits(static_cast<f64>(Acceleration), keep(static_cast<f64>(AccelerationStructureBytes) * memory),
+                          static_cast<f64>(charge.Acceleration)))
                     return VegetationPressure::AccelerationMemory;
                 const f64 work = static_cast<f64>(WorkScale);
                 if (!fits(Vertices, keep(VerticesPerFrame * work), charge.Vertices) ||
@@ -631,12 +667,14 @@ namespace OloEngine::RayTracing
         // How often a group refreshes in steady state, per frame: every frame
         // it is detailed (its wind is sampled each frame), else once per
         // proxy deadline. `frameSeconds` is the wind clock's step; a paused
-        // clock refreshes nothing.
-        [[nodiscard]] static f32 RefreshRate(bool detailed, f32 velocityBound, f32 frameSeconds, f32 errorScale = 1.0f) noexcept
+        // clock refreshes nothing. Always at the declared bound: a far-error
+        // scale only lets the cache reuse longer, never lowers what a plan
+        // charges (FoliageRenderer's casting plan says why).
+        [[nodiscard]] static f32 RefreshRate(bool detailed, f32 velocityBound, f32 frameSeconds) noexcept
         {
             if (!std::isfinite(frameSeconds) || frameSeconds <= 0.0f)
                 return 0.0f;
-            const f32 deadline = ProxyAgeLimit(velocityBound, errorScale);
+            const f32 deadline = ProxyAgeLimit(velocityBound);
             if (detailed || !(deadline > 0.0f))
                 return 1.0f;
             return std::min(frameSeconds / deadline, 1.0f);
