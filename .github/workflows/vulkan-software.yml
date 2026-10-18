@@ -328,7 +328,9 @@ jobs:
         run: |
           $suites = 'RayTracingDevice', 'GpuPathTracerDevice', 'ReSTIRPTDevice'
           $listFilter = ($suites | ForEach-Object { $_ + '.*' }) -join ':'
-          ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe --gtest_list_tests "--gtest_filter=$listFilter" *> ..\test_results\ray_query_cases.txt
+          & "..\build\OloEngine\tests\$env:BUILD_TYPE\OloEngine-Tests.exe" --gtest_list_tests "--gtest_filter=$listFilter" *> ..\test_results\ray_query_cases.txt
+          # A failed listing leaves a partial defined set, which would let a dropped case pass.
+          if ($LASTEXITCODE -ne 0) { Write-Error "--gtest_list_tests exited $LASTEXITCODE; the required case set is unknown"; exit 1 }
           $suiteArgs = $suites | ForEach-Object { '--suite', $_ }
           python ..\scripts\vulkan_ray_query_coverage.py --require --title 'L7 ray-query suites on lavapipe' `
             --report ..\test_results\vulkan_software.xml --expected-list ..\test_results\ray_query_cases.txt `

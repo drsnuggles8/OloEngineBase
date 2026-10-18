@@ -83,6 +83,12 @@ class GateTest(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertIn('ReSTIRPTDevice defines no case in this run', output)
 
+    def test_required_mode_refuses_to_run_without_the_defined_set(self):
+        with redirect_stdout(io.StringIO()), patch('sys.stderr', io.StringIO()):
+            with self.assertRaises(SystemExit) as refused:
+                main(['--report', 'unused.xml', '--suite', 'ReSTIRPTDevice', '--require'])
+        self.assertNotEqual(refused.exception.code, 0)
+
     def test_report_mode_tolerates_skips(self):
         skipped = {'ReSTIRPTDevice.EveryMappingRunsTemporalSpatialAndResolveOnRealGeometry': SKIPPED}
         status, output = self.run_gate(report(**skipped), require=False)

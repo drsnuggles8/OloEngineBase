@@ -161,6 +161,9 @@ def main(argv=None):
     parser.add_argument('--require', action='store_true', help='fail unless every listed case executed')
     parser.add_argument('--title', default='Vulkan ray-query device-suite coverage')
     args = parser.parse_args(argv)
+    if args.require and not args.expected_list:
+        # Without the defined set, a case a filter dropped is absent from both sides and passes.
+        parser.error('--require needs --expected-list')
 
     try:
         root = ET.parse(args.report).getroot()
