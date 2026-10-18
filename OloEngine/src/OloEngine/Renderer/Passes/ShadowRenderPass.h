@@ -602,6 +602,9 @@ namespace OloEngine
             glm::vec3 Min{ 0.0f };
             glm::vec3 Max{ 0.0f };
             glm::mat4 Transform{ 1.0f };
+            // Last frame's caster was a fading tier (#1612): its pages hold a
+            // dithered silhouette, which the first steady frame must replace.
+            bool CrossFading = false;
         };
         std::unordered_map<u64, GroomCasterFootprint> m_PrevGroomCasters;
         // Latched once per session: groom casters and the VSM local-light layers.

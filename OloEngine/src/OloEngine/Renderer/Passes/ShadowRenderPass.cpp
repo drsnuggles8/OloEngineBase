@@ -2037,8 +2037,11 @@ namespace OloEngine
             // a mover; an unbound one moves when its transform does. Compared
             // bit-exactly, like ShadowCasterBounds::Moved: a rotation about the
             // centre of a symmetric coat leaves the box identical and the
-            // silhouette not.
-            const bool moved = caster.deforming || caster.crossFading || isNew ||
+            // silhouette not. A fading tier (#1612) redraws its dithered
+            // silhouette every frame, and the frame after its window closes
+            // replaces the last one with the whole coat.
+            const bool fadeEnded = !isNew && previous->second.CrossFading;
+            const bool moved = caster.deforming || caster.crossFading || fadeEnded || isNew ||
                                !Math::BitwiseEqual(previous->second.Transform, caster.transform);
             if (!moved)
             {
@@ -2082,8 +2085,9 @@ namespace OloEngine
         {
             if (hasBounds(caster.WorldBounds))
             {
-                m_PrevGroomCasters.emplace(caster.key, GroomCasterFootprint{ caster.WorldBounds.Min,
-                                                                             caster.WorldBounds.Max, caster.transform });
+                m_PrevGroomCasters.emplace(caster.key,
+                                           GroomCasterFootprint{ caster.WorldBounds.Min, caster.WorldBounds.Max,
+                                                                 caster.transform, caster.crossFading });
             }
         }
 
