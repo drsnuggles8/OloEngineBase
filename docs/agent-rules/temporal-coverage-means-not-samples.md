@@ -100,13 +100,14 @@ profile term's band opened (no change). Opening the coverage term's band as well
 and 0.491, but that term is what lets go of a coat that really changes. The remainder at a moving
 silhouette is disocclusion, which no history holds.
 
-## At a moving silhouette, compare the coat's own share and clip to a 5x5 box
+## At a moving silhouette, leave the opaque texels out and clip to a 5x5 box
 
-**Compare the coat's share of the 8x8 mean, and build a stochastic pixel's clip box from 5x5 at
-gamma 1.0** (#1627). The window is reprojected by the coat's mean velocity, so the coat holds still
-in it, but the lawn (coverage 0) and the body (1) beside it move by their own. At a moving
-silhouette that moved the full mean past the dead band with no change to the coat. The coat's share
-(the coverage of marked texels, summed over all 64) still moves at a real step, and
+**Sum only the estimators' coverage in the 8x8 mean, and build a stochastic pixel's clip box from
+5x5 at gamma 1.0** (#1627). The window is reprojected by the coat's mean velocity, so the coat holds
+still in it, but the lawn (coverage 0) and the body (1) beside it move by their own. At a moving
+silhouette that moved the full mean past the dead band with no change to the coat. Summing only the
+texels that hold the mark or a fractional coverage leaves out the opaque 0s and 1s that moved, and
+keeps every estimator: the coat's step, and an alpha-tested leaf's sharing the window.
 `TemporalSubjectSequence` reads the same to the digit with it. The clip box built from one draw's
 3x3 is itself a draw, and clipping to it pressed that draw's noise into the history.
 
@@ -116,7 +117,7 @@ On the Bernese walk from behind, as the ratio of two draws' difference to the sa
 |---|---|---|---|---|
 | shipped (#1626) | 0.648 | 0.545 | 0.530 | 0.25 |
 | coverage term off | 0.509 | 0.498 | 0.493 | 0.26 |
-| coat-share mean (= term off here) | 0.509 | 0.498 | 0.493 | 0.26 |
+| estimators' mean (= term off here) | 0.509 | 0.498 | 0.493 | 0.26 |
 | + 5x5 box, gamma 1.25 | 0.484 | 0.478 | 0.457 | 0.33 |
 | **+ 5x5 box, gamma 1.0 (shipped)** | **0.492** | **0.481** | **0.458** | **0.32** |
 | colour clip off | 0.664 | 0.541 | 0.497 | 0.38 |
