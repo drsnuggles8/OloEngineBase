@@ -53,11 +53,14 @@
 #include "OloEngine/Groom/GroomLodBuilder.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -463,6 +466,10 @@ namespace OloEngine::Tests
             Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
             RunEditorFrames(camera, 24);
 
+            // The film strip's tiles: the coat's neighbourhood, flipped top-down,
+            // kept per frame only when the strip is written. The whole readback
+            // per frame would hold ~700 MB for one walk.
+            constexpr u32 kTile = 200;
             std::vector<u8> pixels;
             std::vector<std::vector<u8>> strip;
             for (u32 frame = 0; frame < kDollyFrames; ++frame)
@@ -510,7 +517,18 @@ namespace OloEngine::Tests
                     light += std::abs(l - background);
                 }
                 result.Signal.push_back(light / (static_cast<f64>(pixelSize) * static_cast<f64>(pixelSize)));
-                strip.push_back(pixels);
+                if (!saveAs.empty())
+                {
+                    std::vector<u8>& tile = strip.emplace_back(static_cast<sizet>(kTile) * kTile * 4u);
+                    for (u32 y = 0; y < kTile; ++y)
+                    {
+                        // Bottom-up readback: flip into the tile's rows.
+                        const u32 sy = (kHeight / 2u) + (kTile / 2u) - 1u - y;
+                        const u32 sx = (kWidth / 2u) - (kTile / 2u);
+                        std::memcpy(tile.data() + static_cast<sizet>(y) * kTile * 4u,
+                                    pixels.data() + ((static_cast<sizet>(sy) * kWidth) + sx) * 4u, kTile * 4u);
+                    }
+                }
             }
 
             // Steps, the noise floor away from the hand-over, and the total
@@ -552,7 +570,6 @@ namespace OloEngine::Tests
             // just before the hand-over through the cross-fade window.
             if (!saveAs.empty() && result.HandOvers > 0u)
             {
-                constexpr u32 kTile = 200;
                 constexpr u32 kTiles = 8;
                 std::vector<u8> film(static_cast<sizet>(kTile) * kTiles * kTile * 4u, 0u);
                 for (u32 t = 0; t < kTiles; ++t)
@@ -561,11 +578,8 @@ namespace OloEngine::Tests
                     const std::vector<u8>& src = strip[frame];
                     for (u32 y = 0; y < kTile; ++y)
                     {
-                        // Bottom-up readback: flip into the strip's rows.
-                        const u32 sy = (kHeight / 2u) + (kTile / 2u) - 1u - y;
-                        const u32 sx = (kWidth / 2u) - (kTile / 2u);
                         std::memcpy(film.data() + ((static_cast<sizet>(y) * kTile * kTiles) + t * kTile) * 4u,
-                                    src.data() + ((static_cast<sizet>(sy) * kWidth) + sx) * 4u, kTile * 4u);
+                                    src.data() + static_cast<sizet>(y) * kTile * 4u, kTile * 4u);
                     }
                 }
                 WriteEvidence(saveAs, film, kTile * kTiles, kTile);
@@ -1076,6 +1090,74 @@ namespace OloEngine::Tests
         Renderer3D::ApplyRendererSettings();
     }
 
+    TEST_F(GroomLodVisualEvidenceTest, ASecondViewInOneFrameAdvancesNeitherTheLadderNorTheWindow)
+    {
+        // A probe bake renders the scene six times between two frames, from a
+        // camera of its own. Each render publishes the grooms; the LOD's
+        // hysteresis and the cross-fade window advance on the frame's first
+        // publish only, so the main view's window still lasts its full length
+        // and the bake's distance never moves the main view's ladder.
+        RendererSettings& settings = Renderer3D::GetRendererSettings();
+        const u32 savedFrames = settings.GroomLodCrossFadeFrames;
+        const u32 savedCap = settings.GroomLodMaxCrossFades;
+        settings.Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        const u32 window = 12u;
+        settings.GroomLodCrossFadeFrames = window;
+        settings.GroomLodMaxCrossFades = 4u;
+
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 4000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        // A real light-probe bake, close to the coat: six cube faces, each a
+        // full RenderScene3D with the probe's own camera, none of them a frame.
+        // Whatever tier those views ask for, a publish from them that advanced
+        // the state would disturb the main view's hold and window.
+        Ref<Scene> scene(&GetScene());
+        const glm::vec3 probe(0.0f, 0.35f, EyeDistanceFor(kCardPixelSize * 3.0f));
+        const auto renderOtherViews = [&]()
+        {
+            GLStateGuard guard("ASecondViewInOneFrame", GLStateGuard::Policy::Restore);
+            (void)LightProbeBaker::BakeProbeAtPosition(scene, probe, 32u);
+        };
+
+        Lod().m_Enabled = false;
+        camera.SetPose(glm::vec3(0.0f, 0.35f, EyeDistanceFor(kCardPixelSize * 2.0f)), 0.0f, 0.05f);
+        RunEditorFrames(camera, 2);
+        Lod().m_Enabled = true;
+        RunEditorFrames(camera, 4);
+
+        // The ladder after a frame with six more views is the ladder that
+        // frame's own publish left.
+        const UUID coat = m_GroomEntity.GetUUID();
+        ASSERT_NE(GetScene().FindGroomLodState(coat), nullptr);
+        const GroomLodState settled = *GetScene().FindGroomLodState(coat);
+        renderOtherViews();
+        EXPECT_EQ(*GetScene().FindGroomLodState(coat), settled)
+            << "a second view in the same frame advanced the coat's LOD hysteresis";
+
+        // Out to cards, six other views after every frame.
+        camera.SetPose(glm::vec3(0.0f, 0.35f, EyeDistanceFor(kCardPixelSize * 0.4f)), 0.0f, 0.05f);
+        u32 handOvers = 0;
+        u32 fadeFrames = 0;
+        for (u32 frame = 0; frame < 60u; ++frame)
+        {
+            RunEditorFrames(camera, 1);
+            const GroomRenderStats& stats = PassStats();
+            handOvers += stats.Lod.RepresentationChanges;
+            fadeFrames += stats.Lod.CrossFading > 0u ? 1u : 0u;
+            renderOtherViews();
+        }
+        std::printf("[groom-crossfade] a probe bake after every frame: hand-overs %u, fading %u frames (window %u)\n",
+                    handOvers, fadeFrames, window);
+        EXPECT_EQ(handOvers, 1u) << "the main view's walk did not hand over exactly once";
+        EXPECT_EQ(fadeFrames, window) << "the window did not last its length with other views in each frame";
+        ASSERT_NE(GetScene().FindGroomLodState(coat), nullptr);
+        EXPECT_EQ(GetScene().FindGroomLodState(coat)->Representation, GroomRepresentation::Card);
+
+        settings.GroomLodCrossFadeFrames = savedFrames;
+        settings.GroomLodMaxCrossFades = savedCap;
+    }
+
     TEST_F(GroomLodVisualEvidenceTest, TheCoatsShadowFadesWithItsColour)
     {
         // #1612: a fading coat's two tiers cast through the masks they are
@@ -1274,6 +1356,96 @@ namespace OloEngine::Tests
     // =========================================================================
     // Criterion 3: the three budgets scale down independently
     // =========================================================================
+
+    TEST_F(GroomLodVisualEvidenceTest, TheFirstSteadyFrameAfterAFadeRedrawsTheCoatsVirtualShadow)
+    {
+        // A fading tier casts a dithered silhouette into the VSM's cached
+        // pages. The frame after the window closes draws the incoming tier
+        // whole, and its pages must be redrawn: on a coat that neither deforms
+        // nor moves, nothing else would. The outgoing tier's departure only
+        // redraws ITS footprint, and each tier's comes from its own geometry.
+        auto& shadowMap = Renderer3D::GetShadowMap();
+        const auto setVsm = [&shadowMap](bool enabled)
+        {
+            ShadowSettings vsmSettings = shadowMap.GetSettings();
+            vsmSettings.VSM.Enabled = enabled;
+            shadowMap.SetSettings(vsmSettings);
+            return shadowMap.IsVirtualShadowMapActive() == enabled;
+        };
+        struct VsmRestore
+        {
+            std::function<bool(bool)> Set;
+            ~VsmRestore()
+            {
+                (void)Set(false);
+            }
+        } restore{ setVsm };
+        if (!setVsm(true))
+        {
+            GTEST_SKIP() << "the Virtual Shadow Map could not start on this device (VirtualShadowMap::Init refused)";
+        }
+
+        RendererSettings& settings = Renderer3D::GetRendererSettings();
+        const f32 savedBias = settings.GroomDetailBias;
+        const u32 savedFrames = settings.GroomLodCrossFadeFrames;
+        const u32 savedCap = settings.GroomLodMaxCrossFades;
+        settings.Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        const u32 window = 12u;
+        settings.GroomLodCrossFadeFrames = window;
+        settings.GroomLodMaxCrossFades = 4u;
+        auto& routing = m_GroomEntity.AddComponent<GroomSceneShadowComponent>();
+        routing.m_ReceiveShadows = false;
+        routing.m_CastShadows = true;
+
+        // The hand-over by the detail bias at a fixed camera, as in
+        // TheCoatsShadowFadesWithItsColour: 300 px is strands at bias 1 and
+        // cards at 0.5.
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 4000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose(glm::vec3(0.0f, 1.6f, EyeDistanceFor(300.0f)), 0.0f, 0.3f);
+        settings.GroomDetailBias = 1.0f;
+        Lod().m_Enabled = false;
+        RunEditorFrames(camera, 2);
+        Lod().m_Enabled = true;
+        RunEditorFrames(camera, 48);
+        ASSERT_TRUE(PassStats().SceneShadow.VirtualShadowMapActive) << "this is the VSM cell; the frame ran the cascades";
+        ASSERT_EQ(PassStats().SceneShadow.VirtualShadowInvalidations, 0u)
+            << "a steady coat invalidates its VSM pages every frame, so this cannot see a fade's end";
+
+        settings.GroomDetailBias = 0.5f;
+        std::vector<u32> fading;
+        std::vector<u32> invalidations;
+        for (u32 frame = 0; frame < 24u; ++frame)
+        {
+            RunEditorFrames(camera, 1);
+            fading.push_back(PassStats().Lod.CrossFading);
+            invalidations.push_back(PassStats().SceneShadow.VirtualShadowInvalidations);
+        }
+        std::printf("[groom-crossfade-vsm] fading/invalidations per frame:");
+        for (sizet f = 0; f < fading.size(); ++f)
+        {
+            std::printf(" %u/%u", fading[f], invalidations[f]);
+        }
+        std::printf("\n");
+
+        const auto lastFade = std::find_if(fading.rbegin(), fading.rend(), [](u32 n)
+                                           { return n > 0u; });
+        ASSERT_NE(lastFade, fading.rend()) << "the bias did not hand the coat over through a fade";
+        const sizet firstSteady = static_cast<sizet>(fading.rend() - lastFade);
+        ASSERT_LT(firstSteady + 1u, fading.size());
+        // The first steady frame redraws the outgoing tier's departed footprint
+        // AND the incoming tier's own, which last frame was dithered; the frame
+        // after it redraws nothing.
+        EXPECT_EQ(invalidations[firstSteady], 2u)
+            << "the first frame after the fade did not redraw the incoming tier's pages";
+        EXPECT_EQ(invalidations[firstSteady + 1u], 0u) << "a steady coat kept invalidating after its fade";
+
+        m_GroomEntity.RemoveComponent<GroomSceneShadowComponent>();
+        settings.GroomDetailBias = savedBias;
+        settings.GroomLodCrossFadeFrames = savedFrames;
+        settings.GroomLodMaxCrossFades = savedCap;
+    }
 
     TEST_F(GroomLodVisualEvidenceTest, TheShadowBudgetMovesWithoutMovingTheVisibilityBudget)
     {
