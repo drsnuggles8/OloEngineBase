@@ -3327,17 +3327,17 @@ namespace OloEngine
 
     f32 FoliageRenderer::LayerShadowMeshReach(const LayerRenderData& layer) const
     {
-        const f32 terrainScale = std::max({ glm::length(glm::vec3(m_TerrainTransform[0])),
-                                            glm::length(glm::vec3(m_TerrainTransform[1])),
-                                            glm::length(glm::vec3(m_TerrainTransform[2])) });
+        // Already world metres: the hand-over band is compared with the
+        // distance from the transformed pivot to the eye (lodDist in
+        // FoliageInstanceVertexStage.glsl), so the terrain's scale is not
+        // applied again.
         TArray<LayerDraw> draws;
         EnumerateLayerDraws(layer, draws);
         for (const auto& draw : draws)
         {
             if (draw.IsAuthoredMesh)
                 return FoliageLod::MeshRegionReach(draw.HandoverStart, draw.HandoverEnd, layer.Lod.TransitionSpread,
-                                                   layer.Lod.Hysteresis) *
-                       terrainScale;
+                                                   layer.Lod.Hysteresis);
         }
         return 0.0f;
     }

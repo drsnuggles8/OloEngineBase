@@ -87,6 +87,7 @@
 
 #include <glad/gl.h>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
@@ -1698,6 +1699,72 @@ namespace OloEngine::Tests
                     << "the cut-over moved the shadow beyond the repeat's noise and the fallback walk's share";
             }
         }
+    }
+
+    // A layer's hand-over band and view distance are world metres: the shader
+    // and the cull compare them with the distance from the TRANSFORMED pivot
+    // to the eye. So scaling the terrain must move neither the level a layer
+    // starts casting cards in nor the levels a moved eye refreshes. Both once
+    // multiplied by the terrain's scale again: at 0.5 the cut-over came a
+    // level early, where the lit view still drew meshes, and a moved eye left
+    // the outermost level it could change stale.
+    TEST_F(FoliageCostBaselineTest, ScalingTheTerrainMovesNoVsmLevelChosenByDistance)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_NO_FATAL_FAILURE(Load(kTraversalScene));
+        namespace FSI = FoliageShadowInvalidation;
+        FoliageRenderer& plants = Plants();
+        FSI::CardCutover cutover; // the policy's own settings, no override
+
+        // Texels far coarser than any wind or interaction bound, on a frame
+        // the coarse rotation skips: every level left in a mask is the eye's.
+        std::array<f32, VSM::kClipLevels> texels{};
+        texels.fill(1.0e9f);
+        FoliageRenderer::VsmInvalidationInputs inputs;
+        inputs.TexelWorldSizes = texels;
+        inputs.Frame = FSI::kCoarseRefreshPeriodFrames + 1u;
+        ASSERT_EQ(FSI::CoarseRefreshLevel(~0u, inputs.Frame), 0u);
+        const auto eyeLevels = [&](f32 scale)
+        {
+            plants.SetTerrainTransform(glm::scale(glm::mat4(1.0f), glm::vec3(scale)));
+            TArray<FoliageRenderer::VsmInvalidation> out;
+            inputs.EyeMoved = false;
+            plants.CollectVsmInvalidations(inputs, out); // drains a pending grow refresh and old influence boxes
+            inputs.EyeMoved = true;
+            plants.CollectVsmInvalidations(inputs, out);
+            u32 levels = 0u;
+            for (const auto& invalidation : out)
+                levels |= invalidation.ClipLevelMask;
+            return levels;
+        };
+
+        plants.SetTerrainTransform(glm::mat4(1.0f));
+        std::vector<f32> reach(plants.GetLayerCount());
+        std::vector<u32> firstCard(plants.GetLayerCount());
+        f32 widest = 0.0f;
+        for (u32 layer = 0; layer < plants.GetLayerCount(); ++layer)
+        {
+            reach[layer] = plants.GetLayerShadowMeshReach(layer);
+            firstCard[layer] = plants.GetLayerFirstCardLevel(layer, cutover);
+            widest = std::max(widest, reach[layer]);
+        }
+        const u32 unscaledEye = eyeLevels(1.0f);
+        ASSERT_GT(widest, 0.0f) << "no layer draws a mesh band, so the cut-over is not exercised";
+        ASSERT_NE(unscaledEye, 0u) << "a moved eye refreshed no level, so the eye refresh is not exercised";
+
+        for (const f32 scale : { 0.25f, 0.5f, 2.0f })
+        {
+            for (u32 layer = 0; layer < plants.GetLayerCount(); ++layer)
+            {
+                plants.SetTerrainTransform(glm::scale(glm::mat4(1.0f), glm::vec3(scale)));
+                EXPECT_NEAR(plants.GetLayerShadowMeshReach(layer), reach[layer], 1.0e-3f)
+                    << "layer " << layer << " at terrain scale " << scale;
+                EXPECT_EQ(plants.GetLayerFirstCardLevel(layer, cutover), firstCard[layer])
+                    << "layer " << layer << " at terrain scale " << scale;
+            }
+            EXPECT_EQ(eyeLevels(scale), unscaledEye) << "terrain scale " << scale;
+        }
+        // The scene sets the terrain's own transform again on the next tick.
     }
 
     TEST_F(FoliageCostBaselineTest, MeasureBaseline)
