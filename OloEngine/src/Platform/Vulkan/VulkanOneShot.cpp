@@ -176,12 +176,21 @@ namespace OloEngine
                 // Blocking wait is the point (see the header): load-time GL
                 // uploads were synchronous, and callers destroy staging
                 // buffers immediately after this returns.
-                constexpr u64 kTimeoutNs = 10'000'000'000ull; // 10 s — an upload that slow is a hang
-                VkResult waited = vkWaitForFences(device->GetDevice(), 1u, &fence, VK_TRUE, kTimeoutNs);
+                u64 timeoutNs = 10'000'000'000ull; // 10 s — an upload that slow is a hang
 #ifndef OLO_DIST
-                if (s_FailNextFenceWaits > 0)
+                // The injected timeout waits for real with a zero budget, so
+                // the drain below runs against work that may still be pending.
+                const bool injectTimeout = s_FailNextFenceWaits > 0;
+                if (injectTimeout)
                 {
                     --s_FailNextFenceWaits;
+                    timeoutNs = 0u;
+                }
+#endif
+                VkResult waited = vkWaitForFences(device->GetDevice(), 1u, &fence, VK_TRUE, timeoutNs);
+#ifndef OLO_DIST
+                if (injectTimeout)
+                {
                     OLO_CORE_WARN("VulkanOneShot::Submit({}): forcing a fence-wait timeout by test injection", what);
                     waited = VK_TIMEOUT;
                 }
@@ -195,6 +204,33 @@ namespace OloEngine
                 else
                 {
                     setOutcome(Outcome::Completed);
+                }
+
+                // A submission whose wait FAILED may still be executing, and
+                // destroying its fence (VUID-vkDestroyFence-fence-01120) or
+                // freeing its pending command buffer (VUID-vkFreeCommandBuffers-
+                // pCommandBuffers-00047) under it is invalid usage, as is the
+                // caller destroying the staging buffer it copies from. So wait
+                // it out before releasing, as VulkanContext's flush does. A
+                // truly hung GPU becomes DEVICE_LOST through the OS watchdog,
+                // which ends this wait and makes the release legal. The call
+                // still reports the failed wait: the result stays false/Submitted.
+                if (waited != VK_SUCCESS && waited != VK_ERROR_DEVICE_LOST)
+                {
+                    OLO_CORE_ERROR("VulkanOneShot::Submit({}): waiting for completion or device loss before "
+                                   "releasing the submission",
+                                   what);
+                    const VkResult drained = vkWaitForFences(device->GetDevice(), 1u, &fence, VK_TRUE, UINT64_MAX);
+                    if (drained != VK_SUCCESS && drained != VK_ERROR_DEVICE_LOST)
+                    {
+                        // An error wait proves nothing about the fence: leak
+                        // the fence and the command buffer rather than
+                        // release them in flight.
+                        OLO_CORE_ERROR("VulkanOneShot::Submit({}): drain wait failed (VkResult {}); leaking the "
+                                       "fence and command buffer",
+                                       what, static_cast<int>(drained));
+                        return false;
+                    }
                 }
             }
 

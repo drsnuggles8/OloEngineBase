@@ -54,6 +54,13 @@ namespace OloEngine
         // So: state a resource reaches through queued work is gated on
         // `Submitted`, not on the bool. The bool stays "fully completed and
         // waited", which is what every existing caller means by it.
+        //
+        // Either way, Submit does not return while its submission can still
+        // be executing: after a failed wait it waits again, without a
+        // timeout, until the work retires or the device is lost. So a caller
+        // may release what the recording read (#1294). The one exception is
+        // an error from that second wait, which proves nothing; the fence and
+        // command buffer are then leaked rather than released in flight.
         enum class Outcome
         {
             NotSubmitted, // never reached the queue — nothing recorded will run
