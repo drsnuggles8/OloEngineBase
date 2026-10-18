@@ -12,6 +12,8 @@
 
 #include <glm/gtc/matrix_inverse.hpp>
 
+#include <algorithm>
+
 namespace OloEngine
 {
     VirtualShadowMapMarkPass::VirtualShadowMapMarkPass()
@@ -103,6 +105,18 @@ namespace OloEngine
         u32 width = 0;
         u32 height = 0;
         RenderCommand::GetTextureDimensions(sceneDepth, 0, width, height);
+        // THE RENDERED REGION, not the texture. Under a render scale the depth
+        // target keeps its display size and this frame's depth fills only its
+        // [0, render) corner (RenderGraph::SetRenderScale reallocates nothing).
+        // Sized by the texture, the marker read the corner's texels as if they
+        // spanned the whole screen, unprojected each to the wrong world point and
+        // requested pages the receivers never sample: a lamp's shadow came out
+        // cut along page edges at a 0.67 scale, the atlas's whole (#1592).
+        if (m_RenderViewportWidth > 0u && m_RenderViewportHeight > 0u)
+        {
+            width = std::min(width, m_RenderViewportWidth);
+            height = std::min(height, m_RenderViewportHeight);
+        }
         if (width == 0 || height == 0)
             return {};
 
