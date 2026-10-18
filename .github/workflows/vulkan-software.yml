@@ -77,8 +77,11 @@ on:
 permissions:
   contents: read
 
+# A dispatch is a one-off measurement (a gtest_filter or a negative control),
+# so each gets its own group: two dispatched on one branch must not cancel
+# each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
