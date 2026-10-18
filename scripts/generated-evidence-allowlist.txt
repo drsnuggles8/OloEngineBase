@@ -1,0 +1,266 @@
+# Tracked files in generated-output locations, each with the test or document that reads it.
+# Enforced by scripts/check_generated_evidence.py (the `generated-evidence` pre-commit hook, #1610).
+#
+# Format: <glob>  <reader or curation purpose>. `*` stays inside one path segment, `**` crosses
+# them. Every line needs a reader and must match at least one tracked file.
+#
+# Adding a golden: run the reading test with --olo-golden-rebase, `git add -f` the file, add a line.
+# Run output (captures, reports, replay scenes, logs) never goes here; it stays in its ignored
+# directory. See docs/agent-rules/generated-evidence-stays-out-of-git.md.
+
+# --- Test inputs outside visual/ ---------------------------------------------------------------
+OloEditor/assets/tests/golden/*.png                 GoldenImageTests, GoldenBaselineAuditTest, VulkanPassSuite, VulkanShaderPipelineTest
+OloEditor/assets/tests/golden/amd/*.png             GoldenImageTests with --olo-golden-vendor=amd, GoldenBaselineAuditTest
+OloEditor/assets/tests/splat/fixture_discs.ply      GaussianSplatPipelineTest, GaussianSplatLodTest, GaussianSplatGpuOrderingParityTest
+OloEditor/assets/tests/state-machine/MultiMeshField40.gltf  RendererStateMachineHarness
+OloEditor/assets/tests/imported-corpus/corpus.yaml  ImportedCorpusFixtures
+
+# --- Curated documentation assets --------------------------------------------------------------
+docs/images/benchmarks/*.jpg                        hero frames shown in docs/guides/renderer-benchmarks.md
+docs/images/dog/*                                   #1533 showcase review composites and their manifest
+docs/images/vegetation/*.jpg                        #1398 comparison images (tools/vegetation-import/preview.py)
+docs/reviews/dog-breeds-1558/**                     approval galleries linked from docs/guides/dog-breeds.md
+docs/validation/foliage-hierarchical-wind-1236.json linked from docs/guides/foliage-hierarchical-wind.md
+docs/analysis/evidence/groom-vegetation-streaming-residency-1257.json  data behind the groom-vegetation-streaming-residency-1257 analyses
+docs/analysis/foliage-cost-baseline-1391/**         reproducible baseline; summary.json regenerates from it (foliage-cost-baseline-1391.md)
+docs/testing/evidence/hair1593/**                   images and reports linked from digital-human-hair-quality-1593.md
+docs/testing/evidence/cpu-scope-ring-1594/**        reports linked from cpu-scope-ring-1594.md and completed-frame-perf-windows.md
+docs/testing/evidence/mcp-capability-gaps-607/**    captures and reports linked from mcp-capability-gaps-607.md
+docs/testing/evidence/mono-debugger-1540/**         curated log excerpts in the manifest linked from mono-debugging.md
+docs/testing/evidence/render-graph-attachment-feedback-1554/**  captures linked from its README
+docs/testing/evidence/restir-pt-1211/**             reports and images linked from restir-pt-1211-evidence.md and -live.md
+
+# --- Goldens in OloEditor/assets/tests/visual/ (found by running each reader with the file absent)
+
+# AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_DawnClear.png  AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_DawnOvercast.png  AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_DawnStorm.png  AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_DuskClear.png  AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_DuskOvercast.png  AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_DuskStorm.png  AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_NightClear.png  AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_NightOvercast.png  AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_NightStorm.png  AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_NoonClear.png  AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_NoonClearAerial.png  AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_NoonOvercast.png  AtmosphereVisualEvidenceTest
+OloEditor/assets/tests/visual/Atmosphere_NoonStorm.png  AtmosphereVisualEvidenceTest
+
+# AtmosphereVisualEvidenceTest with --olo-golden-vendor=amd (gpu-conformance-amd.yml)
+OloEditor/assets/tests/visual/amd/Atmosphere_DawnClear.png  AtmosphereVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Atmosphere_DawnOvercast.png  AtmosphereVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Atmosphere_DawnStorm.png  AtmosphereVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Atmosphere_DuskClear.png  AtmosphereVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Atmosphere_DuskOvercast.png  AtmosphereVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Atmosphere_DuskStorm.png  AtmosphereVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Atmosphere_NightClear.png  AtmosphereVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Atmosphere_NightOvercast.png  AtmosphereVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Atmosphere_NightStorm.png  AtmosphereVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Atmosphere_NoonClear.png  AtmosphereVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Atmosphere_NoonClearAerial.png  AtmosphereVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Atmosphere_NoonOvercast.png  AtmosphereVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Atmosphere_NoonStorm.png  AtmosphereVisualEvidenceTest (amd vendor set)
+
+# DDGIVisualEvidenceTest
+OloEditor/assets/tests/visual/ddgi_angle_dark.png  DDGIVisualEvidenceTest
+OloEditor/assets/tests/visual/ddgi_angle_lit.png  DDGIVisualEvidenceTest
+OloEditor/assets/tests/visual/ddgi_angle_top.png  DDGIVisualEvidenceTest
+OloEditor/assets/tests/visual/ddgi_leak_dark.png  DDGIVisualEvidenceTest
+OloEditor/assets/tests/visual/ddgi_leak_lit.png  DDGIVisualEvidenceTest
+
+# DriftIslandFieldEvidenceTest
+OloEditor/assets/tests/visual/DriftIsland_ApproachFar.png  DriftIslandFieldEvidenceTest
+OloEditor/assets/tests/visual/DriftIsland_ApproachMid.png  DriftIslandFieldEvidenceTest
+OloEditor/assets/tests/visual/DriftIsland_ApproachNear.png  DriftIslandFieldEvidenceTest
+OloEditor/assets/tests/visual/DriftIsland_Submerged.png  DriftIslandFieldEvidenceTest
+OloEditor/assets/tests/visual/DriftIsland_TopDown.png  DriftIslandFieldEvidenceTest
+OloEditor/assets/tests/visual/DriftIsland_Waterline.png  DriftIslandFieldEvidenceTest
+
+# DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_DawnClear.png  DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_DawnHero.png  DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_DawnOvercast.png  DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_DawnStorm.png  DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_DuskClear.png  DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_DuskOvercast.png  DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_DuskStorm.png  DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_NightClear.png  DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_NightOvercast.png  DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_NightStorm.png  DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_NoonClear.png  DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_NoonOvercast.png  DriftWeatherVisualEvidenceTest
+OloEditor/assets/tests/visual/Drift_NoonStorm.png  DriftWeatherVisualEvidenceTest
+
+# DriftWeatherVisualEvidenceTest with --olo-golden-vendor=amd (gpu-conformance-amd.yml)
+OloEditor/assets/tests/visual/amd/Drift_DawnClear.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Drift_DawnHero.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Drift_DawnOvercast.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Drift_DawnStorm.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Drift_DuskClear.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Drift_DuskOvercast.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Drift_DuskStorm.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Drift_NightClear.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Drift_NightOvercast.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Drift_NightStorm.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Drift_NoonClear.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Drift_NoonOvercast.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/Drift_NoonStorm.png  DriftWeatherVisualEvidenceTest (amd vendor set)
+
+# FoliageInteractionEvidenceTest
+OloEditor/assets/tests/visual/FoliageInteractionOff_GL_Deferred_Ground.png  FoliageInteractionEvidenceTest
+OloEditor/assets/tests/visual/FoliageInteractionOff_GL_Deferred_Oblique.png  FoliageInteractionEvidenceTest
+OloEditor/assets/tests/visual/FoliageInteractionOff_GL_ForwardPlus_Ground.png  FoliageInteractionEvidenceTest
+OloEditor/assets/tests/visual/FoliageInteractionOff_GL_ForwardPlus_Oblique.png  FoliageInteractionEvidenceTest
+OloEditor/assets/tests/visual/FoliageInteractionOff_GL_Forward_Ground.png  FoliageInteractionEvidenceTest
+OloEditor/assets/tests/visual/FoliageInteractionOff_GL_Forward_Oblique.png  FoliageInteractionEvidenceTest
+OloEditor/assets/tests/visual/FoliageInteraction_GL_Deferred_Ground.png  FoliageInteractionEvidenceTest
+OloEditor/assets/tests/visual/FoliageInteraction_GL_Deferred_Oblique.png  FoliageInteractionEvidenceTest
+OloEditor/assets/tests/visual/FoliageInteraction_GL_ForwardPlus_Ground.png  FoliageInteractionEvidenceTest
+OloEditor/assets/tests/visual/FoliageInteraction_GL_ForwardPlus_Oblique.png  FoliageInteractionEvidenceTest
+OloEditor/assets/tests/visual/FoliageInteraction_GL_Forward_Ground.png  FoliageInteractionEvidenceTest
+OloEditor/assets/tests/visual/FoliageInteraction_GL_Forward_Oblique.png  FoliageInteractionEvidenceTest
+
+# FoliageInteractionEvidenceTest with --olo-golden-vendor=amd (gpu-conformance-amd.yml)
+OloEditor/assets/tests/visual/amd/FoliageInteractionOff_GL_Deferred_Ground.png  FoliageInteractionEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageInteractionOff_GL_Deferred_Oblique.png  FoliageInteractionEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageInteractionOff_GL_ForwardPlus_Ground.png  FoliageInteractionEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageInteractionOff_GL_ForwardPlus_Oblique.png  FoliageInteractionEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageInteractionOff_GL_Forward_Ground.png  FoliageInteractionEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageInteractionOff_GL_Forward_Oblique.png  FoliageInteractionEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageInteraction_GL_Deferred_Ground.png  FoliageInteractionEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageInteraction_GL_Deferred_Oblique.png  FoliageInteractionEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageInteraction_GL_ForwardPlus_Ground.png  FoliageInteractionEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageInteraction_GL_ForwardPlus_Oblique.png  FoliageInteractionEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageInteraction_GL_Forward_Ground.png  FoliageInteractionEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageInteraction_GL_Forward_Oblique.png  FoliageInteractionEvidenceTest (amd vendor set)
+
+# FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWindOff_GL_Deferred_MSAA1_Ground.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWindOff_GL_Deferred_MSAA1_Oblique.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWindOff_GL_Deferred_MSAA4_Ground.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWindOff_GL_Deferred_MSAA4_Oblique.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWindOff_GL_ForwardPlus_MSAA1_Ground.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWindOff_GL_ForwardPlus_MSAA1_Oblique.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWindOff_GL_Forward_MSAA1_Ground.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWindOff_GL_Forward_MSAA1_Oblique.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWind_GL_Deferred_MSAA1_Ground.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWind_GL_Deferred_MSAA1_Oblique.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWind_GL_Deferred_MSAA4_Ground.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWind_GL_Deferred_MSAA4_Oblique.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWind_GL_ForwardPlus_MSAA1_Ground.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWind_GL_ForwardPlus_MSAA1_Oblique.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWind_GL_Forward_MSAA1_Ground.png  FoliageWindEvidenceTest
+OloEditor/assets/tests/visual/FoliageWind_GL_Forward_MSAA1_Oblique.png  FoliageWindEvidenceTest
+
+# FoliageWindEvidenceTest with --olo-golden-vendor=amd (gpu-conformance-amd.yml)
+OloEditor/assets/tests/visual/amd/FoliageWindOff_GL_Deferred_MSAA1_Ground.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWindOff_GL_Deferred_MSAA1_Oblique.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWindOff_GL_Deferred_MSAA4_Ground.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWindOff_GL_Deferred_MSAA4_Oblique.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWindOff_GL_ForwardPlus_MSAA1_Ground.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWindOff_GL_ForwardPlus_MSAA1_Oblique.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWindOff_GL_Forward_MSAA1_Ground.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWindOff_GL_Forward_MSAA1_Oblique.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWind_GL_Deferred_MSAA1_Ground.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWind_GL_Deferred_MSAA1_Oblique.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWind_GL_Deferred_MSAA4_Ground.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWind_GL_Deferred_MSAA4_Oblique.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWind_GL_ForwardPlus_MSAA1_Ground.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWind_GL_ForwardPlus_MSAA1_Oblique.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWind_GL_Forward_MSAA1_Ground.png  FoliageWindEvidenceTest (amd vendor set)
+OloEditor/assets/tests/visual/amd/FoliageWind_GL_Forward_MSAA1_Oblique.png  FoliageWindEvidenceTest (amd vendor set)
+
+# GPUSceneRasterMigrationScene
+OloEditor/assets/tests/visual/GPUSceneRaster_Above.png  GPUSceneRasterMigrationScene
+OloEditor/assets/tests/visual/GPUSceneRaster_Front.png  GPUSceneRasterMigrationScene
+OloEditor/assets/tests/visual/GPUSceneRaster_Left.png  GPUSceneRasterMigrationScene
+OloEditor/assets/tests/visual/GPUSceneRaster_Right.png  GPUSceneRasterMigrationScene
+
+# GroomPreviewVisualEvidenceTest
+OloEditor/assets/tests/visual/GroomPreview_Front.png  GroomPreviewVisualEvidenceTest
+OloEditor/assets/tests/visual/GroomPreview_RootCloseUp.png  GroomPreviewVisualEvidenceTest
+OloEditor/assets/tests/visual/GroomPreview_Side.png  GroomPreviewVisualEvidenceTest
+OloEditor/assets/tests/visual/GroomPreview_Top.png  GroomPreviewVisualEvidenceTest
+
+# ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+OloEditor/assets/tests/visual/ImportedCorpus_GL_Deferred_Front.png  ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+OloEditor/assets/tests/visual/ImportedCorpus_GL_Deferred_Near.png  ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+OloEditor/assets/tests/visual/ImportedCorpus_GL_Deferred_Oblique.png  ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+OloEditor/assets/tests/visual/ImportedCorpus_GL_ForwardPlus_Front.png  ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+OloEditor/assets/tests/visual/ImportedCorpus_GL_ForwardPlus_Near.png  ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+OloEditor/assets/tests/visual/ImportedCorpus_GL_ForwardPlus_Oblique.png  ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+OloEditor/assets/tests/visual/ImportedCorpus_GL_Forward_Front.png  ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+OloEditor/assets/tests/visual/ImportedCorpus_GL_Forward_Near.png  ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+OloEditor/assets/tests/visual/ImportedCorpus_GL_Forward_Oblique.png  ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+OloEditor/assets/tests/visual/ImportedCorpus_GL_Skinned_Morph.png  ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+OloEditor/assets/tests/visual/ImportedCorpus_GL_Skinned_Rest.png  ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+OloEditor/assets/tests/visual/ImportedCorpus_GL_Skinned_Skin.png  ImportedCorpusVisualEvidenceTest / ImportedCorpusHistoryTest
+
+# MeshVisibilityEvidenceTest
+OloEditor/assets/tests/visual/MeshVisibility_Above.png  MeshVisibilityEvidenceTest
+OloEditor/assets/tests/visual/MeshVisibility_Astern.png  MeshVisibilityEvidenceTest
+OloEditor/assets/tests/visual/MeshVisibility_Quarter.png  MeshVisibilityEvidenceTest
+
+# ModelComponentGPUSceneScene
+OloEditor/assets/tests/visual/ModelComponentGPUScene_Above.png  ModelComponentGPUSceneScene
+OloEditor/assets/tests/visual/ModelComponentGPUScene_Front.png  ModelComponentGPUSceneScene
+OloEditor/assets/tests/visual/ModelComponentGPUScene_Quarter.png  ModelComponentGPUSceneScene
+
+# MorphDeformationVisualEvidenceTest
+OloEditor/assets/tests/visual/MorphDeformation_Neutral_Profile.png  MorphDeformationVisualEvidenceTest
+OloEditor/assets/tests/visual/MorphDeformation_Neutral_ThreeQuarter.png  MorphDeformationVisualEvidenceTest
+OloEditor/assets/tests/visual/MorphDeformation_SmileBrow_Profile.png  MorphDeformationVisualEvidenceTest
+OloEditor/assets/tests/visual/MorphDeformation_SmileBrow_ThreeQuarter.png  MorphDeformationVisualEvidenceTest
+OloEditor/assets/tests/visual/MorphDeformation_Smile_ThreeQuarter.png  MorphDeformationVisualEvidenceTest
+
+# TransmissionVisualEvidenceTest
+OloEditor/assets/tests/visual/Transmission_Deferred_OpaqueControl.png  TransmissionVisualEvidenceTest
+OloEditor/assets/tests/visual/Transmission_Deferred_ThinGlass.png  TransmissionVisualEvidenceTest
+OloEditor/assets/tests/visual/Transmission_Deferred_VolumeThick.png  TransmissionVisualEvidenceTest
+OloEditor/assets/tests/visual/Transmission_Deferred_VolumeThin.png  TransmissionVisualEvidenceTest
+OloEditor/assets/tests/visual/Transmission_Forward_OpaqueControl.png  TransmissionVisualEvidenceTest
+OloEditor/assets/tests/visual/Transmission_Forward_ThinGlass.png  TransmissionVisualEvidenceTest
+OloEditor/assets/tests/visual/Transmission_Forward_VolumeThick.png  TransmissionVisualEvidenceTest
+OloEditor/assets/tests/visual/Transmission_Forward_VolumeThin.png  TransmissionVisualEvidenceTest
+
+# WaterFoamSprayRainVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterFoamSprayRain_FoamAdvectOff.png  WaterFoamSprayRainVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterFoamSprayRain_FoamAdvectOn.png  WaterFoamSprayRainVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterFoamSprayRain_FoamDrift_0.png  WaterFoamSprayRainVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterFoamSprayRain_FoamDrift_1.png  WaterFoamSprayRainVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterFoamSprayRain_FoamDrift_2.png  WaterFoamSprayRainVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterFoamSprayRain_FoamDrift_3.png  WaterFoamSprayRainVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterFoamSprayRain_RainOff.png  WaterFoamSprayRainVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterFoamSprayRain_RainOn.png  WaterFoamSprayRainVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterFoamSprayRain_SprayCalmSea.png  WaterFoamSprayRainVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterFoamSprayRain_SprayOn.png  WaterFoamSprayRainVisualEvidenceTest
+
+# WaterProjectedGridVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterProjGrid_Projected_Grazing.png  WaterProjectedGridVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterProjGrid_Projected_Overhead.png  WaterProjectedGridVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterProjGrid_WorldGrid_Grazing.png  WaterProjectedGridVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterProjGrid_WorldGrid_Overhead.png  WaterProjectedGridVisualEvidenceTest
+
+# WaterVisualEvidenceTest
+OloEditor/assets/tests/visual/Water_GrazingAcross.png  WaterVisualEvidenceTest
+OloEditor/assets/tests/visual/Water_Overview.png  WaterVisualEvidenceTest
+OloEditor/assets/tests/visual/Water_Submerged.png  WaterVisualEvidenceTest
+OloEditor/assets/tests/visual/Water_TopDown.png  WaterVisualEvidenceTest
+OloEditor/assets/tests/visual/Water_Waterline.png  WaterVisualEvidenceTest
+OloEditor/assets/tests/visual/Water_WaterlineStraddle.png  WaterVisualEvidenceTest
+
+# WaterWakeShapeVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterWakeShape_Close.png  WaterWakeShapeVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterWakeShape_Grazing.png  WaterWakeShapeVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterWakeShape_HullFootprint.png  WaterWakeShapeVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterWakeShape_Overhead.png  WaterWakeShapeVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterWakeShape_Stopped.png  WaterWakeShapeVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterWakeShape_Turning.png  WaterWakeShapeVisualEvidenceTest
+
+# WaterWakeVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterWake_Grazing.png  WaterWakeVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterWake_Overhead.png  WaterWakeVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterWake_STurn.png  WaterWakeVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterWake_StoppedDecay.png  WaterWakeVisualEvidenceTest
+OloEditor/assets/tests/visual/WaterWake_StraightTravel.png  WaterWakeVisualEvidenceTest

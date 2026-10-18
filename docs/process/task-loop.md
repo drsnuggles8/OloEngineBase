@@ -131,9 +131,12 @@ decision; leaving MSAA unmentioned is not.
 
 A cell is evidenced in one of two ways, fixed by the cell:
 
-- **Artefact-backed**: a headless evidence test captured it, so the proof is a committed file named
-  after the cell: `<Feature>_<Backend>_<Path>[_<Angle>].png`, with `<Feature>Off_…` as the A/B
-  control. An unrun cell is then a file missing from the diff.
+- **Artefact-backed**: a headless evidence test captured it, so the proof is the test name and the
+  file it wrote, named after the cell: `<Feature>_<Backend>_<Path>[_<Angle>].png`, with
+  `<Feature>Off_…` as the A/B control. The file stays in its git-ignored output directory; the matrix
+  row cites its name and the measurement taken from it, and a reviewer regenerates it by running the
+  test. Never commit it ([generated-evidence-stays-out-of-git.md](../agent-rules/generated-evidence-stays-out-of-git.md)).
+  An unrun cell is then a row with no test and no measurement.
 - **Live-only**: no test can produce it, so the proof is a measurement plus a log check from a real
   editor session. **Every Vulkan cell is live-only**: the headless fixtures need a GL 4.6 context.
 
@@ -187,8 +190,9 @@ goes back through commit, push and the exit gate.
 Pre-authorized on a `feature/*` branch in a task worktree (`CLAUDE.md` → *Committing and
 publishing*), and nowhere else.
 
-**Never `git add -A` after a test run.** A full `OloEngine-Tests` run rewrites ~10 tracked PNGs under
-`OloEditor/assets/tests/visual/` even when nothing changed. Stage deliberately:
+**Never `git add -A` after a test run.** Evidence output is git-ignored, but a test case that writes
+under a golden's name still dirties that tracked golden, and the `generated-evidence` pre-commit hook
+rejects a force-added capture. Stage deliberately:
 
 ```bash
 git status --short

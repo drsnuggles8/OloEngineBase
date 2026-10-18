@@ -184,8 +184,8 @@ which is the scale a real hash divergence would exceed.
 
 The whole method depends on the committed sets staying untouched while you judge them.
 Capture into a scratch vendor directory (`--olo-golden-vendor=nvidia-crosscheck-run1`) and
-delete it afterwards. And never `git add -A` after a suite run: a full run dirties ~10
-tracked PNGs under `assets/tests/visual/` that have nothing to do with your change.
+delete it afterwards. And never `git add -A` after a suite run: a full run can dirty tracked
+goldens under `assets/tests/visual/` that have nothing to do with your change.
 
 ---
 
