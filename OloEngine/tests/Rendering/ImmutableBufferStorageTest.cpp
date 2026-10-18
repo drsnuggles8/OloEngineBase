@@ -15,12 +15,17 @@
 // evidence suite crossed the 6 GB per-process ceiling on it. Measured on the
 // same stream, even GL_DYNAMIC_STORAGE_BIT brings the copy back, so "immutable"
 // here means flags 0, and a regression to either form shows up below.
+//
+// The inspector half: its buffer preview read with glMapBuffer(GL_READ_ONLY),
+// which fails on storage created without GL_MAP_READ_BIT, so every immutable
+// buffer previewed as nothing. It reads with glGetNamedBufferSubData now.
 // =============================================================================
 
 #include "PropertyTests/RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/IndexBuffer.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
+#include "Platform/OpenGL/OpenGLResourceInspectorBackend.h"
 
 #include <glad/gl.h>
 
@@ -102,4 +107,26 @@ TEST(ImmutableBufferStorage, CreateWithDataStaysMutableAndRefillable)
     std::array<f32, kVertices.size()> read{};
     ::glGetNamedBufferSubData(vertex->GetBufferHandle(), 0, sizeof(read), read.data());
     EXPECT_EQ(std::memcmp(read.data(), refill.data(), sizeof(refill)), 0) << "SetData did not refill the buffer";
+}
+
+TEST(ImmutableBufferStorage, InspectorReadsAnImmutableBuffer)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    const auto vertex = VertexBuffer::CreateImmutable(kVertices.data(), static_cast<u32>(sizeof(kVertices)));
+    ASSERT_TRUE(vertex);
+
+    OpenGLResourceInspectorBackend backend;
+    std::array<f32, 4> read{};
+    ASSERT_TRUE(backend.ReadBufferRange(vertex->GetBufferHandle(), GL_ARRAY_BUFFER, 4u * sizeof(f32),
+                                        static_cast<u32>(sizeof(read)), read.data()))
+        << "the inspector could not read an immutable buffer";
+    for (sizet i = 0; i < read.size(); ++i)
+    {
+        EXPECT_EQ(std::memcmp(&read[i], &kVertices[4 + i], sizeof(f32)), 0) << i;
+    }
+
+    // Past the end is refused, not read.
+    EXPECT_FALSE(backend.ReadBufferRange(vertex->GetBufferHandle(), GL_ARRAY_BUFFER, 6u * sizeof(f32),
+                                         static_cast<u32>(sizeof(read)), read.data()));
 }
