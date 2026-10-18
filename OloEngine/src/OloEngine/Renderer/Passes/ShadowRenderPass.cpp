@@ -2064,7 +2064,9 @@ namespace OloEngine
                 { return m_GroomLayerTexels[&caster - firstCaster]; },
                 light.ViewProjection, renderOrigin, glm::ivec2(static_cast<i32>(layer), kGroomVsmLocalDomain),
                 *m_GroomVsmParamsUBO, bindGroomProgram);
-            ++layerDraws;
+            // Counted only when a coat drew: a reached box with no geometry this
+            // frame casts nothing, and a non-zero count would hide that.
+            layerDraws += drawn.Whole > 0u ? 1u : 0u;
             segmentsCast += drawn.Cast;
             segmentsWhole += drawn.Whole;
         }

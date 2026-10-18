@@ -180,7 +180,8 @@ namespace OloEngine
         /// above can be read: no lamp at all, or lamps none of whose faces a
         /// coat reaches -- or lamps that reach a coat and drew none of it.
         u32 VirtualShadowLocalLights = 0;
-        /// Strand segments those draws rasterised, summed over every view, and
+        /// Strand segments those draws submitted, summed over every view (a VSM
+        /// view's GPU stage still drops what lands on cached pages), and
         /// what they would have rasterised casting every strand (#1533 E1). A
         /// view casts the share of a coat its width floor allows
         /// (GroomShadowCasterFraction), so the ratio is the saving; equal means

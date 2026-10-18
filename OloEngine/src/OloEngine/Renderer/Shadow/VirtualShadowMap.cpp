@@ -692,7 +692,13 @@ namespace OloEngine
         // belong to this frame's globals rebuild.
         m_Globals.Params4 = glm::ivec4(AreLocalLightsActive() ? 1 : 0, m_Globals.Params4.y,
                                        m_Globals.Params4.z, directionalEnabled ? 1 : 0);
-        m_Globals.Params5 = glm::vec4(std::max(m_Settings.LocalDetailBias, 0.01f), m_Globals.Params5.y, 0.0f, 0.0f);
+        // FINITE, then floored: std::max passes a NaN through, and the marker,
+        // the sampler and the CPU twin (GetLocalDetailBias) would all select a
+        // mip from it. A non-finite setting takes the default.
+        const f32 localDetailBias = std::isfinite(m_Settings.LocalDetailBias)
+                                        ? std::max(m_Settings.LocalDetailBias, 0.01f)
+                                        : VirtualShadowMapSettings{}.LocalDetailBias;
+        m_Globals.Params5 = glm::vec4(localDetailBias, m_Globals.Params5.y, 0.0f, 0.0f);
 
         m_PrevLightDirection = forward;
         m_PrevRenderOrigin = renderOrigin;

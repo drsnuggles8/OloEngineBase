@@ -103,7 +103,8 @@ void main()
 		// A LOCAL-LIGHT LAYER (#1592): a lamp's cube face or spot, the way
 		// VSM_DepthLocal.glsl draws a mesh into it. The layer is rasterised at
 		// the finest mip with a dirty page, in that mip's corner of the mip-0
-		// viewport, so the width floor is a texel of THAT mip.
+		// viewport; the width floor is the coarser of that mip's texel and the
+		// one the CPU cut this coat's share for (below).
 		uint layer = uint(clamp(u_GroomShadowModes.x, 0, VSM_MAX_LOCAL_LAYERS - 1));
 		uint rasterMip = b_LocalRasterMip[layer];
 		v_VSMTarget = uvec3(1u, layer, min(rasterMip, uint(VSM_LOCAL_MIP_COUNT - 1)));

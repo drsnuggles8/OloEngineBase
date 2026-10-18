@@ -1090,9 +1090,16 @@ TEST(VirtualShadowMapLocal, AGroomCastersShareFollowsTheMipItsShadowIsReadAt)
     // Never off the layer's mip chain, however near or far.
     EXPECT_EQ(VSM::kLocalVirtualResolution, texels(lamp, glm::vec3(0.0f), kBias));
     EXPECT_EQ(VSM::kLocalVirtualResolution >> (VSM::kLocalMipCount - 1u), texels(lamp, { 0.0f, 1.0f, 1.0e5f }, kBias));
-    // And it is the MARKER's mip: the one GPU heuristic's C++ twin at the coat.
-    EXPECT_EQ(VSM::kLocalVirtualResolution >> VirtualShadowMap::SelectLocalMip(30.0f, 2.0f, kBias),
-              texels(lamp, { 0.0f, 0.0f, 30.0f }, kBias));
+    // And it is the MARKER's mip at the coat, as numbers worked from the GLSL
+    // twin's formula (vsmLocalMipForDistances): ceil(log2(2048 d bias / (4096
+    // dLight))). Coat at the origin, lamp 2 m up, bias 2: 3 m away is
+    // ceil(log2(1.5)) = mip 1, 30 m is ceil(log2(15)) = mip 4.
+    EXPECT_EQ(VSM::kLocalVirtualResolution >> 1u, texels(lamp, { 0.0f, 0.0f, 3.0f }, kBias));
+    EXPECT_EQ(VSM::kLocalVirtualResolution >> 4u, texels(lamp, { 0.0f, 0.0f, 30.0f }, kBias));
+    const std::string common = ReadShaderText("include/VirtualShadowCommon.glsl");
+    EXPECT_EQ(1u, CountOccurrences(common, "float ratio = (float(VSM_LOCAL_VIRTUAL_RESOLUTION) * max(distanceToCamera, 1e-4) * "
+                                           "max(bias, 1e-4)) /"))
+        << "the GLSL mip heuristic changed; re-derive the worked numbers above";
 }
 
 TEST(VirtualShadowMapLocal, TheGroomCasterDrawsALayerAtItsRasterMipLikeAMesh)
