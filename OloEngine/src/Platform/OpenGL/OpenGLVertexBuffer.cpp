@@ -26,7 +26,8 @@ namespace OloEngine
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ARRAY_BUFFER, "VertexBuffer (dynamic)");
     }
-    OpenGLVertexBuffer::OpenGLVertexBuffer(const u32 size, const GLenum usage) : m_Size(size)
+    OpenGLVertexBuffer::OpenGLVertexBuffer(const u32 size, const GLenum usage)
+        : m_Size(size), m_Refillable((usage & GL_DYNAMIC_STORAGE_BIT) != 0u)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -60,7 +61,8 @@ namespace OloEngine
         // Register with GPU Resource Inspector
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ARRAY_BUFFER, "VertexBuffer (static)");
     }
-    OpenGLVertexBuffer::OpenGLVertexBuffer(const f32* vertices, const u32 size, const GLenum usage) : m_Size(size)
+    OpenGLVertexBuffer::OpenGLVertexBuffer(const f32* vertices, const u32 size, const GLenum usage)
+        : m_Size(size), m_Refillable((usage & GL_DYNAMIC_STORAGE_BIT) != 0u)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -96,7 +98,8 @@ namespace OloEngine
         GPUResourceInspector::GetInstance().RegisterBuffer(m_RendererID, GL_ARRAY_BUFFER, "VertexBuffer (static, raw)");
     }
 
-    OpenGLVertexBuffer::OpenGLVertexBuffer(const void* data, const u32 size, const GLenum usage) : m_Size(size)
+    OpenGLVertexBuffer::OpenGLVertexBuffer(const void* data, const u32 size, const GLenum usage)
+        : m_Size(size), m_Refillable((usage & GL_DYNAMIC_STORAGE_BIT) != 0u)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -156,6 +159,15 @@ namespace OloEngine
             data.size, m_Size, m_RendererID);
         if (data.size > m_Size)
             return;
+        // Immutable storage without GL_DYNAMIC_STORAGE_BIT rejects the write
+        // with a GL error and keeps its old contents; say so here instead.
+        OLO_CORE_ASSERT(m_Refillable, "VertexBuffer SetData on an immutable buffer (GL id={}): create it with Create(size)",
+                        m_RendererID);
+        if (!m_Refillable)
+        {
+            OLO_CORE_ERROR("OpenGLVertexBuffer::SetData: buffer {} is immutable storage; the write was dropped", m_RendererID);
+            return;
+        }
         glNamedBufferSubData(m_RendererID, 0, data.size, data.data);
     }
 } // namespace OloEngine

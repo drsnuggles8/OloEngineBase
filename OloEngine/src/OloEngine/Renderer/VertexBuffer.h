@@ -32,6 +32,13 @@ namespace OloEngine
         static Ref<VertexBuffer> Create(f32* vertices, u32 size);
         static Ref<VertexBuffer> Create(const f32* vertices, u32 size);
         static Ref<VertexBuffer> Create(const void* data, u32 size);
+        // WRITE-ONCE: filled here and never again; SetData on it is an error.
+        // Create(data, size) is mutable storage on GL, and the driver keeps a
+        // resident system-memory copy of every mutable buffer, so a 1.5 GB
+        // groom stream cost 1.5 GB of the process's working set as well as
+        // its VRAM (#1608). Immutable storage keeps that copy out. Vulkan
+        // buffers are device-local either way, so there it is Create.
+        static Ref<VertexBuffer> CreateImmutable(const void* data, u32 size);
 
         template<typename T, typename = std::enable_if_t<
                                  (std::is_integral_v<T> || std::is_enum_v<T>) && !std::is_same_v<T, u32>>>

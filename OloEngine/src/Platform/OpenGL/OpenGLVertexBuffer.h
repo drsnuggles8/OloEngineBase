@@ -47,6 +47,8 @@ namespace OloEngine
       private:
         u32 m_RendererID{};
         u32 m_Size{}; // Buffer size in bytes for memory tracking
+        // False for immutable storage without GL_DYNAMIC_STORAGE_BIT: SetData cannot write it.
+        bool m_Refillable = true;
         BufferLayout m_Layout;
         RHI::ScopedResourceHandle m_RHIHandle;
     };

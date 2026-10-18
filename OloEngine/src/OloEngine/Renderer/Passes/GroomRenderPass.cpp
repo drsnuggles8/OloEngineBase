@@ -573,7 +573,9 @@ namespace OloEngine
             stream->MaxRadius = widest;
         }
         // IMMUTABLE buffers, like an unbound groom's: nothing ever refills the
-        // stream. What moves every frame is each entity's frame buffer.
+        // stream. What moves every frame is each entity's frame buffer. On GL
+        // a mutable buffer this size also kept a resident system-memory copy
+        // in the process (1.5 GB of working set on the Bernese, #1608).
         std::optional<RendererMemoryOwnerScope> streamingOwner;
         const auto streamingUploadStart = std::chrono::steady_clock::now();
         const u64 physicalBefore = request.StreamingEnabled ? RendererMemoryTracker::GetInstance().GetGpuResidentBytes() : 0;
@@ -582,11 +584,9 @@ namespace OloEngine
             streamingOwner.emplace(request.StreamingFloor ? "Groom streaming floor" : "Groom streaming detail",
                                    MemoryLifetime::Persistent);
         }
-        stream->Vertices = VertexBuffer::Create(vertices.data(), static_cast<u32>(stats.VertexBytes));
+        stream->Vertices = VertexBuffer::CreateImmutable(vertices.data(), static_cast<u32>(stats.VertexBytes));
         stream->Vertices->SetLayout(StrandVertexLayout());
-        // The legacy factory takes a mutable pointer but both backends only
-        // copy it. Prepared output remains immutable across its upload.
-        stream->Indices = IndexBuffer::Create(const_cast<u32*>(indices.data()), static_cast<u32>(indices.size()));
+        stream->Indices = IndexBuffer::CreateImmutable(indices.data(), static_cast<u32>(indices.size()));
         stream->Array = VertexArray::Create();
         stream->Array->AddVertexBuffer(stream->Vertices);
         stream->Array->SetIndexBuffer(stream->Indices);
@@ -1432,10 +1432,8 @@ namespace OloEngine
         if (deformed)
         {
             // Sized-then-filled, so the buffer is created with a usage the
-            // backend can refill. Create(data, size) mints an immutable one on
-            // the GL backend, and SetData on it is a silent no-op — the coat
-            // would render at whatever pose it was first built in, forever, with
-            // nothing logged.
+            // backend can refill: SetData on a CreateImmutable buffer is
+            // refused, and the coat would hold the pose it was first built in.
             entry.Vertices = VertexBuffer::Create(static_cast<u32>(stats.VertexBytes));
             entry.Vertices->SetData({ vertices.data(), static_cast<u32>(stats.VertexBytes) });
             m_Stats.DeformedUploadBytes += stats.VertexBytes;
@@ -1443,10 +1441,10 @@ namespace OloEngine
         }
         else
         {
-            entry.Vertices = VertexBuffer::Create(vertices.data(), static_cast<u32>(stats.VertexBytes));
+            entry.Vertices = VertexBuffer::CreateImmutable(vertices.data(), static_cast<u32>(stats.VertexBytes));
         }
         entry.Vertices->SetLayout(StrandVertexLayout());
-        entry.Indices = IndexBuffer::Create(indices.data(), static_cast<u32>(indices.size()));
+        entry.Indices = IndexBuffer::CreateImmutable(indices.data(), static_cast<u32>(indices.size()));
         entry.Array = VertexArray::Create();
         entry.Array->AddVertexBuffer(entry.Vertices);
         entry.Array->SetIndexBuffer(entry.Indices);
@@ -3533,7 +3531,7 @@ namespace OloEngine
                            : std::vector<GroomCasterLocalBox>{};
             caster.Pose = BuildGroomCasterPose(order.Runs, strandOrder, strands, strandCurves, *binding, localBoxes, influence);
         }
-        caster.Indices = IndexBuffer::Create(order.Indices.data(), static_cast<u32>(order.Indices.size()));
+        caster.Indices = IndexBuffer::CreateImmutable(order.Indices.data(), static_cast<u32>(order.Indices.size()));
         caster.Array = VertexArray::Create();
         caster.Array->AddVertexBuffer(vertexBuffer);
         caster.Array->SetIndexBuffer(caster.Indices);

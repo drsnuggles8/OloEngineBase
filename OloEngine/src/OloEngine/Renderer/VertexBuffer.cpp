@@ -148,4 +148,39 @@ namespace OloEngine
         OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
         return nullptr;
     }
+
+    Ref<VertexBuffer> VertexBuffer::CreateImmutable(const void* data, u32 size)
+    {
+        OLO_CORE_ASSERT(size == 0 || data != nullptr, "VertexBuffer::CreateImmutable(): an immutable buffer needs its data now");
+
+        switch (Renderer::GetAPI())
+        {
+            case RendererAPI::API::None:
+            {
+                OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
+                return nullptr;
+            }
+            case RendererAPI::API::Vulkan:
+            {
+#if OLO_WITH_VULKAN
+                if (VulkanDevice::Get() != nullptr)
+                {
+                    return Ref<VulkanVertexBuffer>::Create(data, size);
+                }
+#endif
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan: no VulkanDevice is up (or OLO_WITH_VULKAN is compiled out)!");
+                return nullptr;
+            }
+            case RendererAPI::API::OpenGL:
+            {
+                // Storage flags 0: the GPU's copy is the only one. Even
+                // GL_DYNAMIC_STORAGE_BIT brings the resident copy back on the
+                // NVIDIA driver (measured on #1608).
+                return Ref<OpenGLVertexBuffer>(new OpenGLVertexBuffer(data, size, 0u));
+            }
+        }
+
+        OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return nullptr;
+    }
 } // namespace OloEngine
