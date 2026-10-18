@@ -39,12 +39,20 @@ on:
   workflow_dispatch:
     inputs:
       gtest_filter:
-        # Diagnostic only (#1358/#1294): lets a dispatch measure a population the
-        # nightly filter does not select, e.g. whether lavapipe serves the L7
-        # ray-query suites. Empty keeps the nightly filter exactly as it was.
-        description: 'gtest filter override (empty = the nightly Vulkan filter)'
+        # Diagnostic only (#1358/#1294): lets a dispatch measure a different
+        # population. Empty keeps the nightly filter. The ray-query gate after
+        # the suites still requires every L7 case, so a filter that drops one
+        # fails the job by design; that is the gate's negative control.
+        description: 'gtest filter override (empty = the nightly filter)'
         type: string
         default: ''
+      ray_query_off:
+        # Negative control for the ray-query gate (#1294): sets the engine's
+        # OLO_VULKAN_NO_RAY_TRACING lever, so every L7 case skips at its
+        # fixture while the Vulkan* suites still run. The job must go red.
+        description: 'force ray query off (the gate must then fail the job)'
+        type: boolean
+        default: false
   schedule:
     # Nightly at 04:23 UTC — after cross-vendor.yml's 03:47 so the two software
     # jobs do not contend for hosted concurrency, and on an odd minute to avoid
@@ -61,6 +69,7 @@ on:
     paths:
       - '.github/workflows/vulkan-software.yml'
       - 'OloEngine/src/Platform/Vulkan/VulkanCapabilities.*'
+      - 'scripts/vulkan_ray_query_coverage.py'
 
 # Read-only: this job builds and runs tests, it never comments, labels or
 # publishes. Declared explicitly so a future step cannot quietly acquire write
@@ -68,8 +77,11 @@ on:
 permissions:
   contents: read
 
+# A dispatch is a one-off measurement (a gtest_filter or a negative control),
+# so each gets its own group: two dispatched on one branch must not cancel
+# each other.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -98,6 +110,11 @@ jobs:
         run: |
           # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
           python -m pip install jinja2==3.1.6
+
+      # Seconds, and ahead of the 2 h build: a broken gate should fail before
+      # the job spends the build on it.
+      - name: Check the ray-query coverage gate
+        run: python -m unittest discover -s scripts -p test_vulkan_ray_query_coverage.py
 
       - name: Setup Vulkan SDK
         uses: ./.github/actions/setup-vulkan
@@ -218,7 +235,9 @@ jobs:
         env:
           VK_DRIVER_FILES: ${{ env.OLO_LAVAPIPE_ICD }}
           VK_ICD_FILENAMES: ${{ env.OLO_LAVAPIPE_ICD }}
+          OLO_RAY_QUERY_OFF: ${{ inputs.ray_query_off }}
         run: |
+          if ($env:OLO_RAY_QUERY_OFF -eq 'true') { $env:OLO_VULKAN_NO_RAY_TRACING = '1' }
           New-Item -ItemType Directory -Force ..\test_results | Out-Null
           ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe --olo-vulkan-capability-report=..\test_results\vulkan_capability_report.md
           Get-Content ..\test_results\vulkan_capability_report.md | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
@@ -245,6 +264,7 @@ jobs:
           MESA_GLSL_VERSION_OVERRIDE: '460'
           # Read as data, never interpolated into the script (see the AMD workflow).
           OLO_GTEST_FILTER: ${{ inputs.gtest_filter }}
+          OLO_RAY_QUERY_OFF: ${{ inputs.ray_query_off }}
         # THE FLAG THAT MAKES THIS JOB WORTH HAVING IS `--olo-require-vulkan`
         # (issue #1300). Every device-gated Vulkan test skips cleanly when no
         # usable device is present, so without it this job would report GREEN on
@@ -261,13 +281,15 @@ jobs:
         # --olo-perf-machine tags perf-history rows so they never clobber a
         # hardware baseline.
         #
-        # The filter is the Vulkan-named suites. It deliberately does NOT cover
-        # the L7 ray-query suites — that gap is issue #1294, a separately scored
-        # piece of work. Measured (#1358, run 36621566529): lavapipe 26.2.0 does
-        # serve ray queries; RayTracingDevice.* and GpuPathTracerDevice.* pass,
-        # while 8 ReSTIRPTDevice tests hit the 10 s fence wait. Dispatch this
-        # workflow with gtest_filter to reproduce; widening the nightly is #1294's
-        # decision.
+        # The filter is the Vulkan-named suites plus the three L7 ray-query
+        # suites (#1294), which lavapipe 26.2.0 serves through the real gate
+        # (#1358). ReSTIRPTDevice used to time out here: llvmpipe JIT-compiles a
+        # fragment shader at its FIRST draw, on the queue thread, so that one
+        # fence wait paid a ~40 s LLVM compile. The fixture's fence budget is
+        # now derived from the device (DeviceFenceWaitBudgetNs), not shrunk
+        # work, and the closure oracles that caught #1288 still go red here
+        # under the stale flags lane. A green step alone does not prove the
+        # ray-query cases ran; the gate step after this one does.
         #
         # ONE TEST IS EXCLUDED, AND IT IS A DRIVER DEFECT, NOT AN ENGINE ONE.
         # FramebufferBlitPreservesUnrequestedDepthStencilAspects asserts that a
@@ -283,15 +305,47 @@ jobs:
         # when it passes — docs/agent-rules/vulkan-software-driver-ci.md has
         # the measurement.
         run: |
-          $filter = if ($env:OLO_GTEST_FILTER) { $env:OLO_GTEST_FILTER } else { 'Vulkan*:VirtualShadowMapVulkanShaders*-VulkanDrawPath.FramebufferBlitPreservesUnrequestedDepthStencilAspects' }
+          if ($env:OLO_RAY_QUERY_OFF -eq 'true') { $env:OLO_VULKAN_NO_RAY_TRACING = '1' }
+          $filter = if ($env:OLO_GTEST_FILTER) { $env:OLO_GTEST_FILTER } else { 'Vulkan*:VirtualShadowMapVulkanShaders*:RayTracingDevice.*:GpuPathTracerDevice.*:ReSTIRPTDevice.*-VulkanDrawPath.FramebufferBlitPreservesUnrequestedDepthStencilAspects' }
           ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe "--gtest_filter=$filter" --olo-require-vulkan --olo-golden-vendor=lavapipe --olo-perf-machine=ci-lavapipe-windows --gtest_catch_exceptions=1 --gtest_output=xml:..\test_results\vulkan_software.xml
+
+      # THE MISSING-EXECUTION GATE (#1294). Every ray-query fixture skips
+      # cleanly when the device cannot trace rays, and --olo-require-vulkan does
+      # not see that: it fails only a refused DEVICE, and the Vulkan* suites
+      # keep the run "exercised" either way. So this step requires, from the
+      # XML, that every case the three suites define executed. The defined set
+      # comes from --gtest_list_tests, not the XML, so a case a filter dropped
+      # counts as not run instead of vanishing. The one exemption is the
+      # #1240 vegetation experiment, which runs only on --olo-vegetation-
+      # experiment. always(): a red suite step must still say what ran.
+      - name: Require every L7 ray-query case to execute
+        if: always()
+        working-directory: OloEditor
+        shell: pwsh
+        env:
+          VK_DRIVER_FILES: ${{ env.OLO_LAVAPIPE_ICD }}
+          VK_ICD_FILENAMES: ${{ env.OLO_LAVAPIPE_ICD }}
+        run: |
+          $suites = 'RayTracingDevice', 'GpuPathTracerDevice', 'ReSTIRPTDevice'
+          $listFilter = ($suites | ForEach-Object { $_ + '.*' }) -join ':'
+          & "..\build\OloEngine\tests\$env:BUILD_TYPE\OloEngine-Tests.exe" --gtest_list_tests "--gtest_filter=$listFilter" *> ..\test_results\ray_query_cases.txt
+          # A failed listing leaves a partial defined set, which would let a dropped case pass.
+          if ($LASTEXITCODE -ne 0) { Write-Error "--gtest_list_tests exited $LASTEXITCODE; the required case set is unknown"; exit 1 }
+          $suiteArgs = $suites | ForEach-Object { '--suite', $_ }
+          python ..\scripts\vulkan_ray_query_coverage.py --require --title 'L7 ray-query suites on lavapipe' `
+            --report ..\test_results\vulkan_software.xml --expected-list ..\test_results\ray_query_cases.txt `
+            --capability-report ..\test_results\vulkan_capability_report.md `
+            --allow-skip RayTracingDevice.VegetationDetailedVersusCardExperiment @suiteArgs
+          exit $LASTEXITCODE
 
       - name: Upload Vulkan software test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: vulkan_software_results
-          path: test_results/vulkan_software.xml
+          path: |
+            test_results/vulkan_software.xml
+            test_results/ray_query_cases.txt
           if-no-files-found: warn
 
       - name: Upload golden-image diffs on failure

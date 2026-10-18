@@ -35,7 +35,7 @@ Every row is a run or a CI log line. A row that is not measured says so.
 | Developer box, RTX 4090 | NVIDIA 617.14, Vulkan 1.4.351 | satisfied | **run** (Debug) | **run**: ray query enabled | this PR, [vulkan-capability-report.rtx4090.md](vulkan-capability-report.rtx4090.md) |
 | Hosted `windows-2025`, no GPU | none | no device | skip (`NOT EXERCISED - none of the 19 device-gated tests ran`) | skip | Windows.yml run 36510914603, shard 1 |
 | Self-hosted Linux, AMD Navi 10 (RX 5600 XT), RADV, Mesa 25.2.7 | radv 25.2.7, API 1.4.318 | **refused**: no `VK_EXT_descriptor_heap`, `VK_KHR_shader_untyped_pointers` or `VK_KHR_device_address_commands`; the box also exposes llvmpipe 25.2.7, refused for the same three | skip (149 device-gated tests skip in the nightly) | skip: RADV lists no ray-query extensions | gpu-conformance-amd run 36621553072, [vulkan-capability-report.amd-navi10-radv-25.2.7.md](vulkan-capability-report.amd-navi10-radv-25.2.7.md); nightly skips: run 36507240680 |
-| Hosted Windows, Mesa lavapipe 26.2.0 (software) | llvmpipe, API 1.4.354 | satisfied | **run nightly**, `EXERCISED - 122/122 device-gated tests ran` | **partly run, on demand**: the real gate enables ray query; 17 of 25 L7 tests pass, the 8 heavy `ReSTIRPTDevice` tests time out (below) | vulkan-software.yml runs 36522457757 (nightly) and 36621566529 (L7 filter dispatch) |
+| Hosted Windows, Mesa lavapipe 26.2.0 (software) | llvmpipe, API 1.4.354 | satisfied | **run nightly**, `EXERCISED - 122/122 device-gated tests ran` | **run nightly, required** (#1294): the real gate enables ray query; 34 of 35 L7 cases pass, the one skip is the opt-in vegetation experiment, and a case that does not execute fails the job | vulkan-software.yml runs 36522457757 (nightly) and 36621566529 (L7 filter dispatch); [lavapipe-ray-query-suites.md](lavapipe-ray-query-suites.md) |
 | Developer box, live editor `--rhi vulkan` | same RTX 4090 | satisfied | n/a | ray query enabled (log: `Ray tracing: ray query enabled + ray-tracing pipeline`) | the editor picked the same device the report names; frame rendered, "Backend: Vulkan", zero errors or VUIDs in `OloEngine.log` |
 | Mesa lavapipe 24.3.4 (software) | llvmpipe, API 1.3.296 | **refused**: API 1.4, descriptor heap, untyped pointers, device address commands | skip | skip | [vulkan-capability-report.lavapipe-24.3.4.md](vulkan-capability-report.lavapipe-24.3.4.md) |
 | Mesa lavapipe 26.1.8 (software) | llvmpipe, API 1.4.354 | **refused**: descriptor heap, untyped pointers, device address commands | skip | skip | [vulkan-capability-report.lavapipe-26.1.8.md](vulkan-capability-report.lavapipe-26.1.8.md) |
@@ -59,12 +59,11 @@ Raw reports: [RTX 4090](vulkan-capability-report.rtx4090.md), [lavapipe 26.2.0](
 mechanism. It fails the first refused gate and makes `main` exit 3 when no device-gated test
 executed. #1358 adds nothing parallel.
 
-One boundary to know when a ray-query runner exists (#1294, still open; `Windows.yml` only
-*reports* those suites): the tally counts a test skipped **past** the gate, such as the L7 fixtures
-skipping on `!IsRayQueryEnabled()`, as not executed. So a designated ray-query job must select only
-the L7 filter, `ReSTIRPTDevice.*:RayTracingDevice.*:GpuPathTracerDevice.*`, and pass
-`--olo-require-vulkan`. Mixed with other Vulkan suites the flag would pass on the others. Control
-run on the RTX 4090, both from the same binary:
+One boundary: the tally counts a test skipped **past** the gate, such as the L7 fixtures skipping
+on `!IsRayQueryEnabled()`, as not executed. Mixed with other Vulkan suites, `--olo-require-vulkan`
+passes on the others. That is why `vulkan-software.yml` requires the L7 cases per case from the
+gtest XML ([lavapipe-ray-query-suites.md](lavapipe-ray-query-suites.md)), not through the flag.
+Control run on the RTX 4090, both from the same binary, with only the L7 filter selected:
 
 | Run | Result |
 |---|---|
@@ -85,15 +84,15 @@ tests ran` (the one skip is the opt-in `VegetationDetailedVersusCardExperiment`)
 | `GpuPathTracerDevice.*` | passes, including the CPU-reference Cornell box agreement |
 | `ReSTIRPTDevice.*` | 1 of 9 passes; the other 8 fail at `vkWaitForFences(..., 10 s)` returning `VK_TIMEOUT` after 54-77 s each |
 
-The 8 failures are a wait timeout on software-rasterised path-tracing compute, not a numerical
-mismatch, so they say nothing about the ReSTIR PT maths. That is the suite #1288 shipped red, so
-lavapipe cannot yet stand in for a hardware ray-query runner for it. It can execute the other two
-L7 suites today, so #1294 item 2 is smaller than "a hardware runner": a `RayTracingDevice.*:GpuPathTracerDevice.*`
-lavapipe arm, and a decision on the ReSTIR PT fence budget. Neither is done here.
+The 8 failures were not slow compute. llvmpipe compiles the fragment shader inside the first
+draw's fence wait, about 40 s, and every later draw takes under 6 ms. #1294 gave the fixture a
+fence budget derived from the device and confirmed that the #1288 oracles still go red on lavapipe
+under the stale flags lane. All 9 now pass there:
+[lavapipe-ray-query-suites.md](lavapipe-ray-query-suites.md).
 
 ## What is still open
 
-- Hardware ray-query CI runner, scheduled developer-box run, and the lavapipe arm above: #1294 items
-  2 and 3. Not authorised or built here.
+- No hardware ray-query CI runner and no scheduled developer-box run: the user declined both on
+  2026-10-18 (#1294). lavapipe is the scheduled RT run.
 - The AMD self-hosted runner's verdict will change if its Mesa reaches a RADV with
   `VK_EXT_descriptor_heap` (ADR 0010 says Mesa 26.1). Re-run the report there before assuming.
