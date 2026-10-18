@@ -210,6 +210,14 @@ namespace OloEngine::Tests
 
     void RendererAttachedTest::RunFrames(u32 count, f32 dtSeconds)
     {
+        RunFramesInFlight(count, dtSeconds);
+        if (count > 0u)
+            FinishFoliageRegeneration(*m_Scene, [this, dtSeconds]()
+                                      { RunFramesInFlight(1u, dtSeconds); });
+    }
+
+    void RendererAttachedTest::RunFramesInFlight(u32 count, f32 dtSeconds)
+    {
         const Timestep ts{ dtSeconds };
         const auto tick = [this, ts]()
         {
@@ -224,8 +232,6 @@ namespace OloEngine::Tests
         };
         for (u32 i = 0; i < count; ++i)
             tick();
-        if (count > 0u)
-            FinishFoliageRegeneration(*m_Scene, tick);
     }
 
     void RendererAttachedTest::RunEditorFrames(const EditorCamera& camera, u32 count, f32 dtSeconds)

@@ -1258,7 +1258,9 @@ namespace OloEngine::Tests
         const auto serial = Plants().GetPublishedRebuildSerial();
         FoliageOf().m_Layers[0].BaseColor = glm::vec3(0.6f, 0.5f, 0.7f);
         FoliageOf().m_NeedsRebuild = true;
-        RunFrames(1);
+        // In flight, through the runtime tick: the old generation still draws.
+        RunFramesInFlight(1);
+        ASSERT_TRUE(Plants().IsRebuilding()) << "the regeneration published within its first runtime frame";
         EXPECT_EQ(Plants().GetTotalInstanceCount(), count);
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
         while (Plants().IsRebuilding() && std::chrono::steady_clock::now() < deadline)
@@ -1595,14 +1597,20 @@ namespace OloEngine::Tests
                       0)
                 << file;
         };
-        // The arm's foliage casters, summed over the clip levels, cheapest of a few frames.
+        // The arm's foliage casters, summed over the clip levels, cheapest of a
+        // few frames. A frame with no valid bracket is no sample (infinity), not
+        // a 0 ms one that would win the minimum.
         const auto castersMs = []()
         {
             f64 total = 0.0;
+            bool any = false;
             for (const auto& pass : GPUPassTimerPool::GetInstance().GetLastFrameTimings().Passes)
                 if (pass.Name == FString("ShadowPass/VsmSun/FoliageCasters") && pass.IsValid())
+                {
                     total += pass.Sample.GpuMs;
-            return total;
+                    any = true;
+                }
+            return any ? total : std::numeric_limits<f64>::infinity();
         };
         struct Arm
         {

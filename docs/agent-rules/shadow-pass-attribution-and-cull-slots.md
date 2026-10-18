@@ -5,9 +5,10 @@
 `ShadowPass/<Family>/<Class>` (`MeshCasters`, `SkinnedCasters`, `VoxelCasters`, `GroomCasters`,
 `TerrainCasters`, `FoliageCull`, `FoliageCasters`, `VirtualGeometry`), opened through
 `ShadowBrackets::Scope` (`Renderer/Shadow/ShadowPassBrackets.h`). A class bracket is per VIEW, so one
-frame publishes a name many times: sum the repeats within a frame, never keep the first. And a
-region recorded in parallel has more views than the foliage cull has slots: record it in batches of
-`FoliageGPUCuller::kMaxShadowViews`. Issue #1590.
+frame publishes a name many times: sum the repeats within a frame, never keep the first. And record
+a shadow region in batches of `FoliageGPUCuller::kMaxShadowViews` views: a region recorded in one
+batch gives every view past the cull's last slot no culled foliage, on every backend, whether its
+items record inline (GL) or in parallel (Vulkan). Issue #1590.
 
 ## Why
 

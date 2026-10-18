@@ -509,8 +509,9 @@ namespace OloEngine::RayTracing
             // triangles, builds) first: VegetationDiagnostics::SetBudgetScale,
             // #1578's option 2. `memoryScale` multiplies the geometry and
             // acceleration-structure byte limits (SetMemoryScale): once the
-            // work limit is raised, the meadow's next limit is the 64 MiB of
-            // geometry. Resident groups keep their count.
+            // work limit is raised, the meadow's next limit is its geometry
+            // memory (the #1578 sweep, at the 64 MiB limit of the time).
+            // Resident groups keep their count.
             [[nodiscard]] static PlanRoom Scaled(u32 divisor, u32 workScale = 1u, u32 memoryScale = 1u) noexcept
             {
                 PlanRoom room;

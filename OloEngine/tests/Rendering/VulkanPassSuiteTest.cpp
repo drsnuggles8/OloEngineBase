@@ -13950,6 +13950,32 @@ TEST_F(VulkanPassSuite, PartialUniformAndStorageRewritesPreserveBothDrawsAndTheU
     }
 }
 
+namespace
+{
+    // Levers::FaultVulkanStagingReuse for one arm of a delayed-read test, restored
+    // whatever the arm does (#1543's negative control): an assertion that ends
+    // the arm early must not leave every later test on the in-place reuse path.
+    struct ScopedStagingReuseFault
+    {
+        explicit ScopedStagingReuseFault(bool on)
+            : m_Previous(Levers::FaultVulkanStagingReuse())
+        {
+            Levers::SetFaultVulkanStagingReuse(on);
+        }
+        ~ScopedStagingReuseFault()
+        {
+            Levers::SetFaultVulkanStagingReuse(m_Previous);
+        }
+        ScopedStagingReuseFault(const ScopedStagingReuseFault&) = delete;
+        ScopedStagingReuseFault& operator=(const ScopedStagingReuseFault&) = delete;
+        ScopedStagingReuseFault(ScopedStagingReuseFault&&) = delete;
+        ScopedStagingReuseFault& operator=(ScopedStagingReuseFault&&) = delete;
+
+      private:
+        bool m_Previous;
+    };
+} // namespace
+
 TEST_F(VulkanPassSuite, InterleavedParticleEmitUploadsKeepDistinctComputeInputs)
 {
     GPUParticle first{};
@@ -13959,17 +13985,17 @@ TEST_F(VulkanPassSuite, InterleavedParticleEmitUploadsKeepDistinctComputeInputs)
     // Two batches recorded into one frame; what the two dispatches emitted.
     const auto emitTwo = [&](bool fault, std::array<GPUParticle, 8>& actual)
     {
-        const bool previous = Levers::FaultVulkanStagingReuse();
-        Levers::SetFaultVulkanStagingReuse(fault);
         GPUParticleSystem particles(8);
-        ASSERT_TRUE(particles.IsInitialized());
-        ASSERT_TRUE(particles.GetShaderHealth().Emit);
-        VulkanFrameArena::Get().BeginFrame(0);
-        SubmitFrame([&]()
-                    {
-                        particles.EmitParticles(std::span<const GPUParticle>(&first, 1));
-                        particles.EmitParticles(std::span<const GPUParticle>(&second, 1)); });
-        Levers::SetFaultVulkanStagingReuse(previous);
+        {
+            const ScopedStagingReuseFault reuse(fault);
+            ASSERT_TRUE(particles.IsInitialized());
+            ASSERT_TRUE(particles.GetShaderHealth().Emit);
+            VulkanFrameArena::Get().BeginFrame(0);
+            SubmitFrame([&]()
+                        {
+                            particles.EmitParticles(std::span<const GPUParticle>(&first, 1));
+                            particles.EmitParticles(std::span<const GPUParticle>(&second, 1)); });
+        }
         particles.GetParticleSSBO()->GetData(actual.data(), sizeof(actual));
     };
 
@@ -14270,31 +14296,6 @@ TEST_F(VulkanPassSuite, FoliageCullLayerInputSurvivesADelayedRead)
     EXPECT_FLOAT_EQ(header.MaxY, 1.0f) << "the delayed cull read the NEXT generation's layer input";
     EXPECT_EQ(header.InstanceCount, instanceCount);
 }
-
-namespace
-{
-    // Levers::FaultVulkanStagingReuse for one arm of a delayed-read test, restored
-    // whatever the arm does (#1543's negative control).
-    struct ScopedStagingReuseFault
-    {
-        explicit ScopedStagingReuseFault(bool on)
-            : m_Previous(Levers::FaultVulkanStagingReuse())
-        {
-            Levers::SetFaultVulkanStagingReuse(on);
-        }
-        ~ScopedStagingReuseFault()
-        {
-            Levers::SetFaultVulkanStagingReuse(m_Previous);
-        }
-        ScopedStagingReuseFault(const ScopedStagingReuseFault&) = delete;
-        ScopedStagingReuseFault& operator=(const ScopedStagingReuseFault&) = delete;
-        ScopedStagingReuseFault(ScopedStagingReuseFault&&) = delete;
-        ScopedStagingReuseFault& operator=(ScopedStagingReuseFault&&) = delete;
-
-      private:
-        bool m_Previous;
-    };
-} // namespace
 
 // GPU fluid emit staging: an earlier frame's emit dispatch keeps its batch. The
 // fault arm rewrites one buffer in place, and must be seen doing so.
