@@ -941,11 +941,15 @@ namespace OloEngine
         // set; `atP0` and `atP1` fill the three position lanes that do, and the
         // radius, the side, the coordinates and the tint are set here from the
         // segment — the tint per END since #1533, like the radius.
+        //
+        // `firstVertex` is the stream index of outVertices[0]: zero for a stream
+        // built whole, the vertices already sent on for a streamed one (#1608).
         template<typename AtP0, typename AtP1>
         void EmitSegmentQuad(std::vector<GroomStrandVertex>& outVertices, std::vector<u32>& outIndices,
-                             GroomStrandVertex vertex, const RestSegment& segment, AtP0&& atP0, AtP1&& atP1)
+                             GroomStrandVertex vertex, const RestSegment& segment, AtP0&& atP0, AtP1&& atP1,
+                             u32 firstVertex = 0u)
         {
-            const u32 base = static_cast<u32>(outVertices.size());
+            const u32 base = firstVertex + static_cast<u32>(outVertices.size());
 
             atP0(vertex);
             vertex.Radius = segment.Radius0;
@@ -979,12 +983,11 @@ namespace OloEngine
             outIndices.push_back(base + 3u);
         }
 
-        void FinishStreamStats(GroomStrandMeshStats& stats, const std::vector<GroomStrandVertex>& vertices,
-                               const std::vector<u32>& indices, const glm::vec3& boundsMin,
+        void FinishStreamStats(GroomStrandMeshStats& stats, u32 vertexCount, u32 indexCount, const glm::vec3& boundsMin,
                                const glm::vec3& boundsMax) noexcept
         {
-            stats.VertexCount = static_cast<u32>(vertices.size());
-            stats.IndexCount = static_cast<u32>(indices.size());
+            stats.VertexCount = vertexCount;
+            stats.IndexCount = indexCount;
             stats.VertexBytes = static_cast<u64>(stats.VertexCount) * sizeof(GroomStrandVertex);
             stats.IndexBytes = static_cast<u64>(stats.IndexCount) * sizeof(u32);
 
@@ -1218,7 +1221,8 @@ namespace OloEngine
         };
 
         WalkStrandSegments(source, settings, coat, stats, onCurve, onSegment);
-        FinishStreamStats(stats, outVertices, outIndices, boundsMin, boundsMax);
+        FinishStreamStats(stats, static_cast<u32>(outVertices.size()), static_cast<u32>(outIndices.size()), boundsMin,
+                          boundsMax);
         return stats;
     }
 
@@ -1246,6 +1250,218 @@ namespace OloEngine
         }
     } // namespace
 
+    namespace
+    {
+        // Everything one rest walk writes (BuildGroomStrandRestMesh and its
+        // streamed form share it). Without a Sink, Vertices receives the whole
+        // stream; with one, it is a chunk of up to ChunkVertices that is sent on
+        // and cleared whenever it fills (#1608).
+        struct RestMeshOutputs
+        {
+            std::vector<GroomStrandVertex>& Vertices;
+            std::vector<u32>& Indices;
+            std::vector<u32>& RootCurves;
+            GroomStrandVertexSink* Sink = nullptr;
+            u32 ChunkVertices = 0;
+            std::vector<GroomRestPoseSegment>* PoseSegments = nullptr;
+            std::vector<u32>* StrandFirstIndex = nullptr;
+            std::vector<GroomCasterStrand>* CasterStrands = nullptr;
+            GroomRestStreamMeasures* Measures = nullptr;
+        };
+
+        GroomStrandMeshStats BuildRestMesh(const GroomBuildSource& source, const GroomStrandBuildSettings& settings,
+                                           const GroomBindingAsset& binding, const GroomCoatContext* coat,
+                                           RestMeshOutputs& out)
+        {
+            out.Vertices.clear();
+            out.Indices.clear();
+            out.RootCurves.clear();
+            if (out.CasterStrands != nullptr)
+            {
+                out.CasterStrands->clear();
+            }
+            if (out.PoseSegments != nullptr)
+            {
+                out.PoseSegments->clear();
+            }
+            if (out.StrandFirstIndex != nullptr)
+            {
+                out.StrandFirstIndex->clear();
+            }
+            if (out.Measures != nullptr)
+            {
+                *out.Measures = GroomRestStreamMeasures{};
+            }
+
+            // The binding must span the BASE groom, for the reason
+            // BuildGroomStrandMesh refuses a short deformation: a record read past
+            // the end is not a coat at rest, it is a coat built from someone else's
+            // triangle. The caller falls back to the CPU-deformed path, which then
+            // refuses in turn and draws the coat at its bind pose — the diagnosable
+            // answer, counted where the binding was attached.
+            if (binding.GetRootCount() != source.BaseCurveCount)
+            {
+                return GroomStrandMeshStats{};
+            }
+
+            const GroomStrandMeshStats plan = PlanGroomStrandMesh(source, settings, coat);
+            if (out.Sink != nullptr)
+            {
+                // The plan is the build's count (GroomStrandMeshTest pins it), so
+                // the sink can size its destination before the first vertex.
+                if (!out.Sink->Begin(plan.VertexCount))
+                {
+                    out.Measures->SinkFailed = true;
+                    return GroomStrandMeshStats{};
+                }
+                out.Vertices.reserve(std::min(plan.VertexCount, out.ChunkVertices));
+            }
+            else
+            {
+                out.Vertices.reserve(plan.VertexCount);
+            }
+            out.Indices.reserve(plan.IndexCount);
+            out.RootCurves.reserve(plan.StrandsSelected);
+            if (out.PoseSegments != nullptr)
+            {
+                out.PoseSegments->reserve(plan.SegmentCount);
+            }
+            if (out.Measures != nullptr)
+            {
+                out.Measures->CasterSegments.reserve(plan.SegmentCount);
+                out.Measures->LocalBoxes.reserve(plan.StrandsSelected);
+            }
+
+            glm::vec3 boundsMin{ std::numeric_limits<f32>::max() };
+            glm::vec3 boundsMax{ std::numeric_limits<f32>::lowest() };
+
+            const GroomRootBinding* record = nullptr;
+            f32 rootSlot = 0.0f;
+            u32 sentVertices = 0;
+            const auto sendChunk = [&]
+            {
+                if (out.Sink == nullptr || out.Vertices.empty())
+                {
+                    return;
+                }
+                if (!out.Measures->SinkFailed && !out.Sink->Write(out.Vertices))
+                {
+                    out.Measures->SinkFailed = true;
+                }
+                sentVertices += static_cast<u32>(out.Vertices.size());
+                out.Vertices.clear();
+            };
+
+            GroomStrandMeshStats stats;
+            const auto onCurve = [&](u32 /*curve*/, u32 sourceCurve)
+            {
+                if (out.StrandFirstIndex != nullptr)
+                {
+                    out.StrandFirstIndex->push_back(static_cast<u32>(out.Indices.size()));
+                }
+                if (out.CasterStrands != nullptr)
+                {
+                    out.CasterStrands->emplace_back();
+                }
+                if (out.Measures != nullptr)
+                {
+                    // CollectGroomCasterLocalBoxes's empty box.
+                    constexpr f32 kBig = std::numeric_limits<f32>::max();
+                    out.Measures->LocalBoxes.push_back(GroomCasterLocalBox{ glm::vec3(kBig), glm::vec3(-kBig) });
+                }
+                record = &binding.GetRoot(sourceCurve);
+                // The slot is the index of this strand's per-frame record in the
+                // deformation buffer. A FLOAT holding an integer rather than a
+                // bit-cast u32: a small integer's bit pattern is a denormal, and a
+                // vertex fetch is entitled to flush one to zero. Exact to 2^24
+                // strands, which is past GroomLimits by two orders of magnitude.
+                rootSlot = static_cast<f32>(out.RootCurves.size());
+                out.RootCurves.push_back(sourceCurve);
+            };
+
+            const auto onSegment = [&](const RestSegment& segment)
+            {
+                if (out.CasterStrands != nullptr)
+                {
+                    AccumulateCasterStrand(out.CasterStrands->back(), segment);
+                }
+                // The rest points in the root's bind frame (MakeRestPoseSegment).
+                const GroomRestPoseSegment pose = MakeRestPoseSegment(*record, static_cast<u32>(rootSlot), segment);
+                const glm::vec3 local0 = pose.Local0;
+                const glm::vec3 local1 = pose.Local1;
+
+                // Bounds of the REST coat. A deformed coat's drawn box moves every
+                // frame and nothing on this path measures it; the stats say what the
+                // stream holds, which is the rest shape.
+                const f32 radius = std::max(segment.Radius0, segment.Radius1);
+                const glm::vec3 expand{ radius };
+                boundsMin = glm::min(boundsMin, glm::min(segment.Rest0, segment.Rest1) - expand);
+                boundsMax = glm::max(boundsMax, glm::max(segment.Rest0, segment.Rest1) + expand);
+
+                // The GPU-deformed encoding of the SAME sixteen floats — see
+                // GroomStrandVertex. Position is this corner's endpoint, Other is the
+                // segment's OTHER endpoint, both bind-local; the three lanes that
+                // hold last frame's centreline on the CPU path hold the root slot,
+                // the other endpoint's parameter and which end this corner is.
+                GroomStrandVertex vertex;
+                vertex.SegmentId = segment.SegmentId;
+                EmitSegmentQuad(
+                    out.Vertices, out.Indices, vertex, segment,
+                    [&](GroomStrandVertex& v)
+                    {
+                        v.Position = local0;
+                        v.Other = local1;
+                        v.PrevPosition = glm::vec3(rootSlot, segment.T1, 0.0f);
+                    },
+                    [&](GroomStrandVertex& v)
+                    {
+                        v.Position = local1;
+                        v.Other = local0;
+                        v.PrevPosition = glm::vec3(rootSlot, segment.T0, 1.0f);
+                    },
+                    sentVertices);
+
+                if (out.Measures != nullptr)
+                {
+                    // What the stream's readers take from these four corners, with
+                    // the arithmetic they use on them: BuildGroomCasterOrder's
+                    // |Other - Position| and end radii, CollectGroomCasterLocalBoxes's
+                    // radius-grown points, the pass's reach and widest radius.
+                    GroomRestStreamMeasures& measures = *out.Measures;
+                    measures.CasterSegments.push_back(
+                        GroomCasterSegment{ glm::length(local1 - local0), segment.Radius0, segment.Radius1 });
+                    GroomCasterLocalBox& box = measures.LocalBoxes.back();
+                    const glm::vec3 radius0(std::max(segment.Radius0, 0.0f));
+                    const glm::vec3 radius1(std::max(segment.Radius1, 0.0f));
+                    box.Min = glm::min(box.Min, glm::min(local0 - radius0, local1 - radius1));
+                    box.Max = glm::max(box.Max, glm::max(local0 + radius0, local1 + radius1));
+                    measures.MaxReachSquared =
+                        std::max({ measures.MaxReachSquared, glm::dot(local0, local0), glm::dot(local1, local1) });
+                    measures.MaxRadius = std::max({ measures.MaxRadius, segment.Radius0, segment.Radius1 });
+                }
+
+                if (out.PoseSegments != nullptr)
+                {
+                    out.PoseSegments->push_back(pose);
+                }
+                if (out.Sink != nullptr && out.Vertices.size() >= out.ChunkVertices)
+                {
+                    sendChunk();
+                }
+            };
+
+            WalkStrandSegments(source, settings, coat, stats, onCurve, onSegment);
+            sendChunk();
+            FinishStreamStats(stats, sentVertices + static_cast<u32>(out.Vertices.size()),
+                              static_cast<u32>(out.Indices.size()), boundsMin, boundsMax);
+            if (out.Measures != nullptr && out.Measures->SinkFailed)
+            {
+                return GroomStrandMeshStats{};
+            }
+            return stats;
+        }
+    } // namespace
+
     GroomStrandMeshStats BuildGroomStrandRestMesh(const GroomBuildSource& source,
                                                   const GroomStrandBuildSettings& settings,
                                                   const GroomBindingAsset& binding,
@@ -1256,119 +1472,34 @@ namespace OloEngine
                                                   std::vector<u32>* outStrandFirstIndex,
                                                   std::vector<GroomCasterStrand>* outCasterStrands)
     {
-        outVertices.clear();
-        outIndices.clear();
-        outRootCurves.clear();
-        if (outCasterStrands != nullptr)
-        {
-            outCasterStrands->clear();
-        }
-        if (outPoseSegments != nullptr)
-        {
-            outPoseSegments->clear();
-        }
-        if (outStrandFirstIndex != nullptr)
-        {
-            outStrandFirstIndex->clear();
-        }
+        RestMeshOutputs out{ .Vertices = outVertices,
+                             .Indices = outIndices,
+                             .RootCurves = outRootCurves,
+                             .PoseSegments = outPoseSegments,
+                             .StrandFirstIndex = outStrandFirstIndex,
+                             .CasterStrands = outCasterStrands };
+        return BuildRestMesh(source, settings, binding, coat, out);
+    }
 
-        // The binding must span the BASE groom, for the reason
-        // BuildGroomStrandMesh refuses a short deformation: a record read past
-        // the end is not a coat at rest, it is a coat built from someone else's
-        // triangle. The caller falls back to the CPU-deformed path, which then
-        // refuses in turn and draws the coat at its bind pose — the diagnosable
-        // answer, counted where the binding was attached.
-        if (binding.GetRootCount() != source.BaseCurveCount)
-        {
-            return GroomStrandMeshStats{};
-        }
-
-        const GroomStrandMeshStats plan = PlanGroomStrandMesh(source, settings, coat);
-        outVertices.reserve(plan.VertexCount);
-        outIndices.reserve(plan.IndexCount);
-        outRootCurves.reserve(plan.StrandsSelected);
-        if (outPoseSegments != nullptr)
-        {
-            outPoseSegments->reserve(plan.SegmentCount);
-        }
-
-        glm::vec3 boundsMin{ std::numeric_limits<f32>::max() };
-        glm::vec3 boundsMax{ std::numeric_limits<f32>::lowest() };
-
-        const GroomRootBinding* record = nullptr;
-        f32 rootSlot = 0.0f;
-
-        GroomStrandMeshStats stats;
-        const auto onCurve = [&](u32 /*curve*/, u32 sourceCurve)
-        {
-            if (outStrandFirstIndex != nullptr)
-            {
-                outStrandFirstIndex->push_back(static_cast<u32>(outIndices.size()));
-            }
-            if (outCasterStrands != nullptr)
-            {
-                outCasterStrands->emplace_back();
-            }
-            record = &binding.GetRoot(sourceCurve);
-            // The slot is the index of this strand's per-frame record in the
-            // deformation buffer. A FLOAT holding an integer rather than a
-            // bit-cast u32: a small integer's bit pattern is a denormal, and a
-            // vertex fetch is entitled to flush one to zero. Exact to 2^24
-            // strands, which is past GroomLimits by two orders of magnitude.
-            rootSlot = static_cast<f32>(outRootCurves.size());
-            outRootCurves.push_back(sourceCurve);
-        };
-
-        const auto onSegment = [&](const RestSegment& segment)
-        {
-            if (outCasterStrands != nullptr)
-            {
-                AccumulateCasterStrand(outCasterStrands->back(), segment);
-            }
-            // The rest points in the root's bind frame (MakeRestPoseSegment).
-            const GroomRestPoseSegment pose = MakeRestPoseSegment(*record, static_cast<u32>(rootSlot), segment);
-            const glm::vec3 local0 = pose.Local0;
-            const glm::vec3 local1 = pose.Local1;
-
-            // Bounds of the REST coat. A deformed coat's drawn box moves every
-            // frame and nothing on this path measures it; the stats say what the
-            // stream holds, which is the rest shape.
-            const f32 radius = std::max(segment.Radius0, segment.Radius1);
-            const glm::vec3 expand{ radius };
-            boundsMin = glm::min(boundsMin, glm::min(segment.Rest0, segment.Rest1) - expand);
-            boundsMax = glm::max(boundsMax, glm::max(segment.Rest0, segment.Rest1) + expand);
-
-            // The GPU-deformed encoding of the SAME sixteen floats — see
-            // GroomStrandVertex. Position is this corner's endpoint, Other is the
-            // segment's OTHER endpoint, both bind-local; the three lanes that
-            // hold last frame's centreline on the CPU path hold the root slot,
-            // the other endpoint's parameter and which end this corner is.
-            GroomStrandVertex vertex;
-            vertex.SegmentId = segment.SegmentId;
-            EmitSegmentQuad(
-                outVertices, outIndices, vertex, segment,
-                [&](GroomStrandVertex& v)
-                {
-                    v.Position = local0;
-                    v.Other = local1;
-                    v.PrevPosition = glm::vec3(rootSlot, segment.T1, 0.0f);
-                },
-                [&](GroomStrandVertex& v)
-                {
-                    v.Position = local1;
-                    v.Other = local0;
-                    v.PrevPosition = glm::vec3(rootSlot, segment.T0, 1.0f);
-                });
-
-            if (outPoseSegments != nullptr)
-            {
-                outPoseSegments->push_back(pose);
-            }
-        };
-
-        WalkStrandSegments(source, settings, coat, stats, onCurve, onSegment);
-        FinishStreamStats(stats, outVertices, outIndices, boundsMin, boundsMax);
-        return stats;
+    GroomStrandMeshStats BuildGroomStrandRestMeshStreamed(const GroomBuildSource& source,
+                                                          const GroomStrandBuildSettings& settings,
+                                                          const GroomBindingAsset& binding, GroomStrandVertexSink& sink,
+                                                          u32 chunkVertices, std::vector<u32>& outIndices,
+                                                          std::vector<u32>& outRootCurves, GroomRestStreamMeasures& outMeasures,
+                                                          const GroomCoatContext* coat, std::vector<u32>* outStrandFirstIndex,
+                                                          std::vector<GroomCasterStrand>* outCasterStrands)
+    {
+        // Whole quads only, so a chunk never splits a segment's corners.
+        std::vector<GroomStrandVertex> chunk;
+        RestMeshOutputs out{ .Vertices = chunk,
+                             .Indices = outIndices,
+                             .RootCurves = outRootCurves,
+                             .Sink = &sink,
+                             .ChunkVertices = std::max(4u, chunkVertices / 4u * 4u),
+                             .StrandFirstIndex = outStrandFirstIndex,
+                             .CasterStrands = outCasterStrands,
+                             .Measures = &outMeasures };
+        return BuildRestMesh(source, settings, binding, coat, out);
     }
 
     GroomStrandMeshStats BuildGroomRestPoseSegments(const GroomBuildSource& source,
@@ -1423,6 +1554,183 @@ namespace OloEngine
             x ^= x >> 16u;
             return x;
         }
+
+        // BuildGroomCasterOrder over either form of a stream's segments:
+        // `segmentAt(corner, out)` fills the segment whose first corner is
+        // `corner` and returns false when the stream does not have it.
+        template<typename SegmentAt>
+        GroomCasterOrder BuildCasterOrder(SegmentAt&& segmentAt, std::span<const u32> indices,
+                                          std::span<const u32> strandFirstIndex,
+                                          std::span<const GroomCasterStrand> strandSummaries,
+                                          std::vector<u32>* outStrandOrder)
+        {
+            GroomCasterOrder order;
+            if (outStrandOrder != nullptr)
+            {
+                outStrandOrder->clear();
+            }
+            const sizet strands = strandFirstIndex.size();
+            if (strands == 0u || indices.empty())
+            {
+                return order;
+            }
+            const auto strandEnd = [&](sizet strand) -> u32
+            { return strand + 1u < strands ? strandFirstIndex[strand + 1u] : static_cast<u32>(indices.size()); };
+            // A table that does not describe this stream gives no order at all: the
+            // caller casts the stream whole rather than a subset of something else.
+            for (sizet strand = 0; strand < strands; ++strand)
+            {
+                if (strandFirstIndex[strand] > strandEnd(strand) || strandEnd(strand) > indices.size())
+                {
+                    return order;
+                }
+            }
+            // Summaries that do not describe these strands are not trusted: the
+            // order is then the whole stream as one run, whose share is assumed.
+            const bool summarised = strandSummaries.size() == strands;
+
+            // THE RUN KEY: each strand's group, unless the groom has more groups than
+            // a view should issue draws for, then its coat role; one key for all of
+            // them without summaries.
+            u32 distinctGroups = 0;
+            if (summarised)
+            {
+                std::vector<bool> seen(static_cast<sizet>(std::numeric_limits<u16>::max()) + 1u, false);
+                for (const GroomCasterStrand& summary : strandSummaries)
+                {
+                    if (!seen[summary.Group])
+                    {
+                        seen[summary.Group] = true;
+                        ++distinctGroups;
+                    }
+                }
+            }
+            const bool byGroup = summarised && distinctGroups <= kGroomCasterMaxRuns;
+            const auto keyOf = [&](sizet strand) -> u32
+            {
+                if (!summarised)
+                {
+                    return 0u;
+                }
+                return byGroup ? strandSummaries[strand].Group : strandSummaries[strand].Role;
+            };
+
+            // (key, hash) in one sortable word: sorted, the runs come out in key
+            // order and each run's strands in the lowbias32 order of their own
+            // indices -- with one key, the order every caller before the runs got.
+            std::vector<std::pair<u64, u32>> keyed;
+            keyed.reserve(strands);
+            for (sizet strand = 0; strand < strands; ++strand)
+            {
+                keyed.emplace_back((static_cast<u64>(keyOf(strand)) << 32u) | CasterOrderHash(static_cast<u32>(strand)),
+                                   static_cast<u32>(strand));
+            }
+            std::ranges::sort(keyed);
+            if (outStrandOrder != nullptr)
+            {
+                outStrandOrder->reserve(keyed.size());
+                for (const auto& [key, strand] : keyed)
+                {
+                    outStrandOrder->push_back(strand);
+                }
+            }
+
+            // In doubles: two million segments of sub-millimetre radii lose digits
+            // in a float sum.
+            f64 radiusLength = 0.0;
+            f64 length = 0.0;
+            order.Indices.reserve(indices.size());
+            for (sizet begin = 0; begin < keyed.size();)
+            {
+                const u64 key = keyed[begin].first >> 32u;
+                sizet end = begin;
+                while (end < keyed.size() && (keyed[end].first >> 32u) == key)
+                {
+                    ++end;
+                }
+                const sizet runStrands = end - begin;
+
+                GroomCasterRun run;
+                run.Group = static_cast<u16>(key);
+                run.Role = summarised ? strandSummaries[keyed[begin].second].Role : u8{ 0 };
+                run.FirstIndex = static_cast<u32>(order.Indices.size());
+                run.Strands = static_cast<u32>(runStrands);
+                run.MomentsKnown = summarised;
+                glm::vec3 boundsMin{ std::numeric_limits<f32>::max() };
+                glm::vec3 boundsMax{ std::numeric_limits<f32>::lowest() };
+                f64 runRadiusLength = 0.0;
+                f64 runLength = 0.0;
+                std::array<f64, 6> moments{};
+                sizet level = 1u;
+                for (sizet placed = 0; placed < runStrands; ++placed)
+                {
+                    const u32 strand = keyed[begin + placed].second;
+                    for (u32 index = strandFirstIndex[strand]; index < strandEnd(strand); index += 6u)
+                    {
+                        GroomCasterSegment segment;
+                        if (!segmentAt(indices[index] / 4u * 4u, segment))
+                        {
+                            if (outStrandOrder != nullptr)
+                            {
+                                outStrandOrder->clear();
+                            }
+                            return GroomCasterOrder{};
+                        }
+                        const f64 l = segment.Length;
+                        runRadiusLength += 0.5 * (static_cast<f64>(segment.Radius0) + static_cast<f64>(segment.Radius1)) * l;
+                        runLength += l;
+                    }
+                    order.Indices.insert(order.Indices.end(), indices.begin() + strandFirstIndex[strand],
+                                         indices.begin() + strandEnd(strand));
+                    if (summarised)
+                    {
+                        const GroomCasterStrand& summary = strandSummaries[strand];
+                        for (sizet m = 0; m < 6u; ++m)
+                        {
+                            moments[m] += summary.Moments[m];
+                        }
+                        if (summary.BoundsMin.x <= summary.BoundsMax.x)
+                        {
+                            boundsMin = glm::min(boundsMin, summary.BoundsMin);
+                            boundsMax = glm::max(boundsMax, summary.BoundsMax);
+                        }
+                    }
+                    // Every level this strand completes: level j holds the first
+                    // ceil(j * n / levels) of the run's n strands, which is
+                    // `placed + 1` exactly when j * n <= (placed + 1) * levels.
+                    while (level <= kGroomCasterPrefixLevels &&
+                           static_cast<u64>(level) * runStrands <= static_cast<u64>(placed + 1u) * kGroomCasterPrefixLevels)
+                    {
+                        run.Prefix[level] = static_cast<u32>(order.Indices.size()) - run.FirstIndex;
+                        ++level;
+                    }
+                }
+                run.MeanRadius = runLength > 0.0 ? static_cast<f32>(runRadiusLength / runLength) : 0.0f;
+                run.TotalLength = static_cast<f32>(runLength);
+                for (sizet m = 0; m < 6u; ++m)
+                {
+                    run.Moments[m] = static_cast<f32>(moments[m]);
+                }
+                if (boundsMin.x <= boundsMax.x)
+                {
+                    run.BoundsMin = boundsMin;
+                    run.BoundsMax = boundsMax;
+                }
+                else
+                {
+                    // No segment gave the run a box: it is measured like an order
+                    // without summaries.
+                    run.MomentsKnown = false;
+                }
+                radiusLength += runRadiusLength;
+                length += runLength;
+                order.Runs.push_back(run);
+                begin = end;
+            }
+            order.MeanRadius = length > 0.0 ? static_cast<f32>(radiusLength / length) : 0.0f;
+            order.TotalLength = static_cast<f32>(length);
+            return order;
+        }
     } // namespace
 
     GroomCasterOrder BuildGroomCasterOrder(std::span<const GroomStrandVertex> vertices, std::span<const u32> indices,
@@ -1430,169 +1738,39 @@ namespace OloEngine
                                            std::span<const GroomCasterStrand> strandSummaries,
                                            std::vector<u32>* outStrandOrder)
     {
-        GroomCasterOrder order;
-        if (outStrandOrder != nullptr)
-        {
-            outStrandOrder->clear();
-        }
-        const sizet strands = strandFirstIndex.size();
-        if (strands == 0u || indices.empty())
-        {
-            return order;
-        }
-        const auto strandEnd = [&](sizet strand) -> u32
-        { return strand + 1u < strands ? strandFirstIndex[strand + 1u] : static_cast<u32>(indices.size()); };
-        // A table that does not describe this stream gives no order at all: the
-        // caller casts the stream whole rather than a subset of something else.
-        for (sizet strand = 0; strand < strands; ++strand)
-        {
-            if (strandFirstIndex[strand] > strandEnd(strand) || strandEnd(strand) > indices.size())
-            {
-                return order;
-            }
-        }
-        // Summaries that do not describe these strands are not trusted: the
-        // order is then the whole stream as one run, whose share is assumed.
-        const bool summarised = strandSummaries.size() == strands;
-
-        // THE RUN KEY: each strand's group, unless the groom has more groups than
-        // a view should issue draws for, then its coat role; one key for all of
-        // them without summaries.
-        u32 distinctGroups = 0;
-        if (summarised)
-        {
-            std::vector<bool> seen(static_cast<sizet>(std::numeric_limits<u16>::max()) + 1u, false);
-            for (const GroomCasterStrand& summary : strandSummaries)
-            {
-                if (!seen[summary.Group])
-                {
-                    seen[summary.Group] = true;
-                    ++distinctGroups;
-                }
-            }
-        }
-        const bool byGroup = summarised && distinctGroups <= kGroomCasterMaxRuns;
-        const auto keyOf = [&](sizet strand) -> u32
-        {
-            if (!summarised)
-            {
-                return 0u;
-            }
-            return byGroup ? strandSummaries[strand].Group : strandSummaries[strand].Role;
-        };
-
-        // (key, hash) in one sortable word: sorted, the runs come out in key
-        // order and each run's strands in the lowbias32 order of their own
-        // indices -- with one key, the order every caller before the runs got.
-        std::vector<std::pair<u64, u32>> keyed;
-        keyed.reserve(strands);
-        for (sizet strand = 0; strand < strands; ++strand)
-        {
-            keyed.emplace_back((static_cast<u64>(keyOf(strand)) << 32u) | CasterOrderHash(static_cast<u32>(strand)),
-                               static_cast<u32>(strand));
-        }
-        std::ranges::sort(keyed);
-        if (outStrandOrder != nullptr)
-        {
-            outStrandOrder->reserve(keyed.size());
-            for (const auto& [key, strand] : keyed)
-            {
-                outStrandOrder->push_back(strand);
-            }
-        }
-
         // Each segment's four corners: two at P0 carrying Radius0 and two at P1
         // carrying Radius1, every one with Other - Position = the segment, in both
-        // encodings (EmitSegmentQuad). In doubles: two million segments of
-        // sub-millimetre radii lose digits in a float sum.
-        f64 radiusLength = 0.0;
-        f64 length = 0.0;
-        order.Indices.reserve(indices.size());
-        for (sizet begin = 0; begin < keyed.size();)
-        {
-            const u64 key = keyed[begin].first >> 32u;
-            sizet end = begin;
-            while (end < keyed.size() && (keyed[end].first >> 32u) == key)
+        // encodings (EmitSegmentQuad).
+        return BuildCasterOrder(
+            [&](u32 corner, GroomCasterSegment& out)
             {
-                ++end;
-            }
-            const sizet runStrands = end - begin;
+                if (static_cast<sizet>(corner) + 2u >= vertices.size())
+                {
+                    return false;
+                }
+                out = GroomCasterSegment{ glm::length(vertices[corner].Other - vertices[corner].Position),
+                                          vertices[corner].Radius, vertices[corner + 2u].Radius };
+                return true;
+            },
+            indices, strandFirstIndex, strandSummaries, outStrandOrder);
+    }
 
-            GroomCasterRun run;
-            run.Group = static_cast<u16>(key);
-            run.Role = summarised ? strandSummaries[keyed[begin].second].Role : u8{ 0 };
-            run.FirstIndex = static_cast<u32>(order.Indices.size());
-            run.Strands = static_cast<u32>(runStrands);
-            run.MomentsKnown = summarised;
-            glm::vec3 boundsMin{ std::numeric_limits<f32>::max() };
-            glm::vec3 boundsMax{ std::numeric_limits<f32>::lowest() };
-            f64 runRadiusLength = 0.0;
-            f64 runLength = 0.0;
-            std::array<f64, 6> moments{};
-            sizet level = 1u;
-            for (sizet placed = 0; placed < runStrands; ++placed)
+    GroomCasterOrder BuildGroomCasterOrder(std::span<const GroomCasterSegment> segments, std::span<const u32> indices,
+                                           std::span<const u32> strandFirstIndex,
+                                           std::span<const GroomCasterStrand> strandSummaries,
+                                           std::vector<u32>* outStrandOrder)
+    {
+        return BuildCasterOrder(
+            [&](u32 corner, GroomCasterSegment& out)
             {
-                const u32 strand = keyed[begin + placed].second;
-                for (u32 index = strandFirstIndex[strand]; index < strandEnd(strand); index += 6u)
+                if (corner / 4u >= segments.size())
                 {
-                    const u32 corner = indices[index] / 4u * 4u;
-                    const f64 l = glm::length(vertices[corner].Other - vertices[corner].Position);
-                    runRadiusLength += 0.5 *
-                                       (static_cast<f64>(vertices[corner].Radius) +
-                                        static_cast<f64>(vertices[corner + 2u].Radius)) *
-                                       l;
-                    runLength += l;
+                    return false;
                 }
-                order.Indices.insert(order.Indices.end(), indices.begin() + strandFirstIndex[strand],
-                                     indices.begin() + strandEnd(strand));
-                if (summarised)
-                {
-                    const GroomCasterStrand& summary = strandSummaries[strand];
-                    for (sizet m = 0; m < 6u; ++m)
-                    {
-                        moments[m] += summary.Moments[m];
-                    }
-                    if (summary.BoundsMin.x <= summary.BoundsMax.x)
-                    {
-                        boundsMin = glm::min(boundsMin, summary.BoundsMin);
-                        boundsMax = glm::max(boundsMax, summary.BoundsMax);
-                    }
-                }
-                // Every level this strand completes: level j holds the first
-                // ceil(j * n / levels) of the run's n strands, which is
-                // `placed + 1` exactly when j * n <= (placed + 1) * levels.
-                while (level <= kGroomCasterPrefixLevels &&
-                       static_cast<u64>(level) * runStrands <= static_cast<u64>(placed + 1u) * kGroomCasterPrefixLevels)
-                {
-                    run.Prefix[level] = static_cast<u32>(order.Indices.size()) - run.FirstIndex;
-                    ++level;
-                }
-            }
-            run.MeanRadius = runLength > 0.0 ? static_cast<f32>(runRadiusLength / runLength) : 0.0f;
-            run.TotalLength = static_cast<f32>(runLength);
-            for (sizet m = 0; m < 6u; ++m)
-            {
-                run.Moments[m] = static_cast<f32>(moments[m]);
-            }
-            if (boundsMin.x <= boundsMax.x)
-            {
-                run.BoundsMin = boundsMin;
-                run.BoundsMax = boundsMax;
-            }
-            else
-            {
-                // No segment gave the run a box: it is measured like an order
-                // without summaries.
-                run.MomentsKnown = false;
-            }
-            radiusLength += runRadiusLength;
-            length += runLength;
-            order.Runs.push_back(run);
-            begin = end;
-        }
-        order.MeanRadius = length > 0.0 ? static_cast<f32>(radiusLength / length) : 0.0f;
-        order.TotalLength = static_cast<f32>(length);
-        return order;
+                out = segments[corner / 4u];
+                return true;
+            },
+            indices, strandFirstIndex, strandSummaries, outStrandOrder);
     }
 
     u32 GroomCasterIndexCount(std::span<const u32> prefix, f32 fraction) noexcept

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
 #include "OloEngine/Renderer/Renderer.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "Platform/OpenGL/OpenGLVertexBuffer.h"
 
 #if OLO_WITH_VULKAN
@@ -182,5 +183,85 @@ namespace OloEngine
 
         OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
         return nullptr;
+    }
+
+    ImmutableVertexBufferUpload::ImmutableVertexBufferUpload(u32 sizeBytes, u32 chunkBytes)
+        : m_Size(sizeBytes), m_ChunkBytes(std::min(chunkBytes, sizeBytes))
+    {
+        if (sizeBytes == 0u || chunkBytes == 0u)
+        {
+            OLO_CORE_ERROR("ImmutableVertexBufferUpload: {} bytes in chunks of {} is not a buffer", sizeBytes, chunkBytes);
+            m_Failed = true;
+            return;
+        }
+        switch (Renderer::GetAPI())
+        {
+            case RendererAPI::API::OpenGL:
+            {
+                m_Destination = Ref<OpenGLVertexBuffer>(new OpenGLVertexBuffer(sizeBytes, 0u));
+                m_Staging = Ref<OpenGLVertexBuffer>(new OpenGLVertexBuffer(m_ChunkBytes, GL_DYNAMIC_STORAGE_BIT));
+                return;
+            }
+            case RendererAPI::API::Vulkan:
+            {
+#if OLO_WITH_VULKAN
+                if (VulkanDevice::Get() != nullptr)
+                {
+                    m_Destination = Ref<VulkanVertexBuffer>::Create(sizeBytes);
+                    return;
+                }
+#endif
+                break;
+            }
+            case RendererAPI::API::None:
+                break;
+        }
+        OLO_CORE_ASSERT(false, "ImmutableVertexBufferUpload: no backend can create the buffer");
+        m_Failed = true;
+    }
+
+    bool ImmutableVertexBufferUpload::Append(const void* data, u32 bytes)
+    {
+        if (m_Failed)
+        {
+            return false;
+        }
+        if (data == nullptr || bytes == 0u || bytes > m_ChunkBytes || bytes > m_Size - m_Written)
+        {
+            OLO_CORE_ERROR("ImmutableVertexBufferUpload: {} bytes at {} do not fit a {}-byte buffer in {}-byte chunks", bytes,
+                           m_Written, m_Size, m_ChunkBytes);
+            m_Failed = true;
+            return false;
+        }
+        if (m_Staging)
+        {
+            // Immutable storage takes copies, not glNamedBufferSubData.
+            m_Staging->SetData({ data, bytes });
+            RenderCommand::CopyBufferSubData(m_Staging->GetRHIHandle(), m_Destination->GetRHIHandle(), 0u, m_Written, bytes);
+        }
+        else if (!RenderCommand::TryUploadBufferSubData(m_Destination->GetRHIHandle(), m_Written, bytes, data))
+        {
+            OLO_CORE_ERROR("ImmutableVertexBufferUpload: the upload of {} bytes at {} was refused", bytes, m_Written);
+            m_Failed = true;
+            return false;
+        }
+        m_Written += bytes;
+        return true;
+    }
+
+    Ref<VertexBuffer> ImmutableVertexBufferUpload::Finish()
+    {
+        m_Staging = nullptr;
+        if (!m_Failed && m_Written != m_Size)
+        {
+            OLO_CORE_ERROR("ImmutableVertexBufferUpload: {} of {} bytes were written; the buffer is not built", m_Written,
+                           m_Size);
+            m_Failed = true;
+        }
+        if (m_Failed)
+        {
+            m_Destination = nullptr;
+        }
+        return std::move(m_Destination);
     }
 } // namespace OloEngine

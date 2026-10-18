@@ -1950,3 +1950,166 @@ TEST(GroomGpuDeformation, TheRootEvaluationsSkinScratchIsTheCallersCountedOnceAn
     }
     EXPECT_EQ(GroomEvaluationScratchRetainedBytes(), before) << "the scratch's destructor left its bytes in the ledger";
 }
+
+// =============================================================================
+// A STREAMED REST BUILD IS THE WHOLE BUILD, A CHUNK AT A TIME (#1608). The pass
+// sends a bound coat's ribbon to the GPU in chunks so a two-million-strand coat
+// is never 2 GB of vertices on the CPU. What it sends must be the same stream,
+// byte for byte, at every chunk size, and what the walk measures in place of
+// reading the vertices back -- the caster order's segment lengths and radii,
+// each strand's bind-frame box, the reach and widest radius -- must be what
+// each reader computes from the whole stream, to the bit.
+// =============================================================================
+namespace
+{
+    class RecordingSink final : public GroomStrandVertexSink
+    {
+      public:
+        bool Begin(u32 vertexCount) override
+        {
+            ++Begins;
+            Planned = vertexCount;
+            return !RefuseBegin;
+        }
+        bool Write(std::span<const GroomStrandVertex> vertices) override
+        {
+            ChunkSizes.push_back(static_cast<u32>(vertices.size()));
+            Vertices.insert(Vertices.end(), vertices.begin(), vertices.end());
+            return ChunkSizes.size() != RefuseWrite;
+        }
+        bool RefuseBegin = false;
+        sizet RefuseWrite = 0; // the 1-based write to refuse; 0 refuses none
+        u32 Begins = 0;
+        u32 Planned = 0;
+        std::vector<u32> ChunkSizes;
+        std::vector<GroomStrandVertex> Vertices;
+    };
+
+    [[nodiscard]] bool SameBits(f32 a, f32 b)
+    {
+        return std::bit_cast<u32>(a) == std::bit_cast<u32>(b);
+    }
+
+    [[nodiscard]] bool SameBits(const glm::vec3& a, const glm::vec3& b)
+    {
+        return SameBits(a.x, b.x) && SameBits(a.y, b.y) && SameBits(a.z, b.z);
+    }
+} // namespace
+
+TEST(GroomGpuDeformation, AStreamedRestBuildSendsTheSameStreamAndMeasuresWhatItsReadersRead)
+{
+    const BoundScene scene = MakeBoundScene(24u, 7u);
+    ASSERT_TRUE(scene.Groom && scene.Binding);
+    const GroomBuildSource source = GroomBuildSource::FromAsset(*scene.Groom);
+    for (const u32 budget : { scene.Groom->GetCurveCount(), 13u })
+    {
+        GroomStrandBuildSettings build;
+        build.MaxStrands = budget;
+        SCOPED_TRACE(budget);
+
+        std::vector<GroomStrandVertex> whole;
+        std::vector<u32> wholeIndices;
+        std::vector<u32> wholeRoots;
+        std::vector<u32> wholeFirst;
+        std::vector<GroomCasterStrand> wholeStrands;
+        const GroomStrandMeshStats wholeStats = BuildGroomStrandRestMesh(
+            source, build, *scene.Binding, whole, wholeIndices, wholeRoots, nullptr, nullptr, &wholeFirst, &wholeStrands);
+        ASSERT_GT(wholeStats.VertexCount, 16u) << "the coat must span several chunks";
+        const GroomCasterOrder wholeOrder = BuildGroomCasterOrder(whole, wholeIndices, wholeFirst, wholeStrands);
+        const std::vector<GroomCasterLocalBox> wholeBoxes = CollectGroomCasterLocalBoxes(whole, wholeIndices, wholeFirst);
+        f32 wholeReachSquared = 0.0f;
+        f32 wholeRadius = 0.0f;
+        for (const GroomStrandVertex& vertex : whole)
+        {
+            wholeReachSquared = std::max(wholeReachSquared, glm::dot(vertex.Position, vertex.Position));
+            wholeRadius = std::max(wholeRadius, vertex.Radius);
+        }
+
+        // 4: a quad per chunk; 7: rounds down to whole quads; the last: one chunk.
+        for (const u32 chunk : { 4u, 7u, 64u, 1u << 20u })
+        {
+            SCOPED_TRACE(chunk);
+            RecordingSink sink;
+            std::vector<u32> indices;
+            std::vector<u32> roots;
+            std::vector<u32> first;
+            std::vector<GroomCasterStrand> strands;
+            GroomRestStreamMeasures measures;
+            const GroomStrandMeshStats stats = BuildGroomStrandRestMeshStreamed(
+                source, build, *scene.Binding, sink, chunk, indices, roots, measures, nullptr, &first, &strands);
+            ASSERT_FALSE(measures.SinkFailed);
+
+            EXPECT_EQ(sink.Begins, 1u);
+            EXPECT_EQ(sink.Planned, wholeStats.VertexCount) << "the sink is sized before the first vertex";
+            ASSERT_EQ(sink.Vertices.size(), whole.size());
+            EXPECT_EQ(std::memcmp(sink.Vertices.data(), whole.data(), whole.size() * sizeof(GroomStrandVertex)), 0)
+                << "the streamed vertices are not the stream";
+            const u32 capacity = std::max(4u, chunk / 4u * 4u);
+            for (const u32 size : sink.ChunkSizes)
+            {
+                EXPECT_LE(size, capacity);
+                EXPECT_EQ(size % 4u, 0u) << "a chunk split a segment's corners";
+            }
+            EXPECT_EQ(stats.VertexCount, wholeStats.VertexCount);
+            EXPECT_EQ(stats.IndexCount, wholeStats.IndexCount);
+            EXPECT_EQ(stats.SegmentCount, wholeStats.SegmentCount);
+            EXPECT_EQ(stats.VertexBytes, wholeStats.VertexBytes);
+            EXPECT_EQ(indices, wholeIndices);
+            EXPECT_EQ(roots, wholeRoots);
+            EXPECT_EQ(first, wholeFirst);
+            ASSERT_EQ(strands.size(), wholeStrands.size());
+            for (sizet s = 0; s < strands.size(); ++s)
+            {
+                EXPECT_EQ(strands[s].Group, wholeStrands[s].Group);
+                EXPECT_TRUE(SameBits(strands[s].Length, wholeStrands[s].Length)) << s;
+                EXPECT_TRUE(SameBits(strands[s].BoundsMin, wholeStrands[s].BoundsMin)) << s;
+            }
+
+            // What the readers would have read off the whole stream.
+            const GroomCasterOrder order = BuildGroomCasterOrder(std::span<const GroomCasterSegment>(measures.CasterSegments),
+                                                                 indices, first, strands);
+            EXPECT_EQ(order.Indices, wholeOrder.Indices);
+            ASSERT_EQ(order.Runs.size(), wholeOrder.Runs.size());
+            for (sizet r = 0; r < order.Runs.size(); ++r)
+            {
+                EXPECT_TRUE(SameBits(order.Runs[r].MeanRadius, wholeOrder.Runs[r].MeanRadius)) << r;
+                EXPECT_TRUE(SameBits(order.Runs[r].TotalLength, wholeOrder.Runs[r].TotalLength)) << r;
+                EXPECT_EQ(order.Runs[r].Prefix, wholeOrder.Runs[r].Prefix) << r;
+            }
+            EXPECT_TRUE(SameBits(order.MeanRadius, wholeOrder.MeanRadius));
+            ASSERT_EQ(measures.LocalBoxes.size(), wholeBoxes.size());
+            for (sizet s = 0; s < wholeBoxes.size(); ++s)
+            {
+                EXPECT_TRUE(SameBits(measures.LocalBoxes[s].Min, wholeBoxes[s].Min)) << s;
+                EXPECT_TRUE(SameBits(measures.LocalBoxes[s].Max, wholeBoxes[s].Max)) << s;
+            }
+            EXPECT_TRUE(SameBits(measures.MaxReachSquared, wholeReachSquared));
+            EXPECT_TRUE(SameBits(measures.MaxRadius, wholeRadius));
+        }
+    }
+}
+
+// A refusal is the build's failure, never a short stream drawn as a whole one.
+TEST(GroomGpuDeformation, AStreamedRestBuildWhoseSinkRefusesBuildsNothing)
+{
+    const BoundScene scene = MakeBoundScene();
+    ASSERT_TRUE(scene.Groom && scene.Binding);
+    const GroomBuildSource source = GroomBuildSource::FromAsset(*scene.Groom);
+    for (const bool atBegin : { true, false })
+    {
+        SCOPED_TRACE(atBegin ? "Begin refused" : "second Write refused");
+        RecordingSink sink;
+        sink.RefuseBegin = atBegin;
+        sink.RefuseWrite = atBegin ? 0u : 2u;
+        std::vector<u32> indices;
+        std::vector<u32> roots;
+        GroomRestStreamMeasures measures;
+        const GroomStrandMeshStats stats =
+            BuildGroomStrandRestMeshStreamed(source, GroomStrandBuildSettings{}, *scene.Binding, sink, 4u, indices, roots, measures);
+        EXPECT_TRUE(measures.SinkFailed);
+        EXPECT_EQ(stats.VertexCount, 0u);
+        EXPECT_EQ(stats.SegmentCount, 0u);
+        EXPECT_EQ(sink.ChunkSizes.empty(), atBegin) << "nothing is written once Begin is refused";
+        EXPECT_LE(sink.ChunkSizes.size(), atBegin ? 0u : 2u) << "no write follows a refused one";
+    }
+}

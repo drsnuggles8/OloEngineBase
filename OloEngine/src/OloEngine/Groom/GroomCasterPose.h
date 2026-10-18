@@ -170,13 +170,6 @@ namespace OloEngine
         [[nodiscard]] u64 CpuBytes() const noexcept;
     };
 
-    /// A strand's drawn points in its root's bind frame, boxed.
-    struct GroomCasterLocalBox
-    {
-        glm::vec3 Min{ 0.0f };
-        glm::vec3 Max{ 0.0f };
-    };
-
     /// Each strand's box in its bind frame, from a REST stream -- whose
     /// vertices are each strand's points in its root's bind frame
     /// (BuildGroomStrandRestMesh) -- with each point's radius. Empty when the

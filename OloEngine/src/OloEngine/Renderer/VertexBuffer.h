@@ -44,4 +44,31 @@ namespace OloEngine
                                  (std::is_integral_v<T> || std::is_enum_v<T>) && !std::is_same_v<T, u32>>>
         static Ref<VertexBuffer> Create(T, u32) = delete;
     };
+
+    // A WRITE-ONCE vertex buffer filled in consecutive chunks (#1608), for a
+    // stream too large to hold whole on the CPU while it uploads: what
+    // CreateImmutable makes, without the caller ever holding all of its data.
+    // GL: immutable storage with no flags, filled by copies from a refillable
+    // staging buffer of one chunk (flags 0 refuse glNamedBufferSubData).
+    // Vulkan: a device-local buffer written by ordered uploads.
+    class ImmutableVertexBufferUpload
+    {
+      public:
+        ImmutableVertexBufferUpload(u32 sizeBytes, u32 chunkBytes);
+
+        // Appends `bytes` (at most one chunk) after what came before. False,
+        // and logged, past the end or once anything failed.
+        [[nodiscard]] bool Append(const void* data, u32 bytes);
+        // The buffer once exactly sizeBytes were appended; null, and logged,
+        // otherwise. Releases the staging buffer either way.
+        [[nodiscard]] Ref<VertexBuffer> Finish();
+
+      private:
+        Ref<VertexBuffer> m_Destination;
+        Ref<VertexBuffer> m_Staging;
+        u32 m_Size = 0;
+        u32 m_ChunkBytes = 0;
+        u32 m_Written = 0;
+        bool m_Failed = false;
+    };
 } // namespace OloEngine

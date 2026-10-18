@@ -674,6 +674,8 @@ namespace OloEngine
         /// `strandCurves` and `binding`, for a bound coat, are what its runs'
         /// pose is built from (each strand's base curve, the binding drawn with);
         /// `restStream` says the vertices are in each root's bind frame.
+        /// `measures`, for a rest stream built streamed (#1608), is read in
+        /// place of `vertices`, which the CPU no longer holds.
         [[nodiscard]] static GroomCasterStream BuildCasterStream(const Ref<VertexBuffer>& vertexBuffer,
                                                                  std::span<const GroomStrandVertex> vertices,
                                                                  std::span<const u32> indices,
@@ -681,7 +683,8 @@ namespace OloEngine
                                                                  std::span<const GroomCasterStrand> strands,
                                                                  std::span<const u32> strandCurves,
                                                                  const GroomBindingAsset* binding, bool restStream,
-                                                                 const GroomGuideInfluenceTable* influence);
+                                                                 const GroomGuideInfluenceTable* influence,
+                                                                 const GroomRestStreamMeasures* measures = nullptr);
 
         /// A bound coat's REST stream (#1427), shared by every entity that wears
         /// the same groom at the same budget, coat and binding. Unlike the frame

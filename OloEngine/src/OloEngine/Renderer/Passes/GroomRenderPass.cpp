@@ -89,6 +89,10 @@ namespace OloEngine
         // (BudgetExhausted), which is the loud answer.
         constexpr u32 kMaxResidentCoatVolumes = 8;
 
+        // A streamed rest stream's upload chunk (#1608): 16 MiB of ribbon at a
+        // time, so the build's transient is a chunk and not the coat.
+        constexpr u32 kRestStreamChunkVertices = 262144;
+
         // ...AND THE BUDGET IS BYTES PAST THAT COUNT (#1259). Eight slots of any
         // size let eight close-up coats hold gigabytes while a herd of small
         // ones -- 16^3 volumes of a few hundred KiB -- was refused, and a coat
@@ -513,11 +517,24 @@ namespace OloEngine
         // frame buffer — and a herd sharing one cooked coat pays for it once.
         const auto buildStart = std::chrono::steady_clock::now();
         const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
-        std::vector<GroomStrandVertex> builtVertices;
         std::vector<u32> builtIndices;
         std::vector<u32> builtFirstIndex;
         std::vector<GroomCasterStrand> builtCasters;
+        GroomRestStreamMeasures measures;
         auto stream = Ref<GroomRestStream>::Create();
+        // IMMUTABLE buffers, like an unbound groom's: nothing ever refills the
+        // stream. What moves every frame is each entity's frame buffer. On GL
+        // a mutable buffer this size also kept a resident system-memory copy
+        // in the process (1.5 GB of working set on the Bernese, #1608). Opened
+        // before the build, which uploads the vertices as it goes.
+        std::optional<RendererMemoryOwnerScope> streamingOwner;
+        const auto streamingUploadStart = std::chrono::steady_clock::now();
+        const u64 physicalBefore = request.StreamingEnabled ? RendererMemoryTracker::GetInstance().GetGpuResidentBytes() : 0;
+        if (request.StreamingEnabled)
+        {
+            streamingOwner.emplace(request.StreamingFloor ? "Groom streaming floor" : "Groom streaming detail",
+                                   MemoryLifetime::Persistent);
+        }
         // NO POSE SEGMENTS HERE (#1533). Only a POSED coat bake reads them, and
         // AcquireDrawnPose builds them on its first call, straight from the walk.
         // Built with every stream whose coat asked for a self-shadow, they were
@@ -533,11 +550,55 @@ namespace OloEngine
         }
         else
         {
-            stats = BuildGroomStrandRestMesh(source, request.Build, binding, builtVertices, builtIndices, stream->RootCurves,
-                                             &coat, nullptr, &builtFirstIndex, &builtCasters);
+            prepared = nullptr;
+            // STREAMED (#1608): the ribbon goes to the GPU a chunk at a time and
+            // is never whole on the CPU. Built whole, a two-million-strand coat's
+            // 2 GB of vertices sat beside its indices and caster order until the
+            // upload finished: 2.6 GB of transient working set on the Samoyed,
+            // in the editor as in the tests.
+            class UploadSink final : public GroomStrandVertexSink
+            {
+              public:
+                bool Begin(u32 vertexCount) override
+                {
+                    if (vertexCount == 0u)
+                    {
+                        return true; // nothing to upload; the empty stream is refused below
+                    }
+                    const u64 bytes = static_cast<u64>(vertexCount) * sizeof(GroomStrandVertex);
+                    if (bytes > std::numeric_limits<u32>::max())
+                    {
+                        OLO_CORE_ERROR("GroomRenderPass: a {}-byte rest stream exceeds a vertex buffer's 4 GB", bytes);
+                        return false;
+                    }
+                    Upload.emplace(static_cast<u32>(bytes), kRestStreamChunkVertices * static_cast<u32>(sizeof(GroomStrandVertex)));
+                    return true;
+                }
+                bool Write(std::span<const GroomStrandVertex> chunk) override
+                {
+                    return Upload && Upload->Append(chunk.data(), static_cast<u32>(chunk.size_bytes()));
+                }
+                std::optional<ImmutableVertexBufferUpload> Upload;
+            } sink;
+            stats = BuildGroomStrandRestMeshStreamed(source, request.Build, binding, sink, kRestStreamChunkVertices,
+                                                     builtIndices, stream->RootCurves, measures, &coat, &builtFirstIndex,
+                                                     &builtCasters);
+            if (sink.Upload)
+            {
+                stream->Vertices = sink.Upload->Finish();
+            }
+            if (measures.SinkFailed || (stats.VertexCount != 0u && !stream->Vertices))
+            {
+                // Said, not dropped: the caller draws this coat on the CPU path,
+                // whose per-frame rebuild is the cost of the refusal.
+                OLO_CORE_ERROR("GroomRenderPass: the rest stream of groom {} could not be uploaded ({} vertices); the "
+                               "coat is deformed on the CPU instead",
+                               static_cast<u64>(request.Handle), stats.VertexCount);
+                return nullptr;
+            }
         }
         const std::span<const GroomStrandVertex> vertices = prepared ? FPreparedGroomGeometry::View(prepared->Vertices)
-                                                                     : std::span<const GroomStrandVertex>(builtVertices);
+                                                                     : std::span<const GroomStrandVertex>{};
         const std::span<const u32> indices = prepared ? FPreparedGroomGeometry::View(prepared->Indices)
                                                       : std::span<const u32>(builtIndices);
         const std::span<const u32> strandFirstIndex = prepared ? FPreparedGroomGeometry::View(prepared->StrandFirstIndex)
@@ -547,7 +608,7 @@ namespace OloEngine
         m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - buildStart)
                 .count());
-        if (vertices.empty() || indices.empty())
+        if ((prepared ? vertices.empty() : !stream->Vertices) || indices.empty())
         {
             return nullptr;
         }
@@ -559,8 +620,10 @@ namespace OloEngine
         stream->Binding = request.Binding;
         // The stream's points are ROOT-RELATIVE (each root's bind frame), so the
         // largest of their lengths is the farthest any drawn point sits from its
-        // own root. Measured once here, where the vertices are still on the CPU,
-        // for the posed bounds a caster is culled by (#1323).
+        // own root. Measured once, from the vertices where the CPU still holds
+        // them and by the walk where it streamed them, for the posed bounds a
+        // caster is culled by (#1323).
+        if (prepared)
         {
             f32 reachSq = 0.0f;
             f32 widest = 0.0f;
@@ -571,27 +634,21 @@ namespace OloEngine
             }
             stream->MaxReach = std::sqrt(reachSq);
             stream->MaxRadius = widest;
+            stream->Vertices = VertexBuffer::CreateImmutable(vertices.data(), static_cast<u32>(stats.VertexBytes));
         }
-        // IMMUTABLE buffers, like an unbound groom's: nothing ever refills the
-        // stream. What moves every frame is each entity's frame buffer. On GL
-        // a mutable buffer this size also kept a resident system-memory copy
-        // in the process (1.5 GB of working set on the Bernese, #1608).
-        std::optional<RendererMemoryOwnerScope> streamingOwner;
-        const auto streamingUploadStart = std::chrono::steady_clock::now();
-        const u64 physicalBefore = request.StreamingEnabled ? RendererMemoryTracker::GetInstance().GetGpuResidentBytes() : 0;
-        if (request.StreamingEnabled)
+        else
         {
-            streamingOwner.emplace(request.StreamingFloor ? "Groom streaming floor" : "Groom streaming detail",
-                                   MemoryLifetime::Persistent);
+            stream->MaxReach = std::sqrt(measures.MaxReachSquared);
+            stream->MaxRadius = measures.MaxRadius;
         }
-        stream->Vertices = VertexBuffer::CreateImmutable(vertices.data(), static_cast<u32>(stats.VertexBytes));
         stream->Vertices->SetLayout(StrandVertexLayout());
         stream->Indices = IndexBuffer::CreateImmutable(indices.data(), static_cast<u32>(indices.size()));
         stream->Array = VertexArray::Create();
         stream->Array->AddVertexBuffer(stream->Vertices);
         stream->Array->SetIndexBuffer(stream->Indices);
         stream->Caster = BuildCasterStream(stream->Vertices, vertices, indices, strandFirstIndex, casterStrands,
-                                           stream->RootCurves, &binding, true, request.Influence.Raw());
+                                           stream->RootCurves, &binding, true, request.Influence.Raw(),
+                                           prepared ? nullptr : &measures);
         stream->Bytes += stream->Caster.Bytes;
         // GPU factories and caster construction have consumed the borrowed
         // views. CompleteStreamingUpload must drop the sole remaining owner
@@ -3511,11 +3568,16 @@ namespace OloEngine
                                                                           std::span<const GroomCasterStrand> strands,
                                                                           std::span<const u32> strandCurves,
                                                                           const GroomBindingAsset* binding, bool restStream,
-                                                                          const GroomGuideInfluenceTable* influence)
+                                                                          const GroomGuideInfluenceTable* influence,
+                                                                          const GroomRestStreamMeasures* measures)
     {
         GroomCasterStream caster;
         std::vector<u32> strandOrder;
-        GroomCasterOrder order = BuildGroomCasterOrder(vertices, indices, strandFirstIndex, strands, &strandOrder);
+        GroomCasterOrder order =
+            measures != nullptr
+                ? BuildGroomCasterOrder(std::span<const GroomCasterSegment>(measures->CasterSegments), indices,
+                                        strandFirstIndex, strands, &strandOrder)
+                : BuildGroomCasterOrder(vertices, indices, strandFirstIndex, strands, &strandOrder);
         if (!vertexBuffer || order.Indices.size() != indices.size() || order.Runs.empty())
         {
             return caster;
@@ -3526,9 +3588,12 @@ namespace OloEngine
         {
             // A rest stream's vertices are each strand's points in its bind
             // frame: its boxes there are exact. A posed stream's are not.
-            const std::vector<GroomCasterLocalBox> localBoxes =
-                restStream ? CollectGroomCasterLocalBoxes(vertices, indices, strandFirstIndex)
-                           : std::vector<GroomCasterLocalBox>{};
+            std::vector<GroomCasterLocalBox> localBoxes;
+            if (restStream)
+            {
+                localBoxes = measures != nullptr ? measures->LocalBoxes
+                                                 : CollectGroomCasterLocalBoxes(vertices, indices, strandFirstIndex);
+            }
             caster.Pose = BuildGroomCasterPose(order.Runs, strandOrder, strands, strandCurves, *binding, localBoxes, influence);
         }
         caster.Indices = IndexBuffer::CreateImmutable(order.Indices.data(), static_cast<u32>(order.Indices.size()));
