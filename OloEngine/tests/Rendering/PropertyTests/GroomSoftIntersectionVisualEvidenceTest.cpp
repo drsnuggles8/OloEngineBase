@@ -129,6 +129,21 @@ namespace OloEngine::Tests
                 }
             } restoreClock;
             Time::SetMockTime(12.0f);
+            // THE TIER IS FORCED, NOT HANDED OVER TO. This case compares the
+            // contact fade on and off on one representation; a #1612 cross-fade
+            // from the previous capture's tier would leave the outgoing tier in
+            // the stochastic coat's TAA history for the whole settle, and the
+            // first capture of a cell would differ from its own repeat by that
+            // tail. Held off for this capture, and restored after it.
+            struct RestoreCrossFade
+            {
+                u32 Frames = Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames;
+                ~RestoreCrossFade()
+                {
+                    Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames = Frames;
+                }
+            } restoreCrossFade;
+            Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames = 0u;
             m_Coat.GetComponent<GroomSoftIntersectionComponent>().m_Enabled = enabled;
             auto& lod = m_Coat.GetComponent<GroomLodComponent>();
             lod.m_Enabled = cards;

@@ -90,7 +90,11 @@ namespace OloEngine::RayTracing
         /// `enabled` false still runs: it retires the whole resident set and
         /// reports every groom as NotRequested, so a scene that switches ray
         /// tracing off does not leave a coat's structures resident forever.
-        void Extract(GPUScene& scene, std::span<const GroomStrandRequest> requests, bool wanted);
+        ///
+        /// `detailBias` is RendererSettings::GroomDetailBias (#1616): it moves
+        /// the proxy tier's threshold with the raster ladder's.
+        void Extract(GPUScene& scene, std::span<const GroomStrandRequest> requests, bool wanted,
+                     f32 detailBias = 1.0f);
 
         [[nodiscard]] bool IsEnabled() const noexcept
         {

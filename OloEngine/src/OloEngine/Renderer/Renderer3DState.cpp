@@ -213,6 +213,21 @@ namespace OloEngine
         s_Data.GroomStrandRequests.Reserve(static_cast<i64>(requests.size()));
         for (const auto& request : requests)
             s_Data.GroomStrandRequests.Add(request);
+        // A fading coat's outgoing copy VIEWS its primary's roots (#1612,
+        // CrossFadeRootTransforms), and a copy of the list copied the view: it
+        // still points at the SOURCE primary's block, which its owner may
+        // recycle. Re-point it at the copied primary, which the producer always
+        // places immediately before it.
+        auto& copied = s_Data.GroomStrandRequests;
+        for (i64 i = 1; i < copied.Num(); ++i)
+        {
+            if (copied[i].IsCrossFadeSecondary() && !copied[i].CrossFadeRootTransforms.empty())
+            {
+                OLO_CORE_ASSERT(copied[i].CrossFadeRootTransforms.data() == requests[static_cast<sizet>(i - 1)].DrawnRoots().data(),
+                                "a cross-fade partner must follow the primary whose roots it views");
+                copied[i].CrossFadeRootTransforms = copied[i - 1].DrawnRoots();
+            }
+        }
     }
 
     void Renderer3D::SetGroomStrandRequests(TArray64<GroomStrandRequest>&& requests) noexcept

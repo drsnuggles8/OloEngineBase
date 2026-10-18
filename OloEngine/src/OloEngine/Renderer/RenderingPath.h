@@ -360,6 +360,30 @@ namespace OloEngine
         // instead of skinned, packed and uploaded by the CPU every frame. Off is
         // the CPU evaluation, kept as the reference. A diagnostic, not persisted.
         bool GroomGpuRootFrames = true;
+        // --- Groom detail bias (issue #1616) ---
+        // Divides every pixel threshold a groom's detail is chosen by: the
+        // GroomLodComponent tier edges and budget curves, the coat shadow's own
+        // LOD and the ray-tracing proxy's tier. Above 1 a coat keeps its detail
+        // farther away, below 1 it sheds it sooner. 1 is bit-identical to no
+        // bias at all. The quality tier writes it (ApplyTieringToRendererSettings)
+        // and the console variable OLO_GROOM_DETAIL_BIAS reads and writes this
+        // field; it is sanitised where it is applied (SanitizeGroomDetailBias).
+        f32 GroomDetailBias = 1.0f;
+        // --- Groom LOD cross-fade (issue #1612) ---
+        // Frames a representation hand-over is dithered across: both tiers
+        // are drawn through complementary per-pixel masks while the incoming
+        // one's share ramps 0 -> 1 (Groom/GroomLod.h). 0 is the hard switch
+        // every hand-over was before #1612. Twelve frames is 0.2 s at 60 Hz,
+        // which spreads the measured 3.6% hard-switch step to under half a
+        // percent a frame while TAA's history still integrates the dither.
+        u32 GroomLodCrossFadeFrames = 12;
+        // Coats that may cross-fade at once. A fading coat draws both tiers, so
+        // this bounds what a transition frame can cost. A hand-over past the
+        // cap hard-switches, as before, and is reported by name
+        // (GroomLodFallbackReason::CrossFadeBudgetSpent). A window already
+        // running keeps its slot; new hand-overs take the free ones in scene
+        // order.
+        u32 GroomLodMaxCrossFades = 4;
 
         // --- Debug overlays ---
         // Editor-only master switch. Kept process-global with the other renderer

@@ -33,6 +33,7 @@
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
 
+#include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Project/ProjectSerializer.h"
 #include "OloEngine/Renderer/QualityTiering.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -240,6 +241,7 @@ TEST_F(SceneRenderSettingsActivationTest, ManifestTierBlockRoundTrips)
     written.DDGIBudgetScale = 0.75f;
     written.AnimalSchedulingEnabled = false;
     written.AnimalFrameBudgetUnits = 1234.0f;
+    written.GroomDetailBias = 1.75f;
 
     YAML::Emitter out;
     out << YAML::BeginMap << YAML::Key << "QualityTiering" << YAML::Value;
@@ -256,11 +258,26 @@ TEST_F(SceneRenderSettingsActivationTest, ManifestTierBlockRoundTrips)
     EXPECT_FLOAT_EQ(read.DDGIBudgetScale, 0.75f);
     EXPECT_FALSE(read.AnimalSchedulingEnabled);
     EXPECT_FLOAT_EQ(read.AnimalFrameBudgetUnits, 1234.0f);
+    EXPECT_FLOAT_EQ(read.GroomDetailBias, 1.75f) << "the groom detail bias (#1616) did not round-trip";
 
     QualityTieringSettings hostile;
     DeserializeQualityTiering(YAML::Load("Preset: Custom\nSSAORadius: .nan\nGTAOPower: .inf\n"), hostile);
     EXPECT_TRUE(std::isfinite(hostile.SSAORadius));
     EXPECT_TRUE(std::isfinite(hostile.GTAOPower));
+
+    // The groom detail bias (#1616): a file written before it existed loads as
+    // the preset's (1 on Custom and High, the authored behaviour), a non-finite
+    // one keeps the preset's, and one out of range is clamped into it.
+    EXPECT_FLOAT_EQ(hostile.GroomDetailBias, 1.0f) << "a missing key must load as the neutral bias";
+    QualityTieringSettings lowFile;
+    DeserializeQualityTiering(YAML::Load("Preset: Low\n"), lowFile);
+    EXPECT_FLOAT_EQ(lowFile.GroomDetailBias, GetPresetSettings(QualityPreset::Low).GroomDetailBias);
+    QualityTieringSettings nanBias;
+    DeserializeQualityTiering(YAML::Load("Preset: Custom\nGroomDetailBias: .nan\n"), nanBias);
+    EXPECT_FLOAT_EQ(nanBias.GroomDetailBias, 1.0f);
+    QualityTieringSettings hugeBias;
+    DeserializeQualityTiering(YAML::Load("Preset: Custom\nGroomDetailBias: 1000\n"), hugeBias);
+    EXPECT_FLOAT_EQ(hugeBias.GroomDetailBias, kGroomDetailBiasMax);
 }
 
 // ---- the authored rendering path (issue #1601) ------------------------------

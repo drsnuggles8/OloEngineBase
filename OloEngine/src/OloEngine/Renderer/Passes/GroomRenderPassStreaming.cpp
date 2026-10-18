@@ -102,7 +102,11 @@ namespace OloEngine
         request.StreamingEnabled = true;
         request.StreamingRequestedRepresentation = request.Lod.Representation;
         request.StreamingRequestedStrands = request.Build.MaxStrands;
-        ++m_StreamingStats.Requested;
+        // Per groom: a fading coat's outgoing copy (#1612) is not another one.
+        if (!request.IsCrossFadeSecondary())
+        {
+            ++m_StreamingStats.Requested;
+        }
         if (m_StreamingBaseAssets.emplace(request.Groom.Raw(), request.Groom).second)
         {
             m_StreamingStats.BaseCpuBytes += request.Groom->GetCpuMemoryBytes();

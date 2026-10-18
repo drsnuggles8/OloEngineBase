@@ -69,15 +69,17 @@ namespace OloEngine
         // selects, not on whatever tier it held when it left. Freezing the
         // state on a refusal would make a coat that reappears at two metres do
         // so on the proxy tier and then wait out the hold before refining.
-        const f32 band = GroomProxyPolicy::DetailedPixelSize * GroomProxyPolicy::Hysteresis;
+        // Under the detail bias (#1616); the identity at 1.
+        const f32 detailed = ApplyGroomDetailBias(GroomProxyPolicy::DetailedPixelSize, inputs.DetailBias);
+        const f32 band = detailed * GroomProxyPolicy::Hysteresis;
         // The band moves so as to HOLD what the coat already has: on the
         // detailed tier you must shrink past the low edge to hand over, and on
         // the proxy tier you must grow past the high edge to come back. ONE
         // offset applied to both edges, so the band moves bodily rather than
         // changing width — GroomLodPolicy::Hysteresis' rule and its reason.
         const f32 threshold = state.Tier == GroomProxyTier::Detailed
-                                  ? GroomProxyPolicy::DetailedPixelSize - band
-                                  : GroomProxyPolicy::DetailedPixelSize + band;
+                                  ? detailed - band
+                                  : detailed + band;
         const GroomProxyTier requested =
             decision.PixelSize >= threshold ? GroomProxyTier::Detailed : GroomProxyTier::Proxy;
 

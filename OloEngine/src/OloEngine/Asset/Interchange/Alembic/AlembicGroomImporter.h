@@ -120,9 +120,11 @@ namespace OloEngine
     // arbGeomParam is. build_dog_groom.py (the showcase dog) is the producer.
     //
     // GROUPS. Absent `groom_group`, one ICurves prim is one group, named by its
-    // full Alembic path. Group ids are assigned in ARCHIVE TRAVERSAL ORDER,
-    // which is deterministic, and the cook then sorts curves so each group is
-    // a contiguous range.
+    // full Alembic path. Group ids are assigned in a depth-first traversal
+    // that visits each object's children in NAME order, never in archive
+    // order (#1560): Blender writes objects in pointer order, which changes
+    // on every export, and the same strands re-exported must cook to the same
+    // bytes. The cook then sorts curves so each group is a contiguous range.
     //
     // UNITS AND HANDEDNESS. The IXform chain is baked into the points, so the
     // resulting groom is in the prim's world space. Widths are scaled by the
@@ -174,7 +176,10 @@ namespace OloEngine
         // level this importer writes for an unchanged input is narrower.
         // 4: issue #1533 reads the `groom_` user properties, so an unchanged
         // Blender export now imports its guides, root UVs and coat table.
-        static constexpr u32 kImporterVersion = 4;
+        // 5: issue #1560 visits objects in name order rather than archive
+        // order, so an archive whose objects are not already name-sorted cooks
+        // to a different group and curve order.
+        static constexpr u32 kImporterVersion = 5;
 
         // The width substituted when a prim carries no `widths` param, in
         // source units. 0.1 mm — a human hair is 0.06-0.1 mm, so this is a

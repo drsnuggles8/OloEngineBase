@@ -115,10 +115,11 @@ Content Browser's "Import as Groom" cooks it into the same bytes
 (`groom_card_cell_size`, `groom_card_points`: `CARDS`), so every cook of it builds the same cards.
 Root UVs are written in the engine's convention, Blender's v up (#1560).
 
-Blender's Alembic exporter writes the hair objects in a different order on every run, and the
-importer numbers the groups in archive order, so a regenerated archive is the same coat in another
-curve order: every curve-indexed jitter and stride-based LOD subset moves. Cook the shipped coat from
-the committed archive, and regenerate the archive only to change the coat.
+Blender's Alembic exporter writes the hair objects in a different order on every run. The importer
+visits objects in name order, not archive order (#1560), so a regenerated archive with the same
+strands cooks to the same curve order and the same coat bytes, apart from the provenance hash of the
+archive itself. Re-exporting is safe as long as the strands are unchanged; the cooked bytes are what
+to compare, not the archive's.
 
 Blender's Alembic exporter writes a hair object's points and widths and its custom properties, and
 nothing else a groom needs. So each group's coat description (`groom_role`, `groom_tint`,

@@ -6970,6 +6970,8 @@ namespace OloEngine::MCP
             snapshot.GroomsOnSelectedTier = groom.Lod.GroomsOnSelectedTier;
             snapshot.GroomsFellBack = groom.Lod.GroomsFellBack;
             snapshot.RepresentationChanges = groom.Lod.RepresentationChanges;
+            snapshot.CrossFading = groom.Lod.CrossFading;
+            snapshot.CrossFadesRefused = groom.Lod.CrossFadesRefused;
             snapshot.GroomsAtCompensationCap = groom.Lod.GroomsAtCompensationCap;
             snapshot.MaxWidthCompensation = groom.Lod.MaxWidthCompensation;
             snapshot.DominantFallbackReason = std::string(ToString(groom.Lod.DominantFallbackReason()));
@@ -9813,7 +9815,9 @@ namespace OloEngine::MCP
                 "CACHE MISS, so a steady-state frame logs nothing and the numbers you get depend on how long the "
                 "session has run. `groom` is the frame's strand/segment counts plus the #1252 representation split "
                 "(grooms, strands and GPU bytes per tier, the fallback reason, and representationChanges -- a counter "
-                "that stays near groomsSubmitted IS thrashing). `coatShadow` is the #1248 coat self-shadow decision "
+                "that stays near groomsSubmitted IS thrashing). `crossFading` counts coats drawn through a #1612 "
+                "cross-fade this frame (both tiers, complementary masks), and `crossFadesRefused` the hand-overs that "
+                "hard-switched because every cross-fade slot was taken. `coatShadow` is the #1248 coat self-shadow decision "
                 "(shadowed / fallback / by choice, and the dominant reason) plus, for coats bound to a moving body "
                 "(#1426), deformedRebakes, the drift in voxels the sampled volumes lag the pose by, and the CPU bake "
                 "time. `sceneShadow` is what the coats cast into the scene's shadow maps (#1323): draws per technique, "
@@ -9855,6 +9859,8 @@ namespace OloEngine::MCP
                                        .Prop("groomsOnSelectedTier", Schema::Int().Min(0))
                                        .Prop("groomsFellBack", Schema::Int().Min(0))
                                        .Prop("representationChanges", Schema::Int().Min(0))
+                                       .Prop("crossFading", Schema::Int().Min(0))
+                                       .Prop("crossFadesRefused", Schema::Int().Min(0))
                                        .Prop("groomsAtCompensationCap", Schema::Int().Min(0))
                                        .Prop("maxWidthCompensation", Schema::Number())
                                        .Prop("dominantFallbackReason", Schema::String())

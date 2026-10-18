@@ -1,7 +1,16 @@
 #include "OloEnginePCH.h"
 #include "QualityTiering.h"
 
+#include "OloEngine/Core/CVar.h"
+#include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Groom/GroomLod.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+
+#include <array>
+#include <format>
+#include <optional>
+#include <string>
 
 namespace OloEngine
 {
@@ -47,6 +56,8 @@ namespace OloEngine
                 // one that needs it most and the small allowance is the point.
                 s.AnimalSchedulingEnabled = true;
                 s.AnimalFrameBudgetUnits = 2000.0f;
+                // A coat sheds its strands at twice the apparent size.
+                s.GroomDetailBias = 0.5f;
                 break;
 
             case QualityPreset::Medium:
@@ -71,6 +82,7 @@ namespace OloEngine
                 s.DDGIBudgetScale = 0.5f; // halved capture/relight budgets
                 s.AnimalSchedulingEnabled = true;
                 s.AnimalFrameBudgetUnits = 4000.0f;
+                s.GroomDetailBias = 0.75f;
                 break;
 
             case QualityPreset::High:
@@ -93,6 +105,7 @@ namespace OloEngine
                 s.ChromaticAberrationEnabled = false;
                 s.AnimalSchedulingEnabled = true;
                 s.AnimalFrameBudgetUnits = 6000.0f;
+                s.GroomDetailBias = 1.0f; // every coat as authored
                 break;
 
             case QualityPreset::Ultra:
@@ -119,6 +132,8 @@ namespace OloEngine
                 s.DDGIBudgetScale = 2.0f; // faster capture convergence on Ultra
                 s.AnimalSchedulingEnabled = true;
                 s.AnimalFrameBudgetUnits = 12000.0f;
+                // Strands down to two thirds of the authored hand-over size.
+                s.GroomDetailBias = 1.5f;
                 break;
 
             case QualityPreset::Custom:
@@ -182,6 +197,109 @@ namespace OloEngine
         renderer.DDGIBudgetScale = tiering.DDGIBudgetScale;
         renderer.AnimalSchedulingEnabled = tiering.AnimalSchedulingEnabled;
         renderer.AnimalFrameBudgetUnits = tiering.AnimalFrameBudgetUnits;
+        renderer.GroomDetailBias = tiering.GroomDetailBias;
+    }
+
+    namespace
+    {
+        // A whole-number RendererSettings field behind a console variable. The
+        // registry hands the binding an opaque context; this row is it.
+        struct GroomCountCVar
+        {
+            std::string_view Name;
+            std::string_view Help;
+            u32 RendererSettings::* Field;
+            u32 Max;
+        };
+
+        const std::array<GroomCountCVar, 2> kGroomCountCVars{ {
+            { "OLO_GROOM_LOD_CROSSFADE_FRAMES",
+              "Frames a groom's LOD hand-over is dithered across (#1612): both tiers drawn through complementary "
+              "per-pixel masks while the incoming tier's share ramps up. 0 is a hard switch; range [0, 120].",
+              &RendererSettings::GroomLodCrossFadeFrames, 120u },
+            { "OLO_GROOM_LOD_MAX_CROSSFADES",
+              "Groom coats that may cross-fade at once (#1612), which bounds what a transition frame costs. A "
+              "hand-over past it hard-switches and is reported; range [0, 64].",
+              &RendererSettings::GroomLodMaxCrossFades, 64u },
+        } };
+
+        void RegisterGroomCountCVar(const GroomCountCVar& row)
+        {
+            CVars::CVarBinding binding;
+            binding.Name = row.Name;
+            binding.Help = row.Help;
+            binding.Type = CVars::CVarType::Int;
+            binding.Context = const_cast<GroomCountCVar*>(&row);
+            binding.Render = [](void* context)
+            {
+                const auto* self = static_cast<const GroomCountCVar*>(context);
+                return std::to_string(Renderer3D::GetRendererSettings().*(self->Field));
+            };
+            binding.IsDefault = [](void* context)
+            {
+                const auto* self = static_cast<const GroomCountCVar*>(context);
+                return Renderer3D::GetRendererSettings().*(self->Field) == RendererSettings{}.*(self->Field);
+            };
+            binding.Parse = [](void* context, std::string_view raw, std::string& error)
+            {
+                const auto* self = static_cast<const GroomCountCVar*>(context);
+                const std::optional<i64> parsed = CVars::ParseIntText(raw);
+                if (!parsed || *parsed < 0 || *parsed > static_cast<i64>(self->Max))
+                {
+                    error = std::format("expected a whole number in [0, {}]", self->Max);
+                    return false;
+                }
+                Renderer3D::GetRendererSettings().*(self->Field) = static_cast<u32>(*parsed);
+                return true;
+            };
+            (void)CVars::Register(binding);
+        }
+    } // namespace
+
+    void RegisterGroomCVars()
+    {
+        static const bool s_CountsRegistered = []
+        {
+            for (const GroomCountCVar& row : kGroomCountCVars)
+            {
+                RegisterGroomCountCVar(row);
+            }
+            return true;
+        }();
+        (void)s_CountsRegistered;
+
+        static const CVars::CVarHandle s_Handle = []
+        {
+            CVars::CVarBinding binding;
+            binding.Name = "OLO_GROOM_DETAIL_BIAS";
+            binding.Help = "Global groom detail bias (#1616): divides every pixel threshold a groom's detail is "
+                           "chosen by (GroomLodComponent tiers and budgets, the coat shadow LOD, the ray-traced "
+                           "proxy tier). 2 keeps strands to half the apparent size, 0.5 hands over at twice it; "
+                           "1 is the authored behaviour. The quality preset writes it; range [0.25, 4].";
+            binding.Type = CVars::CVarType::Float;
+            // Shortest round-trip, CVar<f32>'s rendering: the registry decides
+            // a change happened by comparing these strings.
+            binding.Render = [](void*)
+            { return std::format("{}", Renderer3D::GetRendererSettings().GroomDetailBias); };
+            binding.IsDefault = [](void*)
+            { return Math::BitwiseEqual(Renderer3D::GetRendererSettings().GroomDetailBias, 1.0f); };
+            binding.Parse = [](void*, std::string_view raw, std::string& error)
+            {
+                const std::string buffer(CVars::TrimText(raw));
+                const std::optional<f32> parsed =
+                    Levers::ParseNumberLever(buffer.c_str(), kGroomDetailBiasMin, kGroomDetailBiasMax);
+                if (!parsed)
+                {
+                    error = std::format("expected a finite number in [{}, {}]", kGroomDetailBiasMin,
+                                        kGroomDetailBiasMax);
+                    return false;
+                }
+                Renderer3D::GetRendererSettings().GroomDetailBias = *parsed;
+                return true;
+            };
+            return CVars::Register(binding);
+        }();
+        (void)s_Handle;
     }
 
     std::string_view QualityPresetToString(QualityPreset preset)

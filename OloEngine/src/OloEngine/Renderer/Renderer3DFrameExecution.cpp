@@ -247,7 +247,7 @@ namespace OloEngine
             s_Data.GroomSurfaces.Extract(s_Data.SceneGPU,
                                          std::span<const GroomStrandRequest>(s_Data.GroomStrandRequests.GetData(),
                                                                              static_cast<sizet>(s_Data.GroomStrandRequests.Num())),
-                                         WantsRayTracingGrooms());
+                                         WantsRayTracingGrooms(), s_Data.Settings.GroomDetailBias);
             if (s_Data.RGraph && s_Data.VegetationSurfaces.GetStats().HistoryReset)
             {
                 // A change of the TRACED vegetation (plants entering or leaving
