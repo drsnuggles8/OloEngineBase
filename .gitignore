@@ -254,9 +254,14 @@ scripts/steam/generated/
 # tracked with `git add -f`, and each one is listed with its reader in
 # scripts/generated-evidence-allowlist.txt, which the `generated-evidence`
 # pre-commit hook enforces. See docs/agent-rules/generated-evidence-stays-out-of-git.md.
-/OloEditor/assets/tests/visual/
-/OloEditor/assets/tests/exports/
-/OloEditor/assets/tests/memory/
+/OloEditor/assets/tests/visual/**
+/OloEditor/assets/tests/exports/**
+/OloEditor/assets/tests/memory/**
+# Directories are re-included so only files are ignored: `git add` on a tracked golden then
+# succeeds instead of refusing the whole directory.
+!/OloEditor/assets/tests/visual/**/
+!/OloEditor/assets/tests/exports/**/
+!/OloEditor/assets/tests/memory/**/
 # Campaign data under docs/: raw captures, reports and ledgers stay local. The
 # write-up (Markdown) is tracked; a curated image it links is force-added and
 # allow-listed.
