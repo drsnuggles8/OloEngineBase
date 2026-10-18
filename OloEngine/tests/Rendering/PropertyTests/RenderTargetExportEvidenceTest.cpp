@@ -617,6 +617,10 @@ namespace OloEngine::Tests
                         GetScene().SetRenderingPath(RenderingPath::Deferred);
                         GetScene().SetPostProcessSettings(post);
                         const fs::path sceneFile = fs::path("assets/tests/exports") / (cell + ".olo");
+                        // exports/ is git-ignored output (#1610): a fresh clone has no such directory.
+                        std::error_code ec;
+                        fs::create_directories(sceneFile.parent_path(), ec);
+                        ASSERT_FALSE(ec) << "cannot create " << sceneFile.parent_path().string() << ": " << ec.message();
                         SceneSerializer(GetSceneRef()).Serialize(sceneFile);
                         EXPECT_EQ(YAML::LoadFile(sceneFile.string())["RenderingPath"].as<std::string>(), "Deferred");
                     }
