@@ -275,19 +275,26 @@ namespace OloEngine::Tests
             RunEditorFrames(camera, count);
         }
 
-        static void WriteArtefact(const std::string& cell, const nlohmann::json& report)
+        // exports/ is git-ignored output (#1610), so a fresh clone does not have it.
+        static void MakeExportsDir(fs::path& dir)
         {
-            const fs::path dir = fs::path("assets") / "tests" / "exports";
+            dir = fs::path("assets") / "tests" / "exports";
             std::error_code ec;
             fs::create_directories(dir, ec);
             ASSERT_FALSE(ec) << "cannot create " << dir.string() << ": " << ec.message();
+        }
+
+        static void WriteArtefact(const std::string& cell, const nlohmann::json& report)
+        {
+            fs::path dir;
+            ASSERT_NO_FATAL_FAILURE(MakeExportsDir(dir));
             const fs::path file = dir / ("RenderTargetExports_" + cell + ".json");
             std::ofstream out(file, std::ios::binary | std::ios::trunc);
             ASSERT_TRUE(out.is_open()) << "cannot open " << file.string();
             out << report.dump(2) << '\n';
             out.close();
-            // A failed write would leave the committed artefact stale while the
-            // test passed.
+            // A failed write would leave a previous run's report in place while
+            // the test passed.
             ASSERT_FALSE(out.fail()) << "writing " << file.string() << " failed";
         }
     };
@@ -616,11 +623,9 @@ namespace OloEngine::Tests
                     {
                         GetScene().SetRenderingPath(RenderingPath::Deferred);
                         GetScene().SetPostProcessSettings(post);
-                        const fs::path sceneFile = fs::path("assets/tests/exports") / (cell + ".olo");
-                        // exports/ is git-ignored output (#1610): a fresh clone has no such directory.
-                        std::error_code ec;
-                        fs::create_directories(sceneFile.parent_path(), ec);
-                        ASSERT_FALSE(ec) << "cannot create " << sceneFile.parent_path().string() << ": " << ec.message();
+                        fs::path exportsDir;
+                        ASSERT_NO_FATAL_FAILURE(MakeExportsDir(exportsDir));
+                        const fs::path sceneFile = exportsDir / (cell + ".olo");
                         SceneSerializer(GetSceneRef()).Serialize(sceneFile);
                         EXPECT_EQ(YAML::LoadFile(sceneFile.string())["RenderingPath"].as<std::string>(), "Deferred");
                     }
