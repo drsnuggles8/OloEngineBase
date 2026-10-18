@@ -4737,6 +4737,25 @@ namespace OloEngine
         VulkanBindingState::Get().SetUniformBuffer(bindingPoint, static_cast<VulkanUniformBuffer*>(entry->Object));
     }
 
+    bool VulkanRendererAPI::BindTransientStorage(u32 bindingPoint, const void* data, u32 size)
+    {
+        if (data == nullptr || size == 0u)
+            return false;
+        // The frame arena lives until the GPU has finished this frame slot, so
+        // a dispatch recorded now reads these bytes whatever is bound after it
+        // (#1543). 16: std430 alignment for any element a dispatch indexes.
+        const auto allocation =
+            VulkanFrameArena::Get().Push(data, size, 16, VulkanFrameArenaConsumer::DispatchStaging);
+        if (!allocation.IsValid())
+            return false; // the arena's overflow reporter says so once per frame; the caller names itself
+        auto& bindingState = VulkanBindingState::Get();
+        // An object occupant wins over a raw address (see the root-data
+        // writer), so the point's object is cleared first.
+        bindingState.SetStorageBuffer(bindingPoint, nullptr);
+        bindingState.SetStorageBufferAddress(bindingPoint, allocation.Gpu);
+        return true;
+    }
+
     void VulkanRendererAPI::BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
     {
         auto& bindingState = VulkanBindingState::Get();

@@ -55,6 +55,21 @@ def stats(values: list[float], deadline: float) -> dict:
             "deadlineMisses": sum(1 for v in values if v > deadline)}
 
 
+def sum_sub_passes(sub_passes: list) -> dict:
+    """A pass's sub-passes by name, a name's repeats in the frame summed: ShadowPass
+    brackets each cascade, atlas face and clip level separately (#1590). A name
+    with any unmeasured repeat is None."""
+    out: dict = {}
+    for sub in sub_passes:
+        name = sub.get("name") or sub.get("pass")
+        value = sub.get("gpuMs")
+        if not isinstance(value, (int, float)) or (name in out and out[name] is None):
+            out[name] = None
+            continue
+        out[name] = out.get(name, 0.0) + value
+    return out
+
+
 def live_frame_probe(client: Client) -> dict:
     probe = client.tool("olo_perf_snapshot")
     live = probe.get("liveness") or {}
@@ -179,8 +194,7 @@ def main() -> int:
                     end_frame = finish_frame_window(client, start_frame, args.frames, frame_ms, probe["renderFrameGeneration"])
                     history = camera_history(client, args.frames, probe["renderFrameGeneration"])
                     timings = client.tool("olo_perf_pass_timings")
-                    passes = sorted(((p.get("gpuMs") or 0.0, p.get("pass"),
-                                      {s.get("name") or s.get("pass"): s.get("gpuMs") for s in p.get("subPasses") or []})
+                    passes = sorted(((p.get("gpuMs") or 0.0, p.get("pass"), sum_sub_passes(p.get("subPasses") or []))
                                      for p in timings.get("passes", [])), key=lambda e: e[0], reverse=True)[:6]
                     run = {"repeat": repeat, "cell": cell_id, "camera": cam["Id"], "rayTracedShadows": rt,
                            "rendererFrameWindow": [start_frame, end_frame], "renderFrameGeneration": probe["renderFrameGeneration"], "completedWindowFrames": end_frame - start_frame}

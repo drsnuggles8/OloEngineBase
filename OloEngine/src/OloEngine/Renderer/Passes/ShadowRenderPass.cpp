@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Passes/ShadowRenderPass.h"
 #include "OloEngine/Renderer/Shadow/TerrainShadowRevision.h"
 #include "OloEngine/Renderer/Shadow/FoliageShadowInvalidation.h"
+#include "OloEngine/Renderer/Shadow/ShadowPassBrackets.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
@@ -24,6 +25,7 @@
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 #include "OloEngine/Groom/GroomShadowWidening.h"
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -37,6 +39,7 @@
 #include <cstdio>
 #include <cstring>
 #include <limits>
+#include <optional>
 
 namespace OloEngine
 {
@@ -194,6 +197,7 @@ namespace OloEngine
         // nothing is built twice and nothing is built that was not going to be.
         if (shadowsRequested && m_ShadowMap && m_ShadowMap->IsEnabled())
         {
+            OLO_PERF_SCOPE_AUTO("ShadowPass::CollectGrooms");
             CollectGroomCasters();
         }
 
@@ -319,16 +323,20 @@ namespace OloEngine
             // BEFORE UpdatePages, which consumes the invalidations: running it
             // after would allocate and clear this frame's pages first, leaving a
             // mover's old silhouette baked into a page now marked clean.
-            vsm.SubmitDynamicInvalidations({ m_MeshCasters.GetData(), static_cast<sizet>(m_MeshCasters.Num()) }, { m_SkinnedCasters.GetData(), static_cast<sizet>(m_SkinnedCasters.Num()) }, Renderer3D::GetRenderOrigin());
-            // Unconditional, for the same reason: with both lists empty it does
-            // nothing, and with only the PREVIOUS list populated it is the only
-            // thing that retires a deleted caster's shadow.
-            SubmitVirtualDynamicInvalidations(vsm);
-            // Grooms too (#1523), and unconditionally for the same departure
-            // reason: m_GroomCasters was collected at the top of Execute.
-            SubmitGroomDynamicInvalidations(vsm);
-            SubmitFamilyDynamicInvalidations(vsm);
-            vsm.UpdatePages();
+            {
+                const ShadowBrackets::Scope pagesBracket(ShadowBrackets::kVsmPages);
+                OLO_PERF_SCOPE_AUTO("ShadowPass::VsmPages");
+                vsm.SubmitDynamicInvalidations({ m_MeshCasters.GetData(), static_cast<sizet>(m_MeshCasters.Num()) }, { m_SkinnedCasters.GetData(), static_cast<sizet>(m_SkinnedCasters.Num()) }, Renderer3D::GetRenderOrigin());
+                // Unconditional, for the same reason: with both lists empty it does
+                // nothing, and with only the PREVIOUS list populated it is the only
+                // thing that retires a deleted caster's shadow.
+                SubmitVirtualDynamicInvalidations(vsm);
+                // Grooms too (#1523), and unconditionally for the same departure
+                // reason: m_GroomCasters was collected at the top of Execute.
+                SubmitGroomDynamicInvalidations(vsm);
+                SubmitFamilyDynamicInvalidations(vsm);
+                vsm.UpdatePages();
+            }
 
             const bool vsmVirtualCasters =
                 virtualPrepared && haveVirtualCasters &&
@@ -382,6 +390,7 @@ namespace OloEngine
                     u32 drawn = 0;
                     if (virtualLevelsToDraw)
                     {
+                        const ShadowBrackets::Scope bracket(ShadowBrackets::kVirtualGeometry);
                         drawn += VirtualGeometryShadow::RenderVirtualShadowMapLevels(
                             { m_VsmClipViews.GetData(), static_cast<sizet>(m_VsmClipViews.Num()) }, VSM::kVirtualResolution,
                             [&vsm]()
@@ -389,6 +398,7 @@ namespace OloEngine
                     }
                     if (groomLevelsToDraw)
                     {
+                        const ShadowBrackets::Scope bracket(ShadowBrackets::kGroomCasters);
                         drawn += RenderGroomVirtualShadowLevels(vsm);
                     }
                     if (familyViewsToDraw)
@@ -397,6 +407,7 @@ namespace OloEngine
                 };
             }
 
+            OLO_PERF_SCOPE_AUTO("ShadowPass::VsmCasters");
             vsm.RenderCasters({ m_MeshCasters.GetData(), static_cast<sizet>(m_MeshCasters.Num()) }, { m_SkinnedCasters.GetData(), static_cast<sizet>(m_SkinnedCasters.Num()) }, Renderer3D::GetRenderOrigin(), uploadBones,
                               renderVirtualCasters, familyViewsToDraw ? VirtualShadowMap::ExternalCasterRenderer([this, &vsm]()
                                                                                                                  { return RenderFamilyVirtualViews(vsm, true); })
@@ -592,6 +603,8 @@ namespace OloEngine
                 // read. At the dog's 4096^2 cascades the whole-layer copy cost
                 // ~0.3 ms of GPU; the coat's rect is a few percent of a layer.
                 const u32 side = m_ShadowMap->GetResolution();
+                const ShadowBrackets::Scope regionBracket(ShadowBrackets::kCsm);
+                OLO_PERF_SCOPE_AUTO("ShadowPass::Csm");
                 recordRegionForGrooms(ShadowPassType::CSM, ShadowMap::OpaqueCopy::Cascades, selectLayer,
                                       /*clearPerItem=*/true,
                                       [&]()
@@ -671,6 +684,8 @@ namespace OloEngine
                 // on every backend whose local shadows work at all. The groom
                 // half re-attaches the layer, uncleared, because the copies
                 // closed the scope.
+                const ShadowBrackets::Scope regionBracket(ShadowBrackets::kAtlas);
+                OLO_PERF_SCOPE_AUTO("ShadowPass::Atlas");
                 recordRegionForGrooms(ShadowPassType::Atlas, ShadowMap::OpaqueCopy::Atlas, selectTile,
                                       /*clearPerItem=*/false,
                                       [&]()
@@ -763,50 +778,47 @@ namespace OloEngine
             VirtualGeometryShadow::PrepareViews(
                 std::span<VirtualGeometryShadow::ViewResources>(m_VirtualItemResources.GetData(), activeCount));
 
-        // Foliage GPU culling for every view in this region (issue #1235), run
-        // HERE and not inside recordItem. The region records in parallel on
-        // Vulkan, and a cull dispatched from an item would upload its header
+        // Foliage GPU culling for a batch of this region's views (issue #1235),
+        // run HERE and not inside recordItem. The region records in parallel
+        // on Vulkan, and a cull dispatched from an item would upload its header
         // through a one-shot submit and write a buffer a sibling item also
         // writes -- both hard errors under amendment (92) rule 6, and both
         // observed before this moved out. Each item's draws then only READ the
-        // slot this loop filled for it.
+        // slot this cull filled for it: view `first + slot` into slot `slot`.
         //
-        // Its own GPU bracket (#1391), beside FoliageCasters: the culls for
-        // every view of the region are dispatched here, before any of them
-        // draws, so the casters' bracket cannot contain them.
-        auto* foliageCullTimers =
-            (filter != ShadowCasterFilter::GroomsOnly && !m_FoliageCasters.IsEmpty() && !RenderCommand::IsRecordingParallelItem())
-                ? &GPUPassTimerPool::GetInstance()
-                : nullptr;
-        if (foliageCullTimers)
-            foliageCullTimers->BeginSubPass("FoliageCull");
-        for (auto& caster : m_FoliageCasters)
+        // Its own GPU bracket (#1391), beside FoliageCasters: a batch's culls
+        // are dispatched before any of its views draws, so the casters'
+        // bracket cannot contain them.
+        const bool cullsFoliage = filter != ShadowCasterFilter::GroomsOnly && !m_FoliageCasters.IsEmpty();
+        const auto cullFoliageViews = [&](const u32 first, const u32 count)
         {
-            if (!caster.renderer || filter == ShadowCasterFilter::GroomsOnly)
-                continue;
-            caster.renderer->ResetShadowViewCulling();
-            for (u32 item = 0; item < activeCount; ++item)
+            const ShadowBrackets::Scope cullBracket(ShadowBrackets::kFoliageCull, cullsFoliage);
+            for (auto& caster : m_FoliageCasters)
             {
-                // lightVP is world-space, which is what MakeCullInputs converts
-                // from. The DISTANCE half of the test still uses the main view's
-                // position: the plants a cascade must draw are the ones the
-                // beauty pass draws, and those are chosen by distance from the
-                // VIEWER, not from the light.
-                // The CULLING camera's position, not the render camera's — the
-                // same source Scene.cpp's main-view cull uses. With the observer
-                // frozen (#726) the beauty pass draws the frozen survivor set,
-                // and a cascade measuring distance from the LIVE camera would
-                // cull away the casters of everything the frozen view still
-                // draws: the plants would keep their pixels and lose their
-                // shadows, which reads as a lighting bug rather than as the
-                // debug tool doing something.
-                caster.renderer->DispatchShadowViewCulling(
-                    item, caster.renderer->MakeCullInputs(m_ActiveViews[item].LightVP,
-                                                          Renderer3D::GetCullViewPosition()));
+                if (!caster.renderer || !cullsFoliage)
+                    continue;
+                caster.renderer->ResetShadowViewCulling();
+                for (u32 slot = 0; slot < count; ++slot)
+                {
+                    // lightVP is world-space, which is what MakeCullInputs converts
+                    // from. The DISTANCE half of the test still uses the main view's
+                    // position: the plants a cascade must draw are the ones the
+                    // beauty pass draws, and those are chosen by distance from the
+                    // VIEWER, not from the light.
+                    // The CULLING camera's position, not the render camera's — the
+                    // same source Scene.cpp's main-view cull uses. With the observer
+                    // frozen (#726) the beauty pass draws the frozen survivor set,
+                    // and a cascade measuring distance from the LIVE camera would
+                    // cull away the casters of everything the frozen view still
+                    // draws: the plants would keep their pixels and lose their
+                    // shadows, which reads as a lighting bug rather than as the
+                    // debug tool doing something.
+                    caster.renderer->DispatchShadowViewCulling(
+                        slot, caster.renderer->MakeCullInputs(m_ActiveViews[first + slot].LightVP,
+                                                              Renderer3D::GetCullViewPosition()));
+                }
             }
-        }
-        if (foliageCullTimers)
-            foliageCullTimers->EndSubPass();
+        };
         // THE GROOM DRAW TALLY, counted HERE and not inside recordItem: the
         // region forks, so an item incrementing a shared counter would race its
         // siblings. The same cull test the items will run, on the render
@@ -859,17 +871,43 @@ namespace OloEngine
             }
         }
 
-        const auto recordItem = [&](const u32 item)
+        // THE REGION IN BATCHES OF THE FOLIAGE CULL'S SHADOW SLOTS (#1590). The
+        // cull has FoliageGPUCuller::kMaxShadowViews of them, and a view past
+        // the last drew every generated plant on the island, uncompacted: a
+        // point light's fifth and sixth cube faces, and every face of the
+        // lights after it, which is what put 0.1-0.9 s of GPU into the
+        // acceptance scene's atlas. So a region with more views than slots
+        // culls a batch, records it, and lets the next batch's culls reuse the
+        // slots only after its draws (the barrier VSM's sequential views take).
+        // Without foliage the region stays one batch, as it always was.
+        // Levers::FaultShadowFoliageCullCap restores the single batch.
+        const u32 batchSize = (cullsFoliage && !Levers::FaultShadowFoliageCullCap())
+                                  ? FoliageGPUCuller::kMaxShadowViews
+                                  : std::max(activeCount, 1u);
+        for (u32 first = 0; first < activeCount; first += batchSize)
         {
-            const ActiveShadowView& view = m_ActiveViews[item];
-            selectTarget(view);
-            if (clearPerItem)
-                RenderCommand::ClearDepthOnly();
-            RenderCascadeOrFace(view.LightVP, type, view.Index, &view.CullFrustum,
-                                shaders, m_ItemResources[item], recordingInstancedDraws ? &m_ItemTallies[item] : nullptr,
-                                virtualCasters ? &m_VirtualItemResources[item] : nullptr, item);
-        };
-        RenderCommand::RecordParallel(activeCount, recordItem, instanceCapacity);
+            const u32 count = std::min(batchSize, activeCount - first);
+            if (first > 0)
+            {
+                // The previous batch's draws read the compacted streams and draw
+                // args this batch's culls rewrite.
+                RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::Command |
+                                             MemoryBarrierFlags::VertexAttribArray);
+            }
+            cullFoliageViews(first, count);
+            const auto recordItem = [&](const u32 slot)
+            {
+                const u32 item = first + slot;
+                const ActiveShadowView& view = m_ActiveViews[item];
+                selectTarget(view);
+                if (clearPerItem)
+                    RenderCommand::ClearDepthOnly();
+                RenderCascadeOrFace(view.LightVP, type, view.Index, &view.CullFrustum, shaders, m_ItemResources[item],
+                                    recordingInstancedDraws ? &m_ItemTallies[item] : nullptr,
+                                    virtualCasters ? &m_VirtualItemResources[item] : nullptr, slot);
+            };
+            RenderCommand::RecordParallel(count, recordItem, instanceCapacity);
+        }
         ReplayProfilerTallies(type, recordingInstancedDraws);
         m_CasterFilter = ShadowCasterFilter::All;
     }
@@ -1042,6 +1080,8 @@ namespace OloEngine
 
         // ── Static meshes (auto-batched by shared VAO + index range) ──
         {
+            const ShadowBrackets::Scope bracket(ShadowBrackets::kMeshCasters,
+                                                drawOpaque && shaders.Mesh && !m_MeshCasters.IsEmpty());
             const Ref<Shader>& shadowShader = shaders.Mesh;
             if (drawOpaque && shadowShader && !m_MeshCasters.IsEmpty())
             {
@@ -1148,6 +1188,7 @@ namespace OloEngine
         // ── Skinned meshes ──
         if (drawOpaque && !m_SkinnedCasters.IsEmpty())
         {
+            const ShadowBrackets::Scope bracket(ShadowBrackets::kSkinnedCasters, shaders.Skinned != nullptr);
             const Ref<Shader>& skinnedShadowShader = shaders.Skinned;
             if (skinnedShadowShader)
             {
@@ -1191,6 +1232,7 @@ namespace OloEngine
         // so bind lazily and only when the shader actually changes.
         if (drawOpaque && !m_VoxelCasters.IsEmpty())
         {
+            const ShadowBrackets::Scope bracket(ShadowBrackets::kVoxelCasters);
             const Ref<Shader>& voxelDepthShader = shaders.Voxel;
             const Ref<Shader>& voxelQuadDepthShader = shaders.VoxelQuad;
             const Shader* boundDepthShader = nullptr;
@@ -1257,15 +1299,10 @@ namespace OloEngine
             };
             // Its own GPU bracket (#1533 E4): a coat's share of the shadow
             // pass is the scene-shadow cost of fur, and it is otherwise folded
-            // into every other caster's. Not inside a parallel item: the timer
-            // pool is not thread-safe (the GTAO sub-passes skip it the same way).
-            auto* groomTimers = RenderCommand::IsRecordingParallelItem() ? nullptr : &GPUPassTimerPool::GetInstance();
-            if (groomTimers)
-                groomTimers->BeginSubPass("GroomCasters");
+            // into every other caster's.
+            const ShadowBrackets::Scope bracket(ShadowBrackets::kGroomCasters);
             RenderGroomCasters(cullFrustum, lightVPRel, renderOrigin, static_cast<f32>(groomViewResolution), 0,
                                *resources.Groom, bindGroomProgram);
-            if (groomTimers)
-                groomTimers->EndSubPass();
         }
 
         // ── Terrain patches ──
@@ -1274,6 +1311,7 @@ namespace OloEngine
             const auto& terrainDepthShader = shaders.Terrain;
             if (terrainDepthShader)
             {
+                const ShadowBrackets::Scope bracket(ShadowBrackets::kTerrainCasters);
                 terrainDepthShader->Bind();
                 // A heightfield is an open surface: front-face culling removes
                 // its entire upper side under an overhead light.
@@ -1324,11 +1362,8 @@ namespace OloEngine
         // ── Foliage ──
         // Its own GPU bracket, like the grooms' (#1533 E4): a lawn's share of
         // the shadow pass is otherwise folded into every other caster's.
-        auto* foliageTimers = (drawOpaque && !m_FoliageCasters.IsEmpty() && !RenderCommand::IsRecordingParallelItem())
-                                  ? &GPUPassTimerPool::GetInstance()
-                                  : nullptr;
-        if (foliageTimers)
-            foliageTimers->BeginSubPass("FoliageCasters");
+        std::optional<ShadowBrackets::Scope> foliageBracket;
+        foliageBracket.emplace(ShadowBrackets::kFoliageCasters, drawOpaque && !m_FoliageCasters.IsEmpty());
         if (drawOpaque && !m_FoliageCasters.IsEmpty())
             RenderCommand::DisableCulling();
         for (const auto& caster : m_FoliageCasters)
@@ -1342,11 +1377,11 @@ namespace OloEngine
                 caster.renderer->RenderShadows(foliageShader, caster.time, shadowViewIndex, shaders.FoliageImpostor,
                                                familyVsm ? std::function<void()>([familyVsm]()
                                                                                  { familyVsm->BindPhysicalPoolImage(); })
-                                                         : std::function<void()>{});
+                                                         : std::function<void()>{},
+                                               m_FoliageCardCutover);
             }
         }
-        if (foliageTimers)
-            foliageTimers->EndSubPass();
+        foliageBracket.reset();
         if (drawOpaque && !m_FoliageCasters.IsEmpty())
         {
             RenderCommand::EnableCulling();
@@ -1365,6 +1400,7 @@ namespace OloEngine
         auto& shadowMap = Renderer3D::GetShadowMap();
         if (drawOpaque && virtualResources)
         {
+            const ShadowBrackets::Scope bracket(ShadowBrackets::kVirtualGeometry);
             u32 const shadowViewResolution = (type == ShadowPassType::CSM)
                                                  ? shadowMap.GetResolution()
                                                  : shadowMap.GetAtlasEntryRect(layerOrLight).Size;
@@ -2194,6 +2230,7 @@ namespace OloEngine
         // (FoliageShadowInvalidation.h has the policy and its error bound).
         namespace FSI = FoliageShadowInvalidation;
         const FSI::Mode foliageMode = FSI::GetMode();
+        const FoliageShadowInvalidation::CardCutover cutoverSettings = FoliageCardCutover(vsm, -1);
         for (const auto& caster : m_FoliageCasters)
         {
             if (!caster.renderer)
@@ -2201,8 +2238,11 @@ namespace OloEngine
             const auto bounds = caster.renderer->GetShadowBounds();
             if (bounds.Min.x >= std::numeric_limits<f32>::max())
                 continue;
+            // The card cut-over level is part of the silhouette (#1580): a level
+            // that changed representation must not keep the other one's pages.
+            const u64 revision = caster.renderer->GetShadowRevision() ^ caster.renderer->UpdateVsmCardCutover(cutoverSettings);
             footprints.Add({ static_cast<u64>(reinterpret_cast<uintptr_t>(caster.renderer)), bounds, glm::mat4(1.0f),
-                             caster.renderer->GetShadowRevision(), foliageMode == FSI::Mode::EveryFrame });
+                             revision, foliageMode == FSI::Mode::EveryFrame });
         }
         m_FamilyCaches[2].Update({ footprints.GetData(), static_cast<sizet>(footprints.Num()) }, invalidate);
 
@@ -2233,6 +2273,17 @@ namespace OloEngine
                 vsm.AddDynamicInvalidation(entry.WorldBounds.Min - origin, entry.WorldBounds.Max - origin,
                                            entry.ClipLevelMask);
         }
+    }
+
+    FoliageShadowInvalidation::CardCutover ShadowRenderPass::FoliageCardCutover(const VirtualShadowMap& vsm, i32 level)
+    {
+        FoliageShadowInvalidation::CardCutover cutover;
+        cutover.Level = level;
+        cutover.Clip0HalfExtent = vsm.GetSettings().Clip0HalfExtent;
+        cutover.ClipSelectionBias = vsm.GetSettings().ClipSelectionBias;
+        if (const std::optional<i64> lever = Levers::FoliageVsmCardLevel())
+            cutover.OverrideLevel = static_cast<i32>(std::min<i64>(*lever, VSM::kClipLevels));
+        return cutover;
     }
 
     u32 ShadowRenderPass::RenderFamilyVirtualViews(VirtualShadowMap& vsm, bool local)
@@ -2267,6 +2318,9 @@ namespace OloEngine
         u32 drawn = 0;
         for (u32 view = 0; view < count; ++view)
         {
+            // THE CARD CUT-OVER (#1580), decided per layer from this level. A
+            // local layer is not a clip level and keeps every mesh.
+            const FoliageShadowInvalidation::CardCutover cutover = FoliageCardCutover(vsm, local ? -1 : static_cast<i32>(view));
             glm::mat4 vp;
             if (local)
             {
@@ -2289,28 +2343,28 @@ namespace OloEngine
             m_FamilyViewUBO->Bind();
             // The same bracket the CSM region gives its culls (#1391); here
             // each view culls just before it draws.
-            auto* foliageCullTimers = (!m_FoliageCasters.IsEmpty() && !RenderCommand::IsRecordingParallelItem())
-                                          ? &GPUPassTimerPool::GetInstance()
-                                          : nullptr;
-            if (foliageCullTimers)
-                foliageCullTimers->BeginSubPass("FoliageCull");
-            for (const auto& caster : m_FoliageCasters)
             {
-                if (!caster.renderer)
-                    continue;
-                caster.renderer->ResetShadowViewCulling();
-                // A clip level culls against the dirty pages too (#1580), so a
-                // level holding cached foliage pages draws none of it.
-                caster.renderer->DispatchShadowViewCulling(
-                    0, local ? caster.renderer->MakeCullInputs(worldVP, Renderer3D::GetCullViewPosition())
-                             : caster.renderer->MakeVsmClipCullInputs(worldVP, Renderer3D::GetCullViewPosition(), view,
-                                                                      vsm.GetClipProjections()[view].PageOffset,
-                                                                      vsm.GetHPBHandle()));
+                const ShadowBrackets::Scope cullBracket(ShadowBrackets::kFoliageCull, !m_FoliageCasters.IsEmpty());
+                for (const auto& caster : m_FoliageCasters)
+                {
+                    if (!caster.renderer)
+                        continue;
+                    caster.renderer->ResetShadowViewCulling();
+                    // A clip level culls against the dirty pages too (#1580), so a
+                    // level holding cached foliage pages draws none of it.
+                    FoliageGPUCuller::ViewInputs inputs =
+                        local ? caster.renderer->MakeCullInputs(worldVP, Renderer3D::GetCullViewPosition())
+                              : caster.renderer->MakeVsmClipCullInputs(worldVP, Renderer3D::GetCullViewPosition(), view,
+                                                                       vsm.GetClipProjections()[view].PageOffset,
+                                                                       vsm.GetHPBHandle());
+                    inputs.CardCutover = cutover;
+                    caster.renderer->DispatchShadowViewCulling(0, inputs);
+                }
             }
-            if (foliageCullTimers)
-                foliageCullTimers->EndSubPass();
+            m_FoliageCardCutover = cutover;
             RenderCascadeOrFace(worldVP, local ? ShadowPassType::Atlas : ShadowPassType::CSM, view, &frustum,
                                 m_FamilyVsmShaders, m_ItemResources[0], nullptr, nullptr, 0, &vsm);
+            m_FoliageCardCutover = {};
             // The next view rewrites the foliage compacted streams and draw
             // args the previous draw reads. Views are sequential, with explicit
             // GPU ordering as well as command-ordered UBO uploads.

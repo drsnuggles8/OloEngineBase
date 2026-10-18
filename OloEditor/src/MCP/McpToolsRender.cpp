@@ -9997,17 +9997,23 @@ namespace OloEngine::MCP
             tool.Name = "olo_rt_vegetation_diagnostic";
             tool.Toolset = "render";
             tool.Title = "Vegetation update benchmark override";
-            tool.Description = "Transient diagnostic overrides for vegetation ray tracing. forceDetailed: every group refreshes at full detail every frame (the complete high-quality reference). budgetDivisor: every vegetation budget behaves as 1/N of itself, to stress the complete fallbacks (#1354); 1 restores it. Does not change canonical plants, raster LOD or wind. Not saved to scenes or assets. Omit both to read.";
+            tool.Description = "Transient diagnostic overrides for vegetation ray tracing. forceDetailed: every group refreshes at full detail every frame (the complete high-quality reference). budgetDivisor: every vegetation budget behaves as 1/N of itself, to stress the complete fallbacks (#1354); 1 restores it. budgetScale: the per-frame build/vertex/triangle limits times N (#1578 option 2); 1 restores it. memoryScale: the 128 MiB geometry and 128 MiB acceleration-structure limits times N, the limit the meadow reaches once the work limit is raised (#1578); 1 restores it. farErrorReference: metres past which a casting proxy's error bound and deadline double per doubling of distance, up to 4x (#1578 option 3); 0 turns it off. Does not change canonical plants, raster LOD or wind. Not saved to scenes or assets. Omit all to read.";
             tool.Annotations = MutatingAnnotations(true);
             tool.ProjectWrite = true;
             tool.InputSchema = Schema::Object()
                                    .Prop("forceDetailed", Schema::Bool())
                                    .Prop("budgetDivisor", Schema::Int().Min(1).Max(1024))
+                                   .Prop("budgetScale", Schema::Int().Min(1).Max(16))
+                                   .Prop("memoryScale", Schema::Int().Min(1).Max(16))
+                                   .Prop("farErrorReference", Schema::Number().Min(0.0))
                                    .NoAdditional();
             tool.OutputSchema = Schema::Object()
                                     .Prop("forceDetailed", Schema::Bool())
                                     .Prop("budgetDivisor", Schema::Int().Min(1))
-                                    .Required({ "forceDetailed", "budgetDivisor" });
+                                    .Prop("budgetScale", Schema::Int().Min(1))
+                                    .Prop("memoryScale", Schema::Int().Min(1))
+                                    .Prop("farErrorReference", Schema::Number().Min(0.0))
+                                    .Required({ "forceDetailed", "budgetDivisor", "budgetScale", "memoryScale", "farErrorReference" });
             tool.MainMarshaled = true;
             tool.Handler = [](IAutomationHost& host, const Json& args) -> ToolResult
             {
@@ -10015,14 +10021,33 @@ namespace OloEngine::MCP
                 // marshalled job: touching it from the MCP worker races the
                 // producer, and splitting the two would let a frame observe the
                 // write yet report the pre-write value back to the caller.
+                // farErrorReference must survive the conversion to f32: a value
+                // past its range is undefined to convert, and a positive one that
+                // rounds to 0 would silently turn the bound off.
+                if (args.contains("farErrorReference"))
+                {
+                    const f64 metres = args["farErrorReference"].get<f64>();
+                    if (!std::isfinite(metres) || metres < 0.0 || metres > static_cast<f64>(std::numeric_limits<f32>::max()) ||
+                        (metres > 0.0 && !(static_cast<f32>(metres) > 0.0f)))
+                        return ToolResult::Error("farErrorReference must be 0 (off) or a positive distance representable as f32.");
+                }
                 return ToolResult::Structured(host.MarshalRead([&args]() -> Json
                                                                {
                     if (args.contains("forceDetailed"))
                         RayTracing::VegetationDiagnostics::SetForceDetailed(args["forceDetailed"].get<bool>());
                     if (args.contains("budgetDivisor"))
                         RayTracing::VegetationDiagnostics::SetBudgetDivisor(static_cast<u32>(std::clamp<i64>(args["budgetDivisor"].get<i64>(), 1, 1024)));
+                    if (args.contains("budgetScale"))
+                        RayTracing::VegetationDiagnostics::SetBudgetScale(static_cast<u32>(std::clamp<i64>(args["budgetScale"].get<i64>(), 1, 16)));
+                    if (args.contains("memoryScale"))
+                        RayTracing::VegetationDiagnostics::SetMemoryScale(static_cast<u32>(std::clamp<i64>(args["memoryScale"].get<i64>(), 1, 16)));
+                    if (args.contains("farErrorReference"))
+                        RayTracing::VegetationDiagnostics::SetFarErrorReference(args["farErrorReference"].get<f32>());
                     return Json{ { "forceDetailed", RayTracing::VegetationDiagnostics::GetForceDetailed() },
-                                 { "budgetDivisor", RayTracing::VegetationDiagnostics::GetBudgetDivisor() } }; }));
+                                 { "budgetDivisor", RayTracing::VegetationDiagnostics::GetBudgetDivisor() },
+                                 { "budgetScale", RayTracing::VegetationDiagnostics::GetBudgetScale() },
+                                 { "memoryScale", RayTracing::VegetationDiagnostics::GetMemoryScale() },
+                                 { "farErrorReference", RayTracing::VegetationDiagnostics::GetFarErrorReference() } }; }));
             };
             registry.Register(std::move(tool));
         }

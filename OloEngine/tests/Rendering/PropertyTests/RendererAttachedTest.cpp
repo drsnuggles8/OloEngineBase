@@ -8,11 +8,15 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Upscaling/TemporalUpscaler.h"
+#include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
 #include "GLErrorStateCheck.h"
 
 #include <glad/gl.h>
 
+#include <chrono>
 #include <functional>
 
 namespace OloEngine::Tests
@@ -50,6 +54,37 @@ namespace OloEngine::Tests
                 ADD_FAILURE() << label << " render tick left a GL error: "
                               << GLErrorState::GlErrorString(tickErr)
                               << " (the whole error queue is drained so the next test starts clean).";
+        }
+
+        // Whether a foliage regeneration is in flight anywhere in `scene`.
+        // Only a started one: a component whose m_NeedsRebuild the scene never
+        // consumes (no terrain, no layers) is not waited on.
+        [[nodiscard]] bool FoliageRebuilding(Scene& scene)
+        {
+            for (const auto entity : scene.GetAllEntitiesWith<FoliageComponent>())
+            {
+                const auto& foliage = Entity{ entity, &scene }.GetComponent<FoliageComponent>();
+                if (foliage.m_Renderer && foliage.m_Renderer->IsRebuilding())
+                    return true;
+            }
+            return false;
+        }
+
+        // A foliage regeneration the frames started is finished before a
+        // RunFrames / RunEditorFrames returns. Once any fixture earlier in the
+        // process has started the task workers, a regeneration publishes
+        // asynchronously (the staged rebuild), so a fixed frame count after
+        // m_NeedsRebuild could still draw the layers from before it: a test
+        // that passed alone failed after another suite. A test that must watch
+        // a rebuild in flight drives its scene through RunEditorFramesOn.
+        void FinishFoliageRegeneration(Scene& scene, const std::function<void()>& tick)
+        {
+            if (!FoliageRebuilding(scene))
+                return;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+            while (FoliageRebuilding(scene) && std::chrono::steady_clock::now() < deadline)
+                tick();
+            EXPECT_FALSE(FoliageRebuilding(scene)) << "a foliage regeneration never reached publication within 30 s";
         }
     } // namespace
 
@@ -175,8 +210,16 @@ namespace OloEngine::Tests
 
     void RendererAttachedTest::RunFrames(u32 count, f32 dtSeconds)
     {
+        RunFramesInFlight(count, dtSeconds);
+        if (count > 0u)
+            FinishFoliageRegeneration(*m_Scene, [this, dtSeconds]()
+                                      { RunFramesInFlight(1u, dtSeconds); });
+    }
+
+    void RendererAttachedTest::RunFramesInFlight(u32 count, f32 dtSeconds)
+    {
         const Timestep ts{ dtSeconds };
-        for (u32 i = 0; i < count; ++i)
+        const auto tick = [this, ts]()
         {
             if (m_RenderingEnabled)
                 RunGuardedRenderTick("RendererAttachedTest::RunFrames",
@@ -186,13 +229,15 @@ namespace OloEngine::Tests
                 // Rendering disabled: the tick issues no draws, so there is no
                 // GL state to contain — skip the guard's per-frame snapshots.
                 m_Scene->OnUpdateRuntime(ts);
-        }
+        };
+        for (u32 i = 0; i < count; ++i)
+            tick();
     }
 
     void RendererAttachedTest::RunEditorFrames(const EditorCamera& camera, u32 count, f32 dtSeconds)
     {
         const Timestep ts{ dtSeconds };
-        for (u32 i = 0; i < count; ++i)
+        const auto tick = [this, ts, &camera]()
         {
             // Same hygiene as RunFrames — the editor render path
             // (OnUpdateEditor -> RenderScene3D -> EndScene) drives the same full
@@ -205,7 +250,11 @@ namespace OloEngine::Tests
                                      { m_Scene->OnUpdateEditor(ts, camera); });
             else
                 m_Scene->OnUpdateEditor(ts, camera);
-        }
+        };
+        for (u32 i = 0; i < count; ++i)
+            tick();
+        if (count > 0u)
+            FinishFoliageRegeneration(*m_Scene, tick);
     }
 
     void RendererAttachedTest::RunEditorFramesOn(Scene& scene, const EditorCamera& camera, u32 count, f32 dtSeconds)

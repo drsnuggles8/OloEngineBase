@@ -640,6 +640,11 @@ namespace OloEngine
             s_RendererAPI->BindStorageBuffer(bindingPoint, buffer);
         }
 
+        [[nodiscard]] static bool BindTransientStorage(u32 bindingPoint, const void* data, u32 size)
+        {
+            return s_RendererAPI->BindTransientStorage(bindingPoint, data, size);
+        }
+
         static void BindShaderProgram(RHI::ResourceHandle program)
         {
             s_RendererAPI->BindShaderProgram(program);

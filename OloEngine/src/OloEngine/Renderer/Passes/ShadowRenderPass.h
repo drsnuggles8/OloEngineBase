@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Renderer/Shadow/ShadowCasterFootprint.h"
+#include "OloEngine/Renderer/Shadow/FoliageShadowInvalidation.h"
 
 #include "OloEngine/Containers/Array.h"
 
@@ -486,6 +487,10 @@ namespace OloEngine
 
         void SubmitFamilyDynamicInvalidations(VirtualShadowMap& vsm);
         u32 RenderFamilyVirtualViews(VirtualShadowMap& vsm, bool local);
+        // The card cut-over parameters for a VSM view at clip level `level`
+        // (#1580; negative: not a clip level), the FoliageVsmCardLevel lever's
+        // override included. Each foliage layer decides from them.
+        [[nodiscard]] static FoliageShadowInvalidation::CardCutover FoliageCardCutover(const VirtualShadowMap& vsm, i32 level);
         std::array<ShadowFamilyCache, 3> m_FamilyCaches;
         // The foliage renderers this frame's Execute culled for, whose demand
         // the epilogue copies out (CaptureFoliageCullDemand).
@@ -539,6 +544,9 @@ namespace OloEngine
         // render thread before a region forks and read-only while its items
         // record; All outside RecordShadowRegion.
         ShadowCasterFilter m_CasterFilter = ShadowCasterFilter::All;
+        // The card cut-over of the clip level RenderFamilyVirtualViews is
+        // drawing (#1580); read by RenderCascadeOrFace.
+        FoliageShadowInvalidation::CardCutover m_FoliageCardCutover{};
         // Where a strand can sample an opaque copy this frame (#1533): the
         // union of the posed boxes of the grooms that RECEIVE the scene's
         // shadow, so a copy need cover no more of a map than that. Unknown

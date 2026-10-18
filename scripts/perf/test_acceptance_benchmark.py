@@ -131,6 +131,26 @@ class PassAggregationTest(TempCase):
         self.assertEqual(out['c']['subPasses'], {'Shadow/Cascade0': [1.0]})
         self.assertEqual((excluded, rows), ({}, 1))
 
+    def test_repeated_subpass_in_one_frame_is_summed(self):
+        # One frame brackets each VSM clip level's foliage separately (#1590):
+        # those intervals are disjoint, so the frame's sample is their sum.
+        sub = {'status': 'valid', 'isSubPass': True, 'parent': 'ShadowPass'}
+        records = [{'camera': 'c', 'index': 0, 'gpuFrameId': 5, 'passes': [
+            {'pass': 'ShadowPass', 'status': 'valid', 'gpuMs': 9.0},
+            dict(sub, **{'pass': 'VsmSun/FoliageCull', 'gpuMs': 1.0}),
+            dict(sub, **{'pass': 'VsmSun/FoliageCull', 'gpuMs': 2.5}),
+            dict(sub, **{'pass': 'Atlas/Terrain', 'gpuMs': 1.0}),
+            dict(sub, **{'pass': 'Atlas/Terrain', 'status': 'pending', 'gpuMs': None})]},
+            {'camera': 'c', 'index': 1, 'gpuFrameId': 5, 'passes': [
+                dict(sub, **{'pass': 'VsmSun/FoliageCull', 'gpuMs': 7.0})]}]
+        out, excluded, _, rows = acceptance.aggregate_passes(records, {'c': 2})
+        self.assertEqual(out['c']['passes'], {'ShadowPass': [9.0]})
+        self.assertEqual(out['c']['subPasses'], {'ShadowPass/VsmSun/FoliageCull': [3.5]})
+        # One part pending excludes the frame's whole sum; a second row that
+        # resolved the same frame is still a duplicate.
+        self.assertEqual(excluded, {'status:pending': 1, 'duplicate-frame-pass': 1})
+        self.assertEqual(rows, 2)
+
     def test_unexpected_pass_row_is_refused(self):
         records = [{'camera': 'elsewhere', 'index': 0, 'gpuFrameId': 1, 'passes': []}]
         with self.assertRaisesRegex(ValueError, 'unexpected or duplicate'):
@@ -429,6 +449,33 @@ class PlanRefusalTest(TempCase):
             self.load(cells=[{'id': 'vk', 'host': 'vulkan', 'manifest': 'm.yaml'}])
         with self.assertRaisesRegex(ValueError, 'host'):
             self.load(cells=[{'id': 'x', 'host': 'dx12', 'manifest': 'm.yaml'}])
+
+    def test_cell_env_is_kept_and_must_map_names_to_strings(self):
+        self.assertEqual(self.load()['cells'][0]['env'], {})
+        lever = [{'id': 'gl', 'host': 'gl', 'manifest': 'm.yaml', 'env': {'OLO_NO_SHADOWPASS_BRACKETS': '1'}}]
+        self.assertEqual(self.load(cells=lever)['cells'][0]['env'], {'OLO_NO_SHADOWPASS_BRACKETS': '1'})
+        for bad in (['OLO_X'], {'OLO_X': 1}, {'': '1'}):
+            with self.assertRaisesRegex(ValueError, 'env'):
+                self.load(cells=[{'id': 'gl', 'host': 'gl', 'manifest': 'm.yaml', 'env': bad}])
+
+    def test_every_cells_env_keys_are_cleared_for_every_cell(self):
+        # The control cell has no env of its own, yet the lever's key is in the
+        # set cleared before each launch, so a shell-set lever cannot leak in.
+        plan = self.load(cells=[{'id': 'base', 'host': 'gl', 'manifest': 'm.yaml'},
+                                {'id': 'lever', 'host': 'gl', 'manifest': 'm.yaml',
+                                 'env': {'OLO_NO_SHADOWPASS_BRACKETS': '1'}}])
+        self.assertEqual(plan['cellEnvKeys'], ['OLO_NO_SHADOWPASS_BRACKETS'])
+
+    def test_driver_owned_env_and_impossible_requirements_are_refused(self):
+        for owned in ('OLO_SHADER_CACHE_DIR', 'OLO_CAPTURE_TEST_DELAY_MS'):
+            with self.assertRaisesRegex(ValueError, 'the driver sets it'):
+                self.load(cells=[{'id': 'gl', 'host': 'gl', 'manifest': 'm.yaml', 'env': {owned: '1'}}])
+        with self.assertRaisesRegex(ValueError, 'never publishes'):
+            self.load(cells=[{'id': 'gl', 'host': 'gl', 'manifest': 'm.yaml', 'requirePasses': ['ShadowPass/Atlas'],
+                              'env': {'OLO_NO_SHADOWPASS_BRACKETS': '1'}}])
+        # The pass's own bracket stays, so requiring ShadowPass itself is fine.
+        self.load(cells=[{'id': 'gl', 'host': 'gl', 'manifest': 'm.yaml', 'requirePasses': ['ShadowPass'],
+                          'env': {'OLO_NO_SHADOWPASS_BRACKETS': '1'}}])
 
     def test_cli_overrides(self):
         plan = acceptance.load_plan(copy.deepcopy(self.BASE), default_repo=self.root, gate_ms=33.333, repeats=5,

@@ -120,7 +120,7 @@ namespace OloEngine
         Ref<StorageBuffer> m_CounterSSBO;      // binding 2: GPUParticleCounters
         Ref<StorageBuffer> m_FreeListSSBO;     // binding 3: u32[maxParticles]
         Ref<StorageBuffer> m_IndirectDrawSSBO; // binding 4: DrawElementsIndirectCommand
-        Ref<StorageBuffer> m_EmitStagingSSBO;  // binding 5: GPUParticle[emitBatchSize]
+        Ref<StorageBuffer> m_EmitStagingSSBO;  // binding 5, GL only: GPUParticle[MAX_EMIT_BATCH]
         Ref<StorageBuffer> m_PrevPositionSSBO; // binding 14: vec4[maxParticles] — previous-frame position snapshot (for motion vectors)
 
         // Compaction scratch (issue #713), binding 54 = SSBO_PREFIX_SUM_VALUES.

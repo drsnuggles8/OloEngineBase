@@ -162,12 +162,13 @@ namespace OloEngine
 
         /// @brief Allocate query objects. Call once after the graphics device is live.
         ///
-        /// 256 brackets a frame, each two timestamp queries. A VSM frame
-        /// brackets each virtual view's foliage cull and casters (#1391) --
-        /// 32 for the 16 clip levels before a single local light -- and a pass
-        /// past the budget is counted as untimed, which costs every bracket
-        /// AFTER it in the frame, not the one that overflowed.
-        void Initialize(u32 maxPassesPerFrame = 256);
+        /// 1024 brackets a frame, each two timestamp queries. ShadowPass
+        /// brackets every caster class of every view (#1590): sixteen VSM clip
+        /// levels, and on GL six classes for each of a few dozen atlas faces,
+        /// already pass 256. A bracket past the budget is counted as untimed,
+        /// which costs every bracket AFTER it in the frame, not the one that
+        /// overflowed.
+        void Initialize(u32 maxPassesPerFrame = 1024);
 
         /// @brief Delete all query objects.
         void Shutdown();
@@ -190,12 +191,22 @@ namespace OloEngine
         /// open pass (e.g. the ScenePass depth-prepass vs color split, #316).
         /// The sub-pass is published as "<ParentName>/<name>"; timestamps are
         /// scope-free so the pair coexists with (and overlaps) the parent's
-        /// bracket. One level only: a sub-pass inside a sub-pass is dropped, as
-        /// is a sub-pass with no pass open.
+        /// bracket.
+        ///
+        /// Up to kMaxSubPassDepth levels (#1590: ShadowPass brackets a view
+        /// family, and each caster class inside it). A nested sub-pass is
+        /// published under its enclosing sub-pass's name,
+        /// "<ParentName>/<outer>/<name>", but its ParentName stays the
+        /// TOP-LEVEL pass, so every sub-pass is excluded from the frame total
+        /// alike; a consumer that sums sub-passes must pick one level. A level
+        /// past the depth, or under an enclosing sub-pass that got no bracket,
+        /// is counted as untimed. Ignored with no pass open.
         void BeginSubPass(const std::string& name);
 
-        /// @brief Stamp the end timestamp for the sub-pass opened by BeginSubPass.
+        /// @brief Stamp the end timestamp for the innermost open sub-pass.
         void EndSubPass();
+
+        static constexpr u32 kMaxSubPassDepth = 2;
 
         [[nodiscard]] bool IsInitialized() const
         {
@@ -333,9 +344,14 @@ namespace OloEngine
         bool m_Initialized = false;
         bool m_Active = false;      // between BeginFrame/EndFrame
         bool m_PassOpen = false;    // between BeginPass/EndPass
-        bool m_SubPassOpen = false; // between BeginSubPass/EndSubPass
         u32 m_CurrentPassIndex = 0; // pair index of the open pass
-        u32 m_CurrentSubPassIndex = 0;
+        // Open sub-passes, outermost first. A level that got no bracket holds
+        // kNoBracket, so its EndSubPass pops it without stamping anything --
+        // and never closes the bracket around it. Levels past
+        // kMaxSubPassDepth are counted in m_SubPassDepth only.
+        static constexpr u32 kNoBracket = ~0u;
+        std::array<u32, kMaxSubPassDepth> m_SubPassStack{};
+        u32 m_SubPassDepth = 0;
 
         // Published results (most recently resolved frame).
         TArray<PassTiming> m_LastPassTimings;

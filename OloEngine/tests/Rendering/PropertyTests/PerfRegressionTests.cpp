@@ -506,11 +506,13 @@ namespace OloEngine::Tests
         const auto measureEmit = [&]() -> u64
         {
             std::array<u64, kSamples> samples{};
+            // Emit and the step that consumes it, as the Vulkan twin times them.
             for (u64& sample : samples)
             {
                 sample = timed([&]()
-                               { solver.Emit(entries); });
-                solver.Step(params, kDt, {}, {});
+                               {
+                                   solver.Emit(entries);
+                                   solver.Step(params, kDt, {}, {}); });
             }
             ::glFinish();
             return *std::ranges::min_element(samples);
@@ -528,7 +530,7 @@ namespace OloEngine::Tests
             ::glFinish();
             return *std::ranges::min_element(samples);
         };
-        report("gl_fluid_emit_staging_32", MeasureBenchmarkStableNs("gl_fluid_emit_staging_32", measureEmit));
+        report("gl_fluid_emit_step_32", MeasureBenchmarkStableNs("gl_fluid_emit_step_32", measureEmit));
         report("gl_fluid_step_4_proxies",
                MeasureBenchmarkStableNs("gl_fluid_step_4_proxies", [&]()
                                         { return measureStep(true); }));

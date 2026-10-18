@@ -622,4 +622,120 @@ namespace OloEngine::Tests
         EXPECT_FALSE(HybridProducersWanted(true, false, true, true, true, true));
         EXPECT_FALSE(HybridProducersWanted(true, true, false, true, true, true));
     }
+
+    // #1578 option 3: a far casting group's error bound and deadline grow in
+    // power-of-two distance bands, never past MaximumFarErrorScale, and not at
+    // all with no reference distance.
+    TEST(VegetationCastingPlan, TheFarErrorBoundGrowsInBandsPastItsReference)
+    {
+        constexpr f32 reference = 50.0f;
+        EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(10.0f, reference), 1.0f);
+        EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(50.0f, reference), 1.0f) << "the reference itself keeps the declared bound";
+        EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(99.0f, reference), 1.0f);
+        EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(100.0f, reference), 2.0f);
+        EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(199.0f, reference), 2.0f);
+        EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(200.0f, reference), 4.0f);
+        EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(1.0e6f, reference),
+                        static_cast<f32>(VegetationPolicy::MaximumFarErrorScale))
+            << "capped";
+        EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(1.0e6f, 0.0f), 1.0f) << "no reference: the bound never grows";
+        EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(std::numeric_limits<f32>::infinity(), reference), 1.0f);
+        EXPECT_FLOAT_EQ(VegetationPolicy::FarErrorScale(100.0f, 1.0e-39f), static_cast<f32>(VegetationPolicy::MaximumFarErrorScale))
+            << "a reference so small the ratio overflows is the cap, not an undefined cast";
+        // Banded, so a camera step inside a band leaves the deadline -- and so
+        // the cache's refresh bucket -- where it was.
+        EXPECT_FLOAT_EQ(VegetationPolicy::ProxyAgeLimit(5.0f, VegetationPolicy::FarErrorScale(120.0f, reference)),
+                        VegetationPolicy::ProxyAgeLimit(5.0f, VegetationPolicy::FarErrorScale(180.0f, reference)));
+        // The scaled bound is the declared one times the scale: 0.5 m of motion
+        // at 2x, and the age cap doubles with it.
+        EXPECT_FLOAT_EQ(VegetationPolicy::ProxyAgeLimit(5.0f, 2.0f), 2.0f * VegetationPolicy::ProxyAgeLimit(5.0f));
+        EXPECT_FLOAT_EQ(VegetationPolicy::ProxyAgeLimit(0.0f, 4.0f), 4.0f * VegetationPolicy::MaximumProxyAge);
+        EXPECT_FLOAT_EQ(VegetationPolicy::ProxyAgeLimit(5.0f, 100.0f), VegetationPolicy::ProxyAgeLimit(5.0f, 4.0f)) << "clamped";
+        // A held caster obeys the scaled bound and no more.
+        constexpr f32 velocity = 5.0f; // 0.05 s at 1x, 0.1 s at 2x
+        EXPECT_TRUE(VegetationPolicy::CanHoldSnapshot(1.09f, 1.0f, velocity, true, 2.0f));
+        EXPECT_FALSE(VegetationPolicy::CanHoldSnapshot(1.11f, 1.0f, velocity, true, 2.0f));
+        EXPECT_FALSE(VegetationPolicy::CanHoldSnapshot(1.09f, 1.0f, velocity, true)) << "unscaled stays 0.25 m";
+    }
+
+    // #1578 option 2: a scaled frame budget raises every per-frame work limit
+    // together, reserving and charging against the scaled limits.
+    TEST(VegetationCastingPlan, AScaledFrameBudgetRaisesEveryWorkLimit)
+    {
+        VegetationFrameBudget unscaled;
+        EXPECT_EQ(unscaled.UpdateLimit, VegetationPolicy::UpdatesPerFrame);
+        const VegetationFrameBudget doubled = VegetationFrameBudget::Scaled(2u);
+        EXPECT_EQ(doubled.UpdateLimit, 2u * VegetationPolicy::UpdatesPerFrame);
+        EXPECT_EQ(doubled.VertexLimit, 2u * VegetationPolicy::VerticesPerFrame);
+        EXPECT_EQ(doubled.TriangleLimit, 2u * VegetationPolicy::TrianglesPerFrame);
+        VegetationFrameBudget budget = VegetationFrameBudget::Scaled(2u);
+        EXPECT_TRUE(budget.Reserve(1u, 1u, VegetationPolicy::UpdatesPerFrame + 1u)) << "past the unscaled limit, inside the scaled one";
+        EXPECT_FALSE(budget.Reserve(1u, 1u, VegetationPolicy::UpdatesPerFrame)) << "past the scaled limit";
+        VegetationFrameBudget charged = VegetationFrameBudget::Scaled(2u);
+        charged.Charge({ 10u * VegetationPolicy::UpdatesPerFrame, 0u, 0u });
+        EXPECT_EQ(charged.Updates, charged.UpdateLimit) << "a debt saturates at the scaled limit";
+        const VegetationPolicy::PlanRoom room = VegetationPolicy::PlanRoom::Scaled(1u, 2u);
+        EXPECT_DOUBLE_EQ(room.Builds, 2.0 * VegetationPolicy::UpdatesPerFrame);
+        EXPECT_EQ(room.Geometry, VegetationPolicy::GeometryBytes) << "the work scale leaves memory alone";
+        // The upgrade margin is a fraction of the SCALED limit: a charge that
+        // leaves a sixteenth of the doubled build budget free fits with margin,
+        // one that leaves less does not.
+        VegetationPolicy::PlanCharge charge;
+        charge.Builds = 2.0 * VegetationPolicy::UpdatesPerFrame * (1.0 - 1.0 / VegetationPolicy::UpgradeMarginDivisor) - 1.0;
+        EXPECT_EQ(room.Misfit(charge, VegetationPolicy::UpgradeMarginDivisor), RayTracing::VegetationPressure::None);
+        charge.Builds += 2.0;
+        EXPECT_EQ(room.Misfit(charge, VegetationPolicy::UpgradeMarginDivisor), RayTracing::VegetationPressure::FrameWork);
+    }
+
+    // #1578: past a doubled work limit the meadow is held by the 64 MiB of
+    // geometry, so the memory limits scale on their own lever, through the one
+    // limit function every enforcing check calls.
+    TEST(VegetationCastingPlan, AScaledMemoryLimitAdmitsWhatTheShippedOneRefuses)
+    {
+        EXPECT_EQ(VegetationPolicy::GeometryByteLimit(1u), VegetationPolicy::GeometryBytes);
+        EXPECT_EQ(VegetationPolicy::GeometryByteLimit(0u), VegetationPolicy::GeometryBytes) << "clamped up to the shipped limit";
+        EXPECT_EQ(VegetationPolicy::GeometryByteLimit(64u), 16u * VegetationPolicy::GeometryBytes) << "clamped to 16x";
+        EXPECT_EQ(VegetationPolicy::AccelerationByteLimit(2u), 2u * VegetationPolicy::AccelerationStructureBytes);
+
+        const VegetationPolicy::PlanRoom shipped = VegetationPolicy::PlanRoom::Scaled(1u, 2u);
+        const VegetationPolicy::PlanRoom doubled = VegetationPolicy::PlanRoom::Scaled(1u, 2u, 2u);
+        EXPECT_EQ(doubled.Geometry, 2u * VegetationPolicy::GeometryBytes);
+        EXPECT_EQ(doubled.Acceleration, 2u * VegetationPolicy::AccelerationStructureBytes);
+        EXPECT_DOUBLE_EQ(doubled.Builds, shipped.Builds) << "the memory scale leaves frame work alone";
+        EXPECT_EQ(doubled.Groups, VegetationPolicy::ResidentGroups);
+
+        VegetationPolicy::PlanCharge charge;
+        charge.Geometry = VegetationPolicy::GeometryBytes + VegetationPolicy::GeometryBytes / 2u; // 96 MiB
+        EXPECT_EQ(shipped.Misfit(charge, 0u), RayTracing::VegetationPressure::GeometryMemory);
+        EXPECT_EQ(doubled.Misfit(charge, 0u), RayTracing::VegetationPressure::None);
+        // The margin is a fraction of the SCALED limit, as for frame work.
+        charge.Geometry = 2u * VegetationPolicy::GeometryBytes - VegetationPolicy::GeometryBytes / 16u;
+        EXPECT_EQ(doubled.Misfit(charge, VegetationPolicy::UpgradeMarginDivisor), RayTracing::VegetationPressure::GeometryMemory);
+
+        // A divided room divides the scaled limit.
+        EXPECT_EQ(VegetationPolicy::PlanRoom::Scaled(4u, 1u, 2u).Geometry, VegetationPolicy::GeometryBytes / 2u);
+
+        // The scale can drop while more than the new limit is resident: the
+        // room is then zero, never a wrapped u64 that admits everything.
+        const u64 resident = 3u * VegetationPolicy::GeometryBytes;
+        EXPECT_EQ(VegetationPolicy::RoomUnder(VegetationPolicy::GeometryByteLimit(1u), resident), 0u);
+        EXPECT_EQ(VegetationPolicy::RoomUnder(VegetationPolicy::GeometryByteLimit(4u), resident), VegetationPolicy::GeometryBytes);
+
+        // The reflection plan reads the same scaled limit as the cache: with
+        // more than the shipped limit already staged by casters, a doubled
+        // limit still has room for a card group, the shipped one none.
+        using Cost = VegetationPolicy::ReflectionGroupCost;
+        using Tier = VegetationPolicy::ReflectionTier;
+        const std::array<Cost, 1> one{ Cost{ VegetationPolicy::GeometryBytes / 4u, 0u, 0u, 0u } };
+        std::array<Tier, 1> tier{};
+        const u64 staged = VegetationPolicy::GeometryBytes + VegetationPolicy::GeometryBytes / 4u;
+        VegetationPolicy::ChooseReflectionTiers(one, staged, 0u, tier, 0u, 1u);
+        EXPECT_EQ(tier[0], Tier::Out);
+        VegetationPolicy::ChooseReflectionTiers(one, staged, 0u, tier, 0u, 2u);
+        EXPECT_EQ(tier[0], Tier::Card);
+
+        // Area grouping keeps the size the #1578 sweep measured; it is not
+        // derived from the (doubled) frame limit.
+        EXPECT_EQ(VegetationPolicy::CastingAreaPlantsPerGroup, 65536u);
+    }
 } // namespace OloEngine::Tests

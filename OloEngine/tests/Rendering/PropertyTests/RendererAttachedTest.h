@@ -112,8 +112,14 @@ namespace OloEngine::Tests
         /// wrapped in a `GLStateGuard` (restore policy) and its GL error
         /// queue is drained afterward, so the render leaves no global GL
         /// state — bindings OR pending errors — behind for the next test
-        /// (issue #485).
+        /// (issue #485). Like `RunEditorFrames`, it does not return while a
+        /// foliage regeneration it started is still in flight.
         void RunFrames(u32 count, f32 dtSeconds = 1.0f / 60.0f);
+
+        /// `RunFrames` without the wait: returns after exactly `count` ticks
+        /// even with a foliage regeneration in flight. For a test that watches
+        /// a staged rebuild through the runtime tick.
+        void RunFramesInFlight(u32 count, f32 dtSeconds = 1.0f / 60.0f);
 
         /// Tick `count` frames through the EDITOR render path
         /// (`Scene::OnUpdateEditor` with the supplied posed `EditorCamera`)
@@ -124,6 +130,14 @@ namespace OloEngine::Tests
         /// visual tests that need an explicit fly-camera pose — multi-angle
         /// screenshot evidence, etc. — which the single runtime
         /// `CameraComponent` path cannot express.
+        ///
+        /// A foliage regeneration in flight after the frames is published
+        /// before it returns, however many extra frames that takes: with the
+        /// task workers running it is asynchronous, and a fixed frame count
+        /// made a test's result depend on which suite ran before it. The extra
+        /// frames exist only while a rebuild is in flight, when the fixed count
+        /// would have read the replaced layers. To watch a rebuild in flight,
+        /// use `RunEditorFramesOn`.
         void RunEditorFrames(const EditorCamera& camera, u32 count, f32 dtSeconds = 1.0f / 60.0f);
 
         /// `RunEditorFrames` for a scene other than the fixture's own, through

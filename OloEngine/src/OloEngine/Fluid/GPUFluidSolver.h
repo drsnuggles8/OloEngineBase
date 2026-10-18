@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Renderer/Debug/StagedBufferReadback.h"
 #include "OloEngine/Fluid/FluidSolverTypes.h" // FluidKillBox
 #include "OloEngine/Renderer/ComputeShader.h"
@@ -123,12 +124,18 @@ namespace OloEngine
         static constexpr u32 kCountRefreshInterval = 30;
 
       private:
+        // Whether this backend stages per-dispatch inputs as frame-arena ranges.
+        [[nodiscard]] static bool UsesTransientStaging();
+
         u32 m_MaxParticles = 0;
         bool m_Initialized = false;
         bool m_HasDispatched = false; // Vulkan reset cannot rewrite live GPU output
 
-        u32 m_ParticleUpperBound = 0;     // CPU-known conservative live count
-        u32 m_PendingEmitCount = 0;       // staged entries awaiting the next Step
+        u32 m_ParticleUpperBound = 0; // CPU-known conservative live count
+        u32 m_PendingEmitCount = 0;   // staged entries awaiting the next Step
+        // Vulkan only: the pending batch, bound as one frame-arena range at
+        // Step (#1543). GL writes it straight into m_EmitStagingSSBO.
+        TArray<GPUFluidEmitEntry> m_PendingEmitEntries;
         u32 m_StepsSinceCountRefresh = 0; // cadence tracker for RefreshExactCount
         u32 m_LastProxyCount = 0;         // proxies uploaded by the last Step (for HarvestFeedback)
         u32 m_LastSolverIterations = 1;   // iteration count of the last Step (feedback averaging)

@@ -153,6 +153,25 @@ OLO_LEVER_EXACT(FaultGroomNoOtherFur, "OLO_FAULT_GROOM_NO_OTHER_FUR",
                 "FAULT (#1533 negative control): grooms that sample the opaque shadow copies never also sample the "
                 "full map at their coat's light-exit point, so one coat's fur does not shadow another coat -- the gap "
                 "the opaque copies left. GroomSceneShadowVisualEvidenceTest's coat-over-coat cases prove they see it.")
+OLO_LEVER_INT(FoliageVsmCardLevel, "OLO_FOLIAGE_VSM_CARD_LEVEL", 0,
+              "The first virtual-shadow-map clip level foliage casts through cards instead of its authored "
+              "mesh (#1580). Unset, FoliageShadowInvalidation::FirstCardLevel chooses it from the levels' "
+              "texel sizes; 16 (or more) casts the meshes into every level, the pre-#1580 behaviour, and 0 "
+              "casts cards everywhere. The A/B lever for the cut-over's cost and its shadow shape.")
+OLO_LEVER_EXACT(FaultVulkanStagingReuse, "OLO_FAULT_VULKAN_STAGING_REUSE",
+                "FAULT (#1543 negative control): on Vulkan, upload GPU particle emit batches, GPU fluid emit batches "
+                "and fluid body proxies into ONE persistent buffer each, rewritten in place, instead of a frame-arena "
+                "range per batch -- so a dispatch still queued from an earlier frame reads the next batch. The "
+                "VulkanPassSuite delayed-read tests prove they see it.")
+OLO_LEVER_EXACT(FaultShadowFoliageCullCap, "OLO_FAULT_SHADOW_FOLIAGE_CULL_CAP",
+                "FAULT (#1590 negative control): record a cascade or atlas region in one batch however many views it "
+                "has, so every view past the foliage cull's shadow slots (FoliageGPUCuller::kMaxShadowViews) draws "
+                "the whole island's foliage uncompacted -- the cost a point light's last cube faces paid before "
+                "#1590. ShadowAtlasFoliageCullEvidenceTest proves its cull-coverage check sees it.")
+OLO_LEVER_EXACT(NoShadowPassBrackets, "OLO_NO_SHADOWPASS_BRACKETS",
+                "Open no ShadowPass family or caster-class GPU bracket (ShadowBrackets::Scope, #1590); the pass's "
+                "own bracket stays. The A/B lever for what the brackets cost: a VSM frame opens a class bracket "
+                "per clip level.")
 OLO_LEVER_EXACT(FaultCountAliasAsBacking, "OLO_FAULT_COUNT_ALIAS_AS_BACKING",
                 "FAULT (#1342 negative control): book every view/alias RendererMemoryTracker::TrackAlias receives "
                 "as its own BACKING allocation, so a view onto an existing image is counted twice in the physical "

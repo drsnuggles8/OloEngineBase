@@ -167,4 +167,31 @@ namespace OloEngine::Tests
         EXPECT_EQ(FSI::MergeLevelMasks(0b10u, 0b01u), 0b11u);
         EXPECT_EQ(FSI::MergeLevelMasks(FSI::kEveryLevel, 0b01u), FSI::kEveryLevel);
     }
+
+    // #1580's card cut-over: no receiver inside the mesh reach samples a card
+    // level, and every level past the coarsest one such a receiver can select
+    // takes cards.
+    TEST(FoliageShadowInvalidation, CardLevelsStartPastEveryLevelAReceiverInsideTheMeshReachSelects)
+    {
+        constexpr f32 kClip0 = 2.0f;
+        constexpr f32 kBias = 1.0f;
+        for (const f32 reach : { 0.5f, 12.0f, 30.0f, 35.1f, 64.0f, 400.0f })
+        {
+            SCOPED_TRACE(reach);
+            const i32 atReach = VirtualShadowMap::SelectClipLevel(reach, kClip0, kBias);
+            const u32 first = FSI::FirstCardLevel(atReach, VSM::kClipLevels);
+            // Every receiver distance inside the reach selects a mesh level.
+            for (f32 d = 0.05f; d <= reach; d *= 1.05f)
+                EXPECT_LT(static_cast<u32>(VirtualShadowMap::SelectClipLevel(d, kClip0, kBias)), first) << d;
+            // And the level right after the reach's is a card level: the cut-over
+            // is as fine as that guarantee allows, not further out.
+            EXPECT_EQ(first, std::min<u32>(static_cast<u32>(atReach) + 1u, VSM::kClipLevels));
+        }
+        // The default clip extent puts a 30 m mesh band's last level at L4 (texel
+        // 1.6 cm, the levels receivers 16-32 m out select), so cards from L5.
+        EXPECT_EQ(FSI::FirstCardLevel(VirtualShadowMap::SelectClipLevel(30.0f, kClip0, kBias), VSM::kClipLevels), 5u);
+        EXPECT_EQ(FSI::FirstCardLevel(-1, VSM::kClipLevels), 0u) << "no mesh layer casts: every level may take cards";
+        EXPECT_EQ(FSI::FirstCardLevel(static_cast<i32>(VSM::kClipLevels) - 1, VSM::kClipLevels), VSM::kClipLevels)
+            << "a reach the coarsest level serves leaves no card level";
+    }
 } // namespace OloEngine::Tests

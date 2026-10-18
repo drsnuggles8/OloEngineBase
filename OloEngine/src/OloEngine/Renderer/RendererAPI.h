@@ -659,6 +659,16 @@ namespace OloEngine
         // cannot be confused with a real object.
         virtual void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) = 0;
         virtual void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) = 0;
+        // Per-dispatch CPU data for a COMPUTE read at `bindingPoint` (#1543):
+        // copies `size` bytes into memory that lives until the GPU has
+        // finished this frame and binds that range, with no allocation and no
+        // draw snapshot. A dispatch then reads the bytes it was recorded with
+        // even when the next batch is bound before it executes. Vulkan
+        // suballocates the frame arena. GL orders buffer uploads against
+        // dispatches, so its callers reuse one buffer and never come here; the
+        // default refuses, loudly. False when nothing was bound: the caller
+        // must not dispatch on it.
+        [[nodiscard]] virtual bool BindTransientStorage(u32 bindingPoint, const void* data, u32 size);
 
         // --- Program / VAO / framebuffer binding ------------------------------
         // The POD command dispatcher holds a program identity by design (it
