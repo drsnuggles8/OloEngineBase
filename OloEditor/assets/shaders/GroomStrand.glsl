@@ -1035,7 +1035,14 @@ vec3 oloGroomLocalExitPoint(vec3 lightPosition, vec3 L, float exitDistance, vec3
 		return shadowPos; // the strand itself; nothing to stop short of
 	}
 	float toLamp = length(lightPosition - v_WorldPos);
-	return v_WorldPos + L * min(exitDistance, max(toLamp - OLO_GROOM_LOCAL_EXIT_LAMP_GUARD, 0.0));
+	// Only an exit AT OR PAST the lamp moves. One that leaves the box before the
+	// lamp is already beyond the coat; pulling it back by the guard would put the
+	// lookup inside the coat again, under its own fur.
+	if (exitDistance < toLamp)
+	{
+		return shadowPos;
+	}
+	return v_WorldPos + L * max(toLamp - OLO_GROOM_LOCAL_EXIT_LAMP_GUARD, 0.0);
 }
 
 float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L, out bool known)
