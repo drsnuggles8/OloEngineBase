@@ -9181,26 +9181,36 @@ namespace OloEngine::Tests
             }
             return bytes;
         };
-        const std::vector<u8> groomBytes = readAll(DogGroomFile(".ologroom"));
-        const std::vector<u8> bindingBytes = readAll(DogGroomFile(".ologroombinding"));
+        // EACH STAGE IN ITS OWN SCOPE (#1608): the shipped bytes, a re-encoded
+        // copy, a recooked binding, the loose import, the packed import and the
+        // pack's manager are each a whole coat, and held together to the end
+        // they took this case over the 6 GB per-process ceiling when the scene
+        // swapped to the packed pair and built its rest stream. What the draw
+        // below needs is the packed pair; the rest dies where it was checked.
+        std::vector<u8> groomBytes = readAll(DogGroomFile(".ologroom"));
+        std::vector<u8> bindingBytes = readAll(DogGroomFile(".ologroombinding"));
         ASSERT_FALSE(groomBytes.empty()) << (DogGroomFile(".ologroom")).string();
         ASSERT_FALSE(bindingBytes.empty()) << (DogGroomFile(".ologroombinding")).string();
+        const sizet groomSize = groomBytes.size();
+        const sizet bindingSize = bindingBytes.size();
+        std::string reason;
 
         // The binding the fixture cooks from the shipped coat and today's body.
-        std::string reason;
-        std::vector<u8> again;
-        Ref<GroomBindingAsset> recookedBinding;
-        GroomBindingBuildSettings bind;
-        bind.SurfaceToGroom = glm::mat4(1.0f);
-        GroomBindingBuildStats bindStats;
-        const Ref<AnimatedModel> bindModel = Ref<AnimatedModel>::Create(DogPath().string());
-        ASSERT_TRUE(bindModel && bindModel->GetEntityMeshSource() && bindModel->GetSkeleton());
-        ASSERT_TRUE(GroomBindingCooker::CookPair(*m_Dog.CoatAsset.Groom,
-                                                 MakeSurfaceView(*bindModel->GetEntityMeshSource(), bindModel->GetSkeleton().Raw()),
-                                                 "Dog", bind, again, recookedBinding, bindStats, reason))
-            << reason;
-        EXPECT_EQ(again, bindingBytes) << "the shipped binding is not the one Dog.gltf cooks today: re-export with "
-                                          "OLO_DOG_EXPORT=1 (DogShowcaseEvidenceTest.ExportsTheLiveScene)";
+        {
+            std::vector<u8> again;
+            Ref<GroomBindingAsset> recookedBinding;
+            GroomBindingBuildSettings bind;
+            bind.SurfaceToGroom = glm::mat4(1.0f);
+            GroomBindingBuildStats bindStats;
+            const Ref<AnimatedModel> bindModel = Ref<AnimatedModel>::Create(DogPath().string());
+            ASSERT_TRUE(bindModel && bindModel->GetEntityMeshSource() && bindModel->GetSkeleton());
+            ASSERT_TRUE(GroomBindingCooker::CookPair(*m_Dog.CoatAsset.Groom,
+                                                     MakeSurfaceView(*bindModel->GetEntityMeshSource(), bindModel->GetSkeleton().Raw()),
+                                                     "Dog", bind, again, recookedBinding, bindStats, reason))
+                << reason;
+            EXPECT_EQ(again, bindingBytes) << "the shipped binding is not the one Dog.gltf cooks today: re-export with "
+                                              "OLO_DOG_EXPORT=1 (DogShowcaseEvidenceTest.ExportsTheLiveScene)";
+        }
 
         // Loose: the shipped files, imported by the editor asset manager.
         const fs::path assetsDir = Project::GetAssetDirectory();
@@ -9215,14 +9225,17 @@ namespace OloEngine::Tests
         ASSERT_NE(static_cast<u64>(looseGroom), 0u);
         ASSERT_NE(static_cast<u64>(looseBinding), 0u);
         m_CaseImports = { looseGroom, looseBinding };
-        const auto loadedGroom = AssetManager::GetAsset<GroomAsset>(looseGroom);
-        const auto loadedBinding = AssetManager::GetAsset<GroomBindingAsset>(looseBinding);
-        ASSERT_TRUE(loadedGroom);
-        ASSERT_TRUE(loadedBinding);
-        ASSERT_TRUE(GroomSerializer::EncodeToBytes(*loadedGroom, again, reason)) << reason;
-        EXPECT_EQ(again, groomBytes) << "loose groom";
-        ASSERT_TRUE(GroomBindingSerializer::EncodeToBytes(*loadedBinding, again, reason)) << reason;
-        EXPECT_EQ(again, bindingBytes) << "loose binding";
+        {
+            std::vector<u8> again;
+            const auto loadedGroom = AssetManager::GetAsset<GroomAsset>(looseGroom);
+            const auto loadedBinding = AssetManager::GetAsset<GroomBindingAsset>(looseBinding);
+            ASSERT_TRUE(loadedGroom);
+            ASSERT_TRUE(loadedBinding);
+            ASSERT_TRUE(GroomSerializer::EncodeToBytes(*loadedGroom, again, reason)) << reason;
+            EXPECT_EQ(again, groomBytes) << "loose groom";
+            ASSERT_TRUE(GroomBindingSerializer::EncodeToBytes(*loadedBinding, again, reason)) << reason;
+            EXPECT_EQ(again, bindingBytes) << "loose binding";
+        }
 
         // Packed: the pack the GAME ships, written by AssetPackBuilder and read back by
         // the runtime's asset manager. Through the serializers alone, which is what
@@ -9241,22 +9254,35 @@ namespace OloEngine::Tests
         const auto packed = AssetPackBuilder::BuildFromRegistry(shippedPair, packSettings, packProgress);
         ASSERT_TRUE(packed.m_Success) << packed.m_ErrorMessage;
         ASSERT_EQ(packed.m_FailedAssetCount, 0u);
-        RuntimeAssetManager runtimeAssets(/*autoLoadDefaultPack=*/false);
-        ASSERT_TRUE(runtimeAssets.LoadAssetPack(packSettings.m_OutputPath));
-        const Ref<Asset> packedGroomAsset = runtimeAssets.GetAsset(looseGroom);
-        const Ref<Asset> packedBindingAsset = runtimeAssets.GetAsset(looseBinding);
-        ASSERT_TRUE(packedGroomAsset && !PlaceholderAssetManager::IsPlaceholderAsset(packedGroomAsset))
-            << "the packed coat did not load";
-        ASSERT_TRUE(packedBindingAsset && !PlaceholderAssetManager::IsPlaceholderAsset(packedBindingAsset))
-            << "the packed binding did not load";
-        const auto packedGroom = packedGroomAsset.As<GroomAsset>();
-        const auto packedBinding = packedBindingAsset.As<GroomBindingAsset>();
+        // The pack is written: the loose pair has done its part (TearDown's
+        // removal of m_CaseImports is then a no-op).
+        AssetManager::RemoveAsset(looseGroom);
+        AssetManager::RemoveAsset(looseBinding);
+        Ref<GroomAsset> packedGroom;
+        Ref<GroomBindingAsset> packedBinding;
+        {
+            RuntimeAssetManager runtimeAssets(/*autoLoadDefaultPack=*/false);
+            ASSERT_TRUE(runtimeAssets.LoadAssetPack(packSettings.m_OutputPath));
+            const Ref<Asset> packedGroomAsset = runtimeAssets.GetAsset(looseGroom);
+            const Ref<Asset> packedBindingAsset = runtimeAssets.GetAsset(looseBinding);
+            ASSERT_TRUE(packedGroomAsset && !PlaceholderAssetManager::IsPlaceholderAsset(packedGroomAsset))
+                << "the packed coat did not load";
+            ASSERT_TRUE(packedBindingAsset && !PlaceholderAssetManager::IsPlaceholderAsset(packedBindingAsset))
+                << "the packed binding did not load";
+            packedGroom = packedGroomAsset.As<GroomAsset>();
+            packedBinding = packedBindingAsset.As<GroomBindingAsset>();
+        }
         ASSERT_TRUE(packedGroom);
         ASSERT_TRUE(packedBinding);
-        ASSERT_TRUE(GroomSerializer::EncodeToBytes(*packedGroom, again, reason)) << reason;
-        EXPECT_EQ(again, groomBytes) << "packed groom";
-        ASSERT_TRUE(GroomBindingSerializer::EncodeToBytes(*packedBinding, again, reason)) << reason;
-        EXPECT_EQ(again, bindingBytes) << "packed binding";
+        {
+            std::vector<u8> again;
+            ASSERT_TRUE(GroomSerializer::EncodeToBytes(*packedGroom, again, reason)) << reason;
+            EXPECT_EQ(again, groomBytes) << "packed groom";
+            ASSERT_TRUE(GroomBindingSerializer::EncodeToBytes(*packedBinding, again, reason)) << reason;
+            EXPECT_EQ(again, bindingBytes) << "packed binding";
+        }
+        groomBytes = {};
+        bindingBytes = {};
 
         // The body side: Dog.gltf loaded cold (cache dropped) and then warm from
         // the .omesh the cold load wrote, and the packed binding accepts both.
@@ -9290,7 +9316,7 @@ namespace OloEngine::Tests
         const u32 drawnPacked = CoatVisibleChange(HeroViews()[0], "DogShowcasePacked_GL_Forward_FrontThreeQuarter", "");
         ASSERT_FALSE(HasFatalFailure());
         std::printf("[dog] packed: groom %zu bytes, binding %zu bytes; the coat changes %u px (the fixture's own pair %u px)\n",
-                    groomBytes.size(), bindingBytes.size(), drawnPacked, drawnBefore);
+                    groomSize, bindingSize, drawnPacked, drawnBefore);
         std::fflush(stdout);
         EXPECT_NEAR(static_cast<f64>(drawnPacked) / std::max(1.0, static_cast<f64>(drawnBefore)), 1.0, 0.1)
             << "the packed pair draws the coat the fixture's own pair draws";
