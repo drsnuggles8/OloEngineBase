@@ -78,12 +78,6 @@ OloEditor/assets/mcp-captures/
 # --olo-cross-path-export scenes + manifests for the live Vulkan replay (#1347).
 OloEditor/assets/tests/crosspath-live/
 
-# Opt-in high-resolution path-tracer evidence (--olo-pathtracer-evidence). Only
-# regenerated on demand, so a committed copy would silently go stale against the
-# tracer it is supposed to be evidence for. The gate-resolution PNGs beside them
-# ARE committed — those are rewritten by every test run.
-OloEditor/assets/tests/visual/PathTracer_*_HiRes_*.png
-
 # L10 diagnostic-escalation artefacts: CompareOrBootstrap writes <name>.actual.png
 # (the frame that was rendered) and <name>.diff.png (the delta heatmap) next to a
 # baseline whenever a golden compare FAILS. They are outputs, not references, and
@@ -250,25 +244,31 @@ scripts/steam/generated/
 # reason above.
 .dog-groom/
 
-# VSM family verification outputs (#1524): regenerated captures, exported scenes,
-# measurement ledgers and diagnostics. Keep the tests and written evidence summary
-# in Git; retain full campaigns locally or as CI artifacts.
-/OloEditor/assets/tests/visual/ShadowFamily*
-/OloEditor/assets/tests/visual/FoliageFrozen_*
-/OloEditor/assets/tests/visual/TerrainOffscreen_*
-/OloEditor/assets/tests/visual/TerrainReceiver_*
-/OloEditor/assets/tests/visual/TerrainSnow_*
-/OloEditor/assets/tests/visual/GroomSceneShadow_GL_Forward_VsmNearOccluder*
-/OloEditor/assets/tests/visual/VirtualShadowMap_Contact*
-# Native human-hair authoring matrix (#1593); curate review images in docs.
-/OloEditor/assets/tests/visual/HumanHairNative_*.png
 /.v-build/
 
-# Render-target export and Deferred MSAA verification outputs (#1332, #1553).
-# Tests generate these reports, replay scenes and captures; they are not golden
-# inputs. Keep source tests and measurement summaries tracked, campaigns local
-# or in CI artifacts. Existing tracked #1332 reports are unaffected by this rule.
+# Generated verification output (#1610). Evidence tests, benchmark captures and
+# live verification campaigns write captures, reports, replay scenes and logs
+# here on every run. A committed copy goes stale, and every edit adds another
+# full copy to Git history that a later deletion does not remove. These
+# directories are ignored as a whole. The goldens and fixtures a test READS are
+# tracked with `git add -f`, and each one is listed with its reader in
+# scripts/generated-evidence-allowlist.txt, which the `generated-evidence`
+# pre-commit hook enforces. See docs/agent-rules/generated-evidence-stays-out-of-git.md.
+/OloEditor/assets/tests/visual/
 /OloEditor/assets/tests/exports/
-/OloEditor/assets/tests/visual/*DeferredResolve_*.png
-/OloEditor/assets/tests/visual/*_Live_Control_*.png
-/OloEditor/assets/tests/visual/*_1553_VirtualGeometry_*.png
+/OloEditor/assets/tests/memory/
+# Campaign data under docs/: raw captures, reports and ledgers stay local. The
+# write-up (Markdown) is tracked; a curated image it links is force-added and
+# allow-listed.
+/docs/testing/evidence/**/*.png
+/docs/testing/evidence/**/*.jpg
+/docs/testing/evidence/**/*.webp
+/docs/testing/evidence/**/*.hdr
+/docs/testing/evidence/**/*.exr
+/docs/testing/evidence/**/*.json
+/docs/testing/evidence/**/*.csv
+/docs/testing/evidence/**/*.xml
+/docs/testing/evidence/**/*.txt
+/docs/testing/evidence/**/*.gz
+/docs/testing/evidence/**/*.yaml
+/docs/testing/evidence/**/*.olo

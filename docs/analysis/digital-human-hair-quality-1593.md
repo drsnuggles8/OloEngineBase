@@ -204,3 +204,7 @@ The full raw PNG/MCP campaign and standalone distribution remain ignored scratch
 outputs under `.claude/skills/run-oloengine/shots/hair1593`. Curated images preserve
 native pixels in lossless WebP; [images.json](../testing/evidence/hair1593/images.json)
 records their source identities. No rendering tolerances were widened.
+
+## Raw run output
+
+The rest of this campaign's raw output (captures, HDR buffers, per-run reports and logs) is not tracked since #1610; the images and reports linked from this page stay. Regenerate it with the matrix described above. The copies this page was written from are in Git history: `git show 0cc2cd225:docs/testing/evidence/hair1593/<file>` prints one, and `git ls-tree -r --name-only 0cc2cd225 docs/testing/evidence/hair1593` lists them.

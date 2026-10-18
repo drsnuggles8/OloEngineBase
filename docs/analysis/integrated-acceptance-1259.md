@@ -299,3 +299,7 @@ would not change the verdict, and the CPU-bound frame would not get faster at a 
 
 #1581 (cull streams sized by survivors, foliage floor 371 → 147 MB) is delivered by this branch. #1582
 (the layer-rebuild spike) stays open as decided: it does not occur in the acceptance trajectories.
+
+## Raw run output
+
+The rest of this campaign's raw output (captures, HDR buffers, per-run reports and logs) is not tracked since #1610; `gl-summary.md` and `vulkan-live/README.md` stay. Regenerate it with the measurement protocol above. The copies this page was written from are in Git history: `git show 0cc2cd225:docs/testing/evidence/integrated-acceptance-1259/<file>` prints one, and `git ls-tree -r --name-only 0cc2cd225 docs/testing/evidence/integrated-acceptance-1259` lists them.

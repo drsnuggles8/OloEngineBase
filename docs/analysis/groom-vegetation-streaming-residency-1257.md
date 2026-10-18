@@ -58,15 +58,15 @@ Warmup PNGs and stale prelaunch log copies are excluded; actual runtime logs are
 
 The historical allocation diagnostic remains retained despite its zero exit code.
 New Vulkan 211409 and GL 211533 runs independently verify shutdown in actual Runtime.
-Their unchanged public PNGs are
-[GL initial](../../OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_GL_Forward_initial.png),
-[pressure](../../OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_GL_Forward_pressure.png),
-[recovered](../../OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_GL_Forward_recovered.png),
-[reloaded](../../OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_GL_Forward_reloaded.png),
-[Vulkan initial](../../OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_Vulkan_Forward_initial.png),
-[pressure](../../OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_Vulkan_Forward_pressure.png),
-[recovered](../../OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_Vulkan_Forward_recovered.png), and
-[reloaded](../../OloEditor/assets/tests/visual/GroomVegetationStreaming_Runtime_Vulkan_Forward_reloaded.png).
+Their PNGs, untracked since #1610 and printed by `git show 0cc2cd225:OloEditor/assets/tests/visual/<file>`, are
+GL initial (`GroomVegetationStreaming_Runtime_GL_Forward_initial.png`),
+pressure (`GroomVegetationStreaming_Runtime_GL_Forward_pressure.png`),
+recovered (`GroomVegetationStreaming_Runtime_GL_Forward_recovered.png`),
+reloaded (`GroomVegetationStreaming_Runtime_GL_Forward_reloaded.png`),
+Vulkan initial (`GroomVegetationStreaming_Runtime_Vulkan_Forward_initial.png`),
+pressure (`GroomVegetationStreaming_Runtime_Vulkan_Forward_pressure.png`),
+recovered (`GroomVegetationStreaming_Runtime_Vulkan_Forward_recovered.png`), and
+reloaded (`GroomVegetationStreaming_Runtime_Vulkan_Forward_reloaded.png`).
 The ledger verifies their exact SHA-256 against the retained source PNGs.
 
 ## Appearance and test scope

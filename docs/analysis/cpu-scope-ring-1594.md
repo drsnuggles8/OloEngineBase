@@ -119,3 +119,7 @@ An earlier minimized OpenGL attempt was invalid because the frame loop was parke
 
 The reusable sampling rule is in
 [completed-frame-perf-windows.md](../agent-rules/completed-frame-perf-windows.md).
+
+## Raw run output
+
+The rest of this campaign's raw output (captures, HDR buffers, per-run reports and logs) is not tracked since #1610; the reports linked from this page stay. Regenerate it with the protocol above. The copies this page was written from are in Git history: `git show 0cc2cd225:docs/testing/evidence/cpu-scope-ring-1594/<file>` prints one, and `git ls-tree -r --name-only 0cc2cd225 docs/testing/evidence/cpu-scope-ring-1594` lists them.

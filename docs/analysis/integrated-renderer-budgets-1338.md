@@ -285,3 +285,5 @@ binary was built while this task's source diff was uncommitted. Vulkan Forward+
 records the task commit instead. The published PR diff plus the build and gate
 logs identify the source changes; the early provenance limitation must be kept
 when comparing later runs.
+
+The rest of this campaign's raw output (captures, HDR buffers, per-run reports and logs) is not tracked since #1610; the per-path `summary.md` files and `water-parity-1470/README.md` stay. Regenerate it with the commands above. The copies this page was written from are in Git history: `git show 0cc2cd225:docs/testing/evidence/integrated-renderer-1338/<file>` prints one, and `git ls-tree -r --name-only 0cc2cd225 docs/testing/evidence/integrated-renderer-1338` lists them.

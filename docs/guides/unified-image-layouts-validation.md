@@ -71,7 +71,7 @@ now returns for an uninitialized heap, while a second regression ensures an
 initialized but disabled heap still retires transient views. Both new tests, the
 original sub-ring test and the graph reproducer passed together (4/4, exit 0).
 
-The [integrated-revision checks](../../OloEditor/assets/tests/visual/unified-layouts-1181/integration/README.md)
+The [integrated-revision checks](../testing/evidence/unified-layouts-1181/integration/README.md)
 at `1bd20ac1d` rebuilt all owning targets successfully, passed 215 Vulkan/heap
 tests per mode (0 skipped, 0 failed, exit 0), and repeated all four live Vulkan
 scene/path checks in both modes. Khronos validation was loaded; both logs had
@@ -107,7 +107,7 @@ its SPIR-V check is a headless approximation. No shader or OpenGL source changed
 
 ## GPU timing
 
-The [timing report and raw samples](../../OloEditor/assets/tests/visual/unified-layouts-1181/timings/README.md)
+The [timing report and raw samples](../testing/evidence/unified-layouts-1181/timings/README.md)
 record the completed experiment. Results are inconclusive: both improvements and
 slowdowns were observed, including a higher Deferred aggregate median. No
 reproducible performance benefit or absence of regression is established.
@@ -131,7 +131,7 @@ exist. Neither a zero reading nor a pass-duration sum is substituted for frame t
 
 ## Visual evidence
 
-The [capture gallery](../../OloEditor/assets/tests/visual/unified-layouts-1181/README.md)
+The [capture gallery](../testing/evidence/unified-layouts-1181/README.md)
 contains 22 selected original PNGs, including matched Vulkan views of every tested
 path, OpenGL controls, and Debug IBL-bake evidence. Metadata records fresh frame
 indices and image hashes. The pilot pair's images remain valid visual evidence;
