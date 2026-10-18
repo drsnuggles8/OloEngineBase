@@ -234,8 +234,8 @@ never chosen by the renderer** — an effect that silently degrades is one nobod
 The cost, measured at 384×384 offscreen, is recorded per path in
 `OloEditor/assets/tests/visual/EyeCornea_Timing.txt`, which `SkinOcularPathTest.TheCostOfTheEyeIsRecorded`
 rewrites on every GPU run (git-ignored output, so read your own run's copy). The last tracked copy
-(`0cc2cd225`, RTX 4090; not a benchmark, the relative column is the measurement) had refraction at
-−2.5% Forward, −0.3% Forward+ and +5.4% Deferred against ocular-off.
+(`0cc2cd225`; not a benchmark, the relative column is the measurement) had refraction at −2.5% Forward,
+−0.3% Forward+ and +5.4% Deferred against ocular-off: within the fixture's noise floor, not a saving.
 
 ## A front-on screenshot cannot tell you whether this works
 

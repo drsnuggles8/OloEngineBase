@@ -57,7 +57,8 @@ coordinated migration, do the following.
    `git show 0cc2cd225:<path>` breaks under a rewrite: `git grep -l "0cc2cd225"` lists them (the
    `*-live` and `unified-layouts-1181` write-ups, cpu-scope-ring-1594, digital-human-hair-quality-1593,
    integrated-acceptance-1259, integrated-renderer-budgets-1338, render-graph-attachment-feedback-1554,
-   restir-pt-1211, groom-vegetation-streaming-residency-1257 and foliage-hierarchical-wind). Re-running a
+   restir-pt-1211, groom-vegetation-streaming-residency-1257, foliage-hierarchical-wind, eye-cornea-iris
+   and skin-digital-human). Re-running a
    protocol gives new numbers, not the ones those pages quote, and the hand-taken live captures cannot be
    re-run at all. For each, either keep its blobs out of the drop list and re-point the page at the
    rewritten commit, or archive the files outside Git first (for example as a release asset) and update
