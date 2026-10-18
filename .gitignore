@@ -48,7 +48,7 @@ build/**/*
 # Don't upload vendor folder, except for the CMakeLists.txt
 !OloEngine/vendor/
 OloEngine/vendor/*
-!OloEngine//vendor/CMakeLists.txt
+!OloEngine/vendor/CMakeLists.txt
 
 # Profiling files
 **/OloProfile-Runtime.json
@@ -109,7 +109,6 @@ OloServer/CrashReports/
 **/cmd_bucket_*.md
 /OloEditor/imgui.ini
 out/build/x64-Debug/VSInheritEnvironments.txt
-.gitignore
 /debug.cap
 
 # CodeQL artifacts
