@@ -37,7 +37,7 @@ Forward, Forward+ or Deferred receiver path.
 | Marching-cubes and greedy cubic voxel geometry | Yes | Yes | Yes |
 | Foliage cards, authored meshes and impostors | Yes | Yes | Yes |
 | Virtual geometry | Yes | Yes | Unsupported |
-| Groom ribbons | Yes | Yes | Unsupported, counted/warned |
+| Groom ribbons | Yes | Yes | Yes (#1592) |
 
 Terrain, voxel and foliage VSM depth wrappers use the same deformation, alpha
 discard and LOD bodies as their CSM/atlas shaders. Shadow extraction includes

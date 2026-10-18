@@ -114,16 +114,20 @@ void main()
 			gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
 			return;
 		}
-		vec4 clipPosition = oloGroomShadowRibbonPosition(
-		    b_LocalLights[layer].ViewProjectionRaster, u_GroomShadowModel, position, other, a_Radius, a_Side,
-		    u_GroomShadowWidth.x, u_GroomShadowWidth.y, float(VSM_LOCAL_VIRTUAL_RESOLUTION >> rasterMip),
-		    u_GroomShadowWidth.w);
-		// VSM_DepthLocal.glsl's sub-rect map: NDC [-1,1] into the mip's
-		// (LOCAL_RES >> mip)² corner, affine on (x, w) so it stays
-		// perspective-correct.
-		float s = 1.0 / float(1u << rasterMip);
-		clipPosition.xy = (clipPosition.xy + clipPosition.w) * s - clipPosition.w;
-		gl_Position = clipPosition;
+		// THE WIDTH FLOOR IS THE COARSER OF TWO TEXELS. The CPU cast this view a
+		// share of the coat sized for the texels its receivers read
+		// (u_GroomShadowWidth.z, LocalLayerReceiverResolution), and a share is a
+		// promise about world coverage: so many strands, each that wide. Floored
+		// at a finer raster mip instead, the same share drew strands too thin to
+		// cover what it was cut for, and the shadow went sparse. Floored at the
+		// receivers' texel alone, a coarser raster mip could miss texel centres.
+		// The coarser of the two keeps both.
+		float rasterTexels = float(VSM_LOCAL_VIRTUAL_RESOLUTION >> rasterMip);
+		float floorTexels = min(rasterTexels, max(u_GroomShadowWidth.z, 1.0));
+		vec4 clipPosition = oloGroomShadowRibbonPosition(b_LocalLights[layer].ViewProjectionRaster, u_GroomShadowModel,
+		                                                 position, other, a_Radius, a_Side, u_GroomShadowWidth.x,
+		                                                 u_GroomShadowWidth.y, floorTexels, u_GroomShadowWidth.w);
+		gl_Position = vsmLocalRasterSubRect(clipPosition, rasterMip);
 		return;
 	}
 

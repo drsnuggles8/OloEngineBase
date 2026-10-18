@@ -245,7 +245,7 @@ Select the technique against this matrix; enabling VSM replaces CSM, and
 | Marching-cubes / greedy voxel mesh | Yes | Yes | Yes |
 | Foliage cards / authored meshes / impostors | Yes | Yes | Yes |
 | Virtual geometry | Yes | Yes | No |
-| Groom ribbons | Yes | Yes | No |
+| Groom ribbons | Yes | Yes | Yes (#1592) |
 
 Terrain, voxel and foliage depth stages share their deformation and discard
 bodies between ordinary and VSM wrappers. `VirtualShadowFamilyVertex.glsl`

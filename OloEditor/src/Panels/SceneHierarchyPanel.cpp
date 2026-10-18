@@ -10302,6 +10302,11 @@ namespace OloEngine
                     if (stats.VirtualShadowMapActive)
                     {
                         ImGui::Text("Virtual Shadow Map page invalidations: %u", stats.VirtualShadowInvalidations);
+                        // Beside the layer draws above (#1592): zero draws with
+                        // lamps served is a coat no lamp's face reaches -- or a
+                        // lamp that reaches it and drew none of it.
+                        ImGui::Text("Lamps served by the Virtual Shadow Map's local-light layers: %u",
+                                    stats.VirtualShadowLocalLights);
                     }
                     // THE ZERO THAT MATTERS. Which directional technique owns
                     // the sun this frame decides which of the two counters is

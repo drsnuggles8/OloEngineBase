@@ -1327,9 +1327,9 @@ namespace OloEngine
             // into every other caster's.
             const ShadowBrackets::Scope bracket(ShadowBrackets::kGroomCasters);
             const auto viewTexels = static_cast<f32>(groomViewResolution);
-            RenderGroomCasters([cullFrustum, viewTexels](const ShadowGroomCaster& caster)
-                               { return cullFrustum != nullptr && ShouldCull(caster.WorldBounds, *cullFrustum) ? 0.0f : viewTexels; },
-                               lightVPRel, renderOrigin, glm::ivec2(0), *resources.Groom, bindGroomProgram);
+            (void)RenderGroomCasters([cullFrustum, viewTexels](const ShadowGroomCaster& caster)
+                                     { return cullFrustum != nullptr && ShouldCull(caster.WorldBounds, *cullFrustum) ? 0.0f : viewTexels; },
+                                     lightVPRel, renderOrigin, glm::ivec2(0), *resources.Groom, bindGroomProgram);
         }
 
         // ── Terrain patches ──
@@ -1546,6 +1546,8 @@ namespace OloEngine
 
         GroomShadowCasterStats& stats = m_GroomPass->MutableSceneShadowStats();
         stats.VirtualShadowMapActive = m_ShadowMap != nullptr && m_ShadowMap->IsVirtualShadowMapActive();
+        stats.VirtualShadowLocalLights =
+            stats.VirtualShadowMapActive ? m_ShadowMap->GetVirtualShadowMap().GetLocalLightCount() : 0u;
 
         // THE SAME REQUEST LIST GroomRenderPass DRAWS FROM, read from
         // Renderer3D rather than handed in: the two passes must agree about
@@ -1806,13 +1808,17 @@ namespace OloEngine
     }
 
     template<typename ResolutionOf, typename BindProgram>
-    void ShadowRenderPass::RenderGroomCasters(ResolutionOf&& resolutionOf, const glm::mat4& viewProjection,
-                                              const glm::vec3& renderOrigin, const glm::ivec2& vsmView,
-                                              UniformBuffer& paramsUBO, BindProgram&& bindProgram) const
+    ShadowRenderPass::GroomSegments ShadowRenderPass::RenderGroomCasters(ResolutionOf&& resolutionOf,
+                                                                         const glm::mat4& viewProjection,
+                                                                         const glm::vec3& renderOrigin,
+                                                                         const glm::ivec2& vsmView,
+                                                                         UniformBuffer& paramsUBO,
+                                                                         BindProgram&& bindProgram) const
     {
+        GroomSegments segments;
         if (m_GroomCasters.IsEmpty())
         {
-            return;
+            return segments;
         }
 
         OLO_PROFILE_FUNCTION();
@@ -1878,13 +1884,16 @@ namespace OloEngine
             // The share of each run this view needs (#1533): a prefix of each
             // run of the caster order, a uniform random share of that run's
             // strands, in as few draws as the runs cast whole allow.
-            (void)VisitGroomCasterRanges(caster, viewProjection, renderOrigin, resolutionTexels,
-                                         [&](u32 firstIndex, u32 count)
-                                         { RenderCommand::DrawIndexedRaw(caster.vaoID, count, firstIndex); });
+            segments.Cast += VisitGroomCasterRanges(caster, viewProjection, renderOrigin, resolutionTexels,
+                                                    [&](u32 firstIndex, u32 count)
+                                                    { RenderCommand::DrawIndexedRaw(caster.vaoID, count, firstIndex); }) /
+                             6u;
+            segments.Whole += caster.indexCount / 6u;
         }
 
         RenderCommand::EnableCulling();
         RenderCommand::FrontCull();
+        return segments;
     }
 
     u32 ShadowRenderPass::RenderGroomVirtualShadowLevels(VirtualShadowMap& vsm)
@@ -1957,23 +1966,15 @@ namespace OloEngine
             // by the reach test above, and the fragment stage discards any
             // page that is not allocated and dirty anyway. A second CPU cull
             // would only remove draws the raster already throws away.
-            RenderGroomCasters([](const ShadowGroomCaster&)
-                               { return static_cast<f32>(VSM::kVirtualResolution); },
-                               clips[level].ViewProjection, renderOrigin,
-                               glm::ivec2(static_cast<i32>(level), kGroomVsmClipDomain), *m_GroomVsmParamsUBO,
-                               bindGroomProgram);
-            ++levelDraws;
             // One sequential region, so the tally is kept as it draws.
-            for (const auto& caster : m_GroomCasters)
-            {
-                if (caster.vaoID.IsValid() && caster.indexCount > 0u)
-                {
-                    segmentsCast += GroomCasterViewIndexCount(caster, clips[level].ViewProjection, renderOrigin,
-                                                              static_cast<f32>(VSM::kVirtualResolution)) /
-                                    6u;
-                    segmentsWhole += caster.indexCount / 6u;
-                }
-            }
+            const GroomSegments drawn = RenderGroomCasters(
+                [](const ShadowGroomCaster&)
+                { return static_cast<f32>(VSM::kVirtualResolution); },
+                clips[level].ViewProjection, renderOrigin, glm::ivec2(static_cast<i32>(level), kGroomVsmClipDomain),
+                *m_GroomVsmParamsUBO, bindGroomProgram);
+            ++levelDraws;
+            segmentsCast += drawn.Cast;
+            segmentsWhole += drawn.Whole;
         }
 
         if (levelDraws > 0 && m_GroomPass != nullptr)
@@ -1999,7 +2000,9 @@ namespace OloEngine
 
         const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
         const glm::vec3 camera = vsm.GetCameraPositionRelative();
-        const f32 detailBias = vsm.GetSettings().LocalDetailBias;
+        // The bias the marker and the sampler read, not the raw setting: the
+        // share is decided for the mip they select.
+        const f32 detailBias = vsm.GetLocalDetailBias();
         const auto hasBounds = [](const ShadowGroomCaster& caster)
         { return caster.WorldBounds.Min.x < std::numeric_limits<f32>::max(); };
 
@@ -2020,30 +2023,35 @@ namespace OloEngine
         u32 layerDraws = 0;
         u64 segmentsCast = 0;
         u64 segmentsWhole = 0;
+        m_GroomLayerTexels.SetNum(m_GroomCasters.Num());
+        const ShadowGroomCaster* const firstCaster = m_GroomCasters.GetData();
         for (u32 layer = 0; layer < vsm.GetLocalLayerCount(); ++layer)
         {
             const VSM::LocalLight& light = vsm.GetLocalLayer(layer);
-            // A coat's texels in THIS layer, or 0 where its box does not reach
-            // it. The layers are RENDER-RELATIVE, so the box is shifted first
-            // (issue #429). A coat with no box reaches every layer that serves
-            // a light, at the layer's finest mip.
-            const auto resolutionOf = [&](const ShadowGroomCaster& caster) -> f32
+            // Each coat's texels in THIS layer, or 0 where its box does not
+            // reach it -- decided once per (coat, layer), since the reach test
+            // is eight projections, and read back by index as the coat draws.
+            // The layers are RENDER-RELATIVE, so the box is shifted first (issue
+            // #429). A coat with no box reaches every layer that serves a light,
+            // at the layer's finest mip.
+            bool anyReached = false;
+            for (i64 i = 0; i < m_GroomCasters.Num(); ++i)
             {
-                if (!hasBounds(caster))
+                const ShadowGroomCaster& caster = m_GroomCasters[i];
+                f32 texels = (light.Params.w < 0.5f) ? 0.0f : static_cast<f32>(VSM::kLocalVirtualResolution);
+                if (hasBounds(caster))
                 {
-                    return light.Params.w < 0.5f ? 0.0f : static_cast<f32>(VSM::kLocalVirtualResolution);
+                    const glm::vec3 boundsMin = caster.WorldBounds.Min - renderOrigin;
+                    const glm::vec3 boundsMax = caster.WorldBounds.Max - renderOrigin;
+                    texels = VirtualShadowMap::BoundsReachLocalLayer(light, boundsMin, boundsMax)
+                                 ? static_cast<f32>(VirtualShadowMap::LocalLayerReceiverResolution(
+                                       light, boundsMin, boundsMax, camera, detailBias))
+                                 : 0.0f;
                 }
-                const glm::vec3 boundsMin = caster.WorldBounds.Min - renderOrigin;
-                const glm::vec3 boundsMax = caster.WorldBounds.Max - renderOrigin;
-                if (!VirtualShadowMap::BoundsReachLocalLayer(light, boundsMin, boundsMax))
-                {
-                    return 0.0f;
-                }
-                return static_cast<f32>(
-                    VirtualShadowMap::LocalLayerReceiverResolution(light, boundsMin, boundsMax, camera, detailBias));
-            };
-            if (std::ranges::none_of(m_GroomCasters, [&](const ShadowGroomCaster& caster)
-                                     { return resolutionOf(caster) > 0.0f; }))
+                m_GroomLayerTexels[i] = texels;
+                anyReached = anyReached || texels > 0.0f;
+            }
+            if (!anyReached)
             {
                 continue;
             }
@@ -2051,19 +2059,14 @@ namespace OloEngine
             // The layer's dirty pages are the GPU's to know (b_LocalRasterMip):
             // a layer whose pages are all cached collapses every vertex, and the
             // fragment stage writes dirty pages only, as for a mesh.
-            RenderGroomCasters(resolutionOf, light.ViewProjection, renderOrigin,
-                               glm::ivec2(static_cast<i32>(layer), kGroomVsmLocalDomain), *m_GroomVsmParamsUBO,
-                               bindGroomProgram);
+            const GroomSegments drawn = RenderGroomCasters(
+                [this, firstCaster](const ShadowGroomCaster& caster)
+                { return m_GroomLayerTexels[&caster - firstCaster]; },
+                light.ViewProjection, renderOrigin, glm::ivec2(static_cast<i32>(layer), kGroomVsmLocalDomain),
+                *m_GroomVsmParamsUBO, bindGroomProgram);
             ++layerDraws;
-            for (const auto& caster : m_GroomCasters)
-            {
-                const f32 texels = resolutionOf(caster);
-                if (caster.vaoID.IsValid() && caster.indexCount > 0u && texels > 0.0f)
-                {
-                    segmentsCast += GroomCasterViewIndexCount(caster, light.ViewProjection, renderOrigin, texels) / 6u;
-                    segmentsWhole += caster.indexCount / 6u;
-                }
-            }
+            segmentsCast += drawn.Cast;
+            segmentsWhole += drawn.Whole;
         }
 
         if (layerDraws > 0 && m_GroomPass != nullptr)

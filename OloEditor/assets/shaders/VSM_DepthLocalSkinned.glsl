@@ -73,10 +73,7 @@ void main()
 
 	vec4 clipPos = b_LocalLights[layer].ViewProjectionRaster * instance.Transform * animatedPosition;
 
-	// Sub-rect scale — see VSM_DepthLocal.glsl.
-	float s = 1.0 / float(1u << rasterMip);
-	clipPos.xy = (clipPos.xy + clipPos.w) * s - clipPos.w;
-	gl_Position = clipPos;
+	gl_Position = vsmLocalRasterSubRect(clipPos, rasterMip);
 }
 
 #type fragment

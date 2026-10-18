@@ -176,6 +176,10 @@ namespace OloEngine
         /// nothing drew a groom there, and a lamp the VSM served cast no coat
         /// shadow.
         u32 VirtualShadowLocalLayerDraws = 0;
+        /// The lamps the VSM served from those layers this frame, so a zero
+        /// above can be read: no lamp at all, or lamps none of whose faces a
+        /// coat reaches -- or lamps that reach a coat and drew none of it.
+        u32 VirtualShadowLocalLights = 0;
         /// Strand segments those draws rasterised, summed over every view, and
         /// what they would have rasterised casting every strand (#1533 E1). A
         /// view casts the share of a coat its width floor allows

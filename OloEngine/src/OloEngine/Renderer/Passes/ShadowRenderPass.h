@@ -349,10 +349,17 @@ namespace OloEngine
         // Templates rather than std::functions: the VSM's callables outgrow
         // libstdc++'s small buffer and would allocate per view per frame.
         // Defined in the .cpp, the only translation unit that calls it.
+        // Returns the strand segments it cast and what casting every strand
+        // would have drawn, for the stats.
+        struct GroomSegments
+        {
+            u64 Cast = 0;
+            u64 Whole = 0;
+        };
         template<typename ResolutionOf, typename BindProgram>
-        void RenderGroomCasters(ResolutionOf&& resolutionOf, const glm::mat4& viewProjection,
-                                const glm::vec3& renderOrigin, const glm::ivec2& vsmView, UniformBuffer& paramsUBO,
-                                BindProgram&& bindProgram) const;
+        GroomSegments RenderGroomCasters(ResolutionOf&& resolutionOf, const glm::mat4& viewProjection,
+                                         const glm::vec3& renderOrigin, const glm::ivec2& vsmView,
+                                         UniformBuffer& paramsUBO, BindProgram&& bindProgram) const;
 
         // How many of `caster`'s indices one shadow view draws (#1533): the whole
         // coat, or -- when its stream has a caster order -- the sum over its
@@ -560,6 +567,9 @@ namespace OloEngine
         // Rebuilt every frame from the published groom requests (#1323), not
         // submitted into. Reset with the other five at the end of Execute.
         TArray64<ShadowGroomCaster> m_GroomCasters;
+        // RenderGroomVirtualShadowLocalLayers' texels per caster for the layer
+        // at hand (#1592): kept across frames so the layer loop allocates nothing.
+        TArray64<f32> m_GroomLayerTexels;
         // The families the region being recorded draws (#1533). Set on the
         // render thread before a region forks and read-only while its items
         // record; All outside RecordShadowRegion.

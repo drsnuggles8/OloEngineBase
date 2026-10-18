@@ -744,6 +744,13 @@ namespace OloEngine
         {
             return glm::vec3(m_Globals.CameraPosition);
         }
+        // The local detail bias the marker and the sampler read (Params5.x): the
+        // setting as clamped on its way to the GPU, so a CPU twin of the mip
+        // heuristic selects the mip they do.
+        [[nodiscard]] f32 GetLocalDetailBias() const
+        {
+            return m_Globals.Params5.x;
+        }
 
         // This frame's clip projections, for an external caster route that has to
         // project into the same levels (issue #1149). Valid after BeginFrame().
