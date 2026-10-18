@@ -427,7 +427,8 @@ passing `--olo-require-vulkan` so a run that cannot reach a device fails instead
 What lavapipe can and cannot do for this engine — including the Mesa 26.2.0 floor, which is set by
 the ADR 0010 extension contract rather than by the API version — is
 [vulkan-software-driver-ci.md](vulkan-software-driver-ci.md). Hardware Vulkan remains a
-developer-box capability.
+developer-box capability. The same job runs the three L7 ray-query suites and fails when any of
+their cases did not execute (#1294): [lavapipe-ray-query-suites.md](lavapipe-ray-query-suites.md).
 
 It is **not the ordinary PR gate**: nightly plus `workflow_dispatch` means "caught within a day",
 not "blocks review", and a renderer PR pays nothing for it. It does also run on a `pull_request`
@@ -437,5 +438,6 @@ anti-rot arm is the one place a PR run CAN report `EXERCISED`. Same trade `vulka
 `steam-stub.yml` make for their filters.
 
 **Reusable.** `VulkanCoverage::FormatBanner` is a pure function over a `Tally`, tested device-free
-in `VulkanCoverageReportTest.cpp`. Issue #1294's "make skipped visible" for the L7 ray-query gap
-should extend it rather than grow a second reporter.
+in `VulkanCoverageReportTest.cpp`. It counts whole runs. The per-case view the L7 ray-query
+suites need (#1294) comes from the gtest XML, through `scripts/vulkan_ray_query_coverage.py`, the
+one reporter both `Windows.yml` and `vulkan-software.yml` call.
