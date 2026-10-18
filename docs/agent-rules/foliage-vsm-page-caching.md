@@ -72,7 +72,9 @@ the view's `CardCutover`). A receiver samples the level `SelectClipLevel(d)` giv
 with d, so such a level is read only beyond the layer's mesh band, where the lit plant already is its
 card. Per layer, because one pine stand meshed to 87 m would otherwise hold a meadow that hands over
 at 12 m to the pines' level. Every layer's level is part of the foliage's shadow revision
-(`GetVsmCardCutoverKey`), so a change invalidates every level. `OLO_FOLIAGE_VSM_CARD_LEVEL` overrides it
+(`FoliageRenderer::UpdateVsmCardCutover` returns the key, and
+`ShadowRenderPass::SubmitFamilyDynamicInvalidations` XORs it into `GetShadowRevision()`), so a change
+invalidates every level. `OLO_FOLIAGE_VSM_CARD_LEVEL` overrides it
 for all layers (16: meshes everywhere; 0: cards everywhere).
 
 **Why there and not finer.** The per-level brackets (`ShadowPass/VsmSun/FoliageCasters`, one per level,
