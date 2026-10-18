@@ -330,6 +330,18 @@ TEST_F(SceneRenderSettingsActivationTest, SwitchingScenesSwitchesThePathBothWays
     EXPECT_EQ(Renderer3D::GetRendererSettings().Path, RenderingPath::Forward);
 }
 
+// A save that cannot open its file says so instead of returning as if the scene were written.
+TEST_F(SceneRenderSettingsActivationTest, SerializeReportsAFileItCannotWrite)
+{
+    const Ref<Scene> scene = DefaultScene();
+    EXPECT_TRUE(SceneSerializer(scene).Serialize(m_Root / "Written.olo"));
+    EXPECT_TRUE(std::filesystem::is_regular_file(m_Root / "Written.olo"));
+
+    const std::filesystem::path unreachable = m_Root / "no-such-directory" / "Lost.olo";
+    EXPECT_FALSE(SceneSerializer(scene).Serialize(unreachable));
+    EXPECT_FALSE(std::filesystem::exists(unreachable));
+}
+
 // Every scene saved before #1601 carries no key; each must keep rendering
 // Forward, whatever path the renderer happened to be on.
 TEST_F(SceneRenderSettingsActivationTest, SceneWithoutTheKeyRendersForward)

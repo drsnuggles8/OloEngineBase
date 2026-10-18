@@ -7241,7 +7241,7 @@ namespace OloEngine
         }
     } // namespace
 
-    void SceneSerializer::Serialize(const std::filesystem::path& filepath) const
+    bool SceneSerializer::Serialize(const std::filesystem::path& filepath) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -7315,7 +7315,19 @@ namespace OloEngine
         out << YAML::EndMap;
 
         std::ofstream fout(filepath);
+        if (!fout.is_open())
+        {
+            OLO_CORE_ERROR("SceneSerializer: cannot open '{}' for writing; the scene was not saved", filepath.string());
+            return false;
+        }
         fout << out.c_str();
+        fout.flush();
+        if (fout.fail())
+        {
+            OLO_CORE_ERROR("SceneSerializer: writing '{}' failed; the file is incomplete", filepath.string());
+            return false;
+        }
+        return true;
     }
 
     [[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const
