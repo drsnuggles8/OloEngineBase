@@ -3001,6 +3001,7 @@ namespace OloEngine
         // Zero the groom simulation's clock for this frame; SimulateRuntimeStep
         // adds the ticks it actually runs (#1250).
         m_GroomSimulationDeltaSeconds = 0.0f;
+        m_GroomLodFrameArmed = true;
         Animation::SkeletalDeformationSystem::AdvanceHistory(this);
         // The morph half of the same surface, at the same boundary and for the
         // same reason (#1227). Paired with the call above at every frame entry
@@ -3031,6 +3032,7 @@ namespace OloEngine
         // Written before the gate rather than inside it, because a paused
         // frame still renders and must see a zero.
         m_GroomSimulationDeltaSeconds = 0.0f;
+        m_GroomLodFrameArmed = true;
         if (!m_IsPaused || m_StepFrames-- > 0)
         {
             SimulateRuntimeStep(ts);
@@ -3063,6 +3065,7 @@ namespace OloEngine
         // Zero the groom simulation's clock for this frame; SimulateRuntimeStep
         // adds the ticks it actually runs (#1250).
         m_GroomSimulationDeltaSeconds = 0.0f;
+        m_GroomLodFrameArmed = true;
         Animation::SkeletalDeformationSystem::AdvanceHistory(this);
         // The morph half of the same surface, at the same boundary and for the
         // same reason (#1227). Paired with the call above at every frame entry
@@ -6300,6 +6303,7 @@ namespace OloEngine
         // Zero the groom simulation's clock for this frame; SimulateRuntimeStep
         // adds the ticks it actually runs (#1250).
         m_GroomSimulationDeltaSeconds = 0.0f;
+        m_GroomLodFrameArmed = true;
         Animation::SkeletalDeformationSystem::AdvanceHistory(this);
         // The morph half of the same surface, at the same boundary and for the
         // same reason (#1227). Paired with the call above at every frame entry
@@ -6471,6 +6475,7 @@ namespace OloEngine
         // Zero the groom simulation's clock for this frame; SimulateRuntimeStep
         // adds the ticks it actually runs (#1250).
         m_GroomSimulationDeltaSeconds = 0.0f;
+        m_GroomLodFrameArmed = true;
         Animation::SkeletalDeformationSystem::AdvanceHistory(this);
         // The morph half of the same surface, at the same boundary and for the
         // same reason (#1227). Paired with the call above at every frame entry
@@ -9575,6 +9580,9 @@ namespace OloEngine
         // hand-overs in scene order, and one that finds none hard-switches and
         // says so (GroomLodFallbackReason::CrossFadeBudgetSpent).
         const u32 crossFadeFrames = Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames;
+        // The frame's first publish advances the LOD and fade state; any later
+        // one this frame reads it (see m_GroomLodFrameArmed).
+        const bool advanceLodState = m_GroomLodFrameArmed;
         u32 crossFadeSlots = Renderer3D::GetRendererSettings().GroomLodMaxCrossFades;
         // A window on its last frame closes during this frame's advance, so it
         // does not hold a slot against a hand-over that starts this frame; if
@@ -9885,8 +9893,12 @@ namespace OloEngine
                 // assumed: docs/analysis/groom-representation-lod-1252.md.
                 lodInputs.MeshTierSupported = false;
 
+                // Advanced once per frame (m_GroomLodFrameArmed); a later view
+                // in the same frame decides from a copy.
                 GroomLodState& lodState = m_GroomLodRuntime[groomEntity.GetUUID()];
-                request.Lod = AdvanceGroomLod(request.LodPolicy, lodInputs, lodState);
+                GroomLodState viewLodState = lodState;
+                request.Lod =
+                    AdvanceGroomLod(request.LodPolicy, lodInputs, advanceLodState ? lodState : viewLodState);
                 liveGroomLodEntities.insert(groomEntity.GetUUID());
 
                 // ── The population budget, folded in (#1258) ──────────────
@@ -9959,8 +9971,9 @@ namespace OloEngine
                 // frame RepresentationChanged does and nowhere else.
                 {
                     GroomCrossFadeState& fade = m_GroomCrossFadeRuntime[groomEntity.GetUUID()];
-                    const GroomCrossFadeDecision crossFade =
-                        AdvanceGroomCrossFade(request.Lod, crossFadeFrames, crossFadeSlots > 0u, fade);
+                    GroomCrossFadeState viewFade = fade;
+                    const GroomCrossFadeDecision crossFade = AdvanceGroomCrossFade(
+                        request.Lod, crossFadeFrames, crossFadeSlots > 0u, advanceLodState ? fade : viewFade);
                     if (crossFade.TookSlot && crossFadeSlots > 0u)
                     {
                         --crossFadeSlots;
@@ -10193,6 +10206,7 @@ namespace OloEngine
         //
         // The frame entry points re-arm it (see m_GroomSimulationDeltaSeconds).
         m_GroomSimulationDeltaSeconds = 0.0f;
+        m_GroomLodFrameArmed = false;
 
         Renderer3D::SetGroomStrandRequests(std::move(groomRequests));
     }

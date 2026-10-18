@@ -1960,6 +1960,16 @@ namespace OloEngine
         /// pause/resume half of the issue's criterion 1.
         f32 m_GroomSimulationDeltaSeconds = 0.0f;
 
+        /// Whether this frame's first groom publish is still to come.
+        ///
+        /// The representation LOD's hysteresis and the cross-fade window
+        /// (#1252, #1612) advance ONCE PER FRAME, re-armed by the same frame
+        /// entry points as the clock above. A second publish in one frame -- a
+        /// second viewport, a probe bake's six faces -- decides from a copy of
+        /// the state, so it never shortens a hold or a fade, and a probe
+        /// camera's distance never moves the coat's tier in the main view.
+        bool m_GroomLodFrameArmed = true;
+
         // ── Coat authoring: the CPU copy of a root-UV map (issue #1251) ──
         //
         // A regional or colour map is a Texture2D asset, and the strand build
