@@ -107,7 +107,10 @@ budgets and the width compensation are in [groom-representation-lod.md](groom-re
     by distance, and the view cull comes after it. Before the cull moved ahead of the fade, a coat
     behind the camera that changed tier took a slot, and a visible coat was refused. A coat out of
     every view has its window closed on its tier. Pinned by `ACoatOutOfViewTakesNoCrossFadeSlot`
-    (negative control: 0 fading frames, 1 refused).
+    (negative control: 0 fading frames, 1 refused). Coats whose window runs on into the frame are
+    decided first, and each takes its slot only once it's known to be in view. A count taken before
+    the loop kept a slot for a coat that left the view that frame. Pinned by
+    `AFadingCoatThatLeavesTheViewGivesItsSlotToAVisibleOne`.
 
 ## What was measured
 

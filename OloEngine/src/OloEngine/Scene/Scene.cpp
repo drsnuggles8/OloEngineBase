@@ -9583,18 +9583,10 @@ namespace OloEngine
         {
             m_GroomLodFrameDecisions.clear();
         }
+        // Every window that draws this frame takes one of these when its coat
+        // is decided -- a new one, or one it held coming in -- so the frame
+        // never draws more fading coats than the cap.
         u32 crossFadeSlots = Renderer3D::GetRendererSettings().GroomLodMaxCrossFades;
-        // A window on its last frame closes during this frame's advance, so it
-        // does not hold a slot against a hand-over that starts this frame; if
-        // a reversal keeps it alive instead, it takes one (TookSlot) like a new
-        // window, so the frame never draws more fading coats than the cap.
-        for (const auto& [id, fade] : m_GroomCrossFadeRuntime)
-        {
-            if (advanceLodState && fade.IsActive() && fade.Frame < fade.Frames && crossFadeSlots > 0u)
-            {
-                --crossFadeSlots;
-            }
-        }
         // Full cooked-curve budgets leave every role at stride one, so its
         // width compensation is one regardless of the authored cap. Keep that
         // ineffective cap out of the geometry cache identity: toggling LOD
@@ -9662,7 +9654,33 @@ namespace OloEngine
             }
         }
         const auto groomView = m_Registry.view<TransformComponent, GroomComponent>();
-        for (const auto entity : groomView)
+        // THE COATS WHOSE WINDOWS RUN ON INTO THIS FRAME ARE DECIDED FIRST
+        // (#1612), the rest in scene order. A running window keeps its slot
+        // only if its coat can still reach the view, and that is known only
+        // once the coat is decided; deciding those coats first is what lets a
+        // new hand-over see exactly the slots the visible windows left. A
+        // count taken before the loop reserved a slot for a coat that had just
+        // left every view, and refused a visible coat its fade on that frame.
+        // A window on its last frame closes during this frame's advance and
+        // holds none, so it waits its turn in scene order.
+        TArray<entt::entity> groomOrder;
+        groomOrder.Reserve(static_cast<i64>(groomView.size_hint()));
+        const auto windowRunsOn = [this](entt::entity e)
+        {
+            const auto it = m_GroomCrossFadeRuntime.find(Entity{ e, this }.GetUUID());
+            return it != m_GroomCrossFadeRuntime.end() && it->second.IsActive() && it->second.Frame < it->second.Frames;
+        };
+        for (const bool runsOn : { true, false })
+        {
+            for (const auto e : groomView)
+            {
+                if (windowRunsOn(e) == runsOn)
+                {
+                    groomOrder.Add(e);
+                }
+            }
+        }
+        for (const auto entity : groomOrder)
         {
             const auto& groomComponent = groomView.get<GroomComponent>(entity);
             if (!IsGroomPublishable(groomComponent))
@@ -10046,7 +10064,10 @@ namespace OloEngine
                     {
                         crossFade = AdvanceGroomCrossFade(request.Lod, crossFadeFrames, crossFadeSlots > 0u,
                                                           m_GroomCrossFadeRuntime[groomEntity.GetUUID()]);
-                        if (crossFade.TookSlot && crossFadeSlots > 0u)
+                        // Drawing this frame takes a slot, held or new (see
+                        // groomOrder): the windows running on were decided
+                        // first, so what is left is what a new hand-over gets.
+                        if (crossFade.Active && crossFadeSlots > 0u)
                         {
                             --crossFadeSlots;
                         }
