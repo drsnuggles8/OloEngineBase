@@ -204,7 +204,7 @@ namespace OloEngine::Tests
         std::unordered_map<u64, EntityExpectation> expected;
         {
             auto scene = MakeTransformScene(5, expected);
-            SceneSerializer(scene).Serialize(path);
+            EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         }
         ASSERT_TRUE(std::filesystem::exists(path));
         ASSERT_FALSE(std::filesystem::exists(sidecar)) << "Serialize must not write a sidecar itself.";
@@ -240,7 +240,7 @@ namespace OloEngine::Tests
         std::unordered_map<u64, EntityExpectation> expected;
         {
             auto scene = MakeTransformScene(4, expected);
-            SceneSerializer(scene).Serialize(path);
+            EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         }
         const auto originalMtime = std::filesystem::last_write_time(path);
         const auto originalSize = std::filesystem::file_size(path);
@@ -276,7 +276,7 @@ namespace OloEngine::Tests
         std::unordered_map<u64, EntityExpectation> firstExpected;
         {
             auto scene = MakeTransformScene(3, firstExpected);
-            SceneSerializer(scene).Serialize(path);
+            EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         }
         {
             auto scene = Scene::Create();
@@ -288,7 +288,7 @@ namespace OloEngine::Tests
         std::unordered_map<u64, EntityExpectation> secondExpected;
         {
             auto scene = MakeTransformScene(6, secondExpected);
-            SceneSerializer(scene).Serialize(path);
+            EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         }
 
         auto scene = Scene::Create();
@@ -305,7 +305,7 @@ namespace OloEngine::Tests
         std::unordered_map<u64, EntityExpectation> expected;
         {
             auto scene = MakeTransformScene(3, expected);
-            SceneSerializer(scene).Serialize(path);
+            EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         }
 
         // Hand-write a garbage sidecar (wrong magic, junk body).
@@ -330,7 +330,7 @@ namespace OloEngine::Tests
         std::unordered_map<u64, EntityExpectation> expected;
         {
             auto scene = MakeTransformScene(3, expected);
-            SceneSerializer(scene).Serialize(path);
+            EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         }
 
         // Valid magic + matching staleness key, but a version beyond CurrentVersion.
@@ -361,7 +361,7 @@ namespace OloEngine::Tests
         {
             std::unordered_map<u64, EntityExpectation> expected;
             auto scene = MakeTransformScene(kEntities, expected);
-            SceneSerializer(scene).Serialize(path);
+            EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         }
 
         auto timeLoad = [&](const char* label)
@@ -411,7 +411,7 @@ namespace OloEngine::Tests
             cr.Thickness = 0.55f;
             cr.Fade = 0.021f;
             uuid = static_cast<u64>(e.GetUUID());
-            SceneSerializer(scene).Serialize(path);
+            EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         }
 
         // First load writes the sidecar; second load reads it (fast binary path).
@@ -457,7 +457,7 @@ namespace OloEngine::Tests
             lips.OverrideBaseColor = true;
             lips.BaseColor = glm::vec4(0.25f, 0.125f, 0.0625f, 1.0f);
             overrides.m_Overrides.Add(lips);
-            SceneSerializer(scene).Serialize(path);
+            EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         }
 
         for (int pass = 0; pass < 2; ++pass)
@@ -507,7 +507,7 @@ namespace OloEngine::Tests
             qg.OfferedQuestIDs = { "quest_a", "quest_bb", "quest_ccc" };
             qg.TurnInQuestIDs = { "turnin_1" };
 
-            SceneSerializer(scene).Serialize(path);
+            EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         }
 
         // Load via YAML (first load also writes the sidecar), re-serialize.
@@ -549,7 +549,7 @@ namespace OloEngine::Tests
             cc.Primary = true;
             cc.Camera.SetPerspectiveVerticalFOV(1.111f);
             camUuid = static_cast<u64>(cam.GetUUID());
-            SceneSerializer(scene).Serialize(path);
+            EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         }
 
         {

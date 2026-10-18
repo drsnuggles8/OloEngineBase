@@ -1126,7 +1126,7 @@ namespace OloEngine::Tests
         ASSERT_EQ(primaryCameras, 1u);
         ASSERT_EQ(GetScene().GetPrimaryCameraEntity(), camera);
         const fs::path scenePath = m_ProjectDir / "Assets/Hair1593.olo";
-        SceneSerializer(GetSceneRef()).Serialize(scenePath.string());
+        EXPECT_TRUE(SceneSerializer(GetSceneRef()).Serialize(scenePath.string()));
         ASSERT_NE(static_cast<u64>(m_AssetManager->ImportAsset(scenePath)), 0u);
         ASSERT_TRUE(m_AssetManager->SerializeAssetRegistry());
         GameBuildSettings settings;

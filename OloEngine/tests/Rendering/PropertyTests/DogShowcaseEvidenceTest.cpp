@@ -7473,7 +7473,7 @@ namespace OloEngine::Tests
 
         const fs::path scenePath = assetDir / "Scenes" / (prefix + ".olo");
         GetScene().SetName(prefix); // the harness's scene is "Untitled"
-        SceneSerializer(GetSceneRef()).Serialize(scenePath);
+        EXPECT_TRUE(SceneSerializer(GetSceneRef()).Serialize(scenePath));
         ASSERT_TRUE(fs::exists(scenePath));
         std::printf("[dog] exported %s: groom %zu bytes, binding %zu bytes\n", scenePath.string().c_str(),
                     groomBytes.size(), bindingBytes.size());

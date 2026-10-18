@@ -28,6 +28,9 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 - [testing/restir-pt-1211-live.md](testing/restir-pt-1211-live.md) — the same prototype in motion in a live Vulkan editor, and what it still gets wrong.
 - [testing/evidence/render-graph-attachment-feedback-1554/README.md](testing/evidence/render-graph-attachment-feedback-1554/README.md) — physical attachment feedback contracts, snapshot copies and the complete OpenGL/Vulkan verification matrix (#1554).
 - [testing/evidence/integrated-acceptance-1259/vulkan-live/README.md](testing/evidence/integrated-acceptance-1259/vulkan-live/README.md) — the raw live-editor Vulkan runs behind the #1259 acceptance results: per-camera frame, CPU and GPU splits, attribution passes, the validation walk and the reload memory trace.
+- [testing/evidence/digital-human-1222-live/README.md](testing/evidence/digital-human-1222-live/README.md) — the hand-taken live-editor captures behind the digital-human epic's live-only acceptance cells (#1222).
+- [testing/evidence/groom-animals-1223-live/README.md](testing/evidence/groom-animals-1223-live/README.md) — the live-editor captures and measurements behind the groom epic's live-only acceptance cells (#1223).
+- [testing/evidence/flora-traversal-1224-live/README.md](testing/evidence/flora-traversal-1224-live/README.md) — the live-editor captures behind the flora traversal epic's live-only acceptance cells (#1224).
 
 ## Renderer — status, support contract and roadmap owners
 
@@ -102,6 +105,7 @@ The three workflow slash commands live in [`.claude/commands/`](../.claude/comma
 - [analysis/material-reference-validation-1255.md](analysis/material-reference-validation-1255.md) — skin, leaf and fibre models judged against independently computed references (#1255), and the limits written down where none exists.
 - [analysis/multi-animal-scheduling-budgets-1258.md](analysis/multi-animal-scheduling-budgets-1258.md) — multi-animal scheduling and budgets (#1258), every number an assertion in a committed test.
 - [analysis/groom-vegetation-streaming-residency-1257.md](analysis/groom-vegetation-streaming-residency-1257.md) — groom/vegetation detail admission, pinned fallback accounting, and residency capture evidence (#1257).
+- [analysis/repo-history-remediation-1610.md](analysis/repo-history-remediation-1610.md) — measured repository and fresh-clone size, what the #1610 cleanup did and did not reclaim, and a not-yet-approved plan for rewriting history.
 - [analysis/integrated-acceptance-1259.md](analysis/integrated-acceptance-1259.md) — the integrated AAA acceptance gate (#1259): the generated `Acceptance.olo` scene, its cameras and manifests, the measurement protocol, and the results against the 16.7 ms VSM gate.
 - [analysis/digital-human-hair-quality-1593.md](analysis/digital-human-hair-quality-1593.md) — authored head hair, native before/after views, full-motion GL/Vulkan evidence, cooked game delivery and measured cost (#1593).
 - [analysis/foliage-cost-baseline-1391.md](analysis/foliage-cost-baseline-1391.md) — foliage GPU cost per stage, memory by category, frame-time tails and the rebuild spike on an RTX 4090 (#1391), OpenGL and Vulkan; measured baselines, not targets.

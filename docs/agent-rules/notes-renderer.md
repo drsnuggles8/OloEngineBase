@@ -1486,12 +1486,12 @@ versions, so appending an enumerator fails the test without anyone having edited
 rule: an explicit list is a good safety property and a bad copy-paste; keep the list, delete the
 copies.
 
-## A full local `ctest` sweep is ~1841 tests and rewrites ~180 tracked evidence PNGs
+## A full local `ctest` sweep is ~1841 tests and runs for hours
 
-Worth knowing before you reach for one as a pre-push check: it runs for hours, and the
-visual-evidence tests rewrite their committed PNGs as they go — `git checkout --
-OloEditor/assets/tests/visual/` afterwards, and `git clean -fd` the same path for the untracked
-outputs other features' tests drop there. Never `git add -A` after one.
+Worth knowing before you reach for one as a pre-push check. Its evidence PNGs land in the
+git-ignored `OloEditor/assets/tests/visual/` (#1610), so the only tracked files it can dirty are
+goldens a test case writes under the same name; `git checkout -- OloEditor/assets/tests/visual/`
+restores those. Never `git add -A` after one.
 
 It is also not the same population CI runs: CI excludes `*VisualEvidence*`, `*Evidence*`,
 `VulkanPassSuite.*` and more (the filter is in the sanitizer workflow). So a sweep is the only way

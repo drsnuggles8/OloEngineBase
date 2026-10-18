@@ -64,7 +64,7 @@ namespace
             Entity camera = scene->CreateEntity("Camera");
             camera.AddComponent<CameraComponent>().Primary = true;
         }
-        SceneSerializer(scene).Serialize(path);
+        EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
     }
 } // namespace
 

@@ -4890,10 +4890,10 @@ namespace OloEngine
         return SaveSceneToPath(filepath);
     }
 
-    void EditorLayer::SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const
+    bool EditorLayer::SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const
     {
         const SceneSerializer serializer(scene);
-        serializer.Serialize(path);
+        return serializer.Serialize(path);
     }
 
     bool EditorLayer::LoadSceneInternal(const std::filesystem::path& scenePath)
@@ -4928,7 +4928,13 @@ namespace OloEngine
         auto rendered = SceneTransition::SceneRenderSettings::CaptureRenderer();
         rendered.PostProcess = StripTieringOverlay(rendered.PostProcess, m_EditorScene->GetPostProcessSettings());
         rendered.Apply(*m_EditorScene);
-        SerializeScene(m_EditorScene, autoPath);
+        if (!SerializeScene(m_EditorScene, autoPath))
+        {
+            // Retried at the next interval; any earlier auto-save file is left as it was.
+            OLO_CORE_ERROR("Auto-save to '{}' failed", autoPath.string());
+            m_TimeSinceLastAutoSave = 0.0f;
+            return;
+        }
 
         // Also save editor preferences alongside
         SyncPrefsFromMembers();

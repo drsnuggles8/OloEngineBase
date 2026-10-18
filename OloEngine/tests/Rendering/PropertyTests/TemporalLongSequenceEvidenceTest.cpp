@@ -1411,7 +1411,7 @@ namespace OloEngine::Tests
         const fs::path directory = fs::path("assets") / "tests" / "visual";
         fs::create_directories(directory);
         const fs::path scenePath = directory / "TemporalBiasFixture.olo";
-        SceneSerializer(GetSceneRef()).Serialize(scenePath);
+        EXPECT_TRUE(SceneSerializer(GetSceneRef()).Serialize(scenePath));
         ASSERT_TRUE(fs::is_regular_file(scenePath));
         WriteCompositePng("TemporalBiasFixture_GL_Deferred");
         std::printf("[temporal-bias] live/cooked fixture: %s\n", fs::absolute(scenePath).string().c_str());
@@ -1495,7 +1495,7 @@ namespace OloEngine::Tests
             SceneTransition::SceneRenderSettings::CaptureRenderer().Apply(*authored);
             authored->SetRenderingPath(path);
             const fs::path file = root / (std::string(ToToken(path)) + ".olo");
-            SceneSerializer(authored).Serialize(file);
+            EXPECT_TRUE(SceneSerializer(authored).Serialize(file));
             const auto loaded = SceneTransition::LoadSceneFile(file, /*requirePrimaryCamera=*/true);
             if (!loaded)
                 return std::string(loaded.Error.ToView());

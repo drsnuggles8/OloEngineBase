@@ -232,7 +232,11 @@ never chosen by the renderer** — an effect that silently degrades is one nobod
 | `0.0` | a painted iris that still has a pupil, a limbal ring and a dish tilt |
 
 The cost, measured at 384×384 offscreen, is recorded per path in
-`OloEditor/assets/tests/visual/EyeCornea_Timing.txt`.
+`OloEditor/assets/tests/visual/EyeCornea_Timing.txt`, which `SkinOcularPathTest.TheCostOfTheEyeIsRecorded`
+rewrites on every GPU run (git-ignored output, so read your own run's copy). The last tracked copy
+(`0cc2cd225`; it does not record the GPU, and it is not a benchmark: the two arms are captured back to
+back, so only the relative column is a measurement) had refraction at −2.5% Forward, −0.3% Forward+ and
++5.4% Deferred against ocular-off. A negative figure is not a saving; the refracting arm does more work.
 
 ## A front-on screenshot cannot tell you whether this works
 

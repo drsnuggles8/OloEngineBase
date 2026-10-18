@@ -168,7 +168,7 @@ TEST(RuntimeRepresentationStreamingPackTest, PackedGroomKeepsCardsWhileFinePrepa
     ASSERT_NE(static_cast<u64>(groomHandle), 0u);
     auto scene = MakeRuntimeScene(groomHandle);
     const fs::path scenePath = source / "Assets/Scenes/Residency.olo";
-    SceneSerializer(scene).Serialize(scenePath);
+    EXPECT_TRUE(SceneSerializer(scene).Serialize(scenePath));
     const AssetHandle sceneHandle = editor->ImportAsset(scenePath);
     ASSERT_NE(static_cast<u64>(sceneHandle), 0u);
     // Persist before the builder creates its own manager: scene handles must

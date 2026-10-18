@@ -634,9 +634,9 @@ TEST(StreamingSettingsYaml, ByteBudgetsRoundTrip)
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationUploadMegabytesPerFrame, 4.5f);
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationStagingMegabytes, 64.0f);
 
-    // The file path writes the same block as the string path.
+    // A file save and load round-trips the block as well.
     const fs::path path = Tests::TempFile("streaming_budget_roundtrip.olo");
-    SceneSerializer(scene).Serialize(path);
+    ASSERT_TRUE(SceneSerializer(scene).Serialize(path));
     Ref<Scene> fromFile = Scene::Create();
     ASSERT_TRUE(SceneSerializer(fromFile).Deserialize(path));
     EXPECT_FLOAT_EQ(fromFile->GetStreamingSettings().MaxResidentMegabytes, 384.5f);

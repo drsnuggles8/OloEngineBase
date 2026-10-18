@@ -3364,7 +3364,7 @@ namespace OloEngine::Tests
         }
 
         const fs::path scenePath = assetDir / "Scenes" / "GroomAnimals.olo";
-        SceneSerializer(GetSceneRef()).Serialize(scenePath);
+        EXPECT_TRUE(SceneSerializer(GetSceneRef()).Serialize(scenePath));
         ASSERT_TRUE(fs::exists(scenePath));
         std::printf("[groom-animals] wrote %s\n", scenePath.string().c_str());
 

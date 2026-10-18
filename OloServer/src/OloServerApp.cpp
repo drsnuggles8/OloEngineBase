@@ -377,7 +377,11 @@ namespace OloEngine
             }
 
             SceneSerializer serializer(m_ActiveScene);
-            serializer.Serialize(m_Config.ScenePath);
+            if (!serializer.Serialize(m_Config.ScenePath))
+            {
+                OLO_CORE_ERROR("[Server] Scene NOT saved to '{}'", m_Config.ScenePath);
+                return;
+            }
             OLO_CORE_INFO("[Server] Scene saved to '{}'", m_Config.ScenePath);
         }
 

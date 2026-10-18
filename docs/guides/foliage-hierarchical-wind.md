@@ -144,17 +144,19 @@ clean-base attribution remains unestablished and no terrain fix is claimed. The 
 Vulkan's census records all six foliage shaders with positive draws and zero
 dropped draws.
 
-Representative live captures (the full on/off and velocity grid is committed):
+Representative live captures. They are not tracked since #1610 (live editor captures, not test
+output); `git show 0cc2cd225:OloEditor/assets/tests/visual/<file>` prints one, and `FoliageWindEvidenceTest` regenerates the headless on/off and
+velocity grid:
 
-- [OpenGL ground](../../OloEditor/assets/tests/visual/FoliageWindLive_GL_Forward_MSAA1_Ground.png)
-  and [Vulkan ground](../../OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Forward_MSAA1_Ground.png).
-- [OpenGL oblique](../../OloEditor/assets/tests/visual/FoliageWindLive_GL_Deferred_MSAA4_Oblique.png)
-  and [Vulkan oblique](../../OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Deferred_MSAA4_Oblique.png).
-- [OpenGL displacement](../../OloEditor/assets/tests/visual/FoliageWindLive_GL_Debug.png)
-  and [Vulkan displacement](../../OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Debug.png).
-- [Vulkan impostor](../../OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Impostor.png),
-  [depth](../../OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_Depth.png),
-  and [shadow](../../OloEditor/assets/tests/visual/FoliageWindLive_Vulkan_ShadowA.png).
+- OpenGL ground (`FoliageWindLive_GL_Forward_MSAA1_Ground.png`)
+  and Vulkan ground (`FoliageWindLive_Vulkan_Forward_MSAA1_Ground.png`).
+- OpenGL oblique (`FoliageWindLive_GL_Deferred_MSAA4_Oblique.png`)
+  and Vulkan oblique (`FoliageWindLive_Vulkan_Deferred_MSAA4_Oblique.png`).
+- OpenGL displacement (`FoliageWindLive_GL_Debug.png`)
+  and Vulkan displacement (`FoliageWindLive_Vulkan_Debug.png`).
+- Vulkan impostor (`FoliageWindLive_Vulkan_Impostor.png`),
+  depth (`FoliageWindLive_Vulkan_Depth.png`),
+  and shadow (`FoliageWindLive_Vulkan_ShadowA.png`).
 
 Master's species/clumping PR #1302 lands habitat v35; this branch appends wind
 at v36. On-disk v34/v35 tests preserve habitat and default wind fields.

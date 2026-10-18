@@ -136,7 +136,7 @@ TEST(McpAssetPackBuild, RealBuildAutoSavesPollsAndReturnsWarningsWithBothCompres
     CommandHistory history;
     PackHost host;
     const auto scenePath = root / "Assets/PackSavedScene.olo";
-    SceneSerializer(scene).Serialize(scenePath.string());
+    EXPECT_TRUE(SceneSerializer(scene).Serialize(scenePath.string()));
     const auto sceneHandle = manager->ImportAsset(scenePath);
     ASSERT_TRUE(manager->GetAsset(sceneHandle)); // Deliberately cache the earlier scene.
     host.Editor.SceneDocument.Capture = [&]

@@ -151,6 +151,9 @@ believing it is an engine regression.
 
 - [testing-architecture.md §10](testing-architecture.md) — the coverage banner and
   `--olo-require-vulkan`.
+- [lavapipe-ray-query-suites.md](lavapipe-ray-query-suites.md) — the L7 ray-query suites in the
+  same job, the per-case gate that fails a case that did not execute, and the fence budget
+  llvmpipe's first-draw shader compile needs.
 - [vulkan-extension-adoption-claims.md](vulkan-extension-adoption-claims.md) — the same lesson from
   the other direction: check an extension's claims against the pinned SDK rather than a summary.
 - [ADR 0010](../adr/0010-vulkan-rhi-heap-bindless-only.md) — the capability contract this rule is measuring drivers against.

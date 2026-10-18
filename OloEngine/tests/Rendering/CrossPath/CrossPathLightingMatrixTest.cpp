@@ -301,7 +301,7 @@ namespace OloEngine::Tests::CrossPath
                 scene.GetSnowSettings() = Renderer3D::GetSnowSettings();
                 if (liveEstimator)
                     row.Requires.Set(false);
-                SceneSerializer(sceneRef).Serialize(dir / (stem + (state ? "_On.olo" : "_Off.olo")));
+                EXPECT_TRUE(SceneSerializer(sceneRef).Serialize(dir / (stem + (state ? "_On.olo" : "_Off.olo"))));
             }
 
             nlohmann::json regions = nlohmann::json::array();
