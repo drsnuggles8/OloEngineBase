@@ -275,20 +275,23 @@ namespace OloEngine::Tests
             RunEditorFrames(camera, count);
         }
 
-        // exports/ is git-ignored output (#1610), so a fresh clone does not have it.
-        static void MakeExportsDir(fs::path& dir)
+        [[nodiscard]] static fs::path ExportsDir()
         {
-            dir = fs::path("assets") / "tests" / "exports";
+            return fs::path("assets") / "tests" / "exports";
+        }
+
+        // exports/ is git-ignored output (#1610), so a fresh clone does not have it.
+        static void EnsureExportsDir()
+        {
             std::error_code ec;
-            fs::create_directories(dir, ec);
-            ASSERT_FALSE(ec) << "cannot create " << dir.string() << ": " << ec.message();
+            fs::create_directories(ExportsDir(), ec);
+            ASSERT_FALSE(ec) << "cannot create " << ExportsDir().string() << ": " << ec.message();
         }
 
         static void WriteArtefact(const std::string& cell, const nlohmann::json& report)
         {
-            fs::path dir;
-            ASSERT_NO_FATAL_FAILURE(MakeExportsDir(dir));
-            const fs::path file = dir / ("RenderTargetExports_" + cell + ".json");
+            ASSERT_NO_FATAL_FAILURE(EnsureExportsDir());
+            const fs::path file = ExportsDir() / ("RenderTargetExports_" + cell + ".json");
             std::ofstream out(file, std::ios::binary | std::ios::trunc);
             ASSERT_TRUE(out.is_open()) << "cannot open " << file.string();
             out << report.dump(2) << '\n';
@@ -623,10 +626,14 @@ namespace OloEngine::Tests
                     {
                         GetScene().SetRenderingPath(RenderingPath::Deferred);
                         GetScene().SetPostProcessSettings(post);
-                        fs::path exportsDir;
-                        ASSERT_NO_FATAL_FAILURE(MakeExportsDir(exportsDir));
-                        const fs::path sceneFile = exportsDir / (cell + ".olo");
+                        ASSERT_NO_FATAL_FAILURE(EnsureExportsDir());
+                        const fs::path sceneFile = ExportsDir() / (cell + ".olo");
+                        // Serialize reports nothing; remove a previous run's file so the
+                        // read-back below can only see this run's write.
+                        std::error_code removeError;
+                        fs::remove(sceneFile, removeError);
                         SceneSerializer(GetSceneRef()).Serialize(sceneFile);
+                        ASSERT_TRUE(fs::is_regular_file(sceneFile)) << "cannot write " << sceneFile.string();
                         EXPECT_EQ(YAML::LoadFile(sceneFile.string())["RenderingPath"].as<std::string>(), "Deferred");
                     }
                     std::vector<std::vector<u8>> captures;
