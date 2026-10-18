@@ -1108,16 +1108,17 @@ namespace OloEngine::Tests
 
         EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 4000.0f);
         camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
-        // A real light-probe bake, close to the coat: six cube faces, each a
-        // full RenderScene3D with the probe's own camera, none of them a frame.
-        // Whatever tier those views ask for, a publish from them that advanced
-        // the state would disturb the main view's hold and window.
-        Ref<Scene> scene(&GetScene());
-        const glm::vec3 probe(0.0f, 0.35f, EyeDistanceFor(kCardPixelSize * 3.0f));
+        // A real light-probe bake: six cube faces, each a full RenderScene3D
+        // with the probe's own camera, none of them a frame. Close enough that
+        // its 256 px, 90-degree faces see the coat at ~360 px -- strands, while
+        // the main view walks out to cards -- so a publish from the bake that
+        // decided for itself would ask for strands mid hand-over.
+        Ref<Scene> scene = GetSceneRef();
+        const glm::vec3 probe(0.0f, 0.35f, EyeDistanceFor(kCardPixelSize * 8.0f));
         const auto renderOtherViews = [&]()
         {
             GLStateGuard guard("ASecondViewInOneFrame", GLStateGuard::Policy::Restore);
-            (void)LightProbeBaker::BakeProbeAtPosition(scene, probe, 32u);
+            (void)LightProbeBaker::BakeProbeAtPosition(scene, probe, 256u);
         };
 
         Lod().m_Enabled = false;
@@ -1139,18 +1140,29 @@ namespace OloEngine::Tests
         camera.SetPose(glm::vec3(0.0f, 0.35f, EyeDistanceFor(kCardPixelSize * 0.4f)), 0.0f, 0.05f);
         u32 handOvers = 0;
         u32 fadeFrames = 0;
+        u32 bakeDisagreed = 0;
         for (u32 frame = 0; frame < 60u; ++frame)
         {
             RunEditorFrames(camera, 1);
             const GroomRenderStats& stats = PassStats();
             handOvers += stats.Lod.RepresentationChanges;
             fadeFrames += stats.Lod.CrossFading > 0u ? 1u : 0u;
+            const u32 mainFading = stats.Lod.CrossFading;
+            const u32 mainChanges = stats.Lod.RepresentationChanges;
             renderOtherViews();
+            // The bake's last face (-Z) looks at the coat: it draws the frame's
+            // mix, not one of its own. A bake that decided for itself would
+            // open a window on every frame it wanted strands.
+            if (PassStats().Lod.CrossFading != mainFading || PassStats().Lod.RepresentationChanges != mainChanges)
+            {
+                ++bakeDisagreed;
+            }
         }
         std::printf("[groom-crossfade] a probe bake after every frame: hand-overs %u, fading %u frames (window %u)\n",
                     handOvers, fadeFrames, window);
         EXPECT_EQ(handOvers, 1u) << "the main view's walk did not hand over exactly once";
         EXPECT_EQ(fadeFrames, window) << "the window did not last its length with other views in each frame";
+        EXPECT_EQ(bakeDisagreed, 0u) << "the probe bake drew a different mix of the coat than the frame it ran in";
         ASSERT_NE(GetScene().FindGroomLodState(coat), nullptr);
         EXPECT_EQ(GetScene().FindGroomLodState(coat)->Representation, GroomRepresentation::Card);
 

@@ -91,10 +91,13 @@ budgets and the width compensation are in [groom-representation-lod.md](groom-re
 10. **Advance the LOD ladder and the fade window once per frame, not once per publish.** A probe
     bake renders six cube faces between two frames, and each render publishes the grooms. When each
     publish advanced the state, a bake after every frame reset the hold, so the main view never
-    handed over. A shorter bake ate the fade window instead. The frame entry points arm
-    `Scene::m_GroomLodFrameArmed`, and any later publish in the same frame decides from a copy.
-    Pinned by `ASecondViewInOneFrameAdvancesNeitherTheLadderNorTheWindow`. Its negative control
-    gives 0 hand-overs.
+    handed over. A shorter bake ate the fade window instead. The frame entry points call
+    `Scene::BeginGroomFrame`, and the frame's first publish records its decisions. Any later
+    publish in the same frame reuses them, and does not compare or sweep per-entity state. Deciding
+    again from a copy is not enough: the copy is already one frame ahead, and a view that wants a
+    finer tier would open a new window every frame. Pinned by
+    `ASecondViewInOneFrameAdvancesNeitherTheLadderNorTheWindow`. Its negative control gives 0
+    hand-overs.
 11. **A VSM caster that stops fading counts as moved for one frame.** Its cached pages hold the
     dithered silhouette, and on a static coat nothing else redraws them. The outgoing tier's
     departure redraws only its own footprint. Pinned by

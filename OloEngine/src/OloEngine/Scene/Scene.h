@@ -1794,6 +1794,18 @@ namespace OloEngine
         // The dithered cross-fade's window per groom entity (#1612), beside the
         // LOD state it follows and swept with it, for the same reasons.
         std::unordered_map<UUID, GroomCrossFadeState> m_GroomCrossFadeRuntime;
+        // What the frame's first publish decided per groom entity (#1612): the
+        // LOD decision before the population budget, and the cross-fade. A
+        // later publish in the same frame -- a second viewport, a probe face --
+        // draws the coat as the frame decided it, the way it sees the frame's
+        // simulated pose, instead of deciding again from state the frame has
+        // already advanced. See m_GroomLodFrameArmed.
+        struct GroomLodFrameDecision
+        {
+            GroomLodDecision Lod;
+            GroomCrossFadeDecision CrossFade;
+        };
+        std::unordered_map<UUID, GroomLodFrameDecision> m_GroomLodFrameDecisions;
 
         // ── Multi-animal scheduling budgets (issue #1258) ────────────────
         //
@@ -1963,11 +1975,13 @@ namespace OloEngine
         /// Whether this frame's first groom publish is still to come.
         ///
         /// The representation LOD's hysteresis and the cross-fade window
-        /// (#1252, #1612) advance ONCE PER FRAME, re-armed by the same frame
-        /// entry points as the clock above. A second publish in one frame -- a
-        /// second viewport, a probe bake's six faces -- decides from a copy of
-        /// the state, so it never shortens a hold or a fade, and a probe
-        /// camera's distance never moves the coat's tier in the main view.
+        /// (#1252, #1612) advance ONCE PER FRAME, re-armed with the clock above
+        /// by BeginGroomFrame at every frame entry point. A second publish in
+        /// one frame -- a second viewport, a probe bake's six faces -- reuses
+        /// the frame's decisions (m_GroomLodFrameDecisions): it never shortens
+        /// a hold or a fade, never re-opens a window, and a probe camera's
+        /// distance never moves the coat's tier in the main view. It does not
+        /// compare or sweep the per-entity state either.
         bool m_GroomLodFrameArmed = true;
 
         // ── Coat authoring: the CPU copy of a root-UV map (issue #1251) ──
@@ -2005,6 +2019,13 @@ namespace OloEngine
         /// the bound ones against their body surfaces first (issues #1246,
         /// #1249). Called once per frame from ProcessScene3DSharedLogic.
         void PublishGroomStrandRequests();
+        /// The frame boundary for the grooms: zero the simulation clock and arm
+        /// the once-per-frame LOD advance. Called by every frame entry point.
+        void BeginGroomFrame() noexcept
+        {
+            m_GroomSimulationDeltaSeconds = 0.0f;
+            m_GroomLodFrameArmed = true;
+        }
 
         /// Fill in `request`'s binding half: resolve the body, check the binding
         /// against it, decide whether the previous frame is comparable, and
