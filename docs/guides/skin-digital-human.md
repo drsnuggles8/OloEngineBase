@@ -125,8 +125,7 @@ reconfigure a path switch forces. Timing the first capture after that switch is 
 version of this fixture reported a uniform ~+95% that was the rebuild rather than the skin.
 `SkinDigitalHumanScene.TheCostOfTheDigitalHumanIsRecorded` rewrites the file on every GPU run, so it is
 git-ignored output. The last tracked copy (`0cc2cd225`) had the full stack at −3.0% Forward, +6.3%
-Forward+ and +16.5% Deferred against the control; the negative figure means the cost is below the
-fixture's noise floor, not that the skin is cheaper.
+Forward+ and +16.5% Deferred against the control; the next paragraph says how to read them.
 
 With the warm-up removed the measured differences come out **within noise and sometimes negative**.
 The full stack cannot really be cheaper than the control, so a negative percentage means the cost
