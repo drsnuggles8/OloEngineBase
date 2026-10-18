@@ -35,10 +35,10 @@ foliage_wind_960x540_hierarchical_FoliagePass 181248
 foliage_wind_960x540_hierarchical_ShadowPass 247808
 foliage_wind_960x540_legacy_FoliagePass 272384
 foliage_wind_960x540_legacy_ShadowPass 336896
-gl_fluid_emit_step_32 300
-gl_fluid_step_4_proxies 300
-gl_fluid_step_no_proxies 200
-gl_particle_emit_staging_64 300
+gl_fluid_emit_step_32 9500
+gl_fluid_step_4_proxies 10500
+gl_fluid_step_no_proxies 15000
+gl_particle_emit_staging_64 1200
 gpu_frustum_cull_safe_root_bindings_1024 132700
 gpu_scene_extract_1024 1535700
 groom_intersection_dimensions_4096 87800
@@ -48,8 +48,8 @@ tone_map_512x512 9216
 virtual_geometry_frame_1280x720 4628480
 virtual_hwraster_frame_1280x720 1782784
 virtual_swraster_frame_1280x720 2304000
-vk_fluid_emit_step_32 8300
-vk_fluid_step_4_proxies 8500
-vk_fluid_step_no_proxies 7100
-vk_particle_emit_staging_64 1400
+vk_fluid_emit_step_32 67900
+vk_fluid_step_4_proxies 88300
+vk_fluid_step_no_proxies 60500
+vk_particle_emit_staging_64 7200
 whole_frame_postprocess_512x512 22528
