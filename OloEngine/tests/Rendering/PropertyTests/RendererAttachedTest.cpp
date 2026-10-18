@@ -8,11 +8,15 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Upscaling/TemporalUpscaler.h"
+#include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
 #include "GLErrorStateCheck.h"
 
 #include <glad/gl.h>
 
+#include <chrono>
 #include <functional>
 
 namespace OloEngine::Tests
@@ -192,7 +196,7 @@ namespace OloEngine::Tests
     void RendererAttachedTest::RunEditorFrames(const EditorCamera& camera, u32 count, f32 dtSeconds)
     {
         const Timestep ts{ dtSeconds };
-        for (u32 i = 0; i < count; ++i)
+        const auto tick = [this, ts, &camera]()
         {
             // Same hygiene as RunFrames — the editor render path
             // (OnUpdateEditor -> RenderScene3D -> EndScene) drives the same full
@@ -205,7 +209,33 @@ namespace OloEngine::Tests
                                      { m_Scene->OnUpdateEditor(ts, camera); });
             else
                 m_Scene->OnUpdateEditor(ts, camera);
-        }
+        };
+        for (u32 i = 0; i < count; ++i)
+            tick();
+
+        // A foliage regeneration the frames started is finished before this
+        // returns. Once any fixture earlier in the process has started the
+        // task workers, a regeneration publishes asynchronously (the staged
+        // rebuild), so a fixed frame count after m_NeedsRebuild could still
+        // draw the layers from before it: a test that passed alone failed
+        // after another suite. A test that must watch a rebuild in flight
+        // drives its scene through RunEditorFramesOn instead.
+        const auto foliagePending = [this]()
+        {
+            for (const auto entity : m_Scene->GetAllEntitiesWith<FoliageComponent>())
+            {
+                const auto& foliage = Entity{ entity, m_Scene.get() }.GetComponent<FoliageComponent>();
+                if (foliage.m_Enabled && (foliage.m_NeedsRebuild || (foliage.m_Renderer && foliage.m_Renderer->IsRebuilding())))
+                    return true;
+            }
+            return false;
+        };
+        if (count == 0u || !foliagePending())
+            return;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        while (foliagePending() && std::chrono::steady_clock::now() < deadline)
+            tick();
+        EXPECT_FALSE(foliagePending()) << "a foliage regeneration never reached publication within 30 s";
     }
 
     void RendererAttachedTest::RunEditorFramesOn(Scene& scene, const EditorCamera& camera, u32 count, f32 dtSeconds)

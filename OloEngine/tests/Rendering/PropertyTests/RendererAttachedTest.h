@@ -124,6 +124,12 @@ namespace OloEngine::Tests
         /// visual tests that need an explicit fly-camera pose — multi-angle
         /// screenshot evidence, etc. — which the single runtime
         /// `CameraComponent` path cannot express.
+        ///
+        /// A foliage regeneration the frames started is published before it
+        /// returns, however many extra frames that takes: with the task
+        /// workers running it is asynchronous, and a fixed frame count made a
+        /// test's result depend on which suite ran before it. To watch a
+        /// rebuild in flight, use `RunEditorFramesOn`.
         void RunEditorFrames(const EditorCamera& camera, u32 count, f32 dtSeconds = 1.0f / 60.0f);
 
         /// `RunEditorFrames` for a scene other than the fixture's own, through
