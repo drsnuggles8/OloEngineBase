@@ -379,6 +379,14 @@ namespace OloEngine
             // a second caller (issue #1323).
             const bool groomLevelsToDraw = !m_GroomCasters.IsEmpty() && m_GroomVsmDepthShader &&
                                            m_GroomVsmDepthShader->IsReady() && m_GroomVsmParamsUBO;
+            // ...and the lamps the VSM serves from its local-light layers (#1592),
+            // through the same program at the layers' own resolution.
+            const bool groomLayersToDraw = groomLevelsToDraw && vsm.AreLocalLightsActive() &&
+                                           vsm.GetLocalLayerCount() > 0u;
+            if (!m_GroomCasters.IsEmpty())
+            {
+                WarnIfGroomVsmProgramFailed();
+            }
             VirtualShadowMap::ExternalCasterRenderer renderVirtualCasters;
             const bool familyViewsToDraw = !m_TerrainCasters.IsEmpty() || !m_VoxelCasters.IsEmpty() || !m_FoliageCasters.IsEmpty();
             if (familyViewsToDraw)
@@ -407,11 +415,28 @@ namespace OloEngine
                 };
             }
 
+            // The local-light layers' external route: grooms, then the families,
+            // the order the clip levels draw them in.
+            VirtualShadowMap::ExternalCasterRenderer renderLocalCasters;
+            if (groomLayersToDraw || familyViewsToDraw)
+            {
+                renderLocalCasters = [this, &vsm, groomLayersToDraw, familyViewsToDraw]()
+                {
+                    u32 drawn = 0;
+                    if (groomLayersToDraw)
+                    {
+                        const ShadowBrackets::Scope bracket(ShadowBrackets::kGroomCasters);
+                        drawn += RenderGroomVirtualShadowLocalLayers(vsm);
+                    }
+                    if (familyViewsToDraw)
+                        drawn += RenderFamilyVirtualViews(vsm, true);
+                    return drawn;
+                };
+            }
+
             OLO_PERF_SCOPE_AUTO("ShadowPass::VsmCasters");
             vsm.RenderCasters({ m_MeshCasters.GetData(), static_cast<sizet>(m_MeshCasters.Num()) }, { m_SkinnedCasters.GetData(), static_cast<sizet>(m_SkinnedCasters.Num()) }, Renderer3D::GetRenderOrigin(), uploadBones,
-                              renderVirtualCasters, familyViewsToDraw ? VirtualShadowMap::ExternalCasterRenderer([this, &vsm]()
-                                                                                                                 { return RenderFamilyVirtualViews(vsm, true); })
-                                                                      : VirtualShadowMap::ExternalCasterRenderer{});
+                              renderVirtualCasters, renderLocalCasters);
             vsm.EndFrame();
 
             // RenderCasters binds a framebuffer of its own (the virtual-resolution
@@ -1301,8 +1326,10 @@ namespace OloEngine
             // pass is the scene-shadow cost of fur, and it is otherwise folded
             // into every other caster's.
             const ShadowBrackets::Scope bracket(ShadowBrackets::kGroomCasters);
-            RenderGroomCasters(cullFrustum, lightVPRel, renderOrigin, static_cast<f32>(groomViewResolution), 0,
-                               *resources.Groom, bindGroomProgram);
+            const auto viewTexels = static_cast<f32>(groomViewResolution);
+            RenderGroomCasters([cullFrustum, viewTexels](const ShadowGroomCaster& caster)
+                               { return cullFrustum != nullptr && ShouldCull(caster.WorldBounds, *cullFrustum) ? 0.0f : viewTexels; },
+                               lightVPRel, renderOrigin, glm::ivec2(0), *resources.Groom, bindGroomProgram);
         }
 
         // ── Terrain patches ──
@@ -1519,13 +1546,6 @@ namespace OloEngine
 
         GroomShadowCasterStats& stats = m_GroomPass->MutableSceneShadowStats();
         stats.VirtualShadowMapActive = m_ShadowMap != nullptr && m_ShadowMap->IsVirtualShadowMapActive();
-        // The VSM's local-light LAYER pool is rasterised by GPU-driven mesh
-        // batches that a groom caster never enters, so while it serves lamps a
-        // groom casts only the sun's shadow (see the counter's comment). Read
-        // once here and reported below only if a groom actually casts.
-        const u32 vsmLocalLights = (stats.VirtualShadowMapActive && m_ShadowMap != nullptr)
-                                       ? m_ShadowMap->GetVirtualShadowMap().GetLocalLightCount()
-                                       : 0u;
 
         // THE SAME REQUEST LIST GroomRenderPass DRAWS FROM, read from
         // Renderer3D rather than handed in: the two passes must agree about
@@ -1664,21 +1684,33 @@ namespace OloEngine
         stats.GroomsWithoutGeometry += static_cast<u32>(std::ranges::count_if(
             coatsWithoutGeometry, [&castingCoats](u64 key)
             { return !castingCoats.contains(key); }));
+    }
 
-        if (stats.GroomsCasting > 0u && vsmLocalLights > 0u)
+    void ShadowRenderPass::WarnIfGroomVsmProgramFailed()
+    {
+        const Shader* program = m_GroomVsmDepthShader.Raw();
+        const bool failed = program == nullptr || program->GetCompilationStatus() == ShaderCompilationStatus::Failed;
+        if (!failed)
         {
-            stats.VirtualShadowLocalLightsWithoutGrooms = vsmLocalLights;
-            // Once per session, and a WARNING: a lamp whose shadow silently omits
-            // the coat reads as a lighting bug two subsystems away.
-            if (!m_WarnedGroomVsmLocalLights)
+            // Still compiling is not a failure; ready again re-arms the warning
+            // for the next one (a hot reload that breaks it).
+            if (program->IsReady())
             {
-                m_WarnedGroomVsmLocalLights = true;
-                OLO_CORE_WARN("ShadowRenderPass: {} groom caster(s) do not reach the Virtual Shadow Map's local-light "
-                              "layers, so {} lamp(s) cast no groom shadow. The sun's does. Turn off the VSM's "
-                              "LocalLights to route lamps through the shadow atlas, where grooms cast.",
-                              stats.GroomsCasting, vsmLocalLights);
+                m_WarnedGroomVsmProgram = false;
             }
+            return;
         }
+        if (m_WarnedGroomVsmProgram)
+        {
+            return;
+        }
+        // A WARNING, once per failure: every coat then casts no Virtual Shadow
+        // Map shadow at all, the sun's or a lamp's, and a lamp whose shadow
+        // silently omits the coat reads as a lighting bug two subsystems away.
+        m_WarnedGroomVsmProgram = true;
+        OLO_CORE_WARN("ShadowRenderPass: the Virtual Shadow Map's groom caster program is not ready, so no coat casts "
+                      "a VSM shadow -- not the sun's clip levels, not a lamp's local-light layers. Check the shader "
+                      "log for VSM_GroomDepth.");
     }
 
     namespace
@@ -1773,9 +1805,9 @@ namespace OloEngine
                       "GroomStrandDepthCrossFade / VSM_GroomDepthCrossFade.");
     }
 
-    template<typename BindProgram>
-    void ShadowRenderPass::RenderGroomCasters(const Frustum* cullFrustum, const glm::mat4& viewProjection,
-                                              const glm::vec3& renderOrigin, f32 resolutionTexels, i32 clipLevel,
+    template<typename ResolutionOf, typename BindProgram>
+    void ShadowRenderPass::RenderGroomCasters(ResolutionOf&& resolutionOf, const glm::mat4& viewProjection,
+                                              const glm::vec3& renderOrigin, const glm::ivec2& vsmView,
                                               UniformBuffer& paramsUBO, BindProgram&& bindProgram) const
     {
         if (m_GroomCasters.IsEmpty())
@@ -1799,7 +1831,9 @@ namespace OloEngine
             {
                 continue;
             }
-            if (cullFrustum != nullptr && ShouldCull(caster.WorldBounds, *cullFrustum))
+            // Zero (or NaN) is a caster this view does not reach.
+            const f32 resolutionTexels = resolutionOf(caster);
+            if (!(resolutionTexels > 0.0f))
             {
                 continue;
             }
@@ -1813,10 +1847,11 @@ namespace OloEngine
             UBOStructures::GroomShadowParamsUBO params;
             params.Model = MakeModelRelative(caster.transform, renderOrigin);
             params.Width = glm::vec4(caster.widthScale, caster.objectScale, resolutionTexels, caster.minWidthTexels);
+            // x/z: the VSM view, a clip level or a local-light layer (#1592).
             // y: the frame the cross-fade hash is taken at (#1612) -- the strand
             // pass's own frame index, so a fading coat's shadow dither moves with
             // its colour's.
-            params.Modes = glm::ivec4(clipLevel, static_cast<i32>(Renderer3D::GetStochasticFrameIndex()), 0, 0);
+            params.Modes = glm::ivec4(vsmView.x, static_cast<i32>(Renderer3D::GetStochasticFrameIndex()), vsmView.y, 0);
             params.CrossFade = caster.crossFade;
             // GPU strand deformation (#1427): the SAME lanes and the same buffer
             // the strand draw uses, so a bound coat casts from the pose the
@@ -1922,9 +1957,11 @@ namespace OloEngine
             // by the reach test above, and the fragment stage discards any
             // page that is not allocated and dirty anyway. A second CPU cull
             // would only remove draws the raster already throws away.
-            RenderGroomCasters(/*cullFrustum=*/nullptr, clips[level].ViewProjection, renderOrigin,
-                               static_cast<f32>(VSM::kVirtualResolution), static_cast<i32>(level),
-                               *m_GroomVsmParamsUBO, bindGroomProgram);
+            RenderGroomCasters([](const ShadowGroomCaster&)
+                               { return static_cast<f32>(VSM::kVirtualResolution); },
+                               clips[level].ViewProjection, renderOrigin,
+                               glm::ivec2(static_cast<i32>(level), kGroomVsmClipDomain), *m_GroomVsmParamsUBO,
+                               bindGroomProgram);
             ++levelDraws;
             // One sequential region, so the tally is kept as it draws.
             for (const auto& caster : m_GroomCasters)
@@ -1947,6 +1984,96 @@ namespace OloEngine
             stats.SegmentsWhole += segmentsWhole;
         }
         return levelDraws;
+    }
+
+    u32 ShadowRenderPass::RenderGroomVirtualShadowLocalLayers(VirtualShadowMap& vsm)
+    {
+        // The negative control's fault re-creates the gap #1592 closed.
+        if (m_GroomCasters.IsEmpty() || !m_GroomVsmDepthShader || !m_GroomVsmParamsUBO ||
+            Levers::FaultSkipGroomVsmLocalLayers())
+        {
+            return 0;
+        }
+
+        OLO_PROFILE_FUNCTION();
+
+        const glm::vec3 renderOrigin = Renderer3D::GetRenderOrigin();
+        const glm::vec3 camera = vsm.GetCameraPositionRelative();
+        const f32 detailBias = vsm.GetSettings().LocalDetailBias;
+        const auto hasBounds = [](const ShadowGroomCaster& caster)
+        { return caster.WorldBounds.Min.x < std::numeric_limits<f32>::max(); };
+
+        // The program, then the pool image, on every switch -- see
+        // RenderGroomVirtualShadowLevels for why neither can be hoisted.
+        const bool crossFadeReady = m_GroomVsmCrossFadeShader && m_GroomVsmCrossFadeShader->IsReady();
+        if (std::ranges::any_of(m_GroomCasters, [](const ShadowGroomCaster& caster)
+                                { return caster.crossFading; }))
+        {
+            WarnIfGroomCrossFadeCasterFailed(m_GroomVsmCrossFadeShader.Raw());
+        }
+        const auto bindGroomProgram = [this, &vsm, crossFadeReady](bool crossFading)
+        {
+            (crossFading && crossFadeReady ? m_GroomVsmCrossFadeShader : m_GroomVsmDepthShader)->Bind();
+            vsm.BindPhysicalPoolImage();
+        };
+
+        u32 layerDraws = 0;
+        u64 segmentsCast = 0;
+        u64 segmentsWhole = 0;
+        for (u32 layer = 0; layer < vsm.GetLocalLayerCount(); ++layer)
+        {
+            const VSM::LocalLight& light = vsm.GetLocalLayer(layer);
+            // A coat's texels in THIS layer, or 0 where its box does not reach
+            // it. The layers are RENDER-RELATIVE, so the box is shifted first
+            // (issue #429). A coat with no box reaches every layer that serves
+            // a light, at the layer's finest mip.
+            const auto resolutionOf = [&](const ShadowGroomCaster& caster) -> f32
+            {
+                if (!hasBounds(caster))
+                {
+                    return light.Params.w < 0.5f ? 0.0f : static_cast<f32>(VSM::kLocalVirtualResolution);
+                }
+                const glm::vec3 boundsMin = caster.WorldBounds.Min - renderOrigin;
+                const glm::vec3 boundsMax = caster.WorldBounds.Max - renderOrigin;
+                if (!VirtualShadowMap::BoundsReachLocalLayer(light, boundsMin, boundsMax))
+                {
+                    return 0.0f;
+                }
+                return static_cast<f32>(
+                    VirtualShadowMap::LocalLayerReceiverResolution(light, boundsMin, boundsMax, camera, detailBias));
+            };
+            if (std::ranges::none_of(m_GroomCasters, [&](const ShadowGroomCaster& caster)
+                                     { return resolutionOf(caster) > 0.0f; }))
+            {
+                continue;
+            }
+
+            // The layer's dirty pages are the GPU's to know (b_LocalRasterMip):
+            // a layer whose pages are all cached collapses every vertex, and the
+            // fragment stage writes dirty pages only, as for a mesh.
+            RenderGroomCasters(resolutionOf, light.ViewProjection, renderOrigin,
+                               glm::ivec2(static_cast<i32>(layer), kGroomVsmLocalDomain), *m_GroomVsmParamsUBO,
+                               bindGroomProgram);
+            ++layerDraws;
+            for (const auto& caster : m_GroomCasters)
+            {
+                const f32 texels = resolutionOf(caster);
+                if (caster.vaoID.IsValid() && caster.indexCount > 0u && texels > 0.0f)
+                {
+                    segmentsCast += GroomCasterViewIndexCount(caster, light.ViewProjection, renderOrigin, texels) / 6u;
+                    segmentsWhole += caster.indexCount / 6u;
+                }
+            }
+        }
+
+        if (layerDraws > 0 && m_GroomPass != nullptr)
+        {
+            GroomShadowCasterStats& stats = m_GroomPass->MutableSceneShadowStats();
+            stats.VirtualShadowLocalLayerDraws += layerDraws;
+            stats.SegmentsCast += segmentsCast;
+            stats.SegmentsWhole += segmentsWhole;
+        }
+        return layerDraws;
     }
 
     bool ShadowRenderPass::CollectVirtualCasterBounds()

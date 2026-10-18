@@ -320,6 +320,9 @@ namespace OloEngine
         // missing or FAILED (#1612): its fading coats then cast both tiers whole.
         // A program still compiling is not reported; it becomes ready.
         void WarnIfGroomCrossFadeCasterFailed(const Shader* program) const;
+        // Logs, once per failure, that VSM_GroomDepth is missing or FAILED
+        // (#1592): no coat then casts into the VSM, sun or lamp.
+        void WarnIfGroomVsmProgramFailed();
 
         // Draws every groom caster of one view. Shared by the cascade region,
         // the atlas region and (through a different shader and projection
@@ -337,13 +340,19 @@ namespace OloEngine
         // `viewProjection` is the view's, RENDER-RELATIVE like the matrix the
         // shader widens with: each caster casts the share of its strands this
         // view's floor allows (GroomCasterViewIndexCount).
-        // A template rather than a std::function: the VSM's callable outgrows
-        // libstdc++'s small buffer and would allocate per clip level per frame.
+        // `resolutionOf(caster)` is the view's texels across for that caster --
+        // what its share is decided at -- or 0 when the caster does not reach
+        // the view (the cull). Per caster because a local-light layer is mipped
+        // and each coat's receivers select their own mip (#1592).
+        // `vsmView` is the VSM target, unread by the cascades and the atlas:
+        // x = clip level or local layer, y = kGroomVsmClipDomain/LocalDomain.
+        // Templates rather than std::functions: the VSM's callables outgrow
+        // libstdc++'s small buffer and would allocate per view per frame.
         // Defined in the .cpp, the only translation unit that calls it.
-        template<typename BindProgram>
-        void RenderGroomCasters(const Frustum* cullFrustum, const glm::mat4& viewProjection,
-                                const glm::vec3& renderOrigin, f32 resolutionTexels, i32 clipLevel,
-                                UniformBuffer& paramsUBO, BindProgram&& bindProgram) const;
+        template<typename ResolutionOf, typename BindProgram>
+        void RenderGroomCasters(ResolutionOf&& resolutionOf, const glm::mat4& viewProjection,
+                                const glm::vec3& renderOrigin, const glm::ivec2& vsmView, UniformBuffer& paramsUBO,
+                                BindProgram&& bindProgram) const;
 
         // How many of `caster`'s indices one shadow view draws (#1533): the whole
         // coat, or -- when its stream has a caster order -- the sum over its
@@ -365,6 +374,17 @@ namespace OloEngine
         // no error anywhere (virtual-geometry-into-a-second-shadow-technique.md
         // §2).
         u32 RenderGroomVirtualShadowLevels(VirtualShadowMap& vsm);
+        // The same into the VSM's LOCAL-LIGHT LAYERS (#1592): one draw per layer
+        // -- a lamp's cube face, or a spot -- that a coat's box reaches
+        // (VirtualShadowMap::BoundsReachLocalLayer), each coat casting the share
+        // its receivers' mip allows (LocalLayerReceiverResolution). Invoked
+        // through the VSM's LOCAL external seam, with the local viewport bound.
+        // Returns the number of layer draws.
+        u32 RenderGroomVirtualShadowLocalLayers(VirtualShadowMap& vsm);
+        // GroomShadowParamsUBO::Modes.z, which page table VSM_GroomDepth.glsl
+        // writes: Modes.x is a clip level in the first, a layer in the second.
+        static constexpr i32 kGroomVsmClipDomain = 0;
+        static constexpr i32 kGroomVsmLocalDomain = 1;
         // The GPU objects one item writes (amendment (92) rule 6): created by
         // EnsureItemResources on the render thread, indexed by item, shared by
         // the CSM region and the atlas region of one Execute (the two regions
@@ -615,8 +635,10 @@ namespace OloEngine
             bool CrossFading = false;
         };
         std::unordered_map<u64, GroomCasterFootprint> m_PrevGroomCasters;
-        // Latched once per session: groom casters and the VSM local-light layers.
-        bool m_WarnedGroomVsmLocalLights = false;
+        // Latched while the VSM groom caster program is unusable (#1592): every
+        // coat then casts no VSM shadow, the sun's or a lamp's. Re-armed when it
+        // becomes ready.
+        bool m_WarnedGroomVsmProgram = false;
 
         bool m_WarnedOnce = false;
         bool m_LoggedOnce = false;

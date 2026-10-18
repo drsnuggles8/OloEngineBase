@@ -383,8 +383,8 @@ namespace OloEngine
     struct VirtualShadowMapSettings
     {
         // Opt-in. Static/skinned meshes, terrain, both voxel geometry forms,
-        // and foliage have directional and local-layer routes. Virtual geometry
-        // and grooms use the external directional-caster seam.
+        // foliage and grooms (#1592) have directional and local-layer routes.
+        // Virtual geometry uses the external directional-caster seam alone.
         // Turning this on replaces directional CSM; LocalLights additionally
         // replaces the local-light atlas.
         //
@@ -738,6 +738,13 @@ namespace OloEngine
             return m_LocalLayers.at(layer);
         }
 
+        // This frame's camera, render-relative, as BeginFrame received it -- the
+        // camera the page marker selects local mips from.
+        [[nodiscard]] glm::vec3 GetCameraPositionRelative() const
+        {
+            return glm::vec3(m_Globals.CameraPosition);
+        }
+
         // This frame's clip projections, for an external caster route that has to
         // project into the same levels (issue #1149). Valid after BeginFrame().
         [[nodiscard]] const std::array<VSM::ClipProjection, VSM::kClipLevels>& GetClipProjections() const
@@ -888,6 +895,28 @@ namespace OloEngine
         [[nodiscard]] static bool BoundsReachClipLevel(const glm::mat4& viewProjection,
                                                        const glm::vec3& boundsMin,
                                                        const glm::vec3& boundsMax);
+
+        // Does a render-relative world AABB reach a local-light LAYER (#1592)?
+        //
+        // The C++ twin of VSM_CullLocalCasters.comp's reach test, for a caster
+        // route that draws into the layers from the CPU (grooms): a layer that
+        // serves no light reaches nothing, and a box wholly outside the light's
+        // range or wholly beyond one plane of the face's or spot's frustum is
+        // rejected. Conservative like the kernel: a box across two cube faces
+        // reaches both. A false negative is a lamp that silently drops a caster.
+        [[nodiscard]] static bool BoundsReachLocalLayer(const VSM::LocalLight& layer, const glm::vec3& boundsMin,
+                                                        const glm::vec3& boundsMax);
+
+        // The resolution, in texels across a local-light layer, at which the
+        // receivers of a caster's shadow sample it (#1592): the layer's virtual
+        // resolution at the mip SelectLocalMip picks for the box's centre, from
+        // the camera and the light -- the mip the marker requests for what lies
+        // there. A groom caster decides the share of its strands one layer casts
+        // at this resolution (DecideGroomCasterRun): a coarser mip widens every
+        // strand further, so it needs fewer of them. All boxes render-relative.
+        [[nodiscard]] static u32 LocalLayerReceiverResolution(const VSM::LocalLight& layer, const glm::vec3& boundsMin,
+                                                              const glm::vec3& boundsMax,
+                                                              const glm::vec3& cameraPositionRelative, f32 detailBias);
 
         // Clamps a requested physical resolution to a whole number of pages inside
         // the range the page-entry encoding can address.

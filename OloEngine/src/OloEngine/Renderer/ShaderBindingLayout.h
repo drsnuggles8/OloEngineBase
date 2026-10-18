@@ -1764,8 +1764,10 @@ namespace OloEngine
             /// z = the target's resolution in texels,
             /// w = the width floor in texels. See Groom/GroomShadowWidening.h.
             glm::vec4 Width{ 1.0f, 1.0f, 1024.0f, 1.0f };
-            /// x = VSM clip level; unread by the cascade/atlas route. y = the
-            /// frame index the cross-fade hash is taken at (#1612).
+            /// x = VSM clip level, or local-light layer when z == 1 (#1592);
+            /// x and z are unread by the cascade/atlas route. y = the frame
+            /// index the cross-fade hash is taken at (#1612). z = the VSM
+            /// domain: 0 a clip level, 1 a local-light layer.
             glm::ivec4 Modes{ 0, 0, 0, 0 };
             /// GPU strand deformation (#1427), mirrored lane for lane from
             /// GroomStrandParamsUBO so include/GroomStrandDeform.glsl reads the

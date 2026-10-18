@@ -125,9 +125,6 @@ All on GL, Release, 1280×720.
 - **The card tier at the shipped coat-shadow LOD** reads up to 1.4x the strands' energy at range,
   inside its gross guard. Holding a finer volume through the hand-over removes it at a bake cost
   (#1508).
-- **Lamps through the Virtual Shadow Map**: with its LocalLights on, lamps are served from a layer
-  pool that groom casters do not reach. The pass counts it (`VirtualShadowLocalLightsWithoutGrooms`)
-  and warns once.
 
 The three blockers first filed on #1223 are closed. A moving coat is self-shadowed (#1426, and baked
 at rest where a coat opts in, #1533). A deformed coat is moved on the GPU (#1427; its roots too since

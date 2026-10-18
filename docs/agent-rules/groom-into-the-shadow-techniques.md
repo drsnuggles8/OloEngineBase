@@ -87,11 +87,11 @@ the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl
    `v_ViewNormal` faces the camera. A zero vector is not an option: the CSM helper normalises it.
 
 10. **Wire every technique, count draws per technique, and say what is not wired.** Grooms reach the
-    CSM cascades, the local-light atlas and the VSM clip levels (the `ExternalCasterRenderer` seam), with
-    `CascadeDraws`, `AtlasDraws` and `VirtualShadowLevelDraws` counted separately. They do **not** reach
-    the VSM's local-light LAYER pool, which GPU-driven mesh batches fill — virtual geometry has the same
-    limit. With VSM `LocalLights` on, lamps cast no coat shadow; that is counted
-    (`VirtualShadowLocalLightsWithoutGrooms`), warned once, and shown in the inspector.
+    CSM cascades, the local-light atlas, the VSM clip levels (the `ExternalCasterRenderer` seam) and,
+    since #1592, the VSM's local-light LAYERS (the seam's local twin), with `CascadeDraws`, `AtlasDraws`,
+    `VirtualShadowLevelDraws` and `VirtualShadowLocalLayerDraws` counted separately. Virtual geometry
+    still does not reach the layers. A VSM groom program that fails to compile warns once: no coat then
+    casts a VSM shadow, the sun's or a lamp's.
 
 11. **A moving coat invalidates its VSM pages.** #1380 never did, so a walking coat left its old
     silhouette in every cached page it crossed. `SubmitGroomDynamicInvalidations` runs before
@@ -105,6 +105,16 @@ the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl
 
 13. **The caster's width is the drawn width.** Since #1428 the per-role compensation is in the
     stream's radii, so the only lever left is `request.WidthScale`, which both draws apply.
+
+14. **A lamp's layer is mipped, so a coat's share is decided at its receivers' mip.** One draw per
+    layer the coat's box reaches (`VirtualShadowMap::BoundsReachLocalLayer`, the twin of
+    `VSM_CullLocalCasters.comp`'s reach test). `VSM_GroomDepth.glsl` takes the layer in `Modes.x` with
+    `Modes.z = 1`, rasterises at the GPU's `b_LocalRasterMip` in that mip's corner of the viewport and
+    floors the width at a texel of that mip. The CPU cannot read that mip, so the share
+    (`DecideGroomCasterRun`) is decided at `LocalLayerReceiverResolution`: the mip the marker selects
+    at the coat's centre. Decided at mip 0, a coat seen from a few metres casts up to 2^mip times too
+    dense. The invalidation needs nothing new: `AddDynamicInvalidation` already sweeps every local
+    layer. Negative control: `OLO_FAULT_SKIP_GROOM_VSM_LOCAL_LAYERS`.
 
 ## Things that will bite
 

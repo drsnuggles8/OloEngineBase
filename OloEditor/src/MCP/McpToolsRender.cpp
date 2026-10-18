@@ -7021,6 +7021,7 @@ namespace OloEngine::MCP
             snapshot.CascadeDraws = sceneShadow.CascadeDraws;
             snapshot.AtlasDraws = sceneShadow.AtlasDraws;
             snapshot.VirtualShadowLevelDraws = sceneShadow.VirtualShadowLevelDraws;
+            snapshot.VirtualShadowLocalLayerDraws = sceneShadow.VirtualShadowLocalLayerDraws;
             snapshot.SegmentsCast = sceneShadow.SegmentsCast;
             snapshot.SegmentsWhole = sceneShadow.SegmentsWhole;
 

@@ -11,11 +11,13 @@
 // coat's shadow is with nothing detecting the drift —
 // virtual-geometry-into-a-second-shadow-technique.md's whole subject.
 //
-// ONE DRAW PER CLIP LEVEL, from the CPU, rather than the compacted
-// per-instance record VSM_Depth.glsl reads. A groom caster is a handful of
-// draws, not a GPU-driven cluster stream, so it takes the ExternalCasterRenderer
-// seam #1149 opened: the level rides in this shader's own params block and the
-// pass issues one draw per level the coat's bounds reach.
+// ONE DRAW PER VIEW, from the CPU, rather than the compacted per-instance
+// record VSM_Depth.glsl reads. A groom caster is a handful of draws, not a
+// GPU-driven cluster stream, so it takes the ExternalCasterRenderer seam #1149
+// opened: the view rides in this shader's own params block and the pass issues
+// one draw per view the coat's bounds reach -- a clip level of the sun, or
+// (#1592) a local-light layer, a lamp's cube face or spot, drawn at the mip
+// VSM_DepthLocal.glsl would draw a mesh there.
 //
 // A BOUND COAT IS DEFORMED HERE, exactly as in GroomStrandDepth.glsl (#1427,
 // re-landed with #1523): the same include/GroomStrandDeform.glsl branch on the

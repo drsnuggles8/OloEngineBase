@@ -113,6 +113,7 @@ namespace OloEngine::MCP::GroomBudgetStats
         u32 CascadeDraws = 0;
         u32 AtlasDraws = 0;
         u32 VirtualShadowLevelDraws = 0;
+        u32 VirtualShadowLocalLayerDraws = 0; // #1592: lamps the VSM serves
         u64 SegmentsCast = 0;
         u64 SegmentsWhole = 0;
 
@@ -242,6 +243,7 @@ namespace OloEngine::MCP::GroomBudgetStats
             { "cascadeDraws", snapshot.CascadeDraws },
             { "atlasDraws", snapshot.AtlasDraws },
             { "virtualShadowLevelDraws", snapshot.VirtualShadowLevelDraws },
+            { "virtualShadowLocalLayerDraws", snapshot.VirtualShadowLocalLayerDraws },
             { "segmentsCast", snapshot.SegmentsCast },
             { "segmentsWhole", snapshot.SegmentsWhole },
         };

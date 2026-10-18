@@ -403,8 +403,8 @@ namespace OloEngine::MCP::RendererSettings
           "ScenePass at 1080p Sponza)." },
         { "virtualshadowmaps", Setting::VirtualShadowMaps,
           "Directional shadow technique (ShadowSettings.VSM.Enabled, issue #702): 'on' = sparse page-table Virtual "
-          "Shadow Maps, 'off' = the fixed 4-cascade CSM. VSM covers static/skinned meshes, terrain, voxels and foliage "
-          "in directional and local maps; virtual geometry and grooms currently cover directional maps only. "
+          "Shadow Maps, 'off' = the fixed 4-cascade CSM. VSM covers static/skinned meshes, terrain, voxels, foliage and grooms "
+          "in directional and local maps; virtual geometry currently covers directional maps only. "
           "Reads back the EFFECTIVE value: a request that failed to initialise reports "
           "'off'." },
         { "vsmlocallights", Setting::VSMLocalLights,
