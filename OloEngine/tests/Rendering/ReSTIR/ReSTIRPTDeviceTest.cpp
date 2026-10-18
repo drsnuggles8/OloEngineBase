@@ -173,6 +173,7 @@ namespace OloEngine::Tests
                 GTEST_SKIP() << "Vulkan bring-up refused on a contract-satisfying machine: " << e.what();
             }
             VulkanDevice::ResetValidationErrorCount();
+            m_FenceBudgetNs = DeviceFenceWaitBudgetNs(m_Device->GetPhysicalDevice());
 
             if (!m_Device->IsRayQueryEnabled())
             {
@@ -244,7 +245,8 @@ namespace OloEngine::Tests
             ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
             ASSERT_EQ(vkQueueSubmit2(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
             queryCompletion->SubmittedFence = m_Fence;
-            ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, 10'000'000'000ull), VK_SUCCESS);
+            ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, m_FenceBudgetNs), VK_SUCCESS)
+                << "fence wait exceeded this device's " << m_FenceBudgetNs / 1'000'000'000ull << " s budget";
             queryCompletion->Completed = true;
             VulkanDeferredReclaim::Get().NotifyFrameCompleted();
         }
@@ -634,6 +636,7 @@ namespace OloEngine::Tests
         std::unique_ptr<RT::IRayTracingBackend> m_Backend;
         VkCommandBuffer m_Cmd = VK_NULL_HANDLE;
         VkFence m_Fence = VK_NULL_HANDLE;
+        u64 m_FenceBudgetNs = 0u;
     };
 
     TEST_F(ReSTIRPTDevice, ShippingPassRejectsIncompleteSceneCoverageAndRestoresSupportedAvailability)

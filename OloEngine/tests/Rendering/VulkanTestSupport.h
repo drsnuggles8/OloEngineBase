@@ -172,6 +172,24 @@ namespace OloEngine::Tests
         ::OloEngine::Tests::VulkanCoverage::RecordGateAdmission(oloVulkanGate.DeviceName);            \
     } while (false)
 
+    // How long a device test may wait on one submission's fence (#1294).
+    //
+    // Hardware keeps 10 s: a submission slower than that is a hang. A software
+    // ICD gets 5 minutes, because llvmpipe compiles a fragment shader variant
+    // lazily, on the queue thread, at its FIRST draw, so that draw's fence
+    // wait pays the whole LLVM compile. Measured on lavapipe 26.2.0
+    // (ReSTIR_PT.glsl, 16x16 target): the first draw on a fresh device waits
+    // 38-41 s and every later draw on the same pipeline under 6 ms. The work
+    // itself is not slow, so this widens the wait without shrinking the case.
+    // Classified by the same rule as the capability report (driver id + device
+    // type), never by an environment variable.
+    [[nodiscard]] inline u64 DeviceFenceWaitBudgetNs(const VkPhysicalDevice device)
+    {
+        constexpr u64 kHardwareNs = 10'000'000'000ull;
+        constexpr u64 kSoftwareNs = 300'000'000'000ull;
+        return VulkanCapabilities::Evaluate(device).IsSoftware ? kSoftwareNs : kHardwareNs;
+    }
+
     // Temporarily installs the real process-wide Vulkan RenderCommand facade,
     // then restores the initialized OpenGL facade used by the shared GPU-test
     // process. Keep this sequence centralized: restoring only RendererAPI's
