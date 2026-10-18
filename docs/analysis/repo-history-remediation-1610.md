@@ -12,9 +12,9 @@ They are often confused, so they are measured separately.
 
 | Kind | What it changes | Saving | Cost |
 |---|---|---:|---|
-| Current-tree cleanup (#1610, done) | files a checkout and a worktree contain | tracked tree 2,192.7 MB → 1,055.2 MB (9,440 → 6,555 files) | none; ordinary commit |
+| Current-tree cleanup (#1610, done) | files a checkout and a worktree contain | tracked tree 2,192.7 MB → 1,055.6 MB (9,440 → 6,568 files) | none; ordinary commit |
 | Unreachable-object reclamation | loose and orphaned objects in one local clone | local only (this box: 1.64 GiB loose, 142 MiB garbage) | `git gc` per clone; no effect on GitHub or other clones |
-| Reachable-history rewrite | what every fresh clone downloads | fresh `master` clone 3.26 GiB → about 1.08 GiB (−67%) | new SHAs for every commit after the first evidence commit; force-push; every clone and worktree migrates |
+| Reachable-history rewrite | what every fresh clone downloads | fresh `master` clone 3.25 GiB → about 1.08 GiB (packed estimate 3.26 → 1.08 GiB, −67%) | new SHAs for every commit after the first evidence commit; force-push; every clone and worktree migrates |
 
 The cleanup does not shrink a clone. Each removed blob is still reachable from every commit that
 contained it.

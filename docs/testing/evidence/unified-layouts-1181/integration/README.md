@@ -7,7 +7,8 @@
 The integrated code at `1bd20ac1d` passed 215 Vulkan and descriptor-heap tests in
 each layout mode, with zero skips or failures and exit 0. The unified run took
 216.225 seconds and forced-off took 102.722 seconds; these are test-suite durations,
-not GPU performance measurements. The XML reports are retained here.
+not GPU performance measurements. The XML reports were kept beside this file until #1610 (see the note
+at the top).
 
 Release OloEditor and Debug OloEditor, OloEngine-Tests, OloRuntime and OloServer
 were rebuilt after the heap lifecycle fix; both build commands exited 0 and

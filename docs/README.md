@@ -28,6 +28,9 @@ Read the relevant file before non-trivial work; don't duplicate its content into
 - [testing/restir-pt-1211-live.md](testing/restir-pt-1211-live.md) — the same prototype in motion in a live Vulkan editor, and what it still gets wrong.
 - [testing/evidence/render-graph-attachment-feedback-1554/README.md](testing/evidence/render-graph-attachment-feedback-1554/README.md) — physical attachment feedback contracts, snapshot copies and the complete OpenGL/Vulkan verification matrix (#1554).
 - [testing/evidence/integrated-acceptance-1259/vulkan-live/README.md](testing/evidence/integrated-acceptance-1259/vulkan-live/README.md) — the raw live-editor Vulkan runs behind the #1259 acceptance results: per-camera frame, CPU and GPU splits, attribution passes, the validation walk and the reload memory trace.
+- [testing/evidence/digital-human-1222-live/README.md](testing/evidence/digital-human-1222-live/README.md) — the hand-taken live-editor captures behind the digital-human epic's live-only acceptance cells (#1222).
+- [testing/evidence/groom-animals-1223-live/README.md](testing/evidence/groom-animals-1223-live/README.md) — the live-editor captures and measurements behind the groom epic's live-only acceptance cells (#1223).
+- [testing/evidence/flora-traversal-1224-live/README.md](testing/evidence/flora-traversal-1224-live/README.md) — the live-editor captures behind the flora traversal epic's live-only acceptance cells (#1224).
 
 ## Renderer — status, support contract and roadmap owners
 

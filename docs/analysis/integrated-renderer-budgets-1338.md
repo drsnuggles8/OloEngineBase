@@ -220,15 +220,16 @@ timing.
 
 The representative stationary Beauty captures visibly contain the fox herd,
 grass, water, and sky. Matching per-camera `SceneColorHDR.hdr`, depth, and
-where the path supplies them, albedo, normals and velocity, are under
-`docs/testing/evidence/integrated-renderer-1338/`; the per-path run summaries are
+where the path supplies them, albedo, normals and velocity, were written under
+`docs/testing/evidence/integrated-renderer-1338/` and are no longer tracked (see *Reproduction and
+raw files*). The per-path run summaries stay tracked:
 [GL Forward](../testing/evidence/integrated-renderer-1338/gl-forward-warm/summary.md),
 [GL Forward+](../testing/evidence/integrated-renderer-1338/gl-forward-plus-warm/summary.md) and
 [GL Deferred](../testing/evidence/integrated-renderer-1338/gl-deferred-warm/summary.md), and the
 water parity note is [water-parity-1470](../testing/evidence/integrated-renderer-1338/water-parity-1470/README.md).
 The dolly and rapid-turn
 captures provide different camera poses, and their velocity AOVs show motion.
-For a fixed-camera visual motion check after rebasing, `gl-motion-pair/` holds
+For a fixed-camera visual motion check after rebasing, `gl-motion-pair/` held
 stationary GL Deferred captures at frames 100 and 190, both 960 × 540 with the
 same seed and camera. Their Beauty images differ at 328,394/518,400 pixels
 (maximum channel difference 201/255); the fox and moving water visibly change
