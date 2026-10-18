@@ -179,7 +179,7 @@ it. Measured at `a2fd7467b` on an RTX 4090 with driver 617.14, the editor the on
 
 E1 (p95 under 33.3 ms) and E2 (p50 under 16.7 ms) hold at every framing on both backends; the GL face
 close-up has 0.34 ms of E2's margin. CPU 9.3–10.0 ms a frame, the coat's caster posing about 2 ms of it. `Dog_Cost.txt` is the headless per-pass record
-of the same three framings on runtime frames (GL); `Dog_Cost_Matrix.txt` attributes it by one
+of the same three framings on runtime frames (GL); [dog-cost-matrix.txt](../analysis/dog-cost-matrix.txt) attributes it by one
 substitution per run against three baselines. In both, a sub-pass (`Parent/Child`) is inside its
 parent: never add the two.
 

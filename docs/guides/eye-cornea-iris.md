@@ -232,7 +232,8 @@ never chosen by the renderer** — an effect that silently degrades is one nobod
 | `0.0` | a painted iris that still has a pupil, a limbal ring and a dish tilt |
 
 The cost, measured at 384×384 offscreen, is recorded per path in
-`OloEditor/assets/tests/visual/EyeCornea_Timing.txt`.
+`OloEditor/assets/tests/visual/EyeCornea_Timing.txt`, which `SkinOcularPathTest.TheCostOfTheEyeIsRecorded`
+rewrites on every GPU run (git-ignored output, so read your own run's copy).
 
 ## A front-on screenshot cannot tell you whether this works
 

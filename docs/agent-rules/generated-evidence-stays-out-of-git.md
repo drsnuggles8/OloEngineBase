@@ -21,7 +21,8 @@ and the measurement taken from it. Issue #1610.
    `OloEditor/assets/tests/` that the allow-list does not name, any non-Markdown file under `docs/` that
    it does not name, and any tracked file anywhere that the repository's `.gitignore` files exclude (a
    force-add; a developer's global excludes file is not consulted).
-   It also rejects an allow-list line with no reader and a line that matches nothing. Its negative
+   It also rejects an allow-list line with no reader and a line that no longer allows any file that needs
+   it. Its negative
    controls run first on every invocation.
 4. **A curated documentation image is linked from a doc.** Keep a review image only when a page
    embeds or links it. Put it under `docs/images/<topic>/`, or keep it beside the write-up in

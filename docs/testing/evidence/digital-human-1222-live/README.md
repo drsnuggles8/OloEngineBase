@@ -1,7 +1,8 @@
 # Live captures — epic #1222 acceptance
 
-> Moved here from `OloEditor/assets/tests/visual/digital-human-1222-live/` in #1610. The captures this write-up names are
-> not tracked any more; `git show 0cc2cd225:OloEditor/assets/tests/visual/digital-human-1222-live/<file>` prints one.
+> Moved here from `OloEditor/assets/tests/visual/digital-human-1222-live/` in #1610. Where the text below says these
+> files live in that directory, it describes the layout before the move. The captures are not tracked
+> any more; `git show 0cc2cd225:OloEditor/assets/tests/visual/digital-human-1222-live/<file>` prints one.
 
 **These are NOT goldens and no test regenerates them.** Everything else in
 `assets/tests/visual/` is written by a headless evidence test on each run; these ten files were

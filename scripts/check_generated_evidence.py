@@ -24,7 +24,7 @@ use it.
    not consulted, so the result is the same on every machine and in CI.
 
 Two more checks keep the list honest: every entry carries a reason, and every
-entry still matches at least one tracked file.
+entry still allows at least one tracked file that needs allowing.
 
 Only the index is checked (tracked and staged files). An untracked capture in a
 worktree is not an error; it is what a test run is supposed to leave behind.
@@ -113,11 +113,11 @@ def run_checks(tracked: list[str], ignored: set[str], allowlist_text: str) -> li
         return hit
 
     for path in tracked:
-        # An entry is in use while it matches any tracked file, guarded or not.
-        hit = allowed(path)
         guarded = is_guarded(path)
         is_ignored = path in ignored
-        if not (guarded or is_ignored) or hit:
+        # An entry is in use only while it allows a file that needs allowing; one that
+        # matches nothing but prose would silently allow the next force-added capture.
+        if not (guarded or is_ignored) or allowed(path):
             continue
         if is_ignored:
             errors.append(f"{path}: tracked although .gitignore excludes it (force-added?)")
@@ -125,7 +125,7 @@ def run_checks(tracked: list[str], ignored: set[str], allowlist_text: str) -> li
             errors.append(f"{path}: generated-output location, not on the allow-list")
     for glob, _, number in entries:
         if number not in used:
-            errors.append(f"{ALLOWLIST}:{number}: '{glob}' matches no tracked file; delete the entry")
+            errors.append(f"{ALLOWLIST}:{number}: '{glob}' allows no tracked file that needs it; delete the entry")
     return errors
 
 
@@ -191,13 +191,13 @@ SELF_TEST = {
         None,
         ["campaign-9999/turntable.mp4: generated-output location"],
     ),
-    "an entry matching only prose is still in use": (
+    "an entry matching only prose is stale": (
         ["docs/reviews/gallery/notes" + ".md"],
         set(),
         SELF_TEST_ALLOW + "docs/reviews/gallery/**  approval gallery\n",
-        [],
+        ["'docs/reviews/gallery/**' allows no tracked file"],
     ),
-    "stale entry": ([], set(), SELF_TEST_ALLOW + "docs/gone/*.png  removed campaign\n", ["'docs/gone/*.png' matches no tracked file"]),
+    "stale entry": ([], set(), SELF_TEST_ALLOW + "docs/gone/*.png  removed campaign\n", ["'docs/gone/*.png' allows no tracked file"]),
 }
 
 

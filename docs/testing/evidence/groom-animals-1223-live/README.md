@@ -1,7 +1,8 @@
 # Live-editor captures for the groom epic's acceptance (#1223)
 
-> Moved here from `OloEditor/assets/tests/visual/groom-animals-1223-live/` in #1610. The captures this write-up names are
-> not tracked any more; `git show 0cc2cd225:OloEditor/assets/tests/visual/groom-animals-1223-live/<file>` prints one.
+> Moved here from `OloEditor/assets/tests/visual/groom-animals-1223-live/` in #1610. Where the text below says these
+> files live in that directory, it describes the layout before the move. The captures are not tracked
+> any more; `git show 0cc2cd225:OloEditor/assets/tests/visual/groom-animals-1223-live/<file>` prints one.
 
 **No test regenerates these files.** They were captured by hand from a Release `OloEditor` over MCP
 (`olo_screenshot`) on an RTX 4090, playing `Scenes/GroomAnimals.olo` with TAA on unless the name says

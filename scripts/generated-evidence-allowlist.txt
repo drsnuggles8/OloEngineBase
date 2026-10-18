@@ -21,6 +21,7 @@ docs/images/dog/*                                   #1533 showcase review compos
 docs/images/vegetation/*.jpg                        #1398 comparison images (tools/vegetation-import/preview.py)
 docs/reviews/dog-breeds-1558/**                     approval galleries linked from docs/guides/dog-breeds.md
 docs/validation/foliage-hierarchical-wind-1236.json linked from docs/guides/foliage-hierarchical-wind.md
+docs/analysis/dog-cost-matrix.txt                   hand-curated cost attribution linked from docs/guides/dog-showcase.md
 docs/analysis/evidence/groom-vegetation-streaming-residency-1257.json  data behind the groom-vegetation-streaming-residency-1257 analyses
 docs/analysis/foliage-cost-baseline-1391/**         reproducible baseline; summary.json regenerates from it (foliage-cost-baseline-1391.md)
 docs/testing/evidence/hair1593/**                   images and reports linked from digital-human-hair-quality-1593.md
@@ -31,12 +32,9 @@ docs/testing/evidence/render-graph-attachment-feedback-1554/**  captures linked 
 docs/testing/evidence/restir-pt-1211/**             reports and images linked from restir-pt-1211-evidence.md and -live.md
 
 # --- Opt-in measurement records in visual/ (written only behind an env flag, cited by docs as the record)
-OloEditor/assets/tests/visual/DigitalHuman_Timing.txt  docs/guides/skin-digital-human.md
-OloEditor/assets/tests/visual/Dog_Cost.txt             DogShowcaseEvidenceTest with OLO_DOG_COST_EXPORT; docs/guides/dog-showcase.md
-OloEditor/assets/tests/visual/Dog_Cost_Matrix.txt      docs/guides/dog-showcase.md
-OloEditor/assets/tests/visual/Dog_Lighting.txt         DogShowcaseEvidenceTest with OLO_DOG_LIGHTING_EXPORT; groom-coat-body-in-the-volume.md
-OloEditor/assets/tests/visual/EyeCornea_Timing.txt     docs/guides/eye-cornea-iris.md
-OloEditor/assets/tests/visual/GroomAnimals_Cost.txt    GroomAnimalsAcceptanceEvidenceTest export; docs/guides/groom-animals.md
+OloEditor/assets/tests/visual/Dog_Cost.txt             DogShowcaseEvidenceTest with OLO_DOG_COST_EXPORT=1; docs/guides/dog-showcase.md
+OloEditor/assets/tests/visual/Dog_Lighting.txt         DogShowcaseEvidenceTest with OLO_DOG_LIGHTING_EXPORT=1; docs/agent-rules/groom-coat-body-in-the-volume.md
+OloEditor/assets/tests/visual/GroomAnimals_Cost.txt    GroomAnimalsAcceptanceEvidenceTest with OLO_GROOM_ANIMALS_COST_EXPORT=1; docs/guides/groom-animals.md
 
 # --- Goldens in OloEditor/assets/tests/visual/ (found by running each reader with the file absent)
 
