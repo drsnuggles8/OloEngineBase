@@ -160,3 +160,7 @@ GPU oracle. Neither scene substitutes for a general unbiasedness proof.
 The scripts leave their scratch scene and 160x90 viewport override active. After
 measurement, disable PT and the reference tracer and call `olo_viewport_set_size`
 with `{"reset":true}` to return rendering to the editor panel size.
+
+## Raw run output
+
+The rest of this campaign's raw output (captures, HDR buffers, per-run reports and logs) is not tracked since #1610; the reports and images linked from this page and its live companion stay. Regenerate it with the scripts in *Reproducing live measurements*. The copies this page was written from are in Git history: `git show 0cc2cd225:docs/testing/evidence/restir-pt-1211/<file>` prints one, and `git ls-tree -r --name-only 0cc2cd225 docs/testing/evidence/restir-pt-1211` lists them.

@@ -293,7 +293,7 @@ namespace OloEngine::Tests
             }
             const std::string name = std::string(prefix) + "_" + FamilyName(family) + "_" + kLightNames[light];
             GetScene().SetName(name);
-            SceneSerializer(GetSceneRef()).Serialize(directory / (name + ".olo"));
+            EXPECT_TRUE(SceneSerializer(GetSceneRef()).Serialize(directory / (name + ".olo")));
         }
 
         void Cast(bool casts)

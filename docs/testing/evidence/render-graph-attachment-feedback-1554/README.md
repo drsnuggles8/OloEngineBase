@@ -138,3 +138,7 @@ producer/consumer metadata; final expansion invalidates that cache too.
 negative controls. `ab.json` records every native live A/B measurement. Full raw
 captures, failed attempts, diagnostic crash evidence and logs are retained locally
 under the ignored `build-cached/feedback-evidence` directory.
+
+## Raw run output
+
+The rest of this campaign's raw output (captures, HDR buffers, per-run reports and logs) is not tracked since #1610; the captures linked above stay. Regenerate it with the steps in *Reproduction and checks*. The copies this page was written from are in Git history: `git show 0cc2cd225:docs/testing/evidence/render-graph-attachment-feedback-1554/<file>` prints one, and `git ls-tree -r --name-only 0cc2cd225 docs/testing/evidence/render-graph-attachment-feedback-1554` lists them.

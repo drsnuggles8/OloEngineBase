@@ -114,7 +114,7 @@ namespace OloEngine
         bool SaveSceneToPath(const std::filesystem::path& path);
         Automation::SceneDocumentAccess CreateSceneDocumentAccess();
 
-        void SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const;
+        [[nodiscard]] bool SerializeScene(Ref<Scene> const scene, const std::filesystem::path& path) const;
 
         // Auto-save
         void AutoSaveScene();

@@ -123,6 +123,9 @@ forward is not.
 raster path, each arm captured after a **discarded warm-up** so neither pays for the frame-graph
 reconfigure a path switch forces. Timing the first capture after that switch is how an earlier
 version of this fixture reported a uniform ~+95% that was the rebuild rather than the skin.
+`SkinDigitalHumanScene.TheCostOfTheDigitalHumanIsRecorded` rewrites the file on every GPU run, so it is
+git-ignored output. The last tracked copy (`0cc2cd225`) had the full stack at −3.0% Forward, +6.3%
+Forward+ and +16.5% Deferred against the control; the next paragraph says how to read them.
 
 With the warm-up removed the measured differences come out **within noise and sometimes negative**.
 The full stack cannot really be cheaper than the control, so a negative percentage means the cost

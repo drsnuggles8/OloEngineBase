@@ -171,7 +171,7 @@ class RuntimeSceneSwitchTest : public FunctionalTest
         }
 
         const auto path = AssetDir() / "Scenes" / (name + ".olo");
-        SceneSerializer(authored).Serialize(path);
+        EXPECT_TRUE(SceneSerializer(authored).Serialize(path));
         return path;
     }
 
@@ -437,7 +437,7 @@ TEST_F(RuntimeSceneSwitchTest, ASceneWithNoPrimaryCameraIsRefusedAndTheGameKeeps
         authored->SetRenderingEnabled(false);
         authored->SetName("Blind");
         (void)authored->CreateEntity("BlindMarker");
-        SceneSerializer(authored).Serialize(AssetDir() / "Scenes" / "Blind.olo");
+        EXPECT_TRUE(SceneSerializer(authored).Serialize(AssetDir() / "Scenes" / "Blind.olo"));
     }
 
     AttachScript(m_MenuMarker, SwitchOnceScript("Blind"), "menu_blind");
