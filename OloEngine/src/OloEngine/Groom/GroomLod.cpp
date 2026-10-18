@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace OloEngine
 {
@@ -205,6 +206,34 @@ namespace OloEngine
         return out;
     }
 
+    f32 SanitizeGroomDetailBias(f32 bias) noexcept
+    {
+        if (!std::isfinite(bias) || bias <= 0.0f)
+        {
+            return 1.0f;
+        }
+        return std::clamp(bias, kGroomDetailBiasMin, kGroomDetailBiasMax);
+    }
+
+    f32 ApplyGroomDetailBias(f32 threshold, f32 bias) noexcept
+    {
+        return threshold / SanitizeGroomDetailBias(bias);
+    }
+
+    GroomLodPolicy ApplyGroomDetailBias(const GroomLodPolicy& policy, f32 bias) noexcept
+    {
+        GroomLodPolicy out = SanitizeGroomLodPolicy(policy);
+        out.CardPixelSize = ApplyGroomDetailBias(out.CardPixelSize, bias);
+        out.MeshPixelSize = ApplyGroomDetailBias(out.MeshPixelSize, bias);
+        out.Visibility.FullPixelSize = ApplyGroomDetailBias(out.Visibility.FullPixelSize, bias);
+        out.Simulation.FullPixelSize = ApplyGroomDetailBias(out.Simulation.FullPixelSize, bias);
+        out.Shadow.FullPixelSize = ApplyGroomDetailBias(out.Shadow.FullPixelSize, bias);
+        // Idempotent on an already-sanitised policy, so at bias 1 this returns
+        // exactly what the first call did; elsewhere it clamps a scaled
+        // threshold back inside the authoring bounds.
+        return SanitizeGroomLodPolicy(out);
+    }
+
     GroomLodDecision IdentityGroomLodDecision() noexcept
     {
         GroomLodDecision decision;
@@ -343,6 +372,90 @@ namespace OloEngine
         return decision;
     }
 
+    f32 GroomCrossFadeThreshold(u32 frame, u32 frames) noexcept
+    {
+        if (frames == 0u || frame == 0u || frame > frames)
+        {
+            return 1.0f;
+        }
+        // In f64 so a long window's last steps stay distinct.
+        return static_cast<f32>(static_cast<f64>(frame) / (static_cast<f64>(frames) + 1.0));
+    }
+
+    GroomCrossFadeDecision AdvanceGroomCrossFade(const GroomLodDecision& decision, u32 frames, bool slotAvailable,
+                                                 GroomCrossFadeState& state) noexcept
+    {
+        const GroomRepresentation applied = decision.Representation;
+        GroomCrossFadeDecision out;
+
+        // A groom with no LOD policy has no hand-over to fade, and turning the
+        // policy off is the A/B control for every LOD capture: it must be the
+        // same picture on the first frame as on the hundredth, so the window
+        // is dropped rather than played out toward the identity tier.
+        if (decision.Reason == GroomLodFallbackReason::NotRequested)
+        {
+            state = GroomCrossFadeState{};
+            state.From = applied;
+            state.To = applied;
+            return out;
+        }
+
+        const GroomRepresentation previous = state.To;
+        // A window HOLDS its slot through this frame if it would still be
+        // drawing after it; one on its last frame is closing and holds none, so
+        // keeping it alive (a reversal, a restart) needs a slot like a new one.
+        const bool holdsSlot = state.IsActive() && state.Frame < state.Frames;
+        const bool haveSlot = slotAvailable || holdsSlot;
+        if (applied != previous)
+        {
+            if (state.IsActive() && applied == state.From && haveSlot)
+            {
+                // A REVERSAL. Last frame showed t of `To` and 1 - t of `From`;
+                // swapping the roles and mirroring the progress shows the same
+                // mix again, and the step below moves it on by one frame.
+                std::swap(state.From, state.To);
+                state.Frame = state.Frames + 1u - state.Frame;
+                ++state.Frame;
+            }
+            // A window already running holds its slot: a hand-over to a third
+            // tier mid-window restarts it without asking for another.
+            else if (frames > 0u && haveSlot)
+            {
+                state.From = previous;
+                state.To = applied;
+                state.Frames = frames;
+                state.Frame = 1u;
+            }
+            else
+            {
+                out.Refused = frames > 0u;
+                state.Frame = 0u;
+                state.Frames = 0u;
+                state.From = applied;
+                state.To = applied;
+            }
+        }
+        else if (state.IsActive())
+        {
+            ++state.Frame;
+        }
+
+        if (!state.IsActive())
+        {
+            // Over, or never started: the coat is its tier alone.
+            state.Frame = 0u;
+            state.Frames = 0u;
+            state.From = applied;
+            state.To = applied;
+            return out;
+        }
+
+        out.Active = true;
+        out.TookSlot = !holdsSlot;
+        out.Outgoing = state.From;
+        out.Threshold = GroomCrossFadeThreshold(state.Frame, state.Frames);
+        return out;
+    }
     f32 GroomCardCoverageGrowthBlend(f32 pixelSize, f32 sourcePixelSize) noexcept
     {
         if (!(sourcePixelSize > 0.0f) || !(pixelSize > 0.0f) || !std::isfinite(sourcePixelSize) ||

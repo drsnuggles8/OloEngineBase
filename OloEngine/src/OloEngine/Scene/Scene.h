@@ -1664,6 +1664,8 @@ namespace OloEngine
             u32 Points = 0;
         };
         std::unordered_map<AssetHandle, GroomStreamingGuideMetadata> m_GroomStreamingGuides;
+        // Per groom entity, last frame's GroomStreamingResidencyToken: what the
+        // temporal-history reset compares, not the geometry's StreamingKey.
         std::unordered_map<UUID, u64> m_GroomStreamingEffectiveKeys;
         /// The root evaluation's skinned surface (#1533 review), shared by every
         /// bound groom this scene evaluates, one at a time: it keeps the largest
@@ -1789,6 +1791,21 @@ namespace OloEngine
         // m_GroomRegionMaps' reason: an entity destroyed mid-session would
         // otherwise leave its counters resident for the Scene's lifetime.
         std::unordered_map<UUID, GroomLodState> m_GroomLodRuntime;
+        // The dithered cross-fade's window per groom entity (#1612), beside the
+        // LOD state it follows and swept with it, for the same reasons.
+        std::unordered_map<UUID, GroomCrossFadeState> m_GroomCrossFadeRuntime;
+        // What the frame's first publish decided per groom entity (#1612): the
+        // LOD decision before the population budget, and the cross-fade. A
+        // later publish in the same frame -- a second viewport, a probe face --
+        // draws the coat as the frame decided it, the way it sees the frame's
+        // simulated pose, instead of deciding again from state the frame has
+        // already advanced. See m_GroomLodFrameArmed.
+        struct GroomLodFrameDecision
+        {
+            GroomLodDecision Lod;
+            GroomCrossFadeDecision CrossFade;
+        };
+        std::unordered_map<UUID, GroomLodFrameDecision> m_GroomLodFrameDecisions;
 
         // ── Multi-animal scheduling budgets (issue #1258) ────────────────
         //
@@ -1955,6 +1972,18 @@ namespace OloEngine
         /// pause/resume half of the issue's criterion 1.
         f32 m_GroomSimulationDeltaSeconds = 0.0f;
 
+        /// Whether this frame's first groom publish is still to come.
+        ///
+        /// The representation LOD's hysteresis and the cross-fade window
+        /// (#1252, #1612) advance ONCE PER FRAME, re-armed with the clock above
+        /// by BeginGroomFrame at every frame entry point. A second publish in
+        /// one frame -- a second viewport, a probe bake's six faces -- reuses
+        /// the frame's decisions (m_GroomLodFrameDecisions): it never shortens
+        /// a hold or a fade, never re-opens a window, and a probe camera's
+        /// distance never moves the coat's tier in the main view. It does not
+        /// compare or sweep the per-entity state either.
+        bool m_GroomLodFrameArmed = true;
+
         // ── Coat authoring: the CPU copy of a root-UV map (issue #1251) ──
         //
         // A regional or colour map is a Texture2D asset, and the strand build
@@ -1990,6 +2019,13 @@ namespace OloEngine
         /// the bound ones against their body surfaces first (issues #1246,
         /// #1249). Called once per frame from ProcessScene3DSharedLogic.
         void PublishGroomStrandRequests();
+        /// The frame boundary for the grooms: zero the simulation clock and arm
+        /// the once-per-frame LOD advance. Called by every frame entry point.
+        void BeginGroomFrame() noexcept
+        {
+            m_GroomSimulationDeltaSeconds = 0.0f;
+            m_GroomLodFrameArmed = true;
+        }
 
         /// Fill in `request`'s binding half: resolve the body, check the binding
         /// against it, decide whether the previous frame is comparable, and
@@ -2000,7 +2036,16 @@ namespace OloEngine
         /// back to a nearest point: a coat that is quietly attached to the wrong
         /// part of the body is the failure this whole feature exists to prevent
         /// (GroomBinding.h says so at more length).
-        void DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request);
+        ///
+        /// `crossFadePartner` (#1612) is the Outgoing copy of a fading coat's
+        /// request, or null. It is the same coat on the other tier, so nothing
+        /// per ENTITY runs twice: it takes the primary's binding verdict, root
+        /// inputs, history and simulation, and only what depends on its own
+        /// tier -- its streaming resolve and, on the CPU root path, its drawn
+        /// curves' roots, evaluated in the same pass as the primary's -- is
+        /// its own.
+        void DeformGroomAgainstSurface(Entity groomEntity, const GroomAsset& groom, GroomStrandRequest& request,
+                                       GroomStrandRequest* crossFadePartner = nullptr);
         // Where a BOUND groom's coat is drawn, as a translation of the groom's
         // rest bounds in its own object space (#1259). False for an unbound
         // groom, or one whose binding cannot address the body: those draw at

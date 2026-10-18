@@ -323,6 +323,42 @@ namespace OloEngine
         EXPECT_EQ(AdvanceGroomProxyTier(inputs, state).StrandBudget, GroomProxyPolicy::ProxyStrandBudget);
     }
 
+    // The global detail bias (#1616) moves the proxy threshold with the raster
+    // ladder's, so the proxy still hands over below the raster card edge.
+    TEST(GroomRayTracingProxy, TheDetailBiasMovesTheThresholdAndOneMovesNothing)
+    {
+        const auto settle = [](f32 pixelSize, f32 bias)
+        {
+            GroomProxyState state;
+            GroomProxyInputs inputs;
+            inputs.Requested = true;
+            inputs.StrandsAvailable = 1000u;
+            inputs.PixelSize = pixelSize;
+            inputs.DetailBias = bias;
+            GroomProxyDecision decision;
+            for (u32 frame = 0; frame <= GroomProxyPolicy::HoldFrames + 1u; ++frame)
+            {
+                decision = AdvanceGroomProxyTier(inputs, state);
+            }
+            return decision;
+        };
+
+        // At 1 (the default every other case in this file runs at) the edges
+        // are exactly where they were: 192 px less and plus the 15% band.
+        EXPECT_FLOAT_EQ(ApplyGroomDetailBias(GroomProxyPolicy::DetailedPixelSize, 1.0f),
+                        GroomProxyPolicy::DetailedPixelSize);
+        EXPECT_EQ(settle(163.3f, 1.0f).Tier, GroomProxyTier::Detailed) << "just above the 163.2 px coarsening edge";
+        EXPECT_EQ(settle(163.1f, 1.0f).Tier, GroomProxyTier::Proxy) << "just below it";
+
+        // 120 px is below the 192 px threshold, and above it divided by 2.
+        constexpr f32 kBetween = 120.0f;
+        EXPECT_EQ(settle(kBetween, 1.0f).Tier, GroomProxyTier::Proxy);
+        EXPECT_EQ(settle(kBetween, 2.0f).Tier, GroomProxyTier::Detailed);
+        EXPECT_EQ(settle(300.0f, 0.5f).Tier, GroomProxyTier::Proxy) << "at 0.5 the threshold is 384 px";
+        // An unusable bias is the neutral one, not a threshold of NaN.
+        EXPECT_EQ(settle(kBetween, std::numeric_limits<f32>::quiet_NaN()).Tier, GroomProxyTier::Proxy);
+    }
+
     // The bound the hysteresis actually promises, stated as the failure it
     // prevents: a camera sitting ON the threshold and oscillating every frame
     // changes the tier at most once per HoldFrames, whatever its amplitude.

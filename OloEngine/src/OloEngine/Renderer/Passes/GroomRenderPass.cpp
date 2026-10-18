@@ -38,6 +38,7 @@
 #include <bit>
 #include <chrono>
 #include <limits>
+#include <optional>
 #include <vector>
 
 namespace OloEngine
@@ -442,8 +443,7 @@ namespace OloEngine
         // The transform array must span the whole groom, not merely be
         // non-empty: the build indexes it by curve, and a short array would read
         // past its end on the first strand past the boundary.
-        return request.Groom && request.Binding &&
-               static_cast<sizet>(request.RootTransforms.Num()) == request.Groom->GetCurveCount();
+        return request.Groom && request.Binding && request.DrawnRoots().size() == request.Groom->GetCurveCount();
     }
 
     u64 GroomRenderPass::RestStreamKey(const GroomStrandRequest& request) noexcept
@@ -854,8 +854,7 @@ namespace OloEngine
         // unless it left them to the GPU -- and then only the guides, which is
         // all PackFrame reads of them on the GPU layout.
         const std::span<const GroomRootTransform> transforms =
-            rootsOnGpu ? std::span<const GroomRootTransform>{ request.RootTransforms.GetData(),
-                                                              static_cast<sizet>(request.RootTransforms.Num()) }
+            rootsOnGpu ? request.DrawnRoots()
                        : GroomCpuRootTransforms(request, rootCurves, m_CpuRootScratch, CpuSkinScratch());
         const GroomDeformFrameStats packed = entry.DeformCpu.PackFrame(rootCurves, *request.Binding, transforms,
                                                                        simulated ? &simulation : nullptr, baseCurveCount);
@@ -2505,9 +2504,10 @@ namespace OloEngine
         const bool opaqueAtlas = shadowMap.IsOpaqueCopyWritten(ShadowMap::OpaqueCopy::Atlas);
         // How many coats cast into the maps this frame: a receiver looks for
         // another's fur only when there is one (#1533).
+        // A fading coat's outgoing copy (#1612) is the same coat, not another.
         const auto castingGrooms = static_cast<u32>(std::ranges::count_if(
             m_Requests, [](const GroomStrandRequest& request)
-            { return request.CastsSceneShadow; }));
+            { return request.CastsSceneShadow && !request.IsCrossFadeSecondary(); }));
         context.FlushHeapOffsets();
 
         // Camera-relative rendering (#429). Every world matrix the GPU sees is
@@ -2531,26 +2531,111 @@ namespace OloEngine
         // creates or reclaims one.
         u32 residentCoatVolumes = CountResidentCoatVolumes();
 
+        // A FADING COAT'S TWO TIERS ARE DRAWN PREPASS, PREPASS, SHADE, SHADE
+        // (#1612), not prepass-shade per tier. The two tiers cover the same
+        // pixels through complementary masks, and a tier whose depth prepass
+        // runs AFTER the other tier's shading draw over those pixels loses the
+        // early depth rejection its own shading draw relies on: measured on the
+        // dog at its hand-over (Release, Vulkan and GL alike), the second tier's
+        // shading cost what it costs with no prepass at all -- 2.2 ms for the
+        // window against 0.75 ms for the two tiers drawn alone. Neither mask
+        // granularity (2x2, 8x8) nor tier order removed it; holding the first
+        // tier's shading draw until the second's prepass is down did (0.43 ms).
+        //
+        // What a draw binds OF ITS OWN is exactly StrandDrawBindings plus its
+        // parameters; everything else the loop binds is the frame's. So a held
+        // draw replays correctly whatever ran in between, and one bind serves
+        // the request's own draw, the replay, and the restore after it. The
+        // held entry outlives the partner's acquire: the cache erases only the
+        // acquiring key's own entry, and the coat-volume reclaim skips every
+        // entry used this frame.
+        struct StrandDrawBindings
+        {
+            const CacheEntry* Entry = nullptr;
+            RHI::ResourceHandle CoatVolume{};
+            RHI::ResourceHandle CoatBody{};
+            bool GpuDeformed = false;
+        };
+        struct HeldShade
+        {
+            UBOStructures::GroomStrandParamsUBO Params;
+            StrandDrawBindings Bindings;
+            i32 EntityID = -1;
+        };
+        std::optional<HeldShade> heldShade;
+        const auto bindStrandDraw = [&](const StrandDrawBindings& bindings)
+        {
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GROOM_COAT_VOLUME, bindings.CoatVolume,
+                                            RHI::HeapSlotLifetime::Persistent);
+            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GROOM_COAT_BODY, bindings.CoatBody,
+                                            RHI::HeapSlotLifetime::Persistent);
+            context.FlushHeapOffsets();
+            // BOUND BEFORE EVERY DRAW, never trusted to survive: the number is
+            // shared with the terrain VT (ShaderBindingLayout.h,
+            // SSBO_GROOM_DEFORMATION). Execute refuses to run without the
+            // placeholder, so one of the two is always there.
+            (bindings.GpuDeformed ? bindings.Entry->DeformGpu : m_DeformPlaceholder)->Bind();
+            bindings.Entry->Array->Bind();
+        };
+        const auto drawStrandShade = [&](const CacheEntry& entry, const UBOStructures::GroomStrandParamsUBO& params,
+                                         bool afterPrepass)
+        {
+            m_ParamsUBO->SetData(&params, UBOStructures::GroomStrandParamsUBO::GetSize());
+            m_ParamsUBO->Bind();
+            RenderCommand::SetColorMask(true, true, true, true);
+            RenderCommand::SetDepthFunc(afterPrepass ? RHI::CompareOp::Equal : RHI::CompareOp::Less);
+            context.SetDepthMask(!afterPrepass);
+            gpuSubTimers.BeginSubPass("StrandShade");
+            context.DrawIndexed(entry.Array, entry.Stats.IndexCount);
+            gpuSubTimers.EndSubPass();
+        };
+        const auto replayHeldShade = [&]()
+        {
+            if (heldShade.has_value())
+            {
+                bindStrandDraw(heldShade->Bindings);
+                drawStrandShade(*heldShade->Bindings.Entry, heldShade->Params, true);
+                heldShade.reset();
+            }
+        };
+
         for (const auto& request : m_Requests)
         {
+            // A held draw whose partner is not this request (the partner was
+            // skipped, or drew nothing) shades now, before anything of this
+            // request runs: never after an unrelated coat's prepass.
+            if (heldShade.has_value() &&
+                !(request.IsCrossFadeSecondary() && request.EntityID == heldShade->EntityID))
+            {
+                replayHeldShade();
+            }
             if (!request.Groom)
             {
                 continue;
             }
 
             const GroomCompositionDecision decision = DecideComposition(request.RequestedMode);
-            m_Stats.Composition.Record(decision);
+            // THE OUTGOING COPY OF A FADING COAT (#1612) IS THE SAME GROOM. What
+            // it draws is cost and is counted as such (strands, segments, bytes);
+            // everything counted per GROOM -- composition, binding, deformation,
+            // simulation, coat shadow, LOD, lighting, groom totals -- is counted
+            // once, by the primary.
+            const bool perGroom = !request.IsCrossFadeSecondary();
+            if (perGroom)
+            {
+                m_Stats.Composition.Record(decision);
+            }
 
             // Counted BEFORE the geometry is acquired, so a refused binding is
             // reported even on a frame whose groom produced no geometry at all.
             // Counting it after the `continue` below is how a counter that means
             // "a coat is stuck at its bind pose" reads zero on exactly the
             // frames it matters.
-            if (request.BindingReject != GroomBindingRejectReason::None)
+            if (perGroom && request.BindingReject != GroomBindingRejectReason::None)
             {
                 ++m_Stats.GroomsBindingRefused;
             }
-            if (IsDeformed(request))
+            if (perGroom && IsDeformed(request))
             {
                 ++m_Stats.GroomsDeformed;
                 m_Stats.CurveSelectMicroseconds += request.CurveSelectMicroseconds;
@@ -2573,7 +2658,7 @@ namespace OloEngine
             // reason the binding is: a coat whose solver refused produced no
             // geometry, and a counter that means "this coat is not moving"
             // must not read zero on exactly the frames it matters.
-            if (request.Influence)
+            if (perGroom && request.Influence)
             {
                 const GroomSimulationStats& simulation = request.SimulationStats;
                 ++m_Stats.GroomsSimulated;
@@ -2609,7 +2694,7 @@ namespace OloEngine
             {
                 continue;
             }
-            if (entry->GpuDeformed)
+            if (perGroom && entry->GpuDeformed)
             {
                 ++m_Stats.GroomsGpuDeformed;
             }
@@ -2634,7 +2719,10 @@ namespace OloEngine
                 wantsPose ? AcquireDrawnPose(request, *entry) : std::span<const GroomCoatShadow::CoatSegment>{};
             const GroomCoatShadowDecision coatDecision =
                 AcquireCoatVolume(request, *entry, residentCoatVolumes, drawnPose, bakeAtRest);
-            m_Stats.CoatShadow.Record(coatDecision);
+            if (perGroom)
+            {
+                m_Stats.CoatShadow.Record(coatDecision);
+            }
             // From whatever applied the guides, not from the request: the
             // interpolation happens in BuildGroomStrandMesh on the CPU path and
             // in the vertex shader on the GPU one, and the pack that feeds the
@@ -2684,18 +2772,14 @@ namespace OloEngine
                 bound.Bound = true;
                 bound.LastBoundFrame = m_FrameState.FrameIndex;
             }
-            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GROOM_COAT_VOLUME,
-                                            coatActive ? entry->CoatVolume->GetRHIHandle()
-                                                       : m_CoatPlaceholder->GetRHIHandle(),
-                                            RHI::HeapSlotLifetime::Persistent);
+            const RHI::ResourceHandle coatVolumeHandle =
+                coatActive ? entry->CoatVolume->GetRHIHandle() : m_CoatPlaceholder->GetRHIHandle();
             // The body (#1533), under the same precondition: its placeholder
             // -- no body, open sky -- stands in whenever this draw's volume
             // holds none.
-            context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_GROOM_COAT_BODY,
-                                            coatActive && entry->CoatBody ? entry->CoatBody->GetRHIHandle()
-                                                                          : m_CoatBodyPlaceholder->GetRHIHandle(),
-                                            RHI::HeapSlotLifetime::Persistent);
-            context.FlushHeapOffsets();
+            const RHI::ResourceHandle coatBodyHandle = coatActive && entry->CoatBody
+                                                           ? entry->CoatBody->GetRHIHandle()
+                                                           : m_CoatBodyPlaceholder->GetRHIHandle();
 
             // ── The coverage compensation (#1252) ───────────────────
             //
@@ -2722,7 +2806,10 @@ namespace OloEngine
             // produced no geometry never reaches here and is therefore not
             // counted against a representation it did not draw.
             const auto tier = static_cast<sizet>(request.Lod.Representation);
-            m_Stats.Lod.Record(request.Lod);
+            if (perGroom)
+            {
+                m_Stats.Lod.Record(request.Lod);
+            }
             m_Stats.Lod.StrandsByRepresentation[tier] += entry->Stats.StrandsSelected;
             // ONCE PER ENTRY PER FRAME, not once per draw: see
             // CacheEntry::BytesCountedTick. The tick is the pass's own
@@ -2821,6 +2908,10 @@ namespace OloEngine
             params.ModeFrame = glm::ivec4(static_cast<i32>(decision.Effective),
                                           static_cast<i32>(m_FrameState.FrameIndex),
                                           static_cast<i32>(kStochasticSeed), 0);
+            // The cross-fade mask (#1612): both draws of this request, the
+            // depth prepass and the shading pass, discard the same fragments,
+            // and so do this coat's colour, velocity and G-buffer outputs.
+            params.CrossFade = MakeGroomCrossFadeLane(request);
 
             // The DERIVED fibre parameters, straight across. Nothing is
             // recomputed here: Scene built them once with the same
@@ -2985,7 +3076,7 @@ namespace OloEngine
                     }
                 }
             }
-            if (request.Lit)
+            if (perGroom && request.Lit)
             {
                 ++m_Stats.GroomsLit;
                 m_Stats.FibreSamplesPerFragment = std::max(m_Stats.FibreSamplesPerFragment, request.Fibre.HSamples);
@@ -3025,19 +3116,8 @@ namespace OloEngine
                     glm::ivec4(static_cast<i32>(layout.RootBase), static_cast<i32>(layout.SlotBase),
                                static_cast<i32>(layout.DisplacementBase), static_cast<i32>(frame.DisplacementCount));
             }
-            // BOUND BEFORE EVERY DRAW, never trusted to survive: the number is
-            // shared with the terrain VT (ShaderBindingLayout.h,
-            // SSBO_GROOM_DEFORMATION).
-            if (gpuDeformedDraw)
-            {
-                entry->DeformGpu->Bind();
-            }
-            else if (m_DeformPlaceholder)
-            {
-                m_DeformPlaceholder->Bind();
-            }
-
-            entry->Array->Bind();
+            const StrandDrawBindings bindings{ entry, coatVolumeHandle, coatBodyHandle, gpuDeformedDraw };
+            bindStrandDraw(bindings);
             // Rebind after the coat's compute/upload work. Both draws and all
             // coats see the same pre-groom images; neither samples live depth.
             context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, intersectionDepth,
@@ -3077,20 +3157,48 @@ namespace OloEngine
             }
 
             params.ModeFrame.w = 0;
-            m_ParamsUBO->SetData(&params, UBOStructures::GroomStrandParamsUBO::GetSize());
-            m_ParamsUBO->Bind();
-            RenderCommand::SetColorMask(true, true, true, true);
-            RenderCommand::SetDepthFunc(depthPrepass ? RHI::CompareOp::Equal : RHI::CompareOp::Less);
-            context.SetDepthMask(!depthPrepass);
-            gpuSubTimers.BeginSubPass("StrandShade");
-            context.DrawIndexed(entry->Array, entry->Stats.IndexCount);
-            gpuSubTimers.EndSubPass();
+            // The first of a fading pair holds its shading draw until its
+            // partner's prepass is down (see HeldShade above). Scene places the
+            // partner immediately after it, or resets the role to None when it
+            // drops the partner; a primary with no partner after it is a broken
+            // contract, and would quietly bring the lost early-Z back.
+            const GroomStrandRequest* nextRequest =
+                (&request + 1 < m_Requests.data() + m_Requests.size()) ? &request + 1 : nullptr;
+            const bool partnerFollows =
+                nextRequest != nullptr && nextRequest->IsCrossFadeSecondary() && nextRequest->EntityID == request.EntityID;
+            const bool fadingPrimary = request.CrossFadeRole == GroomCrossFadeRole::Incoming;
+            OLO_CORE_ASSERT(!fadingPrimary || partnerFollows,
+                            "a fading coat's outgoing tier must follow its primary in the request list");
+            if (depthPrepass && fadingPrimary && partnerFollows)
+            {
+                // Empty here: a held draw is replayed at the top of every
+                // request that is not its partner, and this one is a primary.
+                heldShade = HeldShade{ params, bindings, request.EntityID };
+            }
+            else
+            {
+                // A held primary shades first, under its own bindings; this
+                // request's are then restored for its own shading draw.
+                if (heldShade.has_value())
+                {
+                    replayHeldShade();
+                    bindStrandDraw(bindings);
+                }
+                drawStrandShade(*entry, params, depthPrepass);
+            }
 
-            ++m_Stats.GroomsDrawn;
+            if (perGroom)
+            {
+                ++m_Stats.GroomsDrawn;
+            }
             m_Stats.StrandsDrawn += entry->Stats.StrandsSelected;
             m_Stats.SegmentsDrawn += entry->Stats.SegmentCount;
             m_Stats.TrianglesDrawn += entry->Stats.SegmentCount * 2u;
         }
+
+        // A held shading draw whose partner produced no geometry (or was
+        // skipped) still shades: the primary tier is never lost for it.
+        replayHeldShade();
 
         // Leave the state as the next pass expects to find it. The depth func
         // is reset for the same reason FoliageRenderPass resets it: a pass
@@ -3217,7 +3325,9 @@ namespace OloEngine
     void GroomRenderPass::StartFrame()
     {
         m_Stats.Reset();
-        m_Stats.GroomsSubmitted = static_cast<u32>(m_Requests.size());
+        m_Stats.GroomsSubmitted = static_cast<u32>(std::ranges::count_if(
+            m_Requests, [](const GroomStrandRequest& request)
+            { return !request.IsCrossFadeSecondary(); }));
         // One tick per frame, 64-bit and owned by this pass. See m_CacheTick
         // for why GroomFrameState::FrameIndex cannot serve.
         ++m_CacheTick;
@@ -3353,7 +3463,7 @@ namespace OloEngine
             }
             else
             {
-                for (const GroomRootTransform& root : request.RootTransforms)
+                for (const GroomRootTransform& root : request.DrawnRoots())
                 {
                     if (!root.Valid)
                     {

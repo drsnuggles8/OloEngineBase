@@ -170,6 +170,12 @@ namespace OloEngine
         // invalidation (SubmitGroomDynamicInvalidations).
         u64 key = 0;
         bool deforming = false;
+        // The LOD cross-fade mask (#1612, MakeGroomCrossFadeLane): a fading
+        // coat's two tiers cast through the masks they are drawn with. A fading
+        // caster changes every frame (the threshold and the hash both move), so
+        // its cached VSM pages are invalidated every frame of the window.
+        glm::vec4 crossFade{ 1.0f, 0.0f, 0.0f, 0.0f };
+        bool crossFading = false;
     };
 
     struct ShadowFoliageCaster
@@ -309,22 +315,34 @@ namespace OloEngine
         // Zero when no cascade matrix is usable yet.
         [[nodiscard]] f32 WidestShadowTexelMetres() const;
 
+        // Logs, once per failure, that the groom cross-fade caster program is
+        // missing or FAILED (#1612): its fading coats then cast both tiers whole.
+        // A program still compiling is not reported; it becomes ready.
+        void WarnIfGroomCrossFadeCasterFailed(const Shader* program) const;
+
         // Draws every groom caster of one view. Shared by the cascade region,
         // the atlas region and (through a different shader and projection
         // source) the Virtual Shadow Map route, so the three techniques cannot
         // drift apart in how a strand is widened.
-        // THE CALLER BINDS THE PROGRAM, not this function, and the split is
-        // load-bearing for the VSM route: VirtualShadowMap::BindPhysicalPoolImage
-        // forks on whether the program CURRENTLY IN FLIGHT is bindless, so it has
-        // to run between the program bind and the draws. A version of this that
-        // bound the shader itself would leave the pool bind either before the
-        // program (wrong fork) or nowhere it could be expressed.
+        // THE CALLER OWNS THE PROGRAM BIND, through `bindProgram(crossFading)`,
+        // and the split is load-bearing for the VSM route:
+        // VirtualShadowMap::BindPhysicalPoolImage forks on whether the program
+        // CURRENTLY IN FLIGHT is bindless, so it has to run between the program
+        // bind and the draws, which only the caller can express. This function
+        // calls it before the first caster and again whenever the next caster
+        // needs the other program -- the cross-fade variant for a fading coat
+        // (#1612), the discard-free one, with its early depth test, for every
+        // other.
         // `viewProjection` is the view's, RENDER-RELATIVE like the matrix the
         // shader widens with: each caster casts the share of its strands this
         // view's floor allows (GroomCasterViewIndexCount).
+        // A template rather than a std::function: the VSM's callable outgrows
+        // libstdc++'s small buffer and would allocate per clip level per frame.
+        // Defined in the .cpp, the only translation unit that calls it.
+        template<typename BindProgram>
         void RenderGroomCasters(const Frustum* cullFrustum, const glm::mat4& viewProjection,
                                 const glm::vec3& renderOrigin, f32 resolutionTexels, i32 clipLevel,
-                                UniformBuffer& paramsUBO) const;
+                                UniformBuffer& paramsUBO, BindProgram&& bindProgram) const;
 
         // How many of `caster`'s indices one shadow view draws (#1533): the whole
         // coat, or -- when its stream has a caster order -- the sum over its
@@ -390,6 +408,9 @@ namespace OloEngine
             Ref<Shader> Foliage;
             Ref<Shader> FoliageImpostor;
             Ref<Shader> Groom; // "GroomStrandDepth" — null when no groom casts
+            // "GroomStrandDepthCrossFade" (#1612) — the caster a fading coat's two
+            // tiers draw through; null when no caster is fading or it is not ready.
+            Ref<Shader> GroomCrossFade;
         };
 
         // One cascade or atlas entry that will actually render this frame —
@@ -535,6 +556,12 @@ namespace OloEngine
         // object while m_VirtualItemResources is a vector.
         Ref<UniformBuffer> m_GroomVsmParamsUBO;
         Ref<Shader> m_GroomVsmDepthShader;
+        // VSM_GroomDepthCrossFade.glsl (#1612): VSM_GroomDepth with the LOD
+        // cross-fade's dither mask, bound for a fading caster only.
+        Ref<Shader> m_GroomVsmCrossFadeShader;
+        // Latched by WarnIfGroomCrossFadeCasterFailed, released when the
+        // program is ready again, so each failure is said once and loudly.
+        mutable bool m_WarnedGroomCrossFadeCaster = false;
 
         // Per-item state of the parallel regions (issue #806). Grown lazily to
         // the largest region seen; never resized while a region is open, so
@@ -575,6 +602,9 @@ namespace OloEngine
             glm::vec3 Min{ 0.0f };
             glm::vec3 Max{ 0.0f };
             glm::mat4 Transform{ 1.0f };
+            // Last frame's caster was a fading tier (#1612): its pages hold a
+            // dithered silhouette, which the first steady frame must replace.
+            bool CrossFading = false;
         };
         std::unordered_map<u64, GroomCasterFootprint> m_PrevGroomCasters;
         // Latched once per session: groom casters and the VSM local-light layers.

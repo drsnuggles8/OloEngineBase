@@ -1711,6 +1711,10 @@ namespace OloEngine
             glm::vec4 WetState{ 0.0f, -1.0e6f, 0.05f, 0.0f };
             glm::vec4 WetResponse{ 1.0f, 1.0f, 1.0f, 0.0f };
             glm::vec4 WetHeight{ 0.0f, 1.0f, 0.0f, 0.0f };
+            // The LOD cross-fade mask (#1612, MakeGroomCrossFadeLane): x = the
+            // incoming tier's share t, y = the role (0 none, 1 incoming keeps
+            // h < t, 2 outgoing keeps h >= t). (1, 0) draws every fragment.
+            glm::vec4 CrossFade{ 1.0f, 0.0f, 0.0f, 0.0f };
 
             static constexpr u32 GetSize()
             {
@@ -1725,12 +1729,12 @@ namespace OloEngine
         // three vec4-sized lanes), 432 with #1427's two deformation lanes, 480
         // with #1533's three dual-scattering lanes, 624 with #1558's pigment
         // lane and eight-lane table, 640 with #1614's soft-intersection lane,
-        // 656 with #1618's ambient-ladder lane and 704 with #1615's three wetness
-        // lanes. Every lane is vec4-sized or a mat4, so the std140 layout is the
+        // 656 with #1618's ambient-ladder lane, 704 with #1615's three wetness
+        // lanes and 720 with #1612's cross-fade lane. Every lane is vec4-sized or a mat4, so the std140 layout is the
         // C++ layout and the number is a plain sum — which is what makes this
         // assertion able to catch a lane added to one side and not the other.
-        static_assert(sizeof(GroomStrandParamsUBO) == 704,
-                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (704 B)");
+        static_assert(sizeof(GroomStrandParamsUBO) == 720,
+                      "GroomStrandParamsUBO std140 size drifted from GLSL expectation (720 B)");
 
         // @brief One groom shadow-caster draw (issue #1323), uploaded at
         // UBO_USER_0 (7). GLSL twin: the GroomShadowParams block, declared
@@ -1760,7 +1764,8 @@ namespace OloEngine
             /// z = the target's resolution in texels,
             /// w = the width floor in texels. See Groom/GroomShadowWidening.h.
             glm::vec4 Width{ 1.0f, 1.0f, 1024.0f, 1.0f };
-            /// x = VSM clip level; unread by the cascade/atlas route.
+            /// x = VSM clip level; unread by the cascade/atlas route. y = the
+            /// frame index the cross-fade hash is taken at (#1612).
             glm::ivec4 Modes{ 0, 0, 0, 0 };
             /// GPU strand deformation (#1427), mirrored lane for lane from
             /// GroomStrandParamsUBO so include/GroomStrandDeform.glsl reads the
@@ -1768,6 +1773,11 @@ namespace OloEngine
             /// is a final stream and neither lane is read.
             glm::ivec4 DeformModes{ 0, 0, 0, 0 };
             glm::ivec4 DeformBases{ 0, 0, 0, 0 };
+            /// The LOD cross-fade mask (#1612), GroomStrandParamsUBO::CrossFade's
+            /// lanes: a fading coat's two tiers cast through the same
+            /// complementary masks they are drawn with, so the shadow and the
+            /// colour agree mid-fade.
+            glm::vec4 CrossFade{ 1.0f, 0.0f, 0.0f, 0.0f };
 
             static constexpr u32 GetSize()
             {
@@ -1777,12 +1787,13 @@ namespace OloEngine
 
         static_assert(sizeof(GroomShadowParamsUBO) % 16 == 0,
                       "GroomShadowParamsUBO must be 16-byte aligned for std140");
-        // 128 B: one mat4 (64) plus four vec4-sized lanes (64). Every lane is
+        // 144 B: one mat4 (64) plus five vec4-sized lanes (80; the fifth is
+        // #1612's cross-fade lane). Every lane is
         // vec4-sized or a mat4, so the std140 layout is the C++ layout and the
         // number is a plain sum — which is what lets this catch a lane added to
         // one side and not the other.
-        static_assert(sizeof(GroomShadowParamsUBO) == 128,
-                      "GroomShadowParamsUBO std140 size drifted from GLSL expectation (128 B)");
+        static_assert(sizeof(GroomShadowParamsUBO) == 144,
+                      "GroomShadowParamsUBO std140 size drifted from GLSL expectation (144 B)");
 
         // @brief The GPU root evaluation's dispatch (#1533 E1), uploaded at
         // UBO_USER_0 (7) right before it. GLSL twin: the GroomRootFrameParams

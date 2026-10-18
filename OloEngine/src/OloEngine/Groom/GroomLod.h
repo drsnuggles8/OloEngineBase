@@ -183,6 +183,13 @@ namespace OloEngine
         /// it is visible as a picture.
         HeldByHysteresis,
 
+        /// The coat IS on the tier its size selects, but it got there by a hard
+        /// switch: the hand-over wanted a dithered cross-fade (#1612) and the
+        /// frame's cross-fade budget (RendererSettings::GroomLodMaxCrossFades)
+        /// was already spent. Reported on the frame of the switch only. Last,
+        /// because every row above is more fundamental than a budget.
+        CrossFadeBudgetSpent,
+
         Count
     };
 
@@ -203,6 +210,9 @@ namespace OloEngine
             case GroomLodFallbackReason::HeldByHysteresis:
                 return "a coarser representation is available and the request has not been stable "
                        "for the policy's hold; the coat is holding the tier it has";
+            case GroomLodFallbackReason::CrossFadeBudgetSpent:
+                return "the hand-over hard-switched: the frame's cross-fade budget was spent "
+                       "(Renderer settings: groom LOD cross-fades at once)";
             case GroomLodFallbackReason::Count:
                 break;
         }
@@ -382,6 +392,46 @@ namespace OloEngine
     [[nodiscard]] GroomLodPolicy SanitizeGroomLodPolicy(const GroomLodPolicy& policy) noexcept;
 
     // -------------------------------------------------------------------------
+    // The global detail bias (#1616)
+    // -------------------------------------------------------------------------
+    //
+    // ONE SCALAR A QUALITY PRESET TRADES GROOM DETAIL FOR FRAME TIME WITH.
+    // Every pixel threshold a groom's detail is chosen by is DIVIDED by it: at
+    // 2 a coat keeps its strands down to half the apparent size (twice the
+    // distance), at 0.5 it hands over at twice the size. The per-groom policy
+    // stays what was authored; the bias is applied on top of it, once, where
+    // the frame's policy is assembled, so an inspector still shows the numbers
+    // its author typed.
+    //
+    // DIVIDING BY EXACTLY 1 IS THE IDENTITY in IEEE arithmetic, so the default
+    // bias leaves every threshold, every decision and every capture bit for bit
+    // what it was before the bias existed. GroomLodContractTest pins that
+    // rather than assuming it.
+    //
+    // NOT SCALED: the hysteresis and the width cap, which are fractions and
+    // ratios rather than sizes, and the card level's SourcePixelSize, which is
+    // what the cook MEASURED the card at — a fact about the bytes, not a
+    // choice of where to draw them. A coat handed over away from its cook size
+    // is already handled by GroomCardCoverageGrowthBlend on the near side, and
+    // on the far side a low preset accepts cards drawn as cooked.
+
+    inline constexpr f32 kGroomDetailBiasMin = 0.25f;
+    inline constexpr f32 kGroomDetailBiasMax = 4.0f;
+
+    /// The bias as it is applied: a non-finite or non-positive value takes the
+    /// neutral 1 (never a clamp of a NaN, which std::clamp passes through), any
+    /// other is clamped to [kGroomDetailBiasMin, kGroomDetailBiasMax].
+    [[nodiscard]] f32 SanitizeGroomDetailBias(f32 bias) noexcept;
+
+    /// A pixel threshold under the bias: `threshold / SanitizeGroomDetailBias(bias)`.
+    [[nodiscard]] f32 ApplyGroomDetailBias(f32 threshold, f32 bias) noexcept;
+
+    /// `policy`, sanitised, with its two tier thresholds and its three budget
+    /// curves' full-rate sizes scaled by the bias, and sanitised again so the
+    /// result is inside the authoring bounds and still ordered.
+    [[nodiscard]] GroomLodPolicy ApplyGroomDetailBias(const GroomLodPolicy& policy, f32 bias) noexcept;
+
+    // -------------------------------------------------------------------------
     // What the frame resolved
     // -------------------------------------------------------------------------
 
@@ -492,16 +542,26 @@ namespace OloEngine
         /// counter sums it, and a counter that stays at the groom count IS
         /// thrashing, reported before anyone has to see it.
         bool RepresentationChanged = false;
-        u8 Pad0 = 0;
-        u8 Pad1 = 0;
+
+        /// True while the coat draws both sides of a hand-over (#1612). Never
+        /// set by AdvanceGroomLod: the producer sets it from
+        /// AdvanceGroomCrossFade, and the renderer's counter sums it.
+        bool CrossFading = false;
+
+        /// True on the frame a hand-over hard-switched because the frame's
+        /// cross-fade budget was spent (#1612), whatever Reason names. Set by
+        /// the producer; counted in GroomLodStats::CrossFadesRefused.
+        bool CrossFadeRefused = false;
 
         /// True when the coat is NOT on the tier its apparent size selects.
         /// NotRequested is excluded for GroomCompositionDecision's reason: a
         /// scene full of grooms that never opted in is not a scene full of
-        /// failures.
+        /// failures. CrossFadeBudgetSpent is excluded because the coat IS on
+        /// its tier; it only got there by a hard switch.
         [[nodiscard]] constexpr bool IsFallback() const noexcept
         {
-            return Reason != GroomLodFallbackReason::None && Reason != GroomLodFallbackReason::NotRequested;
+            return Reason != GroomLodFallbackReason::None && Reason != GroomLodFallbackReason::NotRequested &&
+                   Reason != GroomLodFallbackReason::CrossFadeBudgetSpent;
         }
 
         [[nodiscard]] auto operator==(const GroomLodDecision& other) const -> bool
@@ -532,6 +592,133 @@ namespace OloEngine
                                      GroomLodState& state) noexcept;
 
     // -------------------------------------------------------------------------
+    // The dithered cross-fade across a hand-over (#1612)
+    // -------------------------------------------------------------------------
+    //
+    // A hand-over used to be a hard switch: one frame on strands, the next on
+    // cards, and whatever the two disagree about in coverage and energy lands
+    // in one frame as a pop. For a short window after each switch the coat now
+    // draws BOTH tiers, each through a screen-door mask taken from ONE
+    // per-pixel hash h in [0,1): the incoming tier keeps the fragments with
+    // h < t, the outgoing tier the ones with h >= t, and t ramps 0 -> 1 across
+    // the window. The masks are complementary, so every pixel is drawn by
+    // exactly one tier, and the expected coverage of a pixel is
+    // t C_in + (1 - t) C_out: the step is spread over the window and TAA
+    // integrates the dither. This hides the step; it does not remove the
+    // energy mismatch between the tiers (#1608).
+    //
+    // THE HASH IS PER PIXEL AND PER FRAME, NOT PER SEGMENT. Both tiers must ask
+    // the same question of the same pixel or the masks are not complementary,
+    // and a tier's segments are not the other tier's. It is the stochastic
+    // composition's hash (GroomCoverage::StochasticHash) with segment 0 and its
+    // own seed, so it does not correlate with the coat's own alpha test.
+    //
+    // THE PAIR IS GENERIC: From and To are representations, so a shell tier
+    // (#1613) cross-fades through the same code. The CPU decides the window;
+    // every pass that rasterises a tier (the strand shader's colour, velocity
+    // and G-buffer outputs, its depth prepass, and the scene-shadow casters)
+    // applies the same mask from the same two numbers.
+
+    /// Which side of a cross-fade a draw is. None draws every fragment.
+    enum class GroomCrossFadeRole : u8
+    {
+        None = 0,
+        /// The tier the coat is handing over TO; keeps h < t.
+        Incoming = 1,
+        /// The tier it is leaving; keeps h >= t.
+        Outgoing = 2,
+    };
+
+    /// The cross-fade hash's seed: distinct from GroomRenderPass's stochastic
+    /// seed so the two tests are independent. GLSL twin:
+    /// OLO_GROOM_CROSSFADE_SEED in include/GroomStrandCommon.glsl.
+    inline constexpr u32 kGroomCrossFadeSeed = 1612u;
+
+    /// The mask threshold on frame `frame` (1-based) of a `frames`-frame
+    /// window: frame / (frames + 1), strictly inside (0, 1) and strictly
+    /// increasing, so the first frame already shows some of the incoming tier
+    /// and the last still shows some of the outgoing one -- the frame after the
+    /// window, drawn by the incoming tier alone, is t = 1. 1 for a zero-length
+    /// window or a frame past its end.
+    [[nodiscard]] f32 GroomCrossFadeThreshold(u32 frame, u32 frames) noexcept;
+
+    /// Whether a fragment whose hash is `hash` survives for `role` at `t`. The
+    /// CPU mirror of oloGroomCrossFadeKeeps: for every hash and every t exactly
+    /// one of Incoming and Outgoing keeps it.
+    [[nodiscard]] constexpr bool GroomCrossFadeKeeps(GroomCrossFadeRole role, f32 hash, f32 t) noexcept
+    {
+        switch (role)
+        {
+            case GroomCrossFadeRole::Incoming:
+                return hash < t;
+            case GroomCrossFadeRole::Outgoing:
+                return !(hash < t);
+            case GroomCrossFadeRole::None:
+                break;
+        }
+        return true;
+    }
+
+    /// One groom entity's cross-fade memory, beside its GroomLodState.
+    struct GroomCrossFadeState
+    {
+        /// Frames of the window shown so far (1-based once active) and its length.
+        u32 Frame = 0;
+        u32 Frames = 0;
+        GroomRepresentation From = GroomRepresentation::Strand;
+        GroomRepresentation To = GroomRepresentation::Strand;
+        u8 Pad0 = 0;
+        u8 Pad1 = 0;
+
+        [[nodiscard]] constexpr bool IsActive() const noexcept
+        {
+            return Frames > 0u && Frame > 0u && Frame <= Frames;
+        }
+
+        [[nodiscard]] auto operator==(const GroomCrossFadeState& other) const -> bool
+        {
+            return Math::BitwiseEqual(*this, other);
+        }
+    };
+
+    static_assert(sizeof(GroomCrossFadeState) == 12,
+                  "GroomCrossFadeState is compared with a whole-object memcmp: it must have no implicit padding");
+    static_assert(std::is_trivially_copyable_v<GroomCrossFadeState>);
+
+    /// What this frame draws.
+    struct GroomCrossFadeDecision
+    {
+        /// The incoming tier's threshold this frame; 1 when not fading.
+        f32 Threshold = 1.0f;
+        /// The tier to draw as well, through the Outgoing mask. Meaningful
+        /// only when Active.
+        GroomRepresentation Outgoing = GroomRepresentation::Strand;
+        bool Active = false;
+        /// A hand-over that wanted a window and did not get one because the
+        /// caller had no slot: it hard-switched, as before #1612.
+        bool Refused = false;
+        /// The window is drawing this frame on a slot it did not hold coming
+        /// in -- a new window, or a closing one kept alive by a reversal. The
+        /// caller's budget pays exactly these, so it never runs over.
+        bool TookSlot = false;
+    };
+
+    /// Advances `state` by one frame. `decision` is this frame's LOD answer;
+    /// `frames` the window length (0: every hand-over is a hard switch, as
+    /// before #1612); `slotAvailable` whether the caller's concurrency budget
+    /// can take a slot this frame. A window that will still be drawing after
+    /// this frame keeps its slot and never asks; one on its last frame holds
+    /// none, so a reversal on that frame asks like a new window does, and is
+    /// refused (a hard switch back) without one. TookSlot says when one was
+    /// taken.
+    ///
+    /// A switch BACK mid-window (the coat refines the frame after it coarsened,
+    /// which refinement's immediacy allows) reverses the window rather than
+    /// restarting it: the roles swap and the progress mirrors, so the picture
+    /// keeps the mix it had instead of snapping to the tier it was leaving.
+    GroomCrossFadeDecision AdvanceGroomCrossFade(const GroomLodDecision& decision, u32 frames, bool slotAvailable,
+                                                 GroomCrossFadeState& state) noexcept;
+    // -------------------------------------------------------------------------
     // Counters
     // -------------------------------------------------------------------------
 
@@ -560,6 +747,15 @@ namespace OloEngine
         /// count IS thrashing, reported before anyone has to see it.
         u32 RepresentationChanges = 0;
 
+        /// Coats drawing BOTH sides of a hand-over this frame through
+        /// complementary dither masks (#1612), and the hand-overs that wanted a
+        /// cross-fade and hard-switched because the frame's cross-fade budget
+        /// was spent (GroomLodDecision::CrossFadeRefused; the decision also
+        /// names GroomLodFallbackReason::CrossFadeBudgetSpent where nothing more
+        /// fundamental explains the coat).
+        u32 CrossFading = 0;
+        u32 CrossFadesRefused = 0;
+
         /// Worst and mean width compensation actually applied, and how many
         /// grooms hit the cap. A coat at the cap is genuinely thinner than it
         /// was authored, and criterion 1 is a claim about exactly that.
@@ -583,6 +779,14 @@ namespace OloEngine
             {
                 ++RepresentationChanges;
             }
+            if (decision.CrossFading)
+            {
+                ++CrossFading;
+            }
+            if (decision.CrossFadeRefused)
+            {
+                ++CrossFadesRefused;
+            }
         }
 
         void Reset() noexcept
@@ -591,14 +795,16 @@ namespace OloEngine
         }
 
         /// The reason to show when only one line fits. Skips None and
-        /// NotRequested — neither is something to fix — and breaks ties toward
-        /// the more fundamental (lower) reason, so the answer names a cause
-        /// rather than a symptom.
+        /// NotRequested — neither is something to fix — and CrossFadeBudgetSpent,
+        /// which IsFallback does not count either (the coat is on its tier; the
+        /// refusal has its own counter). Breaks ties toward the more fundamental
+        /// (lower) reason, so the answer names a cause rather than a symptom.
         [[nodiscard]] GroomLodFallbackReason DominantFallbackReason() const noexcept
         {
             auto dominant = GroomLodFallbackReason::None;
             u32 best = 0;
-            for (sizet i = static_cast<sizet>(GroomLodFallbackReason::NotRequested) + 1u; i < ByReason.size(); ++i)
+            for (sizet i = static_cast<sizet>(GroomLodFallbackReason::NotRequested) + 1u;
+                 i < static_cast<sizet>(GroomLodFallbackReason::CrossFadeBudgetSpent); ++i)
             {
                 if (ByReason[i] > best)
                 {
@@ -620,7 +826,8 @@ namespace OloEngine
                    GroomsFellBack == other.GroomsFellBack && ByRepresentation == other.ByRepresentation &&
                    ByReason == other.ByReason && StrandsByRepresentation == other.StrandsByRepresentation &&
                    BytesByRepresentation == other.BytesByRepresentation &&
-                   RepresentationChanges == other.RepresentationChanges &&
+                   RepresentationChanges == other.RepresentationChanges && CrossFading == other.CrossFading &&
+                   CrossFadesRefused == other.CrossFadesRefused &&
                    Math::BitwiseEqual(MaxWidthCompensation, other.MaxWidthCompensation) &&
                    GroomsAtCompensationCap == other.GroomsAtCompensationCap;
         }

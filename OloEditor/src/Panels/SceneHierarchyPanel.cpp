@@ -10383,6 +10383,16 @@ namespace OloEngine
             }
 
             ImGui::SeparatorText("Representation thresholds");
+            // The global detail bias (#1616) divides every threshold below.
+            // Shown here because a coat handing over at the "wrong" size under
+            // a Low or Ultra preset is otherwise a mystery from this panel.
+            if (const f32 bias = SanitizeGroomDetailBias(Renderer3D::GetRendererSettings().GroomDetailBias);
+                !Math::BitwiseEqual(bias, 1.0f))
+            {
+                ImGui::TextDisabled("Quality preset's groom detail bias %.2f: cards below %.0f px in effect",
+                                    static_cast<double>(bias),
+                                    static_cast<double>(ApplyGroomDetailBias(component.m_CardPixelSize, bias)));
+            }
             ImGui::DragFloat("Cards below (px)", &component.m_CardPixelSize, 1.0f, 0.5f, 16384.0f, "%.0f");
             if (ImGui::IsItemHovered())
             {
@@ -10501,6 +10511,10 @@ namespace OloEngine
                 // A number that stays at the groom count IS thrashing, reported
                 // before anyone has to see it. A steady camera scores 0.
                 ImGui::Text("Representation changes this frame: %u", stats.RepresentationChanges);
+                // #1612: coats drawing both sides of a hand-over, and hand-overs
+                // that hard-switched because the cross-fade budget was spent.
+                ImGui::Text("Cross-fading: %u   hard-switched (budget spent): %u", stats.CrossFading,
+                            stats.CrossFadesRefused);
                 ImGui::Text("Widest compensation applied: %.2fx   grooms at the cap: %u",
                             static_cast<double>(stats.MaxWidthCompensation), stats.GroomsAtCompensationCap);
 
