@@ -71,7 +71,6 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstdio>
@@ -260,29 +259,13 @@ namespace OloEngine::Tests
         }
 
         // Every layer in or out of the shadow maps; a regeneration applies it,
-        // and this returns once that regeneration is the one drawn.
+        // which the next RunEditorFrames finishes before returning.
         void SetFoliageCastsShadows(bool casts)
         {
             auto& foliage = m_TerrainEntity.GetComponent<FoliageComponent>();
             for (auto& layer : foliage.m_Layers)
                 layer.CastShadows = casts;
             foliage.m_NeedsRebuild = true;
-            ASSERT_NO_FATAL_FAILURE(RenderUntilPublished());
-        }
-
-        // Once an earlier fixture in the process has started the task workers,
-        // a regeneration publishes asynchronously, and a fixed frame count reads
-        // the layers from before it: the foliage-off arm then drew the shipped
-        // plants and the positive control saw nothing move.
-        void RenderUntilPublished()
-        {
-            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-            do
-            {
-                (void)RenderAndTimeAtlas(1);
-            } while (Foliage() != nullptr && Foliage()->IsRebuilding() && std::chrono::steady_clock::now() < deadline);
-            ASSERT_NE(Foliage(), nullptr) << "the island has no foliage renderer";
-            ASSERT_FALSE(Foliage()->IsRebuilding()) << "the regeneration never reached publication";
         }
 
         [[nodiscard]] FoliageRenderer* Foliage()
@@ -394,11 +377,26 @@ namespace OloEngine::Tests
             // Warm up: the foliage generates, the atlas packs its faces, the
             // cull slots grow to their demand.
             (void)RenderAndTimeAtlas(12);
-            ASSERT_NO_FATAL_FAILURE(RenderUntilPublished());
             if (path.Path == paths.front().Path)
             {
                 ASSERT_NO_FATAL_FAILURE(PlaceLampsOnGround());
                 (void)RenderAndTimeAtlas(8);
+
+                // OLO_NO_SHADOWPASS_BRACKETS, the A/B lever for what the
+                // brackets cost: no family bracket, the pass's own one kept.
+                const bool previous = Levers::NoShadowPassBrackets();
+                Levers::SetNoShadowPassBrackets(true);
+                // Timings resolve a few frames late: the first frames under the
+                // lever still report brackets opened before it.
+                (void)RenderAndTimeAtlas(4);
+                const f64 atlasWithout = RenderAndTimeAtlas(4);
+                bool shadowPassTimed = false;
+                for (const auto& pass : GPUPassTimerPool::GetInstance().GetLastFrameTimings().Passes)
+                    shadowPassTimed = shadowPassTimed || (!pass.IsSubPass && pass.Name == FString("ShadowPass") && pass.IsValid());
+                Levers::SetNoShadowPassBrackets(previous);
+                EXPECT_FALSE(std::isfinite(atlasWithout)) << "OLO_NO_SHADOWPASS_BRACKETS still published ShadowPass/Atlas";
+                EXPECT_TRUE(shadowPassTimed) << "OLO_NO_SHADOWPASS_BRACKETS took the pass's own bracket too";
+                EXPECT_TRUE(std::isfinite(RenderAndTimeAtlas(4))) << "ShadowPass/Atlas did not come back with the lever off";
             }
             FoliageRenderer* foliage = Foliage();
             ASSERT_NE(foliage, nullptr) << "the island has no foliage renderer";
@@ -430,10 +428,10 @@ namespace OloEngine::Tests
             // POSITIVE CONTROL: the same frame with no foliage in the shadow
             // maps. It must differ, or nothing below can see a shadow move.
             std::vector<u8> noFoliageShadowPixels;
-            ASSERT_NO_FATAL_FAILURE(SetFoliageCastsShadows(false));
+            SetFoliageCastsShadows(false);
             (void)RenderAndTimeAtlas(12);
             ASSERT_NO_FATAL_FAILURE(ReadFrame(noFoliageShadowPixels));
-            ASSERT_NO_FATAL_FAILURE(SetFoliageCastsShadows(true));
+            SetFoliageCastsShadows(true);
             (void)RenderAndTimeAtlas(12);
 
             WriteEvidence(std::string("ShadowAtlasFoliageCull_GL_") + path.Name, batchedPixels);

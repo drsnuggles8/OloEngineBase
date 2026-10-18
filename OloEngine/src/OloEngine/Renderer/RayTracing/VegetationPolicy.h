@@ -89,6 +89,8 @@ namespace OloEngine::RayTracing
         // The two memory limits times VegetationDiagnostics' memory scale
         // (#1578): every check that enforces one goes through these, so the
         // plan never admits what the cache or the backend would then refuse.
+        // The scale can drop while more than the new limit is resident, so a
+        // check takes the room with RoomUnder, never `limit - used`.
         [[nodiscard]] static constexpr u64 GeometryByteLimit(u32 memoryScale) noexcept
         {
             return GeometryBytes * std::clamp(memoryScale, 1u, 16u);
@@ -96,6 +98,12 @@ namespace OloEngine::RayTracing
         [[nodiscard]] static constexpr u64 AccelerationByteLimit(u32 memoryScale) noexcept
         {
             return AccelerationStructureBytes * std::clamp(memoryScale, 1u, 16u);
+        }
+        // What is left under `limit` once `used` is taken: 0, not a wrapped
+        // u64, when more than the limit is already held.
+        [[nodiscard]] static constexpr u64 RoomUnder(u64 limit, u64 used) noexcept
+        {
+            return used < limit ? limit - used : 0u;
         }
         static constexpr u32 UpdatesPerFrame = 1024u;
         static constexpr u32 VerticesPerFrame = 2097152u;
@@ -152,7 +160,11 @@ namespace OloEngine::RayTracing
         // change either: a group's deadline is its layer's ProxyAgeLimit,
         // whatever the group's size.
         static constexpr u32 CastingAreaCellsPerLayer = UpdatesPerFrame / 8u;
-        static constexpr u32 CastingAreaPlantsPerGroup = VerticesPerFrame / 16u;
+        // 65,536: a sixteenth of the 1 M-vertex frame these groups were sized
+        // against. Not derived from VerticesPerFrame: #1578 doubled that limit
+        // after a sweep measured at THIS group size, and a doubled group is a
+        // coarser, all-or-nothing unit the sweep never saw.
+        static constexpr u32 CastingAreaPlantsPerGroup = 65536u;
         /// The largest group any producer may queue (the cache refuses more).
         static constexpr u32 MaxPlantsPerGroup = std::max(CardPlantsPerGroup, CastingAreaPlantsPerGroup);
 
@@ -339,12 +351,14 @@ namespace OloEngine::RayTracing
         // `groupsTaken`: the groups the casting layers queued. Each admitted
         // group is one more against ResidentGroups (#1354), which the cache
         // otherwise enforces by refusing, and a refusal withholds the TLAS.
+        // `memoryScale`: VegetationDiagnostics' memory scale, as for the cache.
         static void ChooseReflectionTiers(std::span<const ReflectionGroupCost> nearestFirst, u64 geometryTaken,
-                                          u64 accelerationTaken, std::span<ReflectionTier> tiers, u32 groupsTaken = 0u) noexcept
+                                          u64 accelerationTaken, std::span<ReflectionTier> tiers, u32 groupsTaken = 0u,
+                                          u32 memoryScale = 1u) noexcept
         {
             std::ranges::fill(tiers, ReflectionTier::Out);
-            u64 geometryRoom = geometryTaken < GeometryBytes ? GeometryBytes - geometryTaken : 0u;
-            u64 accelerationRoom = accelerationTaken < AccelerationStructureBytes ? AccelerationStructureBytes - accelerationTaken : 0u;
+            u64 geometryRoom = RoomUnder(GeometryByteLimit(memoryScale), geometryTaken);
+            u64 accelerationRoom = RoomUnder(AccelerationByteLimit(memoryScale), accelerationTaken);
             u32 groupRoom = groupsTaken < ResidentGroups ? ResidentGroups - groupsTaken : 0u;
             const sizet count = std::min(nearestFirst.size(), tiers.size());
             for (sizet i = 0u; i < count; ++i)

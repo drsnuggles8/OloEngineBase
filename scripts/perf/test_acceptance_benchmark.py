@@ -458,6 +458,25 @@ class PlanRefusalTest(TempCase):
             with self.assertRaisesRegex(ValueError, 'env'):
                 self.load(cells=[{'id': 'gl', 'host': 'gl', 'manifest': 'm.yaml', 'env': bad}])
 
+    def test_every_cells_env_keys_are_cleared_for_every_cell(self):
+        # The control cell has no env of its own, yet the lever's key is in the
+        # set cleared before each launch, so a shell-set lever cannot leak in.
+        plan = self.load(cells=[{'id': 'base', 'host': 'gl', 'manifest': 'm.yaml'},
+                                {'id': 'lever', 'host': 'gl', 'manifest': 'm.yaml',
+                                 'env': {'OLO_NO_SHADOWPASS_BRACKETS': '1'}}])
+        self.assertEqual(plan['cellEnvKeys'], ['OLO_NO_SHADOWPASS_BRACKETS'])
+
+    def test_driver_owned_env_and_impossible_requirements_are_refused(self):
+        for owned in ('OLO_SHADER_CACHE_DIR', 'OLO_CAPTURE_TEST_DELAY_MS'):
+            with self.assertRaisesRegex(ValueError, 'the driver sets it'):
+                self.load(cells=[{'id': 'gl', 'host': 'gl', 'manifest': 'm.yaml', 'env': {owned: '1'}}])
+        with self.assertRaisesRegex(ValueError, 'never publishes'):
+            self.load(cells=[{'id': 'gl', 'host': 'gl', 'manifest': 'm.yaml', 'requirePasses': ['ShadowPass/Atlas'],
+                              'env': {'OLO_NO_SHADOWPASS_BRACKETS': '1'}}])
+        # The pass's own bracket stays, so requiring ShadowPass itself is fine.
+        self.load(cells=[{'id': 'gl', 'host': 'gl', 'manifest': 'm.yaml', 'requirePasses': ['ShadowPass'],
+                          'env': {'OLO_NO_SHADOWPASS_BRACKETS': '1'}}])
+
     def test_cli_overrides(self):
         plan = acceptance.load_plan(copy.deepcopy(self.BASE), default_repo=self.root, gate_ms=33.333, repeats=5,
                                     max_retries=0, check_files=False)

@@ -688,13 +688,15 @@ namespace OloEngine
         }
         // The stress lever takes the same share of the reflection room.
         const u32 divisor = RayTracing::VegetationDiagnostics::GetBudgetDivisor();
+        const u32 memoryScale = RayTracing::VegetationDiagnostics::GetMemoryScale();
         const auto withheld = [divisor](u64 limit) -> u64
         { return limit - limit / divisor; };
         VegetationPolicy::ChooseReflectionTiers(std::span<const VegetationPolicy::ReflectionGroupCost>{ costs.GetData(), static_cast<sizet>(costs.Num()) },
-                                                cache.GetStagedBytes() + withheld(VegetationPolicy::GeometryBytes),
-                                                cache.GetStagedAccelerationBytes() + withheld(VegetationPolicy::AccelerationStructureBytes),
+                                                cache.GetStagedBytes() + withheld(VegetationPolicy::GeometryByteLimit(memoryScale)),
+                                                cache.GetStagedAccelerationBytes() + withheld(VegetationPolicy::AccelerationByteLimit(memoryScale)),
                                                 std::span<VegetationPolicy::ReflectionTier>{ tiers.GetData(), static_cast<sizet>(tiers.Num()) },
-                                                cache.GetQueuedGroups() + static_cast<u32>(withheld(VegetationPolicy::ResidentGroups)));
+                                                cache.GetQueuedGroups() + static_cast<u32>(withheld(VegetationPolicy::ResidentGroups)),
+                                                memoryScale);
         f32 reach = 0.0f;
         f32 detailReach = 0.0f;
         u32 groupsLeftOut = 0u;

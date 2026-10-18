@@ -325,15 +325,15 @@ namespace OloEngine::RayTracing
                                                      sourceIndices * sizeof(u32) + sizeof(FoliageInstanceData));
         const u64 geometryLimit = VegetationPolicy::GeometryByteLimit(VegetationDiagnostics::GetMemoryScale());
         const u64 accelerationLimit = VegetationPolicy::AccelerationByteLimit(VegetationDiagnostics::GetMemoryScale());
-        if (!HasQueueCapacity() || stagedBytes > geometryLimit - m_StagedBytes ||
-            input.AccelerationBytes > accelerationLimit - m_Stats.StagedAccelerationBytes)
+        if (!HasQueueCapacity() || stagedBytes > VegetationPolicy::RoomUnder(geometryLimit, m_StagedBytes) ||
+            input.AccelerationBytes > VegetationPolicy::RoomUnder(accelerationLimit, m_Stats.StagedAccelerationBytes))
         {
             ++m_Stats.Refused;
             m_Stats.Complete = false;
             m_Stats.CastersComplete = m_Stats.CastersComplete && !input.CastShadows;
             if (static_cast<u32>(m_Inputs.Num()) >= VegetationPolicy::ResidentGroups)
                 CountPressure(VegetationPressure::ResidentGroups);
-            else if (input.AccelerationBytes > accelerationLimit - m_Stats.StagedAccelerationBytes)
+            else if (input.AccelerationBytes > VegetationPolicy::RoomUnder(accelerationLimit, m_Stats.StagedAccelerationBytes))
                 CountPressure(VegetationPressure::AccelerationMemory);
             else
                 CountPressure(VegetationPressure::GeometryMemory);
@@ -447,8 +447,8 @@ namespace OloEngine::RayTracing
                 refuse(VegetationPressure::ResidentGroups);
                 continue;
             }
-            if (bytes > VegetationPolicy::GeometryByteLimit(VegetationDiagnostics::GetMemoryScale()) -
-                            (m_Stats.ResidentBytes - oldBytes))
+            if (bytes > VegetationPolicy::RoomUnder(VegetationPolicy::GeometryByteLimit(VegetationDiagnostics::GetMemoryScale()),
+                                                    m_Stats.ResidentBytes - oldBytes))
             {
                 refuse(VegetationPressure::GeometryMemory);
                 continue;

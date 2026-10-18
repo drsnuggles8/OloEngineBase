@@ -72,8 +72,12 @@ say what the renderer was set to, not that the technique did any work.
 
 A cell may also add "env", e.g. {"OLO_NO_SHADOWPASS_BRACKETS": "1"}: extra
 environment variables for that cell's processes only, so two cells can A/B one
-manifest under a lever inside the same interleaved campaign. Each run records
-the env it was given.
+manifest under a lever inside the same interleaved campaign. Every variable any
+cell sets is cleared from the inherited environment for EVERY cell first, so a
+control cell never runs under a lever left set in the launching shell. Each run
+records the env it was given. The driver's own variables (OLO_SHADER_CACHE_DIR,
+OLO_CAPTURE_TEST_DELAY_MS) are refused in a cell env, and a cell that turns the
+ShadowPass brackets off cannot require a ShadowPass sub-pass.
 
 Only buildConfig, compiler and cells are required; "exe" is required when a
 cell uses host "gl" (the test binary with --olo-capture-manifest) and
@@ -188,6 +192,10 @@ def write_json(path: Path, value) -> None:
 
 # --------------------------------------------------------------------------- plan
 
+# Variables the driver sets or strips itself; a cell env must not override them.
+DRIVER_OWNED_ENV = frozenset({'OLO_SHADER_CACHE_DIR', 'OLO_CAPTURE_TEST_DELAY_MS'})
+
+
 def load_plan(raw: dict, *, default_repo: Path, gate_ms=None, repeats=None, max_retries=None,
               check_files: bool = True) -> dict:
     if raw.get('buildConfig') != 'Release':
@@ -237,6 +245,13 @@ def load_plan(raw: dict, *, default_repo: Path, gate_ms=None, repeats=None, max_
         if not isinstance(cell_env, dict) or not all(isinstance(k, str) and k and isinstance(v, str)
                                                      for k, v in cell_env.items()):
             raise ValueError(f'cell {cell_id}: env must map variable names to string values')
+        owned = sorted(set(cell_env) & DRIVER_OWNED_ENV)
+        if owned:
+            raise ValueError(f'cell {cell_id}: env may not set {", ".join(owned)}; the driver sets it')
+        if cell_env.get('OLO_NO_SHADOWPASS_BRACKETS') in ('1', 'true') and any(
+                name.startswith('ShadowPass/') for name in required):
+            raise ValueError(f'cell {cell_id}: requirePasses names a ShadowPass sub-pass, which '
+                             'OLO_NO_SHADOWPASS_BRACKETS never publishes')
         normalised_cells.append({'id': cell_id, 'host': cell['host'], 'manifest': str(manifest),
                                  'requirePasses': required, 'env': dict(cell_env)})
     plan = {'repo': str(repo), 'buildConfig': 'Release', 'compiler': compiler.strip(), 'gateMs': float(gate),
@@ -252,7 +267,8 @@ def load_plan(raw: dict, *, default_repo: Path, gate_ms=None, repeats=None, max_
             # scene whose resident set legitimately exceeds the harness's guard.
             'testHostArgs': [str(a) for a in raw.get('testHostArgs', [])],
             'contentionWaitSeconds': float(raw.get('contentionWaitSeconds', 600)),
-            'cells': normalised_cells}
+            'cells': normalised_cells,
+            'cellEnvKeys': sorted({key for c in normalised_cells for key in c['env']})}
     for key in sorted({HOSTS[c['host']]['exeKey'] for c in normalised_cells}):
         if not raw.get(key):
             raise ValueError(f'a cell needs "{key}" but the plan does not name it')
@@ -1038,6 +1054,10 @@ def run_attempt(plan: dict, cell: dict, round_index: int, attempt: int, output: 
         environment = {k: v for k, v in os.environ.items() if k != 'OLO_CAPTURE_TEST_DELAY_MS'}
         if plan['shaderCacheDir']:
             environment['OLO_SHADER_CACHE_DIR'] = plan['shaderCacheDir']
+        # Cleared for every cell, then set for this one: a control cell must
+        # not inherit a lever the launching shell happened to have set.
+        for key in plan.get('cellEnvKeys', []):
+            environment.pop(key, None)
         environment.update(cell.get('env', {}))
         record['shaderCacheDir'] = environment.get('OLO_SHADER_CACHE_DIR', 'inherited/default')
         record['hostBefore'] = safe_probe_host()

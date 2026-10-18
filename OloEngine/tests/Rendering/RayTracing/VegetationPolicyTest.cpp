@@ -714,5 +714,28 @@ namespace OloEngine::Tests
 
         // A divided room divides the scaled limit.
         EXPECT_EQ(VegetationPolicy::PlanRoom::Scaled(4u, 1u, 2u).Geometry, VegetationPolicy::GeometryBytes / 2u);
+
+        // The scale can drop while more than the new limit is resident: the
+        // room is then zero, never a wrapped u64 that admits everything.
+        const u64 resident = 3u * VegetationPolicy::GeometryBytes;
+        EXPECT_EQ(VegetationPolicy::RoomUnder(VegetationPolicy::GeometryByteLimit(1u), resident), 0u);
+        EXPECT_EQ(VegetationPolicy::RoomUnder(VegetationPolicy::GeometryByteLimit(4u), resident), VegetationPolicy::GeometryBytes);
+
+        // The reflection plan reads the same scaled limit as the cache: with
+        // more than the shipped limit already staged by casters, a doubled
+        // limit still has room for a card group, the shipped one none.
+        using Cost = VegetationPolicy::ReflectionGroupCost;
+        using Tier = VegetationPolicy::ReflectionTier;
+        const std::array<Cost, 1> one{ Cost{ VegetationPolicy::GeometryBytes / 4u, 0u, 0u, 0u } };
+        std::array<Tier, 1> tier{};
+        const u64 staged = VegetationPolicy::GeometryBytes + VegetationPolicy::GeometryBytes / 4u;
+        VegetationPolicy::ChooseReflectionTiers(one, staged, 0u, tier, 0u, 1u);
+        EXPECT_EQ(tier[0], Tier::Out);
+        VegetationPolicy::ChooseReflectionTiers(one, staged, 0u, tier, 0u, 2u);
+        EXPECT_EQ(tier[0], Tier::Card);
+
+        // Area grouping keeps the size the #1578 sweep measured; it is not
+        // derived from the (doubled) frame limit.
+        EXPECT_EQ(VegetationPolicy::CastingAreaPlantsPerGroup, 65536u);
     }
 } // namespace OloEngine::Tests
