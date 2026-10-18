@@ -10223,8 +10223,9 @@ namespace OloEngine
             if (ImGui::IsItemHovered())
             {
                 ImGui::SetTooltip("Hair -> body and scene. Rasterises the coat from the light into every\n"
-                                  "technique the frame is running: the CSM cascades, the Virtual Shadow\n"
-                                  "Map's clip levels and the local-light atlas.");
+                                  "technique the frame is running: the CSM cascades or the Virtual Shadow\n"
+                                  "Map's clip levels for the sun, and for point and spot lights the VSM's\n"
+                                  "local-light layers when its Local Lights are on, the atlas otherwise.");
             }
             ImGui::Checkbox("Receive shadows", &component.m_ReceiveShadows);
             if (ImGui::IsItemHovered())

@@ -37,6 +37,13 @@ Read before touching `ShadowRenderPass::RenderGroomVirtualShadowLocalLayers`, th
    the texture, it unprojected every texel to the wrong world point: a lamp's coat shadow came out cut
    along page edges at a 0.67 scale (overlap with the atlas 0.47, 0.985 after).
 
+6. **A strand's light-exit lookup into a lamp's layers stops 0.11 m short of the lamp.** The layers
+   now hold the coat, and with the lamp inside the coat's box the light leaves the box past the
+   lamp; a lookup there read the far side's face through the coat's own fur (821 of 24 886 coat
+   pixels darkened, 0 after). `oloGroomLocalExitPoint` in `GroomStrand.glsl` clamps it, past the
+   layers' near plane (`LocalNearPlane` caps it at 0.1 m). Place such a test's lamp by the asset's
+   bounds, not by eye: a coat's strands droop, and a lamp first put "inside" sat above the box.
+
 ## Things that will bite
 
 - **Read stats with the camera where the lamps are.** `olo_screenshot`'s one-shot `camera` restores

@@ -2390,10 +2390,22 @@ namespace OloEngine::Tests
         Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
         Renderer3D::ApplyRendererSettings();
         PlaceLamp(Lamp::Point);
-        // 1.9 m above the coat's centre and a little toward the camera: inside the
-        // box its 1 m roots and 1.1 m strands span, a metre above the crown.
-        m_LightEntity.GetComponent<TransformComponent>().Translation = kCoatCentre + glm::vec3(0.0f, 1.9f, 0.6f);
+        // 1.2 m above the coat's centre and a little toward the camera, 0.2 m off
+        // the crown's skin. The strands droop (0.825 m by their tips), so the box
+        // tops out about 1.37 m above the centre; asserted below from the asset,
+        // not taken on trust -- a lamp outside the box tests nothing new.
+        const glm::vec3 lampOffset(0.0f, 1.2f, 0.6f);
+        m_LightEntity.GetComponent<TransformComponent>().Translation = kCoatCentre + lampOffset;
         m_LightEntity.GetComponent<PointLightComponent>().m_Intensity = 30.0f;
+        {
+            const Ref<GroomAsset> groom = AssetManager::GetAsset<GroomAsset>(m_GroomHandle);
+            ASSERT_TRUE(groom);
+            // The coat entity is unscaled and unrotated at kCoatCentre, so its
+            // object space is the centre-relative world space.
+            ASSERT_TRUE(glm::all(glm::greaterThan(lampOffset, groom->GetBoundsMin())) &&
+                        glm::all(glm::lessThan(lampOffset, groom->GetBoundsMax())))
+                << "the lamp is outside the coat's box, so this case is the ordinary lamp case";
+        }
         SetBodyCasts(false);
         Routing().m_CastShadows = false;
         Routing().m_ReceiveShadows = false;
@@ -2429,6 +2441,12 @@ namespace OloEngine::Tests
             EXPECT_GT(routedLuma, receiveLuma * 0.8)
                 << arm.Name << ": casting darkened the coat by more than a fifth with nothing but its own fur to "
                                "shadow it -- the coat is shadowing itself through the lamp's map";
+            // Per pixel, the bar the other self-shadow cases hold. Through the
+            // layers the exit point used to lie past the lamp: 821 of 24 886
+            // coat pixels darkened (3.3%) before it stopped short of the lamp.
+            EXPECT_LT(darkened, CountMask(coatMask) / 100u)
+                << arm.Name << ": the coat's own fur in the lamp's map darkened it; the light-exit lookup reads "
+                               "past the lamp";
         }
     }
 } // namespace OloEngine::Tests
