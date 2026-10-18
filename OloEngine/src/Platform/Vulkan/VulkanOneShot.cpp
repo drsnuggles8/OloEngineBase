@@ -299,8 +299,7 @@ namespace OloEngine
             }
 
             Outcome outcome = Outcome::NotSubmitted;
-            const bool ok = Submit(what,
-                                   [&](VkCommandBuffer cmd)
+            const bool ok = Submit(what, [&](VkCommandBuffer cmd)
                                    {
                                        // `dst` is any caller-supplied buffer —
                                        // vertex, index, storage, raw — and the
@@ -329,9 +328,7 @@ namespace OloEngine
                                        dep.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
                                        dep.bufferMemoryBarrierCount = 1u;
                                        dep.pBufferMemoryBarriers = &barrier;
-                                       vkCmdPipelineBarrier2(cmd, &dep);
-                                   },
-                                   &outcome);
+                                       vkCmdPipelineBarrier2(cmd, &dep); }, &outcome);
 
             // The copy may still be reading the staging buffer: leak it with
             // the fence and command buffer Submit already leaked.
