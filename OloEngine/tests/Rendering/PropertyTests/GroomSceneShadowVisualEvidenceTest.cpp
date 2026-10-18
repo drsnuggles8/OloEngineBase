@@ -2374,4 +2374,61 @@ namespace OloEngine::Tests
         EXPECT_LT(stalePixels, 250u) << "the moved coat's frame differs from a from-scratch render by " << stalePixels
                                      << " pixels: its old silhouette is still in the lamp's cached layer pages";
     }
+
+    // A lamp INSIDE the coat's box (#1592). Under the VSM a strand reads the
+    // layers at its coat's light-exit point, where the light leaves the box; with
+    // the lamp inside the box that point lies past the lamp, and the layers now
+    // hold the coat. Nothing else shadows the coat here, so casting must leave it
+    // as lit as receiving alone -- under the atlas (the reference) and the layers.
+    TEST_F(GroomSceneShadowVisualEvidenceTest, ALampInsideTheCoatsBoxDoesNotShadowTheCoatWithItsOwnFur)
+    {
+        const ShadowSettingsRestore restore;
+        if (!SetVsm(true, true))
+        {
+            GTEST_SKIP() << "the Virtual Shadow Map could not start on this device (VirtualShadowMap::Init refused)";
+        }
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        PlaceLamp(Lamp::Point);
+        // 1.9 m above the coat's centre and a little toward the camera: inside the
+        // box its 1 m roots and 1.1 m strands span, a metre above the crown.
+        m_LightEntity.GetComponent<TransformComponent>().Translation = kCoatCentre + glm::vec3(0.0f, 1.9f, 0.6f);
+        m_LightEntity.GetComponent<PointLightComponent>().m_Intensity = 30.0f;
+        SetBodyCasts(false);
+        Routing().m_CastShadows = false;
+        Routing().m_ReceiveShadows = false;
+
+        struct Arm
+        {
+            const char* Name;
+            bool LocalLayers;
+        };
+        for (const Arm arm : { Arm{ "Atlas", false }, Arm{ "Vsm", true } })
+        {
+            ASSERT_TRUE(SetVsm(true, arm.LocalLayers));
+            Routing().m_CastShadows = false;
+            Routing().m_ReceiveShadows = false;
+            const std::vector<u8> coatMask = DeriveCoatMask();
+            ASSERT_FALSE(HasFatalFailure());
+            Routing().m_ReceiveShadows = true;
+            std::vector<u8> receiveOnly;
+            Capture(std::string("GroomSceneShadow_GL_Forward_") + arm.Name + "PointInsideReceiveOnly", receiveOnly);
+            Routing().m_CastShadows = true;
+            std::vector<u8> routed;
+            Capture(std::string("GroomSceneShadow_GL_Forward_") + arm.Name + "PointInsideRouted", routed);
+            ASSERT_FALSE(HasFatalFailure());
+            const f64 receiveLuma = MeanLumaIn(receiveOnly, coatMask, true);
+            const f64 routedLuma = MeanLumaIn(routed, coatMask, true);
+            const u32 darkened = CountDifferingIn(routed, receiveOnly, coatMask, true);
+            std::printf("[groom-scene-shadow] lamp inside the coat's box, %-5s: coat luma %.3f receiving -> %.3f "
+                        "casting too (%u of %u coat px moved) | %u layer draws\n",
+                        arm.Name, receiveLuma, routedLuma, darkened, CountMask(coatMask),
+                        CasterStats().VirtualShadowLocalLayerDraws);
+            std::fflush(stdout);
+            ASSERT_GT(receiveLuma, 10.0) << arm.Name << ": the coat is already dark, so this case measures nothing";
+            EXPECT_GT(routedLuma, receiveLuma * 0.8)
+                << arm.Name << ": casting darkened the coat by more than a fifth with nothing but its own fur to "
+                               "shadow it -- the coat is shadowing itself through the lamp's map";
+        }
+    }
 } // namespace OloEngine::Tests
