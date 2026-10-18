@@ -75,6 +75,17 @@ budgets and the width compensation are in [groom-representation-lod.md](groom-re
    switch's. Measured with the caster discard removed, the step is 0.86 of the hard switch's;
    masked, it is 0.31.
 
+9. **Draw a fading coat's pair prepass, prepass, shade, shade.** The two tiers cover the same pixels,
+   and a tier whose depth prepass runs after the other tier's shading draw over those pixels loses
+   the early depth rejection its own shading relies on. On the dog at the hand-over (Release editor,
+   Vulkan and GL alike), the second tier's shading cost exactly its no-prepass cost, and the window's
+   GroomPass was 2.2 ms against 0.75 ms for the two tiers alone. A coarser mask (2×2, 8×8) did not
+   help, and drawing the strand tier first only moved the cost to the cards. `GroomRenderPass` holds
+   the first tier's shading draw (`HeldShade`, with its own bindings) until the partner's prepass
+   is down: 0.62 ms going out, 1.15 ms coming back. Measure a window by the frame its sample
+   describes (`olo_perf_pass_timings` `frame.gpuMeasurementFrameId`) and by the strand sub-passes.
+   A 120-frame window lasts about a second in a Release editor.
+
 ## What was measured
 
 On the `GroomLodVisualEvidenceTest` coat (stochastic composition, TAA, a dolly out through the
