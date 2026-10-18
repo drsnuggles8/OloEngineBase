@@ -628,12 +628,7 @@ namespace OloEngine::Tests
                         GetScene().SetPostProcessSettings(post);
                         ASSERT_NO_FATAL_FAILURE(EnsureExportsDir());
                         const fs::path sceneFile = ExportsDir() / (cell + ".olo");
-                        // Serialize reports nothing; remove a previous run's file so the
-                        // read-back below can only see this run's write.
-                        std::error_code removeError;
-                        fs::remove(sceneFile, removeError);
-                        SceneSerializer(GetSceneRef()).Serialize(sceneFile);
-                        ASSERT_TRUE(fs::is_regular_file(sceneFile)) << "cannot write " << sceneFile.string();
+                        ASSERT_TRUE(SceneSerializer(GetSceneRef()).Serialize(sceneFile)) << "cannot write " << sceneFile.string();
                         EXPECT_EQ(YAML::LoadFile(sceneFile.string())["RenderingPath"].as<std::string>(), "Deferred");
                     }
                     std::vector<std::vector<u8>> captures;
