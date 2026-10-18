@@ -795,7 +795,13 @@ namespace OloEngine
 
         // A copy, not a map: glMapBuffer(GL_READ_ONLY) fails on immutable
         // storage created without GL_MAP_READ_BIT (every CreateImmutable
-        // buffer, #1608), and the inspector showed nothing for those.
+        // buffer, #1608), and the inspector showed nothing for those. An error
+        // an earlier call left is said and cleared first, so the check below
+        // reports this read.
+        for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+        {
+            OLO_CORE_WARN("[GPUResourceInspector] GL error {:#x} preceded the read of buffer {}", error, nativeBufferId);
+        }
         glGetNamedBufferSubData(nativeBufferId, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), dest);
         if (const GLenum err = glGetError(); err != GL_NO_ERROR)
         {

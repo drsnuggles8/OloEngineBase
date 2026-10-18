@@ -510,6 +510,10 @@ namespace OloEngine
             }
             m_RestStreams.erase(it);
         }
+        if (m_RefusedRestStreams.contains(key))
+        {
+            return nullptr;
+        }
 
         // THE REST STREAM, built once per groom, budget, coat and binding.
         // Everything in it is a function of those and of nothing that moves, so
@@ -526,10 +530,19 @@ namespace OloEngine
         // stream. What moves every frame is each entity's frame buffer. On GL
         // a mutable buffer this size also kept a resident system-memory copy
         // in the process (1.5 GB of working set on the Bernese, #1608). Opened
-        // before the build, which uploads the vertices as it goes.
+        // before the build, which uploads the vertices as it goes. The upload's
+        // own time and resident bytes are what streaming records: the walk's
+        // time is the build's, and the upload's staging buffers, retiring when
+        // it ends, are not the stream's bytes.
         std::optional<RendererMemoryOwnerScope> streamingOwner;
-        const auto streamingUploadStart = std::chrono::steady_clock::now();
-        const u64 physicalBefore = request.StreamingEnabled ? RendererMemoryTracker::GetInstance().GetGpuResidentBytes() : 0;
+        u64 uploadMicroseconds = 0;
+        const auto residentWithoutStaging = []
+        {
+            const auto& tracker = RendererMemoryTracker::GetInstance();
+            const u64 resident = tracker.GetGpuResidentBytes();
+            return resident - std::min(resident, tracker.GetOwnerGpuRetiringBytes(ImmutableVertexBufferUpload::kStagingOwner));
+        };
+        const u64 physicalBefore = request.StreamingEnabled ? residentWithoutStaging() : 0;
         if (request.StreamingEnabled)
         {
             streamingOwner.emplace(request.StreamingFloor ? "Groom streaming floor" : "Groom streaming detail",
@@ -586,14 +599,17 @@ namespace OloEngine
             if (sink.Upload)
             {
                 stream->Vertices = sink.Upload->Finish();
+                uploadMicroseconds += sink.Upload->GetUploadMicroseconds();
             }
             if (measures.SinkFailed || (stats.VertexCount != 0u && !stream->Vertices))
             {
-                // Said, not dropped: the caller draws this coat on the CPU path,
-                // whose per-frame rebuild is the cost of the refusal.
+                // Said once, not dropped: the caller draws this coat on the CPU
+                // path, and the refusal is remembered so the walk and the
+                // upload are not repeated on every acquire.
                 OLO_CORE_ERROR("GroomRenderPass: the rest stream of groom {} could not be uploaded ({} vertices); the "
                                "coat is deformed on the CPU instead",
                                static_cast<u64>(request.Handle), stats.VertexCount);
+                m_RefusedRestStreams.insert(key);
                 return nullptr;
             }
         }
@@ -605,9 +621,10 @@ namespace OloEngine
                                                                : std::span<const u32>(builtFirstIndex);
         const std::span<const GroomCasterStrand> casterStrands = prepared ? FPreparedGroomGeometry::View(prepared->CasterStrands)
                                                                           : std::span<const GroomCasterStrand>(builtCasters);
-        m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
+        const u64 buildAndUpload = static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - buildStart)
                 .count());
+        m_Stats.DeformedBuildMicroseconds += buildAndUpload - std::min(buildAndUpload, uploadMicroseconds);
         if ((prepared ? vertices.empty() : !stream->Vertices) || indices.empty())
         {
             return nullptr;
@@ -629,17 +646,20 @@ namespace OloEngine
             f32 widest = 0.0f;
             for (const GroomStrandVertex& vertex : vertices)
             {
-                reachSq = std::max(reachSq, glm::dot(vertex.Position, vertex.Position));
-                widest = std::max(widest, vertex.Radius);
+                AccumulateGroomRestReach(reachSq, widest, vertex.Position, vertex.Radius);
             }
             stream->MaxReach = std::sqrt(reachSq);
             stream->MaxRadius = widest;
-            stream->Vertices = VertexBuffer::CreateImmutable(vertices.data(), static_cast<u32>(stats.VertexBytes));
         }
         else
         {
             stream->MaxReach = std::sqrt(measures.MaxReachSquared);
             stream->MaxRadius = measures.MaxRadius;
+        }
+        const auto gpuStart = std::chrono::steady_clock::now();
+        if (prepared)
+        {
+            stream->Vertices = VertexBuffer::CreateImmutable(vertices.data(), static_cast<u32>(stats.VertexBytes));
         }
         stream->Vertices->SetLayout(StrandVertexLayout());
         stream->Indices = IndexBuffer::CreateImmutable(indices.data(), static_cast<u32>(indices.size()));
@@ -650,6 +670,7 @@ namespace OloEngine
                                            stream->RootCurves, &binding, true, request.Influence.Raw(),
                                            prepared ? nullptr : &measures);
         stream->Bytes += stream->Caster.Bytes;
+        uploadMicroseconds += MicrosecondsSince(gpuStart);
         // GPU factories and caster construction have consumed the borrowed
         // views. CompleteStreamingUpload must drop the sole remaining owner
         // before releasing staging; this temporary must no longer retain it.
@@ -666,8 +687,8 @@ namespace OloEngine
                        static_cast<f64>(stream->Caster.MeanRadius) * 1.0e6);
 
         m_RestStreams[key] = stream;
-        const u64 physicalAfter = request.StreamingEnabled ? RendererMemoryTracker::GetInstance().GetGpuResidentBytes() : 0;
-        CompleteStreamingUpload(request.StreamingKey, stream->Bytes, MicrosecondsSince(streamingUploadStart),
+        const u64 physicalAfter = request.StreamingEnabled ? residentWithoutStaging() : 0;
+        CompleteStreamingUpload(request.StreamingKey, stream->Bytes, uploadMicroseconds,
                                 physicalAfter - std::min(physicalAfter, physicalBefore), static_cast<u32>(stream->RootCurves.size()));
         return stream;
     }
@@ -3588,12 +3609,15 @@ namespace OloEngine
         {
             // A rest stream's vertices are each strand's points in its bind
             // frame: its boxes there are exact. A posed stream's are not.
-            std::vector<GroomCasterLocalBox> localBoxes;
-            if (restStream)
+            std::vector<GroomCasterLocalBox> collected;
+            if (restStream && measures == nullptr)
             {
-                localBoxes = measures != nullptr ? measures->LocalBoxes
-                                                 : CollectGroomCasterLocalBoxes(vertices, indices, strandFirstIndex);
+                collected = CollectGroomCasterLocalBoxes(vertices, indices, strandFirstIndex);
             }
+            const std::span<const GroomCasterLocalBox> localBoxes =
+                !restStream           ? std::span<const GroomCasterLocalBox>{}
+                : measures != nullptr ? std::span<const GroomCasterLocalBox>(measures->LocalBoxes)
+                                      : std::span<const GroomCasterLocalBox>(collected);
             caster.Pose = BuildGroomCasterPose(order.Runs, strandOrder, strands, strandCurves, *binding, localBoxes, influence);
         }
         caster.Indices = IndexBuffer::CreateImmutable(order.Indices.data(), static_cast<u32>(order.Indices.size()));
@@ -3730,6 +3754,7 @@ namespace OloEngine
         // dropped here rather than left to be rebuilt against a dead context.
         m_Cache.clear();
         m_RestStreams.clear();
+        m_RefusedRestStreams.clear();
         m_CacheBytes = 0;
         m_CacheBudgetWarning = {};
         std::vector<GroomStrandVertex>().swap(m_DeformedVertices);

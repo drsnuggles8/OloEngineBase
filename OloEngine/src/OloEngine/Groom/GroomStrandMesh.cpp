@@ -1353,8 +1353,16 @@ namespace OloEngine
             };
 
             GroomStrandMeshStats stats;
+            // Once the sink refused, nothing more is built: the result is
+            // thrown away, and the walk only has to reach its end.
+            const auto refused = [&]
+            { return out.Measures != nullptr && out.Measures->SinkFailed; };
             const auto onCurve = [&](u32 /*curve*/, u32 sourceCurve)
             {
+                if (refused())
+                {
+                    return;
+                }
                 if (out.StrandFirstIndex != nullptr)
                 {
                     out.StrandFirstIndex->push_back(static_cast<u32>(out.Indices.size()));
@@ -1381,6 +1389,10 @@ namespace OloEngine
 
             const auto onSegment = [&](const RestSegment& segment)
             {
+                if (refused())
+                {
+                    return;
+                }
                 if (out.CasterStrands != nullptr)
                 {
                     AccumulateCasterStrand(out.CasterStrands->back(), segment);
@@ -1435,9 +1447,8 @@ namespace OloEngine
                     const glm::vec3 radius1(std::max(segment.Radius1, 0.0f));
                     box.Min = glm::min(box.Min, glm::min(local0 - radius0, local1 - radius1));
                     box.Max = glm::max(box.Max, glm::max(local0 + radius0, local1 + radius1));
-                    measures.MaxReachSquared =
-                        std::max({ measures.MaxReachSquared, glm::dot(local0, local0), glm::dot(local1, local1) });
-                    measures.MaxRadius = std::max({ measures.MaxRadius, segment.Radius0, segment.Radius1 });
+                    AccumulateGroomRestReach(measures.MaxReachSquared, measures.MaxRadius, local0, segment.Radius0);
+                    AccumulateGroomRestReach(measures.MaxReachSquared, measures.MaxRadius, local1, segment.Radius1);
                 }
 
                 if (out.PoseSegments != nullptr)

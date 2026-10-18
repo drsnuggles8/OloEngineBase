@@ -130,3 +130,57 @@ TEST(ImmutableBufferStorage, InspectorReadsAnImmutableBuffer)
     EXPECT_FALSE(backend.ReadBufferRange(vertex->GetBufferHandle(), GL_ARRAY_BUFFER, 6u * sizeof(f32),
                                          static_cast<u32>(sizeof(read)), read.data()));
 }
+
+// A CHUNKED UPLOAD IS THE BUFFER ITS CHUNKS DESCRIBE (#1608): what a streamed
+// groom rest stream is built through. Three uneven chunks through two staging
+// buffers in turn land in order, in immutable storage with no flags.
+TEST(ImmutableBufferStorage, AChunkedUploadIsTheBufferItsChunksDescribe)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    std::array<u32, 40> words{};
+    for (u32 i = 0; i < words.size(); ++i)
+    {
+        words[i] = 0x9E3779B9u * (i + 1u);
+    }
+    ImmutableVertexBufferUpload upload(static_cast<u32>(sizeof(words)), 16u * sizeof(u32));
+    ASSERT_TRUE(upload.Append(words.data(), 16u * sizeof(u32)));
+    ASSERT_TRUE(upload.Append(words.data() + 16, 16u * sizeof(u32)));
+    ASSERT_TRUE(upload.Append(words.data() + 32, 8u * sizeof(u32)));
+    const Ref<VertexBuffer> buffer = upload.Finish();
+    ASSERT_TRUE(buffer);
+
+    const StorageFacts facts = StorageOf(buffer->GetBufferHandle());
+    EXPECT_EQ(facts.Immutable, GL_TRUE);
+    EXPECT_EQ(facts.Flags, 0);
+    EXPECT_EQ(facts.Size, static_cast<GLint64>(sizeof(words)));
+    std::array<u32, 40> read{};
+    ::glGetNamedBufferSubData(buffer->GetBufferHandle(), 0, sizeof(read), read.data());
+    EXPECT_EQ(read, words);
+}
+
+// Short or overlong, the upload builds nothing: a stream drawn from a buffer
+// its chunks did not fill would be garbage on screen with nothing said.
+TEST(ImmutableBufferStorage, AChunkedUploadThatIsShortOrOverlongBuildsNothing)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    const std::array<u32, 8> words{ 1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u };
+    {
+        ImmutableVertexBufferUpload shortUpload(static_cast<u32>(sizeof(words)), 4u * sizeof(u32));
+        ASSERT_TRUE(shortUpload.Append(words.data(), 4u * sizeof(u32)));
+        EXPECT_FALSE(shortUpload.Finish()) << "half a buffer was handed out as a whole one";
+    }
+    {
+        ImmutableVertexBufferUpload longUpload(static_cast<u32>(sizeof(words)), 4u * sizeof(u32));
+        ASSERT_TRUE(longUpload.Append(words.data(), 4u * sizeof(u32)));
+        ASSERT_TRUE(longUpload.Append(words.data() + 4, 4u * sizeof(u32)));
+        EXPECT_FALSE(longUpload.Append(words.data(), 4u * sizeof(u32))) << "a write past the end was taken";
+        EXPECT_FALSE(longUpload.Finish()) << "an upload that failed still built its buffer";
+    }
+    {
+        ImmutableVertexBufferUpload oversizedChunk(static_cast<u32>(sizeof(words)), 2u * sizeof(u32));
+        EXPECT_FALSE(oversizedChunk.Append(words.data(), 4u * sizeof(u32))) << "a chunk larger than the staging was taken";
+        EXPECT_FALSE(oversizedChunk.Finish());
+    }
+}

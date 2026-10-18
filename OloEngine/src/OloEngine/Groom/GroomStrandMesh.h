@@ -49,6 +49,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <limits>
 #include <span>
@@ -525,6 +526,16 @@ namespace OloEngine
                                                   std::vector<GroomRestPoseSegment>* outPoseSegments = nullptr,
                                                   std::vector<u32>* outStrandFirstIndex = nullptr,
                                                   std::vector<GroomCasterStrand>* outCasterStrands = nullptr);
+
+    /// One drawn corner's share of a rest stream's reach and widest radius
+    /// (#1323): the pass measures both from the vertices it holds and the
+    /// streamed walk from the corners it emits, through this one definition.
+    inline void AccumulateGroomRestReach(f32& maxReachSquared, f32& maxRadius, const glm::vec3& position,
+                                         f32 radius) noexcept
+    {
+        maxReachSquared = std::max(maxReachSquared, glm::dot(position, position));
+        maxRadius = std::max(maxRadius, radius);
+    }
 
     /// Where a streamed rest build sends its vertices (#1608): Begin with the
     /// count the build will emit, then Write the stream in order, a chunk at a

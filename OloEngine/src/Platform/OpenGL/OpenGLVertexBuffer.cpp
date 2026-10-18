@@ -149,6 +149,50 @@ namespace OloEngine
         glBindBuffer(GL_ARRAY_BUFFER, 0);
     }
 
+    namespace
+    {
+        // Errors an earlier call left are said and cleared, so a check after
+        // the next call reports that call (OpenGLRendererAPI::TryUploadBufferSubData).
+        void DrainPrecedingGLErrors(const char* before)
+        {
+            for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+            {
+                OLO_CORE_WARN("OpenGLVertexBuffer: GL error {:#x} preceded {}", error, before);
+            }
+        }
+
+        [[nodiscard]] bool NoGLErrorAfter(const char* what)
+        {
+            bool clean = true;
+            for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+            {
+                OLO_CORE_ERROR("OpenGLVertexBuffer: {} raised GL error {:#x}", what, error);
+                clean = false;
+            }
+            return clean;
+        }
+    } // namespace
+
+    bool OpenGLVertexBuffer::HasItsStorage() const
+    {
+        DrainPrecedingGLErrors("a storage query");
+        GLint64 size = 0;
+        glGetNamedBufferParameteri64v(m_RendererID, GL_BUFFER_SIZE, &size);
+        return NoGLErrorAfter("the storage query") && size == static_cast<GLint64>(m_Size);
+    }
+
+    bool OpenGLVertexBuffer::UploadChunkThrough(OpenGLVertexBuffer& staging, u32 offset, const void* data, u32 bytes)
+    {
+        if (bytes > staging.m_Size || offset > m_Size || bytes > m_Size - offset)
+        {
+            return false;
+        }
+        DrainPrecedingGLErrors("a chunk upload");
+        glNamedBufferSubData(staging.m_RendererID, 0, bytes, data);
+        glCopyNamedBufferSubData(staging.m_RendererID, m_RendererID, 0, static_cast<GLintptr>(offset), bytes);
+        return NoGLErrorAfter("a chunk upload");
+    }
+
     void OpenGLVertexBuffer::SetData(const VertexData& data)
     {
         OLO_PROFILE_FUNCTION();
