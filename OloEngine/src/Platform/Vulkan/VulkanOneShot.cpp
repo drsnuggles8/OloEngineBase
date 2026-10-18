@@ -220,15 +220,26 @@ namespace OloEngine
                     OLO_CORE_ERROR("VulkanOneShot::Submit({}): waiting for completion or device loss before "
                                    "releasing the submission",
                                    what);
-                    const VkResult drained = vkWaitForFences(device->GetDevice(), 1u, &fence, VK_TRUE, UINT64_MAX);
+                    VkResult drained = vkWaitForFences(device->GetDevice(), 1u, &fence, VK_TRUE, UINT64_MAX);
                     if (drained != VK_SUCCESS && drained != VK_ERROR_DEVICE_LOST)
                     {
-                        // An error wait proves nothing about the fence: leak
-                        // the fence and the command buffer rather than
-                        // release them in flight.
-                        OLO_CORE_ERROR("VulkanOneShot::Submit({}): drain wait failed (VkResult {}); leaking the "
-                                       "fence and command buffer",
+                        // An error wait proves nothing about the fence. An
+                        // idle queue does: every submission on it, this one
+                        // included, has retired.
+                        OLO_CORE_ERROR("VulkanOneShot::Submit({}): drain wait failed (VkResult {}); waiting for "
+                                       "the queue to go idle",
                                        what, static_cast<int>(drained));
+                        drained = vkQueueWaitIdle(device->GetQueue());
+                    }
+                    if (drained != VK_SUCCESS && drained != VK_ERROR_DEVICE_LOST)
+                    {
+                        // Nothing proves the work retired: leak the fence and
+                        // the command buffer rather than release them in
+                        // flight, and tell the caller to keep what it read.
+                        OLO_CORE_ERROR("VulkanOneShot::Submit({}): queue idle wait failed (VkResult {}); leaking "
+                                       "the fence and command buffer",
+                                       what, static_cast<int>(drained));
+                        setOutcome(Outcome::DrainFailed);
                         return false;
                     }
                 }
@@ -287,6 +298,7 @@ namespace OloEngine
                 return false;
             }
 
+            Outcome outcome = Outcome::NotSubmitted;
             const bool ok = Submit(what,
                                    [&](VkCommandBuffer cmd)
                                    {
@@ -318,9 +330,13 @@ namespace OloEngine
                                        dep.bufferMemoryBarrierCount = 1u;
                                        dep.pBufferMemoryBarriers = &barrier;
                                        vkCmdPipelineBarrier2(cmd, &dep);
-                                   });
+                                   },
+                                   &outcome);
 
-            TrackedVmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
+            // The copy may still be reading the staging buffer: leak it with
+            // the fence and command buffer Submit already leaked.
+            if (outcome != Outcome::DrainFailed)
+                TrackedVmaDestroyBuffer(device->GetAllocator(), staging, stagingAllocation);
             return ok;
         }
     } // namespace VulkanOneShot

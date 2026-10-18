@@ -58,13 +58,16 @@ namespace OloEngine
         // Either way, Submit does not return while its submission can still
         // be executing: after a failed wait it waits again, without a
         // timeout, until the work retires or the device is lost. So a caller
-        // may release what the recording read (#1294). The one exception is
-        // an error from that second wait, which proves nothing; the fence and
-        // command buffer are then leaked rather than released in flight.
+        // may release what the recording read (#1294). If that second wait
+        // errors, Submit waits for the queue to go idle instead. Only when
+        // that fails too does it return `DrainFailed`: the fence and command
+        // buffer are leaked rather than released in flight, and a caller must
+        // keep (leak) anything the recording reads, as UploadToBuffer does.
         enum class Outcome
         {
             NotSubmitted, // never reached the queue — nothing recorded will run
             Submitted,    // accepted by the queue, but the fence wait did not succeed
+            DrainFailed,  // accepted, and nothing proves it retired: keep what it reads
             Completed,    // accepted and retired; the work is done
         };
 
