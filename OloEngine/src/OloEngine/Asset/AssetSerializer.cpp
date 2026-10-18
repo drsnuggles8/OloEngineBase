@@ -2029,7 +2029,10 @@ namespace OloEngine
         }
 
         SceneSerializer serializer(scene);
-        serializer.Serialize(ResolveProjectAssetPath(metadata));
+        if (!serializer.Serialize(ResolveProjectAssetPath(metadata)))
+        {
+            OLO_CORE_ERROR("SceneAssetSerializer::Serialize - scene asset '{}' was not saved", metadata.FilePath.string());
+        }
     }
 
     bool SceneAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

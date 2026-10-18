@@ -549,7 +549,7 @@ namespace OloEngine::Tests
             const auto source = TempDir(subject);
             const auto relativeScene = std::filesystem::path("Assets/Scenes") / (subject + ".olo");
             std::filesystem::create_directories((source / relativeScene).parent_path());
-            SceneSerializer(GetSceneRef()).Serialize(source / relativeScene);
+            EXPECT_TRUE(SceneSerializer(GetSceneRef()).Serialize(source / relativeScene));
             sizet copied = 0;
             std::string error;
             std::vector<std::string> unresolved;

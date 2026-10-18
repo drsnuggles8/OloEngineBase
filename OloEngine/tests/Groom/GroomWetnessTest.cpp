@@ -424,7 +424,7 @@ namespace OloEngine::Tests
         auto entity = authored->CreateEntity("Packed coat");
         entity.AddComponent<GroomWetnessComponent>() = AuthoredWetness();
         const auto path = TempDir() / "wet.olo";
-        SceneSerializer(authored).Serialize(path);
+        EXPECT_TRUE(SceneSerializer(authored).Serialize(path));
         auto first = Scene::Create();
         ASSERT_TRUE(SceneSerializer(first).Deserialize(path));
         ASSERT_TRUE(std::filesystem::exists(path.string() + ".scenebin"));

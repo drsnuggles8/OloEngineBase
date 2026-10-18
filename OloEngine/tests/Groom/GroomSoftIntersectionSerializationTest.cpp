@@ -92,7 +92,7 @@ namespace OloEngine::Tests
         component.m_Automatic = false;
         const auto expected = component;
         const auto path = TempDir() / "contact.olo";
-        SceneSerializer(authored).Serialize(path);
+        EXPECT_TRUE(SceneSerializer(authored).Serialize(path));
         auto first = Scene::Create();
         ASSERT_TRUE(SceneSerializer(first).Deserialize(path));
         ASSERT_TRUE(std::filesystem::exists(path.string() + ".scenebin"));

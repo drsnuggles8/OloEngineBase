@@ -134,7 +134,7 @@ class SceneRenderSettingsActivationTest : public ::testing::Test
     [[nodiscard]] Ref<Scene> RoundTrip(const Ref<Scene>& scene, const std::string& name) const
     {
         const auto path = m_Root / (name + ".olo");
-        SceneSerializer(scene).Serialize(path);
+        EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         auto loaded = SceneTransition::LoadSceneFile(path, /*requirePrimaryCamera=*/true);
         EXPECT_TRUE(loaded) << loaded.Error.ToView();
         return loaded.LoadedScene;
@@ -340,6 +340,15 @@ TEST_F(SceneRenderSettingsActivationTest, SerializeReportsAFileItCannotWrite)
     const std::filesystem::path unreachable = m_Root / "no-such-directory" / "Lost.olo";
     EXPECT_FALSE(SceneSerializer(scene).Serialize(unreachable));
     EXPECT_FALSE(std::filesystem::exists(unreachable));
+
+    // A target that cannot be replaced (here a directory) fails the save, and the
+    // temporary file it wrote first is removed.
+    const std::filesystem::path blocked = m_Root / "Blocked.olo";
+    std::filesystem::create_directories(blocked / "keep");
+    EXPECT_FALSE(SceneSerializer(scene).Serialize(blocked));
+    EXPECT_TRUE(std::filesystem::is_directory(blocked / "keep"));
+    for (const auto& entry : std::filesystem::directory_iterator(m_Root))
+        EXPECT_NE(entry.path().extension(), ".tmp") << "left behind: " << entry.path().string();
 }
 
 // Every scene saved before #1601 carries no key; each must keep rendering
@@ -348,7 +357,7 @@ TEST_F(SceneRenderSettingsActivationTest, SceneWithoutTheKeyRendersForward)
 {
     Ref<Scene> authored = DefaultScene();
     authored->SetRenderingPath(RenderingPath::Deferred);
-    SceneSerializer(authored).Serialize(m_Root / "NoKey.olo");
+    EXPECT_TRUE(SceneSerializer(authored).Serialize(m_Root / "NoKey.olo"));
     std::string text = ReadText("NoKey");
     const std::string line = "RenderingPath: Deferred\n";
     const auto at = text.find(line);
@@ -371,7 +380,7 @@ TEST_F(SceneRenderSettingsActivationTest, SceneWithoutTheKeyRendersForward)
 TEST_F(SceneRenderSettingsActivationTest, UnknownPathFailsTheLoad)
 {
     const Ref<Scene> authored = DefaultScene();
-    SceneSerializer(authored).Serialize(m_Root / "Source.olo");
+    EXPECT_TRUE(SceneSerializer(authored).Serialize(m_Root / "Source.olo"));
     const std::string source = ReadText("Source");
     const std::string valid = "RenderingPath: Forward";
     ASSERT_NE(source.find(valid), std::string::npos);

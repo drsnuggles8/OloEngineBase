@@ -29,8 +29,10 @@ namespace OloEngine
 
         explicit SceneSerializer(const Ref<Scene>& scene);
 
-        // False (and an error in the log) when the file cannot be written; the scene is not saved.
-        bool Serialize(const std::filesystem::path& filepath) const;
+        // False (and an error in the log) when the file cannot be written. The write goes to a
+        // temporary file that is renamed over the target, so a failure leaves any previous
+        // save at `filepath` intact and no temporary file behind.
+        [[nodiscard]] bool Serialize(const std::filesystem::path& filepath) const;
         [[maybe_unused]] void SerializeRuntime(const std::filesystem::path& filepath) const;
 
         [[nodiscard("Store this!")]] bool Deserialize(const std::filesystem::path& filepath);

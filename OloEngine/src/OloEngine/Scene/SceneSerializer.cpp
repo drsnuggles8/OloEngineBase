@@ -7245,86 +7245,43 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        YAML::Emitter out;
-        out << YAML::BeginMap;
-        out << YAML::Key << "Scene" << YAML::Value << m_Scene->GetName();
-        out << YAML::Key << "Version" << YAML::Value << SceneSerializer::CurrentVersion;
+        const std::string yaml = SerializeToYAML();
 
-        out << YAML::Key << "PostProcessSettings";
-        out << YAML::BeginMap;
-        EmitPostProcessSettings(out, m_Scene->GetPostProcessSettings());
-        out << YAML::EndMap;
-
-        out << YAML::Key << "RenderingPath" << YAML::Value << ToToken(m_Scene->GetRenderingPath());
-
-        SerializeSnowSettings(out, m_Scene->GetSnowSettings());
-        SerializeFogSettings(out, m_Scene->GetFogSettings());
-        SerializeWindSettings(out, m_Scene->GetWindSettings());
-        SerializeSnowAccumulationSettings(out, m_Scene->GetSnowAccumulationSettings());
-        SerializeSnowEjectaSettings(out, m_Scene->GetSnowEjectaSettings());
-        SerializePrecipitationSettings(out, m_Scene->GetPrecipitationSettings());
-
-        // Streaming settings
+        // Write beside the target and rename over it, so a failed write leaves the
+        // previous save intact instead of a truncated scene. A symlinked scene is
+        // saved through to the file it points at, and the temporary name is unique so
+        // two saves of one scene cannot write into the same temporary file.
+        std::error_code canonicalError;
+        std::filesystem::path target = std::filesystem::weakly_canonical(filepath, canonicalError);
+        if (canonicalError)
+            target = filepath;
+        std::filesystem::path tmp = target;
+        tmp += "." + std::to_string(static_cast<u64>(UUID())) + ".tmp";
         {
-            auto const& ss = m_Scene->GetStreamingSettings();
-            out << YAML::Key << "StreamingSettings";
-            out << YAML::BeginMap;
-            out << YAML::Key << "Enabled" << YAML::Value << ss.Enabled;
-            out << YAML::Key << "DefaultLoadRadius" << YAML::Value << ss.DefaultLoadRadius;
-            out << YAML::Key << "DefaultUnloadRadius" << YAML::Value << ss.DefaultUnloadRadius;
-            out << YAML::Key << "MaxLoadedRegions" << YAML::Value << ss.MaxLoadedRegions;
-            out << YAML::Key << "RegionDirectory" << YAML::Value << ss.RegionDirectory;
-            out << YAML::Key << "MaxResidentMegabytes" << YAML::Value << ss.MaxResidentMegabytes;
-            out << YAML::Key << "MaxAdmittedMegabytesPerFrame" << YAML::Value << ss.MaxAdmittedMegabytesPerFrame;
-            out << YAML::Key << "RepresentationResidentMegabytes" << YAML::Value << ss.RepresentationResidentMegabytes;
-            out << YAML::Key << "RepresentationUploadMegabytesPerFrame" << YAML::Value << ss.RepresentationUploadMegabytesPerFrame;
-            out << YAML::Key << "RepresentationStagingMegabytes" << YAML::Value << ss.RepresentationStagingMegabytes;
-            out << YAML::EndMap;
+            // Text mode, as before: the bytes of a saved scene do not change.
+            std::ofstream fout(tmp, std::ios::trunc);
+            if (!fout.is_open())
+            {
+                OLO_CORE_ERROR("SceneSerializer: cannot open '{}' for writing; the scene was not saved", tmp.string());
+                return false;
+            }
+            fout.write(yaml.data(), static_cast<std::streamsize>(yaml.size()));
+            fout.close();
+            if (fout.fail())
+            {
+                OLO_CORE_ERROR("SceneSerializer: writing '{}' failed; the scene was not saved", tmp.string());
+                std::error_code ignored;
+                std::filesystem::remove(tmp, ignored);
+                return false;
+            }
         }
-
-        // World-origin / floating-origin settings (issue #429)
+        std::error_code ec;
+        std::filesystem::rename(tmp, target, ec);
+        if (ec)
         {
-            auto const& wo = m_Scene->GetWorldOriginSettings();
-            out << YAML::Key << "WorldOriginSettings";
-            out << YAML::BeginMap;
-            out << YAML::Key << "Enabled" << YAML::Value << wo.Enabled;
-            out << YAML::Key << "RebaseThreshold" << YAML::Value << wo.RebaseThreshold;
-            out << YAML::Key << "SnapGridSize" << YAML::Value << wo.SnapGridSize;
-            out << YAML::EndMap;
-        }
-
-        // Baked-lightmap settings (issue #439)
-        {
-            auto const& lm = m_Scene->GetLightmapSettings();
-            out << YAML::Key << "LightmapSettings";
-            out << YAML::BeginMap;
-            out << YAML::Key << "LightmapAsset" << YAML::Value << static_cast<u64>(lm.LightmapAsset);
-            out << YAML::Key << "Enabled" << YAML::Value << lm.Enabled;
-            out << YAML::Key << "Intensity" << YAML::Value << lm.Intensity;
-            out << YAML::Key << "AtlasSize" << YAML::Value << lm.AtlasSize;
-            out << YAML::Key << "SamplesPerTexel" << YAML::Value << lm.SamplesPerTexel;
-            out << YAML::Key << "MaxBounces" << YAML::Value << lm.MaxBounces;
-            out << YAML::Key << "TexelsPerMeter" << YAML::Value << lm.TexelsPerMeter;
-            out << YAML::EndMap;
-        }
-
-        out << YAML::Key << "Entities" << YAML::Value << YAML::BeginSeq;
-        ForEachEntitySorted([&out](Entity entity)
-                            { SerializeEntity(out, entity); });
-        out << YAML::EndSeq;
-        out << YAML::EndMap;
-
-        std::ofstream fout(filepath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("SceneSerializer: cannot open '{}' for writing; the scene was not saved", filepath.string());
-            return false;
-        }
-        fout << out.c_str();
-        fout.flush();
-        if (fout.fail())
-        {
-            OLO_CORE_ERROR("SceneSerializer: writing '{}' failed; the file is incomplete", filepath.string());
+            OLO_CORE_ERROR("SceneSerializer: cannot replace '{}': {}; the scene was not saved", target.string(), ec.message());
+            std::error_code ignored;
+            std::filesystem::remove(tmp, ignored);
             return false;
         }
         return true;

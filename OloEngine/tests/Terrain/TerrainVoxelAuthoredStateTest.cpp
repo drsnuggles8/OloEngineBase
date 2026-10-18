@@ -363,7 +363,7 @@ class TerrainVoxelPersistenceTest : public ::testing::Test
     [[nodiscard]] Ref<Scene> SaveAndReload(const Ref<Scene>& scene, const std::string& name) const
     {
         const auto path = m_Root / (name + ".olo");
-        SceneSerializer(scene).Serialize(path);
+        EXPECT_TRUE(SceneSerializer(scene).Serialize(path));
         auto loaded = Scene::Create();
         EXPECT_TRUE(SceneSerializer(loaded).Deserialize(path));
         return loaded;
