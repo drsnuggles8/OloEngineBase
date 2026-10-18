@@ -9874,6 +9874,48 @@ namespace OloEngine
                 request.ApparentPixelSize = EstimateProjectedPixelSize(localBounds, worldTransform, lodView);
             }
 
+            // WHETHER THE COAT CAN REACH THE VIEW, decided here and acted on
+            // after the LOD: a coat that cannot is skipped below, and it must
+            // not open a cross-fade window either (#1612) -- it would hold a
+            // slot for a coat that draws nothing, and refuse a visible one.
+            request.InView = true;
+            bool viewRelevant = true;
+            if (cullGroomsByView)
+            {
+                // The rest bounds where the coat is drawn (placed through its
+                // binding, as the LOD size above is), posed by the entity and
+                // padded: a bound coat follows a skinned body and its simulation
+                // sways, so neither stays inside the bind-pose box. A quarter of
+                // the extent plus 0.25 m covers a walk cycle's reach.
+                BoundingBox worldBounds = placedRestBounds.Transform(worldTransform);
+                const glm::vec3 pad = (worldBounds.Max - worldBounds.Min) * 0.25f + glm::vec3(0.25f);
+                worldBounds.Min -= pad;
+                worldBounds.Max += pad;
+                viewRelevant = groomViewFrustum.IsBoxVisible(worldBounds.Min, worldBounds.Max);
+                request.InView = viewRelevant;
+                if (!viewRelevant && request.CastsSceneShadow)
+                {
+                    for (const glm::vec3& sweep : groomSunSweeps)
+                    {
+                        if (groomViewFrustum.IsBoxVisible(glm::min(worldBounds.Min, worldBounds.Min + sweep),
+                                                          glm::max(worldBounds.Max, worldBounds.Max + sweep)))
+                        {
+                            viewRelevant = true;
+                            break;
+                        }
+                    }
+                    for (const auto& light : groomLocalShadowLights)
+                    {
+                        const glm::vec3 nearest = glm::clamp(light.Center, worldBounds.Min, worldBounds.Max);
+                        if (glm::dot(nearest - light.Center, nearest - light.Center) <= light.Radius * light.Radius)
+                        {
+                            viewRelevant = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
             // The tier a fading coat is leaving (#1612), drawn beside this one.
             std::optional<GroomRepresentation> crossFadeOutgoing;
             if (const auto* lod = m_Registry.try_get<GroomLodComponent>(entity); lod != nullptr)
@@ -10000,7 +10042,7 @@ namespace OloEngine
                     {
                         crossFade = frameDecision->CrossFade;
                     }
-                    else if (advanceLodState)
+                    else if (advanceLodState && viewRelevant)
                     {
                         crossFade = AdvanceGroomCrossFade(request.Lod, crossFadeFrames, crossFadeSlots > 0u,
                                                           m_GroomCrossFadeRuntime[groomEntity.GetUUID()]);
@@ -10009,6 +10051,16 @@ namespace OloEngine
                             --crossFadeSlots;
                         }
                         m_GroomLodFrameDecisions[groomEntity.GetUUID()].CrossFade = crossFade;
+                    }
+                    else if (advanceLodState)
+                    {
+                        // A coat out of every view draws nothing to fade: its
+                        // window closes on its tier, so it holds no slot from the
+                        // next frame, and it comes back into view whole.
+                        GroomCrossFadeState& fade = m_GroomCrossFadeRuntime[groomEntity.GetUUID()];
+                        fade = GroomCrossFadeState{};
+                        fade.From = request.Lod.Representation;
+                        fade.To = request.Lod.Representation;
                     }
                     // Counted from the flag, whatever else explains the coat's
                     // tier; named as the reason only where nothing more
@@ -10053,48 +10105,12 @@ namespace OloEngine
 
             liveGrooms.insert(groomComponent.m_Groom);
 
-            request.InView = true;
-            if (cullGroomsByView)
+            if (!viewRelevant)
             {
-                // The rest bounds where the coat is drawn (placed through its
-                // binding, as the LOD size above is), posed by the entity and
-                // padded: a bound coat follows a skinned body and its simulation
-                // sways, so neither stays inside the bind-pose box. A quarter of
-                // the extent plus 0.25 m covers a walk cycle's reach.
-                BoundingBox worldBounds = placedRestBounds.Transform(worldTransform);
-                const glm::vec3 pad = (worldBounds.Max - worldBounds.Min) * 0.25f + glm::vec3(0.25f);
-                worldBounds.Min -= pad;
-                worldBounds.Max += pad;
-                bool relevant = groomViewFrustum.IsBoxVisible(worldBounds.Min, worldBounds.Max);
-                request.InView = relevant;
-                if (!relevant && request.CastsSceneShadow)
-                {
-                    for (const glm::vec3& sweep : groomSunSweeps)
-                    {
-                        if (groomViewFrustum.IsBoxVisible(glm::min(worldBounds.Min, worldBounds.Min + sweep),
-                                                          glm::max(worldBounds.Max, worldBounds.Max + sweep)))
-                        {
-                            relevant = true;
-                            break;
-                        }
-                    }
-                    for (const auto& light : groomLocalShadowLights)
-                    {
-                        const glm::vec3 nearest = glm::clamp(light.Center, worldBounds.Min, worldBounds.Max);
-                        if (glm::dot(nearest - light.Center, nearest - light.Center) <= light.Radius * light.Radius)
-                        {
-                            relevant = true;
-                            break;
-                        }
-                    }
-                }
-                if (!relevant)
-                {
-                    // Still live: its caches (guide influence, streaming key,
-                    // LOD hysteresis) survive the frames it spends out of view.
-                    liveGroomStreamingIdentities.insert(groomEntity.GetUUID());
-                    continue;
-                }
+                // Still live: its caches (guide influence, streaming key,
+                // LOD hysteresis) survive the frames it spends out of view.
+                liveGroomStreamingIdentities.insert(groomEntity.GetUUID());
+                continue;
             }
 
             std::optional<GroomStrandRequest> crossFadePartner;

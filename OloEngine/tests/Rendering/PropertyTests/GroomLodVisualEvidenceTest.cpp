@@ -1170,6 +1170,65 @@ namespace OloEngine::Tests
         settings.GroomLodMaxCrossFades = savedCap;
     }
 
+    TEST_F(GroomLodVisualEvidenceTest, ACoatOutOfViewTakesNoCrossFadeSlot)
+    {
+        // Two coats hand over on the same frame, with one cross-fade slot: the
+        // fixture's coat in view, and a twin behind the camera at the same
+        // distance, which casts no shadow and so cannot reach the view at all.
+        // The twin draws nothing, so it must not take the slot the visible coat
+        // needs. The hand-over is driven by the detail bias at a fixed camera,
+        // as in TheCoatsShadowFadesWithItsColour: 300 px is strands at bias 1,
+        // cards at 0.5.
+        ASSERT_TRUE(Renderer3D::IsFrustumCullingEnabled()) << "without the view cull every coat is drawn";
+        RendererSettings& settings = Renderer3D::GetRendererSettings();
+        settings.Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        const u32 window = 12u;
+        settings.GroomLodCrossFadeFrames = window;
+        settings.GroomLodMaxCrossFades = 1u;
+
+        const f32 eye = EyeDistanceFor(300.0f);
+        Entity twin = GetScene().DuplicateEntity(m_GroomEntity);
+        twin.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f, 0.0f, 2.0f * eye);
+        auto& twinShadow = twin.AddOrReplaceComponent<GroomSceneShadowComponent>();
+        twinShadow.m_CastShadows = false;
+        twinShadow.m_ReceiveShadows = false;
+
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 4000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose(glm::vec3(0.0f, 0.35f, eye), 0.0f, 0.05f);
+        settings.GroomDetailBias = 1.0f;
+        Lod().m_Enabled = false;
+        RunEditorFrames(camera, 2);
+        Lod().m_Enabled = true;
+        RunEditorFrames(camera, 24);
+        ASSERT_EQ(PassStats().GroomsSubmitted, 1u) << "the twin behind the camera was drawn, so this decides nothing";
+        ASSERT_NE(GetScene().FindGroomLodState(twin.GetUUID()), nullptr)
+            << "the twin's LOD does not advance out of view, so it cannot hand over beside the visible coat";
+
+        settings.GroomDetailBias = 0.5f;
+        u32 handOvers = 0;
+        u32 fadeFrames = 0;
+        u32 refused = 0;
+        for (u32 frame = 0; frame < 24u; ++frame)
+        {
+            RunEditorFrames(camera, 1);
+            handOvers += PassStats().Lod.RepresentationChanges;
+            fadeFrames += PassStats().Lod.CrossFading > 0u ? 1u : 0u;
+            refused += PassStats().Lod.CrossFadesRefused;
+        }
+        std::printf("[groom-crossfade] one slot, a twin out of view: hand-overs %u, fading %u frames, refused %u\n",
+                    handOvers, fadeFrames, refused);
+        ASSERT_EQ(handOvers, 1u) << "the visible coat did not hand over";
+        ASSERT_NE(GetScene().FindGroomLodState(twin.GetUUID()), nullptr);
+        EXPECT_EQ(GetScene().FindGroomLodState(twin.GetUUID())->Representation, GroomRepresentation::Card)
+            << "the twin did not hand over beside it, so the slot was never contested";
+        EXPECT_EQ(refused, 0u) << "the visible coat was refused its fade";
+        EXPECT_EQ(fadeFrames, window) << "the visible coat did not fade for its window";
+
+        GetScene().DestroyEntity(twin);
+    }
+
     TEST_F(GroomLodVisualEvidenceTest, TheCoatsShadowFadesWithItsColour)
     {
         // #1612: a fading coat's two tiers cast through the masks they are

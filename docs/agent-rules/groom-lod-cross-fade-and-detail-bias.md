@@ -103,6 +103,11 @@ budgets and the width compensation are in [groom-representation-lod.md](groom-re
     departure redraws only its own footprint. Pinned by
     `TheFirstSteadyFrameAfterAFadeRedrawsTheCoatsVirtualShadow` (2 invalidations, against 1 in
     the negative control).
+12. **Only a coat that can reach the view opens a fade window.** The LOD advances for every coat
+    by distance, and the view cull comes after it. Before the cull moved ahead of the fade, a coat
+    behind the camera that changed tier took a slot, and a visible coat was refused. A coat out of
+    every view has its window closed on its tier. Pinned by `ACoatOutOfViewTakesNoCrossFadeSlot`
+    (negative control: 0 fading frames, 1 refused).
 
 ## What was measured
 
