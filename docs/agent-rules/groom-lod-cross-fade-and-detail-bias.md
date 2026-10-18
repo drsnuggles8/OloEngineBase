@@ -82,7 +82,9 @@ budgets and the width compensation are in [groom-representation-lod.md](groom-re
    GroomPass was 2.2 ms against 0.75 ms for the two tiers alone. A coarser mask (2×2, 8×8) did not
    help, and drawing the strand tier first only moved the cost to the cards. `GroomRenderPass` holds
    the first tier's shading draw (`HeldShade`, with its own bindings) until the partner's prepass
-   is down: 0.62 ms going out, 1.15 ms coming back. Measure a window by the frame its sample
+   is down: 0.62 ms going out, 1.15 ms coming back. The hold needs the partner to be the very next
+   request, which Scene guarantees and the pass asserts. A held draw whose partner drew nothing is
+   replayed before the next coat does anything. Measure a window by the frame its sample
    describes (`olo_perf_pass_timings` `frame.gpuMeasurementFrameId`) and by the strand sub-passes.
    A 120-frame window lasts about a second in a Release editor.
 
