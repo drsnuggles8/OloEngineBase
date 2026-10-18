@@ -216,6 +216,50 @@ bool OloTaaAnyProfileIsStochastic(vec4 profile)
         OUT_MEAN = oloCoverageSum * (1.0 / 64.0);                                                      \
     }
 
+// The COAT'S OWN share of the 8x8 coverage mean around UV (#1627): the
+// coverage of the texels holding the stochastic mark, summed over all 64. The
+// window is OLO_TAA_MEAN_COVERAGE_8X8's. SAMPLER is a name, not a value.
+#define OLO_TAA_MEAN_COAT_COVERAGE_8X8(SAMPLER, UV, TEXEL, OUT_MEAN)                                       \
+    {                                                                                                       \
+        float oloCoatCoverageSum = 0.0;                                                                     \
+        for (int oloGy = 0; oloGy < 4; ++oloGy)                                                             \
+        {                                                                                                   \
+            for (int oloGx = 0; oloGx < 4; ++oloGx)                                                         \
+            {                                                                                               \
+                vec2 oloCorner = (UV) + (((vec2(float(oloGx), float(oloGy)) * 2.0) - 3.5) * (TEXEL));       \
+                vec4 oloCoat = step(textureGather(SAMPLER, oloCorner, 3), vec4(0.5 * OLO_STOCHASTIC_COVERAGE_MARK)); \
+                oloCoatCoverageSum += dot(textureGather(SAMPLER, oloCorner, 2), oloCoat);                   \
+            }                                                                                               \
+        }                                                                                                   \
+        OUT_MEAN = oloCoatCoverageSum * (1.0 / 64.0);                                                       \
+    }
+
+// The colour statistics of the 5x5 texels around UV, in YCoCg, for the clip
+// box of a stochastic coat pixel (#1627; see step 3). SAMPLER is a name.
+#define OLO_TAA_GATHER_5X5(SAMPLER, UV, TEXEL, OUT_STATS)                                          \
+    {                                                                                              \
+        vec3 oloG5M1 = vec3(0.0);                                                                  \
+        vec3 oloG5M2 = vec3(0.0);                                                                  \
+        vec3 oloG5Min = vec3(1.0e10);                                                              \
+        vec3 oloG5Max = vec3(-1.0e10);                                                             \
+        for (int oloG5Y = -2; oloG5Y <= 2; ++oloG5Y)                                               \
+        {                                                                                          \
+            for (int oloG5X = -2; oloG5X <= 2; ++oloG5X)                                           \
+            {                                                                                      \
+                vec3 oloG5S = OloRGBToYCoCg(                                                       \
+                    texture(SAMPLER, (UV) + vec2(float(oloG5X), float(oloG5Y)) * (TEXEL)).rgb);    \
+                oloG5M1 += oloG5S;                                                                 \
+                oloG5M2 += oloG5S * oloG5S;                                                        \
+                oloG5Min = min(oloG5Min, oloG5S);                                                  \
+                oloG5Max = max(oloG5Max, oloG5S);                                                  \
+            }                                                                                      \
+        }                                                                                          \
+        (OUT_STATS).Mean = oloG5M1 / 25.0;                                                         \
+        (OUT_STATS).StdDev = sqrt(max(vec3(0.0), oloG5M2 / 25.0 - (OUT_STATS).Mean * (OUT_STATS).Mean)); \
+        (OUT_STATS).MinC = oloG5Min;                                                               \
+        (OUT_STATS).MaxC = oloG5Max;                                                               \
+    }
+
 // The mean velocity of the stochastic coat texels in the 4x4 around UV, in
 // eight gathers (the window OLO_TAA_COVERAGE_KIND_4X4 reads), or FALLBACK when
 // none of them holds the mark. A stochastic coat's pixel shows whichever strand
@@ -311,9 +355,33 @@ void main()
     // componentwise clamp this pass used to do — a rejected history now
     // desaturates along the segment instead of being able to land on a hue the
     // neighbourhood never contained. See include/TemporalResolve.glsl.
+    //
+    // A STOCHASTIC COAT'S BOX COMES FROM 5x5 AT 1.0 (#1627). Its current
+    // frame is one draw: each pixel a different strand or a hole, so the
+    // mean and spread of nine texels are themselves a draw, and clipping to
+    // them pressed this frame's noise into the history. Twenty-five texels
+    // estimate the box with 40% less noise (sqrt(9/25)), and the tighter gamma keeps a
+    // real change as quick to let go as the 3x3 at 1.25 was. On the Bernese
+    // walk from behind (two draws of the same frames against the samples
+    // alone; bar 0.5), with the coverage term below: face 0.648 -> 0.492,
+    // ears 0.545 -> 0.481, fringe 0.530 -> 0.458, lag 0.25 -> 0.32; the
+    // still hair's gain 11.9x -> 12.7x, under upscale 7.1x -> 11.0x
+    // (Quality) and 4.3x -> 8.0x (Performance); a coverage halving still
+    // 0.49 stale a frame on (0.51). The 5x5 at 1.25 cut the noise more
+    // (13.0x) and let go of that halving a frame later (0.34 stale after
+    // four frames, 0.29 before); 2.0 at 3x3 changed little (face 0.501).
     OloTemporalStats stats;
-    OLO_TEMPORAL_GATHER_3X3(u_Current, uv, u_TexelSize, stats);
-    vec3 clampedHistory = OloYCoCgToRGB(OloTemporalClipHistory(OloRGBToYCoCg(historyColor), stats, 1.25));
+    float clipGamma = 1.25;
+    if (stochasticCoverage)
+    {
+        OLO_TAA_GATHER_5X5(u_Current, uv, u_TexelSize, stats);
+        clipGamma = 1.0;
+    }
+    else
+    {
+        OLO_TEMPORAL_GATHER_3X3(u_Current, uv, u_TexelSize, stats);
+    }
+    vec3 clampedHistory = OloYCoCgToRGB(OloTemporalClipHistory(OloRGBToYCoCg(historyColor), stats, clipGamma));
 
     // 4) Feedback-weighted blend. Scale feedback down when velocity is large
     // to reduce ghosting around fast motion. The "motion" must be measured
@@ -428,7 +496,24 @@ void main()
         // 0.6 % of a sphere's pixels, where the range test fires on none. The
         // decision, made above with the feedback, reads the current frame,
         // whose texels are exact.
-        if (estimatedCoverage)
+        //
+        // ...AND OF A STOCHASTIC COAT, THE COAT'S OWN SHARE OF THAT MEAN
+        // (#1627). The window is reprojected by the coat's mean velocity, so
+        // the coat holds still in it; whatever else it holds -- the lawn at 0,
+        // the body at 1 -- moves by its own, and at a moving silhouette that
+        // moved the mean past the dead band with no change to the coat at
+        // all: on the Bernese walk from behind, the term cost the face 0.648
+        // against 0.509 without it. The coat's share (coverage of the marked
+        // texels, over all 64) still moves at a real step -- halving every
+        // width halves the alphas, halving the strands halves the marked
+        // texels -- and TemporalSubjectSequence reads the same to the digit
+        // with it: the halving 0.508 stale a frame on, the still hair 11.9x.
+        if (estimatedCoverage && stochasticCoverage)
+        {
+            OLO_TAA_MEAN_COAT_COVERAGE_8X8(u_Velocity, uv, u_TexelSize, currentSurface.b);
+            OLO_TAA_MEAN_COAT_COVERAGE_8X8(u_PrevSurface, prevUV, u_TexelSize, previousSurface.b);
+        }
+        else if (estimatedCoverage)
         {
             OLO_TAA_MEAN_COVERAGE_8X8(u_Velocity, uv, u_TexelSize, currentSurface.b);
             OLO_TAA_MEAN_COVERAGE_8X8(u_PrevSurface, prevUV, u_TexelSize, previousSurface.b);

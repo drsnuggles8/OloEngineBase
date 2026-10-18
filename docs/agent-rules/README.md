@@ -561,6 +561,7 @@ The check passes for a correct implementation and for a broken one.
 
 | Doc | The instrument that failed |
 |---|---|
+| [temporal-coverage-means-not-samples.md](temporal-coverage-means-not-samples.md) | "Two draws of the same frames" improved on the dog's walk when TAA stopped clipping the coat, from 0.66 to 0.50, because stale history is stable between draws: the lag beside it rose from 0.25 to 0.38. A stability ratio reads ghosting as a win; judge it with the lag. |
 | [gl-write-once-buffers-are-immutable-storage.md](gl-write-once-buffers-are-immutable-storage.md) | The renderer memory report showed the groom rest stream's 1.5 GB of VRAM and nothing else, while the GL driver kept a second, resident copy in the process: the breed evidence suite crossed its 6 GB ceiling and the editor paid it too. |
 | [claude-code-mods.md](claude-code-mods.md) | A build piped into `tail` reported exit code 0 after ninja stopped; a `--gtest_filter` that matched nothing printed `PASSED`; a PR body claimed a Debug run that never happened. |
 | [measure-in-the-frame-the-pixels-came-from.md](measure-in-the-frame-the-pixels-came-from.md) | The walking dog's B6 regions unprojected 60 frames through the camera of the first, 31 cm stale by the end, and the rest bake classified world points as dog-local; both passed, the lost pixels dropped from every region and the walking tail never measured. |
