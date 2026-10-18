@@ -30,6 +30,14 @@ docs/testing/evidence/mono-debugger-1540/**         curated log excerpts in the 
 docs/testing/evidence/render-graph-attachment-feedback-1554/**  captures linked from its README
 docs/testing/evidence/restir-pt-1211/**             reports and images linked from restir-pt-1211-evidence.md and -live.md
 
+# --- Opt-in measurement records in visual/ (written only behind an env flag, cited by docs as the record)
+OloEditor/assets/tests/visual/DigitalHuman_Timing.txt  docs/guides/skin-digital-human.md
+OloEditor/assets/tests/visual/Dog_Cost.txt             DogShowcaseEvidenceTest with OLO_DOG_COST_EXPORT; docs/guides/dog-showcase.md
+OloEditor/assets/tests/visual/Dog_Cost_Matrix.txt      docs/guides/dog-showcase.md
+OloEditor/assets/tests/visual/Dog_Lighting.txt         DogShowcaseEvidenceTest with OLO_DOG_LIGHTING_EXPORT; groom-coat-body-in-the-volume.md
+OloEditor/assets/tests/visual/EyeCornea_Timing.txt     docs/guides/eye-cornea-iris.md
+OloEditor/assets/tests/visual/GroomAnimals_Cost.txt    GroomAnimalsAcceptanceEvidenceTest export; docs/guides/groom-animals.md
+
 # --- Goldens in OloEditor/assets/tests/visual/ (found by running each reader with the file absent)
 
 # AtmosphereVisualEvidenceTest

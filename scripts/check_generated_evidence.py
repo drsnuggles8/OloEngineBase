@@ -15,10 +15,13 @@ use it.
 1. A file under a GUARDED root must match an allow-list entry. Under
    OloEditor/assets/tests/ that is every file: the visual/ directory is ignored
    wholesale, and a golden is added with `git add -f` plus an entry naming its
-   reader. Under docs/ it is every file with a capture, report or scene
-   extension; Markdown and other prose stay free.
-2. A tracked file that .gitignore would exclude must match an allow-list entry.
-   This catches `git add -f` of a capture anywhere in the repository.
+   reader. Under docs/ it is every file except Markdown and Git attribute
+   files: prose is free, and any image, video, report or scene is curated
+   deliberately or not at all.
+2. A tracked file that the repository's .gitignore files would exclude must
+   match an allow-list entry. This catches `git add -f` of a capture anywhere in
+   the repository. A developer's global excludes file and .git/info/exclude are
+   not consulted, so the result is the same on every machine and in CI.
 
 Two more checks keep the list honest: every entry carries a reason, and every
 entry still matches at least one tracked file.
@@ -43,18 +46,10 @@ ALLOWLIST = "scripts/generated-evidence-allowlist.txt"
 # Every file under these roots must be allow-listed.
 GUARDED_ALL = ("OloEditor/assets/tests/",)
 
-# Under these roots, files with these extensions must be allow-listed.
+# Under these roots, every file except prose must be allow-listed.
 GUARDED_DATA = ("docs/",)
-DATA_EXTENSIONS = frozenset(
-    {
-        # captures and frame dumps
-        ".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tga", ".hdr", ".exr", ".dds", ".ktx", ".ktx2",
-        # reports, ledgers, logs
-        ".json", ".csv", ".tsv", ".xml", ".log", ".txt", ".gz", ".zip", ".html",
-        # exported scenes and meshes
-        ".olo", ".yaml", ".yml", ".ply", ".gltf", ".glb", ".bin", ".abc",
-    }
-)
+PROSE_EXTENSIONS = frozenset({".md"})
+PROSE_NAMES = frozenset({".gitignore", ".gitattributes"})
 
 
 def compile_glob(pattern: str) -> re.Pattern[str]:
@@ -99,8 +94,9 @@ def is_guarded(path: str) -> bool:
     if path.startswith(GUARDED_ALL):
         return True
     if path.startswith(GUARDED_DATA):
-        dot = path.rfind(".")
-        return dot > path.rfind("/") and path[dot:].lower() in DATA_EXTENSIONS
+        name = path.rsplit("/", 1)[-1]
+        dot = name.rfind(".")
+        return name not in PROSE_NAMES and (dot <= 0 or name[dot:].lower() not in PROSE_EXTENSIONS)
     return False
 
 
@@ -117,11 +113,11 @@ def run_checks(tracked: list[str], ignored: set[str], allowlist_text: str) -> li
         return hit
 
     for path in tracked:
+        # An entry is in use while it matches any tracked file, guarded or not.
+        hit = allowed(path)
         guarded = is_guarded(path)
         is_ignored = path in ignored
-        if not (guarded or is_ignored):
-            continue
-        if allowed(path):
+        if not (guarded or is_ignored) or hit:
             continue
         if is_ignored:
             errors.append(f"{path}: tracked although .gitignore excludes it (force-added?)")
@@ -147,7 +143,7 @@ SELF_TEST_BASE = [
     "OloEditor/assets/tests/visual/Water_Overview.png",
     "OloEditor/assets/tests/splat/fixture_discs.ply",
     "docs/images/dog/closeup.jpg",
-    "docs/analysis/report.rst",
+    "docs/analysis/report" + ".md",
     "OloEngine/src/Renderer.cpp",
 ]
 SELF_TEST = {
@@ -189,6 +185,18 @@ SELF_TEST = {
         ["visual/docs/images/frame.png: generated-output location"],
     ),
     "entry without a reason":([], set(), SELF_TEST_ALLOW + "docs/images/**/*.jpg\n", ["has no reason"]),
+    "motion capture under docs": (
+        ["docs/testing/evidence/campaign-9999/turntable.mp4"],
+        set(),
+        None,
+        ["campaign-9999/turntable.mp4: generated-output location"],
+    ),
+    "an entry matching only prose is still in use": (
+        ["docs/reviews/gallery/notes" + ".md"],
+        set(),
+        SELF_TEST_ALLOW + "docs/reviews/gallery/**  approval gallery\n",
+        [],
+    ),
     "stale entry": ([], set(), SELF_TEST_ALLOW + "docs/gone/*.png  removed campaign\n", ["'docs/gone/*.png' matches no tracked file"]),
 }
 
@@ -202,7 +210,14 @@ def self_test() -> list[str]:
         for want in expect:
             if not any(want in line for line in report):
                 failures.append(f"self-test '{name}': expected a report containing '{want}', got {report}")
-    for path, want in (("docs/a.rst", False), ("docs/a.PNG", True), ("docs/archive", False), ("OloEditor/assets/tests/x", True)):
+    for path, want in (
+        ("docs/e/README" + ".md", False),
+        ("docs/e/.gitignore", False),
+        ("docs/a.PNG", True),
+        ("docs/e/turntable.mp4", True),
+        ("docs/archive", True),
+        ("OloEditor/assets/tests/x", True),
+    ):
         if is_guarded(path) != want:
             failures.append(f"self-test: is_guarded('{path}') should be {want}")
     return failures
@@ -228,7 +243,9 @@ def main() -> int:
         ).stdout.strip()
     )
     tracked = git_list(root, "--cached")
-    ignored = set(git_list(root, "--cached", "--ignored", "--exclude-standard"))
+    # --exclude-per-directory reads only the repository's .gitignore files;
+    # --exclude-standard would also read core.excludesFile and .git/info/exclude.
+    ignored = set(git_list(root, "--cached", "--ignored", "--exclude-per-directory=.gitignore"))
     allow_path = root / ALLOWLIST
     if not allow_path.is_file():
         print(f"check_generated_evidence: {ALLOWLIST} is missing", file=sys.stderr)

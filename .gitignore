@@ -262,18 +262,10 @@ scripts/steam/generated/
 !/OloEditor/assets/tests/visual/**/
 !/OloEditor/assets/tests/exports/**/
 !/OloEditor/assets/tests/memory/**/
-# Campaign data under docs/: raw captures, reports and ledgers stay local. The
-# write-up (Markdown) is tracked; a curated image it links is force-added and
-# allow-listed.
-/docs/testing/evidence/**/*.png
-/docs/testing/evidence/**/*.jpg
-/docs/testing/evidence/**/*.webp
-/docs/testing/evidence/**/*.hdr
-/docs/testing/evidence/**/*.exr
-/docs/testing/evidence/**/*.json
-/docs/testing/evidence/**/*.csv
-/docs/testing/evidence/**/*.xml
-/docs/testing/evidence/**/*.txt
-/docs/testing/evidence/**/*.gz
-/docs/testing/evidence/**/*.yaml
-/docs/testing/evidence/**/*.olo
+# Campaign data under docs/testing/evidence/: everything but the Markdown write-up stays local.
+# A curated image a write-up links is force-added and allow-listed.
+/docs/testing/evidence/**
+!/docs/testing/evidence/**/
+!/docs/testing/evidence/**/*.md
+!/docs/testing/evidence/**/.gitignore
+!/docs/testing/evidence/**/.gitattributes

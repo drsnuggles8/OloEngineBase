@@ -9,16 +9,18 @@ and the measurement taken from it. Issue #1610.
 
 ## The rules
 
-1. **Output directories are ignored as a whole.** `OloEditor/assets/tests/visual/`, `exports/` and
-   `memory/` are in `.gitignore`, as are capture and report extensions under `docs/testing/evidence/`.
+1. **Output directories are ignored as a whole.** Every file in `OloEditor/assets/tests/visual/`,
+   `exports/` and `memory/`, and every non-Markdown file under `docs/testing/evidence/`, is in
+   `.gitignore`; the directories themselves are not, so `git add` on a tracked golden still succeeds.
    A new evidence test needs no ignore rule of its own. Do not add per-campaign globs.
 2. **A golden is force-added and allow-listed.** After `--olo-golden-rebase` writes a new golden,
    `git add -f` it and add one allow-list line: the glob, then the suite that reads it. A golden that
    moves because of a deliberate visual change is an ordinary modification of a tracked file and needs
    nothing new.
 3. **The `generated-evidence` pre-commit hook enforces both lists.** It rejects any file under
-   `OloEditor/assets/tests/` that the allow-list does not name, any capture or report extension under
-   `docs/` that it does not name, and any tracked file anywhere that `.gitignore` excludes (a force-add).
+   `OloEditor/assets/tests/` that the allow-list does not name, any non-Markdown file under `docs/` that
+   it does not name, and any tracked file anywhere that the repository's `.gitignore` files exclude (a
+   force-add; a developer's global excludes file is not consulted).
    It also rejects an allow-list line with no reader and a line that matches nothing. Its negative
    controls run first on every invocation.
 4. **A curated documentation image is linked from a doc.** Keep a review image only when a page
@@ -39,8 +41,9 @@ By 2026-10 the tracked tree was 2.19 GB. `visual/` held 2,656 files (974 MB), of
 that some test reads. `docs/testing/evidence/` held 610 files (300 MB), most of them unlinked raw
 campaign output. Every evidence test rewrote its tracked PNG on each run, so a full-suite sweep left
 about 300 modified files to discard (#1300), and a commit that kept them added another full copy of each to
-history. History reachable from `master` packed to 3.26 GiB in a fresh clone. Without the blobs that had ever
-lived in these output locations (and are not a current golden) it packs to 1.08 GiB.
+history. A fresh clone of `master` was 3.25 GiB. Packing everything reachable from `master` gives
+3.26 GiB, and 1.08 GiB without the blobs that ever lived in these output locations and are not a
+current golden or curated file.
 
 Deleting such a file later shrinks the tree, not the clone: the old blobs stay reachable from every
 commit that had them. The per-campaign ignore globs that #1524, #1553 and #1593 added each caught one
