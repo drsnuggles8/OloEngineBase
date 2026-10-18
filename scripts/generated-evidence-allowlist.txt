@@ -21,7 +21,7 @@ docs/images/dog/*                                   #1533 showcase review compos
 docs/images/vegetation/*.jpg                        #1398 comparison images (tools/vegetation-import/preview.py)
 docs/reviews/dog-breeds-1558/**                     approval galleries linked from docs/guides/dog-breeds.md
 docs/validation/foliage-hierarchical-wind-1236.json linked from docs/guides/foliage-hierarchical-wind.md
-docs/analysis/dog-cost-matrix.txt                   hand-curated cost attribution linked from docs/guides/dog-showcase.md
+docs/analysis/dog-cost-matrix.txt                   assembled by hand from opt-in DogShowcaseEvidenceTest runs; linked from docs/guides/dog-showcase.md
 docs/analysis/evidence/groom-vegetation-streaming-residency-1257.json  data behind the groom-vegetation-streaming-residency-1257 analyses
 docs/analysis/foliage-cost-baseline-1391/**         reproducible baseline; summary.json regenerates from it (foliage-cost-baseline-1391.md)
 docs/testing/evidence/hair1593/**                   images and reports linked from digital-human-hair-quality-1593.md

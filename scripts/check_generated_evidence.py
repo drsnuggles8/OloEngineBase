@@ -197,7 +197,13 @@ SELF_TEST = {
         SELF_TEST_ALLOW + "docs/reviews/gallery/**  approval gallery\n",
         ["'docs/reviews/gallery/**' allows no tracked file"],
     ),
-    "stale entry": ([], set(), SELF_TEST_ALLOW + "docs/gone/*.png  removed campaign\n", ["'docs/gone/*.png' allows no tracked file"]),
+    "an entry for an unguarded, unignored file is stale": (
+        ["OloEngine/tests/fixtures/x.bin"],
+        set(),
+        SELF_TEST_ALLOW + "OloEngine/tests/fixtures/x.bin  fixture\n",
+        ["'OloEngine/tests/fixtures/x.bin' allows no tracked file"],
+    ),
+    "stale entry":([], set(), SELF_TEST_ALLOW + "docs/gone/*.png  removed campaign\n", ["'docs/gone/*.png' allows no tracked file"]),
 }
 
 

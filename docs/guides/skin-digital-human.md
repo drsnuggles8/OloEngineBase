@@ -120,7 +120,8 @@ forward is not.
 ## What the cost numbers can and cannot tell you
 
 `DigitalHuman_Timing.txt` (git-ignored; `SkinDigitalHumanScene.TheCostOfTheDigitalHumanIsRecorded` rewrites it
-on every GPU run) records the full skin stack against a version-0 split-only control, per
+on every GPU run; the last tracked copy, `0cc2cd225` on an RTX 4090, had the full stack at −3.0% Forward,
++6.3% Forward+ and +16.5% Deferred against the control) records the full skin stack against a version-0 split-only control, per
 raster path, each arm captured after a **discarded warm-up** so neither pays for the frame-graph
 reconfigure a path switch forces. Timing the first capture after that switch is how an earlier
 version of this fixture reported a uniform ~+95% that was the rebuild rather than the skin.
