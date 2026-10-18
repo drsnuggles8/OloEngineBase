@@ -3081,9 +3081,11 @@ namespace OloEngine
             // displacement bound describes. Refresh the levels a receiver out
             // to twice that distance selects (shadows cast long at a low sun),
             // plus the next coarser one the marker also backs as a fallback.
+            // ViewDistance is world metres already (the cull compares it with
+            // the eye distance), so it takes no terrain scale.
             if (inputs.EyeMoved)
             {
-                const i32 level = VirtualShadowMap::SelectClipLevel(2.0f * layer.ViewDistance * terrainScale,
+                const i32 level = VirtualShadowMap::SelectClipLevel(2.0f * layer.ViewDistance,
                                                                     inputs.Clip0HalfExtent, inputs.ClipSelectionBias);
                 plan.EyeLevels = FSI::LevelsUpTo(level + 1, levelCount);
             }
