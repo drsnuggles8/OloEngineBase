@@ -56,7 +56,7 @@ budgets and the width compensation are in [groom-representation-lod.md](groom-re
    the outgoing tier in its history for longer than that. `GroomSoftIntersectionVisualEvidenceTest`
    forces cards and settles 16 frames, past the 12-frame window, but its first card capture still
    differed from its own repeat by 26k pixels. Its `Capture`, and `GroomWetnessVisualEvidenceTest`'s, which forces tiers the same way, now set the window to 0 for the capture
-   and restores it. The LOD evidence fixture, which walks to a tier, runs `6 + GroomLodCrossFadeFrames`
+   and restore it. The LOD evidence fixture, which walks to a tier, runs `6 + GroomLodCrossFadeFrames`
    frames. With six, a capture lands mid-fade and counts the outgoing strands as drawn.
 
 7. **The detail bias divides every pixel threshold once, where Scene assembles the policy.**
@@ -87,6 +87,19 @@ budgets and the width compensation are in [groom-representation-lod.md](groom-re
    replayed before the next coat does anything. Measure a window by the frame its sample
    describes (`olo_perf_pass_timings` `frame.gpuMeasurementFrameId`) and by the strand sub-passes.
    A 120-frame window lasts about a second in a Release editor.
+
+10. **Advance the LOD ladder and the fade window once per frame, not once per publish.** A probe
+    bake renders six cube faces between two frames, and each render publishes the grooms. When each
+    publish advanced the state, a bake after every frame reset the hold, so the main view never
+    handed over. A shorter bake ate the fade window instead. The frame entry points arm
+    `Scene::m_GroomLodFrameArmed`, and any later publish in the same frame decides from a copy.
+    Pinned by `ASecondViewInOneFrameAdvancesNeitherTheLadderNorTheWindow`. Its negative control
+    gives 0 hand-overs.
+11. **A VSM caster that stops fading counts as moved for one frame.** Its cached pages hold the
+    dithered silhouette, and on a static coat nothing else redraws them. The outgoing tier's
+    departure redraws only its own footprint. Pinned by
+    `TheFirstSteadyFrameAfterAFadeRedrawsTheCoatsVirtualShadow` (2 invalidations, against 1 in
+    the negative control).
 
 ## What was measured
 
