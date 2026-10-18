@@ -216,10 +216,11 @@ bool OloTaaAnyProfileIsStochastic(vec4 profile)
         OUT_MEAN = oloCoverageSum * (1.0 / 64.0);                                                      \
     }
 
-// The COAT'S OWN share of the 8x8 coverage mean around UV (#1627): the
-// coverage of the texels holding the stochastic mark, summed over all 64. The
-// window is OLO_TAA_MEAN_COVERAGE_8X8's. SAMPLER is a name, not a value.
-#define OLO_TAA_MEAN_COAT_COVERAGE_8X8(SAMPLER, UV, TEXEL, OUT_MEAN)                                       \
+// The ESTIMATORS' share of the 8x8 coverage mean around UV (#1627): the
+// coverage of the texels that hold the stochastic mark or a fractional
+// coverage, summed over all 64 -- every texel but an opaque surface's 1 and an
+// empty one's 0. The window is OLO_TAA_MEAN_COVERAGE_8X8's. SAMPLER is a name.
+#define OLO_TAA_MEAN_ESTIMATED_COVERAGE_8X8(SAMPLER, UV, TEXEL, OUT_MEAN)                                       \
     {                                                                                                       \
         float oloCoatCoverageSum = 0.0;                                                                     \
         for (int oloGy = 0; oloGy < 4; ++oloGy)                                                             \
@@ -227,8 +228,10 @@ bool OloTaaAnyProfileIsStochastic(vec4 profile)
             for (int oloGx = 0; oloGx < 4; ++oloGx)                                                         \
             {                                                                                               \
                 vec2 oloCorner = (UV) + (((vec2(float(oloGx), float(oloGy)) * 2.0) - 3.5) * (TEXEL));       \
+                vec4 oloLanes = textureGather(SAMPLER, oloCorner, 2);                                        \
                 vec4 oloCoat = step(textureGather(SAMPLER, oloCorner, 3), vec4(0.5 * OLO_STOCHASTIC_COVERAGE_MARK)); \
-                oloCoatCoverageSum += dot(textureGather(SAMPLER, oloCorner, 2), oloCoat);                   \
+                vec4 oloFractional = step(vec4(0.001), oloLanes) * step(oloLanes, vec4(0.999));             \
+                oloCoatCoverageSum += dot(oloLanes, max(oloCoat, oloFractional));                   \
             }                                                                                               \
         }                                                                                                   \
         OUT_MEAN = oloCoatCoverageSum * (1.0 / 64.0);                                                       \
@@ -497,21 +500,22 @@ void main()
         // decision, made above with the feedback, reads the current frame,
         // whose texels are exact.
         //
-        // ...AND OF A STOCHASTIC COAT, THE COAT'S OWN SHARE OF THAT MEAN
-        // (#1627). The window is reprojected by the coat's mean velocity, so
-        // the coat holds still in it; whatever else it holds -- the lawn at 0,
-        // the body at 1 -- moves by its own, and at a moving silhouette that
-        // moved the mean past the dead band with no change to the coat at
-        // all: on the Bernese walk from behind, the term cost the face 0.648
-        // against 0.509 without it. The coat's share (coverage of the marked
-        // texels, over all 64) still moves at a real step -- halving every
-        // width halves the alphas, halving the strands halves the marked
-        // texels -- and TemporalSubjectSequence reads the same to the digit
-        // with it: the halving 0.508 stale a frame on, the still hair 11.9x.
+        // ...AND WHERE A STOCHASTIC COAT IS, THE ESTIMATORS' SHARE OF THAT
+        // MEAN (#1627). The window is reprojected by the coat's mean
+        // velocity, so the coat holds still in it; an opaque surface beside it
+        // -- the lawn at 0, the body at 1 -- moves by its own, and at a moving
+        // silhouette that moved the mean past the dead band with no change to
+        // the coat at all: on the Bernese walk from behind, the term cost the
+        // face 0.648 against 0.509 without it. Leaving out only the texels at
+        // exactly 0 or 1 that carry no mark keeps every estimator in the sum:
+        // the coat (halving every width halves the alphas, halving the strands
+        // halves the marked texels) and an alpha-tested leaf sharing the
+        // window. TemporalSubjectSequence reads the same to the digit with it:
+        // the halving 0.508 stale a frame on, the still hair 11.9x.
         if (estimatedCoverage && stochasticCoverage)
         {
-            OLO_TAA_MEAN_COAT_COVERAGE_8X8(u_Velocity, uv, u_TexelSize, currentSurface.b);
-            OLO_TAA_MEAN_COAT_COVERAGE_8X8(u_PrevSurface, prevUV, u_TexelSize, previousSurface.b);
+            OLO_TAA_MEAN_ESTIMATED_COVERAGE_8X8(u_Velocity, uv, u_TexelSize, currentSurface.b);
+            OLO_TAA_MEAN_ESTIMATED_COVERAGE_8X8(u_PrevSurface, prevUV, u_TexelSize, previousSurface.b);
         }
         else if (estimatedCoverage)
         {
