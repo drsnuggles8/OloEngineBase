@@ -10223,8 +10223,9 @@ namespace OloEngine
             if (ImGui::IsItemHovered())
             {
                 ImGui::SetTooltip("Hair -> body and scene. Rasterises the coat from the light into every\n"
-                                  "technique the frame is running: the CSM cascades, the Virtual Shadow\n"
-                                  "Map's clip levels and the local-light atlas.");
+                                  "technique the frame is running: the CSM cascades or the Virtual Shadow\n"
+                                  "Map's clip levels for the sun, and for point and spot lights the VSM's\n"
+                                  "local-light layers when its Local Lights are on, the atlas otherwise.");
             }
             ImGui::Checkbox("Receive shadows", &component.m_ReceiveShadows);
             if (ImGui::IsItemHovered())
@@ -10285,8 +10286,9 @@ namespace OloEngine
                                     stats.GroomsWithoutGeometry);
                         ImGui::PopStyleColor();
                     }
-                    ImGui::Text("Draws: %u cascade, %u virtual-shadow level, %u atlas", stats.CascadeDraws,
-                                stats.VirtualShadowLevelDraws, stats.AtlasDraws);
+                    ImGui::Text("Draws: %u cascade, %u virtual-shadow level, %u virtual-shadow local layer, %u atlas",
+                                stats.CascadeDraws, stats.VirtualShadowLevelDraws, stats.VirtualShadowLocalLayerDraws,
+                                stats.AtlasDraws);
                     // Each view casts the share of a coat its width floor allows
                     // (#1533 E1); the whole count is what casting every strand
                     // into every view would have drawn.
@@ -10301,19 +10303,12 @@ namespace OloEngine
                     if (stats.VirtualShadowMapActive)
                     {
                         ImGui::Text("Virtual Shadow Map page invalidations: %u", stats.VirtualShadowInvalidations);
+                        // Beside the layer draws above (#1592): zero draws with
+                        // lamps served is a coat no lamp's face reaches -- or a
+                        // lamp that reaches it and drew none of it.
+                        ImGui::Text("Lamps served by the Virtual Shadow Map's local-light layers: %u",
+                                    stats.VirtualShadowLocalLights);
                     }
-                    // The one technique a groom caster does not reach, said in
-                    // front of the viewport rather than only in the log.
-                    if (stats.VirtualShadowLocalLightsWithoutGrooms > 0u)
-                    {
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.7f, 0.2f, 1.0f));
-                        ImGui::TextWrapped("%u lamp(s) are served by the Virtual Shadow Map's local-light layers, "
-                                           "which groom casters do not reach: they cast no coat shadow. Turn off "
-                                           "the VSM's Local Lights to route them through the shadow atlas.",
-                                           stats.VirtualShadowLocalLightsWithoutGrooms);
-                        ImGui::PopStyleColor();
-                    }
-
                     // THE ZERO THAT MATTERS. Which directional technique owns
                     // the sun this frame decides which of the two counters is
                     // allowed to be zero; the other being zero is a hole.

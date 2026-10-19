@@ -1,5 +1,6 @@
 // The fragment stage of VSM_GroomDepth.glsl and VSM_GroomDepthCrossFade.glsl:
-// VirtualShadowRasterStage.glsl's write, plus the LOD cross-fade's mask (#1612)
+// VirtualShadowRasterStage.glsl's write into a clip level, or
+// VirtualShadowLocalRasterStage.glsl's into a local-light layer (#1592), plus the LOD cross-fade's mask (#1612)
 // where OLO_GROOM_CROSSFADE_MASK is defined -- the *CrossFade.glsl variant, bound
 // for a fading caster alone -- so every other caster keeps a discard-free
 // fragment stage.
@@ -15,8 +16,11 @@
 #include "GroomStrandCommon.glsl"
 #include "VirtualShadowResources.glsl"
 #include "VirtualShadowRasterWrite.glsl"
+#include "VirtualShadowLocalRasterWrite.glsl"
 
-layout(location = 0) flat in uint v_VSMClipLevel;
+// x = domain (0 clip level, 1 local-light layer, #1592), y = level or layer,
+// z = the layer's raster mip.
+layout(location = 0) flat in uvec3 v_VSMTarget;
 #ifdef OLO_GROOM_CROSSFADE_MASK
 layout(location = 1) flat in vec4 v_CrossFade;
 layout(location = 2) flat in uint v_CrossFadeFrame;
@@ -32,5 +36,12 @@ void main()
 		discard;
 	}
 #endif
-	vsmWriteRasterDepth(v_VSMClipLevel);
+	if (v_VSMTarget.x == 1u)
+	{
+		vsmWriteLocalRasterDepth(v_VSMTarget.y, v_VSMTarget.z);
+	}
+	else
+	{
+		vsmWriteRasterDepth(v_VSMTarget.y);
+	}
 }

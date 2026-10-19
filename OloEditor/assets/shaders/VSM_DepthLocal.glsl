@@ -53,13 +53,8 @@ void main()
 
 	vec4 clipPos = b_LocalLights[layer].ViewProjectionRaster * instance.Transform * vec4(a_Position, 1.0);
 
-	// Map the face's NDC xy from [-1,1] into [-1, -1 + 2s], which puts it in the
-	// lower-left (GL) / upper-left (Vulkan) (LOCAL_RES >> mip)² corner of the
-	// mip-0 viewport. Written in CLIP space, before the divide, so it stays
-	// perspective-correct: it is an affine map on (x, w), not on x/w.
-	float s = 1.0 / float(1u << rasterMip);
-	clipPos.xy = (clipPos.xy + clipPos.w) * s - clipPos.w;
-	gl_Position = clipPos;
+	// Into the (LOCAL_RES >> mip)² corner of the mip-0 viewport.
+	gl_Position = vsmLocalRasterSubRect(clipPos, rasterMip);
 }
 
 #type fragment

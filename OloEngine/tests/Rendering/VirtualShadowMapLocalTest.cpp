@@ -987,3 +987,160 @@ TEST(VirtualShadowMapLocal, ALightThatChangesClassGivesUpItsRunRatherThanResizin
     for (u32 i = 0; i < 6; ++i)
         EXPECT_NE(neighbourBase, pointBase + i);
 }
+
+// =============================================================================
+// Groom casters into the local-light layers (#1592)
+// =============================================================================
+//
+// A groom caster is drawn into a lamp's layers from the CPU, one draw per layer
+// its box reaches -- not by the GPU cull a mesh goes through. So the reach test
+// is a C++ twin of VSM_CullLocalCasters.comp's, and a false negative there is a
+// lamp that drops the coat from its shadow with nothing to say so (the gap #1592
+// closed). The pixels are GroomSceneShadowVisualEvidenceTest's lamp cases.
+
+namespace
+{
+    // One layer of a registered light, filled the way RegisterLocalLight and
+    // EndLocalLights fill it.
+    [[nodiscard]] VSM::LocalLight MakeLayer(const VirtualShadowMap::LocalLightDesc& desc, u32 face)
+    {
+        std::array<glm::mat4, 6> viewProjections{};
+        f32 nearPlane = 0.0f;
+        f32 farPlane = 0.0f;
+        VirtualShadowMap::BuildLocalLightProjections(desc, viewProjections, nearPlane, farPlane);
+        VSM::LocalLight layer;
+        layer.ViewProjection = viewProjections[face];
+        layer.PositionRange = glm::vec4(desc.PositionRelative, desc.Range);
+        layer.Params = glm::vec4(nearPlane, farPlane, static_cast<f32>(face),
+                                 desc.IsPoint ? VSM::kLocalKindPoint : VSM::kLocalKindSpot);
+        return layer;
+    }
+
+    [[nodiscard]] bool Reaches(const VSM::LocalLight& layer, const glm::vec3& centre, f32 halfExtent)
+    {
+        return VirtualShadowMap::BoundsReachLocalLayer(layer, centre - glm::vec3(halfExtent),
+                                                       centre + glm::vec3(halfExtent));
+    }
+} // namespace
+
+TEST(VirtualShadowMapLocal, AGroomCasterReachesThePointLightFacesItsBoxProjectsIntoAndNoOthers)
+{
+    const auto lamp = MakePointLight(1, glm::vec3(0.0f), 5.0f);
+
+    // A coat beside the lamp: exactly the face its centre selects. The other
+    // five are each wholly beyond one of their planes.
+    const glm::vec3 beside(2.0f, 0.1f, -0.2f);
+    const u32 face = VirtualShadowMap::SelectCubeFace(beside);
+    ASSERT_EQ(0u, face) << "+X";
+    for (u32 f = 0; f < 6u; ++f)
+        EXPECT_EQ(f == face, Reaches(MakeLayer(lamp, f), beside, 0.3f)) << "face " << f;
+
+    // Across the +X/+Z diagonal: both faces, as the GPU cull keeps a mesh in both.
+    const glm::vec3 diagonal(1.5f, 0.0f, 1.5f);
+    EXPECT_TRUE(Reaches(MakeLayer(lamp, 0u), diagonal, 0.3f)) << "+X";
+    EXPECT_TRUE(Reaches(MakeLayer(lamp, 4u), diagonal, 0.3f)) << "+Z";
+    EXPECT_FALSE(Reaches(MakeLayer(lamp, 1u), diagonal, 0.3f)) << "-X";
+
+    // Out of range: no face, though +X's frustum would contain it.
+    for (u32 f = 0; f < 6u; ++f)
+        EXPECT_FALSE(Reaches(MakeLayer(lamp, f), glm::vec3(8.0f, 0.0f, 0.0f), 0.3f)) << "face " << f;
+
+    // A layer that serves no light this frame reaches nothing, however close.
+    VSM::LocalLight retired = MakeLayer(lamp, face);
+    retired.Params.w = VSM::kLocalKindUnused;
+    EXPECT_FALSE(Reaches(retired, beside, 0.3f));
+}
+
+TEST(VirtualShadowMapLocal, AGroomCasterReachesASpotOnlyInsideItsCone)
+{
+    // A lamp 3 m up, pointing down, 20 degrees.
+    const auto spot = MakeSpotLight(2, glm::vec3(0.0f, 3.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f), 6.0f, 20.0f);
+    const VSM::LocalLight layer = MakeLayer(spot, 0u);
+
+    EXPECT_TRUE(Reaches(layer, glm::vec3(0.0f), 0.3f)) << "under the lamp";
+    EXPECT_FALSE(Reaches(layer, glm::vec3(3.0f, 0.0f, 0.0f), 0.3f)) << "45 degrees off the axis";
+    EXPECT_FALSE(Reaches(layer, glm::vec3(0.0f, 4.0f, 0.0f), 0.3f)) << "behind the lamp";
+    // A coat larger than the cone around the lamp still reaches it: a box is
+    // only rejected when every corner lies beyond the same plane.
+    EXPECT_TRUE(Reaches(layer, glm::vec3(0.0f, 2.0f, 0.0f), 1.5f)) << "a coat around the lamp";
+}
+
+TEST(VirtualShadowMapLocal, AGroomCastersShareFollowsTheMipItsShadowIsReadAt)
+{
+    // A coat's caster share is decided at the texels its shadow is read at: the
+    // mip the marker selects for a receiver at the coat. Stated as the marker's
+    // properties rather than its formula, because a twin that restates the
+    // formula passes whatever distances it is handed.
+    const glm::vec3 boundsMin(-0.5f);
+    const glm::vec3 boundsMax(0.5f);
+    constexpr f32 kBias = 2.0f; // VirtualShadowMapSettings::LocalDetailBias's default
+    const auto texels = [&](const glm::vec3& lampPosition, const glm::vec3& camera, f32 bias)
+    {
+        const VSM::LocalLight layer = MakeLayer(MakePointLight(3, lampPosition, 20.0f), 3u); // -Y, toward the coat
+        return VirtualShadowMap::LocalLayerReceiverResolution(layer, boundsMin, boundsMax, camera, bias);
+    };
+    const glm::vec3 lamp(0.0f, 2.0f, 0.0f);
+
+    // Further from the camera: coarser, as a receiver there is worth fewer pixels.
+    EXPECT_GT(texels(lamp, { 0.0f, 1.0f, 3.0f }, kBias), texels(lamp, { 0.0f, 1.0f, 30.0f }, kBias));
+    // Further from the lamp: finer, as a face texel already covers more world there.
+    EXPECT_LT(texels(lamp, { 0.0f, 1.0f, 12.0f }, kBias), texels({ 0.0f, 8.0f, 0.0f }, { 0.0f, 1.0f, 12.0f }, kBias));
+    // The bias coarsens, as the marker's does.
+    EXPECT_GT(texels(lamp, { 0.0f, 1.0f, 12.0f }, 1.0f), texels(lamp, { 0.0f, 1.0f, 12.0f }, 4.0f));
+    // Never off the layer's mip chain, however near or far.
+    EXPECT_EQ(VSM::kLocalVirtualResolution, texels(lamp, glm::vec3(0.0f), kBias));
+    EXPECT_EQ(VSM::kLocalVirtualResolution >> (VSM::kLocalMipCount - 1u), texels(lamp, { 0.0f, 1.0f, 1.0e5f }, kBias));
+    // And it is the MARKER's mip at the coat, as numbers worked from the GLSL
+    // twin's formula (vsmLocalMipForDistances): ceil(log2(2048 d bias / (4096
+    // dLight))). Coat at the origin, lamp 2 m up, bias 2: 3 m away is
+    // ceil(log2(1.5)) = mip 1, 30 m is ceil(log2(15)) = mip 4.
+    EXPECT_EQ(VSM::kLocalVirtualResolution >> 1u, texels(lamp, { 0.0f, 0.0f, 3.0f }, kBias));
+    EXPECT_EQ(VSM::kLocalVirtualResolution >> 4u, texels(lamp, { 0.0f, 0.0f, 30.0f }, kBias));
+    const std::string common = ReadShaderText("include/VirtualShadowCommon.glsl");
+    EXPECT_EQ(1u, CountOccurrences(common, "float ratio = (float(VSM_LOCAL_VIRTUAL_RESOLUTION) * max(distanceToCamera, 1e-4) * "
+                                           "max(bias, 1e-4)) /"))
+        << "the GLSL mip heuristic changed; re-derive the worked numbers above";
+}
+
+TEST(VirtualShadowMapLocal, TheGroomCasterDrawsALayerAtItsRasterMipLikeAMesh)
+{
+    // VSM_GroomDepth.glsl's local domain must draw where VSM_DepthLocal.glsl
+    // draws a mesh: the layer's raster flavour, at the GPU-chosen raster mip, in
+    // that mip's corner of the viewport, through the local raster write -- and
+    // floor a strand at the COARSER of the raster mip's texel and the texel its
+    // share was cut for, or a finer raster mip draws the share too thin to cover
+    // what it was cut for. Counted, not detected: one of each.
+    const std::string vertex = ReadShaderText("include/VSM_GroomDepthVertex.glsl");
+    const std::string fragment = ReadShaderText("include/VSM_GroomDepthFragment.glsl");
+    ASSERT_FALSE(vertex.empty());
+    ASSERT_FALSE(fragment.empty());
+
+    EXPECT_EQ(1u, CountOccurrences(vertex, "u_GroomShadowModes.z == 1"));
+    EXPECT_EQ(1u, CountOccurrences(vertex, "b_LocalRasterMip[layer]"));
+    EXPECT_EQ(1u, CountOccurrences(vertex, "b_LocalLights[layer].ViewProjectionRaster"));
+    EXPECT_EQ(1u, CountOccurrences(vertex, "float(VSM_LOCAL_VIRTUAL_RESOLUTION >> rasterMip)"));
+    EXPECT_EQ(1u, CountOccurrences(vertex, "min(rasterTexels, max(u_GroomShadowWidth.z, 1.0))"));
+    EXPECT_EQ(1u, CountOccurrences(vertex, "vsmLocalRasterSubRect(clipPosition, rasterMip)"));
+    EXPECT_EQ(1u, CountOccurrences(fragment, "#include \"VirtualShadowLocalRasterWrite.glsl\""));
+    EXPECT_EQ(1u, CountOccurrences(fragment, "vsmWriteLocalRasterDepth(v_VSMTarget.y, v_VSMTarget.z);"));
+    EXPECT_EQ(1u, CountOccurrences(fragment, "vsmWriteRasterDepth(v_VSMTarget.y);"));
+}
+
+TEST(VirtualShadowMapLocal, EveryLocalRasterPlacesItsMipThroughOneSubRectMap)
+{
+    // Four rasters draw into the local layers -- meshes, skinned meshes, the
+    // terrain/voxel/foliage families and grooms -- and each must put a mip in
+    // the same corner of the viewport. One helper, called once by each, and no
+    // private copy of the map left anywhere.
+    const std::string resources = ReadShaderText("include/VirtualShadowResources.glsl");
+    ASSERT_FALSE(resources.empty());
+    EXPECT_EQ(1u, CountOccurrences(resources, "vec4 vsmLocalRasterSubRect(vec4 clipPosition, uint rasterMip)"));
+    for (const char* raster : { "VSM_DepthLocal.glsl", "VSM_DepthLocalSkinned.glsl",
+                                "include/VirtualShadowFamilyVertex.glsl", "include/VSM_GroomDepthVertex.glsl" })
+    {
+        const std::string text = ReadShaderText(raster);
+        ASSERT_FALSE(text.empty()) << raster;
+        EXPECT_EQ(1u, CountOccurrences(text, "vsmLocalRasterSubRect(")) << raster;
+        EXPECT_EQ(0u, CountOccurrences(text, "1.0 / float(1u << ")) << raster << " keeps a private sub-rect map";
+    }
+}

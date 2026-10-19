@@ -466,15 +466,20 @@ namespace OloEngine::Tests
             return groom;
         }
 
-        // ONE POSE for every capture in this file. Every claim here is a
+        // ONE POSE for every capture a claim compares. Every claim here is a
         // difference between two frames, and backend-ab-needs-an-identical-camera
-        // is the memory of inventing a defect by comparing two poses.
-        [[nodiscard]] static EditorCamera MakeCamera(u32 width = kWidth, u32 height = kHeight)
+        // is the memory of inventing a defect by comparing two poses. A case
+        // that looks from a second angle (#1592) moves it for ALL its frames.
+        static constexpr glm::vec3 kFixtureEye{ 0.0f, 2.35f, 6.4f };
+        static constexpr f32 kFixturePitch = 0.22f;
+        glm::vec3 m_Eye = kFixtureEye;
+        f32 m_Pitch = kFixturePitch;
+
+        [[nodiscard]] EditorCamera MakeCamera(u32 width = kWidth, u32 height = kHeight) const
         {
-            constexpr glm::vec3 kEye{ 0.0f, 2.35f, 6.4f };
             EditorCamera camera(60.0f, static_cast<f32>(width) / static_cast<f32>(height), 0.05f, 1000.0f);
             camera.SetViewportSize(static_cast<f32>(width), static_cast<f32>(height));
-            camera.SetPose(kEye, 0.0f, 0.22f);
+            camera.SetPose(m_Eye, 0.0f, m_Pitch);
             return camera;
         }
 
@@ -1113,6 +1118,204 @@ namespace OloEngine::Tests
             EXPECT_LT(vsmBright, std::max(vsmDark / 100u, 1u)) << "an occluder can only remove light";
             EXPECT_LT(darkerUnderTheSmallerBias, coatPixels / 100u)
                 << "under the light's bias the coat's own fur in the VSM shadowed its exit point: acne";
+        }
+
+        // ── #1592: a lamp the VSM serves casts the coat's shadow ───────────
+        //
+        // Until #1592 a groom reached the VSM's clip levels and the shadow atlas
+        // but never the VSM's local-light LAYERS, so with LocalLights on (the
+        // default) a lamp cast no coat shadow at all. The reference is the ATLAS
+        // route: the VSM on with LocalLights off, the same lamp and the same
+        // coat. The sun goes, so the lamp is the only shadowed light; the
+        // occluder goes and the body does not cast, so the coat is the only
+        // caster the frames toggle.
+        enum class Lamp
+        {
+            Point,
+            Spot,
+        };
+        static constexpr glm::vec3 kCoatCentre{ 0.0f, 1.45f, 0.0f };
+        // Behind the coat, to its left and above it, so the coat's shadow falls
+        // on the ground in front of it and to its right, where the camera sees
+        // it. From the coat this is mostly the point light's -Y face, and the
+        // coat's box reaches into its +Z face as well.
+        static constexpr glm::vec3 kLampPosition{ -1.5f, 4.5f, -2.5f };
+
+        void PlaceLamp(Lamp lamp)
+        {
+            Scene& scene = GetScene();
+            scene.DestroyEntity(m_LightEntity);
+            if (m_OccluderEntity)
+            {
+                scene.DestroyEntity(m_OccluderEntity);
+                m_OccluderEntity = {};
+            }
+            m_LightEntity = scene.CreateEntity(lamp == Lamp::Point ? "PointLamp" : "SpotLamp");
+            m_LightEntity.GetComponent<TransformComponent>().Translation = kLampPosition;
+            if (lamp == Lamp::Point)
+            {
+                auto& point = m_LightEntity.AddComponent<PointLightComponent>();
+                point.m_Color = glm::vec3(1.0f, 0.97f, 0.93f);
+                point.m_Intensity = 80.0f;
+                point.m_Range = 14.0f;
+                point.m_CastShadows = true;
+            }
+            else
+            {
+                auto& spot = m_LightEntity.AddComponent<SpotLightComponent>();
+                spot.m_Direction = glm::normalize(kCoatCentre - kLampPosition);
+                spot.m_Color = glm::vec3(1.0f, 0.97f, 0.93f);
+                spot.m_Intensity = 80.0f;
+                spot.m_Range = 14.0f;
+                spot.m_InnerCutoff = 26.0f;
+                spot.m_OuterCutoff = 32.0f;
+                spot.m_CastShadows = true;
+            }
+        }
+
+        // Process-wide shadow settings; every case restores them on exit.
+        static bool SetVsm(bool enabled, bool localLights)
+        {
+            auto& shadowMap = Renderer3D::GetShadowMap();
+            ShadowSettings settings = shadowMap.GetSettings();
+            settings.VSM.Enabled = enabled;
+            settings.VSM.LocalLights = localLights;
+            shadowMap.SetSettings(settings);
+            return shadowMap.IsVirtualShadowMapActive() == enabled;
+        }
+        struct ShadowSettingsRestore
+        {
+            ShadowSettings Saved = Renderer3D::GetShadowMap().GetSettings();
+            ~ShadowSettingsRestore()
+            {
+                Levers::SetFaultSkipGroomVsmLocalLayers(false);
+                Levers::SetFaultSkipGroomVsmInvalidation(false);
+                Renderer3D::GetShadowMap().SetSettings(Saved);
+            }
+        };
+
+        // The coat's shadow through the technique in force: casting off, then
+        // on. Off first, so the cast is an ARRIVAL the VSM invalidates for.
+        struct LampShadow
+        {
+            std::vector<u8> Control;
+            std::vector<u8> Cast;
+            GroomShadowCasterStats Stats;
+        };
+        LampShadow CaptureLampShadow(const std::string& cell)
+        {
+            LampShadow out;
+            Routing().m_CastShadows = false;
+            Capture("GroomSceneShadowOff_" + cell, out.Control);
+            Routing().m_CastShadows = true;
+            Capture("GroomSceneShadow_" + cell, out.Cast);
+            out.Stats = CasterStats();
+            return out;
+        }
+
+        // The scene pixels (off the coat) `cast` is darker than `control` at,
+        // and how much darker in all.
+        static std::vector<u8> Darkened(const std::vector<u8>& cast, const std::vector<u8>& control,
+                                        const std::vector<u8>& coatMask, f64& darkening, u32& brightened)
+        {
+            std::vector<u8> out(coatMask.size(), 0u);
+            darkening = 0.0;
+            brightened = 0;
+            for (sizet i = 0, p = 0; i + 3 < cast.size() && i + 3 < control.size() && p < coatMask.size(); i += 4, ++p)
+            {
+                if (coatMask[p] != 0u)
+                {
+                    continue;
+                }
+                const f64 delta = Luma(cast, i) - Luma(control, i);
+                out[p] = delta < -kMaskThreshold ? 1u : 0u;
+                brightened += delta > kMaskThreshold ? 1u : 0u;
+                darkening += std::max(0.0, -delta);
+            }
+            return out;
+        }
+
+        // The whole A/B for one lamp in one cell: the atlas route, the VSM's
+        // layers, and the negative control -- the layers with the groom route
+        // switched off, from a restarted VSM so no cached page holds the coat.
+        // `cell` is "<Path>[_<Variant>]"; the caller sets the path and whatever
+        // else the cell names. Asserts the VSM's shadow is there, and where the
+        // atlas puts it.
+        void RunLampCase(Lamp lamp, const std::string& cell)
+        {
+            const char* lampName = lamp == Lamp::Point ? "Point" : "Spot";
+            PlaceLamp(lamp);
+            SetBodyCasts(false);
+            Routing().m_CastShadows = false;
+            Routing().m_ReceiveShadows = false;
+
+            ASSERT_TRUE(SetVsm(true, false));
+            const std::vector<u8> coatMask = DeriveCoatMask();
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+            ASSERT_GT(CountMask(coatMask), 12000u) << cell << ": the coat barely registers under the " << lampName;
+
+            const LampShadow atlas = CaptureLampShadow("GL_" + cell + "_Atlas" + lampName);
+            ASSERT_TRUE(SetVsm(true, true));
+            const LampShadow layers = CaptureLampShadow("GL_" + cell + "_Vsm" + lampName);
+
+            Levers::SetFaultSkipGroomVsmLocalLayers(true);
+            ASSERT_TRUE(SetVsm(false, true) && SetVsm(true, true));
+            Routing().m_CastShadows = true;
+            std::vector<u8> faulted;
+            Capture("GroomSceneShadow_GL_" + cell + "_Vsm" + lampName + "NoLocalLayers", faulted);
+            Levers::SetFaultSkipGroomVsmLocalLayers(false);
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+
+            f64 atlasDarkening = 0.0;
+            f64 layerDarkening = 0.0;
+            f64 faultDarkening = 0.0;
+            u32 atlasBrighter = 0;
+            u32 layerBrighter = 0;
+            u32 faultBrighter = 0;
+            const std::vector<u8> byAtlas = Darkened(atlas.Cast, atlas.Control, coatMask, atlasDarkening, atlasBrighter);
+            const std::vector<u8> byLayers = Darkened(layers.Cast, layers.Control, coatMask, layerDarkening, layerBrighter);
+            const std::vector<u8> byFault = Darkened(faulted, layers.Control, coatMask, faultDarkening, faultBrighter);
+            u32 both = 0;
+            u32 either = 0;
+            for (sizet p = 0; p < byAtlas.size(); ++p)
+            {
+                both += (byAtlas[p] != 0u && byLayers[p] != 0u) ? 1u : 0u;
+                either += (byAtlas[p] != 0u || byLayers[p] != 0u) ? 1u : 0u;
+            }
+            const u32 atlasPixels = CountMask(byAtlas);
+            const u32 layerPixels = CountMask(byLayers);
+            const u32 faultPixels = CountMask(byFault);
+            const f64 overlap = either > 0u ? static_cast<f64>(both) / static_cast<f64>(either) : 0.0;
+            const f64 ratio = atlasDarkening > 0.0 ? layerDarkening / atlasDarkening : 0.0;
+            std::printf("[groom-scene-shadow] %-22s %-5s atlas %6u px (%.0f), VSM layers %6u px (%.0f; %u layer "
+                        "draws), overlap %.3f, darkening ratio %.3f | no local layers %u px (negative control) | "
+                        "brighter %u/%u/%u\n",
+                        cell.c_str(), lampName, atlasPixels, atlasDarkening, layerPixels, layerDarkening,
+                        layers.Stats.VirtualShadowLocalLayerDraws, overlap, ratio, faultPixels, atlasBrighter,
+                        layerBrighter, faultBrighter);
+            std::fflush(stdout);
+
+            // The technique each frame ran: the atlas drew the coat and no layer
+            // did; then the layers drew it and the atlas, which has no entries
+            // under LocalLights, did not.
+            EXPECT_GT(atlas.Stats.AtlasDraws, 0u) << cell << ": the reference frame did not run the atlas route";
+            EXPECT_EQ(atlas.Stats.VirtualShadowLocalLayerDraws, 0u) << cell;
+            EXPECT_GT(layers.Stats.VirtualShadowLocalLayerDraws, 0u)
+                << cell << ": the " << lampName << " is served by the VSM's layers and no layer drew the coat";
+            EXPECT_EQ(layers.Stats.AtlasDraws, 0u) << cell << ": the lamp still went through the atlas";
+
+            // THE SENSITIVITY CHECKS FIRST: the reference sees a shadow, and the
+            // gap #1592 closed -- no groom in the layers -- shows none.
+            ASSERT_GT(atlasPixels, 2000u) << cell << ": the atlas reference shows no coat shadow to compare against";
+            ASSERT_LT(faultPixels, atlasPixels / 50u)
+                << cell << ": with no groom drawn into the layers the lamp still cast the coat's shadow, so this "
+                           "case cannot tell the fix from the gap";
+
+            EXPECT_GT(layerPixels, atlasPixels / 2u) << cell << ": the VSM's layers cast far less coat shadow than the atlas";
+            EXPECT_GT(overlap, 0.6) << cell << ": the VSM's coat shadow is not where the atlas puts it";
+            EXPECT_GT(ratio, 0.6) << cell << ": the VSM's coat shadow is much lighter than the atlas's";
+            EXPECT_LT(ratio, 1.6) << cell << ": the VSM's coat shadow is much darker than the atlas's";
+            EXPECT_LT(layerBrighter, std::max(layerPixels / 100u, 1u)) << cell << ": a caster can only remove light";
         }
 
         [[nodiscard]] static const GroomShadowCasterStats& CasterStats()
@@ -1980,5 +2183,270 @@ namespace OloEngine::Tests
         EXPECT_LT(brightened, coatPixels / 200u) << "an occluder can only remove light";
         EXPECT_LT(overhead, coatPixels / 100u) << "the slab the fur grows on shadowed its own lit fur: acne";
         EXPECT_LT(grazing, coatPixels / 100u) << "at a grazing light the slab shadowed its own lit fur: acne";
+    }
+
+    // ── #1592: lamps the VSM serves from its local-light layers ─────────────
+    //
+    // A point light (six cube-face layers) and a spot (one), each on every
+    // rendering path, against the atlas route of the same lamp; the negative
+    // control in each cell is the layers without the groom route.
+
+    TEST_F(GroomSceneShadowVisualEvidenceTest, APointLampTheVsmServesCastsTheCoatsShadowWhereTheAtlasDoes)
+    {
+        const ShadowSettingsRestore restore;
+        if (!SetVsm(true, true))
+        {
+            GTEST_SKIP() << "the Virtual Shadow Map could not start on this device (VirtualShadowMap::Init refused)";
+        }
+        for (const auto& [name, path] : { std::pair{ "Forward", RenderingPath::Forward },
+                                          std::pair{ "ForwardPlus", RenderingPath::ForwardPlus },
+                                          std::pair{ "Deferred", RenderingPath::Deferred } })
+        {
+            Renderer3D::GetRendererSettings().Path = path;
+            Renderer3D::ApplyRendererSettings();
+            RunLampCase(Lamp::Point, name);
+            if (HasFatalFailure())
+            {
+                return;
+            }
+        }
+    }
+
+    TEST_F(GroomSceneShadowVisualEvidenceTest, ASpotLampTheVsmServesCastsTheCoatsShadowWhereTheAtlasDoes)
+    {
+        const ShadowSettingsRestore restore;
+        if (!SetVsm(true, true))
+        {
+            GTEST_SKIP() << "the Virtual Shadow Map could not start on this device (VirtualShadowMap::Init refused)";
+        }
+        for (const auto& [name, path] : { std::pair{ "Forward", RenderingPath::Forward },
+                                          std::pair{ "ForwardPlus", RenderingPath::ForwardPlus },
+                                          std::pair{ "Deferred", RenderingPath::Deferred } })
+        {
+            Renderer3D::GetRendererSettings().Path = path;
+            Renderer3D::ApplyRendererSettings();
+            RunLampCase(Lamp::Spot, name);
+            if (HasFatalFailure())
+            {
+                return;
+            }
+        }
+    }
+
+    // The same A/B from a second angle, high above and in front: the layers'
+    // shadow is placed in 3D, not only where one camera happens to see it.
+    TEST_F(GroomSceneShadowVisualEvidenceTest, ALampsCoatShadowThroughTheVsmMatchesTheAtlasFromAbove)
+    {
+        const ShadowSettingsRestore restore;
+        if (!SetVsm(true, true))
+        {
+            GTEST_SKIP() << "the Virtual Shadow Map could not start on this device (VirtualShadowMap::Init refused)";
+        }
+        m_Eye = glm::vec3(0.8f, 7.0f, 5.0f);
+        m_Pitch = 0.95f;
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+        RunLampCase(Lamp::Point, "Deferred_Above");
+        if (HasFatalFailure())
+        {
+            return;
+        }
+        RunLampCase(Lamp::Spot, "Deferred_Above");
+    }
+
+    // The receiver side is unchanged by #1592, and two cells say so: MSAA 4x
+    // (shadow depth is rendered apart from the main target's samples) and a
+    // reduced render scale (the VSM marks its pages from the scene depth, so a
+    // smaller depth buffer selects coarser mips).
+    TEST_F(GroomSceneShadowVisualEvidenceTest, ALampsCoatShadowThroughTheVsmSurvivesMsaaAndARenderScale)
+    {
+        const ShadowSettingsRestore restore;
+        if (!SetVsm(true, true))
+        {
+            GTEST_SKIP() << "the Virtual Shadow Map could not start on this device (VirtualShadowMap::Init refused)";
+        }
+        auto& deferred = Renderer3D::GetRendererSettings().Deferred;
+        const u32 restoreSamples = deferred.MSAASampleCount;
+        const f32 restoreScale = Renderer3D::GetRenderScale();
+        struct Restore
+        {
+            u32 Samples;
+            f32 Scale;
+            ~Restore()
+            {
+                Renderer3D::GetRendererSettings().Deferred.MSAASampleCount = Samples;
+                Renderer3D::SetRenderScale(Scale);
+                Renderer3D::ApplyRendererSettings();
+            }
+        } restoreRenderer{ restoreSamples, restoreScale };
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        deferred.MSAASampleCount = 4u;
+        Renderer3D::ApplyRendererSettings();
+        RunLampCase(Lamp::Point, "Deferred_Msaa4");
+        if (HasFatalFailure())
+        {
+            return;
+        }
+
+        deferred.MSAASampleCount = restoreSamples;
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        Renderer3D::SetRenderScale(0.67f);
+        // Twice as thick: at two thirds of the pixels most of this coat's
+        // tapering 6 mm strands cover under half a pixel, and the OpaqueRibbon
+        // tier the fixture draws in discards a fragment below its 0.5 cutoff, so
+        // the coat itself left the frame and its mask came out empty. The A/B
+        // compares two techniques casting the same coat, so its width is free.
+        Groom().m_WidthScale = 2.0f;
+        RunLampCase(Lamp::Point, "Forward_Scale67");
+    }
+
+    // A moving coat under a lamp the VSM serves: the layers' cached pages hold
+    // the coat's old silhouette until something invalidates them. The
+    // invalidation is the clip levels' (AddDynamicInvalidation sweeps every
+    // local layer too), so this pins it for the layers: the moved frame matches
+    // a from-scratch render, and with the groom invalidation off it does not.
+    TEST_F(GroomSceneShadowVisualEvidenceTest, ALampTheVsmServesFollowsAMovingCoat)
+    {
+        const ShadowSettingsRestore restore;
+        if (!SetVsm(true, true))
+        {
+            GTEST_SKIP() << "the Virtual Shadow Map could not start on this device (VirtualShadowMap::Init refused)";
+        }
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+        PlaceLamp(Lamp::Point);
+        SetBodyCasts(false);
+        Routing().m_ReceiveShadows = false;
+        Routing().m_CastShadows = true;
+        const auto restartVsm = []
+        { return SetVsm(false, true) && SetVsm(true, true); };
+
+        std::vector<u8> home;
+        Capture("GroomSceneShadow_GL_Deferred_VsmPointHome", home);
+        const u32 layerDraws = CasterStats().VirtualShadowLocalLayerDraws;
+
+        auto& groomTransform = m_GroomEntity.GetComponent<TransformComponent>();
+        const glm::vec3 homePosition = groomTransform.Translation;
+        const glm::vec3 away = homePosition + glm::vec3(1.3f, 0.0f, 0.6f);
+
+        // THE NEGATIVE CONTROL FIRST: the move with the groom invalidation off
+        // must leave the old silhouette in the layers' cached pages.
+        Levers::SetFaultSkipGroomVsmInvalidation(true);
+        groomTransform.Translation = away;
+        std::vector<u8> movedWithoutInvalidation;
+        Capture("GroomSceneShadow_GL_Deferred_VsmPointMovedNoInvalidation", movedWithoutInvalidation);
+        Levers::SetFaultSkipGroomVsmInvalidation(false);
+
+        // The reference: the coat at `away`, rendered from scratch.
+        ASSERT_TRUE(restartVsm());
+        std::vector<u8> fresh;
+        Capture("GroomSceneShadow_GL_Deferred_VsmPointMovedFresh", fresh);
+
+        // The real move: warm the layers at home from scratch, move once.
+        groomTransform.Translation = homePosition;
+        ASSERT_TRUE(restartVsm());
+        Step(3);
+        groomTransform.Translation = away;
+        Step(1);
+        const u32 invalidations = CasterStats().VirtualShadowInvalidations;
+        std::vector<u8> moved;
+        Capture("GroomSceneShadow_GL_Deferred_VsmPointMoved", moved);
+        groomTransform.Translation = homePosition;
+        ASSERT_FALSE(HasFatalFailure());
+
+        const std::vector<u8> none(static_cast<sizet>(kWidth) * kHeight, 0u);
+        const u32 stalePixels = CountDifferingIn(moved, fresh, none, /*inside=*/false);
+        const u32 staleWithoutInvalidation = CountDifferingIn(movedWithoutInvalidation, fresh, none, false);
+        const u32 shadowMovedPixels = CountDifferingIn(home, fresh, none, false);
+        std::printf("[groom-scene-shadow] VSM point moved: %u layer draws, invalidations %u | moved vs fresh %u px, "
+                    "without invalidation %u px (negative control) | home vs fresh %u px\n",
+                    layerDraws, invalidations, stalePixels, staleWithoutInvalidation, shadowMovedPixels);
+        std::fflush(stdout);
+
+        EXPECT_GT(layerDraws, 0u) << "the point lamp's layers drew no coat, so nothing below is about the layers";
+        ASSERT_GT(shadowMovedPixels, 2000u) << "moving the coat moved nothing the comparison can see";
+        ASSERT_GT(staleWithoutInvalidation, 2000u)
+            << "with the groom invalidation off the moved frame still matched a from-scratch render, so this check "
+               "cannot see a stale layer page";
+        EXPECT_GT(invalidations, 0u) << "the coat moved and no page was invalidated for it";
+        EXPECT_LT(stalePixels, 250u) << "the moved coat's frame differs from a from-scratch render by " << stalePixels
+                                     << " pixels: its old silhouette is still in the lamp's cached layer pages";
+    }
+
+    // A lamp INSIDE the coat's box (#1592). Under the VSM a strand reads the
+    // layers at its coat's light-exit point, where the light leaves the box; with
+    // the lamp inside the box that point lies past the lamp, and the layers now
+    // hold the coat. Nothing else shadows the coat here, so casting must leave it
+    // as lit as receiving alone -- under the atlas (the reference) and the layers.
+    TEST_F(GroomSceneShadowVisualEvidenceTest, ALampInsideTheCoatsBoxDoesNotShadowTheCoatWithItsOwnFur)
+    {
+        const ShadowSettingsRestore restore;
+        if (!SetVsm(true, true))
+        {
+            GTEST_SKIP() << "the Virtual Shadow Map could not start on this device (VirtualShadowMap::Init refused)";
+        }
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        PlaceLamp(Lamp::Point);
+        // 1.2 m above the coat's centre and a little toward the camera, 0.2 m off
+        // the crown's skin. The strands droop (0.825 m by their tips), so the box
+        // tops out about 1.37 m above the centre; asserted below from the asset,
+        // not taken on trust -- a lamp outside the box tests nothing new.
+        const glm::vec3 lampOffset(0.0f, 1.2f, 0.6f);
+        m_LightEntity.GetComponent<TransformComponent>().Translation = kCoatCentre + lampOffset;
+        m_LightEntity.GetComponent<PointLightComponent>().m_Intensity = 30.0f;
+        {
+            const Ref<GroomAsset> groom = AssetManager::GetAsset<GroomAsset>(m_GroomHandle);
+            ASSERT_TRUE(groom);
+            // The coat entity is unscaled and unrotated at kCoatCentre, so its
+            // object space is the centre-relative world space.
+            ASSERT_TRUE(glm::all(glm::greaterThan(lampOffset, groom->GetBoundsMin())) &&
+                        glm::all(glm::lessThan(lampOffset, groom->GetBoundsMax())))
+                << "the lamp is outside the coat's box, so this case is the ordinary lamp case";
+        }
+        SetBodyCasts(false);
+        Routing().m_CastShadows = false;
+        Routing().m_ReceiveShadows = false;
+
+        struct Arm
+        {
+            const char* Name;
+            bool LocalLayers;
+        };
+        for (const Arm arm : { Arm{ "Atlas", false }, Arm{ "Vsm", true } })
+        {
+            ASSERT_TRUE(SetVsm(true, arm.LocalLayers));
+            Routing().m_CastShadows = false;
+            Routing().m_ReceiveShadows = false;
+            const std::vector<u8> coatMask = DeriveCoatMask();
+            ASSERT_FALSE(HasFatalFailure());
+            Routing().m_ReceiveShadows = true;
+            std::vector<u8> receiveOnly;
+            Capture(std::string("GroomSceneShadow_GL_Forward_") + arm.Name + "PointInsideReceiveOnly", receiveOnly);
+            Routing().m_CastShadows = true;
+            std::vector<u8> routed;
+            Capture(std::string("GroomSceneShadow_GL_Forward_") + arm.Name + "PointInsideRouted", routed);
+            ASSERT_FALSE(HasFatalFailure());
+            const f64 receiveLuma = MeanLumaIn(receiveOnly, coatMask, true);
+            const f64 routedLuma = MeanLumaIn(routed, coatMask, true);
+            const u32 darkened = CountDifferingIn(routed, receiveOnly, coatMask, true);
+            std::printf("[groom-scene-shadow] lamp inside the coat's box, %-5s: coat luma %.3f receiving -> %.3f "
+                        "casting too (%u of %u coat px moved) | %u layer draws\n",
+                        arm.Name, receiveLuma, routedLuma, darkened, CountMask(coatMask),
+                        CasterStats().VirtualShadowLocalLayerDraws);
+            std::fflush(stdout);
+            ASSERT_GT(receiveLuma, 10.0) << arm.Name << ": the coat is already dark, so this case measures nothing";
+            EXPECT_GT(routedLuma, receiveLuma * 0.8)
+                << arm.Name << ": casting darkened the coat by more than a fifth with nothing but its own fur to "
+                               "shadow it -- the coat is shadowing itself through the lamp's map";
+            // Per pixel, the bar the other self-shadow cases hold. Through the
+            // layers the exit point used to lie past the lamp: 821 of 24 886
+            // coat pixels darkened (3.3%) before it stopped short of the lamp.
+            EXPECT_LT(darkened, CountMask(coatMask) / 100u)
+                << arm.Name << ": the coat's own fur in the lamp's map darkened it; the light-exit lookup reads "
+                               "past the lamp";
+        }
     }
 } // namespace OloEngine::Tests

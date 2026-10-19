@@ -162,15 +162,26 @@ namespace OloEngine
         /// from "the family was never wired into this technique".
         u32 GroomsWithoutGeometry = 0;
 
-        /// Draws issued, per technique. THREE COUNTERS RATHER THAN ONE, and
-        /// that is the point: virtual-geometry-into-a-second-shadow-technique.md
-        /// says a family reaches a technique only if somebody wired it there and
-        /// that NOTHING detects the gap. A zero here, next to a non-zero
-        /// GroomsCasting, is what detects it.
+        /// Draws issued, per technique. ONE COUNTER PER TECHNIQUE RATHER THAN
+        /// ONE IN ALL, and that is the point:
+        /// virtual-geometry-into-a-second-shadow-technique.md says a family
+        /// reaches a technique only if somebody wired it there and that NOTHING
+        /// detects the gap. A zero here, next to a non-zero GroomsCasting and a
+        /// light that technique serves, is what detects it.
         u32 CascadeDraws = 0;
         u32 AtlasDraws = 0;
         u32 VirtualShadowLevelDraws = 0;
-        /// Strand segments those draws rasterised, summed over every view, and
+        /// Layer draws into the Virtual Shadow Map's LOCAL-LIGHT layers (#1592):
+        /// a lamp's cube faces or spot that a coat's box reaches. Until #1592
+        /// nothing drew a groom there, and a lamp the VSM served cast no coat
+        /// shadow.
+        u32 VirtualShadowLocalLayerDraws = 0;
+        /// The lamps the VSM served from those layers this frame, so a zero
+        /// above can be read: no lamp at all, or lamps none of whose faces a
+        /// coat reaches -- or lamps that reach a coat and drew none of it.
+        u32 VirtualShadowLocalLights = 0;
+        /// Strand segments those draws submitted, summed over every view (a VSM
+        /// view's GPU stage still drops what lands on cached pages), and
         /// what they would have rasterised casting every strand (#1533 E1). A
         /// view casts the share of a coat its width floor allows
         /// (GroomShadowCasterFraction), so the ratio is the saving; equal means
@@ -181,14 +192,6 @@ namespace OloEngine
         /// deforming coat this frame. A coat that moves while this stays zero
         /// leaves its old silhouette in the cached pages.
         u32 VirtualShadowInvalidations = 0;
-        /// Local lights the Virtual Shadow Map served from its LAYER pool this
-        /// frame while a groom was casting. Groom casters reach the VSM's clip
-        /// levels (the sun) and the local-light ATLAS, not the layer pool — the
-        /// same limit virtual geometry has — so each of these lamps casts no
-        /// groom shadow. Non-zero is that gap, counted rather than silent; turning
-        /// VSM LocalLights off routes lamps through the atlas, where grooms cast.
-        u32 VirtualShadowLocalLightsWithoutGrooms = 0;
-
         /// Which directional technique owned the sun this frame, so a zero in
         /// one of the two directional counters can be read as "not this
         /// frame's technique" rather than as a hole.

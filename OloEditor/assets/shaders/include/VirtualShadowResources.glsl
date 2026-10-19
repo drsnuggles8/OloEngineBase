@@ -263,6 +263,21 @@ bool vsmProjectIntoLocal(vec3 worldPosRelative, int layer, out vec2 uv, out floa
     return depth >= 0.0 && depth <= 1.0;
 }
 
+// THE LOCAL RASTER'S SUB-RECT MAP (#703). The viewport is always the mip-0
+// resolution, and a layer redrawn at mip m lands in its (LOCAL_RES >> m)²
+// corner: lower-left on GL, upper-left on Vulkan. NDC xy [-1,1] maps to
+// [-1, -1 + 2s] in CLIP space, before the divide, so it stays
+// perspective-correct (an affine map on (x, w), not on x/w). One function for
+// every local raster -- meshes, skinned meshes, the families and grooms --
+// because a raster that disagreed would write its caster into another mip's
+// corner, with nothing to report it.
+vec4 vsmLocalRasterSubRect(vec4 clipPosition, uint rasterMip)
+{
+    float s = 1.0 / float(1u << rasterMip);
+    clipPosition.xy = (clipPosition.xy + clipPosition.w) * s - clipPosition.w;
+    return clipPosition;
+}
+
 ivec2 vsmLocalUVToPage(vec2 uv, int mip)
 {
     int mipRes = VSM_LOCAL_PAGE_TABLE_RESOLUTION >> mip;

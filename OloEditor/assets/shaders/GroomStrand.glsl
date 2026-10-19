@@ -1018,6 +1018,33 @@ const float OLO_GROOM_STRAND_RECEIVER_OFFSET = 0.001;
 const int OLO_GROOM_OPAQUE_CSM_LAYER_BASE = 4;
 const float OLO_GROOM_OPAQUE_ATLAS_LAYER = 1.0;
 
+// THE EXIT POINT STOPS SHORT OF A LAMP (#1592). A lamp the VSM serves reads its
+// layers at the coat's light-exit point too, and those layers now hold the coat.
+// With the lamp INSIDE the coat's box the light leaves the box past the lamp, and
+// a lookup there reads the face on the lamp's far side through the coat's own
+// fur: 821 of 24 886 coat pixels darkened with the lamp 0.2 m off the crown
+// (GroomSceneShadowVisualEvidenceTest, a lamp inside the coat's box). Stopped
+// 0.11 m short of the lamp, past the layers' near plane (LocalNearPlane caps it
+// at 0.1 m), only fur within that of the lamp itself can shadow the coat.
+const float OLO_GROOM_LOCAL_EXIT_LAMP_GUARD = 0.11;
+
+vec3 oloGroomLocalExitPoint(vec3 lightPosition, vec3 L, float exitDistance, vec3 shadowPos)
+{
+	if (!(exitDistance > 0.0))
+	{
+		return shadowPos; // the strand itself; nothing to stop short of
+	}
+	float toLamp = length(lightPosition - v_WorldPos);
+	// Only an exit AT OR PAST the lamp moves. One that leaves the box before the
+	// lamp is already beyond the coat; pulling it back by the guard would put the
+	// lookup inside the coat again, under its own fur.
+	if (exitDistance < toLamp)
+	{
+		return shadowPos;
+	}
+	return v_WorldPos + L * max(toLamp - OLO_GROOM_LOCAL_EXIT_LAMP_GUARD, 0.0);
+}
+
 float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L, out bool known)
 {
 	known = false;
@@ -1079,7 +1106,8 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 	{
 		int atlasEntry = int(light.direction.w);
 		float localShadow;
-		if (vsmLocalShadow(shadowPos, L, atlasEntry, false, localShadow))
+		if (vsmLocalShadow(oloGroomLocalExitPoint(light.position.xyz, L, exitDistance, shadowPos), L, atlasEntry, false,
+		                   localShadow))
 		{
 			known = atStrand;
 			return localShadow;
@@ -1115,7 +1143,8 @@ float oloGroomSceneShadow(LightData light, int lightIndex, int lightType, vec3 L
 		// lighting treats it as.
 		int baseEntry = int(light.direction.w);
 		float localShadow;
-		if (vsmLocalShadow(shadowPos, L, baseEntry, true, localShadow))
+		if (vsmLocalShadow(oloGroomLocalExitPoint(light.position.xyz, L, exitDistance, shadowPos), L, baseEntry, true,
+		                   localShadow))
 		{
 			known = atStrand;
 			return localShadow;

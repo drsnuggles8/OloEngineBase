@@ -3270,7 +3270,7 @@ namespace OloEngine
         // every frame are a log flood, and the thing worth knowing is that the
         // answer moved. What makes it worth logging at all is that a caster
         // family reaches a technique only if somebody wired it there and
-        // NOTHING else detects the gap -- so a zero in one of the three technique
+        // NOTHING else detects the gap -- so a zero in one of the technique
         // counters, beside a non-zero GroomsCasting, is the detector, and it has
         // to be readable without the inspector.
         const GroomShadowCasterStats& shadowStats = m_Stats.SceneShadow;
@@ -3281,6 +3281,9 @@ namespace OloEngine
             (shadowStats.CascadeDraws > 0u) != (m_LastReportedShadowStats.CascadeDraws > 0u) ||
             (shadowStats.AtlasDraws > 0u) != (m_LastReportedShadowStats.AtlasDraws > 0u) ||
             (shadowStats.VirtualShadowLevelDraws > 0u) != (m_LastReportedShadowStats.VirtualShadowLevelDraws > 0u) ||
+            (shadowStats.VirtualShadowLocalLayerDraws > 0u) !=
+                (m_LastReportedShadowStats.VirtualShadowLocalLayerDraws > 0u) ||
+            (shadowStats.VirtualShadowLocalLights > 0u) != (m_LastReportedShadowStats.VirtualShadowLocalLights > 0u) ||
             shadowStats.VirtualShadowMapActive != m_LastReportedShadowStats.VirtualShadowMapActive;
         if (tallyMoved)
         {
@@ -3288,11 +3291,12 @@ namespace OloEngine
             if (shadowStats.GroomsAskedToCast > 0u)
             {
                 OLO_CORE_INFO("GroomRenderPass: {} of {} groom(s) casting ({} had no geometry) — draws: {} cascade, "
-                              "{} virtual-shadow level, {} atlas, casting {} of {} segments; the frame's directional "
-                              "technique is {}",
+                              "{} virtual-shadow level, {} virtual-shadow local layer ({} lamp(s) served by the "
+                              "layers), {} atlas, casting {} of {} segments; the frame's directional technique is {}",
                               shadowStats.GroomsCasting, shadowStats.GroomsAskedToCast,
                               shadowStats.GroomsWithoutGeometry, shadowStats.CascadeDraws,
-                              shadowStats.VirtualShadowLevelDraws, shadowStats.AtlasDraws, shadowStats.SegmentsCast,
+                              shadowStats.VirtualShadowLevelDraws, shadowStats.VirtualShadowLocalLayerDraws,
+                              shadowStats.VirtualShadowLocalLights, shadowStats.AtlasDraws, shadowStats.SegmentsCast,
                               shadowStats.SegmentsWhole,
                               shadowStats.VirtualShadowMapActive ? "the Virtual Shadow Map" : "the CSM cascades");
             }

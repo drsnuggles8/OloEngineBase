@@ -43,8 +43,7 @@ vec4 vsmFamilyPosition(vec4 clipPosition)
             v_VSMFamilyTarget = uvec3(domain, target, 0u);
             return vec4(0.0, 0.0, -2.0, 1.0);
         }
-        float scale = 1.0 / float(1u << mip);
-        clipPosition.xy = (clipPosition.xy + clipPosition.w) * scale - clipPosition.w;
+        clipPosition = vsmLocalRasterSubRect(clipPosition, mip);
     }
     v_VSMFamilyTarget = uvec3(domain, target, mip);
     return clipPosition;

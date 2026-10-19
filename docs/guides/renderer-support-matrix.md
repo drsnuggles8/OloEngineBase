@@ -21,7 +21,7 @@ existing tests on 2026-09-23; this page does not claim a new test or live run.
 | Virtual WPO (#1152), tessellation/displacement (#1153), spline/landscape (#1154), programmable raster (#1155) | Unsupported | The virtual-geometry builder, registry and virtual raster shaders have no implementation for these families. Classic terrain and water tessellation are separate representations and do not satisfy a virtual-geometry request. |
 | Gaussian splat as a production scene entity (#1046) | Unsupported | `Renderer/Splat` has PLY decode, ordering and LOD code, and `GaussianSplatVisualEvidenceTest.cpp` renders an isolated GL fixture. There is no splat scene component, asset route or render-pipeline pass. |
 | Groom raster strands without scene shadow | Supported | `GroomRenderPass` draws strands and `GroomStrand.glsl` samples the coat's internal optical-depth volume. This row makes no scene-shadow claim. |
-| Groom raster scene-shadow casting or receiving (#1323, restored by #1523) | Supported | `ShadowRenderPass` casts grooms into the CSM cascades, the local-light atlas and the Virtual Shadow Map's clip levels, deforming a bound coat in the depth shaders; `GroomStrand.glsl` samples the scene's shadow at the coat's light-exit point. `GroomSceneShadowVisualEvidenceTest.cpp` pins both directions on GL Forward, Forward+ and Deferred. Gap: with the VSM's LocalLights on, lamps are served from its layer pool, which groom casters do not reach; counted as `VirtualShadowLocalLightsWithoutGrooms` and warned once. |
+| Groom raster scene-shadow casting or receiving (#1323, restored by #1523) | Supported | `ShadowRenderPass` casts grooms into the CSM cascades, the local-light atlas, the Virtual Shadow Map's clip levels and its local-light layers (#1592), deforming a bound coat in the depth shaders; `GroomStrand.glsl` samples the scene's shadow at the coat's light-exit point. `GroomSceneShadowVisualEvidenceTest.cpp` pins both directions on GL Forward, Forward+ and Deferred. |
 | Groom as a Vulkan ray-query surface (#1253) | Approximate | `GroomSurfaceCache::Extract` converts and budgets resident strand proxy geometry for the GPU Scene. `GroomRayTracingProxyTest.cpp` checks tier/coverage/refusal contracts. Residency, update and triangle budgets can refuse an individual groom; a successful proxy is not per-strand RT. |
 
 ## Raster shadow caster coverage
@@ -37,7 +37,7 @@ Forward, Forward+ or Deferred receiver path.
 | Marching-cubes and greedy cubic voxel geometry | Yes | Yes | Yes |
 | Foliage cards, authored meshes and impostors | Yes | Yes | Yes |
 | Virtual geometry | Yes | Yes | Unsupported |
-| Groom ribbons | Yes | Yes | Unsupported, counted/warned |
+| Groom ribbons | Yes | Yes | Yes (#1592) |
 
 Terrain, voxel and foliage VSM depth wrappers use the same deformation, alpha
 discard and LOD bodies as their CSM/atlas shaders. Shadow extraction includes

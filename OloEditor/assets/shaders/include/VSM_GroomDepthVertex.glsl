@@ -32,19 +32,23 @@ layout(location = 8) in float a_CoverageGrowth; // unused here: the caster draws
 #endif
 
 // UBO_USER_0 (7). C++ twin: ShaderBindingLayout::GroomShadowParamsUBO, the same
-// block GroomStrandDepth.glsl reads — the CLIP LEVEL lane is the only field
-// this route uses that the cascade route does not.
+// block GroomStrandDepth.glsl reads — the VIEW lanes (Modes.x and .z) are the
+// only fields this route uses that the cascade route does not.
 layout(std140, binding = 7) uniform GroomShadowParams
 {
 	mat4 u_GroomShadowModel;
 	vec4 u_GroomShadowWidth;
-	ivec4 u_GroomShadowModes; // x = clip level, y = frame index (#1612)
+	// x = clip level, or local-light layer when z == 1; y = frame index (#1612);
+	// z = domain: 0 a directional clip level, 1 a local-light layer (#1592).
+	ivec4 u_GroomShadowModes;
 	ivec4 u_GroomShadowDeformModes; // #1427: x = mode, y = simulated, z = roots, w = guide slots
 	ivec4 u_GroomShadowDeformBases; // x = root base, y = slot base, z = displacement base, w = displacements
 	vec4 u_GroomShadowCrossFade;    // #1612: the LOD cross-fade mask, x = t, y = role
 };
 
-layout(location = 0) flat out uint v_VSMClipLevel;
+// The page table this draw writes: x = domain (0 clip level, 1 local layer),
+// y = the level or layer, z = the layer's raster mip (0 for a clip level).
+layout(location = 0) flat out uvec3 v_VSMTarget;
 #ifdef OLO_GROOM_CROSSFADE_MASK
 // A fading coat's two tiers cast through the masks they are drawn with (#1612).
 layout(location = 1) flat out vec4 v_CrossFade;
@@ -80,11 +84,6 @@ void main()
 		other = self + segmentDelta;
 	}
 
-	// CLAMPED, not trusted. The level indexes a fixed-size array in the globals
-	// block, and a corrupt uniform would otherwise read past it — undefined
-	// behaviour in a raster that writes into a shared physical pool.
-	int clipLevel = clamp(u_GroomShadowModes.x, 0, VSM_CLIP_LEVELS - 1);
-	v_VSMClipLevel = uint(clipLevel);
 #ifdef OLO_GROOM_CROSSFADE_MASK
 	v_CrossFade = u_GroomShadowCrossFade;
 	v_CrossFadeFrame = uint(u_GroomShadowModes.y);
@@ -93,8 +92,48 @@ void main()
 	// ViewProjectionRaster, not ViewProjection: the raster flavour carries the
 	// backend's clip-space convention, and the page resolve downstream assumes
 	// it (see VirtualShadowRasterStage.glsl's single backend fork). The width
-	// floor is measured in VIRTUAL texels, which is what this raster's viewport
-	// is sized in.
+	// floor is measured in the texels this raster writes, which is what its
+	// viewport is sized in.
+	//
+	// The view index is CLAMPED, not trusted, in both domains: it indexes a
+	// fixed-size array, and a corrupt uniform would otherwise read past it --
+	// undefined behaviour in a raster that writes into a shared physical pool.
+	if (u_GroomShadowModes.z == 1)
+	{
+		// A LOCAL-LIGHT LAYER (#1592): a lamp's cube face or spot, the way
+		// VSM_DepthLocal.glsl draws a mesh into it. The layer is rasterised at
+		// the finest mip with a dirty page, in that mip's corner of the mip-0
+		// viewport; the width floor is the coarser of that mip's texel and the
+		// one the CPU cut this coat's share for (below).
+		uint layer = uint(clamp(u_GroomShadowModes.x, 0, VSM_MAX_LOCAL_LAYERS - 1));
+		uint rasterMip = b_LocalRasterMip[layer];
+		v_VSMTarget = uvec3(1u, layer, min(rasterMip, uint(VSM_LOCAL_MIP_COUNT - 1)));
+		if (rasterMip >= uint(VSM_LOCAL_MIP_COUNT))
+		{
+			// No dirty page in this layer: every page is cached, so nothing is
+			// drawn -- and never at an out-of-range mip.
+			gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+			return;
+		}
+		// THE WIDTH FLOOR IS THE COARSER OF TWO TEXELS. The CPU cast this view a
+		// share of the coat sized for the texels its receivers read
+		// (u_GroomShadowWidth.z, LocalLayerReceiverResolution), and a share is a
+		// promise about world coverage: so many strands, each that wide. Floored
+		// at a finer raster mip instead, the same share drew strands too thin to
+		// cover what it was cut for, and the shadow went sparse. Floored at the
+		// receivers' texel alone, a coarser raster mip could miss texel centres.
+		// The coarser of the two keeps both.
+		float rasterTexels = float(VSM_LOCAL_VIRTUAL_RESOLUTION >> rasterMip);
+		float floorTexels = min(rasterTexels, max(u_GroomShadowWidth.z, 1.0));
+		vec4 clipPosition = oloGroomShadowRibbonPosition(b_LocalLights[layer].ViewProjectionRaster, u_GroomShadowModel,
+		                                                 position, other, a_Radius, a_Side, u_GroomShadowWidth.x,
+		                                                 u_GroomShadowWidth.y, floorTexels, u_GroomShadowWidth.w);
+		gl_Position = vsmLocalRasterSubRect(clipPosition, rasterMip);
+		return;
+	}
+
+	int clipLevel = clamp(u_GroomShadowModes.x, 0, VSM_CLIP_LEVELS - 1);
+	v_VSMTarget = uvec3(0u, uint(clipLevel), 0u);
 	gl_Position = oloGroomShadowRibbonPosition(u_VSMClips[clipLevel].ViewProjectionRaster, u_GroomShadowModel,
 	                                           position, other, a_Radius, a_Side, u_GroomShadowWidth.x,
 	                                           u_GroomShadowWidth.y, float(VSM_VIRTUAL_RESOLUTION),

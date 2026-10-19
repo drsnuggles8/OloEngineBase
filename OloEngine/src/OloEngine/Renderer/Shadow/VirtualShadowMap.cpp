@@ -492,6 +492,50 @@ namespace OloEngine
                glm::all(glm::greaterThanEqual(ndcMax, glm::vec3(-1.0f)));
     }
 
+    bool VirtualShadowMap::BoundsReachLocalLayer(const VSM::LocalLight& layer, const glm::vec3& boundsMin,
+                                                 const glm::vec3& boundsMax)
+    {
+        // GLSL twin: the reach half of VSM_CullLocalCasters.comp, test for test.
+        if (layer.Params.w < 0.5f)
+            return false; // the layer serves no light this frame
+        const glm::vec3 lightPos(layer.PositionRange);
+        const glm::vec3 delta = glm::clamp(lightPos, boundsMin, boundsMax) - lightPos;
+        if (glm::dot(delta, delta) > layer.PositionRange.w * layer.PositionRange.w)
+            return false;
+        // Perspective, so no divide: a corner behind the light has w < 0 and a
+        // divide would fold it back in front. Outcodes on the clip coordinates
+        // reject only a box wholly beyond one plane, which every corner agrees on.
+        bool outsideLeft = true;
+        bool outsideRight = true;
+        bool outsideBottom = true;
+        bool outsideTop = true;
+        bool outsideNear = true;
+        bool outsideFar = true;
+        for (i32 corner = 0; corner < 8; ++corner)
+        {
+            const glm::vec4 c = layer.ViewProjection * glm::vec4((corner & 1) != 0 ? boundsMax.x : boundsMin.x,
+                                                                 (corner & 2) != 0 ? boundsMax.y : boundsMin.y,
+                                                                 (corner & 4) != 0 ? boundsMax.z : boundsMin.z, 1.0f);
+            outsideLeft = outsideLeft && c.x < -c.w;
+            outsideRight = outsideRight && c.x > c.w;
+            outsideBottom = outsideBottom && c.y < -c.w;
+            outsideTop = outsideTop && c.y > c.w;
+            outsideNear = outsideNear && c.z < -c.w;
+            outsideFar = outsideFar && c.z > c.w;
+        }
+        return !(outsideLeft || outsideRight || outsideBottom || outsideTop || outsideNear || outsideFar);
+    }
+
+    u32 VirtualShadowMap::LocalLayerReceiverResolution(const VSM::LocalLight& layer, const glm::vec3& boundsMin,
+                                                       const glm::vec3& boundsMax,
+                                                       const glm::vec3& cameraPositionRelative, f32 detailBias)
+    {
+        const glm::vec3 centre = (boundsMin + boundsMax) * 0.5f;
+        const i32 mip = SelectLocalMip(glm::length(centre - cameraPositionRelative),
+                                       glm::length(centre - glm::vec3(layer.PositionRange)), detailBias);
+        return VSM::kLocalVirtualResolution >> static_cast<u32>(mip);
+    }
+
     u32 VirtualShadowMap::SanitizeResolution(u32 requested)
     {
         // A pool that is not a whole number of pages leaves a partial page at the
@@ -648,7 +692,13 @@ namespace OloEngine
         // belong to this frame's globals rebuild.
         m_Globals.Params4 = glm::ivec4(AreLocalLightsActive() ? 1 : 0, m_Globals.Params4.y,
                                        m_Globals.Params4.z, directionalEnabled ? 1 : 0);
-        m_Globals.Params5 = glm::vec4(std::max(m_Settings.LocalDetailBias, 0.01f), m_Globals.Params5.y, 0.0f, 0.0f);
+        // FINITE, then floored: std::max passes a NaN through, and the marker,
+        // the sampler and the CPU twin (GetLocalDetailBias) would all select a
+        // mip from it. A non-finite setting takes the default.
+        const f32 localDetailBias = std::isfinite(m_Settings.LocalDetailBias)
+                                        ? std::max(m_Settings.LocalDetailBias, 0.01f)
+                                        : VirtualShadowMapSettings{}.LocalDetailBias;
+        m_Globals.Params5 = glm::vec4(localDetailBias, m_Globals.Params5.y, 0.0f, 0.0f);
 
         m_PrevLightDirection = forward;
         m_PrevRenderOrigin = renderOrigin;

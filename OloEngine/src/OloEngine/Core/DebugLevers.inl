@@ -144,6 +144,10 @@ OLO_LEVER_EXACT(FaultSkipGroomVsmInvalidation, "OLO_FAULT_SKIP_GROOM_VSM_INVALID
                 "FAULT (#1523 negative control): submit no Virtual Shadow Map page invalidation for groom casters, "
                 "so a moving coat leaves its old silhouette in the cached pages. Re-creates the gap #1380 shipped "
                 "with; GroomSceneShadowVisualEvidenceTest proves its stale-page check sees it.")
+OLO_LEVER_EXACT(FaultSkipGroomVsmLocalLayers, "OLO_FAULT_SKIP_GROOM_VSM_LOCAL_LAYERS",
+                "FAULT (#1592 negative control): draw no groom caster into the Virtual Shadow Map's local-light "
+                "layers, so a lamp the VSM serves casts no coat shadow. Re-creates the gap #1592 closed; "
+                "GroomSceneShadowVisualEvidenceTest proves its lamp cases see it.")
 OLO_LEVER_EXACT(FaultGroomShadowAtCoatExit, "OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT",
                 "FAULT (#1533 negative control): make no opaque shadow copies for groom receivers, so every groom "
                 "samples the sun's cascades and the local-light atlas at its coat's light-exit point -- outside the "

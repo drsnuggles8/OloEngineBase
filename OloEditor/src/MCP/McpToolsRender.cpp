@@ -7021,6 +7021,8 @@ namespace OloEngine::MCP
             snapshot.CascadeDraws = sceneShadow.CascadeDraws;
             snapshot.AtlasDraws = sceneShadow.AtlasDraws;
             snapshot.VirtualShadowLevelDraws = sceneShadow.VirtualShadowLevelDraws;
+            snapshot.VirtualShadowLocalLayerDraws = sceneShadow.VirtualShadowLocalLayerDraws;
+            snapshot.VirtualShadowLocalLights = sceneShadow.VirtualShadowLocalLights;
             snapshot.SegmentsCast = sceneShadow.SegmentsCast;
             snapshot.SegmentsWhole = sceneShadow.SegmentsWhole;
 
@@ -9886,6 +9888,8 @@ namespace OloEngine::MCP
                                              .Prop("cascadeDraws", Schema::Int().Min(0))
                                              .Prop("atlasDraws", Schema::Int().Min(0))
                                              .Prop("virtualShadowLevelDraws", Schema::Int().Min(0))
+                                             .Prop("virtualShadowLocalLayerDraws", Schema::Int().Min(0))
+                                             .Prop("virtualShadowLocalLights", Schema::Int().Min(0))
                                              .Prop("segmentsCast", Schema::Int().Min(0))
                                              .Prop("segmentsWhole", Schema::Int().Min(0)))
                     .Prop("animalBudget", Schema::Object()

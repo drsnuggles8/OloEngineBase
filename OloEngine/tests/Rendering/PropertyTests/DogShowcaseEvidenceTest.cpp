@@ -597,11 +597,12 @@ namespace OloEngine::Tests
             "OLO_DOG_LOOKDEV_LAWN", "OLO_DOG_LOOKDEV_OFF", "OLO_DOG_LOOKDEV_ONLY", "OLO_DOG_LOOKDEV_WAG",
             "OLO_DOG_REST_SETTLE"
         };
-        static constexpr std::array<const char*, 8> kFaultLevers{
+        static constexpr std::array<const char*, 9> kFaultLevers{
             "OLO_FAULT_COUNT_ALIAS_AS_BACKING", "OLO_FAULT_GROOM_NO_OTHER_FUR",
             "OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT", "OLO_FAULT_OMIT_OUT_OF_BAND_DECLARATION",
             "OLO_FAULT_SHORTEN_TRANSIENT_LIFETIMES", "OLO_FAULT_SKIP_DISPATCH_BINDING_RESET",
-            "OLO_FAULT_SKIP_GROOM_VSM_INVALIDATION", "OLO_FAULT_STALE_DECLARATION_KEY"
+            "OLO_FAULT_SKIP_GROOM_VSM_INVALIDATION", "OLO_FAULT_SKIP_GROOM_VSM_LOCAL_LAYERS",
+            "OLO_FAULT_STALE_DECLARATION_KEY"
         };
 
         [[nodiscard]] static const char* SetValue(const char* name)
