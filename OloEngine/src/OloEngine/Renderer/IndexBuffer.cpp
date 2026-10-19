@@ -43,4 +43,35 @@ namespace OloEngine
         OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
         return nullptr;
     }
+
+    Ref<IndexBuffer> IndexBuffer::CreateImmutable(const u32* indices, u32 count)
+    {
+        switch (Renderer::GetAPI())
+        {
+            case RendererAPI::API::None:
+            {
+                OLO_CORE_ASSERT(false, "RendererAPI::None is currently not supported!");
+                return nullptr;
+            }
+            case RendererAPI::API::Vulkan:
+            {
+#if OLO_WITH_VULKAN
+                if (VulkanDevice::Get() != nullptr)
+                {
+                    return Ref<VulkanIndexBuffer>::Create(indices, count);
+                }
+#endif
+                OLO_CORE_ASSERT(false, "RendererAPI::Vulkan: no VulkanDevice is up (or OLO_WITH_VULKAN is compiled out)!");
+                return nullptr;
+            }
+            case RendererAPI::API::OpenGL:
+            {
+                // Storage flags 0: the GPU's copy is the only one.
+                return Ref<IndexBuffer>(new OpenGLIndexBuffer(indices, count, 0u));
+            }
+        }
+
+        OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
+        return nullptr;
+    }
 } // namespace OloEngine

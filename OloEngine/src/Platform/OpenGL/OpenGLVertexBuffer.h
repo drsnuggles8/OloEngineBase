@@ -23,6 +23,13 @@ namespace OloEngine
 
         void SetData(const VertexData& data) override;
 
+        // ImmutableVertexBufferUpload's two GL steps (#1608), each checked: the
+        // destination's storage really is `m_Size` bytes (an out-of-memory
+        // allocation leaves it empty with nothing else to say so), and a chunk
+        // written to `staging` and copied to `offset` here raised no GL error.
+        [[nodiscard]] bool HasItsStorage() const;
+        [[nodiscard]] bool UploadChunkThrough(OpenGLVertexBuffer& staging, u32 offset, const void* data, u32 bytes);
+
         [[nodiscard("Store this!")]] const BufferLayout& GetLayout() const override
         {
             return m_Layout;
@@ -47,6 +54,8 @@ namespace OloEngine
       private:
         u32 m_RendererID{};
         u32 m_Size{}; // Buffer size in bytes for memory tracking
+        // False for immutable storage without GL_DYNAMIC_STORAGE_BIT: SetData cannot write it.
+        bool m_Refillable = true;
         BufferLayout m_Layout;
         RHI::ScopedResourceHandle m_RHIHandle;
     };

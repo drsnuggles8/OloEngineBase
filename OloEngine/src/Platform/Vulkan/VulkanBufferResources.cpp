@@ -842,6 +842,21 @@ namespace OloEngine
         VulkanOneShot::UploadToBuffer(m_Buffer, 0, data.data, data.size, "VulkanVertexBuffer::SetData");
     }
 
+    bool VulkanVertexBuffer::WriteBeforeFirstUse(u64 offset, const void* data, u64 bytes)
+    {
+        if (m_Mapped == nullptr || data == nullptr || offset > m_Size || bytes > m_Size - offset)
+        {
+            return false;
+        }
+        std::memcpy(static_cast<u8*>(m_Mapped) + offset, data, bytes);
+        if (m_NeedsFlush)
+        {
+            vmaFlushAllocation(VulkanDevice::Get()->GetAllocator(), m_Allocation, offset, bytes);
+        }
+        m_HadInitialData = true;
+        return true;
+    }
+
     u64 VulkanVertexBuffer::CommandOrderedThresholdBytes()
     {
         return VulkanFrameArena::Get().GetSlotCapacityBytes() / 2u;

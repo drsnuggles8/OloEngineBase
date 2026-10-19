@@ -49,6 +49,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
 #include <limits>
 #include <span>
@@ -213,6 +214,24 @@ namespace OloEngine
         std::array<f32, 6> Moments{};
         glm::vec3 BoundsMin{ std::numeric_limits<f32>::max() };
         glm::vec3 BoundsMax{ std::numeric_limits<f32>::lowest() };
+    };
+
+    /// One emitted segment as the caster order measures it (#1608): its length
+    /// (a corner's Other - Position) and its two end radii, which is all
+    /// BuildGroomCasterOrder reads of a stream's vertices. A streamed rest build
+    /// records these, so its vertices can leave for the GPU in chunks.
+    struct GroomCasterSegment
+    {
+        f32 Length = 0.0f;
+        f32 Radius0 = 0.0f;
+        f32 Radius1 = 0.0f;
+    };
+
+    /// A strand's drawn points in its root's bind frame, boxed.
+    struct GroomCasterLocalBox
+    {
+        glm::vec3 Min{ 0.0f };
+        glm::vec3 Max{ 0.0f };
     };
 
     static_assert(sizeof(GroomStrandVertex) == 64,
@@ -508,6 +527,62 @@ namespace OloEngine
                                                   std::vector<u32>* outStrandFirstIndex = nullptr,
                                                   std::vector<GroomCasterStrand>* outCasterStrands = nullptr);
 
+    /// One drawn corner's share of a rest stream's reach and widest radius
+    /// (#1323): the pass measures both from the vertices it holds and the
+    /// streamed walk from the corners it emits, through this one definition.
+    inline void AccumulateGroomRestReach(f32& maxReachSquared, f32& maxRadius, const glm::vec3& position,
+                                         f32 radius) noexcept
+    {
+        maxReachSquared = std::max(maxReachSquared, glm::dot(position, position));
+        maxRadius = std::max(maxRadius, radius);
+    }
+
+    /// Where a streamed rest build sends its vertices (#1608): Begin with the
+    /// count the build will emit, then Write the stream in order, a chunk at a
+    /// time. Either returning false fails the build.
+    class GroomStrandVertexSink
+    {
+      public:
+        virtual ~GroomStrandVertexSink() = default;
+        [[nodiscard]] virtual bool Begin(u32 vertexCount) = 0;
+        [[nodiscard]] virtual bool Write(std::span<const GroomStrandVertex> vertices) = 0;
+    };
+
+    /// What a rest stream's consumers read off its vertices, recorded by the
+    /// walk instead (#1608), equal to what each reads off the whole stream.
+    struct GroomRestStreamMeasures
+    {
+        /// Per emitted segment, in emission order: BuildGroomCasterOrder's input.
+        std::vector<GroomCasterSegment> CasterSegments;
+        /// Per emitted strand: CollectGroomCasterLocalBoxes's result.
+        std::vector<GroomCasterLocalBox> LocalBoxes;
+        /// The largest |Position|^2 and Radius over the stream's corners.
+        f32 MaxReachSquared = 0.0f;
+        f32 MaxRadius = 0.0f;
+        /// The sink refused Begin or a Write: the stream is not on the GPU.
+        bool SinkFailed = false;
+    };
+
+    /**
+     * @brief BuildGroomStrandRestMesh with its vertices sent to `sink` in chunks
+     *        of `chunkVertices` (#1608).
+     *
+     * The same walk and the same bytes, in the same order, but never the whole
+     * vertex array at once: a two-million-strand coat's ribbon is about 2 GB,
+     * and holding it until the upload finished was most of the build's peak
+     * resident set. The indices stay whole (a quarter of the vertices' size; the
+     * caster order reorders them). `outMeasures` replaces reading the vertices
+     * afterwards. Empty stats, and SinkFailed, when the sink refuses.
+     */
+    GroomStrandMeshStats BuildGroomStrandRestMeshStreamed(const GroomBuildSource& source,
+                                                          const GroomStrandBuildSettings& settings,
+                                                          const GroomBindingAsset& binding, GroomStrandVertexSink& sink,
+                                                          u32 chunkVertices, std::vector<u32>& outIndices,
+                                                          std::vector<u32>& outRootCurves, GroomRestStreamMeasures& outMeasures,
+                                                          const GroomCoatContext* coat = nullptr,
+                                                          std::vector<u32>* outStrandFirstIndex = nullptr,
+                                                          std::vector<GroomCasterStrand>* outCasterStrands = nullptr);
+
     /**
      * @brief The pose segments BuildGroomStrandRestMesh emits beside its stream,
      *        and nothing else (#1533).
@@ -618,6 +693,16 @@ namespace OloEngine
     /// order, run by run -- what a bound coat's runs are re-posed from
     /// (GroomCasterPose.h).
     [[nodiscard]] GroomCasterOrder BuildGroomCasterOrder(std::span<const GroomStrandVertex> vertices,
+                                                         std::span<const u32> indices,
+                                                         std::span<const u32> strandFirstIndex,
+                                                         std::span<const GroomCasterStrand> strands = {},
+                                                         std::vector<u32>* outStrandOrder = nullptr);
+
+    /// The same order from the stream's per-segment measures (a streamed rest
+    /// build's CasterSegments) instead of its vertices: segment s is corners
+    /// [4s, 4s + 4). Equal to the vertex form on the stream they describe; empty
+    /// when an index reaches past `segments`.
+    [[nodiscard]] GroomCasterOrder BuildGroomCasterOrder(std::span<const GroomCasterSegment> segments,
                                                          std::span<const u32> indices,
                                                          std::span<const u32> strandFirstIndex,
                                                          std::span<const GroomCasterStrand> strands = {},

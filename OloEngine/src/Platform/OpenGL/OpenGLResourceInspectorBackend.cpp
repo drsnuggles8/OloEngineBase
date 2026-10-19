@@ -770,43 +770,45 @@ namespace OloEngine
         // The interface carries u64 native ids so a VkImage survives the trip
         // (#810); a GL name always fits a GLuint, so narrow once, here.
         const auto nativeBufferId = static_cast<GLuint>(nativeBufferIdWide);
-        // Save current buffer binding for this target
-        GLint previousBinding = 0;
-        const GLenum bindingQuery = GetBufferBindingQuery(nativeTarget);
-        glGetIntegerv(bindingQuery, &previousBinding);
+        // The target only described the buffer; DSA reads it without a bind.
+        (void)nativeTarget;
+        if (nativeBufferId == 0 || glIsBuffer(nativeBufferId) == GL_FALSE)
+        {
+            return false;
+        }
 
-        // Bind buffer and map data
-        glBindBuffer(nativeTarget, nativeBufferId);
-
-        bool success = false;
-        // The whole buffer is mapped, so [offset, offset+size) must be proven
-        // inside it BEFORE the memcpy (review finding): an out-of-range
-        // request here is a read past the mapping — a heap fault, not a GL
-        // error, and no GL call would report it. Checked in u64 so the sum
-        // cannot wrap.
+        // [offset, offset+size) is proven inside the buffer first (review
+        // finding): checked in u64 so the sum cannot wrap.
         GLint64 bufferSize = 0;
-        glGetBufferParameteri64v(nativeTarget, GL_BUFFER_SIZE, &bufferSize);
+        glGetNamedBufferParameteri64v(nativeBufferId, GL_BUFFER_SIZE, &bufferSize);
         const u64 end = static_cast<u64>(offset) + static_cast<u64>(size);
         if (bufferSize <= 0 || end > static_cast<u64>(bufferSize))
         {
             OLO_CORE_WARN("[GPUResourceInspector] buffer read {}+{} exceeds buffer {} ({} bytes) — refused", offset,
                           size, nativeBufferId, bufferSize);
-            glBindBuffer(nativeTarget, previousBinding);
             return false;
         }
-
-        // Map buffer and copy data
-        if (const void* data = glMapBuffer(nativeTarget, GL_READ_ONLY); data)
+        if (size == 0)
         {
-            if (size > 0)
-                std::memcpy(dest, static_cast<const u8*>(data) + offset, size);
-            glUnmapBuffer(nativeTarget);
-            success = true;
+            return true;
         }
 
-        // Restore previous buffer binding
-        glBindBuffer(nativeTarget, previousBinding);
-        return success;
+        // A copy, not a map: glMapBuffer(GL_READ_ONLY) fails on immutable
+        // storage created without GL_MAP_READ_BIT (every CreateImmutable
+        // buffer, #1608), and the inspector showed nothing for those. An error
+        // an earlier call left is said and cleared first, so the check below
+        // reports this read.
+        for (GLenum error = glGetError(); error != GL_NO_ERROR; error = glGetError())
+        {
+            OLO_CORE_WARN("[GPUResourceInspector] GL error {:#x} preceded the read of buffer {}", error, nativeBufferId);
+        }
+        glGetNamedBufferSubData(nativeBufferId, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), dest);
+        if (const GLenum err = glGetError(); err != GL_NO_ERROR)
+        {
+            OLO_CORE_WARN("[GPUResourceInspector] glGetNamedBufferSubData on buffer {} failed (GL 0x{:X})", nativeBufferId, err);
+            return false;
+        }
+        return true;
     }
 
     // ---- Texture capture ---------------------------------------------------

@@ -22,5 +22,8 @@ namespace OloEngine
         [[nodiscard]] virtual u64 GetDeviceAddress() const = 0;
 
         static Ref<IndexBuffer> Create(u32* indices, u32 size);
+        // Immutable storage on GL, for the same reason as
+        // VertexBuffer::CreateImmutable: no resident system-memory copy (#1608).
+        static Ref<IndexBuffer> CreateImmutable(const u32* indices, u32 count);
     };
 } // namespace OloEngine

@@ -309,6 +309,12 @@ namespace OloEngine
 
         void SetData(const VertexData& data) override;
 
+        // Writes [offset, offset + bytes) of a buffer no command has read yet
+        // (#1608): a memcpy into its mapping, ordered before every use by
+        // construction. False when it is not host-mapped or the range does not
+        // fit; the caller then stages the write.
+        [[nodiscard]] bool WriteBeforeFirstUse(u64 offset, const void* data, u64 bytes);
+
         [[nodiscard]] const BufferLayout& GetLayout() const override
         {
             return m_Layout;

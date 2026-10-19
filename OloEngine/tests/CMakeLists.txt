@@ -600,6 +600,10 @@ add_executable(OloEngine-Tests
 		# texture report 1001 levels. Needs a GL context (skips cleanly without);
 		# covers immutable (exact), partial-chain and mutable (probed) storage.
 		Rendering/ResourceInspectorTextureQueryTest.cpp
+		# #1608: CreateImmutable vertex/index buffers are GL immutable storage with
+		# no flags (a mutable one keeps a resident system-memory copy), and the
+		# inspector reads them. Needs a GL context (skips cleanly without).
+		Rendering/ImmutableBufferStorageTest.cpp
 		Rendering/ResourceHazardValidationTests.cpp
 		Rendering/RenderGraphPathSwitchTests.cpp
 		Rendering/FramePipelineTest.cpp

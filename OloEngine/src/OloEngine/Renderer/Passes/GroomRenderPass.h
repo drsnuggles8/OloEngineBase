@@ -65,6 +65,7 @@
 
 #include <array>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include <limits>
 #include <optional>
@@ -677,6 +678,8 @@ namespace OloEngine
         /// `strandCurves` and `binding`, for a bound coat, are what its runs'
         /// pose is built from (each strand's base curve, the binding drawn with);
         /// `restStream` says the vertices are in each root's bind frame.
+        /// `measures`, for a rest stream built streamed (#1608), is read in
+        /// place of `vertices`, which the CPU no longer holds.
         [[nodiscard]] static GroomCasterStream BuildCasterStream(const Ref<VertexBuffer>& vertexBuffer,
                                                                  std::span<const GroomStrandVertex> vertices,
                                                                  std::span<const u32> indices,
@@ -684,7 +687,8 @@ namespace OloEngine
                                                                  std::span<const GroomCasterStrand> strands,
                                                                  std::span<const u32> strandCurves,
                                                                  const GroomBindingAsset* binding, bool restStream,
-                                                                 const GroomGuideInfluenceTable* influence);
+                                                                 const GroomGuideInfluenceTable* influence,
+                                                                 const GroomRestStreamMeasures* measures = nullptr);
 
         /// A bound coat's REST stream (#1427), shared by every entity that wears
         /// the same groom at the same budget, coat and binding. Unlike the frame
@@ -1071,6 +1075,9 @@ namespace OloEngine
         std::unordered_map<u64, CacheEntry> m_Cache;
         /// Shared rest streams (#1427), keyed by RestStreamKey.
         std::unordered_map<u64, Ref<GroomRestStream>> m_RestStreams;
+        /// Rest streams whose upload was refused (#1608), by RestStreamKey:
+        /// said once and not rebuilt, for their coat draws on the CPU path.
+        std::unordered_set<u64> m_RefusedRestStreams;
         // 1 GiB (#1533): above one hero coat. The showcase dog alone holds
         // 651 MiB in use (Dog_Cost.txt's memory table, 474 MiB of it strand
         // vertices), so the 256 MiB this started at could evict nothing and

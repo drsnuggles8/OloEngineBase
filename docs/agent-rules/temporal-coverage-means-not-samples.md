@@ -4,7 +4,9 @@
 compares the two frames' **neighbourhood means**, never a pixel against last frame's values. TAA does
 this wherever the current 4x4 neighbourhood holds a fractional coverage (strictly between 0 and 1): it
 compares the 8x8 box means of the two frames' RT3 `.b`. A neighbourhood of only 0s and 1s, an opaque
-edge, keeps the range test (the current pixel clamped into last frame's 3x3 range). Issue #1552.
+edge, keeps the range test (the current pixel clamped into last frame's 3x3 range). Issue #1552. Where the
+4x4 also holds the stochastic mark, the means sum only the estimators' coverage, leaving out opaque
+0s and 1s (see "At a moving silhouette" below, #1627).
 
 The code is the coverage block in `OloEditor/assets/shaders/PostProcess_TAA.glsl`. The pins are
 `TemporalSubjectSequenceEvidenceTest.TheResolveCutsAStochasticCoatsShimmerManyFoldOverNoHistory` (the
@@ -99,6 +101,36 @@ The lag stayed at 0.25. What did not help: the colour clip widened to 2.5 sigma 
 profile term's band opened (no change). Opening the coverage term's band as well reached 0.499, 0.507
 and 0.491, but that term is what lets go of a coat that really changes. The remainder at a moving
 silhouette is disocclusion, which no history holds.
+
+## At a moving silhouette, leave the opaque texels out and clip to a 5x5 box
+
+**Sum only the estimators' coverage in the 8x8 mean, and build a stochastic pixel's clip box from
+5x5 at gamma 1.0** (#1627). The window is reprojected by the coat's mean velocity, so the coat holds
+still in it, but the lawn (coverage 0) and the body (1) beside it move by their own. At a moving
+silhouette that moved the full mean past the dead band with no change to the coat. Summing only the
+texels that hold the mark or a fractional coverage leaves out the opaque 0s and 1s that moved, and
+keeps every estimator: the coat's step, and an alpha-tested leaf's sharing the window.
+`TemporalSubjectSequence` reads the same to the digit with it. The clip box built from one draw's
+3x3 is itself a draw, and clipping to it pressed that draw's noise into the history.
+
+On the Bernese walk from behind, as the ratio of two draws' difference to the samples' (bar 0.5):
+
+| arm | face | ears | fringe | lag |
+|---|---|---|---|---|
+| shipped (#1626) | 0.648 | 0.545 | 0.530 | 0.25 |
+| coverage term off | 0.509 | 0.498 | 0.493 | 0.26 |
+| estimators' mean (= term off here) | 0.509 | 0.498 | 0.493 | 0.26 |
+| + 5x5 box, gamma 1.25 | 0.484 | 0.478 | 0.457 | 0.33 |
+| **+ 5x5 box, gamma 1.0 (shipped)** | **0.492** | **0.481** | **0.458** | **0.32** |
+| colour clip off | 0.664 | 0.541 | 0.497 | 0.38 |
+| borrowing coat history where the previous 4x4 had none | 0.649 | 0.547 | 0.532 | 0.25 |
+
+Read the lag with the ratio: an arm that drops rejection keeps stale history, which is stable
+between two draws, so the ratio improves while the coat ghosts. Gamma 1.0 keeps a coverage halving
+0.49 stale a frame on (0.51 before) and 0.31 after four frames (0.29); gamma 1.25 left 0.34. The
+still hair's gain rose from 11.9x to 12.7x, and under upscale from 7.1x to 11.0x (Quality) and 4.3x
+to 8.0x (Performance). True disocclusion, where the previous frame had no coat near the pixel, is
+rare here: borrowing for it moved nothing.
 
 ## How the numbers were found
 
