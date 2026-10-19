@@ -4,7 +4,9 @@
 compares the two frames' **neighbourhood means**, never a pixel against last frame's values. TAA does
 this wherever the current 4x4 neighbourhood holds a fractional coverage (strictly between 0 and 1): it
 compares the 8x8 box means of the two frames' RT3 `.b`. A neighbourhood of only 0s and 1s, an opaque
-edge, keeps the range test (the current pixel clamped into last frame's 3x3 range). Issue #1552.
+edge, keeps the range test (the current pixel clamped into last frame's 3x3 range). Issue #1552. Where the
+4x4 also holds the stochastic mark, the means sum only the estimators' coverage, leaving out opaque
+0s and 1s (see "At a moving silhouette" below, #1627).
 
 The code is the coverage block in `OloEditor/assets/shaders/PostProcess_TAA.glsl`. The pins are
 `TemporalSubjectSequenceEvidenceTest.TheResolveCutsAStochasticCoatsShimmerManyFoldOverNoHistory` (the
