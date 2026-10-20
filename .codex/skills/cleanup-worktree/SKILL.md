@@ -5,11 +5,11 @@ description: Safely remove finished OloEngine git worktrees after their branches
 
 # Clean Up OloEngine Worktrees
 
-Read `.claude/commands/cleanup-worktree.md` from the repository root before
-acting. It is the authoritative completion gate, merged-PR verification,
+Read `.claude/skills/cleanup-worktree/SKILL.md` from the repository root
+before acting. It is the authoritative completion gate, merged-PR verification,
 worktree-removal, branch-deletion, and registry-healing procedure.
 
-Apply it in full with one Codex adaptation: skip section 5b entirely. It only
+Apply it in full with one Codex adaptation: skip section 5 entirely. It only
 cleans Claude's per-worktree state. Do not delete, link, or otherwise modify
 any path under the Codex home directory while cleaning a worktree.
 

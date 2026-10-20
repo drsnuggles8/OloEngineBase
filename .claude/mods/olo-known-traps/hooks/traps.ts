@@ -87,7 +87,7 @@ export const TRAPS: readonly Trap[] = [
     title: '`git worktree add` failing from the PowerShell tool',
     memory: 'git-worktree-add-fails-from-powershell-tool.md',
     matches: c => c.tool === 'PowerShell' && /worktree\s+add/.test(c.command) && /fatal: invalid reference/.test(c.text),
-    advice: () => 'The ref is fine: the PowerShell tool mangles the argument list. Run the same `git worktree add` from the Bash tool, and do not create the memory junction for a worktree that failed.',
+    advice: () => 'The ref is fine: the PowerShell tool mangles the argument list. Run the same `git worktree add` from the Bash tool; `/start-work` does it through `.claude/skills/start-work/scripts/new-task-worktree.sh`.',
   },
   {
     id: 'gh-pr-checks-json',
