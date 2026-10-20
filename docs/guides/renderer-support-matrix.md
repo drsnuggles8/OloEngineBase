@@ -51,7 +51,7 @@ conservative invalidation until the CPU mirror is synchronized.
 position on all three GL paths, with local-layer, presentation and lifecycle
 controls. The full retained presentation matrix is selected with
 `OLO_VSM_FAMILY_FULL_MATRIX=1`; shader compilation alone is not Vulkan visual
-evidence. See [the VSM page-cache guide](../agent-rules/virtual-shadow-map-page-cache.md#7-caster-coverage)
+evidence. See [the VSM page-cache guide](../agent-rules/virtual-shadow-map-page-cache-details.md#7-caster-coverage)
 for the resource and live-verification contract.
 
 VSM remains off by default. `OLO_VSM_STARTUP=0|1` and

@@ -5,17 +5,16 @@ description: Select and scaffold one or more registry-aware OloEngine tasks in s
 
 # Start OloEngine Work
 
-Read `.claude/commands/start-work.md` from the repository root before doing any
-work. It is the authoritative task-selection, registry-sweep, worktree-safety,
+Read `.claude/skills/start-work/SKILL.md` from the repository root before doing
+any work. It is the authoritative task-selection, registry-sweep, worktree-safety,
 and handover procedure. Follow it in full except for the Codex adaptations
 below.
 
 ## Codex adaptations
 
-- Skip the `.claude/projects/.../memory` junction in section 4. Do not create,
-  link, or delete any Codex state outside the repository.
-- Keep `HANDOVER.md` as the cross-agent handover artifact, but quote the
-  guardrails from `AGENTS.md`, not `CLAUDE.md`.
+- Do not create, link, or delete any Codex state outside the repository.
+- Keep `HANDOVER.md` as the cross-agent handover artifact, but point the
+  guardrails line at `AGENTS.md`, not `CLAUDE.md`.
 - Use Codex recommendations verified against the
   [official GPT-6 guidance](https://developers.openai.com/api/docs/guides/latest-model?model=gpt-6.1-sol)
   on 2026-10-05: `gpt-6.1-sol` is the default, with medium effort for normal,

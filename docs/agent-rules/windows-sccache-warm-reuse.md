@@ -76,7 +76,7 @@ truncated 2G snapshot is not the recovery criterion.
 Production uses **3200M (3,355,443,200 bytes)**, reserving **511.69 MiB / 19.03%** above
 the measured current set. Keep measuring as the compiled graph grows. The shared-store
 arithmetic, including overlapping snapshots and dependency rotations, is in
-[actions-cache-budget.md](actions-cache-budget.md#2026-10-11-msvc-release-capacity).
+[actions-cache-budget.md](actions-cache-budget-details.md#2026-10-11-msvc-release-capacity).
 
 ## Controlled eviction reproduction
 

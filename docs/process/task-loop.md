@@ -17,8 +17,10 @@ The stories behind the rules are in the [appendix](#appendix--why-these-rules-ex
 
 ## How turns end
 
-This session runs unattended, so a message with no tool call ends the work until someone notices.
-Do not end a turn in any of these four ways while work the task owes is still open:
+This session runs unattended. It normally runs under the `/goal` from `/start-work` §5c, whose
+evaluator starts another turn when one ends early; without a goal, a message with no tool call ends
+the work until someone notices. Either way, do not end a turn in any of these four ways while work
+the task owes is still open:
 
 1. a summary of what was done that closes by announcing the next step, with no tool call;
 2. an offer to carry on "unless you'd prefer otherwise";
@@ -32,17 +34,26 @@ or the Phase 6 exit gate has passed.
 
 ## Phase 0 — Orient
 
-Read `HANDOVER.md`, then `CLAUDE.md` (especially *Definition of done*) and any `docs/agent-rules/`
-file the task touches; [agent-rules/README.md](../agent-rules/README.md) finds them by failure mode.
-Set the model and effort `HANDOVER.md` recommends.
+Read `HANDOVER.md`. `CLAUDE.md` is already in context (re-read only its *Definition of done* if it
+has been compacted away). The `docs/agent-rules/` guides for the files you touch load on their own
+through `.claude/rules/`; for a symptom or a subsystem without a rule, ask the `rules-lookup` agent
+rather than reading [agent-rules/README.md](../agent-rules/README.md) whole. The model and effort
+`HANDOVER.md` recommends are set at kickoff.
 
-Confirm you are in the worktree, not the base repo:
+Confirm you are in the worktree, not the base repo, and that the guards are live:
 
 ```bash
 git rev-parse --path-format=absolute --git-common-dir --show-toplevel
 ```
 
 If `--show-toplevel` equals the base repo, **stop**: you would put branch work on `master`.
+
+Then prove the `olo-*` mods are loaded with their positive control, from the PowerShell tool:
+`'a','b' | Set-Content -NoNewline "$env:TEMP\olo-mod-probe.txt"`. `olo-command-guards` must
+**refuse** it. If the command runs instead, the mods are not installed on this machine and nothing
+refuses a bare push or backs the PR gate: stop and tell the user (install steps:
+[claude-code-mods.md](../agent-rules/claude-code-mods.md#installing-them)). The mods also run inside
+subagents.
 
 ## Phase 1 — Implement
 
@@ -97,17 +108,25 @@ reason the remainder is blocked.
 
 Build and run the suite via the `run-oloengine` skill.
 
-**Trust the build tool's own exit code, nothing else.** A trailing pipe returns the pipe's status; a
-PowerShell truncating filter (`Select-Object -First N`) masks the code *and* stops the build early;
-a trailing `echo` becomes the block's status. Test the build's status directly, with nothing after
-it, then confirm the artifact exists:
+**Trust the build's own exit code and its log, nothing else.** Every build goes through
+`build-lock.ps1` (a `PreToolUse` hook blocks one that does not), and the lock returns the status of
+the **last** command in its `-Command`: a pipe, a `Select-Object -First N` (which also stops the
+build early) or a trailing statement replaces ninja's status. Keep the build the only command,
+redirect to a file inside the git-ignored build tree (not `/tmp`, which Git Bash and Python resolve
+differently), then check the status, the log and the artifact:
 
 ```bash
-if ! cmake --build build --target OloEngine-Tests --config Debug --parallel 6 > /tmp/b.log 2>&1; then
-    echo "BUILD FAILED"; tail -40 /tmp/b.log; exit 1
+log=build-cached/olo-build.log
+pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Command \
+  'cmake --build build-cached --target OloEngine-Tests --config Debug --parallel 6' > "$log" 2>&1
+status=$?
+if [ $status -ne 0 ] || grep -q "build stopped" "$log"; then
+    echo "BUILD FAILED (exit $status)"; grep -E "error:|build stopped" "$log" | head -20; exit 1
 fi
-test -f build/OloEngine/tests/Debug/OloEngine-Tests.exe || { echo "no artifact despite exit 0"; exit 1; }
+test -f build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe || { echo "no artifact despite exit 0"; exit 1; }
 ```
+
+`olo-output-truth` reads the log behind a background build's exit code and flags a failure too.
 
 A new or renamed test `.cpp` needs its `// OLO_TEST_LAYER:` classification, or pre-commit blocks
 the commit.
@@ -166,6 +185,13 @@ access needs both `OLO_MCP_AUTOSTART=1` and `OLO_MCP_ALLOW_WRITES=1` set *before
   [live-verification-noise-floor.md](../agent-rules/live-verification-noise-floor.md): an iconified
   editor answers every read tool with a stale frame.
 
+**Delegate the capture work to the `live-verifier` agent**, one cell or one A/B per call: say the
+backend, render path, scene, camera poses and the toggle to measure. Screenshots are the most
+context-hungry thing this loop does, and the agent keeps them out of your context. It returns the
+measurements, the PNG paths, the backend proof line and the log's error/`VUID` counts. You still
+**open the one or two PNGs that decide the cell yourself**: a pixel count cannot settle whether a
+frame looks right. One live-verifier at a time: the editor and the GPU are shared.
+
 ## Phase 3 — Self-review your own diff
 
 Required before the PR exists.
@@ -178,6 +204,14 @@ Run `/code-review` at `medium` for a small focused change, `high` for a substant
 one. (`ultra` is user-triggered and billed: recommend it in your report if warranted, don't launch
 it.) Fold every real finding into a fix. A finding you judge wrong gets a one-line dismissal, never
 a silent drop. A real bug the review finds in code you did not write is a Phase 1a bug: fix it here.
+
+Then run the **`spec-reviewer` agent** on the same diff. `/code-review` hunts bugs; it does not ask
+whether the branch delivers what `HANDOVER.md` and the issue asked for. The spec reviewer checks the
+diff against the plan and every acceptance criterion, the verification matrix (Phase 6, item 5), the
+bug accounting (Phase 6, item 6) and, for a `*Component` change, the cross-binding touch-points.
+It reports only gaps against those stated requirements; style preferences and speculative
+hardening are not findings, and chasing them is how a reviewer's brief turns into over-engineering.
+
 Re-run Phase 2 afterwards.
 
 ## Phase 4 — Commit, push, open the PR
@@ -267,7 +301,10 @@ gh pr view <#> --repo <owner/repo> --json mergeable,statusCheckRollup
 ### 5b. Classify every failure before you touch code
 
 Get the log first; `gh run view --log` is empty in this repo, so use
-`gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs`.
+`gh api repos/<owner>/<repo>/actions/jobs/<job-id>/logs`. Job logs run to tens of thousands of
+lines: **hand the triage to the `ci-triage` agent** (give it the PR number) instead of reading them
+here. It classifies each failed job into the three buckets below against the flake and CI memories,
+quotes the deciding log lines, and recommends an action; you decide and act.
 
 - **Infrastructure** (vcpkg setup disconnect, `packages.microsoft.com` apt 403, runner drop,
   SonarCloud 6 h cap): `gh run rerun --failed`. No code change, no push.
@@ -380,11 +417,12 @@ Do **not** submit a formal approval (`gh pr review --approve`): it can satisfy b
    [agent-rules/README.md](../agent-rules/README.md) (subsystem index and failure-mode table). Rule
    first, story second, under about 10 KB. `CLAUDE.md` gets nothing.
 
-   A machine, tool or CI fact goes to persistent memory with one line in `MEMORY.md`. Your memory
-   dir is a junction to the base repo's shared store (`/start-work` §4): you start with every
-   durable fact the project has, and `MEMORY.md` is shared, so **append** your line rather than
-   rewriting the file. If `~/.claude/projects/<this-slug>/memory` is a real directory rather than a
-   junction, say so in your report so `/cleanup-worktree` salvages it.
+   A machine, tool or CI fact goes to persistent memory with one line in `MEMORY.md`. Claude Code
+   gives every worktree of this repository the base repo's memory store, so you start with every
+   durable fact the project has and other sessions write the same `MEMORY.md`: **append** your line
+   under its section rather than rewriting the file. Only the first 200 lines / 25 KB of
+   `MEMORY.md` load into a session and the rest is silently dropped, so when it nears that limit,
+   merge related lines or fold detail into the topic file instead of adding another line.
 
 Then **report and stop**: the PR number and link, what changed, how it was verified (named
 evidence), the bugs found and fixed, any issues filed and why, what CI and review needed, and what

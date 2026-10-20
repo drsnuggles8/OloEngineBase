@@ -1,158 +1,24 @@
 # Parallel recording pass audit (#1013)
 
-Prepare resources and freeze shared inputs before recording concurrently. Keep
-GPU dependencies and transparent draw order, and join before publishing frontend
-state or running primary-only operations. Preparation is not runtime proof: use
-the reported item names and secondary counts to establish actual parallel work.
+Per-family coverage of which passes record in parallel on Vulkan, which stay sequential, and what evidence exists. Read with [vulkan-parallel-recording.md](vulkan-parallel-recording.md) before converting or touching a pass in a recording region.
 
-## Shared replay contract
+## Rules
 
-| State | Ownership inside a region |
-|---|---|
-| Frame tables, committed GPU Scene records, draw links, shadow handles | Shared, read only |
-| Dispatcher bind/material/render-state caches, viewport, camera override | Item |
-| Material, camera, animation, terrain, decal, foliage, water and VSM uploads | Item-owned buffer objects, allocated before fork |
-| Model instances | Item-owned SSBO, sized for the largest replayed batch before fork |
-| Heap offset table, epoch, dirty flag and offset UBO | Item, seeded from the published table |
-| Profiler counters and instanced-draw records | Item; publish in item order after join |
-| Queries, capture mutation, lazy resource preparation and readbacks | Primary |
+1. **Prepare resources and freeze shared inputs before recording concurrently.** Keep GPU dependencies and transparent draw order, and join before publishing frontend state or running primary-only operations. [Details](vulkan-parallel-pass-audit-details.md#parallel-recording-pass-audit-1013)
+2. **Treat preparation as not runtime proof.** Use the reported item names and secondary counts to establish that parallel work actually happened. [Details](vulkan-parallel-pass-audit-details.md#parallel-recording-pass-audit-1013)
+3. **Respect the shared replay contract.** Frame tables, committed GPU Scene records, draw links and shadow handles are shared read-only; dispatcher caches, viewport, camera override, per-feature uploads, model instance SSBOs (sized for the largest batch before the fork), heap offset table and profiler counters are item-owned; queries, capture mutation, lazy resource preparation and readbacks stay on the primary. [Details](vulkan-parallel-pass-audit-details.md#shared-replay-contract)
+4. **Keep sequential stages sequential.** Selection outline (JFA seed, ping-pong flood, composite), shader debug (seven indirect channel draws then staged readback, below the 32-command grain), ray-tracing scene (BLAS batched in one command, TLAS depends on BLAS) and billboard/trail/GPU particles (one draw per batch) are not split. [Details](vulkan-parallel-pass-audit-details.md#geometry-and-compute-families)
+5. **Fork shadow cascades only with the heaps rebound after execute.** Cascades were recorded inline on #1504 after a device fault on a freed scene target; the cause was heaps left unbound after `vkCmdExecuteCommands` (#1511) and they fork again. See [vulkan-parallel-cascade-recording-fault.md](vulkan-parallel-cascade-recording-fault.md). Clear/transition the shared atlas before the fork. [Details](vulkan-parallel-pass-audit-details.md#geometry-and-compute-families)
+6. **Preserve ordering when partitioning.** Scene depth/color and decals use contiguous sorted packet ranges (clear/cull before fork, queried packets stay inline); water depth capture precedes color; fluid and overdraw have a primary clear/final step. [Details](vulkan-parallel-pass-audit-details.md#geometry-and-compute-families)
+7. **Do not claim a virtual-geometry fork from a small scene.** All three `VirtualGeometryPass` regions size themselves `clamp(instanceCount / 32, 1, MAX_RENDER_WORKERS)`, so they run inline below 64 virtual-mesh instances; `VirtualGeometryTest.olo` has 15 and `VirtualGeometryStress.olo` 24. Use `VirtualGeometryParallelRecording.olo` (96 instances), which reports three regions at `parallel=true`, three items each, 13 secondaries, zero conflicts. [Details](vulkan-parallel-pass-audit-details.md#the-virtual-geometry-fork-grain)
+8. **Keep prepared graph passes' publication after the join.** Prepared fullscreen bodies use primed shared uploads or private ones; SSAO, GTAO and VolumetricFog publish shared settings/history after join; diagnostics and detailed subqueries stay primary or inline-only. See [vulkan-parallel-graph-recording.md](vulkan-parallel-graph-recording.md). [Details](vulkan-parallel-pass-audit-details.md#prepared-graph-passes)
+9. **Preserve the cross-pass colour-version chains.** `Setup()` selects the latest valid colour resource and disabled stages collapse chains while keeping an edge between remaining producer and consumer. Chains: SSGI to SSR to ContactShadow to EASU/Bloom, then Bloom to DOF to MotionBlur to TAA to Cloudscape to Precipitation to Fog; ColorGrading, ToneMap, Upscaler, Vignette, FXAA, SelectionOutline; ColorBlind consumes UIComposite; Final owns the acquired-backbuffer boundary. [Details](vulkan-parallel-pass-audit-details.md#cross-pass-dependencies-that-retain-sequential-execution)
+10. **Keep these passes primary-only.** UIComposite (unrestricted Renderer2D/UI callback, needs a prepared UI command list first), ParticlePass (shared batch state, OIT toggle; mesh ranges converted internally), FSR2 (Vulkan factory returns BackendUnsupported), DeferredOpaqueDecal copies and DeferredLighting's post-draw copies; SphereProxyAO selection/upload and subpass queries; OITPrepare clears/blits once. [Details](vulkan-parallel-pass-audit-details.md#cross-pass-dependencies-that-retain-sequential-execution)
+11. **Do not assume a const graph resource resolver is safe.** Registry construction, placeholder warnings and resolve diagnostics mutate shared state; resolve and prewarm on the caller. Each lane owns its active-pass label, and write declarations include shared uploads published after join. [Details](vulkan-parallel-pass-audit-details.md#cross-pass-dependencies-that-retain-sequential-execution)
+12. **Do not blame recording for the SnowfallParticles Vulkan blank.** OpenGL draws the snow and Vulkan draws none independent of `OLO_VK_PARALLEL_RECORDING`; it is a billboard-path backend defect tracked by #1171. The authored camera does not frame the emitter (y = 25, 0.04-unit particles), so reproduce from above first. [Details](vulkan-parallel-pass-audit-details.md#existing-vulkan-limitations-encountered-during-validation)
+13. **Do not make speedup claims from the shared host.** Release heavy-scene recording blocks improve; the normal scene shows small overhead. Use the interleaved blocks and untouched control in the [measurements report](../analysis/vulkan-parallel-recording-1013.md). Linux TSan is a PR completion gate. [Details](vulkan-parallel-pass-audit-details.md#validation-and-timing)
 
-## Geometry and compute families
+---
 
-| Family | Partition and ordering | Implementation and correctness evidence |
-|---|---|---|
-| Scene depth/color | Contiguous sorted packet ranges; clear/cull before fork; queried packets stay inline | Implemented; three-view Vulkan off/on exact pixels and OpenGL scene captures |
-| Planar reflection | Reflected-view packet ranges; view-local camera/light state | Implemented; WaterTest above/below on both backends |
-| Decal forward/OIT/G-Buffer | Sorted ranges preserve blending and draw-buffer order | Implemented; Vulkan mode readbacks and two-angle live matrix on both backends |
-| Forward overlay | Sorted packet ranges with shared scene attachments | Implemented; common replay contracts and inline fallback for small lists |
-| Foliage | Layer packet ranges; private foliage/model uploads | Implemented; two-angle live foliage on both backends |
-| Water depth/color | Tile packet ranges; depth capture precedes color | Implemented; two-angle live water/reflection on both backends; Vulkan validation clean after separate array fix |
-| Overdraw | Additive packet ranges; clear once | Implemented; Vulkan target readback and common replay contracts |
-| CSM, atlas and point-face shadows | Cascade or atlas-entry items; clear/transition shared atlas before fork | Atlas and CSM: implemented; atlas device checks, heavy multi-light scene. The cascades were recorded inline on #1504 after forked cascades triggered a device fault on a freed scene target; the cause was the heaps left unbound after `vkCmdExecuteCommands` (#1511), and they fork again ([vulkan-parallel-cascade-recording-fault.md](vulkan-parallel-cascade-recording-fault.md)) |
-| Terrain/foliage shadow casters | Same shadow-view item; private terrain/foliage/instance uploads | Implemented; live terrain and foliage on both backends; Vulkan VT sample uses fallback shading, as detailed below |
-| Virtual-geometry shadow casters | Same view item; private compute parameters and indirect args | Implemented; device checks retained; Vulkan helmet evidence obtained once #1052/#1058/#1062 landed — see below |
-| VSM marking/raster | Prepared marking dispatch; raster ranges with private globals/bones/instances; shared pool uses GPU atomic-min | Implemented; 96-VAO raster readback, worker sampling regression and live GTAO/mark group with zero conflicts |
-| DDGI | Per-probe six-face capture/resample; relocation and visibility ranges; ordered atlas publication | Implemented; single-volume and cascade live captures; cascade scene records 16 items with zero conflicts |
-| GPU/deferred occlusion | Indirect replay ranges after primary cull | Implemented; Vulkan indirect-replay checks and heavy deferred pipeline |
-| Virtual geometry main | Phase-1 instance cull, both hardware raster phases and SW material-resolve ranges | Implemented; primary args reset/HZB/SW raster/export chain. All three regions size themselves `clamp(instanceCount / 32, 1, MAX_RENDER_WORKERS)`, so they need **64+ virtual-mesh instances** to fork at all — see the fork grain note below |
-| Fluid intermediates | Depth/thickness splat ranges, private fluid UBOs; primary clear and final smoothing parameters | Implemented; OpenGL multi-angle fluid evidence; Vulkan 96-submission depth/thickness comparison, six secondaries and zero conflicts |
-| Mesh particles | Contiguous instance ranges, private mesh-instance UBOs | Implemented; Vulkan 96-instance distinct-color comparison, three secondaries and zero conflicts; real OpenGL scene shows all three color ranges from three angles |
-| Billboard/trail/GPU particles | Already one draw per batch; shared batch callback remains primary | Existing Vulkan billboard/trail checks; no artificial split of a single draw |
-| Ray-tracing scene | Backend batches BLAS requests into one command; TLAS depends on BLAS | Sequential allocation, retirement, compaction queries and statistics; no independent build-command loop remains |
-| Shader debug | Seven indirect channel draws, then staged header readback | Sequential; below the 32-command replay grain, with primary readback; small-scene recording overhead is measured in the performance report |
-| Selection outline | JFA seed, each ping-pong flood step, composite | Sequential dependent stages |
-
-## Prepared graph passes
-
-| Pass | Prepared body and publication |
-|---|---|
-| AOApply | Fullscreen body; primed shared post-process/SSAO UBOs; resolved AO/depth/color; diagnostics primary |
-| ChromaticAberration, FXAA, Vignette | Fullscreen bodies; primed shared post-process UBO; primitive prepared before fork |
-| ContactShadow | Fullscreen body; resolved G-Buffer/depth/color and primed inputs; warning counters in preparation |
-| DOF, SSS | Fullscreen bodies; primed post-process/SSS uploads; SSS preserves no-clear behavior |
-| EASU | Fullscreen body with private sizing upload and reduced-color input |
-| DepthVelocityUpscale | Two-MRT fullscreen body with private sizing upload; reduced depth/velocity inputs independent of EASU color |
-| SSAO | Raw/blur/export chain with private SSAO upload and explicit scratch/output writes; shared settings publish after join |
-| GTAO | HZB/classifier/AO/denoise/export chain; caller resolves/resizes/snapshots; private uploads; settings publish after join |
-| VolumetricFog | Scatter/integrate chain; captured clustered-light SSBOs and private froxel/Forward+ UBOs; history/settings publish after join |
-| VSM marking | Page-mark dispatch with private globals and declared page/meta/request/statistics writes |
-
-The default live deferred graph demonstrates GTAO/VSM marking. Additional live
-captures prove DepthVelocityUpscale/EASU, SSAO/DepthVelocityUpscale, and
-VolumetricFog/GTAO/VSM-marking groups. Each off/on image pair matches exactly;
-reported item names prove worker-path execution, with zero conflicts and shader
-errors. Detailed subqueries stay inline-only, with primary timestamps around
-ordered pass execution. See [graph recording](vulkan-parallel-graph-recording.md).
-
-## Cross-pass dependencies that retain sequential execution
-
-`Setup()` selects the latest valid color resource. Disabled stages collapse these
-chains while preserving an edge between the remaining producer and consumer.
-
-- SSGI -> SSR -> ContactShadow -> EASU/Bloom, followed by Bloom -> DOF ->
-  MotionBlur -> TAA -> Cloudscape -> Precipitation -> Fog, consume successive color
-  versions. Internal ping-pong stages alone are not an exclusion: SSAO, GTAO and
-  froxel fog keep their dependent chain inside one prepared body.
-- ColorGrading consumes the latest ChromaticAberration/Fog color. ToneMap consumes
-  graded color; Upscaler consumes ToneMap; Vignette, FXAA and SelectionOutline
-  continue that chain. ColorBlind consumes UIComposite; Final consumes the finished
-  composite and owns the acquired-backbuffer boundary.
-- SphereProxyAO modifies GTAO's completed AO. AOApply consumes final AO and the
-  preceding scene color. Proxy selection/upload and subpass queries stay primary.
-- OITPrepare consumes scene-framebuffer depth, including DeferredLighting's depth
-  copy. Contributors depend on preparation; OITResolve consumes completed
-  contributors and the preceding scene color. OITPrepare clears/blits once.
-- FluidComposite consumes FluidIntermediates' published textures/appearance and
-  the preceding SceneColor writer, then performs its refraction copy and draw.
-- Fixed-grid light culling is one dispatch; depth-aware culling consumes its depth
-  reduction and active-cluster compaction results.
-
-Additional primary-only constraints are explicit. UIComposite invokes an
-unrestricted Renderer2D/UI callback and requires a prepared UI command list before
-whole-pass recording is safe. ParticlePass builds/flushes shared batch state and
-toggles OIT mode; its mesh ranges are converted internally. FSR2's Vulkan factory
-returns BackendUnsupported, so no Vulkan recording body exists to partition.
-DeferredOpaqueDecal invokes converted replay before its dependent MSAA/export
-copies. DeferredLighting's fullscreen draw is followed by depth/entity-ID/debug
-copies; its output feeds the following scene-color consumers.
-
-Graph resource resolvers are not automatically safe because they are const:
-registry construction, placeholder warnings and resolve diagnostics mutate shared
-state. Resolve and prewarm on the caller. Each recording lane owns its active-pass
-label; physical-resource write declarations include shared uploads published after
-join, so unrelated prepared readers cannot silently see old parameters.
-
-## The virtual-geometry fork grain
-
-**A region that never forks proves nothing about the forked path.** All three
-`VirtualGeometryPass` regions size themselves `clamp(instanceCount / 32, 1,
-MAX_RENDER_WORKERS)`, so they run inline below 64 virtual-mesh instances.
-`VirtualGeometryTest.olo` has 15 and `VirtualGeometryStress.olo` has 24, and no
-test drives the pass — so until `VirtualGeometryParallelRecording.olo` (96
-instances) every authored scene exercised the inline path only. The row above
-says "Implemented" because the conversion is written and reviewed, not because a
-capture had run through it. Use that scene when touching this pass: it reports
-three regions at `parallel=true`, three items each, 13 secondaries, zero conflicts.
-
-## Existing Vulkan limitations encountered during validation
-
-**Resolved.** `VirtualGeometryTest.olo`'s Vulkan helmet captures were empty on
-#1066's base, which predated [PR #1062](https://github.com/drsnuggles8/OloEngineBase/pull/1062)
-(missing raw geometry upload/index-buffer paths, #1052) and
-[#1058](https://github.com/drsnuggles8/OloEngineBase/issues/1058) (mesh-task
-snapshot/device fault). Both landed after that merge, and the deferred evidence
-has since been taken: the helmets render on Vulkan, and off/on recording produces
-byte-identical frames. See the [measurements and evidence report](../analysis/vulkan-parallel-recording-1013.md).
-
-**Resolved ([#1172](https://github.com/drsnuggles8/OloEngineBase/issues/1172)).**
-The compressed terrain VT array path used to be unsupported by the Vulkan
-factory, which refused every block-compressed array outright; the VT then failed
-its own validity guard, disabled itself, and the terrain drew on the splat path.
-That is why #1066's Vulkan checks used an in-memory `VTCompressedCache=false`
-and still reported zero resident tiles and `readyForShading=false` — the
-ready-cache branch had never run on Vulkan. BC7 arrays are created now (they
-take neither colour-attachment nor storage usage, and never needed to), and
-`TerrainVirtualTextureTest.olo` reports `readyForShading=true`,
-`cacheCompressed=true` and 100 resident compressed tiles on Vulkan against 205
-on OpenGL. The separate water-array fix supplies required storage usage for
-supported linear color formats and has a four-format descriptor test.
-
-The authored SnowfallParticles sample produced no visible billboards in either
-Vulkan recording mode, including Release. **The cause is now narrowed and it is
-not recording:** at an identical camera pose and scene, OpenGL draws the snow
-(thousands of lit billboard pixels) and Vulkan draws none, with `ParticlePass`
-present and un-culled in the Vulkan frame breakdown and the editor ticking. It is
-a backend defect in the billboard path, independent of `OLO_VK_PARALLEL_RECORDING`,
-tracked by [#1171](https://github.com/drsnuggles8/OloEngineBase/issues/1171). The authored camera also does not frame the emitter (it sits at
-y = 25 with 0.04-unit particles), so reproduce it from above before concluding
-anything. Billboard batching is unchanged here. The
-modified mesh-particle path is covered separately by the real-device off/on
-readback and three-angle OpenGL scene test above.
-
-## Validation and timing
-
-The final Release heavy-scene recording blocks improve consistently; the normal
-scene exposes a small recording overhead. The shared host prevents a reliable
-end-to-end FPS speedup claim. See the [measurements and evidence report](../analysis/vulkan-parallel-recording-1013.md)
-for the interleaved blocks, untouched pass control, optional fork-cost probe,
-attachment comparisons and validation limits. Linux TSan is a PR completion gate.
+Full text, with the failures that taught these rules, the measurements and the derivations:
+[vulkan-parallel-pass-audit-details.md](vulkan-parallel-pass-audit-details.md).
