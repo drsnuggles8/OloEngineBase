@@ -47,7 +47,7 @@ Detects `std::memcmp` (or equivalents) used to compare objects whose type is not
 
 ### Why it's a false positive here
 
-The 21 hits are *all* at the single helper `Math::BitwiseEqual`, called from the editor's `DrawComponent<T>` undo/redo machinery documented in [CLAUDE.md](../../CLAUDE.md#editor-undo-for-components). The pattern is:
+The 21 hits are *all* at the single helper `Math::BitwiseEqual`, called from the editor's `DrawComponent<T>` undo/redo machinery documented in [.claude/rules/ecs-components.md](../../.claude/rules/ecs-components.md), under *Editor undo*. The pattern is:
 
 ```cpp
 // In Math/Math.h

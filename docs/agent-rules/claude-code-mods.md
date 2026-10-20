@@ -56,12 +56,25 @@ The folder is a plugin marketplace that is read in place, so an edit or a pull r
 `/reload-plugins` with no reinstall. Once per machine, from the root of the base checkout (the main
 one, not a worktree: worktrees come and go):
 
-```text
+```powershell
 claude plugin marketplace add ./.claude/mods
+foreach ($m in 'olo-output-truth','olo-command-guards','olo-read-gates','olo-evidence','olo-known-traps','olo-context-saver','olo-fleet') {
+    claude plugin install "$m@olo-mods" --scope user
+}
 ```
 
-Then, in a terminal Claude Code session, `/plugin install olo-output-truth@olo-mods`, and the same
-for each other mod, at the user scope.
+Then `/reload-plugins` in every open session (or restart it).
+
+**Nothing in the repo turns them on, so verify they are loaded.** `/plugin` lists them as active;
+an agent checks with the positive control from task-loop Phase 0: a pipe into
+`Set-Content -NoNewline` on a scratch file must be refused by `olo-command-guards`. On the
+maintainer box the mods were never installed after they landed (2026-10-10): for ten days no guard
+in this file ran while the docs described them as enforcing, and only a probe that should have been
+refused, and was not, showed it.
+
+The mods run inside subagents as well as the main session: a refusal and an `olo-output-truth`
+annotation both reached an Agent-tool subagent (verified 2026-10-20), so the task loop's subagents
+are covered by the same guards.
 
 ## What the VS Code extension shows
 
