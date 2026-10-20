@@ -125,24 +125,27 @@ OloEditor/cmake_test_discovery_*.json
 # Per-user Claude Code state (project-local instructions, skills, agents)
 # Ignore the entire .claude/ tree except the shared, version-controlled things:
 #   settings.json            — project hooks/permissions config
-#   skills/                  — project skills that ship helper scripts (e.g. run-oloengine)
-#   commands/                — the workflow slash commands (/start-work, /cleanup-worktree,
-#                              /resume-worktrees). These are versioned WITH the repo because
-#                              they reference repo content (scripts/issue_scores.py,
-#                              docs/process/*, CLAUDE.md) that would otherwise drift.
+#   skills/                  — project skills: run-oloengine and the workflow skills
+#                              (/start-work, /cleanup-worktree, /resume-worktrees). Versioned WITH
+#                              the repo because they reference repo content
+#                              (scripts/issue_scores.py, docs/process/*, CLAUDE.md).
+#   rules/                   — path-scoped instructions that load when a matching file is touched
+#                              (the per-subsystem half of CLAUDE.md).
+#   agents/                  — the task loop's subagents (ci-triage, spec-reviewer, ...).
 #   .markdownlint-cli2.jsonc — directory-scoped lint overrides for the front-matter files
-#                              under commands/ and skills/ (see the repo-root config).
+#                              under skills/, rules/ and agents/ (see the repo-root config).
 # Each skill's own .gitignore handles its generated artifacts (screenshots/logs).
 .claude/*
 !.claude/settings.json
 !.claude/skills/
-!.claude/commands/
+!.claude/rules/
+!.claude/agents/
 # The hook scripts settings.json points at. This exception is load-bearing: without it
 # the files exist locally, everything works on this machine, and the repo silently ships
 # a settings.json referencing scripts nobody else has.
 !.claude/hooks/
-# Helper scripts the commands under .claude/commands/ invoke by path. Same reasoning as
-# hooks/: without this the command files reference scripts that exist only on this machine.
+# Helper scripts the skills invoke by path. Same reasoning as hooks/: without this the
+# skills reference scripts that exist only on this machine.
 !.claude/scripts/
 # Claude Code mods (function-hook plugins) that hold the repo's rules in the agent loop.
 # See docs/agent-rules/claude-code-mods.md. The engine writes each mod's API typings and a
