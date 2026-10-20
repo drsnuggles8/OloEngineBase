@@ -1,188 +1,30 @@
 # Every lit-surface term has one owner, and every signal says what it stores
 
-Issue #1336. Code: `Renderer/LightingSignalContract.h` (who owns each term, resolved per frame),
-`include/PBRCommon.glsl` (`oloComposeReflectedLighting`, `oloComposeSurfaceRadiance`,
-`oloNormalizedIrradiance`), `include/AmbientLadder.glsl` (the one ambient ladder). Tests:
-`LightingSignalContractTest` (every configuration), `LightingSignalContractGpuTest` (the production
-composition and ladder against physics-derived answers), `LightingSignalCompositionEvidenceTest`
-(enable/disable on the real deferred pipeline).
+Issue #1336. Read before adding or changing any lighting term, ambient/indirect technique, AO or shadow multiplication, or a buffer that carries light. Code: `Renderer/LightingSignalContract.h`, `include/PBRCommon.glsl` (`oloComposeReflectedLighting`, `oloComposeSurfaceRadiance`, `oloNormalizedIrradiance`), `include/AmbientLadder.glsl`. Tests: `LightingSignalContractTest`, `LightingSignalContractGpuTest`, `LightingSignalCompositionEvidenceTest`.
 
-## The rules
+## Rules
 
-1. **A term has one owner, a light partition, or a confidence mixture — never two additive
-   estimates.** A second estimator of a term *replaces* the first over the part it answers for. A
-   double count looks like plausible light, and a still frame cannot show it.
-2. **Every hand-off names its quantity**, from `LightingSignalKind`: radiance *L*; normalized
-   irradiance *E/π*; irradiance *E*; contribution (*f·L·cos*, already BRDF-weighted); visibility;
-   confidence. *E* becomes *E/π* in exactly one place, `oloNormalizedIrradiance`.
-3. **A visibility multiplies only the term it was computed for.**
-   - Material and screen-space AO multiply the ambient term.
-   - A light's shadow map, RT mask, cloud shadow and contact shadow multiply that light.
-   - Emission is never occluded.
-   - A traced tier (ReSTIR GI or PT) is never multiplied by AO.
-4. **Raster paths compose through `oloComposeReflectedLighting` then `oloComposeSurfaceRadiance`**,
-   so what multiplies what is written down once.
+1. **Give every term one owner, a light partition, or a confidence mixture; never two additive estimates.** A second estimator replaces the first over the part it answers for. A double count looks like plausible light and a still frame cannot show it. Ownership is resolved by `ResolveLightingSignalOwnership`; `LightingSignalContractTest` walks every path and live technique. [Details](lighting-signal-contract-details.md#the-rules)
+2. **Name the quantity at every hand-off, from `LightingSignalKind`.** Radiance *L*; normalized irradiance *E/pi*; irradiance *E*; contribution (*f.L.cos*); visibility; confidence. *E* becomes *E/pi* in exactly one place, `oloNormalizedIrradiance`; document what a buffer stores in its producer's header comment. [Details](lighting-signal-contract-details.md#what-each-signal-stores)
+3. **Multiply a visibility only into the term it was computed for.** Material and screen-space AO go on ambient; a light's shadow map, RT mask, cloud shadow and contact shadow go on that light; emission is never occluded; a traced tier (ReSTIR GI or PT) is never multiplied by AO. [Details](lighting-signal-contract-details.md#the-rules)
+4. **Compose raster paths through `oloComposeReflectedLighting` then `oloComposeSurfaceRadiance`.** Do not keep a private copy of the ambient ladder; call `evaluateAmbientLadderSplitEx`. Forward terrain, voxel terrain and foliage use the shared ladder via `u_TerrainAmbientLadder` and `u_LeafIds.w`. [Details](lighting-signal-contract-details.md#what-1336-found-and-fixed)
+5. **Convert *E* to *E/pi* for lightmap and DDGI/probe volume values before the ladder.** The ladder computes `kD.X.albedo`, Lambertian only for *X = E/pi*; the IBL cube stores *E/pi*, lightmaps (atlas, RT5) and probe volume store *E*. [Details](lighting-signal-contract-details.md#what-1336-found-and-fixed)
+6. **Do not let ReSTIR GI own specular, and keep ReSTIR PT outside the diffuse split.** GI radiance is contribution, diffuse lobe only (no AO); PT is both lobes, added outside the split so diffusion does not blur its specular. Hybrid tiers own nothing without a G-Buffer. [Details](lighting-signal-contract-details.md#what-each-signal-stores)
+7. **Make skin pixels decline ReSTIR DI and keep the light loop.** DI has no skin lobe, tint or diffusion. DI stands down on `ReSTIRDIFallbackReason::LightsBeyondShaderBound`; emissive triangles past the encodable index are counted in `EmittersBeyondEncodableIndex`. [Details](lighting-signal-contract-details.md#what-1336-found-and-fixed)
+8. **Make SSGI a signed delta against the ladder, not an addition.** It re-selects the ladder's diffuse rung at the receiver with the same function and AO: `kD.albedo.Sum(w).L/N - (Sum(w)/N).ladder`; a miss contributes nothing. The furnace case in `LightingSignalCompositionEvidenceTest` pins it. [Details](lighting-signal-contract-details.md#what-1336-found-and-fixed)
+9. **Apply contact shadow inside the light loop to Lights[0]'s visibility, and AO to the ambient split in DeferredLighting.** The post passes (`AOApply`, contact shadow) keep only the debug view. [Details](lighting-signal-contract-details.md#what-1336-found-and-fixed)
+10. **Keep Forward/Deferred parity.** Forward and ray-tier surfaces take the deferred roughness floor (ray tiers its wetness too); RT-reflection sun term has 1/pi; ReSTIR PT sky is `uniform + cube`; RT shadows must not write 0 for back-facing pixels (erases transmission); forward terrain AO must not darken direct light. See [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md). [Details](lighting-signal-contract-details.md#what-1336-found-and-fixed)
+11. **Keep the groom environment term single-converted.** The cube is already *E/pi*; dividing again by pi (#1450) made coats pi too dark, and the sky's IBL intensity must apply. `GroomEnvironmentFurnaceTest` pins both. [Details](lighting-signal-contract-details.md#fixed-since)
+12. **Do not change legacy split-sum specular (`F_roughness.A + B`).** It moves every Legacy pixel; ClosureV2 is the corrected closure (ADR 0016). Raster samples the mip chain, the reference tracer level 0 (ADR 0022). [Details](lighting-signal-contract-details.md#declared-approximations-kept-on-purpose)
+13. **Treat #1325 as open.** RT reflections and SSR still `mix()` over the whole lit colour; replacing only specular needs the old specular as its own signal. Media (fog, volumetrics) applies after surface composition, reflections included. [Details](lighting-signal-contract-details.md#owned-elsewhere-or-counted)
+14. **Apply forward screen-space AO to the ambient term inside the composing shader (#1452).** `SelectScreenSpaceAOApplication` answers `AmbientTermInLighting` on every path; `PostProcess_SSAOApply` runs only for the AO debug view. [Details](lighting-signal-contract-details.md#forward-screen-space-ao-1452)
+15. **Keep the forward graph order: `ScenePrepassPass`, `GPUDrivenOcclusionPrepassPass`, `FoliagePrepassPass` (#1474), SSAO or GTAO and sphere proxies, then ScenePass colour.** With AO live, force the prepass on; it writes the view normal to scene attachment 2 through `DepthNormalPrepass*.glsl` using `include/ForwardShadingNormal.glsl`. [Details](lighting-signal-contract-details.md#forward-screen-space-ao-1452)
+16. **Let a surface read AO only if the prepass drew it.** PBR (static and skinned), terrain, voxel terrain and foliage do; blended PBR (`u_AlphaMode == 2`), water and groom strands take none (on Deferred too), and unlit writers (skybox, light cubes, grid, particles, decals, fluid) apply nothing. `CommandDispatch` publishes AO and `ForwardAODepth` at `TEX_SSAO` / `TEX_POSTPROCESS_DEPTH` and ScenePass republishes right before colour draws (Forward+ culling rebinds slot 19); `ScreenSpaceAOParams` starts every frame not live; a mirrored replay suspends them. [Details](lighting-signal-contract-details.md#forward-screen-space-ao-1452)
+17. **Make a prepass twin carve its colour program's exact coverage.** Foliage twins (`Foliage_Instance_DepthNormal`, `Foliage_Impostor_DepthNormal`) include the colour program's vertex stage (`invariant gl_Position`) and repeat its discards exactly, not the G-Buffer twin's 0.3 cut or density dither. `AOFoliageParityTest` catches pixels brightening when AO turns on. [Details](lighting-signal-contract-details.md#forward-screen-space-ao-1452)
+18. **Treat snow as a material layer, defined only in `include/SnowLayer.glsl`.** The covered fraction blends albedo, roughness, metallic, AO and emission before lighting; sparkle is a directional-light specular lobe gated by that light's visibility; subsurface hands `(diffuse, -weight)` to scene attachment 4 and `SSSPass` adds `strength * (blur - diffuse)`. Deferred carries the weight in G-Buffer RT3.a and the snow-filled normal in RT1. Scene alpha is not a snow channel (#1451). [Details](lighting-signal-contract-details.md#snow-is-a-material-layer-1451)
+19. **Add a new technique in four steps.** Add it to `LightingEstimator` and `ResolveLightingSignalOwnership`; document what its buffer stores; compose via the two PBRCommon functions or state why not; add an enable/disable case where the correct answer is zero change (white furnace, emission-only scene, or no light source for the term). [Details](lighting-signal-contract-details.md#how-to-add-a-technique)
 
-## Ownership (from `ResolveLightingSignalOwnership`)
+---
 
-| Term | Owner(s) | How they combine |
-|---|---|---|
-| Direct diffuse/specular | loop (directional) + tiles (punctual) on Forward+/Deferred; loop alone on Forward; loop + **ReSTIR DI** when DI is live | partitioned by light, and by pixel: a skin pixel declines DI |
-| Indirect diffuse | **ambient ladder**; or ladder + **SSGI**; or **ReSTIR GI**; or **ReSTIR PT** | exclusive, except SSGI, which replaces the ladder over the directions it resolved |
-| Indirect specular | probe/IBL bottom tier + RT reflection + SSR (ADR 0020); or **ReSTIR PT** | confidence mixture |
-| Emission | the surface | added once |
-| Transmission | leaf / skin lobes | added once, gated per light by that light's visibility |
-
-`LightingSignalContractTest` walks every combination of path and live technique, and asserts:
-- every term has an owner;
-- two owners are only ever a declared partition or mixture;
-- ReSTIR GI never owns specular;
-- hybrid tiers own nothing without a G-Buffer.
-
-## What each signal stores
-
-| Signal | Stores | Consumed by |
-|---|---|---|
-| IBL irradiance cube | *E/π* | ladder IBL rung; groom environment term, as the sky's average radiance *L* (`oloGroomFibreEnvironmentRadiance`) |
-| Lightmap (atlas, G-Buffer RT5) | *E* + coverage | ladder rung 1, via `oloNormalizedIrradiance` |
-| Probe volume (`sampleProbeVolumeIrradiance`) | *E*: baked SH through `evaluateSHCosineIrradiance`, DDGI atlas | ladder rung 2 via the conversion; ReSTIR GI bounce ÷π |
-| ReSTIR DI radiance | contribution, both lobes, combined | deferred, outside the split |
-| ReSTIR GI radiance | contribution, **diffuse lobe only** | deferred diffuse half, no AO |
-| ReSTIR PT radiance | contribution, both lobes | deferred, outside the split |
-| SSGI signal | **signed** contribution delta against the ladder | SSGI composite (`base + delta`) |
-| AO buffer | visibility (ambient) | DeferredLighting; forward: every lit forward shader, through `include/ForwardScreenSpaceAO.glsl` (#1452) |
-| Contact shadow | visibility (Lights[0]) | DeferredLighting's loop |
-| Reflection probe sample | radiance + confidence | mixed over the prefilter, before the DFG weight |
-
-## What #1336 found and fixed
-
-Each of these was a local choice that looked right.
-- **DDGI and lightmaps were π× too bright.** The ladder's helpers compute `kD·X·albedo`, which is
-  Lambertian only for *X = E/π*. The IBL cube stores that; the lightmap and DDGI store *E* and went
-  in raw. Baked SH evaluated radiance, not irradiance. The old notes called SH "π too dark" and never
-  noticed the other two were π too bright.
-- **Screen-space AO multiplied the finished frame**: direct light, emission, transmission, and the
-  ReSTIR GI term its own comment says AO must not touch. On Deferred the AO buffer exists before
-  lighting, so DeferredLighting now applies it to the ambient split. AOApply runs there only for the
-  debug view.
-- **Contact shadows multiplied the finished frame** after SSR. They now multiply Lights[0]'s visibility
-  inside the loop; the post pass keeps only the debug view.
-- **SSGI added on top of the ladder.** The ladder had already counted the sky behind every wall that
-  SSGI's rays hit. SSGI now re-selects the ladder's diffuse rung at the receiver, using the same
-  function and AO. It emits `kD·albedo·Σw·L/N − (Σw/N)·ladder`, which is signed, and a miss
-  contributes nothing. The furnace case in `LightingSignalCompositionEvidenceTest` pins this: walls
-  that leave exactly the ladder's assumed radiance must not change the floor.
-- **ReSTIR GI evaluated the full closure** while the reflection tiers kept indirect specular, so
-  glossy light was counted twice. It now evaluates the diffuse half.
-- **The deferred pass kept its own copy of the ladder.** It now calls `evaluateAmbientLadderSplitEx`.
-- **Parity**:
-  - Forward and ray-tier surfaces now take the deferred roughness floor, and the ray tiers take its
-    wetness too.
-  - The RT-reflection hit's sun term gained its 1/π.
-  - ReSTIR PT's sky is now `uniform + cube`, as the oracle's is.
-  - RT shadows no longer write 0 for back-facing pixels, which had erased transmission.
-  - Forward terrain AO no longer darkens direct light.
-- **Forward terrain, voxel terrain and foliage kept their own ambient math** (a flat fill, no IBL or
-  probes). They now call the shared ladder, with the controls in `u_TerrainAmbientLadder` and
-  `u_LeafIds.w`. Voxel terrain had also been uploading no terrain UBO of its own.
-- **Skin pixels took ReSTIR DI's light**, which has no skin lobe, tint or diffusion. They now decline
-  DI and keep the light loop.
-- **ReSTIR PT's value was filed as diffuse**, so the diffusion pass blurred its specular. It is now
-  added outside the split.
-
-## Fixed since
-
-- **#1450: the groom's environment term** divided the (already *E/π*) irradiance cube by π again,
-  so every coat read π too dark beside a Lambertian surface under the same sky. It also ignored the
-  sky's IBL intensity. `GroomEnvironmentFurnaceTest` pins both against all three cube producers.
-- **#1457: Deferred shaded a point light differently from Forward.** The evaluators always agreed
-  (`PointLightEvaluatorParityGpuTest`); the gap was Forward's screen-space AO, applied to the
-  composed colour and so darkening direct light too. #1452 applies it to the ambient term on every
-  path. See [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md).
-
-## Declared approximations (kept on purpose)
-
-- **Legacy split-sum specular uses `F_roughness·A + B`.** Changing it moves every Legacy pixel;
-  ClosureV2 is the corrected closure (ADR 0016).
-- **SSGI takes the ladder's radiance as uniform over directions** (the rung's *E/π*). It is exact for
-  a uniform field.
-- **Raster samples the mip chain; the reference tracer uses level 0** (ADR 0022). Hybrid hit shading
-  uses material factors (#805, #1355).
-
-## Owned elsewhere, or counted
-
-- **#1325**: RT reflections and SSR still `mix()` over the whole lit colour. Replacing only the
-  specular term needs the old specular as its own signal.
-- **ReSTIR DI** stands down when a live light sits past its shader slot bound
-  (`ReSTIRDIFallbackReason::LightsBeyondShaderBound`). While DI is live the deferred pass skips the
-  clustered tiles, so that light would otherwise light nothing. Two light sources are still unlit,
-  and both are accepted:
-  - emissive triangles past the encodable index, counted in `EmittersBeyondEncodableIndex`. The
-    raster paths never light from emissive geometry at all, so this is no worse than DI off.
-  - emissive-geometry light on skin pixels, now that skin declines the tier.
-- **Media** (fog, volumetrics) is applied after surface composition, to reflections included, and
-  the reference tracer has none.
-
-## Forward screen-space AO (#1452)
-
-Forward and Forward+ apply screen-space AO the way Deferred does: to the ambient term, inside the
-shader that composes it. `SelectScreenSpaceAOApplication` answers `AmbientTermInLighting` on every
-path, and `PostProcess_SSAOApply` runs only for the AO debug view.
-
-- **The prepass is its own node.** `ScenePrepassPass` clears, batches and runs ScenePass's bucket
-  depth-only. With a forward AO buffer produced, it also writes the view normal of scene attachment 2
-  through `DepthNormalPrepass*.glsl`, which call the colour pass's own normal function
-  (`include/ForwardShadingNormal.glsl`). With AO live the prepass is forced on even where the
-  settings leave it off.
-- **The order is prepass, AO, colour.** The graph runs `ScenePrepassPass`, then
-  `GPUDrivenOcclusionPrepassPass` (the HZB-culled instances' share), then `FoliagePrepassPass`
-  (foliage's share, #1474), then SSAO or GTAO and the sphere proxies, then ScenePass's colour half.
-- **A surface reads it only if the prepass drew it.** That is PBR (static and skinned), terrain,
-  voxel terrain and foliage. `CommandDispatch` publishes the AO buffer and `ForwardAODepth` (the prepass
-  depth, copied once) at `TEX_SSAO` / `TEX_POSTPROCESS_DEPTH`, and ScenePass republishes them last,
-  right before its colour draws (Forward+ light culling rebinds slot 19 in between). The camera
-  block's `ScreenSpaceAOParams` says whether they are live; it starts every frame not live. A
-  mirrored replay (planar reflection) suspends them.
-- **Anything not in the prepass takes none,** because at its pixels the AO buffer holds the occlusion
-  of the surface behind it: blended PBR (`u_AlphaMode == 2`), water and groom strands. On Deferred,
-  water, groom and transparents take none either.
-- **A prepass twin must carve its colour program's exact coverage.** Foliage draws in the prepass
-  through `Foliage_Instance_DepthNormal` / `Foliage_Impostor_DepthNormal` (swapped in by
-  `DrawFoliageLayer`), and the colour programs re-test that depth at `GL_LEQUAL`. So each twin
-  includes its colour program's vertex stage, which declares `invariant gl_Position`, and repeats
-  its discards exactly: the forward rule, not the G-Buffer twin's 0.3 cut or density dither. A
-  twin that discards differently loses leaf fragments in colour, which shows as pixels that get
-  brighter when AO turns on (`AOFoliageParityTest`).
-- **Unlit writers have no ambient term, so they apply nothing.** These are skybox, light cubes, grid,
-  particles, decals and fluid. There are 18 scene-framebuffer writers, not ~45.
-
-## Snow is a material layer (#1451)
-
-Snow adds no second estimate of any term. `include/SnowLayer.glsl` is the one definition, and every
-path uses it:
-
-- **The covered fraction blends the material** (albedo, roughness, metallic, AO, emission) before
-  lighting. The ordinary closure then lights snow with shadows, every light, the ambient ladder and
-  screen-space AO. The old overlay mixed in a second snow BRDF that ignored shadows and used a flat
-  0.15 x albedo ambient.
-- **Sparkle is a specular lobe of the directional lights**, gated by each light's own visibility.
-  Directional lights are used because every path evaluates them in its loop.
-- **Subsurface is the blur of the diffuse half.** Snow pixels hand `(diffuse, -weight)` to scene
-  attachment 4. `SSSPass` adds `strength * (blur - diffuse)` into scene colour before the
-  transparents. Scene alpha is not a snow channel.
-- **Deferred carries the weight in G-Buffer RT3.a** and the snow-filled normal in RT1.
-  `DeferredLighting` rebuilds the shading normal and adds the sparkle with the same functions.
-
-| Signal | Stores | Consumed by |
-|---|---|---|
-| Hand-off `.a < 0` (scene attachment 4) | snow weight, negated | `SSS_Blur.glsl`; read as "no profile" by skin diffusion |
-| G-Buffer RT3.a / scene attachment 3 `.a` | snow weight (the material profile) | DeferredLighting; TAA reactivity |
-
-## How to add a technique
-
-1. Add it to `LightingEstimator` and to `ResolveLightingSignalOwnership`, with its composition.
-2. Decide what its buffer stores, and write that down in its producer's header comment.
-3. Compose it through the two PBRCommon functions, or state why it cannot.
-4. Add an enable/disable case where the correct answer is **zero change**. A white furnace, an
-   emission-only scene or a scene without the term's light source makes a double count read as a
-   number, not an opinion.
+Full text, with the failures that taught these rules, the measurements and the derivations:
+[lighting-signal-contract-details.md](lighting-signal-contract-details.md).

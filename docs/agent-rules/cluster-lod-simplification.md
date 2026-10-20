@@ -1,170 +1,34 @@
 # Cluster-LOD DAG simplification (VirtualMeshBuilder)
 
-Hard-won specifics about `Renderer/VirtualGeometry/VirtualMeshBuilder.cpp` and the meshoptimizer
-simplifier underneath it. From issues #629, #651 and #685.
+Specifics of `Renderer/VirtualGeometry/VirtualMeshBuilder.cpp` and the meshoptimizer simplifier underneath it (issues #629, #651, #685). Read before changing simplification, group locking, or the cook.
+
+## Rules
+
+1. **Keep a terminal group's boundary locked for the whole build.** The per-level lock is recomputed from the pending set, so once a group goes terminal (`FLT_MAX` error) its seam with still-simplifying neighbours is invisible and the coarse cuts crack. Use the build-lifetime frozen-position set marked before `EmitGroup` consumes member geometry, OR-ed into per-level locks (`FreezeTerminalGroupBoundary`). A constraint created by an absorbing state must outlive the iteration that created it. [Details](cluster-lod-simplification-details.md#1-a-terminal-groups-boundary-must-stay-locked-for-the-whole-build)
+2. **Assert the fixture contains both terminal and simplified groups before asserting watertightness.** Otherwise the test is vacuous; also sample many thresholds, since only coarse cuts break. [Details](cluster-lod-simplification-details.md#1-a-terminal-groups-boundary-must-stay-locked-for-the-whole-build)
+3. **Use `meshopt_SimplifyPermissive`, not position welding, for wedge-heavy sources.** A position with more than two attribute wedges is `Kind_Locked` in meshoptimizer (`classifyVertices`); Assimp `aiProcess_GenNormals` splits every vertex, so nothing collapses and the DAG flattens silently (#651). Permissive preserves UV seams via `meshopt_SimplifyVertex_Protect`; welding closes them. Cook cost is roughly neutral (Sponza +4.3%, dragon parity). [Details](cluster-lod-simplification-details.md#2-meshopt_simplifypermissive-vs-position-welding-same-cure-different-cost-and-fidelity)
+4. **Protect UVs only, compare attributes bit-exactly.** Mirror `clodMesh::attribute_protect_mask`: mark a vertex whose protected attributes differ from its canonical same-position representative. Normal wedges are what flat shading produces everywhere; `!=` would flag every NaN UV. [Details](cluster-lod-simplification-details.md#2-meshopt_simplifypermissive-vs-position-welding-same-cure-different-cost-and-fidelity)
+5. **Do not invent mechanisms from the synthetic benchmark.** The flat-normal grid shows +61.5% but the real 7.2M-triangle dragon is parity; if a stand-in disagrees with the asset by 60 points the stand-in is wrong. Match n, compare distributions per side, and discard the first run (cold cache). [Details](cluster-lod-simplification-details.md#2-meshopt_simplifypermissive-vs-position-welding-same-cure-different-cost-and-fidelity)
+6. **Combine permissive with explicit locks freely.** In `classifyVertices` the permissive promotion runs before the `vertex_lock & meshopt_SimplifyVertex_Lock` pass, so explicit locks win. [Details](cluster-lod-simplification-details.md#2-meshopt_simplifypermissive-vs-position-welding-same-cure-different-cost-and-fidelity)
+7. **Do not use `meshopt_simplifyWithUpdate`.** It rewrites positions and attributes in place, and a `VirtualMesh` shares one vertex array across all LOD levels, so it would rewrite LOD-0 under leaf clusters and move locked boundaries. [Details](cluster-lod-simplification-details.md#3-meshopt_simplifywithupdate-is-unusable-while-one-vertex-array-serves-every-lod-level)
+8. **Validate `meshopt_simplifySloppy` results before accepting them.** It does not preserve topology: require edge-manifold and exactly the group's original border edges. It has no absolute-error mode: scale its relative error by `meshopt_simplifyScale` over the deindexed subset and amplify (reference default x2). Locked vertices survive it. [Details](cluster-lod-simplification-details.md#4-meshopt_simplifysloppy-does-not-preserve-topology--guard-it-or-skip-it)
+9. **Test for a terminal group with `>= std::numeric_limits<f32>::max()`, never `!std::isfinite`.** `FLT_MAX` is finite; an `isfinite` filter makes the coarsest-cut threshold `FLT_MAX`, `Error > threshold` selects nothing, and consumers get a valid empty answer (#1144: all 25 Sponza parts reported "no proxy"). `ProjectError` already does this right. [Details](cluster-lod-simplification-details.md#5b-terminal-groups-are-marked-flt_max-and-flt_max-is-finite)
+10. **Switch to Deferred before reading virtual-geometry counters.** Virtual geometry only submits on the Deferred path and the editor starts on Forward, so every counter reads zero: `olo_renderer_settings_set { setting: 'renderpath', value: 'deferred' }`. `VirtualGeometrySponza.olo` works on a clean checkout (1 submitted, 25 instances, 5018 clusters); for the builder in isolation use `VirtualMeshBuilder::BuildSet` via `VirtualMeshRealAssetCookTest`. [Details](cluster-lod-simplification-details.md#5-measuring-a-builder-change)
+11. **Instrument both sides of an A/B.** Stash the change selectively, leaving instrumentation applied to both. [Details](cluster-lod-simplification-details.md#5-measuring-a-builder-change)
+12. **Do not delete or repoint the `xyzrgb_dragon.ply` registry entry.** It is fetch-on-demand (137 MB, 7.2M triangles) per `scripts/assets/asset-manifest.json`, fetched with `scripts/Fetch-Assets.ps1 -Name xyzrgb-dragon`; `AssetContentValidityTest` allowlists it on purpose and `VirtualGeometryStress.olo` places 24 of them. Check the manifest before calling a registry entry dead. [Details](cluster-lod-simplification-details.md#5-measuring-a-builder-change)
+13. **Revert `AssetRegistry.oar` and any patched `.oloproj` after an editor run.** The editor rewrites the registry as a side effect. [Details](cluster-lod-simplification-details.md#5-measuring-a-builder-change)
+14. **Bump `kVirtualMeshBuilderVersion` when geometry changes, and mix every new `VirtualMeshBuildConfig` field into `CurrentCookFingerprint()`.** Together they reject a stale `.omesh`. [Details](cluster-lod-simplification-details.md#5-measuring-a-builder-change)
+
+## Commands and checks
+
+```
+scripts/Fetch-Assets.ps1 -Name xyzrgb-dragon
+olo_renderer_settings_set { setting: 'renderpath', value: 'deferred' }
+```
+
+Fetch the dragon stress asset on demand; switch the render path before reading virtual-geometry counters.
 
 ---
 
-## 1. A terminal group's boundary must stay locked for the WHOLE build
-
-**The bug archetype.** The builder locks vertices shared between partitions before simplifying each
-group — that is what makes LOD cuts watertight. That lock is recomputed per level from the
-**pending** cluster set. A group that goes *terminal* (simplification stuck ⇒ `FLT_MAX` error) has
-its clusters emitted and removed from `pending` — so from the next level on, the lock pass cannot
-see the boundary that group shares with its still-simplifying neighbours. Those neighbours then
-simplify away from a boundary that is **pinned forever** (a terminal group is selected at every
-threshold and never refined away), and the cut cracks along that seam.
-
-**Why it hides.** It only manifests when a terminal group is adjacent to a group that *does*
-simplify. If every group simplifies (the common case) or every group is stuck (a tiny mesh), the
-mix never occurs. It also only breaks the **coarse** cuts — fine cuts still select both sides at
-the same level — so a test that samples only a couple of thresholds sails past it.
-
-**The fix shape.** A build-lifetime frozen-position set, marked *before* `EmitGroup` consumes the
-member geometry, OR-ed into the per-level locks (`FreezeTerminalGroupBoundary`). The general rule:
-**a constraint created by a terminal/absorbing state has to outlive the iteration that created
-it** — recomputing it per level from the live set is structurally wrong, not just incomplete.
-
-**Testing it needs a fixture sanity assert.** A test for this is vacuous unless the DAG really
-contains *both* terminal and simplified groups; assert that before asserting watertightness, or a
-future config change silently turns the test into a no-op.
-
----
-
-## 2. `meshopt_SimplifyPermissive` vs. position-welding: same cure, different cost and fidelity
-
-meshoptimizer classifies a position carrying **more than two attribute wedges** as `Kind_Locked`
-and never collapses it (`simplifier.cpp`, `classifyVertices`: *"more than one vertex maps to this
-one; we don't have classification available"*). That is exactly what Assimp produces for any source
-without normals — `aiProcess_GenNormals` splits every shared vertex so each face gets its own flat
-normal, and `JoinIdenticalVertices` cannot re-merge them. Result: nothing collapses, every group
-goes terminal, the DAG flattens to one level, and virtual geometry renders full source density
-forever in the main view *and* every shadow cascade. Silent — the DAG passes every structural
-validation. That was #651.
-
-Two cures exist and they are **not** equivalent:
-
-| | position weld (pre-#685) | `meshopt_SimplifyPermissive` (#685) |
-|---|---|---|
-| un-sticks the soup | yes | yes |
-| UV seams on simplified levels | **welded shut** — canonical vertex's UV wins for the whole position | preserved, via `meshopt_SimplifyVertex_Protect` |
-| simplifier working set | canonical positions only | every wedge |
-| cook cost on real assets | — | neutral (+4.3 % Sponza, parity on the 7.2 M dragon) |
-
-On the real #651 asset the permissive path carries the whole build alone: 7.2 M triangles →
-17 DAG levels, 118 k clusters, path census `7205 permissive / 0 welded / 0 sloppy / 0 stuck`. The
-fallback rungs are insurance, not the working path.
-
-Measured on this repo (Debug, RTX 4090 box — see `VirtualMeshRealAssetCookTest`):
-
-| asset | weld (before) | permissive (after) | delta |
-|---|---|---|---|
-| Sponza — 262 k tris, 25 submeshes, mostly welded | 1090.8 ms (n=5) | 1137.3 ms (n=5) | **+4.3 %** |
-| xyzrgb_dragon — 7.2 M tris, the real #651 shape | 113–135 s (n=4) | 113–115 s (n=4) | **parity, within noise** |
-| flat-normal grid — 131 k tris, 393 k split verts | 885.2 ms (n=5) | 1429.7 ms (n=5) | +61.5 % — **see below** |
-
-**Do not trust the synthetic row, and be careful inventing mechanisms from it.** A uniform,
-fully-split grid (every triangle owning its three vertices, 3× vertex blowup, trivial topology) is
-*not* what Assimp's `GenNormals` produces on a real scan, and it is the only fixture that shows a
-large regression. On the actual 7.2 M-triangle dragon — the wedge-heavy asset this whole issue
-lineage is about — permissive and weld cook in the same time. The tempting story that "the weld was
-secretly a 3× working-set optimisation" was built on the synthetic number and does not survive the
-real asset. Cook cost is roughly neutral; the trade you are actually making is fidelity, not speed.
-
-**Benchmarking discipline this cost us, twice:**
-- **Match your n.** A single-sample A/B on Sponza reported +10 % (real figure +4.3 %), and a
-  single-sample A/B on the dragon reported −19.5 % (real figure: parity). Both were one run landing
-  in a distribution tail.
-- **Distributions differ per side.** Sponza's baseline is tight (±0.7 %), the dragon's baseline
-  swings ±10 % while its permissive side is ±1 %. Comparing a median against a single sample from a
-  differently-shaped distribution is meaningless.
-- **Discard the first run.** The dragon's first baseline sample (135 s vs a 110–125 s body) was a
-  cold-file-cache/warmup outlier.
-- **Validate the proxy before trusting it.** If a synthetic stand-in and the real asset disagree by
-  60 points, the stand-in is wrong, not the asset.
-
-**Protect bits mirror `clodMesh::attribute_protect_mask`.** Mark a vertex whose *protected*
-attributes differ from its canonical same-position representative. Protect **UVs only** — a normal
-wedge is what flat shading produces everywhere, and decimated geometry wants smoothed normals.
-Compare the attributes **bit-exactly**: this is an identity question ("did the importer store the
-same UV here"), not a proximity one, and `!=` would flag every NaN UV as a seam since `NaN != NaN`.
-
-**Permissive cannot break group boundaries.** In `classifyVertices` the permissive promotion runs
-*before* the `vertex_lock & meshopt_SimplifyVertex_Lock` pass, so explicit locks always win. Safe
-to combine.
-
----
-
-## 3. `meshopt_simplifyWithUpdate` is unusable while one vertex array serves every LOD level
-
-It is the newest and highest-appearance-quality entry point, and it is a trap here: it updates
-vertex **positions and attributes in place** for an optimal fit. A `VirtualMesh` keeps a single
-vertex array shared by every level (simplification only ever removes indices, never adds
-vertices), so an in-place update would rewrite the LOD-0 geometry under the leaf clusters and move
-locked group boundaries. Using it needs per-level vertex copies and a new blob format.
-`clusterlod.h` does not use it either.
-
----
-
-## 4. `meshopt_simplifySloppy` does not preserve topology — guard it or skip it
-
-Sloppy merges vertices into grid cells. It un-sticks anything, but it can fold two surface sheets
-onto one edge or punch an interior hole, either of which breaks the watertight-cut invariant that
-`clodBuild` never promises and `VirtualMeshBuilderTest` does. If you take it as a fallback rung,
-validate the result before accepting it: still edge-manifold, and **exactly** the border edges the
-group started with (a new border edge is a hole; a missing one means the shared boundary moved).
-It has no absolute-error mode, so scale its relative error by `meshopt_simplifyScale` over the
-deindexed subset, and amplify (reference default ×2) for appearance degradation the quadric never
-saw. Locked vertices survive it — `computeVertexIds` gives each a unique id so it never merges.
-
----
-
-## 5b. Terminal groups are marked `FLT_MAX`, and `FLT_MAX` is finite
-
-**Test a group for terminal with `>= std::numeric_limits<f32>::max()`, never with
-`!std::isfinite`.** `VirtualLODBounds::Error` marks a terminal (coarsest) group with `FLT_MAX`,
-which is an ordinary finite float — `std::isfinite(FLT_MAX)` is `true`. `ProjectError` already gets
-this right; anything new that classifies group errors has to.
-
-The failure mode is silence, not a wrong number. Deriving a coarsest-cut threshold as "the largest
-finite group error" with an `isfinite` filter admits the terminal marker, so the threshold becomes
-`FLT_MAX`, and the cut rule's strict `Error > threshold` then selects **nothing**. Every downstream
-consumer is handed a valid, empty answer: in #1144 that meant every ray-tracing proxy came back
-invalid, all 25 Sponza parts reported "no proxy", and the feature looked fully wired while doing
-nothing. A CPU test over a real DAG catches it in a second; reading the code does not, because the
-line looks obviously correct.
-
-## 5. Measuring a builder change
-
-- **~~The cook is not reachable from a plain editor run.~~ CORRECTED 2026-08-21 (issue #864).**
-  This used to say `VirtualGeometrySponza.olo`'s `VirtualMeshComponent` handle "does not resolve in
-  a clean checkout". It does. Verified live over MCP on a clean worktree: the scene opens, registers
-  the mesh, and reports **1 enabled component → 1 submitted, 25 instances (Sponza's 25 submeshes),
-  5018 clusters**. `Sponza.gltf` and `Sponza.bin` are committed and have been since #629. Drive
-  `VirtualMeshBuilder::BuildSet` directly (`VirtualMeshRealAssetCookTest`) when you want the builder
-  in isolation — but not because the editor path is broken, because it isn't.
-
-  The reason this wrong claim survived: **virtual geometry only submits on the Deferred path**, and
-  the editor starts on Forward. Open a VG scene without switching the render path and every counter
-  reads zero — which looks exactly like an unresolvable handle. Switch first:
-  `olo_renderer_settings_set { setting: 'renderpath', value: 'deferred' }`.
-- **Instrument on both sides of the A/B.** Timing added *by* the change cannot measure the
-  baseline. Stash the change **selectively**, leaving the instrumentation applied to both.
-- **~~Stale registry entries lie.~~ That entry is not stale — it is fetch-on-demand** (corrected
-  2026-08-21, issue #864). `AssetRegistry.oar` lists `Models/Stanford/xyzrgb_dragon.ply` and the
-  file is not committed, but that is **deliberate and permanent**: it is the 7.2 M-triangle,
-  137 MB asset declared in `scripts/assets/asset-manifest.json`, absent until someone runs
-  `scripts/Fetch-Assets.ps1 -Name xyzrgb-dragon`. The registry entry is what lets the handle
-  resolve *once fetched*, and `AssetContentValidityTest` allowlists it on purpose — deleting it
-  would silently unregister the Nanite stress scene for everyone. Do **not** "clean" it, and do
-  **not** repoint the scene at a smaller committed mesh: `VirtualGeometryStress.olo` places 24 of
-  them, so that throws away 24 × 7.2 M ≈ 173 M triangles of stress case to fix a machine that had
-  merely never run the fetch.
-
-  Reading that entry as staleness is what produced issue #864's incorrect premise. Check the
-  manifest before concluding a registry entry is dead.
-- **An editor run rewrites `AssetRegistry.oar`** as a side effect — revert it, and any `.oloproj`
-  you patched to change `StartScene`.
-- Bumping `kVirtualMeshBuilderVersion` is **not** optional when geometry changes, and any new
-  `VirtualMeshBuildConfig` field must be mixed into `CurrentCookFingerprint()` — the two together
-  are what reject a stale `.omesh`.
+Full text, with the failures that taught these rules, the measurements and the derivations:
+[cluster-lod-simplification-details.md](cluster-lod-simplification-details.md).

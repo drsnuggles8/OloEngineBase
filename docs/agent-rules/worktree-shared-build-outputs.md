@@ -50,7 +50,7 @@ Still shared on purpose, and why that is safe:
   ([concurrent-cmake-configure.md](concurrent-cmake-configure.md)).
 - The tracked generated sources `GenerateBindings` writes. Every tree computes the same content
   and each file is replaced by an atomic rename
-  ([build-trees-and-windows-asan.md §1](build-trees-and-windows-asan.md#1-never-run-the-two-build-trees-at-the-same-time)).
+  ([build-trees-and-windows-asan.md §1](build-trees-and-windows-asan-details.md#1-never-run-the-two-build-trees-at-the-same-time)).
 
 Before adding an output directory, check whether a second tree of the same worktree would write the
 same path. If it would and the file is an input to a later step, it belongs in the binary dir.

@@ -1,139 +1,34 @@
 # A groom in the scene's shadows: borrowing the geometry, and the double-count boundary (#1323)
 
-Read before touching `GroomRenderPass::BeginFrame`/`AcquireShadowCaster`, `Groom/GroomShadowWidening.h`,
-the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl`, `VSM_GroomDepth.glsl`,
-`include/GroomShadowWidening.glsl`, or `oloGroomSceneShadow` in `GroomStrand.glsl`.
+Read before touching `GroomRenderPass::BeginFrame`/`AcquireShadowCaster`, `Groom/GroomShadowWidening.h`, the groom half of `Renderer/Passes/ShadowRenderPass.cpp`, `GroomStrandDepth.glsl`, `VSM_GroomDepth.glsl`, `include/GroomShadowWidening.glsl`, or `oloGroomSceneShadow` in `GroomStrand.glsl`.
 
-## The rules
+## Rules
 
-1. **A caster family whose geometry is built inside a pass that runs AFTER `ShadowRenderPass` must
-   borrow it through that pass, at the top of the shadow pass.** The other families submit during
-   Scene's traversal because their VAOs exist; a groom's is built from cooked curves by
-   `GroomRenderPass`'s cache, and that pass runs long after the shadow map. `ShadowRenderPass::
-   CollectGroomCasters` calls `GroomRenderPass::AcquireShadowCaster` on the render thread. #1380 lifted
-   the whole cache into a third object instead; the re-land (#1523) kept the cache where #1426-#1514 had
-   grown it, because moving 1,400 lines to save one accessor would have collided with every later
-   groom PR.
-
-2. **One frame, two consumers: `BeginFrame` owns the boundary.** `RenderPipeline` calls
-   `GroomRenderPass::BeginFrame` right after `SetRequests`; `AcquireShadowCaster` and `Execute` call it
-   themselves when nobody has, and `Execute` consumes it. A tick advanced inside `Execute` hands the
-   shadow pass last frame's tick, so a bound coat's frame buffer is skipped as "already uploaded" and
-   casts from the previous pose, and `Execute`'s stats reset wipes the caster tallies the shadow pass
-   wrote. Eviction stays at the end of `Execute`: both consumers have drawn by then.
-
-3. **A GPU-deformed coat uploads once per frame, whoever asks first.** `CacheEntry::DeformUploadedTick`
-   short-circuits the second acquire. The CPU reference path (`GroomGpuDeformation` off) still rebuilds
-   per consumer, deliberately: its drawn pose for the coat bake lives in one shared scratch vector, and a
-   skipped rebuild would hand the bake another groom's pose.
-
-4. **The depth shaders deform a bound coat, or it casts garbage.** Since #1427 a bound coat's stream
-   is a REST stream in each root's bind frame. Both depth shaders include `GroomStrandDeform.glsl` and
-   run `GroomStrand.glsl`'s mode-1 branch on the same `DeformModes`/`DeformBases` lanes (now in
-   `GroomShadowParamsUBO`, 128 B), with the entity's frame buffer bound at `SSBO_GROOM_DEFORMATION`
-   before every caster draw, or the zeroed placeholder at mode 0.
-
-5. **A GPU-deformed coat's stream bounds describe no pose; bound it from its posed roots.**
-   `GroomRenderPass::PosedObjectBounds` takes the valid `RootTransforms` origins and pads them by the
-   rest stream's `MaxReach` (the farthest point from its own root, measured once when the stream is
-   built), times three when simulated (a pinned, length-preserving guide can swing a point twice its
-   length), plus the widest radius. The cull box and the receiver offset both use it.
-
-6. **The one-texel width floor is the casting mechanism, and its number is measured.** A 70 µm hair
-   against a 20 m cascade at 2048 texels is 0.0036 texels of half width; rasterised honestly it casts
-   nothing. `GroomShadowWidening.AHairIsFarBelowACascadeTexelSoTheFloorIsWhatMakesItCast` pins it.
-
-7. **No compensating alpha on the shadow side; each view casts the share its floor allows, group by
-   group.** A depth target has no alpha, and a hashed discard would be a stochastic technique with
-   nothing to converge it (`groom-strand-visibility.md` rule 6). A widened strand over-occludes by the
-   widening factor, so a view casts a prefix of each RUN of `GroomCasterOrder` -- one run per groom
-   group, each in its own hashed order -- as `DecideGroomCasterRun` allows: 2 / factor of the run's
-   strands (at least 1/16), and never fewer than four of the run's ESTIMATED layers. The estimate is a
-   run-wide mean, not a per-texel count: the projected length is the moment lower bound across the
-   light (the ribbon has no end caps, so a strand along the light lays none), over the run's box. A
-   bound coat's runs are RE-POSED each frame, exactly (`GroomCasterPose.h`): each run's strands by root
-   triangle, each triangle framed once, its strands' moments and box turned by that frame. What the
-   pose cannot see costs credit and is never estimated: a frame the GPU may compute otherwise, a strand
-   held at rest, the simulation's displacement. Any transform counts its smallest stretch; a
-   perspective light reads the moments along the ray to the box's centre and pays the box's angular
-   spread times the length ([caster-bounds-come-from-the-geometry.md](caster-bounds-come-from-the-geometry.md)).
-   A coat-wide share thinned a sparse plume to a dense patch's share, thick guard hairs to the thin
-   majority's, and light-aligned strands as if they lay flat; `GroomCasterCoverageTest` measures each
-   against a raster model, with the coat-wide rule as the negative control. Strided subsets alias with
-   periodic cooks; a subset never adds shadow (#1533).
-
-8. **A strand samples the OPAQUE copy at itself and, where another coat casts, the full map at its
-   coat's LIGHT-EXIT POINT, keeping the darker.** The full map at the strand would self-shadow: a
-   shadow map is binary and a coat is not (a coat fell from **44.98 mean luma to 0.22**, #1380). The
-   exit point alone lies outside the coat's box, so the body never shadowed its fur. So a region with a
-   groom caster renders its opaque casters, copies them into the UPPER LAYERS of the same array
-   (`ShadowMap::OPAQUE_CSM_LAYER_BASE`, `OPAQUE_ATLAS_LAYER`; only the receivers' texels, ~0.3 ms saved
-   at 4096²), then draws its grooms on top (#1533). `CoatModes.y`: 1 receives, 2/4 the opaque cascades
-   / atlas are written (sample them at the strand), 8 another groom casts (also sample the full layers
-   at the exit point: past it lies everything but this coat). Layers, because both maps must be bound
-   at once and the texture namespace sits at GL 4.6's 80. The arrays grow in
-   `RenderPipeline::PrepareFrame`, before the frame reads a shadow handle; grown in the scene's
-   `BeginFrame` every receiver sampled the released array for a frame. Negative controls:
-   `OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT` (exit point only) and `OLO_FAULT_GROOM_NO_OTHER_FUR`. The VSM
-   keeps the exit point; its cached pages hold all the fur. A strand sampled at itself moves 1 mm toward
-   the light with no depth bias (`OLO_GROOM_STRAND_RECEIVER_OFFSET`): the shadow pass culls front faces,
-   so fur on a body's far side lies millimetres behind the stored skin, and the surfaces' bias (1 cm
-   plus two texels) lit it through the body (`GroomStrandShadowReceiver`). The exit point keeps the
-   surfaces' bias. `known` is true only for a lookup at the strand; where false the volume's body march
-   answers ([groom-coat-body-in-the-volume.md](groom-coat-body-in-the-volume.md)). `CoatModes.z` gates
-   the offset, `.x` the march; a whole-vector assign to `u_GroomCoatModes` clears the other lanes.
-
-9. **A strand has no surface normal, so the receiver bias is spent along `L`.** A ribbon's
-   `v_ViewNormal` faces the camera. A zero vector is not an option: the CSM helper normalises it.
-
-10. **Wire every technique and count draws per technique.** Grooms reach the CSM cascades, the
-    atlas, the VSM clip levels and (#1592) its local-light layers: `CascadeDraws`, `AtlasDraws`,
-    `VirtualShadowLevelDraws`, `VirtualShadowLocalLayerDraws`. A failed VSM groom program warns once.
-
-11. **A moving coat invalidates its VSM pages.** #1380 never did, so a walking coat left its old
-    silhouette in every cached page it crossed. `SubmitGroomDynamicInvalidations` runs before
-    `UpdatePages`: a bound coat is a mover every frame, an unbound one when its transform changes; the
-    swept box joins last frame's footprint; a departed caster's last footprint is invalidated; the boxes
-    go in RENDER-RELATIVE.
-
-12. **Grooms are item-safe in the parallel cascade region; acquiring is not.** The draws write only
-    `ItemResources::Groom`, but acquiring can create buffers and upload the frame buffer, which amendment
-    (92) rule 7 refuses on an item context. Silent on OpenGL, a fault on Vulkan.
-
-13. **The caster's width is the drawn width.** Since #1428 the per-role compensation is in the
-    stream's radii, so the only lever left is `request.WidthScale`, which both draws apply.
-
-14. **A lamp's VSM layers take grooms too** (#1592): one draw per reached layer, the share cut for
-    the receivers' mip and floored at the coarser texel. Rules in
-    [groom-casters-in-vsm-local-layers.md](groom-casters-in-vsm-local-layers.md).
-
-## Things that will bite
-
-- **`length()`, never the signed element, when deriving a scale from a projection.** Vulkan's
-  `[1][1]` is negative (`TheScaleTakesTheMagnitudeSoAVulkanYFlipDoesNotInvertIt`).
-- **The VSM route re-binds the physical pool image after binding its own program.** In a scene whose
-  only casters are grooms the mesh raster returns before binding anything, and every `imageAtomicMin`
-  is discarded.
-- **Binding 7 is shared by three blocks:** `GroomStrandParamsUBO` (strand pass) and
-  `GroomShadowParamsUBO` (128 B) per cascade item and for the VSM route. Each occupant rebinds and
-  refills it before its own draws.
-- **The ray-traced shadow guard is a count, not an absence.**
-  `GroomRayTracingProxy.TheCoatShaderReadsNoRayTracedShadowTermSoAProxyCannotShadowItsOwnCoat` pins
-  one `oloGroomSceneShadow`, one light-exit offset and one lookup per technique, and forbids every RT
-  mask token: a coat's TLAS proxy (#1253) would shadow its own coat twice.
-- **The evidence masks are derived, not typed.** `GroomSceneShadowVisualEvidenceTest` gets the coat's
-  mask by toggling `GroomComponent::m_RenderStrands`.
+1. **Borrow caster geometry built in a later pass through that pass, at the top of the shadow pass.** A groom's VAO is built by `GroomRenderPass`'s cache, which runs after `ShadowRenderPass`; `ShadowRenderPass::CollectGroomCasters` calls `GroomRenderPass::AcquireShadowCaster` on the render thread. The cache stays in `GroomRenderPass` (#1523). [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+2. **Let `BeginFrame` own the frame boundary.** `RenderPipeline` calls `GroomRenderPass::BeginFrame` after `SetRequests`; `AcquireShadowCaster` and `Execute` call it if nobody has, and `Execute` consumes it. Advancing the tick inside `Execute` makes a bound coat cast from last frame's pose and wipes the shadow pass's caster tallies. Eviction stays at the end of `Execute`. [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+3. **Upload a GPU-deformed coat once per frame** (`CacheEntry::DeformUploadedTick`); the CPU reference path (`GroomGpuDeformation` off) rebuilds per consumer on purpose, since its drawn pose lives in one shared scratch vector. [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+4. **Deform a bound coat in both depth shaders.** Include `GroomStrandDeform.glsl`, run `GroomStrand.glsl`'s mode-1 branch on the same `DeformModes`/`DeformBases` lanes (in `GroomShadowParamsUBO`, 128 B), and bind the entity's frame buffer at `SSBO_GROOM_DEFORMATION` (or the zeroed placeholder at mode 0) before every caster draw. [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+5. **Bound a GPU-deformed coat from its posed roots,** with `GroomRenderPass::PosedObjectBounds`: valid `RootTransforms` origins padded by the rest stream's `MaxReach` (times three when simulated), plus the widest radius. Cull box and receiver offset both use it. [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+6. **Keep the one-texel width floor as the casting mechanism.** A 70 µm hair is 0.0036 texels of half width in a 20 m cascade at 2048; pinned by `GroomShadowWidening.AHairIsFarBelowACascadeTexelSoTheFloorIsWhatMakesItCast`. [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+7. **Use no compensating alpha on the shadow side; cast a per-run share instead.** A hashed discard has nothing to converge it (`groom-strand-visibility.md` rule 8). Per `GroomCasterOrder` run (one per groom group), `DecideGroomCasterRun` allows 2 / widening factor of the strands (at least 1/16) and never fewer than four estimated layers. Bound coats' runs are re-posed each frame (`GroomCasterPose.h`); what the pose cannot see costs credit and is never estimated. Do not use a coat-wide share (thins sparse plumes, thick guard hair, light-aligned strands); `GroomCasterCoverageTest` is the control. Strided subsets alias with periodic cooks; a subset never adds shadow (#1533). See [caster-bounds-come-from-the-geometry.md](caster-bounds-come-from-the-geometry.md). [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+8. **Sample the opaque copy at the strand and, where another coat casts, the full map at the coat's light-exit point, keeping the darker.** The full map at the strand self-shadows (mean luma 44.98 to 0.22, #1380); the exit point alone lets the body never shadow its fur. Opaque casters are copied into the upper layers of the same array (`ShadowMap::OPAQUE_CSM_LAYER_BASE`, `OPAQUE_ATLAS_LAYER`) before grooms draw. `CoatModes.y`: 1 receives, 2/4 opaque cascades/atlas written, 8 another groom casts. Grow the arrays in `RenderPipeline::PrepareFrame`, not scene `BeginFrame`. Negative controls: `OLO_FAULT_GROOM_SHADOW_AT_COAT_EXIT`, `OLO_FAULT_GROOM_NO_OTHER_FUR`. VSM keeps the exit point. [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+9. **Offset a strand sampled at itself 1 mm toward the light with no depth bias** (`OLO_GROOM_STRAND_RECEIVER_OFFSET`, `GroomStrandShadowReceiver`); the exit point keeps the surfaces' bias. `known` is true only for a lookup at the strand; where false the volume's body march answers ([groom-coat-body-in-the-volume.md](groom-coat-body-in-the-volume.md)). `CoatModes.z` gates the offset, `.x` the march; a whole-vector assign to `u_GroomCoatModes` clears the other lanes. [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+10. **Spend the receiver bias along `L`; a strand has no surface normal.** A ribbon's `v_ViewNormal` faces the camera, and a zero vector is not allowed (the CSM helper normalises it). [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+11. **Wire every shadow technique and count draws per technique:** `CascadeDraws`, `AtlasDraws`, `VirtualShadowLevelDraws`, `VirtualShadowLocalLayerDraws` (#1592). A failed VSM groom program warns once. Lamp VSM layers take grooms too: [groom-casters-in-vsm-local-layers.md](groom-casters-in-vsm-local-layers.md). [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+12. **Invalidate VSM pages for a moving coat.** `SubmitGroomDynamicInvalidations` runs before `UpdatePages`: a bound coat is a mover every frame, an unbound one when its transform changes; the swept box joins last frame's footprint; a departed caster's last footprint is invalidated; boxes go in render-relative. [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+13. **Acquire outside the parallel cascade region.** Draws are item-safe (`ItemResources::Groom`), but acquiring creates buffers and uploads, which amendment (92) rule 7 refuses on an item context; silent on OpenGL, a fault on Vulkan. [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+14. **Cast the drawn width.** Per-role compensation is already in the stream's radii (#1428); the only lever left is `request.WidthScale`, applied by both draws. [Details](groom-into-the-shadow-techniques-details.md#the-rules)
+15. **Derive a scale from a projection with `length()`, never the signed element;** Vulkan's `[1][1]` is negative (`TheScaleTakesTheMagnitudeSoAVulkanYFlipDoesNotInvertIt`). [Details](groom-into-the-shadow-techniques-details.md#things-that-will-bite)
+16. **Re-bind the VSM physical pool image after binding its own program.** If grooms are the only casters the mesh raster returns before binding, and every `imageAtomicMin` is discarded. [Details](groom-into-the-shadow-techniques-details.md#things-that-will-bite)
+17. **Rebind and refill binding 7 before each occupant's draws;** it is shared by `GroomStrandParamsUBO` and `GroomShadowParamsUBO` (per cascade item and the VSM route). [Details](groom-into-the-shadow-techniques-details.md#things-that-will-bite)
+18. **Guard ray-traced shadows by count.** `GroomRayTracingProxy.TheCoatShaderReadsNoRayTracedShadowTermSoAProxyCannotShadowItsOwnCoat` pins one `oloGroomSceneShadow`, one light-exit offset, one lookup per technique, and no RT mask token; a TLAS proxy (#1253) would shadow its own coat twice. Derive evidence masks by toggling `GroomComponent::m_RenderStrands`. [Details](groom-into-the-shadow-techniques-details.md#things-that-will-bite)
 
 ## Where the evidence lives
 
-- The floor: `OloEngine/tests/Groom/GroomShadowWideningTest.cpp`.
-- The pixels: `GroomSceneShadowVisualEvidenceTest.cpp`, writing
-  `OloEditor/assets/tests/visual/GroomSceneShadow[Off]_GL_<Path>[_<Case>].png`.
-- The save game: `OloEngine/tests/SaveGame/GroomSceneShadowSaveLoadTest.cpp`.
-- The double-count split: [groom-coat-self-shadowing.md](groom-coat-self-shadowing.md) rule 1.
-- Why a family does not reach a technique by itself:
-  [virtual-geometry-into-a-second-shadow-technique.md](virtual-geometry-into-a-second-shadow-technique.md).
+- `OloEngine/tests/Groom/GroomShadowWideningTest.cpp`; `GroomSceneShadowVisualEvidenceTest.cpp` (writes `OloEditor/assets/tests/visual/GroomSceneShadow[Off]_GL_<Path>[_<Case>].png`); `OloEngine/tests/SaveGame/GroomSceneShadowSaveLoadTest.cpp`.
+- Double-count split: [groom-coat-self-shadowing.md](groom-coat-self-shadowing.md) rule 1. Why a family does not reach a technique by itself: [virtual-geometry-into-a-second-shadow-technique.md](virtual-geometry-into-a-second-shadow-technique.md).
 
-## History
+---
 
-#1380 landed this; a merge of #1382 deleted it while its PR body said otherwise. Re-landed by #1523.
+Full text, with the failures that taught these rules, the measurements and the derivations:
+[groom-into-the-shadow-techniques-details.md](groom-into-the-shadow-techniques-details.md).

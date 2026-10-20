@@ -9,7 +9,7 @@ mechanism is [render-graph-declaration-config.md](render-graph-declaration-confi
 this page is the worked example that motivated it.
 
 This is the other half of
-[virtual-shadow-map-page-cache.md §5](virtual-shadow-map-page-cache.md#5-a-render-graph-passs-setup-is-cached--it-must-not-branch-on-a-setting).
+[virtual-shadow-map-page-cache.md §5](virtual-shadow-map-page-cache-details.md#5-a-render-graph-passs-setup-is-cached--it-must-not-branch-on-a-setting).
 §5 says: declare unconditionally, gate the work in `Execute()`. Five passes here
 do the opposite. §5 tells you how to write a new pass; this page is what to do
 about the ones that already branch, and how to recognise the failure.

@@ -1,0 +1,462 @@
+# Baked lightmaps (#439): the units ledger, the seam-split staleness trap, and adding a vertex channel without touching `Vertex`
+
+> The rules from this guide, without the stories: [baked-lightmap-pipeline.md](baked-lightmap-pipeline.md).
+
+Issue #439 added the baked-GI path: an offline CPU lightmap bake (xatlas UV2 unwrap +
+`PathTracer::EstimateIrradiance` per texel) for static geometry, a path-traced bake mode for the
+existing SH light-probe volumes, and the runtime sampling/staleness machinery. Read this before
+touching `Renderer/Baking/**`, `Scene/SceneLightmap.*`, `include/LightmapSampling.glsl`, the
+lightmap branch of `PBR_MultiLight.glsl`, or `LightProbeBaker`'s path-traced mode.
+
+Every section is a decision that looked interchangeable with its alternative and was not.
+
+---
+
+## 1. A new per-vertex channel does NOT have to widen the vertex struct — and here it must not
+
+The obvious way to add lightmap UVs is a `vec2 TexCoord2` member on `Vertex`. Measured blast
+radius of that option before rejecting it: the 32-byte `sizeof`/`offsetof` static_asserts, ~38
+shaders whose `OLO_VULKAN` vertex-pull branch hard-codes `gl_VertexIndex * 8` (they would read
+garbage with no compile error), 7 skinned shaders whose bone attributes shift location, the
+`.omesh` stride reject, the LOD attribute table, the primitive generators' 3-arg constructor
+(which would leave the new member uninitialized), +16 bytes on every vertex in the engine, and a
+guaranteed hard conflict with the concurrent mesh-shader epic.
+
+The shipped alternative: **a parallel stream on `MeshSource`** (`m_LightmapUVs`, one `vec2` per
+vertex), exactly the shape bone influences already use. `Vertex` unchanged, only lightmapped
+meshes pay, the Vulkan pull path untouched (its lightmap support is a follow-up second pull
+buffer, compiled out until wired).
+
+Three obligations come with a parallel stream, and each fails silently (or merely slowly) if missed:
+
+- **`MeshOptimization::OptimizeMesh` reorders vertices**; every parallel array must ride the same
+  `meshopt_remapVertexBuffer` call or its data silently belongs to other vertices afterwards.
+  Bone influences, morph deltas and lightmap UVs each have a remap block — a new stream needs one
+  too.
+- **Attribute locations are assigned by `AddVertexBuffer` order** (`m_VertexBufferIndex` is a VAO
+  counter, not a declaration). The lightmap stream is only ever added when `!HasSkeleton()`, which
+  pins `a_TexCoord2` at location 3 for static meshes and leaves bones at 3/4 for skinned ones. Add
+  a stream in a different order on one path and the shader reads the wrong buffer with no error.
+- **An OPTIONAL stream consumed by a shared program must be constant-stubbed on the meshes that
+  lack it.** Leaving the attribute disabled on some static VAOs while others buffer-back it makes
+  NVIDIA specialize a vertex-shader variant per attribute-layout permutation — logged as GL debug
+  id 131218 ("recompiled based on GL state"; the engine warns + captures a draw-site stack on the
+  *repeat* recompile of a program, and the first mixed frame after a bake triggered exactly that).
+  The fix is `VertexArray::AddConstantVertexBuffer`: a stride-0 DSA binding is literal, so an
+  8-byte zero buffer backs the attribute for any vertex/instance count, and every static VAO
+  exposes one identical layout. Vulkan implements it as a recorded-nowhere no-op on purpose —
+  appending the stub to the VAO's buffer list would shadow pull stream 1, the bone-pull slot.
+
+## 2. The unwrap seam-splits vertices — so the staleness key must be computed AFTER it, and the resolve must be able to re-derive it
+
+xatlas cannot parameterize a closed surface without seams, and a seam vertex needs two different
+UV2s — so `LightmapUnwrap::Generate` **rebuilds the vertex/index arrays** (more vertices out than
+in, each `xref`-copied from an original). That interacts with the staleness key in a way that has
+one right ordering and two wrong-looking-right ones:
+
+- The bake key hashes a geometry proxy (vertex/index counts + bounds + asset handle). Compute it
+  **before** the unwrap and a reloaded scene (whose meshes come back un-unwrapped, at the
+  pre-split counts) MATCHES the stale key — and renders wrongly: the un-unwrapped mesh has no UV2
+  stream, the attribute reads (0,0), and every fragment samples its region's corner texel.
+- Compute it after the unwrap but give the runtime no way to re-derive the unwrapped state, and
+  every editor restart reads as "stale" — procedural primitives have no `.omesh` to persist their
+  UV2 stream in, so the bake dies on reload with nothing actually changed.
+
+The shipped contract: the key is computed **after** `Prepare()` (post-unwrap counts), and
+`SceneLightmapRuntime::Resolve` is **self-healing** — a lightmap-static mesh with no UV2 stream is
+re-unwrapped *before* the key check, with the same shared parameters (`kLightmapUnwrap*` in
+`LightmapUnwrap.h`). That only works because the unwrap is deterministic, which is why the vendor
+CMake pins `XA_MULTITHREADED=0`: same mesh in, bit-identical parameterization out, so the
+regenerated stream lands exactly on the layout the bake rasterized. Change the unwrap parameters
+in one place and not the other and every scene goes permanently stale — worse, a *different pack
+resolution* can shift chart UVs without changing the seam-split counts, so the key MATCHES and
+every sample reads another chart's texels silently. That is why the unwrap parameters are **not
+settings at all**: `LightmapBakeSettings` deliberately has no `UnwrapResolution`/`UnwrapPadding`
+fields (the first draft had them; self-review deleted them), and both `Prepare()` and the resolve
+hard-code the shared `kLightmapUnwrap*` constants. Do not re-add the knobs without making the
+resolve able to re-derive whatever a caller passed.
+
+The generalisable rule: **a staleness key over derived state must hash the state the loader will
+actually re-derive, and the loader must be able to re-derive it.** A key over pre-derivation state
+is worse than no key — it validates confidently while the derived data is absent.
+
+## 3. The units ledger — who stores E, who does not
+
+The bake kernel IS the reference path tracer, which is what makes the units auditable at all:
+
+| store | quantity | pinned by |
+|---|---|---|
+| DDGI irradiance atlas | full irradiance E | `DDGI_BlendIrradiance.glsl` header + `DDGIReferenceParityTest` |
+| lightmap atlas (#439) | **indirect** irradiance E | `LightmapBakeParityTest` (bit-exact vs `EstimateIrradiance`) |
+| baked SH probe volume | **band-limited RADIANCE at the normal — not E** | `LightProbePathTracedBakeTest` uniform-env pin |
+
+Two things about that table:
+
+- The lightmap stores **indirect-only** E *by construction, not by subtraction*: delta lights can
+  never be hit by `EstimateIrradiance`'s hemisphere rays and only enter through NEE at later path
+  vertices, so punctual direct lighting is excluded with zero extra machinery and stays realtime
+  (crisp shadows, dynamic lights keep working). Emissive surfaces and sky DO enter the bake — the
+  ambient ladder must therefore *replace* the probe/IBL diffuse for lightmapped pixels, never add
+  to it.
+- The SH row STORES raw radiance projections (`ProjectToSH`: no cosine convolution), and both
+  bake routes keep that storage convention. What changed in #1336 is the READ: the probe sampler
+  evaluates `evaluateSHCosineIrradiance` (band factors π, 2π/3, π/4), so a uniform field L comes
+  back as the full irradiance πL — the unit the lightmap and the DDGI atlas also return. The
+  ambient ladder then converts every E source to E/π once (`oloNormalizedIrradiance`), because its
+  helpers compute `kD·X·albedo` and are Lambertian only for X = E/π. The old statement here — "SH
+  is π too dark" — had the direction backwards: SH evaluated as radiance happened to equal the
+  ladder's E/π for a uniform field, while the lightmap and DDGI rungs fed full E in raw and lit
+  their pixels π times too bright. See [lighting-signal-contract.md](lighting-signal-contract.md).
+  `LightProbePathTracedBakeTest` pins both the storage (evaluateSH returns L) and the read (the
+  production evaluator returns the oracle's πL).
+
+## 4. Determinism is what makes the bake testable — and it is a property of the SEEDS, not the scheduler
+
+Every texel's seed derives from its **atlas coordinates** (`MakePixelSeed(x, y, bakeSeed)`), every
+probe's from its grid index, and packing order sorts by (region size, UUID). Consequences that the
+test suite leans on directly: two bakes memcmp equal at any thread count; a single stored texel is
+re-derivable bit-exactly by calling the oracle with the same seed (which pins the whole
+raster→estimate→store path with `EXPECT_EQ` on floats — correct *here* because bit-identity is the
+contract); and an independent-seed re-estimate isolates statistical correctness from
+reproducibility. If you ever key a sample on "which worker got there first", all three collapse
+into a tolerance band wide enough to hide real regressions — the same argument as
+reference-path-tracer.md §2, now load-bearing in an asset pipeline.
+
+## 5. Reused patterns that are contracts, not conveniences
+
+- **The atlas is a `sampler2DArray` at TEX 16, one layer per page** (#868, §8) — a slot publish of a
+  plain `Texture2D` there is undefined, not merely wrong-looking, which is why `Renderer3D` owns a
+  1x1x1 RGBA16F placeholder ARRAY rather than reusing `s_Data.WhiteTexture`.
+- **`LightmapSampling.glsl` is slot-based with NO `OLO_BINDLESS` token** — a shared include's
+  `#ifdef OLO_BINDLESS` is the bindless route's opt-in marker and would drag every includer onto
+  the raw-GLSL route (glsl-shaders.md §5e, first exclusion row). The atlas is published through
+  `HeapBinding::PublishTextureOffsetAndBind`, the DDGI-atlas mechanism that feeds slot-based and
+  converted readers alike.
+- **Per-draw lightmap regions follow the Color/Custom pattern end to end**: `DrawMeshCommand`
+  field → a generic vec4 FrameDataBuffer stream entry per source in `CommandBucket::BatchCommands`
+  (so the value survives the N-into-1 auto-batch collapse) → `InstanceData` in both dispatch
+  paths. A per-draw value that skips the stream renders correctly right up until batching merges
+  two entities, then quietly shares one entity's region across both.
+- **`Ref<T>` propagates const through `operator->`** — `for (const auto& input : inputs)
+  input.Mesh->Build();` is a compile error that a syntax-only check catches but an unbuilt target
+  hides. It shipped in the first editor-side draft and was caught by a sibling agent's review, not
+  a build. It then shipped AGAIN in the self-review batch (`const Ref<Scene> bakedScene`) and was
+  caught by the same syntax-only preflight. When a change spans targets, remember which of them
+  the verifying build actually compiled.
+- **The shader branches on COVERAGE (`sampleLightmapIrradiance(...).a`), never on the colour.**
+  The atlas alpha exists precisely to separate "validly baked pure black" (an enclosed surface no
+  indirect light reaches — must KEEP its darkness) from "never baked" (must fall through to
+  probes/IBL). A `dot(rgb, rgb) > 0` branch collapses the two and the enclosed room glows with
+  sky IBL — the exact leak class the bake exists to kill. The first draft had that bug; the vec4
+  return with `.a` as the branch signal is the fix, and the `.rgb` is un-premultiplied by the
+  sampled alpha so bilinear taps at chart edges don't darken.
+- **The ambient ladder has ONE definition** (`include/AmbientLadder.glsl`), shared by the
+  forward shaders, DeferredLighting, the terrain and foliage shaders and the SSGI trace — static
+  receivers pass the lightmap sample, skinned/dynamic shaders pass `vec4(0.0)` and enter at the
+  probe rung. The rungs are in the same units (#1336): the lightmap and probe rungs deliver
+  irradiance *E*, which `oloNormalizedIrradiance` converts to *E/π* once; the IBL irradiance cube
+  already stores *E/π*. See [lighting-signal-contract.md](lighting-signal-contract.md).
+- **The bake key hashes what the bake CONSUMES, not what looks equivalent.** Lights are hashed
+  per type in `ReferenceSceneBuilder::AddScene`'s exact consumption terms: point/spot positions
+  are the raw `TransformComponent::Translation` (the builder never composes the parent chain —
+  hashing the composed `transform[3]` false-stales on re-parenting and misses nothing the bake
+  sees), and a light the builder rejects (`!(intensity > 0)`) is invisible to the key too.
+  `SceneLightmapStalenessTest` pins both directions.
+- **`Resolve()` is throttled and memoized**: the O(scene) recheck (UV2 scan + key hash) runs
+  every `kResolveRecheckIntervalFrames`, a mesh whose unwrap failed once is memoized until
+  `Invalidate()` (xatlas is 100ms+ per mesh — retrying per recheck is a recurring hitch), and the
+  stale/missing warnings are once-per-episode latches. `Invalidate()` is the "recheck NOW" lever;
+  the editor calls it on bake completion and on `.olmap` hot-reload (the runtime's cheap path
+  never re-reads the asset, so an externally replaced file needs that push).
+
+## 6. Deliberately deferred (so nobody re-derives the gap as a bug)
+
+Every item here is a **filed issue**, not a note — the mechanism, the decision each one needs and
+its acceptance criteria live there. Read the issue before re-deriving the design.
+
+- **Deferred-path lightmap sampling (#865) — DONE.** Was the one deferral that failed scene-wide
+  rather than per-draw (and therefore the one that earned a warning,
+  `SceneLightmapRuntime::WarnIfActivePathCannotSample`, now removed). See §7 for the shipped
+  design and the contract it added.
+- **Vulkan lightmap sampling (#866) — DONE.** Turned out not to need a third reserved vertex-pull
+  binding: bones and the lightmap UV2 stream are mutually exclusive per mesh
+  (`MeshSource::Build` only ever fills VAO stream 1 with one of the two), and
+  `PBR_MultiLight.glsl` — the only shader that samples the lightmap — is never bound for a skinned
+  draw, so it safely rides the existing `SSBO_BONE_PULL` (63) reservation instead of minting a
+  new one. UBO 1 / TEX 16 needed zero Vulkan-specific code — `Renderer3D::UploadLightmapData`
+  already goes through the same generic `UniformBuffer`/`HeapBinding::PublishTextureOffsetAndBind`
+  machinery every other engine UBO and heap-published texture uses. **The first cut still crashed
+  live**: pulling the UV2 stream unconditionally reads the frame arena's fixed 64 KiB null block
+  for every UNBAKED static mesh (now the common case, not bones' rare edge), and a real mesh's
+  vertex count routinely exceeds what that block covers — a buffer-device-address read has no
+  bounds, so Vulkan device-lost on the first ~16k-vertex unbaked mesh it hit. The fix hoists the
+  fragment shader's own `LightmapScaleOffset.x <= 0.0` early-out into the vertex stage as a real
+  `if` guard around the pull. See ADR 0011 amendment (89) for the full incident and the invariant
+  that would break the binding-reuse (a future draw needing bones AND a lightmap UV2 stream at
+  once).
+- **InstancedMeshComponent / ModelComponent receivers (#867) — DONE.** The region identity
+  generalised from `UUID → one region` to `(UUID, sub-key) → one region`, and one shared gather
+  (`Scene/SceneLightmapGather.h`) now feeds the bake, the reference world, the self-healing
+  re-unwrap and the bake key. Rules and the per-receiver sub-key table:
+  [lightmap-receiver-identity.md](lightmap-receiver-identity.md).
+- **VirtualGeometry receiver (#867) — DONE.** UV2 survives cluster building and the LOD
+  simplifier, and reaches the GPU as a PACKED TAIL of the cluster vertex arena rather than through
+  a binding of its own — the namespace is full, and `SSBO_BONE_PULL` (63) is resolved from the
+  draw's VAO streams on Vulkan, which the mesh-shader route does not have. All three rasterizers
+  sample, and so does the classic fallback, so the master switch stays an honest A/B. Rules:
+  [lightmap-receiver-identity.md](lightmap-receiver-identity.md).
+- **Multi-page atlas (#868) — DONE.** The bake packs across pages before it degrades anything, the
+  runtime uploads a `Texture2DArray` layer per page, and the `Page != 0` rejection is gone. See §8
+  for the encoding, the budget policy and what replaced that guard.
+- **Albedo textures in the bounce, and sky/HDRI environments (#869) — DONE.** Settled as the
+  issue's option 2, recorded in
+  [ADR 0022](../adr/0022-reference-tracer-owns-its-sampling-model.md): the reference's scene
+  description may be as rich as the bake needs, but its **sampling model is its own** — level 0,
+  never the raster's mip chain — so the oracle does not acquire the raster's filtering failure
+  mode. It declines it. The bake now carries the materials' maps and the scene's sky across
+  (`ReferenceSceneBuildOptions::MaterialMapProvider` / `::EnvironmentCubemap`, captured on the GL
+  thread by `ReferenceTextureCapture`); every raster-vs-reference PARITY fixture passes neither, so
+  it stays in the subset both worlds express and pins exactly what it pinned before —
+  bit-exactly, which `LightmapSkyAndTextureBake.AProviderThatSuppliesNoMapsChangesNothingBitForBit` asserts
+  with `memcmp`.
+
+  The issue's second blocker — "no ground truth to validate an HDRI bake against" — held only if
+  the candidate ground truth was the engine's own IBL. Three checks replace it, none touching the
+  raster path: a constant cubemap must reproduce the uniform-environment furnace; an unoccluded
+  surface under a uniform sky must bake the closed form `E = pi * L`; and for a directional sky the
+  traced estimate must land on a deterministic `(theta, phi)` quadrature of the same `Evaluate()`.
+  See `ReferenceEnvironmentTest` and `LightmapSkyAndTextureBakeTest`.
+
+  **This makes §3's replace-don't-add rule load-bearing rather than theoretical.** A lightmapped
+  exterior pixel whose bake now contains the sky bounce must not also take the realtime IBL rung,
+  or the sky is counted twice.
+
+---
+
+## 7. The deferred path carries IRRADIANCE, not the atlas UV (#865)
+
+The deferred lighting pass shades from the G-Buffer, and by the time it runs the fragment has
+neither UV2 nor instance identity. The issue laid out three options; the shipped one is **a sixth
+G-Buffer target (RGBA16F) holding the baked irradiance E in `.rgb` and coverage in `.a`, fetched
+in the G-Buffer pass** — the last stage that still holds both the UV2 stream and the per-draw
+`InstanceData::LightmapScaleOffset`. `DeferredLightingShared.glsl` then consumes that vec4 at the
+same ambient-ladder rung, with the same gate and the same helpers, that
+`include/AmbientLadder.glsl` uses on the forward path.
+
+**Why not the atlas UV in RT5 (the issue's option 1, and the cheaper-looking one at RG16F).**
+Three reasons, in decreasing order of how badly they fail:
+
+- **An MSAA resolve averages colour attachments.** Averaging two charts' UVs across a silhouette
+  or a seam addresses an unrelated atlas texel — a wrong-address bug that renders as a plausible
+  patch of light rather than as anything obviously broken (the failure family
+  `terrain-virtual-texturing.md` is entirely about). Averaging irradiance and coverage *together*
+  is exactly the alpha-weighted blend `sampleLightmapIrradiance` already documents for a bilinear
+  tap straddling a coverage edge.
+- **16F UV precision near 1.0 is ~1/1024**, i.e. several texels of error on a 2048/4096 atlas —
+  so option 1 is really RG32F, and the bandwidth argument for it mostly evaporates.
+- The lighting pass would need the atlas and the lightmap UBO bound, plus a dependent texture
+  fetch per pixel, to re-derive what the geometry pass already knew.
+
+**Why not fold the shaded ambient into the G-Buffer** (option 2 as the issue phrased it, storing
+the ladder's *output*): decals run **after** the G-Buffer pass and rewrite albedo, normal and RMA.
+An ambient term pre-shaded against the pre-decal albedo would be silently stale under every decal.
+Storing raw E keeps the geometry pass to one texture fetch and leaves the ladder — and the
+albedo it multiplies — in the lighting pass where the decals have already landed.
+
+**Why not a conditional target** (option 3): the render graph declares the G-Buffer's attachment
+list as the transient-pool aliasing key (`RenderPipeline.cpp`'s `buildGBufferFramebufferDesc`),
+and a runtime-conditional layout is the frozen-`Setup()` trap in
+`virtual-shadow-map-page-cache.md` §5. The target is unconditional, and the always-on cost was
+measured rather than assumed: on `VirtualGeometryPerf.VirtualVsClassicFrameBudget` (15.7M
+triangles at 1280x720, deferred, **no lightmap in the scene**, min of 20 `GL_TIME_ELAPSED`
+samples, three runs each), the classic-geometry frame is 6.487 / 6.488 / 6.493 ms **with** the
+target and 6.491 / 6.491 / 6.493 ms **without** it — the difference is smaller than the
+benchmark's own run-to-run spread, on a scene heavy enough to cover the frame many times over.
+The cost that IS certain is memory: 8 bytes/pixel, ~16.6 MB at 1920x1080, and again on the
+single-sample resolve target when MSAA is on (it mirrors the layout).
+
+### The contract this added, and the three ways it fails silently
+
+- **Every G-Buffer writer must write RT5.** An MRT output a fragment shader never assigns is
+  UNDEFINED in that attachment — not zero — and RT5's `.a` is a coverage flag, so undefined there
+  reads as "this pixel has baked GI". A new G-Buffer shader that forgets
+  `o_GBufferBakedGI = vec4(0.0);` renders correctly on every scene with no bake and wrong on the
+  ones with one. `GBufferBakedGIContractTest` scans the shader sources for exactly this.
+- **The draw-buffer arrays in `DecalRenderPass` are sized to `GBuffer::Count`.** A short
+  initializer list value-initializes the tail to `0`, which is not "writes nowhere" — it is
+  "writes attachment 0". Every entry is spelled out on purpose, and `fullDrawBufs` (the RESTORE
+  set handed to later passes) is the one that must name RT5 rather than mask it.
+- **The clear colour is not one colour.** `ClearAllAttachments` fills every float RT with the same
+  value; for RT5 that would clear coverage to 1.0 everywhere the G-Buffer pass never ran.
+  `SceneRenderPass` clears it to `vec4(0)` explicitly, the same reason the velocity RT gets its
+  own clear.
+
+The GPU proof is `LightmapVisualEvidenceTest.BakedBleedSurvivesTheDeferredPath`: the same baked
+room captured on Forward and on Deferred, compared as **region means** (never per-pixel — the two
+paths are different shaders over different intermediates). It asserts both halves, because they
+fail differently: the deferred-ON-vs-OFF gap catches "the chain is broken anywhere", and the
+forward-vs-deferred hue ratio catches "the chain works but addresses the wrong chart".
+
+---
+
+## 8. Paging (#868): the page rides in a lane that was already full, and the budget is a constant
+
+`LightmapBakeSettings::AtlasSize` used to be the whole ceiling. When a scene's desired texel area
+exceeded one page, `Prepare()` halved region sizes — and then dropped entities — rather than
+allocating a second page, even though the `.olmap` format had carried `PageCount` and a per-entry
+`Page` since #439.
+
+### The measurement came back different from the issue's premise — read this before trusting the old description
+
+#868 was written on the premise that an over-budget scene "degrades region sizes — halving them
+until everything fits, and dropping entities only as a last resort", and it offered a descope if
+that degradation turned out graceful enough. It measured otherwise. At the default 1024 atlas, 8
+texels/metre, uniform 4 m cubes each wanting a 128px region:
+
+| load | pages | baked | skipped | region sizes |
+|---|---|---|---|---|
+| 1x (64 entities) | 1 | 64 | 0 | all 128px |
+| 2x (128 entities) | 1 | 64 | **64** | all 128px |
+| 4x (256 entities) | 1 | 64 | **192** | all 128px |
+| 4x, 4-page budget | 4 | 256 | 0 | all 128px |
+| 4x, 2-page cap | 2 | 128 | 128 | all 128px |
+
+**Nothing degrades. The overflow entities are dropped outright** — they get no baked GI at all. And
+the reason is structural rather than a bug worth fixing here: regions are packed largest-first into
+a buddy quadtree, so at the moment a request of size S fails, every allocation already placed is
+`>= S` and aligned — which means there is no free block *smaller* than S to fall back to either.
+The atlas is simply full, at every size. The halving loop is therefore **unreachable under the
+current ordering**; it is kept as a safety net for any future ordering that could leave sub-S holes,
+not deleted, but nobody should reason about the old behaviour as "graceful degradation".
+
+That closes the descope option harder than the issue expected: the pre-#868 failure mode on a 2x
+scene is not coarser GI, it is *half the scene unlit by the bake*. It also means the honest
+remedy really is more pages — a globally-degrade-then-repack pass (halve every region and start
+over) would be the only way to make the fallback do something useful, and that is a different
+design, deliberately not attempted here.
+
+`LightmapAtlasPagingTest.MeasureSinglePageOverloadDropsEntitiesRatherThanDegrading` pins that table
+so the baseline cannot silently change and make the paging tests vacuous. It pins the page budget
+to **1**, which *is* the pre-#868 allocator — the degrade-then-drop loop was kept, not replaced —
+so the measurement and the regression coverage are the same test.
+
+### Ordering: page first, degrade second
+
+The loop is unchanged in shape and inverted in priority. For each entity, in the same deterministic
+(size desc, UUID asc) order: try the desired size on every open page; open a new page if the budget
+allows; only when the budget is spent does the size halve and the whole scan repeat. Pages are
+opened **lazily**, so `PageCount` reports what the scene needed, not what it was allowed.
+
+Determinism survives because nothing in that is scheduling-dependent: the plan order is a total
+order, pages are scanned low-to-high, and `AtlasAllocator` is deterministic. The texel seed stays a
+pure function of the texel's atlas ADDRESS — now `(page, x, y)`, folded in as
+`MakePixelSeed(x, y + page * atlasSize, seed)`. Folding it as a row offset is deliberate: page 0's
+seeds are **unchanged**, so every existing single-page bake is still bit-identical and
+`LightmapBakeParityTest`'s bit-exact oracle re-derivation keeps passing.
+
+### The page index rides in the integer part of `.z`
+
+The per-draw region is one `glm::vec4` (`InstanceData::LightmapScaleOffset`) that travels from
+`DrawMeshCommand` through `CommandBucket`'s FrameDataBuffer stream into the instance SSBO, and all
+four lanes were spoken for by `uv2 * xy + zw`. Rather than mint a fifth lane — a second
+FrameDataBuffer stream, a second `anyNonDefault` batching probe, a second `DrawMeshCommand` field,
+all on the exact path §5 warns collapses per-draw values during auto-batching — the page is added
+to the offset:
+
+```
+encoded = vec4(scaleX, scaleY, offsetX + page, offsetY)
+page    = floor(encoded.z)
+offsetX = encoded.z - page
+```
+
+It is **exact, not approximate**: `offsetX` is `regionX / atlasSize` with `atlasSize` a power of
+two, so at most 14 fractional bits, and the page needs at most 3 — 17 bits inside f32's 24. The
+encoding is composed in exactly one place (`SceneLightmapRuntime::Resolve`) and decoded in exactly
+one place (`sampleLightmapIrradiance`); everything in between is untouched.
+
+**The all-zero "no lightmap" sentinel survives because the encoding never touches the SCALE lane,
+and every gate reads the scale lane** — `scaleOffset.x <= 0.0` in the fragment helper,
+`LightmapScaleOffset.x > 0.0` in both vertex-stage UV2-pull guards, `lightmapScaleOffset.x > 0.0f`
+in `Scene.cpp`'s submit. `LightmapPageEncodingTest` asserts that explicitly, with `EXPECT_EQ` on
+floats because bit-exactness is the contract. If the encoding is ever changed to something lossy,
+that test must fail rather than be widened.
+
+The C++ twin (`Renderer/LightmapPageEncoding.h`) and the GLSL twin (`decodeLightmapPage` /
+`decodeLightmapOffset` in `LightmapSampling.glsl`) are a two-mirrors pair. Change one, change both —
+the failure mode is not an error, it is sampling another entity's charts.
+
+**Covering the GLSL half needed a text-scan test, and the reason generalises.** Every C++-side
+assertion about this encoding tests helpers that *nothing on the sampling path calls* — the shader
+decodes the region itself. So deleting `- floor(scaleOffset.z)` from `decodeLightmapOffset` left the
+entire headless suite green, because the only test that renders a paged atlas is behind
+`OLO_ENSURE_GPU_OR_SKIP()`. `LightmapPageEncodingTest.ShaderCarriesTheMatchingPageDecode` scans the
+shader source instead — the same instrument `GBufferBakedGIContractTest` uses, for the same reason.
+It cannot prove the decode is *correct* (the GPU test does that); it proves the shader still carries
+a decode at all and that the sampler is still an array, which are the two ways this silently reverts
+to single-page addressing on a machine with no GPU. **Whenever a contract lives half in C++ and half
+in GLSL, assume the GLSL half has no CI coverage until a text-scan test gives it some** — and
+negative-check that test by breaking the shader, or it can be green and vacuous.
+
+### The budget policy: a VRAM constant, deliberately not a setting
+
+"As many pages as needed" is not a policy, and the impostor retrofit
+([shared-atlas-allocator.md](shared-atlas-allocator.md)) already settled the analogous trade-off in
+favour of a budget gate. `kLightmapAtlasMemoryBudgetBytes` (64 MiB) bounds **paging** — the memory
+#868 newly made it possible to ask for — and the page count is **derived**:
+`LightmapPageBudget(atlasSize)` divides the ceiling by one page's RGBA16F cost and clamps to
+`[1, kMaxLightmapPages]`. At the default 1024² that is the format's full 8 pages.
+
+**It is not a TOTAL VRAM ceiling, and the gap is worth stating rather than discovering.** The
+one-page floor is unconditional, so an atlas whose single page already exceeds the budget still
+bakes: a 4096² page is 128 MiB and a 16384² page is 2 GiB, both over the 64 MiB budget, both
+allowed. That is deliberate — one page is exactly the pre-#868 footprint (`AtlasSize` has always
+been the user's knob and the old single `Texture2D` cost the same bytes), so refusing would regress
+behaviour that has nothing to do with paging. `Prepare()` warns when it happens so the cost is
+never silent. The honest statement is **`max(one page, floor(budget / pageBytes)) * pageBytes`**.
+
+The first draft claimed a flat byte ceiling in both the header and the doc, and its test asserted
+`budget == 1 || bytes <= ceiling` — a disjunction that holds for *any* implementation, including one
+that ignores the budget entirely, so it could never have caught the gap it was hiding. Review caught
+it. The lesson is narrow and reusable: **when a policy has an exception, the test must pin the
+exception's precondition, not `or` it away** — here, a one-page budget is only legal when one page
+already exceeds the ceiling, and that is what `SinglePageExceedsLightmapBudget` exists to assert.
+
+It is a **constant, not a scene-authored setting**, and that is load-bearing: the page budget
+changes the atlas LAYOUT, so an authorable budget would have to join
+`SceneLightmapRuntime::ComputeBakeKey` or a budget change would leave every existing bake validating
+against a layout it can no longer reproduce — the same class of trap as §2's unwrap parameters. If
+it ever becomes authorable, it MUST join the key. `LightmapBakeSettings::MaxAtlasPages` exists so a
+caller (or a test) can ask for FEWER pages; `Prepare()` clamps it to the policy, so it can never ask
+for more.
+
+### What replaced the `Page != 0` rejection
+
+The old guard refused any entry above page 0 because only page 0 was uploaded. Paging removes the
+reason, not the hazard — an entry naming a page the asset does not have would still sample another
+page's charts through a valid-looking region. Two things replace it:
+
+- `LightmapAsset::Validate()` already rejected `entry.Page >= m_PageCount`, and `Resolve()` refuses
+  an asset that fails validation. That is the primary guard, and it now has direct coverage
+  (`LightmapAtlasPagingTest.AssetWithOutOfRangePageFailsValidation`, both directions — page 3 of 4
+  must now be *accepted*).
+- `Resolve()` keeps a bounds check of its own over `asset->GetPageCount()` and `kMaxLightmapPages`,
+  skipping the entry and warning rather than serving it.
+
+### The GPU side
+
+The atlas is a `Texture2DArray` (RGBA16F, one layer per page), so there is no separate single-page
+path — a one-page bake is a one-layer array and the multi-page code runs on every scene. One trap
+worth not re-deriving: unlike `Texture2D::SetData`, which accepts `GL_FLOAT` client data for an
+RGBA16F target, `Texture2DArray::SetLayerData`'s contract is **native data per format**, so the
+asset's f32 texels are packed to halves (`glm::packHalf1x16`) before upload. And the "no bake"
+placeholder published at TEX 16 had to become a 1x1x1 array: binding a `GL_TEXTURE_2D` to a
+`sampler2DArray` unit is undefined, not merely wrong-looking. It is owned by `Renderer3D`'s
+Init/Shutdown pair rather than a lazy static
+([lazy-static-release-ownership.md](lazy-static-release-ownership.md)).
+
+The GPU proof is `LightmapVisualEvidenceTest.BakedBleedSurvivesAMultiPageAtlas`: the colour-bleed
+room baked with `AtlasSize == MinRegionSize == 16`, so a page holds exactly one entity and each of
+the four room pieces lands on its own page, at the same texel density the single-page tests use. The
+same bleed contracts then apply verbatim — paging must be invisible in the frame. A dropped page
+index reads page 0 (the floor's charts) for every entity, which that test catches from both sides:
+the per-entity hue and the ON/OFF differential.
