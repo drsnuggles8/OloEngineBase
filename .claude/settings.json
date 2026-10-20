@@ -10,7 +10,6 @@
       "Bash(git rebase --abort)",
       "Bash(git rebase --continue)",
       "Bash(git rebase --skip)",
-      "Bash(build/OloEngine/tests/Debug/OloEngine-Tests.exe --gtest_filter=\"BoundingBox.*:BoundingSphere.*:BoundingVolume.*:FrustumCulling.*:MeshBinarySerializer.*:MeshSourceBounds.*\")",
       "mcp__sonarqube__get_project_quality_gate_status",
       "mcp__sonarqube__get_component_measures",
       "mcp__sonarqube__search_sonar_issues_in_projects",
@@ -25,14 +24,15 @@
       "Bash(gh issue *)",
       "Bash(echo \"exit=$?\")",
       "Bash(git rev-parse *)",
-      "Bash(git -C D:/repos/OloEngineBaseBase fetch --prune origin)",
-      "Bash(git -C D:/repos/OloEngineBaseBase worktree list)",
-      "Bash(git -C D:/repos/OloEngineBaseBase branch -a)",
-      "Bash(git -C D:/repos/OloEngineBaseBase log --oneline -20)",
       "Bash(git fetch *)",
       "Bash(build\\OloEngine\\tests\\Debug\\OloEngine-Tests.exe *)",
       "Bash(./build/OloEngine/tests/Debug/OloEngine-Tests.exe)",
       "Bash(./build/OloEngine/tests/Debug/OloEngine-Tests.exe *)",
+      "Bash(build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe)",
+      "Bash(build-cached/OloEngine/tests/Debug/OloEngine-Tests.exe *)",
+      "Bash(build-cached/OloEngine/tests/Release/OloEngine-Tests.exe *)",
+      "Bash(build-cached\\OloEngine\\tests\\Debug\\OloEngine-Tests.exe *)",
+      "Bash(python .claude/scripts/worktree_status.py *)",
       "Bash(pwsh -File .claude/skills/run-oloengine/build-lock.ps1 *)",
       "Bash(pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 *)"
     ],
@@ -50,7 +50,7 @@
             "shell": "bash",
             "timeout": 15,
             "statusMessage": "Checking the build mutex",
-            "command": "guard=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/claude-build-lock-guard.py\"; if command -v python >/dev/null 2>&1; then python \"$guard\"; elif command -v python3 >/dev/null 2>&1; then python3 \"$guard\"; else payload=$(cat); case \"$payload\" in *build-lock.ps1*|*OLO_BUILD_LOCK_BYPASS*) : ;; *'cmake --build'*|*ninja*|*msbuild*|*MSBuild*) printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked: Python is unavailable, so the build-lock guard cannot classify this command and fails CLOSED rather than letting an unlocked build through. Route the build through .claude/skills/run-oloengine/build-lock.ps1, install Python, or add the literal marker OLO_BUILD_LOCK_BYPASS if this is not a build.\"}}' ;; esac; fi"
+            "command": "guard=\"${CLAUDE_PROJECT_DIR:-.}/.claude/hooks/claude-build-lock-guard.py\"; if command -v python >/dev/null 2>&1; then python \"$guard\"; elif command -v python3 >/dev/null 2>&1; then python3 \"$guard\"; else payload=$(cat); case \"$payload\" in *build-lock.ps1*|*OLO_NOT_A_BUILD*|*OLO_BUILD_LOCK_OVERRIDE*|*OLO_BUILD_LOCK_BYPASS*) : ;; *'cmake --build'*|*ninja*|*msbuild*|*MSBuild*) printf '%s' '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Blocked: Python is unavailable, so the build-lock guard cannot classify this command and fails CLOSED rather than letting an unlocked build through. Route the build through .claude/skills/run-oloengine/build-lock.ps1, install Python, or add the literal marker OLO_NOT_A_BUILD in a trailing comment if this only mentions a build tool.\"}}' ;; esac; fi"
           },
           {
             "type": "command",
@@ -79,5 +79,5 @@
       }
     ]
   },
-  "_comment": "Shared Claude Code project settings. Per-user permissions live in settings.local.json (gitignored). Per-user state lives elsewhere in .claude/ (also gitignored). NOTE: builds go through .claude/skills/run-oloengine/build-lock.ps1, the cross-worktree mutex (one Debug build peaks at ~47 GiB of 64). That is enforced by the PreToolUse hook above, not by a permission rule — a deny rule degrades to a prompt, which an unattended session in auto mode approves. Escape hatch for a command that only mentions a build tool: the literal marker OLO_BUILD_LOCK_BYPASS."
+  "_comment": "Shared Claude Code project settings. Per-user permissions live in settings.local.json (gitignored). Per-user state lives elsewhere in .claude/ (also gitignored). NOTE: builds go through .claude/skills/run-oloengine/build-lock.ps1, the cross-worktree mutex (one Debug build peaks at ~47 GiB of 64). That is enforced by the PreToolUse hook above, not by a permission rule — a deny rule degrades to a prompt, which an unattended session in auto mode approves. Escape hatches, in a trailing # comment: OLO_NOT_A_BUILD for a command that only mentions a build tool, OLO_BUILD_LOCK_OVERRIDE for a real unlocked build the user approved (legacy OLO_BUILD_LOCK_BYPASS still works). The olo-* mods in .claude/mods are NOT enabled by this file: each machine installs them once (docs/agent-rules/claude-code-mods.md)."
 }
