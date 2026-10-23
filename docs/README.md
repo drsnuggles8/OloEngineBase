@@ -93,7 +93,7 @@ contract docs before claiming support; read the issues before claiming a gap is 
 - [process/issue-scoring.md](process/issue-scoring.md) — the rubric for rating issues/tasks (WSJF-derived, engine-tuned: Capability/Craft/Stability/Decay over Effort, plus Learning/Fun). Drives `/start-work` task picking; raw axes live in an `olo-score` block in each issue body, ranked on demand by `scripts/issue_scores.py` (nothing derived is stored).
 - [process/task-loop.md](process/task-loop.md) — the **worker-session contract**: what a session started from `HANDOVER.md` does, from implementing through self-review, PR, CI and CodeRabbit, to a green thread-clean PR. Absorbed the former `/finish-pr` and `/pr-status` commands. Stops short of merging.
 
-The three workflow slash commands live in [`.claude/commands/`](../.claude/commands/) and are versioned with the repo because they reference repo content: `/start-work` (pick + scaffold), `/cleanup-worktree` (reclaim merged worktrees, heal the registry), `/resume-worktrees` (reopen windows).
+The three workflow skills live in [`.claude/skills/`](../.claude/skills/) and are versioned with the repo because they reference repo content: `/start-work` (pick + scaffold), `/cleanup-worktree` (reclaim merged worktrees, heal the registry), `/resume-worktrees` (reopen windows). All three are manual-only (`disable-model-invocation: true`). The worker's subagents live in [`.claude/agents/`](../.claude/agents/).
 
 ## analysis/ — quality & code-health reports
 

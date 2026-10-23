@@ -55,6 +55,7 @@ CONTRACT_DOCS = (
     "docs/guides/renderer-support-matrix.md",
     "docs/analysis/renderer-docs-reconcile-1357.md",
     "docs/agent-rules/vulkan-command-ordered-buffer-writes.md",
+    "docs/agent-rules/vulkan-command-ordered-buffer-writes-details.md",
     "docs/adr/0020-reflection-tier-selection-contract.md",
     "docs/adr/0022-reference-tracer-owns-its-sampling-model.md",
     "docs/adr/0023-virtual-geometry-is-ray-traced-through-a-fixed-proxy.md",

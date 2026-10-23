@@ -274,7 +274,7 @@ Expected: `[Server] Listening on port 7777` (defaults: port 7777, 64 players,
 
 ## Test
 
-The test binary runs fine from the **repo root**, but prefer `OloEditor\` — that is what `ctest` uses, and startup is ~3x faster there (2.06 s vs 0.71 s; see [testing-architecture.md §5](../../../docs/agent-rules/testing-architecture.md#5-running-tests-locally)):
+The test binary runs fine from the **repo root**, but prefer `OloEditor\` — that is what `ctest` uses, and startup is ~3x faster there (2.06 s vs 0.71 s; see [testing-architecture.md §5](../../../docs/agent-rules/testing-architecture-details.md#5-running-tests-locally)):
 
 ```powershell
 cd OloEditor; ..\build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_filter=FastRandomTest.*:ContainerSmoke.*

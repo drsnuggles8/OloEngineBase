@@ -349,7 +349,7 @@ target_include_directories(stb_image INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/stb_
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
-	GIT_TAG 778992face67ecefaa5c2932db4b2101545ea4df  # docking @ 2026-06-05
+	GIT_TAG d88f238d1d363ef387382b2e29ad12cf96f826ac  # docking @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if(imgui_ADDED)

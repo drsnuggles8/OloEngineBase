@@ -1,215 +1,34 @@
 # GPU-pushable shader debug draws (issue #725)
 
-Applies to: any work on a GPU-driven pass — culling, cluster LOD, virtual
-texturing, DDGI, GPU quadtrees, particle/fluid computes.
+Applies to: any work on a GPU-driven pass — culling, cluster LOD, virtual texturing, DDGI, GPU quadtrees, particle/fluid computes.
 
-The point of this feature: the decisions those passes make (what was culled, what
-bounds it used, where a probe relocated to, which page it asked for) are computed
-on the GPU and **never come back**. Before this, the only instrument was "add a
-debug colour output, reload, screenshot" — the loop
-[volumetric-cloud-debugging.md](volumetric-cloud-debugging.md) documents precisely
-because nothing better existed. Now any shader can draw.
+Shaders can push debug primitives that are drawn in the same frame, so GPU-side decisions (culled, bounds used, relocated probes, requested pages) can be seen.
 
----
+## Rules
 
-## 1. Pushing from a shader — three lines
+1. **Define only the channels you push before including `include/DebugDrawCommon.glsl`.** E.g. `#define OLO_DEBUG_DRAW_AABB`. Each channel is an SSBO block; GL guarantees only 8 per stage and `VirtualClusterCull.comp` already declares 9 of its own, so declaring all seven fails to link. `OLO_DEBUG_DRAW_ALL` is for the draw-side shader only. Helpers: `OloDebugDrawLine`, `Circle`, `Rectangle`, `AABB`, `Box`, `Cone`, `Sphere`, each taking a colour and a space tag. [Details](gpu-debug-draws-details.md#1-pushing-from-a-shader--three-lines)
+2. **Enable it with `RendererSettings::ShaderDebugDrawEnabled`** (Renderer Settings panel, F3 overlay, or `olo_shader_debug_draw { enabled: true }` over MCP). [Details](gpu-debug-draws-details.md#1-pushing-from-a-shader--three-lines)
+3. **Keep the channel buffer laid out as its own indirect draw.** Each channel starts with a 32-byte header whose first 16 bytes are a `DrawArraysIndirectCommand`; see `Renderer/Debug/ShaderDebugDrawTypes.h`. [Details](gpu-debug-draws-details.md#2a-the-channel-buffer-is-the-indirect-draw)
+4. **Keep the append order: unclamped `atomicAdd(RequestCount)`, bounds check against `Capacity`, write the entry, then `atomicAdd(InstanceCount)`.** `RequestCount > Capacity` is the overflow flag; bumping `InstanceCount` only on accepted pushes keeps the indirect draw in range. [Details](gpu-debug-draws-details.md#2b-two-counters-and-the-overflow-flag-falls-out-for-free)
+5. **Check the overflow flag before concluding the feature is broken.** "Drew nothing" and "overflowed" look identical. Full counters are in the Renderer Settings panel and the `olo_shader_debug_draw` response; F3 shows only overflow lines; an overflow logs once per channel. [Details](gpu-debug-draws-details.md#2b-two-counters-and-the-overflow-flag-falls-out-for-free)
+6. **Gate high-frequency pushes.** A per-cluster or per-pixel push overflows a 4096-entry channel at once; use a stride (the virtual-geometry consumer emits every Nth cluster, default 32), a selected entity or a screen region. An overflowed channel is an arbitrary prefix, not a visualization. [Details](gpu-debug-draws-details.md#2c-push-volume-is-your-problem)
+7. **Push in the space the data lives in.** `OLO_DEBUG_SPACE_WORLD` (default, scene geometry), `OLO_DEBUG_SPACE_MAIN_NDC` (screen-space work), `OLO_DEBUG_SPACE_OBSERVER_NDC` (the culling camera's NDC since #726, set in `RenderPipeline::UploadExecutionState`; equal to main NDC while nothing is frozen). See [observer-camera.md](observer-camera.md). [Details](gpu-debug-draws-details.md#3-coordinate-spaces)
+8. **Keep segments as screen-space quads, not `GL_LINES`.** Core-profile GL guarantees only line width 1 and `RendererAPI::DrawArraysIndirect` issues `GL_TRIANGLES`; quads give a width knob without a new RHI entry point. [Details](gpu-debug-draws-details.md#4-things-that-cost-debugging-time)
+9. **Keep the `SHADER_STORAGE | COMMAND` barrier.** Without `COMMAND` the indirect draw may read a stale count: "first frame after a push draws nothing, then works". [Details](gpu-debug-draws-details.md#4-things-that-cost-debugging-time)
+10. **Never read a channel buffer directly from the CPU.** It is `GL_DYNAMIC_COPY` and used as `GL_DRAW_INDIRECT_BUFFER`; a direct `glGetNamedBufferSubData` makes NVIDIA migrate it VIDEO to HOST (log 131188/131186). Stats come from a `DeviceToHost` staging copy at the end of the debug pass, read at the next `BeginFrame`, so they are one frame old: do not read a stale zero as "nothing pushed". Same fix as `VirtualMeshRegistry::ReadFrameCullStats`. [Details](gpu-debug-draws-details.md#4-things-that-cost-debugging-time)
+11. **An enable that gates a graph declaration must reach the declaration key.** Expose it through `IsEnabled()` so `RenderPipeline::CaptureDeclarationConfig` folds it in, unless the pass returns false from `IsEnableADeclarationInput()`. Test with the cache warmed first: `ShaderDebugDrawVisualTest.EnablingAfterTheGraphCacheIsWarmStillDeclaresThePass`. See [render-graph-declaration-config.md](render-graph-declaration-config.md) and [render-pipeline-caches.md](render-pipeline-caches.md). [Details](gpu-debug-draws-details.md#4-things-that-cost-debugging-time)
+12. **A CPU push made after `EndScene` lands in the next frame.** CPU pushes are flushed by `ShaderDebugDraw::BeginFrame()` in `RenderPipeline::UploadExecutionState`, occupying slots `[0, n)`; GPU appends start at `n`. [Details](gpu-debug-draws-details.md#4-things-that-cost-debugging-time)
+13. **Keep the seven channel buffers allocated and bound when disabled.** They are created at `Renderer3D::Init` at 32 bytes each and never unbound; the helpers read `Capacity == 0u`, and an unbound SSBO read is undefined in GL. [Details](gpu-debug-draws-details.md#4-things-that-cost-debugging-time)
+14. **Draw debug geometry pre-tonemap, depth-tested, depth writes OFF, with the scene framebuffer narrowed to colour[0].** Depth writes would change AO, SSR and fog input; the other attachments (entity ID, view normal, velocity) would be overwritten with undefined values and break picking. [Details](gpu-debug-draws-details.md#4-things-that-cost-debugging-time)
+15. **A consumer emits in phase 1 only, and in perspective views only.** `VirtualClusterCull.comp` colours cluster cull spheres by verdict (1 drawn green, 2 frustum red, 4 cone blue, 8 Hi-Z yellow; `ShaderDebugDrawClusterBounds`). Phase 2 re-tests classified clusters, so its dispatch sets `u_DebugDrawClusters = 0` explicitly (uniforms persist per program); shadow cascades use `u_OrthoMode = 1` and must not emit. [Details](gpu-debug-draws-details.md#5-the-shipped-consumer)
+16. **Keep the shader-text constants and C++ constants equal.** The contract test reads the GLSL as text and asserts the segment-count `#define`s match; drift draws a fraction of each primitive and does not crash. [Details](gpu-debug-draws-details.md#6-where-the-guards-are)
 
-```glsl
-#define OLO_DEBUG_DRAW_AABB          // name ONLY the channels you push
-#include "include/DebugDrawCommon.glsl"
-...
-OloDebugDrawAABB(worldMin, worldMax, vec3(1.0, 0.0, 0.0), OLO_DEBUG_SPACE_WORLD);
-```
+## Where the guards are
 
-Seven primitives, one append channel each: `OloDebugDrawLine`, `…Circle`,
-`…Rectangle`, `…AABB`, `…Box` (8 explicit corners), `…Cone`, `…Sphere`. Every
-helper takes a colour and a coordinate-space tag.
-
-**The channels are opt-in per primitive, and that is not politeness.** Each is an
-SSBO block, and storage blocks are a scarce per-stage resource: GL guarantees only
-8 per stage and NVIDIA's compute limit is 16. `VirtualClusterCull.comp` already
-declares 9 of its own — a header that unconditionally declared all seven would put
-it over the limit and the shader would simply fail to link. Name what you push;
-`OLO_DEBUG_DRAW_ALL` exists for the draw-side shader, which needs them all.
-
-**Turn it on**: `RendererSettings::ShaderDebugDrawEnabled` (Renderer Settings
-panel, the F3 overlay, or `olo_shader_debug_draw { enabled: true }` over MCP).
+- `tests/Rendering/ShaderDebugDrawContractTest.cpp`, `ShaderDebugDrawExpansionTest.cpp`, `ShaderBindingLayoutTest.cpp`
+- `tests/Rendering/PropertyTests/ShaderDebugDrawGpuPushTest.cpp`, `ShaderDebugDrawVisualTest.cpp`
 
 ---
 
-## 2. The contract, and why it is shaped this way
-
-Full detail lives in
-[`Renderer/Debug/ShaderDebugDrawTypes.h`](../../OloEngine/src/OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h).
-Three properties are worth knowing before you rely on the tool.
-
-### 2a. The channel buffer IS the indirect draw
-
-Each channel opens with a 32-byte header whose first 16 bytes are a GL
-`DrawArraysIndirectCommand`. `glDrawArraysIndirect` reads it at offset 0 of the
-same buffer, so the primitive count never travels through the CPU — which is the
-whole reason a compute shader's output can appear in the same frame.
-
-### 2b. Two counters, and the overflow flag falls out for free
-
-```glsl
-uint slot = atomicAdd(RequestCount, 1u);   // UNCLAMPED
-if (slot >= Capacity) return;              // dropped, but COUNTED
-Entries[slot] = entry;
-atomicAdd(InstanceCount, 1u);              // only accepted pushes draw
-```
-
-The order is the contract. `RequestCount` is what you asked for, `InstanceCount`
-is what got drawn, and `RequestCount > Capacity` is exactly "you overflowed and
-`Requested - Capacity` draws were dropped". Bumping `InstanceCount` only on the
-accepted path is what keeps the indirect draw in range — it can never cover a slot
-that was not written.
-
-**Read the overflow flag before you conclude the feature is broken.** "I drew
-nothing" and "I overflowed and everything past slot N was thrown away" look
-identical on screen and are the hour-wasting failure this exists to remove. The
-full counters are in the Renderer Settings panel and in
-`olo_shader_debug_draw`'s response; the F3 overlay carries only the overflow
-lines (which channel, how many dropped), because that is the part you need
-without leaving a running game. An overflow also logs once per channel.
-
-### 2c. Push volume is your problem
-
-A per-cluster or per-pixel push overflows a 4096-entry channel instantly. The
-shipped virtual-geometry consumer therefore has a **stride** (emit every Nth
-cluster, default 32), and any new high-frequency consumer needs the same kind of
-gate — a selected entity, a screen region, an every-Nth-index test. An overflowing
-channel is not a visualization, it is a picture of an arbitrary prefix in an
-arbitrary order.
-
----
-
-## 3. Coordinate spaces
-
-| Tag | Positions are… | Use it for |
-|---|---|---|
-| `OLO_DEBUG_SPACE_WORLD` | world space | anything about scene geometry — the default |
-| `OLO_DEBUG_SPACE_MAIN_NDC` | already main-camera NDC | screen-space work (tile grids, cull rectangles) without inverting a projection in the pusher |
-| `OLO_DEBUG_SPACE_OBSERVER_NDC` | NDC of a second, detached camera | inspecting another frustum from the main view |
-
-`ObserverCameraNDC` is now the **culling** camera's NDC (issue #726 landed; the
-one line was `RenderPipeline::UploadExecutionState`). A shader that computes
-something in the space the cull actually ran in pushes it in that space and it
-lands correctly in the observer's view. While nothing is frozen the culling
-camera *is* the main camera, so the space stays an exact identity round-trip to
-`MainCameraNDC` — which is what it was before #726, so no existing pusher
-changed meaning. See [observer-camera.md](observer-camera.md).
-
----
-
-## 4. Things that cost debugging time
-
-**Segments become screen-space QUADS, not `GL_LINES`.** Core-profile GL only
-guarantees line width 1, and `RendererAPI::DrawArraysIndirect` issues
-`GL_TRIANGLES`. Expanding to quads gets a real width knob *and* means the feature
-needed no new RHI entry point — worth remembering if you are tempted to "simplify"
-it back to lines.
-
-**The `SHADER_STORAGE | COMMAND` barrier is load-bearing, and its absence is the
-most confusing possible symptom.** Without `COMMAND` the indirect draw may legally
-read a stale instance count, which presents as "the first frame after a push draws
-nothing, and then it works" — i.e. an intermittent bug that looks like a race in
-whatever shader you were actually debugging.
-
-**Never read a channel buffer directly.** It is `GL_DYNAMIC_COPY` and is read
-every frame as the `GL_DRAW_INDIRECT_BUFFER` of its own draw, so it must stay in
-video memory. A CPU `glGetNamedBufferSubData` straight off it makes NVIDIA log
-131188 and migrate it VIDEO→HOST (131186), permanently slowing the draw. Stats go
-through a `DeviceToHost` staging copy issued at the end of the debug pass and read
-at the *next* `BeginFrame` — one frame of latency, no stall. Same trap, same fix,
-as `VirtualMeshRegistry::ReadFrameCullStats`.
-
-**An enable that gates a graph DECLARATION must reach the declaration key.**
-Since #1333 it does by construction when the pass exposes it through
-`IsEnabled()`: `RenderPipeline::CaptureDeclarationConfig` folds every pass's
-`IsReadyForExecution()` and `AppendDeclarationInputs`, and its `IsEnabled()`
-unless the pass returns false from `IsEnableADeclarationInput()`, into the
-key ([render-graph-declaration-config.md](render-graph-declaration-config.md)).
-Before that, the hand-written fingerprint hashed readiness but not the enable,
-and `ShaderDebugDrawPass::Setup` returns before any declaration while disabled,
-so the blackboard + frame-graph caches short-circuited and the pass stayed
-undeclared. The symptom is nastier than "never
-works": it works the moment you *also* load a scene or switch rendering path, so
-it reads as intermittent. Pinned by
-`ShaderDebugDrawVisualTest.EnablingAfterTheGraphCacheIsWarmStillDeclaresThePass`,
-which warms the cache with the feature off *first* — enabling from a cold start
-passes either way, which is what makes the warm-up the load-bearing part of that
-test. This is the #530 class; see
-[render-pipeline-caches.md](render-pipeline-caches.md).
-
-**Stats are one frame old.** By construction, per the above. Do not read a
-stale zero as "nothing was pushed" on the frame you enabled the feature.
-
-**A CPU push made after `EndScene` lands in the NEXT frame.** CPU pushes are
-staged and flushed by `ShaderDebugDraw::BeginFrame()` inside
-`RenderPipeline::UploadExecutionState` — after scene traversal, before the graph
-runs — so CPU entries occupy slots `[0, n)` and GPU appends start at `n`. That
-shared buffer is deliberate: it is what lets a CPU-computed bound and its
-GPU-computed counterpart be drawn together and compared.
-
-**"Zero cost when disabled" needs the buffers to stay ALLOCATED AND BOUND.** The
-helpers guard on a plain `Capacity == 0u` read, and reading an unbound SSBO is
-undefined in GL (the spec permits program termination). So the seven channels are
-created and bound at `Renderer3D::Init` at their header-only size, 32 bytes each,
-and never unbound. Deleting that "wasteful" allocation would make every push site
-undefined behaviour on the *disabled* path.
-
-**Debug geometry is drawn pre-tonemap and depth-tested, with depth writes OFF.**
-Depth *test* is what makes a world-space bound read as being in the scene rather
-than pasted over it. Depth *write* stays off so the debug overlay never changes
-what a downstream pass computes (AO, SSR, fog all read scene depth). The pass also
-narrows the scene framebuffer to colour[0] for its draws — the debug fragment
-stage has no entity-ID / view-normal / velocity output, and leaving those
-attachments selected would write undefined values over them and break editor
-picking wherever a line crosses.
-
----
-
-## 5. The shipped consumer
-
-`VirtualClusterCull.comp` emits each cluster's world-space cull sphere,
-colour-coded by which test decided it:
-
-| Bit | Verdict | Colour |
-|---|---|---|
-| 1 | drawn (survived every test) | green |
-| 2 | frustum-culled | red |
-| 4 | cone-culled (backfacing) | blue |
-| 8 | Hi-Z occluded in phase 1 | yellow |
-
-`RendererSettings::ShaderDebugDrawClusterBounds` / `olo_shader_debug_draw
-{ clusterBounds }`. Deferred path, virtual geometry in view.
-
-Two details worth copying into the next consumer:
-
-- **Phase 1 only.** The two-phase occlusion cull re-tests an already-classified
-  subset in phase 2, so emitting there would draw a second sphere over most of the
-  same clusters and make the drawn set look larger than the cut actually is. The
-  phase-2 dispatch sets `u_DebugDrawClusters = 0` *explicitly*, because uniform
-  state is per program and persists across dispatches.
-- **Perspective view only.** The shadow cascades bind the same program with
-  `u_OrthoMode = 1` and would otherwise emit a second, differently culled set on
-  top of the first.
-
----
-
-## 6. Where the guards are
-
-| What | Where |
-|---|---|
-| struct sizes/offsets, binding derivation, GLSL literal cross-check, overflow protocol | `tests/Rendering/ShaderDebugDrawContractTest.cpp` (L1/shaderpipe) |
-| primitive → line-segment expansion, analytic | `tests/Rendering/ShaderDebugDrawExpansionTest.cpp` (L1/shaderpipe) |
-| the real GLSL append helper + overflow, on hardware | `tests/Rendering/PropertyTests/ShaderDebugDrawGpuPushTest.cpp` (shaderpipe, GPU) |
-| pixels reach the screen, depth test, disabled draws nothing | `tests/Rendering/PropertyTests/ShaderDebugDrawVisualTest.cpp` (L8) |
-| binding-slot uniqueness | `tests/Rendering/ShaderBindingLayoutTest.cpp` |
-
-The contract test reads the shader source as **text** and asserts the
-segment-count `#define`s match the C++ constants. That is crude, but the GLSL
-cannot be executed headlessly and a drifted constant does not crash — it draws a
-fraction of each primitive, which reads as "the sphere looks a bit chunky" rather
-than as a bug.
+Full text, with the failures that taught these rules, the measurements and the derivations:
+[gpu-debug-draws-details.md](gpu-debug-draws-details.md).

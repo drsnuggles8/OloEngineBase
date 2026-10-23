@@ -1,304 +1,34 @@
 # Subsystem notes — gameplay, physics, navigation, terrain
 
-Accumulated gotchas from dialogue/quest, inventory, Jolt joints and ragdolls, Detour navigation,
-and terrain/foliage work. Reference notes, not failure postmortems — see [README.md](README.md).
+Accumulated gotchas from dialogue/quest, inventory, Jolt joints and ragdolls, Detour navigation, and terrain/foliage work. Reference notes, not failure postmortems (see README.md). Read before touching any of those subsystems.
 
-Salvaged from worktree-scoped memory (see `docs/process/task-loop.md` Phase 7 for why that is now
-the wrong destination).
+## Rules
+
+1. **Register a per-tick gameplay system in `Scene::GetGameplayScheduler()` (`Scene/Scene.cpp`) with `Reads/Writes/After/Before` against `GameplayChannel::k*` constants, never raw strings.** Declare the real data flow, not a position: a missing edge is hidden by the registration-order tie-break and becomes a data race under the parallel executor. Duplicate name, dangling reference or cycle throws `SystemSchedulerError`. `SystemSchedulerTest.GameplayScheduleHonoursDocumentedSeams` asserts reachability (`SystemScheduler::DependsOn`), never positions. [Details](notes-gameplay-physics-nav-details.md#11-the-gameplay-system-scheduler-and-entt-owning-groups-issue-453)
+2. **Mark a system `.Parallelizable()` only after a thread-safety audit.** No GL/GPU calls, no EnTT structural changes, no `GameplayEventBus` publish, no draws from the seeded game-thread RNG (#452); record it in the audit-table comment at the schedule builder and extend the `Scene::Scene()` storage pre-warm list (notes-core-and-threading.md §16). Systems registered between `PhysicsKick` and `PhysicsFence` run on the game thread (current: Dialogue, Quest). Bisect with `OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL=1` or `SystemScheduler::SetParallelExecutionEnabled(false)`. [Details](notes-gameplay-physics-nav-details.md#11-the-gameplay-system-scheduler-and-entt-owning-groups-issue-453)
+3. **Read and update the ownership-map comment at the top of `Scene/Scene.cpp` before adding an EnTT owning group.** A component can be owned by one group only (owning an owned one is a runtime assert; an owned pool cannot be `.sort()`ed); `get<>`-observed types are unconstrained. [Details](notes-gameplay-physics-nav-details.md#11-the-gameplay-system-scheduler-and-entt-owning-groups-issue-453)
+4. **Confirm a new `PhysicsSettings` field reaches `JoltScene::InitializeJolt()`.** `Physics3DSystem::m_PhysicsSystem` is never stepped; the simulated system is `JoltScene::m_JoltSystem`. Settings are read once at init, with no live-update path (#540). [Details](notes-gameplay-physics-nav-details.md#1-two-jphphysicssystem-instances-exist-only-one-is-ever-stepped)
+5. **Put new physics-lifecycle hooks in `Scene::OnPhysics3DStart/Stop`, not `JoltScene::OnRuntimeStart/Stop`.** The latter are dead code. Author bodies/colliders/joints before `m_JoltScene->Initialize()` so the `OnComponentAdded` hooks no-op, and add the collider component before `Rigidbody3DComponent` or the body falls back to a 1x1x1 box. [Details](notes-gameplay-physics-nav-details.md#2-the-physics-lifecycle-path-is-scene-not-joltscene)
+6. **When adding a `JointType3D` value, bump both hardcoded upper-bound guards.** `Scene/SceneSerializer.cpp` (`jointTypeInt <= static_cast<i32>(JointType3D::<last>)`) and `Scripting/Lua/LuaScriptGlue.cpp` (`v <= static_cast<int>(JointType3D::<last>)`); there is no `Count` sentinel. [Details](notes-gameplay-physics-nav-details.md#3-adding-a-jointtype3d-value-or-a-joint-field--three-footguns-the-checklist-misses)
+7. **Append a new joint field as a tail in `SaveGameComponentSerializer::Serialize`.** Add `ar <<` in the save branch and an `if (ar.AtEnd()) {defaults} else {ar << …}` probe plus sanitize in the load branch, or old save-games crash or misread. [Details](notes-gameplay-physics-nav-details.md#3-adding-a-jointtype3d-value-or-a-joint-field--three-footguns-the-checklist-misses)
+8. **Author pulley fixed points (`m_PulleyFixedPointA/B`) in world space and preserve negative `mMaxLength` through sanitize.** Every other joint anchor is body-local; `-1` means "auto = current length". [Details](notes-gameplay-physics-nav-details.md#3-adding-a-jointtype3d-value-or-a-joint-field--three-footguns-the-checklist-misses)
+9. **Treat Gear/RackAndPinion as body-to-body v1 without drift correction.** An entity has one `PhysicsJoint3DComponent`, so companion Hinge/Slider entities cannot be referenced. To test: disable gravity, drive purely on-axis, read the rotation from the `TransformComponent` quaternion (`2*atan2(q.z, q.w)` for pure-Z spin). `PathConstraint` is deferred. [Details](notes-gameplay-physics-nav-details.md#3-adding-a-jointtype3d-value-or-a-joint-field--three-footguns-the-checklist-misses)
+10. **Ragdolls are generated ECS physics, not `JPH::Ragdoll`.** `JoltScene::CreateRagdoll` adds a Dynamic body plus `SphereCollider3DComponent` to bones without a `Rigidbody3DComponent` (author the root bone Static to anchor to the world) and a `SwingTwist` joint on each child with `CollideConnected=false`, pivoting at the parent bone origin; `DestroyAllRagdolls` runs first in `Scene::OnPhysics3DStop`. Bone transforms are read as world-space; pose write-back, blend modes, mid-game toggle and capsule fitting are not implemented. [Details](notes-gameplay-physics-nav-details.md#4-ragdolls-are-expanded-into-ordinary-ecs-physics-not-jphragdoll)
+11. **Give every nav "target set" flow a terminal path for "cannot reach".** Detour `findPath` returns a partial path as success (`DT_PARTIAL_RESULT`); `FindPath` returns `FindPathResult { Failed, Partial, Complete }`, `NavigationSystem` latches `NavAgentComponent::m_TargetUnreachable` (`OLO_SERIALIZE(Skip)`) and keeps `m_HasTarget` set, and `BTMoveTo` checks `m_HasTarget && m_TargetUnreachable` first and returns `Failure`. Test arrival by the last corner's distance to the goal, never by the `FindPath` bool. [Details](notes-gameplay-physics-nav-details.md#5-detour-returns-a-partial-path-as-success)
+12. **Bounds-check `NavMeshGenerator::Generate` input (`isfinite`, `max > min`) before `rcCalcGridSize`.** Garbage or inverted bounds meant a huge grid allocation. `CrowdManager::AddAgent` is wired now; see crowd-manager-follower-parity.md. [Details](notes-gameplay-physics-nav-details.md#5-detour-returns-a-partial-path-as-success)
+13. **Keep off-mesh link START endpoints inside the bake bounds (XZ) and within `AgentMaxClimb` vertically plus `radius` horizontally of a walkable poly.** Otherwise `dtCreateNavMeshData` silently drops the link. Links are `std::vector<OffMeshLink> m_Links` on `NavMeshBoundsComponent`, not a new component; per-area cost, gizmo authoring and scripting are not built. [Details](notes-gameplay-physics-nav-details.md#6-off-mesh-links)
+14. **Register dialogue→subsystem handlers from a `*DialogueBridge` in the subsystem's `Gameplay/` folder via `Scene::InitDialogueSystem()`.** Handlers take `(UUID dialogueEntity, const std::string& name, const std::string& args)`; the UUID, not `Entity`, keeps the Dialogue header free of Scene/EnTT includes. [Details](notes-gameplay-physics-nav-details.md#7-dialogue-handlers-carry-the-speakers-uuid-and-must-guard-component-presence)
+15. **Guard `DialogueComponent` with `HasComponent` at every use site and fall through to `EndDialogue(entity)`.** Removing it mid-conversation otherwise hits an EnTT assert (Debug) or UB (Release); do the same wherever a state component's lifetime should track a definition component. [Details](notes-gameplay-physics-nav-details.md#7-dialogue-handlers-carry-the-speakers-uuid-and-must-guard-component-presence)
+16. **Keep inventory pricing in integer `i32` with `i64` overflow guards, trades all-or-nothing.** Shops have unlimited gold; buyback is `ItemDefinition::SellPrice` else `BuyPrice / 2` (truncates, so 1 sells for 0); validate against a copy of the destination and move currency only after the transfer commits; only a partial pull from a stack mints a new `InstanceID`. [Details](notes-gameplay-physics-nav-details.md#8-inventory-economy-conventions)
+17. **Use the CPU `TerrainGenerator::ApplyErosion` for anything needing reproducibility.** The GPU `Terrain/Editor/TerrainErosion` brush races on heightmap texels by construction; the droplet model also loses mass, so repeated iterations flatten relief (faithful to the brush). [Details](notes-gameplay-physics-nav-details.md#9-terrain-erosion-the-editor-brush-is-non-deterministic-by-construction)
+18. **Give every foliage layer an albedo with an alpha cutout.** `Foliage_Instance.glsl` discards on `texColor.a < AlphaCutoff` and `CommandDispatch::DrawFoliageLayer` binds diffuse only when `albedoTextureID != 0`; the editor's "+ Add Layer" defaults `AlbedoPath = ""`, so use `assets/textures/grass.png`. [Details](notes-gameplay-physics-nav-details.md#10-foliage-without-an-albedo-cutout-is-invisible)
+19. **Verify foliage by instance count in headless tests, and up close in the live editor.** `RunEditorFrames` does not composite the foliage draw pass; sparse billboards blend into the green terrain from a distance. [Details](notes-gameplay-physics-nav-details.md#10-foliage-without-an-albedo-cutout-is-invisible)
+20. **What a script writes into a body's entity reaches the live Jolt body before the next step.** A changed `m_Type` and a moved root transform are applied in `JoltScene::ApplyAuthoredBodyState`; a type the body cannot take is refused with a warning. [Details](notes-gameplay-physics-nav-details.md#12-script-writes-reach-the-live-jolt-body-a-carried-body-follows-its-entity-issue-1559)
+21. **Carry a body with `Scene::AttachEntity` and read where it is with the world translation.** A carried body is kinematic and driven to its entity's composed pose before each step; `DetachEntity` restores its type and gives it the velocity it was carried at. Its own translation is parent-relative: use Lua `entity_utils.get_world_translation` / C# `Entity.WorldTranslation`. A sleeping body has no contacts. [Details](notes-gameplay-physics-nav-details.md#12-script-writes-reach-the-live-jolt-body-a-carried-body-follows-its-entity-issue-1559)
+22. **A navmesh bake skips geometry that moves and reads the terrain GPU-free.** Nav agents, animated or skinned bodies, character controllers and non-static bodies (and their children) are left out; a single-tile terrain's heights come from `Scene::CpuTerrainHeights`. [Details](notes-gameplay-physics-nav-details.md#13-navmesh-bake-no-moving-geometry-and-it-builds-its-own-ground-issue-1559)
+23. **A nav agent on root motion is turned by navigation and moved by its clip.** `m_UseRootMotion` keeps it out of the crowd; `Navigation` runs `.After("RootMotionApply")`. [Details](notes-gameplay-physics-nav-details.md#14-steering-on-root-motion-issue-1559)
 
 ---
 
-## 1. Two `JPH::PhysicsSystem` instances exist; only one is ever stepped
-
-`Physics3DSystem` (`Physics3D/Physics3DSystem.{h,cpp}`) owns an `m_PhysicsSystem` that **nothing
-ever calls `Update()` on**. The system actually simulated is `JoltScene::m_JoltSystem`, stepped
-from `JoltScene::Simulate()`.
-
-Before #540 this meant a project's `PhysicsSettings` — gravity, solver iterations, Baumgarte, sleep
-thresholds, fixed timestep — reached the dead system and had **zero effect** on the simulation,
-while `SetSettings()` logged "Physics settings applied successfully". Only
-`MaxBodies`/`MaxBodyPairs`/`MaxContactConstraints` reached the live sim, because
-`JoltScene::InitializeJolt()` read them directly at init.
-
-**Before wiring any new `PhysicsSettings` field, confirm it reaches
-`JoltScene::InitializeJolt()`** — not just `Physics3DSystem::UpdatePhysicsSystemSettings()`, where
-the plausible-looking helper lives. There is no live-update path for either; settings are read once
-at init.
-
-## 2. The physics lifecycle path is `Scene::`, not `JoltScene::`
-
-`Scene::OnPhysics3DStart()` / `OnPhysics3DStop()` are canonical — they iterate the registry
-directly. `JoltScene::OnRuntimeStart()` / `OnRuntimeStop()` are **dead code** with no caller in
-`src/`, `OloRuntime` or `OloEditor`. `FunctionalTest::EnablePhysics3D()` calls the `Scene::` pair.
-
-Any new physics-lifecycle hook goes in `Scene::OnPhysics3DStart/Stop`. Two related rules:
-
-- `OnComponentAdded<Rigidbody3DComponent>` / `<PhysicsJoint3DComponent>` create the Jolt body or
-  constraint **immediately** once `m_JoltScene->IsInitialized()`. To author bodies/colliders/joints
-  at start without redundant creation and "already exists" warnings, run the authoring pass
-  **before** `m_JoltScene->Initialize()` — the hooks then no-op and the normal loops build
-  everything once.
-- **Add the collider component before the `Rigidbody3DComponent`**, so the body resolves its shape.
-  A body with no collider silently falls back to a 1×1×1 box (with a warning) via
-  `JoltShapes::CreateShapeForEntity`.
-
-## 3. Adding a `JointType3D` value or a joint field — three footguns the checklist misses
-
-1. **Two hardcoded upper-bound guards must be bumped**, or the new enum value silently fails to
-   deserialize and to set from Lua. There is no `Count` sentinel; both reference the literal last
-   enumerator:
-   - `Scene/SceneSerializer.cpp` — `jointTypeInt <= static_cast<i32>(JointType3D::<last>)`
-   - `Scripting/Lua/LuaScriptGlue.cpp` — `v <= static_cast<int>(JointType3D::<last>)`
-2. **SaveGame fields append as a new tail.** `SaveGameComponentSerializer::Serialize` for this
-   component is a chain of `if (ar.AtEnd())` back-compat tails. A new field goes *after* the last
-   one: an `ar <<` in the save branch **and** a matching `if (ar.AtEnd()) {defaults} else {ar << …}`
-   probe plus sanitize in the load branch. Miss the probe and old save-games crash or misread.
-3. **Pulley fixed points are authored in WORLD space** (`m_PulleyFixedPointA/B`), unlike every other
-   anchor on the component, which is body-local — they are level-fixed hooks. Jolt's
-   `mMaxLength = -1` is an "auto = current length" sentinel (a rope that contracts but cannot
-   extend); **preserve negatives through sanitize**.
-
-> **Gear / RackAndPinion are body-to-body v1, without drift correction.** Each entity has exactly
-> one `PhysicsJoint3DComponent`, so there is no way to reference the companion Hinge/Slider entities
-> that Jolt's `SetConstraints` wants for numerical-drift cancellation. Referencing two other joint
-> entities is its own design. **Testing trick:** the coupling constraint alone demonstrates the
-> velocity/position relationship without companions — disable gravity, start the driving body
-> purely on-axis (pure-Z spin for gear, pure-X slide for rack), then read the driven body's rotation
-> from the `TransformComponent` quaternion (`2*atan2(q.z, q.w)` for a pure-Z spin).
-
-`PathConstraint` is deferred — it needs a variable-length spline serialized as a point list, a
-heavier authoring problem.
-
-## 4. Ragdolls are expanded into ordinary ECS physics, not `JPH::Ragdoll`
-
-`JoltScene::CreateRagdoll` expands `RagdollComponent` into components the existing Rigidbody3D /
-collider / PhysicsJoint3D infrastructure already realises:
-
-- The skeleton comes from `m_Skeleton` (runtime `Ref`, not serialized) or the `SkeletonComponent`
-  on `m_SkeletonEntity` (`0` = self). Bone entities are found by tag == bone name via
-  `BoneEntityUtils::FindBoneEntityIds`.
-- **Pass A** — bones without a `Rigidbody3DComponent` get a generated Dynamic body plus a
-  `SphereCollider3DComponent`. A pre-authored body is kept, so **authoring the root bone Static
-  anchors the ragdoll to the world**.
-- **Pass B** — each parent→child link gets a `SwingTwist` joint on the **child**,
-  `CollideConnected=false`, **pivoting at the parent bone's origin**
-  (`localAnchorA = invChildRot*(parentPos−childPos)`, `localAnchorB = 0`, twist along the bone).
-  A single COM-centred bone with pivot == COM would not swing under gravity.
-- `DestroyAllRagdolls` (called first in `Scene::OnPhysics3DStop`) removes exactly the generated
-  entities, restoring the authored scene.
-
-Not done, deliberately: physics→animation pose write-back, blend modes, mid-game enable/disable,
-per-bone capsule fitting, anatomically-correct joint placement, and nested-bone world-transform
-resolution (bone transforms are read as world-space — a flat layout, matching how JoltBody already
-interprets `TransformComponent.Translation`).
-
-## 5. Detour returns a partial path as *success*
-
-`dtNavMeshQuery::findPath` returns a path to the **nearest reachable** poly and sets
-`DT_PARTIAL_RESULT` when the target is off-navmesh or in a disconnected region. It is not a
-failure. `NavMeshQuery::FindPath` used to check only `dtStatusFailed || npolys == 0`, so an agent
-walked to the closest point while `BTMoveTo` — checking arrival against the raw, never-reached
-target — re-issued the same target and returned `Running` **forever**.
-
-The shape of the fix, and the contract for any future nav consumer:
-
-- `FindPath` returns `enum class FindPathResult { Failed, Partial, Complete }`, with Partial
-  detected via `dtStatusDetail(status, DT_PARTIAL_RESULT)`.
-- `NavAgentComponent` carries a runtime `m_TargetUnreachable` flag (`OLO_SERIALIZE(Skip)`).
-- `NavigationSystem` latches it on Failed/Partial, **keeps `m_HasTarget` set** so the terminal state
-  is observable, and stops recomputing — otherwise it re-runs `FindPath` every frame.
-- `BTMoveTo` checks `m_HasTarget && m_TargetUnreachable` first and returns `Failure`.
-- Exposed as C# `NavAgentComponent.IsTargetUnreachable` and Lua `targetUnreachable`.
-
-**A nav "target set" flow must have a terminal path for "cannot reach".** Checking only `HasPath`
-or arrival distance is the bug. Equally, "did the agent reach the goal?" must be tested by the last
-corner's distance to the goal, never by the `FindPath` bool.
-
-`NavMeshGenerator::Generate` is public and had no `isfinite` / `max > min` bounds check before
-`rcCalcGridSize` — garbage or inverted bounds meant a huge grid allocation. One was added.
-
-> Historical note: these memories flag "`CrowdManager::AddAgent` has zero callers" as an open
-> follow-up. **That was since fixed** — see
-> [crowd-manager-follower-parity.md](crowd-manager-follower-parity.md); a valid navmesh now routes
-> every `NavAgentComponent` through the crowd follower.
-
-## 6. Off-mesh links
-
-Jump/drop/ladder/teleport connections live as `std::vector<OffMeshLink> m_Links` on the existing
-`NavMeshBoundsComponent` — deliberately **not** a new ECS component. `NavMeshGenerator::Generate`
-emits each as a Detour `dtOffMeshConnection`.
-
-**The START endpoint must be inside the bake bounds (XZ) and within `AgentMaxClimb` vertically plus
-`radius` horizontally of a walkable poly**, or `dtCreateNavMeshData` silently drops the whole link.
-Endpoint flags/area are pinned to the walkable poly's (`flags=1`, `RC_WALKABLE_AREA`) so the default
-query filter routes across them.
-
-Not built: per-area traversal cost, editor gizmo authoring, and Lua/C# scripting of the link list
-(a vector-of-structs isn't `OLO_PROPERTY`-scriptable yet).
-
-## 7. Dialogue handlers carry the speaker's UUID, and must guard component presence
-
-`DialogueSystem` dispatches action and condition nodes to handlers registered via
-`RegisterActionHandler` / `RegisterConditionHandler`. The callbacks carry the **UUID of the
-speaking entity** first: `void(UUID dialogueEntity, const std::string& name, const std::string& args)`.
-UUID rather than `Entity` **deliberately**, to keep the Dialogue header free of the heavy
-Scene/Entity/EnTT include — resolve the `Entity` from the scene when needed.
-
-Registration happens in one composition root, `Scene::InitDialogueSystem()`, which covers both the
-runtime and the headless harness (`FunctionalTest::EnableDialogue`), so Functional tests exercise
-the real path.
-
-To add a new dialogue→subsystem handler, create a `*DialogueBridge` in that subsystem's `Gameplay/`
-folder and register it from `Scene::InitDialogueSystem` — the bridge knows both sides, so Dialogue
-and the subsystem never include each other.
-
-> **Guard `DialogueComponent` at every use site.** Any method calling
-> `entity.GetComponent<DialogueComponent>()` while a live `DialogueStateComponent` may exist must
-> `HasComponent` first and fall through to `EndDialogue(entity)` — as `EndDialogue` itself already
-> does. `AdvanceDialogue` and `ProcessNode` did not, so removing the component mid-conversation
-> (editor button, script, gameplay logic) hit an EnTT assert in Debug and UB in Release.
->
-> This generalises: wherever a *state* component's lifetime is meant to track a *definition*
-> component's presence but nothing enforces it structurally, a `HasComponent` guard at the point of
-> use is cheaper than trying to prevent removal.
-
-## 8. Inventory economy conventions
-
-Trading lives in `Gameplay/Inventory/InventorySystem`. A shop is an entity with
-`ItemContainerComponent.IsShop == true`; the trader has an `InventoryComponent`.
-
-- Currency is **integer `i32`**. No floats ever enter pricing — integer plus `i64` overflow guards.
-- **Shops have unlimited gold** — only the player side tracks currency, deliberately, to avoid the
-  serializer touch-points a currency field on `ItemContainerComponent` would add.
-- Sell price is `ItemDefinition::SellPrice` if set, else buyback = `BuyPrice / 2`. Integer division
-  **truncates toward zero**, so a `BuyPrice` of 1 sells for 0. Deliberate.
-- Trades are **all-or-nothing** — validated against a *copy* of the destination, with currency
-  moving only after the item transfer commits. A rejected trade is a no-op on both sides.
-- A whole-stack move preserves the original `ItemInstance` (ID, affixes, durability); only a partial
-  pull from a larger stack mints a fresh `InstanceID`.
-
-## 9. Terrain erosion: the editor brush is non-deterministic by construction
-
-`Terrain/Editor/TerrainErosion` is a GPU compute shader running one thread per droplet. Many
-droplets read-modify-write the same heightmap texels with **no synchronization**, so it cannot be
-reused for anything needing a reproducible result.
-
-The generation post-pass therefore has a separate **CPU sequential** port,
-`TerrainGenerator::ApplyErosion`, mirroring the shader's droplet physics and PCG RNG exactly —
-only the dispatch order differs. It lives in the pure headless `GenerateHeightField` path.
-
-For any terrain feature needing reproducibility (golden renders, deterministic regen, save-game
-stability) use the CPU path. Note the droplet model **loses mass** — sediment carried when a droplet
-ends is discarded — so repeated iterations flatten relief. Faithful to the brush, not a bug.
-
-## 10. Foliage without an albedo cutout is invisible
-
-`Foliage_Instance.glsl` does `if (texColor.a < AlphaCutoff) discard;` — **the cutout comes from the
-albedo texture**. `CommandDispatch::DrawFoliageLayer` binds the diffuse unit only when
-`albedoTextureID != 0`, so an empty `AlbedoPath` leaves whatever was last bound: billboards either
-fully discard or render as solid garbage quads.
-
-The editor's "+ Add Layer" defaults `AlbedoPath = ""`, so this bites silently — the layer scatters
-instances (visible in counts) and nothing appears on screen. Point it at
-`assets/textures/grass.png`, which ships under `OloEditor/assets`.
-
-Auto-population (`TerrainGenerator::MakeFoliageLayersFromRules`) sets it on every emitted layer,
-takes each layer's placement mask from the matching material rule, and adds **zero new ECS state** —
-it reuses the already-serialized `FoliageLayer`, so no cross-binding edits.
-
-> **Two verification gotchas.** The headless `RunEditorFrames` harness does **not** composite the
-> foliage draw pass — instances generate but a framebuffer read-back shows only terrain, so assert
-> the *instance count*, not pixels, and verify visually in the live editor over MCP. And foliage is
-> correctly masked to grass areas, so from a distance sparse billboards blend into the green terrain
-> *material* — get close before concluding it didn't render.
-
-## 11. The gameplay system scheduler, and EnTT owning groups (issue #453)
-
-**Rule:** a per-tick gameplay system registers in `Scene::GetGameplayScheduler()` (`Scene/Scene.cpp`)
-with `Reads/Writes/After/Before` constraints against the named channel constants
-(`GameplayChannel::k*`), never raw strings. The execution order is derived
-(`Scene/SystemScheduler.{h,cpp}`: Kahn topological sort, registration order as the tie-break;
-duplicate name, dangling reference or cycle throws `SystemSchedulerError` in every build config).
-Declare the real data flow, not a position: a missing edge is invisible in sequential order because
-the tie-break masks it, and becomes a data race under the parallel executor. The seam test
-`SystemSchedulerTest.GameplayScheduleHonoursDocumentedSeams` therefore asserts reachability
-(`SystemScheduler::DependsOn`), never positions.
-
-Two parallelism mechanisms with different audit bars:
-
-1. **The physics shadow.** The ECS-free physics world step (Box2D + Jolt) runs as an engine task
-   between the `PhysicsKick` and `PhysicsFence` nodes (`Scene::KickPhysicsStep` /
-   `FencePhysicsStep`); the ECS-touching phases (contact drain, character/vehicle input, joint
-   break, transform sync) were hoisted into kick/fence on the game thread, see the `JoltScene` phase
-   methods. Systems registered between kick and fence run on the game thread and need no
-   worker-thread audit, only independence from physics and transform state. Current occupants:
-   Dialogue, Quest.
-2. **`.Parallelizable()` worker dispatch.** Only after a thread-safety audit against the other
-   marked systems: no GL/GPU calls, no EnTT structural changes, no `GameplayEventBus` publish, no
-   draws from the seeded game-thread RNG stream (#452). Record it in the audit-table comment at the
-   schedule builder, and extend the `Scene::Scene()` storage pre-warm list with every component type
-   the system's views or groups touch (see
-   [notes-core-and-threading.md §16](notes-core-and-threading.md)). Unmarked systems are join-all
-   barriers; everything joins before the tick returns.
-
-Bisect lever for both: `OLO_GAMEPLAY_SCHEDULER_SEQUENTIAL=1` or
-`SystemScheduler::SetParallelExecutionEnabled(false)`: same systems, same order, one thread. The
-editor Simulate tick keeps the synchronous `Scene::StepPhysics`, which shares the `JoltScene` phases
-and `PostPhysicsSync`, so the two paths cannot drift.
-
-**Owning groups.** The hottest multi-component loops use `registry.group<Owned>(entt::get<Observed>)`
-for packed iteration. EnTT allows a component to be owned by at most one group (`get<>`-observed
-types are unconstrained), so `TransformComponent`, owned by the 2D sprite loop, is borrowed by the
-physics-sync, particle and audio groups. Read and update the ownership-map comment at the top of
-`Scene/Scene.cpp` before adding an owning group: owning an already-owned component is a runtime
-assert, and an owned pool cannot be `.sort()`ed.
-
-## 12. Script writes reach the live Jolt body; a carried body follows its entity (issue #1559)
-
-**Rule:** what the game writes into a body's entity between steps is applied to the live body before
-the next step (`JoltScene::ApplyAuthoredBodyState`, from `PreSimulate`): a changed
-`Rigidbody3DComponent::m_Type`, and a moved root `TransformComponent` (teleported). Before this,
-`entity_utils.set_translation`, the C# `Translation` setter, an MCP write or the inspector moved the
-transform and the physics fence wrote the body's own pose straight back over it, and every script
-type change only wrote the field. A type change a body cannot make (created Static) is refused with a
-warning and the field put back.
-
-**Carry:** `Scene::AttachEntity` parents an entity, optionally on a bone, and makes its body
-kinematic and *carried*: `DriveCarriedBodies` teleports it to the entity's composed world pose before
-each step, and neither write-back (`JoltScene::SynchronizeTransforms` and the
-`Scene::PostPhysicsSync` group loop, two separate places) touches it. Writing a world pose into a
-parent-relative transform composes it again under the parent every tick; the first carried ball left
-at 196 m/s. `DetachEntity` bakes the world pose, restores the type the body had before it was first
-picked up, and gives it the velocity it was carried at, so a thrown toy needs no extra call.
-A carried entity's own translation is parent-relative: read where it is with Lua
-`entity_utils.get_world_translation` / C# `Entity.WorldTranslation`. A toy in the player's hand
-read through `get_translation` sat at (0, 0, 0), and the dog watched the world origin.
-`AttachEntityInPlace` attaches without moving the child, under the parent's (or bone's) pose as last
-composed, which is the pose on screen.
-
-**Contacts:** `Physics.GetContacts` / `JoltScene::GetContacts` answers pairs touching now plus pairs
-that began in the steps the latest `PreSimulate` drained, so a contact that begins and ends within
-one frame's steps is still heard. A body that has rested long enough to **sleep has no contacts**:
-Jolt removes a sleeping pair's contacts. Hear a landing when it happens; do not poll a resting toy.
-
-## 13. Navmesh bake: no moving geometry, and it builds its own ground (issue #1559)
-
-**Rule:** `NavMeshGenerator::CollectSceneGeometry` skips geometry that moves (`IsMovingGeometry`: a
-nav agent, an animated or skinned body, a character controller, a non-static rigid body, or anything
-parented under one), and reads a single-tile terrain's heights GPU-free
-(`Scene::CpuTerrainHeights`, the source the physics height field uses) when the renderer has not built them.
-
-**Why:** the bake took every `MeshComponent` and collider as static. A dog carved a hole where it
-stood, so its own agent started off the mesh; a ball lying on the lawn left an island; the dog's 160k
-skinned vertices fed Recast for nothing. And the terrain's height field was built only by the
-rendered update, so a bake before the first rendered frame (the packaged runtime's start, the server,
-a test) found no ground at all ("No geometry found in scene").
-
-## 14. Steering on root motion (issue #1559)
-
-**Rule:** a `NavAgentComponent` with `m_UseRootMotion` is moved by its animation's root motion and
-only *turned* by navigation (local +Z toward the next corner, at `m_TurnSpeed`), and stays out of the
-crowd, whose own integration would move it a second time. `Navigation` is ordered `.After
-("RootMotionApply")`, pinned by `SystemSchedulerTest`'s seam test. Navigation judges arrival on the
-position root motion produced; a script stopping a fast clip must start the next clip early, because
-the blend out of a run still travels.
+Full text, with the failures that taught these rules, the measurements and the derivations:
+[notes-gameplay-physics-nav-details.md](notes-gameplay-physics-nav-details.md).
