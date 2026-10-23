@@ -55,8 +55,12 @@ namespace
     std::string Substitute(std::string text)
     {
         const std::pair<const char*, u64> ids[] = {
-            { "$GROUND", kGroundId }, { "$BALL", kBallId }, { "$POST", kPostId }, { "$FAR", kFarBoxId },
-            { "$CARRIER", kCarrierId }, { "$OBSERVER", kObserverId },
+            { "$GROUND", kGroundId },
+            { "$BALL", kBallId },
+            { "$POST", kPostId },
+            { "$FAR", kFarBoxId },
+            { "$CARRIER", kCarrierId },
+            { "$OBSERVER", kObserverId },
         };
         for (const auto& [token, id] : ids)
         {
@@ -262,7 +266,8 @@ return s
     // The same query the C# Physics.GetContacts makes, read the tick the script
     // first heard the landing. (Once the ball has rested long enough to sleep,
     // Jolt drops its contacts, so "touching now" is a moving-body answer.)
-    const bool heard = TickUntil([this] { return Observed().x > 0.0f; }, 1.0f);
+    const bool heard = TickUntil([this]
+                                 { return Observed().x > 0.0f; }, 1.0f);
     ASSERT_TRUE(heard) << "the ball never reported touching the ground within a second of a 0.3 m drop";
     TArray<UUID> contacts;
     EXPECT_EQ(Physics3DScriptApi::GetContacts(GetScene(), UUID{ kBallId }, contacts), Physics3DScriptApi::Result::Ok);

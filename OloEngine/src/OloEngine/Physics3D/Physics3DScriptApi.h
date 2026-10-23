@@ -25,12 +25,12 @@ namespace OloEngine
         enum class Result : u8
         {
             Ok = 0,
-            NoScene,      // no scene context, or 3D physics is not running
-            NoEntity,     // the UUID names no entity in the scene
-            NoBody,       // the entity has no live Jolt body (no Rigidbody3DComponent, or Play has not started)
-            NotDynamic,   // the call moves a body by impulse/velocity and this one is static or kinematic
-            NotFinite,    // a NaN or infinite argument
-            Unsupported,  // the body cannot take that type (a body created Static cannot become dynamic)
+            NoScene,     // no scene context, or 3D physics is not running
+            NoEntity,    // the UUID names no entity in the scene
+            NoBody,      // the entity has no live Jolt body (no Rigidbody3DComponent, or Play has not started)
+            NotDynamic,  // the call moves a body by impulse/velocity and this one is static or kinematic
+            NotFinite,   // a NaN or infinite argument
+            Unsupported, // the body cannot take that type (a body created Static cannot become dynamic)
             InvalidArgument
         };
 

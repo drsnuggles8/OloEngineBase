@@ -1444,8 +1444,10 @@ entity_utils.set_translation(id, vec3.new(ProbeState.fav and 1 or 0, ProbeState.
         m_Ball.GetComponent<TransformComponent>().Translation = WorldOf(m_Dog) + glm::vec3(-2.0f, 0.2f, -1.5f);
         const Entity stick = GetScene().FindEntityByName("ToyStick");
         ASSERT_TRUE(stick);
-        const auto inMouth = [&](Entity toy) { return ParentOf(toy) && ParentOf(toy) != m_Hand; };
-        const auto carried = [&] { return inMouth(m_Ball) || inMouth(stick); };
+        const auto inMouth = [&](Entity toy)
+        { return ParentOf(toy) && ParentOf(toy) != m_Hand; };
+        const auto carried = [&]
+        { return inMouth(m_Ball) || inMouth(stick); };
 
         // Negative control: calm, it leaves the toys lying.
         SetMood(0.9f, 0.2f, 0.6f, 0.0f);
@@ -1492,7 +1494,6 @@ entity_utils.set_translation(id, vec3.new(ProbeState.fav and 1 or 0, ProbeState.
     // the hand. The pose is HELD (playback speed 0) so the coat comes to rest in
     // both arms; each arm settles for the same number of runtime frames.
     // A third, hand-off repeat is the noise floor of the comparison.
-
 
     TEST_P(DogPlayEvidenceTest, CloseUpThePlaySceneDrawsTheCoatOnStrands)
     {
