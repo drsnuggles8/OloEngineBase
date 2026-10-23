@@ -1166,6 +1166,25 @@ namespace OloEngine
         GroomCoatShadow::DensityVolume m_CoatVolumeScratch;
         std::vector<u16> m_CoatPackHalf;
         std::vector<f32> m_CoatPackFloat;
+        /// THE BODY A REST BAKE MARKED, kept for the bakes after it (#1559). A
+        /// tier rebuilt, or two entries of one tier, marked the same body into
+        /// the same grid again on the main thread: 150-200 ms each on the breeds,
+        /// the stutter a playing dog's coat showed at its LOD changes. Keyed on
+        /// everything the marking reads -- the surface's positions and indices,
+        /// its transform into the coat, the grid and where the coat's density
+        /// lies -- so a hit is the same answer. A few, the oldest out first, and
+        /// all of them given back after kCoatBodyIdleFrames without a bake.
+        struct CoatBodyBake
+        {
+            u64 Key = 0;
+            std::vector<glm::u8vec4> Body;
+            u32 MarkedVoxels = 0;
+            u64 LastUsedTick = 0;
+        };
+        static constexpr sizet kCoatBodyBakesKept = 4;
+        static constexpr u64 kCoatBodyIdleFrames = 3600;
+        std::vector<CoatBodyBake> m_CoatBodyBakes;
+        u64 m_CoatBodyUsedTick = 0;
         /// THE SCRATCH IS GIVEN BACK WHEN IT IDLES (#1533). Each group keeps the
         /// capacity of the largest job it served, so a coat that rebakes or
         /// re-poses every frame never reallocates; a coat that did its job once

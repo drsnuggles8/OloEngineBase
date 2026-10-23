@@ -473,6 +473,9 @@ namespace OloEngine
         /// CPU time spent marking bodies into rest bakes this frame, inside
         /// BakeMicroseconds.
         u64 BakeBodyMicroseconds = 0;
+        /// Rest bakes this frame whose body was the one an earlier bake marked
+        /// into the same grid (GroomRenderPass's body bakes, #1559), not marked again.
+        u32 BodyBakesReused = 0;
 
         void Record(const GroomCoatShadowDecision& decision) noexcept
         {
@@ -533,7 +536,7 @@ namespace OloEngine
                    BakeBinMicroseconds == other.BakeBinMicroseconds && BakePackMicroseconds == other.BakePackMicroseconds &&
                    BakeUploadMicroseconds == other.BakeUploadMicroseconds && DriftMicroseconds == other.DriftMicroseconds &&
                    MaxBakeStride == other.MaxBakeStride && BodyVoxelsInForce == other.BodyVoxelsInForce &&
-                   BakeBodyMicroseconds == other.BakeBodyMicroseconds;
+                   BakeBodyMicroseconds == other.BakeBodyMicroseconds && BodyBakesReused == other.BodyBakesReused;
         }
     };
 } // namespace OloEngine
