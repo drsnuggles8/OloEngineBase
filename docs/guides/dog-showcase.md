@@ -42,7 +42,9 @@ back at the origin.
 1. **The body and the coat**: `build_dog.py` (Blender 5.x, headless); see `Models/Dog/README.md`.
    It writes the mesh, the rig, the clips, the eyeball and the textures, then runs
    `build_dog_groom.py`, which grows the coat on the exported mesh and writes it as Alembic hair
-   curves to `Models/Dog/Dog.abc`, beside the model (a git-ignored build output, #1558).
+   curves to `Models/Dog/Dog.abc`, beside the model: the coat's source, committed through Git LFS.
+   Edit its card tier in place with `tools/dog-authoring/set_card_tier.py` rather than re-exporting
+   it (6 mm, as every dog authors).
 2. **The cooked coat, its binding, the skin profiles and the scene**:
    `OLO_DOG_EXPORT=1 OloEngine-Tests --gtest_filter=DogShowcaseEvidenceTest.ExportsTheLiveScene`,
    run from `OloEditor/`. The fixture cooks the `.abc` with `AlembicGroomImporter`, binds it exactly

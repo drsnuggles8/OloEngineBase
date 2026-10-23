@@ -55,10 +55,12 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SEED = 1533
-# The card tier the coat hands over to at range (cell size, points per card): a 1.2 cm root-UV cell
-# for a subject seen close, where the horses' 5 cm default made one card of a cheek. Written into
+# The card tier the coat hands over to at range (cell size, points per card): a 6 mm root-UV cell,
+# as the Bernese and Samoyed author. At 12 mm (and 9 mm) a card stood for too many strands and the
+# cards drew 5-6% darker than the strands they replace at the hand-over: the old guide solver's sag
+# darkened the strands just enough to hide it until #1559 held short fur to its groom. Written into
 # the archive (groom_card_cell_size, groom_card_points), so every cook of it builds these cards.
-CARDS = (0.012, 6)
+CARDS = (0.006, 6)
 
 
 def default_abc_path():
