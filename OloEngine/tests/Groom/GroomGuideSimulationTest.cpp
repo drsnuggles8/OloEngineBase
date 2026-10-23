@@ -1038,6 +1038,11 @@ TEST(GroomGuideSimulation, StrandsAcrossTwoCollidersComeToRestAtAnyFriction)
                         joint.Name, static_cast<f64>(friction), worst * 1000.0, lateContacts);
             // Not vacuous: the coat still lies on the colliders in the measured second.
             EXPECT_GT(lateContacts, 0u) << "the strands left the colliders, so this measured free strands";
+            // 0.02 mm, raised from 0.01 by #1559: the crossing joint's residual
+            // tremor rose from 5.4 um to 13.3 um RMS (elbow and spine unchanged at
+            // 2-6 um) once the body capsules lift the coat along its target normal
+            // and friction acts relative to the body. About a sixth of the
+            // Samoyed's mean strand width (80 um), and bounded: the joint settles.
             EXPECT_LT(worst, 0.02e-3) << "a strand still moves " << worst * 1000.0 << " mm RMS after ten seconds";
             EXPECT_LE(std::abs(worstStretch - 1.0f), params.StretchTolerance) << "the length guarantee broke";
         }
