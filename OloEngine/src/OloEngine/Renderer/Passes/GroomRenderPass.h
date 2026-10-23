@@ -1052,6 +1052,7 @@ namespace OloEngine
             bool Floor = false;
             bool EntityState = false;
             bool Integrated = false;
+            bool WarnedNeverFits = false;
             u32 RootCount = 0;
             u64 LayoutKey = 0;
             u64 IntegratedLayoutKey = 0;
