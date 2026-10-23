@@ -634,6 +634,16 @@ if (auto node = entity["GroomCoatShadowComponent"]; node)
     comp.m_BakeAtRest = node["BakeAtRest"].as<bool>(comp.m_BakeAtRest);
 }
 
+if (auto node = entity["GroomColliderComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<GroomColliderComponent>();
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Radius"], v))
+        comp.m_Radius = std::clamp(v, static_cast<f32>(0.001f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["HalfHeight"], v))
+        comp.m_HalfHeight = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
+}
+
 if (auto node = entity["GroomComponent"]; node)
 {
     auto& comp = deserializedEntity.AddComponent<GroomComponent>();
@@ -913,6 +923,9 @@ if (auto node = entity["NavAgentComponent"]; node)
         comp.m_StoppingDistance = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
     comp.m_AvoidancePriority = node["AvoidancePriority"].as<i32>(comp.m_AvoidancePriority);
     comp.m_LockYAxis = node["LockYAxis"].as<bool>(comp.m_LockYAxis);
+    comp.m_UseRootMotion = node["UseRootMotion"].as<bool>(comp.m_UseRootMotion);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["TurnSpeed"], v))
+        comp.m_TurnSpeed = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
 }
 
 if (auto node = entity["NetworkIdentityComponent"]; node)
@@ -964,6 +977,17 @@ if (auto node = entity["PerceptibleComponent"]; node)
     auto& comp = deserializedEntity.AddComponent<PerceptibleComponent>();
     comp.Team = node["Team"].as<i32>(comp.Team);
     comp.IsPerceptible = node["IsPerceptible"].as<bool>(comp.IsPerceptible);
+}
+
+if (auto node = entity["PickVolumesComponent"]; node)
+{
+    auto& comp = deserializedEntity.AddComponent<PickVolumesComponent>();
+    comp.m_Regions = node["Regions"].as<std::string>(comp.m_Regions);
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["Padding"], v))
+        comp.m_Padding = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (f32 v; ::OloEngine::YAMLUtils::TryReadFiniteF32(node["RadiusScale"], v))
+        comp.m_RadiusScale = std::clamp(v, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    comp.m_Enabled = node["Enabled"].as<bool>(comp.m_Enabled);
 }
 
 if (auto node = entity["PlayerRespawnComponent"]; node)

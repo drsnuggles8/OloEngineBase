@@ -26,6 +26,7 @@
 // pointers to it — so the complete type is needed here, not a declaration.
 #include "OloEngine/Groom/GroomDeformation.h"
 #include "OloEngine/Groom/GroomBodyCollider.h"
+#include "OloEngine/Scene/PickVolumes.h"
 #include "OloEngine/Groom/GroomGuideInfluence.h"
 #include "OloEngine/Groom/GroomStrandRequest.h"
 // Scene builds the groom/target signatures itself to answer
@@ -64,6 +65,7 @@ namespace OloEngine
     class FluidWorld;
     class SceneStreamer;
     struct IKTargetComponent;
+    struct TerrainComponent;
     struct SpringBoneComponent;
     struct NoiseAnimationComponent;
     struct FootIKComponent;
@@ -761,6 +763,10 @@ namespace OloEngine
         /// tell a coat whose long hair swings from one its roots carry rigidly
         /// -- which no counter and no still frame can (#1533).
         [[nodiscard]] const GroomGuideSimulationState* FindGroomGuideSimulation(UUID groomEntity) const;
+        // The colliders the groom's last simulated frame was solved against, in
+        // world space: the body proxy, then any external ones (GroomColliderFlags::
+        // External). Empty when the groom has not simulated (#1559).
+        [[nodiscard]] std::span<const GroomCollider> FindGroomSimulationColliders(UUID groomEntity) const;
 
         /// A coat's representation-LOD state (#1252): the tier it is drawn as
         /// and each budget's step, or null when its LOD did not run this frame.
@@ -1090,6 +1096,61 @@ namespace OloEngine
         // test can ask it without disturbing the warn-once bookkeeping that
         // PropagateWorldTransforms keeps.
         [[nodiscard]] std::optional<BoneAttachmentResolution> ResolveBoneAttachment(entt::entity entity) const;
+
+        // A single-tile terrain's height field on the CPU, without the GPU: the
+        // render-built TerrainData when there is one, else the procedural recipe
+        // generated headless, else flat. `scratch` holds generated heights. False
+        // for a streamed terrain, and for a heightmap file the render path has
+        // not loaded (file loading is GPU-coupled). The physics height field and
+        // the navmesh bake both read it, so a bake before the first rendered
+        // frame (runtime start, a server) still finds the ground (#1559).
+        [[nodiscard]] static bool CpuTerrainHeights(const TerrainComponent& terrain, TArray<f32>& scratch,
+                                                    std::span<const f32>& outHeights, u32& outResolution);
+
+        // Carry `child` on `parent` (issue #1559) -- on one of the parent's
+        // skeleton bones when `boneName` is not empty -- at the given LOCAL pose,
+        // and let it go again. Generic: a toy in a dog's mouth, a ball in the
+        // player's hand, a sword in a fist.
+        //
+        // While carried, a child with a live Jolt body is KINEMATIC and follows
+        // the pose the renderer draws (JoltScene::DriveCarriedBodies), instead of
+        // writing its body pose back into a transform that is now parent-relative.
+        // DetachEntity bakes the composed world pose into the child's own
+        // transform, puts it back at the scene root, returns the body to the
+        // motion type it had before it was first picked up, and gives it the
+        // velocity it was being carried at, so a carried throw needs no extra
+        // call. A static body cannot be carried (Jolt cannot move it) and is
+        // refused before anything changes. Both return false, with a log line,
+        // when they do nothing.
+        bool AttachEntity(Entity child, Entity parent, std::string_view boneName,
+                          const glm::vec3& localTranslation, const glm::quat& localRotation);
+        // AttachEntity, keeping the child where it is in the world: its local pose
+        // is the one that puts it there under the parent's (or the bone's) pose
+        // as last composed -- the pose on screen, where the player touched it. A
+        // parent moved again before the next composition carries the child along.
+        // A hand resting on a moving dog rides the spot it touched.
+        bool AttachEntityInPlace(Entity child, Entity parent, std::string_view boneName);
+        bool DetachEntity(Entity child);
+
+        // The world-space ray through a point of `camera`'s view (issue #1559):
+        // `viewportUv` in [0,1]^2 with the origin at the BOTTOM-left. Built from
+        // the camera's COMPOSED world transform, so a camera parented under a
+        // moving character casts from where it draws. False when `camera` has no
+        // CameraComponent or the point is not finite.
+        bool ScreenToWorldRay(Entity camera, const glm::vec2& viewportUv, glm::vec3& outOrigin,
+                              glm::vec3& outDirection) const;
+
+        // Where a ray first meets a pickable character's SKIN (issue #1559): over
+        // every entity with an enabled PickVolumesComponent. A capsule per bone,
+        // fitted to its skin at rest and carried by its CURRENT palette, is the
+        // broad phase; the triangles of the bones whose capsules the ray enters
+        // are then posed (skinned on the CPU, morphs included) and intersected,
+        // nearest capsule first, so the hit lies on the animated surface rather
+        // than on a proxy centimetres off it. `direction` need not be unit length.
+        // Fits are cached per entity and redone when the surface or skeleton
+        // changes. False when no skin is hit within `maxDistance`.
+        bool RaycastPickVolumes(const glm::vec3& origin, const glm::vec3& direction, f32 maxDistance,
+                                PickVolumeHit& outHit);
 
         // Audio Events
         [[nodiscard]] Audio::AudioCommandRegistry* GetAudioCommandRegistry()
@@ -1776,6 +1837,23 @@ namespace OloEngine
         };
         std::unordered_map<UUID, GroomSimulationRuntimeState> m_GroomSimulationRuntime;
 
+        // The fitted pick volumes per PickVolumesComponent entity (issue #1559),
+        // keyed by the same identity a re-import or LOD switch changes.
+        struct PickVolumeRuntimeState
+        {
+            TArray<GroomColliderBinding> m_Bindings;
+            // Per binding: the surface triangles its bone dominates, tested once
+            // the ray enters that bone's capsule.
+            TArray<TArray<u32>> m_Triangles;
+            const MeshSource* m_Surface = nullptr;
+            u32 m_VertexCount = 0;
+            u32 m_BoneCount = 0;
+            std::string m_RegionsText;
+            std::unordered_map<std::string, std::string> m_BoneToRegion;
+            bool m_Fitted = false;
+        };
+        std::unordered_map<UUID, PickVolumeRuntimeState> m_PickVolumeRuntime;
+
         // Representation-LOD hysteresis state, per entity (issue #1252).
         //
         // HERE RATHER THAN IN GroomRenderPass, and that is not a filing choice.
@@ -1955,7 +2033,7 @@ namespace OloEngine
                                  const GroomCoatContext& coat, const GroomSurfaceView& surface,
                                  const GroomSkinningView& skinning, const glm::mat4& surfaceToGroom,
                                  UUID targetId, u64 targetGeneration,
-                                 std::span<const GroomRootTransform> transforms, bool bindingHasHistory,
+                                 std::span<const GroomRootTransform> transforms, GroomHistoryResetCause bindingCause,
                                  GroomStrandRequest& request);
 
         /// Drop every simulated groom's particles, attributing the cause. The
@@ -2075,6 +2153,10 @@ namespace OloEngine
         // transform); returns false if the attachment entity has vanished.
         void SetupClothAttachment(Entity clothEntity, const ClothComponent& cloth, ClothRuntimeState& state);
         void DriveClothAttachments(f32 dt);
+        // Append every enabled GroomColliderComponent that reaches the coat whose
+        // guide particles are `guidePoints` (world space) to `colliders`, nearest
+        // first, up to GroomSimulationLimits::MaxExternalColliders (issue #1559).
+        void AppendExternalGroomColliders(std::span<const glm::vec3> guidePoints, TArray<GroomCollider>& colliders) const;
         [[nodiscard]] bool ResolveClothAttachmentTransform(const ClothRuntimeState& state, glm::mat4& outBoneWorld) const;
 
         std::unique_ptr<SceneStreamer> m_SceneStreamer;

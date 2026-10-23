@@ -45,6 +45,13 @@ namespace OloEngine
     void LuaScriptEngine::Init()
     {
         OLO_PROFILE_FUNCTION();
+        // Once per process: a second Init would leak the first state and every
+        // script table in it. Harnesses that start Lua for more than one
+        // fixture (#1559) may call it freely.
+        if (s_LuaData.LuaState != nullptr)
+        {
+            return;
+        }
         OLO_CORE_TRACE("[LuaScriptEngine] Initializing.");
 
         s_LuaData.LuaState = new sol::state();

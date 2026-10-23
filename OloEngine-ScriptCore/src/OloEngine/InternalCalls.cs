@@ -74,6 +74,50 @@ namespace OloEngine
         internal static extern void Input_GetWindowSize(out Vector2 size);
         [MethodImpl(MethodImplOptions.InternalCall)]
         internal static extern bool Input_IsMouseButtonDown(int button);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Input_GetMouseScrollDelta(out Vector2 delta);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Input_SetCursorMode(int mode);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Input_GetCursorMode();
+        #endregion
+
+        #region Rigidbody3DComponent (hand-written action methods only, issue #1559)
+        // Each returns a Physics3DScriptApi::Result code (0 = ok); the native side
+        // logs why a call did nothing, once per call site and entity.
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Rigidbody3DComponent_ApplyLinearImpulse(ulong entityID, ref Vector3 impulse);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Rigidbody3DComponent_GetLinearVelocity(ulong entityID, out Vector3 velocity);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Rigidbody3DComponent_SetLinearVelocity(ulong entityID, ref Vector3 velocity);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Rigidbody3DComponent_GetAngularVelocity(ulong entityID, out Vector3 velocity);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Rigidbody3DComponent_SetAngularVelocity(ulong entityID, ref Vector3 velocity);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern ulong[] Physics_GetContacts(ulong entityID);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern bool Physics_RaycastPickVolumes(ref Vector3 origin, ref Vector3 direction, float maxDistance,
+            out Vector3 position, out Vector3 normal, out float distance, out ulong entityID, out string region, out string bone);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Entity_AttachTo(ulong entityID, ulong parentID, string boneName, ref Vector3 localTranslation, ref Vector3 localRotation);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Entity_Detach(ulong entityID);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void Entity_GetWorldTranslation(ulong entityID, out Vector3 translation);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int Entity_AttachInPlace(ulong entityID, ulong parentID, string boneName);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern void AnimationStateComponent_PlayClip(ulong entityID, string name, bool loop);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern int SkeletonComponent_GetBoneIndex(ulong entityID, string name);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern string AnimationStateComponent_GetCurrentClip(ulong entityID);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern float AnimationStateComponent_GetCurrentTime(ulong entityID);
+        [MethodImpl(MethodImplOptions.InternalCall)]
+        internal static extern float AnimationStateComponent_GetClipDuration(ulong entityID);
         #endregion
 
         #region Gamepad

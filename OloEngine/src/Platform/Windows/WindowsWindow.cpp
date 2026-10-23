@@ -255,6 +255,7 @@ namespace OloEngine
                                        {
 			WindowData const& data = *static_cast<WindowData*>(GLFWAPI::glfwGetWindowUserPointer(window));
 
+			Input::OnMouseScrolled(static_cast<f32>(xOffset), static_cast<f32>(yOffset));
 			MouseScrolledEvent event(static_cast<f32>(xOffset), static_cast<f32>(yOffset));
 			data.EventCallback(event); });
 

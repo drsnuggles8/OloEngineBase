@@ -662,6 +662,32 @@ static void AircraftComponent_SetYawInput(UUID entityID, float value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// AnimationStateComponent                                                        //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static float AnimationStateComponent_GetPlaybackSpeed(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<AnimationStateComponent>();
+    return comp.m_PlaybackSpeed;
+}
+
+static void AnimationStateComponent_SetPlaybackSpeed(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<AnimationStateComponent>();
+    comp.m_PlaybackSpeed = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // AudioSoundGraphComponent                                                       //
 ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4147,6 +4173,74 @@ static void FootIKComponent_SetRightHandEnabled(UUID entityID, bool value)
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////
+// GroomColliderComponent                                                         //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static float GroomColliderComponent_GetRadius(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<GroomColliderComponent>();
+    return comp.m_Radius;
+}
+
+static void GroomColliderComponent_SetRadius(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<GroomColliderComponent>();
+    comp.m_Radius = value;
+}
+
+static float GroomColliderComponent_GetHalfHeight(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<GroomColliderComponent>();
+    return comp.m_HalfHeight;
+}
+
+static void GroomColliderComponent_SetHalfHeight(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<GroomColliderComponent>();
+    comp.m_HalfHeight = value;
+}
+
+static bool GroomColliderComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<GroomColliderComponent>();
+    return comp.m_Enabled;
+}
+
+static void GroomColliderComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<GroomColliderComponent>();
+    comp.m_Enabled = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
 // LightProbeComponent                                                            //
 ///////////////////////////////////////////////////////////////////////////////////////////
 
@@ -4933,6 +5027,48 @@ static void NavAgentComponent_SetLockYAxis(UUID entityID, bool value)
     OLO_CORE_ASSERT(entity);
     auto& comp = entity.GetComponent<NavAgentComponent>();
     comp.m_LockYAxis = value;
+}
+
+static bool NavAgentComponent_GetUseRootMotion(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NavAgentComponent>();
+    return comp.m_UseRootMotion;
+}
+
+static void NavAgentComponent_SetUseRootMotion(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NavAgentComponent>();
+    comp.m_UseRootMotion = value;
+}
+
+static float NavAgentComponent_GetTurnSpeed(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<NavAgentComponent>();
+    return comp.m_TurnSpeed;
+}
+
+static void NavAgentComponent_SetTurnSpeed(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<NavAgentComponent>();
+    comp.m_TurnSpeed = value;
 }
 
 static void NavAgentComponent_GetTargetPosition(UUID entityID, glm::vec3* outValue)
@@ -6555,6 +6691,74 @@ static void PhysicsJoint3DComponent_SetPathMaxFrictionForce(UUID entityID, float
         return;
     auto& comp = entity.GetComponent<PhysicsJoint3DComponent>();
     comp.m_PathMaxFrictionForce = value;
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////
+// PickVolumesComponent                                                           //
+///////////////////////////////////////////////////////////////////////////////////////////
+
+static float PickVolumesComponent_GetPadding(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PickVolumesComponent>();
+    return comp.m_Padding;
+}
+
+static void PickVolumesComponent_SetPadding(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PickVolumesComponent>();
+    comp.m_Padding = value;
+}
+
+static float PickVolumesComponent_GetRadiusScale(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PickVolumesComponent>();
+    return comp.m_RadiusScale;
+}
+
+static void PickVolumesComponent_SetRadiusScale(UUID entityID, float value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    if (!std::isfinite(value))
+        return;
+    auto& comp = entity.GetComponent<PickVolumesComponent>();
+    comp.m_RadiusScale = value;
+}
+
+static bool PickVolumesComponent_GetEnabled(UUID entityID)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PickVolumesComponent>();
+    return comp.m_Enabled;
+}
+
+static void PickVolumesComponent_SetEnabled(UUID entityID, bool value)
+{
+    Scene* scene = ScriptEngine::GetSceneContext();
+    OLO_CORE_ASSERT(scene);
+    Entity entity = scene->GetEntityByUUID(entityID);
+    OLO_CORE_ASSERT(entity);
+    auto& comp = entity.GetComponent<PickVolumesComponent>();
+    comp.m_Enabled = value;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////////////

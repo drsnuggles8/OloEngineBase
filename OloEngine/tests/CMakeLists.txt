@@ -1213,6 +1213,7 @@ add_executable(OloEngine-Tests
 		Scene/AnimalSchedulerContractTest.cpp
 		Scene/AnimalSchedulingCensusTest.cpp
 		Scene/SystemSchedulerTest.cpp
+		Scene/PickVolumesTest.cpp
 		# Floating-origin / origin-rebasing math (issue #429)
 		Scene/WorldOriginRebaseTest.cpp
 		# Runtime scene load/switch resolution + loading (issue #642)
@@ -1810,6 +1811,11 @@ add_executable(OloEngine-Tests
 		Functional/Navigation/CrowdAvoidancePreventsOverlapTest.cpp
 		Functional/Navigation/WorldOriginRebaseNavTest.cpp
 		Functional/Scripting/LuaRaycastHitsPhysicsBodyTest.cpp
+		Functional/Scripting/ScriptPhysics3DPlaySurfaceTest.cpp
+		Functional/Scripting/LuaScreenRayFollowsAParentedCameraTest.cpp
+		Functional/Scripting/ScriptWritesReachTheJoltBodyTest.cpp
+		Functional/AI/NavMeshBakeSkipsMovingGeometryTest.cpp
+		Functional/AnimationPhysics/IKTargetEntityResolvesToItsWorldPositionTest.cpp
 		Functional/Scripting/LuaCompletesQuestViaIncrementObjectiveTest.cpp
 		Functional/Dialogue/DialogueAdvanceMovesToNextNodeTest.cpp
 		Functional/Dialogue/DialogueAdvanceGuardsRemovedComponentTest.cpp

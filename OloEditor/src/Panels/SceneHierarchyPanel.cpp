@@ -2182,6 +2182,7 @@ namespace OloEngine
             DisplayAddComponentEntry<GroomSceneShadowComponent>("Groom Scene Shadow");
             DisplayAddComponentEntry<GroomCoatComponent>("Groom Coat");
             DisplayAddComponentEntry<GroomSimulationComponent>("Groom Simulation");
+            DisplayAddComponentEntry<GroomColliderComponent>("Groom Collider");
             DisplayAddComponentEntry<FogVolumeComponent>("Fog Volume");
             DisplayAddComponentEntry<DecalComponent>("Decal");
             DisplayAddComponentEntry<WaterComponent>("Water");
@@ -2197,6 +2198,7 @@ namespace OloEngine
             DisplayAddComponentEntry<AnimationGraphComponent>("Animation Graph");
             DisplayAddComponentEntry<SkeletonComponent>("Skeleton");
             DisplayAddComponentEntry<BoneAttachmentComponent>("Bone Attachment");
+            DisplayAddComponentEntry<PickVolumesComponent>("Pick Volumes");
             DisplayAddComponentEntry<SubmeshComponent>("Submesh");
             DisplayAddComponentEntry<MorphTargetComponent>("Morph Targets");
             DisplayAddComponentEntry<CinematicComponent>("Cinematic Sequence");
@@ -11556,6 +11558,11 @@ namespace OloEngine
             ImGui::DragFloat("Stopping Distance", &component.m_StoppingDistance, 0.01f, 0.0f, 100.0f);
             ImGui::DragInt("Avoidance Priority", &component.m_AvoidancePriority, 1, 0, 100);
             ImGui::Checkbox("Lock Y Axis", &component.m_LockYAxis);
+            ImGui::Checkbox("Use Root Motion", &component.m_UseRootMotion);
+            ImGui::SetItemTooltip("The animation's root motion moves the agent; navigation only turns it toward the next corner.");
+            ImGui::BeginDisabled(!component.m_UseRootMotion);
+            ImGui::DragFloat("Turn Speed (rad/s)", &component.m_TurnSpeed, 0.05f, 0.0f, 100.0f);
+            ImGui::EndDisabled();
 
             if (component.m_HasPath)
             {
@@ -11565,6 +11572,28 @@ namespace OloEngine
             {
                 ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "No active path");
             } });
+
+        DrawComponent<GroomColliderComponent>("Groom Collider", entity, [](auto& component)
+                                              {
+            ImGui::Checkbox("Enabled##GroomCollider", &component.m_Enabled);
+            ImGui::DragFloat("Radius##GroomCollider", &component.m_Radius, 0.001f, 0.001f, 10.0f, "%.3f m");
+            ImGui::DragFloat("Half Height##GroomCollider", &component.m_HalfHeight, 0.001f, 0.0f, 10.0f, "%.3f m");
+            ImGui::SetItemTooltip("0 is a sphere; otherwise a capsule along the entity's local Y.");
+            ImGui::TextDisabled("Pushes every simulated coat it reaches out to its full radius."); });
+
+        DrawComponent<PickVolumesComponent>("Pick Volumes", entity, [](auto& component)
+                                            {
+            ImGui::Checkbox("Enabled##PickVolumes", &component.m_Enabled);
+            ImGui::DragFloat("Padding##PickVolumes", &component.m_Padding, 0.001f, 0.0f, 10.0f, "%.3f m");
+            ImGui::DragFloat("Radius Scale##PickVolumes", &component.m_RadiusScale, 0.01f, 0.0f, 100.0f);
+            char buffer[1024];
+            ::memset(buffer, 0, sizeof(buffer));
+            std::strncpy(buffer, component.m_Regions.c_str(), sizeof(buffer) - 1);
+            if (ImGui::InputTextMultiline("Regions##PickVolumes", buffer, sizeof(buffer), ImVec2(0.0f, ImGui::GetTextLineHeight() * 5.0f)))
+            {
+                component.m_Regions = buffer;
+            }
+            ImGui::SetItemTooltip("Name: bone, bone; Name: bone -- a bone in no region answers with its own name."); });
 
         DrawComponent<BoidComponent>("Boid (Flocking)", entity, [](auto& component)
                                      {

@@ -183,6 +183,14 @@ namespace OloEngine
         return value >= 0 && value < static_cast<i32>(GroomSimulationDebugView::Count);
     }
 
+    namespace GroomColliderFlags
+    {
+        /// Not the body the coat grows on: a hand, a toy (#1559). Pushes every
+        /// particle out to its full radius instead of only as far as the groom
+        /// placed it (see the collide step), so the coat PARTS under it.
+        constexpr u32 External = 1u;
+    } // namespace GroomColliderFlags
+
     /// A body collider, in WORLD space, already resolved from whatever bone it
     /// rides. A sphere is a capsule whose two points coincide, so there is one
     /// closest-point routine and not two that can disagree about the cap.
@@ -191,10 +199,12 @@ namespace OloEngine
         glm::vec3 PointA{ 0.0f };
         glm::vec3 PointB{ 0.0f };
         f32 Radius = 0.0f;
-        f32 Pad0 = 0.0f;
+        /// GroomColliderFlags; 0 is the fitted body proxy.
+        u32 Flags = 0u;
 
         [[nodiscard]] bool operator==(const GroomCollider&) const = default;
     };
+    static_assert(sizeof(GroomCollider) == 32, "GroomCollider is walked per particle per step");
 
     // -------------------------------------------------------------------------
     // Rejection bounds
@@ -261,6 +271,12 @@ namespace OloEngine
         /// unstable.
         constexpr f32 MaxStiffnessTimesStepSquared = 1.0f;
 
+        /// A guide shorter than this is pulled back toward its groom every
+        /// step by 1 - (its length / this)^2 of its offset: a hair is a
+        /// cantilever, and a short one barely moves (#1559). Longer guides
+        /// are untouched.
+        constexpr f32 ShortHairReferenceLength = 0.10f;
+
         /// Velocity damping rate. 1/s.
         constexpr f32 MinDamping = 0.0f;
         constexpr f32 MaxDamping = 60.0f;
@@ -293,6 +309,12 @@ namespace OloEngine
         /// 64 capsules is a full biped plus a tail and is already generous for
         /// a proxy whose whole point is that it is not the render mesh.
         constexpr u32 MaxColliders = 64;
+
+        /// The share of MaxColliders kept for external colliders (#1559): the
+        /// body proxy is fitted to at most MaxBodyColliders, so a hand or a toy
+        /// always has room. Nearest first when more reach a coat.
+        constexpr u32 MaxExternalColliders = 8;
+        constexpr u32 MaxBodyColliders = MaxColliders - MaxExternalColliders;
 
         /// Collider radius scale, and the shell a strand is held off the body
         /// by. The padding is in world units.
@@ -335,7 +357,9 @@ namespace OloEngine
         /// authored at all.
         f32 Stiffness = 90.0f;
 
-        /// Velocity damping rate (1/s).
+        /// Velocity damping rate (1/s), of a particle's velocity RELATIVE to
+        /// its target's: it settles a swing, it does not drag a coat that the
+        /// body carries (#1559).
         f32 Damping = 6.0f;
 
         /// DFTL's velocity correction. Ignored by the other two models.
@@ -459,6 +483,11 @@ namespace OloEngine
         /// is a proxy that is too big, which is a fact about the authoring.
         u32 ContactsResolved = 0;
 
+        /// Colliders past MaxColliders that this frame was NOT solved against.
+        /// The solve uses the first MaxColliders and counts the rest; before
+        /// #1559 a 65th collider switched collision off for the whole coat.
+        u32 CollidersDropped = 0;
+
         /// Guides whose group's StiffnessScale lifted them past the step's
         /// stability ceiling (MaxStiffnessTimesStepSquared), so they were solved
         /// at the ceiling instead (#1533). Such a guide is softer than authored
@@ -466,6 +495,10 @@ namespace OloEngine
         /// exactly like one authored soft, so it is counted rather than left for
         /// someone to notice.
         u32 GuidesStiffnessCapped = 0;
+
+        /// Guides shorter than ShortHairReferenceLength, held toward their
+        /// groom for their length (#1559).
+        u32 GuidesHeldByLength = 0;
 
         /// Worst |segment| / restLength over every simulated segment after the
         /// final step. THE criterion-1 number: 1.0 is exact, and the solve is

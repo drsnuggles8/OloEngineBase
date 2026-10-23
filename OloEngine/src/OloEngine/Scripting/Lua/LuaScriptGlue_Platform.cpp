@@ -707,6 +707,13 @@ namespace OloEngine
         {
             return static_cast<i32>(Input::GetCursorMode());
         };
+        // The wheel's motion during the frame the latest Input update snapshotted
+        // (issue #1559): x, y in notches, y > 0 away from the user.
+        inputTable["GetMouseScrollDelta"] = []() -> std::tuple<f32, f32>
+        {
+            const glm::vec2 delta = Input::GetMouseScrollDelta();
+            return { delta.x, delta.y };
+        };
         inputTable["GetWindowSize"] = []() -> std::tuple<f32, f32>
         {
             if (Scene* scene = ScriptEngine::GetSceneContext(); scene && scene->GetViewportWidth() > 0)

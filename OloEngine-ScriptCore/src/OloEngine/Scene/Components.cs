@@ -30,6 +30,80 @@ namespace OloEngine
 
 	}
 
+	// Clip requests and the clip clock (issue #1559), merged with the generated
+	// PlaybackSpeed. PlayClip files a request the animation system blends to on
+	// its next update; an unknown name is refused and logged there.
+	public partial class AnimationStateComponent : Component
+	{
+		public void PlayClip(string name, bool loop = true)
+		{
+			InternalCalls.AnimationStateComponent_PlayClip(Entity.ID, name, loop);
+		}
+
+		public string CurrentClip => InternalCalls.AnimationStateComponent_GetCurrentClip(Entity.ID);
+		public float CurrentTime => InternalCalls.AnimationStateComponent_GetCurrentTime(Entity.ID);
+		public float ClipDuration => InternalCalls.AnimationStateComponent_GetClipDuration(Entity.ID);
+		public float NormalizedTime
+		{
+			get
+			{
+				float duration = ClipDuration;
+				return duration > 0.0f ? System.Math.Min(System.Math.Max(CurrentTime / duration, 0.0f), 1.0f) : 0.0f; // net481 has no Math.Clamp
+			}
+		}
+	}
+
+	// Bones by name (issue #1559): IK and attachments take bone indices.
+	public class SkeletonComponent : Component
+	{
+		/// <summary>The index of the bone called <paramref name="name"/>, or -1.</summary>
+		public int GetBoneIndex(string name)
+		{
+			return InternalCalls.SkeletonComponent_GetBoneIndex(Entity.ID, name);
+		}
+	}
+
+	// The LIVE Jolt body (issue #1559), merged with the generated authored-field
+	// surface (BodyType, Mass, ...). Every call goes through the same native API
+	// the Lua glue uses; a call that does nothing (no body yet, a static body, a
+	// non-finite value) returns false and the engine logs why, once.
+	public partial class Rigidbody3DComponent : Component
+	{
+		/// <summary>Linear impulse through the centre of mass, in N*s. Dynamic bodies only.</summary>
+		public bool ApplyLinearImpulse(Vector3 impulse)
+		{
+			return InternalCalls.Rigidbody3DComponent_ApplyLinearImpulse(Entity.ID, ref impulse) == 0;
+		}
+
+		/// <summary>The body's velocity in m/s; a carried body reports the speed it is carried at.</summary>
+		public Vector3 LinearVelocity
+		{
+			get
+			{
+				InternalCalls.Rigidbody3DComponent_GetLinearVelocity(Entity.ID, out Vector3 velocity);
+				return velocity;
+			}
+			set
+			{
+				InternalCalls.Rigidbody3DComponent_SetLinearVelocity(Entity.ID, ref value);
+			}
+		}
+
+		/// <summary>The body's angular velocity in rad/s.</summary>
+		public Vector3 AngularVelocity
+		{
+			get
+			{
+				InternalCalls.Rigidbody3DComponent_GetAngularVelocity(Entity.ID, out Vector3 velocity);
+				return velocity;
+			}
+			set
+			{
+				InternalCalls.Rigidbody3DComponent_SetAngularVelocity(Entity.ID, ref value);
+			}
+		}
+	}
+
     public partial class AudioSourceComponent : Component
 	{
 		/// <summary>

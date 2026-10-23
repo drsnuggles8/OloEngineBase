@@ -172,6 +172,8 @@ namespace OloEngine
         m_Bodies.clear();
         m_BodyIDToEntity.clear(); // Clear reverse lookup map
         m_BodiesToSync.clear();
+        m_CarriedBodies.clear();
+        m_RecentContacts.clear();
 
         // Same here: clear() is what runs the character-controller destructors.
         m_CharacterControllers.clear();
@@ -208,9 +210,82 @@ namespace OloEngine
         // Process contact events queued by the previous frame's world update.
         // GAME THREAD: handlers route through Scene::OnContactEvent, which may
         // grow script/registry access.
+        //
+        // The contacts that began in the drained steps replace the previous
+        // batch: the scripts ran once since that one was drained (GetContacts).
+        m_RecentContacts.clear();
         if (m_ContactListener)
         {
             m_ContactListener->ProcessContactEvents();
+        }
+        ApplyAuthoredBodyState();
+    }
+
+    void JoltScene::ApplyAuthoredBodyState()
+    {
+        if (!m_Initialized || m_Scene == nullptr)
+        {
+            return;
+        }
+        for (auto& [entityID, body] : m_Bodies)
+        {
+            if (!body || !body->IsValid() || IsCarried(entityID))
+            {
+                continue;
+            }
+            Entity entity = body->GetEntity();
+            if (!entity || !entity.HasComponent<Rigidbody3DComponent>())
+            {
+                continue;
+            }
+            auto& component = entity.GetComponent<Rigidbody3DComponent>();
+            const auto wanted = static_cast<EBodyType>(component.m_Type);
+            const EBodyType live = body->GetBodyType();
+            if (wanted != live)
+            {
+                if (wanted != EBodyType::Static && !body->CanBecomeDynamic())
+                {
+                    if (m_WarnedStaticTypeChange.insert(entityID).second)
+                    {
+                        OLO_CORE_WARN("[Physics3D] '{}' was created Static and Jolt cannot move it; the type change was "
+                                      "refused (author it Dynamic or Kinematic before Play)",
+                                      entity.GetComponent<TagComponent>().Tag);
+                    }
+                    component.m_Type = static_cast<BodyType3D>(live);
+                }
+                else
+                {
+                    body->SetBodyType(wanted);
+                }
+            }
+
+            if (!entity.HasComponent<TransformComponent>() || entity.GetParentUUID() != UUID(0))
+            {
+                continue;
+            }
+            const auto& transform = entity.GetComponent<TransformComponent>();
+            const glm::vec3 position = transform.Translation;
+            const glm::quat rotation = transform.GetRotation();
+            if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) ||
+                !std::isfinite(rotation.w) || !std::isfinite(rotation.x) || !std::isfinite(rotation.y) || !std::isfinite(rotation.z))
+            {
+                continue;
+            }
+            // The fence wrote the body pose into the transform, and the rotation
+            // went through the transform's own storage, so a round trip leaves a
+            // few ulps; anything past these bounds was written by someone.
+            constexpr f32 kMovedDistance2 = 1.0e-10f;
+            constexpr f32 kRotatedDot = 1.0f - 1.0e-7f;
+            const bool moved = glm::length2(position - body->GetPosition()) > kMovedDistance2;
+            const bool rotated = std::abs(glm::dot(glm::normalize(rotation), body->GetRotation())) < kRotatedDot;
+            if (moved || rotated)
+            {
+                body->SetTransform(position, glm::normalize(rotation));
+                if (!body->IsStatic())
+                {
+                    body->Activate();
+                }
+            }
         }
     }
 
@@ -409,6 +484,7 @@ namespace OloEngine
             }
 
             m_Bodies.erase(it);
+            m_CarriedBodies.erase(entityID);
             OLO_CORE_TRACE("Destroyed physics body for entity {0}", (u64)entityID);
         }
     }
@@ -1037,6 +1113,8 @@ namespace OloEngine
         m_Bodies.clear();
         m_BodyIDToEntity.clear(); // Clear reverse lookup map
         m_BodiesToSync.clear();
+        m_CarriedBodies.clear();
+        m_RecentContacts.clear();
     }
 
     void JoltScene::OnSimulationStart() const
@@ -1537,24 +1615,27 @@ namespace OloEngine
         // Synchronize transforms for all bodies that need it
         for (const auto& body : m_BodiesToSync)
         {
-            if (body)
+            if (body && !IsCarried(body->GetEntity().GetUUID()))
             {
                 SynchronizeBody(body);
             }
         }
         m_BodiesToSync.clear();
 
-        // Also synchronize all dynamic and kinematic bodies
+        // Also synchronize all dynamic and kinematic bodies. A carried body is the
+        // other way round: it follows its entity (DriveCarriedBodies), and writing
+        // its world pose into the local transform would compose it a second time
+        // under the carrier.
         for (auto& [entityID, body] : m_Bodies)
         {
-            if (body && (body->IsDynamic() || body->IsKinematic()) && body->IsActive())
+            if (body && (body->IsDynamic() || body->IsKinematic()) && body->IsActive() && !IsCarried(entityID))
             {
                 SynchronizeBody(body);
             }
         }
     }
 
-    void JoltScene::OnContactEvent(ContactType type, UUID entityA, UUID entityB) const
+    void JoltScene::OnContactEvent(ContactType type, UUID entityA, UUID entityB)
     {
         // Forward contact events to the scene or specific entities
         // This can be extended to trigger script callbacks, audio events, etc.
@@ -1562,9 +1643,18 @@ namespace OloEngine
         switch (type)
         {
             case ContactType::ContactAdded:
+            {
                 OLO_CORE_TRACE("Contact added between entities {0} and {1}", (u64)entityA, (u64)entityB);
+                u64 lo = static_cast<u64>(entityA);
+                u64 hi = static_cast<u64>(entityB);
+                if (lo > hi)
+                {
+                    std::swap(lo, hi);
+                }
+                m_RecentContacts.emplace(lo, hi);
                 NotifyVisualScriptContact(entityA, entityB);
                 break;
+            }
             case ContactType::ContactPersisted:
                 // Usually too verbose to log
                 break;
@@ -1608,6 +1698,121 @@ namespace OloEngine
         if (!m_ContactListener)
             return {};
         return m_ContactListener->GetActiveContactPairs();
+    }
+
+    void JoltScene::GetContacts(UUID entityID, TArray<UUID>& outContacts) const
+    {
+        outContacts.Reset();
+        if (!m_Initialized || static_cast<u64>(entityID) == 0)
+        {
+            return;
+        }
+        const u64 self = static_cast<u64>(entityID);
+        std::set<u64> others;
+        const auto collect = [&](u64 a, u64 b)
+        {
+            if (a == self && b != self)
+            {
+                others.insert(b);
+            }
+            else if (b == self && a != self)
+            {
+                others.insert(a);
+            }
+        };
+        for (const auto& [a, b] : GetActiveContactPairs())
+        {
+            collect(static_cast<u64>(a), static_cast<u64>(b));
+        }
+        for (const auto& [a, b] : m_RecentContacts)
+        {
+            collect(a, b);
+        }
+        outContacts.Reserve(static_cast<i32>(others.size()));
+        for (const u64 other : others)
+        {
+            outContacts.Add(UUID(other));
+        }
+    }
+
+    void JoltScene::SetCarried(UUID entityID, bool carried, EBodyType releaseType)
+    {
+        if (carried)
+        {
+            // A re-attach (from the hand to the mouth) starts a fresh velocity
+            // history but keeps the type the body had before it was first picked up.
+            const auto existing = m_CarriedBodies.find(entityID);
+            const EBodyType keep = existing != m_CarriedBodies.end() ? existing->second.m_ReleaseType : releaseType;
+            m_CarriedBodies[entityID] = CarriedBody{ .m_ReleaseType = keep };
+        }
+        else
+        {
+            m_CarriedBodies.erase(entityID);
+        }
+    }
+
+    glm::vec3 JoltScene::GetCarriedVelocity(UUID entityID) const
+    {
+        const auto it = m_CarriedBodies.find(entityID);
+        return it != m_CarriedBodies.end() ? it->second.m_Velocity : glm::vec3(0.0f);
+    }
+
+    EBodyType JoltScene::GetCarriedReleaseType(UUID entityID) const
+    {
+        const auto it = m_CarriedBodies.find(entityID);
+        return it != m_CarriedBodies.end() ? it->second.m_ReleaseType : EBodyType::Dynamic;
+    }
+
+    void JoltScene::DriveCarriedBodies(f32 deltaTime)
+    {
+        if (!m_Initialized || m_Scene == nullptr || m_CarriedBodies.empty())
+        {
+            return;
+        }
+        for (auto it = m_CarriedBodies.begin(); it != m_CarriedBodies.end();)
+        {
+            const UUID entityID = it->first;
+            CarriedBody& carried = it->second;
+            const auto entity = m_Scene->TryGetEntityWithUUID(entityID);
+            Ref<JoltBody> body = entity ? GetBodyByEntityID(entityID) : nullptr;
+            if (!entity || !body || !body->IsValid())
+            {
+                // The entity or its body went away while carried: nothing left to drive.
+                it = m_CarriedBodies.erase(it);
+                continue;
+            }
+
+            // The pose the renderer draws: composed under the carrier (and its bone)
+            // by the last PropagateWorldTransforms.
+            const glm::mat4 world = m_Scene->GetWorldTransform(static_cast<entt::entity>(*entity));
+            const glm::vec3 position = glm::vec3(world[3]);
+            const glm::mat3 basis(glm::normalize(glm::vec3(world[0])), glm::normalize(glm::vec3(world[1])),
+                                  glm::normalize(glm::vec3(world[2])));
+            const glm::quat rotation = glm::normalize(glm::quat_cast(basis));
+            if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) ||
+                !std::isfinite(rotation.w))
+            {
+                ++it;
+                continue;
+            }
+
+            if (carried.m_WarmupDrives > 0u)
+            {
+                --carried.m_WarmupDrives;
+            }
+            else
+            {
+                if (carried.m_HasLastPosition && deltaTime > 0.0f && std::isfinite(deltaTime))
+                {
+                    carried.m_Velocity = (position - carried.m_LastPosition) / deltaTime;
+                }
+                carried.m_LastPosition = position;
+                carried.m_HasLastPosition = true;
+            }
+
+            body->SetTransform(position, rotation);
+            ++it;
+        }
     }
 
     void JoltScene::CreateRigidBodies()

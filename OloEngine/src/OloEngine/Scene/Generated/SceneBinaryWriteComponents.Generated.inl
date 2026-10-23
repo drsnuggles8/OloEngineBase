@@ -472,6 +472,15 @@ if (entity.HasComponent<GroomCoatShadowComponent>())
     SceneBinIO::Write(out, comp.m_BakeAtRest);
 }
 
+if (entity.HasComponent<GroomColliderComponent>())
+{
+    SceneBinIO::WriteU32(out, 1201881504u); // GroomColliderComponent
+    auto const& comp = entity.GetComponent<GroomColliderComponent>();
+    SceneBinIO::Write(out, comp.m_Radius);
+    SceneBinIO::Write(out, comp.m_HalfHeight);
+    SceneBinIO::Write(out, comp.m_Enabled);
+}
+
 if (entity.HasComponent<GroomComponent>())
 {
     SceneBinIO::WriteU32(out, 2551117928u); // GroomComponent
@@ -691,6 +700,8 @@ if (entity.HasComponent<NavAgentComponent>())
     SceneBinIO::Write(out, comp.m_StoppingDistance);
     SceneBinIO::Write(out, comp.m_AvoidancePriority);
     SceneBinIO::Write(out, comp.m_LockYAxis);
+    SceneBinIO::Write(out, comp.m_UseRootMotion);
+    SceneBinIO::Write(out, comp.m_TurnSpeed);
 }
 
 if (entity.HasComponent<NetworkIdentityComponent>())
@@ -740,6 +751,16 @@ if (entity.HasComponent<PerceptibleComponent>())
     auto const& comp = entity.GetComponent<PerceptibleComponent>();
     SceneBinIO::Write(out, comp.Team);
     SceneBinIO::Write(out, comp.IsPerceptible);
+}
+
+if (entity.HasComponent<PickVolumesComponent>())
+{
+    SceneBinIO::WriteU32(out, 326569798u); // PickVolumesComponent
+    auto const& comp = entity.GetComponent<PickVolumesComponent>();
+    SceneBinIO::Write(out, comp.m_Regions);
+    SceneBinIO::Write(out, comp.m_Padding);
+    SceneBinIO::Write(out, comp.m_RadiusScale);
+    SceneBinIO::Write(out, comp.m_Enabled);
 }
 
 if (entity.HasComponent<PlayerRespawnComponent>())

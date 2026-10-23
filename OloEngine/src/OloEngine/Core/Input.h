@@ -46,6 +46,16 @@ namespace OloEngine
         // callback; accumulated until the next Update() rotates the buffer.
         static void OnCharTyped(u32 codepoint);
 
+        // The mouse wheel's motion during the frame the most recent Update()
+        // snapshotted (issue #1559), in notches: y > 0 is away from the user.
+        // Scripts read it the way they read the keys, by polling, so an orbit
+        // camera can zoom in Play without owning the event stream.
+        static glm::vec2 GetMouseScrollDelta();
+
+        // Record wheel motion. Called by the platform window's scroll callback
+        // (and the editor's synthetic input); summed until the next Update().
+        static void OnMouseScrolled(f32 xOffset, f32 yOffset);
+
         // Called once per frame from Application::Run() to snapshot keyboard
         // state and rotate the typed-character buffer for this frame.
         static void Update();

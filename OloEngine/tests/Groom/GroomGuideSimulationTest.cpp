@@ -377,6 +377,114 @@ TEST(GroomGuideSimulation, AFrameThatRunsNoStepCarriesTheCoatWithTheBody)
     }
 }
 
+TEST(GroomGuideSimulation, ACoatCarriedAtASteadySpeedKeepsItsDrape)
+{
+    // Found on #1559: the damping acted on the WORLD velocity, so a coat on a
+    // running dog trailed its groom by Damping * v / Stiffness -- 0.2 m at
+    // 3 m/s with the shipped numbers -- and the crown and the hind legs went
+    // bald from behind. Damped relative to the body, a coat carried at a
+    // steady speed hangs exactly as it hangs at rest, once the start's swing
+    // has settled; the swing settling is the damping still doing its job.
+    TestGuides guides = TestGuides::Make(2, 8, 0.02f, glm::vec3(1.0f, 0.0f, 0.0f));
+    GroomSimulationParams params; // the shipped stiffness and damping
+    constexpr f32 dt = 1.0f / 60.0f;
+
+    GroomGuideSimulationState state;
+    (void)StepGroomGuideSimulation(guides.Inputs(params, dt, false), state);
+    for (u32 frame = 0; frame < 180; ++frame)
+    {
+        (void)StepGroomGuideSimulation(guides.Inputs(params, dt, true), state);
+    }
+    std::vector<glm::vec3> restDrape(state.Curr.size());
+    for (sizet i = 0; i < restDrape.size(); ++i)
+    {
+        restDrape[i] = state.Curr[i] - guides.Targets[i];
+    }
+
+    // Off at 3 m/s along the strand's own axis, the way a running dog's coat
+    // lies along its back, for two seconds.
+    const glm::vec3 velocity(-3.0f, 0.0f, 0.0f);
+    f32 startSwing = 0.0f;
+    for (u32 frame = 0; frame < 120; ++frame)
+    {
+        guides.Translate(velocity * dt);
+        const GroomSimulationStats stats = StepGroomGuideSimulation(guides.Inputs(params, dt, true), state);
+        ASSERT_FALSE(stats.Reseeded);
+        if (frame < 15)
+        {
+            for (sizet i = 0; i < restDrape.size(); ++i)
+            {
+                startSwing = std::max(startSwing, glm::length((state.Curr[i] - guides.Targets[i]) - restDrape[i]));
+            }
+        }
+    }
+    f32 lag = 0.0f;
+    for (sizet i = 0; i < restDrape.size(); ++i)
+    {
+        lag = std::max(lag, glm::length((state.Curr[i] - guides.Targets[i]) - restDrape[i]));
+    }
+    std::printf("[groom] carried at 3 m/s: start swing %.1f mm, drape off its rest by %.2f mm after 2 s\n",
+                startSwing * 1000.0f, lag * 1000.0f);
+    // The start is a jolt the coat answers -- the measure sees motion at all.
+    EXPECT_GT(startSwing, 0.002f) << "the jolt moved nothing: the measure is blind";
+    EXPECT_LT(lag, 0.002f) << "the coat trails a body moving at a steady speed";
+}
+
+TEST(GroomGuideSimulation, AShortHairRidesABouncingBodyWhileALongOneSwings)
+{
+    // Found on #1559: one stiffness for the whole coat made a dog's short body
+    // fur swing like its ears, and a galloping dog's crown and legs read bald.
+    // A hair is a cantilever; below ShortHairReferenceLength a guide is held
+    // toward its groom each step by 1 - (length / reference)^2. The body
+    // here bobs like a gallop (3 cm at 2.5 Hz, ~7 m/s^2); the dog's own
+    // numbers (stiffness 1200, 120 Hz, gravity 4).
+    GroomSimulationParams params;
+    params.Stiffness = 1200.0f;
+    params.FixedHz = 120.0f;
+    params.Gravity = glm::vec3(0.0f, -4.0f, 0.0f);
+    constexpr f32 dt = 1.0f / 60.0f;
+    const auto swing = [&](TestGuides guides, u32& stiffened)
+    {
+        GroomGuideSimulationState state;
+        (void)StepGroomGuideSimulation(guides.Inputs(params, dt, false), state);
+        for (u32 frame = 0; frame < 120; ++frame)
+        {
+            (void)StepGroomGuideSimulation(guides.Inputs(params, dt, true), state);
+        }
+        std::vector<glm::vec3> rest(state.Curr.size());
+        for (sizet i = 0; i < rest.size(); ++i)
+        {
+            rest[i] = state.Curr[i] - guides.Targets[i];
+        }
+        f32 worst = 0.0f;
+        f32 height = 0.0f;
+        for (u32 frame = 1; frame <= 180; ++frame)
+        {
+            const f32 next = 0.03f * std::sin(2.0f * 3.14159265f * 2.5f * static_cast<f32>(frame) * dt);
+            guides.Translate(glm::vec3(0.0f, next - height, 0.0f));
+            height = next;
+            const GroomSimulationStats stats = StepGroomGuideSimulation(guides.Inputs(params, dt, true), state);
+            stiffened = stats.GuidesHeldByLength;
+            for (sizet i = 0; i < rest.size(); ++i)
+            {
+                worst = std::max(worst, glm::length((state.Curr[i] - guides.Targets[i]) - rest[i]));
+            }
+        }
+        return worst;
+    };
+    u32 shortStiffened = 0;
+    u32 longStiffened = 0;
+    const f32 shortSwing = swing(TestGuides::Make(1, 4, 0.005f, glm::vec3(1.0f, 0.0f, 0.0f)), shortStiffened);
+    const f32 longSwing = swing(TestGuides::Make(1, 16, 0.01f, glm::vec3(1.0f, 0.0f, 0.0f)), longStiffened);
+    std::printf("[groom] bouncing body: a 1.5 cm hair swings %.2f mm (held %u), a 15 cm hair %.2f mm (held %u)\n",
+                shortSwing * 1000.0f, shortStiffened, longSwing * 1000.0f, longStiffened);
+    EXPECT_EQ(shortStiffened, 1u);
+    EXPECT_EQ(longStiffened, 0u) << "a long hair was held: its authored swing is gone";
+    EXPECT_LT(shortSwing, 0.0015f) << "a short hair swings off the skin of a bouncing body";
+    // The control: the same bounce does move a long hair, at its authored stiffness.
+    EXPECT_GT(longSwing, 0.003f) << "the bounce moved nothing: the measure is blind";
+}
+
 TEST(GroomGuideSimulation, TeleportReseedsRatherThanStretching)
 {
     TestGuides guides = TestGuides::Make(2, 10);
@@ -831,6 +939,14 @@ TEST(GroomGuideSimulation, AStrandRestingOnAColliderComesToRest)
 // and after it every arm at or under 0.0054 mm, which is a binary contact
 // flickering under gravity: two of some 150 contacts entering every fifth step.
 // Penetration and length are unchanged.
+//
+// The bar is 0.02 mm since the body proxy LIFTS along each particle's target
+// normal instead of pushing radially (#1559,
+// ABodyCapsuleSlidingUnderTheCoatLiftsItAndDoesNotWipeIt): measured
+// 0.0019-0.0059 mm on the elbow and spine, 0.007-0.013 mm on the crossing,
+// where the length pass and two lifts at right angles trade a quarter of a
+// hair's width. Still three orders under the 13 mm swing this test exists to
+// catch.
 TEST(GroomGuideSimulation, StrandsAcrossTwoCollidersComeToRestAtAnyFriction)
 {
     struct Joint
@@ -922,7 +1038,7 @@ TEST(GroomGuideSimulation, StrandsAcrossTwoCollidersComeToRestAtAnyFriction)
                         joint.Name, static_cast<f64>(friction), worst * 1000.0, lateContacts);
             // Not vacuous: the coat still lies on the colliders in the measured second.
             EXPECT_GT(lateContacts, 0u) << "the strands left the colliders, so this measured free strands";
-            EXPECT_LT(worst, 0.01e-3) << "a strand still moves " << worst * 1000.0 << " mm RMS after ten seconds";
+            EXPECT_LT(worst, 0.02e-3) << "a strand still moves " << worst * 1000.0 << " mm RMS after ten seconds";
             EXPECT_LE(std::abs(worstStretch - 1.0f), params.StretchTolerance) << "the length guarantee broke";
         }
     }
@@ -1376,4 +1492,288 @@ TEST(GroomGuideSimulation, ABudgetStepStartsFromTheCoatItWasHandedNotTheGroomedS
     const GroomSimulationStats refused = StepGroomGuideSimulation(wrong, wrongState);
     EXPECT_TRUE(refused.Reseeded);
     EXPECT_FALSE(refused.SeededFromCoat);
+}
+
+// -----------------------------------------------------------------------------
+// External colliders (issue #1559)
+// -----------------------------------------------------------------------------
+
+namespace
+{
+    /// A patch of upright fur: a 5x5 grid of guides 2 cm apart, each 8 cm tall.
+    [[nodiscard]] TestGuides MakeFurPatch()
+    {
+        TestGuides g;
+        g.Offsets.push_back(0u);
+        u32 curve = 0;
+        for (i32 x = -2; x <= 2; ++x)
+        {
+            for (i32 z = -2; z <= 2; ++z)
+            {
+                g.Curves.push_back(curve++);
+                const glm::vec3 root{ static_cast<f32>(x) * 0.02f, 0.0f, static_cast<f32>(z) * 0.02f };
+                for (u32 i = 0; i < 9; ++i)
+                {
+                    g.Targets.push_back(root + glm::vec3(0.0f, static_cast<f32>(i) * 0.01f, 0.0f));
+                }
+                g.Offsets.push_back(static_cast<u32>(g.Targets.size()));
+            }
+        }
+        return g;
+    }
+
+    /// Settle `colliders` against the patch for a second; return the largest
+    /// distance any particle of each guide ended from its groomed rest.
+    [[nodiscard]] std::vector<f32> SettleAndMeasure(const TestGuides& guides, const std::vector<GroomCollider>& colliders,
+                                                    GroomSimulationStats* outStats = nullptr)
+    {
+        GroomSimulationParams params;
+        params.CollisionEnabled = true;
+        params.Gravity = glm::vec3(0.0f);
+        params.Stiffness = 60.0f;
+        GroomGuideSimulationState state;
+        GroomSimulationInputs seed = guides.Inputs(params, 1.0f / 60.0f, false);
+        seed.Colliders = colliders;
+        (void)StepGroomGuideSimulation(seed, state);
+        GroomSimulationStats stats;
+        for (u32 frame = 0; frame < 60; ++frame)
+        {
+            GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, true);
+            inputs.Colliders = colliders;
+            stats = StepGroomGuideSimulation(inputs, state);
+        }
+        if (outStats != nullptr)
+        {
+            *outStats = stats;
+        }
+        std::vector<f32> displacement;
+        for (u32 g = 0; g + 1u < guides.Offsets.size(); ++g)
+        {
+            f32 worst = 0.0f;
+            for (u32 i = guides.Offsets[g]; i < guides.Offsets[g + 1u]; ++i)
+            {
+                worst = std::max(worst, glm::length(state.Curr[i] - guides.Targets[i]));
+            }
+            displacement.push_back(worst);
+        }
+        return displacement;
+    }
+
+    [[nodiscard]] GroomCollider HandSphere(bool external)
+    {
+        // 3 cm sphere pressed into the patch's centre, 5 cm above the roots, a
+        // little off the central guide so it has a side to be pushed to.
+        GroomCollider hand;
+        hand.PointA = hand.PointB = glm::vec3(0.004f, 0.05f, 0.003f);
+        hand.Radius = 0.03f;
+        hand.Flags = external ? GroomColliderFlags::External : 0u;
+        return hand;
+    }
+} // namespace
+
+// The fur parts under a hand (an EXTERNAL collider) and nowhere else, while the
+// very same sphere as part of the body proxy leaves the groom where it is: a
+// proxy holds fur only as far out as the groom placed it.
+TEST(GroomGuideSimulation, AnExternalColliderPartsTheFurUnderItAndNowhereElse)
+{
+    const TestGuides patch = MakeFurPatch();
+    const GroomCollider hand = HandSphere(true);
+    const std::vector<f32> parted = SettleAndMeasure(patch, { hand });
+
+    u32 reached = 0;
+    for (u32 g = 0; g < parted.size(); ++g)
+    {
+        const glm::vec3 root = patch.Targets[patch.Offsets[g]];
+        const f32 axisDistance = glm::length(glm::vec2(root.x - hand.PointA.x, root.z - hand.PointA.z));
+        if (axisDistance < hand.Radius * 0.8f)
+        {
+            // Inside the hand: pushed out to its surface. The predicted push at
+            // the sphere's equator is (radius - distance off the axis); the
+            // guide's stiffness may hold back a fifth of it.
+            EXPECT_GT(parted[g], 0.8f * (hand.Radius - axisDistance)) << "guide " << g << " under the hand did not part";
+            ++reached;
+        }
+        else if (axisDistance > hand.Radius + 0.005f)
+        {
+            // Out of its reach: untouched (the negative control).
+            EXPECT_LT(parted[g], 1.0e-5f) << "guide " << g << " moved though the hand never reached it";
+        }
+    }
+    ASSERT_GE(reached, 4u) << "the hand must cover several guides, or this measures nothing";
+
+    // The same sphere as the body proxy: the groom placed this fur inside it, so
+    // it is allowed to stay there and nothing parts.
+    const std::vector<f32> proxy = SettleAndMeasure(patch, { HandSphere(false) });
+    EXPECT_LT(*std::ranges::max_element(proxy), 1.0e-5f) << "the body proxy lifted fur the groom placed inside it";
+
+    // And with no collider at all, the patch is exactly its groom.
+    const std::vector<f32> none = SettleAndMeasure(patch, {});
+    EXPECT_LT(*std::ranges::max_element(none), 1.0e-6f);
+}
+
+// Found on #1559: a fitted capsule rides its bone while the skin over it
+// blends between bones, so a swinging limb's capsule slides under the coat.
+// Pushed out radially, the coat was wiped aside by it -- pale patches of
+// undercoat on a walking dog's shoulders. The body proxy lifts a particle along
+// its target's normal instead; a hand (External) still parts radially, which
+// is the control.
+TEST(GroomGuideSimulation, ABodyCapsuleSlidingUnderTheCoatLiftsItAndDoesNotWipeIt)
+{
+    // Fur lying flat along +x over a limb along z, its roots on the skin.
+    TestGuides coat;
+    coat.Offsets.push_back(0u);
+    u32 curve = 0;
+    for (i32 x = -2; x <= 2; ++x)
+    {
+        for (i32 z = -2; z <= 2; ++z)
+        {
+            coat.Curves.push_back(curve++);
+            const glm::vec3 root{ static_cast<f32>(x) * 0.01f, 0.0f, static_cast<f32>(z) * 0.01f };
+            for (u32 i = 0; i < 6; ++i)
+            {
+                coat.Targets.push_back(root + glm::vec3(static_cast<f32>(i) * 0.008f, static_cast<f32>(i) * 0.002f, 0.0f));
+            }
+            coat.Offsets.push_back(static_cast<u32>(coat.Targets.size()));
+        }
+    }
+    const auto sweep = [&](bool external)
+    {
+        GroomSimulationParams params;
+        params.CollisionEnabled = true;
+        params.Gravity = glm::vec3(0.0f);
+        params.Stiffness = 600.0f;
+        constexpr f32 dt = 1.0f / 60.0f;
+        GroomCollider limb;
+        limb.Radius = 0.02f;
+        limb.Flags = external ? GroomColliderFlags::External : 0u;
+        GroomGuideSimulationState state;
+        f32 worstAlong = 0.0f;
+        for (u32 frame = 0; frame <= 60; ++frame)
+        {
+            // The limb's axis 1.4 cm under the skin, so it reaches 6 mm into the
+            // coat, sliding 4 cm along the fur's lie over a second.
+            const f32 x = -0.02f + 0.04f * static_cast<f32>(frame) / 60.0f;
+            limb.PointA = glm::vec3(x, -0.014f, -0.05f);
+            limb.PointB = glm::vec3(x, -0.014f, 0.05f);
+            GroomSimulationInputs inputs = coat.Inputs(params, dt, frame > 0);
+            inputs.Colliders = std::span<const GroomCollider>(&limb, 1);
+            (void)StepGroomGuideSimulation(inputs, state);
+            for (sizet i = 0; i < coat.Targets.size(); ++i)
+            {
+                worstAlong = std::max(worstAlong, std::abs(state.Curr[i].x - coat.Targets[i].x));
+            }
+        }
+        return worstAlong;
+    };
+    const f32 body = sweep(false);
+    const f32 hand = sweep(true);
+    std::printf("[groom] a limb sliding under the coat moves it along the skin: body proxy %.2f mm, hand %.2f mm\n",
+                body * 1000.0f, hand * 1000.0f);
+    EXPECT_LT(body, 0.001f) << "the body proxy wiped the coat aside";
+    EXPECT_GT(hand, 0.001f) << "the same sweep as a hand moved nothing: the measure is blind";
+}
+
+// Found on #1559: contact friction acted on the WORLD velocity, so fur lying on
+// a body capsule was held still in space while the body moved on under it --
+// the coat slid off a walking dog's shoulders. Friction acts relative to the
+// body: fur lying on a capsule that moves with it keeps its drape, at any
+// friction.
+TEST(GroomGuideSimulation, FurLyingOnAMovingBodyCapsuleMovesWithIt)
+{
+    for (const f32 friction : { 0.0f, 0.35f })
+    {
+        SCOPED_TRACE("friction " + std::to_string(friction));
+        // Long fur (11 cm, past ShortHairReferenceLength, so nothing holds it but
+        // its spring) lying along +x over a limb along z, draped onto it.
+        TestGuides coat;
+        coat.Offsets.push_back(0u);
+        u32 curve = 0;
+        for (i32 z = -2; z <= 2; ++z)
+        {
+            coat.Curves.push_back(curve++);
+            const glm::vec3 root{ 0.0f, 0.0f, static_cast<f32>(z) * 0.01f };
+            for (u32 i = 0; i < 12; ++i)
+            {
+                coat.Targets.push_back(root + glm::vec3(static_cast<f32>(i) * 0.01f, 0.003f, 0.0f));
+            }
+            coat.Offsets.push_back(static_cast<u32>(coat.Targets.size()));
+        }
+        GroomSimulationParams params;
+        params.CollisionEnabled = true;
+        params.Stiffness = 300.0f;
+        params.Gravity = glm::vec3(0.0f, -9.81f, 0.0f);
+        params.ColliderFriction = friction;
+        constexpr f32 dt = 1.0f / 60.0f;
+        GroomCollider limb;
+        limb.Radius = 0.02f;
+        limb.PointA = glm::vec3(0.0f, -0.02f, -0.05f); // under the roots: the fur drapes down its side, a stable rest
+        limb.PointB = glm::vec3(0.0f, -0.02f, 0.05f);
+        GroomGuideSimulationState state;
+        const auto step = [&](bool history)
+        {
+            GroomSimulationInputs inputs = coat.Inputs(params, dt, history);
+            inputs.Colliders = std::span<const GroomCollider>(&limb, 1);
+            return StepGroomGuideSimulation(inputs, state);
+        };
+        (void)step(false);
+        for (u32 frame = 0; frame < 120; ++frame)
+        {
+            (void)step(true);
+        }
+        std::vector<glm::vec3> rest(state.Curr.size());
+        for (sizet i = 0; i < rest.size(); ++i)
+        {
+            rest[i] = state.Curr[i] - coat.Targets[i];
+        }
+        // The body, the coat's targets and the limb, walking off and up to
+        // 1 m/s over a second, the way an animal sets off (a standing start
+        // jolts a draped strand into another rest across the limb, which is
+        // a different drape, not a lag), then four seconds at that speed.
+        u32 contacts = 0;
+        for (u32 frame = 0; frame < 300; ++frame)
+        {
+            const f32 ramp = std::min(1.0f, static_cast<f32>(frame) / 60.0f);
+            const f32 eased = ramp * ramp * (3.0f - 2.0f * ramp);
+            const glm::vec3 move(-1.0f * eased * dt, 0.0f, 0.0f);
+            coat.Translate(move);
+            limb.PointA += move;
+            limb.PointB += move;
+            contacts = step(true).ContactsResolved;
+        }
+        f32 drift = 0.0f;
+        for (sizet i = 0; i < rest.size(); ++i)
+        {
+            drift = std::max(drift, glm::length((state.Curr[i] - coat.Targets[i]) - rest[i]));
+        }
+        std::printf("[groom] fur on a capsule walking at 1 m/s, friction %.2f: %u contacts, drape off its rest by %.3f mm\n",
+                    static_cast<f64>(friction), contacts, drift * 1000.0f);
+        ASSERT_GT(contacts, 0u) << "the fur never lay on the limb: this measures free fur";
+        EXPECT_LT(drift, 0.0005f) << "the coat slid off a body moving under it";
+    }
+}
+
+// More colliders than the cap: the first MaxColliders are solved and the rest
+// counted. Before #1559 one collider too many switched collision off for the
+// whole coat, with nothing saying so.
+TEST(GroomGuideSimulation, PastTheColliderCapTheFirstAreSolvedAndTheRestAreCounted)
+{
+    const TestGuides patch = MakeFurPatch();
+    GroomCollider far;
+    far.PointA = far.PointB = glm::vec3(50.0f, 50.0f, 50.0f);
+    far.Radius = 0.01f;
+
+    std::vector<GroomCollider> handFirst(GroomSimulationLimits::MaxColliders + 6u, far);
+    handFirst.front() = HandSphere(true);
+    GroomSimulationStats stats;
+    const std::vector<f32> solved = SettleAndMeasure(patch, handFirst, &stats);
+    EXPECT_EQ(stats.CollidersDropped, 6u);
+    EXPECT_GT(*std::ranges::max_element(solved), 0.4f * HandSphere(true).Radius)
+        << "collision switched off because there were too many colliders";
+
+    // The hand past the cap is the one dropped, and the count says so.
+    std::vector<GroomCollider> handLast = handFirst;
+    std::swap(handLast.front(), handLast.back());
+    const std::vector<f32> dropped = SettleAndMeasure(patch, handLast, &stats);
+    EXPECT_EQ(stats.CollidersDropped, 6u);
+    EXPECT_LT(*std::ranges::max_element(dropped), 1.0e-5f);
 }

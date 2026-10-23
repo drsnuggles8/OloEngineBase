@@ -78,9 +78,33 @@ namespace OloEngine
                                                   "isFinished", sol::property([](const AnimationStateComponent& c)
                                                                               { return !c.m_Loop && !c.m_Blending && c.m_CurrentClip &&
                                                                                        c.m_CurrentTime >= c.m_CurrentClip->Duration; }),
-                                                  "isPlaying", &AnimationStateComponent::m_IsPlaying, "loop", &AnimationStateComponent::m_Loop, "isBlending", sol::readonly(&AnimationStateComponent::m_Blending), "currentTime", sol::readonly(&AnimationStateComponent::m_CurrentTime), "blendDuration", sol::property([](const AnimationStateComponent& c)
-                                                                                                                                                                                                                                                                                                                         { return c.m_BlendDuration; }, [](AnimationStateComponent& c, f32 v)
-                                                                                                                                                                                                                                                                                                                         { if (std::isfinite(v) && v >= 0.001f) c.m_BlendDuration = v; }));
+                                                  "isPlaying", &AnimationStateComponent::m_IsPlaying, "loop", &AnimationStateComponent::m_Loop, "isBlending", sol::readonly(&AnimationStateComponent::m_Blending), "currentTime", sol::readonly(&AnimationStateComponent::m_CurrentTime),
+                                                  // Issue #1559: a script times a pick-up by where the clip is, and
+                                                  // speeds a clip up (a happier wag).
+                                                  "clipDuration", sol::property([](const AnimationStateComponent& c)
+                                                                                { return c.m_CurrentClip ? c.m_CurrentClip->Duration : 0.0f; }),
+                                                  "normalizedTime", sol::property([](const AnimationStateComponent& c)
+                                                                                  { return (c.m_CurrentClip && c.m_CurrentClip->Duration > 0.0f)
+                                                                                               ? std::clamp(c.m_CurrentTime / c.m_CurrentClip->Duration, 0.0f, 1.0f)
+                                                                                               : 0.0f; }),
+                                                  "playbackSpeed", sol::property([](const AnimationStateComponent& c)
+                                                                                 { return c.m_PlaybackSpeed; }, [](AnimationStateComponent& c, f32 v)
+                                                                                 { if (std::isfinite(v)) c.m_PlaybackSpeed = std::clamp(v, 0.0f, 10.0f); }),
+                                                  "blendDuration", sol::property([](const AnimationStateComponent& c)
+                                                                                 { return c.m_BlendDuration; }, [](AnimationStateComponent& c, f32 v)
+                                                                                 { if (std::isfinite(v) && v >= 0.001f) c.m_BlendDuration = v; }));
+
+        // --- SkeletonComponent (issue #1559) ---
+        // Bones by name: IK and attachments take bone INDICES, and the index of
+        // "head" is the importer's business, not the scene author's.
+        lua.new_usertype<SkeletonComponent>("SkeletonComponent", "GetBoneIndex", [](const SkeletonComponent& c, const std::string& name) -> i32
+                                            {
+                                                if (!c.m_Skeleton)
+                                                    return -1;
+                                                const auto& names = c.m_Skeleton->m_BoneNames;
+                                                const auto it = std::ranges::find(names, name);
+                                                return it != names.end() ? static_cast<i32>(std::distance(names.begin(), it)) : -1; }, "boneCount", sol::property([](const SkeletonComponent& c) -> i32
+                                                                            { return c.m_Skeleton ? static_cast<i32>(c.m_Skeleton->m_BoneNames.size()) : 0; }));
 
         // --- CinematicComponent ---
         lua.new_usertype<CinematicComponent>("CinematicComponent",
@@ -508,6 +532,11 @@ namespace OloEngine
                                             // this alongside hasPath — a partial path keeps hasPath == true forever.
                                             "targetUnreachable", sol::readonly(&NavAgentComponent::m_TargetUnreachable),
                                             "lockYAxis", &NavAgentComponent::m_LockYAxis,
+                                            // Root motion moves the agent; navigation turns it (issue #1559).
+                                            "useRootMotion", &NavAgentComponent::m_UseRootMotion,
+                                            "turnSpeed", sol::property([](const NavAgentComponent& a)
+                                                                       { return a.m_TurnSpeed; }, [](NavAgentComponent& a, f32 v)
+                                                                       { if (std::isfinite(v)) a.m_TurnSpeed = std::clamp(v, 0.0f, 100.0f); }),
                                             "clearTarget", [](NavAgentComponent& agent)
                                             {
                                                 agent.m_HasTarget = false;
@@ -515,6 +544,30 @@ namespace OloEngine
                                                 agent.m_TargetUnreachable = false;
                                                 agent.m_PathCorners.Reset();
                                                 agent.m_CurrentCornerIndex = 0; });
+
+        // --- GroomColliderComponent (issue #1559) ---
+        // A hand or a toy that parts a coat: the script switches it on while the
+        // hand presses the fur and moves its entity.
+        lua.new_usertype<GroomColliderComponent>("GroomColliderComponent",
+                                                 "enabled", &GroomColliderComponent::m_Enabled,
+                                                 "radius", sol::property([](const GroomColliderComponent& c)
+                                                                         { return c.m_Radius; }, [](GroomColliderComponent& c, f32 v)
+                                                                         { if (std::isfinite(v)) c.m_Radius = std::clamp(v, 0.001f, 10.0f); }),
+                                                 "halfHeight", sol::property([](const GroomColliderComponent& c)
+                                                                             { return c.m_HalfHeight; }, [](GroomColliderComponent& c, f32 v)
+                                                                             { if (std::isfinite(v)) c.m_HalfHeight = std::clamp(v, 0.0f, 10.0f); }));
+
+        // --- PickVolumesComponent (issue #1559) ---
+        // The authoring; the query is Physics.RaycastPickVolumes.
+        lua.new_usertype<PickVolumesComponent>("PickVolumesComponent",
+                                               "enabled", &PickVolumesComponent::m_Enabled,
+                                               "regions", &PickVolumesComponent::m_Regions,
+                                               "padding", sol::property([](const PickVolumesComponent& c)
+                                                                        { return c.m_Padding; }, [](PickVolumesComponent& c, f32 v)
+                                                                        { if (std::isfinite(v)) c.m_Padding = std::clamp(v, 0.0f, 10.0f); }),
+                                               "radiusScale", sol::property([](const PickVolumesComponent& c)
+                                                                            { return c.m_RadiusScale; }, [](PickVolumesComponent& c, f32 v)
+                                                                            { if (std::isfinite(v)) c.m_RadiusScale = std::clamp(v, 0.0f, 100.0f); }));
 
         // --- BoidComponent (issue #731) ---
         // Exposes the steering knobs a script actually drives at runtime: the

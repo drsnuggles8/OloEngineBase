@@ -2661,11 +2661,276 @@ namespace OloEngine
         }
     }
 
+    bool Scene::CpuTerrainHeights(const TerrainComponent& terrain, TArray<f32>& scratch, std::span<const f32>& outHeights,
+                                  u32& outResolution)
+    {
+        outHeights = {};
+        outResolution = 0;
+        if (terrain.m_StreamingEnabled)
+        {
+            return false;
+        }
+        if (terrain.m_TerrainData && terrain.m_TerrainData->GetResolution() > 0)
+        {
+            outResolution = terrain.m_TerrainData->GetResolution();
+            const auto& heights = terrain.m_TerrainData->GetHeightData();
+            outHeights = { heights.GetData(), static_cast<sizet>(heights.Num()) };
+            return true;
+        }
+        if (terrain.m_ProceduralEnabled)
+        {
+            TerrainGenerator::HeightParams params;
+            params.Resolution = terrain.m_ProceduralResolution;
+            params.Seed = terrain.m_ProceduralSeed;
+            params.Octaves = terrain.m_ProceduralOctaves;
+            params.Frequency = terrain.m_ProceduralFrequency;
+            params.Lacunarity = terrain.m_ProceduralLacunarity;
+            params.Persistence = terrain.m_ProceduralPersistence;
+            params.Shaping = terrain.m_HeightShaping;
+            params.ErosionIterations = terrain.m_ProceduralErosionIterations;
+            TerrainGenerator::GenerateHeightField(scratch, params);
+            outResolution = terrain.m_ProceduralResolution;
+            outHeights = { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
+            return true;
+        }
+        if (terrain.m_HeightmapPath.empty())
+        {
+            // Flat terrain -- mirrors the render path's CreateFlat(256, 0).
+            outResolution = 256;
+            scratch.Reset();
+            scratch.SetNumZeroed(static_cast<i32>(outResolution * outResolution));
+            outHeights = { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
+            return true;
+        }
+        // A heightmap file whose heights the render path has not built: file
+        // loading is GPU-coupled today.
+        return false;
+    }
+
     glm::mat4 Scene::GetWorldTransform(entt::entity entity) const
     {
         if (auto const* world = m_Registry.try_get<WorldTransformComponent>(entity))
             return world->WorldMatrix;
         return m_Registry.get<TransformComponent>(entity).GetTransform();
+    }
+
+    namespace
+    {
+        // Split a world matrix into translation, rotation and per-axis scale.
+        // The rotation comes from the normalised basis, so a scaled carrier
+        // cannot leak its scale into the released body's orientation.
+        [[nodiscard]] bool SplitWorldMatrix(const glm::mat4& world, glm::vec3& translation, glm::quat& rotation, glm::vec3& scale)
+        {
+            translation = glm::vec3(world[3]);
+            scale = { glm::length(glm::vec3(world[0])), glm::length(glm::vec3(world[1])), glm::length(glm::vec3(world[2])) };
+            if (!(scale.x > 0.0f) || !(scale.y > 0.0f) || !(scale.z > 0.0f) || !std::isfinite(translation.x) ||
+                !std::isfinite(translation.y) || !std::isfinite(translation.z))
+            {
+                return false;
+            }
+            const glm::mat3 basis(glm::vec3(world[0]) / scale.x, glm::vec3(world[1]) / scale.y, glm::vec3(world[2]) / scale.z);
+            rotation = glm::normalize(glm::quat_cast(basis));
+            return std::isfinite(rotation.w);
+        }
+    } // namespace
+
+    bool Scene::AttachEntity(Entity child, Entity parent, std::string_view boneName,
+                             const glm::vec3& localTranslation, const glm::quat& localRotation)
+    {
+        if (!child || !parent || child == parent || !child.HasComponent<TransformComponent>())
+        {
+            OLO_CORE_WARN("[Scene] AttachEntity: needs two different live entities");
+            return false;
+        }
+        if (child.WouldCreateCycleWith(parent))
+        {
+            OLO_CORE_WARN("[Scene] AttachEntity: '{}' cannot ride its own descendant '{}'",
+                          child.GetComponent<TagComponent>().Tag, parent.GetComponent<TagComponent>().Tag);
+            return false;
+        }
+
+        // Decide about the body BEFORE changing anything, so a refusal leaves the
+        // scene exactly as it was.
+        Ref<JoltBody> body;
+        if (m_JoltScene && m_JoltScene->IsInitialized())
+        {
+            body = m_JoltScene->GetBodyByEntityID(child.GetUUID());
+            if (body && body->IsValid() && !body->CanBecomeDynamic())
+            {
+                OLO_CORE_WARN("[Scene] AttachEntity: '{}' has a body created Static, which Jolt cannot move; "
+                              "make it Dynamic or Kinematic to carry it",
+                              child.GetComponent<TagComponent>().Tag);
+                return false;
+            }
+        }
+
+        child.SetParent(parent);
+        if (!boneName.empty())
+        {
+            auto& attachment = child.AddOrReplaceComponent<BoneAttachmentComponent>(std::string(boneName));
+            attachment.m_Enabled = true;
+        }
+        else if (child.HasComponent<BoneAttachmentComponent>())
+        {
+            child.RemoveComponent<BoneAttachmentComponent>();
+        }
+
+        auto& transform = child.GetComponent<TransformComponent>();
+        transform.Translation = localTranslation;
+        transform.SetRotation(localRotation);
+
+        if (body && body->IsValid())
+        {
+            const UUID id = child.GetUUID();
+            m_JoltScene->SetCarried(id, true, body->GetBodyType());
+            body->SetBodyType(EBodyType::Kinematic);
+            body->SetLinearVelocity(glm::vec3(0.0f));
+            body->SetAngularVelocity(glm::vec3(0.0f));
+        }
+        return true;
+    }
+
+    bool Scene::AttachEntityInPlace(Entity child, Entity parent, std::string_view boneName)
+    {
+        if (!child || !parent || child == parent || !child.HasComponent<TransformComponent>() ||
+            !parent.HasComponent<TransformComponent>())
+        {
+            OLO_CORE_WARN("[Scene] AttachEntityInPlace: needs two different live entities");
+            return false;
+        }
+        // The frame the child will compose under: the parent's world pose, and
+        // the bone's pose within it (PropagateWorldTransforms' order).
+        glm::mat4 anchor = GetWorldTransform(static_cast<entt::entity>(parent));
+        if (!boneName.empty())
+        {
+            auto const* skeletonComp = m_Registry.try_get<SkeletonComponent>(static_cast<entt::entity>(parent));
+            const i32 bone = skeletonComp && skeletonComp->m_Skeleton ? FindPosedBoneIndex(*skeletonComp->m_Skeleton, boneName) : -1;
+            if (bone < 0 || static_cast<sizet>(bone) >= skeletonComp->m_Skeleton->m_GlobalTransforms.size())
+            {
+                OLO_CORE_WARN("[Scene] AttachEntityInPlace: '{}' has no posed bone '{}'", parent.GetComponent<TagComponent>().Tag,
+                              boneName);
+                return false;
+            }
+            anchor = anchor * skeletonComp->m_Skeleton->m_GlobalTransforms[static_cast<sizet>(bone)];
+        }
+        // Where the child is NOW: its own transform composed under its current
+        // parent. The cached world pose is the last composition's, and misses a
+        // move made since -- the player's hand set onto the coat this frame.
+        const auto childHandle = static_cast<entt::entity>(child);
+        auto const* attached = m_Registry.try_get<BoneAttachmentComponent>(childHandle);
+        const glm::mat4 childWorld =
+            ComposeWorldTransform(childHandle, ResolveTransformParent(childHandle), attached != nullptr && attached->m_Enabled);
+        glm::vec3 translation;
+        glm::quat rotation;
+        glm::vec3 scale;
+        if (!SplitWorldMatrix(glm::inverse(anchor) * childWorld, translation, rotation, scale))
+        {
+            OLO_CORE_WARN("[Scene] AttachEntityInPlace: '{}' has no usable pose under '{}'", child.GetComponent<TagComponent>().Tag,
+                          parent.GetComponent<TagComponent>().Tag);
+            return false;
+        }
+        if (!AttachEntity(child, parent, boneName, translation, rotation))
+        {
+            return false;
+        }
+        // And its size: a bone's pose can carry the armature's scale.
+        child.GetComponent<TransformComponent>().Scale = scale;
+        return true;
+    }
+
+    bool Scene::DetachEntity(Entity child)
+    {
+        if (!child || !child.HasComponent<TransformComponent>())
+        {
+            OLO_CORE_WARN("[Scene] DetachEntity: not a live entity");
+            return false;
+        }
+        const UUID id = child.GetUUID();
+        const bool carried = m_JoltScene && m_JoltScene->IsCarried(id);
+        if (!child.GetParent() && !carried)
+        {
+            OLO_CORE_WARN("[Scene] DetachEntity: '{}' is not attached to anything", child.GetComponent<TagComponent>().Tag);
+            return false;
+        }
+
+        // The pose the child was last drawn at, which is where it lets go.
+        const glm::mat4 world = GetWorldTransform(static_cast<entt::entity>(child));
+        glm::vec3 translation;
+        glm::quat rotation;
+        glm::vec3 scale;
+        if (!SplitWorldMatrix(world, translation, rotation, scale))
+        {
+            OLO_CORE_WARN("[Scene] DetachEntity: '{}' has a degenerate world transform", child.GetComponent<TagComponent>().Tag);
+            return false;
+        }
+
+        if (child.HasComponent<BoneAttachmentComponent>())
+        {
+            child.RemoveComponent<BoneAttachmentComponent>();
+        }
+        child.SetParent({});
+
+        auto& transform = child.GetComponent<TransformComponent>();
+        transform.Translation = translation;
+        transform.SetRotation(rotation);
+        transform.Scale = scale;
+        if (child.HasComponent<WorldTransformComponent>())
+        {
+            child.GetComponent<WorldTransformComponent>().WorldMatrix = world;
+        }
+
+        if (carried)
+        {
+            const glm::vec3 velocity = m_JoltScene->GetCarriedVelocity(id);
+            const EBodyType releaseType = m_JoltScene->GetCarriedReleaseType(id);
+            m_JoltScene->SetCarried(id, false);
+            if (Ref<JoltBody> body = m_JoltScene->GetBodyByEntityID(id); body && body->IsValid())
+            {
+                body->SetTransform(translation, rotation);
+                body->SetBodyType(releaseType);
+                if (releaseType == EBodyType::Dynamic)
+                {
+                    body->SetLinearVelocity(velocity);
+                    body->SetAngularVelocity(glm::vec3(0.0f));
+                }
+            }
+        }
+        return true;
+    }
+
+    bool Scene::ScreenToWorldRay(Entity camera, const glm::vec2& viewportUv, glm::vec3& outOrigin, glm::vec3& outDirection) const
+    {
+        outOrigin = glm::vec3(0.0f);
+        outDirection = glm::vec3(0.0f, 0.0f, -1.0f);
+        if (!camera || !camera.HasComponent<CameraComponent>() || !camera.HasComponent<TransformComponent>() ||
+            !std::isfinite(viewportUv.x) || !std::isfinite(viewportUv.y))
+        {
+            return false;
+        }
+
+        const glm::mat4 view = glm::inverse(GetWorldTransform(static_cast<entt::entity>(camera)));
+        const glm::mat4 projection = camera.GetComponent<CameraComponent>().Camera.GetProjection();
+        const glm::mat4 inverseViewProjection = glm::inverse(projection * view);
+
+        const f32 ndcX = viewportUv.x * 2.0f - 1.0f;
+        const f32 ndcY = viewportUv.y * 2.0f - 1.0f;
+        glm::vec4 nearPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+        glm::vec4 farPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+        if (!(std::abs(nearPoint.w) > 0.0f) || !(std::abs(farPoint.w) > 0.0f))
+        {
+            return false;
+        }
+        nearPoint /= nearPoint.w;
+        farPoint /= farPoint.w;
+        const glm::vec3 direction = glm::vec3(farPoint - nearPoint);
+        const f32 length = glm::length(direction);
+        if (!(length > 0.0f) || !std::isfinite(length))
+        {
+            return false;
+        }
+        outOrigin = glm::vec3(nearPoint);
+        outDirection = direction / length;
+        return true;
     }
 
     entt::entity Scene::ResolveTransformParent(entt::entity const entity) const
@@ -3526,6 +3791,8 @@ namespace OloEngine
             // (issue #460 cape slice). Animation has already posed the skeleton for
             // this tick by the time physics runs in the schedule.
             DriveClothAttachments(ts.GetSeconds());
+            // Carried bodies (issue #1559) follow their carrier into this step.
+            m_JoltScene->DriveCarriedBodies(ts.GetSeconds());
             // JoltScene::Simulate runs its OWN fixed-step accumulator at a
             // hardcoded 1/60. This is 1:1 with one gameplay tick only when
             // the canonical fixed dt (Application::GetFixedTimeStep) equals
@@ -3564,6 +3831,8 @@ namespace OloEngine
             // slice) — see StepPhysics. Runs on the game thread before the world step
             // launches, so the ECS/animation reads it makes are safe.
             DriveClothAttachments(frameSeconds);
+            // Carried bodies (issue #1559) follow their carrier into this step.
+            m_JoltScene->DriveCarriedBodies(frameSeconds);
             // Contact handlers may grow script/registry access — game thread only.
             m_JoltScene->PreSimulate();
             m_PhysicsStepsThisFrame = m_JoltScene->BeginSteps(frameSeconds);
@@ -3702,7 +3971,11 @@ namespace OloEngine
             auto& transform = rbGroup.get<TransformComponent>(e);
             const auto& rb3d = rbGroup.get<Rigidbody3DComponent>(e);
 
-            if (rb3d.m_RuntimeBodyToken != 0 && rb3d.m_Type != BodyType3D::Static && m_JoltScene)
+            // A carried body (issue #1559) follows its entity instead: its
+            // transform is parent-relative, and writing the world pose into it
+            // composes the pose a second time under the carrier every tick.
+            if (rb3d.m_RuntimeBodyToken != 0 && rb3d.m_Type != BodyType3D::Static && m_JoltScene &&
+                !m_JoltScene->IsCarried(entity.GetUUID()))
             {
                 // Get the body from JoltScene and sync transforms
                 auto body = m_JoltScene->GetBody(entity);
@@ -4131,9 +4404,15 @@ namespace OloEngine
             // SpatialIndex/Audio/Particles/Snow/Inventory their read-after-write
             // edges. Known consequence (historical behavior, now explicit): nav's
             // moves compose into world matrices on the NEXT tick's propagate.
+            //
+            // The locomotion arbitration (#1559): a root-motion agent is moved
+            // by RootMotionApply and only TURNED here, so this tick's root motion
+            // has already moved it when navigation judges arrival and steers. The
+            // shared channel already orders the two; the After names the contract.
             sched.AddSystem("Navigation", [](Scene& s, Timestep ts)
                             { s.UpdateNavigation(ts); })
-                .ReadsWrites(kLocalTransforms);
+                .ReadsWrites(kLocalTransforms)
+                .After("RootMotionApply");
 
             // Spatial index rebuilds from TransformComponent.Translation — the
             // read-after-write edge from Navigation (the last transform writer)
@@ -5040,10 +5319,114 @@ namespace OloEngine
         return it != m_AnimalSchedules.end() ? &it->second : nullptr;
     }
 
+    void Scene::AppendExternalGroomColliders(std::span<const glm::vec3> guidePoints, TArray<GroomCollider>& colliders) const
+    {
+        if (guidePoints.empty())
+        {
+            return;
+        }
+        auto view = m_Registry.view<GroomColliderComponent>();
+        if (view.begin() == view.end())
+        {
+            return;
+        }
+
+        // The coat's reach: its guides' box. A collider whose capsule misses the
+        // box cannot touch a particle, and is not worth a test per particle.
+        glm::vec3 boxMin = guidePoints.front();
+        glm::vec3 boxMax = guidePoints.front();
+        for (const glm::vec3& point : guidePoints)
+        {
+            boxMin = glm::min(boxMin, point);
+            boxMax = glm::max(boxMax, point);
+        }
+        const glm::vec3 centre = 0.5f * (boxMin + boxMax);
+
+        struct Candidate
+        {
+            GroomCollider Collider;
+            f32 Distance2 = 0.0f;
+        };
+        TArray<Candidate> candidates;
+        for (const auto e : view)
+        {
+            const auto& component = view.get<GroomColliderComponent>(e);
+            if (!component.m_Enabled || !(component.m_Radius > 0.0f) || !std::isfinite(component.m_Radius) ||
+                !std::isfinite(component.m_HalfHeight))
+            {
+                continue;
+            }
+            // Composed world pose, so a collider can ride a bone or a hand. The
+            // radius takes the transform's largest axis scale: a capsule has one
+            // radius, and the largest is the one that cannot let fur through.
+            const glm::mat4 world = GetWorldTransform(e);
+            const f32 scale = std::max({ glm::length(glm::vec3(world[0])), glm::length(glm::vec3(world[1])),
+                                         glm::length(glm::vec3(world[2])) });
+            const f32 halfHeight = std::max(component.m_HalfHeight, 0.0f);
+            GroomCollider collider;
+            collider.PointA = glm::vec3(world * glm::vec4(0.0f, -halfHeight, 0.0f, 1.0f));
+            collider.PointB = glm::vec3(world * glm::vec4(0.0f, halfHeight, 0.0f, 1.0f));
+            collider.Radius = component.m_Radius * scale;
+            collider.Flags = GroomColliderFlags::External;
+            if (!std::isfinite(collider.Radius) || !std::isfinite(collider.PointA.x) || !std::isfinite(collider.PointB.x))
+            {
+                continue;
+            }
+
+            // Separation of the capsule's segment box from the guide box,
+            // against its radius.
+            const glm::vec3 segMin = glm::min(collider.PointA, collider.PointB) - glm::vec3(collider.Radius);
+            const glm::vec3 segMax = glm::max(collider.PointA, collider.PointB) + glm::vec3(collider.Radius);
+            if (glm::any(glm::lessThan(segMax, boxMin)) || glm::any(glm::greaterThan(segMin, boxMax)))
+            {
+                continue;
+            }
+            const glm::vec3 mid = 0.5f * (collider.PointA + collider.PointB);
+            candidates.Add({ collider, glm::length2(mid - centre) });
+        }
+        if (candidates.IsEmpty())
+        {
+            return;
+        }
+
+        std::ranges::sort(candidates, {}, &Candidate::Distance2);
+        const u32 room = GroomSimulationLimits::MaxColliders > static_cast<u32>(colliders.Num())
+                             ? GroomSimulationLimits::MaxColliders - static_cast<u32>(colliders.Num())
+                             : 0u;
+        const u32 taken = std::min({ room, GroomSimulationLimits::MaxExternalColliders, static_cast<u32>(candidates.Num()) });
+        for (u32 i = 0; i < taken; ++i)
+        {
+            colliders.Add(candidates[static_cast<i32>(i)].Collider);
+        }
+        // More hands than room is a fact about the scene, said once.
+        if (taken < static_cast<u32>(candidates.Num()))
+        {
+            static bool s_Warned = false;
+            if (!s_Warned)
+            {
+                s_Warned = true;
+                OLO_CORE_WARN("[Groom] {} external colliders reach one coat; the nearest {} are solved against "
+                              "(GroomSimulationLimits::MaxExternalColliders)",
+                              candidates.Num(), taken);
+            }
+        }
+    }
+
     const GroomGuideSimulationState* Scene::FindGroomGuideSimulation(UUID groomEntity) const
     {
         const auto it = m_GroomSimulationRuntime.find(groomEntity);
         return it != m_GroomSimulationRuntime.end() ? &it->second.m_Solver : nullptr;
+    }
+
+    std::span<const GroomCollider> Scene::FindGroomSimulationColliders(UUID groomEntity) const
+    {
+        const auto it = m_GroomSimulationRuntime.find(groomEntity);
+        if (it == m_GroomSimulationRuntime.end())
+        {
+            return {};
+        }
+        const auto& colliders = it->second.m_Colliders;
+        return { colliders.GetData(), static_cast<sizet>(colliders.Num()) };
     }
 
     const GroomLodState* Scene::FindGroomLodState(UUID groomEntity) const
@@ -7153,26 +7536,29 @@ namespace OloEngine
 
         out = entity.GetComponent<IKTargetComponent>();
 
+        // The solvers take WORLD-space targets (IKPostPass maps them into model
+        // space with the entity's world transform), so a target entity answers
+        // with its COMPOSED world position. Its local translation was used here,
+        // which put a target parented under anything -- a toy in a hand, a point
+        // on a bone -- at its parent-relative offset from the world origin (#1559).
+        const auto targetPosition = [this](UUID id, glm::vec3& target)
+        {
+            if (auto targetEnt = TryGetEntityWithUUID(id))
+            {
+                target = glm::vec3(GetWorldTransform(static_cast<entt::entity>(*targetEnt))[3]);
+            }
+        };
         if (static_cast<u64>(out.AimTargetEntity) != 0)
         {
-            if (auto targetEnt = TryGetEntityWithUUID(out.AimTargetEntity))
-            {
-                out.AimTarget = targetEnt->GetComponent<TransformComponent>().Translation;
-            }
+            targetPosition(out.AimTargetEntity, out.AimTarget);
         }
         if (static_cast<u64>(out.LimbTargetEntity) != 0)
         {
-            if (auto targetEnt = TryGetEntityWithUUID(out.LimbTargetEntity))
-            {
-                out.LimbTarget = targetEnt->GetComponent<TransformComponent>().Translation;
-            }
+            targetPosition(out.LimbTargetEntity, out.LimbTarget);
         }
         if (static_cast<u64>(out.ChainTargetEntity) != 0)
         {
-            if (auto targetEnt = TryGetEntityWithUUID(out.ChainTargetEntity))
-            {
-                out.ChainTarget = targetEnt->GetComponent<TransformComponent>().Translation;
-            }
+            targetPosition(out.ChainTargetEntity, out.ChainTarget);
         }
 
         return true;
@@ -7468,38 +7854,13 @@ namespace OloEngine
             if (!terrain.m_CollisionEnabled || terrain.m_StreamingEnabled)
                 return;
 
+            // The render-built heights when present, else generated GPU-free so
+            // headless runtimes (dedicated server, functional tests) still get
+            // collision; the navmesh bake reads the same source (#1559).
             u32 resolution = 0;
-            const TArray<f32>* heightsPtr = nullptr;
+            std::span<const f32> heights;
             TArray<f32> generated;
-
-            if (terrain.m_TerrainData && terrain.m_TerrainData->GetResolution() > 0)
-            {
-                resolution = terrain.m_TerrainData->GetResolution();
-                heightsPtr = &terrain.m_TerrainData->GetHeightData();
-            }
-            else if (terrain.m_ProceduralEnabled)
-            {
-                TerrainGenerator::HeightParams params;
-                params.Resolution = terrain.m_ProceduralResolution;
-                params.Seed = terrain.m_ProceduralSeed;
-                params.Octaves = terrain.m_ProceduralOctaves;
-                params.Frequency = terrain.m_ProceduralFrequency;
-                params.Lacunarity = terrain.m_ProceduralLacunarity;
-                params.Persistence = terrain.m_ProceduralPersistence;
-                params.Shaping = terrain.m_HeightShaping;
-                params.ErosionIterations = terrain.m_ProceduralErosionIterations;
-                TerrainGenerator::GenerateHeightField(generated, params);
-                resolution = terrain.m_ProceduralResolution;
-                heightsPtr = &generated;
-            }
-            else if (terrain.m_HeightmapPath.empty())
-            {
-                // Flat terrain — mirrors the render path's CreateFlat(256, 0).
-                resolution = 256;
-                generated.SetNumZeroed(static_cast<i32>(resolution * resolution));
-                heightsPtr = &generated;
-            }
-            else
+            if (!Scene::CpuTerrainHeights(terrain, generated, heights, resolution))
             {
                 // Heightmap-file terrain whose CPU heights aren't built yet (headless).
                 // File loading is GPU-coupled today; the render-built TerrainData path
@@ -7510,7 +7871,7 @@ namespace OloEngine
 
             const auto& transform = entity.GetComponent<TransformComponent>();
             JPH::Ref<JPH::Shape> shape = JoltShapes::CreateTerrainHeightFieldShape(
-                std::span{ heightsPtr->GetData(), static_cast<sizet>(heightsPtr->Num()) }, resolution, terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale, transform.Scale);
+                heights, resolution, terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale, transform.Scale);
             if (!shape)
             {
                 terrain.m_RuntimeCollisionBodyToken = 0;
@@ -9557,6 +9918,195 @@ namespace OloEngine
         }
     } // namespace
 
+    bool Scene::RaycastPickVolumes(const glm::vec3& origin, const glm::vec3& direction, f32 maxDistance, PickVolumeHit& outHit)
+    {
+        OLO_PROFILE_FUNCTION();
+        outHit = {};
+        const f32 length = glm::length(direction);
+        if (!(length > 0.0f) || !std::isfinite(length) || !std::isfinite(origin.x) || !std::isfinite(origin.y) ||
+            !std::isfinite(origin.z) || !(maxDistance > 0.0f))
+        {
+            return false;
+        }
+        const glm::vec3 unit = direction / length;
+
+        bool hit = false;
+        f32 best = maxDistance;
+        for (auto view = m_Registry.view<PickVolumesComponent, MeshComponent, IDComponent>(); const auto e : view)
+        {
+            const auto& component = view.get<PickVolumesComponent>(e);
+            if (!component.m_Enabled)
+            {
+                continue;
+            }
+            const Ref<MeshSource> surface = ResolveAnimatedSurface(m_Registry.try_get<LODGroupComponent>(e), view.get<MeshComponent>(e));
+            if (!surface)
+            {
+                continue;
+            }
+            const Skeleton* skeleton = ResolveSurfaceSkeleton(m_Registry.try_get<SkeletonComponent>(e), surface);
+            const GroomSurfaceView surfaceView = MakeGroomSurfaceView(*surface, skeleton);
+            const GroomSkinningView skinning = MakeGroomSkinningView(*surface, skeleton);
+            if (!surfaceView.IsUsable() || skinning.Palette.empty() || skeleton == nullptr)
+            {
+                continue;
+            }
+
+            const UUID id = view.get<IDComponent>(e).ID;
+            PickVolumeRuntimeState& state = m_PickVolumeRuntime[id];
+            const u32 boneCount = static_cast<u32>(skinning.Palette.size());
+            if (!state.m_Fitted || state.m_Surface != surface.Raw() || state.m_VertexCount != surfaceView.VertexCount ||
+                state.m_BoneCount != boneCount)
+            {
+                // Every bone that dominates enough skin, not the solver's cap:
+                // a pick costs one ray test per capsule, not one per particle.
+                GroomColliderBuildSettings settings;
+                settings.MaxColliders = 512;
+                (void)BuildGroomBodyColliders(surfaceView, skinning, settings, state.m_Bindings);
+
+                // Each triangle belongs to the heaviest bone of its first vertex
+                // that has a capsule, so every capsule tests the skin it was
+                // fitted to and the skin of the small bones it stands in for.
+                std::vector<i32> bindingOfBone(boneCount, -1);
+                for (i32 i = 0; i < state.m_Bindings.Num(); ++i)
+                {
+                    bindingOfBone[state.m_Bindings[i].BoneIndex] = i;
+                }
+                state.m_Triangles.Reset();
+                state.m_Triangles.SetNum(state.m_Bindings.Num());
+                for (u32 triangle = 0; triangle < surfaceView.IndexCount / 3u; ++triangle)
+                {
+                    const u32 vertex = surfaceView.Indices[triangle * 3u];
+                    if (vertex >= skinning.VertexCount)
+                    {
+                        continue;
+                    }
+                    const auto* ids = reinterpret_cast<const u32*>(reinterpret_cast<const std::byte*>(skinning.BoneIds) + static_cast<sizet>(vertex) * skinning.Stride);
+                    const auto* weights = reinterpret_cast<const f32*>(reinterpret_cast<const std::byte*>(skinning.Weights) + static_cast<sizet>(vertex) * skinning.Stride);
+                    std::array<u32, 4> order{ 0u, 1u, 2u, 3u };
+                    std::ranges::sort(order, [weights](u32 l, u32 r)
+                                      { return weights[l] > weights[r]; });
+                    for (const u32 k : order)
+                    {
+                        if (weights[k] > 0.0f && ids[k] < boneCount && bindingOfBone[ids[k]] >= 0)
+                        {
+                            state.m_Triangles[bindingOfBone[ids[k]]].Add(triangle);
+                            break;
+                        }
+                    }
+                }
+                state.m_Surface = surface.Raw();
+                state.m_VertexCount = surfaceView.VertexCount;
+                state.m_BoneCount = boneCount;
+                state.m_Fitted = true;
+            }
+            if (!state.m_Fitted || state.m_RegionsText != component.m_Regions || state.m_BoneToRegion.empty())
+            {
+                state.m_RegionsText = component.m_Regions;
+                state.m_BoneToRegion = PickVolumes::ParseRegions(component.m_Regions);
+            }
+
+            const f32 radiusScale = std::isfinite(component.m_RadiusScale) ? std::max(component.m_RadiusScale, 0.0f) : 1.0f;
+            const f32 padding = std::isfinite(component.m_Padding) ? std::max(component.m_Padding, 0.0f) : 0.0f;
+            // == Broad phase: each fitted capsule in this frame's pose (the body's
+            // world transform, then its bone's palette matrix -- the composition
+            // ResolveGroomBodyColliders uses), padded, and where the ray enters it.
+            const glm::mat4 bodyToWorld = GetWorldTransform(e);
+            struct Candidate
+            {
+                f32 Entry = 0.0f;
+                i32 Binding = 0;
+            };
+            std::vector<Candidate> candidates;
+            for (i32 b = 0; b < state.m_Bindings.Num(); ++b)
+            {
+                const GroomColliderBinding& binding = state.m_Bindings[b];
+                if (binding.BoneIndex >= boneCount)
+                {
+                    continue;
+                }
+                const glm::mat4 boneToWorld = bodyToWorld * skinning.Palette[binding.BoneIndex];
+                const f32 scale = (glm::length(glm::vec3(boneToWorld[0])) + glm::length(glm::vec3(boneToWorld[1])) +
+                                   glm::length(glm::vec3(boneToWorld[2]))) /
+                                  3.0f;
+                const glm::vec3 a = glm::vec3(boneToWorld * glm::vec4(binding.PointA, 1.0f));
+                const glm::vec3 bEnd = glm::vec3(boneToWorld * glm::vec4(binding.PointB, 1.0f));
+                const f32 radius = binding.Radius * scale * radiusScale + padding;
+                f32 entry = 0.0f;
+                if (std::isfinite(radius) && PickVolumes::RayCapsule(origin, unit, a, bEnd, radius, best, entry))
+                {
+                    candidates.push_back({ entry, b });
+                }
+            }
+            std::ranges::sort(candidates, {}, &Candidate::Entry);
+
+            // == Narrow phase: the skin of those bones, posed, nearest capsule
+            // first. A capsule that begins beyond the best hit cannot hold a
+            // nearer triangle.
+            const auto posed = [&](u32 vertex) -> glm::vec3
+            {
+                const glm::vec3 rest = *reinterpret_cast<const glm::vec3*>(surfaceView.PositionData + static_cast<sizet>(vertex) * surfaceView.PositionStride);
+                const auto* ids = reinterpret_cast<const u32*>(reinterpret_cast<const std::byte*>(skinning.BoneIds) + static_cast<sizet>(vertex) * skinning.Stride);
+                const auto* weights = reinterpret_cast<const f32*>(reinterpret_cast<const std::byte*>(skinning.Weights) + static_cast<sizet>(vertex) * skinning.Stride);
+                glm::vec4 skinned(0.0f);
+                f32 total = 0.0f;
+                for (u32 k = 0; k < 4u; ++k)
+                {
+                    if (weights[k] > 0.0f && ids[k] < boneCount)
+                    {
+                        skinned += weights[k] * (skinning.Palette[ids[k]] * glm::vec4(rest, 1.0f));
+                        total += weights[k];
+                    }
+                }
+                const glm::vec3 model = total > 0.0f ? glm::vec3(skinned) / total : rest;
+                return glm::vec3(bodyToWorld * glm::vec4(model, 1.0f));
+            };
+            for (const Candidate& candidate : candidates)
+            {
+                if (hit && candidate.Entry >= best)
+                {
+                    break;
+                }
+                for (const u32 triangle : state.m_Triangles[candidate.Binding])
+                {
+                    const u32 i0 = surfaceView.Indices[triangle * 3u];
+                    const u32 i1 = surfaceView.Indices[triangle * 3u + 1u];
+                    const u32 i2 = surfaceView.Indices[triangle * 3u + 2u];
+                    if (i0 >= skinning.VertexCount || i1 >= skinning.VertexCount || i2 >= skinning.VertexCount)
+                    {
+                        continue;
+                    }
+                    const glm::vec3 a = posed(i0);
+                    const glm::vec3 b = posed(i1);
+                    const glm::vec3 cc = posed(i2);
+                    f32 distance = 0.0f;
+                    if (!PickVolumes::RayTriangle(origin, unit, a, b, cc, best, distance) || (hit && distance >= best))
+                    {
+                        continue;
+                    }
+                    hit = true;
+                    best = distance;
+                    glm::vec3 normal = glm::cross(b - a, cc - a);
+                    const f32 normalLength = glm::length(normal);
+                    normal = normalLength > 0.0f ? normal / normalLength : -unit;
+                    if (glm::dot(normal, unit) > 0.0f)
+                    {
+                        normal = -normal; // the side the ray came from
+                    }
+                    const u32 bone = state.m_Bindings[candidate.Binding].BoneIndex;
+                    outHit.Entity = id;
+                    outHit.Distance = distance;
+                    outHit.Position = origin + unit * distance;
+                    outHit.Normal = normal;
+                    outHit.Bone = bone < skeleton->m_BoneNames.size() ? skeleton->m_BoneNames[bone] : std::string{};
+                    const auto region = state.m_BoneToRegion.find(outHit.Bone);
+                    outHit.Region = region != state.m_BoneToRegion.end() ? region->second : outHit.Bone;
+                }
+            }
+        }
+        return hit;
+    }
+
     u32 Scene::CountGroomsNeedingTemporalResolve() const
     {
         // PublishGroomStrandRequests' filter minus the asset lookup: this runs
@@ -10578,7 +11128,7 @@ namespace OloEngine
                                     const GroomCoatContext& coat, const GroomSurfaceView& surface,
                                     const GroomSkinningView& skinning, const glm::mat4& surfaceToGroom,
                                     UUID targetId, u64 targetGeneration,
-                                    std::span<const GroomRootTransform> transforms, bool bindingHasHistory,
+                                    std::span<const GroomRootTransform> transforms, GroomHistoryResetCause bindingCause,
                                     GroomStrandRequest& request)
     {
         OLO_PROFILE_FUNCTION();
@@ -10715,7 +11265,8 @@ namespace OloEngine
             if (proxyStale)
             {
                 GroomColliderBuildSettings settings;
-                settings.MaxColliders = GroomSimulationLimits::MaxColliders;
+                // The rest of MaxColliders is kept for hands and toys (#1559).
+                settings.MaxColliders = GroomSimulationLimits::MaxBodyColliders;
                 state.m_ColliderStats =
                     BuildGroomBodyColliders(surface, skinning, settings, state.m_ColliderBindings);
                 state.m_ProxyTarget = targetId;
@@ -10732,6 +11283,8 @@ namespace OloEngine
             ResolveGroomBodyColliders(std::span{ state.m_ColliderBindings.GetData(), static_cast<sizet>(state.m_ColliderBindings.Num()) }, skinning.Palette,
                                       request.Transform * surfaceToGroom,
                                       MakeGroomColliderRadiusScale(*component), state.m_Colliders);
+            AppendExternalGroomColliders(std::span{ state.m_Targets.GetData(), static_cast<sizet>(state.m_Targets.Num()) },
+                                         state.m_Colliders);
         }
         else
         {
@@ -10759,11 +11312,20 @@ namespace OloEngine
             // scene clears -- see GroomSimulationComponent::m_ResetKey.
             cause = GroomHistoryResetCause::Manual;
         }
-        else if (!bindingHasHistory)
+        else if (bindingCause != GroomHistoryResetCause::None && bindingCause != GroomHistoryResetCause::MorphSurfaceChanged)
         {
             // The shape the particles are solved AGAINST was discontinuous, so
             // the particles are too. Attributed as the binding attributed it
             // rather than re-decided, because the producer owns the rule.
+            //
+            // EXCEPT A MORPH CHANGE (#1559). The binding refuses its history then
+            // because it cannot derive last frame's ROOT positions from the one
+            // morphed vertex array -- a fact about motion vectors, not about the
+            // coat. The targets are this frame's, and a blinking or panting face
+            // moves them continuously; re-seeding on it put the whole coat back
+            // on its groomed shape on every frame a face morph moved, so a
+            // Bernese or Samoyed coat never swung, and never parted under a hand,
+            // while the dog blinked.
             cause = GroomHistoryResetCause::TargetChanged;
         }
         else if (glm::length(worldPosition - state.m_WorldPosition) > teleportDistance)
@@ -11587,7 +12149,7 @@ namespace OloEngine
             OLO_PERF_SCOPE_AUTO("Groom::Simulate");
             SimulateGroomGuides(groomEntity, groom, *bindingAsset, coat, view, inputs.Skinning,
                                 inputs.SurfaceToGroom, targetEntity.GetUUID(), surface->GetGeneration(),
-                                std::span{ state.m_Transforms.GetData(), static_cast<sizet>(state.m_Transforms.Num()) }, hasHistory, request);
+                                std::span{ state.m_Transforms.GetData(), static_cast<sizet>(state.m_Transforms.Num()) }, cause, request);
         }
 
         // The binding preview is drawn HERE, not in the gizmo loop, and the
