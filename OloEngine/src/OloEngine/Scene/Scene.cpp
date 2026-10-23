@@ -2577,6 +2577,18 @@ namespace OloEngine
             return;
         }
 
+        // THE SURFACE ALREADY HOLDS THIS EXPRESSION: the same weights, applied
+        // over the same cached base of the same mesh, with nothing restoring it
+        // since. Deforming it again rewrites identical vertices and re-sends the
+        // whole buffer -- a breed whose sculpt keys every clip holds at 1.0 paid
+        // 7.7 ms for that on every fixed step, several steps a slow frame.
+        if (morphComp.WasMorphActive && morphComp.HasAppliedSurface && !morphComp.BasePositions.empty() &&
+            morphComp.BaseCacheSource == meshSource && ordered.Weights == morphComp.AppliedWeights)
+        {
+            finish(ordered.Weights);
+            return;
+        }
+
         auto& vertices = meshSource->GetVertices();
 
         // Cache base vertex data on first evaluation
@@ -8976,6 +8988,30 @@ namespace OloEngine
         return sum;
     }
 
+    // What a morphing body's vertex array holds now, as position bits: what the
+    // GPU root evaluation re-sends the body's vertices on. The positions
+    // themselves, not the weights that produced them: anything that rewrites
+    // the array in place -- the morph pass, or a tool writing it by hand -- does
+    // so with no generation bump, and the kernel must see every such write. One
+    // pass over the body's vertices (not the coat's roots), for a body with a
+    // MorphTargetComponent only; 0 for any other.
+    [[nodiscard]] static u64 HashMorphedSurface(const MorphTargetComponent* morph, const GroomSurfaceView& view)
+    {
+        if (morph == nullptr)
+        {
+            return 0;
+        }
+        u64 hash = 1469598103934665603ull;
+        for (u32 v = 0; v < view.VertexCount; ++v)
+        {
+            const glm::vec3 p = view.Position(v);
+            hash = (hash ^ ((static_cast<u64>(std::bit_cast<u32>(p.x)) << 32u) | std::bit_cast<u32>(p.y))) *
+                   1099511628211ull;
+            hash = (hash ^ std::bit_cast<u32>(p.z)) * 1099511628211ull;
+        }
+        return hash | 1u; // never 0, which is "no morph"
+    }
+
     // THE EXPRESSION-DRIVEN PORE BAND (issue #1243), stamped onto a per-draw
     // copy of a skin material.
     //
@@ -11277,12 +11313,16 @@ namespace OloEngine
         const auto& rendererSettings = Renderer3D::GetRendererSettings();
         const bool coatBakesFromPose =
             request.CoatShadow != GroomCoatShadow::CoatShadowMode::None && !request.CoatBakeAtRest;
+        // A morphing body is evaluated on the GPU too: the pass re-sends its
+        // vertices when they change under it (GpuRootMorphKey). Kept on the
+        // CPU, a Samoyed whose sculpt keys every clip holds at 1.0 skinned, packed
+        // and sent all two million roots every frame: 100 ms of a 150 ms frame.
         const bool gpuRootFrames = rendererSettings.GroomGpuDeformation && rendererSettings.GroomGpuRootFrames &&
-                                   skeleton != nullptr && morph == nullptr && !coatBakesFromPose &&
-                                   !binding->m_ShowBindingPreview;
+                                   skeleton != nullptr && !coatBakesFromPose && !binding->m_ShowBindingPreview;
         request.GpuRootSurfaceKey =
             (static_cast<u64>(reinterpret_cast<std::uintptr_t>(surface.Raw())) * 1099511628211ull) ^
             (static_cast<u64>(surface->GetGeneration()) << 20) ^ static_cast<u64>(view.VertexCount);
+        request.GpuRootMorphKey = gpuRootFrames ? HashMorphedSurface(morph, view) : 0u;
         request.StreamingSurfaceVertices = gpuRootFrames ? view.VertexCount : 0;
         request.StreamingBones = gpuRootFrames ? static_cast<u32>(MakeGroomSkinningView(*surface, skeleton).Palette.size()) : 0;
         if (const auto* simulation = m_Registry.try_get<GroomSimulationComponent>(groomEntity);
@@ -11420,8 +11460,8 @@ namespace OloEngine
         // GroomRenderPass's compute pass, handed the inputs below, and only the
         // guides the simulation solves against are evaluated here. What needs
         // them on the CPU keeps the CPU evaluation: a coat shadow baked from the
-        // pose, the binding preview drawn from these transforms, and a morphing
-        // body, whose positions the GPU is not sent. The pass evaluates them
+        // pose and the binding preview drawn from these transforms. (A morphing
+        // body no longer does: its vertices are re-sent.) The pass evaluates them
         // itself if it takes a CPU path after all (GroomCpuRootTransforms).
         // Chosen again only when what it is chosen from changed (#1533 E1; see
         // GroomBindingRuntimeState::m_DrawnSelection).
@@ -11524,10 +11564,14 @@ namespace OloEngine
             // Last frame's array back from the renderer, when the swap below left
             // this one without an allocation (see TakePooledGroomRootTransforms).
             Renderer3D::TakePooledGroomRootTransforms(state.m_Transforms, groom.GetCurveCount());
+            // A GPU-rooted coat's request holds its guides' transforms and no
+            // others (groom-gpu-strand-deformation.md, rule 11), so only those are
+            // reset: clearing every base curve's record cost the Samoyed's
+            // two-million-curve coat 8 ms a frame to evaluate 17k guides.
             request.DeformationStats =
                 EvaluateGroomRootTransforms(groom, *bindingAsset, inputs,
                                             std::span<const u32>{ state.m_SelectedCurves.GetData(), static_cast<sizet>(state.m_SelectedCurves.Num()) }, state.m_Transforms,
-                                            m_GroomSkinScratch);
+                                            m_GroomSkinScratch, gpuRootFrames);
         }
         request.RootEvaluateMicroseconds = static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - evaluateStart).count());

@@ -196,6 +196,16 @@ namespace OloEngine
         {
             return static_cast<u64>(PaletteBase) * 16u;
         }
+        /// The bound surface's vertex region, for re-sending it alone when a
+        /// morph moves the body's rest positions; empty on the CPU-packed layout.
+        [[nodiscard]] u64 VertexOffsetBytes() const noexcept
+        {
+            return static_cast<u64>(VertexBase) * 16u;
+        }
+        [[nodiscard]] u64 VertexEndBytes() const noexcept
+        {
+            return VertexOffsetBytes() + static_cast<u64>(VertexCount) * sizeof(GroomSurfaceVertexRecord);
+        }
 
         [[nodiscard]] u64 TotalBytes() const noexcept
         {
@@ -289,6 +299,11 @@ namespace OloEngine
         u32 WriteSurfaceSkin(std::span<const u32> rootCurves, const GroomBindingAsset& binding,
                              const GroomSurfaceView& surface, const GroomSkinningView& skinning,
                              u32 baseCurveCount);
+
+        /// The vertex region alone, from `surface`: for a body whose morph moved
+        /// its rest positions under a live layout (a blink, an expression). Each
+        /// root's triangle is unchanged, so nothing per root is redone.
+        void WriteSurfaceVertices(const GroomSurfaceView& surface, const GroomSkinningView& skinning);
 
         /// Each base curve's clump growth in groom object space at rest
         /// (ComputeGroomClumpGrowth, indexed by curve), handed out to the drawn

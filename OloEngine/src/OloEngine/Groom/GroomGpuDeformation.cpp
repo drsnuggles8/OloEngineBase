@@ -553,7 +553,16 @@ namespace OloEngine
             ++reached;
         }
         WriteRegion(m_CpuOnly, m_Bytes, m_Layout.SkinBase, AsSpan(skins, m_Layout.RootCount));
+        WriteSurfaceVertices(surface, skinning);
+        return reached;
+    }
 
+    void GroomDeformBuffer::WriteSurfaceVertices(const GroomSurfaceView& surface, const GroomSkinningView& skinning)
+    {
+        if (!m_Layout.RootsOnGpu())
+        {
+            return;
+        }
         // The surface: rest positions and influences, read exactly as
         // SkinGroomSurfaceVertex reads them. An unskinned vertex keeps zero
         // weights, which the shader answers with the rest position -- the CPU's
@@ -579,7 +588,6 @@ namespace OloEngine
             }
         }
         WriteRegion(m_CpuOnly, m_Bytes, m_Layout.VertexBase, AsSpan(vertices, m_Layout.VertexCount));
-        return reached;
     }
 
     GroomRootBoneBounds BuildGroomRootBoneBounds(std::span<const u32> rootCurves, const GroomBindingAsset& binding,

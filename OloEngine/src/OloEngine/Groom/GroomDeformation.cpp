@@ -134,10 +134,14 @@ namespace OloEngine
         // Cleared into the allocation it already has, in parallel (#1533 E1):
         // on the showcase dog that is ~300k records every frame, and one thread
         // adding them one at a time cost more than evaluating the roots it kept.
+        const u32 wasDefined = std::min(static_cast<u32>(outTransforms.Num()), curveCount);
         outTransforms.SetNumUninitialized(static_cast<i32>(curveCount), EAllowShrinking::No);
         if (onlySelectedDefined && selectedCurves.has_value())
         {
             GroomRootTransform* const records = outTransforms.GetData();
+            // What the array grew by is cleared, so a record nobody selected is
+            // an old pose or the rest, never uninitialised memory.
+            std::fill(records + wasDefined, records + curveCount, GroomRootTransform{});
             for (const u32 curve : *selectedCurves)
                 if (curve < curveCount)
                     records[curve] = GroomRootTransform{};

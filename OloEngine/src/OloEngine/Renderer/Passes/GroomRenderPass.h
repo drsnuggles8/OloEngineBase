@@ -952,6 +952,7 @@ namespace OloEngine
             /// written from (GroomStrandRequest::GpuRootSurfaceKey); a different
             /// one relays the buffer out.
             u64 RootSkinKey = 0;
+            u64 RootMorphKey = 0;
             /// Where the kernel's roots can be, for the posed box while the
             /// CPU holds no drawn root (see BuildGroomRootBoneBounds).
             GroomRootBoneBounds RootBoneBounds;

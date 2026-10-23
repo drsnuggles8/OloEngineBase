@@ -183,6 +183,11 @@ namespace OloEngine
         /// The bound surface's identity and generation, so the pass re-sends
         /// the surface it keeps on the GPU when the body changes under a coat.
         u64 GpuRootSurfaceKey = 0;
+        /// A morphing body's vertex positions, hashed (0 for a body with no
+        /// morph): a morph rewrites the rest positions in place with no
+        /// generation bump, so the pass re-sends the surface's vertices -- and
+        /// only those -- when this changes.
+        u64 GpuRootMorphKey = 0;
 
         /// Why this groom is NOT bound, when it asked to be. None on a groom
         /// that never asked and on one that attached — the two are distinguished
@@ -533,6 +538,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::GpuRootFrames)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::GpuRootInputs)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::GpuRootSurfaceKey)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::GpuRootMorphKey)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::BindingReject)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CoatShadow)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CoatKappa)> &&

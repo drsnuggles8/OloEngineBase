@@ -885,6 +885,7 @@ namespace OloEngine
                                                                 rootInputs.Skinning, boneCount, baseCurveCount);
                 entry.CasterPoseSurface = BuildGroomCasterPoseSurface(entry.Rest->Caster.Pose, rootInputs.Surface);
                 entry.RootSkinKey = request.GpuRootSurfaceKey;
+                entry.RootMorphKey = request.GpuRootMorphKey;
             }
             else
             {
@@ -920,6 +921,18 @@ namespace OloEngine
         // takes them into the bind frames with the relayout upload; on a live one
         // SetClumpGrowth does, and the static region goes up below.
         entry.DeformCpu.SetWetness(MakeGroomDeformWetRecord(request.Wetness, request.WetResponse, request.WetGravity));
+        // A MORPHED BODY under a live layout: its rest positions moved in place
+        // (a blink), so the vertex region is rewritten and sent on its own. The
+        // roots' triangles, bone bounds and caster surface are the layout's; a
+        // morph moves a face by millimetres, and redoing them is the per-root
+        // CPU work the GPU evaluation exists to avoid.
+        bool vertexRegionChanged = false;
+        if (rootsOnGpu && !relayout && entry.RootMorphKey != request.GpuRootMorphKey)
+        {
+            entry.DeformCpu.WriteSurfaceVertices(rootInputs.Surface, rootInputs.Skinning);
+            entry.RootMorphKey = request.GpuRootMorphKey;
+            vertexRegionChanged = true;
+        }
         bool clumpRegionChanged = false;
         if (request.Wetness.Any() && request.WetResponse.Clump > 0.0f && !entry.DeformClumpWritten)
         {
@@ -1022,6 +1035,10 @@ namespace OloEngine
                 if (clumpRegionChanged)
                 {
                     send(static_cast<u64>(layout.ClumpBase) * 16u, layout.DynamicOffsetBytes());
+                }
+                if (vertexRegionChanged)
+                {
+                    send(layout.VertexOffsetBytes(), layout.VertexEndBytes());
                 }
                 const u64 usedEnd = (static_cast<u64>(layout.DisplacementBase) +
                                      static_cast<u64>(entry.DeformCpu.GetFrameStats().DisplacementCount) * 2u) *

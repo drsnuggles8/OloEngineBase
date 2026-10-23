@@ -49,6 +49,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cmath>
 #include <span>
@@ -101,6 +102,46 @@ namespace
         return bound;
     }
 } // namespace
+
+TEST(GroomDeformation, ASelectedOnlyEvaluationClearsWhatTheArrayGrewBy)
+{
+    // A GPU-rooted coat evaluates its guides alone and resets only their
+    // records. The array still grows to every base curve the first time, and
+    // that growth is cleared: a record nobody selected reads as the rest, not
+    // as uninitialised memory. The array is primed with a marker so a record
+    // left uncleared is visible.
+    GridSurface grid = MakeGrid(4u);
+    WeightAllToBone0(grid);
+    const Bound bound = BindCoat(grid);
+    ASSERT_TRUE(bound.Binding);
+    const u32 curves = bound.Groom->GetCurveCount();
+    ASSERT_GT(curves, 3u);
+
+    const auto palette = RestPalette();
+    GroomDeformationInputs inputs;
+    inputs.Surface = grid.View(2u);
+    inputs.Skinning = grid.Skinning(palette, palette, true);
+
+    TArray<GroomRootTransform> transforms;
+    GroomRootTransform marker;
+    marker.Origin = glm::vec3(99.0f);
+    marker.Valid = true;
+    transforms.Init(marker, 1); // one stale record from before; the rest grow
+    const std::array<u32, 1> selected{ 2u };
+    GroomSurfaceSkinScratch scratch;
+    (void)EvaluateGroomRootTransforms(*bound.Groom, *bound.Binding, inputs, std::span<const u32>(selected), transforms,
+                                      scratch, true);
+    ASSERT_EQ(transforms.Num(), static_cast<i32>(curves));
+    EXPECT_TRUE(transforms[2].Valid) << "the selected root was not evaluated";
+    EXPECT_TRUE(transforms[0].Valid) << "a record from before the call was reset although nobody selected it";
+    for (u32 curve = 1; curve < curves; ++curve)
+    {
+        if (curve == 2u)
+            continue;
+        EXPECT_FALSE(transforms[static_cast<i32>(curve)].Valid) << "curve " << curve << " grew uncleared";
+        EXPECT_LT(glm::length(transforms[static_cast<i32>(curve)].Origin), 1.0e-6f) << "curve " << curve;
+    }
+}
 
 // ── The baseline: an unbent body does not move the coat ─────────────────────
 
