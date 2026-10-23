@@ -26,7 +26,10 @@ TAA runs by itself (the coat is `StochasticAlpha`; see groom-animals.md). Press 
 clips and the guide simulation; in edit mode the skeleton previews its clip but the coat's solver
 does not step, so the coat is carried with the body without swinging.
 
-The clips are `Idle`, `HeadTilt`, `Sit`, `Walk`, `Pant` and `Rest`. Switch them with
+The clips are `Idle`, `HeadTilt`, `Sit`, `Walk`, `Pant` and `Rest`, plus the clips every breed
+shares ([dog-play.md](dog-play.md)): the play clips `Run`, `PickUp`, `Carry`, `Drop`, `PlayBow` and
+`Petted`, and the life clips `Trot`, `Sniff`, `Shake`, `Lie`, `LieDown`, `GetUp`, `BellyUp`,
+`RollOver`, `Excited`, `Scratch`, `Stretch`, `Nudge` and `TurnInPlace`. Switch them with
 `AnimationStateComponent`'s requested clip (the editor's Animation panel, `olo_entity_set_field`,
 or `PlayClip` from Lua).
 

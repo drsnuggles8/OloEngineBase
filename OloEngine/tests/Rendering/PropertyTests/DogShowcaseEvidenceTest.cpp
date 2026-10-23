@@ -8815,7 +8815,28 @@ namespace OloEngine::Tests
         const std::array<View, 2> views{ HeroViews()[5], HeroViews()[3] };
         for (const ClipCase& clip : { ClipCase{ "Idle", true, AuthoredClipDuration("Idle") }, ClipCase{ "HeadTilt", false, 2.5f },
                                       ClipCase{ "Sit", false, 3.0f }, ClipCase{ "Walk", true, 1.0f },
-                                      ClipCase{ "Pant", true, 2.0f } })
+                                      ClipCase{ "Pant", true, 2.0f },
+                                      // The play clips (#1559), each over its authored length.
+                                      ClipCase{ "Run", true, AuthoredClipDuration("Run") },
+                                      ClipCase{ "PickUp", false, AuthoredClipDuration("PickUp") },
+                                      ClipCase{ "Carry", true, AuthoredClipDuration("Carry") },
+                                      ClipCase{ "Drop", false, AuthoredClipDuration("Drop") },
+                                      ClipCase{ "PlayBow", true, AuthoredClipDuration("PlayBow") },
+                                      ClipCase{ "Petted", true, AuthoredClipDuration("Petted") },
+                                      // The life clips (#1559).
+                                      ClipCase{ "Trot", true, AuthoredClipDuration("Trot") },
+                                      ClipCase{ "Sniff", true, AuthoredClipDuration("Sniff") },
+                                      ClipCase{ "Shake", false, AuthoredClipDuration("Shake") },
+                                      ClipCase{ "Lie", true, AuthoredClipDuration("Lie") },
+                                      ClipCase{ "LieDown", false, AuthoredClipDuration("LieDown") },
+                                      ClipCase{ "GetUp", false, AuthoredClipDuration("GetUp") },
+                                      ClipCase{ "BellyUp", true, AuthoredClipDuration("BellyUp") },
+                                      ClipCase{ "RollOver", false, AuthoredClipDuration("RollOver") },
+                                      ClipCase{ "Excited", true, AuthoredClipDuration("Excited") },
+                                      ClipCase{ "Scratch", false, AuthoredClipDuration("Scratch") },
+                                      ClipCase{ "Stretch", false, AuthoredClipDuration("Stretch") },
+                                      ClipCase{ "Nudge", false, AuthoredClipDuration("Nudge") },
+                                      ClipCase{ "TurnInPlace", true, AuthoredClipDuration("TurnInPlace") } })
         {
             SCOPED_TRACE(clip.Name);
             constexpr u32 kSteps = 6;
@@ -9088,7 +9109,28 @@ namespace OloEngine::Tests
         const std::array<View, 2> views{ HeroViews()[5], HeroViews()[3] };
         for (const ClipCase& clip : { ClipCase{ "Idle", true, AuthoredClipDuration("Idle") }, ClipCase{ "HeadTilt", false, 2.5f },
                                       ClipCase{ "Sit", false, 3.0f }, ClipCase{ "Walk", true, 1.0f },
-                                      ClipCase{ "Pant", true, 2.0f } })
+                                      ClipCase{ "Pant", true, 2.0f },
+                                      // The play clips (#1559), each over its authored length.
+                                      ClipCase{ "Run", true, AuthoredClipDuration("Run") },
+                                      ClipCase{ "PickUp", false, AuthoredClipDuration("PickUp") },
+                                      ClipCase{ "Carry", true, AuthoredClipDuration("Carry") },
+                                      ClipCase{ "Drop", false, AuthoredClipDuration("Drop") },
+                                      ClipCase{ "PlayBow", true, AuthoredClipDuration("PlayBow") },
+                                      ClipCase{ "Petted", true, AuthoredClipDuration("Petted") },
+                                      // The life clips (#1559).
+                                      ClipCase{ "Trot", true, AuthoredClipDuration("Trot") },
+                                      ClipCase{ "Sniff", true, AuthoredClipDuration("Sniff") },
+                                      ClipCase{ "Shake", false, AuthoredClipDuration("Shake") },
+                                      ClipCase{ "Lie", true, AuthoredClipDuration("Lie") },
+                                      ClipCase{ "LieDown", false, AuthoredClipDuration("LieDown") },
+                                      ClipCase{ "GetUp", false, AuthoredClipDuration("GetUp") },
+                                      ClipCase{ "BellyUp", true, AuthoredClipDuration("BellyUp") },
+                                      ClipCase{ "RollOver", false, AuthoredClipDuration("RollOver") },
+                                      ClipCase{ "Excited", true, AuthoredClipDuration("Excited") },
+                                      ClipCase{ "Scratch", false, AuthoredClipDuration("Scratch") },
+                                      ClipCase{ "Stretch", false, AuthoredClipDuration("Stretch") },
+                                      ClipCase{ "Nudge", false, AuthoredClipDuration("Nudge") },
+                                      ClipCase{ "TurnInPlace", true, AuthoredClipDuration("TurnInPlace") } })
         {
             SCOPED_TRACE(clip.Name);
             const u32 framesPerStep = std::max(1u, static_cast<u32>(clip.Seconds * 60.0f / kSteps));
@@ -9971,7 +10013,9 @@ namespace OloEngine::Tests
         std::vector<Worst> perClip;
         std::vector<glm::vec3> tonguePosed(tongueVertices.size());
         std::vector<u32> tree;
-        for (const char* clip : { "Idle", "HeadTilt", "Sit", "Walk", "Pant", "Rest" })
+        for (const char* clip : { "Idle", "HeadTilt", "Sit", "Walk", "Pant", "Rest", "Run", "PickUp", "Carry", "Drop",
+                                  "PlayBow", "Petted", "Trot", "Sniff", "Shake", "Lie", "LieDown", "GetUp", "BellyUp",
+                                  "RollOver", "Excited", "Scratch", "Stretch", "Nudge", "TurnInPlace" })
         {
             SCOPED_TRACE(clip);
             Worst worst;
