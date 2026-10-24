@@ -1322,7 +1322,7 @@ namespace OloEngine
                     dialogueAsset->RebuildNodeIndex();
 
                     AssetMetadata metadata;
-                    metadata.FilePath = std::filesystem::relative(dialoguePath, Project::GetAssetDirectory());
+                    metadata.FilePath = std::filesystem::relative(dialoguePath, Project::GetProjectDirectory());
                     metadata.Type = AssetType::DialogueTree;
 
                     DialogueTreeSerializer serializer;
@@ -1379,7 +1379,7 @@ namespace OloEngine
                     sgAsset->GetMutableGraph().AddNode(std::move(outputNode));
 
                     AssetMetadata metadata;
-                    metadata.FilePath = std::filesystem::relative(sgPath, Project::GetAssetDirectory());
+                    metadata.FilePath = std::filesystem::relative(sgPath, Project::GetProjectDirectory());
                     metadata.Type = AssetType::ShaderGraph;
 
                     ShaderGraphSerializer serializer;

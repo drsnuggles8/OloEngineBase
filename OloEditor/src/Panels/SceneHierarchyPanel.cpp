@@ -720,7 +720,8 @@ namespace OloEngine
                 // Register with asset system and serialize to disk
                 auto* editorManager = static_cast<EditorAssetManager*>(
                     Project::GetActive()->GetAssetManager().get());
-                auto relativePath = Project::GetAssetRelativeFileSystemPath(prefabPath);
+                // Project-relative, like every registry key ("Assets/prefabs/X.oloprefab").
+                auto relativePath = editorManager->GetRelativePath(prefabPath);
 
                 AssetMetadata metadata;
                 metadata.Handle = handle;

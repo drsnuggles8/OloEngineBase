@@ -1408,7 +1408,7 @@ namespace OloEngine
 
         ShaderGraphSerializer serializer;
         AssetMetadata metadata;
-        metadata.FilePath = std::filesystem::relative(m_CurrentFilePath, Project::GetAssetDirectory());
+        metadata.FilePath = std::filesystem::relative(m_CurrentFilePath, Project::GetProjectDirectory());
         metadata.Handle = m_CurrentAssetHandle;
         // A failed save keeps the graph dirty, so the unsaved-changes marker
         // stays up and closing the editor still asks.
