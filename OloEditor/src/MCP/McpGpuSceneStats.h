@@ -14,18 +14,115 @@
 // report derives `exhaustedSlots` from that identity and lists any identity
 // that does not hold under `invariantViolations`, because a registry whose
 // counts do not add up is a producer bug, not a scene.
+//
+// The not-staged, foliage and animated blocks are shared with
+// olo_rt_scene_stats' gpuScene block, so the two tools cannot drift apart.
 
-#include "MCP/McpRayTracingStats.h"
 #include "MCP/McpStatsSnapshot.h"
 
 #include "OloEngine/Renderer/GPUScene/GPUSceneTypes.h"
 
-#include <span>
+#include <array>
 #include <string>
 
 namespace OloEngine::MCP::GpuSceneStats
 {
     using Json = nlohmann::json;
+
+    // The JSON key for each diagnostics category.
+    //
+    // A switch rather than a table lookup so an unnamed category is at least a
+    // -Wswitch warning rather than an out-of-range read. It is NOT a compile
+    // error: adding GPUSceneUnsupportedCategory::Groom (#1246) compiled fine and
+    // fell through to "unknown", and what caught it was
+    // McpRayTracingStats.EveryDiagnosticsCategoryGetsItsOwnKey. That test is the
+    // guard; keep it in mind when adding a category, because the build will not
+    // stop you.
+    [[nodiscard]] constexpr const char* UnsupportedCategoryKey(OloEngine::GPUSceneUnsupportedCategory category)
+    {
+        using enum OloEngine::GPUSceneUnsupportedCategory;
+        switch (category)
+        {
+            case Virtualized:
+                return "virtualized";
+            case SoftwareRaster:
+                return "softwareRaster";
+            case Procedural:
+                return "procedural";
+            case Terrain:
+                return "terrain";
+            case Foliage:
+                return "foliage";
+            case Particles:
+                return "particles";
+            case Fluids:
+                return "fluids";
+            case Skinned:
+                return "skinned";
+            case LegacyModel:
+                return "legacyModel";
+            case LegacySubmesh:
+                return "legacySubmesh";
+            case Tiles:
+                return "tiles";
+            case Cloth:
+                return "cloth";
+            case Groom:
+                return "groom";
+            case NotExtractable:
+                return "notExtractable";
+            case Count:
+                break;
+        }
+        return "unknown";
+    }
+
+    [[nodiscard]] inline Json NotStagedByCategoryJson(const OloEngine::GPUSceneFrameStats& stats)
+    {
+        Json byCategory = Json::object();
+        for (sizet i = 0; i < OloEngine::GPUSceneUnsupportedCategoryCount; ++i)
+            byCategory[UnsupportedCategoryKey(static_cast<OloEngine::GPUSceneUnsupportedCategory>(i))] =
+                stats.m_UnsupportedCounts[i];
+        return byCategory;
+    }
+
+    // Foliage rides its own vertex stream, so "Foliage" in the not-staged
+    // categories only counts SYSTEMS that skip the records. This says what is
+    // inside them: how many plants carry canonical identity, how each is
+    // represented, and what the raster path cannot draw (issue #1230).
+    [[nodiscard]] inline Json FoliageJson(const OloEngine::GPUSceneFoliageStats& foliage)
+    {
+        return Json{
+            { "canonicalInstances", foliage.m_CanonicalInstances },
+            { "meshCardInstances", foliage.m_MeshCardInstances },
+            { "impostorInstances", foliage.m_ImpostorInstances },
+            { "authoredMeshInstances", foliage.m_AuthoredMeshInstances },
+            { "unsupportedInstances", foliage.m_UnsupportedInstances },
+            { "unsupportedVariants", foliage.m_UnsupportedVariants },
+            { "spatialGroups", foliage.m_SpatialGroups },
+        };
+    }
+
+    // Animated surfaces (issue #1228). "Skinned" in the not-staged categories
+    // means an animated entity that reached submission and produced no record
+    // at all. This block is the positive half: what the records DID take, and
+    // how many of those carry a previous pose a velocity may legitimately be
+    // measured against.
+    //
+    // canonicalInstances == surfacesWithHistory + surfacesWithoutHistory by
+    // construction; a reader seeing that fail is looking at a producer bug, not
+    // at a scene.
+    [[nodiscard]] inline Json AnimatedJson(const OloEngine::GPUSceneAnimatedStats& animated)
+    {
+        return Json{
+            { "canonicalEntities", animated.m_CanonicalEntities },
+            { "canonicalInstances", animated.m_CanonicalInstances },
+            { "surfacesWithHistory", animated.m_SurfacesWithHistory },
+            { "surfacesWithoutHistory", animated.m_SurfacesWithoutHistory },
+            { "unsupportedInstances", animated.m_UnsupportedInstances },
+            { "unsupportedVariants", animated.m_UnsupportedVariants },
+        };
+    }
 
     struct DrawLinks
     {
@@ -40,37 +137,49 @@ namespace OloEngine::MCP::GpuSceneStats
 
     // Upload activity summed over the profiler's recent frames. An edit uploads
     // on ONE frame, and a previous-frame sample read over MCP has almost always
-    // moved past it, so "did a one-light edit upload one light record" is only
-    // answerable over a window.
+    // moved past it, so "did my edit reach the GPU" is only answerable over a
+    // window.
+    //
+    // Count frames per kind, not just bytes: the bytes are backend-shaped. GL
+    // writes the dirty records; Vulkan republishes the whole table on any edit
+    // so no submitted frame reads a half-written one. One edit is one upload
+    // frame on both.
+    struct KindWindow
+    {
+        u32 UploadFrames = 0;
+        u64 UploadBytes = 0;
+    };
+
     struct RecentWindow
     {
         u32 Frames = 0;
         u32 FramesWithUploads = 0;
         u32 BufferGrowthEvents = 0;
-        u64 Instances = 0;
-        u64 Geometries = 0;
-        u64 Materials = 0;
-        u64 Lights = 0;
-        u64 Environments = 0;
-    };
+        KindWindow Instances;
+        KindWindow Geometries;
+        KindWindow Materials;
+        KindWindow Lights;
+        KindWindow Environments;
 
-    [[nodiscard]] inline RecentWindow SummarizeWindow(std::span<const OloEngine::GPUSceneFrameStats> frames)
-    {
-        RecentWindow window;
-        window.Frames = static_cast<u32>(frames.size());
-        for (const auto& frame : frames)
+        void Add(const OloEngine::GPUSceneFrameStats& frame)
         {
+            const auto add = [](KindWindow& window, const OloEngine::GPUSceneKindStats& kind)
+            {
+                if (kind.m_UploadBytes > 0)
+                    ++window.UploadFrames;
+                window.UploadBytes += kind.m_UploadBytes;
+            };
+            ++Frames;
             if (frame.m_UploadBytes > 0)
-                ++window.FramesWithUploads;
-            window.BufferGrowthEvents += frame.m_BufferGrowthEvents;
-            window.Instances += frame.m_Instances.m_UploadBytes;
-            window.Geometries += frame.m_Geometries.m_UploadBytes;
-            window.Materials += frame.m_Materials.m_UploadBytes;
-            window.Lights += frame.m_Lights.m_UploadBytes;
-            window.Environments += frame.m_Environments.m_UploadBytes;
+                ++FramesWithUploads;
+            BufferGrowthEvents += frame.m_BufferGrowthEvents;
+            add(Instances, frame.m_Instances);
+            add(Geometries, frame.m_Geometries);
+            add(Materials, frame.m_Materials);
+            add(Lights, frame.m_Lights);
+            add(Environments, frame.m_Environments);
         }
-        return window;
-    }
+    };
 
     struct Snapshot
     {
@@ -96,18 +205,29 @@ namespace OloEngine::MCP::GpuSceneStats
 
     namespace Detail
     {
-        [[nodiscard]] inline Json KindReport(const char* name, const OloEngine::GPUSceneKindStats& kind,
-                                             u64 recordBytes, Json& violations)
+        struct KindRow
         {
+            const char* Name;
+            const OloEngine::GPUSceneKindStats& Kind;
+            const KindWindow& Recent;
+            u64 RecordBytes;
+        };
+
+        [[nodiscard]] inline Json KindReport(const KindRow& row, Json& violations)
+        {
+            const auto& kind = row.Kind;
+            const std::string name = row.Name;
             const u64 accounted = static_cast<u64>(kind.m_Live) + kind.m_FreeSlots + kind.m_RetiredSlots;
             if (accounted > kind.m_SlotCount)
             {
-                violations.push_back(std::string(name) + ": live + free + retiring (" + std::to_string(accounted) +
+                violations.push_back(name + ": live + free + retiring (" + std::to_string(accounted) +
                                      ") exceeds slots (" + std::to_string(kind.m_SlotCount) + ")");
             }
-            if (kind.m_SlotCount > kind.m_BufferCapacity && kind.m_BufferCapacity > 0)
+            // Capacity 0 with slots is a table whose records can never reach
+            // the GPU, which is the case this list exists for.
+            if (kind.m_SlotCount > kind.m_BufferCapacity)
             {
-                violations.push_back(std::string(name) + ": slots (" + std::to_string(kind.m_SlotCount) +
+                violations.push_back(name + ": slots (" + std::to_string(kind.m_SlotCount) +
                                      ") exceed GPU capacity (" + std::to_string(kind.m_BufferCapacity) + ")");
             }
             const u64 exhausted = accounted <= kind.m_SlotCount ? kind.m_SlotCount - accounted : 0u;
@@ -120,9 +240,9 @@ namespace OloEngine::MCP::GpuSceneStats
                 { "retiringSlots", kind.m_RetiredSlots },
                 { "exhaustedSlots", exhausted },
                 { "uploadBytes", kind.m_UploadBytes },
-                { "recordBytes", recordBytes },
-                { "capacityBytes", static_cast<u64>(kind.m_BufferCapacity) * recordBytes },
-                { "liveBytes", static_cast<u64>(kind.m_Live) * recordBytes },
+                { "recordBytes", row.RecordBytes },
+                { "capacityBytes", static_cast<u64>(kind.m_BufferCapacity) * row.RecordBytes },
+                { "liveBytes", static_cast<u64>(kind.m_Live) * row.RecordBytes },
             };
             // Null rather than 0 with no buffer: "no table yet" is not "empty table".
             if (kind.m_BufferCapacity > 0)
@@ -142,26 +262,34 @@ namespace OloEngine::MCP::GpuSceneStats
             return out;
 
         const auto& stats = snapshot.Stats;
+        const auto& recent = snapshot.Recent;
+        const std::array<Detail::KindRow, 5> rows{ {
+            { "instances", stats.m_Instances, recent.Instances, strides.Instance },
+            { "geometries", stats.m_Geometries, recent.Geometries, strides.Geometry },
+            { "materials", stats.m_Materials, recent.Materials, strides.Material },
+            { "lights", stats.m_Lights, recent.Lights, strides.Light },
+            { "environments", stats.m_Environments, recent.Environments, strides.Environment },
+        } };
+
         Json violations = Json::array();
-
-        out["kinds"] = Json{
-            { "instances", Detail::KindReport("instances", stats.m_Instances, strides.Instance, violations) },
-            { "geometries", Detail::KindReport("geometries", stats.m_Geometries, strides.Geometry, violations) },
-            { "materials", Detail::KindReport("materials", stats.m_Materials, strides.Material, violations) },
-            { "lights", Detail::KindReport("lights", stats.m_Lights, strides.Light, violations) },
-            { "environments",
-              Detail::KindReport("environments", stats.m_Environments, strides.Environment, violations) },
-        };
-
+        Json kinds = Json::object();
+        Json recentFrames = Json::object();
+        Json recentBytes = Json::object();
+        Json recentRecords = Json::object();
         u64 capacityBytes = 0;
         u64 liveBytes = 0;
         u64 uploadSum = 0;
-        for (const auto& [name, kind] : out["kinds"].items())
+        for (const auto& row : rows)
         {
-            capacityBytes += kind.at("capacityBytes").get<u64>();
-            liveBytes += kind.at("liveBytes").get<u64>();
-            uploadSum += kind.at("uploadBytes").get<u64>();
+            kinds[row.Name] = Detail::KindReport(row, violations);
+            capacityBytes += static_cast<u64>(row.Kind.m_BufferCapacity) * row.RecordBytes;
+            liveBytes += static_cast<u64>(row.Kind.m_Live) * row.RecordBytes;
+            uploadSum += row.Kind.m_UploadBytes;
+            recentFrames[row.Name] = row.Recent.UploadFrames;
+            recentBytes[row.Name] = row.Recent.UploadBytes;
+            recentRecords[row.Name] = row.RecordBytes > 0 ? row.Recent.UploadBytes / row.RecordBytes : 0u;
         }
+        out["kinds"] = std::move(kinds);
         if (uploadSum != stats.m_UploadBytes)
         {
             violations.push_back("uploadBytes total (" + std::to_string(stats.m_UploadBytes) +
@@ -173,32 +301,13 @@ namespace OloEngine::MCP::GpuSceneStats
             { "bufferGrowthEvents", stats.m_BufferGrowthEvents },
             { "extractionMs", stats.m_ExtractionTimeMs },
         };
-        // Records = bytes / stride: uploads are whole records (dirty ranges of
-        // record indices), so this is the count a reader compares with the edits
-        // they made.
-        const auto& recent = snapshot.Recent;
-        const auto records = [](u64 bytes, u64 stride) -> u64
-        { return stride > 0 ? bytes / stride : 0u; };
         out["recent"] = Json{
             { "frames", recent.Frames },
             { "framesWithUploads", recent.FramesWithUploads },
             { "bufferGrowthEvents", recent.BufferGrowthEvents },
-            { "uploadBytes",
-              Json{
-                  { "instances", recent.Instances },
-                  { "geometries", recent.Geometries },
-                  { "materials", recent.Materials },
-                  { "lights", recent.Lights },
-                  { "environments", recent.Environments },
-              } },
-            { "uploadRecords",
-              Json{
-                  { "instances", records(recent.Instances, strides.Instance) },
-                  { "geometries", records(recent.Geometries, strides.Geometry) },
-                  { "materials", records(recent.Materials, strides.Material) },
-                  { "lights", records(recent.Lights, strides.Light) },
-                  { "environments", records(recent.Environments, strides.Environment) },
-              } },
+            { "uploadFrames", std::move(recentFrames) },
+            { "uploadBytes", std::move(recentBytes) },
+            { "uploadRecords", std::move(recentRecords) },
         };
         out["memory"] = Json{
             { "capacityBytes", capacityBytes },
@@ -210,38 +319,12 @@ namespace OloEngine::MCP::GpuSceneStats
             { "consumed", snapshot.Draws.Consumed },
             { "fellBack", snapshot.Draws.FellBack },
         };
-
-        Json byCategory = Json::object();
-        for (sizet i = 0; i < OloEngine::GPUSceneUnsupportedCategoryCount; ++i)
-        {
-            byCategory[RayTracingStats::UnsupportedCategoryKey(static_cast<OloEngine::GPUSceneUnsupportedCategory>(i))] =
-                stats.m_UnsupportedCounts[i];
-        }
         out["notStagedTotal"] = stats.m_UnsupportedTotal;
-        out["notStagedByCategory"] = std::move(byCategory);
+        out["notStagedByCategory"] = NotStagedByCategoryJson(stats);
+        out["foliage"] = FoliageJson(stats.m_Foliage);
+        out["animated"] = AnimatedJson(stats.m_Animated);
 
-        const auto& foliage = stats.m_Foliage;
-        out["foliage"] = Json{
-            { "canonicalInstances", foliage.m_CanonicalInstances },
-            { "meshCardInstances", foliage.m_MeshCardInstances },
-            { "impostorInstances", foliage.m_ImpostorInstances },
-            { "authoredMeshInstances", foliage.m_AuthoredMeshInstances },
-            { "unsupportedInstances", foliage.m_UnsupportedInstances },
-            { "unsupportedVariants", foliage.m_UnsupportedVariants },
-            { "spatialGroups", foliage.m_SpatialGroups },
-        };
-
-        // canonicalInstances == surfacesWithHistory + surfacesWithoutHistory by
-        // construction (GPUSceneAnimatedStats).
         const auto& animated = stats.m_Animated;
-        out["animated"] = Json{
-            { "canonicalEntities", animated.m_CanonicalEntities },
-            { "canonicalInstances", animated.m_CanonicalInstances },
-            { "surfacesWithHistory", animated.m_SurfacesWithHistory },
-            { "surfacesWithoutHistory", animated.m_SurfacesWithoutHistory },
-            { "unsupportedInstances", animated.m_UnsupportedInstances },
-            { "unsupportedVariants", animated.m_UnsupportedVariants },
-        };
         if (static_cast<u64>(animated.m_SurfacesWithHistory) + animated.m_SurfacesWithoutHistory !=
             animated.m_CanonicalInstances)
         {

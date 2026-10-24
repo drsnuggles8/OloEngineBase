@@ -5462,8 +5462,8 @@ namespace OloEngine::MCP
                                                     .Prop("cpuPushes", Schema::Int())
                                                     .Prop("overflowed", Schema::Bool())
                                                     .Prop("dropped", Schema::Int())
-                                                    .Prop("pushedAfterDraw", Schema::Int().Desc("Pushes made by passes that run AFTER the debug-draw pass (tone mapping, later post-processing, UI): never drawn and absent from 'requested'. One frame older than the other counters."))))
-                .Prop("pushedAfterDraw", Schema::Int().Desc("Sum of the channels' pushedAfterDraw. Non-zero means a shader pushed too late in the frame to be drawn."));
+                                                    .Prop("pushedAfterDraw", Schema::Int().Desc("Pushes made after the debug-draw pass staged its counters and before the next frame's reset: passes after it (tone mapping, later post-processing, UI), or work dispatched at scene-submission time before EndScene. Never drawn and absent from 'requested'. One frame older than the other counters."))))
+                .Prop("pushedAfterDraw", Schema::Int().Desc("Sum of the channels' pushedAfterDraw. Non-zero means a shader pushed outside the window the debug-draw pass draws."));
         }
 
         ToolResult Handle_ShaderDebugDrawSet(IAutomationHost& host, const Json& args)
@@ -5541,9 +5541,11 @@ namespace OloEngine::MCP
             }
             else if (current.value("pushedAfterDraw", static_cast<u64>(0)) > 0)
             {
-                j["message"] = "Some pushes came from a pass that runs AFTER the debug-draw pass (tone mapping, "
-                               "later post-processing, UI): they are never drawn and are not in 'requested'. See "
-                               "each channel's pushedAfterDraw, and push from a pass before tone mapping instead.";
+                j["message"] = "Some pushes landed outside the window the debug-draw pass sees: after it (tone "
+                               "mapping, later post-processing, UI) or before the next frame's counter reset "
+                               "(work dispatched while the scene is submitted, before EndScene). They are never "
+                               "drawn and are not in 'requested'. See each channel's pushedAfterDraw, and push from "
+                               "a render-graph pass that runs before tone mapping.";
             }
             else if (current.value("enabled", false))
             {
@@ -7228,16 +7230,15 @@ namespace OloEngine::MCP
                     snapshot.Draws.Consumed = frame.m_GPUSceneConsumedDraws;
                     snapshot.Draws.FellBack = frame.m_GPUSceneFallbackDraws;
 
-                    // The ring is oldest-first and pre-sized, so before it fills
-                    // its head is default frames; keep only the completed tail.
-                    const TArray<RendererProfiler::FrameData> history = profiler.GetFrameHistoryCopy();
-                    const auto filled = static_cast<i32>(std::min<u64>(completed, static_cast<u64>(history.Num())));
-                    TArray<GPUSceneFrameStats> window;
-                    window.Reserve(filled);
-                    for (i32 i = history.Num() - filled; i < history.Num(); ++i)
-                        window.Add(history[i].m_GPUScene);
-                    snapshot.Recent = GpuSceneStats::SummarizeWindow(
-                        std::span<const GPUSceneFrameStats>(window.GetData(), static_cast<sizet>(window.Num())));
+                    // The ring is pre-sized and RendererProfiler::Reset clears it
+                    // without resetting the frame number, so slots that never
+                    // held a frame are skipped by their zero frame time rather
+                    // than by counting.
+                    for (const auto& entry : profiler.GetFrameHistoryCopy())
+                    {
+                        if (entry.m_FrameTime > 0.0)
+                            snapshot.Recent.Add(entry.m_GPUScene);
+                    }
                 }
                 return GpuSceneStats::BuildReport(snapshot); });
 
@@ -10337,13 +10338,14 @@ namespace OloEngine::MCP
                 "this frame and the bytes the table occupies; the frame's total upload bytes, buffer growth events "
                 "and extraction time; draw-link resolution (linked / unlinked) and how many draws read a record at "
                 "dispatch versus fell back; the renderable geometry that produced no record, by category; and the "
-                "foliage and animated-surface censuses. 'recent' sums uploads over the profiler's last frames (up "
-                "to 1024), in bytes and in records, because an edit uploads on one frame that a single sample has "
-                "usually moved past. Use it to confirm a scene's materials, lights and environment reached the "
-                "registry, and that a one-light edit uploaded one light record (recent.uploadRecords.lights). "
-                "olo_rt_scene_stats.gpuScene carries only the live counts. Every figure comes from one finalized "
-                "profiler frame; 'invariantViolations' lists any slot or upload identity that does not add up, "
-                "which is a producer bug rather than a scene property.";
+                "foliage and animated-surface censuses. 'recent' sums uploads over the profiler's frame ring (up "
+                "to 1024 frames) because an edit uploads on one frame that a single sample has usually moved past: "
+                "recent.uploadFrames.lights counts the frames that uploaded lights, one per edit on both backends "
+                "(uploadRecords is backend-shaped: Vulkan republishes the whole table on any edit). Use it to "
+                "confirm a scene's materials, lights and environment reached the registry and that an edit reached "
+                "the GPU. olo_rt_scene_stats.gpuScene carries only the live counts. Everything outside 'recent' "
+                "comes from one finalized profiler frame; 'invariantViolations' lists any slot or upload identity "
+                "that does not add up, which is a producer bug rather than a scene property.";
             tool.InputSchema = Schema::EmptyObject();
             tool.OutputSchema =
                 Schema::Object()
@@ -10371,12 +10373,13 @@ namespace OloEngine::MCP
                                        .Prop("bufferGrowthEvents", Schema::Int().Min(0))
                                        .Prop("extractionMs", Schema::Number().Min(0)))
                     .Prop("recent", Schema::Object()
-                                        .Desc("Uploads summed over the profiler's recent frames (up to 1024). An edit uploads on one frame, which a single previous-frame sample has usually moved past; read uploadRecords here to confirm what an edit uploaded.")
+                                        .Desc("Uploads summed over the profiler's frame ring (up to 1024 frames, up to the newest recorded frame, which can be one newer than renderFrameNumber). An edit uploads on one frame, which a single previous-frame sample has usually moved past.")
                                         .Prop("frames", Schema::Int().Min(0))
                                         .Prop("framesWithUploads", Schema::Int().Min(0))
                                         .Prop("bufferGrowthEvents", Schema::Int().Min(0))
+                                        .Prop("uploadFrames", Schema::Object().Desc("Per kind, frames that uploaded it. One edit is one upload frame on both backends: the number to compare with the edits you made."))
                                         .Prop("uploadBytes", Schema::Object())
-                                        .Prop("uploadRecords", Schema::Object().Desc("uploadBytes / recordBytes per kind: records uploaded in the window.")))
+                                        .Prop("uploadRecords", Schema::Object().Desc("uploadBytes / recordBytes per kind. On OpenGL the dirty records; on Vulkan every edit republishes the whole table, so one edit counts every live record of that kind.")))
                     .Prop("memory", Schema::Object()
                                         .Prop("capacityBytes", Schema::Int().Min(0))
                                         .Prop("liveBytes", Schema::Int().Min(0)))

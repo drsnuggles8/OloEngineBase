@@ -464,7 +464,7 @@ namespace OloEngine
 
         const std::scoped_lock lock(data.CpuMutex);
 
-        const auto prepare =[&](ShaderDebugDrawPrimitive primitive, const auto& cpuEntries)
+        const auto prepare = [&](ShaderDebugDrawPrimitive primitive, const auto& cpuEntries)
         {
             auto& channel = data.Channels[ChannelIndex(primitive)];
             // `attempted` counts every push the frame ASKED for, including any

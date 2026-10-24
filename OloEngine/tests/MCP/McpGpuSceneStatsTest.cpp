@@ -56,30 +56,44 @@ namespace
         EXPECT_TRUE(report.at("invariantViolations").empty());
     }
 
-    TEST(McpGpuSceneStats, TheRecentWindowCountsTheRecordsAnEditUploaded)
+    TEST(McpGpuSceneStats, TheRecentWindowCountsEachEditAsOneUploadFrame)
     {
-        // Three frames: idle, one light edit, idle. A single-frame sample taken
-        // after the edit reads zero; the window still has it.
+        // Idle, two light edits, idle. A single-frame sample taken after the
+        // edits reads zero; the window still has them. The edits are shaped
+        // like Vulkan's: each republishes the whole 4-light table, so the
+        // records figure reads 8 while the frames figure reads the 2 edits.
         OloEngine::GPUSceneFrameStats idle{};
         OloEngine::GPUSceneFrameStats edit{};
-        edit.m_Lights.m_UploadBytes = 80u;
-        edit.m_UploadBytes = 80u;
+        edit.m_Lights.m_UploadBytes = 4u * 80u;
+        edit.m_UploadBytes = 4u * 80u;
         edit.m_BufferGrowthEvents = 1u;
-        const std::array frames{ idle, edit, idle };
 
         GpuSceneStats::Snapshot snapshot = ReadySnapshot();
-        snapshot.Recent = GpuSceneStats::SummarizeWindow(frames);
+        for (const auto& frame : std::array{ idle, edit, edit, idle })
+            snapshot.Recent.Add(frame);
         GpuSceneStats::RecordStrides strides;
         strides.Light = 80u;
         const auto report = GpuSceneStats::BuildReport(snapshot, strides);
 
         const auto& recent = report.at("recent");
-        EXPECT_EQ(recent.at("frames").get<u32>(), 3u);
-        EXPECT_EQ(recent.at("framesWithUploads").get<u32>(), 1u);
-        EXPECT_EQ(recent.at("bufferGrowthEvents").get<u32>(), 1u);
-        EXPECT_EQ(recent.at("uploadBytes").at("lights").get<u64>(), 80u);
-        EXPECT_EQ(recent.at("uploadRecords").at("lights").get<u64>(), 1u);
-        EXPECT_EQ(recent.at("uploadRecords").at("instances").get<u64>(), 0u);
+        EXPECT_EQ(recent.at("frames").get<u32>(), 4u);
+        EXPECT_EQ(recent.at("framesWithUploads").get<u32>(), 2u);
+        EXPECT_EQ(recent.at("bufferGrowthEvents").get<u32>(), 2u);
+        EXPECT_EQ(recent.at("uploadFrames").at("lights").get<u32>(), 2u);
+        EXPECT_EQ(recent.at("uploadFrames").at("instances").get<u32>(), 0u);
+        EXPECT_EQ(recent.at("uploadBytes").at("lights").get<u64>(), 640u);
+        EXPECT_EQ(recent.at("uploadRecords").at("lights").get<u64>(), 8u);
+    }
+
+    TEST(McpGpuSceneStats, SlotsWithNoGpuBufferAreAViolation)
+    {
+        // Records that can never reach the GPU must not read as healthy.
+        GpuSceneStats::Snapshot snapshot = ReadySnapshot();
+        snapshot.Stats.m_Lights.m_Live = 3u;
+        snapshot.Stats.m_Lights.m_SlotCount = 3u;
+        const auto report = GpuSceneStats::BuildReport(snapshot);
+        ASSERT_EQ(report.at("invariantViolations").size(), 1u);
+        EXPECT_NE(report.at("invariantViolations")[0].get<std::string>().find("lights"), std::string::npos);
     }
 
     TEST(McpGpuSceneStats, ATableWithNoBufferHasNullOccupancyNotZero)
