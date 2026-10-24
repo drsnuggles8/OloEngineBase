@@ -1252,6 +1252,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid material name '{}'", matName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1273,6 +1274,7 @@ namespace OloEngine
                         OLO_CORE_ERROR("Failed to create material file: {}", matPath.string());
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     fout << out.c_str();
@@ -1297,6 +1299,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid dialogue name '{}'", dialogueName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1354,6 +1357,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid shader graph name '{}'", shaderGraphName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1373,6 +1377,9 @@ namespace OloEngine
                     if (!outputNode)
                     {
                         OLO_CORE_ERROR("ContentBrowser: Failed to create PBROutput node");
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     outputNode->EditorPosition = glm::vec2(400.0f, 200.0f);
@@ -1411,6 +1418,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid sound graph name '{}'", soundGraphName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1432,6 +1440,7 @@ namespace OloEngine
                         OLO_CORE_ERROR("ContentBrowser: Failed to serialize new sound graph to '{}'", sgPath.string());
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
 
@@ -1454,6 +1463,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid skill tree name '{}'", skillTreeName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1514,6 +1524,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid class database name '{}'", classDbName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1566,6 +1577,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid experience curve name '{}'", xpCurveName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
