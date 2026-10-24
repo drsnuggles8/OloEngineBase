@@ -59,6 +59,21 @@ TEST(AtomicFileWriteTest, CreatesAndReplacesWithExactBytes)
     EXPECT_EQ(StrayEntries(dir, target), "");
 }
 
+// Every YAML serializer used to write `std::ofstream(path) << yaml`. TextMode
+// must produce the same bytes, so moving them onto the helper changes no file
+// (CRLF on Windows, LF elsewhere, exactly as before).
+TEST(AtomicFileWriteTest, TextModeWritesWhatAPlainTextStreamWrote)
+{
+    const fs::path dir = Tests::TempDir();
+    const std::string yaml = "Scene: Untitled\nEntities:\n  - Entity: 12345\n    Tag: \"a\\nb\"\n";
+    {
+        std::ofstream legacy(dir / "legacy.yaml");
+        legacy << yaml;
+    }
+    ASSERT_TRUE(FileSystem::WriteFileAtomically(dir / "helper.yaml", yaml, { .TextMode = true }));
+    EXPECT_EQ(ReadBytes(dir / "helper.yaml"), ReadBytes(dir / "legacy.yaml"));
+}
+
 TEST(AtomicFileWriteTest, CreatesMissingParentsOnlyWhenAsked)
 {
     const fs::path target = Tests::TempDir() / "a" / "b" / "file.txt";
