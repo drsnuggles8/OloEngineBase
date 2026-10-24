@@ -485,6 +485,72 @@ TEST(GroomGuideSimulation, AShortHairRidesABouncingBodyWhileALongOneSwings)
     EXPECT_GT(longSwing, 0.003f) << "the bounce moved nothing: the measure is blind";
 }
 
+TEST(GroomGuideSimulation, ALongHairGuideIsNotHeldHoweverShortItIs)
+{
+    // Found on #1559: the short-hair hold took the golden's ear fringe, tail
+    // plume and leg feathering -- long-hair groups shorter than the 10 cm
+    // reference -- to a fifth of their swing. A guide the coat marks as long
+    // hair (LongHairGuides) is authored to swing and is never held. The same
+    // 6 cm guide on the same bouncing body, unmarked and marked.
+    GroomSimulationParams params;
+    params.Stiffness = 1200.0f;
+    params.FixedHz = 120.0f;
+    params.Gravity = glm::vec3(0.0f, -4.0f, 0.0f);
+    constexpr f32 dt = 1.0f / 60.0f;
+    const std::array<u8, 1> longHair{ 1u };
+    const auto swing = [&](bool marked, u32& held)
+    {
+        TestGuides guides = TestGuides::Make(1, 7, 0.01f, glm::vec3(1.0f, 0.0f, 0.0f));
+        const auto inputs = [&](bool history)
+        {
+            GroomSimulationInputs in = guides.Inputs(params, dt, history);
+            if (marked)
+                in.LongHairGuides = longHair;
+            return in;
+        };
+        GroomGuideSimulationState state;
+        (void)StepGroomGuideSimulation(inputs(false), state);
+        for (u32 frame = 0; frame < 120; ++frame)
+            (void)StepGroomGuideSimulation(inputs(true), state);
+        std::vector<glm::vec3> rest(state.Curr.size());
+        for (sizet i = 0; i < rest.size(); ++i)
+            rest[i] = state.Curr[i] - guides.Targets[i];
+        f32 worst = 0.0f;
+        f32 height = 0.0f;
+        for (u32 frame = 1; frame <= 180; ++frame)
+        {
+            const f32 next = 0.03f * std::sin(2.0f * 3.14159265f * 2.5f * static_cast<f32>(frame) * dt);
+            guides.Translate(glm::vec3(0.0f, next - height, 0.0f));
+            height = next;
+            const GroomSimulationStats stats = StepGroomGuideSimulation(inputs(true), state);
+            held = stats.GuidesHeldByLength;
+            for (sizet i = 0; i < rest.size(); ++i)
+                worst = std::max(worst, glm::length((state.Curr[i] - guides.Targets[i]) - rest[i]));
+        }
+        return worst;
+    };
+    u32 heldUnmarked = 0;
+    u32 heldMarked = 0;
+    const f32 unmarked = swing(false, heldUnmarked);
+    const f32 marked = swing(true, heldMarked);
+    std::printf("[groom] a 6 cm guide on a bouncing body: %.2f mm held (%u), %.2f mm as long hair (%u)\n",
+                unmarked * 1000.0f, heldUnmarked, marked * 1000.0f, heldMarked);
+    EXPECT_EQ(heldUnmarked, 1u) << "the unmarked 6 cm guide was not held: this measures nothing";
+    EXPECT_EQ(heldMarked, 0u) << "a long-hair guide was held by its length";
+    EXPECT_GT(marked, 2.0f * unmarked) << "marked as long hair, the guide does not swing any more freely";
+}
+
+TEST(GroomGuideSimulation, ALongHairSpanThatDoesNotNameEveryGuideIsRefused)
+{
+    TestGuides guides = TestGuides::Make(2, 6);
+    GroomSimulationParams params;
+    const std::array<u8, 1> shortSpan{ 1u }; // two guides, one flag
+    GroomSimulationInputs inputs = guides.Inputs(params, 1.0f / 60.0f, false);
+    inputs.LongHairGuides = shortSpan;
+    GroomGuideSimulationState state;
+    EXPECT_TRUE(StepGroomGuideSimulation(inputs, state).Refused);
+}
+
 TEST(GroomGuideSimulation, TeleportReseedsRatherThanStretching)
 {
     TestGuides guides = TestGuides::Make(2, 10);

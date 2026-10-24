@@ -123,7 +123,9 @@ namespace OloEngine
             (inputs.StiffnessScales.size() + 1u == inputs.GuideOffsets.size() &&
              std::ranges::all_of(inputs.StiffnessScales, [](f32 scale)
                                  { return Math::IsFinite(scale); }));
-        if (!wellFormed || !scalesWellFormed || !ParamsAreFinite(inputs.Params) || !Math::IsFinite(inputs.DeltaTime) ||
+        const bool longHairWellFormed =
+            inputs.LongHairGuides.empty() || inputs.LongHairGuides.size() + 1u == inputs.GuideOffsets.size();
+        if (!wellFormed || !scalesWellFormed || !longHairWellFormed || !ParamsAreFinite(inputs.Params) || !Math::IsFinite(inputs.DeltaTime) ||
             inputs.DeltaTime < 0.0f)
         {
             state.Clear();
@@ -209,7 +211,8 @@ namespace OloEngine
             {
                 length += glm::length(inputs.TargetPoints[i] - inputs.TargetPoints[i - 1u]);
             }
-            if (!(length > 0.0f) || length >= GroomSimulationLimits::ShortHairReferenceLength)
+            if (!(length > 0.0f) || length >= GroomSimulationLimits::ShortHairReferenceLength ||
+                (!inputs.LongHairGuides.empty() && inputs.LongHairGuides[g] != 0u))
             {
                 continue;
             }

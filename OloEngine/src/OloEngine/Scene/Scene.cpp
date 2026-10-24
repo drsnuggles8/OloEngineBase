@@ -11208,6 +11208,8 @@ namespace OloEngine
         // the way the role the budget above reads is.
         TArray<f32> stiffnessScales;
         stiffnessScales.Reserve(state.m_SlotOfGuide.Num());
+        TArray<u8> longHairGuides;
+        longHairGuides.Reserve(state.m_SlotOfGuide.Num());
 
         // COUNTED, not folded into a single flag. A guide whose root has no
         // deformed frame is already handled per guide by
@@ -11240,6 +11242,7 @@ namespace OloEngine
             offsets.Add(static_cast<u32>(state.m_Targets.Num()));
             guideCurves.Add(curve);
             f32 stiffnessScale = coat.GroupDesc(groupIds[curve]).StiffnessScale;
+            longHairGuides.Add(coat.GroupDesc(groupIds[curve]).Role == static_cast<u8>(GroomCoatRole::LongHair) ? 1u : 0u);
             if (wetFrame)
             {
                 const glm::vec3 rootObject = ApplyGroomRootTransform(binding.GetRoot(curve), transform, root, false);
@@ -11398,6 +11401,7 @@ namespace OloEngine
         inputs.TargetPoints = std::span{ state.m_Targets.GetData(), static_cast<sizet>(state.m_Targets.Num()) };
         inputs.Colliders = std::span{ state.m_Colliders.GetData(), static_cast<sizet>(state.m_Colliders.Num()) };
         inputs.StiffnessScales = std::span{ stiffnessScales.GetData(), static_cast<sizet>(stiffnessScales.Num()) };
+        inputs.LongHairGuides = std::span{ longHairGuides.GetData(), static_cast<sizet>(longHairGuides.Num()) };
         inputs.Params = params;
         inputs.DeltaTime = m_GroomSimulationDeltaSeconds;
         inputs.HasHistory = hasHistory;

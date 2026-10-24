@@ -590,6 +590,15 @@ namespace OloEngine
         /// guides nobody authored. Each guide's product is then held to the
         /// step's stability ceiling on its own (GuidesStiffnessCapped).
         std::span<const f32> StiffnessScales{};
+
+        /// Per guide, parallel to `GuideCurves`: 1 for a guide of LONG HAIR
+        /// (GroomCoatRole::LongHair: a plume, feathering, an ear's fringe),
+        /// which the short-hair hold never reaches however short it is: such
+        /// hair is authored to swing. The hold at its 10 cm reference took the
+        /// golden's ear fringe, tail plume and leg feathering down to a fifth
+        /// of their swing (#1559). EMPTY exempts nothing; otherwise it must
+        /// name every guide, or the solve is refused like a short scale span.
+        std::span<const u8> LongHairGuides{};
     };
 
     /**

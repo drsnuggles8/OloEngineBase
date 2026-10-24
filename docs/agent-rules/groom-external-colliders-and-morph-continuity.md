@@ -68,7 +68,8 @@ settling damper and a rub against the body should not.
 
 **Rule:** a guide shorter than `GroomSimulationLimits::ShortHairReferenceLength` (10 cm) is pulled
 back toward its groom every step by `1 - (length / 10 cm)^2` of its offset, after the prediction and
-before the colliders. Longer guides (ears, plumes, long hair) keep their authored stiffness.
+before the colliders. Longer guides keep their authored stiffness, and so does every guide of a
+`GroomCoatRole::LongHair` group however short (`GroomSimulationInputs::LongHairGuides`).
 
 **Why:** a hair is a cantilever: its natural frequency goes as 1/L², so short fur barely moves while
 ears and plumes swing. With one stiffness for the coat, a gallop's 7 m/s² swung 1-2 cm body fur off
@@ -79,7 +80,10 @@ any weight: 0.16 mm (`AShortHairRidesABouncingBodyWhileALongOneSwings`, with a 1
 still swings 16 mm). A hand still parts short fur, because the colliders act after the hold. The
 reference was 5 cm first: that left a dog's 5-8 cm neck guard hair free, and once friction no
 longer pinned it in world space (rule 3) a gallop flipped it, 64 % of the neck bare from behind.
-At 10 cm it reads 15 %.
+At 10 cm it reads 15 %. But 10 cm also reached the long-hair groups shorter than it -- the golden's
+ear fringe (10 cm), leg feathering (7.5 cm), tail plume -- and their walk swing fell to a fifth
+(the Bernese's long coat 10.7 mm to 2.0 mm), under `kLongHairSwingFloor`. A role authored to swing
+is exempt (`ALongHairGuideIsNotHeldHoweverShortItIs`); the neck's guard hair stays held.
 
 ## 5. The body proxy lifts the coat; it does not sweep it
 
