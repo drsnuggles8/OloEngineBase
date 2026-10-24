@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <fstream>
+#include <sstream>
 #include <filesystem>
 #include <utility>
 
@@ -233,17 +234,12 @@ namespace OloEngine
     {
         try
         {
-            TSharedLock<FSharedMutex> lock(m_Mutex);
-
-            // Written atomically: a failed write must not leave a truncated
-            // registry, which would lose the handle of every asset in the project.
-            // Durable for the same reason: the rename must not reach the disk first.
-            // A stream failure throws out of the writer, and the helper removes
-            // its temporary on the way out to the catch below.
-            const auto writeRegistry = [this](std::ostream& file)
+            // The bytes are built under the shared lock and written after it is
+            // released: the write below syncs to disk, and SetMetadata (exclusive)
+            // must not wait out a disk round-trip.
+            std::ostringstream file(std::ios::out | std::ios::binary);
             {
-                // Enable exceptions for better error detection on I/O failures
-                file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+                TSharedLock<FSharedMutex> lock(m_Mutex);
 
                 // Write header
                 const u32 version = FileVersion;
@@ -277,9 +273,12 @@ namespace OloEngine
                     file.write(reinterpret_cast<const char*>(&pathLength), sizeof(pathLength));
                     file.write(pathStr.c_str(), pathLength);
                 }
-                return true;
-            };
-            return FileSystem::WriteFileAtomically(filepath, writeRegistry, { .Durable = true });
+            }
+
+            // Written atomically: a failed write must not leave a truncated
+            // registry, which would lose the handle of every asset in the project.
+            // Durable for the same reason: the rename must not reach the disk first.
+            return FileSystem::WriteFileAtomically(filepath, file.view(), { .Durable = true });
         }
         catch (const std::exception& e)
         {

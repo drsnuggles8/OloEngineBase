@@ -742,7 +742,10 @@ namespace OloEngine
                 else
                 {
                     editorManager->SetMetadata(handle, metadata);
-                    editorManager->SerializeAssetRegistry();
+                    if (!editorManager->SerializeAssetRegistry())
+                        OLO_CORE_ERROR("Saved prefab '{}', but the asset registry could not be written: its handle "
+                                       "exists only in this session until the next registry write",
+                                       prefabPath.string());
                 }
 
                 // Mark the source entity as a prefab instance
