@@ -9,7 +9,10 @@ half of the same surface — read that first.
    reads, and `SkeletalDeformation.glsl` then applies the skin matrix to whatever that buffer holds.
    The combination order is therefore morph-then-skin for colour, depth, all three shadow passes and
    velocity *by construction*. Do not add a second place that applies a delta, and never apply one
-   after skinning.
+   after skinning. A held expression is not deformed again: when the weights equal
+   `AppliedWeights` over the same cached base, the pass leaves the surface alone. A breed whose
+   sculpt keys every clip holds at 1.0 paid 7.7 ms per fixed step re-deforming and re-sending it
+   (`AHeldExpressionIsNotDeformedAgainEveryStep`).
 2. **Every frame entry point that advances bone history advances morph history at the same call
    site.** `SkeletalDeformationSystem::AdvanceHistory` and `MorphDeformationSystem::AdvanceHistory`
    are paired in all four of Scene's entry points, and

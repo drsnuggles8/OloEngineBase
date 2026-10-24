@@ -55,6 +55,7 @@
 #include "OloEngine/Localization/LocalizationManager.h"
 #include "OloEngine/Localization/TextFormatter.h"
 #include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Physics3D/Physics3DScriptApi.h"
 #include "OloEngine/Video/VideoSystem.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
@@ -109,6 +110,25 @@ namespace OloEngine
     [[nodiscard]] inline bool IsFiniteVec2(const glm::vec2& v)
     {
         return std::isfinite(v.x) && std::isfinite(v.y);
+    }
+
+    // The entity that owns `component` in the script scene, or 0. A usertype
+    // method receives the component, not its entity, and the Jolt-facing calls
+    // (issue #1559) are keyed by entity; a scene holds few enough bodies that the
+    // scan costs less than threading the proxy's entity through every call.
+    template<typename T>
+    [[nodiscard]] UUID FindComponentOwner(const T& component)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        if (!scene)
+            return UUID(0);
+        for (auto e : scene->GetAllEntitiesWith<T>())
+        {
+            Entity entity{ e, scene };
+            if (&entity.GetComponent<T>() == &component)
+                return entity.GetUUID();
+        }
+        return UUID(0);
     }
 
     [[nodiscard]] inline bool IsFiniteVec3(const glm::vec3& v)

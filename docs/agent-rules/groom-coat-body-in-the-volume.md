@@ -90,6 +90,18 @@ across.
   the placeholder is `(128, 255, 128, 0)`, no body and the sky open.
 - **A rest bake made before the bound surface arrived is made again once it has**
   (`CoatBakedWithSurface`), or a coat that bakes on its first frame would never get its body.
+- **A body already marked into the same grid is reused, not marked again.** Marking takes
+  150-200 ms on the main thread for the breeds. A playing dog's coat changes tier as it runs off and
+  comes back, and each tier rebuilt marked its body again: the stutter behind the "coat volume holds
+  its body" log line (#1559). `GroomRenderPass` keeps the last four markings, keyed on everything
+  the marking reads: the grid, which voxels hold coat, the surface's positions and indices, and its
+  transform into the coat. A hit counts in `CoatShadow.BodyBakesReused`. A tier's first bake still
+  marks: each tier has its own grid, from its own segments' bounds.
+  `DogPlayEvidenceTest.ACoatComingBackCloseDoesNotMarkItsBodyAgain` pins it.
+- **A rest bake marks the body at rest: unmorphed.** The morph pass rewrites the bound surface's
+  positions in place, so the request carries `CoatRestBody`, the same triangles over the morph's
+  `BasePositions`. Marked from the morphed surface, a blinking or panting Bernese was a different body
+  at every bake and never hit the reuse above. The test moves a face morph while the camera is away.
 - **The lever is shader-side.** `OLO_GROOM_NO_COAT_BODY` clears bit 2 per frame; the volume keeps the
   body, so the A/B costs no rebake and changes nothing else.
 

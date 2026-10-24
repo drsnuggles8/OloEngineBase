@@ -183,6 +183,19 @@ namespace OloEngine
         /// The bound surface's identity and generation, so the pass re-sends
         /// the surface it keeps on the GPU when the body changes under a coat.
         u64 GpuRootSurfaceKey = 0;
+        /// A morphing body's vertex positions, hashed (0 for a body with no
+        /// morph): a morph rewrites the rest positions in place with no
+        /// generation bump, so the pass re-sends the surface's vertices -- and
+        /// only those -- when this changes.
+        u64 GpuRootMorphKey = 0;
+        /// The body AT REST, for the coat's rest bake (#1559): the bound
+        /// surface's own view, or on a morphing body the same triangles over
+        /// the morph's base positions. A rest bake is looked up at each strand's
+        /// rest position, so the body it marks is the unmorphed one. Marked from
+        /// the morphed surface, every blink or pant was a different body, and
+        /// the pass's body bakes, keyed on its positions, never hit: 150 ms each
+        /// time a Bernese's coat volume was made again.
+        GroomSurfaceView CoatRestBody{};
 
         /// Why this groom is NOT bound, when it asked to be. None on a groom
         /// that never asked and on one that attached — the two are distinguished
@@ -533,6 +546,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::GpuRootFrames)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::GpuRootInputs)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::GpuRootSurfaceKey)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::GpuRootMorphKey)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CoatRestBody)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::BindingReject)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CoatShadow)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::CoatKappa)> &&

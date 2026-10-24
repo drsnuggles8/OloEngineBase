@@ -59,6 +59,7 @@ contract docs before claiming support; read the issues before claiming a gap is 
 - [guides/groom-animals.md](guides/groom-animals.md) — every groom child on three moving subjects (two horses, a human head): turn TAA on before judging it, why both animals are horses, and how the coats, bindings and scene are regenerated rather than authored.
 - [guides/dog-showcase.md](guides/dog-showcase.md) — the groom system's close-up subject: one furred dog on a lawn, what each entity is, how the body, coat and scene are regenerated, what the headless twin asserts, and where the cost record lives.
 - [guides/dog-breeds.md](guides/dog-breeds.md) — approved full-fur Samoyed and Bernese models, editable source assets, reproducible rebuilds and visual review galleries.
+- [guides/dog-play.md](guides/dog-play.md) — playing with the three dogs: petting with the mouse, fetch with a ball and a stick, the play scenes, and the engine pieces under them.
 - [guides/skin-digital-human.md](guides/skin-digital-human.md) — running skin, eyes and mouth on ONE subject: a complete face spends the whole seven-slot skin-profile budget and an eighth profile silently renders as not-skin, the material debug views are deferred-only, how to switch the three lighting rigs without changing two things at once, and why the decomposition is checked by cross-talk rather than by a sum.
 - [guides/input-action-maps.md](guides/input-action-maps.md) — input action maps & contexts.
 - [guides/localization.md](guides/localization.md) — localization & `LocalizedTextComponent`.

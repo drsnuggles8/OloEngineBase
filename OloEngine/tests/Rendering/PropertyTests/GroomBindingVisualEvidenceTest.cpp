@@ -1271,11 +1271,10 @@ namespace OloEngine::Tests
         SetBodyPose(0.0f);
         // THE BODY SAYS IT IS MORPHED, as every morphing body does: a
         // MorphTargetComponent (no targets, so nothing but this test writes the
-        // vertices), on for both captures. It is what keeps the coat's roots on
-        // the CPU (#1533 E1): the GPU root kernel holds the REST surface it was
-        // sent, and a vertex array rewritten in place with no generation bump
-        // never reaches it. So this case pins that routing too -- without it the
-        // coat stands still.
+        // vertices), on for both captures. The vertices are rewritten by hand
+        // and the surface rebuilt, which bumps its generation: the GPU root
+        // kernel is sent the new surface. A morph WEIGHT, which rewrites the
+        // vertices with no rebuild, is AMorphWeightMovesACoatWhoseRootsTheGpuEvaluates.
         m_BodyEntity.AddOrReplaceComponent<MorphTargetComponent>();
 
         const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
@@ -1328,6 +1327,64 @@ namespace OloEngine::Tests
         }
         m_BodySurface->Build();
         m_BodyEntity.RemoveComponent<MorphTargetComponent>();
+    }
+
+    TEST_F(GroomBindingVisualEvidenceTest, AMorphWeightMovesACoatWhoseRootsTheGpuEvaluates)
+    {
+        // A morphing body used to keep its coat's roots on the CPU: the GPU root
+        // kernel held the rest surface it was sent, and the morph pass rewrites
+        // the vertices in place with no generation bump. A Samoyed whose sculpt
+        // keys every clip holds at 1.0 then skinned, packed and sent all two
+        // million roots every frame. Now the pass re-sends the surface's
+        // vertices when the applied weights change. Driven here the way a clip
+        // drives it -- a real morph target and a WEIGHT, not a hand-written
+        // vertex array -- with the roots on the GPU, and the coat must follow.
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBindingEnabled(true);
+        SetBodyPose(0.0f);
+
+        auto bulge = Ref<MorphTargetSet>::Create();
+        const auto& rest = m_BodySurface->GetVertices();
+        MorphTarget target("Bulge", static_cast<u32>(rest.Num()));
+        for (i32 i = 0; i < rest.Num(); ++i)
+        {
+            const glm::vec3& p = rest[i].Position;
+            const f32 falloff = std::exp(-6.0f * ((p.x * p.x) + ((p.y - 1.0f) * (p.y - 1.0f))));
+            target.Vertices[static_cast<sizet>(i)].DeltaPosition = glm::vec3(0.0f, 0.35f * falloff, 0.0f);
+        }
+        ASSERT_TRUE(bulge->AddTarget(std::move(target)));
+        m_BodySurface->SetMorphTargets(bulge);
+        m_BodyEntity.AddOrReplaceComponent<MorphTargetComponent>();
+
+        const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
+        std::vector<u8> neutral;
+        Capture("GroomBinding_GL_Forward_MorphWeightNeutral", eye, 0.0f, 0.10f, neutral);
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+        ASSERT_EQ(PassStats().GroomsRootsOnGpu, 1u) << "the coat's roots are not on the GPU: this measures the CPU path";
+
+        m_BodyEntity.GetComponent<MorphTargetComponent>().SetWeight("Bulge", 1.0f);
+        std::vector<u8> expressed;
+        Capture("GroomBinding_GL_Forward_MorphWeight", eye, 0.0f, 0.10f, expressed);
+        if (::testing::Test::HasFatalFailure())
+        {
+            return;
+        }
+        const GroomRenderStats stats = PassStats();
+        const u32 differing = CountDifferingPixels(expressed, neutral);
+        std::printf("[groom-binding] morph weight   %u px moved, roots on the GPU %u\n", differing,
+                    stats.GroomsRootsOnGpu);
+        EXPECT_EQ(stats.GroomsRootsOnGpu, 1u) << "the morph moved the coat's roots back to the CPU";
+        EXPECT_GT(differing, 1000u) << "the coat did not follow the morph weight";
+
+        m_BodyEntity.GetComponent<MorphTargetComponent>().SetWeight("Bulge", 0.0f);
+        std::vector<u8> back;
+        Capture("", eye, 0.0f, 0.10f, back);
+        m_BodyEntity.RemoveComponent<MorphTargetComponent>();
+        m_BodySurface->SetMorphTargets(nullptr);
     }
 
     // ── Criterion 1: a refused binding is a refusal, not a quiet bind pose ──

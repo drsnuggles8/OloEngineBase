@@ -3826,7 +3826,59 @@ namespace OloEngine
         ar << c.m_MaxSpeed << c.m_Acceleration << c.m_StoppingDistance;
         ar << c.m_AvoidancePriority;
         ar << c.m_LockYAxis;
+        ar << c.m_UseRootMotion << c.m_TurnSpeed;
         // Runtime path state intentionally excluded — recomputed by the nav system.
+
+        if (!ar.IsSaving())
+        {
+            // The scene YAML clamps these through OLO_SERIALIZE; the binary path
+            // mirrors it by hand.
+            if (!std::isfinite(c.m_TurnSpeed))
+            {
+                c.m_TurnSpeed = 6.0f;
+            }
+            c.m_TurnSpeed = std::clamp(c.m_TurnSpeed, 0.0f, 100.0f);
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, GroomColliderComponent& c)
+    {
+        // New in #1559: keyed by its type name, so a save written before it
+        // existed never reaches this function (see BoneAttachmentComponent).
+        ar << c.m_Radius << c.m_HalfHeight << c.m_Enabled;
+        if (!ar.IsSaving())
+        {
+            if (!std::isfinite(c.m_Radius))
+            {
+                c.m_Radius = 0.05f;
+            }
+            if (!std::isfinite(c.m_HalfHeight))
+            {
+                c.m_HalfHeight = 0.0f;
+            }
+            c.m_Radius = std::clamp(c.m_Radius, 0.001f, 10.0f);
+            c.m_HalfHeight = std::clamp(c.m_HalfHeight, 0.0f, 10.0f);
+        }
+    }
+
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, PickVolumesComponent& c)
+    {
+        // New in #1559 (see GroomColliderComponent). The fitted capsules are
+        // runtime state, re-fitted from the body; only the authoring is saved.
+        ar << c.m_Regions << c.m_Padding << c.m_RadiusScale << c.m_Enabled;
+        if (!ar.IsSaving())
+        {
+            if (!std::isfinite(c.m_Padding))
+            {
+                c.m_Padding = 0.0f;
+            }
+            if (!std::isfinite(c.m_RadiusScale))
+            {
+                c.m_RadiusScale = 1.0f;
+            }
+            c.m_Padding = std::clamp(c.m_Padding, 0.0f, 10.0f);
+            c.m_RadiusScale = std::clamp(c.m_RadiusScale, 0.0f, 100.0f);
+        }
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, BoidComponent& c)
@@ -5411,6 +5463,8 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(VisualScriptComponent);
         REGISTER_SAVE_COMPONENT(NavMeshBoundsComponent);
         REGISTER_SAVE_COMPONENT(NavAgentComponent);
+        REGISTER_SAVE_COMPONENT(GroomColliderComponent);
+        REGISTER_SAVE_COMPONENT(PickVolumesComponent);
         REGISTER_SAVE_COMPONENT(BoidComponent);
         REGISTER_SAVE_COMPONENT(BoidObstacleComponent);
         REGISTER_SAVE_COMPONENT(NameplateComponent);

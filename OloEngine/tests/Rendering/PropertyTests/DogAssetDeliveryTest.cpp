@@ -164,7 +164,10 @@ namespace OloEngine::Tests
             ASSERT_TRUE(morph.MorphTargets);
             EXPECT_EQ(morph.MorphTargets->GetTargetCount(), breed == "Samoyed" ? 19u : 8u);
             const auto& animation = body.GetComponent<AnimationStateComponent>();
-            EXPECT_EQ(animation.m_AvailableClips.size(), 6u);
+            // Idle, HeadTilt, Sit, Walk, Pant, Rest, then the play clips (#1559): Run, PickUp, Carry,
+            // Drop, PlayBow, Petted, and the life clips: Trot, Sniff, Shake, Lie, LieDown, GetUp, BellyUp,
+            // RollOver, Excited, Scratch, Stretch, Nudge, TurnInPlace (tools/dog-authoring/dog_clips.py).
+            EXPECT_EQ(animation.m_AvailableClips.size(), 25u);
             EXPECT_TRUE(fs::exists(animation.m_SourceFilePath));
             EXPECT_EQ(fs::weakly_canonical(animation.m_SourceFilePath),
                       fs::weakly_canonical(package / modelPath / (breed + ".gltf")));

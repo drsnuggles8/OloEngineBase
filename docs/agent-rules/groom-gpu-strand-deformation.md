@@ -68,7 +68,7 @@ deformation itself (root frames, previous poses, invalidation) is
 ## The roots on the GPU (#1533)
 
 `compute/GroomRootFrames.comp` evaluates a bound coat's drawn roots when nothing on the CPU needs
-them: a skinned body with no morph, no coat shadow baked from the pose, no binding preview.
+them: a skinned body (morphing or not), no coat shadow baked from the pose, no binding preview.
 `RendererSettings::GroomGpuRootFrames` is the lever, and `GroomRootFramesParityTest` holds the
 kernel to `EvaluateGroomRootTransforms` (1e-5 m, rotation dot 1 - 1e-6). The producer then
 evaluates only the simulation's guides.
@@ -90,11 +90,17 @@ evaluates only the simulation's guides.
     box is conservative. The old box came from the valid entries, so an unsimulated coat had none
     and cast no shadow.
 
-12. **A surface rewritten in place must say so.** The kernel reads the rest surface sent at
-    relayout, keyed by identity, generation and vertex count. `MeshSource::Build()` on a built mesh
-    returns early without bumping the generation. A morphing body carries a `MorphTargetComponent`,
-    which keeps its coat on CPU roots. `AMorphedSurfaceCarriesTheCoatWithTheSkeletonStill` pins
-    that routing: without the component the coat stands still.
+12. **A surface rewritten in place is re-sent by its positions.** The kernel reads the rest surface
+    sent at relayout, keyed by identity, generation and vertex count. The morph pass rewrites the
+    vertices in place, and `MeshSource::Build()` on a built mesh returns early, so neither bumps the
+    generation. For a body with a `MorphTargetComponent` the producer hashes the surface's positions
+    (`GpuRootMorphKey`), and the pass rewrites and sends only the vertex region when the hash
+    changes. The roots' triangles, bone bounds and caster surface stay the layout's: a morph moves a
+    face by millimetres. Keeping a morphing body on CPU roots instead cost the Samoyed, whose
+    sculpt keys every clip holds at 1.0, 100 ms of a 150 ms frame for two million roots.
+    `AMorphedSurfaceCarriesTheCoatWithTheSkeletonStill` (vertices written by hand) and
+    `AMorphWeightMovesACoatWhoseRootsTheGpuEvaluates` (a morph weight) pin it; with the vertex
+    region not sent, both coats stand still.
 
 13. **Count the roots where they are evaluated.** For a GPU-rooted coat the pass counts the roots
     the kernel reaches as deformed, and the rest as held. The producer's counts describe the

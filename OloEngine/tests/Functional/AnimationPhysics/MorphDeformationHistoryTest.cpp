@@ -160,6 +160,29 @@ TEST_F(MorphDeformationHistoryTest, HalfWeightScalesTheRestSpaceDelta)
     EXPECT_NEAR(SurfaceVertices()[0].Position.y, kSmileDelta.y * 0.5f, 1e-4f);
 }
 
+TEST_F(MorphDeformationHistoryTest, AHeldExpressionIsNotDeformedAgainEveryStep)
+{
+    // A held expression is already in the vertex array: deforming it again each
+    // step rewrote identical vertices and re-sent the whole buffer (7.7 ms a
+    // step on a breed whose sculpt keys every clip holds at 1.0). A sentinel
+    // written into the surface after the expression is applied survives while
+    // the weights hold, and a changed weight deforms again from the cached base.
+    Morph().SetWeight("Smile", 1.0f);
+    RunFrames(4);
+    ASSERT_NEAR(SurfaceVertices()[0].Position.y, kSmileDelta.y, 1e-4f) << "precondition: the expression applied";
+
+    auto& vertices = m_Entity.GetComponent<MeshComponent>().m_MeshSource->GetVertices();
+    vertices[0].Position.y = 99.0f;
+    RunFrames(4);
+    EXPECT_NEAR(SurfaceVertices()[0].Position.y, 99.0f, 1e-4f)
+        << "the held expression was deformed again although its weights had not moved";
+
+    Morph().SetWeight("Smile", 0.5f);
+    RunFrames(2);
+    EXPECT_NEAR(SurfaceVertices()[0].Position.y, kSmileDelta.y * 0.5f, 1e-4f)
+        << "a changed weight did not deform the surface again from its cached base";
+}
+
 // ---------------------------------------------------------------------------
 // Criterion 2: previous morph state and discontinuities.
 // ---------------------------------------------------------------------------

@@ -140,6 +140,32 @@ namespace OloEngine
             return sol::make_object(s, static_cast<u64>(entity.GetUUID()));
         };
 
+        // --- Carry and release (issue #1559; C# Entity.AttachTo / Entity.Detach) ---
+        // attach_to(id, parentID, boneName, localTranslation, localRotationEuler):
+        // boneName "" rides the parent itself. Returns true when it took.
+        entityUtilsTable["attach_to"] = [](u64 entityID, u64 parentID, const std::string& boneName,
+                                           const glm::vec3& localTranslation, sol::optional<glm::vec3> localRotation) -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return false;
+            const glm::quat rotation(localRotation.value_or(glm::vec3(0.0f)));
+            return Physics3DScriptApi::AttachTo(*scene, UUID(entityID), UUID(parentID), boneName, localTranslation, rotation) ==
+                   Physics3DScriptApi::Result::Ok;
+        };
+        // attach_in_place(id, parentID, boneName): attach_to, staying where it is in the world.
+        entityUtilsTable["attach_in_place"] = [](u64 entityID, u64 parentID, const std::string& boneName) -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene && Physics3DScriptApi::AttachInPlace(*scene, UUID(entityID), UUID(parentID), boneName) ==
+                                Physics3DScriptApi::Result::Ok;
+        };
+        entityUtilsTable["detach"] = [](u64 entityID) -> bool
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            return scene && Physics3DScriptApi::Detach(*scene, UUID(entityID)) == Physics3DScriptApi::Result::Ok;
+        };
+
         // --- Entity convenience helpers (mirror C# Entity base-class properties) ---
         entityUtilsTable["get_translation"] = [](u64 entityID) -> glm::vec3
         {
@@ -152,6 +178,18 @@ namespace OloEngine
                 if (entity.HasComponent<TransformComponent>())
                     return entity.GetComponent<TransformComponent>().Translation;
             }
+            return glm::vec3(0.0f);
+        };
+
+        // Where the entity IS: its composed world position. get_translation is
+        // relative to the parent, so a toy in a hand reads as the hand's origin (#1559).
+        entityUtilsTable["get_world_translation"] = [](u64 entityID) -> glm::vec3
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return glm::vec3(0.0f);
+            if (auto entityOpt = scene->TryGetEntityWithUUID(UUID(entityID)))
+                return glm::vec3(scene->GetWorldTransform(static_cast<entt::entity>(*entityOpt))[3]);
             return glm::vec3(0.0f);
         };
 

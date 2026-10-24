@@ -158,6 +158,21 @@ namespace OloEngine
                 }
                 request.StreamingPending = m_StreamingLoads.IsPending(desiredKey);
                 const auto budgetStats = budget.GetStats();
+                // A preparation larger than the whole staging budget is refused
+                // every frame for good: the coat stays on its floor however
+                // close it comes. Say so once, with the numbers to size it by.
+                if (const auto cpu = entry.Descriptor.CpuBytes.GetBytes();
+                    queued == ERepresentationRequestResult::StagingBudget && !entry.WarnedNeverFits && cpu &&
+                    budgetStats.MaxStagingCpuBytes != 0 && *cpu > budgetStats.MaxStagingCpuBytes)
+                {
+                    entry.WarnedNeverFits = true;
+                    OLO_CORE_WARN("GroomRenderPass: a groom's {} tier ({} strands) needs {} MiB to prepare, more than "
+                                  "the whole {} MiB representation staging budget: it is never streamed in and the "
+                                  "coat stays on its fallback. Raise StreamingSettings.RepresentationStagingMegabytes.",
+                                  request.Lod.Representation == GroomRepresentation::Card ? "card" : "strand",
+                                  request.Build.MaxStrands, (*cpu + (1u << 20u) - 1u) >> 20u,
+                                  budgetStats.MaxStagingCpuBytes >> 20u);
+                }
                 const u64 capacity = budgetStats.MaxResidentGpuBytes;
                 const u64 added = entry.Admitted && budget.IsResident(desiredKey) ? 0u : entry.Descriptor.GpuBytes;
                 // Subtract only after each term fits: a huge deferred-retirement
@@ -200,6 +215,20 @@ namespace OloEngine
                 {
                     detail = false;
                     request.StreamingFallback = EGroomStreamingFallback::UploadBudget;
+                    // The buffers are built whole in one frame: a tier larger
+                    // than a frame's whole upload allowance is never built.
+                    const u64 cap = budget.GetStats().MaxUploadBytesPerFrame;
+                    if (!entry.WarnedNeverFits && cap != 0 && transfer.UploadBytes > cap)
+                    {
+                        entry.WarnedNeverFits = true;
+                        OLO_CORE_WARN("GroomRenderPass: a groom's {} tier ({} strands) uploads {} MiB at once, more "
+                                      "than the whole {} MiB a frame may upload: it is never streamed in and the "
+                                      "coat stays on its fallback. Raise "
+                                      "StreamingSettings.RepresentationUploadMegabytesPerFrame.",
+                                      request.Lod.Representation == GroomRepresentation::Card ? "card" : "strand",
+                                      request.Build.MaxStrands, (transfer.UploadBytes + (1u << 20u) - 1u) >> 20u,
+                                      cap >> 20u);
+                    }
                 }
             }
         }
@@ -232,6 +261,7 @@ namespace OloEngine
                 entry.Admitted = budget.TryAdmit(floorKey, entry.Descriptor, true);
             }
             ++m_StreamingStats.FallbackDraws;
+            m_StreamingStats.LastFallback = reason;
         }
     }
 

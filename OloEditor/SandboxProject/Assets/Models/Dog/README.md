@@ -16,14 +16,14 @@ writes it as Alembic hair curves, which the engine cooks into `Grooms/Dog/Dog.ol
 | `build_dog.py` | the Blender 5.x script that writes everything below, from nothing, and runs the next one |
 | `build_dog_groom.py` | the coat: grown on `Dog.gltf`, written to `Dog.abc` |
 | `Dog.abc` | the coat's source (Git LFS): one hair object per coat group, which the engine cooks into `Grooms/Dog/Dog.ologroom` |
-| `Dog.gltf` + `Dog.bin` | one skinned mesh (~256k triangles) on a 50-bone rig, eight materials, six clips |
+| `Dog.gltf` + `Dog.bin` | one skinned mesh (~256k triangles) on a 50-bone rig, eight materials, 25 clips (its own six, then the shared play and life clips) |
 | `DogCoatColor.png` | 2048² coat colours: DogSkin's albedo and the groom's colour map |
 | `DogNoseNormal.png`, `DogNoseOcclusion.png` | 2048² each, the nose leather's own UV square: its cobblestones, and the occlusion that keeps its nostrils dark |
 | `DogTongueColor.png`, `DogTongueNormal.png`, `DogTongueOcclusion.png` | 1024² each, the tongue's own UV square: its colour (redder root and edges, paler tip, the median groove, the papillae's pale tips, a veined underside), its filiform papillae, and its occlusion |
 | `DogGumColor.png`, `DogGumOcclusion.png` | 1024² each: pink gums with black pigment patches, and the oral cavity's occlusion |
 | `DogLipOcclusion.png`, `DogTeethOcclusion.png` | 1024² each: the lips' and teeth's occlusion, all of the mouth's baked in the Pant pose |
 | `DogIrisColor.png` | 2048², the eyeball's albedo on a planar UV across the gaze: the painted iris (fetched at the refracted iris point), its crisp pupil, and the sclera round it |
-| `Dog.rig.json` | eye radius, eye centres and gaze, lid and socket radii, the clip list, the dressing (`assembly`: pelt, lid and fibre colours and the pigment mode), the coat source and the walk speed |
+| `Dog.rig.json` | eye radius, eye centres and gaze, lid and socket radii, the clip list (with loop flags and events), the dressing (`assembly`: pelt, lid and fibre colours and the pigment mode), the coat source, the walk, run, carry, trot and sniff speeds, the mouth sockets and the pick-up point |
 | `DogEyeball.gltf` + `.bin` | the unit sphere each eye entity draws (128 x 64: the engine's primitive sphere reloads at 16 segments) |
 
 Units are metres, Y-up, and the head faces +Z, the convention `Horse.gltf` and `Fox.gltf` use. The
@@ -54,10 +54,20 @@ centre that rotate about each eye's own lid axis, so a blink can never cut into 
 |---|---|---|
 | `Idle` | 4 s, loops | breathing, two blinks, an ear twitch, a gentle wag, a small head drift |
 | `HeadTilt` | 2.5 s, once | the head rolls about 16°, brows raise, the ears flop with it, back |
-| `Sit` | 3 s, holds | the pelvis pitches up and drops onto the rump, the hind legs fold flat |
+| `Sit` | 3 s, holds | the pelvis pitches up and drops onto the rump, which rests on the grass; the hind paws stay planted as the hocks fold flat, the forepaws take one step back, the tail drapes on the ground. Re-authored for every breed by `dog_clips.py` (`clip_sit`): the first Sit sank paws 30 mm and the Bernese's tail 110 mm into the ground while its rump hovered 5-10 cm above it |
 | `Walk` | 1 s, loops | a four-beat walk, pads planted through the stance; the root travels 0.312 m a loop, which the engine gives to the entity (root motion) |
 | `Pant` | 2 s, loops | the mouth open, the tongue slid out over the lip, the chest heaving |
-| `Rest` | 1 s, loops | the rest pose held, for look development and evidence frames |
+| `Rest` | 1 s, loops | the rest pose held, for look development and evidence frames (standing: the lying loop is `Lie`) |
+
+`dog_clips.py` (`tools/dog-authoring/`) appends the clips every breed shares, authored against each
+rig's rest pose (#1559, [dog-play.md](../../../../../docs/guides/dog-play.md)):
+
+| clips | for |
+|---|---|
+| `Run` 0.4 s, `PickUp` 1.2 s (grab at 0.62), `Carry` 0.47 s, `Drop` 1 s (release at 0.48), `PlayBow` 1.6 s, `Petted` 2 s | fetch and petting |
+| `Trot` 0.53 s, `Sniff` 2 s, `TurnInPlace` 0.6 s | getting about: trot 1.1 m/s, sniff 0.25 m/s, stepping on the spot while the script turns the root |
+| `Lie` 3 s, `LieDown` 1.4 s, `GetUp` 1.1 s, `RollOver` 1 s, `BellyUp` 2.4 s | resting: each transition starts and ends exactly on the clip it joins |
+| `Shake` 1.1 s, `Stretch` 2.2 s, `Scratch` 1.8 s, `Nudge` 0.8 s (nudge at 0.45), `Excited` 0.57 s | idle habits and asking to play; Scratch starts and ends on Sit's last frame |
 
 A one-shot clip holds its last frame when played with `loop = false`
 (`AnimationStateComponent::m_RequestedLoop`, or `PlayClip(name, false)` from Lua).

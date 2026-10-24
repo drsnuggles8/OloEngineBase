@@ -21,6 +21,10 @@ namespace OloEngine
     static std::vector<u32> s_TypedCharsPending;
     static std::vector<u32> s_TypedCharsFrame;
 
+    // Wheel motion, the same pending/frame rotation as the typed characters.
+    static glm::vec2 s_ScrollPending{ 0.0f };
+    static glm::vec2 s_ScrollFrame{ 0.0f };
+
     namespace
     {
         // Returns the GLFW window if both Application and its Window are
@@ -58,6 +62,19 @@ namespace OloEngine
         s_TypedCharsPending.push_back(codepoint);
     }
 
+    glm::vec2 Input::GetMouseScrollDelta()
+    {
+        return s_ScrollFrame;
+    }
+
+    void Input::OnMouseScrolled(const f32 xOffset, const f32 yOffset)
+    {
+        if (std::isfinite(xOffset) && std::isfinite(yOffset))
+        {
+            s_ScrollPending += glm::vec2(xOffset, yOffset);
+        }
+    }
+
     void Input::Update()
     {
         // Rotate the typed-character buffer: codepoints accumulated since the
@@ -66,6 +83,8 @@ namespace OloEngine
         // and tests that pump OnCharTyped/Update directly behave identically.
         s_TypedCharsFrame.swap(s_TypedCharsPending);
         s_TypedCharsPending.clear();
+        s_ScrollFrame = s_ScrollPending;
+        s_ScrollPending = glm::vec2(0.0f);
 
         auto* const window = TryGetGlfwWindow();
         if (!window)

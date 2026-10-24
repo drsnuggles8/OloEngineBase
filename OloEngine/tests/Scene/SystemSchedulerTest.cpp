@@ -515,9 +515,10 @@ TEST(SystemSchedulerTest, GameplayScheduleHonoursDocumentedSeams)
 {
     SystemScheduler& sched = Scene::GetGameplayScheduler();
 
-    EXPECT_TRUE(sched.DependsOn("Cinematics", "Scripts"));   // authored transforms win
-    EXPECT_TRUE(sched.DependsOn("Animation", "Cinematics")); // animation sees posed entities
-    EXPECT_TRUE(sched.DependsOn("MorphEval", "Animation"));  // morph eval after weight writers
+    EXPECT_TRUE(sched.DependsOn("Cinematics", "Scripts"));         // authored transforms win
+    EXPECT_TRUE(sched.DependsOn("Animation", "Cinematics"));       // animation sees posed entities
+    EXPECT_TRUE(sched.DependsOn("MorphEval", "Animation"));        // morph eval after weight writers
+    EXPECT_TRUE(sched.DependsOn("Navigation", "RootMotionApply")); // nav steers what root motion moved (#1559)
     EXPECT_TRUE(sched.DependsOn("MorphEval", "AnimationGraph"));
 
     // Locomotion seam (issue #631): the graph evaluation consumes the

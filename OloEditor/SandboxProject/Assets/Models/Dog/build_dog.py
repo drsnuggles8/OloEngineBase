@@ -3220,7 +3220,11 @@ def clip_head_tilt(r, t):
 def clip_sit(r, t):
     """3 s, holds: the pelvis pitches nose-up and drops onto the rump, the hind legs fold under
     with the metatarsals flat, the forelegs stay vertical and planted. A NEGATIVE rotation about
-    +X pitches a bone's forward end up."""
+    +X pitches a bone's forward end up.
+
+    The shipped Sit is not this bake: append_play_clips re-authors it with the same body motion and
+    its contacts solved (tools/dog-authoring/dog_clips.py clip_sit). These leg angles left the rump
+    53 mm over the grass, slid the forepaws back 70 mm and sank the paws up to 30 mm into it."""
     k = _ease(t / 0.75)
     breathe(r, t, 3, 0.8)
     r.move("pelvis", (0.0, SIT_PELVIS_BACK * k, -SIT_PELVIS_DROP * k))
@@ -3376,7 +3380,9 @@ ASSEMBLY = {"pelt": [0.58, 0.48, 0.38], "lid": [0.20, 0.14, 0.10], "fibre": [1.0
 COAT_SOURCE = "Assets/Models/Dog/Dog.abc"
 
 
-def write_rig_json(path):
+def write_rig_json(path, play=None):
+    """The rig description. `play` is what tools/dog-authoring/dog_clips.py adds for the play clips
+    (#1559): their clip entries and events, runSpeed, carrySpeed, trotSpeed, sniffSpeed, the toy sockets."""
     import json
 
     eyes = {}
@@ -3395,9 +3401,32 @@ def write_rig_json(path):
         "clips": [{"name": n, "seconds": s, "loop": lp} for n, s, _f, lp in CLIPS],
         "materials": MATERIALS,
     }
+    if play is not None:
+        data = _dog_clips().merge_rig(data, play)
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
         json.dump(data, fh, indent=2)
         fh.write("\n")
+
+
+def _dog_clips():
+    """tools/dog-authoring/dog_clips.py: the play clips, shared with the breeds."""
+    import importlib
+
+    here = os.path.dirname(os.path.abspath(__file__))
+    tools = os.path.normpath(os.path.join(here, "..", "..", "..", "..", "..", "tools", "dog-authoring"))
+    if tools not in sys.path:
+        sys.path.insert(0, tools)
+    return importlib.import_module("dog_clips")
+
+
+def append_play_clips(gltf_path, log=print):
+    """The play clips (#1559), appended to the exported glTF after the six baked here: Run, PickUp, Carry,
+    Drop, PlayBow, Petted, then Trot, Sniff, Shake, Lie, LieDown, GetUp, BellyUp, RollOver, Excited,
+    Scratch, Stretch, Nudge and TurnInPlace; and Sit is re-authored where it stands, its contacts
+    solved (dog_clips.py's clip_sit). They are solved on the exported model (its rest pose, its paws,
+    its teeth) by the same recipe the Bernese and the Samoyed get, and read the rig description
+    written beside it first."""
+    return _dog_clips().append_clips(gltf_path, write_rig=False, log=log, teeth=gltf_path)  # its own teeth
 
 
 # The painted iris (Ole's review, #1533). The engine's ocular model (DogEye.oloskin) refracts the
@@ -3693,9 +3722,10 @@ def main():
     bake_clips(arm, log=log)
     wire_mouth_materials(bake_mouth(body, arm, out_dir, log=log))
     use_clip(arm, None)
-    export_gltf(body, arm, out_dir, log=log)
+    gltf_path = export_gltf(body, arm, out_dir, log=log)
     export_eyeball(out_dir, log=log)
     write_rig_json(os.path.join(out_dir, "Dog.rig.json"))
+    write_rig_json(os.path.join(out_dir, "Dog.rig.json"), append_play_clips(gltf_path, log=log))
     if preview_dir:
         render_previews(body, arm, preview_dir, log=log)
     # The coat, grown on the dog just written (build_dog_groom.py, which resets the scene).

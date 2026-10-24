@@ -49,6 +49,7 @@
 #include "OloEngine/Gameplay/Progression/ProgressionSystem.h"
 #include "OloEngine/Physics3D/SceneQueries.h"
 #include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Physics3D/Physics3DScriptApi.h"
 #include "OloEngine/Audio/AudioEvents/AudioPlayback.h"
 #include "OloEngine/Audio/AudioEvents/CommandID.h"
 #include "OloEngine/Audio/SoundGraph/SoundGraphSound.h"
@@ -2468,6 +2469,26 @@ namespace OloEngine
         return Input::IsMouseButtonPressed(static_cast<MouseCode>(button));
     }
 
+    static void Input_GetMouseScrollDelta(glm::vec2* outDelta)
+    {
+        *outDelta = Input::GetMouseScrollDelta();
+    }
+
+    static void Input_SetCursorMode(i32 mode)
+    {
+        if (mode < static_cast<i32>(CursorMode::Normal) || mode > static_cast<i32>(CursorMode::Locked))
+        {
+            OLO_CORE_WARN("[ScriptGlue] Input.SetCursorMode: {} is not a CursorMode — ignored", mode);
+            return;
+        }
+        Input::SetCursorMode(static_cast<CursorMode>(mode));
+    }
+
+    static i32 Input_GetCursorMode()
+    {
+        return static_cast<i32>(Input::GetCursorMode());
+    }
+
     static bool Input_IsGamepadButtonPressed(u8 button, i32 gamepadIndex)
     {
         if (button >= Gamepad::ButtonCount)
@@ -3600,36 +3621,199 @@ namespace OloEngine
         Scene* scene = ScriptEngine::GetSceneContext();
         OLO_CORE_ASSERT(scene);
 
-        Entity cameraEntity = scene->GetEntityByUUID(cameraEntityID);
-        if (!cameraEntity || !cameraEntity.HasComponent<CameraComponent>())
+        // One implementation for both languages, from the camera's COMPOSED world
+        // transform: the play scenes' cameras ride the dog (#1559), and the local
+        // transform cast every ray from beside the origin.
+        const auto cameraOpt = scene->TryGetEntityWithUUID(cameraEntityID);
+        if (!cameraOpt)
         {
             *outOrigin = glm::vec3(0.0f);
             *outDirection = glm::vec3(0.0f, 0.0f, -1.0f);
             return false;
         }
+        return scene->ScreenToWorldRay(*cameraOpt, *screenPos, *outOrigin, *outDirection);
+    }
 
-        auto const& cameraComp = cameraEntity.GetComponent<CameraComponent>();
-        auto const& transform = cameraEntity.GetComponent<TransformComponent>();
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Rigidbody 3D, contacts, carry (issue #1559) ////////////////////////////////////////////
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // Thin: every call is the Physics3DScriptApi one the Lua glue makes, and the
+    // result code goes back to managed code as an int (0 = ok).
 
-        // Build inverse view-projection matrix
-        glm::mat4 viewMatrix = glm::inverse(transform.GetTransform());
-        glm::mat4 projMatrix = cameraComp.Camera.GetProjection();
-        glm::mat4 invVP = glm::inverse(projMatrix * viewMatrix);
+    static i32 Rigidbody3DComponent_ApplyLinearImpulse(UUID entityID, glm::vec3 const* impulse)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return static_cast<i32>(Physics3DScriptApi::ApplyLinearImpulse(*scene, entityID, *impulse));
+    }
 
-        // Convert screen coords to NDC [-1, 1]
-        f32 ndcX = screenPos->x * 2.0f - 1.0f;
-        f32 ndcY = screenPos->y * 2.0f - 1.0f;
+    static i32 Rigidbody3DComponent_GetLinearVelocity(UUID entityID, glm::vec3* outVelocity)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        *outVelocity = glm::vec3(0.0f);
+        return static_cast<i32>(Physics3DScriptApi::GetLinearVelocity(*scene, entityID, *outVelocity));
+    }
 
-        // Unproject near and far points
-        glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
-        glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+    static i32 Rigidbody3DComponent_SetLinearVelocity(UUID entityID, glm::vec3 const* velocity)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return static_cast<i32>(Physics3DScriptApi::SetLinearVelocity(*scene, entityID, *velocity));
+    }
 
-        nearPoint /= nearPoint.w;
-        farPoint /= farPoint.w;
+    static i32 Rigidbody3DComponent_GetAngularVelocity(UUID entityID, glm::vec3* outVelocity)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        *outVelocity = glm::vec3(0.0f);
+        return static_cast<i32>(Physics3DScriptApi::GetAngularVelocity(*scene, entityID, *outVelocity));
+    }
 
-        *outOrigin = glm::vec3(nearPoint);
-        *outDirection = glm::normalize(glm::vec3(farPoint - nearPoint));
+    static i32 Rigidbody3DComponent_SetAngularVelocity(UUID entityID, glm::vec3 const* velocity)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return static_cast<i32>(Physics3DScriptApi::SetAngularVelocity(*scene, entityID, *velocity));
+    }
+
+    static MonoArray* Physics_GetContacts(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        TArray<UUID> contacts;
+        (void)Physics3DScriptApi::GetContacts(*scene, entityID, contacts);
+        MonoArray* result = ::mono_array_new(::mono_domain_get(), ::mono_get_uint64_class(), static_cast<uintptr_t>(contacts.Num()));
+        for (i32 i = 0; i < contacts.Num(); ++i)
+        {
+            mono_array_set(result, u64, static_cast<uintptr_t>(i), static_cast<u64>(contacts[i]));
+        }
+        return result;
+    }
+
+    static bool Physics_RaycastPickVolumes(glm::vec3* origin, glm::vec3* direction, f32 maxDistance, glm::vec3* outPosition,
+                                           glm::vec3* outNormal, f32* outDistance, u64* outEntityID, MonoString** outRegion,
+                                           MonoString** outBone)
+    {
+        *outPosition = {};
+        *outNormal = {};
+        *outDistance = 0.0f;
+        *outEntityID = 0;
+        *outRegion = nullptr;
+        *outBone = nullptr;
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        PickVolumeHit hit;
+        if (!scene->RaycastPickVolumes(*origin, *direction, maxDistance, hit))
+        {
+            return false;
+        }
+        *outPosition = hit.Position;
+        *outNormal = hit.Normal;
+        *outDistance = hit.Distance;
+        *outEntityID = static_cast<u64>(hit.Entity);
+        *outRegion = ScriptEngine::CreateString(hit.Region.c_str());
+        *outBone = ScriptEngine::CreateString(hit.Bone.c_str());
         return true;
+    }
+
+    ///////////////////////////////////////////////////////////////////////////////////////////
+    // AnimationStateComponent (issue #1559) — the clip request and the clock, as Lua has them
+    ///////////////////////////////////////////////////////////////////////////////////////////
+
+    static AnimationStateComponent* FindAnimationState(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        const auto found = scene->TryGetEntityWithUUID(entityID);
+        if (!found)
+        {
+            return nullptr;
+        }
+        Entity entity = *found;
+        return entity.HasComponent<AnimationStateComponent>() ? &entity.GetComponent<AnimationStateComponent>() : nullptr;
+    }
+
+    static void AnimationStateComponent_PlayClip(UUID entityID, MonoString* name, bool loop)
+    {
+        if (AnimationStateComponent* state = FindAnimationState(entityID); state && name)
+        {
+            // The same request Lua's PlayClip files; AnimationSystem::ApplyClipRequest consumes it.
+            state->m_RequestedClip = Utils::MonoStringToString(name);
+            state->m_RequestedLoop = loop;
+        }
+    }
+
+    static MonoString* AnimationStateComponent_GetCurrentClip(UUID entityID)
+    {
+        const AnimationStateComponent* state = FindAnimationState(entityID);
+        return ScriptEngine::CreateString((state && state->m_CurrentClip) ? state->m_CurrentClip->Name.c_str() : "");
+    }
+
+    static f32 AnimationStateComponent_GetCurrentTime(UUID entityID)
+    {
+        const AnimationStateComponent* state = FindAnimationState(entityID);
+        return state ? state->m_CurrentTime : 0.0f;
+    }
+
+    static f32 AnimationStateComponent_GetClipDuration(UUID entityID)
+    {
+        const AnimationStateComponent* state = FindAnimationState(entityID);
+        return (state && state->m_CurrentClip) ? state->m_CurrentClip->Duration : 0.0f;
+    }
+
+    // The bone of that name in the entity's skeleton, or -1 (issue #1559).
+    static i32 SkeletonComponent_GetBoneIndex(UUID entityID, MonoString* name)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        const auto found = scene->TryGetEntityWithUUID(entityID);
+        if (!found || name == nullptr)
+        {
+            return -1;
+        }
+        Entity entity = *found;
+        if (!entity.HasComponent<SkeletonComponent>() || !entity.GetComponent<SkeletonComponent>().m_Skeleton)
+        {
+            return -1;
+        }
+        const auto& names = entity.GetComponent<SkeletonComponent>().m_Skeleton->m_BoneNames;
+        const auto it = std::ranges::find(names, Utils::MonoStringToString(name));
+        return it != names.end() ? static_cast<i32>(std::distance(names.begin(), it)) : -1;
+    }
+
+    static i32 Entity_AttachTo(UUID entityID, UUID parentID, MonoString* boneName, glm::vec3 const* localTranslation, glm::vec3 const* localRotation)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        const std::string bone = boneName != nullptr ? Utils::MonoStringToString(boneName) : std::string{};
+        return static_cast<i32>(Physics3DScriptApi::AttachTo(*scene, entityID, parentID, bone, *localTranslation, glm::quat(*localRotation)));
+    }
+
+    static i32 Entity_AttachInPlace(UUID entityID, UUID parentID, MonoString* boneName)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        const std::string bone = boneName != nullptr ? Utils::MonoStringToString(boneName) : std::string{};
+        return static_cast<i32>(Physics3DScriptApi::AttachInPlace(*scene, entityID, parentID, bone));
+    }
+
+    static i32 Entity_Detach(UUID entityID)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        return static_cast<i32>(Physics3DScriptApi::Detach(*scene, entityID));
+    }
+
+    static void Entity_GetWorldTranslation(UUID entityID, glm::vec3* outTranslation)
+    {
+        Scene* scene = ScriptEngine::GetSceneContext();
+        OLO_CORE_ASSERT(scene);
+        *outTranslation = glm::vec3(0.0f);
+        if (auto entity = scene->TryGetEntityWithUUID(entityID))
+        {
+            *outTranslation = glm::vec3(scene->GetWorldTransform(static_cast<entt::entity>(*entity))[3]);
+        }
     }
 
     ///////////////////////////////////////////////////////////////////////////////////////////
@@ -4400,6 +4584,22 @@ namespace OloEngine
         // Physics ////////////////////////////////////////////////////
         ///////////////////////////////////////////////////////////////
         OLO_ADD_INTERNAL_CALL(Physics_Raycast);
+        OLO_ADD_INTERNAL_CALL(Physics_GetContacts);
+        OLO_ADD_INTERNAL_CALL(Physics_RaycastPickVolumes);
+        OLO_ADD_INTERNAL_CALL(Rigidbody3DComponent_ApplyLinearImpulse);
+        OLO_ADD_INTERNAL_CALL(Rigidbody3DComponent_GetLinearVelocity);
+        OLO_ADD_INTERNAL_CALL(Rigidbody3DComponent_SetLinearVelocity);
+        OLO_ADD_INTERNAL_CALL(Rigidbody3DComponent_GetAngularVelocity);
+        OLO_ADD_INTERNAL_CALL(Rigidbody3DComponent_SetAngularVelocity);
+        OLO_ADD_INTERNAL_CALL(Entity_AttachTo);
+        OLO_ADD_INTERNAL_CALL(AnimationStateComponent_PlayClip);
+        OLO_ADD_INTERNAL_CALL(SkeletonComponent_GetBoneIndex);
+        OLO_ADD_INTERNAL_CALL(AnimationStateComponent_GetCurrentClip);
+        OLO_ADD_INTERNAL_CALL(AnimationStateComponent_GetCurrentTime);
+        OLO_ADD_INTERNAL_CALL(AnimationStateComponent_GetClipDuration);
+        OLO_ADD_INTERNAL_CALL(Entity_Detach);
+        OLO_ADD_INTERNAL_CALL(Entity_GetWorldTranslation);
+        OLO_ADD_INTERNAL_CALL(Entity_AttachInPlace);
 
         ///////////////////////////////////////////////////////////////
         // Camera /////////////////////////////////////////////////////
@@ -4412,6 +4612,9 @@ namespace OloEngine
         OLO_ADD_INTERNAL_CALL(Input_GetMousePosition);
         OLO_ADD_INTERNAL_CALL(Input_GetWindowSize);
         OLO_ADD_INTERNAL_CALL(Input_IsMouseButtonDown);
+        OLO_ADD_INTERNAL_CALL(Input_GetMouseScrollDelta);
+        OLO_ADD_INTERNAL_CALL(Input_SetCursorMode);
+        OLO_ADD_INTERNAL_CALL(Input_GetCursorMode);
 
         ///////////////////////////////////////////////////////////////
         // ShaderLibrary3D ///////////////////////////////////////////

@@ -30,6 +30,31 @@ namespace OloEngine
     }
 
     // Append local-space vertices transformed to world-space and return the baseVertex index
+    // Geometry that MOVES is not baked (#1559). A navmesh is static: an animated or
+    // skinned body, a nav agent, a character controller or a non-static rigid body
+    // baked where it stood at bake time leaves a permanent hole there -- a dog
+    // carved a hole exactly where it stood, so its own agent started off the mesh,
+    // and a ball lying on the lawn made an island of its spot. Its children move
+    // with it, so the whole subtree is skipped.
+    static bool IsMovingGeometry(Entity entity)
+    {
+        for (u32 depth = 0; entity && depth < 64u; ++depth)
+        {
+            if (entity.HasComponent<NavAgentComponent>() || entity.HasComponent<AnimationStateComponent>() ||
+                entity.HasComponent<SkeletonComponent>() || entity.HasComponent<CharacterController3DComponent>())
+            {
+                return true;
+            }
+            if (entity.HasComponent<Rigidbody3DComponent>() &&
+                entity.GetComponent<Rigidbody3DComponent>().m_Type != BodyType3D::Static)
+            {
+                return true;
+            }
+            entity = entity.GetParent();
+        }
+        return false;
+    }
+
     static i32 AppendTransformedVerts(const glm::mat4& worldTransform,
                                       const glm::vec3* localVerts, i32 count,
                                       std::vector<f32>& outVerts)
@@ -123,7 +148,7 @@ namespace OloEngine
         {
             Entity entity = { e, scene };
             auto& meshComp = entity.GetComponent<MeshComponent>();
-            if (!meshComp.m_MeshSource)
+            if (!meshComp.m_MeshSource || IsMovingGeometry(entity))
                 continue;
 
             glm::mat4 worldTransform = GetWorldTransform(entity);
@@ -160,7 +185,7 @@ namespace OloEngine
         {
             Entity entity = { e, scene };
             auto& modelComp = entity.GetComponent<ModelComponent>();
-            if (!modelComp.m_Model)
+            if (!modelComp.m_Model || IsMovingGeometry(entity))
                 continue;
 
             glm::mat4 worldTransform = GetWorldTransform(entity);
@@ -207,6 +232,8 @@ namespace OloEngine
         for (auto e : boxView)
         {
             Entity entity = { e, scene };
+            if (IsMovingGeometry(entity))
+                continue;
             const auto& box = entity.GetComponent<BoxCollider3DComponent>();
 
             glm::mat4 worldTransform = GetWorldTransform(entity);
@@ -257,6 +284,8 @@ namespace OloEngine
             for (auto e : sphereView)
             {
                 Entity entity = { e, scene };
+                if (IsMovingGeometry(entity))
+                    continue;
                 const auto& sphere = entity.GetComponent<SphereCollider3DComponent>();
 
                 GenerateSphereGeometry(sphere.m_Radius, sphere.m_Offset, kRings, kSegments, localVerts, localTris);
@@ -280,6 +309,8 @@ namespace OloEngine
             for (auto e : capsuleView)
             {
                 Entity entity = { e, scene };
+                if (IsMovingGeometry(entity))
+                    continue;
                 const auto& capsule = entity.GetComponent<CapsuleCollider3DComponent>();
 
                 localVerts.clear();
@@ -368,6 +399,8 @@ namespace OloEngine
         for (auto e : meshColView)
         {
             Entity entity = { e, scene };
+            if (IsMovingGeometry(entity))
+                continue;
             auto& mc = entity.GetComponent<MeshCollider3DComponent>();
 
             if (mc.m_ColliderAsset == 0)
@@ -418,11 +451,13 @@ namespace OloEngine
             Entity entity = { e, scene };
             auto& terrain = entity.GetComponent<TerrainComponent>();
 
-            if (!terrain.m_TerrainData)
-                continue;
-
-            u32 resolution = terrain.m_TerrainData->GetResolution();
-            if (resolution < 2)
+            // The heights physics collides with, GPU-free: the render-built field
+            // may not exist yet (a bake at runtime start, on a server; #1559).
+            TArray<f32> scratch;
+            std::span<const f32> heights;
+            u32 resolution = 0;
+            if (!Scene::CpuTerrainHeights(terrain, scratch, heights, resolution) || resolution < 2 ||
+                heights.size() < static_cast<sizet>(resolution) * resolution)
                 continue;
 
             // Downsample large heightmaps to keep vertex count manageable
@@ -444,7 +479,7 @@ namespace OloEngine
                 {
                     u32 srcX = std::min(x * step, resolution - 1);
                     f32 nx = static_cast<f32>(srcX) / static_cast<f32>(resolution - 1);
-                    f32 height = terrain.m_TerrainData->GetHeightAt(nx, nz);
+                    f32 height = heights[static_cast<sizet>(srcZ) * resolution + srcX];
 
                     // Local-space: X in [0, WorldSizeX], Y = height * HeightScale, Z in [0, WorldSizeZ]
                     glm::vec3 localPos(nx * terrain.m_WorldSizeX, height * terrain.m_HeightScale, nz * terrain.m_WorldSizeZ);
@@ -752,7 +787,12 @@ namespace OloEngine
         i32 navDataSize = 0;
         if (!dtCreateNavMeshData(&params, &navData, &navDataSize))
         {
-            OLO_CORE_ERROR("NavMeshGenerator: Could not build Detour navmesh data");
+            // Detour refuses without saying why; its preconditions are on these
+            // counts (no polygons, or 65535 or more vertices in one tile).
+            OLO_CORE_ERROR("NavMeshGenerator: Could not build Detour navmesh data ({} vertices, {} polygons, "
+                           "{} detail vertices, {} detail triangles; Detour needs at least one polygon and under "
+                           "65535 vertices)",
+                           params.vertCount, params.polyCount, params.detailVertsCount, params.detailTriCount);
             rcFreePolyMesh(pmesh);
             rcFreePolyMeshDetail(dmesh);
             return nullptr;

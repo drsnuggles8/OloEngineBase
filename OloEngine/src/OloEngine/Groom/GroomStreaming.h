@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <span>
+#include <type_traits>
 #include <vector>
 
 namespace OloEngine
@@ -15,6 +16,8 @@ namespace OloEngine
         u32 DetailDraws = 0;
         u32 Pending = 0;
         u32 FallbackDraws = 0;
+        /// Why this frame's last fallback draw was not the detail it asked for.
+        EGroomStreamingFallback LastFallback = EGroomStreamingFallback::None;
         u64 Cancelled = 0;
         u64 Evictions = 0;
         u64 BaseCpuBytes = 0;
@@ -49,6 +52,9 @@ namespace OloEngine
         }
     };
 
+    // Vertices a preparation writes out at a time (the main-thread rest stream's chunk).
+    inline constexpr u32 kGroomPrepareChunkVertices = 262144;
+
     // Only immutable asset/coating data is captured by the worker. No pose,
     // skeleton palette, solver, frame span, renderer object or GPU API is borrowed.
     [[nodiscard]] inline Ref<FPreparedGroomGeometry> PrepareGroomGeometry(const Ref<GroomAsset>& groom,
@@ -70,23 +76,59 @@ namespace OloEngine
         std::vector<GroomCasterStrand> casters;
         if (binding)
         {
-            result->Stats = BuildGroomStrandRestMesh(source, build, *binding, vertices, indices, roots, &coat,
-                                                     nullptr, &first, &casters);
+            // The ribbon goes straight into the retained array, a chunk at a
+            // time (the #1608 walk): built whole and then copied, a
+            // two-million-strand coat's 2 GB of vertices was held twice, and
+            // its preparation alone took the Samoyed's play scene over the
+            // test process's 6 GB ceiling.
+            class RetainSink final : public GroomStrandVertexSink
+            {
+              public:
+                explicit RetainSink(TArray<GroomStrandVertex>& out)
+                    : m_Out(out) {}
+                bool Begin(u32 vertexCount) override
+                {
+                    m_Out.Reserve(static_cast<i32>(vertexCount));
+                    return true;
+                }
+                bool Write(std::span<const GroomStrandVertex> chunk) override
+                {
+                    m_Out.Append(chunk.data(), static_cast<i32>(chunk.size()));
+                    return true;
+                }
+
+              private:
+                TArray<GroomStrandVertex>& m_Out;
+            } sink(result->Vertices);
+            GroomRestStreamMeasures measures;
+            result->Stats = BuildGroomStrandRestMeshStreamed(source, build, *binding, sink, kGroomPrepareChunkVertices,
+                                                             indices, roots, measures, &coat, &first, &casters);
+            if (measures.SinkFailed)
+            {
+                return nullptr;
+            }
         }
         else
         {
             result->Stats = BuildGroomStrandMesh(source, build, vertices, indices, nullptr, &coat, nullptr,
                                                  &first, &casters);
+            result->Vertices.Append(vertices.data(), static_cast<i32>(vertices.size()));
+            std::vector<GroomStrandVertex>().swap(vertices);
         }
-        if (vertices.empty() || indices.empty())
+        if (result->Vertices.IsEmpty() || indices.empty())
         {
             return nullptr;
         }
-        result->Vertices.Append(vertices.data(), static_cast<i32>(vertices.size()));
-        result->Indices.Append(indices.data(), static_cast<i32>(indices.size()));
-        result->RootCurves.Append(roots.data(), static_cast<i32>(roots.size()));
-        result->StrandFirstIndex.Append(first.data(), static_cast<i32>(first.size()));
-        result->CasterStrands.Append(casters.data(), static_cast<i32>(casters.size()));
+        // Each builder array is let go as soon as it is copied.
+        const auto keep = [](auto& out, auto& built)
+        {
+            out.Append(built.data(), static_cast<i32>(built.size()));
+            std::remove_reference_t<decltype(built)>().swap(built);
+        };
+        keep(result->Indices, indices);
+        keep(result->RootCurves, roots);
+        keep(result->StrandFirstIndex, first);
+        keep(result->CasterStrands, casters);
         return result;
     }
 

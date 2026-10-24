@@ -21,8 +21,9 @@ namespace OloEngine
         f32 AimWeight = 1.0f;
 
         // Optional entity whose world position overrides AimTarget each frame.
-        // When non-zero, the scene update reads this entity's TransformComponent
-        // and writes its translation to AimTarget before running the IK solver.
+        // When non-zero, the scene update writes this entity's COMPOSED world
+        // position (parents and bone attachments included) to AimTarget before
+        // running the IK solver (Scene::ResolveIKTargets).
         UUID AimTargetEntity = 0;
 
         // --- Limb IK ---

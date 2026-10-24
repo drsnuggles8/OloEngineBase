@@ -4,6 +4,7 @@
 #include "GroomStrandFixture.h"
 #include "GroomBindingFixture.h"
 #include "../TestAsyncLoadHooks.h"
+#include "../Rendering/PropertyTests/ScopedWarningCapture.h"
 #include "OloEngine/Groom/GroomLodBuilder.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
 #include "OloEngine/Groom/GroomStreaming.h"
@@ -376,6 +377,7 @@ TEST_F(GroomStreamingTest, StagingPressureLeavesAnExplicitFloorWithoutStartingWo
     auto& budget = RepresentationStreaming::Get();
     budget.SetStagingBudget(1);
     budget.BeginFrame(1, 8u * 1024u * 1024u, 8u * 1024u * 1024u);
+    const Tests::ScopedWarningCapture warnings;
     GroomRenderPass pass;
     pass.BeginStreamingFrame(1, true, 24);
     auto request = Request();
@@ -383,7 +385,62 @@ TEST_F(GroomStreamingTest, StagingPressureLeavesAnExplicitFloorWithoutStartingWo
     EXPECT_TRUE(request.StreamingFloor);
     EXPECT_FALSE(request.StreamingPending);
     EXPECT_EQ(request.StreamingFallback, EGroomStreamingFallback::StagingBudget);
+    EXPECT_EQ(pass.GetStreamingStats().LastFallback, EGroomStreamingFallback::StagingBudget);
     EXPECT_EQ(budget.GetStats().StagingCpuBytes, 0u);
+
+    // A preparation bigger than the whole staging budget can never start: the
+    // coat would stay on its floor for good. That is said, once, not per frame.
+    budget.BeginFrame(2, 8u * 1024u * 1024u, 8u * 1024u * 1024u);
+    pass.BeginStreamingFrame(2, true, 24);
+    auto again = Request();
+    again.Groom = request.Groom;
+    pass.ResolveStreamingRequest(again);
+    EXPECT_EQ(warnings.Count("never streamed in"), 1u);
+}
+
+TEST_F(GroomStreamingTest, ATierLargerThanAFramesWholeUploadIsSaidToNeverStreamIn)
+{
+    // Prepared, the tier is built whole in one frame; with a one-byte upload
+    // allowance it never is, frame after frame. Said once, with the floor kept.
+    auto& budget = RepresentationStreaming::Get();
+    const Tests::ScopedWarningCapture warnings;
+    GroomRenderPass pass;
+    const auto groom = Request().Groom;
+    const auto deadline = std::chrono::steady_clock::now() + Tests::kLoadHookFailAfter;
+    u64 frame = 1;
+    u32 fallbacksAfterWarning = 0;
+    while (std::chrono::steady_clock::now() < deadline && fallbacksAfterWarning < 3u)
+    {
+        budget.BeginFrame(frame, 8u * 1024u * 1024u, 1u);
+        pass.BeginStreamingFrame(frame++, true, 24);
+        auto request = Request();
+        request.Groom = groom;
+        pass.ResolveStreamingRequest(request);
+        EXPECT_TRUE(request.StreamingFloor);
+        if (warnings.Count("never streamed in") != 0u)
+        {
+            EXPECT_EQ(request.StreamingFallback, EGroomStreamingFallback::UploadBudget);
+            ++fallbacksAfterWarning;
+        }
+        std::this_thread::yield();
+    }
+    EXPECT_EQ(fallbacksAfterWarning, 3u) << "the preparation never completed";
+    EXPECT_EQ(warnings.Count("never streamed in"), 1u);
+}
+
+TEST_F(GroomStreamingTest, APreparationThatFitsTheStagingBudgetIsNotWarnedAbout)
+{
+    // The control: the fixture's 16 MiB staging budget fits the request, which
+    // is queued, not refused, and nothing is said.
+    auto& budget = RepresentationStreaming::Get();
+    budget.BeginFrame(1, 8u * 1024u * 1024u, 8u * 1024u * 1024u);
+    const Tests::ScopedWarningCapture warnings;
+    GroomRenderPass pass;
+    pass.BeginStreamingFrame(1, true, 24);
+    auto request = Request();
+    pass.ResolveStreamingRequest(request);
+    EXPECT_TRUE(request.StreamingPending);
+    EXPECT_EQ(warnings.Count("never streamed in"), 0u);
 }
 
 TEST_F(GroomStreamingTest, ExtremeRetiringBackingReportsResidentPressureWithoutWrapping)

@@ -393,7 +393,31 @@ namespace OloEngine
                                                                                   { if (std::isfinite(v) && v >= 0.0f) rb.m_MaxLinearVelocity = v; }),
                                                "maxAngularVelocity", sol::property([](const Rigidbody3DComponent& rb)
                                                                                    { return rb.m_MaxAngularVelocity; }, [](Rigidbody3DComponent& rb, f32 v)
-                                                                                   { if (std::isfinite(v) && v >= 0.0f) rb.m_MaxAngularVelocity = v; }));
+                                                                                   { if (std::isfinite(v) && v >= 0.0f) rb.m_MaxAngularVelocity = v; }),
+                                               // The LIVE body (issue #1559), through the API the C# glue calls too.
+                                               // A refusal (no body yet, static, non-finite) is logged once there.
+                                               "linearVelocity", sol::property([](const Rigidbody3DComponent& rb)
+                                                                               {
+                    glm::vec3 v(0.0f);
+                    if (Scene* scene = ScriptEngine::GetSceneContext())
+                        (void)Physics3DScriptApi::GetLinearVelocity(*scene, FindComponentOwner(rb), v);
+                    return v; }, [](Rigidbody3DComponent& rb, const glm::vec3& v)
+                                                                               {
+                    if (Scene* scene = ScriptEngine::GetSceneContext())
+                        (void)Physics3DScriptApi::SetLinearVelocity(*scene, FindComponentOwner(rb), v); }),
+                                               "angularVelocity", sol::property([](const Rigidbody3DComponent& rb)
+                                                                                {
+                    glm::vec3 v(0.0f);
+                    if (Scene* scene = ScriptEngine::GetSceneContext())
+                        (void)Physics3DScriptApi::GetAngularVelocity(*scene, FindComponentOwner(rb), v);
+                    return v; }, [](Rigidbody3DComponent& rb, const glm::vec3& v)
+                                                                                {
+                    if (Scene* scene = ScriptEngine::GetSceneContext())
+                        (void)Physics3DScriptApi::SetAngularVelocity(*scene, FindComponentOwner(rb), v); }),
+                                               "applyLinearImpulse", [](Rigidbody3DComponent& rb, const glm::vec3& impulse) -> bool
+                                               {
+                    Scene* scene = ScriptEngine::GetSceneContext();
+                    return scene && Physics3DScriptApi::ApplyLinearImpulse(*scene, FindComponentOwner(rb), impulse) == Physics3DScriptApi::Result::Ok; });
 
         // --- DestructibleComponent (issue #459) ---
         // A script deals structural damage by depleting `health`; the
