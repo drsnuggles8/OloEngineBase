@@ -165,6 +165,12 @@ OloEditor/cmake_test_discovery_*.json
 !.codex/skills/
 !.codex/skills/**/
 !.codex/skills/**/SKILL.md
+# Codex also writes .agents/skills/<name>/ into every worktree: a Claude->Codex text
+# substitution of .claude/skills/ with broken .Codex/ paths. Untracked, they made
+# worktree_status.py read a merged worktree as incomplete-dirty. run-oloengine is the
+# one copy tracked on purpose (af11e425b).
+.agents/skills/*
+!.agents/skills/run-oloengine/
 skills-lock.json
 docs/agents/
 
