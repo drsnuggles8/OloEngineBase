@@ -728,6 +728,72 @@ namespace OloEngine::Tests
         EXPECT_FALSE(ParentOf(m_Ball)) << "the ball is still carried";
     }
 
+    TEST_P(DogPlayEvidenceTest, ADogBeingPettedIgnoresAThrowAndFetchesItAfterwards)
+    {
+        // #1559: "It ignores the toy while it is being petted." A hand rests on the
+        // dog's back while a ball is thrown past it; for two seconds it neither
+        // watches nor chases. Let go, and the same throw is fetched: the control.
+        OLO_ENSURE_GPU_OR_SKIP();
+        LoadPlayScene(GetParam());
+        GetScene().SetRenderingEnabled(false);
+        SetMood(0.8f, 0.6f, 0.2f, 0.0f);
+        Tick(30);
+        const Entity observer = GetScene().CreateEntity("FetchObserver");
+        RunLuaEachFrame(observer, R"(
+local bus = PlayBus or {}
+local fetching = (bus.dogState == "watch" or bus.dogState == "chase") and 1 or 0
+entity_utils.set_translation(id, vec3.new(fetching, bus.petting and 1 or 0, 0))
+)");
+        const auto probe = [&]
+        { return observer.GetComponent<TransformComponent>().Translation; };
+
+        const glm::vec2 back = PixelOf(BoneWorld("spine_02"));
+        SetMouse(back, false);
+        Tick(2);
+        SetMouse(back, true);
+        Tick(20);
+        ASSERT_GT(probe().y, 0.5f) << "the hand on the back is not petting the dog";
+
+        // The throw, as PlayHand makes one: the ball's velocity, and the bus told.
+        const glm::vec3 camera = WorldOf(m_Camera);
+        const glm::vec3 dog = WorldOf(m_Dog);
+        const glm::vec2 away = glm::normalize(glm::vec2(dog.x - camera.x, dog.z - camera.z));
+        char throwSource[320];
+        std::snprintf(throwSource, sizeof(throwSource),
+                      "local rb = entity_utils.get_component(%llu, 'Rigidbody3DComponent'); "
+                      "rb.linearVelocity = vec3.new(%f, 2.5, %f); PlayBus = PlayBus or {}; "
+                      "PlayBus.thrown = { toy = %llu, frame = 0 }",
+                      static_cast<unsigned long long>(m_Ball.GetUUID()), away.x * 4.0f, away.y * 4.0f,
+                      static_cast<unsigned long long>(m_Ball.GetUUID()));
+        RunLua(throwSource);
+        const glm::vec3 ballFrom = WorldOf(m_Ball);
+        f32 fetchedWhilePetted = 0.0f;
+        for (u32 i = 0; i < 120u; ++i)
+        {
+            SetMouse(back, true);
+            Tick();
+            fetchedWhilePetted = std::max(fetchedWhilePetted, probe().x);
+        }
+        const f32 ballFlew = glm::length(WorldOf(m_Ball) - ballFrom);
+        const f32 dogMoved = glm::length(glm::vec2(WorldOf(m_Dog).x - dog.x, WorldOf(m_Dog).z - dog.z));
+
+        SetMouse(back, false);
+        u32 fetchedAfter = 0u;
+        for (u32 i = 0; i < 240u && fetchedAfter == 0u; ++i)
+        {
+            Tick();
+            fetchedAfter = probe().x > 0.5f ? i + 1u : 0u;
+        }
+        std::printf("[dog-play] %s petted through a throw: ball flew %.2f m, dog moved %.2f m, %s while petted; "
+                    "fetching %u frames after the hand let go\n",
+                    GetParam().Name, ballFlew, dogMoved, fetchedWhilePetted > 0.5f ? "FETCHED" : "ignored it",
+                    fetchedAfter);
+        ASSERT_GT(ballFlew, 1.0f) << "the ball was not thrown: this measures nothing";
+        EXPECT_LT(fetchedWhilePetted, 0.5f) << "the dog went after the toy while it was being petted";
+        EXPECT_LT(dogMoved, 0.3f) << "the dog left the hand";
+        EXPECT_GT(fetchedAfter, 0u) << "let go, the dog never fetched the throw (the control)";
+    }
+
     TEST_P(DogPlayEvidenceTest, WithFetchingOffAThrownBallStaysWhereItLanded)
     {
         OLO_ENSURE_GPU_OR_SKIP();
