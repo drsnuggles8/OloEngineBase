@@ -134,8 +134,9 @@ namespace OloEngine
         void DrawContextMenu();
 
         // Serialization
-        void SaveShaderGraph();
-        void SaveShaderGraphAs();
+        // True when the graph is on disk; a failure keeps it dirty and logs why.
+        bool SaveShaderGraph();
+        bool SaveShaderGraphAs();
         void LoadShaderGraph(const std::filesystem::path& path);
         void PerformPendingLoad();
 

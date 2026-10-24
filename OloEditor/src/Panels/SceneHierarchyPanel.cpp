@@ -708,8 +708,9 @@ namespace OloEngine
             if (ImGui::MenuItem("Save as Prefab"))
             {
                 const auto& entityTag = entity.GetComponent<TagComponent>().Tag;
+                // PrefabSerializer creates the folder; a failure to (a file named
+                // "prefabs", no permission) comes back as a failed save below.
                 std::filesystem::path prefabDir = Project::GetAssetDirectory() / "prefabs";
-                std::filesystem::create_directories(prefabDir);
                 std::filesystem::path prefabPath = prefabDir / (entityTag + ".oloprefab");
 
                 // Create and populate the prefab

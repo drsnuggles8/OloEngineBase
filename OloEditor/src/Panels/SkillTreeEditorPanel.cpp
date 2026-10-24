@@ -1052,23 +1052,22 @@ namespace OloEngine
     // Serialization
     // =========================================================================
 
-    void SkillTreeEditorPanel::SaveTree()
+    bool SkillTreeEditorPanel::SaveTree()
     {
         if (!m_Tree)
         {
-            return;
+            return false;
         }
         if (m_FilePath.empty())
         {
-            SaveTreeAs();
-            return;
+            return SaveTreeAs();
         }
 
         m_Tree->RebuildIndex();
         if (std::string error; !m_Tree->Validate(&error))
         {
             SurfaceError("Cannot save - skill tree is invalid:\n" + error);
-            return;
+            return false;
         }
 
         std::string yamlString = SkillTreeDatabaseSerializer().TestSerializeToYAML(m_Tree);
@@ -1077,21 +1076,22 @@ namespace OloEngine
             !FileSystem::WriteFileAtomically(m_FilePath, yamlString, { .TextMode = true }, &writeError))
         {
             SurfaceError("Failed to save " + m_FilePath.string() + ":\n" + writeError);
-            return;
+            return false;
         }
 
         m_IsDirty = false;
         OLO_CORE_INFO("SkillTreeEditorPanel - Saved: {}", m_FilePath.string());
+        return true;
     }
 
-    void SkillTreeEditorPanel::SaveTreeAs()
+    bool SkillTreeEditorPanel::SaveTreeAs()
     {
         std::string filepath = FileDialogs::SaveFile(
             "Skill Tree (*.oloskilltree)\0*.oloskilltree\0"
             "All Files (*.*)\0*.*\0");
         if (filepath.empty())
         {
-            return;
+            return false;
         }
 
         std::filesystem::path path(filepath);
@@ -1100,9 +1100,16 @@ namespace OloEngine
             path += ".oloskilltree";
         }
 
-        m_FilePath = path;
-        m_CurrentAssetHandle = 0;
-        SaveTree();
+        // Keep the file the tree came from if the new one cannot be written.
+        std::filesystem::path previousPath = std::exchange(m_FilePath, path);
+        const AssetHandle previousHandle = std::exchange(m_CurrentAssetHandle, AssetHandle(0));
+        if (!SaveTree())
+        {
+            m_FilePath = std::move(previousPath);
+            m_CurrentAssetHandle = previousHandle;
+            return false;
+        }
+        return true;
     }
 
     void SkillTreeEditorPanel::LoadTree(const std::filesystem::path& path)

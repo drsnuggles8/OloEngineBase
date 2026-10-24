@@ -1396,16 +1396,15 @@ namespace OloEngine
         }
     }
 
-    void ShaderGraphEditorPanel::SaveShaderGraph()
+    bool ShaderGraphEditorPanel::SaveShaderGraph()
     {
         if (m_CurrentFilePath.empty())
         {
-            SaveShaderGraphAs();
-            return;
+            return SaveShaderGraphAs();
         }
 
         if (!m_GraphAsset)
-            return;
+            return false;
 
         ShaderGraphSerializer serializer;
         AssetMetadata metadata;
@@ -1416,27 +1415,34 @@ namespace OloEngine
         if (!serializer.Serialize(metadata, m_GraphAsset))
         {
             OLO_CORE_ERROR("ShaderGraphEditorPanel - Could not save '{}'", m_CurrentFilePath.string());
-            return;
+            return false;
         }
         m_IsDirty = false;
+        return true;
     }
 
-    void ShaderGraphEditorPanel::SaveShaderGraphAs()
+    bool ShaderGraphEditorPanel::SaveShaderGraphAs()
     {
         if (!m_GraphAsset)
-            return;
+            return false;
 
         std::string filepath = FileDialogs::SaveFile("OloEngine Shader Graph (*.olosg)\0*.olosg\0All Files\0*.*\0");
         if (filepath.empty())
-            return;
+            return false;
 
         // Ensure .olosg extension
         std::filesystem::path savePath(filepath);
         if (savePath.extension() != ".olosg")
             savePath.replace_extension(".olosg");
 
-        m_CurrentFilePath = savePath;
-        SaveShaderGraph();
+        // Keep the path the graph came from if the new one cannot be written.
+        std::filesystem::path previousPath = std::exchange(m_CurrentFilePath, savePath);
+        if (!SaveShaderGraph())
+        {
+            m_CurrentFilePath = std::move(previousPath);
+            return false;
+        }
+        return true;
     }
 
     void ShaderGraphEditorPanel::LoadShaderGraph(const std::filesystem::path& path)

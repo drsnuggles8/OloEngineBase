@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "ContentBrowserPanel.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -1268,8 +1269,7 @@ namespace OloEngine
                     out << YAML::EndMap;
                     out << YAML::EndMap;
 
-                    std::ofstream fout(matPath);
-                    if (!fout)
+                    if (!FileSystem::WriteFileAtomically(matPath, out.c_str(), { .TextMode = true }))
                     {
                         OLO_CORE_ERROR("Failed to create material file: {}", matPath.string());
                         ImGui::CloseCurrentPopup();
@@ -1277,8 +1277,6 @@ namespace OloEngine
                         ImGui::EndPopup();
                         return;
                     }
-                    fout << out.c_str();
-                    fout.close();
 
                     OLO_CORE_INFO("Created material: {}", matPath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
@@ -1674,14 +1672,11 @@ namespace OloEngine
         out << YAML::EndMap;
         out << YAML::EndMap;
 
-        std::ofstream fout(filePath);
-        if (!fout)
+        if (!FileSystem::WriteFileAtomically(filePath, out.c_str(), { .TextMode = true }))
         {
             OLO_CORE_ERROR("Failed to create primitive file: {}", filePath.string());
             return;
         }
-        fout << out.c_str();
-        fout.close();
 
         OLO_CORE_INFO("Created primitive: {}", filePath.string());
         SafeRefreshSubtree(m_CurrentDirectory);

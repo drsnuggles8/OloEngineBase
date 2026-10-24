@@ -285,8 +285,12 @@ namespace OloEngine
             std::error_code timeError;
             metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath, timeError);
             SetMetadata(metadata.Handle, metadata);
-            if (!replaceAsset)
-                SerializeAssetRegistry();
+            // The asset is registered in memory either way; a failed registry write is
+            // retried by the next one, and until then a restart would not know the handle.
+            if (!replaceAsset && !SerializeAssetRegistry())
+                OLO_CORE_ERROR_TAG("AssetManager", "Created {} but could not write the asset registry; save the project "
+                                                   "again before restarting",
+                                   metadata.FilePath.string());
 
             if (replaceAsset)
             {

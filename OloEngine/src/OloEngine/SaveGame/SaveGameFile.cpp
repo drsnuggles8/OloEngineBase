@@ -73,7 +73,8 @@ namespace OloEngine
             header.ChecksumCRC32 = static_cast<u32>(crc);
         }
 
-        // Written atomically: a crash mid-save leaves the previous save intact.
+        // Written atomically: a crash mid-save leaves the previous save intact. Durable,
+        // because a power cut after a reported save must not leave an empty file in its place.
         const auto writeSave = [&](std::ostream& file)
         {
             file.write(reinterpret_cast<const char*>(&header), sizeof(SaveGameHeader));
@@ -94,7 +95,7 @@ namespace OloEngine
             }
             return true;
         };
-        return FileSystem::WriteFileAtomically(path, writeSave);
+        return FileSystem::WriteFileAtomically(path, writeSave, { .Durable = true });
     }
 
     // ========================================================================

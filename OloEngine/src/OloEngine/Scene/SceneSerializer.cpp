@@ -7250,12 +7250,7 @@ namespace OloEngine
 
         // A failed write leaves the previous save intact instead of a truncated
         // scene. Text mode, as before: the bytes of a saved scene do not change.
-        if (!FileSystem::WriteFileAtomically(filepath, yaml, { .TextMode = true }))
-        {
-            OLO_CORE_ERROR("SceneSerializer: the scene was not saved to '{}'", filepath.string());
-            return false;
-        }
-        return true;
+        return FileSystem::WriteFileAtomically(filepath, yaml, { .TextMode = true });
     }
 
     [[maybe_unused]] void SceneSerializer::SerializeRuntime([[maybe_unused]] const std::filesystem::path& filepath) const

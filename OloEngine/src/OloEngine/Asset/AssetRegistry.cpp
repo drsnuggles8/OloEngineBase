@@ -237,6 +237,7 @@ namespace OloEngine
 
             // Written atomically: a failed write must not leave a truncated
             // registry, which would lose the handle of every asset in the project.
+            // Durable for the same reason: the rename must not reach the disk first.
             // A stream failure throws out of the writer, and the helper removes
             // its temporary on the way out to the catch below.
             const auto writeRegistry = [this](std::ostream& file)
@@ -278,7 +279,7 @@ namespace OloEngine
                 }
                 return true;
             };
-            return FileSystem::WriteFileAtomically(filepath, writeRegistry);
+            return FileSystem::WriteFileAtomically(filepath, writeRegistry, { .Durable = true });
         }
         catch (const std::exception& e)
         {
