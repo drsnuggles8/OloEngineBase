@@ -39,6 +39,13 @@ BREEDS = {
     "Samoyed": ("Samoyed", "Models/Samoyed/Samoyed.rig.json", "SamoyedPlay", 0.06),
 }
 
+# Strands the play scene's coat is capped at (GroomComponent MaxRenderStrands);
+# a breed not listed plays with its showcase coat whole.
+PLAY_STRAND_BUDGET = {
+    "Bernese": 1000000,
+    "Samoyed": 1000000,
+}
+
 # Gameplay names regions, not bones; DogPlay's favourite spots are "Ears" and
 # the underside of "Neck"/"Torso" (the chest).
 REGIONS = "; ".join([
@@ -108,6 +115,19 @@ def build(breed):
         "RepresentationStagingMegabytes": 10240,
     })
 
+    # The dense coats' strand budget while playing (#1559, #1558). At their full
+    # two million (Samoyed) and 1.6 million (Bernese) strands the coat alone
+    # took 18-21 ms of GPU on Vulkan and 25 ms on GL, and with presents missing
+    # the display's refresh a playing dog's frames ran to 35-37 ms at p95. The
+    # budget is the coat's own cap: the showcase scenes keep every strand.
+    if breed in PLAY_STRAND_BUDGET:
+        groom = by_tag["DogCoat"]["GroomComponent"]
+        budget = PLAY_STRAND_BUDGET[breed]
+        segments = groom.get("MaxRenderSegments")
+        if segments:
+            groom["MaxRenderSegments"] = int(round(segments * budget / groom["MaxRenderStrands"]))
+        groom["MaxRenderStrands"] = budget
+
     # The camera leaves the dog: it orbits the play spot, and the dog runs off.
     camera["RelationshipComponent"]["ParentHandle"] = 0
     dog["RelationshipComponent"]["Children"] = [c for c in dog["RelationshipComponent"]["Children"] if c != camera["Entity"]]
@@ -154,9 +174,7 @@ def build(breed):
 
     radius = rig["fetch"]["ballRadius"]
     ball, ball_mesh = uuid_for(breed, "ToyBall"), uuid_for(breed, "ToyBallMesh")
-    # In the opening view, beside the dog: at (0.75, 1.05) it lay just under the
-    # bottom of the frame, and a player saw only the stick.
-    ball_entity = entity(ball, "ToyBall", TransformComponent=transform((0.8, radius, 0.5)),
+    ball_entity = entity(ball, "ToyBall", TransformComponent=transform((0.75, radius, 1.05)),
                          Rigidbody3DComponent=body(0.058, 0.25, 0.6),
                          SphereCollider3DComponent={"Radius": radius, "Offset": [0.0, 0.0, 0.0], "StaticFriction": 0.8,
                                                     "DynamicFriction": 0.7, "Restitution": 0.55},

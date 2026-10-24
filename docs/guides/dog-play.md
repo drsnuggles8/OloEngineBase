@@ -75,6 +75,13 @@ and the coat stays on cards however close the camera comes. `GroomRenderPass` wa
 that happens ("never streamed in"), and `DogPlayEvidenceTest.CloseUpThePlaySceneDrawsTheCoatOnStrands`
 checks each breed close up.
 
+The Bernese and Samoyed play with their coats capped at 1,000,000 strands (`PLAY_STRAND_BUDGET` in
+`make_play_scene.py`, about 545,000 drawn close up); their showcase scenes keep every strand. At the
+full 1.6 and 2 million the coat alone took 18-21 ms of GPU on Vulkan and 25 ms on GL, and a playing
+dog's frames reached 35-37 ms at p95. Capped, they hold 33.3 ms at p95 on both backends while
+playing, and 16.7 ms at p50 on Vulkan. A cap of about 300,000 would meet 16.7 ms on GL too, but
+the Samoyed's coat then shows separate strands across the chest.
+
 ## What differs per breed
 
 Only data, written by generators:

@@ -423,8 +423,8 @@ Entities:
     Groom: 15952688685437936377
     RootMarkerSize: 0.01
     MaxPreviewStrands: 2000
-    MaxRenderStrands: 1999138
-    MaxRenderSegments: 7091971
+    MaxRenderStrands: 1000000
+    MaxRenderSegments: 3547514
     WidthScale: 1
     StrandColor: [1, 1, 1]
     ShowPreview: false
@@ -823,7 +823,7 @@ Entities:
 - Entity: 8147083347878859160
   TagComponent: {Tag: ToyBall}
   TransformComponent:
-    Translation: [0.8, 0.033, 0.5]
+    Translation: [0.75, 0.033, 1.05]
     Rotation: [0.0, 0.0, 0.0]
     Scale: [1.0, 1.0, 1.0]
   Rigidbody3DComponent: {BodyType: 1, Mass: 0.058, LinearDrag: 0.25, AngularDrag: 0.6, DisableGravity: false, IsTrigger: false}
