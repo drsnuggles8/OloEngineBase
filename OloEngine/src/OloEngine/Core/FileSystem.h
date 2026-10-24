@@ -21,9 +21,12 @@ namespace OloEngine
         bool TextMode = false;
         // Create the target's missing parent directories first.
         bool CreateParentDirectories = false;
-        // Push the temporary's bytes to the disk before the rename, and (on
-        // Windows) the rename too, so a power cut after a reported success
-        // cannot leave an empty file. Costs a disk round-trip per write.
+        // Push the temporary's bytes to the disk before the rename, and the
+        // rename after it (MOVEFILE_WRITE_THROUGH on Windows, an fsync of the
+        // directory on POSIX), so a power cut after a reported success cannot
+        // leave an empty or old file. Costs a disk round-trip or two per write.
+        // The one false return that leaves the NEW file in place is a failed
+        // directory sync: the bytes landed, their durability is not promised.
         bool Durable = false;
         // Called with the finished temporary just before it replaces the
         // target. Returning false abandons the write: the temporary is

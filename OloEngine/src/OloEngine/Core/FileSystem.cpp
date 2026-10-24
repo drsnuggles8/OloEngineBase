@@ -81,6 +81,31 @@ namespace OloEngine
 #endif
         }
 
+        // Make a completed rename durable. On POSIX a rename is atomic at once but
+        // reaches the disk only with its directory entry, so the directory itself
+        // is synced. Windows needs nothing more: MOVEFILE_WRITE_THROUGH already
+        // waited for the rename to reach the disk.
+        [[nodiscard]] bool SyncDirectoryOf([[maybe_unused]] const std::filesystem::path& target,
+                                           [[maybe_unused]] std::string& outError)
+        {
+#ifdef OLO_PLATFORM_WINDOWS
+            return true;
+#else
+            const std::filesystem::path directory = target.has_parent_path() ? target.parent_path() : ".";
+            const int fd = ::open(directory.c_str(), O_RDONLY | O_DIRECTORY);
+            if (fd == -1)
+            {
+                outError = std::error_code(errno, std::generic_category()).message();
+                return false;
+            }
+            const bool synced = ::fsync(fd) == 0;
+            if (!synced)
+                outError = std::error_code(errno, std::generic_category()).message();
+            ::close(fd);
+            return synced;
+#endif
+        }
+
         // Removes the temporary on every exit that did not rename it into
         // place, including an exception thrown by a writer or a veto callback.
         class TemporaryFile
@@ -205,6 +230,15 @@ namespace OloEngine
         if (const std::error_code renameError = ReplaceFile(temporary.Path(), target, options.Durable))
             return fail(std::format("cannot replace it with '{}': {}", temporary.Path().string(), renameError.message()));
         temporary.Release();
+
+        if (options.Durable)
+        {
+            // The new bytes are in place either way; what failed is the promise that
+            // they survive a power cut, so the caller hears about it.
+            std::string syncError;
+            if (!SyncDirectoryOf(target, syncError))
+                return fail(std::format("replaced, but cannot flush the directory entry to disk: {}", syncError));
+        }
         return true;
     }
 

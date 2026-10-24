@@ -12,6 +12,7 @@
 
 #include <atomic>
 #include <cstdlib>
+#include <fstream>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
