@@ -524,7 +524,13 @@ namespace OloEngine
         // mid-drag (a second button going down): m_IsDraggingNode would stay true
         // with a stale start position, and the next left-drag anywhere would
         // teleport the node.
-        if (!m_Canvas.IsPanning() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+        //
+        // And only presses ON the canvas: IsMouseClicked is global, so without the
+        // hover test a click on a popup, menu or panel drawn over a node selected
+        // and started dragging that node. Selecting a node adds "Delete Selected"
+        // to the context menu, which widened it and slid the submenu out from under
+        // the cursor before the release, so the clicked item never fired.
+        if (m_Canvas.IsHovered() && !m_Canvas.IsPanning() && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
         {
             if (PinInfo const* pin = HitTestPin(mousePos); pin != nullptr)
             {
