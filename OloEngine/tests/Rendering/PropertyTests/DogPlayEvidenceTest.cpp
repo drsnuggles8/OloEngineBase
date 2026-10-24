@@ -30,6 +30,7 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/SyntheticInput.h"
@@ -1611,11 +1612,29 @@ entity_utils.set_translation(id, vec3.new(ProbeState.fav and 1 or 0, ProbeState.
         // 150-200 ms a time -- the stutter of the "coat volume holds its body"
         // log line. The camera goes close, far, and close again; coming back,
         // no body is marked afresh: the earlier bake's is reused.
+        //
+        // And the face moves while the dog is away. The Bernese and the Samoyed
+        // blink and pant with morphs, which rewrite the body's positions in
+        // place; marked from those, every return was a different body and
+        // missed, so a play session still stuttered at each tier change.
+        //
+        // The play scenes now keep one coat across the play area
+        // (AFetchAcrossThePlayAreaBuildsNoCoatAgain), so the coat gets the
+        // engine's default thresholds back: far away it must change tier, or
+        // coming back bakes nothing and this measures nothing.
         OLO_ENSURE_GPU_OR_SKIP();
         LoadPlayScene(GetParam(), false);
         Renderer3D::GetPostProcessSettings() = GetScene().GetPostProcessSettings();
         Renderer3D::ApplyRendererSettings();
         m_Dog.GetComponent<AnimationStateComponent>().m_PlaybackSpeed = 0.0f;
+        {
+            const GroomLodComponent defaults;
+            auto& lod = m_Coat.GetComponent<GroomLodComponent>();
+            lod.m_CardPixelSize = defaults.m_CardPixelSize;
+            lod.m_VisibilityFullPixelSize = defaults.m_VisibilityFullPixelSize;
+            lod.m_SimulationFullPixelSize = defaults.m_SimulationFullPixelSize;
+            lod.m_ShadowFullPixelSize = defaults.m_ShadowFullPixelSize;
+        }
         Tick(10);
         const glm::mat4 body = GetScene().GetWorldTransform(static_cast<entt::entity>(m_Dog));
         const f32 dogYaw = std::atan2(body[2].x, body[2].z);
@@ -1641,9 +1660,43 @@ entity_utils.set_translation(id, vec3.new(ProbeState.fav and 1 or 0, ProbeState.
         };
         const Marks first = run(1.0f, 240u);
         const Marks away = run(14.0f, 240u);
+        // While away, the dog does what a fetch does to it: its clip moves on
+        // (the face's morph weights are sampled from it every tick, so setting
+        // a weight does not hold) and it runs somewhere else and turns.
+        const auto morphWeights = [&]
+        {
+            std::vector<f32> weights;
+            for (const auto e : GetScene().GetAllEntitiesWith<MorphTargetComponent>())
+            {
+                for (const auto& [name, weight] : Entity{ e, &GetScene() }.GetComponent<MorphTargetComponent>().Weights)
+                    weights.push_back(weight);
+            }
+            return weights;
+        };
+        const std::vector<f32> weightsBefore = morphWeights();
+        auto& dogTransform = m_Dog.GetComponent<TransformComponent>();
+        dogTransform.Translation += glm::vec3(0.7f, 0.0f, -0.4f);
+        dogTransform.SetRotationEuler(dogTransform.GetRotationEuler() + glm::vec3(0.0f, 0.5f, 0.0f));
+        // The clip blinks now and then: stepped on until the face has moved.
+        std::vector<f32> weightsAfter;
+        f32 morphMoved = 0.0f;
+        for (u32 step = 0; step < 100u && !(morphMoved > 0.05f); ++step)
+        {
+            m_Dog.GetComponent<AnimationStateComponent>().m_CurrentTime += 0.1f;
+            Tick(1);
+            weightsAfter = morphWeights();
+            for (sizet i = 0; i < std::min(weightsBefore.size(), weightsAfter.size()); ++i)
+                morphMoved = std::max(morphMoved, std::abs(weightsAfter[i] - weightsBefore[i]));
+        }
         const Marks back = run(1.0f, 240u);
-        std::printf("[dog-play] %s coat body: close %u marked (%u reused), far %u (%u), back close %u (%u)\n",
-                    GetParam().Name, first.Fresh, first.Reused, away.Fresh, away.Reused, back.Fresh, back.Reused);
+        std::printf("[dog-play] %s coat body: close %u marked (%u reused), far %u (%u), back close %u (%u); face "
+                    "morph weights (%zu) moved by up to %.3f while away\n",
+                    GetParam().Name, first.Fresh, first.Reused, away.Fresh, away.Reused, back.Fresh, back.Reused,
+                    weightsAfter.size(), static_cast<f64>(morphMoved));
+        if (!weightsAfter.empty())
+        {
+            EXPECT_GT(morphMoved, 0.01f) << "the face did not move while the dog was away: the morph half measures nothing";
+        }
         // The first close-up bakes come with the scene's first frames, before the
         // camera is placed; what is measured is the return.
         ASSERT_GT(back.Fresh + back.Reused, 0u) << "coming back close baked no coat at all: this measures nothing";

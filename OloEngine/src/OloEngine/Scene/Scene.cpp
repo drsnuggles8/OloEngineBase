@@ -12124,6 +12124,14 @@ namespace OloEngine
             request.GpuRootSurfaceKey =
                 (static_cast<u64>(reinterpret_cast<std::uintptr_t>(surface.Raw())) * 1099511628211ull) ^
                 (static_cast<u64>(surface->GetGeneration()) << 20) ^ static_cast<u64>(view.VertexCount);
+            // The body the coat's rest bake marks: unmorphed, because the morph
+            // pass rewrote the view's positions in place (GroomStrandRequest).
+            request.CoatRestBody = view;
+            if (morph != nullptr && morph->BasePositions.size() == static_cast<sizet>(view.VertexCount))
+            {
+                request.CoatRestBody.PositionData = reinterpret_cast<const std::byte*>(morph->BasePositions.data());
+                request.CoatRestBody.PositionStride = static_cast<u32>(sizeof(glm::vec3));
+            }
         }
         {
             OLO_PERF_SCOPE_AUTO("Groom::RootEvaluate");

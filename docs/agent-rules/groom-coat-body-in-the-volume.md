@@ -98,6 +98,10 @@ across.
   transform into the coat. A hit counts in `CoatShadow.BodyBakesReused`. A tier's first bake still
   marks: each tier has its own grid, from its own segments' bounds.
   `DogPlayEvidenceTest.ACoatComingBackCloseDoesNotMarkItsBodyAgain` pins it.
+- **A rest bake marks the body at rest: unmorphed.** The morph pass rewrites the bound surface's
+  positions in place, so the request carries `CoatRestBody`, the same triangles over the morph's
+  `BasePositions`. Marked from the morphed surface, a blinking or panting Bernese was a different body
+  at every bake and never hit the reuse above. The test moves a face morph while the camera is away.
 - **The lever is shader-side.** `OLO_GROOM_NO_COAT_BODY` clears bit 2 per frame; the volume keeps the
   body, so the A/B costs no rebake and changes nothing else.
 

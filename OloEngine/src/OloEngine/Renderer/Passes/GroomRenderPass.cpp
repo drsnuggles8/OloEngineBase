@@ -2247,8 +2247,19 @@ namespace OloEngine
         const bool coatChanged = !deformed && entry.CoatBakedCoatDigest != request.Build.CoatDigest;
         // A rest bake marks the body it grows on (#1533); one made before the
         // bound surface arrived is made again once it has.
-        const GroomDeformationInputs* restBody =
-            !deformed && request.GpuRootInputs.Surface.IsUsable() ? &request.GpuRootInputs : nullptr;
+        // Over the body AT REST (CoatRestBody): a morph rewrites the bound
+        // surface's positions in place, and a rest bake marks the unmorphed one.
+        GroomDeformationInputs restBodyInputs;
+        const GroomDeformationInputs* restBody = nullptr;
+        if (!deformed && request.GpuRootInputs.Surface.IsUsable())
+        {
+            restBodyInputs = request.GpuRootInputs;
+            if (request.CoatRestBody.IsUsable())
+            {
+                restBodyInputs.Surface = request.CoatRestBody;
+            }
+            restBody = &restBodyInputs;
+        }
         const bool bodyArrived = restBody != nullptr && !entry.CoatBakedWithSurface;
         const bool needsRebuild = !entry.CoatVolume || !bakeSourceMatches || entry.CoatResolution != resolution ||
                                   entry.CoatLodStep != lodStep ||
