@@ -2037,6 +2037,11 @@ namespace OloEngine::Tests
             const std::string relative = fs::relative(entry.path(), projectRoot, ec).generic_string();
             if (ec || relative.empty() || registeredPaths.contains(relative))
                 continue; // already registered with exact casing
+            // Derived and git-ignored, as EverySupportedAssetOnDiskIsInTheRegistry skips it:
+            // registered here, a machine that had run the editor committed entries a fresh
+            // clone has no files for (#1559's rebase added twelve).
+            if (relative.starts_with("Assets/cache/"))
+                continue;
 
             if (auto it = byLowerPath.find(toLower(relative)); it != byLowerPath.end())
             {
