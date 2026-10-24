@@ -134,6 +134,13 @@ namespace OloEngine
             u32 CpuCount = 0;                    // CPU entries uploaded this frame
             u32 CpuRequested = 0;                // CPU pushes attempted this frame (unclamped)
             RHI::ResourceHandle StagingBuffer{}; // DeviceToHost header mirror
+            // End-of-frame header mirror, copied in BeginFrame just before the
+            // reset, so it holds pushes made after the draw (see PushedAfterDraw).
+            RHI::ResourceHandle LateStagingBuffer{};
+            // The draw-time RequestCount of the frame the late copy describes.
+            // The late copy is one frame older than the draw-time one, so the
+            // draw-time count is kept for one readback to line the two up.
+            u32 PreviousDrawRequested = 0;
         };
 
         struct Data
@@ -175,6 +182,11 @@ namespace OloEngine
             std::atomic<bool> Enabled{ false };
             std::atomic<bool> Initialised{ false };
             bool StatsStaged = false;
+            bool LateStaged = false;
+            // Set when the debug-draw pass staged this frame's counters, i.e. the
+            // channels were live through a whole frame and their end state is
+            // worth copying before the next reset.
+            bool DrewThisFrame = false;
             f32 LineWidth = 2.0f;
             u32 RequestedCapacity = kDefaultChannelCapacity;
         };
@@ -191,5 +203,6 @@ namespace OloEngine
                                                 sizet stagedCount);
         static void ClearCpuEntries();
         static void ReadbackStats();
+        static void StageEndOfFrameHeaders();
     };
 } // namespace OloEngine

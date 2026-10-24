@@ -170,6 +170,25 @@ stage has no entity-ID / view-normal / velocity output, and leaving those
 attachments selected would write undefined values over them and break editor
 picking wherever a line crosses.
 
+### A push after the draw is never drawn
+
+`ShaderDebugDrawPass` draws and copies the headers for readback in the middle of
+the frame, before tone mapping. The next frame's `BeginFrame` resets the headers.
+A push from a pass between those two points (tone mapping, later post-processing,
+UI) lands in the header after the copy and is erased by the reset: it is never
+drawn and never counted.
+
+On 2026-09-01 (#1002) this read as "the debug draws report 0 on Vulkan": the
+positive control was a push in `PostProcess_ToneMap`, which reads 0 on OpenGL too.
+Re-measured on 2026-10-24 (#607), a vertex-stage push in `DeferredLighting` reads
+`requested 1, drawn 1` on both backends, and the tonemap push reads 0 on both.
+
+`BeginFrame` now copies the headers once more just before the reset, and the
+readback reports the difference from the draw-time count as `PushedAfterDraw`
+(`pushedAfterDraw` in `olo_shader_debug_draw`). It is one frame older than the
+other counters. `ShaderDebugDrawGpuPushTest.APushAfterTheDrawIsReportedAsPushedAfterDraw`
+pins it.
+
 ---
 
 ## 5. The shipped consumer

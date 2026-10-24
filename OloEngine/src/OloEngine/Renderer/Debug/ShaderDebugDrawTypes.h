@@ -389,6 +389,11 @@ namespace OloEngine
         u32 Drawn = 0;     // == InstanceCount
         u32 Requested = 0; // == RequestCount
         u32 CpuPushes = 0; // of `Drawn`/`Requested`, how many came from the CPU
+        // Pushes made AFTER the debug-draw pass had drawn and staged the counters
+        // (tone mapping, later post-processing, UI): never drawn and absent from
+        // `Requested`. Measured from a second header copy taken just before the
+        // next frame's reset, so it is one frame older than the counters above.
+        u32 PushedAfterDraw = 0;
 
         [[nodiscard]] constexpr bool Overflowed() const
         {

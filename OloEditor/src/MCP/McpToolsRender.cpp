@@ -24,6 +24,7 @@
 #include "MCP/McpSkeletalDeformationStats.h"
 #include "MCP/McpRayTraceRay.h"
 #include "MCP/McpRayTracingStats.h"
+#include "MCP/McpGpuSceneStats.h"
 
 #include "OloEngine/Renderer/RayTracing/RayTracingProbe.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingScene.h"
@@ -51,6 +52,7 @@
 #include "OloEngine/Renderer/Debug/GPUResourceInspector.h"
 #include "OloEngine/Renderer/Debug/ResourceInspectorBackend.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
+#include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDraw.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugDrawTypes.h"
 #include "OloEngine/Renderer/Debug/ShaderDebugger.h"
@@ -5420,6 +5422,7 @@ namespace OloEngine::MCP
             j["statsValid"] = stats.StatsValid;
             j["statsAreFromPreviousFrame"] = true;
             Json channels = Json::array();
+            u64 pushedAfterDraw = 0;
             for (u32 i = 0; i < kShaderDebugDrawPrimitiveCount; ++i)
             {
                 const auto& channel = stats.Channels[i];
@@ -5431,10 +5434,13 @@ namespace OloEngine::MCP
                     { "cpuPushes", channel.CpuPushes },
                     { "overflowed", channel.Overflowed() },
                     { "dropped", channel.Dropped() },
+                    { "pushedAfterDraw", channel.PushedAfterDraw },
                 });
+                pushedAfterDraw += channel.PushedAfterDraw;
             }
             j["channels"] = std::move(channels);
             j["anyOverflow"] = stats.AnyOverflow();
+            j["pushedAfterDraw"] = pushedAfterDraw;
             return j;
         }
 
@@ -5455,7 +5461,9 @@ namespace OloEngine::MCP
                                                     .Prop("requested", Schema::Int())
                                                     .Prop("cpuPushes", Schema::Int())
                                                     .Prop("overflowed", Schema::Bool())
-                                                    .Prop("dropped", Schema::Int())));
+                                                    .Prop("dropped", Schema::Int())
+                                                    .Prop("pushedAfterDraw", Schema::Int().Desc("Pushes made by passes that run AFTER the debug-draw pass (tone mapping, later post-processing, UI): never drawn and absent from 'requested'. One frame older than the other counters."))))
+                .Prop("pushedAfterDraw", Schema::Int().Desc("Sum of the channels' pushedAfterDraw. Non-zero means a shader pushed too late in the frame to be drawn."));
         }
 
         ToolResult Handle_ShaderDebugDrawSet(IAutomationHost& host, const Json& args)
@@ -5530,6 +5538,12 @@ namespace OloEngine::MCP
                 j["message"] = "At least one channel OVERFLOWED - the excess draws were dropped, so what you "
                                "see is a prefix, not the whole set. Raise clusterStride, or expect an "
                                "arbitrary subset.";
+            }
+            else if (current.value("pushedAfterDraw", static_cast<u64>(0)) > 0)
+            {
+                j["message"] = "Some pushes came from a pass that runs AFTER the debug-draw pass (tone mapping, "
+                               "later post-processing, UI): they are never drawn and are not in 'requested'. See "
+                               "each channel's pushedAfterDraw, and push from a pass before tone mapping instead.";
             }
             else if (current.value("enabled", false))
             {
@@ -7177,6 +7191,55 @@ namespace OloEngine::MCP
         {
             const Json result = host.MarshalRead([]() -> Json
                                                  { return BuildRayTracingStatsReport(); });
+
+            return ToolResult::Structured(result);
+        }
+
+        // ---- olo_gpu_scene_stats (#607) ----------------------------------
+        //
+        // Every figure comes from GetLastCompletedFrameData(): the registry
+        // stats, the draw-link counts (set at EndScene) and the consumption
+        // counts (pulled at EndFrame, after dispatch) are only one frame's
+        // numbers when they are read from the same finalized frame.
+        ToolResult Handle_GpuSceneStats(IAutomationHost& host, const Json& /*args*/)
+        {
+            const Json result = host.MarshalRead([]() -> Json
+                                                 {
+                GpuSceneStats::Snapshot snapshot;
+                snapshot.State.Available = Renderer3D::HasInitialized();
+                // The GPU Scene has no runtime switch: it is on whenever the
+                // renderer is.
+                snapshot.State.Enabled = snapshot.State.Available;
+                snapshot.State.Freshness = StatsSnapshot::FreshnessModel::PreviousFrame;
+                if (snapshot.State.Available)
+                {
+                    const auto& profiler = RendererProfiler::GetInstance();
+                    const u32 completed = profiler.GetLastCompletedFrameNumber();
+                    snapshot.RenderFrameNumber = completed;
+                    // No completed frame yet is noData, not a registry of zeros.
+                    snapshot.State.HasData = completed > 0;
+                    const u32 current = profiler.GetCurrentFrameNumber();
+                    snapshot.State.SampleAgeFrames = current >= completed ? current - completed : 0u;
+
+                    const auto& frame = profiler.GetLastCompletedFrameData();
+                    snapshot.Stats = frame.m_GPUScene;
+                    snapshot.Draws.Linked = frame.m_GPUSceneLinkedDraws;
+                    snapshot.Draws.Unlinked = frame.m_GPUSceneUnlinkedDraws;
+                    snapshot.Draws.Consumed = frame.m_GPUSceneConsumedDraws;
+                    snapshot.Draws.FellBack = frame.m_GPUSceneFallbackDraws;
+
+                    // The ring is oldest-first and pre-sized, so before it fills
+                    // its head is default frames; keep only the completed tail.
+                    const TArray<RendererProfiler::FrameData> history = profiler.GetFrameHistoryCopy();
+                    const auto filled = static_cast<i32>(std::min<u64>(completed, static_cast<u64>(history.Num())));
+                    TArray<GPUSceneFrameStats> window;
+                    window.Reserve(filled);
+                    for (i32 i = history.Num() - filled; i < history.Num(); ++i)
+                        window.Add(history[i].m_GPUScene);
+                    snapshot.Recent = GpuSceneStats::SummarizeWindow(
+                        std::span<const GPUSceneFrameStats>(window.GetData(), static_cast<sizet>(window.Num())));
+                }
+                return GpuSceneStats::BuildReport(snapshot); });
 
             return ToolResult::Structured(result);
         }
@@ -10241,6 +10304,95 @@ namespace OloEngine::MCP
                     .Required({ "availability", "freshness", "capability", "gpuScene", "vegetation", "grooms" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_RayTracingStats;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            const auto kindSchema = []
+            {
+                return Schema::Object()
+                    .Prop("live", Schema::Int().Min(0).Desc("Records with a live key this frame."))
+                    .Prop("slots", Schema::Int().Min(0).Desc("Slots ever allocated: live + freeSlots + retiringSlots + exhaustedSlots."))
+                    .Prop("bufferCapacity", Schema::Int().Min(0).Desc("Records the GPU buffer holds before it must grow."))
+                    .Prop("freeSlots", Schema::Int().Min(0).Desc("Holes ready for reuse (the free list)."))
+                    .Prop("retiringSlots", Schema::Int().Min(0).Desc("Killed slots waiting for their buffered frames to finish before reuse."))
+                    .Prop("exhaustedSlots", Schema::Int().Min(0).Desc("Slots whose generation ran out: tombstoned and never reused."))
+                    .Prop("uploadBytes", Schema::Int().Min(0).Desc("Bytes uploaded for this kind's dirty ranges this frame."))
+                    .Prop("recordBytes", Schema::Int().Min(0))
+                    .Prop("capacityBytes", Schema::Int().Min(0))
+                    .Prop("liveBytes", Schema::Int().Min(0))
+                    .Prop("occupancy", Schema::Raw(Json{ { "type", Json::array({ "number", "null" }) } }).Desc("live / bufferCapacity; null before the table has a buffer."))
+                    .Required({ "live", "slots", "bufferCapacity", "freeSlots", "retiringSlots", "exhaustedSlots", "uploadBytes", "occupancy" });
+            };
+
+            ToolDef tool;
+            tool.Name = "olo_gpu_scene_stats";
+            tool.Toolset = "render";
+            tool.Title = "GPU Scene registry accounting";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Return the canonical GPU Scene's registry accounting for the last completed frame (issue #607): per "
+                "record kind (instances, geometries, materials, lights, environments) the live records, slots, GPU "
+                "buffer capacity, free-list and retirement-queue depth, generation-exhausted slots, upload bytes "
+                "this frame and the bytes the table occupies; the frame's total upload bytes, buffer growth events "
+                "and extraction time; draw-link resolution (linked / unlinked) and how many draws read a record at "
+                "dispatch versus fell back; the renderable geometry that produced no record, by category; and the "
+                "foliage and animated-surface censuses. 'recent' sums uploads over the profiler's last frames (up "
+                "to 1024), in bytes and in records, because an edit uploads on one frame that a single sample has "
+                "usually moved past. Use it to confirm a scene's materials, lights and environment reached the "
+                "registry, and that a one-light edit uploaded one light record (recent.uploadRecords.lights). "
+                "olo_rt_scene_stats.gpuScene carries only the live counts. Every figure comes from one finalized "
+                "profiler frame; 'invariantViolations' lists any slot or upload identity that does not add up, "
+                "which is a producer bug rather than a scene property.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema =
+                Schema::Object()
+                    .Prop("availability", Schema::Object()
+                                              .Prop("available", Schema::Bool())
+                                              .Prop("enabled", Schema::Bool())
+                                              .Prop("hasData", Schema::Bool())
+                                              .Prop("status", Schema::String().Enum({ "unavailable", "disabled", "noData", "ready" }))
+                                              .Required({ "available", "enabled", "hasData", "status" }))
+                    .Prop("freshness", Schema::Object()
+                                           .Prop("model", Schema::String().Enum({ "previousFrame" }))
+                                           .Prop("stale", Schema::Bool())
+                                           .Prop("sampleAgeFrames", Schema::Raw(Json{ { "type", Json::array({ "integer", "null" }) }, { "minimum", 0 } }))
+                                           .Required({ "model", "stale", "sampleAgeFrames" }))
+                    .Prop("renderFrameNumber", Schema::Int().Min(0).Desc("The profiler frame the sample came from."))
+                    .Prop("kinds", Schema::Object()
+                                       .Prop("instances", kindSchema())
+                                       .Prop("geometries", kindSchema())
+                                       .Prop("materials", kindSchema())
+                                       .Prop("lights", kindSchema())
+                                       .Prop("environments", kindSchema())
+                                       .Required({ "instances", "geometries", "materials", "lights", "environments" }))
+                    .Prop("frame", Schema::Object()
+                                       .Prop("uploadBytes", Schema::Int().Min(0))
+                                       .Prop("bufferGrowthEvents", Schema::Int().Min(0))
+                                       .Prop("extractionMs", Schema::Number().Min(0)))
+                    .Prop("recent", Schema::Object()
+                                        .Desc("Uploads summed over the profiler's recent frames (up to 1024). An edit uploads on one frame, which a single previous-frame sample has usually moved past; read uploadRecords here to confirm what an edit uploaded.")
+                                        .Prop("frames", Schema::Int().Min(0))
+                                        .Prop("framesWithUploads", Schema::Int().Min(0))
+                                        .Prop("bufferGrowthEvents", Schema::Int().Min(0))
+                                        .Prop("uploadBytes", Schema::Object())
+                                        .Prop("uploadRecords", Schema::Object().Desc("uploadBytes / recordBytes per kind: records uploaded in the window.")))
+                    .Prop("memory", Schema::Object()
+                                        .Prop("capacityBytes", Schema::Int().Min(0))
+                                        .Prop("liveBytes", Schema::Int().Min(0)))
+                    .Prop("draws", Schema::Object()
+                                       .Prop("linked", Schema::Int().Min(0))
+                                       .Prop("unlinked", Schema::Int().Min(0).Desc("Draw links that named no live record at the commit step."))
+                                       .Prop("consumed", Schema::Int().Min(0).Desc("Draws that read their GPU Scene record at dispatch."))
+                                       .Prop("fellBack", Schema::Int().Min(0).Desc("Draws that used their own per-draw data instead.")))
+                    .Prop("notStagedTotal", Schema::Int().Min(0))
+                    .Prop("notStagedByCategory", Schema::Object())
+                    .Prop("foliage", Schema::Object())
+                    .Prop("animated", Schema::Object())
+                    .Prop("invariantViolations", Schema::Array(Schema::String()).Desc("Empty on a healthy registry."))
+                    .Required({ "availability", "freshness", "renderFrameNumber" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_GpuSceneStats;
             registry.Register(std::move(tool));
         }
 

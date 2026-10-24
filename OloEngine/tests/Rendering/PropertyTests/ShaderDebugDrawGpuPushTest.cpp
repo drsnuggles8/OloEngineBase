@@ -152,6 +152,42 @@ namespace OloEngine::Tests
         EXPECT_EQ(stats.Dropped(), pushes - capacity);
     }
 
+    // A push from a pass that runs after the debug-draw pass (tone mapping, UI)
+    // used to read as zero: the draw-time copy predates it and the next frame's
+    // reset erases it. It read as "the shader did not run" during #1002 (#607).
+    TEST_F(ShaderDebugDrawGpuPushTest, APushAfterTheDrawIsReportedAsPushedAfterDraw)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        auto probe = ComputeShader::Create("assets/shaders/tests/DebugDrawPushProbe.comp");
+        ASSERT_TRUE(probe && probe->IsValid());
+
+        const ScopedShaderDebugDraw scoped;
+        const auto dispatch = [&probe](u32 pushCount)
+        {
+            probe->Bind();
+            probe->SetUint("u_PushCount", pushCount);
+            RenderCommand::DispatchCompute((pushCount + 63u) / 64u, 1, 1);
+            RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
+        };
+
+        ShaderDebugDraw::SetChannelCapacity(256);
+        ShaderDebugDraw::BeginFrame();
+        dispatch(10u);                            // before the debug-draw pass
+        ShaderDebugDraw::StageStatsForReadback(); // what the pass does after drawing
+        dispatch(7u);                             // a later pass
+
+        // The next frame copies the end state before resetting; the frame after
+        // reads it back against the draw-time count it kept.
+        ShaderDebugDraw::BeginFrame();
+        ShaderDebugDraw::StageStatsForReadback();
+        ShaderDebugDraw::BeginFrame();
+
+        const auto& stats = ShaderDebugDraw::GetStats()
+                                .Channels[static_cast<u32>(std::to_underlying(ShaderDebugDrawPrimitive::AABB))];
+        EXPECT_EQ(stats.PushedAfterDraw, 7u) << "Pushes made after the draw-time copy were not counted";
+    }
+
     TEST_F(ShaderDebugDrawGpuPushTest, ADisabledChannelAcceptsNothingAndReportsNoOverflow)
     {
         OLO_ENSURE_GPU_OR_SKIP();
