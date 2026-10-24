@@ -149,11 +149,11 @@ namespace OloEngine
 
     void DialogueEditorPanel::OpenDialogue(AssetHandle handle)
     {
-        // Resolve path from asset metadata's relative path
+        // Registry paths are project-relative ("Assets/Dialogues/Foo.olodialogue").
         auto metadata = AssetManager::GetAssetMetadata(handle);
         if (metadata.IsValid())
         {
-            auto fsPath = Project::GetAssetFileSystemPath(metadata.FilePath);
+            auto fsPath = Project::GetProjectDirectory() / metadata.FilePath;
             LoadDialogue(fsPath);
             if (!m_Nodes.empty())
             {

@@ -1388,7 +1388,8 @@ namespace OloEngine
         auto metadata = AssetManager::GetAssetMetadata(handle);
         if (metadata.IsValid())
         {
-            m_PendingLoadPath = Project::GetAssetFileSystemPath(metadata.FilePath);
+            // Registry paths are project-relative ("Assets/Materials/Foo.olosg").
+            m_PendingLoadPath = Project::GetProjectDirectory() / metadata.FilePath;
             m_PendingLoadHandle = handle;
             m_PendingLoadFrameDelay = 0;
             ImGui::SetWindowFocus("###ShaderGraphEditor");
