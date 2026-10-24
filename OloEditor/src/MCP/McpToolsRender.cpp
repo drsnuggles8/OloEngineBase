@@ -10340,8 +10340,8 @@ namespace OloEngine::MCP
                 "dispatch versus fell back; the renderable geometry that produced no record, by category; and the "
                 "foliage and animated-surface censuses. 'recent' sums uploads over the profiler's frame ring (up "
                 "to 1024 frames) because an edit uploads on one frame that a single sample has usually moved past: "
-                "recent.uploadFrames.lights counts the frames that uploaded lights, one per edit on both backends "
-                "(uploadRecords is backend-shaped: Vulkan republishes the whole table on any edit). Use it to "
+                "recent.uploadFrames.lights counts the frames that uploaded lights on either backend (edits in one "
+                "frame share one; uploadRecords is backend-shaped: Vulkan republishes every slot on any edit). Use it to "
                 "confirm a scene's materials, lights and environment reached the registry and that an edit reached "
                 "the GPU. olo_rt_scene_stats.gpuScene carries only the live counts. Everything outside 'recent' "
                 "comes from one finalized profiler frame; 'invariantViolations' lists any slot or upload identity "
@@ -10377,9 +10377,9 @@ namespace OloEngine::MCP
                                         .Prop("frames", Schema::Int().Min(0))
                                         .Prop("framesWithUploads", Schema::Int().Min(0))
                                         .Prop("bufferGrowthEvents", Schema::Int().Min(0))
-                                        .Prop("uploadFrames", Schema::Object().Desc("Per kind, frames that uploaded it. One edit is one upload frame on both backends: the number to compare with the edits you made."))
+                                        .Prop("uploadFrames", Schema::Object().Desc("Per kind, frames that uploaded it, the same on both backends. Edits applied in one frame share one upload frame; buffer growth and GPU initialisation upload too."))
                                         .Prop("uploadBytes", Schema::Object())
-                                        .Prop("uploadRecords", Schema::Object().Desc("uploadBytes / recordBytes per kind. On OpenGL the dirty records; on Vulkan every edit republishes the whole table, so one edit counts every live record of that kind.")))
+                                        .Prop("uploadRecords", Schema::Object().Desc("uploadBytes / recordBytes per kind. On OpenGL the dirty records; on Vulkan any edit republishes every slot of the table (live, free and retiring), so one edit counts all of them.")))
                     .Prop("memory", Schema::Object()
                                         .Prop("capacityBytes", Schema::Int().Min(0))
                                         .Prop("liveBytes", Schema::Int().Min(0)))

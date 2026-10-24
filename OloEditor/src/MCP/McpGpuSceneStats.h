@@ -141,9 +141,10 @@ namespace OloEngine::MCP::GpuSceneStats
     // window.
     //
     // Count frames per kind, not just bytes: the bytes are backend-shaped. GL
-    // writes the dirty records; Vulkan republishes the whole table on any edit
-    // so no submitted frame reads a half-written one. One edit is one upload
-    // frame on both.
+    // writes the dirty records; Vulkan republishes every slot of the table (live,
+    // free and retiring) on any edit so no submitted frame reads a half-written
+    // one. An upload frame is the same on both: edits applied in one frame share
+    // it, and growth and GPU initialisation upload too.
     struct KindWindow
     {
         u32 UploadFrames = 0;
@@ -211,6 +212,15 @@ namespace OloEngine::MCP::GpuSceneStats
             const OloEngine::GPUSceneKindStats& Kind;
             const KindWindow& Recent;
             u64 RecordBytes;
+
+            [[nodiscard]] u64 CapacityBytes() const
+            {
+                return static_cast<u64>(Kind.m_BufferCapacity) * RecordBytes;
+            }
+            [[nodiscard]] u64 LiveBytes() const
+            {
+                return static_cast<u64>(Kind.m_Live) * RecordBytes;
+            }
         };
 
         [[nodiscard]] inline Json KindReport(const KindRow& row, Json& violations)
@@ -241,8 +251,8 @@ namespace OloEngine::MCP::GpuSceneStats
                 { "exhaustedSlots", exhausted },
                 { "uploadBytes", kind.m_UploadBytes },
                 { "recordBytes", row.RecordBytes },
-                { "capacityBytes", static_cast<u64>(kind.m_BufferCapacity) * row.RecordBytes },
-                { "liveBytes", static_cast<u64>(kind.m_Live) * row.RecordBytes },
+                { "capacityBytes", row.CapacityBytes() },
+                { "liveBytes", row.LiveBytes() },
             };
             // Null rather than 0 with no buffer: "no table yet" is not "empty table".
             if (kind.m_BufferCapacity > 0)
@@ -282,8 +292,8 @@ namespace OloEngine::MCP::GpuSceneStats
         for (const auto& row : rows)
         {
             kinds[row.Name] = Detail::KindReport(row, violations);
-            capacityBytes += static_cast<u64>(row.Kind.m_BufferCapacity) * row.RecordBytes;
-            liveBytes += static_cast<u64>(row.Kind.m_Live) * row.RecordBytes;
+            capacityBytes += row.CapacityBytes();
+            liveBytes += row.LiveBytes();
             uploadSum += row.Kind.m_UploadBytes;
             recentFrames[row.Name] = row.Recent.UploadFrames;
             recentBytes[row.Name] = row.Recent.UploadBytes;
