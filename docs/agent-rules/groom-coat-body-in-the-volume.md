@@ -31,9 +31,10 @@ touching `GroomCoatShadow::MarkBodyInDensityVolume`, the march in
 
 4. **Only a rest bake carries a body.** `CoatModes.w` is a bitfield: 1 the volume is the coat at rest
    (marched from each fragment's bind point along the light turned back through its root), 2 it holds
-   the body. The body is the bind-pose surface (`GpuRootInputs.Surface` through `SurfaceToGroom`), so
-   near a strand it is the body as posed and across the animal it is the body as bound. A pose bake has
-   no body and shades as before #1533.
+   the body. The body is the bind-pose surface at rest (`GroomStrandRequest::CoatRestBody` through
+   `SurfaceToGroom`): the bound surface's triangles over the morph's `BasePositions` on a morphing
+   body, never its live morphed positions, so near a strand it is the body as posed and across the
+   animal it is the body as bound. A pose bake has no body and shades as before #1533.
 
 5. **Only closed parts are filled, and an open one says so.** The surface is welded by position
    (glTF splits every UV seam) and split into components; a component is filled only if every edge has
@@ -101,7 +102,9 @@ across.
 - **A rest bake marks the body at rest: unmorphed.** The morph pass rewrites the bound surface's
   positions in place, so the request carries `CoatRestBody`, the same triangles over the morph's
   `BasePositions`. Marked from the morphed surface, a blinking or panting Bernese was a different body
-  at every bake and never hit the reuse above. The test moves a face morph while the camera is away.
+  at every bake and never hit the reuse above, and the morph split it at its seams into open parts:
+  401 voxels marked where the rest body marks 683,164. The test steps the clip until the face's
+  weights move while the camera is away (a set weight is re-sampled from the clip every tick).
 - **The lever is shader-side.** `OLO_GROOM_NO_COAT_BODY` clears bit 2 per frame; the volume keeps the
   body, so the A/B costs no rebake and changes nothing else.
 
