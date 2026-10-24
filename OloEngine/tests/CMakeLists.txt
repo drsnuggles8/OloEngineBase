@@ -1456,6 +1456,7 @@ add_executable(OloEngine-Tests
 		MCP/McpVirtualShadowMapStatsTest.cpp
 		MCP/McpRenderLODStatsTest.cpp
 		MCP/McpRayTracingStatsTest.cpp
+		MCP/McpGpuSceneStatsTest.cpp
 		MCP/McpDDGIProbeStatsTest.cpp
 		# Pure froxel <-> world mapping (the shaders' exponential z-slice
 		# distribution + view-ray secant scaling) behind olo_froxel_fog_probe (#607,

@@ -43,6 +43,7 @@
 // TonemapOperator / RenderingPath), so the token->int mapping can never drift out
 // of sync with the renderer — a reordered enum is a compile-time change here.
 
+#include "MCP/McpTokenNormalization.h"
 #include "MCP/McpSchemaBuilder.h"
 
 #include "OloEngine/Core/Base.h"
@@ -453,20 +454,11 @@ namespace OloEngine::MCP::RendererSettings
           "composited both ways (#1417). Not persisted." },
     } };
 
-    // Lowercase + drop every non-alphanumeric character so "Ultra Performance",
-    // "ultra_performance" and "ultra-performance" all collapse to one key. Pure;
-    // makes token matching forgiving, mirroring RenderOverrides::Normalize.
+    // Case and separator insensitive; see MCP::NormalizeToken, which every MCP
+    // token table shares (including the '+' -> "plus" rule).
     [[nodiscard]] inline std::string Normalize(std::string_view s)
     {
-        std::string out;
-        out.reserve(s.size());
-        for (const char c : s)
-        {
-            const auto uc = static_cast<unsigned char>(c);
-            if (std::isalnum(uc) != 0)
-                out.push_back(static_cast<char>(std::tolower(uc)));
-        }
-        return out;
+        return NormalizeToken(s);
     }
 
     // The allowed values of a setting.

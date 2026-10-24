@@ -41,6 +41,8 @@
 // McpRenderExplain.h use. Only nlohmann::json, the scalar typedefs from
 // OloEngine/Core/Base.h, and the standard library here.
 
+#include "MCP/McpTokenNormalization.h"
+
 #include "OloEngine/Core/Base.h"
 // For MaterialDebugView (issue #1231): the four material views are ONE enum on
 // PostProcessSettings rather than a bool each, so this header names the type.
@@ -148,20 +150,11 @@ namespace OloEngine::MCP::RenderOverrides
         { "snowsss", Pass::SnowBlur },
     } };
 
-    // Lowercase a string and drop every non-alphanumeric character so
-    // "Depth Of Field", "depth_of_field" and "depth-of-field" all collapse to the
-    // same key. Pure; used to make token matching forgiving.
+    // Case and separator insensitive; see MCP::NormalizeToken, which every MCP
+    // token table shares (including the '+' -> "plus" rule).
     [[nodiscard]] inline std::string Normalize(std::string_view s)
     {
-        std::string out;
-        out.reserve(s.size());
-        for (const char c : s)
-        {
-            const auto uc = static_cast<unsigned char>(c);
-            if (std::isalnum(uc))
-                out.push_back(static_cast<char>(std::tolower(uc)));
-        }
-        return out;
+        return NormalizeToken(s);
     }
 
     // Resolve a token (canonical name or alias, case / separator insensitive) to a

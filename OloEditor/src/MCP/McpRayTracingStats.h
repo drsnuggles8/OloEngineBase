@@ -16,6 +16,7 @@
 // 1,847" failure: an all-zero payload from an unsupported GPU and an all-zero
 // payload from an empty scene are the same bytes.
 
+#include "MCP/McpGpuSceneStats.h"
 #include "MCP/McpStatsSnapshot.h"
 #include "OloEngine/Renderer/RayTracing/DeformedSurfaceCache.h"
 #include "OloEngine/Renderer/RayTracing/GroomSurfaceCache.h"
@@ -65,54 +66,8 @@ namespace OloEngine::MCP::RayTracingStats
         OloEngine::GroomProxyStats Grooms;
     };
 
-    // The JSON key for each diagnostics category.
-    //
-    // A switch rather than a table lookup so an unnamed category is at least a
-    // -Wswitch warning rather than an out-of-range read. It is NOT a compile
-    // error, though an earlier version of this comment claimed so: adding
-    // GPUSceneUnsupportedCategory::Groom (#1246) compiled fine and fell through
-    // to "unknown", and what actually caught it was
-    // McpRayTracingStats.EveryDiagnosticsCategoryGetsItsOwnKey. That test is the
-    // guard; keep it in mind when adding a category, because the build will not
-    // stop you.
-    [[nodiscard]] constexpr const char* UnsupportedCategoryKey(OloEngine::GPUSceneUnsupportedCategory category)
-    {
-        using enum OloEngine::GPUSceneUnsupportedCategory;
-        switch (category)
-        {
-            case Virtualized:
-                return "virtualized";
-            case SoftwareRaster:
-                return "softwareRaster";
-            case Procedural:
-                return "procedural";
-            case Terrain:
-                return "terrain";
-            case Foliage:
-                return "foliage";
-            case Particles:
-                return "particles";
-            case Fluids:
-                return "fluids";
-            case Skinned:
-                return "skinned";
-            case LegacyModel:
-                return "legacyModel";
-            case LegacySubmesh:
-                return "legacySubmesh";
-            case Tiles:
-                return "tiles";
-            case Cloth:
-                return "cloth";
-            case Groom:
-                return "groom";
-            case NotExtractable:
-                return "notExtractable";
-            case Count:
-                break;
-        }
-        return "unknown";
-    }
+    // Shared with olo_gpu_scene_stats; see McpGpuSceneStats.h.
+    using GpuSceneStats::UnsupportedCategoryKey;
 
     [[nodiscard("this builds the response; it does not send it")]] inline Json BuildReport(const Snapshot& snapshot)
     {
@@ -147,53 +102,14 @@ namespace OloEngine::MCP::RayTracingStats
         out["gpuScene"] = Json{ { "available", snapshot.GPUSceneAvailable } };
         if (snapshot.GPUSceneAvailable)
         {
-            Json byCategory = Json::object();
-            for (sizet i = 0; i < OloEngine::GPUSceneUnsupportedCategoryCount; ++i)
-            {
-                byCategory[UnsupportedCategoryKey(static_cast<OloEngine::GPUSceneUnsupportedCategory>(i))] =
-                    snapshot.GPUScene.m_UnsupportedCounts[i];
-            }
             out["gpuScene"]["instances"] = snapshot.GPUScene.m_Instances.m_Live;
             out["gpuScene"]["geometries"] = snapshot.GPUScene.m_Geometries.m_Live;
             out["gpuScene"]["materials"] = snapshot.GPUScene.m_Materials.m_Live;
             out["gpuScene"]["lights"] = snapshot.GPUScene.m_Lights.m_Live;
             out["gpuScene"]["notStagedTotal"] = snapshot.GPUScene.m_UnsupportedTotal;
-            out["gpuScene"]["notStagedByCategory"] = std::move(byCategory);
-
-            // Foliage rides its own vertex stream, so "Foliage" above only
-            // counts SYSTEMS that skip the records. This says what is inside
-            // them: how many plants carry canonical identity, how each is
-            // represented, and what the raster path cannot draw (issue #1230).
-            const auto& foliage = snapshot.GPUScene.m_Foliage;
-            out["gpuScene"]["foliage"] = Json{
-                { "canonicalInstances", foliage.m_CanonicalInstances },
-                { "meshCardInstances", foliage.m_MeshCardInstances },
-                { "impostorInstances", foliage.m_ImpostorInstances },
-                { "authoredMeshInstances", foliage.m_AuthoredMeshInstances },
-                { "unsupportedInstances", foliage.m_UnsupportedInstances },
-                { "unsupportedVariants", foliage.m_UnsupportedVariants },
-                { "spatialGroups", foliage.m_SpatialGroups },
-            };
-
-            // Animated surfaces (issue #1228). "Skinned" in notStagedByCategory
-            // above no longer means "every skinned entity" — it means an
-            // animated entity that reached submission and produced no record at
-            // all. This block is the positive half: what the records DID take,
-            // and how many of those carry a previous pose a velocity may
-            // legitimately be measured against.
-            //
-            // canonicalInstances == surfacesWithHistory + surfacesWithoutHistory
-            // by construction; a reader seeing that fail is looking at a
-            // producer bug, not at a scene.
-            const auto& animated = snapshot.GPUScene.m_Animated;
-            out["gpuScene"]["animated"] = Json{
-                { "canonicalEntities", animated.m_CanonicalEntities },
-                { "canonicalInstances", animated.m_CanonicalInstances },
-                { "surfacesWithHistory", animated.m_SurfacesWithHistory },
-                { "surfacesWithoutHistory", animated.m_SurfacesWithoutHistory },
-                { "unsupportedInstances", animated.m_UnsupportedInstances },
-                { "unsupportedVariants", animated.m_UnsupportedVariants },
-            };
+            out["gpuScene"]["notStagedByCategory"] = GpuSceneStats::NotStagedByCategoryJson(snapshot.GPUScene);
+            out["gpuScene"]["foliage"] = GpuSceneStats::FoliageJson(snapshot.GPUScene.m_Foliage);
+            out["gpuScene"]["animated"] = GpuSceneStats::AnimatedJson(snapshot.GPUScene.m_Animated);
         }
 
         // BEFORE the readiness early-return, for the same reason as gpuScene:

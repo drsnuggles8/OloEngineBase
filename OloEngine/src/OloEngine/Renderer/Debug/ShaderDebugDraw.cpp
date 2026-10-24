@@ -114,6 +114,12 @@ namespace OloEngine
                 RenderCommand::DeleteBuffer(channel.StagingBuffer);
                 channel.StagingBuffer = RHI::NullResource;
             }
+            if (channel.LateStagingBuffer.IsValid())
+            {
+                RenderCommand::DeleteBuffer(channel.LateStagingBuffer);
+                channel.LateStagingBuffer = RHI::NullResource;
+            }
+            channel.PreviousDrawRequested = 0;
             channel.Buffer.Reset();
             channel.Capacity = 0;
         }
@@ -131,6 +137,8 @@ namespace OloEngine
         }
         data.Stats = {};
         data.StatsStaged = false;
+        data.LateStaged = false;
+        data.DrewThisFrame = false;
     }
 
     bool ShaderDebugDraw::IsInitialised()
@@ -450,6 +458,10 @@ namespace OloEngine
             return;
         }
 
+        // Before the reset below wipes them: the headers now hold every push of
+        // the previous frame, including those made after the debug-draw pass.
+        StageEndOfFrameHeaders();
+
         const std::scoped_lock lock(data.CpuMutex);
 
         const auto prepare = [&](ShaderDebugDrawPrimitive primitive, const auto& cpuEntries)
@@ -528,6 +540,36 @@ namespace OloEngine
             RenderCommand::CopyBufferSubData(channel.Buffer->GetRHIHandle(), channel.StagingBuffer, 0, 0, headerBytes);
         }
         data.StatsStaged = true;
+        data.DrewThisFrame = true;
+    }
+
+    void ShaderDebugDraw::StageEndOfFrameHeaders()
+    {
+        OLO_PROFILE_FUNCTION();
+
+        auto& data = Get();
+        if (!std::exchange(data.DrewThisFrame, false))
+            return;
+
+        // Same DeviceToHost route as StageStatsForReadback, for the same reason.
+        // The barrier makes the previous frame's shader atomics visible to the
+        // copy; on GL a buffer copy is not ordered after them otherwise.
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
+        constexpr u64 headerBytes = sizeof(ShaderDebugDrawChannelHeader);
+        for (auto& channel : data.Channels)
+        {
+            if (!channel.Buffer)
+                continue;
+            if (!channel.LateStagingBuffer.IsValid())
+            {
+                channel.LateStagingBuffer = RenderCommand::CreateBufferHandle();
+                RenderCommand::AllocateBufferStorage(channel.LateStagingBuffer, headerBytes,
+                                                     RHI::MemoryResidency::DeviceToHost);
+            }
+            RenderCommand::CopyBufferSubData(channel.Buffer->GetRHIHandle(), channel.LateStagingBuffer, 0, 0,
+                                             headerBytes);
+        }
+        data.LateStaged = true;
     }
 
     void ShaderDebugDraw::ReadbackStats()
@@ -538,6 +580,7 @@ namespace OloEngine
         if (!data.StatsStaged)
             return;
         data.StatsStaged = false;
+        const bool lateStaged = std::exchange(data.LateStaged, false);
 
         for (u32 i = 0; i < kShaderDebugDrawPrimitiveCount; ++i)
         {
@@ -553,6 +596,17 @@ namespace OloEngine
             stats.Drawn = header.InstanceCount;
             stats.Requested = header.RequestCount;
             stats.CpuPushes = channel.CpuRequested;
+
+            // The late copy describes the frame BEFORE the one just read, whose
+            // draw-time count the previous readback kept.
+            if (lateStaged && channel.LateStagingBuffer.IsValid())
+            {
+                ShaderDebugDrawChannelHeader late{};
+                RenderCommand::ReadBufferSubData(channel.LateStagingBuffer, 0, sizeof(late), &late);
+                stats.PushedAfterDraw =
+                    late.RequestCount > channel.PreviousDrawRequested ? late.RequestCount - channel.PreviousDrawRequested : 0u;
+            }
+            channel.PreviousDrawRequested = header.RequestCount;
         }
         data.Stats.StatsValid = true;
 

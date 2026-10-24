@@ -50,6 +50,7 @@
 // re-register the AO pass in the render graph (issue #533), is signalled out via
 // `ApplyResult::RequiresRendererApply` instead of being called here.
 
+#include "MCP/McpTokenNormalization.h"
 #include "MCP/McpSchemaBuilder.h"
 
 #include "OloEngine/Core/Base.h"
@@ -742,20 +743,12 @@ namespace OloEngine::MCP::PostProcess
 #undef OLO_FOG_ENUM
 #undef OLO_FOG_VEC3
 
-    // Lowercase + drop every non-alphanumeric character, so "GTAORadius",
-    // "gtao_radius" and "gtao.radius" all collapse to one key. Mirrors
-    // RendererSettings::Normalize / RenderOverrides::Normalize.
+    // Case and separator insensitive, so "GTAORadius", "gtao_radius" and
+    // "gtao.radius" are one key; see MCP::NormalizeToken, which every MCP token
+    // table shares.
     [[nodiscard]] inline std::string Normalize(std::string_view s)
     {
-        std::string out;
-        out.reserve(s.size());
-        for (const char c : s)
-        {
-            const auto uc = static_cast<unsigned char>(c);
-            if (std::isalnum(uc) != 0)
-                out.push_back(static_cast<char>(std::tolower(uc)));
-        }
-        return out;
+        return NormalizeToken(s);
     }
 
     // Resolve a field token (case / separator insensitive). Returns nullptr for an
