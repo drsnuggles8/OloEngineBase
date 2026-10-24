@@ -128,6 +128,8 @@ namespace OloEngine
     struct VisualScriptComponent;
     struct NavMeshBoundsComponent;
     struct NavAgentComponent;
+    struct GroomColliderComponent;
+    struct PickVolumesComponent;
     struct BoidComponent;
     struct BoidObstacleComponent;
     struct NameplateComponent;
@@ -283,6 +285,8 @@ namespace OloEngine
         static void Serialize(FArchive& ar, VisualScriptComponent& c);
         static void Serialize(FArchive& ar, NavMeshBoundsComponent& c);
         static void Serialize(FArchive& ar, NavAgentComponent& c);
+        static void Serialize(FArchive& ar, GroomColliderComponent& c);
+        static void Serialize(FArchive& ar, PickVolumesComponent& c);
         static void Serialize(FArchive& ar, BoidComponent& c);
         static void Serialize(FArchive& ar, BoidObstacleComponent& c);
         static void Serialize(FArchive& ar, NameplateComponent& c);

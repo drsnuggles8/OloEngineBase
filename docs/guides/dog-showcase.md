@@ -26,7 +26,10 @@ TAA runs by itself (the coat is `StochasticAlpha`; see groom-animals.md). Press 
 clips and the guide simulation; in edit mode the skeleton previews its clip but the coat's solver
 does not step, so the coat is carried with the body without swinging.
 
-The clips are `Idle`, `HeadTilt`, `Sit`, `Walk`, `Pant` and `Rest`. Switch them with
+The clips are `Idle`, `HeadTilt`, `Sit`, `Walk`, `Pant` and `Rest`, plus the clips every breed
+shares ([dog-play.md](dog-play.md)): the play clips `Run`, `PickUp`, `Carry`, `Drop`, `PlayBow` and
+`Petted`, and the life clips `Trot`, `Sniff`, `Shake`, `Lie`, `LieDown`, `GetUp`, `BellyUp`,
+`RollOver`, `Excited`, `Scratch`, `Stretch`, `Nudge` and `TurnInPlace`. Switch them with
 `AnimationStateComponent`'s requested clip (the editor's Animation panel, `olo_entity_set_field`,
 or `PlayClip` from Lua).
 
@@ -42,7 +45,9 @@ back at the origin.
 1. **The body and the coat**: `build_dog.py` (Blender 5.x, headless); see `Models/Dog/README.md`.
    It writes the mesh, the rig, the clips, the eyeball and the textures, then runs
    `build_dog_groom.py`, which grows the coat on the exported mesh and writes it as Alembic hair
-   curves to `Models/Dog/Dog.abc`, beside the model (a git-ignored build output, #1558).
+   curves to `Models/Dog/Dog.abc`, beside the model: the coat's source, committed through Git LFS.
+   Edit its card tier in place with `tools/dog-authoring/set_card_tier.py` rather than re-exporting
+   it (6 mm, as every dog authors).
 2. **The cooked coat, its binding, the skin profiles and the scene**:
    `OLO_DOG_EXPORT=1 OloEngine-Tests --gtest_filter=DogShowcaseEvidenceTest.ExportsTheLiveScene`,
    run from `OloEditor/`. The fixture cooks the `.abc` with `AlembicGroomImporter`, binds it exactly

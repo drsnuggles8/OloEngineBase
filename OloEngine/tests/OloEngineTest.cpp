@@ -16,6 +16,7 @@
 #endif
 #include "Rendering/StateMachine/StateMachineCoverage.h"
 #include "MemoryCeiling.h"
+#include "Rendering/PropertyTests/ScopedWarningCapture.h"
 #include "TestOptions.h"
 #include "TestTempDir.h"
 #include "TestXmlOutputPath.h"
@@ -140,6 +141,9 @@ int main(int argc, char** argv)
     // warning interval or overwrite another test's diagnostics.
     OloEngine::Log::SetLogFile("OloEngine-Tests-" + std::to_string(CurrentProcessId()) + ".log");
     OloEngine::Log::Initialize();
+    // Before any test or thread runs: the warning capture's sink is added to the
+    // core logger now, never while the scheduler's workers log (ScopedWarningCapture.h).
+    (void)OloEngine::Tests::InstallWarningCaptureSink();
 
     // Most headless tests never construct an Application, so the startup line
     // it normally prints would never appear here. A suite run with a lever set

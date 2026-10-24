@@ -31,9 +31,10 @@ touching `GroomCoatShadow::MarkBodyInDensityVolume`, the march in
 
 4. **Only a rest bake carries a body.** `CoatModes.w` is a bitfield: 1 the volume is the coat at rest
    (marched from each fragment's bind point along the light turned back through its root), 2 it holds
-   the body. The body is the bind-pose surface (`GpuRootInputs.Surface` through `SurfaceToGroom`), so
-   near a strand it is the body as posed and across the animal it is the body as bound. A pose bake has
-   no body and shades as before #1533.
+   the body. The body is the bind-pose surface at rest (`GroomStrandRequest::CoatRestBody` through
+   `SurfaceToGroom`): the bound surface's triangles over the morph's `BasePositions` on a morphing
+   body, never its live morphed positions, so near a strand it is the body as posed and across the
+   animal it is the body as bound. A pose bake has no body and shades as before #1533.
 
 5. **Only closed parts are filled, and an open one says so.** The surface is welded by position
    (glTF splits every UV seam) and split into components; a component is filled only if every edge has
@@ -90,6 +91,20 @@ across.
   the placeholder is `(128, 255, 128, 0)`, no body and the sky open.
 - **A rest bake made before the bound surface arrived is made again once it has**
   (`CoatBakedWithSurface`), or a coat that bakes on its first frame would never get its body.
+- **A body already marked into the same grid is reused, not marked again.** Marking takes
+  150-200 ms on the main thread for the breeds. A playing dog's coat changes tier as it runs off and
+  comes back, and each tier rebuilt marked its body again: the stutter behind the "coat volume holds
+  its body" log line (#1559). `GroomRenderPass` keeps the last four markings, keyed on everything
+  the marking reads: the grid, which voxels hold coat, the surface's positions and indices, and its
+  transform into the coat. A hit counts in `CoatShadow.BodyBakesReused`. A tier's first bake still
+  marks: each tier has its own grid, from its own segments' bounds.
+  `DogPlayEvidenceTest.ACoatComingBackCloseDoesNotMarkItsBodyAgain` pins it.
+- **A rest bake marks the body at rest: unmorphed.** The morph pass rewrites the bound surface's
+  positions in place, so the request carries `CoatRestBody`, the same triangles over the morph's
+  `BasePositions`. Marked from the morphed surface, a blinking or panting Bernese was a different body
+  at every bake and never hit the reuse above, and the morph split it at its seams into open parts:
+  401 voxels marked where the rest body marks 683,164. The test steps the clip until the face's
+  weights move while the camera is away (a set weight is re-sampled from the clip every tick).
 - **The lever is shader-side.** `OLO_GROOM_NO_COAT_BODY` clears bit 2 per frame; the volume keeps the
   body, so the A/B costs no rebake and changes nothing else.
 

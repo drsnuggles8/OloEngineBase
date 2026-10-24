@@ -221,6 +221,8 @@ namespace OloEngine
                     VectorBytes(m_CoatVolumeScratch.Direction) + VectorBytes(m_CoatVolumeScratch.Body) +
                     VectorBytes(m_CoatPackHalf) + VectorBytes(m_CoatPackFloat) +
                     static_cast<u64>(m_CpuRootScratch.GetAllocatedSize());
+        for (const CoatBodyBake& bake : m_CoatBodyBakes)
+            cpuBytes += VectorBytes(bake.Body);
         for (const auto& table : m_CardFibreTables)
             cpuBytes += VectorBytes(table.ByGroup);
         {

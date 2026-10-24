@@ -603,50 +603,83 @@ namespace OloEngine
             return result;
         };
 
+        // Every entity `entityID` touches now, or began touching since the scripts
+        // last ran (issue #1559) -- an array of entity IDs, empty when none.
+        physicsTable["GetContacts"] = [](u64 entityID, sol::this_state s) -> sol::table
+        {
+            sol::state_view lua(s);
+            sol::table result = lua.create_table();
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene)
+                return result;
+            TArray<UUID> contacts;
+            if (Physics3DScriptApi::GetContacts(*scene, UUID(entityID), contacts) != Physics3DScriptApi::Result::Ok)
+                return result;
+            for (i32 i = 0; i < contacts.Num(); ++i)
+                result[i + 1] = static_cast<u64>(contacts[i]);
+            return result;
+        };
+
+        // The first pick volume (PickVolumesComponent) a ray enters (issue #1559):
+        // nil, or {entityID, region, bone, position, normal, distance}.
+        physicsTable["RaycastPickVolumes"] = [](const glm::vec3& origin, const glm::vec3& direction, f32 maxDistance,
+                                                sol::this_state s) -> sol::object
+        {
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene || !IsFiniteVec3(origin) || !IsFiniteVec3(direction) || !std::isfinite(maxDistance))
+                return sol::make_object(s, sol::nil);
+            PickVolumeHit hit;
+            if (!scene->RaycastPickVolumes(origin, direction, maxDistance, hit))
+                return sol::make_object(s, sol::nil);
+            sol::state_view lua(s);
+            sol::table result = lua.create_table(0, 6);
+            result["entityID"] = static_cast<u64>(hit.Entity);
+            result["region"] = hit.Region;
+            result["bone"] = hit.Bone;
+            result["position"] = hit.Position;
+            result["normal"] = hit.Normal;
+            result["distance"] = hit.Distance;
+            return result;
+        };
+
         // --- Camera (screen-to-world) ---
         auto cameraTable = lua.create_named_table("Camera");
         cameraTable["ScreenToWorldRay"] = [](u64 cameraEntityID, const glm::vec2& screenPos, sol::this_state s) -> sol::object
         {
             Scene* scene = ScriptEngine::GetSceneContext();
-            if (!scene)
+            if (!scene || !IsFiniteVec2(screenPos))
                 return sol::make_object(s, sol::nil);
 
             auto cameraOpt = scene->TryGetEntityWithUUID(UUID(cameraEntityID));
             if (!cameraOpt)
                 return sol::make_object(s, sol::nil);
             Entity cameraEntity{ static_cast<entt::entity>(*cameraOpt), scene };
-            if (!cameraEntity.HasComponent<CameraComponent>() || !cameraEntity.HasComponent<TransformComponent>())
+
+            // screenPos is in pixels from the VIEWPORT's top-left (Input.GetMousePosition),
+            // so it is normalised by the viewport, the size Input.GetWindowSize reports.
+            // Normalising by the host window put an editor click off by the panel's
+            // share of the window (#1559).
+            f32 width = static_cast<f32>(scene->GetViewportWidth());
+            f32 height = static_cast<f32>(scene->GetViewportHeight());
+            if (width <= 0.0f || height <= 0.0f)
+            {
+                const auto& window = Application::Get().GetWindow();
+                width = static_cast<f32>(window.GetWidth());
+                height = static_cast<f32>(window.GetHeight());
+            }
+            if (width <= 0.0f || height <= 0.0f)
                 return sol::make_object(s, sol::nil);
 
-            auto const& cameraComp = cameraEntity.GetComponent<CameraComponent>();
-            auto const& transform = cameraEntity.GetComponent<TransformComponent>();
-
-            glm::mat4 viewMatrix = glm::inverse(transform.GetTransform());
-            glm::mat4 projMatrix = cameraComp.Camera.GetProjection();
-            glm::mat4 invVP = glm::inverse(projMatrix * viewMatrix);
-
-            // screenPos is in pixels (from Input.GetMousePosition); normalise to [0,1]
-            const auto& window = Application::Get().GetWindow();
-            const f32 winW = static_cast<f32>(window.GetWidth());
-            const f32 winH = static_cast<f32>(window.GetHeight());
-            if (winW <= 0.0f || winH <= 0.0f)
+            const glm::vec2 uv(screenPos.x / width, 1.0f - screenPos.y / height);
+            glm::vec3 origin;
+            glm::vec3 direction;
+            if (!scene->ScreenToWorldRay(cameraEntity, uv, origin, direction))
                 return sol::make_object(s, sol::nil);
-
-            const f32 normX = screenPos.x / winW;
-            const f32 normY = screenPos.y / winH;
-
-            f32 ndcX = normX * 2.0f - 1.0f;
-            f32 ndcY = 1.0f - normY * 2.0f; // Flip Y: screen top-left origin → NDC bottom-left origin
-
-            glm::vec4 nearPoint = invVP * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
-            glm::vec4 farPoint = invVP * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
-            nearPoint /= nearPoint.w;
-            farPoint /= farPoint.w;
 
             sol::state_view lua(s);
             sol::table result = lua.create_table(0, 2);
-            result["origin"] = glm::vec3(nearPoint);
-            result["direction"] = glm::normalize(glm::vec3(farPoint - nearPoint));
+            result["origin"] = origin;
+            result["direction"] = direction;
             return result;
         };
 

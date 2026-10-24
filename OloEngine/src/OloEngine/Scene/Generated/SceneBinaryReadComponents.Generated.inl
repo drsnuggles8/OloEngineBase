@@ -630,6 +630,16 @@ case 2438904161u: // GroomCoatShadowComponent
     if (!SceneBinIO::Read(reader, comp.m_BakeAtRest)) return false;
     break;
 }
+case 1201881504u: // GroomColliderComponent
+{
+    auto& comp = deserializedEntity.AddComponent<GroomColliderComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Radius)) return false;
+    comp.m_Radius = std::clamp(comp.m_Radius, static_cast<f32>(0.001f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.m_HalfHeight)) return false;
+    comp.m_HalfHeight = std::clamp(comp.m_HalfHeight, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
+    break;
+}
 case 2551117928u: // GroomComponent
 {
     auto& comp = deserializedEntity.AddComponent<GroomComponent>();
@@ -948,6 +958,9 @@ case 558863490u: // NavAgentComponent
     comp.m_StoppingDistance = std::clamp(comp.m_StoppingDistance, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
     if (!SceneBinIO::Read(reader, comp.m_AvoidancePriority)) return false;
     if (!SceneBinIO::Read(reader, comp.m_LockYAxis)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_UseRootMotion)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_TurnSpeed)) return false;
+    comp.m_TurnSpeed = std::clamp(comp.m_TurnSpeed, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
     break;
 }
 case 2269942102u: // NetworkIdentityComponent
@@ -1000,6 +1013,17 @@ case 1430454779u: // PerceptibleComponent
     auto& comp = deserializedEntity.AddComponent<PerceptibleComponent>();
     if (!SceneBinIO::Read(reader, comp.Team)) return false;
     if (!SceneBinIO::Read(reader, comp.IsPerceptible)) return false;
+    break;
+}
+case 326569798u: // PickVolumesComponent
+{
+    auto& comp = deserializedEntity.AddComponent<PickVolumesComponent>();
+    if (!SceneBinIO::Read(reader, comp.m_Regions)) return false;
+    if (!SceneBinIO::Read(reader, comp.m_Padding)) return false;
+    comp.m_Padding = std::clamp(comp.m_Padding, static_cast<f32>(0.0f), static_cast<f32>(10.0f));
+    if (!SceneBinIO::Read(reader, comp.m_RadiusScale)) return false;
+    comp.m_RadiusScale = std::clamp(comp.m_RadiusScale, static_cast<f32>(0.0f), static_cast<f32>(100.0f));
+    if (!SceneBinIO::Read(reader, comp.m_Enabled)) return false;
     break;
 }
 case 2307422275u: // PlayerRespawnComponent

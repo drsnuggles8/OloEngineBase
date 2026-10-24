@@ -58,6 +58,7 @@ void VisitComponentTypes(Visitor&& visitor)
     visitor.template operator()<GroomBindingComponent, true>("GroomBindingComponent");
     visitor.template operator()<GroomCoatComponent, true>("GroomCoatComponent");
     visitor.template operator()<GroomCoatShadowComponent, true>("GroomCoatShadowComponent");
+    visitor.template operator()<GroomColliderComponent, true>("GroomColliderComponent");
     visitor.template operator()<GroomComponent, true>("GroomComponent");
     visitor.template operator()<GroomFibreComponent, true>("GroomFibreComponent");
     visitor.template operator()<GroomLodComponent, true>("GroomLodComponent");
@@ -99,6 +100,7 @@ void VisitComponentTypes(Visitor&& visitor)
     visitor.template operator()<PerceptionComponent, true>("PerceptionComponent");
     visitor.template operator()<PhaseComponent, true>("PhaseComponent");
     visitor.template operator()<PhysicsJoint3DComponent, true>("PhysicsJoint3DComponent");
+    visitor.template operator()<PickVolumesComponent, true>("PickVolumesComponent");
     visitor.template operator()<PlayerRespawnComponent, true>("PlayerRespawnComponent");
     visitor.template operator()<PlayerRigComponent, true>("PlayerRigComponent");
     visitor.template operator()<PointLightComponent, true>("PointLightComponent");

@@ -20,6 +20,10 @@
   },
   "coatSource": "Assets/Models/Dog/Dog.abc",
   "walkSpeed": 0.312,
+  "runSpeed": 3.0,
+  "carrySpeed": 1.5,
+  "trotSpeed": 1.1,
+  "sniffSpeed": 0.25,
   "eyeRadius": 0.0235,
   "lidInnerRadius": 0.0245,
   "socketRadius": 0.02625,
@@ -91,6 +95,110 @@
       "name": "Rest",
       "seconds": 1.0,
       "loop": true
+    },
+    {
+      "name": "Run",
+      "seconds": 0.4,
+      "loop": true
+    },
+    {
+      "name": "PickUp",
+      "seconds": 1.2,
+      "loop": false,
+      "events": {
+        "grab": 0.62
+      }
+    },
+    {
+      "name": "Carry",
+      "seconds": 0.466667,
+      "loop": true
+    },
+    {
+      "name": "Drop",
+      "seconds": 1.0,
+      "loop": false,
+      "events": {
+        "release": 0.48
+      }
+    },
+    {
+      "name": "PlayBow",
+      "seconds": 1.6,
+      "loop": true
+    },
+    {
+      "name": "Petted",
+      "seconds": 2.0,
+      "loop": true
+    },
+    {
+      "name": "Trot",
+      "seconds": 0.533333,
+      "loop": true
+    },
+    {
+      "name": "Sniff",
+      "seconds": 2.0,
+      "loop": true
+    },
+    {
+      "name": "Shake",
+      "seconds": 1.1,
+      "loop": false
+    },
+    {
+      "name": "Lie",
+      "seconds": 3.0,
+      "loop": true
+    },
+    {
+      "name": "LieDown",
+      "seconds": 1.4,
+      "loop": false
+    },
+    {
+      "name": "GetUp",
+      "seconds": 1.1,
+      "loop": false
+    },
+    {
+      "name": "BellyUp",
+      "seconds": 2.4,
+      "loop": true
+    },
+    {
+      "name": "RollOver",
+      "seconds": 1.0,
+      "loop": false
+    },
+    {
+      "name": "Excited",
+      "seconds": 0.566667,
+      "loop": true
+    },
+    {
+      "name": "Scratch",
+      "seconds": 1.8,
+      "loop": false
+    },
+    {
+      "name": "Stretch",
+      "seconds": 2.2,
+      "loop": false
+    },
+    {
+      "name": "Nudge",
+      "seconds": 0.8,
+      "loop": false,
+      "events": {
+        "nudge": 0.45
+      }
+    },
+    {
+      "name": "TurnInPlace",
+      "seconds": 0.6,
+      "loop": true
     }
   ],
   "materials": [
@@ -102,5 +210,50 @@
     "DogTeeth",
     "DogPad",
     "DogLid"
-  ]
+  ],
+  "sockets": {
+    "mouth": {
+      "bone": "jaw",
+      "translation": [
+        0.0,
+        0.134611,
+        -0.026362
+      ],
+      "rotation": [
+        -0.837838,
+        -0.0,
+        -0.0,
+        0.545919
+      ]
+    },
+    "mouthStick": {
+      "bone": "jaw",
+      "translation": [
+        0.0,
+        0.134606,
+        -0.020183
+      ],
+      "rotation": [
+        -0.837838,
+        -0.0,
+        -0.0,
+        0.545919
+      ],
+      "longAxis": [
+        1.0,
+        0.0,
+        0.0
+      ]
+    }
+  },
+  "fetch": {
+    "ballRadius": 0.033,
+    "stickRadius": 0.015,
+    "holdJawDegrees": 16.7,
+    "pickUpBall": [
+      0.0,
+      0.033083,
+      0.47847
+    ]
+  }
 }

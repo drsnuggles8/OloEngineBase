@@ -123,7 +123,9 @@ namespace OloEngine
             (inputs.StiffnessScales.size() + 1u == inputs.GuideOffsets.size() &&
              std::ranges::all_of(inputs.StiffnessScales, [](f32 scale)
                                  { return Math::IsFinite(scale); }));
-        if (!wellFormed || !scalesWellFormed || !ParamsAreFinite(inputs.Params) || !Math::IsFinite(inputs.DeltaTime) ||
+        const bool longHairWellFormed =
+            inputs.LongHairGuides.empty() || inputs.LongHairGuides.size() + 1u == inputs.GuideOffsets.size();
+        if (!wellFormed || !scalesWellFormed || !longHairWellFormed || !ParamsAreFinite(inputs.Params) || !Math::IsFinite(inputs.DeltaTime) ||
             inputs.DeltaTime < 0.0f)
         {
             state.Clear();
@@ -181,6 +183,42 @@ namespace OloEngine
                     guideStiffness[static_cast<i32>(g)] = scaled;
                 }
             }
+        }
+
+        // ── A short hair holds its groom (#1559) ───────────────────────────
+        //
+        // A hair is a cantilever: its natural frequency goes as 1/L^2, so a
+        // short one barely moves while a long one swings. One stiffness for
+        // the whole coat made a dog's 1-2 cm body fur swing like its ears: a
+        // galloping dog's crown, neck and hind legs lifted off the skin by
+        // centimetres and read bald from behind, and a walking one's shoulders
+        // showed pale patches. A stiffer SPRING cannot carry it: at the step's
+        // stability ceiling the explicit spring rings with almost no damping
+        // (MaxStiffnessTimesStepSquared). So a guide shorter than the reference
+        // is pulled back toward its groom by a fraction of its offset every
+        // step, after the prediction -- a positional hold, stable at any
+        // weight -- of 1 - (length / reference)^2: 0.98 for a 1.5 cm hair, 0.64 for 6 cm,
+        // nothing from the reference length up. The colliders act after it,
+        // so a hand still parts short fur.
+        TArray<f32> guideHold;
+        guideHold.Init(0.0f, static_cast<i32>(guideCount));
+        for (u32 g = 0; g < guideCount; ++g)
+        {
+            const u32 first = inputs.GuideOffsets[g];
+            const u32 last = inputs.GuideOffsets[g + 1u];
+            f32 length = 0.0f;
+            for (u32 i = first + 1u; i < last; ++i)
+            {
+                length += glm::length(inputs.TargetPoints[i] - inputs.TargetPoints[i - 1u]);
+            }
+            if (!(length > 0.0f) || length >= GroomSimulationLimits::ShortHairReferenceLength ||
+                (!inputs.LongHairGuides.empty() && inputs.LongHairGuides[g] != 0u))
+            {
+                continue;
+            }
+            const f32 ratio = length / GroomSimulationLimits::ShortHairReferenceLength;
+            guideHold[static_cast<i32>(g)] = 1.0f - (ratio * ratio);
+            ++stats.GuidesHeldByLength;
         }
 
         // ── Re-seed, or continue ────────────────────────────────────────────
@@ -292,6 +330,24 @@ namespace OloEngine
                 }
             }
         }
+
+        // How far each particle's TARGET moved per step this call: the body's
+        // own motion, which the damping below leaves alone (#1559). Damping
+        // the WORLD velocity, as this did, was drag from air the animal carries
+        // with it: a coat moving at v trailed its groom by Damping * v /
+        // Stiffness -- 0.2 m at a 3 m/s run, the crown and the hind legs bared
+        // from behind. The targets are fixed for the call, so their motion is
+        // spread evenly over its steps at the frame's rate.
+        std::vector<glm::vec3> targetStep(pointCount, glm::vec3(0.0f));
+        if (state.LastTargets.size() == pointCount && inputs.DeltaTime > 0.0f)
+        {
+            const f32 perStep = (1.0f / params.FixedHz) / inputs.DeltaTime;
+            for (sizet i = 0; i < pointCount; ++i)
+            {
+                const glm::vec3 moved = (inputs.TargetPoints[i] - state.LastTargets[i]) * perStep;
+                targetStep[i] = Math::IsFinite(moved) ? moved : glm::vec3(0.0f);
+            }
+        }
         state.LastTargets.assign(inputs.TargetPoints.begin(), inputs.TargetPoints.end());
 
         // ── The fixed step, with a bounded catch-up ─────────────────────────
@@ -310,8 +366,13 @@ namespace OloEngine
         // uses: a rate in 1/s turned into a fraction by the step it is applied
         // over, so the same damping means the same settling time at any Hz.
         const f32 velocityRetain = std::clamp(1.0f - params.Damping * dt, 0.0f, 1.0f);
-        const bool collide = params.CollisionEnabled && !inputs.Colliders.empty() &&
-                             inputs.Colliders.size() <= GroomSimulationLimits::MaxColliders;
+        // The first MaxColliders are solved against and the rest are COUNTED
+        // (#1559). Refusing the whole set, as this did, turned one collider too
+        // many into a coat with no body at all and no number saying so.
+        const std::span<const GroomCollider> colliders =
+            inputs.Colliders.first(std::min<sizet>(inputs.Colliders.size(), GroomSimulationLimits::MaxColliders));
+        stats.CollidersDropped = static_cast<u32>(inputs.Colliders.size() - colliders.size());
+        const bool collide = params.CollisionEnabled && !colliders.empty();
 
         // Re-derived from the TARGET every step rather than cached at bind time,
         // so a length multiplier moved in the inspector is converged on rather
@@ -387,16 +448,31 @@ namespace OloEngine
                 for (u32 i = first + 1u; i < last; ++i)
                 {
                     const glm::vec3 curr = state.Curr[i];
-                    const glm::vec3 velocity = (curr - state.Prev[i]) * velocityRetain;
+                    // Damped RELATIVE to the body: a swing settles, the
+                    // body's own travel carries the coat undamped.
+                    const glm::vec3 carried = targetStep[i];
+                    const glm::vec3 velocity = carried + ((curr - state.Prev[i]) - carried) * velocityRetain;
                     // The shape term is what makes this fur rather than hair:
                     // the strand is pulled back toward the position the GROOM
                     // put it in, so a coat holds its authored curl instead of
                     // hanging off the body like a wet rope. At THIS guide's
                     // stiffness, which its group may scale (#1533).
-                    const glm::vec3 accel = stiffness * (inputs.TargetPoints[i] - curr) + params.Gravity;
+                    // Measured from where the body has CARRIED the particle:
+                    // from `curr`, the target a moving body has already moved
+                    // on read as v * dt of offset, and the coat trailed by it.
+                    const glm::vec3 accel = stiffness * (inputs.TargetPoints[i] - (curr + carried)) + params.Gravity;
                     state.Prev[i] = curr;
                     state.Curr[i] = curr + velocity + accel * dt2;
                     touching[i] = 0u;
+                }
+                // A short hair's hold on its groom, after the prediction and
+                // before the colliders (see guideHold).
+                if (const f32 hold = guideHold[static_cast<i32>(g)]; hold > 0.0f)
+                {
+                    for (u32 i = first + 1u; i < last; ++i)
+                    {
+                        state.Curr[i] += (inputs.TargetPoints[i] - state.Curr[i]) * hold;
+                    }
                 }
 
                 // ── 2. Collide, BEFORE the length pass ──────────────
@@ -420,19 +496,27 @@ namespace OloEngine
                 // put outside it, the rest depth for one it put inside. Gravity
                 // still cannot sink it deeper than the groom did, which is the
                 // whole job; it just stops being pushed further out than that.
+                //
+                // AN EXTERNAL COLLIDER IS THE EXCEPTION (#1559). A hand or a toy
+                // is not the body the groom was placed on, so the rest depth
+                // says nothing about it: every particle inside it is pushed out
+                // to its full radius, which is what parts the coat under a hand.
+                // Its radius is its own; the body shell's padding is not added.
                 if (collide)
                 {
                     for (u32 i = first + 1u; i < last; ++i)
                     {
-                        for (const GroomCollider& collider : inputs.Colliders)
+                        for (const GroomCollider& collider : colliders)
                         {
-                            const f32 shell = collider.Radius + params.ColliderPadding;
+                            const bool external = (collider.Flags & GroomColliderFlags::External) != 0u;
+                            const f32 shell = external ? collider.Radius : collider.Radius + params.ColliderPadding;
                             if (!(shell > 0.0f))
                             {
                                 continue;
                             }
                             const glm::vec3 restNearest = ClosestPointOnGroomCollider(collider, inputs.TargetPoints[i]);
-                            const f32 radius = std::min(shell, glm::length(inputs.TargetPoints[i] - restNearest));
+                            const f32 radius =
+                                external ? shell : std::min(shell, glm::length(inputs.TargetPoints[i] - restNearest));
                             if (!(radius > 0.0f))
                             {
                                 continue;
@@ -443,6 +527,43 @@ namespace OloEngine
                             if (distance2 >= radius * radius)
                             {
                                 continue;
+                            }
+
+                            // THE BODY PROXY LIFTS, IT DOES NOT SWEEP (#1559). A
+                            // fitted capsule rides its bone while the skin over
+                            // it blends between bones, so a limb's capsule
+                            // slides under the coat as the limb swings. Pushed
+                            // out RADIALLY, from wherever the lagging particle
+                            // sits, the coat was wiped aside like a hand had
+                            // parted it: a walking dog's shoulders showed pale
+                            // patches of undercoat. So a body collider pushes a
+                            // particle along its TARGET's normal off the
+                            // proxy, back up to the height the groom put it at,
+                            // never sideways. A hand (External) keeps the
+                            // radial push: parting is its job.
+                            if (const glm::vec3 lift = inputs.TargetPoints[i] - restNearest;
+                                !external && glm::length2(lift) > kSegmentEpsilon2)
+                            {
+                                const glm::vec3 up = lift * glm::inversesqrt(glm::length2(lift));
+                                const f32 height = glm::dot(state.Curr[i] - restNearest, up);
+                                if (height < radius)
+                                {
+                                    // Positional: the lift moves the particle,
+                                    // not its velocity, or every lift became a
+                                    // bounce the friction step keeps as
+                                    // "separating".
+                                    state.Curr[i] += up * (radius - height);
+                                    state.Prev[i] += up * (radius - height);
+                                    touching[i] = 1u;
+                                    contactNormals[i] = up;
+                                    context.ContactsResolved += lastStep ? 1u : 0u;
+                                    continue;
+                                }
+                                // High enough along its target's normal, yet
+                                // inside: it has slid round beside the proxy,
+                                // where no lift reaches it. The radial push
+                                // below takes it out the shortest way, which
+                                // there is round the limb, not along the coat.
                             }
                             // A particle exactly on the axis has no direction to
                             // be pushed along. Using the strand's own rest
@@ -608,13 +729,19 @@ namespace OloEngine
                         {
                             continue;
                         }
+                        // RELATIVE TO THE BODY (#1559): the collider is the
+                        // body, and it moves. Friction on the WORLD velocity
+                        // held fur lying on a capsule still in space while the
+                        // body moved on under it -- the coat slid off a walking
+                        // dog's shoulders and showed pale patches.
                         const glm::vec3 normal = contactNormals[i];
-                        const glm::vec3 velocity = state.Curr[i] - state.Prev[i];
+                        const glm::vec3 carried = targetStep[i];
+                        const glm::vec3 velocity = (state.Curr[i] - state.Prev[i]) - carried;
                         const f32 alongNormal = glm::dot(velocity, normal);
                         const glm::vec3 tangential = velocity - normal * alongNormal;
                         const glm::vec3 kept = (alongNormal > 0.0f ? normal * alongNormal : glm::vec3(0.0f)) +
                                                tangential * params.ColliderFriction;
-                        state.Prev[i] = state.Curr[i] - kept;
+                        state.Prev[i] = state.Curr[i] - (carried + kept);
                     }
                 }
             }

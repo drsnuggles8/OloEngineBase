@@ -129,6 +129,13 @@ namespace OloEngine
 		internal static extern void AircraftComponent_SetYawInput(ulong entityID, float value);
 		#endregion
 
+		#region AnimationStateComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float AnimationStateComponent_GetPlaybackSpeed(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void AnimationStateComponent_SetPlaybackSpeed(ulong entityID, float value);
+		#endregion
+
 		#region AudioSoundGraphComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float AudioSoundGraphComponent_GetVolume(ulong entityID);
@@ -832,6 +839,21 @@ namespace OloEngine
 		internal static extern void FootIKComponent_SetRightHandEnabled(ulong entityID, bool value);
 		#endregion
 
+		#region GroomColliderComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float GroomColliderComponent_GetRadius(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void GroomColliderComponent_SetRadius(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float GroomColliderComponent_GetHalfHeight(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void GroomColliderComponent_SetHalfHeight(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool GroomColliderComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void GroomColliderComponent_SetEnabled(ulong entityID, bool value);
+		#endregion
+
 		#region LightProbeComponent
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern float LightProbeComponent_GetInfluenceRadius(ulong entityID);
@@ -988,6 +1010,14 @@ namespace OloEngine
 		internal static extern bool NavAgentComponent_GetLockYAxis(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void NavAgentComponent_SetLockYAxis(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool NavAgentComponent_GetUseRootMotion(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_SetUseRootMotion(ulong entityID, bool value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float NavAgentComponent_GetTurnSpeed(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void NavAgentComponent_SetTurnSpeed(ulong entityID, float value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void NavAgentComponent_GetTargetPosition(ulong entityID, out Vector3 value);
 		[MethodImpl(MethodImplOptions.InternalCall)]
@@ -1296,6 +1326,21 @@ namespace OloEngine
 		internal static extern float PhysicsJoint3DComponent_GetPathMaxFrictionForce(ulong entityID);
 		[MethodImpl(MethodImplOptions.InternalCall)]
 		internal static extern void PhysicsJoint3DComponent_SetPathMaxFrictionForce(ulong entityID, float value);
+		#endregion
+
+		#region PickVolumesComponent
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PickVolumesComponent_GetPadding(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PickVolumesComponent_SetPadding(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern float PickVolumesComponent_GetRadiusScale(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PickVolumesComponent_SetRadiusScale(ulong entityID, float value);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern bool PickVolumesComponent_GetEnabled(ulong entityID);
+		[MethodImpl(MethodImplOptions.InternalCall)]
+		internal static extern void PickVolumesComponent_SetEnabled(ulong entityID, bool value);
 		#endregion
 
 		#region PlayerRespawnComponent

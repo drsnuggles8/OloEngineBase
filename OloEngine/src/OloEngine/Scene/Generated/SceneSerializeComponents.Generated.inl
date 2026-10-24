@@ -551,6 +551,17 @@ if (entity.HasComponent<GroomCoatShadowComponent>())
     out << YAML::EndMap; // GroomCoatShadowComponent
 }
 
+if (entity.HasComponent<GroomColliderComponent>())
+{
+    out << YAML::Key << "GroomColliderComponent";
+    out << YAML::BeginMap; // GroomColliderComponent
+    auto const& comp = entity.GetComponent<GroomColliderComponent>();
+    out << YAML::Key << "Radius" << YAML::Value << comp.m_Radius;
+    out << YAML::Key << "HalfHeight" << YAML::Value << comp.m_HalfHeight;
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // GroomColliderComponent
+}
+
 if (entity.HasComponent<GroomComponent>())
 {
     out << YAML::Key << "GroomComponent";
@@ -800,6 +811,8 @@ if (entity.HasComponent<NavAgentComponent>())
     out << YAML::Key << "StoppingDistance" << YAML::Value << comp.m_StoppingDistance;
     out << YAML::Key << "AvoidancePriority" << YAML::Value << comp.m_AvoidancePriority;
     out << YAML::Key << "LockYAxis" << YAML::Value << comp.m_LockYAxis;
+    out << YAML::Key << "UseRootMotion" << YAML::Value << comp.m_UseRootMotion;
+    out << YAML::Key << "TurnSpeed" << YAML::Value << comp.m_TurnSpeed;
     out << YAML::EndMap; // NavAgentComponent
 }
 
@@ -860,6 +873,18 @@ if (entity.HasComponent<PerceptibleComponent>())
     out << YAML::Key << "Team" << YAML::Value << comp.Team;
     out << YAML::Key << "IsPerceptible" << YAML::Value << comp.IsPerceptible;
     out << YAML::EndMap; // PerceptibleComponent
+}
+
+if (entity.HasComponent<PickVolumesComponent>())
+{
+    out << YAML::Key << "PickVolumesComponent";
+    out << YAML::BeginMap; // PickVolumesComponent
+    auto const& comp = entity.GetComponent<PickVolumesComponent>();
+    out << YAML::Key << "Regions" << YAML::Value << comp.m_Regions;
+    out << YAML::Key << "Padding" << YAML::Value << comp.m_Padding;
+    out << YAML::Key << "RadiusScale" << YAML::Value << comp.m_RadiusScale;
+    out << YAML::Key << "Enabled" << YAML::Value << comp.m_Enabled;
+    out << YAML::EndMap; // PickVolumesComponent
 }
 
 if (entity.HasComponent<PlayerRespawnComponent>())

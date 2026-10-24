@@ -185,6 +185,15 @@ namespace OloEngine
 		}
 	}
 
+	public partial class AnimationStateComponent : Component
+	{
+		public float PlaybackSpeed
+		{
+			get => InternalCalls.AnimationStateComponent_GetPlaybackSpeed(Entity.ID);
+			set => InternalCalls.AnimationStateComponent_SetPlaybackSpeed(Entity.ID, value);
+		}
+	}
+
 	public partial class AudioSoundGraphComponent : Component
 	{
 		public float Volume
@@ -1246,6 +1255,27 @@ namespace OloEngine
 		}
 	}
 
+	public partial class GroomColliderComponent : Component
+	{
+		public float Radius
+		{
+			get => InternalCalls.GroomColliderComponent_GetRadius(Entity.ID);
+			set => InternalCalls.GroomColliderComponent_SetRadius(Entity.ID, value);
+		}
+
+		public float HalfHeight
+		{
+			get => InternalCalls.GroomColliderComponent_GetHalfHeight(Entity.ID);
+			set => InternalCalls.GroomColliderComponent_SetHalfHeight(Entity.ID, value);
+		}
+
+		public bool Enabled
+		{
+			get => InternalCalls.GroomColliderComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.GroomColliderComponent_SetEnabled(Entity.ID, value);
+		}
+	}
+
 	public partial class LightProbeComponent : Component
 	{
 		public float InfluenceRadius
@@ -1511,6 +1541,18 @@ namespace OloEngine
 		{
 			get => InternalCalls.NavAgentComponent_GetLockYAxis(Entity.ID);
 			set => InternalCalls.NavAgentComponent_SetLockYAxis(Entity.ID, value);
+		}
+
+		public bool UseRootMotion
+		{
+			get => InternalCalls.NavAgentComponent_GetUseRootMotion(Entity.ID);
+			set => InternalCalls.NavAgentComponent_SetUseRootMotion(Entity.ID, value);
+		}
+
+		public float TurnSpeed
+		{
+			get => InternalCalls.NavAgentComponent_GetTurnSpeed(Entity.ID);
+			set => InternalCalls.NavAgentComponent_SetTurnSpeed(Entity.ID, value);
 		}
 
 		public Vector3 TargetPosition
@@ -2027,6 +2069,27 @@ namespace OloEngine
 		{
 			get => InternalCalls.PhysicsJoint3DComponent_GetPathMaxFrictionForce(Entity.ID);
 			set => InternalCalls.PhysicsJoint3DComponent_SetPathMaxFrictionForce(Entity.ID, value);
+		}
+	}
+
+	public partial class PickVolumesComponent : Component
+	{
+		public float Padding
+		{
+			get => InternalCalls.PickVolumesComponent_GetPadding(Entity.ID);
+			set => InternalCalls.PickVolumesComponent_SetPadding(Entity.ID, value);
+		}
+
+		public float RadiusScale
+		{
+			get => InternalCalls.PickVolumesComponent_GetRadiusScale(Entity.ID);
+			set => InternalCalls.PickVolumesComponent_SetRadiusScale(Entity.ID, value);
+		}
+
+		public bool Enabled
+		{
+			get => InternalCalls.PickVolumesComponent_GetEnabled(Entity.ID);
+			set => InternalCalls.PickVolumesComponent_SetEnabled(Entity.ID, value);
 		}
 	}
 

@@ -45,6 +45,50 @@ namespace OloEngine
 			return component;
 		}
 
+		/// <summary>
+		/// Carry this entity on <paramref name="parent"/> (issue #1559) -- on the bone
+		/// named <paramref name="boneName"/> of the parent's skeleton, or on the parent
+		/// itself when it is empty -- at the given local pose (rotation in radians).
+		/// A dynamic body goes kinematic and follows; <see cref="Detach"/> lets it go
+		/// at the speed it was carried at. Returns false, with a log line, when it did nothing.
+		/// </summary>
+		public bool AttachTo(Entity parent, string boneName, Vector3 localTranslation, Vector3 localRotation)
+		{
+			if (parent == null)
+				return false;
+			return InternalCalls.Entity_AttachTo(ID, parent.ID, boneName ?? string.Empty, ref localTranslation, ref localRotation) == 0;
+		}
+
+		/// <summary>
+		/// <see cref="AttachTo"/>, keeping this entity where it is in the world: it rides
+		/// <paramref name="parent"/> (or its bone) from the pose it has now.
+		/// </summary>
+		public bool AttachInPlace(Entity parent, string boneName)
+		{
+			if (parent == null)
+				return false;
+			return InternalCalls.Entity_AttachInPlace(ID, parent.ID, boneName ?? string.Empty) == 0;
+		}
+
+		/// <summary>Release this entity from whatever carries it, keeping its world pose and carried velocity.</summary>
+		public bool Detach()
+		{
+			return InternalCalls.Entity_Detach(ID) == 0;
+		}
+
+		/// <summary>
+		/// Where the entity is in the world: its composed position. <see cref="Translation"/>
+		/// is relative to the parent, so an attached entity reads as its parent's origin.
+		/// </summary>
+		public Vector3 WorldTranslation
+		{
+			get
+			{
+				InternalCalls.Entity_GetWorldTranslation(ID, out Vector3 translation);
+				return translation;
+			}
+		}
+
 		public Entity FindEntityByName(string name)
 		{
 			ulong entityID = InternalCalls.Entity_FindEntityByName(name);

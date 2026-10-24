@@ -1358,6 +1358,8 @@
 		"OloEngine/Physics3D/JoltCapturePlatform.h"
 		"OloEngine/Physics3D/JoltJobSystemAdapter.h"
 		"OloEngine/Physics3D/JoltJobSystemAdapter.cpp"
+		"OloEngine/Physics3D/Physics3DScriptApi.h"
+		"OloEngine/Physics3D/Physics3DScriptApi.cpp"
 
 		"OloEngine/Particle/ParticlePool.h"
 		"OloEngine/Particle/ParticlePool.cpp"
@@ -1500,6 +1502,8 @@
 		"OloEngine/Scene/TerrainGround.h"
 		"OloEngine/Scene/Components.h"
 		"OloEngine/Scene/BoneAttachment.h"
+		"OloEngine/Scene/PickVolumes.h"
+		"OloEngine/Scene/PickVolumes.cpp"
 		"OloEngine/Scene/TransformComponent.cpp"
 		"OloEngine/Scene/Entity.cpp"
 		"OloEngine/Scene/Entity.h"

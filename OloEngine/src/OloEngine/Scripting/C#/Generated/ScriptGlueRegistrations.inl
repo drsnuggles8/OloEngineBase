@@ -62,6 +62,10 @@ OLO_ADD_INTERNAL_CALL(AircraftComponent_SetRollInput);
 OLO_ADD_INTERNAL_CALL(AircraftComponent_GetYawInput);
 OLO_ADD_INTERNAL_CALL(AircraftComponent_SetYawInput);
 
+// AnimationStateComponent
+OLO_ADD_INTERNAL_CALL(AnimationStateComponent_GetPlaybackSpeed);
+OLO_ADD_INTERNAL_CALL(AnimationStateComponent_SetPlaybackSpeed);
+
 // AudioSoundGraphComponent
 OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_GetVolume);
 OLO_ADD_INTERNAL_CALL(AudioSoundGraphComponent_SetVolume);
@@ -426,6 +430,14 @@ OLO_ADD_INTERNAL_CALL(FootIKComponent_SetLeftHandEnabled);
 OLO_ADD_INTERNAL_CALL(FootIKComponent_GetRightHandEnabled);
 OLO_ADD_INTERNAL_CALL(FootIKComponent_SetRightHandEnabled);
 
+// GroomColliderComponent
+OLO_ADD_INTERNAL_CALL(GroomColliderComponent_GetRadius);
+OLO_ADD_INTERNAL_CALL(GroomColliderComponent_SetRadius);
+OLO_ADD_INTERNAL_CALL(GroomColliderComponent_GetHalfHeight);
+OLO_ADD_INTERNAL_CALL(GroomColliderComponent_SetHalfHeight);
+OLO_ADD_INTERNAL_CALL(GroomColliderComponent_GetEnabled);
+OLO_ADD_INTERNAL_CALL(GroomColliderComponent_SetEnabled);
+
 // LightProbeComponent
 OLO_ADD_INTERNAL_CALL(LightProbeComponent_GetInfluenceRadius);
 OLO_ADD_INTERNAL_CALL(LightProbeComponent_SetInfluenceRadius);
@@ -507,6 +519,10 @@ OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetStoppingDistance);
 OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetStoppingDistance);
 OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetLockYAxis);
 OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetLockYAxis);
+OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetUseRootMotion);
+OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetUseRootMotion);
+OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetTurnSpeed);
+OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetTurnSpeed);
 OLO_ADD_INTERNAL_CALL(NavAgentComponent_GetTargetPosition);
 OLO_ADD_INTERNAL_CALL(NavAgentComponent_SetTargetPosition);
 
@@ -663,6 +679,14 @@ OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_GetPathMaxMotorForce);
 OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_SetPathMaxMotorForce);
 OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_GetPathMaxFrictionForce);
 OLO_ADD_INTERNAL_CALL(PhysicsJoint3DComponent_SetPathMaxFrictionForce);
+
+// PickVolumesComponent
+OLO_ADD_INTERNAL_CALL(PickVolumesComponent_GetPadding);
+OLO_ADD_INTERNAL_CALL(PickVolumesComponent_SetPadding);
+OLO_ADD_INTERNAL_CALL(PickVolumesComponent_GetRadiusScale);
+OLO_ADD_INTERNAL_CALL(PickVolumesComponent_SetRadiusScale);
+OLO_ADD_INTERNAL_CALL(PickVolumesComponent_GetEnabled);
+OLO_ADD_INTERNAL_CALL(PickVolumesComponent_SetEnabled);
 
 // PlayerRespawnComponent
 OLO_ADD_INTERNAL_CALL(PlayerRespawnComponent_GetSpawnPoint);

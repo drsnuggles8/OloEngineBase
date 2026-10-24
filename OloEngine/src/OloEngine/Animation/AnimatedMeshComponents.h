@@ -240,6 +240,8 @@ namespace OloEngine
         // The editor's Playback Speed slider writes it. Scene-serialized as
         // `PlaybackSpeed`; the upper bound keeps one tick from lapping a clip
         // many times over.
+        // Scriptable from C# and Lua (issue #1559): a petted dog's tail wags faster.
+        OLO_PROPERTY()
         OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
         float m_PlaybackSpeed = 1.0f;
         // Root motion for the model's own clips (issue #1533). Set, a clip with no

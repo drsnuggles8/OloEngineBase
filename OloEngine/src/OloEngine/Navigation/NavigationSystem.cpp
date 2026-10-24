@@ -6,6 +6,11 @@
 #include "OloEngine/Scene/Components.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/constants.hpp>
+#include <glm/gtc/quaternion.hpp>
+
+#include <algorithm>
+#include <cmath>
 #include <vector>
 
 namespace OloEngine
@@ -32,13 +37,23 @@ namespace OloEngine
             auto& agent = entity.GetComponent<NavAgentComponent>();
             auto& transform = entity.GetComponent<TransformComponent>();
 
+            // A root-motion agent (issue #1559) is moved by its animation, so it
+            // stays out of the crowd: DetourCrowd integrates its own velocity and
+            // writing that position back would move the agent a second time. One
+            // switched to root motion mid-play leaves the crowd here.
+            if (agent.m_UseRootMotion && agent.m_CrowdAgentId >= 0 && crowdMgr && crowdMgr->IsValid())
+            {
+                crowdMgr->RemoveAgent(agent.m_CrowdAgentId);
+                agent.m_CrowdAgentId = -1;
+            }
+
             // If a crowd is running, every NavAgent participates in it (even one with
             // no target yet) so DetourCrowd's separation/avoidance accounts for it
             // against its neighbours. Register lazily on first tick rather than via
             // OnComponentAdded — that naturally handles "navmesh baked/set after the
             // component was added" ordering, and a SetNavMesh reset (which zeroes
             // every m_CrowdAgentId) re-registers everyone next frame for free.
-            if (crowdMgr && crowdMgr->IsValid())
+            if (crowdMgr && crowdMgr->IsValid() && !agent.m_UseRootMotion)
             {
                 if (agent.m_CrowdAgentId < 0)
                     agent.m_CrowdAgentId = crowdMgr->AddAgent(transform.Translation, agent);
@@ -162,6 +177,27 @@ namespace OloEngine
                     if (!agent.m_TargetUnreachable)
                         agent.m_HasTarget = false;
                     continue;
+                }
+            }
+            else if (agent.m_UseRootMotion)
+            {
+                // Root motion owns the translation (it ran earlier this tick:
+                // RootMotionApply -> Navigation); navigation owns the heading.
+                // Turn the agent's local +Z -- the glTF forward its clips travel
+                // along -- toward the corner about world up, at most TurnSpeed.
+                const glm::vec2 wanted(toTarget.x, toTarget.z);
+                if (glm::dot(wanted, wanted) > EPSILON * EPSILON)
+                {
+                    const glm::vec3 forward = transform.GetRotation() * glm::vec3(0.0f, 0.0f, 1.0f);
+                    const f32 currentYaw = std::atan2(forward.x, forward.z);
+                    const f32 wantedYaw = std::atan2(wanted.x, wanted.y);
+                    const f32 delta = std::remainder(wantedYaw - currentYaw, glm::two_pi<f32>());
+                    const f32 maxTurn = std::max(agent.m_TurnSpeed, 0.0f) * dt;
+                    const f32 turn = std::clamp(delta, -maxTurn, maxTurn);
+                    if (std::isfinite(turn) && turn != 0.0f)
+                    {
+                        transform.SetRotation(glm::normalize(glm::angleAxis(turn, glm::vec3(0.0f, 1.0f, 0.0f)) * transform.GetRotation()));
+                    }
                 }
             }
             else

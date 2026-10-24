@@ -7156,6 +7156,62 @@ namespace OloEngine
     static_assert(sizeof(GroomSimulationComponent) == 84,
                   "GroomSimulationComponent must have no padding: see BitwiseEqualLayoutTest");
 
+    // Something that pushes a coat aside (issue #1559): the hand petting a dog,
+    // a toy in its mouth. A sphere -- or a capsule along the entity's local Y
+    // when m_HalfHeight > 0 -- carried by the entity's COMPOSED world transform,
+    // so it can ride a bone.
+    //
+    // Every simulated coat whose guides it reaches is pushed out of it to its
+    // FULL radius. That is the difference from the fitted body proxy, which
+    // holds fur only as far out as the groom placed it (the groom's own short
+    // fur lies inside the proxy): a body capsule must not lift the coat, a hand
+    // must part it. Up to GroomSimulationLimits::MaxExternalColliders reach one
+    // coat, nearest first, and only a coat whose GroomSimulationComponent::
+    // m_Collide is on. The strands follow their guides' displacement, so the
+    // parting is as fine as the coat's guide density.
+    struct GroomColliderComponent
+    {
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.001f, Max = 10.0f)
+        f32 m_Radius = 0.05f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_HalfHeight = 0.0f;
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        auto operator==(const GroomColliderComponent&) const -> bool = default;
+    };
+
+    // Pick volumes on a skinned character (issue #1559): one capsule per bone,
+    // fitted to that bone's own skin vertices at rest -- the fit the groom's body
+    // proxy uses (GroomBodyCollider.h) -- and carried by this frame's bone
+    // palette, choose which bones' skin a ray is tested against; the hit is on
+    // that skin, posed. A ray picks the ANIMATED body (Scene::RaycastPickVolumes)
+    // with no physics body to fight the animation and nothing to author per
+    // character.
+    //
+    // m_Regions names groups of bones so gameplay can ask "where" rather than
+    // "which bone": `Name: bone, bone; Name: bone` -- regions separated by ';',
+    // a region's bones by ','. A bone in no region answers with its own name.
+    // m_Padding widens every capsule, in world units, so a capsule fitted inside
+    // a limb still reaches the skin it stands for; m_RadiusScale scales the
+    // fitted radius. Neither moves the hit, which is on the skin.
+    struct PickVolumesComponent
+    {
+        std::string m_Regions;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 10.0f)
+        f32 m_Padding = 0.0f;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_RadiusScale = 1.0f;
+        OLO_PROPERTY()
+        bool m_Enabled = true;
+
+        auto operator==(const PickVolumesComponent&) const -> bool = default;
+    };
+
     /// The authored fields as the solver wants them.
     ///
     /// THE ONE PLACE this component becomes solver input, so scene YAML, a save
@@ -8162,6 +8218,19 @@ namespace OloEngine
         i32 m_AvoidancePriority = 50;
         OLO_PROPERTY()
         bool m_LockYAxis = false; // When true, navigation only moves on XZ plane
+        // Who moves the agent (issue #1559). Off (the default): navigation moves
+        // the transform along the path at m_MaxSpeed. On: the entity's animation
+        // root motion moves it, and navigation only TURNS it -- its local +Z,
+        // the glTF forward -- toward the next corner at m_TurnSpeed and judges
+        // arrival. One owner of the translation per tick, so a character's
+        // planted feet travel at the speed its clip was authored for. Such an
+        // agent follows its own corners and does not join the crowd, whose
+        // simulation would move it a second time.
+        OLO_PROPERTY()
+        bool m_UseRootMotion = false;
+        OLO_PROPERTY()
+        OLO_SERIALIZE(Clamp, Min = 0.0f, Max = 100.0f)
+        f32 m_TurnSpeed = 6.0f; // rad/s, root-motion agents only
 
         // Runtime state (not serialized)
         OLO_PROPERTY(Name = "TargetPosition", Type = "vec3", Set = "comp.m_TargetPosition = {v}; comp.m_HasTarget = true; comp.m_HasPath = false; comp.m_TargetUnreachable = false")
@@ -8187,7 +8256,8 @@ namespace OloEngine
         NavAgentComponent(const NavAgentComponent& other)
             : m_Radius(other.m_Radius), m_Height(other.m_Height), m_MaxSpeed(other.m_MaxSpeed),
               m_Acceleration(other.m_Acceleration), m_StoppingDistance(other.m_StoppingDistance),
-              m_AvoidancePriority(other.m_AvoidancePriority), m_LockYAxis(other.m_LockYAxis)
+              m_AvoidancePriority(other.m_AvoidancePriority), m_LockYAxis(other.m_LockYAxis),
+              m_UseRootMotion(other.m_UseRootMotion), m_TurnSpeed(other.m_TurnSpeed)
         {
         }
         NavAgentComponent& operator=(const NavAgentComponent& other)
@@ -8201,6 +8271,8 @@ namespace OloEngine
                 m_StoppingDistance = other.m_StoppingDistance;
                 m_AvoidancePriority = other.m_AvoidancePriority;
                 m_LockYAxis = other.m_LockYAxis;
+                m_UseRootMotion = other.m_UseRootMotion;
+                m_TurnSpeed = other.m_TurnSpeed;
                 m_TargetPosition = {};
                 m_HasTarget = false;
                 m_HasPath = false;
@@ -8214,7 +8286,8 @@ namespace OloEngine
         NavAgentComponent(NavAgentComponent&& other) noexcept
             : m_Radius(other.m_Radius), m_Height(other.m_Height), m_MaxSpeed(other.m_MaxSpeed),
               m_Acceleration(other.m_Acceleration), m_StoppingDistance(other.m_StoppingDistance),
-              m_AvoidancePriority(other.m_AvoidancePriority), m_LockYAxis(other.m_LockYAxis)
+              m_AvoidancePriority(other.m_AvoidancePriority), m_LockYAxis(other.m_LockYAxis),
+              m_UseRootMotion(other.m_UseRootMotion), m_TurnSpeed(other.m_TurnSpeed)
         {
         }
         NavAgentComponent& operator=(NavAgentComponent&& other) noexcept
@@ -8228,6 +8301,8 @@ namespace OloEngine
                 m_StoppingDistance = other.m_StoppingDistance;
                 m_AvoidancePriority = other.m_AvoidancePriority;
                 m_LockYAxis = other.m_LockYAxis;
+                m_UseRootMotion = other.m_UseRootMotion;
+                m_TurnSpeed = other.m_TurnSpeed;
                 m_TargetPosition = {};
                 m_HasTarget = false;
                 m_HasPath = false;
@@ -8243,7 +8318,7 @@ namespace OloEngine
         // intentionally excluded (it's path-finder-managed, not authoring-visible).
         auto operator==(const NavAgentComponent& other) const -> bool
         {
-            return Math::BitwiseEqual(m_Radius, other.m_Radius) && Math::BitwiseEqual(m_Height, other.m_Height) && Math::BitwiseEqual(m_MaxSpeed, other.m_MaxSpeed) && Math::BitwiseEqual(m_Acceleration, other.m_Acceleration) && Math::BitwiseEqual(m_StoppingDistance, other.m_StoppingDistance) && m_AvoidancePriority == other.m_AvoidancePriority && m_LockYAxis == other.m_LockYAxis;
+            return Math::BitwiseEqual(m_Radius, other.m_Radius) && Math::BitwiseEqual(m_Height, other.m_Height) && Math::BitwiseEqual(m_MaxSpeed, other.m_MaxSpeed) && Math::BitwiseEqual(m_Acceleration, other.m_Acceleration) && Math::BitwiseEqual(m_StoppingDistance, other.m_StoppingDistance) && m_AvoidancePriority == other.m_AvoidancePriority && m_LockYAxis == other.m_LockYAxis && m_UseRootMotion == other.m_UseRootMotion && Math::BitwiseEqual(m_TurnSpeed, other.m_TurnSpeed);
         }
     };
 

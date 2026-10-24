@@ -818,6 +818,7 @@ add_executable(OloEngine-Tests
 		# The furred dog showcase (#1533): the coat grown region by region on
 		# the generated body, bound, lit and judged from every hero angle.
 		Rendering/PropertyTests/DogShowcaseEvidenceTest.cpp
+		Rendering/PropertyTests/DogPlayEvidenceTest.cpp
 		Rendering/PropertyTests/DogAssetDeliveryTest.cpp
 		# Criterion 4's pictures: both reference animals under front/side/backlight,
 		# on all three rendering paths, plus the silhouette-under-budget and
@@ -1135,6 +1136,7 @@ add_executable(OloEngine-Tests
 		SaveGame/GroomSceneShadowSaveLoadTest.cpp
 		SaveGame/AnimationClipRequestSaveLoadTest.cpp
 		SaveGame/BoneAttachmentSaveLoadTest.cpp
+		SaveGame/PlayComponentsSaveLoadTest.cpp
 		SaveGame/FoliageInteractionSaveLoadTest.cpp
 		# #1533: FoliageLayer::CastShadows round-trips, and an older file casts.
 		SaveGame/FoliageShadowCasterSaveLoadTest.cpp
@@ -1213,6 +1215,7 @@ add_executable(OloEngine-Tests
 		Scene/AnimalSchedulerContractTest.cpp
 		Scene/AnimalSchedulingCensusTest.cpp
 		Scene/SystemSchedulerTest.cpp
+		Scene/PickVolumesTest.cpp
 		# Floating-origin / origin-rebasing math (issue #429)
 		Scene/WorldOriginRebaseTest.cpp
 		# Runtime scene load/switch resolution + loading (issue #642)
@@ -1810,6 +1813,11 @@ add_executable(OloEngine-Tests
 		Functional/Navigation/CrowdAvoidancePreventsOverlapTest.cpp
 		Functional/Navigation/WorldOriginRebaseNavTest.cpp
 		Functional/Scripting/LuaRaycastHitsPhysicsBodyTest.cpp
+		Functional/Scripting/ScriptPhysics3DPlaySurfaceTest.cpp
+		Functional/Scripting/LuaScreenRayFollowsAParentedCameraTest.cpp
+		Functional/Scripting/ScriptWritesReachTheJoltBodyTest.cpp
+		Functional/AI/NavMeshBakeSkipsMovingGeometryTest.cpp
+		Functional/AnimationPhysics/IKTargetEntityResolvesToItsWorldPositionTest.cpp
 		Functional/Scripting/LuaCompletesQuestViaIncrementObjectiveTest.cpp
 		Functional/Dialogue/DialogueAdvanceMovesToNextNodeTest.cpp
 		Functional/Dialogue/DialogueAdvanceGuardsRemovedComponentTest.cpp

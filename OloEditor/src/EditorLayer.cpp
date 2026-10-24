@@ -1958,7 +1958,12 @@ namespace OloEngine
         }
 
         m_ActiveScene->OnViewportResize(static_cast<u32>(m_ViewportSize.x), static_cast<u32>(m_ViewportSize.y));
-        m_ActiveScene->SetViewportOffset(m_ViewportBounds[0]);
+        // In the main window's CLIENT pixels, the space Input::GetMousePosition
+        // reports in. ImGui runs with multi-viewports, so the panel's bounds are
+        // DESKTOP coordinates; subtracted as they were, every scripted mouse
+        // position was off by where the editor window sat on the desktop (#1559).
+        const ImVec2 windowOrigin = ImGui::GetMainViewport()->Pos;
+        m_ActiveScene->SetViewportOffset(m_ViewportBounds[0] - glm::vec2(windowOrigin.x, windowOrigin.y));
 
         const f64 epsilon = 1e-5;
 

@@ -45,6 +45,61 @@ namespace OloEngine
 {
     namespace
     {
+        // Everything MarkBodyInDensityVolume reads, hashed: the grid, where the
+        // coat's density lies (it reads only whether a voxel holds any), the
+        // surface's positions and indices, and its transform into the coat.
+        // The key of GroomRenderPass's body bakes (#1559).
+        [[nodiscard]] u64 CoatBodyKey(const GroomCoatShadow::DensityVolume& volume, const GroomDeformationInputs& body)
+        {
+            u64 hash = 1469598103934665603ull;
+            const auto mix = [&hash](u64 value)
+            { hash = (hash ^ value) * 1099511628211ull; };
+            mix((static_cast<u64>(static_cast<u32>(volume.Dimensions.x)) << 32u) | static_cast<u32>(volume.Dimensions.y));
+            mix(static_cast<u64>(static_cast<u32>(volume.Dimensions.z)));
+            for (glm::length_t axis = 0; axis < 3; ++axis)
+            {
+                mix((static_cast<u64>(std::bit_cast<u32>(volume.BoundsMin[axis])) << 32u) |
+                    std::bit_cast<u32>(volume.BoundsMax[axis]));
+            }
+            u64 bits = 0;
+            u32 filled = 0;
+            for (const f32 density : volume.Density)
+            {
+                bits = (bits << 1u) | (density > 0.0f ? 1u : 0u);
+                if (++filled == 64u)
+                {
+                    mix(bits);
+                    bits = 0;
+                    filled = 0;
+                }
+            }
+            mix(bits ^ filled);
+            const GroomSurfaceView& surface = body.Surface;
+            mix((static_cast<u64>(surface.VertexCount) << 32u) | surface.IndexCount);
+            for (u32 v = 0; v < surface.VertexCount; ++v)
+            {
+                const glm::vec3 p = surface.Position(v);
+                mix((static_cast<u64>(std::bit_cast<u32>(p.x)) << 32u) | std::bit_cast<u32>(p.y));
+                mix(std::bit_cast<u32>(p.z));
+            }
+            for (u32 i = 0; i + 1u < surface.IndexCount; i += 2u)
+            {
+                mix((static_cast<u64>(surface.Indices[i]) << 32u) | surface.Indices[i + 1u]);
+            }
+            if ((surface.IndexCount & 1u) != 0u)
+            {
+                mix(surface.Indices[surface.IndexCount - 1u]);
+            }
+            for (glm::length_t column = 0; column < 4; ++column)
+            {
+                for (glm::length_t row = 0; row < 4; ++row)
+                {
+                    mix(std::bit_cast<u32>(body.SurfaceToGroom[column][row]));
+                }
+            }
+            return hash;
+        }
+
         // The stochastic hash's seed. Fixed rather than random: two runs of the
         // same frame must produce the same picture, or every pixel A/B in the
         // verification matrix becomes a comparison of two noise fields.
@@ -885,6 +940,7 @@ namespace OloEngine
                                                                 rootInputs.Skinning, boneCount, baseCurveCount);
                 entry.CasterPoseSurface = BuildGroomCasterPoseSurface(entry.Rest->Caster.Pose, rootInputs.Surface);
                 entry.RootSkinKey = request.GpuRootSurfaceKey;
+                entry.RootMorphKey = request.GpuRootMorphKey;
             }
             else
             {
@@ -920,6 +976,18 @@ namespace OloEngine
         // takes them into the bind frames with the relayout upload; on a live one
         // SetClumpGrowth does, and the static region goes up below.
         entry.DeformCpu.SetWetness(MakeGroomDeformWetRecord(request.Wetness, request.WetResponse, request.WetGravity));
+        // A MORPHED BODY under a live layout: its rest positions moved in place
+        // (a blink), so the vertex region is rewritten and sent on its own. The
+        // roots' triangles, bone bounds and caster surface are the layout's; a
+        // morph moves a face by millimetres, and redoing them is the per-root
+        // CPU work the GPU evaluation exists to avoid.
+        bool vertexRegionChanged = false;
+        if (rootsOnGpu && !relayout && entry.RootMorphKey != request.GpuRootMorphKey)
+        {
+            entry.DeformCpu.WriteSurfaceVertices(rootInputs.Surface, rootInputs.Skinning);
+            entry.RootMorphKey = request.GpuRootMorphKey;
+            vertexRegionChanged = true;
+        }
         bool clumpRegionChanged = false;
         if (request.Wetness.Any() && request.WetResponse.Clump > 0.0f && !entry.DeformClumpWritten)
         {
@@ -1022,6 +1090,10 @@ namespace OloEngine
                 if (clumpRegionChanged)
                 {
                     send(static_cast<u64>(layout.ClumpBase) * 16u, layout.DynamicOffsetBytes());
+                }
+                if (vertexRegionChanged)
+                {
+                    send(layout.VertexOffsetBytes(), layout.VertexEndBytes());
                 }
                 const u64 usedEnd = (static_cast<u64>(layout.DisplacementBase) +
                                      static_cast<u64>(entry.DeformCpu.GetFrameStats().DisplacementCount) * 2u) *
@@ -1668,7 +1740,20 @@ namespace OloEngine
         // fur through the body, as they did before the body was there.
         u32 bodyVoxels = 0;
         const bool haveSurface = body != nullptr && body->Surface.IsUsable();
-        if (haveSurface)
+        const u64 bodyKey = haveSurface ? CoatBodyKey(volume, *body) : 0u;
+        const auto known = haveSurface ? std::ranges::find(m_CoatBodyBakes, bodyKey, &CoatBodyBake::Key)
+                                       : m_CoatBodyBakes.end();
+        if (known != m_CoatBodyBakes.end())
+        {
+            // The same body in the same grid around the same coat: the answer
+            // an earlier bake marked, not 150-200 ms of marking again.
+            volume.Body = known->Body;
+            bodyVoxels = known->MarkedVoxels;
+            known->LastUsedTick = m_CacheTick;
+            m_CoatBodyUsedTick = m_CacheTick;
+            ++m_Stats.CoatShadow.BodyBakesReused;
+        }
+        else if (haveSurface)
         {
             const auto bodyStart = std::chrono::steady_clock::now();
             GroomCoatShadow::BodyVoxelStats bodyStats;
@@ -1689,6 +1774,12 @@ namespace OloEngine
                               static_cast<f64>(bodyStats.RasterMicroseconds) / 1000.0,
                               static_cast<f64>(bodyStats.SkyMicroseconds) / 1000.0, bodyStats.SkyCellsOutside,
                               bodyStats.SkyCells, static_cast<f64>(bodyStats.FillMicroseconds) / 1000.0);
+                if (m_CoatBodyBakes.size() >= kCoatBodyBakesKept)
+                {
+                    m_CoatBodyBakes.erase(std::ranges::min_element(m_CoatBodyBakes, {}, &CoatBodyBake::LastUsedTick));
+                }
+                m_CoatBodyBakes.push_back({ bodyKey, volume.Body, bodyVoxels, m_CacheTick });
+                m_CoatBodyUsedTick = m_CacheTick;
             }
             else
             {
@@ -2156,8 +2247,19 @@ namespace OloEngine
         const bool coatChanged = !deformed && entry.CoatBakedCoatDigest != request.Build.CoatDigest;
         // A rest bake marks the body it grows on (#1533); one made before the
         // bound surface arrived is made again once it has.
-        const GroomDeformationInputs* restBody =
-            !deformed && request.GpuRootInputs.Surface.IsUsable() ? &request.GpuRootInputs : nullptr;
+        // Over the body AT REST (CoatRestBody): a morph rewrites the bound
+        // surface's positions in place, and a rest bake marks the unmorphed one.
+        GroomDeformationInputs restBodyInputs;
+        const GroomDeformationInputs* restBody = nullptr;
+        if (!deformed && request.GpuRootInputs.Surface.IsUsable())
+        {
+            restBodyInputs = request.GpuRootInputs;
+            if (request.CoatRestBody.IsUsable())
+            {
+                restBodyInputs.Surface = request.CoatRestBody;
+            }
+            restBody = &restBodyInputs;
+        }
         const bool bodyArrived = restBody != nullptr && !entry.CoatBakedWithSurface;
         const bool needsRebuild = !entry.CoatVolume || !bakeSourceMatches || entry.CoatResolution != resolution ||
                                   entry.CoatLodStep != lodStep ||
@@ -3452,6 +3554,10 @@ namespace OloEngine
             std::vector<u16>().swap(m_CoatPackHalf);
             std::vector<f32>().swap(m_CoatPackFloat);
         }
+        if (!m_CoatBodyBakes.empty() && m_CacheTick > m_CoatBodyUsedTick + kCoatBodyIdleFrames)
+        {
+            std::vector<CoatBodyBake>().swap(m_CoatBodyBakes);
+        }
     }
 
     void GroomRenderPass::PublishCacheStats()
@@ -3515,6 +3621,10 @@ namespace OloEngine
                                  capacityBytes(m_CoatVolumeScratch.Direction) +
                                  capacityBytes(m_CoatVolumeScratch.Body) + capacityBytes(m_CoatPackHalf) +
                                  capacityBytes(m_CoatPackFloat) + static_cast<u64>(m_CpuRootScratch.GetAllocatedSize());
+        for (const CoatBodyBake& bake : m_CoatBodyBakes)
+        {
+            memory.CpuScratchBytes += capacityBytes(bake.Body);
+        }
         memory.CpuEvaluationScratchBytes = m_CasterPoseScratch.RetainedBytes() + m_CpuSkinScratch.RetainedBytes();
         return memory;
     }
@@ -3759,6 +3869,7 @@ namespace OloEngine
         m_Cache.clear();
         m_RestStreams.clear();
         m_RefusedRestStreams.clear();
+        std::vector<CoatBodyBake>().swap(m_CoatBodyBakes);
         m_CacheBytes = 0;
         m_CacheBudgetWarning = {};
         std::vector<GroomStrandVertex>().swap(m_DeformedVertices);

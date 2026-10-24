@@ -11,6 +11,14 @@ namespace OloEngine
 		Custom = 3
 	}
 
+	// How the OS cursor behaves. Mirrors the C++ OloEngine::CursorMode enum.
+	public enum CursorMode
+	{
+		Normal = 0, // visible, moves freely (pointing, petting, throwing)
+		Hidden = 1, // hidden over the window, not locked
+		Locked = 2  // hidden and locked: mouse-look
+	}
+
 	public class Input
 	{
 		public static bool IsKeyDown(KeyCode keycode)
@@ -43,6 +51,23 @@ namespace OloEngine
 		{
 			InternalCalls.Input_GetWindowSize(out Vector2 size);
 			return size;
+		}
+
+		/// <summary>The mouse wheel's motion this frame in notches; Y &gt; 0 is away from the user.</summary>
+		public static Vector2 GetMouseScrollDelta()
+		{
+			InternalCalls.Input_GetMouseScrollDelta(out Vector2 delta);
+			return delta;
+		}
+
+		public static void SetCursorMode(CursorMode mode)
+		{
+			InternalCalls.Input_SetCursorMode((int)mode);
+		}
+
+		public static CursorMode GetCursorMode()
+		{
+			return (CursorMode)InternalCalls.Input_GetCursorMode();
 		}
 
 		public static bool IsActionPressed(string actionName)

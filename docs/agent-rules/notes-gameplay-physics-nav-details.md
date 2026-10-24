@@ -254,3 +254,53 @@ types are unconstrained), so `TransformComponent`, owned by the 2D sprite loop, 
 physics-sync, particle and audio groups. Read and update the ownership-map comment at the top of
 `Scene/Scene.cpp` before adding an owning group: owning an already-owned component is a runtime
 assert, and an owned pool cannot be `.sort()`ed.
+
+## 12. Script writes reach the live Jolt body; a carried body follows its entity (issue #1559)
+
+**Rule:** what the game writes into a body's entity between steps is applied to the live body before
+the next step (`JoltScene::ApplyAuthoredBodyState`, from `PreSimulate`): a changed
+`Rigidbody3DComponent::m_Type`, and a moved root `TransformComponent` (teleported). Before this,
+`entity_utils.set_translation`, the C# `Translation` setter, an MCP write or the inspector moved the
+transform and the physics fence wrote the body's own pose straight back over it, and every script
+type change only wrote the field. A type change a body cannot make (created Static) is refused with a
+warning and the field put back.
+
+**Carry:** `Scene::AttachEntity` parents an entity, optionally on a bone, and makes its body
+kinematic and *carried*: `DriveCarriedBodies` teleports it to the entity's composed world pose before
+each step, and neither write-back (`JoltScene::SynchronizeTransforms` and the
+`Scene::PostPhysicsSync` group loop, two separate places) touches it. Writing a world pose into a
+parent-relative transform composes it again under the parent every tick; the first carried ball left
+at 196 m/s. `DetachEntity` bakes the world pose, restores the type the body had before it was first
+picked up, and gives it the velocity it was carried at, so a thrown toy needs no extra call.
+A carried entity's own translation is parent-relative: read where it is with Lua
+`entity_utils.get_world_translation` / C# `Entity.WorldTranslation`. A toy in the player's hand
+read through `get_translation` sat at (0, 0, 0), and the dog watched the world origin.
+`AttachEntityInPlace` attaches without moving the child, under the parent's (or bone's) pose as last
+composed, which is the pose on screen.
+
+**Contacts:** `Physics.GetContacts` / `JoltScene::GetContacts` answers pairs touching now plus pairs
+that began in the steps the latest `PreSimulate` drained, so a contact that begins and ends within
+one frame's steps is still heard. A body that has rested long enough to **sleep has no contacts**:
+Jolt removes a sleeping pair's contacts. Hear a landing when it happens; do not poll a resting toy.
+
+## 13. Navmesh bake: no moving geometry, and it builds its own ground (issue #1559)
+
+**Rule:** `NavMeshGenerator::CollectSceneGeometry` skips geometry that moves (`IsMovingGeometry`: a
+nav agent, an animated or skinned body, a character controller, a non-static rigid body, or anything
+parented under one), and reads a single-tile terrain's heights GPU-free
+(`Scene::CpuTerrainHeights`, the source the physics height field uses) when the renderer has not built them.
+
+**Why:** the bake took every `MeshComponent` and collider as static. A dog carved a hole where it
+stood, so its own agent started off the mesh; a ball lying on the lawn left an island; the dog's 160k
+skinned vertices fed Recast for nothing. And the terrain's height field was built only by the
+rendered update, so a bake before the first rendered frame (the packaged runtime's start, the server,
+a test) found no ground at all ("No geometry found in scene").
+
+## 14. Steering on root motion (issue #1559)
+
+**Rule:** a `NavAgentComponent` with `m_UseRootMotion` is moved by its animation's root motion and
+only *turned* by navigation (local +Z toward the next corner, at `m_TurnSpeed`), and stays out of the
+crowd, whose own integration would move it a second time. `Navigation` is ordered `.After
+("RootMotionApply")`, pinned by `SystemSchedulerTest`'s seam test. Navigation judges arrival on the
+position root motion produced; a script stopping a fast clip must start the next clip early, because
+the blend out of a run still travels.

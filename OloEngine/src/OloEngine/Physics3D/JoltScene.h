@@ -34,6 +34,7 @@
 #include <unordered_set>
 #include <utility>
 #include <optional>
+#include <set>
 #include <vector>
 
 namespace JPH
@@ -404,7 +405,7 @@ namespace OloEngine
         void SynchronizeTransforms();
 
         // Contact events
-        void OnContactEvent(ContactType type, UUID entityA, UUID entityB) const;
+        void OnContactEvent(ContactType type, UUID entityA, UUID entityB);
         // Fan a fresh contact out to both entities' visual-script graphs
         // (issue #634). Queues; never dispatches inline — see the definition.
         void NotifyVisualScriptContact(UUID entityA, UUID entityB) const;
@@ -491,6 +492,33 @@ namespace OloEngine
         // olo_physics_contacts diagnostics tool. Thread-safe (listener-locked).
         [[nodiscard("contact-pair snapshot must be used")]] std::vector<std::pair<UUID, UUID>> GetActiveContactPairs() const;
 
+        // Every entity `entityID` is touching now, or began touching in the
+        // steps the latest PreSimulate drained (issue #1559). The second half
+        // keeps a contact that began and ended inside one frame's steps (a fast
+        // ball glancing off the lawn) visible to the scripts, which run once per
+        // drain. Deduplicated, unordered; empty when physics is not initialized.
+        // A body that has rested long enough to SLEEP has no contacts: Jolt
+        // removes a sleeping pair's contacts, so "touching now" answers for
+        // moving bodies, and a landing is heard when it happens. Game thread.
+        void GetContacts(UUID entityID, TArray<UUID>& outContacts) const;
+
+        // Carried bodies (issue #1559): the body of an entity that rides another
+        // entity (Scene::AttachEntity) is kinematic and follows the entity's
+        // composed world pose, instead of writing its own pose back into the
+        // transform -- which, under a parent, would be composed a second time.
+        // DriveCarriedBodies teleports each one to its world pose before the
+        // step and records the velocity that pose moved at, so a released body
+        // leaves at the speed it was carried at (GetCarriedVelocity). Game thread.
+        // `releaseType` is the motion type the body returns to when it is let go.
+        void SetCarried(UUID entityID, bool carried, EBodyType releaseType = EBodyType::Dynamic);
+        [[nodiscard]] bool IsCarried(UUID entityID) const
+        {
+            return m_CarriedBodies.contains(entityID);
+        }
+        void DriveCarriedBodies(f32 deltaTime);
+        [[nodiscard]] glm::vec3 GetCarriedVelocity(UUID entityID) const;
+        [[nodiscard]] EBodyType GetCarriedReleaseType(UUID entityID) const;
+
       private:
         void CreateRigidBodies();
         // Second pass after CreateRigidBodies(): build every authored joint's
@@ -522,6 +550,20 @@ namespace OloEngine
         // publish a JointBrokeEvent on the Scene's GameplayEventBus.
         void BreakOverstressedJoints(f32 stepDeltaTime);
         void SynchronizeBody(Ref<JoltBody> body) const;
+        // The live body follows what the game wrote into its entity since the
+        // last step (#1559). Before this a script, the inspector or an MCP write
+        // could change Rigidbody3DComponent::m_Type or move the TransformComponent
+        // during Play and the body never heard of it: the fence wrote the body's
+        // own pose straight back over the move.
+        //  * Type: a body created Static cannot move in Jolt; that request is
+        //    refused with a warning and the field is put back, so it never claims
+        //    a type the body does not have.
+        //  * Pose: the fence leaves the transform equal to the body, so a
+        //    difference here is a write; the body is teleported to it. Only root
+        //    entities: a parented transform is not a world pose (a carried body
+        //    is driven by DriveCarriedBodies instead).
+        // Game thread, from PreSimulate.
+        void ApplyAuthoredBodyState();
 
         // Internal Jolt setup
         void InitializeJolt();
@@ -555,6 +597,28 @@ namespace OloEngine
 
         // Contact listener
         std::unique_ptr<JoltContactListener> m_ContactListener;
+
+        // Contacts that began in the steps the latest PreSimulate drained (see
+        // GetContacts), as ordered (lo, hi) pairs. Game thread only.
+        std::set<std::pair<u64, u64>> m_RecentContacts;
+
+        // Carried bodies (see SetCarried): the last driven world position and
+        // the velocity it implies.
+        struct CarriedBody
+        {
+            glm::vec3 m_LastPosition{ 0.0f };
+            glm::vec3 m_Velocity{ 0.0f };
+            EBodyType m_ReleaseType = EBodyType::Dynamic;
+            // The first drive after an attach reads the world pose composed
+            // BEFORE the attach (the propagation pass has not run since), so it
+            // is not a velocity sample: the jump from the toy's old place to the
+            // mouth would read as a throw.
+            u32 m_WarmupDrives = 1;
+            bool m_HasLastPosition = false;
+        };
+        std::unordered_map<UUID, CarriedBody> m_CarriedBodies;
+        // Entities already warned about an impossible type change (one line each).
+        std::unordered_set<UUID> m_WarnedStaticTypeChange;
 
         // Body management
         std::unordered_map<UUID, Ref<JoltBody>> m_Bodies;

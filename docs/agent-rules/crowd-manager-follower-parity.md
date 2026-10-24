@@ -1,5 +1,8 @@
 # A valid navmesh silently switches every NavAgent onto the crowd follower
 
+An agent on root motion (`NavAgentComponent::m_UseRootMotion`, #1559) is the exception: it never
+joins the crowd, whose integration would move it a second time, and navigation only turns it.
+
 Short rule for anyone touching `NavigationSystem`, `CrowdManager`, or a test
 that calls `Scene::SetNavMesh` (issue #616).
 
@@ -29,7 +32,7 @@ not just the one it was written against.
 
 **Whenever you add or edit a Functional test that calls `Scene::SetNavMesh`
 with a valid mesh and a `NavAgentComponent`, treat the crowd as the active
-follower by default** — don't assume "manual" from the absence of a second
+follower by default** (unless the agent has `m_UseRootMotion`) — don't assume "manual" from the absence of a second
 agent. If you need to test the manual path specifically, either drive
 `NavMeshQuery::FindPath` directly (no `NavAgentComponent`/`Scene::SetNavMesh`
 at all — see `NavMeshQueryFindPathBetweenPointsTest`), or make the test's

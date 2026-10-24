@@ -218,6 +218,7 @@ No crash, no error, no log line: work or data disappears and the system keeps ru
 | [groom-surface-binding.md](groom-surface-binding.md) | A coat onto the wrong part of a body after a silent rebind. |
 | [groom-fibre-scattering.md](groom-fibre-scattering.md) | A coat's whole azimuthal response to a quadrature that point-samples the fibre width. |
 | [groom-guide-simulation.md](groom-guide-simulation.md) | A coat that lags its animal by a whole animation, to a simulated guide the deformer never selected, among seven other solver failures. |
+| [groom-external-colliders-and-morph-continuity.md](groom-external-colliders-and-morph-continuity.md) | A hand pressed into a coat that parted nothing, to a collider held to the groom's rest depth; a 65th collider that silently switched collision off for the whole coat; a running dog bald from behind, to world-space damping that read the body's own move as offset; pale shoulder patches, to limb capsules that swept the coat aside. |
 | [groom-guide-stand-ins.md](groom-guide-stand-ins.md) | A long coat 14% less shadowed at 14 m, because stand-ins averaged away the part of each guide's drape pointing its own way. |
 | [groom-coat-self-shadowing.md](groom-coat-self-shadowing.md) | A coat's whole shadow, to a reference footprint narrower than the strand spacing that reports a confident zero. |
 | [groom-dual-scattering.md](groom-dual-scattering.md) | A golden coat rendered grey, flat and plush, to fibre crossings treated as opaque and a uniform-sky TT term lighting strands from behind the body. |
