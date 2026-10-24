@@ -47,6 +47,7 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Scripting/Lua/LuaScriptEngine.h"
+#include "TestTempDir.h"
 
 #include <glad/gl.h>
 #include <gtest/gtest.h>
@@ -248,8 +249,7 @@ namespace OloEngine::Tests
         // Run `source` once, as a Lua script's OnCreate, in the scene's Lua state.
         void RunLua(const std::string& source)
         {
-            const auto path = std::filesystem::temp_directory_path() /
-                              ("olo_dog_play_" + std::to_string(m_TempScripts.size()) + ".lua");
+            const auto path = OloEngine::Tests::TempFile("olo_dog_play_" + std::to_string(m_TempScripts.size()) + ".lua");
             std::ofstream(path, std::ios::binary | std::ios::trunc)
                 << "return { OnCreate = function(id)\n"
                 << source << "\nend }\n";
@@ -454,8 +454,7 @@ namespace OloEngine::Tests
         // Run `body` every frame as `entity`'s Lua OnUpdate (`id` is the entity).
         void RunLuaEachFrame(Entity entity, const std::string& body)
         {
-            const auto path = std::filesystem::temp_directory_path() /
-                              ("olo_dog_play_" + std::to_string(m_TempScripts.size()) + ".lua");
+            const auto path = OloEngine::Tests::TempFile("olo_dog_play_" + std::to_string(m_TempScripts.size()) + ".lua");
             std::ofstream(path, std::ios::binary | std::ios::trunc)
                 << "return { OnUpdate = function(id, dt)\n"
                 << body << "\nend }\n";
