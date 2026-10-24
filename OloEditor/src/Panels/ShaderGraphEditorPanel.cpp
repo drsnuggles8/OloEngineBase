@@ -1436,10 +1436,14 @@ namespace OloEngine
             savePath.replace_extension(".olosg");
 
         // Keep the path the graph came from if the new one cannot be written.
+        // The new file is a new asset, so the handle of the one it was opened as no longer
+        // names it (SkillTreeEditorPanel::SaveTreeAs does the same).
         std::filesystem::path previousPath = std::exchange(m_CurrentFilePath, savePath);
+        const AssetHandle previousHandle = std::exchange(m_CurrentAssetHandle, AssetHandle(0));
         if (!SaveShaderGraph())
         {
             m_CurrentFilePath = std::move(previousPath);
+            m_CurrentAssetHandle = previousHandle;
             return false;
         }
         return true;
