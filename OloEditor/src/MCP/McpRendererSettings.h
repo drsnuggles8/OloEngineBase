@@ -456,6 +456,10 @@ namespace OloEngine::MCP::RendererSettings
     // Lowercase + drop every non-alphanumeric character so "Ultra Performance",
     // "ultra_performance" and "ultra-performance" all collapse to one key. Pure;
     // makes token matching forgiving, mirroring RenderOverrides::Normalize.
+    //
+    // '+' is spelled out rather than dropped: dropping it turned "forward+" (the
+    // path's own display name) into "forward", which matched the OTHER path and
+    // switched to it with no error.
     [[nodiscard]] inline std::string Normalize(std::string_view s)
     {
         std::string out;
@@ -465,6 +469,8 @@ namespace OloEngine::MCP::RendererSettings
             const auto uc = static_cast<unsigned char>(c);
             if (std::isalnum(uc) != 0)
                 out.push_back(static_cast<char>(std::tolower(uc)));
+            else if (c == '+')
+                out += "plus";
         }
         return out;
     }

@@ -665,6 +665,18 @@ TEST(McpRendererSettingsParse, ResolvesSettingAndValueCaseAndSeparatorInsensitiv
     EXPECT_EQ(value, static_cast<i32>(UpscaleMode::UltraPerformance));
 }
 
+TEST(McpRendererSettingsParse, ForwardPlusIsNotReadAsForward)
+{
+    // "forward+" used to normalize to "forward" and select the Forward path.
+    i32 value = -1;
+    EXPECT_TRUE(RS::ParseValue(RS::Setting::RenderPath, "forward+", value));
+    EXPECT_EQ(value, static_cast<i32>(RenderingPath::ForwardPlus));
+    EXPECT_TRUE(RS::ParseValue(RS::Setting::RenderPath, "Forward+", value));
+    EXPECT_EQ(value, static_cast<i32>(RenderingPath::ForwardPlus));
+    EXPECT_TRUE(RS::ParseValue(RS::Setting::RenderPath, "forward", value));
+    EXPECT_EQ(value, static_cast<i32>(RenderingPath::Forward));
+}
+
 TEST(McpRendererSettingsParse, NoArgsIsIntrospection)
 {
     bool introspect = false;
