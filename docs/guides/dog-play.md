@@ -63,11 +63,15 @@ the dog publishes `dogState`, `dogAction`, `mood`), which `DogPlay.OnCreate` res
 ones) instead of fetching; `mood = { energy, excitement, affection, curiosity }` restarts it from that
 mood; `seed` repeats its random choices.
 
+The play coat has one LOD configuration across the play area. `make_play_scene.py` sets the card
+threshold and the full-detail size of the strand, simulation and self-shadow budgets all to
+`PLAY_CARD_PIXEL_SIZE` (40 pixels of viewport height, past the play area's edge). With the default steps, a fetch crossed a
+strand step both ways, and each crossing rebuilt the card floor and its coat volume (476 ms), then
+uploaded the new strand tier in one frame (837 MiB, 1.9 s on the Bernese), for 14 % fewer strands.
+
 The play scenes turn on groom representation streaming (`StreamingSettings` representation
-budgets, set by `make_play_scene.py`). A dog that walks up to the camera and away again crosses its
-coat's LOD steps all the time; without streaming each crossing rebuilt the strand stream and the
-coat volume on the main thread, a one-second freeze. Streamed, the next step is prepared on workers
-while the floor, the card tier, draws. Two budgets must hold a whole strand tier:
+budgets, set by `make_play_scene.py`), so the strand tier is prepared on workers when the scene
+opens while the floor, the card tier, draws. Two budgets must hold a whole strand tier:
 staging its preparation estimate (the Samoyed's 8121 MiB, the Bernese's 6914, the golden's 2140;
 the scenes set 10240), and a frame's upload the prepared tier, which is built in one frame (2061,
 1784 and 568 MiB; the scenes set 2560). A tier larger than either is never started or never built,
@@ -127,7 +131,7 @@ leave the hand: fur the hand presses flat against the skin, below its centre, ha
 Through the fetch the head never flicks one way and back (0.2 rad out and back within 0.6 s) and
 carries the toy home looking ahead. A toy swept round the dog turns its body, and a toy held up
 behind it turns it round, with the head within 1.3 rad of the body throughout. A player walking off
-with a toy is followed.
+with a toy is followed. A camera from 1 m to 20 m and back builds no coat again once the strands are in.
 
 The life between games, each from a set mood against the opposite one: the head follows a cursor
 beside it and not one across the lawn; a dog wanting company comes to the player and a content one

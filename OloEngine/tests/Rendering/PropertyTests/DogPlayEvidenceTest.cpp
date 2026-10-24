@@ -1703,6 +1703,73 @@ entity_utils.set_translation(id, vec3.new(ProbeState.fav and 1 or 0, ProbeState.
         EXPECT_EQ(back.Fresh, 0u) << "coming back close, the coat marked its body again";
     }
 
+    TEST_P(DogPlayEvidenceTest, AFetchAcrossThePlayAreaBuildsNoCoatAgain)
+    {
+        // Reported live: massive lags while playing. As the dog ran out for a
+        // throw and came back, its coat crossed LOD steps, and every crossing
+        // built a coat afresh on the main thread -- the card floor, its coat
+        // volume and body, then the new strand tier uploaded whole in one frame:
+        // 1.9 s on the Bernese, twice a fetch. The camera goes from a metre to
+        // twenty, the navmesh's edge, and back, and once the
+        // strands are in, nothing is built again: one coat, on strands, the
+        // same strands at every distance.
+        OLO_ENSURE_GPU_OR_SKIP();
+        LoadPlayScene(GetParam(), false);
+        Renderer3D::GetPostProcessSettings() = GetScene().GetPostProcessSettings();
+        Renderer3D::ApplyRendererSettings();
+        m_Dog.GetComponent<AnimationStateComponent>().m_PlaybackSpeed = 0.0f;
+        Tick(10);
+        const glm::mat4 body = GetScene().GetWorldTransform(static_cast<entt::entity>(m_Dog));
+        const f32 dogYaw = std::atan2(body[2].x, body[2].z);
+        PlaceCamera(dogYaw + 0.6f, 0.2f, 1.0f);
+        const auto* pass = Renderer3D::GetGroomRenderPass();
+        ASSERT_NE(pass, nullptr);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+        u32 settle = 0;
+        while (std::chrono::steady_clock::now() < deadline && settle < 60u)
+        {
+            Tick();
+            settle = pass->GetStreamingStats().DetailDraws >= 1u ? settle + 1u : 0u;
+        }
+        ASSERT_GE(settle, 60u) << "the coat never came onto strands close up: this measures nothing";
+        const u32 strands = pass->GetStats().StrandsDrawn;
+
+        struct Leg
+        {
+            f32 Distance = 0.0f;
+            u32 Builds = 0;
+            u32 Fallbacks = 0;
+            u32 BodyMarks = 0;
+            u32 FewestStrands = std::numeric_limits<u32>::max();
+            u32 MostStrands = 0;
+        };
+        std::array legs{ Leg{ 2.0f }, Leg{ 4.0f }, Leg{ 8.0f }, Leg{ 12.0f }, Leg{ 20.0f },
+                         Leg{ 8.0f }, Leg{ 3.0f }, Leg{ 1.0f } };
+        for (Leg& leg : legs)
+        {
+            PlaceCamera(dogYaw + 0.6f, 0.2f, leg.Distance);
+            for (u32 i = 0; i < 30u; ++i)
+            {
+                Tick();
+                const auto& render = pass->GetStats();
+                leg.Builds += render.CacheBuilds;
+                leg.Fallbacks += pass->GetStreamingStats().FallbackDraws;
+                leg.BodyMarks += render.CoatShadow.BakeBodyMicroseconds > 0u ? 1u : 0u;
+                leg.FewestStrands = std::min(leg.FewestStrands, render.StrandsDrawn);
+                leg.MostStrands = std::max(leg.MostStrands, render.StrandsDrawn);
+            }
+            std::printf("[dog-play] %s fetch leg at %4.1f m: %u coat builds, %u floor draws, %u body marks, strands "
+                        "%u-%u (close up %u)\n",
+                        GetParam().Name, static_cast<f64>(leg.Distance), leg.Builds, leg.Fallbacks, leg.BodyMarks,
+                        leg.FewestStrands, leg.MostStrands, strands);
+            EXPECT_EQ(leg.Builds, 0u) << "a coat was built again at " << leg.Distance << " m";
+            EXPECT_EQ(leg.Fallbacks, 0u) << "the coat fell back to its streaming floor at " << leg.Distance << " m";
+            EXPECT_EQ(leg.BodyMarks, 0u) << "the coat volume marked its body again at " << leg.Distance << " m";
+            EXPECT_EQ(leg.FewestStrands, strands) << "the coat changed strands at " << leg.Distance << " m";
+            EXPECT_EQ(leg.MostStrands, strands) << "the coat changed strands at " << leg.Distance << " m";
+        }
+    }
+
     TEST_P(DogPlayEvidenceTest, TheHandPartsTheCoatUnderItAndNowhereElse)
     {
         OLO_ENSURE_GPU_OR_SKIP();

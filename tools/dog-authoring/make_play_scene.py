@@ -46,6 +46,12 @@ PLAY_STRAND_BUDGET = {
     "Samoyed": 1000000,
 }
 
+# Apparent size (pixels of the viewport's height) below which the play coat goes
+# to cards, and down to which it keeps every strand, guide and shadow voxel its
+# budget affords. See build().
+PLAY_CARD_PIXEL_SIZE = 40
+PLAY_MESH_PIXEL_SIZE = 24
+
 # Gameplay names regions, not bones; DogPlay's favourite spots are "Ears" and
 # the underside of "Neck"/"Torso" (the chest).
 REGIONS = "; ".join([
@@ -98,17 +104,14 @@ def build(breed):
     dog, camera = by_tag["Dog"], by_tag["RuntimeCamera"]
     dog_id = dog["Entity"]
     scene["Scene"] = play_name
-    # The dog walks up to the camera and away again, so its coat crosses LOD
-    # steps all the time. Without representation streaming every crossing
-    # rebuilt the strand stream (563 MiB at stride 2 on the golden) and baked
-    # the coat volume again on the main thread: a one-second freeze. Streamed,
-    # the step is prepared on workers while the floor (the card tier) draws.
-    # Staging must hold the whole strand tier's preparation estimate and a
-    # frame's upload the whole prepared tier, which is built in one frame, or
-    # the tier is never started or never built and the coat stays on cards
-    # however close it comes. The Samoyed's two-million-strand coat estimates
-    # 8121 MiB to prepare and uploads 2061 MiB, the Bernese 6914 and 1784, the
-    # golden 2140 and 568: at 1536 and 64 none of them ever left the cards.
+    # The strand tier streams in when the scene opens: prepared on workers while
+    # the floor (the card tier) draws. Staging must hold the whole strand tier's
+    # preparation estimate and a frame's upload the whole prepared tier, which
+    # is built in one frame, or the tier is never started or never built and
+    # the coat stays on cards however close it comes. The Samoyed's
+    # two-million-strand coat estimates 8121 MiB to prepare and uploads 2061
+    # MiB, the Bernese 6914 and 1784, the golden 2140 and 568: at 1536 and 64
+    # none of them ever left the cards.
     scene.setdefault("StreamingSettings", {}).update({
         "RepresentationResidentMegabytes": 4096,
         "RepresentationUploadMegabytesPerFrame": 2560,
@@ -152,7 +155,24 @@ def build(breed):
     sim = coat["GroomSimulationComponent"]
     for key in ("MaxGuidesUnassigned", "MaxGuidesUndercoat", "MaxGuidesGuardHair", "MaxGuidesWhisker", "MaxGuidesLongHair"):
         sim[key] = int(sim[key]) * 4
-    coat["GroomLodComponent"]["SimulationFullPixelSize"] = 96
+
+    # ONE COAT ACROSS THE PLAY AREA. The dog runs up to the camera and away, and
+    # every LOD step it crossed built that step's strands afresh: the floor's
+    # cards again (evicted while unused), its coat volume and body (476 ms),
+    # then the new strand tier uploaded whole in one frame (837 MiB, 1.9 s on
+    # the Bernese). At a 941x628 viewport the Bernese stands at the 512-pixel
+    # step, so a fetch crossed it both ways, every throw. The step bought 14 %
+    # of the strands (541,034 to 467,582; step 0 is already held down by the
+    # segment budget). So the coat keeps its strands, its simulation and its
+    # self-shadow resolution whole down to the card threshold, and the card
+    # threshold sits past the play area. The Samoyed, the smallest coat, fell
+    # under 64 pixels (less the hysteresis) at 16 m on a 540-pixel viewport;
+    # at 40 it keeps its strands to about 25 m, past the navmesh's edge.
+    lod = coat["GroomLodComponent"]
+    lod["CardPixelSize"] = PLAY_CARD_PIXEL_SIZE
+    lod["MeshPixelSize"] = PLAY_MESH_PIXEL_SIZE
+    for key in ("VisibilityFullPixelSize", "SimulationFullPixelSize", "ShadowFullPixelSize"):
+        lod[key] = PLAY_CARD_PIXEL_SIZE
 
     added = []
     for name, socket in (("MouthSocketBall", rig["sockets"]["mouth"]), ("MouthSocketStick", rig["sockets"]["mouthStick"])):

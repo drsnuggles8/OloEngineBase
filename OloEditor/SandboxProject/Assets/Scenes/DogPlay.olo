@@ -606,7 +606,7 @@ Entities:
     PigmentMode: 1
     DebugMode: 0
     Enabled: true
-  GroomLodComponent: {CardPixelSize: 120, MeshPixelSize: 48, Hysteresis: 0.15, MaxWidthCompensation: 8, VisibilityFullPixelSize: 512, SimulationFullPixelSize: 96, ShadowFullPixelSize: 512, HoldFrames: 4, VisibilitySteps: 4, SimulationSteps: 4, ShadowSteps: 3, Enabled: true}
+  GroomLodComponent: {CardPixelSize: 40, MeshPixelSize: 24, Hysteresis: 0.15, MaxWidthCompensation: 8, VisibilityFullPixelSize: 40, SimulationFullPixelSize: 40, ShadowFullPixelSize: 40, HoldFrames: 4, VisibilitySteps: 4, SimulationSteps: 4, ShadowSteps: 3, Enabled: true}
   GroomSceneShadowComponent: {ShadowWidthTexels: 1, CastShadows: true, ReceiveShadows: true}
   GroomSimulationComponent:
     Gravity: [0, -4, 0]
