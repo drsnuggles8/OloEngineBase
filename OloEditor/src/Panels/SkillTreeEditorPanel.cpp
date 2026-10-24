@@ -4,6 +4,7 @@
 #include "../UndoRedo/EditorCommand.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetSerializer.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
@@ -1072,15 +1073,12 @@ namespace OloEngine
 
         std::string yamlString = SkillTreeDatabaseSerializer().TestSerializeToYAML(m_Tree);
 
-        std::ofstream fout(m_FilePath);
-        if (!fout)
+        if (std::string writeError;
+            !FileSystem::WriteFileAtomically(m_FilePath, yamlString, { .TextMode = true }, &writeError))
         {
-            OLO_CORE_ERROR("SkillTreeEditorPanel - Failed to save: {}", m_FilePath.string());
-            SurfaceError("Failed to open file for writing:\n" + m_FilePath.string());
+            SurfaceError("Failed to save " + m_FilePath.string() + ":\n" + writeError);
             return;
         }
-        fout << yamlString;
-        fout.close();
 
         m_IsDirty = false;
         OLO_CORE_INFO("SkillTreeEditorPanel - Saved: {}", m_FilePath.string());

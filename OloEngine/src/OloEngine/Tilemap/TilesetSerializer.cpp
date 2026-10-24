@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Project/Project.h"
@@ -119,7 +120,7 @@ namespace OloEngine
         }
     }
 
-    void TilesetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool TilesetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -127,7 +128,7 @@ namespace OloEngine
         if (!tileset)
         {
             OLO_CORE_ERROR("TilesetSerializer::Serialize - asset cast failed ({})", metadata.FilePath.string());
-            return;
+            return false;
         }
 
         const std::string yamlString = SerializeToYAML(tileset);
@@ -137,21 +138,7 @@ namespace OloEngine
         // instead yields ".../Assets/Assets/..." and every load misses.
         auto fullPath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        std::error_code ec;
-        std::filesystem::create_directories(fullPath.parent_path(), ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("TilesetSerializer::Serialize - mkdir failed ({}): {}", fullPath.string(), ec.message());
-            return;
-        }
-
-        std::ofstream fout(fullPath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("TilesetSerializer::Serialize - open-for-write failed ({})", fullPath.string());
-            return;
-        }
-        fout << yamlString;
+        return FileSystem::WriteFileAtomically(fullPath, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool TilesetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

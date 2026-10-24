@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "ServerConfigSerializer.h"
 
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Log.h"
 
 #include <charconv>
@@ -113,7 +114,7 @@ namespace OloEngine
         return config;
     }
 
-    void ServerConfigSerializer::SaveToFile(const ServerConfig& config, const std::string& filepath)
+    bool ServerConfigSerializer::SaveToFile(const ServerConfig& config, const std::string& filepath)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -130,34 +131,7 @@ namespace OloEngine
         out << YAML::Key << "autoSaveInterval" << YAML::Value << config.AutoSaveInterval;
         out << YAML::EndMap;
 
-        // Atomic save: write to a temp file, flush, then rename over the original
-        const std::string tempPath = filepath + ".tmp";
-        {
-            std::ofstream fout(tempPath);
-            if (!fout.is_open())
-            {
-                OLO_CORE_ERROR("[ServerConfig] Failed to open '{}' for writing", tempPath);
-                return;
-            }
-            fout << out.c_str();
-            fout.flush();
-            if (!fout.good())
-            {
-                OLO_CORE_ERROR("[ServerConfig] Failed to write config to '{}'", tempPath);
-                fout.close();
-                std::error_code ec;
-                std::filesystem::remove(tempPath, ec);
-                return;
-            }
-        }
-
-        std::error_code ec;
-        std::filesystem::rename(tempPath, filepath, ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("[ServerConfig] Failed to rename '{}' -> '{}': {}", tempPath, filepath, ec.message());
-            std::filesystem::remove(tempPath, ec);
-        }
+        return FileSystem::WriteFileAtomically(filepath, out.c_str(), { .TextMode = true });
     }
 
     ServerConfig ServerConfigSerializer::ParseCommandLine(int argc, char** argv)

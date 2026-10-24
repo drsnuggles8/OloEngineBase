@@ -480,7 +480,9 @@ namespace OloEngine
 
             if (!SerializeAllAssets(assetManager, assetPackFile, scratch.GetPath(), scriptModuleBinary.Size(), result, progress, cancelToken))
             {
-                result.m_ErrorMessage = "Failed to serialize assets or build was cancelled";
+                // A failed record has named itself; only a cancel arrives here without a message.
+                if (result.m_ErrorMessage.empty())
+                    result.m_ErrorMessage = "Failed to serialize assets or build was cancelled";
                 return result;
             }
 
@@ -910,8 +912,15 @@ namespace OloEngine
             }
             else
             {
-                OLO_CORE_ERROR("AssetPackBuilder: Failed to serialize asset with handle: {}", assetInfo.Handle);
-                assetInfo.PackedSize = 0;
+                // The asset loaded but its record could not be written. Packing on
+                // would ship an index entry with no bytes behind it, which the
+                // runtime fails to read, so the build fails here and says which.
+                const auto metadata = assetManager->GetAssetMetadata(assetInfo.Handle);
+                result.m_ErrorMessage = std::format("Failed to write asset {} ({}, {}) into the pack", static_cast<u64>(assetInfo.Handle),
+                                                    metadata.FilePath.generic_string(),
+                                                    AssetUtils::AssetTypeToString(assetInfo.Type));
+                OLO_CORE_ERROR("AssetPackBuilder: {}", result.m_ErrorMessage);
+                return false; // the scratch directory, and every staged record in it, is removed by its owner
             }
 
             assetProgress += progressPerAsset * 0.5f; // Use remaining progress for second pass
@@ -954,8 +963,11 @@ namespace OloEngine
             }
             else
             {
-                OLO_CORE_ERROR("AssetPackBuilder: Failed to serialize scene with handle: {}", sceneInfo.Handle);
-                sceneInfo.PackedSize = 0;
+                const auto metadata = assetManager->GetAssetMetadata(sceneInfo.Handle);
+                result.m_ErrorMessage = std::format("Failed to write scene {} ({}) into the pack", static_cast<u64>(sceneInfo.Handle),
+                                                    metadata.FilePath.generic_string());
+                OLO_CORE_ERROR("AssetPackBuilder: {}", result.m_ErrorMessage);
+                return false;
             }
         }
 

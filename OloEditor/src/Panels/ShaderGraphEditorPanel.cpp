@@ -1410,7 +1410,13 @@ namespace OloEngine
         AssetMetadata metadata;
         metadata.FilePath = std::filesystem::relative(m_CurrentFilePath, Project::GetAssetDirectory());
         metadata.Handle = m_CurrentAssetHandle;
-        serializer.Serialize(metadata, m_GraphAsset);
+        // A failed save keeps the graph dirty, so the unsaved-changes marker
+        // stays up and closing the editor still asks.
+        if (!serializer.Serialize(metadata, m_GraphAsset))
+        {
+            OLO_CORE_ERROR("ShaderGraphEditorPanel - Could not save '{}'", m_CurrentFilePath.string());
+            return;
+        }
         m_IsDirty = false;
     }
 

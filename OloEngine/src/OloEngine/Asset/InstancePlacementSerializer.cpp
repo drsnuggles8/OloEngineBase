@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/InstancePlacementAsset.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -80,7 +81,7 @@ namespace OloEngine
         }
     } // namespace
 
-    void InstancePlacementSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool InstancePlacementSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -88,7 +89,7 @@ namespace OloEngine
         if (!placement)
         {
             OLO_CORE_ERROR("InstancePlacementSerializer::Serialize - asset cast failed ({})", metadata.FilePath.string());
-            return;
+            return false;
         }
 
         std::string yamlString = SerializeToYAML(placement);
@@ -97,21 +98,7 @@ namespace OloEngine
         // GetAssetDirectory() yields ".../Assets/Assets/..." and never resolves.
         auto fullPath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        std::error_code ec;
-        std::filesystem::create_directories(fullPath.parent_path(), ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("InstancePlacementSerializer::Serialize - mkdir failed ({}): {}", fullPath.string(), ec.message());
-            return;
-        }
-
-        std::ofstream fout(fullPath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("InstancePlacementSerializer::Serialize - open-for-write failed ({})", fullPath.string());
-            return;
-        }
-        fout << yamlString;
+        return FileSystem::WriteFileAtomically(fullPath, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool InstancePlacementSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

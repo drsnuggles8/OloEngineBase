@@ -2,6 +2,7 @@
 #include "OloEngine/Asset/AssetSerializer.h"
 
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/LightmapAsset.h"
@@ -423,28 +424,8 @@ namespace OloEngine
             return false;
         }
 
-        if (auto const parentDir = path.parent_path(); !parentDir.empty())
+        if (!FileSystem::WriteFileAtomically(path, std::span<const u8>(bytes), { .CreateParentDirectories = true }))
         {
-            std::error_code ec;
-            std::filesystem::create_directories(parentDir, ec);
-            if (ec)
-            {
-                OLO_CORE_ERROR("LightmapSerializer::SerializeToFile - failed to create directory '{}': {}",
-                               parentDir.string(), ec.message());
-                return false;
-            }
-        }
-
-        std::ofstream out(path, std::ios::binary | std::ios::trunc);
-        if (!out.is_open())
-        {
-            OLO_CORE_ERROR("LightmapSerializer::SerializeToFile - failed to open '{}' for writing", path.string());
-            return false;
-        }
-        out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-        if (out.fail())
-        {
-            OLO_CORE_ERROR("LightmapSerializer::SerializeToFile - failed while writing '{}'", path.string());
             return false;
         }
 
@@ -487,13 +468,13 @@ namespace OloEngine
     // AssetSerializer interface
     // ========================================================================
 
-    void LightmapSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool LightmapSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         auto lightmap = asset.As<LightmapAsset>();
         if (!lightmap)
         {
             OLO_CORE_ERROR("LightmapSerializer::Serialize - Invalid asset");
-            return;
+            return false;
         }
 
         // metadata.FilePath is project-root-relative (see
@@ -501,7 +482,7 @@ namespace OloEngine
         // resolve against GetProjectDirectory(). Joining onto GetAssetDirectory() would
         // double the Assets segment and the file open would fail.
         auto filepath = Project::GetProjectDirectory() / metadata.FilePath;
-        (void)SerializeToFile(filepath, lightmap);
+        return SerializeToFile(filepath, lightmap);
     }
 
     bool LightmapSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

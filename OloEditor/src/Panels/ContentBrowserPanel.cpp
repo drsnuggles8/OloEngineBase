@@ -1326,7 +1326,14 @@ namespace OloEngine
                     metadata.Type = AssetType::DialogueTree;
 
                     DialogueTreeSerializer serializer;
-                    serializer.Serialize(metadata, dialogueAsset);
+                    if (!serializer.Serialize(metadata, dialogueAsset))
+                    {
+                        OLO_CORE_ERROR("Failed to create dialogue tree file: {}", dialoguePath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        ImGui::EndPopup();
+                        return;
+                    }
 
                     OLO_CORE_INFO("Created dialogue tree: {}", dialoguePath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
@@ -1376,7 +1383,14 @@ namespace OloEngine
                     metadata.Type = AssetType::ShaderGraph;
 
                     ShaderGraphSerializer serializer;
-                    serializer.Serialize(metadata, sgAsset);
+                    if (!serializer.Serialize(metadata, sgAsset))
+                    {
+                        OLO_CORE_ERROR("Failed to create shader graph file: {}", sgPath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        ImGui::EndPopup();
+                        return;
+                    }
 
                     OLO_CORE_INFO("Created shader graph: {}", sgPath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
@@ -1472,7 +1486,14 @@ namespace OloEngine
                     metadata.Type = AssetType::SkillTreeDatabase;
 
                     SkillTreeDatabaseSerializer serializer;
-                    serializer.Serialize(metadata, treeAsset);
+                    if (!serializer.Serialize(metadata, treeAsset))
+                    {
+                        OLO_CORE_ERROR("Failed to create skill tree file: {}", treePath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        ImGui::EndPopup();
+                        return;
+                    }
 
                     OLO_CORE_INFO("Created skill tree: {}", treePath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
@@ -1517,7 +1538,14 @@ namespace OloEngine
                     metadata.Type = AssetType::CharacterClassDatabase;
 
                     CharacterClassDatabaseSerializer serializer;
-                    serializer.Serialize(metadata, classDbAsset);
+                    if (!serializer.Serialize(metadata, classDbAsset))
+                    {
+                        OLO_CORE_ERROR("Failed to create character class database file: {}", classDbPath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        ImGui::EndPopup();
+                        return;
+                    }
 
                     OLO_CORE_INFO("Created character class database: {}", classDbPath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
@@ -1558,7 +1586,14 @@ namespace OloEngine
                     metadata.Type = AssetType::ExperienceCurve;
 
                     ExperienceCurveSerializer serializer;
-                    serializer.Serialize(metadata, curveAsset);
+                    if (!serializer.Serialize(metadata, curveAsset))
+                    {
+                        OLO_CORE_ERROR("Failed to create experience curve file: {}", curvePath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        ImGui::EndPopup();
+                        return;
+                    }
 
                     OLO_CORE_INFO("Created experience curve: {}", curvePath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);

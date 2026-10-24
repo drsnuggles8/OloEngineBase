@@ -3,6 +3,7 @@
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Debug/Profiler.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Scripting/VisualScript/VisualScriptGraph.h"
@@ -19,7 +20,7 @@ namespace OloEngine
     using VisualScript::VisualScriptAsset;
     using VisualScript::VisualScriptSerializer;
 
-    void VisualScriptAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool VisualScriptAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -27,22 +28,17 @@ namespace OloEngine
         if (!graph)
         {
             OLO_CORE_ERROR("VisualScriptAssetSerializer::Serialize - asset is not a VisualScriptAsset ({})", metadata.FilePath.string());
-            return;
+            return false;
         }
 
+        // VisualScriptSerializer::Serialize creates missing parent directories itself.
         const auto fullPath = Project::GetProjectDirectory() / metadata.FilePath;
-        std::error_code ec;
-        std::filesystem::create_directories(fullPath.parent_path(), ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("VisualScriptAssetSerializer::Serialize - cannot create directories for ({}): {}", fullPath.string(), ec.message());
-            return;
-        }
-
         if (!VisualScriptSerializer::Serialize(*graph, fullPath))
         {
             OLO_CORE_ERROR("VisualScriptAssetSerializer::Serialize - write failed ({})", fullPath.string());
+            return false;
         }
+        return true;
     }
 
     bool VisualScriptAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

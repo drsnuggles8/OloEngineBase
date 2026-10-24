@@ -1182,7 +1182,8 @@ namespace OloEngine::Automation
 
                 const AssetHandle handle = entry->Make(*manager, destination);
                 if (handle == 0)
-                    return Failure("The asset was not created: the serializer produced no handle.");
+                    return Failure("The asset was not created: its file could not be written, so nothing was "
+                                   "registered. The editor log names the path and the reason.");
                 if (!manager->SerializeAssetRegistry())
                     return Failure("Created the asset, but failed to persist the asset registry.");
                 created.Handle = handle;

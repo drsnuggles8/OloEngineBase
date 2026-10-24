@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Project/Project.h"
@@ -304,7 +305,7 @@ namespace OloEngine
         }
     }
 
-    void SkinProfileSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool SkinProfileSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -312,7 +313,7 @@ namespace OloEngine
         if (!profile)
         {
             OLO_CORE_ERROR("SkinProfileSerializer::Serialize - asset cast failed ({})", metadata.FilePath.string());
-            return;
+            return false;
         }
 
         const std::string yamlString = SerializeToYAML(profile);
@@ -322,21 +323,7 @@ namespace OloEngine
         // misses.
         auto fullPath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        std::error_code ec;
-        std::filesystem::create_directories(fullPath.parent_path(), ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("SkinProfileSerializer::Serialize - mkdir failed ({}): {}", fullPath.string(), ec.message());
-            return;
-        }
-
-        std::ofstream fout(fullPath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("SkinProfileSerializer::Serialize - open-for-write failed ({})", fullPath.string());
-            return;
-        }
-        fout << yamlString;
+        return FileSystem::WriteFileAtomically(fullPath, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool SkinProfileSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

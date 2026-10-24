@@ -3,6 +3,7 @@
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/VolumeAsset.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Texture3D.h"
@@ -356,28 +357,8 @@ namespace OloEngine
             return false;
         }
 
-        if (auto const parentDir = path.parent_path(); !parentDir.empty())
+        if (!FileSystem::WriteFileAtomically(path, std::span<const u8>(bytes), { .CreateParentDirectories = true }))
         {
-            std::error_code ec;
-            std::filesystem::create_directories(parentDir, ec);
-            if (ec)
-            {
-                OLO_CORE_ERROR("VolumeSerializer::SerializeToFile - failed to create directory '{}': {}",
-                               parentDir.string(), ec.message());
-                return false;
-            }
-        }
-
-        std::ofstream out(path, std::ios::binary | std::ios::trunc);
-        if (!out.is_open())
-        {
-            OLO_CORE_ERROR("VolumeSerializer::SerializeToFile - failed to open '{}' for writing", path.string());
-            return false;
-        }
-        out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-        if (out.fail())
-        {
-            OLO_CORE_ERROR("VolumeSerializer::SerializeToFile - failed while writing '{}'", path.string());
             return false;
         }
 

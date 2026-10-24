@@ -11,6 +11,7 @@
 #include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Localization/LocalizedTextComponent.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Project/ContentPath.h"
 #include "OloEngine/Project/Project.h"
@@ -7247,41 +7248,11 @@ namespace OloEngine
 
         const std::string yaml = SerializeToYAML();
 
-        // Write beside the target and rename over it, so a failed write leaves the
-        // previous save intact instead of a truncated scene. A symlinked scene is
-        // saved through to the file it points at, and the temporary name is unique so
-        // two saves of one scene cannot write into the same temporary file.
-        std::error_code canonicalError;
-        std::filesystem::path target = std::filesystem::weakly_canonical(filepath, canonicalError);
-        if (canonicalError)
-            target = filepath;
-        std::filesystem::path tmp = target;
-        tmp += "." + std::to_string(static_cast<u64>(UUID())) + ".tmp";
+        // A failed write leaves the previous save intact instead of a truncated
+        // scene. Text mode, as before: the bytes of a saved scene do not change.
+        if (!FileSystem::WriteFileAtomically(filepath, yaml, { .TextMode = true }))
         {
-            // Text mode, as before: the bytes of a saved scene do not change.
-            std::ofstream fout(tmp, std::ios::trunc);
-            if (!fout.is_open())
-            {
-                OLO_CORE_ERROR("SceneSerializer: cannot open '{}' for writing; the scene was not saved", tmp.string());
-                return false;
-            }
-            fout.write(yaml.data(), static_cast<std::streamsize>(yaml.size()));
-            fout.close();
-            if (fout.fail())
-            {
-                OLO_CORE_ERROR("SceneSerializer: writing '{}' failed; the scene was not saved", tmp.string());
-                std::error_code ignored;
-                std::filesystem::remove(tmp, ignored);
-                return false;
-            }
-        }
-        std::error_code ec;
-        std::filesystem::rename(tmp, target, ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("SceneSerializer: cannot replace '{}': {}; the scene was not saved", target.string(), ec.message());
-            std::error_code ignored;
-            std::filesystem::remove(tmp, ignored);
+            OLO_CORE_ERROR("SceneSerializer: the scene was not saved to '{}'", filepath.string());
             return false;
         }
         return true;

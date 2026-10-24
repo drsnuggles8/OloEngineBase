@@ -108,7 +108,12 @@ namespace OloEngine
       public:
         virtual ~AssetSerializer() noexcept = default;
 
-        virtual void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const = 0;
+        // Write the asset to its file. True only when the file on disk now
+        // holds this asset: open, write, flush, close and the rename over the
+        // old file all succeeded (or, for an asset whose source file is the
+        // asset, there was nothing to write). On false the old file is intact
+        // and the caller must not register, pack or mark the asset as saved.
+        [[nodiscard]] virtual bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const = 0;
         [[nodiscard]] virtual bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const = 0;
         virtual void RegisterDependencies([[maybe_unused]] const AssetMetadata& metadata) const {}
 
@@ -186,7 +191,10 @@ namespace OloEngine
     class TextureSerializer : public AssetSerializer
     {
       public:
-        void Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override {}
+        [[nodiscard]] bool Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override
+        {
+            return true; // the source file is the asset; there is nothing to write
+        }
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         // Two-phase async loading support
@@ -236,7 +244,10 @@ namespace OloEngine
     class FontSerializer : public AssetSerializer
     {
       public:
-        void Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override {}
+        [[nodiscard]] bool Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override
+        {
+            return true; // the source file is the asset; there is nothing to write
+        }
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -246,7 +257,7 @@ namespace OloEngine
     class MaterialAssetSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         void RegisterDependencies(const AssetMetadata& metadata) const override;
 
@@ -263,7 +274,10 @@ namespace OloEngine
     class EnvironmentSerializer : public AssetSerializer
     {
       public:
-        void Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override {}
+        [[nodiscard]] bool Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override
+        {
+            return true; // the source file is the asset; there is nothing to write
+        }
         bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -273,7 +287,7 @@ namespace OloEngine
     class AudioFileSourceSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -306,7 +320,7 @@ namespace OloEngine
     class SoundConfigSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -334,7 +348,7 @@ namespace OloEngine
     class PrefabSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -356,7 +370,7 @@ namespace OloEngine
     class SceneAssetSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -374,7 +388,7 @@ namespace OloEngine
     class MeshColliderSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         void RegisterDependencies(const AssetMetadata& metadata) const override;
 
@@ -394,7 +408,7 @@ namespace OloEngine
     class ScriptFileSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -413,10 +427,9 @@ namespace OloEngine
     class MeshSourceSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override
+        [[nodiscard]] bool Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override
         {
-            (void)metadata;
-            (void)asset;
+            return true; // the source file is the asset; there is nothing to write
         }
         bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
@@ -427,7 +440,7 @@ namespace OloEngine
     class MeshSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         void RegisterDependencies(const AssetMetadata& metadata) const override;
 
@@ -438,7 +451,7 @@ namespace OloEngine
     class StaticMeshSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         void RegisterDependencies(const AssetMetadata& metadata) const override;
 
@@ -449,7 +462,7 @@ namespace OloEngine
     class AnimationAssetSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         void RegisterDependencies(const AssetMetadata& metadata) const override;
 
@@ -466,7 +479,7 @@ namespace OloEngine
     class AnimationGraphAssetSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         void RegisterDependencies(const AssetMetadata& metadata) const override;
 
@@ -477,7 +490,7 @@ namespace OloEngine
     class CinematicSequenceAssetSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         void RegisterDependencies(const AssetMetadata& metadata) const override;
 
@@ -488,7 +501,7 @@ namespace OloEngine
     class FluidSettingsAssetSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
         void RegisterDependencies(const AssetMetadata& metadata) const override;
 
@@ -499,7 +512,7 @@ namespace OloEngine
     class SoundGraphSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -509,7 +522,7 @@ namespace OloEngine
     class ParticleSystemAssetSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -523,7 +536,7 @@ namespace OloEngine
     class LightProbeVolumeSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -539,7 +552,7 @@ namespace OloEngine
     class LightmapSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -571,7 +584,10 @@ namespace OloEngine
     class VolumeSerializer : public AssetSerializer
     {
       public:
-        void Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override {}
+        [[nodiscard]] bool Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const override
+        {
+            return true; // the source file is the asset; there is nothing to write
+        }
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool TryLoadRawData(const AssetMetadata& metadata, RawAssetData& outRawData) const override;
@@ -613,7 +629,7 @@ namespace OloEngine
     class DialogueTreeSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -637,7 +653,7 @@ namespace OloEngine
     class BehaviorTreeSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -651,7 +667,7 @@ namespace OloEngine
     class StateMachineSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -667,7 +683,7 @@ namespace OloEngine
     class InstancePlacementSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -683,7 +699,7 @@ namespace OloEngine
     class TilesetSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -699,7 +715,7 @@ namespace OloEngine
     class SkinProfileSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -725,7 +741,7 @@ namespace OloEngine
     class GroomSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -761,7 +777,7 @@ namespace OloEngine
     class GroomBindingSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -786,7 +802,7 @@ namespace OloEngine
     class ShaderGraphSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -814,7 +830,7 @@ namespace OloEngine
     class ExperienceCurveSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -842,7 +858,7 @@ namespace OloEngine
     class SkillTreeDatabaseSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -873,7 +889,7 @@ namespace OloEngine
     class VisualScriptAssetSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;
@@ -887,7 +903,7 @@ namespace OloEngine
     class CharacterClassDatabaseSerializer : public AssetSerializer
     {
       public:
-        void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
+        [[nodiscard]] bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const override;
         [[nodiscard]] bool TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const override;
 
         [[nodiscard]] bool SerializeToAssetPack(AssetHandle handle, FileStreamWriter& stream, AssetSerializationInfo& outInfo) const override;

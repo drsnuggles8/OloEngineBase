@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphSerializer.h"
 #include "OloEngine/Renderer/ShaderGraph/ShaderGraphAsset.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -90,7 +91,7 @@ namespace OloEngine
     //  Serialize / TryLoadData  (AssetSerializer interface)
     // ─────────────────────────────────────────────────────────────
 
-    void ShaderGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool ShaderGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -98,27 +99,13 @@ namespace OloEngine
         if (!graphAsset)
         {
             OLO_CORE_ERROR("ShaderGraphSerializer::Serialize - Failed to cast asset to ShaderGraphAsset ({})", metadata.FilePath.string());
-            return;
+            return false;
         }
 
         std::string yamlString = SerializeToYAML(graphAsset);
         auto fullPath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        std::error_code ec;
-        std::filesystem::create_directories(fullPath.parent_path(), ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("ShaderGraphSerializer::Serialize - Failed to create directories for ({}): {}", fullPath.string(), ec.message());
-            return;
-        }
-
-        std::ofstream fout(fullPath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("ShaderGraphSerializer::Serialize - Failed to open file for writing ({})", fullPath.string());
-            return;
-        }
-        fout << yamlString;
+        return FileSystem::WriteFileAtomically(fullPath, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool ShaderGraphSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

@@ -475,3 +475,34 @@ rule: **when two serializers cover one type, a field is only round-tripping if y
 did not write.** Check the *other* serializer before believing a round-trip works.
 
 Found on #1242, while adding a sixth map (`ThicknessMap`) to both.
+
+## A failed asset save must reach the caller (issue #1635)
+
+`AssetSerializer::Serialize` returned `void`. A save into a missing folder, a locked file or a full
+disk was at most a log line, and the caller carried on: `EditorAssetManager::CreateOrReplaceAsset`
+registered the handle (then threw from `last_write_time` on the file that was never written), the
+content browser logged "Created", and "Save as Prefab" turned the entity into an instance of a prefab
+with no file. It is now `[[nodiscard]] bool`, and so are `AssetImporter::Serialize` and
+`ServerConfigSerializer::SaveToFile`.
+
+The writes themselves were about a dozen hand-written temp-and-rename blocks, and they had drifted:
+fixed `.tmp` names two writers could share, `fail()` read before `close()` (a full disk reports at
+the final flush, so that read as success), and some serializers wrote in place with no check at
+all. `FileSystem::WriteFileAtomically` (`Core/FileSystem.h`) is the one implementation. Its options
+keep the differences that were deliberate:
+
+- `TextMode` for the YAML writers, which always wrote text mode; their files stay byte-identical.
+- `CreateParentDirectories`, which most asset serializers did by hand.
+- `Durable` (data sync, plus `MOVEFILE_WRITE_THROUGH` on Windows) for the Jolt shape cache and the
+  automation edits, which already synced.
+- `BeforeReplace`, a veto run on the finished temporary: the automation guard's last-moment
+  re-check, and the Steam Cloud restore's checksum validation, both run there.
+
+`AssetRegistry::Serialize` moved onto it too: it wrote the `.oar` in place, so a failed write lost
+every handle in the project. One write is left on its own code on purpose: `Model.cpp`'s
+cooked-texture cache, where `stbi_write_png` writes the file and losing a race to another process
+cooking the same texture counts as success.
+
+The pack builder had the same gap one level down: an asset that loaded but whose
+`SerializeToAssetPack` failed got a zero-byte index entry and the build reported success. It now
+fails and names the asset. `AssetSerializerFailedWriteTest` and `AtomicFileWriteTest` pin both.

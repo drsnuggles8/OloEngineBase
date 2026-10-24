@@ -65,6 +65,8 @@ add_executable(OloEngine-Tests
 		Core/FrameTimeTailTest.cpp
 		# Issue #1420: UUID() is called from several threads and must never repeat.
 		Core/UUIDTest.cpp
+		# Issue #1635: the one atomic write every serializer goes through.
+		Core/AtomicFileWriteTest.cpp
 		ContainerTest.cpp
 		SnowSettingsTest.cpp
 		WindSettingsTest.cpp
@@ -1115,6 +1117,8 @@ add_executable(OloEngine-Tests
 		Scripting/VisualScriptNodeLibraryTest.cpp
 		Scripting/ComponentFieldRegistryTest.cpp
 		Serialization/SoundConfigSerializerTest.cpp
+		# Issue #1635: a failed asset save reaches the importer, the asset manager and the pack build.
+		Serialization/AssetSerializerFailedWriteTest.cpp
 		Serialization/EnvironmentSerializerTest.cpp
 		Serialization/FontAssetPackSerializerTest.cpp
 		Serialization/NestedStructSerializerCodegenTest.cpp

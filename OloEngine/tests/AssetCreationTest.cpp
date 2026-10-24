@@ -120,7 +120,7 @@ TEST_F(AssetCreationTest, ScriptFileAsset_LoadsFromCSharpSourceAndNeverOverwrite
 
     // Saving the asset must leave the source exactly as it was.
     const std::string before = "namespace Sandbox;\npublic class Door : Entity { }\n";
-    serializer.Serialize(metadata, asset);
+    ASSERT_TRUE(serializer.Serialize(metadata, asset));
     std::ifstream in(script, std::ios::binary);
     const std::string after{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
     EXPECT_EQ(after, before) << "Serialize overwrote the C# source";

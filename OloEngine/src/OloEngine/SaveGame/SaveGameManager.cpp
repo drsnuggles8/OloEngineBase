@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "SaveGameManager.h"
 
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/SaveGame/SaveGameFile.h"
 #include "OloEngine/SaveGame/SaveGameSerializer.h"
 #include "OloEngine/Project/Project.h"
@@ -190,36 +191,9 @@ namespace OloEngine
                 return false;
             }
 
-            std::error_code ec;
-            std::filesystem::create_directories(path.parent_path(), ec);
-
-            // Write via a temp file + rename, matching SaveGameFile's own atomicity: a process
-            // killed mid-restore must not leave a half-written save that then fails its checksum.
-            const std::filesystem::path temp = path.string() + ".cloudtmp";
-            {
-                std::ofstream out(temp, std::ios::binary | std::ios::trunc);
-                if (!out || !out.write(reinterpret_cast<const char*>(bytes.data()),
-                                       static_cast<std::streamsize>(bytes.size())))
-                {
-                    std::filesystem::remove(temp, ec);
-                    return false;
-                }
-
-                // Close EXPLICITLY and check the result. Letting the destructor do it discards
-                // any error from the final flush, so a disk-full or I/O failure at that moment
-                // would leave a truncated temp file that the rename below then promotes to the
-                // real save — defeating the entire point of writing via temp+rename.
-                out.close();
-                if (!out)
-                {
-                    OLO_CORE_WARN("[SaveGameManager] Failed to flush the Steam Cloud restore of '{}'; "
-                                  "discarding the partial file.",
-                                  slotName);
-                    std::filesystem::remove(temp, ec);
-                    return false;
-                }
-            }
-
+            // Written atomically, matching SaveGameFile's own atomicity: a process killed
+            // mid-restore must not leave a half-written save that then fails its checksum.
+            //
             // VALIDATE BEFORE THE RENAME. Cloud bytes are untrusted — a partially-synced file, a
             // save from a newer build, or plain corruption all arrive looking like a normal blob.
             //
@@ -230,30 +204,31 @@ namespace OloEngine
             // shadowing a cloud copy that might since have finished syncing and become good. By
             // failing here the local path stays empty and the fallback remains available to retry.
             //
-            // The same two checks Load applies, in the same order.
-            if (!SaveGameFile::ValidateChecksum(temp))
+            // The same two checks Load applies, in the same order, run on the written
+            // temporary just before it would replace the local path.
+            const auto validateCloudCopy = [&slotName](const std::filesystem::path& temp)
             {
-                OLO_CORE_WARN("[SaveGameManager] Steam Cloud copy of '{}' failed checksum validation; discarding it "
-                              "rather than letting it shadow the cloud copy on future loads.",
-                              slotName);
-                std::filesystem::remove(temp, ec);
-                return false;
-            }
+                if (!SaveGameFile::ValidateChecksum(temp))
+                {
+                    OLO_CORE_WARN("[SaveGameManager] Steam Cloud copy of '{}' failed checksum validation; discarding it "
+                                  "rather than letting it shadow the cloud copy on future loads.",
+                                  slotName);
+                    return false;
+                }
 
-            SaveGameHeader header;
-            SaveGameMetadata metadata;
-            if (!SaveGameFile::ReadMetadata(temp, header, metadata))
+                SaveGameHeader header;
+                SaveGameMetadata metadata;
+                if (!SaveGameFile::ReadMetadata(temp, header, metadata))
+                {
+                    OLO_CORE_WARN("[SaveGameManager] Steam Cloud copy of '{}' has an unreadable header; discarding it.",
+                                  slotName);
+                    return false;
+                }
+                return true;
+            };
+            if (!FileSystem::WriteFileAtomically(path, std::span<const u8>(bytes),
+                                                 { .CreateParentDirectories = true, .BeforeReplace = validateCloudCopy }))
             {
-                OLO_CORE_WARN("[SaveGameManager] Steam Cloud copy of '{}' has an unreadable header; discarding it.",
-                              slotName);
-                std::filesystem::remove(temp, ec);
-                return false;
-            }
-
-            std::filesystem::rename(temp, path, ec);
-            if (ec)
-            {
-                std::filesystem::remove(temp, ec);
                 return false;
             }
 

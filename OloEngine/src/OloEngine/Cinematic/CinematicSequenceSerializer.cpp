@@ -3,6 +3,7 @@
 
 #include "OloEngine/Cinematic/CinematicSequence.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
 #include <yaml-cpp/yaml.h>
@@ -433,20 +434,7 @@ namespace OloEngine
             return false;
         }
 
-        std::error_code ec;
-        if (const std::filesystem::path parent = std::filesystem::path(filepath).parent_path(); !parent.empty())
-        {
-            std::filesystem::create_directories(parent, ec);
-        }
-
-        std::ofstream fout(filepath, std::ios::binary | std::ios::trunc);
-        if (!fout)
-        {
-            OLO_CORE_ERROR("CinematicSequenceSerializer: failed to open '{}' for writing", filepath);
-            return false;
-        }
-        fout << yaml;
-        return static_cast<bool>(fout);
+        return FileSystem::WriteFileAtomically(filepath, yaml, { .CreateParentDirectories = true });
     }
 
     Ref<CinematicSequence> CinematicSequenceSerializer::DeserializeAsset(const std::string& filepath)

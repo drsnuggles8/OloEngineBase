@@ -4,6 +4,7 @@
 
 #if defined(OLO_WITH_ALEMBIC)
 
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Groom/GroomBuilder.h"
 #include "OloEngine/Groom/GroomCoat.h"
@@ -1104,30 +1105,15 @@ namespace OloEngine
             return cooked;
         }
 
-        if (const std::filesystem::path parent = cooked.OutputPath.parent_path(); !parent.empty())
+        // Atomic, so a failed cook leaves the previous .ologroom intact rather
+        // than a truncated one the asset manager would then fail to load.
+        if (std::string writeError;
+            !FileSystem::WriteFileAtomically(cooked.OutputPath, std::span<const u8>(bytes), { .CreateParentDirectories = true },
+                                             &writeError))
         {
-            std::error_code ec;
-            std::filesystem::create_directories(parent, ec);
-            if (ec)
-            {
-                cooked.Diagnostic = std::format("could not create '{}': {}", parent.string(), ec.message());
-                return cooked;
-            }
-        }
-
-        std::ofstream out(cooked.OutputPath, std::ios::binary | std::ios::trunc);
-        if (!out.is_open())
-        {
-            cooked.Diagnostic = std::format("could not open '{}' for writing", cooked.OutputPath.string());
+            cooked.Diagnostic = std::format("could not write '{}': {}", cooked.OutputPath.string(), writeError);
             return cooked;
         }
-        out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-        if (!out)
-        {
-            cooked.Diagnostic = std::format("failed while writing '{}'", cooked.OutputPath.string());
-            return cooked;
-        }
-        out.close();
 
         cooked.Ok = true;
         cooked.CurveCount = imported.Groom->GetCurveCount();

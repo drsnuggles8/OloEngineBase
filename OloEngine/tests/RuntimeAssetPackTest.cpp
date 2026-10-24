@@ -113,7 +113,7 @@ TEST(RuntimeAssetPackTest, SceneSourceReadAndWriteUseTheProjectDirectory)
     EXPECT_EQ(loaded->GetHandle(), metadata.Handle);
 
     metadata.FilePath = fs::path("Assets") / "Scenes" / "Saved.oloscene";
-    serializer.Serialize(metadata, loaded);
+    ASSERT_TRUE(serializer.Serialize(metadata, loaded));
     ASSERT_TRUE(fs::is_regular_file(root / metadata.FilePath));
     // Absolute registry paths must also retain their original location.
     metadata.FilePath = root / metadata.FilePath;
@@ -177,7 +177,7 @@ TEST(RuntimeAssetPackTest, SceneRegistryPathsLoadAndSaveUnderTheProjectRoot)
     auto original = Ref<Scene>::Create();
     original->SetName("project-relative scene");
     SceneAssetSerializer serializer;
-    serializer.Serialize(metadata, original);
+    ASSERT_TRUE(serializer.Serialize(metadata, original));
     ASSERT_TRUE(fs::exists(root / relative));
     EXPECT_FALSE(fs::exists(wrongPath));
     Ref<Asset> loaded;

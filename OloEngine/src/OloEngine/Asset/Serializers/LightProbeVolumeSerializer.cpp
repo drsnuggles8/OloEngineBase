@@ -2,6 +2,7 @@
 #include "OloEngine/Asset/AssetSerializer.h"
 
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/LightProbeVolumeAsset.h"
 #include "OloEngine/Scene/Scene.h"
@@ -12,13 +13,13 @@
 
 namespace OloEngine
 {
-    void LightProbeVolumeSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool LightProbeVolumeSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         auto probeVolume = asset.As<LightProbeVolumeAsset>();
         if (!probeVolume)
         {
             OLO_CORE_ERROR("LightProbeVolumeSerializer::Serialize - Invalid asset");
-            return;
+            return false;
         }
 
         // metadata.FilePath is project-root-relative (see
@@ -44,26 +45,25 @@ namespace OloEngine
 
         std::string yamlStr = out.c_str();
 
-        std::ofstream fout(filepath, std::ios::binary);
-        if (!fout.is_open())
+        const auto writeProbeVolume = [&yamlStr, &probeVolume](std::ostream& fout)
         {
-            OLO_CORE_ERROR("Failed to open file for writing: {}", filepath.string());
-            return;
-        }
+            // Write YAML length as u64, then YAML, then binary coefficient data
+            auto yamlLen = static_cast<u64>(yamlStr.size());
+            fout.write(reinterpret_cast<const char*>(&yamlLen), sizeof(u64));
+            fout.write(yamlStr.data(), static_cast<std::streamsize>(yamlStr.size()));
 
-        // Write YAML length as u64, then YAML, then binary coefficient data
-        auto yamlLen = static_cast<u64>(yamlStr.size());
-        fout.write(reinterpret_cast<const char*>(&yamlLen), sizeof(u64));
-        fout.write(yamlStr.data(), static_cast<std::streamsize>(yamlStr.size()));
+            if (!probeVolume->CoefficientData.IsEmpty())
+            {
+                auto dataSize = static_cast<std::streamsize>(probeVolume->CoefficientData.Num() * sizeof(glm::vec4));
+                fout.write(reinterpret_cast<const char*>(probeVolume->CoefficientData.GetData()), dataSize);
+            }
+            return true;
+        };
+        if (!FileSystem::WriteFileAtomically(filepath, writeProbeVolume, { .CreateParentDirectories = true }))
+            return false;
 
-        if (!probeVolume->CoefficientData.IsEmpty())
-        {
-            auto dataSize = static_cast<std::streamsize>(probeVolume->CoefficientData.Num() * sizeof(glm::vec4));
-            fout.write(reinterpret_cast<const char*>(probeVolume->CoefficientData.GetData()), dataSize);
-        }
-
-        fout.close();
         OLO_CORE_INFO("Serialized light probe volume: {}", filepath.string());
+        return true;
     }
 
     bool LightProbeVolumeSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

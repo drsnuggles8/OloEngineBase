@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "AssetRegistry.h"
 
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Asset/AssetExtensions.h"
 #include <algorithm>
@@ -234,50 +235,50 @@ namespace OloEngine
         {
             TSharedLock<FSharedMutex> lock(m_Mutex);
 
-            std::ofstream file(filepath, std::ios::binary);
-            if (!file.is_open())
+            // Written atomically: a failed write must not leave a truncated
+            // registry, which would lose the handle of every asset in the project.
+            // A stream failure throws out of the writer, and the helper removes
+            // its temporary on the way out to the catch below.
+            const auto writeRegistry = [this](std::ostream& file)
             {
-                OLO_CORE_ERROR("AssetRegistry::Serialize - Failed to open file: {}", filepath.string());
-                return false;
-            }
+                // Enable exceptions for better error detection on I/O failures
+                file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
 
-            // Enable exceptions for better error detection on I/O failures
-            file.exceptions(std::ofstream::failbit | std::ofstream::badbit);
+                // Write header
+                const u32 version = FileVersion;
+                file.write(reinterpret_cast<const char*>(&version), sizeof(version));
 
-            // Write header
-            const u32 version = FileVersion;
-            file.write(reinterpret_cast<const char*>(&version), sizeof(version));
+                // Write asset count
+                const u32 assetCount = static_cast<u32>(m_AssetMetadata.size());
+                file.write(reinterpret_cast<const char*>(&assetCount), sizeof(assetCount));
 
-            // Write asset count
-            const u32 assetCount = static_cast<u32>(m_AssetMetadata.size());
-            file.write(reinterpret_cast<const char*>(&assetCount), sizeof(assetCount));
+                // Write each asset metadata
+                for (const auto& [handle, metadata] : m_AssetMetadata)
+                {
+                    // Cast to fixed-width types for cross-platform compatibility
+                    const uint64_t handleValue = static_cast<uint64_t>(metadata.Handle);
+                    const uint32_t typeValue = static_cast<uint32_t>(std::to_underlying(metadata.Type));
+                    const uint32_t statusValue = static_cast<uint32_t>(std::to_underlying(metadata.Status));
 
-            // Write each asset metadata
-            for (const auto& [handle, metadata] : m_AssetMetadata)
-            {
-                // Cast to fixed-width types for cross-platform compatibility
-                const uint64_t handleValue = static_cast<uint64_t>(metadata.Handle);
-                const uint32_t typeValue = static_cast<uint32_t>(std::to_underlying(metadata.Type));
-                const uint32_t statusValue = static_cast<uint32_t>(std::to_underlying(metadata.Status));
+                    file.write(reinterpret_cast<const char*>(&handleValue), sizeof(handleValue));
+                    file.write(reinterpret_cast<const char*>(&typeValue), sizeof(typeValue));
+                    file.write(reinterpret_cast<const char*>(&statusValue), sizeof(statusValue));
+                    // Note: LastWriteTime serialization temporarily skipped - std::filesystem::file_time_type is complex to serialize
 
-                file.write(reinterpret_cast<const char*>(&handleValue), sizeof(handleValue));
-                file.write(reinterpret_cast<const char*>(&typeValue), sizeof(typeValue));
-                file.write(reinterpret_cast<const char*>(&statusValue), sizeof(statusValue));
-                // Note: LastWriteTime serialization temporarily skipped - std::filesystem::file_time_type is complex to serialize
-
-                // Write path string. Use generic_string() so the .oar is
-                // portable across platforms: on Windows path.string() returns
-                // backslash separators, which on Linux fs::path treats as
-                // literal filename characters (not separators), so subsequent
-                // fs::exists / fs::relative resolve incorrectly. generic_string
-                // always emits forward slashes regardless of OS.
-                const std::string pathStr = metadata.FilePath.generic_string();
-                const u32 pathLength = static_cast<u32>(pathStr.length());
-                file.write(reinterpret_cast<const char*>(&pathLength), sizeof(pathLength));
-                file.write(pathStr.c_str(), pathLength);
-            }
-
-            return true;
+                    // Write path string. Use generic_string() so the .oar is
+                    // portable across platforms: on Windows path.string() returns
+                    // backslash separators, which on Linux fs::path treats as
+                    // literal filename characters (not separators), so subsequent
+                    // fs::exists / fs::relative resolve incorrectly. generic_string
+                    // always emits forward slashes regardless of OS.
+                    const std::string pathStr = metadata.FilePath.generic_string();
+                    const u32 pathLength = static_cast<u32>(pathStr.length());
+                    file.write(reinterpret_cast<const char*>(&pathLength), sizeof(pathLength));
+                    file.write(pathStr.c_str(), pathLength);
+                }
+                return true;
+            };
+            return FileSystem::WriteFileAtomically(filepath, writeRegistry);
         }
         catch (const std::exception& e)
         {

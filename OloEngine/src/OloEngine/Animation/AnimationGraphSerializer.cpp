@@ -6,6 +6,7 @@
 #include "OloEngine/Animation/BlendTree.h"
 #include "OloEngine/Animation/AnimationLayer.h"
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/FileSystem.h"
 
 #include <yaml-cpp/yaml.h>
 #include <fstream>
@@ -352,14 +353,7 @@ namespace OloEngine
             return false;
         }
 
-        std::ofstream fout(filepath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("AnimationGraphSerializer: Failed to open file '{}'", filepath);
-            return false;
-        }
-        fout << yamlString;
-        return true;
+        return FileSystem::WriteFileAtomically(filepath, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     // ---- Deserialization ----

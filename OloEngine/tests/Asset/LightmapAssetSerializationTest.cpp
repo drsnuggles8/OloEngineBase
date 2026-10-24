@@ -179,7 +179,7 @@ TEST_F(LightmapAssetSerializationTest, DiskRoundTripIsBitExact)
     ASSERT_TRUE(source->Validate());
 
     LightmapSerializer serializer;
-    serializer.Serialize(m_Metadata, source);
+    ASSERT_TRUE(serializer.Serialize(m_Metadata, source));
     ASSERT_TRUE(fs::exists(AbsolutePath())) << "Serialize did not write the .olmap file";
 
     Ref<Asset> loadedAsset;
@@ -229,7 +229,7 @@ TEST_F(LightmapAssetSerializationTest, VersionAboveCurrentIsRejected)
 {
     auto source = MakeBakedLightmap();
     LightmapSerializer serializer;
-    serializer.Serialize(m_Metadata, source);
+    ASSERT_TRUE(serializer.Serialize(m_Metadata, source));
     ASSERT_TRUE(fs::exists(AbsolutePath()));
 
     // Patch FileHeader::Version (u32 at byte offset 4) to CurrentVersion + 1.
@@ -267,7 +267,7 @@ TEST_F(LightmapAssetSerializationTest, VersionBelowMinSupportedIsRejected)
 
     auto source = MakeBakedLightmap();
     LightmapSerializer serializer;
-    serializer.Serialize(m_Metadata, source);
+    ASSERT_TRUE(serializer.Serialize(m_Metadata, source));
     ASSERT_TRUE(fs::exists(AbsolutePath()));
 
     {
@@ -292,7 +292,7 @@ TEST_F(LightmapAssetSerializationTest, TruncatedFileIsRejectedCleanly)
 {
     auto source = MakeBakedLightmap();
     LightmapSerializer serializer;
-    serializer.Serialize(m_Metadata, source);
+    ASSERT_TRUE(serializer.Serialize(m_Metadata, source));
     ASSERT_TRUE(fs::exists(AbsolutePath()));
 
     auto const fullSize = fs::file_size(AbsolutePath());
@@ -329,9 +329,9 @@ TEST_F(LightmapAssetSerializationTest, SerializeRefusesNonFiniteTexels)
     EXPECT_FALSE(fs::exists(AbsolutePath()))
         << "A refused serialize must not leave a file behind";
 
-    // The AssetSerializer-interface path (void return) refuses the same way.
+    // The AssetSerializer-interface path refuses the same way, and says so.
     LightmapSerializer serializer;
-    serializer.Serialize(m_Metadata, source);
+    EXPECT_FALSE(serializer.Serialize(m_Metadata, source)) << "the refusal must reach the caller";
     EXPECT_FALSE(fs::exists(AbsolutePath()));
 }
 

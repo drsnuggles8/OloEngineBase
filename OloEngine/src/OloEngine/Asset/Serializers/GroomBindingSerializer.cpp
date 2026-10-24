@@ -2,6 +2,7 @@
 #include "OloEngine/Asset/AssetSerializer.h"
 
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Project/Project.h"
@@ -438,31 +439,7 @@ namespace OloEngine
     {
         [[nodiscard]] bool WriteBindingFile(const std::filesystem::path& path, const std::vector<u8>& bytes)
         {
-            if (auto const parentDir = path.parent_path(); !parentDir.empty())
-            {
-                std::error_code ec;
-                std::filesystem::create_directories(parentDir, ec);
-                if (ec)
-                {
-                    OLO_CORE_ERROR("GroomBindingSerializer: failed to create directory '{}': {}",
-                                   parentDir.string(), ec.message());
-                    return false;
-                }
-            }
-
-            std::ofstream out(path, std::ios::binary | std::ios::trunc);
-            if (!out.is_open())
-            {
-                OLO_CORE_ERROR("GroomBindingSerializer: failed to open '{}' for writing", path.string());
-                return false;
-            }
-            out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-            if (out.fail())
-            {
-                OLO_CORE_ERROR("GroomBindingSerializer: failed while writing '{}'", path.string());
-                return false;
-            }
-            return true;
+            return FileSystem::WriteFileAtomically(path, std::span<const u8>(bytes), { .CreateParentDirectories = true });
         }
 
         [[nodiscard]] bool ReadBindingFile(const std::filesystem::path& path, std::vector<u8>& outBytes)
@@ -497,14 +474,14 @@ namespace OloEngine
     // AssetSerializer interface
     // ========================================================================
 
-    void GroomBindingSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool GroomBindingSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         auto binding = asset.As<GroomBindingAsset>();
         if (!binding)
         {
             OLO_CORE_ERROR("GroomBindingSerializer::Serialize - asset {} is not a GroomBindingAsset",
                            static_cast<u64>(metadata.Handle));
-            return;
+            return false;
         }
 
         std::vector<u8> bytes;
@@ -513,15 +490,15 @@ namespace OloEngine
         {
             OLO_CORE_ERROR("GroomBindingSerializer::Serialize - refusing to write '{}': {}",
                            metadata.FilePath.string(), reason);
-            return;
+            return false;
         }
 
         const auto filepath = Project::GetProjectDirectory() / metadata.FilePath;
-        if (WriteBindingFile(filepath, bytes))
-        {
-            OLO_CORE_TRACE("GroomBindingSerializer: wrote '{}' ({} bytes, {} roots)", filepath.filename().string(),
-                           bytes.size(), binding->GetRootCount());
-        }
+        if (!WriteBindingFile(filepath, bytes))
+            return false;
+        OLO_CORE_TRACE("GroomBindingSerializer: wrote '{}' ({} bytes, {} roots)", filepath.filename().string(),
+                       bytes.size(), binding->GetRootCount());
+        return true;
     }
 
     bool GroomBindingSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

@@ -4,6 +4,7 @@
 #include "Platform/OpenGL/OpenGLDebug.h"
 #include "Platform/OpenGL/OpenGLProgramBinaryCache.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/Timer.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
@@ -410,35 +411,15 @@ namespace OloEngine
         // ran across one shader's own 1-2 stages (which differ in the
         // hashed stage name, so never collided). A plain std::ofstream
         // write is then observable half-written by a concurrent reader.
-        // Write to a writer-unique temp file and atomically rename it into
-        // place instead, so a reader only ever sees a complete file or none.
+        // FileSystem::WriteFileAtomically writes a writer-unique temporary and
+        // renames it into place, so a reader only ever sees a complete file or none.
         static void WriteSpirvCacheFileAtomic(const std::filesystem::path& target, const TArray<u32>& words)
         {
-            static std::atomic<u64> s_WriterCounter{ 0 };
-            const std::filesystem::path tmp = target.string() + ".tmp" + std::to_string(s_WriterCounter.fetch_add(1));
-
-            std::error_code ec;
-            {
-                std::ofstream out(tmp, std::ios::out | std::ios::binary);
-                if (!out.is_open())
-                {
-                    return;
-                }
-                out.write(reinterpret_cast<const char*>(words.GetData()), static_cast<std::streamsize>(words.Num() * sizeof(u32)));
-                out.flush();
-                if (!out)
-                {
-                    out.close();
-                    std::filesystem::remove(tmp, ec);
-                    return;
-                }
-            }
-
-            std::filesystem::rename(tmp, target, ec);
-            if (ec)
-            {
-                std::filesystem::remove(tmp, ec);
-            }
+            const std::span<const u8> bytes(reinterpret_cast<const u8*>(words.GetData()), words.Num() * sizeof(u32));
+            // A cache: a failed write (logged by the helper) costs a recompile on
+            // the next run and nothing else, so there is nothing more to do here.
+            if (!FileSystem::WriteFileAtomically(target, bytes))
+                return;
         }
 
         // Applies the SPIR-V tier's shaderc options AND describes them as text

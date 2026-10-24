@@ -727,13 +727,24 @@ namespace OloEngine
                 metadata.FilePath = relativePath;
                 metadata.Type = AssetType::Prefab;
                 metadata.IsDataLoaded = true;
-                editorManager->SetMetadata(handle, metadata);
-                editorManager->SerializeAssetRegistry();
 
-                AssetImporter::Serialize(metadata, prefab);
+                // Written before it is registered: a prefab whose file could not be
+                // written must not reach the registry, and the entity must not
+                // become an instance of it.
+                const bool saved = AssetImporter::Serialize(metadata, prefab);
+                if (!saved)
+                {
+                    AssetManager::RemoveAsset(handle);
+                    OLO_CORE_ERROR("Could not save prefab '{}'; '{}' is unchanged", prefabPath.string(), entityTag);
+                }
+                else
+                {
+                    editorManager->SetMetadata(handle, metadata);
+                    editorManager->SerializeAssetRegistry();
+                }
 
                 // Mark the source entity as a prefab instance
-                if (!entity.HasComponent<PrefabComponent>())
+                if (saved && !entity.HasComponent<PrefabComponent>())
                 {
                     if (m_CommandHistory)
                     {
@@ -751,7 +762,8 @@ namespace OloEngine
                     }
                 }
 
-                OLO_CORE_INFO("Saved prefab: {}", prefabPath.string());
+                if (saved)
+                    OLO_CORE_INFO("Saved prefab: {}", prefabPath.string());
             }
 
             // Prefab instance management
