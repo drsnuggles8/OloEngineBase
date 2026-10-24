@@ -754,6 +754,8 @@ namespace OloEngine::MCP::PostProcess
             const auto uc = static_cast<unsigned char>(c);
             if (std::isalnum(uc) != 0)
                 out.push_back(static_cast<char>(std::tolower(uc)));
+            else if (c == '+')
+                out += "plus"; // as RendererSettings::Normalize: "x+" must not match "x"
         }
         return out;
     }
