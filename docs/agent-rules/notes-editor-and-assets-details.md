@@ -494,7 +494,8 @@ keep the differences that were deliberate:
 - `TextMode` for the YAML writers, which always wrote text mode; their files stay byte-identical.
 - `CreateParentDirectories`, which most asset serializers did by hand.
 - `Durable` (data sync, plus `MOVEFILE_WRITE_THROUGH` on Windows) for the Jolt shape cache and the
-  automation edits, which already synced.
+  automation edits, which already synced, and for save games and the asset registry, where an empty
+  file after a power cut would lose a player's progress or every handle in the project.
 - `BeforeReplace`, a veto run on the finished temporary: the automation guard's last-moment
   re-check, and the Steam Cloud restore's checksum validation, both run there.
 
