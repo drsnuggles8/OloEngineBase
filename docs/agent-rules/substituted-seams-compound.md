@@ -18,6 +18,9 @@ Postmortem of issue #853 (decal colour masks flattened by `ApplyPODRenderState`)
 12. **Do not treat a test riding `RendererAttachedTest` as Vulkan coverage.** It creates a GL 4.6 context only, so the real VG pass has never run on Vulkan in a test. [Details](substituted-seams-compound-details.md#second-instance-a-substituted-buffer-construction-1052)
 13. **Prove which backend you are on.** `driver.ps1 -Action attach` takes `-Rhi vulkan` (it once launched OpenGL unconditionally); the only proof is `[RHI] Backend:` in `OloEditor/OloEngine.log`. See also [no-silent-fallbacks.md](no-silent-fallbacks.md), [testing-architecture.md](testing-architecture.md), [live-verification-noise-floor.md](live-verification-noise-floor.md). [Details](substituted-seams-compound-details.md#second-instance-a-substituted-buffer-construction-1052)
 
+14. **The test binary is a process with no `Application`, so check what the application sets up and the binary does not.** Until #1630 no renderer-attached test had the task scheduler's workers (`Application` starts them; `RendererAttachedTest::SetUp` now does): every `ParallelFor` in the frame ran inline, the groom evidence was CPU-bound at ~120 ms a frame, and whether a case ran threaded depended on whether `FunctionalTest` had started the workers earlier in the process. [Details](substituted-seams-compound-details.md#third-and-fourth-instances-what-the-test-process-never-set-up-1630-1516)
+15. **A clock, a context or a device the app gets from its window is missing without one.** `Time::GetTime()` read `glfwGetTime()`, which is 0 until `glfwInit()`; on the AMD nightly's EGL context (and in OloServer) the wall clock was frozen at 0 for the whole run. It is now a steady clock; look for the same dependency before trusting a headless run. [Details](substituted-seams-compound-details.md#third-and-fourth-instances-what-the-test-process-never-set-up-1630-1516)
+
 ## Commands and checks
 
 ```
