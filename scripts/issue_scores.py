@@ -107,12 +107,22 @@ def gh_json(args):
     return json.loads(out.stdout)
 
 
+def is_backlog_item(it):
+    """A human's issue is backlog work. A bot's is only when it says so, by carrying
+    an olo-score block or the `ci-nightly-red` label: Renovate's "Dependency
+    Dashboard" is a tracking page, but nightly_red_streak.py files its red-streak
+    issues as `github-actions`, and dropping every bot author hid them from `rank`
+    and `lint` and left `ci-nightly-red` in TIER1_LABELS matching nothing (#1516)."""
+    if not it.get("author", {}).get("is_bot"):
+        return True
+    return parse_block(it.get("body")) is not None or "ci-nightly-red" in label_names(it)
+
+
 def open_issues():
-    """Open issues eligible for scoring — excludes bot-authored tracking issues
-    (e.g. Renovate's "Dependency Dashboard"), which aren't backlog work items."""
+    """Open issues eligible for scoring (see is_backlog_item)."""
     issues = gh_json(["issue", "list", "--repo", REPO, "--state", "open",
                        "--limit", "300", "--json", "number,title,body,labels,author,createdAt"])
-    return [it for it in issues if not it.get("author", {}).get("is_bot")]
+    return [it for it in issues if is_backlog_item(it)]
 
 
 def label_names(it):
@@ -852,6 +862,20 @@ TIER1_CASES = (
 )
 
 
+# Which open issues reach `rank` and `lint` at all.
+_BOT = {"login": "app/github-actions", "is_bot": True}
+_SCORED_BODY = "```olo-score\nfun: 3\n```"
+BACKLOG_CASES = (
+    ("a human's issue, unscored", {"author": {"login": "someone", "is_bot": False}}, True),
+    ("Renovate's dashboard", {"author": {"login": "app/renovate", "is_bot": True},
+                              "body": "## Detected dependencies", "labels": [{"name": "tooling"}]},
+     False),
+    ("a bot's scored issue", {"author": _BOT, "body": _SCORED_BODY}, True),
+    ("a red-streak issue whose block was edited away",
+     {"author": _BOT, "body": "red", "labels": [{"name": "ci-nightly-red"}]}, True),
+)
+
+
 # `rank` sorts the unresolvable edges for its banner. A block yielding both an
 # int key and a str key made that sort raise TypeError before a single row was
 # printed, so the guard has to cover the ordering itself, not just the flags.
@@ -897,6 +921,10 @@ def self_test():
             failures += 1
             print(f"SELF-TEST FAILED (delivered: {head} / {title}): want={want} got={got}",
                   file=sys.stderr)
+    for description, it, want in BACKLOG_CASES:
+        if is_backlog_item(it) != want:
+            failures += 1
+            print(f"SELF-TEST FAILED (backlog: {description}): want={want}", file=sys.stderr)
     for description, started, want in TIER1_CASES:
         if tier1_due(started) != want:
             failures += 1
@@ -915,7 +943,7 @@ def self_test():
 
 def self_test_count():
     return (len(SELF_TEST_CASES) + len(SORT_CASES) + len(FRESHNESS_CASES)
-            + len(DELIVERED_CASES) + len(TIER1_CASES) + 1)
+            + len(DELIVERED_CASES) + len(BACKLOG_CASES) + len(TIER1_CASES) + 1)
 
 
 def cmd_selftest(args):
