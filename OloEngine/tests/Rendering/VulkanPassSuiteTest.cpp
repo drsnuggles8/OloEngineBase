@@ -8409,8 +8409,12 @@ TEST_F(VulkanPassSuite, ShaderDebugDrawIndirectDrawsChannelsAndReadsBackStats)
     // --- the stats ring: copied THIS frame, read NEXT frame -----------------
     // The pass staged the seven 32-byte header copies into DeviceToHost
     // buffers during Execute; the submit fence has signalled, so BeginFrame's
-    // ReadbackStats memcpy off the persistent mappings sees them.
-    ShaderDebugDraw::BeginFrame();
+    // ReadbackStats memcpy off the persistent mappings sees them. BeginFrame
+    // runs INSIDE a frame, as production calls it: it also stages last
+    // frame's end-of-frame headers, a barrier and a copy that have no
+    // recording to land in outside one (the stub this assertion counts).
+    SubmitFrame([]()
+                { ShaderDebugDraw::BeginFrame(); });
     const auto& stats = ShaderDebugDraw::GetStats();
     EXPECT_TRUE(stats.StatsValid);
     const auto channelIndex = [](ShaderDebugDrawPrimitive primitive)
