@@ -239,6 +239,15 @@ namespace OloEngine::Tests
             std::printf("[soft-intersection] %s changed=%u repeat=%u viewport=%ux%u\n",
                         cell.c_str(), changed, noise, m_Width, m_Height);
             EXPECT_GT(changed, noise + 8u) << "contact fade did not exceed the matched repeat floor";
+            CheckEnabledGraph();
+        }
+
+        // What the frame the last capture rendered, with the fade on, must
+        // hold in its graph: no attachment read while written, snapshots that
+        // sample like their sources, an integer snapshot filtered nearest and
+        // a depth snapshot that is its own texture. No frames of its own.
+        void CheckEnabledGraph()
+        {
             ExpectAttachmentFeedbackGraphClean("GroomPass");
             ExpectAttachmentFeedbackGraphClean("GroomSceneDepthSnapshotPass");
             ExpectAttachmentFeedbackGraphClean("GroomSceneEntitySnapshotPass");
@@ -308,11 +317,13 @@ namespace OloEngine::Tests
                         // A forward path asked for MSAA renders at 1x: the cell's
                         // pairs would repeat the 1x cell's frames exactly. One
                         // frame latches the settings for the helper's checks that
-                        // the request resolved to one sample (#1630).
+                        // the request resolved to one sample, and its graph is
+                        // checked as a pair's would be (#1630).
                         if (cell.find("MSAARequest") != std::string::npos)
                         {
                             std::vector<u8> unused;
                             Capture("", true, false, 0, unused);
+                            CheckEnabledGraph();
                             std::printf("[soft-intersection-msaa-request] %s display=%ux%u renders the 1x cell's frames\n",
                                         cell.c_str(), m_Width, m_Height);
                             return;

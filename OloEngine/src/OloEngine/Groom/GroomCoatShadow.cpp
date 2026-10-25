@@ -1224,7 +1224,13 @@ namespace OloEngine::GroomCoatShadow
                          std::clamp(static_cast<i32>(std::floor(std::max(zA, zB))) + 3, 0, dims.z - 1) };
         }
 
-        const i32 slabs = std::clamp(settings.BinSlabs > 0u ? static_cast<i32>(settings.BinSlabs) : 32, 1, dims.z);
+        // Eight layers a slab by default: a segment reaches about six, so most
+        // are filed with one or two slabs, and a 64-layer grid still makes
+        // eight tasks for the scheduler's few foreground workers.
+        constexpr i32 kLayersPerSlab = 8;
+        const i32 slabs = std::clamp(settings.BinSlabs > 0u ? static_cast<i32>(settings.BinSlabs)
+                                                            : (dims.z + kLayersPerSlab - 1) / kLayersPerSlab,
+                                     1, dims.z);
         std::vector<i32> slabOfLayer(static_cast<sizet>(dims.z));
         for (i32 slab = 0; slab < slabs; ++slab)
         {

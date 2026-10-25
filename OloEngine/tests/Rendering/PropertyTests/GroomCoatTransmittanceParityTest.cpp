@@ -42,7 +42,8 @@
 // twin, reproduces every printed AMD shader value to ~1e-6 relative, so the
 // twins agree and the driver's asin is the whole difference. The lobe half
 // therefore adds, per sample, kDriverAsinError times the lobe's slope in
-// theta_o and theta_i (measured on the C++ twin), and
+// each of theta_o and theta_i whose sine is at least 0.5 in magnitude
+// (measured on the C++ twin), and
 // TheLobeSlackStillRejectsAStructuralSlip shows the widened bar still rejects
 // the mistakes the twin can make.
 //
@@ -221,7 +222,12 @@ namespace OloEngine::Tests
             };
             const f64 slopeO = std::abs(at(thetaO + kStep, thetaI) - at(thetaO - kStep, thetaI)) / (2.0 * kStep);
             const f64 slopeI = std::abs(at(thetaO, thetaI + kStep) - at(thetaO, thetaI - kStep)) / (2.0 * kStep);
-            return static_cast<f32>(kDriverAsinError * (slopeO + slopeI));
+            // Only an angle whose sine reaches the polynomial (|x| >= 0.5) pays
+            // for it; below that Mesa's asin is a rational accurate to ~4e-8.
+            const auto lossy = [](f32 sine)
+            { return std::abs(sine) >= 0.5f ? 1.0 : 0.0; };
+            return static_cast<f32>(kDriverAsinError *
+                                    ((slopeO * lossy(args.SinThetaO)) + (slopeI * lossy(args.SinThetaI))));
         }
 
         struct DualProbeHarness

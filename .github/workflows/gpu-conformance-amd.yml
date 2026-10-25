@@ -783,7 +783,7 @@ jobs:
               --durations test_results/gpu_amd.xml --github > test_results/case_durations.txt || true
             # The ::warning:: lines are for the log, which turns them into annotations.
             cat test_results/case_durations.txt
-            { echo '```'; grep -v '^::' test_results/case_durations.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            { echo '```'; grep -v '^::' test_results/case_durations.txt || true; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       # A rebase dispatch REWRITES the AMD baselines on the runner, and a

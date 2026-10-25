@@ -416,7 +416,8 @@ TEST(GroomCoatShadowVolume, TheSlabbedBakeIsTheSerialBakeBitForBit)
                                  serial.Direction.size() * sizeof(glm::vec3)));
         EXPECT_EQ(splitStats.SegmentsBinned, serialStats.SegmentsBinned);
         EXPECT_EQ(splitStats.OccupiedVoxels, serialStats.OccupiedVoxels);
-        EXPECT_EQ(splitStats.TotalArealMass, serialStats.TotalArealMass);
+        // Bit for bit, like the volume: compared as bytes, not as values.
+        EXPECT_EQ(0, std::memcmp(&splitStats.TotalArealMass, &serialStats.TotalArealMass, sizeof(f64)));
     }
 }
 
