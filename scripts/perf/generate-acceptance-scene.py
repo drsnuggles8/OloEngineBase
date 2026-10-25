@@ -380,7 +380,10 @@ def compose() -> str:
 
     # -- The animal population, turned onto the traversal heading.
     population = [b for b in entities(animals_text) if tag_of(b) not in {"Camera", "Sun", "Ground"}]
-    fox_shadow = scene_shadow_component(next(b for b in population if tag_of(b) == "Hero Coat"))
+    hero_coat = next((b for b in population if tag_of(b) == "Hero Coat"), None)
+    if hero_coat is None:
+        raise ValueError("AnimalPopulation.olo has no Hero Coat to take the scene-shadow block from")
+    fox_shadow = scene_shadow_component(hero_coat)
     theta = math.radians(TRAVERSAL_HEADING_DEG)
     interaction_left = INTERACTION_SLOTS - 2  # the two horses take two slots
     by_distance = []

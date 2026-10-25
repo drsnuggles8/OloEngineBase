@@ -400,11 +400,19 @@ namespace OloEngine::Tests
             EXPECT_TRUE(manager->ReloadData(handle));
             EXPECT_EQ(ReadAllBytes(oar), savedBytes);
             EXPECT_EQ(std::filesystem::last_write_time(oar), savedTime) << "a hot-reload re-saved the registry";
+            EXPECT_EQ(manager->GetMetadata(handle).LastWriteTime, std::filesystem::last_write_time(profile))
+                << "the reload did not refresh the timestamp the file watcher compares";
 
             std::ofstream(profile, std::ios::trunc) << "not: [a skin profile";
             EXPECT_TRUE(manager->ReloadData(handle)) << "a failed load falls back to a placeholder";
             EXPECT_EQ(manager->GetMetadata(handle).Status, AssetStatus::Failed)
                 << "the reload wrote back the status it read before loading";
+
+            std::filesystem::copy_file(std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / "Assets" / "Materials" / "DogGum.oloskin",
+                                       profile, std::filesystem::copy_options::overwrite_existing, ec);
+            ASSERT_FALSE(ec) << ec.message();
+            EXPECT_TRUE(manager->ReloadData(handle));
+            EXPECT_EQ(manager->GetMetadata(handle).Status, AssetStatus::Loaded) << "a reload that worked kept Failed";
         }
         Project::Unload();
     }

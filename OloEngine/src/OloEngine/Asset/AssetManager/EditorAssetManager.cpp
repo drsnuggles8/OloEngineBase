@@ -385,6 +385,7 @@ namespace OloEngine
         // the same object identity, so every existing Ref sees the new pixels on the
         // next bind (issue #544).
         Ref<Asset> asset;
+        bool reloadedInPlace = false; // LoadAssetFromFile sets the status itself; this path does not
         if (type == AssetType::Texture2D)
         {
             Ref<Asset> existing;
@@ -398,6 +399,7 @@ namespace OloEngine
             {
                 OLO_CORE_TRACE("Reloaded texture in place: {} (handle {})", path.string(), (u64)assetHandle);
                 asset = existing; // same cached object, refreshed contents — Refs stay valid
+                reloadedInPlace = true;
             }
         }
 
@@ -447,29 +449,32 @@ namespace OloEngine
             }
         }
 
-        // Update LastWriteTime to prevent continuous reloads
+        // Update LastWriteTime to prevent continuous reloads, and the status of an
+        // in-place refresh. Onto the entry as it stands NOW, at its current path:
+        // the copy taken above predates the reload, so writing it back undid the
+        // Failed status set for a placeholder and any move made meanwhile.
+        // Not saved: the .oar stores neither LastWriteTime nor the load status
+        // (#1644), so a reload changes nothing the file holds.
         {
-            std::error_code ec;
-            auto absolutePath = m_ProjectPath / path;
-            const auto lastWriteTime = std::filesystem::last_write_time(absolutePath, ec);
-            if (!ec)
+            TUniqueLock<FSharedMutex> lock(m_RegistryMutex);
+            AssetMetadata current = m_AssetRegistry.GetMetadata(assetHandle);
+            if (current.IsValid())
             {
-                // Only the timestamp, onto the entry as it stands NOW: the copy
-                // taken above predates the reload, so writing it back undid the
-                // Failed status set for a placeholder and any move made meanwhile.
-                // Not saved: the .oar stores neither LastWriteTime nor the load
-                // status (#1644), so a reload changes nothing the file holds.
-                TUniqueLock<FSharedMutex> lock(m_RegistryMutex);
-                AssetMetadata current = m_AssetRegistry.GetMetadata(assetHandle);
-                if (current.IsValid())
+                std::error_code ec;
+                const auto lastWriteTime = std::filesystem::last_write_time(m_ProjectPath / current.FilePath, ec);
+                if (!ec)
                 {
                     current.LastWriteTime = lastWriteTime;
-                    m_AssetRegistry.UpdateMetadata(assetHandle, current);
                 }
-            }
-            else
-            {
-                OLO_CORE_WARN("Failed to update LastWriteTime for asset {}: {}", path.string(), ec.message());
+                else
+                {
+                    OLO_CORE_WARN("Failed to update LastWriteTime for asset {}: {}", current.FilePath.string(), ec.message());
+                }
+                if (reloadedInPlace)
+                {
+                    current.Status = AssetStatus::Loaded;
+                }
+                m_AssetRegistry.UpdateMetadata(assetHandle, current);
             }
         }
 
