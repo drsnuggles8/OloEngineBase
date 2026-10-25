@@ -115,7 +115,8 @@ believing it is an engine regression.
   deprecated predecessor, and which a given `vulkan-1.dll` honours depends on the loader version
   the SDK installed. Naming one ICD explicitly also makes the run deterministic on a box that has
   a hardware ICD registered — without it, lavapipe is one candidate among several and the local
-  probe silently measures the GPU instead.
+  probe silently measures the GPU instead. Give a Windows-form path (`cygpath -w` from Git Bash): a
+  `C:/...` forward-slash path made `vkCreateInstance` fail with no ICD found (#1556).
 - **…and do not rely on them in CI: register the ICD in the registry too.** The loader reads both
   variables through its *secure-getenv* path, which returns nothing for a process running with
   elevated privileges — and GitHub's Windows runners run steps as an administrator. The loader then
@@ -142,7 +143,8 @@ believing it is an engine regression.
   process, which brings up a GL context for the rest of the binary and restores it around every
   `ScopedVulkanRenderCommandSelection`. The same Mesa archive ships both, so this costs one extra
   `Copy-Item`, but leaving it out means fighting a missing GL context while trying to prove
-  something about Vulkan.
+  something about Vulkan. The scene suite's `--olo-rhi=vulkan` process (#1556) is the exception:
+  it makes no GL context at all, so its step sets only the Vulkan ICD variables.
 - **RADV is not lavapipe.** The self-hosted AMD box cannot host this suite, and the reason is the
   same row of the table: RADV does not implement `VK_EXT_descriptor_heap`. A future RADV that does
   would change that answer, and nothing in the workflow assumes otherwise.

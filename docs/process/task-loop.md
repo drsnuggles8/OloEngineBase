@@ -157,7 +157,11 @@ A cell is evidenced in one of two ways, fixed by the cell:
   test. Never commit it ([generated-evidence-stays-out-of-git.md](../agent-rules/generated-evidence-stays-out-of-git.md)).
   An unrun cell is then a row with no test and no measurement.
 - **Live-only**: no test can produce it, so the proof is a measurement plus a log check from a real
-  editor session. **Every Vulkan cell is live-only**: the headless fixtures need a GL 4.6 context.
+  editor session. **A Vulkan cell is artefact-backed when its scene suite runs in the
+  `OloEngine-Tests --olo-rhi=vulkan` process** (a windowless `VulkanContext`; the suites are
+  `OLO_VK_SCENE_FILTER` in `vulkan-software.yml`), and live-only otherwise, with the reason the suite
+  is not ported. The present, the ImGui overlay and window behaviour stay live-only
+  ([testing-architecture.md](../agent-rules/testing-architecture.md) rule 13).
 
 The PR body carries the matrix, one row per cell, both kinds (Phase 6, item 5). An abbreviated
 table says so above itself.

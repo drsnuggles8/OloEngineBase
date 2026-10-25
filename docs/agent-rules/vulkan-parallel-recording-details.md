@@ -177,3 +177,25 @@ execution on the primary, so GPU durations retain the original pass boundaries.
 See [whole-pass parallel recording](vulkan-parallel-graph-recording.md) for the
 prepared-pass contract, topological grouping, resource lifetimes, fence boundaries
 and ordered publication.
+
+## 9. The join must leave the inline loop's state
+
+Rule 4 says an item sees what iteration 0 of the sequential loop saw. The other half is the join:
+afterwards the main context must hold what the sequential loop would have left, which is the
+**last** item's sticky state. `RecordParallelOrdered` publishes the last item's draw-front-end
+caches (`item.Frontend.Publish()`, CommandDispatch's "already bound" record among them), copies its
+framebuffer selections, and -- since #1556 -- assigns its `VulkanBindingState` to the global one.
+
+Before that last step the binding state stayed at its pre-fork value while the published cache
+described the last item's binds. A later `BindUBOIfNeeded` compared against the cache, found a
+match and skipped the bind, so the pass drew with whatever the pre-fork state held. Measured on the
+windowless Vulkan fixture: after the forked shadow region, the forward groom strand pass read a
+shadow-view camera at `UBO_CAMERA` and shaded every strand a random saturated colour;
+`GroomSceneShadowVisualEvidenceTest`'s thin-occluder case darkened 292 fur pixels against GL's 1046.
+`OLO_VK_PARALLEL_RECORDING=0` and a one-item region (which never forks) both rendered correctly,
+which is the signature of a join that differs from the inline path. A binding diff at the join
+named the two slots that differed (UBO 0 and SSBO 15); the strand shader reads UBO 0.
+
+When a fork and the inline path disagree, diff the main context's state against the last item's
+at the join before suspecting the items.
+

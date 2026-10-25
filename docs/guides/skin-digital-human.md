@@ -25,7 +25,8 @@ submesh and switches the patch off (the Scene logs it).
 
 The split is not arbitrary. The tone ladder and the expression need several authored profiles and a
 morph target, and both are things a static scene can display but cannot *check*; the Vulkan rows
-need a real editor because the headless fixtures require a GL 4.6 context and skip without one.
+need a real editor because the skin suites are not in the `--olo-rhi=vulkan` scene process
+(#1556) yet.
 Neither artefact can do the other's job.
 
 ## The slot budget is spent by one face

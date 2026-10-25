@@ -18,7 +18,9 @@ the screen shows, do all three:
    [WaterVisualEvidenceTest.cpp](../../OloEngine/tests/Rendering/PropertyTests/WaterVisualEvidenceTest.cpp):
    render the real pipeline, read back, write to `OloEditor/assets/tests/visual/`, read the PNG.
    Such tests use `EnableRendering(w, h)` + `RunFrames` / `RunEditorFrames` and skip cleanly without
-   a GL 4.6 context; never `DISABLED_`.
+   a GL 4.6 context; never `DISABLED_`. Read back by RHI handle and name evidence with
+   `TestRenderBackend::EvidenceName`, and the same test gives the Vulkan cells in
+   `OloEngine-Tests --olo-rhi=vulkan` (testing-architecture.md rule 13).
 3. **Run it in the editor** and check `OloEngine.log` for shader errors. The `run-oloengine` skill's
    `attach` action starts the editor with the MCP diagnostics server; `olo_screenshot`,
    `olo_camera_*`, `olo_shader_errors` and `olo_render_capture_target` inspect the live frame

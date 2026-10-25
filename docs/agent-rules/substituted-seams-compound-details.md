@@ -164,9 +164,11 @@ too.
 
 Two aggravating conditions, both worth checking before trusting a Vulkan result:
 
-- **`RendererAttachedTest` creates a GL 4.6 context only.** Every virtual-geometry
-  evidence test rides it, so the real pass has never executed on Vulkan in any
-  test — a feature with no scene *on that backend* has no coverage there.
+- **`RendererAttachedTest` runs on Vulkan only in the `--olo-rhi=vulkan` process**
+  (#1556, a windowless `VulkanContext`), and only the suites in `OLO_VK_SCENE_FILTER`
+  run there. Every virtual-geometry evidence test rides the fixture and none of them
+  is in that filter, so the real pass has still never executed on Vulkan in a test
+  -- a feature with no scene *on that backend* has no coverage there.
 - **Check the backend you think you are on.** `driver.ps1 -Action attach` used to
   launch OpenGL unconditionally, so a "Vulkan session" was running GL. It takes
   `-Rhi vulkan` now; either way, `[RHI] Backend:` in `OloEditor/OloEngine.log`

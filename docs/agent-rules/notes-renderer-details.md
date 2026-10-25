@@ -1528,3 +1528,19 @@ Specular, profile-id and mask views. The Transmission view of a version-1 head, 
 exactly zero, showed every crease. `SkinDiffusionRunsThisFrame` (`RenderPipeline.cpp`) now turns
 the pass off under every view except Diffuse, and one helper feeds the pass settings, the scratch
 declaration and the graph fingerprint. Apply the same check to any other in-place pass.
+
+## A depth-array layer re-pointed onto a smaller framebuffer renders at the layer's extent
+
+The shadow pass owns one framebuffer sized to the cascades and re-points its depth attachment at
+array layers: a cascade, then the local-light atlas layer, which is larger (4096 against 1024 at
+the defaults). GL rasterises against the attached texture's extent and `glClear` ignores the
+viewport, so GL never cared what size the framebuffer object said it was. Vulkan's rendering scope
+took its `renderArea`, and the draw front-end its default viewport and scissor, from the
+framebuffer's specification, so every atlas tile past the first cascade-sized square rasterised
+outside the render area (nothing landed) and the folded whole-atlas clear reached only that square.
+With six spots and two point lights, one spot cast a shadow and every other tile sampled uncleared
+depth 0.0, which reads as "fully occluded" (#1556, found by the windowless Vulkan
+`ShadowAtlasVisualEvidenceTest`; a per-tile depth dump showed tile 0 at 0.985 and every other tile
+at exactly 0.0). The scope now records the extent it opened with -- the selected layer's when one
+is active -- and `ScopeExtent()` answers it.
+

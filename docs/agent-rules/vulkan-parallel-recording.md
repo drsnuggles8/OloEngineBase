@@ -22,6 +22,7 @@ Covers how a pass records independent work items on task workers via `RenderComm
 16. **Expect inline execution without a begun frame.** Secondary pools reset with `VulkanFrameArena`'s generation and `BeginFrame(slot)` only follows that slot's fence; headless fixtures use the same clock. [Details](vulkan-parallel-recording-details.md#6-where-the-frame-clock-comes-from)
 17. **Respect the bucket replay limits.** `CommandBucket::ExecuteParallel` / `RecordPackets` use contiguous ranges of at least 32 packets per item and at most `MAX_RENDER_WORKERS` items; any rejected packet (query-bearing mesh, observed decal, unsupported kind) keeps the whole span inline. Compute instance capacity before the fork. [Details](vulkan-parallel-recording-details.md#7-bucket-replay-and-region-diagnostics)
 18. **Whole-pass recording follows its own contract.** See [vulkan-parallel-graph-recording.md](vulkan-parallel-graph-recording.md) for prepared passes, topological grouping, fences and ordered publication. [Details](vulkan-parallel-recording-details.md#8-whole-pass-recording)
+19. **Leave the main context exactly as the inline loop would at the join.** The join publishes the last item's front-end caches, its framebuffer selections and its binding state; a cache describing one binding while `VulkanBindingState` holds another makes a later bind-if-needed skip a bind that never happened. [Details](vulkan-parallel-recording-details.md#9-the-join-must-leave-the-inline-loops-state)
 
 ## Commands and checks
 
