@@ -7260,6 +7260,10 @@ Entities:
       ParentHandle: 14178104066540321902
       Children:
         []
+    GroomSceneShadowComponent:
+      ShadowWidthTexels: 1
+      CastShadows: true
+      ReceiveShadows: true
   - Entity: 4138099514037142306
     TagComponent:
       Tag: LongCoatHorse
@@ -7415,6 +7419,10 @@ Entities:
       ParentHandle: 4138099514037142306
       Children:
         []
+    GroomSceneShadowComponent:
+      ShadowWidthTexels: 1
+      CastShadows: true
+      ReceiveShadows: true
   - Entity: 8600225018266145435
     TagComponent:
       Tag: Human
@@ -7559,6 +7567,10 @@ Entities:
       ParentHandle: 8600225018266145435
       Children:
         []
+    GroomSceneShadowComponent:
+      ShadowWidthTexels: 1
+      CastShadows: true
+      ReceiveShadows: true
   - Entity: 10943514950864115681
     TagComponent:
       Tag: Plinth

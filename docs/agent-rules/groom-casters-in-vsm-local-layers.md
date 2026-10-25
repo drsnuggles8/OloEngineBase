@@ -52,8 +52,9 @@ Read before touching `ShadowRenderPass::RenderGroomVirtualShadowLocalLayers`, th
   the previous pose afterwards; stats read next describe that pose. Use `olo_camera_set_pose`.
 - **Freeze animated bodies before a live A/B** (`AnimationStateComponent.PlaybackSpeed` 0): an idle
   head turns between two captures and the diff measures the turn.
-- **`Acceptance.olo`'s head hair and horse coats carry no `GroomSceneShadowComponent`**, so they cast
-  no scene shadow at all; only the fox coats do. The live check opted them in on a scratch copy.
+- **A groom casts only with a `GroomSceneShadowComponent`.** `Acceptance.olo`'s head hair and horse
+  coats lacked one until #1634, so #1592's live check had to opt them in on a scratch copy.
+  `GroomAnimals.olo` still has none on those coats.
 
 ## Where the evidence lives
 
