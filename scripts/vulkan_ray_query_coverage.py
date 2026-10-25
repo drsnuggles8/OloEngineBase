@@ -15,6 +15,9 @@ Two modes:
 
 Test failures are not this script's verdict; the test step that produced the XML already fails
 the job for those. This gate is about cases that did not run.
+
+vulkan-software.yml also runs it, with --require, over the --olo-rhi=vulkan scene suite (#1556):
+the suites there are whatever the scene filter's --gtest_list_tests names.
 """
 import argparse
 import os
