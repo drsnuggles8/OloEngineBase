@@ -8360,7 +8360,7 @@ namespace OloEngine
         VulkanImageLayoutTracker::MergeBatch batch;
         std::vector<VkCommandBuffer>& secondaries = m_JoinSecondaries;
         secondaries.clear();
-        const VulkanRecordingContext* lastRecorded = nullptr;
+        const VulkanWorkerRecordingContext* lastRecorded = nullptr;
         f64 workerMs = 0.0;
         u64 arenaAllocations = 0;
         for (u32 index = 0; index < itemCount; ++index)
@@ -8422,6 +8422,18 @@ namespace OloEngine
         if (lastRecorded != nullptr)
         {
             main.Selections = lastRecorded->Selections;
+            // So is its sticky BINDING state: the inline path leaves the last
+            // item's buffer and texture binds in place, and a fork must leave
+            // the same thing (rule 4's "one inline semantics", at the join).
+            // The Frontend.Publish() above already hands the main context the
+            // last item's draw-front-end caches -- CommandDispatch's "already
+            // bound" record among them -- so binding state left at its pre-fork
+            // value made that record lie: a later bind-if-needed was skipped
+            // against a binding that was not there. After the shadow region the
+            // forward strand pass read the wrong camera at UBO_CAMERA and shaded
+            // every strand with garbage, and only when the region forked (#1556,
+            // found by the windowless Vulkan GroomSceneShadow evidence).
+            VulkanBindingState::Global() = lastRecorded->Binding;
         }
         for (u32 index = 0; index < itemCount; ++index)
         {
