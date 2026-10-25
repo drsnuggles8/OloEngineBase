@@ -290,7 +290,7 @@ namespace OloEngine::Tests
         {
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb);
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, out);
             ASSERT_EQ(out.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
             const sizet rowBytes = static_cast<sizet>(kWidth) * 4u;
             std::vector<u8> tmp(rowBytes);

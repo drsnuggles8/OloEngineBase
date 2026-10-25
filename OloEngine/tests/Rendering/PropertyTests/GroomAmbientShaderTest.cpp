@@ -116,7 +116,7 @@ namespace OloEngine::Tests
         std::array<std::vector<f32>, 5> out;
         for (u32 i = 0; i < 5u; ++i)
         {
-            ReadbackRgbaFloat(target->GetColorAttachmentRendererID(i), 64, 64, out[i]);
+            ReadbackRgbaFloat(target->GetColorAttachmentHandle(i), 64, 64, out[i]);
             ASSERT_EQ(out[i].size(), 64u * 64u * 4u);
         }
 

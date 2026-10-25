@@ -252,7 +252,7 @@ namespace OloEngine::Tests
                 return {};
 
             std::vector<u8> pixels;
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
             EXPECT_EQ(pixels.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
             VisualEvidence::FlipRgbaRowsInPlace(pixels, kWidth, kHeight);
             return pixels;

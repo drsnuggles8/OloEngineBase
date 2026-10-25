@@ -34,6 +34,7 @@
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <span>
 #include <vector>
 
 // Forward declares (avoid dragging GLFW into every test TU)
@@ -53,7 +54,16 @@ namespace OloEngine::Tests
       public:
         // Returns true if a usable GL 4.5+ context was successfully created in
         // the current process. Initializes the context on first call.
+        //
+        // In the --olo-rhi=vulkan process (#1556) there is no GL context, and
+        // this answers true only while a RendererAttachedTest the windowless
+        // VulkanContext admitted is running (SetVulkanSceneTestAdmitted), so a
+        // scene test's own OLO_ENSURE_GPU_OR_SKIP() lets it through while a
+        // GL-only test in that process still skips, naming the flag.
         static bool IsGpuAvailable();
+
+        // RendererAttachedTest's SetUp/TearDown in the Vulkan process.
+        static void SetVulkanSceneTestAdmitted(bool admitted);
 
         // Why IsGpuAvailable() is false, for the skip/fail message. Empty when
         // a context was simply not obtainable; otherwise names the flag that
@@ -138,6 +148,11 @@ namespace OloEngine::Tests
     // refused read zeroes `out` and fails the running test.
     void ReadbackRgba8(RHI::ResourceHandle texture, u32 width, u32 height, std::vector<u8>& out);
     void ReadbackRgbaFloat(RHI::ResourceHandle texture, u32 width, u32 height, std::vector<f32>& out);
+    // An R32I target (the scene entity IDs) into `out`, width * height values.
+    void ReadbackR32Int(RHI::ResourceHandle texture, u32 width, u32 height, std::span<i32> out);
+    // A depth attachment's depth as floats, GL's [0, 1] window depth on both
+    // backends (the projection seam keeps the stored values GL-shaped).
+    void ReadbackDepth32F(RHI::ResourceHandle texture, u32 width, u32 height, std::span<f32> out);
 
     // Basic statistics for validation. Tuples are per-channel.
     struct FloatStats

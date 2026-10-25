@@ -170,7 +170,7 @@ namespace OloEngine::Tests
 
             void ReadOutputRgba8(std::vector<u8>& out) const
             {
-                const u32 id = m_OutputFB->GetColorAttachmentRendererID(0);
+                const RHI::ResourceHandle id = m_OutputFB->GetColorAttachmentHandle(0);
                 ReadbackRgba8(id, m_Width, m_Height, out);
             }
         };
@@ -385,7 +385,7 @@ namespace OloEngine::Tests
         hdrFb->Unbind();
 
         std::vector<f32> pixels;
-        ReadbackRgbaFloat(hdrFb->GetColorAttachmentRendererID(0), kSize, kSize, pixels);
+        ReadbackRgbaFloat(hdrFb->GetColorAttachmentHandle(0), kSize, kSize, pixels);
         ::glDeleteTextures(1, &inputTex);
 
         const FloatStats stats = ComputeStats(pixels);
@@ -1249,7 +1249,7 @@ namespace OloEngine::Tests
         runPass(upsampleShader, fbUp64, 32, 32, fbUp32->GetColorAttachmentRendererID(0));
 
         std::vector<f32> reconstructed;
-        ReadbackRgbaFloat(fbUp64->GetColorAttachmentRendererID(0), kFullSize, kFullSize, reconstructed);
+        ReadbackRgbaFloat(fbUp64->GetColorAttachmentHandle(0), kFullSize, kFullSize, reconstructed);
         ASSERT_EQ(reconstructed.size(), static_cast<std::size_t>(kFullSize) * kFullSize * 4);
 
         f64 outSumR = 0.0;

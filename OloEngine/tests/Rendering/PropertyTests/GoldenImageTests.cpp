@@ -215,7 +215,7 @@ namespace OloEngine::Tests
                     out.clear();
                     return;
                 }
-                ReadbackRgba8(m_OutputFB->GetColorAttachmentRendererID(0), m_Width, m_Height, out);
+                ReadbackRgba8(m_OutputFB->GetColorAttachmentHandle(0), m_Width, m_Height, out);
             }
         };
 
@@ -1128,7 +1128,7 @@ namespace OloEngine::Tests
         // count bounded and still exercises the tone-map with a
         // non-trivial HDR distribution.
         std::vector<f32> hdrReadback;
-        ReadbackRgbaFloat(hdrFB->GetColorAttachmentRendererID(0), kFrameW, kFrameH, hdrReadback);
+        ReadbackRgbaFloat(hdrFB->GetColorAttachmentHandle(0), kFrameW, kFrameH, hdrReadback);
         // Defensive contract: if the readback produced an undersized buffer
         // (driver bug, format mismatch, readback skipped), fail loudly
         // instead of indexing out-of-bounds into `hdrReadback` below.
@@ -1367,7 +1367,7 @@ namespace OloEngine::Tests
         // Tone-map pass.
         // ---------------------------------------------------------------
         std::vector<f32> hdrReadback;
-        ReadbackRgbaFloat(hdrFB->GetColorAttachmentRendererID(0), kSize, kSize, hdrReadback);
+        ReadbackRgbaFloat(hdrFB->GetColorAttachmentHandle(0), kSize, kSize, hdrReadback);
         // Defensive contract: see the shadow-golden test above.
         ASSERT_EQ(hdrReadback.size(), static_cast<std::size_t>(kSize) * kSize * 4)
             << "HDR readback size mismatch for splatmap pass";

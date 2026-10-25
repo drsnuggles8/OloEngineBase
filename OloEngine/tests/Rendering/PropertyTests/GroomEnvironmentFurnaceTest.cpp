@@ -202,7 +202,7 @@ namespace OloEngine::Tests
             [[nodiscard]] std::array<glm::vec3, kColumnCount> Read() const
             {
                 std::vector<f32> pixels;
-                ReadbackRgbaFloat(m_OutputFB->GetColorAttachmentRendererID(0), kColumnCount, 1, pixels);
+                ReadbackRgbaFloat(m_OutputFB->GetColorAttachmentHandle(0), kColumnCount, 1, pixels);
                 std::array<glm::vec3, kColumnCount> columns{};
                 if (pixels.size() != static_cast<sizet>(kColumnCount) * 4u)
                 {

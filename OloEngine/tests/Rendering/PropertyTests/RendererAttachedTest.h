@@ -83,6 +83,7 @@
 
 #include <gtest/gtest.h>
 
+#include <functional>
 #include <vector>
 
 namespace OloEngine
@@ -159,6 +160,13 @@ namespace OloEngine::Tests
         /// 3D rendering mode. For a test that changes which scene the renderer
         /// draws between frames (scene ownership, issue #1349).
         void RunEditorFramesOn(Scene& scene, const EditorCamera& camera, u32 count, f32 dtSeconds = 1.0f / 60.0f);
+
+        /// Run GPU work a test issues outside a scene tick -- a compute dispatch
+        /// or a recorded upload that production makes inside the frame (e.g.
+        /// SnowAccumulationSystem::Update) -- with the tick's hygiene. Inline
+        /// on GL; one frame of the windowless context in the Vulkan process,
+        /// where work recorded outside the frame bracket is dropped (#1556).
+        void RunInFrame(const std::function<void()>& work);
 
         /// Opt the Scene into the full 3D draw path. Call from `BuildScene()`.
         /// Enables 3D mode, sizes the camera + the Renderer3D render-graph

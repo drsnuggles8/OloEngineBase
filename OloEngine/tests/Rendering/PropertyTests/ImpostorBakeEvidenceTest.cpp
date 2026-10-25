@@ -313,7 +313,7 @@ namespace OloEngine::Tests
             if (!fb)
                 return -1;
             std::vector<u8> px;
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kSceneW, kSceneH, px);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kSceneW, kSceneH, px);
             if (px.size() != static_cast<std::size_t>(kSceneW) * kSceneH * 4u)
                 return -1;
 
@@ -344,7 +344,7 @@ namespace OloEngine::Tests
             if (!fb)
                 return -1;
             std::vector<u8> px;
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kSceneW, kSceneH, px);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kSceneW, kSceneH, px);
             if (px.size() != static_cast<std::size_t>(kSceneW) * kSceneH * 4u)
                 return -1;
 

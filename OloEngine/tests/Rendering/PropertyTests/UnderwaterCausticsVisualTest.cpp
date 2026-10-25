@@ -243,7 +243,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No composited framebuffer for pose '" << poseName << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
 
             // Flip vertically (GL origin is bottom-left) so row 0 is the top.

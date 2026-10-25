@@ -316,11 +316,23 @@ namespace OloEngine::Tests
         };
     } // namespace
 
+    namespace
+    {
+        bool s_VulkanSceneTestAdmitted = false;
+    } // namespace
+
     bool RenderPropertyFixture::IsGpuAvailable()
     {
         auto& ctx = GpuContext::Get();
         ctx.TryInitOnce();
+        if (ctx.m_VulkanProcess)
+            return s_VulkanSceneTestAdmitted;
         return ctx.m_Available;
+    }
+
+    void RenderPropertyFixture::SetVulkanSceneTestAdmitted(const bool admitted)
+    {
+        s_VulkanSceneTestAdmitted = admitted;
     }
 
     const char* RenderPropertyFixture::GpuUnavailableDetail()
@@ -566,6 +578,30 @@ namespace OloEngine::Tests
     {
         out.resize(static_cast<std::size_t>(width) * height * 4);
         ReadbackThroughFacade(texture, RHI::Format::RGBA32Float, height, out.size() * sizeof(f32), out.data());
+    }
+
+    void ReadbackR32Int(const RHI::ResourceHandle texture, u32 width, u32 height, std::span<i32> out)
+    {
+        if (out.size() < static_cast<std::size_t>(width) * height)
+        {
+            ADD_FAILURE() << "ReadbackR32Int: the destination holds " << out.size() << " values, not " << width << "x"
+                          << height;
+            return;
+        }
+        ReadbackThroughFacade(texture, RHI::Format::R32Int, height, static_cast<sizet>(width) * height * sizeof(i32),
+                              out.data());
+    }
+
+    void ReadbackDepth32F(const RHI::ResourceHandle texture, u32 width, u32 height, std::span<f32> out)
+    {
+        if (out.size() < static_cast<std::size_t>(width) * height)
+        {
+            ADD_FAILURE() << "ReadbackDepth32F: the destination holds " << out.size() << " values, not " << width
+                          << "x" << height;
+            return;
+        }
+        ReadbackThroughFacade(texture, RHI::Format::D32Float, height, static_cast<sizet>(width) * height * sizeof(f32),
+                              out.data());
     }
 
     FloatStats ComputeStats(const std::vector<f32>& pixels)

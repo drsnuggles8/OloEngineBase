@@ -72,7 +72,7 @@ namespace OloEngine::Tests
 
             void ReadRgbaFloat(std::vector<f32>& out) const
             {
-                const u32 id = m_OutputFB->GetColorAttachmentRendererID(0);
+                const RHI::ResourceHandle id = m_OutputFB->GetColorAttachmentHandle(0);
                 ReadbackRgbaFloat(id, m_Width, m_Height, out);
             }
         };

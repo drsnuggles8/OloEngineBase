@@ -272,7 +272,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No composited framebuffer for " << label;
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
 
             // GL returns rows bottom-up; the PNG writer treats row 0 as the top.

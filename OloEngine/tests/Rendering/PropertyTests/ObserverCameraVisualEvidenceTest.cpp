@@ -246,7 +246,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No composited framebuffer for observer-camera capture '" << tag << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
 
             // GL readback is bottom-up; flip so row 0 is the top of the frame.
@@ -498,7 +498,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No composited framebuffer for GPU-cull capture '" << tag << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
 
             const std::size_t rowBytes = static_cast<std::size_t>(kWidth) * 4u;

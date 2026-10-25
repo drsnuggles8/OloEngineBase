@@ -172,6 +172,8 @@ namespace OloEngine::Tests
             VulkanCoverage::RecordGateAdmission(admission.DeviceName);
             if (!RenderPropertyFixture::ChangeToOloEditorDir())
                 FAIL() << "RendererAttachedTest: could not find OloEditor/ to run from";
+            // Opens the GPU gate for this test's own OLO_ENSURE_GPU_OR_SKIP().
+            RenderPropertyFixture::SetVulkanSceneTestAdmitted(true);
         }
         else if (!RenderPropertyFixture::IsGpuAvailable())
         {
@@ -251,6 +253,7 @@ namespace OloEngine::Tests
         // For the minimal smoke tests we don't enable physics, so just
         // drop the Scene ref.
         m_Scene.Reset();
+        RenderPropertyFixture::SetVulkanSceneTestAdmitted(false);
     }
 
     void RendererAttachedTest::RunFrames(u32 count, f32 dtSeconds)
@@ -309,6 +312,11 @@ namespace OloEngine::Tests
             RunGuardedRenderTick("RendererAttachedTest::RunEditorFramesOn",
                                  [&scene, ts, &camera]()
                                  { scene.OnUpdateEditor(ts, camera); });
+    }
+
+    void RendererAttachedTest::RunInFrame(const std::function<void()>& work)
+    {
+        RunGuardedRenderTick("RendererAttachedTest::RunInFrame", work);
     }
 
     void RendererAttachedTest::SetViewport(u32 width, u32 height)
