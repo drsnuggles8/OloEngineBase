@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 
 #include "OloEngine/Asset/AssetManager.h"
@@ -198,7 +199,7 @@ namespace OloEngine
     // ExperienceCurveSerializer
     // ------------------------------------------------------------------
 
-    void ExperienceCurveSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool ExperienceCurveSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -206,27 +207,13 @@ namespace OloEngine
         if (!curve)
         {
             OLO_CORE_ERROR("ExperienceCurveSerializer::Serialize - Failed to cast asset to ExperienceCurve ({})", metadata.FilePath.string());
-            return;
+            return false;
         }
 
         std::string yamlString = SerializeToYAML(curve);
         auto fullPath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        std::error_code ec;
-        std::filesystem::create_directories(fullPath.parent_path(), ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("ExperienceCurveSerializer::Serialize - Failed to create directories for ({}): {}", fullPath.string(), ec.message());
-            return;
-        }
-
-        std::ofstream fout(fullPath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("ExperienceCurveSerializer::Serialize - Failed to open file for writing ({})", fullPath.string());
-            return;
-        }
-        fout << yamlString;
+        return FileSystem::WriteFileAtomically(fullPath, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool ExperienceCurveSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -370,7 +357,7 @@ namespace OloEngine
     // SkillTreeDatabaseSerializer
     // ------------------------------------------------------------------
 
-    void SkillTreeDatabaseSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool SkillTreeDatabaseSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -378,27 +365,13 @@ namespace OloEngine
         if (!tree)
         {
             OLO_CORE_ERROR("SkillTreeDatabaseSerializer::Serialize - Failed to cast asset to SkillTreeDatabase ({})", metadata.FilePath.string());
-            return;
+            return false;
         }
 
         std::string yamlString = SerializeToYAML(tree);
         auto fullPath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        std::error_code ec;
-        std::filesystem::create_directories(fullPath.parent_path(), ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("SkillTreeDatabaseSerializer::Serialize - Failed to create directories for ({}): {}", fullPath.string(), ec.message());
-            return;
-        }
-
-        std::ofstream fout(fullPath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("SkillTreeDatabaseSerializer::Serialize - Failed to open file for writing ({})", fullPath.string());
-            return;
-        }
-        fout << yamlString;
+        return FileSystem::WriteFileAtomically(fullPath, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool SkillTreeDatabaseSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -634,7 +607,7 @@ namespace OloEngine
     // CharacterClassDatabaseSerializer
     // ------------------------------------------------------------------
 
-    void CharacterClassDatabaseSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool CharacterClassDatabaseSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -642,27 +615,13 @@ namespace OloEngine
         if (!classDb)
         {
             OLO_CORE_ERROR("CharacterClassDatabaseSerializer::Serialize - Failed to cast asset to CharacterClassDatabase ({})", metadata.FilePath.string());
-            return;
+            return false;
         }
 
         std::string yamlString = SerializeToYAML(classDb);
         auto fullPath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        std::error_code ec;
-        std::filesystem::create_directories(fullPath.parent_path(), ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("CharacterClassDatabaseSerializer::Serialize - Failed to create directories for ({}): {}", fullPath.string(), ec.message());
-            return;
-        }
-
-        std::ofstream fout(fullPath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("CharacterClassDatabaseSerializer::Serialize - Failed to open file for writing ({})", fullPath.string());
-            return;
-        }
-        fout << yamlString;
+        return FileSystem::WriteFileAtomically(fullPath, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool CharacterClassDatabaseSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

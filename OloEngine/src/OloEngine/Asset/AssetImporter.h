@@ -24,8 +24,9 @@ namespace OloEngine
       public:
         static void Init();
         static void Shutdown();
-        static void Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset);
-        static void Serialize(const Ref<Asset>& asset);
+        // True when the asset's file now holds it; see AssetSerializer::Serialize.
+        [[nodiscard]] static bool Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset);
+        [[nodiscard]] static bool Serialize(const Ref<Asset>& asset);
 
         /**
          * @brief Load asset data synchronously (creates GPU resources)

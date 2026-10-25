@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Dialogue/DialogueTreeSerializer.h"
 #include "OloEngine/Dialogue/DialogueTreeAsset.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -95,7 +96,7 @@ namespace OloEngine
         }
     } // namespace
 
-    void DialogueTreeSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool DialogueTreeSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -103,27 +104,13 @@ namespace OloEngine
         if (!dialogueAsset)
         {
             OLO_CORE_ERROR("DialogueTreeSerializer::Serialize - Failed to cast asset to DialogueTreeAsset ({})", metadata.FilePath.string());
-            return;
+            return false;
         }
 
         std::string yamlString = SerializeToYAML(dialogueAsset);
         auto fullPath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        std::error_code ec;
-        std::filesystem::create_directories(fullPath.parent_path(), ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("DialogueTreeSerializer::Serialize - Failed to create directories for ({}): {}", fullPath.string(), ec.message());
-            return;
-        }
-
-        std::ofstream fout(fullPath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("DialogueTreeSerializer::Serialize - Failed to open file for writing ({})", fullPath.string());
-            return;
-        }
-        fout << yamlString;
+        return FileSystem::WriteFileAtomically(fullPath, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool DialogueTreeSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

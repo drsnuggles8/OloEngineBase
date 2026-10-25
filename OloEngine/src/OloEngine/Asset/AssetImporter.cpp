@@ -90,12 +90,12 @@ namespace OloEngine
         // managers don't need to change their teardown.
     }
 
-    void AssetImporter::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset)
+    bool AssetImporter::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset)
     {
         if (!asset)
         {
             OLO_CORE_ERROR("AssetImporter::Serialize - Asset reference is null for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
-            return;
+            return false;
         }
 
         AssetType actualType = asset->GetAssetType();
@@ -103,7 +103,7 @@ namespace OloEngine
         {
             OLO_CORE_WARN("AssetImporter::Serialize - Asset type mismatch: metadata type {} does not match actual asset type {}",
                           AssetUtils::AssetTypeToString(metadata.Type), AssetUtils::AssetTypeToString(actualType));
-            return;
+            return false;
         }
 
         {
@@ -113,19 +113,19 @@ namespace OloEngine
             if (it == serializers.end())
             {
                 OLO_CORE_WARN("No serializer available for asset type: {}", AssetUtils::AssetTypeToString(metadata.Type));
-                return;
+                return false;
             }
 
-            it->second->Serialize(metadata, asset);
+            return it->second->Serialize(metadata, asset);
         }
     }
 
-    void AssetImporter::Serialize(const Ref<Asset>& asset)
+    bool AssetImporter::Serialize(const Ref<Asset>& asset)
     {
         if (!asset)
         {
             OLO_CORE_ERROR("AssetImporter::Serialize - Asset reference is null");
-            return;
+            return false;
         }
 
         // Get metadata from asset manager
@@ -133,11 +133,11 @@ namespace OloEngine
         if (!assetManagerBase)
         {
             OLO_CORE_WARN("Asset manager not available");
-            return;
+            return false;
         }
 
         AssetMetadata metadata = assetManagerBase->GetAssetMetadata(asset->m_Handle);
-        Serialize(metadata, asset);
+        return Serialize(metadata, asset);
     }
 
     bool AssetImporter::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset)

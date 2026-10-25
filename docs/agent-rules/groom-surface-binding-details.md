@@ -85,7 +85,8 @@ positions — the motion-vector pass reads them through the same geometry.
 **Cook to a temporary and rename.** The target of an authoring write may be a binding that currently
 works. Truncating it first means a failed write leaves a half-file where a valid asset was, and
 breaks a groom through an action that *failed*. Check the stream after `close()`, not before it: a
-full disk reports at the flush, and a pre-close `fail()` reads as success.
+full disk reports at the flush, and a pre-close `fail()` reads as success. Both are what
+`FileSystem::WriteFileAtomically` does; the authoring write and the Alembic cook go through it (#1635).
 
 **A filename built from names needs identities in it.** Two bodies in one scene may both be called
 "Body", and a colliding cooked path truncates the first binding and then hands the second groom the

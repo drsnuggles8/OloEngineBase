@@ -3,6 +3,7 @@
 #include "../UndoRedo/SpecializedCommands.h"
 #include "OloEngine/Dialogue/DialogueTreeSerializer.h"
 #include "OloEngine/Asset/AssetManager.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -149,11 +150,11 @@ namespace OloEngine
 
     void DialogueEditorPanel::OpenDialogue(AssetHandle handle)
     {
-        // Resolve path from asset metadata's relative path
+        // Registry paths are project-relative ("Assets/Dialogues/Foo.olodialogue").
         auto metadata = AssetManager::GetAssetMetadata(handle);
         if (metadata.IsValid())
         {
-            auto fsPath = Project::GetAssetFileSystemPath(metadata.FilePath);
+            auto fsPath = Project::GetProjectDirectory() / metadata.FilePath;
             LoadDialogue(fsPath);
             if (!m_Nodes.empty())
             {
@@ -1564,12 +1565,11 @@ namespace OloEngine
     // Serialization
     // =========================================================================
 
-    void DialogueEditorPanel::SaveDialogue()
+    bool DialogueEditorPanel::SaveDialogue()
     {
         if (m_CurrentFilePath.empty())
         {
-            SaveDialogueAs();
-            return;
+            return SaveDialogueAs();
         }
 
         YAML::Emitter out;
@@ -1646,33 +1646,41 @@ namespace OloEngine
         out << YAML::EndMap;
         out << YAML::EndMap;
 
-        std::ofstream fout(m_CurrentFilePath);
-        if (!fout)
+        if (!FileSystem::WriteFileAtomically(m_CurrentFilePath, out.c_str(), { .TextMode = true }))
         {
             OLO_CORE_ERROR("DialogueEditorPanel - Failed to save: {}", m_CurrentFilePath.string());
-            return;
+            return false;
         }
-        fout << out.c_str();
-        fout.close();
 
         m_IsDirty = false;
         OLO_CORE_INFO("DialogueEditorPanel - Saved: {}", m_CurrentFilePath.string());
+        return true;
     }
 
-    void DialogueEditorPanel::SaveDialogueAs()
+    bool DialogueEditorPanel::SaveDialogueAs()
     {
         std::string filepath = FileDialogs::SaveFile(
             "Dialogue Tree (*.olodialogue)\0*.olodialogue\0"
             "All Files (*.*)\0*.*\0");
         if (filepath.empty())
-            return;
+            return false;
 
         std::filesystem::path path(filepath);
         if (path.extension() != ".olodialogue")
             path += ".olodialogue";
 
-        m_CurrentFilePath = path;
-        SaveDialogue();
+        // Keep the file the dialogue came from if the new one cannot be written.
+        // The new file is a new asset, so the handle of the one it was opened as no longer
+        // names it (SkillTreeEditorPanel::SaveTreeAs does the same).
+        std::filesystem::path previousPath = std::exchange(m_CurrentFilePath, path);
+        const AssetHandle previousHandle = std::exchange(m_CurrentAssetHandle, AssetHandle(0));
+        if (!SaveDialogue())
+        {
+            m_CurrentFilePath = std::move(previousPath);
+            m_CurrentAssetHandle = previousHandle;
+            return false;
+        }
+        return true;
     }
 
     void DialogueEditorPanel::LoadDialogue(const std::filesystem::path& path)

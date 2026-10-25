@@ -122,8 +122,9 @@ namespace OloEngine
         void DrawContextMenu();
 
         // --- Serialization ---
-        void SaveDialogue();
-        void SaveDialogueAs();
+        // True when the dialogue is on disk; a failure keeps it dirty and logs why.
+        bool SaveDialogue();
+        bool SaveDialogueAs();
         void LoadDialogue(const std::filesystem::path& path);
 
         // --- Node operations ---

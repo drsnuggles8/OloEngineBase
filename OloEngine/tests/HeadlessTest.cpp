@@ -137,7 +137,7 @@ TEST(ServerConfigSerializer, YAMLRoundTrip)
     original.AutoSaveInterval = 600;
 
     // Save
-    ServerConfigSerializer::SaveToFile(original, testFile);
+    ASSERT_TRUE(ServerConfigSerializer::SaveToFile(original, testFile));
     ASSERT_TRUE(std::filesystem::exists(testFile));
 
     // Load
@@ -170,7 +170,7 @@ TEST(ServerConfigSerializer, CommandLineOverridesConfigFile)
     ServerConfig fileConfig;
     fileConfig.Port = 1234;
     fileConfig.MaxPlayers = 8;
-    ServerConfigSerializer::SaveToFile(fileConfig, testFile);
+    ASSERT_TRUE(ServerConfigSerializer::SaveToFile(fileConfig, testFile));
 
     // Command line overrides port to 9999
     std::string configArg = testFile;

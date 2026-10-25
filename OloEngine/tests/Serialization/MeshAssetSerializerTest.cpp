@@ -132,7 +132,7 @@ TEST_F(MeshAssetSerializerYAMLTest, RoundTripsMeshSourceHandleAndSubmeshIndex)
     MeshSerializer serializer;
     AssetMetadata metadata = MakeMetadata(meshHandle, "roundtrip.olomesh");
 
-    serializer.Serialize(metadata, originalMesh);
+    ASSERT_TRUE(serializer.Serialize(metadata, originalMesh));
 
     const auto yamlPath = Project::GetProjectDirectory() / metadata.FilePath;
     ASSERT_TRUE(fs::exists(yamlPath)) << "Serialize did not write the YAML file";

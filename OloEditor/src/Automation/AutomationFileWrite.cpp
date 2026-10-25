@@ -1,17 +1,13 @@
 #include "OloEnginePCH.h"
 #include "Automation/AutomationFileWrite.h"
 
-#include "OloEngine/Core/UUID.h"
+#include "OloEngine/Core/FileSystem.h"
 
 #include <exception>
 #include <fstream>
 #include <iterator>
 #include <string>
 #include <system_error>
-
-#ifdef OLO_PLATFORM_WINDOWS
-#include "Platform/Windows/WindowsHWrapper.h"
-#endif
 
 namespace OloEngine::Automation
 {
@@ -51,51 +47,33 @@ namespace OloEngine::Automation
             return;
         }
 
-        auto temporary = path;
-        temporary += ".automation-" + std::to_string(static_cast<u64>(UUID())) + ".tmp";
-        if (std::filesystem::exists(temporary))
-            throw std::runtime_error("Temporary file already exists: " + temporary.string());
-        bool temporaryOwned = false;
-        // Rethrown AFTER the handler, not inside it: under clang-cl + ASan a throw
-        // executed lexically inside a catch handler faults in __CxxFrameHandler3
-        // (build-trees-and-windows-asan.md §4b, issue #1193). Capture, clean up, rethrow.
-        std::exception_ptr writeFailure;
-        try
+        // The re-check runs immediately before the swap: the window between the
+        // first guard and there is small but real, and it is the last moment at
+        // which refusing still costs nothing. Its exception is carried out of the
+        // callback and rethrown here, outside any handler: under clang-cl + ASan a
+        // throw executed lexically inside a catch handler faults in
+        // __CxxFrameHandler3 (build-trees-and-windows-asan.md §4b, issue #1193).
+        std::exception_ptr guardFailure;
+        const auto recheckGuard = [&path, &expected, &guardFailure](const std::filesystem::path&)
         {
-            std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
-            if (!output)
-                throw std::runtime_error("Cannot create temporary file: " + temporary.string());
-            temporaryOwned = true;
-            output.write(replacement->data(), static_cast<std::streamsize>(replacement->size()));
-            output.flush();
-            if (!output)
-                throw std::runtime_error("Cannot write file: " + path.string());
-            output.close();
-            if (!output)
-                throw std::runtime_error("Cannot close file: " + path.string());
-            // Re-check immediately before the swap: the window between the first
-            // guard and here is small but real, and this is the last moment at
-            // which refusing still costs nothing.
-            RequireFileContents(path, expected);
-#ifdef OLO_PLATFORM_WINDOWS
-            if (!MoveFileExW(temporary.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
-                throw std::system_error(static_cast<int>(GetLastError()), std::system_category(), "Cannot replace file");
-#else
-            std::filesystem::rename(temporary, path);
-#endif
-        }
-        catch (...)
-        {
-            writeFailure = std::current_exception();
-        }
-        if (writeFailure)
-        {
-            if (temporaryOwned)
+            try
             {
-                std::error_code ignored;
-                std::filesystem::remove(temporary, ignored);
+                RequireFileContents(path, expected);
+                return true;
             }
-            std::rethrow_exception(writeFailure);
-        }
+            catch (...)
+            {
+                guardFailure = std::current_exception();
+                return false;
+            }
+        };
+        std::string writeError;
+        const bool written = FileSystem::WriteFileAtomically(path, *replacement,
+                                                             { .Durable = true, .BeforeReplace = recheckGuard },
+                                                             &writeError);
+        if (guardFailure)
+            std::rethrow_exception(guardFailure);
+        if (!written)
+            throw std::runtime_error("Cannot write file: " + path.string() + ": " + writeError);
     }
 } // namespace OloEngine::Automation

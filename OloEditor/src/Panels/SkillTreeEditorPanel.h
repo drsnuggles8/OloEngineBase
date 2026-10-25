@@ -112,8 +112,9 @@ namespace OloEngine
         void DrawPassiveEffectPayloadProperties(SkillTreeNode& node, bool& anyChanged);
 
         // --- Serialization ---
-        void SaveTree();
-        void SaveTreeAs();
+        // True when the tree is on disk; a failure keeps it dirty and says why.
+        bool SaveTree();
+        bool SaveTreeAs();
         void LoadTree(const std::filesystem::path& path);
 
         // --- Node operations ---

@@ -761,13 +761,13 @@ namespace OloEngine
     // MaterialAssetSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void MaterialAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool MaterialAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         Ref<MaterialAsset> materialAsset = asset.As<MaterialAsset>();
         if (!materialAsset)
         {
             OLO_CORE_ERROR("MaterialAssetSerializer::Serialize - Invalid material asset");
-            return;
+            return false;
         }
 
         std::string yamlString = SerializeToYAML(materialAsset);
@@ -776,9 +776,7 @@ namespace OloEngine
         // EditorAssetManager::GetRelativePath) — it already includes "Assets/".
         // Joining onto GetAssetDirectory() would double the Assets segment.
         std::filesystem::path filepath = Project::GetProjectDirectory() / metadata.FilePath;
-        std::ofstream fout(filepath);
-        fout << yamlString;
-        fout.close();
+        return FileSystem::WriteFileAtomically(filepath, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool MaterialAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -1376,10 +1374,11 @@ namespace OloEngine
     // AudioFileSourceSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void AudioFileSourceSerializer::Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
+    bool AudioFileSourceSerializer::Serialize([[maybe_unused]] const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
     {
         // AudioFile assets don't require explicit serialization to file
         // as they're loaded based on metadata analysis of the source file
+        return true;
     }
 
     bool AudioFileSourceSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -1563,7 +1562,7 @@ namespace OloEngine
     // SoundConfigSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void SoundConfigSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool SoundConfigSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1571,63 +1570,17 @@ namespace OloEngine
         if (!soundConfig)
         {
             OLO_CORE_ERROR("SoundConfigSerializer::Serialize - Asset is not a SoundConfig");
-            return;
+            return false;
         }
 
         std::string yamlString = SerializeToYAML(soundConfig);
 
         std::filesystem::path filepath = Project::GetProjectDirectory() / metadata.FilePath;
-
-        // Ensure parent directory exists
-        std::filesystem::path parentDir = filepath.parent_path();
-        if (!parentDir.empty())
-        {
-            std::error_code ec;
-            if (!std::filesystem::create_directories(parentDir, ec) && ec)
-            {
-                OLO_CORE_ERROR("SoundConfigSerializer::Serialize - Failed to create parent directories for: {}, error: {}", filepath.string(), ec.message());
-                return;
-            }
-        }
-
-        // Create temporary file for atomic write
-        std::filesystem::path tempFilepath = parentDir / (filepath.filename().string() + ".tmp");
-
-        // Write to temporary file
-        std::ofstream fout(tempFilepath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("SoundConfigSerializer::Serialize - Failed to open temporary file for writing: {}", tempFilepath.string());
-            return;
-        }
-
-        fout << yamlString;
-        fout.flush(); // Ensure data is written to the file
-
-        // Verify the write/flush succeeded before promoting the temp file — a failed
-        // stream (disk full, I/O error) must not be renamed over the good file.
-        if (!fout)
-        {
-            OLO_CORE_ERROR("SoundConfigSerializer::Serialize - Failed to write to temporary file: {}", tempFilepath.string());
-            fout.close();
-            std::error_code rmEc;
-            std::filesystem::remove(tempFilepath, rmEc);
-            return;
-        }
-        fout.close();
-
-        // Atomically rename temp file to final file
-        std::error_code ec;
-        std::filesystem::rename(tempFilepath, filepath, ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("SoundConfigSerializer::Serialize - Failed to rename temporary file {} to {}, error: {}", tempFilepath.string(), filepath.string(), ec.message());
-            // Clean up temporary file on failure
-            std::filesystem::remove(tempFilepath, ec);
-            return;
-        }
+        if (!FileSystem::WriteFileAtomically(filepath, yamlString, { .TextMode = true, .CreateParentDirectories = true }))
+            return false;
 
         OLO_CORE_TRACE("SoundConfigSerializer::Serialize - Successfully serialized SoundConfig to: {}", filepath.string());
+        return true;
     }
 
     bool SoundConfigSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -1855,27 +1808,19 @@ namespace OloEngine
         return metadata.FilePath;
     }
 
-    void PrefabSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool PrefabSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         Ref<Prefab> prefab = asset.As<Prefab>();
         if (!prefab)
         {
             OLO_CORE_ERROR("PrefabSerializer::Serialize - Asset is not a Prefab");
-            return;
+            return false;
         }
 
         std::string yamlString = SerializeToYAML(prefab);
 
         const std::filesystem::path path = ResolveProjectAssetPath(metadata);
-        std::ofstream fout(path);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("PrefabSerializer::Serialize - Failed to open file for writing: {}", path.string());
-            return;
-        }
-
-        fout << yamlString;
-        fout.close();
+        return FileSystem::WriteFileAtomically(path, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool PrefabSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -2019,20 +1964,22 @@ namespace OloEngine
     // SceneAssetSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void SceneAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool SceneAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         Ref<Scene> scene = asset.As<Scene>();
         if (!scene)
         {
             OLO_CORE_ERROR("SceneAssetSerializer::Serialize - Asset is not a Scene");
-            return;
+            return false;
         }
 
         SceneSerializer serializer(scene);
         if (!serializer.Serialize(ResolveProjectAssetPath(metadata)))
         {
             OLO_CORE_ERROR("SceneAssetSerializer::Serialize - scene asset '{}' was not saved", metadata.FilePath.string());
+            return false;
         }
+        return true;
     }
 
     bool SceneAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -2181,58 +2128,23 @@ namespace OloEngine
     // MeshColliderSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void MeshColliderSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool MeshColliderSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         Ref<MeshColliderAsset> meshCollider = asset.As<MeshColliderAsset>();
         if (!meshCollider)
         {
             OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Invalid mesh collider asset");
-            return;
+            return false;
         }
 
         std::string yamlString = SerializeToYAML(meshCollider);
 
         std::filesystem::path filepath = Project::GetProjectDirectory() / metadata.FilePath;
-
-        // Ensure parent directory exists
-        std::filesystem::path parentDir = filepath.parent_path();
-        if (!parentDir.empty())
-        {
-            std::error_code ec;
-            if (!std::filesystem::create_directories(parentDir, ec) && ec)
-            {
-                OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Failed to create parent directories for: {}, error: {}", filepath.string(), ec.message());
-                return;
-            }
-        }
-
-        // Create temporary file for atomic write
-        std::filesystem::path tempFilepath = parentDir / (filepath.filename().string() + ".tmp");
-
-        // Write to temporary file
-        std::ofstream fout(tempFilepath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Failed to open temporary file for writing: {}", tempFilepath.string());
-            return;
-        }
-
-        fout << yamlString;
-        fout.flush(); // Ensure data is written to the file
-        fout.close();
-
-        // Atomically rename temp file to final file
-        std::error_code ec;
-        std::filesystem::rename(tempFilepath, filepath, ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("MeshColliderSerializer::Serialize - Failed to rename temporary file {} to {}, error: {}", tempFilepath.string(), filepath.string(), ec.message());
-            // Clean up temporary file on failure
-            std::filesystem::remove(tempFilepath, ec);
-            return;
-        }
+        if (!FileSystem::WriteFileAtomically(filepath, yamlString, { .TextMode = true, .CreateParentDirectories = true }))
+            return false;
 
         OLO_CORE_TRACE("MeshColliderSerializer::Serialize - Successfully serialized MeshCollider to: {}", filepath.string());
+        return true;
     }
 
     bool MeshColliderSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -2683,7 +2595,7 @@ namespace OloEngine
         }
     } // namespace
 
-    void ScriptFileSerializer::Serialize(const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
+    bool ScriptFileSerializer::Serialize(const AssetMetadata& metadata, [[maybe_unused]] const Ref<Asset>& asset) const
     {
         // The asset IS the .cs file: its namespace and class are read from the
         // source, so there is nothing to write back. This used to write YAML to
@@ -2692,6 +2604,9 @@ namespace OloEngine
         OLO_CORE_WARN("ScriptFileSerializer: not writing '{}' — a script asset is derived from its C# source, "
                       "which is never overwritten",
                       metadata.FilePath.string());
+        // So the asset on disk is current exactly when its source exists.
+        std::error_code ec;
+        return std::filesystem::is_regular_file(ResolveProjectAssetPath(metadata), ec);
     }
 
     bool ScriptFileSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -4216,13 +4131,13 @@ namespace OloEngine
     // MeshSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void MeshSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool MeshSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         Ref<Mesh> mesh = asset.As<Mesh>();
         if (!mesh)
         {
             OLO_CORE_ERROR("MeshSerializer::Serialize - Invalid mesh asset");
-            return;
+            return false;
         }
 
         std::filesystem::path filepath = Project::GetProjectDirectory() / metadata.FilePath;
@@ -4239,37 +4154,15 @@ namespace OloEngine
         out << YAML::EndMap;
         out << YAML::EndMap;
 
-        // Ensure parent dir exists. When EditorAssetManager registers a brand-new
-        // .olomesh under Assets/<some>/<sub>/foo.olomesh and the subfolder hasn't been
-        // created yet (e.g. via duplicate from another folder), the ofstream silently
-        // fails. Surface the failure instead of dropping the save.
-        std::error_code ec;
-        if (auto parent = filepath.parent_path(); !parent.empty())
-        {
-            std::filesystem::create_directories(parent, ec);
-            if (ec)
-            {
-                OLO_CORE_ERROR("MeshSerializer::Serialize - Failed to create parent directory '{}': {}", parent.string(), ec.message());
-                return;
-            }
-        }
-
-        std::ofstream fout(filepath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("MeshSerializer::Serialize - Failed to open file for writing: {}", filepath.string());
-            return;
-        }
-        fout << out.c_str();
-        fout.close();
-        if (fout.fail())
-        {
-            OLO_CORE_ERROR("MeshSerializer::Serialize - Write failed for: {}", filepath.string());
-            return;
-        }
+        // Creates the parent dir: when EditorAssetManager registers a brand-new
+        // .olomesh under Assets/<some>/<sub>/foo.olomesh, the subfolder may not
+        // exist yet (e.g. via duplicate from another folder).
+        if (!FileSystem::WriteFileAtomically(filepath, out.c_str(), { .TextMode = true, .CreateParentDirectories = true }))
+            return false;
 
         OLO_CORE_TRACE("MeshSerializer::Serialize - Serialized mesh to {} (MeshSource: {}, SubmeshIndex: {})",
                        filepath.string(), meshSourceHandle, mesh->GetSubmeshIndex());
+        return true;
     }
 
     bool MeshSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -4474,13 +4367,13 @@ namespace OloEngine
     // StaticMeshSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void StaticMeshSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool StaticMeshSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         Ref<StaticMesh> staticMesh = asset.As<StaticMesh>();
         if (!staticMesh)
         {
             OLO_CORE_ERROR("StaticMeshSerializer::Serialize - Asset is not a valid StaticMesh");
-            return;
+            return false;
         }
 
         std::filesystem::path path = Project::GetProjectDirectory() / metadata.FilePath;
@@ -4513,15 +4406,16 @@ namespace OloEngine
             out << YAML::EndMap;
             out << YAML::EndMap;
 
-            std::ofstream fout(path);
-            fout << out.c_str();
-            fout.close();
+            if (!FileSystem::WriteFileAtomically(path, out.c_str(), { .TextMode = true, .CreateParentDirectories = true }))
+                return false;
 
             OLO_CORE_TRACE("StaticMeshSerializer::Serialize - Successfully serialized static mesh to: {}", path.string());
+            return true;
         }
         catch (const std::exception& e)
         {
             OLO_CORE_ERROR("StaticMeshSerializer::Serialize - Error serializing static mesh {}: {}", path.string(), e.what());
+            return false;
         }
     }
 
@@ -4849,24 +4743,18 @@ namespace OloEngine
         }
     }
 
-    void AnimationAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool AnimationAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         Ref<AnimationAsset> animationAsset = asset.As<AnimationAsset>();
         if (!animationAsset)
         {
             OLO_CORE_ERROR("AnimationAssetSerializer::Serialize - Asset is not an AnimationAsset");
-            return;
-        }
-
-        std::ofstream fout(Project::GetProjectDirectory() / metadata.FilePath);
-        if (!fout.good())
-        {
-            OLO_CORE_ERROR("AnimationAssetSerializer::Serialize - Failed to open file for writing: {}", metadata.FilePath.string());
-            return;
+            return false;
         }
 
         std::string yamlString = SerializeToYAML(animationAsset);
-        fout << yamlString;
+        return FileSystem::WriteFileAtomically(Project::GetProjectDirectory() / metadata.FilePath, yamlString,
+                                               { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool AnimationAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -4948,7 +4836,7 @@ namespace OloEngine
     // AnimationGraphAssetSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void AnimationGraphAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool AnimationGraphAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -4956,14 +4844,16 @@ namespace OloEngine
         if (!graphAsset || !graphAsset->GetGraph())
         {
             OLO_CORE_ERROR("AnimationGraphAssetSerializer::Serialize - Invalid animation graph asset");
-            return;
+            return false;
         }
 
         std::filesystem::path filepath = Project::GetProjectDirectory() / metadata.FilePath;
         if (!AnimationGraphSerializer::Serialize(graphAsset->GetGraph(), filepath.string()))
         {
             OLO_CORE_ERROR("AnimationGraphAssetSerializer::Serialize - Failed to write: {}", filepath.string());
+            return false;
         }
+        return true;
     }
 
     bool AnimationGraphAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -5035,7 +4925,7 @@ namespace OloEngine
     // CinematicSequenceAssetSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void CinematicSequenceAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool CinematicSequenceAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -5043,14 +4933,16 @@ namespace OloEngine
         if (!sequence)
         {
             OLO_CORE_ERROR("CinematicSequenceAssetSerializer::Serialize - asset is not a CinematicSequence");
-            return;
+            return false;
         }
 
         std::filesystem::path filepath = Project::GetProjectDirectory() / metadata.FilePath;
         if (!CinematicSequenceSerializer::Serialize(sequence, filepath.string()))
         {
             OLO_CORE_ERROR("CinematicSequenceAssetSerializer::Serialize - Failed to write: {}", filepath.string());
+            return false;
         }
+        return true;
     }
 
     bool CinematicSequenceAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -5120,7 +5012,7 @@ namespace OloEngine
     // FluidSettingsAssetSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void FluidSettingsAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool FluidSettingsAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -5128,14 +5020,16 @@ namespace OloEngine
         if (!settings)
         {
             OLO_CORE_ERROR("FluidSettingsAssetSerializer::Serialize - asset is not a FluidSettings");
-            return;
+            return false;
         }
 
         std::filesystem::path filepath = Project::GetProjectDirectory() / metadata.FilePath;
         if (!FluidSettingsSerializer::Serialize(settings, filepath.string()))
         {
             OLO_CORE_ERROR("FluidSettingsAssetSerializer::Serialize - Failed to write: {}", filepath.string());
+            return false;
         }
+        return true;
     }
 
     bool FluidSettingsAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -5205,7 +5099,7 @@ namespace OloEngine
     // SoundGraphSerializer
     //////////////////////////////////////////////////////////////////////////////////
 
-    void SoundGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool SoundGraphSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -5213,27 +5107,19 @@ namespace OloEngine
         if (!soundGraphAsset)
         {
             OLO_CORE_ERROR("SoundGraphSerializer::Serialize - asset is not a SoundGraphAsset");
-            return;
+            return false;
         }
 
         // Resolve absolute path by anchoring to project asset directory
         std::filesystem::path absolutePath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        if (std::filesystem::path parentDir = absolutePath.parent_path(); !parentDir.empty())
-        {
-            std::error_code ec;
-            if (!std::filesystem::create_directories(parentDir, ec) && ec)
-            {
-                OLO_CORE_ERROR("SoundGraphSerializer::Serialize - Failed to create parent directories for: {}, error: {}", absolutePath.string(), ec.message());
-                return;
-            }
-        }
-
+        // The format serializer creates missing parent directories itself.
         if (!Audio::SoundGraph::SoundGraphSerializer::Serialize(*soundGraphAsset, absolutePath))
         {
             OLO_CORE_ERROR("SoundGraphSerializer::Serialize - Failed to serialize sound graph to file: {}", absolutePath.string());
-            return;
+            return false;
         }
+        return true;
     }
 
     bool SoundGraphSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const
@@ -5327,31 +5213,18 @@ namespace OloEngine
 
     } // namespace
 
-    void ParticleSystemAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool ParticleSystemAssetSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
         auto particleAsset = asset.As<ParticleSystemAsset>();
         if (!particleAsset)
         {
             OLO_CORE_ERROR("ParticleSystemAssetSerializer::Serialize - Failed to cast asset to ParticleSystemAsset ({})", metadata.FilePath.string());
-            return;
+            return false;
         }
         std::string yamlString = SerializeToYAML(particleAsset);
         auto fullPath = Project::GetProjectDirectory() / metadata.FilePath;
-        std::error_code ec;
-        std::filesystem::create_directories(fullPath.parent_path(), ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("ParticleSystemAssetSerializer::Serialize - Failed to create directories for ({}): {}", fullPath.string(), ec.message());
-            return;
-        }
-        std::ofstream fout(fullPath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("ParticleSystemAssetSerializer::Serialize - Failed to open file for writing ({})", fullPath.string());
-            return;
-        }
-        fout << yamlString;
+        return FileSystem::WriteFileAtomically(fullPath, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool ParticleSystemAssetSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

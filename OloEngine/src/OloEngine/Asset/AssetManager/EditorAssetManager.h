@@ -253,32 +253,44 @@ namespace OloEngine
                 metadata = {};
             }
 
-            bool replaceAsset = false;
-            if (metadata.Handle == 0)
+            const bool replaceAsset = metadata.Handle != 0;
+            if (!replaceAsset)
             {
                 metadata.Handle = AssetHandle(); // Generate a fresh unique handle
                 metadata.FilePath = relativePath;
                 metadata.Type = T::GetStaticType();
                 metadata.IsDataLoaded = true;
-                SetMetadata(metadata.Handle, metadata);
-                SerializeAssetRegistry();
-            }
-            else
-            {
-                replaceAsset = true;
             }
 
             Ref<T> asset = Ref<T>::Create(std::forward<Args>(args)...);
             // SetHandle is protected on Asset, but EditorAssetManager is
             // friended so we can call it through the base class.
             asset->Asset::SetHandle(metadata.Handle);
+
+            // Write the file BEFORE registering anything: an asset whose save
+            // failed must not appear in the registry, or replace the loaded copy
+            // of the one already on disk. The old file is intact (the write is
+            // atomic), so on a replace the registered asset is still correct.
+            if (!AssetImporter::Serialize(metadata, asset))
+            {
+                OLO_CORE_ERROR_TAG("AssetManager", "Could not save {}; the asset was not {}", metadata.FilePath.string(),
+                                   replaceAsset ? "replaced" : "created");
+                return nullptr;
+            }
+
             m_LoadedAssets[metadata.Handle] = asset;
-            AssetImporter::Serialize(metadata, asset);
 
             // Read serialized timestamp
             auto absolutePath = GetFileSystemPath(metadata);
-            metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath);
+            std::error_code timeError;
+            metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath, timeError);
             SetMetadata(metadata.Handle, metadata);
+            // The asset is registered in memory either way. The next registry write
+            // (any import or create) persists it; a restart before that loses the handle.
+            if (!replaceAsset && !SerializeAssetRegistry())
+                OLO_CORE_ERROR_TAG("AssetManager", "Created {}, but the asset registry could not be written: the new "
+                                                   "handle exists only in this session until the next registry write",
+                                   metadata.FilePath.string());
 
             if (replaceAsset)
             {

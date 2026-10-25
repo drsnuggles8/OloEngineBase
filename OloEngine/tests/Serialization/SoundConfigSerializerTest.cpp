@@ -149,7 +149,7 @@ TEST_F(SoundConfigSerializerTest, DiskRoundTripPreservesEveryField)
     metadata.FilePath = fs::path("Assets") / "preset.olosoundc";
 
     SoundConfigSerializer serializer;
-    serializer.Serialize(metadata, source);
+    ASSERT_TRUE(serializer.Serialize(metadata, source));
 
     const fs::path absolute = Project::GetProjectDirectory() / metadata.FilePath;
     ASSERT_TRUE(fs::exists(absolute)) << "Serialize did not write the asset file";

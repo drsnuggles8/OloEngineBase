@@ -5,6 +5,7 @@
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBindingCooker.h"
 #include "OloEngine/Project/Project.h"
@@ -206,59 +207,19 @@ namespace OloEngine::GroomAuthoring
         outcome.m_RelativePath = relativeDirectory / (stem + ".ologroombinding");
         const std::filesystem::path absolutePath = Project::GetProjectDirectory() / outcome.m_RelativePath;
 
+        // Written to a temporary and renamed over the target, because the target
+        // may be a binding that currently works. Truncating it first means a disk
+        // that fills up, a process killed mid-write or a network share that drops
+        // leaves a half-file where a valid asset was -- and the groom that was
+        // using it is broken by an authoring action that FAILED. The replacement
+        // is also what makes a REBIND of the same pair -- the common case, since
+        // the filename is deterministic -- safe to repeat.
+        if (std::string writeError;
+            !FileSystem::WriteFileAtomically(absolutePath, std::span<const u8>(bytes), { .CreateParentDirectories = true },
+                                             &writeError))
         {
-            std::error_code ec;
-            std::filesystem::create_directories(absolutePath.parent_path(), ec);
-            if (ec)
-            {
-                outcome.m_Reason =
-                    std::format("could not create '{}': {}", absolutePath.parent_path().string(), ec.message());
-                return outcome;
-            }
-            // Written to a TEMPORARY and renamed over the target, because the
-            // target may be a binding that currently works. Truncating it first
-            // means a disk that fills up, a process killed mid-write or a
-            // network share that drops leaves a half-file where a valid asset
-            // was -- and the groom that was using it is broken by an authoring
-            // action that FAILED. The rename is the only step that touches the
-            // real path, and on both platforms it is atomic within a directory.
-            //
-            // The failure check also had to move: `out.fail()` was read while
-            // the stream was still open, so it saw the buffered write and not
-            // the flush, and a write that failed at close() -- which is where a
-            // full disk reports -- was recorded as a success.
-            const std::filesystem::path temporaryPath = absolutePath.string() + ".tmp";
-            {
-                std::ofstream out(temporaryPath, std::ios::binary | std::ios::trunc);
-                if (!out.is_open())
-                {
-                    outcome.m_Reason = std::format("could not open '{}' for writing", temporaryPath.string());
-                    return outcome;
-                }
-                out.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
-                out.close();
-                if (out.fail())
-                {
-                    std::filesystem::remove(temporaryPath, ec);
-                    outcome.m_Reason = std::format("failed while writing '{}'", temporaryPath.string());
-                    return outcome;
-                }
-            }
-
-            // rename(), not copy-then-delete: std::filesystem::rename replaces an
-            // existing file on both Windows and POSIX, and the replacement is
-            // what makes a REBIND of the same pair -- the common case, since the
-            // filename is deterministic -- safe to repeat.
-            std::filesystem::rename(temporaryPath, absolutePath, ec);
-            if (ec)
-            {
-                std::error_code removeError;
-                std::filesystem::remove(temporaryPath, removeError);
-                outcome.m_Reason =
-                    std::format("wrote '{}' but could not move it into place: {}", temporaryPath.string(),
-                                ec.message());
-                return outcome;
-            }
+            outcome.m_Reason = std::format("could not write '{}': {}", absolutePath.string(), writeError);
+            return outcome;
         }
 
         outcome.m_Binding = assetManager->ImportAsset(outcome.m_RelativePath);

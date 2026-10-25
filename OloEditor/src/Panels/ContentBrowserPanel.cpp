@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "ContentBrowserPanel.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -1252,6 +1253,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid material name '{}'", matName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1267,16 +1269,14 @@ namespace OloEngine
                     out << YAML::EndMap;
                     out << YAML::EndMap;
 
-                    std::ofstream fout(matPath);
-                    if (!fout)
+                    if (!FileSystem::WriteFileAtomically(matPath, out.c_str(), { .TextMode = true }))
                     {
                         OLO_CORE_ERROR("Failed to create material file: {}", matPath.string());
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
-                    fout << out.c_str();
-                    fout.close();
 
                     OLO_CORE_INFO("Created material: {}", matPath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
@@ -1297,6 +1297,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid dialogue name '{}'", dialogueName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1322,11 +1323,18 @@ namespace OloEngine
                     dialogueAsset->RebuildNodeIndex();
 
                     AssetMetadata metadata;
-                    metadata.FilePath = std::filesystem::relative(dialoguePath, Project::GetAssetDirectory());
+                    metadata.FilePath = std::filesystem::relative(dialoguePath, Project::GetProjectDirectory());
                     metadata.Type = AssetType::DialogueTree;
 
                     DialogueTreeSerializer serializer;
-                    serializer.Serialize(metadata, dialogueAsset);
+                    if (!serializer.Serialize(metadata, dialogueAsset))
+                    {
+                        OLO_CORE_ERROR("Failed to create dialogue tree file: {}", dialoguePath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        ImGui::EndPopup();
+                        return;
+                    }
 
                     OLO_CORE_INFO("Created dialogue tree: {}", dialoguePath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
@@ -1347,6 +1355,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid shader graph name '{}'", shaderGraphName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1366,17 +1375,27 @@ namespace OloEngine
                     if (!outputNode)
                     {
                         OLO_CORE_ERROR("ContentBrowser: Failed to create PBROutput node");
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     outputNode->EditorPosition = glm::vec2(400.0f, 200.0f);
                     sgAsset->GetMutableGraph().AddNode(std::move(outputNode));
 
                     AssetMetadata metadata;
-                    metadata.FilePath = std::filesystem::relative(sgPath, Project::GetAssetDirectory());
+                    metadata.FilePath = std::filesystem::relative(sgPath, Project::GetProjectDirectory());
                     metadata.Type = AssetType::ShaderGraph;
 
                     ShaderGraphSerializer serializer;
-                    serializer.Serialize(metadata, sgAsset);
+                    if (!serializer.Serialize(metadata, sgAsset))
+                    {
+                        OLO_CORE_ERROR("Failed to create shader graph file: {}", sgPath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        ImGui::EndPopup();
+                        return;
+                    }
 
                     OLO_CORE_INFO("Created shader graph: {}", sgPath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
@@ -1397,6 +1416,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid sound graph name '{}'", soundGraphName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1418,6 +1438,7 @@ namespace OloEngine
                         OLO_CORE_ERROR("ContentBrowser: Failed to serialize new sound graph to '{}'", sgPath.string());
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
 
@@ -1440,6 +1461,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid skill tree name '{}'", skillTreeName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1472,7 +1494,14 @@ namespace OloEngine
                     metadata.Type = AssetType::SkillTreeDatabase;
 
                     SkillTreeDatabaseSerializer serializer;
-                    serializer.Serialize(metadata, treeAsset);
+                    if (!serializer.Serialize(metadata, treeAsset))
+                    {
+                        OLO_CORE_ERROR("Failed to create skill tree file: {}", treePath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        ImGui::EndPopup();
+                        return;
+                    }
 
                     OLO_CORE_INFO("Created skill tree: {}", treePath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
@@ -1493,6 +1522,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid class database name '{}'", classDbName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1517,7 +1547,14 @@ namespace OloEngine
                     metadata.Type = AssetType::CharacterClassDatabase;
 
                     CharacterClassDatabaseSerializer serializer;
-                    serializer.Serialize(metadata, classDbAsset);
+                    if (!serializer.Serialize(metadata, classDbAsset))
+                    {
+                        OLO_CORE_ERROR("Failed to create character class database file: {}", classDbPath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        ImGui::EndPopup();
+                        return;
+                    }
 
                     OLO_CORE_INFO("Created character class database: {}", classDbPath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
@@ -1538,6 +1575,7 @@ namespace OloEngine
                         OLO_CORE_WARN("ContentBrowser: Invalid experience curve name '{}'", xpCurveName);
                         ImGui::CloseCurrentPopup();
                         ImGui::EndMenu();
+                        ImGui::EndPopup();
                         return;
                     }
                     std::filesystem::path currentDir =
@@ -1558,7 +1596,14 @@ namespace OloEngine
                     metadata.Type = AssetType::ExperienceCurve;
 
                     ExperienceCurveSerializer serializer;
-                    serializer.Serialize(metadata, curveAsset);
+                    if (!serializer.Serialize(metadata, curveAsset))
+                    {
+                        OLO_CORE_ERROR("Failed to create experience curve file: {}", curvePath.string());
+                        ImGui::CloseCurrentPopup();
+                        ImGui::EndMenu();
+                        ImGui::EndPopup();
+                        return;
+                    }
 
                     OLO_CORE_INFO("Created experience curve: {}", curvePath.string());
                     SafeRefreshSubtree(m_CurrentDirectory);
@@ -1627,14 +1672,11 @@ namespace OloEngine
         out << YAML::EndMap;
         out << YAML::EndMap;
 
-        std::ofstream fout(filePath);
-        if (!fout)
+        if (!FileSystem::WriteFileAtomically(filePath, out.c_str(), { .TextMode = true }))
         {
             OLO_CORE_ERROR("Failed to create primitive file: {}", filePath.string());
             return;
         }
-        fout << out.c_str();
-        fout.close();
 
         OLO_CORE_INFO("Created primitive: {}", filePath.string());
         SafeRefreshSubtree(m_CurrentDirectory);

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "SaveGameFile.h"
 
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Serialization/ArchiveExtensions.h"
 
@@ -72,18 +73,10 @@ namespace OloEngine
             header.ChecksumCRC32 = static_cast<u32>(crc);
         }
 
-        // Write to a temporary file, then atomically rename
-        auto tempPath = path;
-        tempPath += ".tmp";
-
+        // Written atomically: a crash mid-save leaves the previous save intact. Durable,
+        // because a power cut after a reported save must not leave an empty file in its place.
+        const auto writeSave = [&](std::ostream& file)
         {
-            std::ofstream file(tempPath, std::ios::binary | std::ios::trunc);
-            if (!file.is_open())
-            {
-                OLO_CORE_ERROR("[SaveGameFile] Failed to open '{}' for writing", tempPath.string());
-                return false;
-            }
-
             file.write(reinterpret_cast<const char*>(&header), sizeof(SaveGameHeader));
             if (!metaBlob.empty())
             {
@@ -100,29 +93,9 @@ namespace OloEngine
                 file.write(reinterpret_cast<const char*>(payload.data()),
                            static_cast<std::streamsize>(payload.size()));
             }
-
-            file.flush();
-            if (!file.good())
-            {
-                OLO_CORE_ERROR("[SaveGameFile] Write to '{}' failed", tempPath.string());
-                file.close();
-                std::error_code removeEc;
-                std::filesystem::remove(tempPath, removeEc);
-                return false;
-            }
-        }
-
-        // Atomic rename (overwrites existing file)
-        std::error_code ec;
-        std::filesystem::rename(tempPath, path, ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("[SaveGameFile] Rename '{}' -> '{}' failed: {}", tempPath.string(), path.string(), ec.message());
-            std::filesystem::remove(tempPath, ec);
-            return false;
-        }
-
-        return true;
+            return true;
+        };
+        return FileSystem::WriteFileAtomically(path, writeSave, { .Durable = true });
     }
 
     // ========================================================================

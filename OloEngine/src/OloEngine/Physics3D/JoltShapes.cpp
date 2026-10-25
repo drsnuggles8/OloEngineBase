@@ -3,6 +3,7 @@
 #include <optional>
 #include "JoltShapes.h"
 #include "JoltBinaryStream.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -10,20 +11,8 @@
 #include "MeshColliderCache.h"
 
 #include <atomic>
-#include <cerrno>
 #include <cstdlib>
-#include <thread>
-#include <chrono>
-#include <random>
-#include <sstream>
-#ifdef _WIN32
-#include <windows.h>
-#include <io.h>
-#include <fcntl.h>
-#else
-#include <unistd.h>
-#include <fcntl.h>
-#endif
+#include <fstream>
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
@@ -1223,27 +1212,6 @@ namespace OloEngine
             // Create cache file path
             std::filesystem::path cacheFilePath = GetPersistentCacheDirectory() / (cacheKey + ".jsc"); // Jolt Shape Cache
 
-            // Ensure the cache directory exists
-            std::filesystem::path cacheDir = cacheFilePath.parent_path();
-            if (!std::filesystem::exists(cacheDir))
-            {
-                std::filesystem::create_directories(cacheDir);
-            }
-
-            // Generate thread-unique temporary file name to prevent race conditions
-            // Use thread ID, timestamp, and random number for uniqueness
-            auto threadId = std::this_thread::get_id();
-            auto timestamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-            std::random_device rd;
-            std::mt19937 gen(rd());
-            std::uniform_int_distribution<> dis(1000, 9999);
-
-            std::ostringstream tempNameStream;
-            tempNameStream << cacheKey << "_" << std::hash<std::thread::id>{}(threadId)
-                           << "_" << timestamp << "_" << dis(gen) << ".tmp";
-
-            std::filesystem::path tempFilePath = cacheDir / tempNameStream.str();
-
             // Serialize shape to buffer
             Buffer buffer = JoltBinaryStreamUtils::SerializeShapeToBuffer(shape);
             if (!buffer.Data || buffer.Size == 0)
@@ -1252,129 +1220,17 @@ namespace OloEngine
                 return false;
             }
 
-            // Write to temporary file first (atomic write pattern)
-            {
-                std::ofstream file(tempFilePath, std::ios::binary);
-                if (!file.is_open())
-                {
-                    OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Failed to open temporary cache file: {}", tempFilePath.string());
-                    buffer.Release();
-                    return false;
-                }
-
-                // Write data and ensure it's fully flushed to disk
-                file.write(reinterpret_cast<const char*>(buffer.Data), buffer.Size);
-
-                // Ensure write is successful before closing
-                if (!file.good())
-                {
-                    OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Error writing to temporary file: {}", tempFilePath.string());
-                    file.close();
-                    buffer.Release();
-                    std::filesystem::remove(tempFilePath); // Clean up failed temp file
-                    return false;
-                }
-
-                // Flush and sync to ensure data is on disk before rename
-                file.flush(); // Flush C++ stream buffer
-                file.close(); // Close the file first
-
-                // Force OS-level persistence by reopening and syncing
-                bool syncSuccess = false;
-#ifdef _WIN32
-                // On Windows, use _open and _commit for guaranteed persistence
-                if (int fd = ::_open(tempFilePath.string().c_str(), _O_WRONLY); fd != -1)
-                {
-                    if (_commit(fd) == 0)
-                    {
-                        syncSuccess = true;
-                    }
-                    else
-                    {
-                        OLO_CORE_WARN("JoltShapes::SaveShapeToCache: _commit failed for file: {}, errno: {}", tempFilePath.string(), errno);
-                    }
-                    _close(fd);
-                }
-                else
-                {
-                    OLO_CORE_WARN("JoltShapes::SaveShapeToCache: Failed to reopen file for sync: {}", tempFilePath.string());
-                }
-#else
-                // On POSIX systems, use open and fsync for guaranteed persistence
-                int fd = open(tempFilePath.string().c_str(), O_WRONLY);
-                if (fd != -1)
-                {
-                    if (fsync(fd) == 0)
-                    {
-                        syncSuccess = true;
-                    }
-                    else
-                    {
-                        OLO_CORE_WARN("JoltShapes::SaveShapeToCache: fsync failed for file: {}, errno: {}", tempFilePath.string(), errno);
-                    }
-                    close(fd);
-                }
-                else
-                {
-                    OLO_CORE_WARN("JoltShapes::SaveShapeToCache: Failed to reopen file for sync: {}", tempFilePath.string());
-                }
-#endif
-
-                // Log sync failure but continue - data may still be written eventually
-                if (!syncSuccess)
-                {
-                    OLO_CORE_WARN("JoltShapes::SaveShapeToCache: OS-level sync failed for: {}, proceeding with rename", tempFilePath.string());
-                }
-            }
-
+            // Durable: the bytes reach the disk before the rename, so a crash cannot
+            // leave a cache entry that exists (and is therefore trusted) but is empty.
+            const bool written = FileSystem::WriteFileAtomically(
+                cacheFilePath, std::span<const u8>(buffer.Data, buffer.Size),
+                { .CreateParentDirectories = true, .Durable = true });
             buffer.Release();
-
-            // Check if temp file was written successfully
-            if (!std::filesystem::exists(tempFilePath))
-            {
-                OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Temporary file was not created: {}", tempFilePath.string());
-                return false;
-            }
-
-            // Atomically replace the target file with the temporary file
-            // This operation is atomic on most filesystems
-            std::error_code ec;
-            std::filesystem::rename(tempFilePath, cacheFilePath, ec);
-
-            if (ec)
-            {
-                OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Failed to rename temp file to final cache file: {} -> {}, Error: {}",
-                               tempFilePath.string(), cacheFilePath.string(), ec.message());
-
-                // Clean up the temporary file on failure
-                std::filesystem::remove(tempFilePath, ec); // Ignore errors on cleanup
-                return false;
-            }
-
-            return true;
+            return written;
         }
         catch (const std::exception& e)
         {
             OLO_CORE_ERROR("JoltShapes::SaveShapeToCache: Exception: {}", e.what());
-
-            // Clean up any potential temporary files on exception
-            try
-            {
-                std::filesystem::path cacheDir = GetPersistentCacheDirectory();
-                for (const auto& entry : std::filesystem::directory_iterator(cacheDir))
-                {
-                    if (entry.path().extension() == ".tmp" &&
-                        entry.path().filename().string().find(cacheKey) != std::string::npos)
-                    {
-                        std::filesystem::remove(entry.path());
-                    }
-                }
-            }
-            catch (...)
-            {
-                // Ignore cleanup errors
-            }
-
             return false;
         }
     }

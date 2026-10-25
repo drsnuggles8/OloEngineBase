@@ -7,6 +7,7 @@
 #include "SoundGraphFactory.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/FileSystem.h"
 #include <yaml-cpp/yaml.h>
 #include <fstream>
 
@@ -47,19 +48,8 @@ namespace OloEngine::Audio::SoundGraph
     {
         std::string yamlString = SerializeToString(asset);
 
-        std::ofstream fout(filepath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("Failed to open file for writing: {}", filepath.string());
+        if (!FileSystem::WriteFileAtomically(filepath, yamlString, { .TextMode = true, .CreateParentDirectories = true }))
             return false;
-        }
-
-        fout << yamlString;
-        if (!fout)
-        {
-            OLO_CORE_ERROR("Failed to write sound graph to {}", filepath.string());
-            return false;
-        }
 
         OLO_CORE_INFO("Successfully serialized sound graph to {}", filepath.string());
         return true;

@@ -708,8 +708,9 @@ namespace OloEngine
             if (ImGui::MenuItem("Save as Prefab"))
             {
                 const auto& entityTag = entity.GetComponent<TagComponent>().Tag;
+                // PrefabSerializer creates the folder; a failure to (a file named
+                // "prefabs", no permission) comes back as a failed save below.
                 std::filesystem::path prefabDir = Project::GetAssetDirectory() / "prefabs";
-                std::filesystem::create_directories(prefabDir);
                 std::filesystem::path prefabPath = prefabDir / (entityTag + ".oloprefab");
 
                 // Create and populate the prefab
@@ -720,20 +721,35 @@ namespace OloEngine
                 // Register with asset system and serialize to disk
                 auto* editorManager = static_cast<EditorAssetManager*>(
                     Project::GetActive()->GetAssetManager().get());
-                auto relativePath = Project::GetAssetRelativeFileSystemPath(prefabPath);
+                // Project-relative, like every registry key ("Assets/prefabs/X.oloprefab").
+                auto relativePath = editorManager->GetRelativePath(prefabPath);
 
                 AssetMetadata metadata;
                 metadata.Handle = handle;
                 metadata.FilePath = relativePath;
                 metadata.Type = AssetType::Prefab;
                 metadata.IsDataLoaded = true;
-                editorManager->SetMetadata(handle, metadata);
-                editorManager->SerializeAssetRegistry();
 
-                AssetImporter::Serialize(metadata, prefab);
+                // Written before it is registered: a prefab whose file could not be
+                // written must not reach the registry, and the entity must not
+                // become an instance of it.
+                const bool saved = AssetImporter::Serialize(metadata, prefab);
+                if (!saved)
+                {
+                    AssetManager::RemoveAsset(handle);
+                    OLO_CORE_ERROR("Could not save prefab '{}'; '{}' is unchanged", prefabPath.string(), entityTag);
+                }
+                else
+                {
+                    editorManager->SetMetadata(handle, metadata);
+                    if (!editorManager->SerializeAssetRegistry())
+                        OLO_CORE_ERROR("Saved prefab '{}', but the asset registry could not be written: its handle "
+                                       "exists only in this session until the next registry write",
+                                       prefabPath.string());
+                }
 
                 // Mark the source entity as a prefab instance
-                if (!entity.HasComponent<PrefabComponent>())
+                if (saved && !entity.HasComponent<PrefabComponent>())
                 {
                     if (m_CommandHistory)
                     {
@@ -751,7 +767,8 @@ namespace OloEngine
                     }
                 }
 
-                OLO_CORE_INFO("Saved prefab: {}", prefabPath.string());
+                if (saved)
+                    OLO_CORE_INFO("Saved prefab: {}", prefabPath.string());
             }
 
             // Prefab instance management

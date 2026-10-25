@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/AI/BehaviorTree/BehaviorTreeAsset.h"
 #include "OloEngine/Asset/AssetManager.h"
@@ -12,7 +13,7 @@
 
 namespace OloEngine
 {
-    void BehaviorTreeSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
+    bool BehaviorTreeSerializer::Serialize(const AssetMetadata& metadata, const Ref<Asset>& asset) const
     {
         OLO_PROFILE_FUNCTION();
 
@@ -20,27 +21,13 @@ namespace OloEngine
         if (!btAsset)
         {
             OLO_CORE_ERROR("BehaviorTreeSerializer::Serialize - Failed to cast asset to BehaviorTreeAsset ({})", metadata.FilePath.string());
-            return;
+            return false;
         }
 
         std::string yamlString = SerializeToYAML(btAsset);
         auto fullPath = Project::GetProjectDirectory() / metadata.FilePath;
 
-        std::error_code ec;
-        std::filesystem::create_directories(fullPath.parent_path(), ec);
-        if (ec)
-        {
-            OLO_CORE_ERROR("BehaviorTreeSerializer::Serialize - Failed to create directories for ({}): {}", fullPath.string(), ec.message());
-            return;
-        }
-
-        std::ofstream fout(fullPath);
-        if (!fout.is_open())
-        {
-            OLO_CORE_ERROR("BehaviorTreeSerializer::Serialize - Failed to open file for writing ({})", fullPath.string());
-            return;
-        }
-        fout << yamlString;
+        return FileSystem::WriteFileAtomically(fullPath, yamlString, { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool BehaviorTreeSerializer::TryLoadData(const AssetMetadata& metadata, Ref<Asset>& asset) const

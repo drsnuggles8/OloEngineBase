@@ -2,6 +2,7 @@
 #include "VisualScriptSerializer.h"
 
 #include "OloEngine/Core/Log.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Scripting/VisualScript/VisualScriptGraph.h"
 
 #include <yaml-cpp/yaml.h>
@@ -363,19 +364,7 @@ namespace OloEngine::VisualScript
 
     bool VisualScriptSerializer::Serialize(const VisualScriptAsset& asset, const std::filesystem::path& path)
     {
-        std::ofstream stream(path);
-        if (!stream)
-        {
-            OLO_CORE_ERROR("[VisualScript] Cannot open '{}' for writing", path.string());
-            return false;
-        }
-        stream << SerializeToString(asset);
-        // Flush BEFORE reading the state: a buffered write that fails at flush
-        // (disk full, a network share dropping) leaves good() true until the
-        // buffer is actually pushed, so returning early here would report a
-        // successful save of a truncated file.
-        stream.flush();
-        return stream.good();
+        return FileSystem::WriteFileAtomically(path, SerializeToString(asset), { .TextMode = true, .CreateParentDirectories = true });
     }
 
     bool VisualScriptSerializer::Deserialize(VisualScriptAsset& asset, const std::filesystem::path& path)

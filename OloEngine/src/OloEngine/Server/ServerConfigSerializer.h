@@ -13,7 +13,7 @@ namespace OloEngine
         static ServerConfig LoadFromFile(const std::string& filepath);
 
         // Save config to a YAML file.
-        static void SaveToFile(const ServerConfig& config, const std::string& filepath);
+        [[nodiscard]] static bool SaveToFile(const ServerConfig& config, const std::string& filepath);
 
         // Parse command-line arguments and override config values.
         // Supported flags: --port, --max-players, --tick-rate, --scene, --config

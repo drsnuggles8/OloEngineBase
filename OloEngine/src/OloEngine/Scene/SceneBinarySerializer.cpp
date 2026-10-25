@@ -6,6 +6,7 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Debug/Instrumentor.h"
@@ -306,17 +307,11 @@ namespace OloEngine
                               const u64 ub = static_cast<u64>(registry.get<IDComponent>(b).ID);
                               return ua < ub; });
 
-        // Write to a temp file, then atomically rename, so a crash mid-write never
-        // leaves a half-written file that reads as valid.
+        // Written atomically, so a crash mid-write never leaves a half-written
+        // file that reads as valid.
         const std::filesystem::path sidecar = SidecarPathFor(sourcePath);
-        std::filesystem::path tmp = sidecar;
-        tmp += ".tmp";
-
+        const auto writeSidecar = [&](std::ostream& out)
         {
-            std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
-            if (!out)
-                return;
-
             OSceneFormat::FileHeader header;
             header.SceneSchemaVersion = SceneSerializer::CurrentVersion;
             header.SourceFileSize = srcSize;
@@ -350,25 +345,12 @@ namespace OloEngine
                 }
             }
 
-            out.flush();
-            if (!out.good())
-            {
-                out.close();
-                std::error_code ec;
-                std::filesystem::remove(tmp, ec);
-                OLO_CORE_WARN("SceneSerializer: failed to write binary sidecar '{}'", sidecar.string());
-                return;
-            }
-        }
-
-        std::error_code ec;
-        std::filesystem::rename(tmp, sidecar, ec);
-        if (ec)
-        {
-            std::filesystem::remove(tmp, ec);
-            OLO_CORE_WARN("SceneSerializer: failed to finalize binary sidecar '{}': {}", sidecar.string(), ec.message());
+            return true;
+        };
+        // The sidecar is a load cache: without it the scene loads from YAML, so
+        // a failed write is logged (by the helper) and otherwise ignored.
+        if (!FileSystem::WriteFileAtomically(sidecar, writeSidecar))
             return;
-        }
 
         OLO_CORE_TRACE("SceneSerializer: wrote binary sidecar '{}' ({} entities)", sidecar.string(), sorted.Num());
     }
