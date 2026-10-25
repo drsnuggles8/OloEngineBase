@@ -1090,8 +1090,7 @@ swapchain) and runs each fixture tick as one frame of it; a tick fails on a Vulk
 or an unimplemented-stub hit. Readback goes through `RenderCommand::ReadTextureImage` and evidence
 files carry the backend (`<Feature>_Vulkan_<Path>.png`). GL-only tests refuse in that process with
 the reason, and so do the device-level Vulkan suites, which build their own device and run in the
-default process as before. The nightly lavapipe job runs the ported suites (`OLO_VK_SCENE_FILTER`
-in `vulkan-software.yml`) with `--olo-require-vulkan` and a gate that fails the job if any selected
+default process as before. The nightly lavapipe job runs the ported suites (`OloEngine/tests/vulkan_scene_filter.txt`) with `--olo-require-vulkan` and a gate that fails the job if any selected
 case did not execute. Rules: [agent-rules/testing-architecture.md](agent-rules/testing-architecture.md)
 rule 13.
 

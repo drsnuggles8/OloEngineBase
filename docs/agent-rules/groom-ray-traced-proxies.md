@@ -113,4 +113,4 @@ built. That is not a fallback; it is the absence of a consumer.
 
 This feature's evidence suite is not in the `--olo-rhi=vulkan` scene process (#1556), so **the
 suite does not cover a Vulkan cell of it**. Its captures are live-editor work until the suite is
-ported and added to `OLO_VK_SCENE_FILTER`.
+ported and added to `OloEngine/tests/vulkan_scene_filter.txt`.

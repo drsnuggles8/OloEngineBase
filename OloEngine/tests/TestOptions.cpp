@@ -390,14 +390,11 @@ namespace OloEngine::Tests
         }
 
         // A Vulkan process makes no GL context, so demanding one is a run that
-        // can only fail; and `none` refuses the Vulkan device this process is for.
+        // can only fail. (`--olo-gl-backend=none` with it is fine: the Vulkan
+        // gate honours `none`, so every scene case skips, as on a hosted runner.)
         if (s_Options.Rhi == TestRhi::Vulkan && s_Options.RequireGpu)
         {
             Fail("--olo-require-gpu contradicts --olo-rhi=vulkan (use --olo-require-vulkan)", "--olo-require-gpu");
-        }
-        if (s_Options.Rhi == TestRhi::Vulkan && s_Options.GlBackend == GlBackend::None)
-        {
-            Fail("--olo-rhi=vulkan contradicts --olo-gl-backend=none", "--olo-rhi");
         }
 
         if (s_Options.RendererNoRayQueries && s_Options.RequiredRendererPreset.empty())

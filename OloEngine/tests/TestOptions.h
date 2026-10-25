@@ -139,7 +139,8 @@ namespace OloEngine::Tests
         // (GraphicsContext::CreateWindowless) instead of a GL 4.6 context; the
         // GL gate then refuses every GL-only test, naming this flag. Rejected
         // together with `--olo-require-gpu` (that flag demands the GL context
-        // this process will not make) and with `--olo-gl-backend=none`.
+        // this process will not make). With `--olo-gl-backend=none` every
+        // scene case skips, the Vulkan gate honouring `none` as it always has.
         TestRhi Rhi = TestRhi::OpenGL;
         // --olo-vulkan-capability-report[=<path>] : a TOOL RUN (issue #1358).
         // Print (or write to <path>) the Markdown capability report -- every

@@ -184,7 +184,7 @@ this conversation:
   conditional ones (MSAA, upscale, resolution, a prior on-disk version), each as a cell or with a
   one-line reason it is unreachable. Mark each cell **artefact-backed** or **live-only** (a
   Vulkan cell is artefact-backed when its scene suite runs in the `--olo-rhi=vulkan` process,
-  `OLO_VK_SCENE_FILTER` in `vulkan-software.yml`; live-only otherwise, with the reason). A cell known unreachable
+  `OloEngine/tests/vulkan_scene_filter.txt`; live-only otherwise, with the reason). A cell known unreachable
   up front (no hardware, backend lacks the feature) is decided here with its reason. A single-path
   change says so in one line ("single path: forward only, 2D feature"); omitting the section is not
   that decision.

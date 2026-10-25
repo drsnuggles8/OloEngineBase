@@ -35,7 +35,7 @@ name: Vulkan Software Conformance
 # Renderer3D pipeline, frame by frame, with no display. That is the
 # cross-path matrix's Vulkan arms and the groom, VSM and shadow evidence,
 # which before this ran only in a live editor session. Its own step and its
-# own missing-execution gate below; the filter is OLO_VK_SCENE_FILTER.
+# own missing-execution gate below; the filter is OloEngine/tests/vulkan_scene_filter.txt.
 #
 # WHAT IT DOES NOT PROVE
 # ----------------------
@@ -57,7 +57,7 @@ on:
         default: ''
       scene_gtest_filter:
         # Diagnostic only (#1556), the scene step's twin of gtest_filter. Empty
-        # keeps OLO_VK_SCENE_FILTER. The scene gate lists the cases from the
+        # keeps OloEngine/tests/vulkan_scene_filter.txt. The scene gate lists the cases from the
         # SAME filter, so a narrower one is a smaller required set, not a red.
         description: 'scene-suite gtest filter override (empty = the nightly filter)'
         type: string
@@ -89,6 +89,7 @@ on:
       # The windowless frame bracket and the test process that drives it (#1556).
       - 'OloEngine/src/Platform/Vulkan/VulkanContext.*'
       - 'OloEngine/tests/Rendering/PropertyTests/TestRenderBackend.*'
+      - 'OloEngine/tests/vulkan_scene_filter.txt'
 
 # Read-only: this job builds and runs tests, it never comments, labels or
 # publishes. Declared explicitly so a future step cannot quietly acquire write
@@ -109,7 +110,8 @@ env:
   # ADR 0010. Bump forward freely; never back.
   MESA_VERSION: '26.2.0'
   # The scene suite the --olo-rhi=vulkan step runs and its gate requires
-  # (#1556): the renderer-attached smoke cases (less the GL-state one, which
+  # (#1556) is OloEngine/tests/vulkan_scene_filter.txt, which the
+  # OloEngine-Tests_VulkanScene ctest entry reads too: the renderer-attached smoke cases (less the GL-state one, which
   # skips on Vulkan by design), the cross-path matrix's native Vulkan arms (less
   # the rows whose estimator a raster arm does not host: ReSTIR needs ray query,
   # SSGI is Deferred-only), and the groom, shadow atlas, VSM and PCSS evidence.
@@ -121,7 +123,6 @@ env:
   # forked and split for the groom opaque copies they shade the fur with
   # garbage, every time on lavapipe 26.2.0 and on a loaded hardware GPU, with
   # no validation error. Delete the four exclusions when #1652 closes.
-  OLO_VK_SCENE_FILTER: 'EmptyScene.*:SceneWithCamera.*:SceneRenders3D.*:CrossPathMatrixArms.*:AllRowsAllArms/CrossPathLightingMatrix.*_vk_forward_native:AllRowsAllArms/CrossPathLightingMatrix.*_vk_forward_plus_native:AllRowsAllArms/CrossPathLightingMatrix.*_vk_deferred_native:GroomSceneShadowVisualEvidenceTest.*:ShadowAtlasVisualEvidenceTest.*:ShadowAtlasBiasEvidenceTest.*:VirtualShadowMapVisualEvidenceTest.*:VirtualShadowMapLocalVisualEvidenceTest.*:VirtualShadowMapLocalSingleLightTest.*:PCSSVisualEvidenceTest.*-SceneRenders3D.RenderLeavesNoGlobalGlStateBehind:*ReSTIR*:*SSGIBounce_vk_forward_native:*SSGIBounce_vk_forward_plus_native:GroomSceneShadowVisualEvidenceTest.ACoatCastsTheShareItsTexelsNeedAndASubsetNeverAddsShadow:GroomSceneShadowVisualEvidenceTest.TheBodyShadowsItsOwnFurAndTheFurStillNotItself:GroomSceneShadowVisualEvidenceTest.UnderTheVsmAnOccluderJustPastTheCoatShadowsItUnderASpotLight:GroomSceneShadowVisualEvidenceTest.AThinOccluderJustAboveShortFurShadowsItUnderACloseSpot'
 
 jobs:
   lavapipe:
@@ -387,7 +388,7 @@ jobs:
           VK_ICD_FILENAMES: ${{ env.OLO_LAVAPIPE_ICD }}
           OLO_SCENE_FILTER_OVERRIDE: ${{ inputs.scene_gtest_filter }}
         run: |
-          $filter = if ($env:OLO_SCENE_FILTER_OVERRIDE) { $env:OLO_SCENE_FILTER_OVERRIDE } else { $env:OLO_VK_SCENE_FILTER }
+          $filter = if ($env:OLO_SCENE_FILTER_OVERRIDE) { $env:OLO_SCENE_FILTER_OVERRIDE } else { (Get-Content ..\OloEngine\tests\vulkan_scene_filter.txt -Raw).Trim() }
           ..\build\OloEngine\tests\${{env.BUILD_TYPE}}\OloEngine-Tests.exe --olo-rhi=vulkan "--gtest_filter=$filter" --olo-require-vulkan --olo-golden-vendor=lavapipe --olo-perf-machine=ci-lavapipe-windows --gtest_catch_exceptions=1 --gtest_output=xml:..\test_results\vulkan_scene.xml
 
       # The scene suite's MISSING-EXECUTION GATE, the L7 gate's twin: every case
@@ -404,7 +405,7 @@ jobs:
         env:
           OLO_SCENE_FILTER_OVERRIDE: ${{ inputs.scene_gtest_filter }}
         run: |
-          $filter = if ($env:OLO_SCENE_FILTER_OVERRIDE) { $env:OLO_SCENE_FILTER_OVERRIDE } else { $env:OLO_VK_SCENE_FILTER }
+          $filter = if ($env:OLO_SCENE_FILTER_OVERRIDE) { $env:OLO_SCENE_FILTER_OVERRIDE } else { (Get-Content ..\OloEngine\tests\vulkan_scene_filter.txt -Raw).Trim() }
           & "..\build\OloEngine\tests\$env:BUILD_TYPE\OloEngine-Tests.exe" --gtest_list_tests "--gtest_filter=$filter" *> ..\test_results\vulkan_scene_cases.txt
           if ($LASTEXITCODE -ne 0) { Write-Error "--gtest_list_tests exited $LASTEXITCODE; the required case set is unknown"; exit 1 }
           $suites = Get-Content ..\test_results\vulkan_scene_cases.txt | Where-Object { $_ -match '^([A-Za-z_][A-Za-z0-9_/]*)\.(\s+#.*)?$' } | ForEach-Object { $Matches[1] } | Select-Object -Unique

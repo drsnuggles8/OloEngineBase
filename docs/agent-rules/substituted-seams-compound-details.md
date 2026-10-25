@@ -165,7 +165,7 @@ too.
 Two aggravating conditions, both worth checking before trusting a Vulkan result:
 
 - **`RendererAttachedTest` runs on Vulkan only in the `--olo-rhi=vulkan` process**
-  (#1556, a windowless `VulkanContext`), and only the suites in `OLO_VK_SCENE_FILTER`
+  (#1556, a windowless `VulkanContext`), and only the suites in `OloEngine/tests/vulkan_scene_filter.txt`
   run there. Every virtual-geometry evidence test rides the fixture and none of them
   is in that filter, so the real pass has still never executed on Vulkan in a test
   -- a feature with no scene *on that backend* has no coverage there.
