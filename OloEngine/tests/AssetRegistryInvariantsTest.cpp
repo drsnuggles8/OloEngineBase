@@ -320,6 +320,43 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // The file's bytes depend on the entries, not on the order they were added:
+    // a session that rebuilt the same registry in another order (a rescan, a
+    // pack-delivery test) rewrote the git-tracked .oar with every entry moved.
+    // -------------------------------------------------------------------------
+    TEST(AssetRegistryInvariants, SerializeWritesTheSameBytesWhateverTheInsertionOrder)
+    {
+        std::vector<AssetMetadata> entries;
+        for (u64 i = 0; i < 64; ++i)
+        {
+            const std::string path = "Assets/Textures/T" + std::to_string(i) + ".png";
+            entries.push_back(MakeMetadata(AssetHandle{ 0x9E3779B97F4A7C15ULL * (i + 1) }, AssetType::Texture2D, path.c_str()));
+        }
+
+        const std::filesystem::path forwardOar = TempDir() / "Forward.oar";
+        const std::filesystem::path reversedOar = TempDir() / "Reversed.oar";
+        {
+            AssetRegistry forward;
+            for (const AssetMetadata& m : entries)
+                forward.AddAsset(m);
+            ASSERT_TRUE(forward.Serialize(forwardOar));
+        }
+        {
+            AssetRegistry reversed;
+            for (auto it = entries.rbegin(); it != entries.rend(); ++it)
+                reversed.AddAsset(*it);
+            ASSERT_TRUE(reversed.Serialize(reversedOar));
+        }
+
+        auto readAll = [](const std::filesystem::path& path)
+        {
+            std::ifstream in(path, std::ios::binary);
+            return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        };
+        EXPECT_EQ(readAll(forwardOar), readAll(reversedOar)) << "the insertion order reached the file";
+    }
+
+    // -------------------------------------------------------------------------
     // EditorAssetManager::Initialize rebuilds a rejected registry from a rescan
     // with NEW handles. The rejected file is the only record of the handles
     // scenes refer to, so it is moved to AssetRegistry.oar.rejected (replacing
