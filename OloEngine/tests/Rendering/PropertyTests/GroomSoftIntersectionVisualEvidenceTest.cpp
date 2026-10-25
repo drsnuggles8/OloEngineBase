@@ -305,6 +305,18 @@ namespace OloEngine::Tests
                                         cell.c_str(), m_Width, m_Height);
                             return;
                         }
+                        // A forward path asked for MSAA renders at 1x: the cell's
+                        // pairs would repeat the 1x cell's frames exactly. One
+                        // frame latches the settings for the helper's checks that
+                        // the request resolved to one sample (#1630).
+                        if (cell.find("MSAARequest") != std::string::npos)
+                        {
+                            std::vector<u8> unused;
+                            Capture("", true, false, 0, unused);
+                            std::printf("[soft-intersection-msaa-request] %s display=%ux%u renders the 1x cell's frames\n",
+                                        cell.c_str(), m_Width, m_Height);
+                            return;
+                        }
                         for (const bool cards : { false, true })
                             CheckPair(cell + (dog ? "_DogTerrain" : "_HorseWater") +
                                       (cards ? "_Cards_" : "_Strands_") + std::to_string(width), cards, 0); });
