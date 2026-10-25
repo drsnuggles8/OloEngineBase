@@ -54,7 +54,6 @@ Read before touching `ShadowRenderPass::RenderGroomVirtualShadowLocalLayers`, th
   head turns between two captures and the diff measures the turn.
 - **A groom casts only with a `GroomSceneShadowComponent`.** `Acceptance.olo`'s head hair and horse
   coats lacked one until #1634, so #1592's live check had to opt them in on a scratch copy.
-  `GroomAnimals.olo` still has none on those coats.
 
 ## Where the evidence lives
 

@@ -190,6 +190,9 @@ def scene_shadow_component(block: str) -> str:
     m = re.search(r"(?m)^    GroomSceneShadowComponent:\n(?:      .*\n?)+", block)
     if not m:
         raise ValueError(f"{tag_of(block)} has no GroomSceneShadowComponent")
+    for flag in ("CastShadows", "ReceiveShadows"):
+        if not re.search(rf"(?m)^      {flag}: true$", m.group(0)):
+            raise ValueError(f"{tag_of(block)}'s GroomSceneShadowComponent does not set {flag}: true")
     return m.group(0)
 
 
@@ -377,7 +380,7 @@ def compose() -> str:
 
     # -- The animal population, turned onto the traversal heading.
     population = [b for b in entities(animals_text) if tag_of(b) not in {"Camera", "Sun", "Ground"}]
-    fox_shadow = scene_shadow_component(next(b for b in population if has_component(b, "GroomSceneShadowComponent")))
+    fox_shadow = scene_shadow_component(next(b for b in population if tag_of(b) == "Hero Coat"))
     theta = math.radians(TRAVERSAL_HEADING_DEG)
     interaction_left = INTERACTION_SLOTS - 2  # the two horses take two slots
     by_distance = []
