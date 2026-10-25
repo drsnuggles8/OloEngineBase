@@ -1101,6 +1101,11 @@ namespace OloEngine::Tests::CrossPath
     class CrossPathLightingMatrix : public RendererAttachedTest, public ::testing::WithParamInterface<MatrixParam>
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         [[nodiscard]] const SceneRow& Row() const
         {
             return Rows()[std::get<0>(GetParam())];
@@ -1270,7 +1275,7 @@ namespace OloEngine::Tests::CrossPath
                         u32 width = 0;
                         u32 height = 0;
                         RenderCommand::GetTextureDimensions(texture, 0u, width, height);
-                        if (width == 0u || height == 0u || g.DescribeCopyOperand(texture, pass, false).Samples > 1u)
+                        if (width == 0u || height == 0u || TextureSampleCount(texture) > 1u)
                             continue;
                         LinearImage& image = session->Read[candidate];
                         image.Target = candidate;

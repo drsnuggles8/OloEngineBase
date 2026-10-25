@@ -62,9 +62,11 @@
 //   context. Each RunFrames / RunEditorFrames tick is one frame of that
 //   context's frame bracket, and fails on a Vulkan validation error or an
 //   unimplemented-stub hit the way the GL tick fails on a GL error.
-//   `ReadbackComposite` reads by RHI handle, so it works on both. A test that
-//   reads back with a GL name, or issues GL calls, is GL-only: it must
-//   `GTEST_SKIP()` in the Vulkan process with the reason, never pass silently.
+//   `ReadbackComposite` reads by RHI handle, so it works on both. A suite runs
+//   there only once it overrides `RunsInVulkanProcess()` to return true --
+//   readback by RHI handle, evidence named with TestRenderBackend::EvidenceName,
+//   no GL call; every other suite skips with the reason. A ported suite's case
+//   that is GL-only by nature `GTEST_SKIP()`s in the Vulkan process itself.
 //   The Vulkan gate is the device gate: `--olo-require-vulkan` turns its
 //   refusal into a failure.
 // =============================================================================
@@ -116,6 +118,16 @@ namespace OloEngine::Tests
       protected:
         void SetUp() override;
         void TearDown() override;
+
+        /// Whether this suite runs in the --olo-rhi=vulkan process (#1556). A
+        /// suite opts in once its readback goes by RHI handle, its evidence
+        /// names carry the backend and it issues no GL call; every other suite
+        /// skips there with the reason, so an unported GL call never runs
+        /// without a GL context.
+        [[nodiscard]] virtual bool RunsInVulkanProcess() const
+        {
+            return false;
+        }
 
         /// Construct entities. Called once per test, after the Scene is
         /// created and configured for runtime + rendering.

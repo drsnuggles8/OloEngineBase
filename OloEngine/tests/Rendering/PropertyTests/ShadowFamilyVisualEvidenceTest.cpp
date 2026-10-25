@@ -131,6 +131,11 @@ namespace OloEngine::Tests
     class ShadowFamilyVisualEvidence : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         u32 m_Width = kWidth;
         u32 m_Height = kHeight;
         f32 m_ReceiverMinX = 3.0f;

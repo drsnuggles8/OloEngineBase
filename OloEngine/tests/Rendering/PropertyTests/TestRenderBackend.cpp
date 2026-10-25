@@ -119,18 +119,41 @@ namespace OloEngine::Tests::TestRenderBackend
         const u64 stubsBefore = api.GetUnimplementedStubHitCount();
 #endif
         bool ran = false;
+        // VulkanContext::SwapBuffers catches an exception from the frame
+        // callback, logs it and presents the clear frame, so a tick that
+        // throws would reach the test as a clean frame. The callback keeps it
+        // and RunFrame rethrows it after the frame, as the GL tick would.
+        std::exception_ptr failure;
         s_WindowlessContext->SetFrameRenderCallback(
-            [&ran, &tick](const GraphicsContext::FrameRenderTarget&)
+            [&ran, &tick, &failure](const GraphicsContext::FrameRenderTarget&)
             {
                 ran = true;
-                tick();
+                try
+                {
+                    tick();
+                }
+                catch (...)
+                {
+                    failure = std::current_exception();
+                }
                 // The frame's content is wherever the scene put it; true lets
                 // the context finalize the target if FinalRenderPass wrote it,
                 // and its clear fallback covers a frame where nothing did.
                 return true;
             });
+        // The callback holds references to this frame's locals: it is cleared
+        // on every exit, including a rethrow out of SwapBuffers.
+        struct ClearCallback
+        {
+            GraphicsContext& Context;
+            ~ClearCallback()
+            {
+                Context.SetFrameRenderCallback({});
+            }
+        } clearCallback{ *s_WindowlessContext };
         s_WindowlessContext->SwapBuffers();
-        s_WindowlessContext->SetFrameRenderCallback({});
+        if (failure)
+            std::rethrow_exception(failure);
         result.Ran = ran;
 #if OLO_WITH_VULKAN
         result.NewValidationErrors = VulkanDevice::GetValidationErrorCount() - validationBefore;

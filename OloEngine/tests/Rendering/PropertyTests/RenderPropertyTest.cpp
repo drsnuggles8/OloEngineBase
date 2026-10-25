@@ -13,6 +13,9 @@
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+#if OLO_WITH_VULKAN
+#include "Platform/Vulkan/VulkanImageInfoRegistry.h"
+#endif
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -537,10 +540,13 @@ namespace OloEngine::Tests
 
     namespace
     {
-        // The backend-neutral readback (#1556): RenderCommand::ReadTextureImage,
-        // which is glGetTextureImage on GL and a one-shot copy plus CPU
-        // conversion on Vulkan. GL's pack state still needs the defaults scope;
-        // the Vulkan process has no GL context to save it from.
+        // The backend-neutral readback (#1556). In the Vulkan process it is
+        // RenderCommand::ReadTextureImage, a one-shot copy plus CPU conversion.
+        // In the GL process it stays the raw glGetTextureImage the GL-name
+        // overloads use, inside the same pack-state scope: the facade's GL path
+        // drains the error queue before reading, and a readback must not
+        // swallow an error a pass or a test left queued -- the tick's GL-error
+        // check exists to report exactly that.
         //
         // Rows come back in GL order (bottom row first) on both backends: a
         // render target's rows are top-down on Vulkan (RHI::
@@ -549,9 +555,39 @@ namespace OloEngine::Tests
         void ReadbackThroughFacade(const RHI::ResourceHandle texture, const RHI::Format format, const u32 height,
                                    const sizet bytes, void* const dest)
         {
-            std::optional<PixelStoreDefaultsScope> packScope;
             if (RendererAPI::GetAPI() == RendererAPI::API::OpenGL)
-                packScope.emplace(PackTag{});
+            {
+                const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+                if (native == 0u)
+                {
+                    std::memset(dest, 0, bytes);
+                    ADD_FAILURE() << "readback by RHI handle: the handle does not resolve to a GL texture; the "
+                                     "buffer is zeroed";
+                    return;
+                }
+                GLenum glFormat = GL_RGBA;
+                GLenum glType = GL_UNSIGNED_BYTE;
+                switch (format)
+                {
+                    case RHI::Format::RGBA32Float:
+                        glType = GL_FLOAT;
+                        break;
+                    case RHI::Format::R32Int:
+                        glFormat = GL_RED_INTEGER;
+                        glType = GL_INT;
+                        break;
+                    case RHI::Format::D32Float:
+                        glFormat = GL_DEPTH_COMPONENT;
+                        glType = GL_FLOAT;
+                        break;
+                    default:
+                        break;
+                }
+                PixelStoreDefaultsScope packScope{ PackTag{} };
+                ::glGetTextureImage(static_cast<GLuint>(native), 0, glFormat, glType, static_cast<GLsizei>(bytes),
+                                    dest);
+                return;
+            }
             if (!RenderCommand::ReadTextureImage(texture, 0u, format, bytes, dest))
             {
                 std::memset(dest, 0, bytes);
@@ -567,6 +603,23 @@ namespace OloEngine::Tests
                 std::swap_ranges(rows + y * rowBytes, rows + (y + 1u) * rowBytes, rows + (height - 1u - y) * rowBytes);
         }
     } // namespace
+
+    u32 TextureSampleCount(const RHI::ResourceHandle texture)
+    {
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+            return 0u;
+#if OLO_WITH_VULKAN
+        if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+        {
+            const auto* info = VulkanImageInfoRegistry::Get().Lookup(reinterpret_cast<VkImage>(native));
+            return info != nullptr ? std::max(info->Samples, 1u) : 0u;
+        }
+#endif
+        GLint samples = 0;
+        ::glGetTextureLevelParameteriv(static_cast<GLuint>(native), 0, GL_TEXTURE_SAMPLES, &samples);
+        return samples > 0 ? static_cast<u32>(samples) : 1u;
+    }
 
     void ReadbackRgba8(const RHI::ResourceHandle texture, u32 width, u32 height, std::vector<u8>& out)
     {

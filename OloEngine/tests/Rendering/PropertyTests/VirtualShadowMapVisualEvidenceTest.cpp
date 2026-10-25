@@ -206,6 +206,11 @@ namespace OloEngine::Tests
     class VirtualShadowMapVisualEvidenceTest : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         // SetVirtualShadowMaps mutates the PROCESS-WIDE shadow settings, and each
         // test body restores CSM only on its success path — an ASSERT_* firing
         // inside Capture leaves VSM enabled for every later test in the process,

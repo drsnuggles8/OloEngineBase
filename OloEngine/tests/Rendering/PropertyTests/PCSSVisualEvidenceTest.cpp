@@ -104,6 +104,11 @@ namespace OloEngine::Tests
     class PCSSVisualEvidenceTest : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         void BuildScene() override
         {
             Scene& scene = GetScene();

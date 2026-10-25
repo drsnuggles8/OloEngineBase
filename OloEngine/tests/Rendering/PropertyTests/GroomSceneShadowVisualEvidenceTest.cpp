@@ -215,6 +215,11 @@ namespace OloEngine::Tests
     class GroomSceneShadowVisualEvidenceTest : public RendererAttachedTest
     {
       public:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         AssetHandle m_GroomHandle = 0;
         Entity m_GroomEntity;
         Entity m_LightEntity;

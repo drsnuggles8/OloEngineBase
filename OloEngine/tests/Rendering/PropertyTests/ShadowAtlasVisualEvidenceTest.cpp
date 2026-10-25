@@ -127,6 +127,11 @@ namespace OloEngine::Tests
     class ShadowAtlasVisualEvidenceTest : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         static constexpr u32 kSpotCount = 6;
         static constexpr f32 kSpotSpacing = 7.0f;
 
@@ -361,6 +366,11 @@ namespace OloEngine::Tests
     class ShadowAtlasBiasEvidenceTest : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         void BuildScene() override
         {
             Scene& scene = GetScene();

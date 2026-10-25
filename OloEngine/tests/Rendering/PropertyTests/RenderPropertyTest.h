@@ -150,6 +150,10 @@ namespace OloEngine::Tests
     void ReadbackRgbaFloat(RHI::ResourceHandle texture, u32 width, u32 height, std::vector<f32>& out);
     // An R32I target (the scene entity IDs) into `out`, width * height values.
     void ReadbackR32Int(RHI::ResourceHandle texture, u32 width, u32 height, std::span<i32> out);
+    // A texture's sample count by RHI handle, asked of the backend that owns
+    // it (1 for a single-sample texture, 0 for a handle that does not resolve).
+    [[nodiscard]] u32 TextureSampleCount(RHI::ResourceHandle texture);
+
     // A depth attachment's depth as floats, GL's [0, 1] window depth on both
     // backends (the projection seam keeps the stored values GL-shaped).
     void ReadbackDepth32F(RHI::ResourceHandle texture, u32 width, u32 height, std::span<f32> out);

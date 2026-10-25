@@ -149,6 +149,11 @@ namespace OloEngine::Tests
 
     void RendererAttachedTest::SetUp()
     {
+        if (TestRenderBackend::IsVulkanProcess() && !RunsInVulkanProcess())
+        {
+            GTEST_SKIP() << "this suite is not ported to the --olo-rhi=vulkan process: it reads back by GL name or "
+                            "issues GL calls (port it: docs/agent-rules/testing-architecture.md rule 13)";
+        }
         if (TestRenderBackend::IsVulkanProcess())
         {
             // The --olo-rhi=vulkan process (#1556). Accounted like every

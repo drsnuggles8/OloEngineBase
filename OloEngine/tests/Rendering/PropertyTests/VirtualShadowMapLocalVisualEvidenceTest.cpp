@@ -211,6 +211,11 @@ namespace OloEngine::Tests
     class VirtualShadowMapLocalVisualEvidenceTest : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         // Same unconditional restore as the directional evidence test: these
         // settings are PROCESS-WIDE, and an ASSERT_* firing mid-body would
         // otherwise leave VSM on for every later test in the binary.
@@ -499,7 +504,7 @@ namespace OloEngine::Tests
         const f64 atlasLit = MeanLuma(atlasPixels, 0.0f, 1.0f, kFloorY0, kFloorY1);
         ASSERT_GT(atlasLit, 10.0)
             << "the floor is not lit in the atlas control (mean luma " << atlasLit
-            << ") — look at assets/tests/visual/VirtualShadowMapLocal_Atlas.png before trusting anything "
+            << ") — look at assets/tests/visual/VirtualShadowMapLocal_<GL|Vulkan>_Atlas.png before trusting anything "
                "below it";
 
         // ---- The page table --------------------------------------------------
@@ -609,6 +614,11 @@ namespace OloEngine::Tests
     class VirtualShadowMapLocalSingleLightTest : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         void TearDown() override
         {
             (void)SetVirtualShadowMaps(false);
@@ -905,7 +915,7 @@ namespace OloEngine::Tests
             << "only " << azimuthsWithShadow << " of " << poses.size()
             << " azimuths changed when shadows were switched on. A point light is six faces sharing one "
                "page pool and this is how ONE broken face shows up — read the four "
-               "assets/tests/visual/VirtualShadowMapLocalSingle_Orbit*.png against their _NoShadow "
+               "assets/tests/visual/VirtualShadowMapLocalSingle_<GL|Vulkan>_Orbit*.png against their _NoShadow "
                "counterparts and compare which quadrant is identical, then map it onto the "
                "+X,-X,+Y,-Y,+Z,-Z face order";
     }
