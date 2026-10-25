@@ -278,6 +278,9 @@ namespace OloEngine::Tests
         EXPECT_TRUE(refreshed->IsLoaded());
         EXPECT_EQ(4u, refreshed->GetWidth());
         EXPECT_EQ(4u, refreshed->GetHeight());
+        // The in-place path does not go through LoadAssetFromFile, so ReloadData
+        // sets the status itself.
+        EXPECT_EQ(manager->GetMetadata(handle).Status, AssetStatus::Loaded);
 
         // And the pixels actually moved.
         {

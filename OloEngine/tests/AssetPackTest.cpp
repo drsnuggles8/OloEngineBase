@@ -552,3 +552,42 @@ TEST(AssetPackBuilderTest, EveryAssetLoadsBackFromTheOffsetTheBuilderRecorded)
     editorAssets.Reset();
     fs::remove_all(dir, ec);
 }
+
+// A project registry the build cannot read stops the pack build. The builder ignored
+// Deserialize's result and packed the empty registry it left, so a stale-format .oar
+// (any version bump, #1644) shipped a game with no assets.
+TEST(AssetPackBuilderTest, AnUnreadableProjectRegistryFailsTheBuild)
+{
+    namespace fs = std::filesystem;
+    const fs::path dir = OloEngine::Tests::TempDir() / "PackBuilderUnreadableRegistry";
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+    fs::create_directories(dir / "Assets", ec);
+    ASSERT_FALSE(ec) << ec.message();
+    {
+        std::ofstream project(dir / "Test.oloproj");
+        project << "Project:\n"
+                   "  Name: PackBuilderUnreadableRegistry\n"
+                   "  StartScene: \"\"\n"
+                   "  AssetDirectory: \"Assets\"\n"
+                   "  ScriptModulePath: \"\"\n";
+    }
+    ASSERT_TRUE(Project::Load(dir / "Test.oloproj"));
+    {
+        std::ofstream oar(Project::GetAssetRegistryPath(), std::ios::binary);
+        const std::array<u32, 2> header = { AssetRegistry::FileVersion - 1, 0u };
+        oar.write(reinterpret_cast<const char*>(header.data()), sizeof(header));
+    }
+
+    AssetPackBuilder::BuildSettings settings;
+    settings.m_OutputPath = dir / "Builder.olopack";
+    settings.m_IncludeScriptModule = false;
+    std::atomic<f32> progress = 0.0f;
+    const auto built = AssetPackBuilder::BuildFromActiveProject(settings, progress);
+    EXPECT_FALSE(built.m_Success);
+    EXPECT_NE(built.m_ErrorMessage.find("registry"), std::string::npos) << built.m_ErrorMessage;
+    EXPECT_FALSE(fs::exists(settings.m_OutputPath)) << "no pack is written from a registry the build could not read";
+
+    Project::Unload();
+    fs::remove_all(dir, ec);
+}

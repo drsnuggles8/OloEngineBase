@@ -33,7 +33,8 @@ namespace OloEngine
       public:
         // On-disk .oar format version. Deserialize accepts exactly this version; any other file
         // is rejected and has to be rebuilt from the project (docs/agent-rules/binary-format-versioning.md).
-        static constexpr u32 FileVersion = 2;
+        // v3 (#1644): an entry no longer carries the runtime AssetStatus.
+        static constexpr u32 FileVersion = 3;
 
         AssetRegistry() = default;
         ~AssetRegistry() = default;

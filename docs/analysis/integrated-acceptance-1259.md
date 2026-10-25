@@ -229,10 +229,22 @@ CPU scopes averaged over 8 frames; scopes nest, so columns do not add):
    Where no shadowed lamp is near, the VSM costs the sun 25–35 ms more than CSM. Where one is (the
    head's key and side lights, the lantern over the horses), CSM sends the lamps through the shadow
    atlas, and that route costs 0.1–0.9 s of GPU, almost none of it in the foliage bracket. Which
-   casters it spends that on (the head's 232k-strand hair, the coats or the meshes) is not
-   bracketed. The atlas is also the only route where lamps shadow grooms: under the VSM the lamps
-   skip the grooms entirely (below), so part of the VSM's lead at those cameras is a missing
-   feature rather than a saving (#1590, #1592).
+   casters it spends that on is not bracketed (#1590).
+
+   The table predates two changes to what those lamps draw. The VSM's local-light layers draw
+   groom casters since #1592, and since #1634 the head's hair and both horse coats carry a
+   `GroomSceneShadowComponent`, so they cast and receive scene shadows; before, only the fox coats
+   did. The cost of #1634, measured A/B on GL Deferred (Release, 1920×1080, median of 100 frames,
+   2026-10-25, with other GPU work on the machine):
+
+   | camera | VSM: ShadowPass | of it, VSM local-layer groom casters | VSM off (atlas): ShadowPass | draw calls (VSM) | groom local-layer draws (VSM) | groom atlas draws (VSM off) |
+   |---|---:|---:|---:|---:|---:|---:|
+   | head-closeup | +40 ms | +30 ms | +39 ms | +194 | +18 (3 lamps × 6) | +24 to +48 |
+   | coats-closeup | +16 ms | +3.5 ms | +34 ms | +254 | +6 (1 lamp × 6) | +12 |
+
+   MSAA 4 on Deferred gives the same picture (+42 / +23 ms ShadowPass). The groom draw counts are
+   `olo_groom_budget_stats` in a live Vulkan editor; with VSM off the head's atlas count steps between
+   frames (#1646).
 5. **Frame-time tails on Vulkan**: the p95/p99 spread at the dolly and rapid-turn cameras is CPU
    hitches of 0.65–2.1 s (GPU time unchanged in those frames), which grew over the session. They did
    not recur in 1,082 frames polled one CPU-scope snapshot per frame at the same poses, so their
@@ -268,14 +280,17 @@ Known shortfalls in the picture, all open:
   into clumps. The lighting taps show why it reads grey: the pigment is dark brown, and the cuticle
   sheen (the R lobe, from the environment above all) is a broad grey on top of it. Vulkan shows the
   same (`VK_Hybrid_head-*.jpg`).
-* **Lamps cast no groom shadow under VSM**: the head's key and side lights and the moving lantern are
-  served by the VSM's local-light layers, which grooms never enter, so only the sun shadows the hair
-  and coats. (#1592)
 * **Herd coats do not cast into the scene shadow maps** (the hero and four featured foxes do): an
   authoring choice from the fox-coat work, because each casting coat holds caster entries per shadow
   step. Herd bodies still cast.
 * Deferred cannot take a dynamic internal scale (#1537), and skinned virtual geometry has no RT proxy
   (#1525); those cells are recorded as unreachable rather than measured.
+
+No longer a shortfall: the lamps now shadow the head's hair and the horse coats (#1592's routing,
+#1634's components). The hair shadows the neck under the key and side lights: with VSM on, 3.0% of
+the GL Deferred head-closeup frame darkens against the scene without the components
+(`Acceptance_GL_Deferred_head-closeup.png`). At the lantern the horses' skinned bodies already
+cast, so the coats change only 0.15% of that frame.
 
 Not measured in this pass: the `acceptance-*-upscale-quality` manifests and the Forward+ and Deferred
 `-csm` manifests. They are generated and pass the terrain-clearance check; one Forward CSM run is the
@@ -292,7 +307,6 @@ would not change the verdict, and the CPU-bound frame would not get faster at a 
 | #1591 | a 12.9 GB load transient, the strand cache 1.5 GiB over budget at load, and the editor-host capture timing out on the load | Vulkan protocol runs; GL RSS guard |
 | #1594 | 0.65–2.1 s CPU hitches in the live Vulkan editor | Vulkan p95/p99 |
 | #1578 | the vegetation build budget withholds the RT TLAS at every acceptance camera | Vulkan hybrid |
-| #1592 | VSM lamps cast no groom shadow | picture (head, horses) |
 | #1593 | the head's hair below the film-quality bar | picture (head) |
 | #1402 | no separable eyes or mouth | criterion 1 |
 | #1537, #1525 | Deferred dynamic scale; RT proxy for skinned virtual geometry | unreachable cells |

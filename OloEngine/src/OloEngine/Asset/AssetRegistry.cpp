@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "AssetRegistry.h"
 
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Asset/AssetExtensions.h"
@@ -249,17 +250,28 @@ namespace OloEngine
                 const u32 assetCount = static_cast<u32>(m_AssetMetadata.size());
                 file.write(reinterpret_cast<const char*>(&assetCount), sizeof(assetCount));
 
-                // Write each asset metadata
-                for (const auto& [handle, metadata] : m_AssetMetadata)
+                // Entries in handle order: the map's iteration order depends on how it was
+                // filled, so a session that re-registered the same assets wrote the same
+                // registry in another order and dirtied the git-tracked file.
+                TArray<const AssetMetadata*> ordered;
+                ordered.Reserve(static_cast<i32>(m_AssetMetadata.size()));
+                for (const auto& entry : m_AssetMetadata)
+                    ordered.Add(&entry.second);
+                ordered.Sort([](const AssetMetadata* a, const AssetMetadata* b)
+                             { return static_cast<u64>(a->Handle) < static_cast<u64>(b->Handle); });
+
+                // Write each asset metadata. Status is not written: it is this process's load
+                // state, and persisting it made every session that loaded an asset rewrite the
+                // git-tracked registry (#1644).
+                for (const AssetMetadata* entry : ordered)
                 {
+                    const AssetMetadata& metadata = *entry;
                     // Cast to fixed-width types for cross-platform compatibility
                     const uint64_t handleValue = static_cast<uint64_t>(metadata.Handle);
                     const uint32_t typeValue = static_cast<uint32_t>(std::to_underlying(metadata.Type));
-                    const uint32_t statusValue = static_cast<uint32_t>(std::to_underlying(metadata.Status));
 
                     file.write(reinterpret_cast<const char*>(&handleValue), sizeof(handleValue));
                     file.write(reinterpret_cast<const char*>(&typeValue), sizeof(typeValue));
-                    file.write(reinterpret_cast<const char*>(&statusValue), sizeof(statusValue));
                     // Note: LastWriteTime serialization temporarily skipped - std::filesystem::file_time_type is complex to serialize
 
                     // Write path string. Use generic_string() so the .oar is
@@ -341,15 +353,13 @@ namespace OloEngine
                 // Fixed-width fields for cross-platform compatibility
                 uint64_t handleValue;
                 uint32_t typeValue;
-                uint32_t statusValue;
 
                 file.read(reinterpret_cast<char*>(&handleValue), sizeof(handleValue));
                 file.read(reinterpret_cast<char*>(&typeValue), sizeof(typeValue));
-                file.read(reinterpret_cast<char*>(&statusValue), sizeof(statusValue));
 
                 metadata.Handle = static_cast<AssetHandle>(handleValue);
                 metadata.Type = static_cast<AssetType>(typeValue);
-                metadata.Status = static_cast<AssetStatus>(statusValue);
+                // metadata.Status keeps its not-loaded default: nothing this process loaded yet.
                 // Note: LastWriteTime deserialization temporarily skipped - will be refreshed from filesystem
 
                 // Read path string

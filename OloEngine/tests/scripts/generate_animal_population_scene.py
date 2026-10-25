@@ -124,20 +124,20 @@ def vec(v):
 
 
 def registry_handles(path=REGISTRY_PATH):
-    """{asset path: handle} from AssetRegistry.oar (AssetRegistry::Serialize, v2).
+    """{asset path: handle} from AssetRegistry.oar (AssetRegistry::Serialize, v3).
 
-    u32 version, u32 count, then per asset: u64 handle, u32 type, u32 status,
+    u32 version, u32 count, then per asset: u64 handle, u32 type,
     u32 path length, the path's bytes (project-relative, forward slashes).
     """
     data = path.read_bytes()
     version, count = struct.unpack_from("<II", data, 0)
-    if version != 2:
-        raise SystemExit(f"{path}: registry format v{version}, this reader knows v2")
+    if version != 3:
+        raise SystemExit(f"{path}: registry format v{version}, this reader knows v3")
     offset = 8
     handles = {}
     for _ in range(count):
-        handle, _type, _status, length = struct.unpack_from("<QIII", data, offset)
-        offset += 20
+        handle, _type, length = struct.unpack_from("<QII", data, offset)
+        offset += 16
         handles[data[offset:offset + length].decode("utf-8")] = handle
         offset += length
     return handles

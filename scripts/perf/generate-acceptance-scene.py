@@ -186,6 +186,25 @@ def set_scalar(block: str, key: str, value: str) -> str:
     return out
 
 
+def scene_shadow_component(block: str) -> str:
+    m = re.search(r"(?m)^    GroomSceneShadowComponent:\n(?:      .*\n?)+", block)
+    if not m:
+        raise ValueError(f"{tag_of(block)} has no GroomSceneShadowComponent")
+    for flag in ("CastShadows", "ReceiveShadows"):
+        if not re.search(rf"(?m)^      {flag}: true$", m.group(0)):
+            raise ValueError(f"{tag_of(block)}'s GroomSceneShadowComponent does not set {flag}: true")
+    return m.group(0)
+
+
+def groom_scene_shadow(block: str, shadow: str) -> str:
+    """Give a groom the fox coats' scene-shadow block. The horse coats and the
+    head's hair come from GroomAnimals.olo without one, so they cast and received
+    no scene shadow at all here (#1634). A block the source scene gains is kept."""
+    if has_component(block, "GroomSceneShadowComponent"):
+        return block
+    return append_component(block, shadow)
+
+
 def trace_shadows(block: str) -> str:
     """Opt a shadowed light into the hybrid ray-traced tier (#1056). The renderer
     setting alone traces nothing: each light requests it, and the source scenes'
@@ -361,6 +380,10 @@ def compose() -> str:
 
     # -- The animal population, turned onto the traversal heading.
     population = [b for b in entities(animals_text) if tag_of(b) not in {"Camera", "Sun", "Ground"}]
+    hero_coat = next((b for b in population if tag_of(b) == "Hero Coat"), None)
+    if hero_coat is None:
+        raise ValueError("AnimalPopulation.olo has no Hero Coat to take the scene-shadow block from")
+    fox_shadow = scene_shadow_component(hero_coat)
     theta = math.radians(TRAVERSAL_HEADING_DEG)
     interaction_left = INTERACTION_SLOTS - 2  # the two horses take two slots
     by_distance = []
@@ -401,6 +424,7 @@ def compose() -> str:
         horse = append_component(horse, foliage_interaction(1.6, 1.8))
         horse = set_relationship(horse, 0, [uuid_of(coat)])
         coat = set_relationship(coat, uuid_of(horse), [])
+        coat = groom_scene_shadow(coat, fox_shadow)
         keep(horse)
         keep(coat)
 
@@ -434,6 +458,7 @@ def compose() -> str:
     plinth = set_translation(plinth, [sx, sy + 0.62, sz])
     human = set_relationship(human, 0, [uuid_of(hair)])
     hair = set_relationship(hair, uuid_of(human), [])
+    hair = groom_scene_shadow(hair, fox_shadow)
     for block in (human, hair, plinth):
         keep(block)
     studio_floor = groom_blocks["Ground"]

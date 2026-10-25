@@ -51,6 +51,28 @@ namespace OloEngine::Tests
         {
             return AssetMetadata{ handle, type, std::filesystem::path{ path } };
         }
+
+        // Unloads the active project on every exit path, a failed ASSERT included, so a
+        // failing case does not leave its temp project active for the cases after it.
+        struct ProjectScope
+        {
+            ~ProjectScope()
+            {
+                Project::Unload();
+            }
+        };
+
+        std::vector<char> ReadAllBytes(const std::filesystem::path& path)
+        {
+            std::ifstream in(path, std::ios::binary);
+            if (!in.is_open())
+            {
+                // Two missing files compare equal; a byte comparison must not pass on that.
+                ADD_FAILURE() << "cannot read " << path.string();
+                return {};
+            }
+            return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
     } // namespace
 
     // -------------------------------------------------------------------------
@@ -275,6 +297,137 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // AssetStatus is this process's load state, not part of the file (#1644): a
+    // registry whose entries were loaded (or failed) writes the same bytes as one
+    // nothing touched, so a session that loads assets does not rewrite the
+    // git-tracked .oar, and every entry reads back as not loaded.
+    // -------------------------------------------------------------------------
+    TEST(AssetRegistryInvariants, SerializeDoesNotPersistTheRuntimeLoadStatus)
+    {
+        const std::filesystem::path untouchedOar = TempDir() / "Untouched.oar";
+        const std::filesystem::path loadedOar = TempDir() / "Loaded.oar";
+        const AssetHandle loadedHandle{ 424242ULL };
+        const AssetHandle failedHandle{ 434343ULL };
+
+        AssetRegistry untouched;
+        untouched.AddAsset(MakeMetadata(loadedHandle, AssetType::Texture2D, "Assets/Textures/Foo.png"));
+        untouched.AddAsset(MakeMetadata(failedHandle, AssetType::Mesh, "Assets/Meshes/Bar.obj"));
+        ASSERT_TRUE(untouched.Serialize(untouchedOar));
+
+        AssetRegistry loaded;
+        AssetMetadata loadedEntry = MakeMetadata(loadedHandle, AssetType::Texture2D, "Assets/Textures/Foo.png");
+        loadedEntry.Status = AssetStatus::Loaded;
+        AssetMetadata failedEntry = MakeMetadata(failedHandle, AssetType::Mesh, "Assets/Meshes/Bar.obj");
+        failedEntry.Status = AssetStatus::Failed;
+        loaded.AddAsset(loadedEntry);
+        loaded.AddAsset(failedEntry);
+        ASSERT_TRUE(loaded.Serialize(loadedOar));
+
+        EXPECT_EQ(ReadAllBytes(loadedOar), ReadAllBytes(untouchedOar)) << "the load status changed the file's bytes";
+
+        AssetRegistry reread;
+        ASSERT_TRUE(reread.Deserialize(loadedOar));
+        ASSERT_EQ(reread.GetAssetCount(), 2u);
+        for (const AssetHandle handle : { loadedHandle, failedHandle })
+        {
+            const AssetMetadata metadata = reread.GetMetadata(handle);
+            EXPECT_TRUE(metadata.IsNotLoaded()) << static_cast<u64>(handle) << " read back as "
+                                                << AssetStatusUtils::AssetStatusToString(metadata.Status);
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // The file's bytes depend on the entries, not on the order they were added:
+    // a session that rebuilt the same registry in another order (a rescan, a
+    // pack-delivery test) rewrote the git-tracked .oar with every entry moved.
+    // -------------------------------------------------------------------------
+    TEST(AssetRegistryInvariants, SerializeWritesTheSameBytesWhateverTheInsertionOrder)
+    {
+        std::vector<AssetMetadata> entries;
+        for (u64 i = 0; i < 64; ++i)
+        {
+            const std::string path = "Assets/Textures/T" + std::to_string(i) + ".png";
+            entries.push_back(MakeMetadata(AssetHandle{ 0x9E3779B97F4A7C15ULL * (i + 1) }, AssetType::Texture2D, path.c_str()));
+        }
+
+        const std::filesystem::path forwardOar = TempDir() / "Forward.oar";
+        const std::filesystem::path reversedOar = TempDir() / "Reversed.oar";
+        {
+            AssetRegistry forward;
+            for (const AssetMetadata& m : entries)
+                forward.AddAsset(m);
+            ASSERT_TRUE(forward.Serialize(forwardOar));
+        }
+        {
+            AssetRegistry reversed;
+            for (auto it = entries.rbegin(); it != entries.rend(); ++it)
+                reversed.AddAsset(*it);
+            ASSERT_TRUE(reversed.Serialize(reversedOar));
+        }
+
+        EXPECT_EQ(ReadAllBytes(forwardOar), ReadAllBytes(reversedOar)) << "the insertion order reached the file";
+    }
+
+    // -------------------------------------------------------------------------
+    // A hot-reload refreshes the entry's LastWriteTime in memory and does not
+    // re-save the registry: the .oar stores neither the timestamp nor the load
+    // status (#1644), so the save only rewrote identical bytes. And it updates
+    // only the timestamp: writing back the copy taken before the load undid the
+    // Failed status a reload that fell back to a placeholder had just set.
+    // -------------------------------------------------------------------------
+    TEST(AssetRegistryInvariants, HotReloadNeitherSavesTheRegistryNorRevertsTheStatusItSet)
+    {
+        const std::filesystem::path root = TempDir("reload-oar");
+        std::error_code ec;
+        std::filesystem::create_directories(root / "Assets", ec);
+        ASSERT_FALSE(ec) << ec.message();
+        {
+            std::ofstream project(root / "Test.oloproj");
+            project << "Project:\n"
+                       "  Name: ReloadOar\n"
+                       "  StartScene: \"\"\n"
+                       "  AssetDirectory: \"Assets\"\n"
+                       "  ScriptModulePath: \"\"\n";
+        }
+        const std::filesystem::path profile = root / "Assets" / "DogGum.oloskin";
+        std::filesystem::copy_file(std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / "Assets" / "Materials" / "DogGum.oloskin",
+                                   profile, ec);
+        ASSERT_FALSE(ec) << ec.message();
+
+        ASSERT_TRUE(Project::Load(root / "Test.oloproj"));
+        const ProjectScope projectScope;
+        {
+            auto manager = Ref<EditorAssetManager>::Create();
+            manager->Initialize(/*startFileWatcher=*/false);
+            const AssetHandle handle = manager->ImportAsset(profile);
+            ASSERT_NE(static_cast<u64>(handle), 0u);
+            ASSERT_TRUE(manager->SerializeAssetRegistry());
+            ASSERT_TRUE(manager->GetAsset(handle));
+
+            const std::filesystem::path oar = Project::GetAssetRegistryPath();
+            const std::vector<char> savedBytes = ReadAllBytes(oar);
+            const auto savedTime = std::filesystem::last_write_time(oar);
+
+            EXPECT_TRUE(manager->ReloadData(handle));
+            EXPECT_EQ(ReadAllBytes(oar), savedBytes);
+            EXPECT_EQ(std::filesystem::last_write_time(oar), savedTime) << "a hot-reload re-saved the registry";
+            EXPECT_EQ(manager->GetMetadata(handle).LastWriteTime, std::filesystem::last_write_time(profile))
+                << "the reload did not refresh the timestamp the file watcher compares";
+
+            std::ofstream(profile, std::ios::trunc) << "not: [a skin profile";
+            EXPECT_TRUE(manager->ReloadData(handle)) << "a failed load falls back to a placeholder";
+            EXPECT_EQ(manager->GetMetadata(handle).Status, AssetStatus::Failed)
+                << "the reload wrote back the status it read before loading";
+
+            std::filesystem::copy_file(std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / "Assets" / "Materials" / "DogGum.oloskin",
+                                       profile, std::filesystem::copy_options::overwrite_existing, ec);
+            ASSERT_FALSE(ec) << ec.message();
+            EXPECT_TRUE(manager->ReloadData(handle));
+            EXPECT_EQ(manager->GetMetadata(handle).Status, AssetStatus::Loaded) << "a reload that worked kept Failed";
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // EditorAssetManager::Initialize rebuilds a rejected registry from a rescan
     // with NEW handles. The rejected file is the only record of the handles
     // scenes refer to, so it is moved to AssetRegistry.oar.rejected (replacing
@@ -308,14 +461,10 @@ namespace OloEngine::Tests
         }
         std::ofstream(rejectedPath) << "an older rejected registry";
 
-        auto readAll = [](const std::filesystem::path& path)
-        {
-            std::ifstream in(path, std::ios::binary);
-            return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-        };
-        const std::vector<char> originalBytes = readAll(oar);
+        const std::vector<char> originalBytes = ReadAllBytes(oar);
 
         ASSERT_TRUE(Project::Load(root / "Test.oloproj"));
+        const ProjectScope projectScope;
         {
             auto manager = Ref<EditorAssetManager>::Create();
             manager->Initialize(/*startFileWatcher=*/false);
@@ -323,7 +472,7 @@ namespace OloEngine::Tests
         Project::Unload();
 
         ASSERT_TRUE(std::filesystem::exists(rejectedPath));
-        EXPECT_EQ(readAll(rejectedPath), originalBytes)
+        EXPECT_EQ(ReadAllBytes(rejectedPath), originalBytes)
             << "the rejected registry must be preserved byte for byte, replacing the older .rejected";
 
         AssetRegistry rebuilt;
