@@ -523,6 +523,10 @@ add_executable(OloEngine-Tests
 		# live editor. Derived family list + a probe pinning that the gate bites.
 		# Same SKIP ladder + zero-validation bar.
 		Rendering/VulkanMeshPipelineFamilyTest.cpp
+		# #1345: PSO precaching without a device: the request ledger's miss
+		# classification and counters, the PSO manifest round trip, and the
+		# pipeline-key separation (incompatible configurations never share a key).
+		Rendering/PipelinePrecacheContractTest.cpp
 		# #691 Phase 7 Stage 1.2: the buffer/texture factory arms on a REAL
 		# device — arena-versioned UBO addresses, texture upload/readback with
 		# the mip blit chain and RGB->RGBA widening, the descriptor slot
@@ -1540,6 +1544,9 @@ add_executable(OloEngine-Tests
 		# (MCP/McpShaderReload.h, depends only on the engine's ShaderCompilationStatus
 		# enum), so no extra editor TU is pulled in.
 		MCP/McpShaderReloadTest.cpp
+		# Pure result-shaping behind olo_perf_pipeline_readiness (#1345). Header-only
+		# (MCP/McpPipelineReadiness.h + the engine's PipelineReadiness.h).
+		MCP/McpPipelineReadinessTest.cpp
 		# Pure name tables + result-shaping behind olo_render_toggle_pass /
 		# olo_render_set_debug_view (#316 Part 4). Header-only (MCP/McpRenderOverrides.h,
 		# nlohmann::json + stdlib only), so no extra editor TU is pulled in.

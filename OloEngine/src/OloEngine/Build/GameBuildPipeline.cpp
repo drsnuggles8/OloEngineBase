@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "GameBuildPipeline.h"
 
+#include "OloEngine/Renderer/PipelineManifest.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Build/BuildPipelinePlatform.h"
 #include "OloEngine/Core/Application.h"
@@ -1240,6 +1241,42 @@ namespace OloEngine
         {
             OLO_CORE_INFO("[GameBuild] No shader pack found — packaged runtime will compile shaders "
                           "from source on first launch");
+        }
+
+        // --- PSO manifest (issue #1345, optional) ---
+        // The pipeline keys this machine's editor sessions had to create, so a
+        // packaged Vulkan runtime requests them before its first draws instead
+        // of discovering each one at a hitch. A seed only: the runtime merges
+        // its own machine manifest over it, and a key whose shader does not
+        // exist in the build is simply never requested.
+        {
+            const std::filesystem::path manifestSrc = PipelineManifest::MachineFilePath();
+            const std::filesystem::path manifestDst =
+                outputDir / std::filesystem::path(PipelineManifest::kPackagedSeedPath);
+            if (std::filesystem::is_regular_file(manifestSrc, ec))
+            {
+                std::filesystem::create_directories(manifestDst.parent_path(), ec);
+                std::filesystem::copy_file(manifestSrc, manifestDst, std::filesystem::copy_options::overwrite_existing,
+                                           ec);
+                if (ec)
+                {
+                    // Optional content: a failed copy costs first-launch hitches, not the build.
+                    OLO_CORE_WARN("[GameBuild] Could not stage the PSO manifest ({}): {}", manifestSrc.string(),
+                                  ec.message());
+                    ec.clear();
+                }
+                else
+                {
+                    OLO_CORE_INFO("[GameBuild] Staged the PSO manifest — the packaged runtime requests its "
+                                  "pipelines before their first draw");
+                }
+            }
+            else
+            {
+                ec.clear();
+                OLO_CORE_INFO("[GameBuild] No PSO manifest on this machine yet — the packaged runtime discovers "
+                              "its pipelines on first use (run the scenes in the editor on Vulkan to record one)");
+            }
         }
 
         // --- Textures (skybox cubemaps, IBL, etc.) ---

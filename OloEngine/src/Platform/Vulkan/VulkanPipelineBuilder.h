@@ -32,31 +32,51 @@
 // blend state. Dynamic rendering only (VkPipelineRenderingCreateInfo); no
 // VkRenderPass objects exist on this backend.
 //
-// THREAD-SAFETY (issue #806, ADR 0011 amendment (92) rule 8): GetOrCreate*
-// run once per draw / dispatch, from any recording thread. The map lookup
-// AND the creation on a miss happen under m_Mutex — a miss is rare after the
-// first frame, and two threads building the same pipeline would cost more
-// than the wait. InvalidateShader and ReleaseAll take the same lock;
-// FlushDynamicState is static and touches no builder state. Everything a
-// creation reaches — VulkanPipelineCache::Handle, the sampler heap's
-// EnsureCreated (its own lock, always taken INSIDE this one), the resource
-// heap's stride getters — is therefore serialised by this mutex, and
-// VulkanPipelineCache relies on that instead of locking itself.
+// THREAD-SAFETY (issue #806, ADR 0011 amendment (92) rule 8; reworked by
+// #1345): GetOrCreate* run once per draw / dispatch, from any recording
+// thread, and the precache worker (VulkanPipelinePrecache) creates requested
+// pipelines on its own thread. The map lookup, the request ledger and the
+// in-flight bookkeeping are guarded by m_Mutex; the DRIVER CALL is not.
+// Holding the exclusive lock across vkCreate*Pipelines made every recording
+// thread's hit path wait for a background compile, which would have moved the
+// hitch rather than removed it. So a creation:
+//   1. claims the key under the lock (the ledger marks it in flight, so a
+//      second thread asking for the same key waits instead of compiling it
+//      again) and snapshots its inputs — the shader's modules and layout are
+//      copied on the asking thread, never read by the worker later;
+//   2. fetches VulkanPipelineCache::Handle() while still holding the lock
+//      (that class's lazy create relies on this lock), then releases it;
+//   3. calls the driver, which is thread-safe for creation and whose
+//      VkPipelineCache is internally synchronised;
+//   4. publishes under the lock and wakes any waiter.
+// InvalidateShader waits for every in-flight creation of that shader before
+// returning, because its caller destroys the old modules next. The sampler
+// heap's EnsureCreated has its own lock and is now reached with this one
+// either held or not; it never takes this one, so there is no order to break.
+// FlushDynamicState is static and touches no builder state.
 
 #include "OloEngine/Core/Base.h"
 
 #if OLO_WITH_VULKAN
 
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Renderer/PipelineRequestLedger.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanShader.h"
 
 #include <volk.h>
 
 #include <array>
+#include <atomic>
+#include <condition_variable>
+#include <functional>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <string>
+#include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace OloEngine
@@ -99,6 +119,43 @@ namespace OloEngine
       public:
         [[nodiscard]] static VulkanPipelineBuilder& Get();
 
+        // The complete pipeline key: everything baked into a thin PSO. Public
+        // so the precache can name a request and VulkanPipelineKeyTest can pin
+        // which inputs separate two pipelines (issue #1345: incompatible
+        // configurations must never share one). Viewport and scissor are
+        // dynamic state (VIEWPORT/SCISSOR_WITH_COUNT), so the render RESOLUTION
+        // is deliberately not here: one pipeline serves every target size.
+        struct Key
+        {
+            u64 ShaderKey = 0;
+            std::array<VkFormat, 8> ColorFormats{};
+            VkFormat DepthFormat = VK_FORMAT_UNDEFINED;
+            u32 ColorCount = 0;
+            u32 Samples = 1;
+            u64 BakedBlendHash = 0; ///< 0 when blend is dynamic (EDS3 present).
+            u64 LayoutHash = 0;     ///< Root-data layout — drives the baked binding mappings.
+            /// Baked patch size for a tessellated pipeline; 0 when the shader
+            /// has no TCS/TES stage. patchControlPoints is only dynamic under
+            /// extendedDynamicState2PatchControlPoints, which is NOT on the
+            /// ADR 0010 floor — so it is a PSO axis here (#691, A10).
+            u32 PatchControlPoints = 0;
+
+            bool operator==(const Key&) const = default;
+        };
+        struct KeyHash
+        {
+            [[nodiscard]] sizet operator()(const Key& key) const;
+        };
+
+        // The key a graphics draw of `shaderKey` would look up, from its inputs
+        // alone. Pure (no device): the draw path, the precache and the tests all
+        // derive keys through this one function, so a request and the draw it
+        // prepares cannot disagree about what the key is.
+        [[nodiscard]] static Key DeriveGraphicsKey(u64 shaderKey, const VulkanRootDataLayout& layout, bool tessellated,
+                                                   bool dynamicBlend, const VulkanRecordedPipelineState& state,
+                                                   const VulkanRenderTargetDesc& targets);
+        [[nodiscard]] static Key DeriveComputeKey(u64 shaderKey, const VulkanRootDataLayout& layout);
+
         // Cached lookup or creation of the thin graphics pipeline for
         // (shader, targets[, baked blend]). Sampler state is NOT a pipeline
         // axis (#691): the mappings source the sampler half from the
@@ -112,6 +169,13 @@ namespace OloEngine
         // pipeline is a validation error). Mesh-ness needs no key axis of its
         // own — ShaderKey identifies the shader, and a reload that changes
         // its stage set runs through InvalidateShader first.
+        //
+        // A MISS here is synchronous creation on the calling (recording)
+        // thread: the hitch #1345 measures. It is classified by the request
+        // ledger (never requested / requested too late / retried after a
+        // failure), timed, logged for the first misses and counted always —
+        // never silent — and recorded in the precache manifest so the next
+        // session requests it before the draw.
         [[nodiscard]] VkPipeline GetOrCreateGraphics(VulkanShader& shader, const VulkanRootDataLayout& layout,
                                                      const VulkanRecordedPipelineState& state,
                                                      const VulkanRenderTargetDesc& targets);
@@ -123,9 +187,71 @@ namespace OloEngine
         // compute key can never collide with a graphics one. `shaderKey` and
         // `module` are passed directly so this header needs no
         // VulkanComputeShader dependency; InvalidateShader(shaderKey) covers
-        // compute pipelines through the same reverse index.
+        // compute pipelines through the same reverse index. `shaderName` names
+        // the shader in miss logs and the precache manifest.
         [[nodiscard]] VkPipeline GetOrCreateCompute(u64 shaderKey, VkShaderModule module,
-                                                    const VulkanRootDataLayout& layout);
+                                                    const VulkanRootDataLayout& layout,
+                                                    std::string_view shaderName = "<compute>");
+
+        // --- Requests (issue #1345) ------------------------------------------
+        // Ask for a pipeline ahead of its first draw. The shader's modules and
+        // layout are snapshotted HERE, on the calling thread, so the worker
+        // that creates it never reads the shader object. A key that is already
+        // created, queued or in flight is a duplicate and returns false.
+        // `patchControlPoints` is the recorded patch size the draw will use
+        // (ignored for a shader without tessellation stages). The recorded
+        // blend state is the default one: blend is dynamic on the ADR 0010
+        // floor (EDS3), so it is not part of the key there; on a device
+        // without EDS3 blend a request can only match a draw that records the
+        // default blend, and any other draw is counted as never requested.
+        // Returns the key the request names (whether it was new or a
+        // duplicate), or nullopt when no request could be formed (no device,
+        // shader not ready).
+        std::optional<Key> RequestGraphics(VulkanShader& shader, const VulkanRenderTargetDesc& targets,
+                                           u32 patchControlPoints,
+                                           PipelineRequestPriority priority = PipelineRequestPriority::Selected);
+        std::optional<Key> RequestCompute(u64 shaderKey, VkShaderModule module, const VulkanRootDataLayout& layout,
+                                          std::string_view shaderName,
+                                          PipelineRequestPriority priority = PipelineRequestPriority::Selected);
+
+        // Drop this shader's QUEUED requests and wait for its in-flight
+        // creations, without touching its created pipelines. For a caller about
+        // to destroy modules a queued request snapshotted (VulkanComputeShader's
+        // rebuild destroys its old module before the reload invalidates).
+        void QuiesceShader(u64 shaderKey);
+
+        // Create ONE queued request on the calling thread, outside every
+        // recording region (the precache worker's loop body, and what tests
+        // call to run the queue deterministically). Returns false when nothing
+        // was queued.
+        bool PrepareNextQueued();
+
+        enum class RequestState : u8
+        {
+            Queued,
+            InFlight,
+            Ready,
+            Failed,
+        };
+        // Where a key stands, for readiness: nullopt when it was never
+        // requested or created.
+        [[nodiscard]] std::optional<RequestState> GetRequestState(const Key& key) const;
+
+        // A collector's readiness claim for one shader (see
+        // PipelineRequestLedger): a never-requested miss on a shader declared
+        // ready is counted as a ReadyClaimViolation and logged as an error.
+        void DeclareShaderReady(u64 shaderKey, bool ready);
+
+        struct RequestStats
+        {
+            PipelineRequestCounters Counters;
+            u64 Queued = 0;
+            u64 InFlight = 0;
+            u64 CachedPipelines = 0;
+            u64 Completions = 0; ///< Monotonic: bumps on every finished creation (readiness re-evaluation trigger).
+        };
+        [[nodiscard]] RequestStats GetRequestStats() const;
+        void ResetRequestCounters();
 
         // Issue every vkCmdSet* for the states the pipelines above declare
         // dynamic, from the recorded state. Must run after vkCmdBindPipeline,
@@ -143,13 +269,17 @@ namespace OloEngine
         // two owners meant a double-destroy AND a dangling map entry on the
         // first device run. Enqueues every dependent pipeline for deferred
         // destruction (an in-flight command buffer may still reference them),
-        // erases them from the cache map, returns how many. The next
-        // GetOrCreateGraphics recreates lazily against VulkanPipelineCache's
-        // disk blob.
-        sizet InvalidateShader(u64 shaderKey);
+        // erases them from the cache map and the request ledger, WAITS for any
+        // creation of this shader still running on another thread (the caller
+        // destroys the old modules next), and returns how many pipelines it
+        // invalidated. `invalidatedKeys`, when given, receives every key that
+        // was created or requested, so the precache can request the same
+        // targets again against the rebuilt shader (#1345: dependent requests
+        // are re-prepared, never reused stale).
+        sizet InvalidateShader(u64 shaderKey, TArray<Key>* invalidatedKeys = nullptr);
 
         // Enqueue every cached pipeline for deferred destruction and clear
-        // the maps (device teardown).
+        // the maps (device teardown). Waits for in-flight creations first.
         void ReleaseAll();
 
         // The last creation failure, kept so a caller can report the REASON
@@ -157,7 +287,7 @@ namespace OloEngine
         // VK_NULL_HANDLE and log on a vkCreate*Pipelines failure; the log is
         // not reachable from a test assertion, and "the handle was null" does
         // not say which shader or which VkResult. Recorded under the same
-        // lock the creation already holds, so it is the failure of the call
+        // lock the creation publishes under, so it is the failure of the call
         // that just returned null on this thread as long as no other thread
         // failed in between — a diagnostic, never a control-flow input.
         struct CreationFailure
@@ -198,44 +328,85 @@ namespace OloEngine
         };
         [[nodiscard]] ShaderPipelines GetShaderPipelines(u64 shaderKey) const;
 
+        // Test seam (#1345): the next `count` creations report `result`
+        // instead of calling the driver, so the failed-creation accounting can
+        // be pinned without provoking a real driver failure (#994: a driver
+        // that rejects a pipeline may crash instead of returning an error).
+        void FailNextCreationsForTesting(u32 count, VkResult result = VK_ERROR_UNKNOWN);
+
       private:
         VulkanPipelineBuilder() = default;
+
+        // Everything one creation reads, copied on the thread that asked for
+        // it. The worker builds the create info from this alone.
+        struct CreateInputs
+        {
+            bool Compute = false;
+            u64 ShaderKey = 0;
+            std::string ShaderName;
+            u32 StageMask = 0;
+            std::vector<std::pair<VkShaderStageFlagBits, VkShaderModule>> Modules;
+            bool Mesh = false;
+            VulkanRootDataLayout Layout;
+            VulkanRecordedPipelineState State;
+            VulkanRenderTargetDesc Targets;
+        };
+        struct CreateResult
+        {
+            VkPipeline Pipeline = VK_NULL_HANDLE;
+            VkResult Result = VK_SUCCESS;
+            f64 Milliseconds = 0.0;
+            PipelineDriverCacheResult Cache = PipelineDriverCacheResult::Unknown;
+        };
+
+        struct Entry
+        {
+            VkPipeline Pipeline = VK_NULL_HANDLE;
+            bool Prepared = false;                           ///< Created through a request, not by a draw.
+            mutable std::atomic<bool> FirstUseSeen{ false }; ///< The first draw that used it has been counted.
+
+            Entry(VkPipeline pipeline, bool prepared) : Pipeline(pipeline), Prepared(prepared), FirstUseSeen(!prepared) {}
+        };
 
         // The §4 mapping array for one root layout — shared verbatim by the
         // graphics and compute paths so the two cannot drift. Samplers come
         // from the sampler heap (see GetOrCreateGraphics), never embedded.
-        // Called under m_Mutex by both.
         [[nodiscard]] static std::vector<VkDescriptorSetAndBindingMappingEXT>
         BuildBindingMappings(const VulkanRootDataLayout& layout);
 
-        struct Key
-        {
-            u64 ShaderKey = 0;
-            std::array<VkFormat, 8> ColorFormats{};
-            VkFormat DepthFormat = VK_FORMAT_UNDEFINED;
-            u32 ColorCount = 0;
-            u32 Samples = 1;
-            u64 BakedBlendHash = 0; ///< 0 when blend is dynamic (EDS3 present).
-            u64 LayoutHash = 0;     ///< Root-data layout — drives the baked binding mappings.
-            /// Baked patch size for a tessellated pipeline; 0 when the shader
-            /// has no TCS/TES stage. patchControlPoints is only dynamic under
-            /// extendedDynamicState2PatchControlPoints, which is NOT on the
-            /// ADR 0010 floor — so it is a PSO axis here (#691, A10).
-            u32 PatchControlPoints = 0;
+        [[nodiscard]] static CreateInputs SnapshotGraphics(VulkanShader& shader, const VulkanRootDataLayout& layout,
+                                                           const VulkanRecordedPipelineState& state,
+                                                           const VulkanRenderTargetDesc& targets);
+        [[nodiscard]] static CreateInputs SnapshotCompute(u64 shaderKey, VkShaderModule module,
+                                                          const VulkanRootDataLayout& layout,
+                                                          std::string_view shaderName);
+        // The driver call. Holds no builder lock; reads only `inputs`.
+        [[nodiscard]] static CreateResult CreatePipeline(const CreateInputs& inputs, const Key& key,
+                                                         VkPipelineCache cache);
 
-            bool operator==(const Key&) const = default;
-        };
-        struct KeyHash
-        {
-            [[nodiscard]] sizet operator()(const Key& key) const;
-        };
+        // A hit: return the pipeline, counting a prepared pipeline's first use.
+        [[nodiscard]] VkPipeline LookUp(const Key& key);
+        // The miss path shared by graphics and compute: classify, create or
+        // wait, publish. Called without the lock; `inputs` is the snapshot.
+        [[nodiscard]] VkPipeline ResolveMiss(const Key& key, const CreateInputs& inputs);
+        bool Request(const Key& key, CreateInputs inputs, PipelineRequestPriority priority);
+        // Run one creation the caller has claimed (lock NOT held), then publish.
+        VkPipeline CreateAndPublish(const Key& key, const CreateInputs& inputs, bool blocking,
+                                    PipelineMissKind missKind);
 
         // Readers (the per-draw hit path) share; a miss upgrades to exclusive
-        // for the creation, re-checking first. The key is built OUTSIDE the
+        // for the bookkeeping, re-checking first. The key is built OUTSIDE the
         // lock — hashing a root layout per draw under a mutex was the first
         // contention the #806 measurement found.
         mutable std::shared_mutex m_Mutex;
-        std::unordered_map<Key, VkPipeline, KeyHash> m_Pipelines;
+        std::condition_variable_any m_CreationDone; ///< Notified after every publish.
+        std::unordered_map<Key, Entry, KeyHash> m_Pipelines;
+        PipelineRequestLedger<Key, KeyHash, CreateInputs> m_Ledger;
+        std::unordered_map<u64, u32> m_InFlightByShader; ///< Creations running now, per shader key.
+        u64 m_Completions = 0;
+        u32 m_LoggedMisses = 0;
+        u32 m_FailNextCreations = 0;
+        VkResult m_FailNextResult = VK_ERROR_UNKNOWN;
         CreationFailure m_LastCreationFailure;
         // Pipeline keys (every variant: target formats, blend, layout) whose
         // latest creation failed. Keyed by the FULL key, so a variant that

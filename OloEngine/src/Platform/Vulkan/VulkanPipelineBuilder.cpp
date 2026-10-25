@@ -3,15 +3,19 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
+#include "OloEngine/Core/PerformanceProfiler.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanPipelineCache.h"
+#include "Platform/Vulkan/VulkanPipelinePrecache.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanShaderReflection.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+#include "Platform/Vulkan/VulkanWarnOnce.h"
 
 #include <algorithm>
 #include <bit>
+#include <chrono>
 #include <mutex>
 #include <shared_mutex>
 #include <tuple>
@@ -236,6 +240,26 @@ namespace OloEngine
             }
             return hash == 0 ? 1 : hash;
         }
+
+        // The first misses of a session are logged with their shader and key
+        // (the "which pipeline hitched" answer); after that they are only
+        // counted, because a cold start can miss hundreds in its first frames.
+        constexpr u32 kMaxLoggedMisses = 64;
+
+        // The non-shader half of a key, as the precache manifest stores it.
+        [[nodiscard]] PipelineSignature ToSignature(const VulkanPipelineBuilder::Key& key)
+        {
+            PipelineSignature signature;
+            signature.ColorCount = key.ColorCount;
+            for (u32 i = 0; i < key.ColorCount && i < PipelineSignature::kMaxColorAttachments; ++i)
+            {
+                signature.ColorFormats[i] = static_cast<u32>(key.ColorFormats[i]);
+            }
+            signature.DepthFormat = static_cast<u32>(key.DepthFormat);
+            signature.Samples = key.Samples;
+            signature.PatchControlPoints = key.PatchControlPoints;
+            return signature;
+        }
     } // namespace
 
     // =========================================================================
@@ -343,6 +367,73 @@ namespace OloEngine
         hash = CombinePipelineHash(hash, key.LayoutHash);
         hash = CombinePipelineHash(hash, key.PatchControlPoints);
         return static_cast<sizet>(hash);
+    }
+
+    VulkanPipelineBuilder::Key VulkanPipelineBuilder::DeriveGraphicsKey(const u64 shaderKey,
+                                                                        const VulkanRootDataLayout& layout,
+                                                                        const bool tessellated, const bool dynamicBlend,
+                                                                        const VulkanRecordedPipelineState& state,
+                                                                        const VulkanRenderTargetDesc& targets)
+    {
+        const u32 colorCount = std::min(targets.ColorCount, 8u);
+        Key key;
+        key.ShaderKey = shaderKey;
+        // Only the attachments that exist: a stale format past ColorCount in
+        // the recorded desc must not split two otherwise identical keys (the
+        // hash already ignores it; equality has to agree with the hash).
+        for (u32 i = 0; i < colorCount; ++i)
+        {
+            key.ColorFormats[i] = targets.ColorFormats[i];
+        }
+        key.DepthFormat = targets.DepthFormat;
+        key.ColorCount = colorCount;
+        key.Samples = targets.Samples;
+        key.LayoutHash = HashLayout(layout);
+        // A10 (#691): a shader carrying a tessellation-control stage is
+        // a PATCH pipeline — VK_PRIMITIVE_TOPOLOGY_PATCH_LIST is then the ONLY
+        // legal topology (VUID-…-pStages-00736) and the patch size must be
+        // baked, so it joins the key.
+        key.PatchControlPoints = tessellated ? std::max(state.PatchVertexCount, 1u) : 0u;
+        if (!dynamicBlend)
+        {
+            // Blend is a baked axis only where EDS3 is absent (§5's fallback
+            // column — expected never to trigger on the desktop floor). The
+            // hash must cover EVERY recorded field the baked attachment
+            // state consumes — including the color masks and the
+            // per-attachment overrides — or two states differing only in an
+            // unhashed field silently share one pipeline.
+            u64 blendHash = state.Blend ? 1 : 0;
+            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendSrcRGB));
+            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendDstRGB));
+            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendSrcAlpha));
+            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendDstAlpha));
+            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendEquation));
+            for (u32 i = 0; i < 4; ++i)
+            {
+                blendHash = CombinePipelineHash(blendHash, state.ColorMask[i] ? 1u : 0u);
+            }
+            for (u32 i = 0; i < colorCount; ++i)
+            {
+                blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.AttachmentBlend[i]));
+                blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.AttachmentBlendFunc[i]));
+                blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.AttachmentBlendSrc[i]));
+                blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.AttachmentBlendDst[i]));
+                blendHash = CombinePipelineHash(blendHash, state.AttachmentColorMask[i]);
+            }
+            key.BakedBlendHash = blendHash == 0 ? 1 : blendHash;
+        }
+        return key;
+    }
+
+    VulkanPipelineBuilder::Key VulkanPipelineBuilder::DeriveComputeKey(const u64 shaderKey,
+                                                                       const VulkanRootDataLayout& layout)
+    {
+        Key key;
+        key.ShaderKey = shaderKey;
+        key.LayoutHash = HashLayout(layout);
+        // Target/blend fields stay zero — compute has neither, and shader
+        // keys are process-unique so no graphics key can collide.
+        return key;
     }
 
     std::vector<VkDescriptorSetAndBindingMappingEXT>
@@ -468,75 +559,559 @@ namespace OloEngine
         return mappings;
     }
 
-    VkPipeline VulkanPipelineBuilder::GetOrCreateCompute(const u64 shaderKey, const VkShaderModule module,
-                                                         const VulkanRootDataLayout& layout)
+    // =========================================================================
+    // Snapshots and the driver call (#1345). Nothing below holds m_Mutex.
+    // =========================================================================
+
+    VulkanPipelineBuilder::CreateInputs VulkanPipelineBuilder::SnapshotGraphics(VulkanShader& shader,
+                                                                                const VulkanRootDataLayout& layout,
+                                                                                const VulkanRecordedPipelineState& state,
+                                                                                const VulkanRenderTargetDesc& targets)
     {
-        auto* device = VulkanDevice::Get();
-        if (device == nullptr || module == VK_NULL_HANDLE)
+        CreateInputs inputs;
+        inputs.ShaderKey = shader.GetPipelineIndexKey();
+        inputs.ShaderName = shader.GetName();
+        inputs.Mesh = shader.HasMeshStage();
+        // The classic stage set, or [task?, mesh, fragment] for a mesh
+        // pipeline (issue #813) — GetModule returning null skips a stage, so
+        // the OPTIONAL task stage falls out naturally.
+        const std::initializer_list<VkShaderStageFlagBits> classicStages = {
+            VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+            VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT
+        };
+        const std::initializer_list<VkShaderStageFlagBits> meshStages = {
+            VK_SHADER_STAGE_TASK_BIT_EXT, VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT
+        };
+        for (const VkShaderStageFlagBits stageBit : (inputs.Mesh ? meshStages : classicStages))
         {
-            return VK_NULL_HANDLE;
-        }
-
-        Key key;
-        key.ShaderKey = shaderKey;
-        key.LayoutHash = HashLayout(layout);
-        // Target/blend fields stay zero — compute has neither, and shader
-        // keys are process-unique so no graphics key can collide.
-
-        // The hit path shares the lock (#806: every dispatch on every item
-        // comes through here); a miss takes it exclusively, re-checks, and
-        // creates under it so two threads cannot race to build one pipeline.
-        {
-            std::shared_lock readLock(m_Mutex);
-            if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
+            if (const VkShaderModule module = shader.GetModule(stageBit); module != VK_NULL_HANDLE)
             {
-                return it->second;
+                inputs.Modules.emplace_back(stageBit, module);
+                inputs.StageMask |= static_cast<u32>(stageBit);
             }
         }
-        std::lock_guard<std::shared_mutex> lock(m_Mutex);
-        if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
+        inputs.Layout = layout;
+        inputs.State = state;
+        inputs.Targets = targets;
+        inputs.Targets.ColorCount = std::min(inputs.Targets.ColorCount, 8u);
+        return inputs;
+    }
+
+    VulkanPipelineBuilder::CreateInputs VulkanPipelineBuilder::SnapshotCompute(const u64 shaderKey,
+                                                                               const VkShaderModule module,
+                                                                               const VulkanRootDataLayout& layout,
+                                                                               const std::string_view shaderName)
+    {
+        CreateInputs inputs;
+        inputs.Compute = true;
+        inputs.ShaderKey = shaderKey;
+        inputs.ShaderName = std::string(shaderName);
+        inputs.StageMask = static_cast<u32>(VK_SHADER_STAGE_COMPUTE_BIT);
+        inputs.Modules.emplace_back(VK_SHADER_STAGE_COMPUTE_BIT, module);
+        inputs.Layout = layout;
+        return inputs;
+    }
+
+    VulkanPipelineBuilder::CreateResult VulkanPipelineBuilder::CreatePipeline(const CreateInputs& inputs, const Key& key,
+                                                                              const VkPipelineCache cache)
+    {
+        CreateResult out;
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || inputs.Modules.empty())
         {
-            return it->second;
+            out.Result = VK_ERROR_INITIALIZATION_FAILED;
+            return out;
         }
 
-        const std::vector<VkDescriptorSetAndBindingMappingEXT> mappings = BuildBindingMappings(layout);
+        const auto start = std::chrono::steady_clock::now();
+        const std::vector<VkDescriptorSetAndBindingMappingEXT> mappings = BuildBindingMappings(inputs.Layout);
         VkShaderDescriptorSetAndBindingMappingInfoEXT mappingInfo{};
         mappingInfo.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
         mappingInfo.mappingCount = static_cast<u32>(mappings.size());
         mappingInfo.pMappings = mappings.data();
 
-        VkPipelineShaderStageCreateInfo stage{};
-        stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage.pNext = &mappingInfo;
-        stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        stage.module = module;
-        stage.pName = "main";
+        // Creation feedback (core 1.3) is the ONLY honest source for "did the
+        // pipeline cache serve this?" — the time alone cannot tell a fast
+        // compile from a cache hit (#1345: driver-cache hits are counted
+        // separately from creation).
+        VkPipelineCreationFeedback feedback{};
+        VkPipelineCreationFeedbackCreateInfo feedbackInfo{};
+        feedbackInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO;
+        feedbackInfo.pPipelineCreationFeedback = &feedback;
 
-        VkPipelineCreateFlags2CreateInfo flags2{};
-        flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
-        flags2.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
-
-        VkComputePipelineCreateInfo pipelineInfo{};
-        pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        pipelineInfo.pNext = &flags2;
-        pipelineInfo.stage = stage;
-        pipelineInfo.layout = VK_NULL_HANDLE; // heap-bindless: no pipeline layout exists
-
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        const VkResult result = vkCreateComputePipelines(device->GetDevice(), VulkanPipelineCache::Get().Handle(), 1,
-                                                         &pipelineInfo, nullptr, &pipeline);
-        if (result != VK_SUCCESS)
+        if (inputs.Compute)
         {
-            OLO_CORE_ERROR("VulkanPipelineBuilder: compute pipeline creation failed (VkResult {})",
-                           static_cast<int>(result));
-            m_LastCreationFailure = { true, "<compute>", result };
-            m_FailedPipelines[key] = result;
-            return VK_NULL_HANDLE;
+            VkPipelineShaderStageCreateInfo stage{};
+            stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            stage.pNext = &mappingInfo;
+            stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+            stage.module = inputs.Modules.front().second;
+            stage.pName = "main";
+
+            VkPipelineCreateFlags2CreateInfo flags2{};
+            flags2.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+            flags2.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+            flags2.pNext = &feedbackInfo;
+
+            VkComputePipelineCreateInfo pipelineInfo{};
+            pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+            pipelineInfo.pNext = &flags2;
+            pipelineInfo.stage = stage;
+            pipelineInfo.layout = VK_NULL_HANDLE; // heap-bindless: no pipeline layout exists
+
+            out.Result = vkCreateComputePipelines(device->GetDevice(), cache, 1, &pipelineInfo, nullptr, &out.Pipeline);
+        }
+        else
+        {
+            const VulkanRecordedPipelineState& state = inputs.State;
+            const VulkanRenderTargetDesc& safeTargets = inputs.Targets;
+            // The key decided this when it was derived: a baked blend hash is
+            // non-zero exactly when blend is not dynamic on this device.
+            const bool dynamicBlend = key.BakedBlendHash == 0;
+
+            // --- Shader stages, each carrying its binding-mapping chain ------
+            // The mapping array is identical across stages (the root struct is
+            // one object per draw). The same mappingInfo chains onto EVERY
+            // stage present, task and mesh included: each stage create info
+            // must carry the §4 binding mappings with the per-kind
+            // resourceMask discipline (VUID-11244 keys on (set, binding,
+            // mask), not on stage kind).
+            std::vector<VkPipelineShaderStageCreateInfo> stages;
+            stages.reserve(inputs.Modules.size());
+            for (const auto& [stageBit, module] : inputs.Modules)
+            {
+                VkPipelineShaderStageCreateInfo stage{};
+                stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+                stage.pNext = &mappingInfo;
+                stage.stage = stageBit;
+                stage.module = module;
+                stage.pName = "main";
+                stages.push_back(stage);
+            }
+
+            // --- Fixed-function: everything dynamic that the floor allows ----
+            VkPipelineVertexInputStateCreateInfo vertexInput{};
+            vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+            // Zero attributes/bindings — §5: vertex data is pulled through the
+            // root struct's buffer address, the axis is REMOVED not parameterised.
+
+            VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
+            inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+            inputAssembly.topology =
+                key.PatchControlPoints != 0 ? VK_PRIMITIVE_TOPOLOGY_PATCH_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+
+            // A10: the tessellation state exists ONLY on a patch pipeline; the
+            // draw front-end sets PATCH_LIST through the dynamic topology so the
+            // baked value above and the recorded one agree.
+            //
+            // Domain origin (#691, the water-murk bug): Vulkan's default
+            // is UPPER_LEFT, GL's convention is LOWER_LEFT. The GLSL tess stages
+            // were authored against GL semantics — with the default, the
+            // tessellator's v coordinate mirrors and every generated triangle's
+            // winding flips, so a back-culled tessellated surface keeps its BACK
+            // face: geometry lands in the right place (barycentric weights are a
+            // corner permutation, still on the patch) while gl_FrontFacing,
+            // two-sided normal flips and NdotV-driven shading all invert. On the
+            // water that collapsed fresnel to zero and slammed the depth blend to
+            // the deep colour — a murky grey sea with every binding, UBO and the
+            // planar-reflection mirror verified correct. LOWER_LEFT restores GL
+            // parity by construction for water and terrain alike.
+            VkPipelineTessellationStateCreateInfo tessellation{};
+            tessellation.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
+            tessellation.patchControlPoints = key.PatchControlPoints;
+            VkPipelineTessellationDomainOriginStateCreateInfo domainOrigin{};
+            domainOrigin.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_DOMAIN_ORIGIN_STATE_CREATE_INFO;
+            domainOrigin.domainOrigin = VK_TESSELLATION_DOMAIN_ORIGIN_LOWER_LEFT;
+            tessellation.pNext = &domainOrigin;
+
+            VkPipelineViewportStateCreateInfo viewport{};
+            viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+            // Counts come from the dynamic WITH_COUNT states.
+
+            VkPipelineRasterizationStateCreateInfo raster{};
+            raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+            raster.polygonMode = VK_POLYGON_MODE_FILL;
+            raster.lineWidth = 1.0f;
+
+            VkPipelineMultisampleStateCreateInfo multisample{};
+            multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+            multisample.rasterizationSamples = static_cast<VkSampleCountFlagBits>(safeTargets.Samples);
+
+            VkPipelineDepthStencilStateCreateInfo depthStencil{};
+            depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+            // All dynamic.
+
+            std::array<VkPipelineColorBlendAttachmentState, 8> blendAttachments{};
+            VkPipelineColorBlendStateCreateInfo blend{};
+            blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+            blend.attachmentCount = safeTargets.ColorCount;
+            blend.pAttachments = blendAttachments.data();
+            for (u32 i = 0; i < safeTargets.ColorCount; ++i)
+            {
+                auto& attachment = blendAttachments[i];
+                if (dynamicBlend)
+                {
+                    // Values ignored — enable/equation/write-mask are dynamic.
+                    attachment.colorWriteMask = 0xF;
+                }
+                else
+                {
+                    // Same per-attachment selection + global-mask AND as the
+                    // dynamic path in FlushDynamicState — the two lowering routes
+                    // must produce identical blend behaviour for one recorded
+                    // state, and every field read here is in BakedBlendHash.
+                    // ENABLE and FUNC divert independently (GL parity, see the
+                    // AttachmentBlendFunc comment): glEnablei alone keeps the
+                    // GLOBAL blend func; only glBlendFunci diverts the factors.
+                    const bool useAttachmentFunc =
+                        state.AttachmentBlendFunc[i] == VulkanRecordedPipelineState::AttachmentBlendFuncOpinion::Diverted;
+                    // Integer attachments cannot blend — see the identical mask
+                    // in FlushDynamicState (the two routes must agree).
+                    // A per-attachment OPINION outranks the global flag in both
+                    // directions and only Inherit falls through to it — NOT an OR.
+                    // See the rule at the AttachmentBlend declaration; both arms
+                    // are load-bearing and each was a bug once (#823 / #896).
+                    attachment.blendEnable = (!IsIntegerFormat(safeTargets.ColorFormats[i]) &&
+                                              ResolveBlendEnable(state, i))
+                                                 ? VK_TRUE
+                                                 : VK_FALSE;
+                    attachment.srcColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB);
+                    attachment.dstColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstRGB);
+                    attachment.colorBlendOp = ToVk(state.BlendEquation);
+                    attachment.srcAlphaBlendFactor =
+                        ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcAlpha);
+                    attachment.dstAlphaBlendFactor =
+                        ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstAlpha);
+                    attachment.alphaBlendOp = ToVk(state.BlendEquation);
+                    // AttachmentColorMask ALONE — the opposite composition to
+                    // blendEnable above, deliberately. SetColorMask fills the array
+                    // for every attachment (glColorMask semantics), so ANDing the
+                    // global field in on top would make a glColorMaski-shaped WIDEN
+                    // after a global narrow fail to reach the attachment, which is
+                    // the opposite of GL, where the indexed call wins.
+                    attachment.colorWriteMask = static_cast<VkColorComponentFlags>(state.AttachmentColorMask[i]);
+                }
+            }
+
+            std::vector<VkDynamicState> dynamicStates = {
+                // Core 1.0/1.3 (EDS1/EDS2 promotions — no extension at our floor):
+                VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT,
+                VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT,
+                VK_DYNAMIC_STATE_CULL_MODE,
+                VK_DYNAMIC_STATE_FRONT_FACE,
+                VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE,
+                VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE,
+                VK_DYNAMIC_STATE_DEPTH_COMPARE_OP,
+                VK_DYNAMIC_STATE_DEPTH_BOUNDS_TEST_ENABLE,
+                VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE,
+                VK_DYNAMIC_STATE_STENCIL_OP,
+                VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
+                VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
+                VK_DYNAMIC_STATE_STENCIL_REFERENCE,
+                VK_DYNAMIC_STATE_DEPTH_BIAS_ENABLE,
+                VK_DYNAMIC_STATE_DEPTH_BIAS,
+                VK_DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE,
+            };
+            if (!inputs.Mesh)
+            {
+                // Input-assembly dynamic state exists only where input assembly
+                // does: DECLARING topology / primitive-restart on a mesh pipeline
+                // is itself a validation error (issue #813), not merely setting
+                // them — FlushDynamicState mirrors this split on the record side.
+                dynamicStates.push_back(VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY);
+                dynamicStates.push_back(VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE);
+            }
+            if (dynamicBlend)
+            {
+                dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT);
+                dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT);
+                dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_WRITE_MASK_EXT);
+            }
+            VkPipelineDynamicStateCreateInfo dynamic{};
+            dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+            dynamic.dynamicStateCount = static_cast<u32>(dynamicStates.size());
+            dynamic.pDynamicStates = dynamicStates.data();
+
+            // --- Dynamic rendering + heap-mode create flags ------------------
+            VkPipelineRenderingCreateInfo rendering{};
+            rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
+            rendering.pNext = &feedbackInfo;
+            rendering.colorAttachmentCount = safeTargets.ColorCount;
+            rendering.pColorAttachmentFormats = safeTargets.ColorFormats.data();
+            rendering.depthAttachmentFormat = safeTargets.DepthFormat;
+            // A combined depth/stencil target shares the attachment for both
+            // aspects (EnsureRenderingScopeForDraw passes pStencilAttachment for
+            // it), and VUID-08917 requires the PSO's stencil format to match the
+            // rendering info's — the first D24S8/D32S8 scene FB on this backend
+            // (#691: OITPrepare / DeferredLighting) tripped it.
+            rendering.stencilAttachmentFormat =
+                (safeTargets.DepthFormat == VK_FORMAT_D32_SFLOAT_S8_UINT ||
+                 safeTargets.DepthFormat == VK_FORMAT_D24_UNORM_S8_UINT)
+                    ? safeTargets.DepthFormat
+                    : VK_FORMAT_UNDEFINED;
+
+            VkPipelineCreateFlags2CreateInfo createFlags{};
+            createFlags.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
+            createFlags.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
+            createFlags.pNext = &rendering;
+
+            VkGraphicsPipelineCreateInfo pipelineInfo{};
+            pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+            pipelineInfo.pNext = &createFlags;
+            pipelineInfo.stageCount = static_cast<u32>(stages.size());
+            pipelineInfo.pStages = stages.data();
+            // A mesh pipeline has no vertex input and no input assembly — both
+            // pointers MUST be null when the mesh stage is present (issue #813);
+            // the classic path keeps its empty vertex-input state (§5 vertex
+            // pulling removed the contents, mesh shading removes the struct).
+            pipelineInfo.pVertexInputState = inputs.Mesh ? nullptr : &vertexInput;
+            pipelineInfo.pInputAssemblyState = inputs.Mesh ? nullptr : &inputAssembly;
+            pipelineInfo.pTessellationState = key.PatchControlPoints != 0 ? &tessellation : nullptr;
+            pipelineInfo.pViewportState = &viewport;
+            pipelineInfo.pRasterizationState = &raster;
+            pipelineInfo.pMultisampleState = &multisample;
+            pipelineInfo.pDepthStencilState = &depthStencil;
+            pipelineInfo.pColorBlendState = &blend;
+            pipelineInfo.pDynamicState = &dynamic;
+            // No VkPipelineLayout: descriptor-heap pipelines take their binding
+            // model from the per-stage mapping chains.
+            pipelineInfo.layout = VK_NULL_HANDLE;
+
+            out.Result = vkCreateGraphicsPipelines(device->GetDevice(), cache, 1, &pipelineInfo, nullptr, &out.Pipeline);
         }
 
-        m_FailedPipelines.erase(key);
-        m_Pipelines[key] = pipeline;
+        out.Milliseconds = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - start).count();
+        if (out.Result != VK_SUCCESS)
+        {
+            out.Pipeline = VK_NULL_HANDLE;
+        }
+        if ((feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_VALID_BIT) != 0)
+        {
+            out.Cache = (feedback.flags & VK_PIPELINE_CREATION_FEEDBACK_APPLICATION_PIPELINE_CACHE_HIT_BIT) != 0
+                            ? PipelineDriverCacheResult::Hit
+                            : PipelineDriverCacheResult::Miss;
+        }
+        return out;
+    }
+
+    // =========================================================================
+    // Lookup, miss resolution, requests (#1345)
+    // =========================================================================
+
+    VkPipeline VulkanPipelineBuilder::LookUp(const Key& key)
+    {
+        // The hit path shares the lock (#806: every draw and dispatch on every
+        // item comes through here).
+        std::shared_lock readLock(m_Mutex);
+        const auto it = m_Pipelines.find(key);
+        if (it == m_Pipelines.end())
+        {
+            return VK_NULL_HANDLE;
+        }
+        const Entry& entry = it->second;
+        const VkPipeline pipeline = entry.Pipeline;
+        // A prepared pipeline's first use is the complete-PSO hit. The flag
+        // makes it once per pipeline; the ledger counter needs the exclusive
+        // lock, taken only on that one draw.
+        if (!entry.FirstUseSeen.load(std::memory_order_relaxed) &&
+            !entry.FirstUseSeen.exchange(true, std::memory_order_acq_rel))
+        {
+            readLock.unlock();
+            std::lock_guard<std::shared_mutex> lock(m_Mutex);
+            m_Ledger.NoteFirstUse(key);
+        }
         return pipeline;
+    }
+
+    VkPipeline VulkanPipelineBuilder::ResolveMiss(const Key& key, const CreateInputs& inputs)
+    {
+        std::unique_lock<std::shared_mutex> lock(m_Mutex);
+        for (;;)
+        {
+            if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
+            {
+                // Published while this thread waited: already counted as a
+                // late request, so it is not ALSO a prepared first use.
+                it->second.FirstUseSeen.store(true, std::memory_order_relaxed);
+                return it->second.Pipeline;
+            }
+
+            const auto miss = m_Ledger.ClaimMiss(key, inputs.ShaderKey);
+            if (miss.Action == decltype(m_Ledger)::MissAction::Wait)
+            {
+                // Another thread (the precache worker, or a second recording
+                // item) is creating exactly this pipeline. Waiting costs the
+                // rest of its compile; compiling it again would cost all of it.
+                const auto waitStart = std::chrono::steady_clock::now();
+                {
+                    OLO_PERF_SCOPE_AUTO("Vulkan::PipelineWaitForCreation");
+                    m_CreationDone.wait(lock, [&]
+                                        {
+                        const auto state = m_Ledger.GetState(key);
+                        return !state.has_value() || *state != decltype(m_Ledger)::State::InFlight; });
+                }
+                const f64 waitMs =
+                    std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - waitStart).count();
+                m_Ledger.NoteBlockingWait(waitMs);
+                if (m_LoggedMisses < kMaxLoggedMisses)
+                {
+                    ++m_LoggedMisses;
+                    OLO_CORE_WARN("[Vulkan/PSO] '{}': {} — the draw waited {:.2f} ms", inputs.ShaderName,
+                                  ToString(miss.Kind), waitMs);
+                }
+                continue;
+            }
+
+            if (miss.ReadyClaimViolation)
+            {
+                // The collector declared this shader render-ready and the draw
+                // still had to create a pipeline for it: the claim hid
+                // synchronous work. Loud by design (#1345 criterion 2).
+                static VulkanWarnOnceSet s_WarnedClaims;
+                if (s_WarnedClaims.Insert(inputs.ShaderName))
+                {
+                    OLO_CORE_ERROR("[Vulkan/PSO] '{}' was declared render-ready, but a draw needed a pipeline nobody "
+                                   "requested ({} colour attachment(s), {} sample(s), patch {}) — creating it "
+                                   "synchronously; counted as a ready-claim violation",
+                                   inputs.ShaderName, key.ColorCount, key.Samples, key.PatchControlPoints);
+                }
+            }
+            ++m_InFlightByShader[inputs.ShaderKey];
+            lock.unlock();
+            return CreateAndPublish(key, inputs, /*blocking=*/true, miss.Kind);
+        }
+    }
+
+    VkPipeline VulkanPipelineBuilder::CreateAndPublish(const Key& key, const CreateInputs& inputs, const bool blocking,
+                                                       const PipelineMissKind missKind)
+    {
+        // The pipeline cache handle and the test seam are read under the lock
+        // (VulkanPipelineCache's lazy create relies on it), the driver call is
+        // made without it.
+        VkPipelineCache cache = VK_NULL_HANDLE;
+        VkResult forced = VK_SUCCESS;
+        {
+            std::lock_guard<std::shared_mutex> lock(m_Mutex);
+            cache = VulkanPipelineCache::Get().Handle();
+            if (m_FailNextCreations > 0)
+            {
+                --m_FailNextCreations;
+                forced = m_FailNextResult;
+            }
+        }
+
+        CreateResult result;
+        if (forced != VK_SUCCESS)
+        {
+            result.Result = forced;
+        }
+        else if (blocking)
+        {
+            // Named so a hitch frame in the CPU scope ring (#1604) says what it
+            // was waiting on.
+            OLO_PERF_SCOPE_AUTO("Vulkan::PipelineBlockingCreate");
+            result = CreatePipeline(inputs, key, cache);
+        }
+        else
+        {
+            result = CreatePipeline(inputs, key, cache);
+        }
+
+        VkPipeline published = VK_NULL_HANDLE;
+        bool logMiss = false;
+        bool fresh = false;
+        {
+            std::lock_guard<std::shared_mutex> lock(m_Mutex);
+            const bool success = result.Pipeline != VK_NULL_HANDLE;
+            fresh = m_Ledger.Complete(key, success, blocking, result.Milliseconds, result.Cache);
+            if (const auto it = m_InFlightByShader.find(inputs.ShaderKey); it != m_InFlightByShader.end())
+            {
+                if (--it->second == 0)
+                {
+                    m_InFlightByShader.erase(it);
+                }
+            }
+            ++m_Completions;
+            if (success)
+            {
+                if (fresh)
+                {
+                    m_FailedPipelines.erase(key);
+                    const auto [it, inserted] = m_Pipelines.try_emplace(key, result.Pipeline, /*prepared=*/!blocking);
+                    if (!inserted)
+                    {
+                        VulkanDeferredReclaim::Get().Enqueue(result.Pipeline);
+                    }
+                    published = it->second.Pipeline;
+                }
+                else
+                {
+                    // The shader was invalidated while this creation ran: the
+                    // pipeline was built from modules that are about to go.
+                    // A draw that paid for it may still use it this frame (the
+                    // reclaim waits out the frames in flight); nobody else may.
+                    VulkanDeferredReclaim::Get().Enqueue(result.Pipeline);
+                    published = blocking ? result.Pipeline : VK_NULL_HANDLE;
+                }
+            }
+            else
+            {
+                m_LastCreationFailure = { true, inputs.ShaderName, result.Result };
+                if (fresh)
+                {
+                    m_FailedPipelines[key] = result.Result;
+                }
+            }
+            if (blocking && m_LoggedMisses < kMaxLoggedMisses)
+            {
+                ++m_LoggedMisses;
+                logMiss = true;
+            }
+            m_CreationDone.notify_all();
+        }
+
+        if (result.Pipeline == VK_NULL_HANDLE)
+        {
+            OLO_CORE_ERROR("VulkanPipelineBuilder: {} pipeline creation failed for '{}' (VkResult {}){}",
+                           inputs.Compute ? "compute" : "graphics", inputs.ShaderName, static_cast<int>(result.Result),
+                           blocking ? "" : " — requested ahead of the draw; the draw will retry and count it");
+            return VK_NULL_HANDLE;
+        }
+        if (logMiss)
+        {
+            OLO_CORE_WARN("[Vulkan/PSO] '{}': {} — created synchronously in {:.2f} ms ({} colour, {} sample(s), "
+                          "patch {}, pipeline cache {}){}",
+                          inputs.ShaderName, ToString(missKind), result.Milliseconds, key.ColorCount, key.Samples,
+                          key.PatchControlPoints,
+                          result.Cache == PipelineDriverCacheResult::Hit    ? "hit"
+                          : result.Cache == PipelineDriverCacheResult::Miss ? "miss"
+                                                                            : "unknown",
+                          m_LoggedMisses >= kMaxLoggedMisses ? "; further misses are counted, not logged" : "");
+        }
+        if (blocking && fresh)
+        {
+            // The draw path saw the complete key: record it so the next session
+            // (and a packaged runtime shipping the manifest) requests it ahead.
+            VulkanPipelinePrecache::Get().RecordDrawCreation(inputs.ShaderName, inputs.StageMask,
+                                                             ToSignature(key));
+        }
+        return published;
+    }
+
+    VkPipeline VulkanPipelineBuilder::GetOrCreateCompute(const u64 shaderKey, const VkShaderModule module,
+                                                         const VulkanRootDataLayout& layout,
+                                                         const std::string_view shaderName)
+    {
+        if (VulkanDevice::Get() == nullptr || module == VK_NULL_HANDLE)
+        {
+            return VK_NULL_HANDLE;
+        }
+        const Key key = DeriveComputeKey(shaderKey, layout);
+        if (const VkPipeline pipeline = LookUp(key); pipeline != VK_NULL_HANDLE)
+        {
+            return pipeline;
+        }
+        return ResolveMiss(key, SnapshotCompute(shaderKey, module, layout, shaderName));
     }
 
     VkPipeline VulkanPipelineBuilder::GetOrCreateGraphics(VulkanShader& shader, const VulkanRootDataLayout& layout,
@@ -551,330 +1126,174 @@ namespace OloEngine
         // [400] ColorCount indexes fixed 8-wide arrays here, in the blend
         // state, and in FlushDynamicState — clamp once, loudly.
         OLO_CORE_ASSERT(targets.ColorCount <= 8, "VulkanRenderTargetDesc: at most 8 color attachments");
-        VulkanRenderTargetDesc clamped = targets;
-        clamped.ColorCount = std::min(clamped.ColorCount, 8u);
-        const VulkanRenderTargetDesc& safeTargets = clamped;
+        VulkanRenderTargetDesc safeTargets = targets;
+        safeTargets.ColorCount = std::min(safeTargets.ColorCount, 8u);
 
-        const bool dynamicBlend = device->IsDynamicBlendStateEnabled();
-
-        Key key;
-        key.ShaderKey = shader.GetPipelineIndexKey();
-        key.ColorFormats = safeTargets.ColorFormats;
-        key.DepthFormat = safeTargets.DepthFormat;
-        key.ColorCount = safeTargets.ColorCount;
-        key.Samples = safeTargets.Samples;
-        key.LayoutHash = HashLayout(layout);
-        // A10 (#691): a shader carrying a tessellation-control stage is
-        // a PATCH pipeline — VK_PRIMITIVE_TOPOLOGY_PATCH_LIST is then the ONLY
-        // legal topology (VUID-…-pStages-00736) and the patch size must be
-        // baked, so it joins the key.
+        // Mesh pipeline (issue #813): deliberately NOT a key axis. ShaderKey
+        // identifies the shader, a shader is mesh or classic but never both at
+        // once, and a reload that changes its stage set runs InvalidateShader
+        // first — so the key cannot alias a stale kind.
         const bool tessellated = shader.GetModule(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) != VK_NULL_HANDLE;
-        key.PatchControlPoints = tessellated ? std::max(state.PatchVertexCount, 1u) : 0u;
-        // Mesh pipeline (issue #813): the shader's stage set IS the
-        // detection — a module at VK_SHADER_STAGE_MESH_BIT_EXT makes this a
-        // [task?, mesh, fragment] pipeline with no vertex input and no input
-        // assembly. Deliberately NOT a key axis: ShaderKey identifies the
-        // shader, a shader is mesh or classic but never both at once, and a
-        // reload that changes its stage set runs InvalidateShader first — so
-        // the key cannot alias a stale kind.
-        const bool meshPipeline = shader.HasMeshStage();
-        if (!dynamicBlend)
+        const Key key = DeriveGraphicsKey(shader.GetPipelineIndexKey(), layout, tessellated,
+                                          device->IsDynamicBlendStateEnabled(), state, safeTargets);
+        if (const VkPipeline pipeline = LookUp(key); pipeline != VK_NULL_HANDLE)
         {
-            // Blend is a baked axis only where EDS3 is absent (§5's fallback
-            // column — expected never to trigger on the desktop floor). The
-            // hash must cover EVERY recorded field the baked attachment
-            // state below consumes — including the color masks and the
-            // per-attachment overrides — or two states differing only in an
-            // unhashed field silently share one pipeline.
-            u64 blendHash = state.Blend ? 1 : 0;
-            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendSrcRGB));
-            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendDstRGB));
-            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendSrcAlpha));
-            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendDstAlpha));
-            blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.BlendEquation));
-            for (u32 i = 0; i < 4; ++i)
-            {
-                blendHash = CombinePipelineHash(blendHash, state.ColorMask[i] ? 1u : 0u);
-            }
-            for (u32 i = 0; i < safeTargets.ColorCount; ++i)
-            {
-                blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.AttachmentBlend[i]));
-                blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.AttachmentBlendFunc[i]));
-                blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.AttachmentBlendSrc[i]));
-                blendHash = CombinePipelineHash(blendHash, static_cast<u64>(state.AttachmentBlendDst[i]));
-                blendHash = CombinePipelineHash(blendHash, state.AttachmentColorMask[i]);
-            }
-            key.BakedBlendHash = blendHash == 0 ? 1 : blendHash;
+            return pipeline;
         }
-
-        // Same two-step lookup as the compute path (#806).
-        {
-            std::shared_lock readLock(m_Mutex);
-            if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
-            {
-                return it->second;
-            }
-        }
-        std::lock_guard<std::shared_mutex> lock(m_Mutex);
-        if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
-        {
-            return it->second;
-        }
-
-        // --- Shader stages, each carrying its binding-mapping chain ----------
-        // The mapping array is identical across stages (the root struct is one
-        // object per draw); resourceMask ALL lets one mapping per binding
-        // cover whatever SPIR-V resource type the stage declares there.
-        const std::vector<VkDescriptorSetAndBindingMappingEXT> mappings = BuildBindingMappings(layout);
-
-        VkShaderDescriptorSetAndBindingMappingInfoEXT mappingInfo{};
-        mappingInfo.sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
-        mappingInfo.mappingCount = static_cast<u32>(mappings.size());
-        mappingInfo.pMappings = mappings.data();
-
-        // The classic stage set, or [task?, mesh, fragment] for a mesh
-        // pipeline (issue #813) — GetModule returning null skips a stage, so
-        // the OPTIONAL task stage falls out naturally. The same mappingInfo
-        // chains onto EVERY stage present, task and mesh included: each
-        // stage create info must carry the §4 binding mappings with the
-        // per-kind resourceMask discipline (VUID-11244 keys on (set,
-        // binding, mask), not on stage kind).
-        const std::initializer_list<VkShaderStageFlagBits> classicStages = {
-            VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
-            VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT
-        };
-        const std::initializer_list<VkShaderStageFlagBits> meshStages = {
-            VK_SHADER_STAGE_TASK_BIT_EXT, VK_SHADER_STAGE_MESH_BIT_EXT, VK_SHADER_STAGE_FRAGMENT_BIT
-        };
-        std::vector<VkPipelineShaderStageCreateInfo> stages;
-        for (const VkShaderStageFlagBits stageBit : (meshPipeline ? meshStages : classicStages))
-        {
-            const VkShaderModule module = shader.GetModule(stageBit);
-            if (module == VK_NULL_HANDLE)
-            {
-                continue;
-            }
-            VkPipelineShaderStageCreateInfo stage{};
-            stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-            stage.pNext = &mappingInfo;
-            stage.stage = stageBit;
-            stage.module = module;
-            stage.pName = "main";
-            stages.push_back(stage);
-        }
-        if (stages.empty())
+        CreateInputs inputs = SnapshotGraphics(shader, layout, state, safeTargets);
+        if (inputs.Modules.empty())
         {
             OLO_CORE_ERROR("VulkanPipelineBuilder: shader '{}' has no modules", shader.GetName());
             return VK_NULL_HANDLE;
         }
-
-        // --- Fixed-function: everything dynamic that the floor allows --------
-        VkPipelineVertexInputStateCreateInfo vertexInput{};
-        vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-        // Zero attributes/bindings — §5: vertex data is pulled through the
-        // root struct's buffer address, the axis is REMOVED not parameterised.
-
-        VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
-        inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        inputAssembly.topology =
-            key.PatchControlPoints != 0 ? VK_PRIMITIVE_TOPOLOGY_PATCH_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
-
-        // A10: the tessellation state exists ONLY on a patch pipeline; the
-        // draw front-end sets PATCH_LIST through the dynamic topology so the
-        // baked value above and the recorded one agree.
-        //
-        // Domain origin (#691, the water-murk bug): Vulkan's default
-        // is UPPER_LEFT, GL's convention is LOWER_LEFT. The GLSL tess stages
-        // were authored against GL semantics — with the default, the
-        // tessellator's v coordinate mirrors and every generated triangle's
-        // winding flips, so a back-culled tessellated surface keeps its BACK
-        // face: geometry lands in the right place (barycentric weights are a
-        // corner permutation, still on the patch) while gl_FrontFacing,
-        // two-sided normal flips and NdotV-driven shading all invert. On the
-        // water that collapsed fresnel to zero and slammed the depth blend to
-        // the deep colour — a murky grey sea with every binding, UBO and the
-        // planar-reflection mirror verified correct. LOWER_LEFT restores GL
-        // parity by construction for water and terrain alike.
-        VkPipelineTessellationStateCreateInfo tessellation{};
-        tessellation.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_STATE_CREATE_INFO;
-        tessellation.patchControlPoints = key.PatchControlPoints;
-        VkPipelineTessellationDomainOriginStateCreateInfo domainOrigin{};
-        domainOrigin.sType = VK_STRUCTURE_TYPE_PIPELINE_TESSELLATION_DOMAIN_ORIGIN_STATE_CREATE_INFO;
-        domainOrigin.domainOrigin = VK_TESSELLATION_DOMAIN_ORIGIN_LOWER_LEFT;
-        tessellation.pNext = &domainOrigin;
-
-        VkPipelineViewportStateCreateInfo viewport{};
-        viewport.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
-        // Counts come from the dynamic WITH_COUNT states.
-
-        VkPipelineRasterizationStateCreateInfo raster{};
-        raster.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-        raster.polygonMode = VK_POLYGON_MODE_FILL;
-        raster.lineWidth = 1.0f;
-
-        VkPipelineMultisampleStateCreateInfo multisample{};
-        multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        multisample.rasterizationSamples = static_cast<VkSampleCountFlagBits>(safeTargets.Samples);
-
-        VkPipelineDepthStencilStateCreateInfo depthStencil{};
-        depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        // All dynamic.
-
-        std::array<VkPipelineColorBlendAttachmentState, 8> blendAttachments{};
-        VkPipelineColorBlendStateCreateInfo blend{};
-        blend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        blend.attachmentCount = safeTargets.ColorCount;
-        blend.pAttachments = blendAttachments.data();
-        for (u32 i = 0; i < safeTargets.ColorCount; ++i)
-        {
-            auto& attachment = blendAttachments[i];
-            if (dynamicBlend)
-            {
-                // Values ignored — enable/equation/write-mask are dynamic.
-                attachment.colorWriteMask = 0xF;
-            }
-            else
-            {
-                // Same per-attachment selection + global-mask AND as the
-                // dynamic path in FlushDynamicState — the two lowering routes
-                // must produce identical blend behaviour for one recorded
-                // state, and every field read here is in BakedBlendHash.
-                // ENABLE and FUNC divert independently (GL parity, see the
-                // AttachmentBlendFunc comment): glEnablei alone keeps the
-                // GLOBAL blend func; only glBlendFunci diverts the factors.
-                const bool useAttachmentFunc =
-                    state.AttachmentBlendFunc[i] == VulkanRecordedPipelineState::AttachmentBlendFuncOpinion::Diverted;
-                // Integer attachments cannot blend — see the identical mask
-                // in FlushDynamicState (the two routes must agree).
-                // A per-attachment OPINION outranks the global flag in both
-                // directions and only Inherit falls through to it — NOT an OR.
-                // See the rule at the AttachmentBlend declaration; both arms
-                // are load-bearing and each was a bug once (#823 / #896).
-                attachment.blendEnable = (!IsIntegerFormat(safeTargets.ColorFormats[i]) &&
-                                          ResolveBlendEnable(state, i))
-                                             ? VK_TRUE
-                                             : VK_FALSE;
-                attachment.srcColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcRGB);
-                attachment.dstColorBlendFactor = ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstRGB);
-                attachment.colorBlendOp = ToVk(state.BlendEquation);
-                attachment.srcAlphaBlendFactor =
-                    ToVk(useAttachmentFunc ? state.AttachmentBlendSrc[i] : state.BlendSrcAlpha);
-                attachment.dstAlphaBlendFactor =
-                    ToVk(useAttachmentFunc ? state.AttachmentBlendDst[i] : state.BlendDstAlpha);
-                attachment.alphaBlendOp = ToVk(state.BlendEquation);
-                // AttachmentColorMask ALONE — the opposite composition to
-                // blendEnable above, deliberately. SetColorMask fills the array
-                // for every attachment (glColorMask semantics), so ANDing the
-                // global field in on top would make a glColorMaski-shaped WIDEN
-                // after a global narrow fail to reach the attachment, which is
-                // the opposite of GL, where the indexed call wins.
-                attachment.colorWriteMask = static_cast<VkColorComponentFlags>(state.AttachmentColorMask[i]);
-            }
-        }
-
-        std::vector<VkDynamicState> dynamicStates = {
-            // Core 1.0/1.3 (EDS1/EDS2 promotions — no extension at our floor):
-            VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT,
-            VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT,
-            VK_DYNAMIC_STATE_CULL_MODE,
-            VK_DYNAMIC_STATE_FRONT_FACE,
-            VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE,
-            VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE,
-            VK_DYNAMIC_STATE_DEPTH_COMPARE_OP,
-            VK_DYNAMIC_STATE_DEPTH_BOUNDS_TEST_ENABLE,
-            VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE,
-            VK_DYNAMIC_STATE_STENCIL_OP,
-            VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
-            VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
-            VK_DYNAMIC_STATE_STENCIL_REFERENCE,
-            VK_DYNAMIC_STATE_DEPTH_BIAS_ENABLE,
-            VK_DYNAMIC_STATE_DEPTH_BIAS,
-            VK_DYNAMIC_STATE_RASTERIZER_DISCARD_ENABLE,
-        };
-        if (!meshPipeline)
-        {
-            // Input-assembly dynamic state exists only where input assembly
-            // does: DECLARING topology / primitive-restart on a mesh pipeline
-            // is itself a validation error (issue #813), not merely setting
-            // them — FlushDynamicState mirrors this split on the record side.
-            dynamicStates.push_back(VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY);
-            dynamicStates.push_back(VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE);
-        }
-        if (dynamicBlend)
-        {
-            dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_ENABLE_EXT);
-            dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_BLEND_EQUATION_EXT);
-            dynamicStates.push_back(VK_DYNAMIC_STATE_COLOR_WRITE_MASK_EXT);
-        }
-        VkPipelineDynamicStateCreateInfo dynamic{};
-        dynamic.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
-        dynamic.dynamicStateCount = static_cast<u32>(dynamicStates.size());
-        dynamic.pDynamicStates = dynamicStates.data();
-
-        // --- Dynamic rendering + heap-mode create flags ----------------------
-        VkPipelineRenderingCreateInfo rendering{};
-        rendering.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO;
-        rendering.colorAttachmentCount = safeTargets.ColorCount;
-        rendering.pColorAttachmentFormats = safeTargets.ColorFormats.data();
-        rendering.depthAttachmentFormat = safeTargets.DepthFormat;
-        // A combined depth/stencil target shares the attachment for both
-        // aspects (EnsureRenderingScopeForDraw passes pStencilAttachment for
-        // it), and VUID-08917 requires the PSO's stencil format to match the
-        // rendering info's — the first D24S8/D32S8 scene FB on this backend
-        // (#691: OITPrepare / DeferredLighting) tripped it.
-        rendering.stencilAttachmentFormat =
-            (safeTargets.DepthFormat == VK_FORMAT_D32_SFLOAT_S8_UINT ||
-             safeTargets.DepthFormat == VK_FORMAT_D24_UNORM_S8_UINT)
-                ? safeTargets.DepthFormat
-                : VK_FORMAT_UNDEFINED;
-
-        VkPipelineCreateFlags2CreateInfo createFlags{};
-        createFlags.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
-        createFlags.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
-        createFlags.pNext = &rendering;
-
-        VkGraphicsPipelineCreateInfo pipelineInfo{};
-        pipelineInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        pipelineInfo.pNext = &createFlags;
-        pipelineInfo.stageCount = static_cast<u32>(stages.size());
-        pipelineInfo.pStages = stages.data();
-        // A mesh pipeline has no vertex input and no input assembly — both
-        // pointers MUST be null when the mesh stage is present (issue #813);
-        // the classic path keeps its empty vertex-input state (§5 vertex
-        // pulling removed the contents, mesh shading removes the struct).
-        pipelineInfo.pVertexInputState = meshPipeline ? nullptr : &vertexInput;
-        pipelineInfo.pInputAssemblyState = meshPipeline ? nullptr : &inputAssembly;
-        pipelineInfo.pTessellationState = key.PatchControlPoints != 0 ? &tessellation : nullptr;
-        pipelineInfo.pViewportState = &viewport;
-        pipelineInfo.pRasterizationState = &raster;
-        pipelineInfo.pMultisampleState = &multisample;
-        pipelineInfo.pDepthStencilState = &depthStencil;
-        pipelineInfo.pColorBlendState = &blend;
-        pipelineInfo.pDynamicState = &dynamic;
-        // No VkPipelineLayout: descriptor-heap pipelines take their binding
-        // model from the per-stage mapping chains.
-        pipelineInfo.layout = VK_NULL_HANDLE;
-
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        const VkResult result = vkCreateGraphicsPipelines(device->GetDevice(), VulkanPipelineCache::Get().Handle(), 1,
-                                                          &pipelineInfo, nullptr, &pipeline);
-        if (result != VK_SUCCESS)
-        {
-            OLO_CORE_ERROR("VulkanPipelineBuilder: vkCreateGraphicsPipelines failed for '{}' (VkResult {})",
-                           shader.GetName(), static_cast<int>(result));
-            m_LastCreationFailure = { true, shader.GetName(), result };
-            m_FailedPipelines[key] = result;
-            return VK_NULL_HANDLE;
-        }
-
-        m_FailedPipelines.erase(key);
-        m_Pipelines[key] = pipeline;
-        return pipeline;
+        return ResolveMiss(key, inputs);
     }
 
-    sizet VulkanPipelineBuilder::InvalidateShader(u64 shaderKey)
+    bool VulkanPipelineBuilder::Request(const Key& key, CreateInputs inputs, const PipelineRequestPriority priority)
+    {
+        if (inputs.Modules.empty())
+        {
+            return false;
+        }
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
+        const u64 shaderKey = inputs.ShaderKey;
+        return m_Ledger.Request(key, shaderKey, std::move(inputs), priority);
+    }
+
+    std::optional<VulkanPipelineBuilder::Key> VulkanPipelineBuilder::RequestGraphics(VulkanShader& shader,
+                                                                                     const VulkanRenderTargetDesc& targets,
+                                                                                     const u32 patchControlPoints,
+                                                                                     const PipelineRequestPriority priority)
+    {
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr || shader.GetCompilationStatus() != ShaderCompilationStatus::Ready)
+        {
+            return std::nullopt;
+        }
+        VulkanRecordedPipelineState state{};
+        state.PatchVertexCount = std::max(patchControlPoints, 1u);
+        VulkanRenderTargetDesc safeTargets = targets;
+        safeTargets.ColorCount = std::min(safeTargets.ColorCount, 8u);
+        const VulkanRootDataLayout& layout = shader.GetRootDataLayout();
+        const bool tessellated = shader.GetModule(VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT) != VK_NULL_HANDLE;
+        const Key key = DeriveGraphicsKey(shader.GetPipelineIndexKey(), layout, tessellated,
+                                          device->IsDynamicBlendStateEnabled(), state, safeTargets);
+        CreateInputs inputs = SnapshotGraphics(shader, layout, state, safeTargets);
+        if (inputs.Modules.empty())
+        {
+            return std::nullopt;
+        }
+        (void)Request(key, std::move(inputs), priority);
+        return key;
+    }
+
+    std::optional<VulkanPipelineBuilder::Key> VulkanPipelineBuilder::RequestCompute(const u64 shaderKey,
+                                                                                    const VkShaderModule module,
+                                                                                    const VulkanRootDataLayout& layout,
+                                                                                    const std::string_view shaderName,
+                                                                                    const PipelineRequestPriority priority)
+    {
+        if (VulkanDevice::Get() == nullptr || module == VK_NULL_HANDLE)
+        {
+            return std::nullopt;
+        }
+        const Key key = DeriveComputeKey(shaderKey, layout);
+        (void)Request(key, SnapshotCompute(shaderKey, module, layout, shaderName), priority);
+        return key;
+    }
+
+    void VulkanPipelineBuilder::QuiesceShader(const u64 shaderKey)
+    {
+        std::unique_lock<std::shared_mutex> lock(m_Mutex);
+        m_Ledger.DropQueued(shaderKey);
+        m_CreationDone.wait(lock, [&]
+                            { return !m_InFlightByShader.contains(shaderKey); });
+    }
+
+    bool VulkanPipelineBuilder::PrepareNextQueued()
+    {
+        Key key;
+        CreateInputs inputs;
+        {
+            std::lock_guard<std::shared_mutex> lock(m_Mutex);
+            auto job = m_Ledger.TakeNextQueued();
+            if (!job.has_value())
+            {
+                return false;
+            }
+            key = job->first;
+            inputs = std::move(job->second);
+            ++m_InFlightByShader[inputs.ShaderKey];
+        }
+        (void)CreateAndPublish(key, inputs, /*blocking=*/false, PipelineMissKind::NeverRequested);
+        return true;
+    }
+
+    std::optional<VulkanPipelineBuilder::RequestState> VulkanPipelineBuilder::GetRequestState(const Key& key) const
+    {
+        std::shared_lock lock(m_Mutex);
+        const auto state = m_Ledger.GetState(key);
+        if (!state.has_value())
+        {
+            return std::nullopt;
+        }
+        using LedgerState = decltype(m_Ledger)::State;
+        switch (*state)
+        {
+            case LedgerState::Queued:
+                return RequestState::Queued;
+            case LedgerState::InFlight:
+                return RequestState::InFlight;
+            case LedgerState::Ready:
+                return RequestState::Ready;
+            case LedgerState::Failed:
+                return RequestState::Failed;
+        }
+        return std::nullopt;
+    }
+
+    void VulkanPipelineBuilder::DeclareShaderReady(const u64 shaderKey, const bool ready)
     {
         std::lock_guard<std::shared_mutex> lock(m_Mutex);
+        if (ready)
+        {
+            m_Ledger.DeclareShaderReady(shaderKey);
+        }
+        else
+        {
+            m_Ledger.DeclareShaderNotReady(shaderKey);
+        }
+    }
+
+    VulkanPipelineBuilder::RequestStats VulkanPipelineBuilder::GetRequestStats() const
+    {
+        std::shared_lock lock(m_Mutex);
+        RequestStats stats;
+        stats.Counters = m_Ledger.GetCounters();
+        stats.Queued = m_Ledger.QueuedCount();
+        stats.InFlight = m_Ledger.InFlightCount();
+        stats.CachedPipelines = m_Pipelines.size();
+        stats.Completions = m_Completions;
+        return stats;
+    }
+
+    void VulkanPipelineBuilder::ResetRequestCounters()
+    {
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
+        m_Ledger.ResetCounters();
+        m_LoggedMisses = 0;
+    }
+
+    void VulkanPipelineBuilder::FailNextCreationsForTesting(const u32 count, const VkResult result)
+    {
+        std::lock_guard<std::shared_mutex> lock(m_Mutex);
+        m_FailNextCreations = count;
+        m_FailNextResult = result;
+    }
+
+    sizet VulkanPipelineBuilder::InvalidateShader(const u64 shaderKey, TArray<Key>* invalidatedKeys)
+    {
+        std::unique_lock<std::shared_mutex> lock(m_Mutex);
         sizet count = 0;
         std::erase_if(m_Pipelines, [&](const auto& entry)
                       {
@@ -882,11 +1301,21 @@ namespace OloEngine
             {
                 return false;
             }
-            VulkanDeferredReclaim::Get().Enqueue(entry.second);
+            VulkanDeferredReclaim::Get().Enqueue(entry.second.Pipeline);
             ++count;
             return true; });
         std::erase_if(m_FailedPipelines, [shaderKey](const auto& entry)
                       { return entry.first.ShaderKey == shaderKey; });
+        TArray<Key> keys = m_Ledger.InvalidateShader(shaderKey);
+        if (invalidatedKeys != nullptr)
+        {
+            *invalidatedKeys = std::move(keys);
+        }
+        // The caller destroys the old modules next: a creation still running
+        // on another thread reads them, so wait it out. Its result is
+        // discarded (the ledger entry is gone, Complete() reports stale).
+        m_CreationDone.wait(lock, [&]
+                            { return !m_InFlightByShader.contains(shaderKey); });
         return count;
     }
 
@@ -1040,13 +1469,17 @@ namespace OloEngine
 
     void VulkanPipelineBuilder::ReleaseAll()
     {
-        std::lock_guard<std::shared_mutex> lock(m_Mutex);
-        for (const auto& [key, pipeline] : m_Pipelines)
+        std::unique_lock<std::shared_mutex> lock(m_Mutex);
+        // Device teardown: nothing may still be creating against it.
+        m_CreationDone.wait(lock, [this]
+                            { return m_InFlightByShader.empty(); });
+        for (const auto& [key, entry] : m_Pipelines)
         {
-            VulkanDeferredReclaim::Get().Enqueue(pipeline);
+            VulkanDeferredReclaim::Get().Enqueue(entry.Pipeline);
         }
         m_Pipelines.clear();
         m_FailedPipelines.clear();
+        m_Ledger.Clear();
     }
 } // namespace OloEngine
 

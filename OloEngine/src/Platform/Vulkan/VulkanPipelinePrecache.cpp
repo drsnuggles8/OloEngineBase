@@ -1,0 +1,561 @@
+#include "OloEnginePCH.h"
+
+#if OLO_WITH_VULKAN
+
+#include "Platform/Vulkan/VulkanPipelinePrecache.h"
+#include "OloEngine/Core/DebugLevers.h"
+#include "Platform/Vulkan/VulkanComputeShader.h"
+#include "Platform/Vulkan/VulkanDevice.h"
+#include "Platform/Vulkan/VulkanShader.h"
+
+#include <algorithm>
+#include <format>
+#include <fstream>
+#include <sstream>
+
+namespace OloEngine
+{
+    namespace
+    {
+        [[nodiscard]] VulkanRenderTargetDesc ToTargets(const PipelineSignature& signature)
+        {
+            VulkanRenderTargetDesc targets;
+            targets.ColorCount = std::min(signature.ColorCount, PipelineSignature::kMaxColorAttachments);
+            for (u32 i = 0; i < targets.ColorCount; ++i)
+            {
+                targets.ColorFormats[i] = static_cast<VkFormat>(signature.ColorFormats[i]);
+            }
+            targets.DepthFormat = static_cast<VkFormat>(signature.DepthFormat);
+            targets.Samples = signature.Samples;
+            return targets;
+        }
+
+        [[nodiscard]] VulkanRenderTargetDesc ToTargets(const VulkanPipelineBuilder::Key& key)
+        {
+            VulkanRenderTargetDesc targets;
+            targets.ColorCount = std::min(key.ColorCount, 8u);
+            targets.ColorFormats = key.ColorFormats;
+            targets.DepthFormat = key.DepthFormat;
+            targets.Samples = key.Samples;
+            return targets;
+        }
+
+        [[nodiscard]] u32 GraphicsStageMask(const VulkanShader& shader)
+        {
+            u32 mask = 0;
+            for (const VkShaderStageFlagBits stage :
+                 { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT, VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT,
+                   VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT, VK_SHADER_STAGE_TASK_BIT_EXT,
+                   VK_SHADER_STAGE_MESH_BIT_EXT })
+            {
+                if (shader.GetModule(stage) != VK_NULL_HANDLE)
+                {
+                    mask |= static_cast<u32>(stage);
+                }
+            }
+            return mask;
+        }
+
+        [[nodiscard]] std::optional<std::string> ReadFile(const std::filesystem::path& path)
+        {
+            std::error_code ec;
+            if (!std::filesystem::is_regular_file(path, ec))
+            {
+                return std::nullopt;
+            }
+            std::ifstream in(path, std::ios::binary);
+            if (!in)
+            {
+                return std::nullopt;
+            }
+            std::ostringstream text;
+            text << in.rdbuf();
+            return text.str();
+        }
+
+        // A missing file is normal (first launch); an unreadable or malformed
+        // one is logged and ignored — the manifest is an optimisation, and a
+        // broken one must cost a cold start, never a failed launch.
+        void LoadInto(PipelineManifest& manifest, const std::filesystem::path& path, const char* what)
+        {
+            const auto text = ReadFile(path);
+            if (!text.has_value())
+            {
+                return;
+            }
+            std::string error;
+            sizet rejected = 0;
+            auto parsed = PipelineManifest::Parse(*text, &error, &rejected);
+            if (!parsed.has_value())
+            {
+                OLO_CORE_WARN("[Vulkan/PSO] {} {} ignored: {}", what, path.string(), error);
+                return;
+            }
+            OLO_CORE_INFO("[Vulkan/PSO] {} {}: {} pipeline key(s){}", what, path.string(), parsed->GetEntryCount(),
+                          rejected > 0 ? std::format(", {} invalid entr{} dropped", rejected, rejected == 1 ? "y" : "ies")
+                                       : std::string{});
+            manifest.Merge(*parsed);
+        }
+    } // namespace
+
+    VulkanPipelinePrecache& VulkanPipelinePrecache::Get()
+    {
+        static auto* s_Instance = new VulkanPipelinePrecache(); // deliberately leaked, like the builder
+        return *s_Instance;
+    }
+
+    void VulkanPipelinePrecache::Start(const StartOptions& options)
+    {
+        {
+            std::lock_guard lock(m_Mutex);
+            if (m_Started)
+            {
+                return;
+            }
+            m_Persist = options.LoadAndSaveManifest;
+            if (m_Persist)
+            {
+                LoadInto(m_Manifest, std::filesystem::path(PipelineManifest::kPackagedSeedPath), "shipped manifest");
+                LoadInto(m_Manifest, PipelineManifest::MachineFilePath(), "manifest");
+            }
+            m_Manifest.BeginSession();
+            m_JobsPerFrame = static_cast<u32>(
+                std::clamp<i64>(Levers::VulkanPsoPrecacheJobsPerFrame().value_or(kDefaultJobsPerFrame), 1, 1024));
+            m_Started = true;
+            // Shaders built before the device's precache started (boot shaders)
+            // are requested now.
+            RequestAllLocked();
+        }
+
+        if (options.StartWorkers)
+        {
+            const u32 workers = static_cast<u32>(
+                std::clamp<i64>(Levers::VulkanPsoPrecacheWorkers().value_or(kDefaultWorkers), 1, kMaxWorkers));
+            std::lock_guard workLock(m_WorkMutex);
+            m_StopRequested = false;
+            m_Tokens = 0;
+            for (u32 i = 0; i < workers; ++i)
+            {
+                m_Workers[i] = std::thread([this] { WorkerLoop(); });
+            }
+            m_WorkerCount = workers;
+        }
+        OLO_CORE_INFO("[Vulkan/PSO] precache started: {} manifest key(s), {} job(s)/frame, {} worker(s){}",
+                      m_Manifest.GetEntryCount(), m_JobsPerFrame, m_WorkerCount,
+                      Levers::VulkanPsoPrecache() == Levers::Tristate::Off ? " — REQUESTS OFF (OLO_VK_PSO_PRECACHE=0)"
+                                                                           : "");
+    }
+
+    void VulkanPipelinePrecache::StopWorkers()
+    {
+        {
+            std::lock_guard workLock(m_WorkMutex);
+            m_StopRequested = true;
+        }
+        m_WorkCv.notify_all();
+        for (u32 i = 0; i < m_WorkerCount; ++i)
+        {
+            if (m_Workers[i].joinable())
+            {
+                m_Workers[i].join();
+            }
+        }
+        m_WorkerCount = 0;
+    }
+
+    void VulkanPipelinePrecache::Stop()
+    {
+        StopWorkers();
+        std::lock_guard lock(m_Mutex);
+        if (!m_Started)
+        {
+            return;
+        }
+        m_Started = false;
+        if (!m_Persist || !m_Manifest.IsDirty())
+        {
+            return;
+        }
+        m_Manifest.Trim();
+        const auto path = PipelineManifest::MachineFilePath();
+        std::error_code ec;
+        std::filesystem::create_directories(path.parent_path(), ec);
+        std::ofstream out(path, std::ios::binary | std::ios::trunc);
+        const std::string text = m_Manifest.Serialize();
+        if (!out || !out.write(text.data(), static_cast<std::streamsize>(text.size())))
+        {
+            OLO_CORE_WARN("[Vulkan/PSO] could not write {} — the next session starts without it", path.string());
+            return;
+        }
+        m_Manifest.ClearDirty();
+        OLO_CORE_INFO("[Vulkan/PSO] manifest saved: {} pipeline key(s) to {}", m_Manifest.GetEntryCount(),
+                      path.string());
+    }
+
+    bool VulkanPipelinePrecache::IsStarted() const
+    {
+        std::lock_guard lock(m_Mutex);
+        return m_Started;
+    }
+
+    // -------------------------------------------------------------------------
+    // Content
+    // -------------------------------------------------------------------------
+
+    void VulkanPipelinePrecache::RequestFromManifest(Tracked& tracked, VulkanShader* graphics,
+                                                     VulkanComputeShader* compute)
+    {
+        tracked.SelectedKeys.Empty();
+        tracked.HasSelectedEntries = false;
+        if (!m_Started || Levers::VulkanPsoPrecache() == Levers::Tristate::Off)
+        {
+            return;
+        }
+        auto& builder = VulkanPipelineBuilder::Get();
+        // EntriesFor's pointers stay valid while m_Mutex is held: only Record
+        // (also under m_Mutex) grows the manifest.
+        for (const PipelineManifestEntry* entry : m_Manifest.EntriesFor(tracked.Name, tracked.StageMask, m_Tag))
+        {
+            const bool selected = entry->SeenUnder(m_Tag);
+            const auto priority = selected ? PipelineRequestPriority::Selected : PipelineRequestPriority::Speculative;
+            std::optional<VulkanPipelineBuilder::Key> key;
+            if (compute != nullptr)
+            {
+                key = builder.RequestCompute(tracked.ShaderKey, compute->GetModule(), compute->GetRootDataLayout(),
+                                             tracked.Name, priority);
+            }
+            else if (graphics != nullptr)
+            {
+                key = builder.RequestGraphics(*graphics, ToTargets(entry->Signature),
+                                              entry->Signature.PatchControlPoints, priority);
+            }
+            if (selected && key.has_value() && !tracked.SelectedKeys.Contains(*key))
+            {
+                tracked.SelectedKeys.Add(*key);
+                tracked.HasSelectedEntries = true;
+            }
+        }
+        m_ReadinessDirty = true;
+    }
+
+    void VulkanPipelinePrecache::RequestAllLocked()
+    {
+        for (auto& [shader, tracked] : m_Graphics)
+        {
+            RequestFromManifest(tracked, const_cast<VulkanShader*>(shader), nullptr);
+        }
+        for (auto& [shader, tracked] : m_Compute)
+        {
+            RequestFromManifest(tracked, nullptr, const_cast<VulkanComputeShader*>(shader));
+        }
+    }
+
+    void VulkanPipelinePrecache::OnShaderReady(VulkanShader& shader)
+    {
+        if (shader.GetCompilationStatus() != ShaderCompilationStatus::Ready)
+        {
+            return;
+        }
+        std::lock_guard lock(m_Mutex);
+        Tracked& tracked = m_Graphics[&shader];
+        tracked.Name = shader.GetName();
+        tracked.StageMask = GraphicsStageMask(shader);
+        tracked.ShaderKey = shader.GetPipelineIndexKey();
+        tracked.Compute = false;
+        tracked.DeclaredReady = false;
+        RequestFromManifest(tracked, &shader, nullptr);
+    }
+
+    void VulkanPipelinePrecache::OnShaderReloaded(VulkanShader& shader,
+                                                  const TArray<VulkanPipelineBuilder::Key>& invalidated)
+    {
+        std::lock_guard lock(m_Mutex);
+        Tracked& tracked = m_Graphics[&shader];
+        tracked.Name = shader.GetName();
+        tracked.StageMask = GraphicsStageMask(shader); // an edit can change the stage set
+        tracked.ShaderKey = shader.GetPipelineIndexKey();
+        tracked.Compute = false;
+        tracked.DeclaredReady = false; // InvalidateShader cleared the ledger's claim with the entries
+        RequestFromManifest(tracked, &shader, nullptr);
+        if (!m_Started || Levers::VulkanPsoPrecache() == Levers::Tristate::Off)
+        {
+            return;
+        }
+        // Every pipeline the old modules had: the same targets, requested again
+        // against the rebuilt shader (its layout may have changed, so the key is
+        // re-derived, never reused). These were in use, so they go first.
+        for (const VulkanPipelineBuilder::Key& old : invalidated)
+        {
+            if (const auto key = VulkanPipelineBuilder::Get().RequestGraphics(shader, ToTargets(old), old.PatchControlPoints);
+                key.has_value() && !tracked.SelectedKeys.Contains(*key))
+            {
+                tracked.SelectedKeys.Add(*key);
+                tracked.HasSelectedEntries = true;
+            }
+        }
+        m_ReadinessDirty = true;
+    }
+
+    void VulkanPipelinePrecache::OnShaderDestroyed(const VulkanShader& shader)
+    {
+        std::lock_guard lock(m_Mutex);
+        m_Graphics.erase(&shader);
+        m_ReadinessDirty = true;
+    }
+
+    void VulkanPipelinePrecache::OnComputeShaderReady(VulkanComputeShader& shader)
+    {
+        if (!shader.IsValid())
+        {
+            return;
+        }
+        std::lock_guard lock(m_Mutex);
+        Tracked& tracked = m_Compute[&shader];
+        tracked.Name = shader.GetName();
+        tracked.StageMask = static_cast<u32>(VK_SHADER_STAGE_COMPUTE_BIT);
+        tracked.ShaderKey = shader.GetPipelineIndexKey();
+        tracked.Compute = true;
+        tracked.DeclaredReady = false;
+        RequestFromManifest(tracked, nullptr, &shader);
+    }
+
+    void VulkanPipelinePrecache::OnComputeShaderReloaded(VulkanComputeShader& shader,
+                                                         const TArray<VulkanPipelineBuilder::Key>& invalidated)
+    {
+        std::lock_guard lock(m_Mutex);
+        Tracked& tracked = m_Compute[&shader];
+        tracked.Name = shader.GetName();
+        tracked.StageMask = static_cast<u32>(VK_SHADER_STAGE_COMPUTE_BIT);
+        tracked.ShaderKey = shader.GetPipelineIndexKey();
+        tracked.Compute = true;
+        tracked.DeclaredReady = false;
+        RequestFromManifest(tracked, nullptr, &shader);
+        if (!m_Started || Levers::VulkanPsoPrecache() == Levers::Tristate::Off || invalidated.IsEmpty())
+        {
+            return;
+        }
+        // A compute shader has one key per layout; the rebuilt one is requested.
+        if (const auto key = VulkanPipelineBuilder::Get().RequestCompute(tracked.ShaderKey, shader.GetModule(),
+                                                                         shader.GetRootDataLayout(), tracked.Name);
+            key.has_value() && !tracked.SelectedKeys.Contains(*key))
+        {
+            tracked.SelectedKeys.Add(*key);
+            tracked.HasSelectedEntries = true;
+        }
+        m_ReadinessDirty = true;
+    }
+
+    void VulkanPipelinePrecache::OnComputeShaderDestroyed(const VulkanComputeShader& shader)
+    {
+        std::lock_guard lock(m_Mutex);
+        m_Compute.erase(&shader);
+        m_ReadinessDirty = true;
+    }
+
+    // -------------------------------------------------------------------------
+    // Configuration, recording, per-frame work
+    // -------------------------------------------------------------------------
+
+    void VulkanPipelinePrecache::SetConfigurationTag(const std::string_view tag)
+    {
+        std::lock_guard lock(m_Mutex);
+        if (m_Tag == tag)
+        {
+            return;
+        }
+        m_Tag = std::string(tag);
+        // The selected configuration moved: every live shader's entries for the
+        // new one are requested at the front of the queue (already-created ones
+        // are duplicates), and readiness is judged against the new set.
+        for (auto& [shader, tracked] : m_Graphics)
+        {
+            if (tracked.DeclaredReady)
+            {
+                VulkanPipelineBuilder::Get().DeclareShaderReady(tracked.ShaderKey, false);
+                tracked.DeclaredReady = false;
+            }
+        }
+        for (auto& [shader, tracked] : m_Compute)
+        {
+            if (tracked.DeclaredReady)
+            {
+                VulkanPipelineBuilder::Get().DeclareShaderReady(tracked.ShaderKey, false);
+                tracked.DeclaredReady = false;
+            }
+        }
+        RequestAllLocked();
+    }
+
+    std::string VulkanPipelinePrecache::GetConfigurationTag() const
+    {
+        std::lock_guard lock(m_Mutex);
+        return m_Tag;
+    }
+
+    void VulkanPipelinePrecache::RecordDrawCreation(const std::string_view shader, const u32 stageMask,
+                                                    const PipelineSignature& signature)
+    {
+        std::lock_guard lock(m_Mutex);
+        (void)m_Manifest.Record(shader, stageMask, signature, m_Tag);
+    }
+
+    void VulkanPipelinePrecache::Tick()
+    {
+        {
+            std::lock_guard lock(m_Mutex);
+            if (!m_Started)
+            {
+                return;
+            }
+            EvaluateReadinessLocked(/*force=*/false);
+        }
+        // This frame's budget. Not accumulated: an idle frame does not buy a
+        // larger burst later, so the per-frame cost stays bounded.
+        {
+            std::lock_guard workLock(m_WorkMutex);
+            m_Tokens = m_WorkerCount > 0 ? m_JobsPerFrame : 0u;
+        }
+        m_WorkCv.notify_all();
+    }
+
+    void VulkanPipelinePrecache::WorkerLoop()
+    {
+        for (;;)
+        {
+            {
+                std::unique_lock workLock(m_WorkMutex);
+                m_WorkCv.wait(workLock, [this] { return m_StopRequested || m_Tokens > 0; });
+                if (m_StopRequested)
+                {
+                    return;
+                }
+                --m_Tokens;
+            }
+            if (!VulkanPipelineBuilder::Get().PrepareNextQueued())
+            {
+                // Nothing queued: give the rest of this frame's budget back and
+                // sleep until the next Tick.
+                std::lock_guard workLock(m_WorkMutex);
+                m_Tokens = 0;
+            }
+        }
+    }
+
+    sizet VulkanPipelinePrecache::PrepareQueued(const sizet maxJobs)
+    {
+        sizet ran = 0;
+        while (ran < maxJobs && VulkanPipelineBuilder::Get().PrepareNextQueued())
+        {
+            ++ran;
+        }
+        return ran;
+    }
+
+    // -------------------------------------------------------------------------
+    // Readiness
+    // -------------------------------------------------------------------------
+
+    void VulkanPipelinePrecache::EvaluateReadinessLocked(const bool force)
+    {
+        auto& builder = VulkanPipelineBuilder::Get();
+        const auto stats = builder.GetRequestStats();
+        if (!force && !m_ReadinessDirty && stats.Completions == m_EvaluatedCompletions)
+        {
+            return;
+        }
+        m_EvaluatedCompletions = stats.Completions;
+        m_ReadinessDirty = false;
+
+        PipelineReadinessSnapshot& r = m_LastReadiness;
+        r.TrackedShaders = 0;
+        r.ReadyShaders = 0;
+        r.UnknownShaders = 0;
+        r.PendingShaders.Empty();
+        bool allReady = true;
+        const auto evaluate = [&](Tracked& tracked)
+        {
+            ++r.TrackedShaders;
+            if (!tracked.HasSelectedEntries)
+            {
+                // No claim either way: the manifest has never seen this shader
+                // drawn under this configuration.
+                ++r.UnknownShaders;
+                return;
+            }
+            u32 prepared = 0;
+            u32 failed = 0;
+            for (const VulkanPipelineBuilder::Key& key : tracked.SelectedKeys)
+            {
+                const auto state = builder.GetRequestState(key);
+                prepared += state == VulkanPipelineBuilder::RequestState::Ready ? 1u : 0u;
+                failed += state == VulkanPipelineBuilder::RequestState::Failed ? 1u : 0u;
+            }
+            const u32 requested = static_cast<u32>(tracked.SelectedKeys.Num());
+            const bool ready = prepared == requested;
+            if (ready != tracked.DeclaredReady)
+            {
+                builder.DeclareShaderReady(tracked.ShaderKey, ready);
+                tracked.DeclaredReady = ready;
+            }
+            if (ready)
+            {
+                ++r.ReadyShaders;
+                return;
+            }
+            allReady = false;
+            if (r.PendingShaders.Num() < static_cast<i32>(kMaxPendingShadersReported))
+            {
+                r.PendingShaders.Add({ FString(tracked.Name), requested, prepared, failed });
+            }
+        };
+        for (auto& [shader, tracked] : m_Graphics)
+        {
+            evaluate(tracked);
+        }
+        for (auto& [shader, tracked] : m_Compute)
+        {
+            evaluate(tracked);
+        }
+        r.RenderReady = allReady && r.ReadyShaders > 0;
+    }
+
+    void VulkanPipelinePrecache::FillSnapshot(PipelineReadinessSnapshot& snapshot)
+    {
+        const auto stats = VulkanPipelineBuilder::Get().GetRequestStats();
+        std::lock_guard lock(m_Mutex);
+        EvaluateReadinessLocked(/*force=*/true);
+        snapshot.Model = PipelineReadinessModel::VulkanPipelineObjects;
+        snapshot.Pipelines = stats.Counters;
+        snapshot.PrecacheEnabled = m_Started && Levers::VulkanPsoPrecache() != Levers::Tristate::Off;
+        snapshot.ConfigurationTag = FString(m_Tag);
+        snapshot.JobsPerFrame = m_WorkerCount > 0 ? m_JobsPerFrame : 0u;
+        snapshot.Queued = stats.Queued;
+        snapshot.InFlight = stats.InFlight;
+        snapshot.CachedPipelines = stats.CachedPipelines;
+        snapshot.ManifestEntries = m_Manifest.GetEntryCount();
+        snapshot.TrackedShaders = m_LastReadiness.TrackedShaders;
+        snapshot.ReadyShaders = m_LastReadiness.ReadyShaders;
+        snapshot.UnknownShaders = m_LastReadiness.UnknownShaders;
+        snapshot.RenderReady = m_LastReadiness.RenderReady && stats.Queued == 0 && stats.InFlight == 0;
+        snapshot.PendingShaders = m_LastReadiness.PendingShaders;
+    }
+
+    void VulkanPipelinePrecache::ResetCounters()
+    {
+        VulkanPipelineBuilder::Get().ResetRequestCounters();
+    }
+
+    PipelineManifest VulkanPipelinePrecache::CopyManifest() const
+    {
+        std::lock_guard lock(m_Mutex);
+        return m_Manifest;
+    }
+
+    void VulkanPipelinePrecache::SetManifestForTesting(PipelineManifest manifest)
+    {
+        std::lock_guard lock(m_Mutex);
+        m_Manifest = std::move(manifest);
+    }
+} // namespace OloEngine
+
+#endif // OLO_WITH_VULKAN

@@ -22,6 +22,7 @@
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanGpuFence.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
+#include "Platform/Vulkan/VulkanPipelinePrecache.h"
 #include "Platform/Vulkan/VulkanSecondaryCommandPools.h"
 #include "Platform/Vulkan/VulkanWarnOnce.h"
 #include "OloEngine/Core/DebugLevers.h"
@@ -3650,7 +3651,8 @@ namespace OloEngine
 
         const auto& layout = shader->GetRootDataLayout();
         const VkPipeline pipeline =
-            VulkanPipelineBuilder::Get().GetOrCreateCompute(shader->GetPipelineIndexKey(), shader->GetModule(), layout);
+            VulkanPipelineBuilder::Get().GetOrCreateCompute(shader->GetPipelineIndexKey(), shader->GetModule(), layout,
+                                                            shader->GetName());
         if (pipeline == VK_NULL_HANDLE)
         {
             // Silent before (#1171): a pipeline that fails to build dropped the
@@ -3708,7 +3710,8 @@ namespace OloEngine
 
         const auto& layout = shader->GetRootDataLayout();
         const VkPipeline pipeline =
-            VulkanPipelineBuilder::Get().GetOrCreateCompute(shader->GetPipelineIndexKey(), shader->GetModule(), layout);
+            VulkanPipelineBuilder::Get().GetOrCreateCompute(shader->GetPipelineIndexKey(), shader->GetModule(), layout,
+                                                            shader->GetName());
         if (pipeline == VK_NULL_HANDLE)
         {
             return;
@@ -8135,6 +8138,25 @@ namespace OloEngine
     void VulkanRendererAPI::RecordParallel(const u32 itemCount, const std::function<void(u32 item)>& body, u32 instanceCapacity)
     {
         RecordParallelOrdered(itemCount, body, {}, {}, instanceCapacity);
+    }
+
+    PipelineReadinessSnapshot VulkanRendererAPI::GetPipelineReadiness() const
+    {
+        PipelineReadinessSnapshot snapshot;
+        snapshot.Shaders = ShaderPreparationCounters::Get().Snapshot();
+        VulkanPipelinePrecache::Get().FillSnapshot(snapshot);
+        return snapshot;
+    }
+
+    void VulkanRendererAPI::ResetPipelineReadinessCounters()
+    {
+        ShaderPreparationCounters::Get().Reset();
+        VulkanPipelinePrecache::Get().ResetCounters();
+    }
+
+    void VulkanRendererAPI::SetPipelineConfigurationTag(const std::string_view tag)
+    {
+        VulkanPipelinePrecache::Get().SetConfigurationTag(tag);
     }
 
     void VulkanRendererAPI::RecordParallelOrdered(const u32 itemCount, const std::function<void(u32)>& body,

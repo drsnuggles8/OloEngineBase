@@ -7,6 +7,7 @@
 #include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/Timer.h"
+#include "OloEngine/Renderer/PipelineReadiness.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
 #include "OloEngine/Renderer/ShaderSourceScan.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
@@ -397,7 +398,12 @@ namespace OloEngine
             }
             out.SetNum(static_cast<i32>(size / static_cast<std::streamoff>(sizeof(u32))));
             in.read(reinterpret_cast<char*>(out.GetData()), size);
-            return static_cast<bool>(in);
+            if (!in)
+            {
+                return false;
+            }
+            ShaderPreparationCounters::Get().AddSpirvCacheHit(); // #1345: a stage that skipped its compile
+            return true;
         }
 
         // Cross-shader parallel prepare (issue #907) means the content-
@@ -1508,7 +1514,10 @@ namespace OloEngine
             const GLuint shader = glCreateShader(stage);
             const GLchar* const cstr = patched.c_str();
             glShaderSource(shader, 1, &cstr, nullptr);
+            const auto compileStart = std::chrono::steady_clock::now();
             glCompileShader(shader);
+            ShaderPreparationCounters::Get().AddSourceCompile(
+                std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - compileStart).count());
 
             GLint compiled = GL_FALSE;
             glGetShaderiv(shader, GL_COMPILE_STATUS, &compiled);
@@ -1549,7 +1558,10 @@ namespace OloEngine
         if (ok)
         {
             glProgramParameteri(freshProgram, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
+            const auto linkStart = std::chrono::steady_clock::now();
             glLinkProgram(freshProgram);
+            ShaderPreparationCounters::Get().AddProgramLink(
+                std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - linkStart).count());
 
             GLint linked = GL_FALSE;
             glGetProgramiv(freshProgram, GL_LINK_STATUS, &linked);
@@ -1819,8 +1831,11 @@ namespace OloEngine
                 shaderc::CompileOptions options;
                 Utils::VulkanTierOptions::Apply(options);
 
+                const auto compileStart = std::chrono::steady_clock::now();
                 shaderc::SpvCompilationResult spirvModule = compiler.CompileGlslToSpv(
                     source, Utils::GLShaderStageToShaderC(stage), GetFilePath().c_str(), options);
+                ShaderPreparationCounters::Get().AddSourceCompile(
+                    std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - compileStart).count());
 
                 if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
                 {
@@ -2005,8 +2020,11 @@ namespace OloEngine
                 // message parser (assertion in message.cc).
                 options.SetSuppressWarnings();
 
+                const auto compileStart = std::chrono::steady_clock::now();
                 shaderc::SpvCompilationResult spirvModule = compiler.CompileGlslToSpv(
                     result.GlslSource, Utils::GLShaderStageToShaderC(stage), GetFilePath().c_str(), options);
+                ShaderPreparationCounters::Get().AddSourceCompile(
+                    std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - compileStart).count());
 
                 if (spirvModule.GetCompilationStatus() != shaderc_compilation_status_success)
                 {
@@ -2168,6 +2186,7 @@ namespace OloEngine
         // on any miss/failure it returns false and we fall through to a full compile.
         if (LoadProgramBinaryCache(program, contentHash))
         {
+            ShaderPreparationCounters::Get().AddProgramBinaryHit();
             FinalizeProgram(program, m_OpenGLSPIRV);
             m_CompilationStatus = ShaderCompilationStatus::Ready;
             OLO_CORE_TRACE("Loaded shader program from binary cache: {0}", GetFilePath());
@@ -2193,7 +2212,13 @@ namespace OloEngine
         // Tell the driver we may retrieve the program binary later (required by spec
         // for glGetProgramBinary; without this, Mesa/radeonsi can crash in SaveProgramBinaryCache).
         glProgramParameteri(program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
+        const auto linkStart = std::chrono::steady_clock::now();
         glLinkProgram(program);
+        // Issue time only: under parallel shader compile the link finishes later
+        // (PollCompilationStatus), and a bind that cannot wait for it is counted
+        // in EnsureLinked as a forced link (#1345).
+        ShaderPreparationCounters::Get().AddProgramLink(
+            std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - linkStart).count());
 
         // ---- Async path: if GL_ARB/KHR_parallel_shader_compile is available,
         //      do NOT check GL_LINK_STATUS now. The driver links in background.
@@ -2319,6 +2344,7 @@ namespace OloEngine
         glGetProgramiv(program, GL_LINK_STATUS, &isLinked);
         if (isLinked != GL_TRUE)
         {
+            ShaderPreparationCounters::Get().AddProgramBinaryReject();
             GLint logLength = 0;
             glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logLength);
             std::string infoLog;
@@ -2489,8 +2515,13 @@ namespace OloEngine
             return;
 
         OLO_CORE_INFO("EnsureLinked: Force-completing shader '{}' (ID {})", GetName(), m_RendererID);
-        // Force-complete: check link status (this blocks until the driver finishes)
+        // Force-complete: check link status (this blocks until the driver finishes).
+        // The GL analogue of a pipeline requested too late (#1345): counted
+        // with the time the bind blocked.
+        const auto forcedStart = std::chrono::steady_clock::now();
         FinalizeAfterLink();
+        ShaderPreparationCounters::Get().AddLinkForcedAtUse(
+            std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - forcedStart).count());
         OLO_CORE_INFO("EnsureLinked: Completed shader '{}', status={}", GetName(), static_cast<int>(m_CompilationStatus));
     }
 
@@ -2575,7 +2606,10 @@ namespace OloEngine
         }
         // Required by spec for glGetProgramBinary; prevents Mesa/radeonsi crash.
         glProgramParameteri(program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
+        const auto linkStart = std::chrono::steady_clock::now();
         glLinkProgram(program);
+        ShaderPreparationCounters::Get().AddProgramLink(
+            std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - linkStart).count());
 
         if (!VerifyProgramLink(program, GetFilePath()))
         {
@@ -2666,7 +2700,10 @@ namespace OloEngine
             const GLchar* const sourceCStr = source.c_str();
             glShaderSource(shader, 1, &sourceCStr, nullptr);
 
+            const auto compileStart = std::chrono::steady_clock::now();
             glCompileShader(shader);
+            ShaderPreparationCounters::Get().AddSourceCompile(
+                std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - compileStart).count());
 
             int isCompiled = 0;
             glGetShaderiv(shader, GL_COMPILE_STATUS, &isCompiled);

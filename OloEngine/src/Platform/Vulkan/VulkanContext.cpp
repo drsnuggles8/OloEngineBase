@@ -16,6 +16,7 @@
 #include "Platform/Vulkan/VulkanImGuiBackend.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanPipelineCache.h"
+#include "Platform/Vulkan/VulkanPipelinePrecache.h"
 #include "Platform/Vulkan/VulkanDescriptorHeapBackend.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
@@ -174,6 +175,10 @@ namespace OloEngine
         if (device != VK_NULL_HANDLE)
         {
             vkDeviceWaitIdle(device);
+
+            // Join the PSO workers and save the manifest before the pipelines
+            // they create are released below (#1345).
+            VulkanPipelinePrecache::Get().Stop();
 
             // The frame arena's slot buffers enqueue into the deferred-reclaim
             // queue; drain it NOW, while the device is provably idle — nothing
@@ -349,6 +354,11 @@ namespace OloEngine
         {
             OLO_CORE_WARN("[Vulkan] engine descriptor heap unavailable — slot-path fallback stays in effect");
         }
+
+        // PSO precaching (#1345): load the manifest and start the creation
+        // workers now that the device exists; shaders built from here on are
+        // requested as they appear.
+        VulkanPipelinePrecache::Get().Start({});
 
         OLO_CORE_INFO("[Vulkan] Bring-up context initialised ({} swapchain images, {}x{})",
                       m_Data->SwapchainImages.size(), m_Data->SwapchainExtent.width, m_Data->SwapchainExtent.height);
@@ -1235,6 +1245,9 @@ namespace OloEngine
         // Same gate for the root-data arena: slot FrameIndex's bump cursor may
         // only rewind once the GPU can no longer read the slot's memory.
         VulkanFrameArena::Get().BeginFrame(d.FrameIndex);
+        // Outside every recording region: hand the PSO workers this frame's
+        // creation budget and refresh readiness (#1345).
+        VulkanPipelinePrecache::Get().Tick();
 
         u32 imageIndex = 0;
         const VkResult acquireResult = vkAcquireNextImageKHR(device, d.Swapchain, UINT64_MAX,
