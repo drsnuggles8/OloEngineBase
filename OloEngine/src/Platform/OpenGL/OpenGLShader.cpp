@@ -917,7 +917,7 @@ namespace OloEngine
 
         OLO_SHADER_COMPILATION_START(GetName(), "runtime_source");
 
-        if (Utils::IsAmdGpu() || TakesGlslTextRoute())
+        if (TakesGlslTextRoute() || Utils::AmdDriverTakesGlslTextRoute())
         {
             // The GLSL text route: compile the cross-compiled GLSL directly (no
             // glShaderBinary SPIR-V).
