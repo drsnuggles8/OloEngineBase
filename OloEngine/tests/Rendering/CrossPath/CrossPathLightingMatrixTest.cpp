@@ -10,8 +10,8 @@
 //
 //   * ARMS come from RendererSupport::PathCoverageRows (CrossPathMatrix.h):
 //     GL / Vulkan x Forward / Forward+ / Deferred, plus the Deferred MSAA,
-//     spatial-upscale and temporal-upscale rows. Undeclared, Vulkan and
-//     ray-query arms skip with the reason (see PlanArm).
+//     spatial-upscale and temporal-upscale rows. Undeclared and ray-query
+//     arms, and the other backend's arms, skip with the reason (see PlanArm).
 //   * ROWS are scenes that separate one lighting term each: the term's source
 //     is switched off and on and the linear HDR SceneColor is differenced, so
 //     ON - OFF is that term alone on every path (CrossPathMatrix.h says why
@@ -20,7 +20,7 @@
 //     expectation where one exists — the independent BSDF oracle of
 //     Rendering/Oracles/IndependentBsdfOracle.h, evaluated per pixel with the
 //     camera's real view direction — and (b) against the reference arm
-//     (GL Forward native) rendered in the same test.
+//     (this backend's Forward native) rendered in the same test.
 //   * INVARIANCE probes hold one term and switch an estimator that does not
 //     own it (AO, SSGI): the term must not move. Positive controls switch one
 //     that does: it must.
@@ -36,8 +36,11 @@
 // separated term, tone-mapped x/(1+x) — under OloEditor/assets/tests/visual/,
 // because a numeric tolerance can pass two identically broken arms.
 //
-// GL arms only in-process (a GL 4.6 context; the fixture skips cleanly without
-// one). The Vulkan arms are run live by scripts/cross-path-matrix-live.py.
+// One backend per process (#1556): the GL arms run in the default process (a
+// GL 4.6 context; the fixture skips cleanly without one), the Vulkan arms in
+// `OloEngine-Tests --olo-rhi=vulkan` on its windowless VulkanContext.
+// scripts/cross-path-matrix-live.py replays the rows in a live --rhi vulkan
+// editor, which shows the windowless frame matches a windowed one.
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -54,6 +57,7 @@
 #include "OloEngine/Renderer/PBRModel.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
@@ -64,7 +68,6 @@
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
-#include <glad/gl.h>
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 #include <stb_image/stb_image_write.h>
@@ -1083,6 +1086,16 @@ namespace OloEngine::Tests::CrossPath
         }
     } // namespace
 
+    namespace
+    {
+        // The backend this process renders on (--olo-rhi, #1556).
+        [[nodiscard]] RendererSupport::Backend ProcessBackend()
+        {
+            return Tests::Options().Rhi == Tests::TestRhi::Vulkan ? RendererSupport::Backend::Vulkan
+                                                                  : RendererSupport::Backend::OpenGL;
+        }
+    } // namespace
+
     using MatrixParam = std::tuple<sizet, sizet>; // (row index, arm index)
 
     class CrossPathLightingMatrix : public RendererAttachedTest, public ::testing::WithParamInterface<MatrixParam>
@@ -1247,23 +1260,23 @@ namespace OloEngine::Tests::CrossPath
                         return;
                     for (const std::string_view candidate : it->second)
                     {
-                        const u32 texture =
-                            g.ResolveTexture(g.GetTextureHandle(std::string(candidate) + "Texture"));
-                        if (texture == 0u)
+                        // By RHI handle, so the hook reads on either backend
+                        // (#1556); a Vulkan read inside the frame flushes the
+                        // recording first (VulkanContext::FlushFrameRecordingAndWait).
+                        const RHI::ResourceHandle texture =
+                            g.ResolveTextureHandle(g.GetTextureHandle(std::string(candidate) + "Texture"));
+                        if (!texture.IsValid())
                             continue;
-                        GLint width = 0;
-                        GLint height = 0;
-                        GLint samples = 0;
-                        ::glGetTextureLevelParameteriv(texture, 0, GL_TEXTURE_WIDTH, &width);
-                        ::glGetTextureLevelParameteriv(texture, 0, GL_TEXTURE_HEIGHT, &height);
-                        ::glGetTextureLevelParameteriv(texture, 0, GL_TEXTURE_SAMPLES, &samples);
-                        if (width <= 0 || height <= 0 || samples > 0)
+                        u32 width = 0;
+                        u32 height = 0;
+                        RenderCommand::GetTextureDimensions(texture, 0u, width, height);
+                        if (width == 0u || height == 0u || g.DescribeCopyOperand(texture, pass, false).Samples > 1u)
                             continue;
                         LinearImage& image = session->Read[candidate];
                         image.Target = candidate;
                         image.ReadAfterPass = std::string(pass);
-                        image.Width = static_cast<u32>(width);
-                        image.Height = static_cast<u32>(height);
+                        image.Width = width;
+                        image.Height = height;
                         std::vector<f32> bottomUp;
                         ReadbackRgbaFloat(texture, image.Width, image.Height, bottomUp);
                         image.Rgba.resize(bottomUp.size());
@@ -1319,7 +1332,7 @@ namespace OloEngine::Tests::CrossPath
         const SceneRow& row = Row();
         const Arm& arm = ThisArm();
 
-        const ArmPlan plan = PlanArm(arm);
+        const ArmPlan plan = PlanArm(arm, ProcessBackend());
         if (!plan.Runs)
             GTEST_SKIP() << plan.SkipReason;
         if (row.Requires.Estimator != LightingEstimator::None && NeedsRayQueries(row.Requires.Estimator))
@@ -1345,18 +1358,19 @@ namespace OloEngine::Tests::CrossPath
             if (const auto why = OwnershipSkip(arm, row.Requires, row.Probes.front().Term))
                 GTEST_SKIP() << row.Name << " on " << arm.Id << ": " << *why;
         }
-        OLO_ENSURE_GPU_OR_SKIP();
+        // The fixture's SetUp has already gated on this process's backend.
         ScopedMockTime mockTime(kCaptureTime);
 
-        // The comparison arm: GL Forward native, unless the row needs an
-        // estimator Forward does not host — then the first runnable arm that
-        // hosts it.
-        const Arm* reference = &ArmById(kReferenceArmId);
+        // The comparison arm: this backend's Forward native, unless the row
+        // needs an estimator Forward does not host — then the first runnable
+        // arm that hosts it.
+        const Arm* reference = &ArmById(ReferenceArmId(ProcessBackend()));
         if (row.Requires.Estimator != LightingEstimator::None)
         {
             for (const Arm& candidate : Arms())
             {
-                if (PlanArm(candidate).Runs && !OwnershipSkip(candidate, row.Requires, row.Probes.front().Term))
+                if (PlanArm(candidate, ProcessBackend()).Runs &&
+                    !OwnershipSkip(candidate, row.Requires, row.Probes.front().Term))
                 {
                     reference = &candidate;
                     break;
@@ -1536,27 +1550,28 @@ namespace OloEngine::Tests::CrossPath
     }
 
     // The declared matrix and the enumerated arms are the same list — the
-    // fixture never runs a hand-written subset.
+    // fixture never runs a hand-written subset — and each backend's native
+    // raster arms run in that backend's process (#1556), skipping with a
+    // reason in the other one.
     TEST(CrossPathMatrixArms, EveryDeclaredPathRowIsAnArm)
     {
+        using RendererSupport::Backend;
         EXPECT_EQ(Arms().size(), RendererSupport::PathCoverageRows.size());
-        u32 glNative = 0;
+        u32 nativeArms[2] = { 0u, 0u };
         for (const Arm& arm : Arms())
         {
-            if (arm.Request.Api == RendererSupport::Backend::OpenGL &&
-                arm.Request.Upscale == RendererSupport::Reconstruction::Native && arm.Request.Samples == 1u &&
+            const Backend other = arm.Request.Api == Backend::Vulkan ? Backend::OpenGL : Backend::Vulkan;
+            const ArmPlan elsewhere = PlanArm(arm, other);
+            EXPECT_FALSE(elsewhere.Runs) << arm.Id << " must not run in the other backend's process";
+            EXPECT_FALSE(elsewhere.SkipReason.empty());
+            if (arm.Request.Upscale == RendererSupport::Reconstruction::Native && arm.Request.Samples == 1u &&
                 arm.Request.LightingTechnique == RendererSupport::Technique::Raster)
             {
-                ++glNative;
-                EXPECT_TRUE(PlanArm(arm).Runs) << arm.Id << " must run in-process";
-            }
-            if (arm.Request.Api == RendererSupport::Backend::Vulkan)
-            {
-                const ArmPlan plan = PlanArm(arm);
-                EXPECT_FALSE(plan.Runs);
-                EXPECT_FALSE(plan.SkipReason.empty());
+                ++nativeArms[arm.Request.Api == Backend::Vulkan ? 1 : 0];
+                EXPECT_TRUE(PlanArm(arm, arm.Request.Api).Runs) << arm.Id << " must run in its backend's process";
             }
         }
-        EXPECT_EQ(glNative, 3u) << "GL x {Forward, Forward+, Deferred} native must all be arms";
+        EXPECT_EQ(nativeArms[0], 3u) << "GL x {Forward, Forward+, Deferred} native must all be arms";
+        EXPECT_EQ(nativeArms[1], 3u) << "Vulkan x {Forward, Forward+, Deferred} native must all be arms";
     }
 } // namespace OloEngine::Tests::CrossPath
