@@ -237,12 +237,14 @@ CPU scopes averaged over 8 frames; scopes nest, so columns do not add):
    did. The cost of #1634, measured A/B on GL Deferred (Release, 1920×1080, median of 100 frames,
    2026-10-25, with other GPU work on the machine):
 
-   | camera | VSM: ShadowPass | of it, VSM local-layer groom casters | VSM off (atlas): ShadowPass | draw calls (VSM) |
-   |---|---:|---:|---:|---:|
-   | head-closeup | +40 ms | +30 ms | +39 ms | +194 |
-   | coats-closeup | +16 ms | +3.5 ms | +34 ms | +254 |
+   | camera | VSM: ShadowPass | of it, VSM local-layer groom casters | VSM off (atlas): ShadowPass | draw calls (VSM) | groom local-layer draws (VSM) | groom atlas draws (VSM off) |
+   |---|---:|---:|---:|---:|---:|---:|
+   | head-closeup | +40 ms | +30 ms | +39 ms | +194 | +18 (3 lamps × 6) | +24 to +48 |
+   | coats-closeup | +16 ms | +3.5 ms | +34 ms | +254 | +6 (1 lamp × 6) | +12 |
 
-   MSAA 4 on Deferred gives the same picture (+42 / +23 ms ShadowPass).
+   MSAA 4 on Deferred gives the same picture (+42 / +23 ms ShadowPass). The groom draw counts are
+   `olo_groom_budget_stats` in a live Vulkan editor; with VSM off the head's atlas count steps between
+   frames (#1646).
 5. **Frame-time tails on Vulkan**: the p95/p99 spread at the dolly and rapid-turn cameras is CPU
    hitches of 0.65–2.1 s (GPU time unchanged in those frames), which grew over the session. They did
    not recur in 1,082 frames polled one CPU-scope snapshot per frame at the same poses, so their
