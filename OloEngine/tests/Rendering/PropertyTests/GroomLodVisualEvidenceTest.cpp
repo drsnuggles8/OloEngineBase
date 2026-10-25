@@ -53,6 +53,7 @@
 #include "OloEngine/Groom/GroomCooker.h"
 #include "OloEngine/Groom/GroomLod.h"
 #include "OloEngine/Groom/GroomLodBuilder.h"
+#include "OloEngine/Groom/GroomStreaming.h"
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
@@ -66,6 +67,7 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Streaming/StreamingSettings.h"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
@@ -1474,6 +1476,79 @@ namespace OloEngine::Tests
         EXPECT_EQ(stats.Lod.CrossFadesRefused, 0u) << "the slot the departed twin held was not given to the coat";
         EXPECT_EQ(stats.Lod.CrossFading, 1u) << "the coat hard-switched on the frame the twin left";
 
+        GetScene().DestroyEntity(twin);
+    }
+
+    TEST_F(GroomLodVisualEvidenceTest, AFadeWhoseTwoTiersStreamToOneBuildGivesItsSlotBack)
+    {
+        // Under a representation budget too small for any detail, every coat
+        // draws its streaming floor -- this fixture's 2500 cooked cards -- and
+        // a halving's two tiers resolve to that same build, so Scene drops the
+        // outgoing copy: there is nothing to fade between. The window must go
+        // with it. Left open, it kept its slot for its whole length while the
+        // coat drew one tier, and with one slot a twin's hand-over two frames
+        // later was refused.
+        ASSERT_TRUE(Renderer3D::IsFrustumCullingEnabled()) << "without the view cull every coat is drawn";
+        RendererSettings& settings = Renderer3D::GetRendererSettings();
+        settings.Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        settings.GroomLodCrossFadeFrames = 12u;
+        settings.GroomLodMaxCrossFades = 1u;
+        StreamingSettings& streaming = GetScene().GetStreamingSettings();
+        const StreamingSettings savedStreaming = streaming;
+        streaming.RepresentationResidentMegabytes = 0.001f;
+
+        // The twin beside the coat, both in view, the twin a little farther
+        // and still on strands.
+        const f32 eye = EyeDistanceFor(300.0f);
+        Entity twin = GetScene().DuplicateEntity(m_GroomEntity);
+        twin.GetComponent<TransformComponent>().Translation = glm::vec3(5.0f, 0.0f, 0.0f);
+        auto& twinShadow = twin.AddOrReplaceComponent<GroomSceneShadowComponent>();
+        twinShadow.m_CastShadows = false;
+        twinShadow.m_ReceiveShadows = false;
+
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 4000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose(glm::vec3(2.5f, 0.35f, eye), 0.0f, 0.05f);
+        Lod().m_Enabled = false;
+        RunEditorFrames(camera, 2);
+        Lod().m_Enabled = true;
+        RunEditorFrames(camera, 48);
+        const auto state = [&](UUID id)
+        { return GetScene().FindGroomLodState(id); };
+        const UUID coat = m_GroomEntity.GetUUID();
+        ASSERT_EQ(PassStats().GroomsSubmitted, 2u) << "both coats must be in view";
+        ASSERT_NE(state(coat), nullptr);
+        ASSERT_NE(state(twin.GetUUID()), nullptr);
+        ASSERT_EQ(state(twin.GetUUID())->Representation, GroomRepresentation::Strand);
+        const FGroomStreamingStats& streamed = Renderer3D::GetGroomRenderPass()->GetStreamingStats();
+        ASSERT_GE(streamed.FallbackDraws, 2u) << "the coats are not on their streaming floor";
+        ASSERT_EQ(streamed.DetailDraws, 0u) << "a coat drew its detail, so no halving lands on the floor";
+
+        // The coat halves; two frames later the twin hands over.
+        const f32 savedFull = Lod().m_VisibilityFullPixelSize;
+        const u32 stepBefore = state(coat)->VisibilityStep;
+        Lod().m_VisibilityFullPixelSize = savedFull * 2.0f;
+        u32 refused = 0;
+        for (u32 frame = 0; frame < 24u; ++frame)
+        {
+            if (frame == 2u)
+            {
+                twin.GetComponent<GroomLodComponent>().m_CardPixelSize = 4096.0f;
+            }
+            RunEditorFrames(camera, 1);
+            refused += PassStats().Lod.CrossFadesRefused;
+        }
+        std::printf("[groom-crossfade] a halving on the streaming floor, then a twin's hand-over, one slot: coat step "
+                    "%u -> %u, twin on %s, refused %u\n",
+                    stepBefore, state(coat)->VisibilityStep,
+                    state(twin.GetUUID())->Representation == GroomRepresentation::Card ? "cards" : "strands", refused);
+        EXPECT_GT(state(coat)->VisibilityStep, stepBefore) << "the coat did not halve";
+        EXPECT_EQ(state(twin.GetUUID())->Representation, GroomRepresentation::Card) << "the twin did not hand over";
+        EXPECT_EQ(refused, 0u) << "a window that drew one tier kept the slot the twin's hand-over needed";
+
+        Lod().m_VisibilityFullPixelSize = savedFull;
+        streaming = savedStreaming;
         GetScene().DestroyEntity(twin);
     }
 

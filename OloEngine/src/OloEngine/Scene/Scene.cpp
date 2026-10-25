@@ -10803,6 +10803,16 @@ namespace OloEngine
                     request.CrossFadeRole = GroomCrossFadeRole::None;
                     request.CrossFadeThreshold = 1.0f;
                     request.Lod.CrossFading = false;
+                    // ...and its window closes on the tier it draws, giving
+                    // the slot back to the coats decided after it this frame.
+                    // Left open, a window drawing one tier held a slot for its
+                    // whole length and refused another coat's hand-over.
+                    if (crossFadeTookSlot)
+                    {
+                        m_GroomCrossFadeRuntime[groomEntity.GetUUID()] = SettledGroomCrossFade(request.Lod);
+                        m_GroomLodFrameDecisions[groomEntity.GetUUID()].CrossFade = GroomCrossFadeDecision{};
+                        ++crossFadeSlots;
+                    }
                 }
             }
 
