@@ -224,6 +224,10 @@ namespace OloEngine
             /// framebuffer object, so "same Target" is NOT enough to reuse the
             /// scope — see VulkanRendererAPI::ScopeMatchesCurrentTarget.
             VkImageView DepthArrayView = VK_NULL_HANDLE;
+            /// The render area the scope opened with. Not the framebuffer's
+            /// spec: a selected depth-array layer (the shadow atlas) can be
+            /// larger than the framebuffer it re-points.
+            VkExtent2D Extent{};
         };
 
         // A clear requested while no scope was open, waiting to fold into the

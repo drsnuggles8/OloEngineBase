@@ -1907,6 +1907,7 @@ namespace OloEngine
         ctx.Scope.DepthArrayView = VK_NULL_HANDLE;
         ctx.Scope.TargetIsBackbuffer = false;
         ctx.Scope.BackbufferView = VK_NULL_HANDLE;
+        ctx.Scope.Extent = {};
         // Pending clears survive the scope END only if never consumed; the
         // next scope begin re-reads them. Target/DrawList stay published.
     }
@@ -1972,6 +1973,10 @@ namespace OloEngine
         if (ctx.Scope.TargetIsBackbuffer)
         {
             return { std::max(m_Backbuffer.Width, 1u), std::max(m_Backbuffer.Height, 1u) };
+        }
+        if (ctx.Scope.Extent.width != 0u && ctx.Scope.Extent.height != 0u)
+        {
+            return ctx.Scope.Extent;
         }
         const auto& spec = ctx.Scope.Target->GetSpecification();
         return { std::max(spec.Width, 1u), std::max(spec.Height, 1u) };
@@ -2280,6 +2285,7 @@ namespace OloEngine
             ctx.Scope.TargetIsBackbuffer = true;
             ctx.Scope.BackbufferView = m_Backbuffer.View;
             ctx.Scope.DepthArrayView = VK_NULL_HANDLE;
+            ctx.Scope.Extent = backbufferRendering.renderArea.extent;
             // Consumed by the loadOp above (a pending depth against the
             // depthless default framebuffer is GL's silent no-op).
             ctx.Pending = PendingClear{};
@@ -2288,8 +2294,8 @@ namespace OloEngine
         }
 
         const auto& spec = target->GetSpecification();
-        const u32 width = std::max(spec.Width, 1u);
-        const u32 height = std::max(spec.Height, 1u);
+        u32 width = std::max(spec.Width, 1u);
+        u32 height = std::max(spec.Height, 1u);
 
         // The SetDrawBuffers selection maps fragment output location i onto
         // attachment DrawList[i] (GL's glDrawBuffers semantics). Identity
@@ -2397,6 +2403,22 @@ namespace OloEngine
             const auto* depthImageInfo = VulkanImageInfoRegistry::Get().Lookup(depthVkImage);
             ctx.ScopeTargets.DepthFormat = depthImageInfo != nullptr ? depthImageInfo->Format : VK_FORMAT_UNDEFINED;
 
+            // A selected layer renders at ITS extent, not the framebuffer's: the
+            // shadow framebuffer is sized to the cascades and re-pointed at the
+            // local-light atlas layer, which is larger. Sized from the spec, the
+            // render area clipped every atlas tile past the first cascade-sized
+            // square and the folded whole-atlas clear covered only that square
+            // (GL's glClear ignores the viewport), so every other spot and point
+            // face sampled uncleared depth (#1556, found by the windowless Vulkan
+            // ShadowAtlas evidence). With colour attachments in the scope the
+            // area must fit them too.
+            if (depthArray.Active && depthImageInfo != nullptr && depthImageInfo->Width != 0u &&
+                depthImageInfo->Height != 0u)
+            {
+                width = outputCount == 0u ? depthImageInfo->Width : std::min(width, depthImageInfo->Width);
+                height = outputCount == 0u ? depthImageInfo->Height : std::min(height, depthImageInfo->Height);
+            }
+
             const u32 depthLayer = depthArray.Active ? depthArray.Layer : 0u;
             RHI::Barrier toDepth{};
             toDepth.Resource = depthArray.Active ? depthArray.Handle : depthImage->GetRHIHandle();
@@ -2438,6 +2460,7 @@ namespace OloEngine
         ctx.Scope.TargetIsBackbuffer = false;
         ctx.Scope.BackbufferView = VK_NULL_HANDLE;
         ctx.Scope.DepthArrayView = depthArray.Active ? depthArray.View : VK_NULL_HANDLE;
+        ctx.Scope.Extent = rendering.renderArea.extent;
         // The pending clear was consumed by the loadOps above (it matched
         // this target by construction — a mismatch was materialized before
         // the scope opened).
