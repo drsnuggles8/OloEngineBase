@@ -2291,8 +2291,12 @@ namespace OloEngine::Tests
         // frame less and less of it. The coarse regions are classified in the
         // dog's frame; `parts`, when given, also classifies each coat pixel by
         // its nearest skinned body vertex (BakeComparison::Anatomical).
+        // `playOnFrom`, when not zero, is the frame an earlier comparison left
+        // the same clip paused at: the clip plays on from there to `frames`
+        // rather than being replayed from its start (#1630). The capture steps
+        // neither the clip nor the solver, so the state is the replay's.
         BakeComparison CompareRestBake(const char* clip, u32 frames, const View& where, const std::string& pngStem,
-                                       bool writeOff, BodyParts* parts = nullptr)
+                                       bool writeOff, BodyParts* parts = nullptr, u32 playOnFrom = 0u)
         {
             auto& shadow = m_Dog.Coat.GetComponent<GroomCoatShadowComponent>();
             auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
@@ -2327,7 +2331,15 @@ namespace OloEngine::Tests
                 // matrix is still compared across the arms below.
                 if (arms == 0u)
                 {
-                    (void)StartClip(clip, true, frames);
+                    if (playOnFrom == 0u)
+                    {
+                        (void)StartClip(clip, true, frames);
+                    }
+                    else
+                    {
+                        anim.m_IsPlaying = true;
+                        (void)AdvanceRuntime(frames - playOnFrom);
+                    }
                     anim.m_IsPlaying = false;
                 }
                 Renderer3D::ResetFrameSequences();
@@ -8752,11 +8764,13 @@ namespace OloEngine::Tests
             f64 firstCoatPixels = 0.0;
             for (u32 instant = 0; instant < 3u; ++instant)
             {
+                // The clip is replayed from its start for the first instant and
+                // plays on to the next two (#1630).
                 const u32 frames = c.Frames + (20u * instant);
                 const BakeComparison comparison =
                     CompareRestBake(c.Clip, frames, c.Where,
                                     instant == 0u ? std::string("DogCoatBakeLimits_GL_Forward_") + c.Name : std::string(),
-                                    false, &parts);
+                                    false, &parts, instant == 0u ? 0u : frames - 20u);
                 ASSERT_FALSE(HasFatalFailure());
                 ReportRestBake(c.Name, frames, comparison);
                 const BakeRegion& all = comparison.Regions[3];
