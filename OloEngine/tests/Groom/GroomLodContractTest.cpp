@@ -1013,14 +1013,6 @@ TEST(GroomLodCrossFade, AHalvingThatThinsNothingOpensNoWindowButMovesTheStep)
     ASSERT_TRUE(thinned.Active) << "the first halving that drops cards did not fade";
     EXPECT_EQ(thinned.OutgoingVisibilityStep, 4u) << "the outgoing copy is not the build the coat drew";
 
-    // A segment budget that allows 9000 strands of a 40 000-curve coat under a
-    // 40 000-strand cap: steps 0 to 2 (40 000, 20 000, 10 000) all build the
-    // segment budget's 9000, step 3 (5000) is the first that thins.
-    GroomCrossFadeStrands segmentLimited{ 40000u, 40000u };
-    segmentLimited.SegmentBudgetStrands = 9000u;
-    EXPECT_TRUE(segmentLimited.SameStrands(0u, 2u));
-    EXPECT_FALSE(segmentLimited.SameStrands(2u, 3u));
-
     // Without the curve count the steps themselves are compared.
     GroomCrossFadeState raw = SettledGroomCrossFade(DecisionOn(GroomRepresentation::Card, true, 0u));
     EXPECT_TRUE(AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card, true, 1u), 12u, true, raw).Active);

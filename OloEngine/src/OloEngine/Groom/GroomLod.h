@@ -67,7 +67,6 @@
 #include "OloEngine/Math/Math.h"
 
 #include <array>
-#include <limits>
 #include <string_view>
 
 namespace OloEngine
@@ -680,18 +679,19 @@ namespace OloEngine
     /// curves builds the same strands. A halving between two of them has
     /// nothing to fade, and a window opened for it would hold a slot while
     /// drawing one picture twice. Zero curves compares the steps themselves.
+    ///
+    /// EXACT OR NOTHING: a coat limited by its SEGMENT budget also builds the
+    /// same strands on several steps, but which ones depends on
+    /// GroomStrandMesh's per-role solve. An estimate that called two
+    /// different builds the same would hard-switch a real halving -- the pop
+    /// this exists to remove -- so such a coat opens a window it did not need
+    /// instead, which costs a slot and a second draw for its length.
     struct GroomCrossFadeStrands
     {
         u32 MaxRenderStrands = 0;
         u32 CurveCount = 0;
-        /// The strands the segment budget alone allows at the tier's mean
-        /// segments per curve: an estimate of GroomStrandMesh's per-role
-        /// solve, so a segment-limited coat's halvings, which build the same
-        /// strands, open no window either.
-        u32 SegmentBudgetStrands = std::numeric_limits<u32>::max();
 
-        /// The strands step `step` builds: its budget, capped at the curves
-        /// and at the segment budget.
+        /// The strands step `step` builds: its budget, capped at the curves.
         [[nodiscard]] u32 Built(u32 step) const noexcept;
         [[nodiscard]] bool SameStrands(u32 a, u32 b) const noexcept
         {
@@ -730,12 +730,16 @@ namespace OloEngine
                   "GroomCrossFadeState is compared with a whole-object memcmp: it must have no implicit padding");
     static_assert(std::is_trivially_copyable_v<GroomCrossFadeState>);
 
-    /// A state with no window, on the tier `decision` draws. What a coat
-    /// starts from the first time it is seen, and what one out of every view
-    /// is closed on: either way there is no previous picture to fade from, and
-    /// the default state (strands, full budget) would open a window from one
-    /// the coat never drew (#1628: a population budget can put a new coat on a
-    /// coarse step from its first frame).
+    /// A state with no window, on one tier. A coat seen for the first time
+    /// starts settled on the tier its first decision draws: there is no
+    /// previous picture to fade from, and the default state (strands, full
+    /// budget) would open a window from one the coat never drew (#1628: a
+    /// population budget can put a new coat on a coarse step from its first
+    /// frame). A coat out of every view is settled on the tier it was last
+    /// DRAWN on (its state's To), so it fades back in from what the viewer
+    /// last saw rather than from a tier its ladder reached out of sight.
+    [[nodiscard]] GroomCrossFadeState SettledGroomCrossFade(GroomRepresentation representation,
+                                                           u32 visibilityStep) noexcept;
     [[nodiscard]] GroomCrossFadeState SettledGroomCrossFade(const GroomLodDecision& decision) noexcept;
 
     /// What this frame draws.

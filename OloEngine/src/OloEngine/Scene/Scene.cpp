@@ -10535,7 +10535,9 @@ namespace OloEngine
             // and the visibility step it was built on (#1628).
             std::optional<GroomRepresentation> crossFadeOutgoing;
             u32 crossFadeOutgoingVisibilityStep = 0;
-            // Whether this coat's window took one of the frame's slots.
+            // Whether this publish advanced the coat's window (the frame's
+            // first), and whether the window took one of the frame's slots.
+            bool crossFadeDecidedHere = false;
             bool crossFadeTookSlot = false;
             if (const auto* lod = m_Registry.try_get<GroomLodComponent>(entity); lod != nullptr)
             {
@@ -10665,24 +10667,9 @@ namespace OloEngine
                     else if (advanceLodState && viewRelevant)
                     {
                         // A halving is a hand-over too (#1628), unless this
-                        // tier's curves, or the strands its segment budget
-                        // allows, fit in both budgets.
-                        GroomCrossFadeStrands strands;
-                        {
-                            const GroomCurveView curves = request.BuildSource().Curves;
-                            const u64 curveCount = curves.GetCurveCount();
-                            const u64 segments = curves.GetPointCount() > curveCount
-                                                     ? curves.GetPointCount() - curveCount
-                                                     : 0u;
-                            strands.MaxRenderStrands = groomComponent.m_MaxRenderStrands;
-                            strands.CurveCount = static_cast<u32>(curveCount);
-                            if (segments > 0u)
-                            {
-                                strands.SegmentBudgetStrands = static_cast<u32>(std::min<u64>(
-                                    static_cast<u64>(request.Build.MaxSegments) * curveCount / segments,
-                                    std::numeric_limits<u32>::max()));
-                            }
-                        }
+                        // tier's curves all fit in both budgets.
+                        const GroomCrossFadeStrands strands{ groomComponent.m_MaxRenderStrands,
+                                                             request.BuildSource().Curves.GetCurveCount() };
                         // A coat seen for the first time starts on the tier it
                         // draws, with nothing behind it to fade from.
                         auto [fadeState, fresh] = m_GroomCrossFadeRuntime.try_emplace(groomEntity.GetUUID());
@@ -10692,6 +10679,7 @@ namespace OloEngine
                         }
                         crossFade = AdvanceGroomCrossFade(request.Lod, crossFadeFrames, crossFadeSlots > 0u,
                                                           fadeState->second, strands);
+                        crossFadeDecidedHere = true;
                         // Drawing this frame takes a slot, held or new (see
                         // groomOrder): the windows running on were decided
                         // first, so what is left is what a new hand-over gets.
@@ -10705,11 +10693,16 @@ namespace OloEngine
                     else if (advanceLodState)
                     {
                         // A coat out of every view draws nothing to fade: its
-                        // window closes, so it holds no slot from the next
-                        // frame, and it comes back into view whole -- as a coat
-                        // seen for the first time, settled on whatever tier it
-                        // then draws rather than on one it never drew here.
-                        m_GroomCrossFadeRuntime.erase(groomEntity.GetUUID());
+                        // window closes on the tier it was last DRAWN on (the
+                        // window's incoming side), so it holds no slot from the
+                        // next frame. The state is not moved to this frame's
+                        // decision: whatever its ladder reaches out of sight,
+                        // the coat fades back in from what the viewer last saw.
+                        if (const auto it = m_GroomCrossFadeRuntime.find(groomEntity.GetUUID());
+                            it != m_GroomCrossFadeRuntime.end())
+                        {
+                            it->second = SettledGroomCrossFade(it->second.To, it->second.ToVisibilityStep);
+                        }
                     }
                     // Counted from the flag, whatever else explains the coat's
                     // tier; named as the reason only where nothing more
@@ -10807,11 +10800,14 @@ namespace OloEngine
                     // the slot back to the coats decided after it this frame.
                     // Left open, a window drawing one tier held a slot for its
                     // whole length and refused another coat's hand-over.
-                    if (crossFadeTookSlot)
+                    if (crossFadeDecidedHere)
                     {
                         m_GroomCrossFadeRuntime[groomEntity.GetUUID()] = SettledGroomCrossFade(request.Lod);
                         m_GroomLodFrameDecisions[groomEntity.GetUUID()].CrossFade = GroomCrossFadeDecision{};
-                        ++crossFadeSlots;
+                        if (crossFadeTookSlot)
+                        {
+                            ++crossFadeSlots;
+                        }
                     }
                 }
             }

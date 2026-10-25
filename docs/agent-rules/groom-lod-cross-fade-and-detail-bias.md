@@ -55,8 +55,8 @@ and measurements are in [the details file](groom-lod-cross-fade-and-detail-bias-
 11. **A VSM caster that stops fading counts as moved for one frame.**
     [Details](groom-lod-cross-fade-and-detail-bias-details.md#11-a-vsm-caster-that-stops-fading).
 
-12. **Only a coat that can reach the view opens a fade window**; a coat out of every view drops its
-    window and comes back settled on the tier it then draws. [Details](groom-lod-cross-fade-and-detail-bias-details.md#12-only-a-coat-that-can-reach-the-view-opens-a-window).
+12. **Only a coat that can reach the view opens a fade window**; a coat out of every view closes its
+    window on the tier it was last drawn on, and fades back in from it. [Details](groom-lod-cross-fade-and-detail-bias-details.md#12-only-a-coat-that-can-reach-the-view-opens-a-window).
 
 13. **A halving is a hand-over: a tier is a representation and a visibility step.** A step change
     opens the same window, with the outgoing copy on the step the coat was last built on, so it is

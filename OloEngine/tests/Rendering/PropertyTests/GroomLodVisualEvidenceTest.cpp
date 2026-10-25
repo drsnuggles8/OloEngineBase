@@ -1479,14 +1479,16 @@ namespace OloEngine::Tests
         GetScene().DestroyEntity(twin);
     }
 
-    TEST_F(GroomLodVisualEvidenceTest, ACoatBackInViewDoesNotFadeFromATierItNeverDrew)
+    TEST_F(GroomLodVisualEvidenceTest, ACoatBackInViewFadesFromTheTierItWasLastDrawnOn)
     {
-        // A coat's ladder keeps moving out of view. Here it reaches the cards'
-        // third halving while the camera looks away from far off; the camera
-        // then comes back, nearer, and the ladder refines to the second on the
-        // frame the coat is in view again. Nothing on screen ever showed the
-        // third: settling the window on the out-of-view tier faded the coat in
-        // from it (#1628). It comes back as a coat seen for the first time.
+        // A coat's ladder keeps moving out of view. Here the coat is drawn on
+        // strands close up, then reaches the cards' fourth halving while the
+        // camera looks away from far off; the camera comes back, nearer, and
+        // the ladder refines to the cards' second step on the frame the coat
+        // is in view again. Nothing on screen ever showed the fourth. The coat
+        // fades in from the strands the viewer last saw (#1628): settled on
+        // its out-of-view tier, it faded from cards it never drew; dropped,
+        // it switched hard.
         ASSERT_TRUE(Renderer3D::IsFrustumCullingEnabled()) << "without the view cull every coat is drawn";
         RendererSettings& settings = Renderer3D::GetRendererSettings();
         settings.Path = RenderingPath::Forward;
@@ -1527,21 +1529,26 @@ namespace OloEngine::Tests
         RunEditorFrames(camera, 1);
         const GroomLodState back = *GetScene().FindGroomLodState(coat);
         const u32 fadingOnReturn = PassStats().Lod.CrossFading;
-        u32 fadingAfter = 0;
-        for (u32 frame = 0; frame < 12u; ++frame)
+        // The outgoing copy is a strand tier: the strands drawn this frame are
+        // that copy's, the primary being cards.
+        const u32 strandsOnReturn =
+            PassStats().Lod.StrandsByRepresentation[static_cast<sizet>(GroomRepresentation::Strand)];
+        u32 fadingFrames = fadingOnReturn > 0u ? 1u : 0u;
+        for (u32 frame = 0; frame < 16u; ++frame)
         {
             RunEditorFrames(camera, 1);
-            fadingAfter += PassStats().Lod.CrossFading;
+            fadingFrames += PassStats().Lod.CrossFading > 0u ? 1u : 0u;
         }
         std::printf("[groom-crossfade] back in view: away on %s step %u, back on %s step %u, fading %u on the "
-                    "frame, %u after\n",
+                    "frame with %u strand-tier strands, %u fading frames\n",
                     away.Representation == GroomRepresentation::Card ? "cards" : "strands", away.VisibilityStep,
                     back.Representation == GroomRepresentation::Card ? "cards" : "strands", back.VisibilityStep,
-                    fadingOnReturn, fadingAfter);
+                    fadingOnReturn, strandsOnReturn, fadingFrames);
         ASSERT_EQ(back.Representation, GroomRepresentation::Card);
         ASSERT_LT(back.VisibilityStep, away.VisibilityStep) << "the ladder did not refine on the return frame";
-        EXPECT_EQ(fadingOnReturn, 0u) << "the coat faded in from a tier it was never drawn on";
-        EXPECT_EQ(fadingAfter, 0u);
+        EXPECT_EQ(fadingOnReturn, 1u) << "the coat switched hard from the strands the viewer last saw";
+        EXPECT_GT(strandsOnReturn, 0u) << "the coat faded in from a tier other than the strands it was last drawn on";
+        EXPECT_EQ(fadingFrames, 12u);
 
         GetScene().DestroyEntity(twin);
         m_GroomEntity.RemoveComponent<GroomSceneShadowComponent>();
@@ -1905,7 +1912,17 @@ namespace OloEngine::Tests
         Scene& scene = GetScene();
         auto& post = Renderer3D::GetPostProcessSettings();
         RendererSettings& settings = Renderer3D::GetRendererSettings();
-        const bool savedTaa = post.TAAEnabled;
+        // Restored on every exit: TAA is a post-process setting, which the
+        // fixture does not reset between tests.
+        struct TaaRestore
+        {
+            bool& Flag;
+            bool Saved;
+            ~TaaRestore()
+            {
+                Flag = Saved;
+            }
+        } restoreTaa{ post.TAAEnabled, post.TAAEnabled };
         const u32 savedFrames = settings.GroomLodCrossFadeFrames;
         settings.Path = RenderingPath::Forward;
         Renderer3D::ApplyRendererSettings();
@@ -2082,7 +2099,6 @@ namespace OloEngine::Tests
             sun.AddComponent<DirectionalLightComponent>(light);
         }
         settings.GroomLodCrossFadeFrames = savedFrames;
-        post.TAAEnabled = savedTaa;
     }
 
     // =========================================================================

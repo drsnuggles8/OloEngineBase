@@ -149,10 +149,11 @@ negative control), for a hand-over and for a halving.
 
 The LOD advances for every coat by distance, and the view cull comes after it. Before the cull moved
 ahead of the fade, a coat behind the camera that changed tier took a slot, and a visible coat was
-refused. A coat out of every view drops its window state, so it holds no slot and comes back as a
-coat seen for the first time, settled on the tier it then draws. Settling it on its out-of-view tier
-instead faded it in from a tier it never drew, whenever the ladder or the population budget moved
-it while it was out of view. Pinned by `ACoatBackInViewDoesNotFadeFromATierItNeverDrew`.
+refused. A coat out of every view has its window closed on the tier it was last drawn on, so it
+holds no slot, and its state waits there: when it comes back on another tier, it fades from what the
+viewer last saw. Settling it on each frame's out-of-view decision faded it in from a tier it never
+drew whenever the ladder or the population budget moved it out of sight; dropping the state switched
+it hard. Pinned by `ACoatBackInViewFadesFromTheTierItWasLastDrawnOn`, which both alternatives fail.
 Pinned by `ACoatOutOfViewTakesNoCrossFadeSlot` (negative control: 0 fading frames, 1 refused).
 Coats whose window runs on into the frame are decided first, and each takes its slot only once it's
 known to be in view. A count taken before the loop kept a slot for a coat that left the view that
@@ -174,10 +175,12 @@ Three details make it correct rather than merely working:
   that covers all the curves to step 0 would have keyed the copy on the full `m_MaxRenderStrands`
   and rebuilt the coat on the window's first frame.
 - **A halving that thins nothing opens nothing.** On cards, or on a coat with fewer curves than
-  `m_MaxRenderStrands`, several steps build every curve; on a coat limited by `m_MaxRenderSegments`,
-  several build the segment budget's strands (estimated at the tier's mean segments per curve). `GroomCrossFadeStrands` (the budget and the
+  `m_MaxRenderStrands`, several steps build every curve. `GroomCrossFadeStrands` (the budget and the
   tier's curve count) makes two such steps one tier, and the state follows the step without a
-  window. Otherwise each would hold a slot for 12 frames while drawing one picture twice.
+  window. Otherwise each would hold a slot for 12 frames while drawing one picture twice. A coat
+  limited by `m_MaxRenderSegments` is not detected, because which steps build the same strands
+  depends on GroomStrandMesh's per-role solve: an estimate that called two different builds the same
+  would hard-switch a real halving, so such a coat pays for a window it did not need instead.
   `AHalvingThatThinsNothingOpensNoWindowButMovesTheStep` pins it.
 - **A coat starts settled on the tier it draws** (`SettledGroomCrossFade`). The default state is
   strands at full budget, and a population budget can put a new coat on a coarse step from its first

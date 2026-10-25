@@ -390,17 +390,22 @@ namespace OloEngine
 
     u32 GroomCrossFadeStrands::Built(u32 step) const noexcept
     {
-        return std::min({ GroomLodStrandBudget(MaxRenderStrands, step), CurveCount, SegmentBudgetStrands });
+        return std::min(GroomLodStrandBudget(MaxRenderStrands, step), CurveCount);
+    }
+
+    GroomCrossFadeState SettledGroomCrossFade(GroomRepresentation representation, u32 visibilityStep) noexcept
+    {
+        GroomCrossFadeState state;
+        state.From = representation;
+        state.To = representation;
+        state.FromVisibilityStep = visibilityStep;
+        state.ToVisibilityStep = visibilityStep;
+        return state;
     }
 
     GroomCrossFadeState SettledGroomCrossFade(const GroomLodDecision& decision) noexcept
     {
-        GroomCrossFadeState state;
-        state.From = decision.Representation;
-        state.To = decision.Representation;
-        state.FromVisibilityStep = decision.VisibilityStep;
-        state.ToVisibilityStep = decision.VisibilityStep;
-        return state;
+        return SettledGroomCrossFade(decision.Representation, decision.VisibilityStep);
     }
 
     GroomCrossFadeDecision AdvanceGroomCrossFade(const GroomLodDecision& decision, u32 frames, bool slotAvailable,
