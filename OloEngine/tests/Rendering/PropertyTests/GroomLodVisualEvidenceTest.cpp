@@ -5,7 +5,9 @@
 // GroomLodVisualEvidenceTest — issue #1252, on real pixels.
 //
 // Writes OloEditor/assets/tests/visual/GroomLod[Off]_GL_<Path>[_<Distance>].png
-// and GroomDetailBias{High,Low}_GL_<Path>.png (#1616)
+// and GroomDetailBias{High,Low}_GL_<Path>.png (#1616), and the cross-fade film
+// strips GroomLod{CrossFade,HalvingFade}[Off|NoTAA]_GL_<Path>_Dolly.png
+// (#1612, #1628)
 //
 // The filename carries the {backend} x {path} cell it covers, including the
 // backend even though it is always GL here: a reader counting files then cannot
@@ -79,6 +81,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -437,15 +440,21 @@ namespace OloEngine::Tests
             u32 Refused = 0;        // hand-overs that hard-switched for want of a slot
             f64 MaxStep = 0.0;      // largest |relative frame-to-frame step|, whole walk
             f64 MaxStepNearHandOver = 0.0;
-            f64 NoiseFloor = 0.0;  // median |step| away from the hand-over
+            f64 NoiseFloor = 0.0;  // median |step| away from the hand-over and the halvings
             f64 TotalChange = 0.0; // mean after the hand-over over mean before, minus 1
+            // The visibility budget's halvings (#1628): the coat's step per
+            // frame, the frames it moved on, and the largest |step| from two
+            // frames before each to the end of its window.
+            std::vector<u32> VisibilitySteps;
+            std::vector<u32> HalvingFrames;
+            std::vector<f64> MaxStepNearHalving;
         };
 
         static constexpr u32 kDollyFrames = 192;
         static constexpr f32 kDollyFrom = kCardPixelSize * 1.5f;
         static constexpr f32 kDollyTo = kCardPixelSize * 0.55f;
 
-        [[nodiscard]] DollyResult Dolly(const std::string& saveAs)
+        [[nodiscard]] DollyResult Dolly(const std::string& saveAs, const std::string& halvingSaveAs = "")
         {
             DollyResult result;
             EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 4000.0f);
@@ -496,6 +505,12 @@ namespace OloEngine::Tests
                     ++result.HandOvers;
                     result.HandOverFrame = frame;
                 }
+                const GroomLodState* lodState = GetScene().FindGroomLodState(m_GroomEntity.GetUUID());
+                result.VisibilitySteps.push_back(lodState != nullptr ? lodState->VisibilityStep : 0u);
+                if (frame > 0u && result.VisibilitySteps[frame] != result.VisibilitySteps[frame - 1u])
+                {
+                    result.HalvingFrames.push_back(frame);
+                }
 
                 auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
                 if (!fb)
@@ -517,7 +532,7 @@ namespace OloEngine::Tests
                     light += std::abs(l - background);
                 }
                 result.Signal.push_back(light / (static_cast<f64>(pixelSize) * static_cast<f64>(pixelSize)));
-                if (!saveAs.empty())
+                if (!saveAs.empty() || !halvingSaveAs.empty())
                 {
                     std::vector<u8>& tile = strip.emplace_back(static_cast<sizet>(kTile) * kTile * 4u);
                     for (u32 y = 0; y < kTile; ++y)
@@ -535,16 +550,31 @@ namespace OloEngine::Tests
             // change across it.
             std::vector<f64> steps(result.Signal.size(), 0.0);
             std::vector<f64> quiet;
+            result.MaxStepNearHalving.assign(result.HalvingFrames.size(), 0.0);
+            const auto nearEvent = [](sizet f, u32 event)
+            {
+                const i64 from = static_cast<i64>(f) - static_cast<i64>(event);
+                return from >= -2 && from <= 24;
+            };
             for (sizet f = 1; f < result.Signal.size(); ++f)
             {
                 steps[f] = std::abs(result.Signal[f] / std::max(result.Signal[f - 1], 1.0e-9) - 1.0);
                 result.MaxStep = std::max(result.MaxStep, steps[f]);
-                const i64 fromHandOver = static_cast<i64>(f) - static_cast<i64>(result.HandOverFrame);
-                if (result.HandOvers > 0u && fromHandOver >= -2 && fromHandOver <= 24)
+                bool quietFrame = true;
+                if (result.HandOvers > 0u && nearEvent(f, result.HandOverFrame))
                 {
                     result.MaxStepNearHandOver = std::max(result.MaxStepNearHandOver, steps[f]);
+                    quietFrame = false;
                 }
-                else
+                for (sizet h = 0; h < result.HalvingFrames.size(); ++h)
+                {
+                    if (nearEvent(f, result.HalvingFrames[h]))
+                    {
+                        result.MaxStepNearHalving[h] = std::max(result.MaxStepNearHalving[h], steps[f]);
+                        quietFrame = false;
+                    }
+                }
+                if (quietFrame)
                 {
                     quiet.push_back(steps[f]);
                 }
@@ -566,15 +596,16 @@ namespace OloEngine::Tests
                 result.TotalChange = after / std::max(before, 1.0e-9) - 1.0;
             }
 
-            // The film strip: the coat's neighbourhood on eight frames from
-            // just before the hand-over through the cross-fade window.
-            if (!saveAs.empty() && result.HandOvers > 0u)
+            // The film strips: the coat's neighbourhood on eight frames from
+            // just before the hand-over, and the first halving, through the
+            // cross-fade window.
+            const auto writeStrip = [&](const std::string& name, u32 event)
             {
                 constexpr u32 kTiles = 8;
                 std::vector<u8> film(static_cast<sizet>(kTile) * kTiles * kTile * 4u, 0u);
                 for (u32 t = 0; t < kTiles; ++t)
                 {
-                    const u32 frame = std::min<u32>(result.HandOverFrame - 1u + t * 3u, kDollyFrames - 1u);
+                    const u32 frame = std::min<u32>(event - 1u + t * 3u, kDollyFrames - 1u);
                     const std::vector<u8>& src = strip[frame];
                     for (u32 y = 0; y < kTile; ++y)
                     {
@@ -582,7 +613,15 @@ namespace OloEngine::Tests
                                     src.data() + static_cast<sizet>(y) * kTile * 4u, kTile * 4u);
                     }
                 }
-                WriteEvidence(saveAs, film, kTile * kTiles, kTile);
+                WriteEvidence(name, film, kTile * kTiles, kTile);
+            };
+            if (!saveAs.empty() && result.HandOvers > 0u)
+            {
+                writeStrip(saveAs, result.HandOverFrame);
+            }
+            if (!halvingSaveAs.empty() && !result.HalvingFrames.empty())
+            {
+                writeStrip(halvingSaveAs, result.HalvingFrames.front());
             }
             return result;
         }
@@ -593,30 +632,51 @@ namespace OloEngine::Tests
                         "step %.4f   near hand-over %.4f   noise floor %.4f   total change %+.4f\n",
                         label, r.HandOvers, r.HandOverFrame, r.FadeFrames, r.Refused, r.MaxStep,
                         r.MaxStepNearHandOver, r.NoiseFloor, r.TotalChange);
-            // THE COST OF A TRANSITION FRAME (#1612 acceptance): GroomPass GPU
-            // ms over the window against the strands before it and the cards
-            // after it. The timer pool reports a frame or two late, so the
+            // THE COST OF A TRANSITION FRAME (#1612, #1628 acceptance):
+            // GroomPass GPU ms over a window against the tier before it and the
+            // tier after it. The timer pool reports a frame or two late, so the
             // window's first two frames and the frames just after are left out.
+            const auto mean = [&r](u32 from, u32 to)
+            {
+                f64 sum = 0.0;
+                u32 n = 0;
+                for (u32 f = from; f < std::min<u32>(to, static_cast<u32>(r.GpuMs.size())); ++f)
+                {
+                    if (r.GpuMs[f] >= 0.0)
+                    {
+                        sum += r.GpuMs[f];
+                        ++n;
+                    }
+                }
+                return n > 0u ? sum / n : -1.0;
+            };
+            // The frames a window opened on `frame` drew both tiers.
+            const auto fadeRun = [&r](u32 frame)
+            {
+                u32 n = 0;
+                while (frame + n < r.Fading.size() && r.Fading[frame + n] > 0u)
+                {
+                    ++n;
+                }
+                return n;
+            };
+            for (sizet h = 0; h < r.HalvingFrames.size(); ++h)
+            {
+                const u32 frame = r.HalvingFrames[h];
+                std::printf("[groom-crossfade] %-30s halving %u -> %u at frame %u   max step near it %.4f", label,
+                            r.VisibilitySteps[frame - 1u], r.VisibilitySteps[frame], frame, r.MaxStepNearHalving[h]);
+                if (frame >= 12u)
+                {
+                    std::printf("   GroomPass GPU ms: before %.3f   window %.3f   after %.3f", mean(frame - 12u, frame),
+                                mean(frame + 2u, frame + std::max(fadeRun(frame), 2u)), mean(frame + 26u, frame + 38u));
+                }
+                std::printf("\n");
+            }
             if (r.HandOvers > 0u && r.HandOverFrame >= 14u && r.HandOverFrame + 40u < r.GpuMs.size())
             {
-                const auto mean = [&r](u32 from, u32 to)
-                {
-                    f64 sum = 0.0;
-                    u32 n = 0;
-                    for (u32 f = from; f < to; ++f)
-                    {
-                        if (r.GpuMs[f] >= 0.0)
-                        {
-                            sum += r.GpuMs[f];
-                            ++n;
-                        }
-                    }
-                    return n > 0u ? sum / n : -1.0;
-                };
                 const u32 h = r.HandOverFrame;
                 std::printf("[groom-crossfade] %-30s GroomPass GPU ms: strands %.3f   window %.3f   cards %.3f\n",
-                            label, mean(h - 12u, h), mean(h + 2u, h + 2u + std::max(r.FadeFrames, 2u) - 2u),
-                            mean(h + 26u, h + 38u));
+                            label, mean(h - 12u, h), mean(h + 2u, h + std::max(fadeRun(h), 2u)), mean(h + 26u, h + 38u));
             }
             if (r.HandOvers > 0u)
             {
@@ -1019,26 +1079,41 @@ namespace OloEngine::Tests
             // OFF: the hard switch every hand-over was before #1612, the A/B
             // control, on the same walk.
             settings.GroomLodCrossFadeFrames = 0u;
-            const DollyResult hard = Dolly("GroomLodCrossFadeOff" + cell);
+            const DollyResult hard = Dolly("GroomLodCrossFadeOff" + cell, "GroomLodHalvingFadeOff" + cell);
             ASSERT_FALSE(::testing::Test::HasFatalFailure());
             PrintDolly((std::string(pathCase.Name) + " hard switch").c_str(), hard);
 
             settings.GroomLodCrossFadeFrames = window;
             settings.GroomLodMaxCrossFades = 4u;
-            const DollyResult faded = Dolly("GroomLodCrossFade" + cell);
+            const DollyResult faded = Dolly("GroomLodCrossFade" + cell, "GroomLodHalvingFade" + cell);
             ASSERT_FALSE(::testing::Test::HasFatalFailure());
             PrintDolly((std::string(pathCase.Name) + " cross-fade").c_str(), faded);
 
             ASSERT_EQ(hard.HandOvers, 1u) << pathCase.Name << ": the walk must cross the card hand-over once";
             ASSERT_EQ(faded.HandOvers, 1u) << pathCase.Name;
+            // The walk's halvings (#1628): one on the strands before the
+            // hand-over and one on the cards after it, on the same frames in
+            // both arms, since the fade does not touch the ladder.
+            ASSERT_GE(hard.HalvingFrames.size(), 1u) << pathCase.Name << ": the walk crosses no visibility halving";
+            ASSERT_EQ(faded.HalvingFrames, hard.HalvingFrames) << pathCase.Name << ": the fade moved the ladder";
             EXPECT_EQ(hard.FadeFrames, 0u) << pathCase.Name << ": a zero-length window faded";
-            EXPECT_EQ(faded.FadeFrames, window) << pathCase.Name << ": the coat did not fade for exactly the window";
+            // One window per tier change, none overlapping on this walk.
+            EXPECT_EQ(faded.FadeFrames, window * static_cast<u32>(1u + faded.HalvingFrames.size()))
+                << pathCase.Name << ": the coat did not fade for exactly a window at the hand-over and each halving";
 
             // THE CLAIM: the step at the hand-over is spread. The hard switch
             // lands its whole change in one frame; the fade's largest step must
             // be well under half of it.
             EXPECT_LT(faded.MaxStepNearHandOver, hard.MaxStepNearHandOver * 0.5)
                 << pathCase.Name << ": the cross-fade did not spread the hand-over's step";
+            // ...and so is the step at each halving (#1628 acceptance: under
+            // half of the hard halving's, on every path).
+            for (sizet h = 0; h < faded.HalvingFrames.size(); ++h)
+            {
+                EXPECT_LT(faded.MaxStepNearHalving[h], hard.MaxStepNearHalving[h] * 0.5)
+                    << pathCase.Name << ": the halving at frame " << faded.HalvingFrames[h]
+                    << " was not spread across its window";
+            }
             // ...without changing where the walk arrives: the fade hides the
             // step, it does not change either tier (#1608 is the energy).
             EXPECT_NEAR(faded.TotalChange, hard.TotalChange, 0.02)
@@ -1047,19 +1122,24 @@ namespace OloEngine::Tests
 
         // TAA OFF: the screen door is visible as noise, but the mask still
         // covers each pixel once, so the coat neither doubles nor holes. Its
-        // light through the window stays between the two tiers' within the
-        // per-frame noise of an unresolved stochastic coat.
+        // light through each window -- the hand-over's and every halving's --
+        // stays between the two tiers' within the per-frame noise of an
+        // unresolved stochastic coat.
         settings.Path = RenderingPath::Forward;
         Renderer3D::ApplyRendererSettings();
         post.TAAEnabled = false;
         settings.GroomLodCrossFadeFrames = window;
-        const DollyResult noTaa = Dolly("GroomLodCrossFadeNoTAA_GL_Forward_Dolly");
+        const DollyResult noTaa =
+            Dolly("GroomLodCrossFadeNoTAA_GL_Forward_Dolly", "GroomLodHalvingFadeNoTAA_GL_Forward_Dolly");
         ASSERT_FALSE(::testing::Test::HasFatalFailure());
         PrintDolly("Forward cross-fade, no TAA", noTaa);
         ASSERT_EQ(noTaa.HandOvers, 1u);
-        EXPECT_EQ(noTaa.FadeFrames, window);
+        ASSERT_GE(noTaa.HalvingFrames.size(), 1u);
+        EXPECT_EQ(noTaa.FadeFrames, window * static_cast<u32>(1u + noTaa.HalvingFrames.size()));
+        std::vector<u32> windows = noTaa.HalvingFrames;
+        windows.push_back(noTaa.HandOverFrame);
+        for (const u32 h : windows)
         {
-            const u32 h = noTaa.HandOverFrame;
             ASSERT_GE(h, 4u);
             ASSERT_LT(h + window + 4u, static_cast<u32>(noTaa.Signal.size()));
             const f64 before = noTaa.Signal[h - 2u];
@@ -1067,19 +1147,23 @@ namespace OloEngine::Tests
             const f64 slack = std::max(0.02, 4.0 * noTaa.NoiseFloor) * std::max(before, after);
             for (u32 f = h; f < h + window; ++f)
             {
-                EXPECT_GT(noTaa.Signal[f], std::min(before, after) - slack) << "a hole at window frame " << f - h;
-                EXPECT_LT(noTaa.Signal[f], std::max(before, after) + slack) << "a doubled coat at window frame " << f - h;
+                EXPECT_GT(noTaa.Signal[f], std::min(before, after) - slack)
+                    << "a hole at frame " << f - h << " of the window opened on frame " << h;
+                EXPECT_LT(noTaa.Signal[f], std::max(before, after) + slack)
+                    << "a doubled coat at frame " << f - h << " of the window opened on frame " << h;
             }
         }
 
-        // NO SLOT: the hand-over hard-switches, as before, and says so by name.
+        // NO SLOT: the hand-over and every halving hard-switch, as before, and
+        // say so by name.
         post.TAAEnabled = true;
         settings.GroomLodMaxCrossFades = 0u;
         const DollyResult capped = Dolly("");
         ASSERT_FALSE(::testing::Test::HasFatalFailure());
         PrintDolly("Forward, cross-fade budget 0", capped);
         EXPECT_EQ(capped.FadeFrames, 0u);
-        EXPECT_EQ(capped.Refused, 1u) << "the hard switch was not reported as CrossFadeBudgetSpent";
+        EXPECT_EQ(capped.Refused, static_cast<u32>(1u + capped.HalvingFrames.size()))
+            << "a hard switch was not reported as CrossFadeBudgetSpent";
 
         settings.GroomLodCrossFadeFrames = savedFrames;
         settings.GroomLodMaxCrossFades = savedCap;
@@ -1135,6 +1219,44 @@ namespace OloEngine::Tests
         renderOtherViews();
         EXPECT_EQ(*GetScene().FindGroomLodState(coat), settled)
             << "a second view in the same frame advanced the coat's LOD hysteresis";
+
+        // A halving, six other views after every frame (#1628): its window is
+        // advanced by the frame like a hand-over's, and the bake draws the
+        // frame's mix. Doubling the visibility curve moves the ladder down on
+        // the strands (two rungs at this pose, in one change).
+        {
+            // Past the hold first: four frames in, the ladder is still on its
+            // way to its step.
+            RunEditorFrames(camera, 30);
+            const f32 savedFull = Lod().m_VisibilityFullPixelSize;
+            const u32 stepBefore = GetScene().FindGroomLodState(coat)->VisibilityStep;
+            Lod().m_VisibilityFullPixelSize = savedFull * 2.0f;
+            u32 halvingFade = 0;
+            u32 halvingDisagreed = 0;
+            for (u32 frame = 0; frame < 30u; ++frame)
+            {
+                RunEditorFrames(camera, 1);
+                const u32 mainFading = PassStats().Lod.CrossFading;
+                halvingFade += mainFading > 0u ? 1u : 0u;
+                renderOtherViews();
+                halvingDisagreed += PassStats().Lod.CrossFading != mainFading ? 1u : 0u;
+            }
+            std::printf("[groom-crossfade] a halving with a probe bake after every frame: step %u -> %u, fading %u "
+                        "frames\n",
+                        stepBefore, GetScene().FindGroomLodState(coat)->VisibilityStep, halvingFade);
+            EXPECT_GT(GetScene().FindGroomLodState(coat)->VisibilityStep, stepBefore)
+                << "the main view's ladder did not move";
+            EXPECT_EQ(GetScene().FindGroomLodState(coat)->Representation, GroomRepresentation::Strand);
+            EXPECT_EQ(halvingFade, window) << "the halving's window did not last its length with other views in each frame";
+            EXPECT_EQ(halvingDisagreed, 0u) << "the probe bake drew a different mix of the halving than its frame";
+            // Back on the authored curve, and the walk below starts as it did
+            // before this block: a fresh ladder four frames in.
+            Lod().m_VisibilityFullPixelSize = savedFull;
+            Lod().m_Enabled = false;
+            RunEditorFrames(camera, 2);
+            Lod().m_Enabled = true;
+            RunEditorFrames(camera, 4);
+        }
 
         // Out to cards, six other views after every frame.
         camera.SetPose(glm::vec3(0.0f, 0.35f, EyeDistanceFor(kCardPixelSize * 0.4f)), 0.0f, 0.05f);
@@ -1502,6 +1624,81 @@ namespace OloEngine::Tests
             EXPECT_LT(faded[f], hi) << "frame " << f << ": a hole in the fading coat's shadow";
         }
 
+        // A HALVING CASTS THROUGH THE MASKS TOO (#1628). The same pose, the
+        // coat on strands throughout; doubling the visibility curve's full
+        // size moves the ladder exactly one rung, so the only change is the
+        // strand budget. Its outgoing copy is a strand tier like the primary,
+        // through the same caster programs, and a missing caster mask shows as
+        // it did for the hand-over: the shadow holds and steps at the end.
+        const f32 savedFull = Lod().m_VisibilityFullPixelSize;
+        const auto halving = [&](u32 window, const char* label, const std::string& saveAs)
+        {
+            settings.GroomLodCrossFadeFrames = window;
+            Lod().m_VisibilityFullPixelSize = savedFull;
+            std::vector<f64> luma;
+            settled(1.0f, true, luma);
+            const u32 stepBefore = GetScene().FindGroomLodState(m_GroomEntity.GetUUID())->VisibilityStep;
+            Lod().m_VisibilityFullPixelSize = savedFull * 2.0f;
+            std::vector<f64> series;
+            u32 fadeFrames = 0;
+            for (u32 f = 0; f < 24u; ++f)
+            {
+                RunEditorFrames(camera, 1);
+                fadeFrames += PassStats().Lod.CrossFading > 0u ? 1u : 0u;
+                readLuma(luma);
+                series.push_back(shadowLight(luma));
+                if (f == window / 2u && !saveAs.empty())
+                {
+                    std::vector<u8> flipped(pixels.size());
+                    const sizet row = static_cast<sizet>(kWidth) * 4u;
+                    for (u32 y = 0; y < kHeight; ++y)
+                    {
+                        std::memcpy(flipped.data() + y * row, pixels.data() + (kHeight - 1u - y) * row, row);
+                    }
+                    WriteEvidence(saveAs, flipped, kWidth, kHeight);
+                }
+            }
+            const u32 stepAfter = GetScene().FindGroomLodState(m_GroomEntity.GetUUID())->VisibilityStep;
+            std::printf("[groom-crossfade-shadow] %-12s halving %u -> %u, fading %u frames, ground light:", label,
+                        stepBefore, stepAfter, fadeFrames);
+            for (const f64 v : series)
+            {
+                std::printf(" %.4f", v);
+            }
+            std::printf("\n");
+            EXPECT_EQ(stepAfter, stepBefore + 1u) << label << ": doubling the curve did not move the ladder one rung";
+            EXPECT_EQ(PassStats().Lod.ByRepresentation[static_cast<sizet>(GroomRepresentation::Strand)], 1u)
+                << label << ": the coat left the strands, so this is not a halving alone";
+            EXPECT_EQ(fadeFrames, window) << label;
+            return series;
+        };
+        const std::vector<f64> hardHalving = halving(0u, "hard halving", "");
+        const std::vector<f64> fadedHalving = halving(12u, "faded halving", "GroomLodHalvingFadeShadow_GL_Forward");
+        Lod().m_VisibilityFullPixelSize = savedFull;
+        // The width compensation keeps a halving's coverage, so its shadow
+        // step is a fifth of the hand-over's: judged against the series' own
+        // quiet frames (the hold's, before the ladder moves) rather than the
+        // hand-over's floor.
+        const auto quietStep = [](const std::vector<f64>& series)
+        {
+            f64 largest = 0.0;
+            for (sizet f = 1; f < std::min<sizet>(series.size(), 4u); ++f)
+            {
+                largest = std::max(largest, std::abs(series[f] - series[f - 1]));
+            }
+            return largest;
+        };
+        const f64 hardHalvingStep = largestStep(hardHalving);
+        const f64 fadedHalvingStep = largestStep(fadedHalving);
+        const f64 halvingNoise = std::max({ quietStep(hardHalving), quietStep(fadedHalving), 1.0e-4 });
+        std::printf("[groom-crossfade-shadow] halving largest step: hard %.4f   cross-fade %.4f (%.2f of it)   quiet "
+                    "frames %.4f\n",
+                    hardHalvingStep, fadedHalvingStep, fadedHalvingStep / std::max(hardHalvingStep, 1.0e-9),
+                    halvingNoise);
+        EXPECT_GT(hardHalvingStep, 10.0 * halvingNoise)
+            << "the hard halving's shadow step is too small to judge a spread against";
+        EXPECT_LT(fadedHalvingStep, 0.5 * hardHalvingStep) << "the halving coat's shadow did not fade with its colour";
+
         m_GroomEntity.RemoveComponent<GroomSceneShadowComponent>();
         scene.DestroyEntity(ground);
         settings.GroomDetailBias = savedBias;
@@ -1562,42 +1759,55 @@ namespace OloEngine::Tests
         EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 4000.0f);
         camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
         camera.SetPose(glm::vec3(0.0f, 1.6f, EyeDistanceFor(300.0f)), 0.0f, 0.3f);
-        settings.GroomDetailBias = 1.0f;
-        Lod().m_Enabled = false;
-        RunEditorFrames(camera, 2);
-        Lod().m_Enabled = true;
-        RunEditorFrames(camera, 48);
-        ASSERT_TRUE(PassStats().SceneShadow.VirtualShadowMapActive) << "this is the VSM cell; the frame ran the cascades";
-        ASSERT_EQ(PassStats().SceneShadow.VirtualShadowInvalidations, 0u)
-            << "a steady coat invalidates its VSM pages every frame, so this cannot see a fade's end";
-
-        settings.GroomDetailBias = 0.5f;
-        std::vector<u32> fading;
-        std::vector<u32> invalidations;
-        for (u32 frame = 0; frame < 24u; ++frame)
+        // A fade, from a settled coat at bias 1, and the frames after it.
+        // `change` moves the tier: the bias hands the coat over, a doubled
+        // visibility curve halves its strand budget (#1628).
+        const f32 savedFull = Lod().m_VisibilityFullPixelSize;
+        const auto fadeEnd = [&](const char* label, const std::function<void()>& change)
         {
-            RunEditorFrames(camera, 1);
-            fading.push_back(PassStats().Lod.CrossFading);
-            invalidations.push_back(PassStats().SceneShadow.VirtualShadowInvalidations);
-        }
-        std::printf("[groom-crossfade-vsm] fading/invalidations per frame:");
-        for (sizet f = 0; f < fading.size(); ++f)
-        {
-            std::printf(" %u/%u", fading[f], invalidations[f]);
-        }
-        std::printf("\n");
+            settings.GroomDetailBias = 1.0f;
+            Lod().m_VisibilityFullPixelSize = savedFull;
+            Lod().m_Enabled = false;
+            RunEditorFrames(camera, 2);
+            Lod().m_Enabled = true;
+            RunEditorFrames(camera, 48);
+            ASSERT_TRUE(PassStats().SceneShadow.VirtualShadowMapActive)
+                << "this is the VSM cell; the frame ran the cascades";
+            ASSERT_EQ(PassStats().SceneShadow.VirtualShadowInvalidations, 0u)
+                << "a steady coat invalidates its VSM pages every frame, so this cannot see a fade's end";
 
-        const auto lastFade = std::find_if(fading.rbegin(), fading.rend(), [](u32 n)
-                                           { return n > 0u; });
-        ASSERT_NE(lastFade, fading.rend()) << "the bias did not hand the coat over through a fade";
-        const sizet firstSteady = static_cast<sizet>(fading.rend() - lastFade);
-        ASSERT_LT(firstSteady + 1u, fading.size());
-        // The first steady frame redraws the outgoing tier's departed footprint
-        // AND the incoming tier's own, which last frame was dithered; the frame
-        // after it redraws nothing.
-        EXPECT_EQ(invalidations[firstSteady], 2u)
-            << "the first frame after the fade did not redraw the incoming tier's pages";
-        EXPECT_EQ(invalidations[firstSteady + 1u], 0u) << "a steady coat kept invalidating after its fade";
+            change();
+            std::vector<u32> fading;
+            std::vector<u32> invalidations;
+            for (u32 frame = 0; frame < 24u; ++frame)
+            {
+                RunEditorFrames(camera, 1);
+                fading.push_back(PassStats().Lod.CrossFading);
+                invalidations.push_back(PassStats().SceneShadow.VirtualShadowInvalidations);
+            }
+            std::printf("[groom-crossfade-vsm] %-9s fading/invalidations per frame:", label);
+            for (sizet f = 0; f < fading.size(); ++f)
+            {
+                std::printf(" %u/%u", fading[f], invalidations[f]);
+            }
+            std::printf("\n");
+
+            const auto lastFade = std::find_if(fading.rbegin(), fading.rend(), [](u32 n)
+                                               { return n > 0u; });
+            ASSERT_NE(lastFade, fading.rend()) << label << ": the coat did not change tier through a fade";
+            const sizet firstSteady = static_cast<sizet>(fading.rend() - lastFade);
+            ASSERT_LT(firstSteady + 1u, fading.size());
+            // The first steady frame redraws the outgoing tier's departed
+            // footprint AND the incoming tier's own, which last frame was
+            // dithered; the frame after it redraws nothing.
+            EXPECT_EQ(invalidations[firstSteady], 2u)
+                << label << ": the first frame after the fade did not redraw the incoming tier's pages";
+            EXPECT_EQ(invalidations[firstSteady + 1u], 0u) << label << ": a steady coat kept invalidating after its fade";
+        };
+        fadeEnd("hand-over", [&] { settings.GroomDetailBias = 0.5f; });
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        fadeEnd("halving", [&] { Lod().m_VisibilityFullPixelSize = savedFull * 2.0f; });
+        Lod().m_VisibilityFullPixelSize = savedFull;
 
         m_GroomEntity.RemoveComponent<GroomSceneShadowComponent>();
         settings.GroomDetailBias = savedBias;

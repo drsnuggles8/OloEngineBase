@@ -382,11 +382,36 @@ namespace OloEngine
         return static_cast<f32>(static_cast<f64>(frame) / (static_cast<f64>(frames) + 1.0));
     }
 
+    u32 GroomLodStrandBudget(u32 maxRenderStrands, u32 step) noexcept
+    {
+        return std::max(1u,
+                        static_cast<u32>(static_cast<f32>(maxRenderStrands) * GroomLodStepFraction(step)));
+    }
+
+    u32 GroomCrossFadeStrands::Built(u32 step) const noexcept
+    {
+        return std::min(GroomLodStrandBudget(MaxRenderStrands, step), CurveCount);
+    }
+
+    GroomCrossFadeState SettledGroomCrossFade(const GroomLodDecision& decision) noexcept
+    {
+        GroomCrossFadeState state;
+        state.From = decision.Representation;
+        state.To = decision.Representation;
+        state.FromVisibilityStep = decision.VisibilityStep;
+        state.ToVisibilityStep = decision.VisibilityStep;
+        return state;
+    }
+
     GroomCrossFadeDecision AdvanceGroomCrossFade(const GroomLodDecision& decision, u32 frames, bool slotAvailable,
-                                                 GroomCrossFadeState& state) noexcept
+                                                 GroomCrossFadeState& state, const GroomCrossFadeStrands& strands) noexcept
     {
         const GroomRepresentation applied = decision.Representation;
+        const u32 appliedStep = decision.VisibilityStep;
         GroomCrossFadeDecision out;
+
+        // The coat is its tier alone, with no window open.
+        const auto settle = [&state, &decision] { state = SettledGroomCrossFade(decision); };
 
         // A groom with no LOD policy has no hand-over to fade, and turning the
         // policy off is the A/B control for every LOD capture: it must be the
@@ -394,26 +419,30 @@ namespace OloEngine
         // is dropped rather than played out toward the identity tier.
         if (decision.Reason == GroomLodFallbackReason::NotRequested)
         {
-            state = GroomCrossFadeState{};
-            state.From = applied;
-            state.To = applied;
+            settle();
             return out;
         }
 
         const GroomRepresentation previous = state.To;
+        const u32 previousStep = state.ToVisibilityStep;
         // A window HOLDS its slot through this frame if it would still be
         // drawing after it; one on its last frame is closing and holds none, so
         // keeping it alive (a reversal, a restart) needs a slot like a new one.
         const bool holdsSlot = state.IsActive() && state.Frame < state.Frames;
         const bool haveSlot = slotAvailable || holdsSlot;
-        if (applied != previous)
+        // Two steps on one representation are one tier when they build the
+        // same strands; across representations the tiers differ anyway.
+        if (applied != previous || !strands.SameStrands(appliedStep, previousStep))
         {
-            if (state.IsActive() && applied == state.From && haveSlot)
+            if (state.IsActive() && applied == state.From && strands.SameStrands(appliedStep, state.FromVisibilityStep) &&
+                haveSlot)
             {
                 // A REVERSAL. Last frame showed t of `To` and 1 - t of `From`;
                 // swapping the roles and mirroring the progress shows the same
                 // mix again, and the step below moves it on by one frame.
                 std::swap(state.From, state.To);
+                state.FromVisibilityStep = state.ToVisibilityStep;
+                state.ToVisibilityStep = appliedStep;
                 state.Frame = state.Frames + 1u - state.Frame;
                 ++state.Frame;
             }
@@ -423,36 +452,39 @@ namespace OloEngine
             {
                 state.From = previous;
                 state.To = applied;
+                state.FromVisibilityStep = previousStep;
+                state.ToVisibilityStep = appliedStep;
                 state.Frames = frames;
                 state.Frame = 1u;
             }
             else
             {
                 out.Refused = frames > 0u;
-                state.Frame = 0u;
-                state.Frames = 0u;
-                state.From = applied;
-                state.To = applied;
+                settle();
             }
         }
-        else if (state.IsActive())
+        else
         {
-            ++state.Frame;
+            // The same tier, though its step may have moved without thinning
+            // anything: the state follows the step the coat now builds.
+            state.ToVisibilityStep = appliedStep;
+            if (state.IsActive())
+            {
+                ++state.Frame;
+            }
         }
 
         if (!state.IsActive())
         {
             // Over, or never started: the coat is its tier alone.
-            state.Frame = 0u;
-            state.Frames = 0u;
-            state.From = applied;
-            state.To = applied;
+            settle();
             return out;
         }
 
         out.Active = true;
         out.TookSlot = !holdsSlot;
         out.Outgoing = state.From;
+        out.OutgoingVisibilityStep = state.FromVisibilityStep;
         out.Threshold = GroomCrossFadeThreshold(state.Frame, state.Frames);
         return out;
     }

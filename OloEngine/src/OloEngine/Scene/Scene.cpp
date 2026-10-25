@@ -10157,6 +10157,7 @@ namespace OloEngine
         std::unordered_set<UUID> liveGroomStreamingIdentities;
         // THE CROSS-FADE BUDGET (#1612). A fading coat draws both of its tiers,
         // so the number fading at once bounds what a transition frame costs.
+        // A halving's window and a hand-over's share it (#1628).
         // A window already running keeps its slot; the free ones go to new
         // hand-overs in scene order, and one that finds none hard-switches and
         // says so (GroomLodFallbackReason::CrossFadeBudgetSpent).
@@ -10520,8 +10521,10 @@ namespace OloEngine
                 }
             }
 
-            // The tier a fading coat is leaving (#1612), drawn beside this one.
+            // The tier a fading coat is leaving (#1612), drawn beside this one,
+            // and the visibility step it was built on (#1628).
             std::optional<GroomRepresentation> crossFadeOutgoing;
+            u32 crossFadeOutgoingVisibilityStep = 0;
             if (const auto* lod = m_Registry.try_get<GroomLodComponent>(entity); lod != nullptr)
             {
                 // The authored policy under the global detail bias (#1616):
@@ -10634,9 +10637,10 @@ namespace OloEngine
                 // ── The dithered cross-fade (#1612) ─────────────────────
                 //
                 // AFTER the population budget, so it follows the tier the coat
-                // is actually drawn on, and from the decision rather than from
-                // a second look at the apparent size: the window starts on the
-                // frame RepresentationChanged does and nowhere else.
+                // is actually drawn on -- its representation and its visibility
+                // step (#1628) -- and from the decision rather than from a
+                // second look at the apparent size: the window starts on the
+                // frame the decision's tier changes and nowhere else.
                 {
                     // The window, and the slot it holds, belong to the frame's
                     // first publish. A later view draws the frame's mix; a coat
@@ -10648,8 +10652,19 @@ namespace OloEngine
                     }
                     else if (advanceLodState && viewRelevant)
                     {
+                        // A halving is a hand-over too (#1628), unless this
+                        // tier's curves all fit in both budgets.
+                        const GroomCrossFadeStrands strands{ groomComponent.m_MaxRenderStrands,
+                                                             request.BuildSource().Curves.GetCurveCount() };
+                        // A coat seen for the first time starts on the tier it
+                        // draws, with nothing behind it to fade from.
+                        auto [fadeState, fresh] = m_GroomCrossFadeRuntime.try_emplace(groomEntity.GetUUID());
+                        if (fresh)
+                        {
+                            fadeState->second = SettledGroomCrossFade(request.Lod);
+                        }
                         crossFade = AdvanceGroomCrossFade(request.Lod, crossFadeFrames, crossFadeSlots > 0u,
-                                                          m_GroomCrossFadeRuntime[groomEntity.GetUUID()]);
+                                                          fadeState->second, strands);
                         // Drawing this frame takes a slot, held or new (see
                         // groomOrder): the windows running on were decided
                         // first, so what is left is what a new hand-over gets.
@@ -10664,10 +10679,7 @@ namespace OloEngine
                         // A coat out of every view draws nothing to fade: its
                         // window closes on its tier, so it holds no slot from the
                         // next frame, and it comes back into view whole.
-                        GroomCrossFadeState& fade = m_GroomCrossFadeRuntime[groomEntity.GetUUID()];
-                        fade = GroomCrossFadeState{};
-                        fade.From = request.Lod.Representation;
-                        fade.To = request.Lod.Representation;
+                        m_GroomCrossFadeRuntime[groomEntity.GetUUID()] = SettledGroomCrossFade(request.Lod);
                     }
                     // Counted from the flag, whatever else explains the coat's
                     // tier; named as the reason only where nothing more
@@ -10683,6 +10695,7 @@ namespace OloEngine
                         request.CrossFadeRole = GroomCrossFadeRole::Incoming;
                         request.CrossFadeThreshold = crossFade.Threshold;
                         crossFadeOutgoing = crossFade.Outgoing;
+                        crossFadeOutgoingVisibilityStep = crossFade.OutgoingVisibilityStep;
                     }
                 }
 
@@ -10695,8 +10708,7 @@ namespace OloEngine
                 // the width compensation, which the build applies per role to
                 // the stream it caches (#1428) -- see GroomRoleWidthCompensation.
                 request.Build.MaxStrands =
-                    std::max(1u, static_cast<u32>(static_cast<f32>(groomComponent.m_MaxRenderStrands) *
-                                                  request.Lod.VisibilityFraction));
+                    GroomLodStrandBudget(groomComponent.m_MaxRenderStrands, request.Lod.VisibilityStep);
                 // The halvings' coverage, restored PER ROLE in the build
                 // (#1428). A disabled ladder thins nothing and widens nothing.
                 request.Build.MaxWidthCompensation =
@@ -10739,6 +10751,11 @@ namespace OloEngine
                         outgoing.CrossFadeRole = GroomCrossFadeRole::Outgoing;
                         outgoing.Lod.Representation = *crossFadeOutgoing;
                         outgoing.LodLevel = outgoingLevel;
+                        // On the strand budget it was drawn with (#1628).
+                        outgoing.Lod.VisibilityStep = crossFadeOutgoingVisibilityStep;
+                        outgoing.Lod.VisibilityFraction = GroomLodStepFraction(crossFadeOutgoingVisibilityStep);
+                        outgoing.Build.MaxStrands =
+                            GroomLodStrandBudget(groomComponent.m_MaxRenderStrands, crossFadeOutgoingVisibilityStep);
                         outgoing.Build.MaxWidthCompensation = lodWidthCap;
                         dropIneffectiveWidthCap(outgoing);
                     }

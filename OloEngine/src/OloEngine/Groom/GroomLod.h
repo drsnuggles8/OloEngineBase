@@ -618,6 +618,16 @@ namespace OloEngine
     // every pass that rasterises a tier (the strand shader's colour, velocity
     // and G-buffer outputs, its depth prepass, and the scene-shadow casters)
     // applies the same mask from the same two numbers.
+    //
+    // A TIER IS A REPRESENTATION AND A VISIBILITY STEP (#1628). A halving of
+    // the visibility budget swaps the drawn strands for half of them in one
+    // frame, and on a dolly that step was larger than the faded hand-over's:
+    // 3.0-3.7% of the coat's light against 0.7%. So a step change opens the
+    // same window, with the same coat on its previous strand budget as the
+    // outgoing copy. One window per coat, whatever moved: a halving during a
+    // hand-over's window is a hand-over to a third tier, and restarts it. A
+    // halving that leaves the build unchanged (GroomCrossFadeStrands) opens
+    // nothing.
 
     /// Which side of a cross-fade a draw is. None draws every fragment.
     enum class GroomCrossFadeRole : u8
@@ -659,12 +669,40 @@ namespace OloEngine
         return true;
     }
 
+    /// The strand budget a coat is built with on visibility step `step`:
+    /// `maxRenderStrands` scaled by 2^-step, never below one strand.
+    [[nodiscard]] u32 GroomLodStrandBudget(u32 maxRenderStrands, u32 step) noexcept;
+
+    /// What a visibility step builds on the coat's current representation
+    /// (#1628), so a cross-fade can tell a halving that thins the coat from
+    /// one that cannot: every step whose budget still covers all `CurveCount`
+    /// curves builds the same strands. A halving between two of them has
+    /// nothing to fade, and a window opened for it would hold a slot while
+    /// drawing one picture twice. Zero curves compares the steps themselves.
+    struct GroomCrossFadeStrands
+    {
+        u32 MaxRenderStrands = 0;
+        u32 CurveCount = 0;
+
+        /// The strands step `step` builds: its budget, capped at the curves.
+        [[nodiscard]] u32 Built(u32 step) const noexcept;
+        [[nodiscard]] bool SameStrands(u32 a, u32 b) const noexcept
+        {
+            return CurveCount == 0u ? a == b : Built(a) == Built(b);
+        }
+    };
+
     /// One groom entity's cross-fade memory, beside its GroomLodState.
     struct GroomCrossFadeState
     {
         /// Frames of the window shown so far (1-based once active) and its length.
         u32 Frame = 0;
         u32 Frames = 0;
+        /// The visibility step each side is built on (#1628). The step, not
+        /// the strands it builds: the outgoing copy rebuilds exactly what the
+        /// coat drew, so it is the geometry cache's entry and not a new one.
+        u32 FromVisibilityStep = 0;
+        u32 ToVisibilityStep = 0;
         GroomRepresentation From = GroomRepresentation::Strand;
         GroomRepresentation To = GroomRepresentation::Strand;
         u8 Pad0 = 0;
@@ -681,17 +719,27 @@ namespace OloEngine
         }
     };
 
-    static_assert(sizeof(GroomCrossFadeState) == 12,
+    static_assert(sizeof(GroomCrossFadeState) == 20,
                   "GroomCrossFadeState is compared with a whole-object memcmp: it must have no implicit padding");
     static_assert(std::is_trivially_copyable_v<GroomCrossFadeState>);
+
+    /// A state with no window, on the tier `decision` draws. What a coat
+    /// starts from the first time it is seen, and what one out of every view
+    /// is closed on: either way there is no previous picture to fade from, and
+    /// the default state (strands, full budget) would open a window from one
+    /// the coat never drew (#1628: a population budget can put a new coat on a
+    /// coarse step from its first frame).
+    [[nodiscard]] GroomCrossFadeState SettledGroomCrossFade(const GroomLodDecision& decision) noexcept;
 
     /// What this frame draws.
     struct GroomCrossFadeDecision
     {
         /// The incoming tier's threshold this frame; 1 when not fading.
         f32 Threshold = 1.0f;
-        /// The tier to draw as well, through the Outgoing mask. Meaningful
-        /// only when Active.
+        /// The tier to draw as well, through the Outgoing mask: its
+        /// representation and its visibility step. Meaningful only when
+        /// Active.
+        u32 OutgoingVisibilityStep = 0;
         GroomRepresentation Outgoing = GroomRepresentation::Strand;
         bool Active = false;
         /// A hand-over that wanted a window and did not get one because the
@@ -703,7 +751,10 @@ namespace OloEngine
         bool TookSlot = false;
     };
 
-    /// Advances `state` by one frame. `decision` is this frame's LOD answer;
+    /// Advances `state` by one frame. `decision` is this frame's LOD answer,
+    /// whose Representation and VisibilityStep name the tier it draws;
+    /// `strands` what a step builds on that representation, so a halving
+    /// that thins nothing moves the state's step without opening a window;
     /// `frames` the window length (0: every hand-over is a hard switch, as
     /// before #1612); `slotAvailable` whether the caller's concurrency budget
     /// can take a slot this frame. A window that will still be drawing after
@@ -717,7 +768,8 @@ namespace OloEngine
     /// restarting it: the roles swap and the progress mirrors, so the picture
     /// keeps the mix it had instead of snapping to the tier it was leaving.
     GroomCrossFadeDecision AdvanceGroomCrossFade(const GroomLodDecision& decision, u32 frames, bool slotAvailable,
-                                                 GroomCrossFadeState& state) noexcept;
+                                                 GroomCrossFadeState& state,
+                                                 const GroomCrossFadeStrands& strands = {}) noexcept;
     // -------------------------------------------------------------------------
     // Counters
     // -------------------------------------------------------------------------

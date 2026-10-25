@@ -369,20 +369,28 @@ namespace OloEngine
         // and the console variable OLO_GROOM_DETAIL_BIAS reads and writes this
         // field; it is sanitised where it is applied (SanitizeGroomDetailBias).
         f32 GroomDetailBias = 1.0f;
-        // --- Groom LOD cross-fade (issue #1612) ---
-        // Frames a representation hand-over is dithered across: both tiers
-        // are drawn through complementary per-pixel masks while the incoming
-        // one's share ramps 0 -> 1 (Groom/GroomLod.h). 0 is the hard switch
-        // every hand-over was before #1612. Twelve frames is 0.2 s at 60 Hz,
-        // which spreads the measured 3.6% hard-switch step to under half a
-        // percent a frame while TAA's history still integrates the dither.
+        // --- Groom LOD cross-fade (issues #1612, #1628) ---
+        // Frames a hand-over is dithered across: both tiers are drawn through
+        // complementary per-pixel masks while the incoming one's share ramps
+        // 0 -> 1 (Groom/GroomLod.h). A tier is a representation AND a
+        // visibility step, so a halving of the strand budget fades like the
+        // strands -> cards hand-over does. 0 is the hard switch every
+        // hand-over was before #1612. Twelve frames is 0.2 s at 60 Hz, which
+        // spreads the measured 3.6% hard-switch step to under half a percent a
+        // frame while TAA's history still integrates the dither.
         u32 GroomLodCrossFadeFrames = 12;
-        // Coats that may cross-fade at once. A fading coat draws both tiers, so
-        // this bounds what a transition frame can cost. A hand-over past the
-        // cap hard-switches, as before, and is reported by name
-        // (GroomLodFallbackReason::CrossFadeBudgetSpent). A window already
-        // running keeps its slot; new hand-overs take the free ones in scene
-        // order.
+        // Coats that may cross-fade at once, whatever moved: a halving and a
+        // representation hand-over share these slots, and a coat holds at most
+        // one. A fading coat draws both tiers, so a transition frame costs at
+        // most this many coats' outgoing tiers on top of the steady frame. The
+        // dearest window is a halving going out, whose outgoing tier is twice
+        // the strands of the incoming one: about 1.5x the coat's strand cost
+        // before the halving, where a card hand-over adds the cards' few
+        // percent of the strands. A
+        // hand-over past the cap hard-switches, as before, and is reported by
+        // name (GroomLodFallbackReason::CrossFadeBudgetSpent). A window
+        // already running keeps its slot; new hand-overs take the free ones in
+        // scene order.
         u32 GroomLodMaxCrossFades = 4;
 
         // --- Debug overlays ---
