@@ -318,11 +318,11 @@ What stays live-only: anything the windowless target cannot show -- the swapchai
 overlay, window-size and vsync behaviour -- and the one cell per task that compares a windowless
 frame with a live `--rhi vulkan` editor capture of the same scene.
 
-The first run of the existing shadow evidence on the windowless context found two Vulkan defects no
+The first run of the existing shadow evidence on the windowless context found Vulkan defects no
 pass-level tenant could see: a depth-array layer larger than its framebuffer rendered and cleared
-only the framebuffer-sized corner (every shadow-atlas tile after the first was empty), and
-`RecordParallel`'s join left the binding state at its pre-fork value, so the forward strand pass
-after the forked shadow region shaded every strand with the wrong camera.
+only the framebuffer-sized corner (every shadow-atlas tile after the first was empty), and a
+timing-dependent one in the forked, groom-split shadow region that shades fur strands random
+colours on a loaded GPU and on lavapipe (#1652).
 
 **Anchor both halves to an analytic reference, not to each other.** "Vulkan matches GL" cannot be
 asserted inside one process, and passing numbers between two runs is a golden file with none of a
