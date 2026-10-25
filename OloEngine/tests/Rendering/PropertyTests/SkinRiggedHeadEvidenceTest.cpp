@@ -1144,16 +1144,35 @@ namespace OloEngine::Tests
     // #1593: native-resolution authoring evidence. These are inspected images,
     // not a numerical realism verdict. Each path uses the same lights and pose,
     // includes the hair-off control and exposes the physical fibre lobes.
+    //
+    // THE FULL SERIES IS ON REQUEST (#1630): OLO_HUMAN_HAIR_AUTHORING=1. It is
+    // ~2,700 frames at 1080p, 47 min in Debug and the nightly's largest case.
+    // By default every assertion still runs: a native still per path with its
+    // guards, and the motion with every binding and deviation check -- on
+    // Forward only, because the coat's simulation and binding do not depend on
+    // the path. What the default gives up is the inspected series: the other
+    // four poses, the hair-off control, the lobe views and the motion PNGs on
+    // Forward+ and Deferred.
     TEST_F(SkinRiggedHeadCloseUp, NativeHairAuthoringEvidenceOnEveryPath)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        static const bool s_Authoring = []
+        {
+            const char* flag = std::getenv("OLO_HUMAN_HAIR_AUTHORING");
+            return flag != nullptr && flag[0] != '\0' && flag[0] != '0';
+        }();
+        std::vector<Pose> poses{ kFront };
+        if (s_Authoring)
+        {
+            poses.insert(poses.end(), { kThreeQuarter, kProfile, kCrown, kBacklit });
+        }
         for (const RenderingPath path : kPaths)
         {
             const std::string prefix = std::string("HumanHairNative_GL_") + PathName(path) + "_";
             const Settings settings{ path, MaterialDebugView::None, true, 48, 1920, 1080 };
             HoldPose(0.0f);
             ShowHair(true);
-            for (const Pose& pose : { kFront, kThreeQuarter, kProfile, kCrown, kBacklit })
+            for (const Pose& pose : poses)
             {
                 SetRig(std::string_view(pose.Name) == kBacklit.Name ? Rig::Backlit : Rig::Studio);
                 Capture frame;
@@ -1163,19 +1182,26 @@ namespace OloEngine::Tests
                 EXPECT_LT(all.MeanLuma, 0.9) << "blown evidence frame";
             }
             SetRig(Rig::Studio);
-            ShowHair(false);
-            Capture without;
-            ASSERT_TRUE(CaptureFrame(settings, kFront, prefix + "HairOff", without));
-            ShowHair(true);
-            auto& fibre = m_Coat.GetComponent<GroomFibreComponent>();
-            for (const GroomFibreDebugMode lobe : { GroomFibreDebugMode::LobeR, GroomFibreDebugMode::LobeTT,
-                                                    GroomFibreDebugMode::LobeTRT, GroomFibreDebugMode::MultipleScattering })
+            if (s_Authoring)
             {
-                fibre.m_DebugMode = static_cast<u8>(lobe);
-                Capture tap;
-                ASSERT_TRUE(CaptureFrame(settings, kFront, prefix + "Lobe" + std::to_string(fibre.m_DebugMode), tap));
+                ShowHair(false);
+                Capture without;
+                ASSERT_TRUE(CaptureFrame(settings, kFront, prefix + "HairOff", without));
+                ShowHair(true);
+                auto& fibre = m_Coat.GetComponent<GroomFibreComponent>();
+                for (const GroomFibreDebugMode lobe : { GroomFibreDebugMode::LobeR, GroomFibreDebugMode::LobeTT,
+                                                        GroomFibreDebugMode::LobeTRT, GroomFibreDebugMode::MultipleScattering })
+                {
+                    fibre.m_DebugMode = static_cast<u8>(lobe);
+                    Capture tap;
+                    ASSERT_TRUE(CaptureFrame(settings, kFront, prefix + "Lobe" + std::to_string(fibre.m_DebugMode), tap));
+                }
+                fibre.m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
             }
-            fibre.m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
+            if (!s_Authoring && path != RenderingPath::Forward)
+            {
+                continue; // the motion below is the path-independent half
+            }
 
             // Advance the real Scene continuously through both turns and the
             // nod, rather than substituting static poses for motion evidence.
