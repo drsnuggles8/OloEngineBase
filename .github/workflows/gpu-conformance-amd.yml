@@ -88,6 +88,32 @@ on:
         description: 'AMD_DEBUG for the test step (radeonsi diagnostics; filtered runs only, the output is large)'
         type: string
         default: ''
+  # THE SAME JOB FOR THE SHOWCASE SUITES, WEEKLY (#1630). DogShowcaseEvidenceTest
+  # and BreedShowcaseEvidenceTest need four to five hours on this GPU, against
+  # the nightly's 75-minute budget for the whole suite, so the nightly leaves
+  # them out (the default filter below) and gpu-conformance-amd-showcase.yml
+  # runs them once a week through this workflow, with its own budget and its
+  # own red-streak issue. Every default here is the nightly's.
+  workflow_call:
+    inputs:
+      gtest_filter:
+        type: string
+        default: ''
+      suite_minutes:
+        type: string
+        default: ''
+      step_timeout_minutes:
+        type: number
+        default: 80
+      job_timeout_minutes:
+        type: number
+        default: 150
+      red_streak_workflow:
+        type: string
+        default: 'gpu-conformance-amd.yml'
+      red_streak_job:
+        type: string
+        default: 'Linux / AMD Navi 10 (radeonsi, hardware)'
   schedule:
     # 00:47 UTC — roughly 02:00 German local (02:47 CEST / 01:47 CET; GitHub cron
     # is UTC-only and does not follow DST, so it drifts an hour across the year).
@@ -156,8 +182,9 @@ jobs:
     # 60 min (run 36210684757, 1863 of 1923 compiles missed ccache), and the full
     # suite 38 min (run 36188061625). With setup that is ~103 min, too close to
     # 120 for a night after a header change that invalidates the cache. The
-    # red-streak job's --timeout-minutes below must match this value.
-    timeout-minutes: 150
+    # red-streak job's --timeout-minutes below reads the same value. The weekly
+    # showcase call passes its own (see workflow_call above).
+    timeout-minutes: ${{ inputs.job_timeout_minutes || 150 }}
 
     env:
       BUILD_TYPE: Release
@@ -595,11 +622,12 @@ jobs:
         # ~2x as long. The nightly cannot choose its neighbour, so the budget
         # has to hold under one. It still fits the job's 150: ~60 min for a
         # cold build, ~5 for setup, 80 here.
-        timeout-minutes: 80
+        timeout-minutes: ${{ inputs.step_timeout_minutes || 80 }}
         env:
           # The suite's own budget, inside the step's: the 5-minute gap is what
           # the report rebuild below needs to run after a timeout.
           OLO_SUITE_MINUTES: ${{ inputs.suite_minutes || '75' }}
+          OLO_STEP_MINUTES: ${{ inputs.step_timeout_minutes || 80 }}
           OLO_AMD_DEBUG: ${{ inputs.amd_debug }}
           # Belt and braces against a silent software fallback mid-run.
           MESA_LOADER_DRIVER_OVERRIDE: radeonsi
@@ -638,7 +666,10 @@ jobs:
           # no exclusion -- it adds "-X" as a second NEGATIVE PATTERN, which
           # matches no test name, and NetworkIntegrationTest silently runs. Join
           # the existing negative list in that case instead of starting one.
-          FILTER="${OLO_GTEST_FILTER:-*}"
+          # The nightly's default leaves out the two showcase suites, which the
+          # weekly gpu-conformance-amd-showcase.yml runs (#1630). A dispatch with
+          # a filter of its own runs exactly that filter.
+          FILTER="${OLO_GTEST_FILTER:-*-DogShowcaseEvidenceTest.*:*BreedShowcaseEvidenceTest.*}"
           case "$FILTER" in
             *-*) FILTER="$FILTER:NetworkIntegrationTest.*" ;;
             *) FILTER="$FILTER:-NetworkIntegrationTest.*" ;;
@@ -652,15 +683,16 @@ jobs:
           # run that ends without a report gets one rebuilt from that log: every
           # finished test, plus the one that was running, failed with the reason.
           # The rebuilt report is marked partial and the assert step fails on it.
-          # 1-75: the suite must end at least 5 minutes inside the step's 80, or
-          # the step timeout kills the shell before the report below is rebuilt.
+          # 1-75 for the nightly: the suite must end at least 5 minutes inside the
+          # step's timeout (80; the weekly showcase call sets its own), or the step
+          # timeout kills the shell before the report below is rebuilt.
           # Base 10 so "08" is 8 and "00" is 0 (rejected), not an octal error.
           case "$OLO_SUITE_MINUTES" in
             ''|*[!0-9]*) echo "::error::suite_minutes must be a whole number, got '$OLO_SUITE_MINUTES'"; exit 1 ;;
           esac
           OLO_SUITE_MINUTES=$((10#$OLO_SUITE_MINUTES))
-          if [ "$OLO_SUITE_MINUTES" -lt 1 ] || [ "$OLO_SUITE_MINUTES" -gt 75 ]; then
-            echo "::error::suite_minutes must be 1-75 (the step allows 80), got $OLO_SUITE_MINUTES"; exit 1
+          if [ "$OLO_SUITE_MINUTES" -lt 1 ] || [ "$OLO_SUITE_MINUTES" -gt $((OLO_STEP_MINUTES - 5)) ]; then
+            echo "::error::suite_minutes must be 1-$((OLO_STEP_MINUTES - 5)) (the step allows $OLO_STEP_MINUTES), got $OLO_SUITE_MINUTES"; exit 1
           fi
           case "$OLO_AMD_DEBUG" in
             *[!a-z0-9_,]*) echo "::error::amd_debug may hold only letters, digits, commas and underscores"; exit 1 ;;
@@ -871,11 +903,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RESULT: ${{ needs.amd-hardware.result }}
           DRY_RUN: ${{ github.event_name != 'schedule' && '--dry-run' || '' }}
+          # The weekly showcase call tracks its own streak, by its own workflow
+          # file and job name (workflow_call above).
+          STREAK_WORKFLOW: ${{ inputs.red_streak_workflow || 'gpu-conformance-amd.yml' }}
+          STREAK_JOB: ${{ inputs.red_streak_job || 'Linux / AMD Navi 10 (radeonsi, hardware)' }}
+          STREAK_TIMEOUT: ${{ inputs.job_timeout_minutes || 150 }}
         run: |
           python3 scripts/nightly_red_streak.py \
-            --workflow gpu-conformance-amd.yml \
-            --job "Linux / AMD Navi 10 (radeonsi, hardware)" \
-            --timeout-minutes 150 \
+            --workflow "$STREAK_WORKFLOW" \
+            --job "$STREAK_JOB" \
+            --timeout-minutes "$STREAK_TIMEOUT" \
             --result "$RESULT" \
             --run-id "$GITHUB_RUN_ID" \
             $DRY_RUN | tee -a "$GITHUB_STEP_SUMMARY"

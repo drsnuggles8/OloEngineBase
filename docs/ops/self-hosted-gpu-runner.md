@@ -2,6 +2,9 @@
 
 Provisioning notes for the runners behind
 [`.github/workflows/gpu-conformance-amd.yml`](../../.github/workflows/gpu-conformance-amd.yml)
+(the nightly, and through it the weekly
+[`gpu-conformance-amd-showcase.yml`](../../.github/workflows/gpu-conformance-amd-showcase.yml),
+which runs the DogShowcase and Breed evidence the nightly leaves out, #1630)
 and the Linux CI jobs in
 [`asan.yml`](../../.github/workflows/asan.yml),
 [`vulkan-off.yml`](../../.github/workflows/vulkan-off.yml) and

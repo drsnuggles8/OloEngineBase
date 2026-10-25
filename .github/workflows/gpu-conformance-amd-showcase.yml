@@ -1,0 +1,47 @@
+name: GPU Conformance (AMD showcase, weekly)
+
+# The DogShowcase and Breed evidence suites on the AMD Navi 10 box, once a week
+# (#1630). They are #1533's acceptance evidence for the dog and its two breeds:
+# several hundred assertions over continuous dollies, clip-long replays and
+# 1080p ladders, measured at four to five hours on this GPU (run 40207974782:
+# DogShowcaseEvidenceTest alone used the nightly's whole 75-minute budget by its
+# 27th case). The nightly (gpu-conformance-amd.yml) runs everything else and
+# leaves these two out; this workflow runs them through it, so the job, the
+# runner, the build and the reports are the nightly's own.
+#
+# SECURITY: as gpu-conformance-amd.yml -- no pull_request trigger of any kind,
+# schedule runs only from the default branch, a dispatch needs write access, and
+# the hardware job requests no secrets.
+#
+# Its own red-streak issue: a showcase that stays red opens one titled for this
+# file, and the nightly's streak never reads these runs.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Sunday 04:17 UTC: after the nightly (00:47, about two hours) has left the
+    # box, and done before Monday's. The odd minute follows the house convention.
+    - cron: '17 4 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  showcase:
+    name: Showcase
+    uses: ./.github/workflows/gpu-conformance-amd.yml
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    with:
+      gtest_filter: 'DogShowcaseEvidenceTest.*:*BreedShowcaseEvidenceTest.*'
+      # Measured: the dog's 27 cases 70 min; its other 8 and the 22 breed cases
+      # are estimated at 3-4 h more from the RTX 4090 box (129 min locally for
+      # the breeds) at this GPU's ratio. 330 leaves the margin the nightly
+      # keeps; the step and job timeouts follow it as the nightly's do.
+      suite_minutes: '330'
+      step_timeout_minutes: 340
+      job_timeout_minutes: 420
+      red_streak_workflow: gpu-conformance-amd-showcase.yml
+      red_streak_job: 'Showcase / Linux / AMD Navi 10 (radeonsi, hardware)'
