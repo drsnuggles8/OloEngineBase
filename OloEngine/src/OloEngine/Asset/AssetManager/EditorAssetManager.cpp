@@ -454,24 +454,11 @@ namespace OloEngine
             metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath, ec);
             if (!ec)
             {
-                {
-                    // Thread-safe update of the metadata in the registry
-                    TUniqueLock<FSharedMutex> lock(m_RegistryMutex);
-                    m_AssetRegistry.UpdateMetadata(assetHandle, metadata);
-                }
-                // OUTSIDE the lock scope. This used to be load-bearing: while
-                // SerializeAssetRegistry still took m_RegistryMutex, holding the
-                // lock across it self-deadlocked the game thread on every
-                // hot-reload of an existing tracked asset — issue #439's lightmap
-                // re-bake (fixed here in aa37548c7) and, from a build predating
-                // that fix, issue #863's filewatch hot-reload during a cold-cache
-                // scene load. SerializeAssetRegistry no longer locks at all, so
-                // this scoping is now belt-and-braces rather than the only thing
-                // standing between a hot-reload and a wedged editor. Keep it: the
-                // registry write does not need to be atomic with the metadata
-                // update, and holding an exclusive lock across a full-file write
-                // is not free.
-                SerializeAssetRegistry(); // Persist the updated timestamp
+                // Thread-safe update of the metadata in the registry. Not saved:
+                // the .oar stores neither LastWriteTime nor the load status (#1644),
+                // so a reload changes nothing the file holds.
+                TUniqueLock<FSharedMutex> lock(m_RegistryMutex);
+                m_AssetRegistry.UpdateMetadata(assetHandle, metadata);
             }
             else
             {

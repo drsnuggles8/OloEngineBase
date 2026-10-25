@@ -19,8 +19,8 @@
 //   3. It is a HANDLE-SET graph. Rewriting a reference on a move needs the
 //      file, the line and the exact text of the mention. A set of handles
 //      cannot produce an edit.
-//   4. AssetRegistry.oar is binary and stores only handle/type/path/status/
-//      mtime -- no reference data at all, so it cannot be scraped either.
+//   4. AssetRegistry.oar is binary and stores only handle/type/path -- no
+//      reference data at all, so it cannot be scraped either.
 //
 // So the index is DERIVED: scan the project's text asset files, collect every
 // candidate reference, and resolve each one exactly.

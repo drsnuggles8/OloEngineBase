@@ -51,6 +51,12 @@ namespace OloEngine::Tests
         {
             return AssetMetadata{ handle, type, std::filesystem::path{ path } };
         }
+
+        std::vector<char> ReadAllBytes(const std::filesystem::path& path)
+        {
+            std::ifstream in(path, std::ios::binary);
+            return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
     } // namespace
 
     // -------------------------------------------------------------------------
@@ -301,12 +307,7 @@ namespace OloEngine::Tests
         loaded.AddAsset(failedEntry);
         ASSERT_TRUE(loaded.Serialize(loadedOar));
 
-        auto readAll = [](const std::filesystem::path& path)
-        {
-            std::ifstream in(path, std::ios::binary);
-            return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-        };
-        EXPECT_EQ(readAll(loadedOar), readAll(untouchedOar)) << "the load status changed the file's bytes";
+        EXPECT_EQ(ReadAllBytes(loadedOar), ReadAllBytes(untouchedOar)) << "the load status changed the file's bytes";
 
         AssetRegistry reread;
         ASSERT_TRUE(reread.Deserialize(loadedOar));
@@ -348,12 +349,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(reversed.Serialize(reversedOar));
         }
 
-        auto readAll = [](const std::filesystem::path& path)
-        {
-            std::ifstream in(path, std::ios::binary);
-            return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-        };
-        EXPECT_EQ(readAll(forwardOar), readAll(reversedOar)) << "the insertion order reached the file";
+        EXPECT_EQ(ReadAllBytes(forwardOar), ReadAllBytes(reversedOar)) << "the insertion order reached the file";
     }
 
     // -------------------------------------------------------------------------
@@ -390,12 +386,7 @@ namespace OloEngine::Tests
         }
         std::ofstream(rejectedPath) << "an older rejected registry";
 
-        auto readAll = [](const std::filesystem::path& path)
-        {
-            std::ifstream in(path, std::ios::binary);
-            return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
-        };
-        const std::vector<char> originalBytes = readAll(oar);
+        const std::vector<char> originalBytes = ReadAllBytes(oar);
 
         ASSERT_TRUE(Project::Load(root / "Test.oloproj"));
         {
@@ -405,7 +396,7 @@ namespace OloEngine::Tests
         Project::Unload();
 
         ASSERT_TRUE(std::filesystem::exists(rejectedPath));
-        EXPECT_EQ(readAll(rejectedPath), originalBytes)
+        EXPECT_EQ(ReadAllBytes(rejectedPath), originalBytes)
             << "the rejected registry must be preserved byte for byte, replacing the older .rejected";
 
         AssetRegistry rebuilt;

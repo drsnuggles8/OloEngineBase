@@ -93,7 +93,8 @@ the Fox's own texture. Regenerate with `OLO_FOX_COATS_EXPORT=1 OloEngine-Tests
 `python OloEngine/tests/scripts/generate_animal_population_scene.py` and
 `python scripts/perf/generate-integrated-benchmark.py`; the population generator reads the coats'
 handles from `AssetRegistry.oar`, so a registry merge conflict is resolved by taking either side's
-registry and re-running the three.
+registry and re-running the three, provided that side is in the current format: a registry from
+before #1644 (v2) is rejected and rebuilt with new handles, so take the v3 side.
 
 ## What the headless fixture asserts
 
