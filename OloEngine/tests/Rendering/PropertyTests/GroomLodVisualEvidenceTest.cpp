@@ -2197,9 +2197,11 @@ namespace OloEngine::Tests
                 << label << ": the first frame after the fade did not redraw the incoming tier's pages";
             EXPECT_EQ(invalidations[firstSteady + 1u], 0u) << label << ": a steady coat kept invalidating after its fade";
         };
-        fadeEnd("hand-over", [&] { settings.GroomDetailBias = 0.5f; });
+        fadeEnd("hand-over", [&]
+                { settings.GroomDetailBias = 0.5f; });
         ASSERT_FALSE(::testing::Test::HasFatalFailure());
-        fadeEnd("halving", [&] { Lod().m_VisibilityFullPixelSize = savedFull * 2.0f; });
+        fadeEnd("halving", [&]
+                { Lod().m_VisibilityFullPixelSize = savedFull * 2.0f; });
         Lod().m_VisibilityFullPixelSize = savedFull;
 
         m_GroomEntity.RemoveComponent<GroomSceneShadowComponent>();

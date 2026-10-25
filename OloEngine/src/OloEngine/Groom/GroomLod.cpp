@@ -416,7 +416,8 @@ namespace OloEngine
         GroomCrossFadeDecision out;
 
         // The coat is its tier alone, with no window open.
-        const auto settle = [&state, &decision] { state = SettledGroomCrossFade(decision); };
+        const auto settle = [&state, &decision]
+        { state = SettledGroomCrossFade(decision); };
 
         // A groom with no LOD policy has no hand-over to fade, and turning the
         // policy off is the A/B control for every LOD capture: it must be the

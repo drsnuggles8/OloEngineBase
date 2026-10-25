@@ -739,7 +739,7 @@ namespace OloEngine
     /// DRAWN on (its state's To), so it fades back in from what the viewer
     /// last saw rather than from a tier its ladder reached out of sight.
     [[nodiscard]] GroomCrossFadeState SettledGroomCrossFade(GroomRepresentation representation,
-                                                           u32 visibilityStep) noexcept;
+                                                            u32 visibilityStep) noexcept;
     [[nodiscard]] GroomCrossFadeState SettledGroomCrossFade(const GroomLodDecision& decision) noexcept;
 
     /// What this frame draws.
