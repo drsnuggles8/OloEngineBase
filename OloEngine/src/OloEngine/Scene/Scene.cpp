@@ -10189,6 +10189,16 @@ namespace OloEngine
                 tier.Build.MaxStrands >= buildCurveCount && tier.Build.MaxSegments >= buildPointCount - buildCurveCount)
                 tier.Build.MaxWidthCompensation = 1.0f;
         };
+        // A tier's visibility step and the strand budget it builds, set in
+        // one place for the primary and a fading coat's outgoing copy
+        // (#1628): the copy must rebuild exactly what the coat drew, and the
+        // fraction must never say something the step does not.
+        const auto applyVisibilityStep = [](GroomStrandRequest& tier, u32 maxRenderStrands, u32 step)
+        {
+            tier.Lod.VisibilityStep = step;
+            tier.Lod.VisibilityFraction = GroomLodStepFraction(step);
+            tier.Build.MaxStrands = GroomLodStrandBudget(maxRenderStrands, step);
+        };
         // THE VIEW A COAT HAS TO REACH (#1259). A coat no view can see, and
         // whose shadow cannot fall into it, is not deformed, simulated or
         // drawn this frame: before this, every coat in a scene paid its
@@ -10525,6 +10535,8 @@ namespace OloEngine
             // and the visibility step it was built on (#1628).
             std::optional<GroomRepresentation> crossFadeOutgoing;
             u32 crossFadeOutgoingVisibilityStep = 0;
+            // Whether this coat's window took one of the frame's slots.
+            bool crossFadeTookSlot = false;
             if (const auto* lod = m_Registry.try_get<GroomLodComponent>(entity); lod != nullptr)
             {
                 // The authored policy under the global detail bias (#1616):
@@ -10653,9 +10665,24 @@ namespace OloEngine
                     else if (advanceLodState && viewRelevant)
                     {
                         // A halving is a hand-over too (#1628), unless this
-                        // tier's curves all fit in both budgets.
-                        const GroomCrossFadeStrands strands{ groomComponent.m_MaxRenderStrands,
-                                                             request.BuildSource().Curves.GetCurveCount() };
+                        // tier's curves, or the strands its segment budget
+                        // allows, fit in both budgets.
+                        GroomCrossFadeStrands strands;
+                        {
+                            const GroomCurveView curves = request.BuildSource().Curves;
+                            const u64 curveCount = curves.GetCurveCount();
+                            const u64 segments = curves.GetPointCount() > curveCount
+                                                     ? curves.GetPointCount() - curveCount
+                                                     : 0u;
+                            strands.MaxRenderStrands = groomComponent.m_MaxRenderStrands;
+                            strands.CurveCount = static_cast<u32>(curveCount);
+                            if (segments > 0u)
+                            {
+                                strands.SegmentBudgetStrands = static_cast<u32>(std::min<u64>(
+                                    static_cast<u64>(request.Build.MaxSegments) * curveCount / segments,
+                                    std::numeric_limits<u32>::max()));
+                            }
+                        }
                         // A coat seen for the first time starts on the tier it
                         // draws, with nothing behind it to fade from.
                         auto [fadeState, fresh] = m_GroomCrossFadeRuntime.try_emplace(groomEntity.GetUUID());
@@ -10671,15 +10698,18 @@ namespace OloEngine
                         if (crossFade.Active && crossFadeSlots > 0u)
                         {
                             --crossFadeSlots;
+                            crossFadeTookSlot = true;
                         }
                         m_GroomLodFrameDecisions[groomEntity.GetUUID()].CrossFade = crossFade;
                     }
                     else if (advanceLodState)
                     {
                         // A coat out of every view draws nothing to fade: its
-                        // window closes on its tier, so it holds no slot from the
-                        // next frame, and it comes back into view whole.
-                        m_GroomCrossFadeRuntime[groomEntity.GetUUID()] = SettledGroomCrossFade(request.Lod);
+                        // window closes, so it holds no slot from the next
+                        // frame, and it comes back into view whole -- as a coat
+                        // seen for the first time, settled on whatever tier it
+                        // then draws rather than on one it never drew here.
+                        m_GroomCrossFadeRuntime.erase(groomEntity.GetUUID());
                     }
                     // Counted from the flag, whatever else explains the coat's
                     // tier; named as the reason only where nothing more
@@ -10707,8 +10737,7 @@ namespace OloEngine
                 // halvings would leave as a visible density step is removed by
                 // the width compensation, which the build applies per role to
                 // the stream it caches (#1428) -- see GroomRoleWidthCompensation.
-                request.Build.MaxStrands =
-                    GroomLodStrandBudget(groomComponent.m_MaxRenderStrands, request.Lod.VisibilityStep);
+                applyVisibilityStep(request, groomComponent.m_MaxRenderStrands, request.Lod.VisibilityStep);
                 // The halvings' coverage, restored PER ROLE in the build
                 // (#1428). A disabled ladder thins nothing and widens nothing.
                 request.Build.MaxWidthCompensation =
@@ -10752,10 +10781,8 @@ namespace OloEngine
                         outgoing.Lod.Representation = *crossFadeOutgoing;
                         outgoing.LodLevel = outgoingLevel;
                         // On the strand budget it was drawn with (#1628).
-                        outgoing.Lod.VisibilityStep = crossFadeOutgoingVisibilityStep;
-                        outgoing.Lod.VisibilityFraction = GroomLodStepFraction(crossFadeOutgoingVisibilityStep);
-                        outgoing.Build.MaxStrands =
-                            GroomLodStrandBudget(groomComponent.m_MaxRenderStrands, crossFadeOutgoingVisibilityStep);
+                        applyVisibilityStep(outgoing, groomComponent.m_MaxRenderStrands,
+                                            crossFadeOutgoingVisibilityStep);
                         outgoing.Build.MaxWidthCompensation = lodWidthCap;
                         dropIneffectiveWidthCap(outgoing);
                     }

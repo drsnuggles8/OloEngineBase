@@ -67,6 +67,7 @@
 #include "OloEngine/Math/Math.h"
 
 #include <array>
+#include <limits>
 #include <string_view>
 
 namespace OloEngine
@@ -683,8 +684,14 @@ namespace OloEngine
     {
         u32 MaxRenderStrands = 0;
         u32 CurveCount = 0;
+        /// The strands the segment budget alone allows at the tier's mean
+        /// segments per curve: an estimate of GroomStrandMesh's per-role
+        /// solve, so a segment-limited coat's halvings, which build the same
+        /// strands, open no window either.
+        u32 SegmentBudgetStrands = std::numeric_limits<u32>::max();
 
-        /// The strands step `step` builds: its budget, capped at the curves.
+        /// The strands step `step` builds: its budget, capped at the curves
+        /// and at the segment budget.
         [[nodiscard]] u32 Built(u32 step) const noexcept;
         [[nodiscard]] bool SameStrands(u32 a, u32 b) const noexcept
         {

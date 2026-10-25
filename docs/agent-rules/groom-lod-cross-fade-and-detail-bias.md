@@ -28,7 +28,8 @@ and measurements are in [the details file](groom-lod-cross-fade-and-detail-bias-
 
 5. **A hand-over the budget cannot fade is a hard switch, reported by name.**
    `RendererSettings::GroomLodMaxCrossFades` (4) bounds a transition frame. Halvings and
-   representation hand-overs share it, and a coat holds at most one window. A refusal sets
+   representation hand-overs share it, and a coat holds at most one window; a change mid-window
+   restarts it against the tier that showed more of the coat. A refusal sets
    `CrossFadeRefused` (and `CrossFadeBudgetSpent`, not a fallback). A switch back mid-window
    reverses the window. [Details](groom-lod-cross-fade-and-detail-bias-details.md#5-the-budget-and-what-a-refused-hand-over-does).
 
@@ -54,8 +55,8 @@ and measurements are in [the details file](groom-lod-cross-fade-and-detail-bias-
 11. **A VSM caster that stops fading counts as moved for one frame.**
     [Details](groom-lod-cross-fade-and-detail-bias-details.md#11-a-vsm-caster-that-stops-fading).
 
-12. **Only a coat that can reach the view opens a fade window**; a coat out of every view is
-    settled on its tier. [Details](groom-lod-cross-fade-and-detail-bias-details.md#12-only-a-coat-that-can-reach-the-view-opens-a-window).
+12. **Only a coat that can reach the view opens a fade window**; a coat out of every view drops its
+    window and comes back settled on the tier it then draws. [Details](groom-lod-cross-fade-and-detail-bias-details.md#12-only-a-coat-that-can-reach-the-view-opens-a-window).
 
 13. **A halving is a hand-over: a tier is a representation and a visibility step.** A step change
     opens the same window, with the outgoing copy on the step the coat was last built on, so it is

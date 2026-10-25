@@ -58,7 +58,8 @@ Halvings share the slots (#1628). A coat walking out crosses up to four halvings
 so halving windows are the commoner kind. Giving them a budget of their own would double the worst
 transition frame; sharing keeps one number for it. A coat holds at most one window, whatever moved:
 a halving during a hand-over's window is a hand-over to a third tier and restarts the window on the
-slot it holds. The dearest window is a halving going out, whose outgoing tier has twice the strands
+slot it holds. Its outgoing side is whichever tier showed more of the coat on the last frame, so the
+restart drops at most half the mix: a two-draw window cannot show three tiers. The dearest window is a halving going out, whose outgoing tier has twice the strands
 of the incoming one: about 1.5 times the coat's strand cost before the halving. A card hand-over
 adds only the cards, a few percent of the strands. Measured on the dog's 1 → 2 halving (Release
 editor, Vulkan, median GroomPass ms, three sibling test processes sharing the GPU): 1.57–1.88 ms
@@ -139,7 +140,10 @@ negative control), for a hand-over and for a halving.
 
 The LOD advances for every coat by distance, and the view cull comes after it. Before the cull moved
 ahead of the fade, a coat behind the camera that changed tier took a slot, and a visible coat was
-refused. A coat out of every view has its window closed on its tier, its visibility step included.
+refused. A coat out of every view drops its window state, so it holds no slot and comes back as a
+coat seen for the first time, settled on the tier it then draws. Settling it on its out-of-view tier
+instead faded it in from a tier it never drew, whenever the ladder or the population budget moved
+it while it was out of view.
 Pinned by `ACoatOutOfViewTakesNoCrossFadeSlot` (negative control: 0 fading frames, 1 refused).
 Coats whose window runs on into the frame are decided first, and each takes its slot only once it's
 known to be in view. A count taken before the loop kept a slot for a coat that left the view that
@@ -161,7 +165,8 @@ Three details make it correct rather than merely working:
   that covers all the curves to step 0 would have keyed the copy on the full `m_MaxRenderStrands`
   and rebuilt the coat on the window's first frame.
 - **A halving that thins nothing opens nothing.** On cards, or on a coat with fewer curves than
-  `m_MaxRenderStrands`, several steps build every curve. `GroomCrossFadeStrands` (the budget and the
+  `m_MaxRenderStrands`, several steps build every curve; on a coat limited by `m_MaxRenderSegments`,
+  several build the segment budget's strands (estimated at the tier's mean segments per curve). `GroomCrossFadeStrands` (the budget and the
   tier's curve count) makes two such steps one tier, and the state follows the step without a
   window. Otherwise each would hold a slot for 12 frames while drawing one picture twice.
   `AHalvingThatThinsNothingOpensNoWindowButMovesTheStep` pins it.

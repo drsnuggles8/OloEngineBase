@@ -1013,6 +1013,14 @@ TEST(GroomLodCrossFade, AHalvingThatThinsNothingOpensNoWindowButMovesTheStep)
     ASSERT_TRUE(thinned.Active) << "the first halving that drops cards did not fade";
     EXPECT_EQ(thinned.OutgoingVisibilityStep, 4u) << "the outgoing copy is not the build the coat drew";
 
+    // A segment budget that allows 9000 strands of a 40 000-curve coat under a
+    // 40 000-strand cap: steps 0 to 2 (40 000, 20 000, 10 000) all build the
+    // segment budget's 9000, step 3 (5000) is the first that thins.
+    GroomCrossFadeStrands segmentLimited{ 40000u, 40000u };
+    segmentLimited.SegmentBudgetStrands = 9000u;
+    EXPECT_TRUE(segmentLimited.SameStrands(0u, 2u));
+    EXPECT_FALSE(segmentLimited.SameStrands(2u, 3u));
+
     // Without the curve count the steps themselves are compared.
     GroomCrossFadeState raw = SettledGroomCrossFade(DecisionOn(GroomRepresentation::Card, true, 0u));
     EXPECT_TRUE(AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card, true, 1u), 12u, true, raw).Active);
@@ -1036,25 +1044,35 @@ TEST(GroomLodCrossFade, AHalvingAndAHandOverShareOneWindowAndItsSlot)
 {
     // One window per coat, whatever moved: a hand-over during a halving's
     // window is a hand-over to a third tier. It restarts the window on the slot
-    // the coat already holds, and the outgoing copy is the tier the coat was
-    // last drawn on -- the halved strands, not the strands before the halving.
+    // the coat already holds, and the outgoing copy is whichever tier showed
+    // more of the coat last frame, so the restart drops at most half the mix.
     constexpr u32 kFrames = 12;
-    GroomCrossFadeState fade = SettledGroomCrossFade(DecisionOn(GroomRepresentation::Strand, true, 1u));
-    const GroomCrossFadeDecision halving =
-        AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand, true, 2u), kFrames, true, fade);
-    ASSERT_TRUE(halving.Active);
-    EXPECT_TRUE(halving.TookSlot);
-    for (u32 i = 0; i < 4u; ++i)
+    const auto halvingThenHandOver = [](u32 framesIntoHalving)
     {
-        (void)AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand, true, 2u), kFrames, false, fade);
-    }
-    const GroomCrossFadeDecision handOver =
-        AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card, true, 2u), kFrames, false, fade);
-    ASSERT_TRUE(handOver.Active) << "a hand-over mid-window needs no second slot";
-    EXPECT_FALSE(handOver.TookSlot) << "one coat paid for two windows";
-    EXPECT_EQ(handOver.Outgoing, GroomRepresentation::Strand);
-    EXPECT_EQ(handOver.OutgoingVisibilityStep, 2u);
-    EXPECT_NEAR(handOver.Threshold, 1.0f / 13.0f, 1e-6f) << "the window restarts";
+        GroomCrossFadeState fade = SettledGroomCrossFade(DecisionOn(GroomRepresentation::Strand, true, 1u));
+        const GroomCrossFadeDecision halving =
+            AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand, true, 2u), kFrames, true, fade);
+        EXPECT_TRUE(halving.Active);
+        EXPECT_TRUE(halving.TookSlot);
+        for (u32 i = 1; i < framesIntoHalving; ++i)
+        {
+            (void)AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Strand, true, 2u), kFrames, false, fade);
+        }
+        return AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card, true, 2u), kFrames, false, fade);
+    };
+    // Five frames in, step 2 holds 5/13 of the pixels and step 1 the rest: the
+    // cards fade in against step 1, and the frame loses step 2's 5/13.
+    const GroomCrossFadeDecision early = halvingThenHandOver(5u);
+    ASSERT_TRUE(early.Active) << "a hand-over mid-window needs no second slot";
+    EXPECT_FALSE(early.TookSlot) << "one coat paid for two windows";
+    EXPECT_EQ(early.Outgoing, GroomRepresentation::Strand);
+    EXPECT_EQ(early.OutgoingVisibilityStep, 1u) << "the restart dropped the tier holding most of the coat";
+    EXPECT_NEAR(early.Threshold, 1.0f / 13.0f, 1e-6f) << "the window restarts";
+    // Eight frames in, step 2 holds 8/13: it is the outgoing side.
+    const GroomCrossFadeDecision late = halvingThenHandOver(8u);
+    ASSERT_TRUE(late.Active);
+    EXPECT_EQ(late.Outgoing, GroomRepresentation::Strand);
+    EXPECT_EQ(late.OutgoingVisibilityStep, 2u);
     // And a step and a representation that move on the same frame are one
     // window.
     GroomCrossFadeState both = SettledGroomCrossFade(DecisionOn(GroomRepresentation::Strand, true, 1u));

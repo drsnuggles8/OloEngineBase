@@ -390,7 +390,7 @@ namespace OloEngine
 
     u32 GroomCrossFadeStrands::Built(u32 step) const noexcept
     {
-        return std::min(GroomLodStrandBudget(MaxRenderStrands, step), CurveCount);
+        return std::min({ GroomLodStrandBudget(MaxRenderStrands, step), CurveCount, SegmentBudgetStrands });
     }
 
     GroomCrossFadeState SettledGroomCrossFade(const GroomLodDecision& decision) noexcept
@@ -447,12 +447,21 @@ namespace OloEngine
                 ++state.Frame;
             }
             // A window already running holds its slot: a hand-over to a third
-            // tier mid-window restarts it without asking for another.
+            // tier mid-window restarts it without asking for another. Its
+            // outgoing side is whichever tier showed more of the coat last
+            // frame, so the restart drops at most half of the mix (#1628: a
+            // halving and the card edge close together on a dolly) rather
+            // than all of the old tier's share.
             else if (frames > 0u && haveSlot)
             {
-                state.From = previous;
+                const bool fromDominated =
+                    state.IsActive() && GroomCrossFadeThreshold(state.Frame, state.Frames) < 0.5f;
+                if (!fromDominated)
+                {
+                    state.From = previous;
+                    state.FromVisibilityStep = previousStep;
+                }
                 state.To = applied;
-                state.FromVisibilityStep = previousStep;
                 state.ToVisibilityStep = appliedStep;
                 state.Frames = frames;
                 state.Frame = 1u;

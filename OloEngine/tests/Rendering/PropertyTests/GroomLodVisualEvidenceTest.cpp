@@ -1126,7 +1126,18 @@ namespace OloEngine::Tests
         // exactly as without it.
         {
             settings.Path = RenderingPath::Deferred;
-            const u32 savedSamples = settings.Deferred.MSAASampleCount;
+            // Restored on every exit, an ASSERT's included: a later test must
+            // not inherit a multisampled G-buffer.
+            struct SampleRestore
+            {
+                RendererSettings& Settings;
+                u32 Samples;
+                ~SampleRestore()
+                {
+                    Settings.Deferred.MSAASampleCount = Samples;
+                    Renderer3D::ApplyRendererSettings();
+                }
+            } restoreSamples{ settings, settings.Deferred.MSAASampleCount };
             settings.Deferred.MSAASampleCount = 4u;
             Renderer3D::ApplyRendererSettings();
             settings.GroomLodCrossFadeFrames = 0u;
@@ -1137,8 +1148,6 @@ namespace OloEngine::Tests
             const DollyResult faded = Dolly("", "GroomLodHalvingFade_GL_Deferred_Msaa4_Dolly");
             ASSERT_FALSE(::testing::Test::HasFatalFailure());
             PrintDolly("Deferred MSAA 4 cross-fade", faded);
-            settings.Deferred.MSAASampleCount = savedSamples;
-            Renderer3D::ApplyRendererSettings();
             ASSERT_EQ(faded.HandOvers, 1u);
             ASSERT_GE(hard.HalvingFrames.size(), 1u);
             ASSERT_EQ(faded.HalvingFrames, hard.HalvingFrames);
