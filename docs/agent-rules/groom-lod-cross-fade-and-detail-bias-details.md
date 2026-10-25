@@ -60,7 +60,10 @@ transition frame; sharing keeps one number for it. A coat holds at most one wind
 a halving during a hand-over's window is a hand-over to a third tier and restarts the window on the
 slot it holds. The dearest window is a halving going out, whose outgoing tier has twice the strands
 of the incoming one: about 1.5 times the coat's strand cost before the halving. A card hand-over
-adds only the cards, a few percent of the strands.
+adds only the cards, a few percent of the strands. Measured on the dog's 1 → 2 halving (Release
+editor, Vulkan, median GroomPass ms, three sibling test processes sharing the GPU): 1.57–1.88 ms
+on step 1, 3.0–3.2 ms in the window, 1.1–1.25 ms on step 2, on Forward, Forward+ and Deferred alike,
+and the same coming back. The window costs the two tiers' sum.
 
 ## 6. Tests that force or walk to a tier
 
@@ -97,7 +100,8 @@ showed that the check measured nothing. The step is what differs between the two
 
 A halving's shadow step is a fifth of the hand-over's (0.0035 in the ground's light against 0.0177),
 because the width compensation keeps the coverage. The test judges it against the series' own quiet
-frames (0.0001), not against the hand-over's 0.012 floor.
+frames (0.0001), not against the hand-over's 0.012 floor. Masked, the faded halving's largest step
+is 0.33 of the hard one's; with the caster discard removed it is 0.69, and the test fails.
 
 ## 9. Draw a fading pair prepass, prepass, shade, shade
 
@@ -183,8 +187,10 @@ largest frame-to-frame step within each halving's window:
 | Forward | 3.19% | 0.52% | 2.15% | 0.84% |
 | Forward+ | 3.25% | 0.50% | 2.39% | 1.13% |
 | Deferred | 3.46% | 0.66% | 1.94% | 0.86% |
-| Forward, no TAA | 3.21% (hard, TAA on) | 0.50% | 2.40% (master) | 0.84% |
+| Deferred, MSAA 4 | 3.62% | 0.64% | 2.46% | 1.13% |
+| Forward, no TAA | 3.21% | 0.50% | 2.40% | 0.84% |
 
-Without TAA no window frame leaves the two tiers' band (no hole, no doubled coat). With no slot,
-the hand-over and both halvings hard-switch and are counted as refused (3).
-`GroomLodHalvingFade[Off|NoTAA]_GL_<Path>_Dolly.png` are the film strips.
+The no-TAA hard column is master's binary on the same walk, where the halvings had no window. Without
+TAA no window frame leaves the two tiers' band (no hole, no doubled coat). With no slot, the
+hand-over and both halvings hard-switch and are counted as refused (3).
+`GroomLodHalvingFade[Off|NoTAA]_GL_<Path>[_Msaa4]_Dolly.png` are the film strips.

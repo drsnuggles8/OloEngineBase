@@ -1120,6 +1120,36 @@ namespace OloEngine::Tests
                 << pathCase.Name << ": the faded walk arrived somewhere else";
         }
 
+        // MSAA 4 ON DEFERRED (#1628's conditional cell): the G-buffer is
+        // multisampled and resolved before the grooms draw, so the masks see
+        // the same single-sample target; the walk must spread its steps
+        // exactly as without it.
+        {
+            settings.Path = RenderingPath::Deferred;
+            const u32 savedSamples = settings.Deferred.MSAASampleCount;
+            settings.Deferred.MSAASampleCount = 4u;
+            Renderer3D::ApplyRendererSettings();
+            settings.GroomLodCrossFadeFrames = 0u;
+            const DollyResult hard = Dolly("", "GroomLodHalvingFadeOff_GL_Deferred_Msaa4_Dolly");
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+            PrintDolly("Deferred MSAA 4 hard switch", hard);
+            settings.GroomLodCrossFadeFrames = window;
+            const DollyResult faded = Dolly("", "GroomLodHalvingFade_GL_Deferred_Msaa4_Dolly");
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+            PrintDolly("Deferred MSAA 4 cross-fade", faded);
+            settings.Deferred.MSAASampleCount = savedSamples;
+            Renderer3D::ApplyRendererSettings();
+            ASSERT_EQ(faded.HandOvers, 1u);
+            ASSERT_GE(hard.HalvingFrames.size(), 1u);
+            ASSERT_EQ(faded.HalvingFrames, hard.HalvingFrames);
+            EXPECT_LT(faded.MaxStepNearHandOver, hard.MaxStepNearHandOver * 0.5) << "MSAA 4: the hand-over";
+            for (sizet h = 0; h < faded.HalvingFrames.size(); ++h)
+            {
+                EXPECT_LT(faded.MaxStepNearHalving[h], hard.MaxStepNearHalving[h] * 0.5)
+                    << "MSAA 4: the halving at frame " << faded.HalvingFrames[h];
+            }
+        }
+
         // TAA OFF: the screen door is visible as noise, but the mask still
         // covers each pixel once, so the coat neither doubles nor holes. Its
         // light through each window -- the hand-over's and every halving's --

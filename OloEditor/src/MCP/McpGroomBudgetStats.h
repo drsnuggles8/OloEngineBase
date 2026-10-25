@@ -61,8 +61,8 @@ namespace OloEngine::MCP::GroomBudgetStats
         u32 GroomsOnSelectedTier = 0;
         u32 GroomsFellBack = 0;
         u32 RepresentationChanges = 0;
-        u32 CrossFading = 0;       // #1612: coats drawing both sides of a hand-over
-        u32 CrossFadesRefused = 0; // #1612: hand-overs hard-switched for want of a slot
+        u32 CrossFading = 0;       // #1612, #1628: coats drawing both sides of a hand-over or halving
+        u32 CrossFadesRefused = 0; // #1612, #1628: hand-overs and halvings hard-switched for want of a slot
         u32 GroomsAtCompensationCap = 0;
         f32 MaxWidthCompensation = 1.0f;
         std::string DominantFallbackReason = "None";
