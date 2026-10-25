@@ -140,8 +140,14 @@ namespace OloEngine
             return { false, "Asset registry file not found: " + registryPath.string(), 0, 0, {} };
         }
 
+        // A registry this build cannot read (another format version, a truncated file) must stop
+        // the build: packing the empty registry it leaves behind ships a game with no assets.
         AssetRegistry registry;
-        registry.Deserialize(registryPath);
+        if (!registry.Deserialize(registryPath))
+        {
+            OLO_CORE_ERROR("AssetPackBuilder::BuildFromActiveProject - Asset registry could not be read: {}", registryPath.string());
+            return { false, "Asset registry could not be read (see the log): " + registryPath.string(), 0, 0, {} };
+        }
 
         OLO_CORE_INFO("AssetPackBuilder: Starting asset pack build from active project ({} registered assets)", registry.GetAllAssets().size());
         return BuildFromRegistry(registry, settings, progress, cancelToken);
