@@ -600,6 +600,13 @@ namespace OloEngine
             /// clamping; a little padding costs memory and removes a rim
             /// artefact that reads as a bald edge.
             f32 BoundsPadding = 0.02f;
+            /// How many z-slabs the deposit is split into, one task each; 0
+            /// picks 32 (capped at the layers there are). Each slab walks the
+            /// segments that reach it in order and deposits only into its own
+            /// voxels, so each voxel sums the same terms in the same order
+            /// whatever the split: the volume is bit for bit the one-slab bake's
+            /// (1), which the tests hold it to.
+            u32 BinSlabs = 0;
         };
 
         struct DensityVolumeBuildStats

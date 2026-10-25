@@ -1179,104 +1179,176 @@ namespace OloEngine::GroomCoatShadow
         const f64 voxelVolume = static_cast<f64>(voxelSize) * static_cast<f64>(voxelSize) *
                                 static_cast<f64>(voxelSize);
 
+        // THE DEPOSIT, SPLIT INTO Z-SLABS (#1630). It was one serial scatter of
+        // 64 B-spline taps per half-voxel sub-step: 230 ms a bake for the rigged
+        // head's coat, which rebakes every few frames while its strands settle.
+        //
+        // A cheap pass over the endpoints says which z layers each segment's
+        // taps can reach (every sub-step lies between its endpoints) and files
+        // the segment, in order, with every slab that holds one of them. Each
+        // slab then walks its own list and keeps only the taps in its layers,
+        // so a voxel receives the same terms in the same order as one slab
+        // would give it, and the volume is the same bit for bit whatever the
+        // split. A segment is walked by the slab its first layer is in and by
+        // the one or two its taps spill into, not by every slab.
         u32 binned = 0;
         u32 rejected = 0;
-        f64 totalMass = 0.0;
-
-        for (const CoatSegment& segment : segments)
+        constexpr i32 kNoReach = -1;
+        std::vector<std::pair<i32, i32>> reach(segments.size(), { kNoReach, kNoReach });
+        for (sizet s = 0; s < segments.size(); ++s)
         {
+            const CoatSegment& segment = segments[s];
+            // Rejected here as well as in CoatSegmentBounds: a segment the
+            // bounds skipped would otherwise still walk the deposit and land at
+            // a NaN coordinate, which the index range test cannot catch -- every
+            // comparison against a NaN is false, so the "outside the grid" guard
+            // lets it through.
             if (!IsFiniteVec(segment.A) || !IsFiniteVec(segment.B) || !std::isfinite(segment.RadiusA) ||
                 !std::isfinite(segment.RadiusB))
             {
-                // Rejected here as well as in CoatSegmentBounds: a segment the
-                // bounds skipped would otherwise still walk this loop and
-                // deposit at a NaN coordinate, which the index range test
-                // cannot catch — every comparison against a NaN is false, so
-                // the "outside the grid" guard lets it through.
                 ++rejected;
                 continue;
             }
-
-            const glm::vec3 ab = segment.B - segment.A;
-            const f32 length = glm::length(ab);
+            const f32 length = glm::length(segment.B - segment.A);
             if (!std::isfinite(length) || length <= 0.0f)
             {
                 ++rejected;
                 continue;
             }
-            const glm::vec3 dir = ab / length;
+            ++binned;
+            // Taps reach one layer below and two above a sub-step's own; one more
+            // each way covers a sub-step that rounds past an endpoint.
+            const f32 zA = ((segment.A.z - lo.z) * invVoxel) - 0.5f;
+            const f32 zB = ((segment.B.z - lo.z) * invVoxel) - 0.5f;
+            reach[s] = { std::clamp(static_cast<i32>(std::floor(std::min(zA, zB))) - 2, 0, dims.z - 1),
+                         std::clamp(static_cast<i32>(std::floor(std::max(zA, zB))) + 3, 0, dims.z - 1) };
+        }
 
-            // Sub-voxel stepping so a segment crossing a voxel corner deposits
-            // into both, and a segment shorter than a voxel still deposits its
-            // whole length. Half a voxel is the coarsest step that cannot skip
-            // a voxel entirely.
-            const f32 step = voxelSize * 0.5f;
-            const i32 steps = std::max(1, static_cast<i32>(std::ceil(length / step)));
-            const f32 dl = length / static_cast<f32>(steps);
-
-            for (i32 i = 0; i < steps; ++i)
+        const i32 slabs = std::clamp(settings.BinSlabs > 0u ? static_cast<i32>(settings.BinSlabs) : 32, 1, dims.z);
+        std::vector<i32> slabOfLayer(static_cast<sizet>(dims.z));
+        for (i32 slab = 0; slab < slabs; ++slab)
+        {
+            for (i32 z = (dims.z * slab) / slabs; z < (dims.z * (slab + 1)) / slabs; ++z)
             {
-                // Sampled at the MIDPOINT of each sub-step, so the deposited
-                // mass is the segment's own length and not a half-step longer
-                // or shorter at the ends.
-                const f32 s = (static_cast<f32>(i) + 0.5f) / static_cast<f32>(steps);
-                const glm::vec3 p = segment.A + ab * s;
-                const f32 radius = segment.RadiusA + (segment.RadiusB - segment.RadiusA) * s;
-                const f32 diameter = radius * 2.0f;
-                if (!(diameter > 0.0f))
-                {
-                    continue;
-                }
+                slabOfLayer[static_cast<sizet>(z)] = slab;
+            }
+        }
+        std::vector<std::vector<u32>> slabSegments(static_cast<sizet>(slabs));
+        for (sizet s = 0; s < segments.size(); ++s)
+        {
+            if (reach[s].first == kNoReach)
+            {
+                continue;
+            }
+            for (i32 slab = slabOfLayer[static_cast<sizet>(reach[s].first)];
+                 slab <= slabOfLayer[static_cast<sizet>(reach[s].second)]; ++slab)
+            {
+                slabSegments[static_cast<sizet>(slab)].push_back(static_cast<u32>(s));
+            }
+        }
 
-                const glm::vec3 local = (p - lo) * invVoxel;
-                const i32 vx = static_cast<i32>(std::floor(local.x));
-                const i32 vy = static_cast<i32>(std::floor(local.y));
-                const i32 vz = static_cast<i32>(std::floor(local.z));
-                if (vx < 0 || vy < 0 || vz < 0 || vx >= dims.x || vy >= dims.y || vz >= dims.z)
-                {
-                    continue;
-                }
-
-                // A cubic B-spline deposit keeps a thin coat's density smooth
-                // as its fibres cross the grid. A nearest-cell deposit jumps;
-                // a linear deposit is continuous but its self-shadow still
-                // pulses with sub-voxel phase, drawing contours on a muzzle.
-                // The separable weights sum to one. Clamping destinations
-                // preserves all area even when BoundsPadding is zero.
-                const glm::vec3 centred = local - glm::vec3(0.5f);
-                const glm::vec3 base = glm::floor(centred);
-                const glm::vec3 frac = centred - base;
-                const glm::vec3 squared = frac * frac;
-                const glm::vec3 cubed = squared * frac;
-                const glm::vec3 complement = glm::vec3(1.0f) - frac;
-                const std::array<glm::vec3, 4> weights{
-                    complement * complement * complement / 6.0f,
-                    (3.0f * cubed - 6.0f * squared + glm::vec3(4.0f)) / 6.0f,
-                    (-3.0f * cubed + 3.0f * squared + 3.0f * frac + glm::vec3(1.0f)) / 6.0f,
-                    cubed / 6.0f
-                };
-                const f32 mass = dl * diameter;
-                for (i32 dz = 0; dz < 4; ++dz)
-                {
-                    const i32 z = std::clamp(static_cast<i32>(base.z) + dz - 1, 0, dims.z - 1);
-                    for (i32 dy = 0; dy < 4; ++dy)
+        // Each segment's own mass, kept by the slab its first layer is in, and
+        // summed in segment order below: the same total whatever the split.
+        std::vector<f64> segmentMass(segments.size(), 0.0);
+        ParallelFor("GroomCoatDensityBin", slabs, 1, [&](i32 slab)
                     {
-                        const i32 y = std::clamp(static_cast<i32>(base.y) + dy - 1, 0, dims.y - 1);
-                        const f32 yzWeight = weights[dy].y * weights[dz].z;
-                        for (i32 dx = 0; dx < 4; ++dx)
+            const i32 zBegin = (dims.z * slab) / slabs;
+            const i32 zEnd = (dims.z * (slab + 1)) / slabs;
+            for (const u32 s : slabSegments[static_cast<sizet>(slab)])
+            {
+                const CoatSegment& segment = segments[s];
+                const bool keepsMass = slabOfLayer[static_cast<sizet>(reach[s].first)] == slab;
+                const glm::vec3 ab = segment.B - segment.A;
+                const f32 length = glm::length(ab);
+                const glm::vec3 dir = ab / length;
+
+                // Sub-voxel stepping so a segment crossing a voxel corner deposits
+                // into both, and a segment shorter than a voxel still deposits its
+                // whole length. Half a voxel is the coarsest step that cannot skip
+                // a voxel entirely.
+                const f32 step = voxelSize * 0.5f;
+                const i32 steps = std::max(1, static_cast<i32>(std::ceil(length / step)));
+                const f32 dl = length / static_cast<f32>(steps);
+
+                for (i32 i = 0; i < steps; ++i)
+                {
+                    // Sampled at the MIDPOINT of each sub-step, so the deposited
+                    // mass is the segment's own length and not a half-step longer
+                    // or shorter at the ends.
+                    const f32 t = (static_cast<f32>(i) + 0.5f) / static_cast<f32>(steps);
+                    const glm::vec3 p = segment.A + ab * t;
+                    const f32 radius = segment.RadiusA + (segment.RadiusB - segment.RadiusA) * t;
+                    const f32 diameter = radius * 2.0f;
+                    if (!(diameter > 0.0f))
+                    {
+                        continue;
+                    }
+
+                    const glm::vec3 local = (p - lo) * invVoxel;
+                    const i32 vx = static_cast<i32>(std::floor(local.x));
+                    const i32 vy = static_cast<i32>(std::floor(local.y));
+                    const i32 vz = static_cast<i32>(std::floor(local.z));
+                    if (vx < 0 || vy < 0 || vz < 0 || vx >= dims.x || vy >= dims.y || vz >= dims.z)
+                    {
+                        continue;
+                    }
+
+                    const f32 mass = dl * diameter;
+                    if (keepsMass)
+                    {
+                        segmentMass[s] += static_cast<f64>(mass);
+                    }
+
+                    // A cubic B-spline deposit keeps a thin coat's density smooth
+                    // as its fibres cross the grid. A nearest-cell deposit jumps;
+                    // a linear deposit is continuous but its self-shadow still
+                    // pulses with sub-voxel phase, drawing contours on a muzzle.
+                    // The separable weights sum to one. Clamping destinations
+                    // preserves all area even when BoundsPadding is zero.
+                    const glm::vec3 centred = local - glm::vec3(0.5f);
+                    const glm::vec3 base = glm::floor(centred);
+                    const i32 baseZ = static_cast<i32>(base.z);
+                    if (std::clamp(baseZ + 2, 0, dims.z - 1) < zBegin || std::clamp(baseZ - 1, 0, dims.z - 1) >= zEnd)
+                    {
+                        continue; // no tap of this sub-step is in the slab
+                    }
+                    const glm::vec3 frac = centred - base;
+                    const glm::vec3 squared = frac * frac;
+                    const glm::vec3 cubed = squared * frac;
+                    const glm::vec3 complement = glm::vec3(1.0f) - frac;
+                    const std::array<glm::vec3, 4> weights{
+                        complement * complement * complement / 6.0f,
+                        (3.0f * cubed - 6.0f * squared + glm::vec3(4.0f)) / 6.0f,
+                        (-3.0f * cubed + 3.0f * squared + 3.0f * frac + glm::vec3(1.0f)) / 6.0f,
+                        cubed / 6.0f
+                    };
+                    for (i32 dz = 0; dz < 4; ++dz)
+                    {
+                        const i32 z = std::clamp(baseZ + dz - 1, 0, dims.z - 1);
+                        if (z < zBegin || z >= zEnd)
                         {
-                            const i32 x = std::clamp(static_cast<i32>(base.x) + dx - 1, 0, dims.x - 1);
-                            const sizet index = VoxelIndex(dims, x, y, z);
-                            const f32 weightedMass = mass * weights[dx].x * yzWeight;
-                            outVolume.Density[index] += weightedMass;
-                            outVolume.Direction[index] += dir * weightedMass;
+                            continue;
+                        }
+                        for (i32 dy = 0; dy < 4; ++dy)
+                        {
+                            const i32 y = std::clamp(static_cast<i32>(base.y) + dy - 1, 0, dims.y - 1);
+                            const f32 yzWeight = weights[dy].y * weights[dz].z;
+                            for (i32 dx = 0; dx < 4; ++dx)
+                            {
+                                const i32 x = std::clamp(static_cast<i32>(base.x) + dx - 1, 0, dims.x - 1);
+                                const sizet index = VoxelIndex(dims, x, y, z);
+                                const f32 weightedMass = mass * weights[dx].x * yzWeight;
+                                outVolume.Density[index] += weightedMass;
+                                outVolume.Direction[index] += dir * weightedMass;
+                            }
                         }
                     }
                 }
-                totalMass += static_cast<f64>(mass);
-            }
-
-            ++binned;
+            } });
+        f64 totalMass = 0.0;
+        for (const f64 mass : segmentMass)
+        {
+            totalMass += mass;
         }
 
         // Mass -> areal density (1/length), and the accumulated direction ->

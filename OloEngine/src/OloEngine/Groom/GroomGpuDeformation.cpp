@@ -857,21 +857,28 @@ namespace OloEngine
     void EvaluateGroomDeformedPose(const GroomDeformBuffer& buffer, std::span<const GroomRestPoseSegment> pose,
                                    std::vector<GroomCoatShadow::CoatSegment>& outSegments)
     {
-        outSegments.clear();
-        outSegments.reserve(pose.size());
+        // On the task system, as DeformGroomRestStream above (#1630): the
+        // rigged head's coat spent ~38 ms a frame here on one thread. Every
+        // segment is independent and written to its own slot, so the result
+        // is the serial loop's.
+        outSegments.resize(pose.size());
+        GroomCoatShadow::CoatSegment* const out = outSegments.data();
         const auto evaluate = [&]<bool Wet>(std::bool_constant<Wet>)
         {
             const std::span<const GroomDeformRootRecord> roots = buffer.Roots();
             const bool simulated = buffer.GetFrameStats().Simulated;
-            for (const GroomRestPoseSegment& segment : pose)
-            {
-                GroomCoatShadow::CoatSegment drawn;
-                drawn.A = DeformedPoint<Wet>(buffer, roots, simulated, segment.RootSlot, segment.Local0, segment.T0, false);
-                drawn.B = DeformedPoint<Wet>(buffer, roots, simulated, segment.RootSlot, segment.Local1, segment.T1, false);
-                drawn.RadiusA = segment.Radius0;
-                drawn.RadiusB = segment.Radius1;
-                outSegments.push_back(drawn);
-            }
+            ParallelFor("GroomEvaluateDeformedPose", static_cast<i32>(pose.size()), 4096,
+                        [&](i32 index)
+                        {
+                            const GroomRestPoseSegment& segment = pose[static_cast<sizet>(index)];
+                            GroomCoatShadow::CoatSegment& drawn = out[index];
+                            drawn.A = DeformedPoint<Wet>(buffer, roots, simulated, segment.RootSlot, segment.Local0,
+                                                         segment.T0, false);
+                            drawn.B = DeformedPoint<Wet>(buffer, roots, simulated, segment.RootSlot, segment.Local1,
+                                                         segment.T1, false);
+                            drawn.RadiusA = segment.Radius0;
+                            drawn.RadiusB = segment.Radius1;
+                        });
         };
         if (IsWet(buffer))
         {
