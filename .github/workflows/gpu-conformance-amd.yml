@@ -68,8 +68,9 @@ on:
         # run. A filtered dispatch turns each hypothesis into a few minutes. The
         # exclusion below is APPENDED rather than replaced, so a filter can never
         # re-enable the network tests this job deliberately never runs. Empty
-        # leaves the scheduled behaviour exactly as it was.
-        description: 'gtest filter (e.g. OceanFFTVisualEvidenceTest.*). Empty runs the whole suite.'
+        # runs what the scheduled nightly runs: everything but the dog showcase
+        # suites, which gpu-conformance-amd-showcase.yml runs weekly (#1630).
+        description: 'gtest filter (e.g. OceanFFTVisualEvidenceTest.*). Empty runs the nightly: the whole suite but the DogShowcase, Breed and DogPlay evidence (weekly, gpu-conformance-amd-showcase.yml).'
         type: string
         default: ''
       suite_minutes:
@@ -114,6 +115,16 @@ on:
       red_streak_job:
         type: string
         default: 'Linux / AMD Navi 10 (radeonsi, hardware)'
+      # Red runs in a row before the streak issue opens: two nights for the
+      # nightly; a weekly caller passes 1, or a regression would wait a fortnight.
+      red_streak_threshold:
+        type: number
+        default: 2
+      # The dispatch inputs of the same names, for a caller that offers them
+      # (the showcase rebakes its own goldens through here).
+      golden_rebase:
+        type: boolean
+        default: false
   schedule:
     # 00:47 UTC — roughly 02:00 German local (02:47 CEST / 01:47 CET; GitHub cron
     # is UTC-only and does not follow DST, so it drifts an hour across the year).
@@ -129,7 +140,11 @@ concurrency:
   # Only workflow_dispatch and schedule reach this workflow, so cancelling a
   # stale run is always safe — and important here, because this job competes for
   # a two-slot pool it no longer has a reservation in (see `runs-on` below). A
-  # hung OR QUEUED run must not block tomorrow's.
+  # hung OR QUEUED run must not block tomorrow's. Called from
+  # gpu-conformance-amd-showcase.yml, `github.workflow` is the CALLER's name, so
+  # the weekly showcase has its own group and a nightly never cancels it. What
+  # keeps the two off the GPU at once is their schedules (00:47 daily, 04:17
+  # Sunday); a hand dispatch of either while the other runs shares the GPU.
   group: ${{ github.workflow }}
   cancel-in-progress: true
 
@@ -668,7 +683,8 @@ jobs:
           # the existing negative list in that case instead of starting one.
           # The nightly's default leaves out the dog showcase suites, which the
           # weekly gpu-conformance-amd-showcase.yml runs (#1630). A dispatch with
-          # a filter of its own runs exactly that filter.
+          # a filter of its own runs exactly that filter. KEEP THIS LIST AND THE
+          # SHOWCASE'S gtest_filter IN STEP: a suite in neither runs nowhere.
           FILTER="${OLO_GTEST_FILTER:-*-DogShowcaseEvidenceTest.*:*BreedShowcaseEvidenceTest.*:*DogPlayEvidenceTest.*}"
           case "$FILTER" in
             *-*) FILTER="$FILTER:NetworkIntegrationTest.*" ;;
@@ -908,11 +924,13 @@ jobs:
           STREAK_WORKFLOW: ${{ inputs.red_streak_workflow || 'gpu-conformance-amd.yml' }}
           STREAK_JOB: ${{ inputs.red_streak_job || 'Linux / AMD Navi 10 (radeonsi, hardware)' }}
           STREAK_TIMEOUT: ${{ inputs.job_timeout_minutes || 150 }}
+          STREAK_THRESHOLD: ${{ inputs.red_streak_threshold || 2 }}
         run: |
           python3 scripts/nightly_red_streak.py \
             --workflow "$STREAK_WORKFLOW" \
             --job "$STREAK_JOB" \
             --timeout-minutes "$STREAK_TIMEOUT" \
+            --threshold "$STREAK_THRESHOLD" \
             --result "$RESULT" \
             --run-id "$GITHUB_RUN_ID" \
             $DRY_RUN | tee -a "$GITHUB_STEP_SUMMARY"
