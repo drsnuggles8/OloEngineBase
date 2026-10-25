@@ -98,7 +98,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [groom-guide-stand-ins.md](groom-guide-stand-ins.md): take a stand-in's direction from the linear blend of its guides and its length from their mean length where they agree.
 - [coat-authoring-and-per-role-budgets.md](coat-authoring-and-per-role-budgets.md): spend a groom's strand budget per coat role, weighted, or a budget cut takes the animal's outline first.
 - [groom-representation-lod.md](groom-representation-lod.md): compensate a thinned coat's width by 1/k and not 1/sqrt(k).
-- [groom-lod-cross-fade-and-detail-bias.md](groom-lod-cross-fade-and-detail-bias.md): hide a LOD hand-over by drawing both tiers through complementary masks from one per-pixel hash in every pass that rasterises a tier, shadow casters included.
+- [groom-lod-cross-fade-and-detail-bias.md](groom-lod-cross-fade-and-detail-bias.md): hide a LOD hand-over, and a visibility-budget halving, by drawing both tiers through complementary masks from one per-pixel hash in every pass that rasterises a tier, shadow casters included.
 - [rt-scene-follows-the-raster-caster-set.md](rt-scene-follows-the-raster-caster-set.md): a producer that stages TLAS geometry gives what the raster tier does not cast the no-shadow-cast mask.
 - [rt-vegetation-budget-charged-where-enforced.md](rt-vegetation-budget-charged-where-enforced.md): a producer charges every limit its backend enforces by dropping work before it queues.
 - [rt-quality-pressure-plans-a-complete-tier.md](rt-quality-pressure-plans-a-complete-tier.md): when a ray-tracing producer meets a limit, plan a complete cheaper tier, a bounded hold or an explicit counted fallback before publishing.

@@ -124,7 +124,8 @@ shows. The grass holds still in those frames; it sways in the editor.
   face close-up to 15 m, and through a continuous dolly out to 15 m and back at 1920×1080 with the
   history never reset. Every frame records the tier, the budgets and the width compensation; no
   transition may step the coat's energy or brightness by more than half the band (coverage steps
-  are recorded: up to 4.7% at the 11 m visibility step, energy 1.0%). Removing the width
+  are recorded). Since #1628 a visibility halving cross-fades like the card hand-over, and the
+  worst step at any change is 0.7% in coverage and in energy, from 1.9% and 2.1%. Removing the width
   compensation must fail the same judge. The card hand-over is past 15 m (out at about 22.5 m, in
   at about 16 m) and gets its own dolly, 15 to 45 m.
 - **The rest bake shadows the moving coat as the pose bake does**: see
@@ -200,8 +201,14 @@ parent: never add the two.
   at most 0.81–0.88% per frame (about a quarter of it) on every GL path
   ([groom-lod-cross-fade-and-detail-bias.md](../agent-rules/groom-lod-cross-fade-and-detail-bias.md)).
   The mismatch itself is unchanged (#1608).
-- **The 11 m visibility step moves coverage by up to 4.7%** while energy moves 1.0% and brightness
-  0.5%. The dolly judges pops on energy and brightness, at half the 10% band.
+- **A visibility halving draws both strand budgets for its 12-frame window** (#1628). The 11 m step
+  used to land in one frame: 0.8% of coverage on the B7 dolly, up to 4.7% when it was first
+  recorded. Now it is dithered across the window like the card hand-over: on the dolly its step is
+  0.3% in coverage and 0.4% in energy, and coming back in at 7.6 m it went from 1.5% to 0.1%. The
+  cost is the window's: live on Vulkan, GroomPass takes 3.0–3.2 ms across it, against 1.6–1.9 ms
+  before and 1.1–1.25 ms after
+  ([groom-lod-cross-fade-and-detail-bias.md](../agent-rules/groom-lod-cross-fade-and-detail-bias.md)
+  rule 13).
 - **About 12–14% of the leg skin is groomed sparsely on purpose** (the inner legs) and is not judged
   for bald patches.
 - **Under a light that does not cast, the coat's volume and the cascades disagree on the legs.** On

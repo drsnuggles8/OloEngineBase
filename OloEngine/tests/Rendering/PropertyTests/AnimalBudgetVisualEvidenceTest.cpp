@@ -415,8 +415,10 @@ namespace OloEngine::Tests
 
             // Several frames: the budget advances once per frame and the
             // ladders settle over the hold, so one frame would capture whatever
-            // the previous arm left behind.
-            RunEditorFrames(camera, 8);
+            // the previous arm left behind. The cross-fade window on top
+            // (#1612, and #1628 for the budget's halvings): a capture inside it
+            // counts the coats' outgoing strands as drawn.
+            RunEditorFrames(camera, 8u + Renderer3D::GetRendererSettings().GroomLodCrossFadeFrames);
 
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
             if (!fb)

@@ -637,6 +637,8 @@ namespace OloEngine
         partner.CrossFadeRole = own.CrossFadeRole;
         partner.CrossFadeThreshold = own.CrossFadeThreshold;
         partner.Lod.Representation = own.Lod.Representation;
+        partner.Lod.VisibilityStep = own.Lod.VisibilityStep;
+        partner.Lod.VisibilityFraction = own.Lod.VisibilityFraction;
         partner.LodLevel = own.LodLevel;
         partner.Build = own.Build;
         partner.StreamingKey = own.StreamingKey;
