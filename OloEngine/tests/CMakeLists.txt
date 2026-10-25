@@ -397,6 +397,8 @@ add_executable(OloEngine-Tests
 		Rendering/GPUHashMapTest.cpp
 		Rendering/GPUPagedCacheTest.cpp
 		Rendering/GPUCacheShaderResolveTest.cpp
+		# #1345: what ready means on OpenGL (program link), counted step by step on a real context.
+		Rendering/OpenGLPipelineReadinessTest.cpp
 		Rendering/SkeletalDeformationContractTest.cpp
 		Rendering/GPUParticleCompactionTest.cpp
 		Rendering/ShaderDebugDrawContractTest.cpp
