@@ -1351,7 +1351,10 @@ namespace OloEngine::Tests::CrossPath
             }
             GTEST_SKIP() << row.Name << " needs " << row.Requires.Name
                          << ", which runs on a hardware ray-tracing Vulkan device only; " << arm.Id
-                         << " is GL. Live cell: scripts/cross-path-matrix-live.py";
+                         << (arm.Request.Api == RendererSupport::Backend::Vulkan
+                                 ? " is a raster arm, and the registry declares the ray-query arms Unsupported."
+                                 : " is GL.")
+                         << " Live cell: scripts/cross-path-matrix-live.py";
         }
         if (!row.Probes.empty())
         {

@@ -4,7 +4,8 @@
 // =============================================================================
 // GroomSceneShadowVisualEvidenceTest — issue #1323, the pixels.
 //
-// Writes OloEditor/assets/tests/visual/GroomSceneShadow_GL_<Path>[_<Case>].png
+// Writes OloEditor/assets/tests/visual/GroomSceneShadow_<GL|Vulkan>_<Path>[_<Case>].png
+// (Vulkan from the --olo-rhi=vulkan process, #1556)
 // and the matching GroomSceneShadowOff_* controls. The filename carries the
 // {backend} x {path} cell it covers, deliberately including the backend even
 // though it is always GL here: a reader counting files then cannot mistake a
@@ -73,6 +74,7 @@
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 #include "TestTempDir.h"
 #include "UniformSkyFixture.h"
 
@@ -508,7 +510,7 @@ namespace OloEngine::Tests
             }
             ASSERT_TRUE(fb) << "No composited framebuffer for '" << saveAs << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), width, height, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), width, height, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<sizet>(width) * height * 4u);
 
             {
@@ -953,7 +955,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
             }
             ASSERT_TRUE(fb);
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, out);
             const sizet rowBytes = static_cast<sizet>(kWidth) * 4u;
             std::vector<u8> row(rowBytes);
             for (u32 y = 0; y < kHeight / 2u; ++y)
@@ -1254,15 +1256,15 @@ namespace OloEngine::Tests
             ASSERT_FALSE(::testing::Test::HasFatalFailure());
             ASSERT_GT(CountMask(coatMask), 12000u) << cell << ": the coat barely registers under the " << lampName;
 
-            const LampShadow atlas = CaptureLampShadow("GL_" + cell + "_Atlas" + lampName);
+            const LampShadow atlas = CaptureLampShadow(TestRenderBackend::EvidenceBackendPrefix() + cell + "_Atlas" + lampName);
             ASSERT_TRUE(SetVsm(true, true));
-            const LampShadow layers = CaptureLampShadow("GL_" + cell + "_Vsm" + lampName);
+            const LampShadow layers = CaptureLampShadow(TestRenderBackend::EvidenceBackendPrefix() + cell + "_Vsm" + lampName);
 
             Levers::SetFaultSkipGroomVsmLocalLayers(true);
             ASSERT_TRUE(SetVsm(false, true) && SetVsm(true, true));
             Routing().m_CastShadows = true;
             std::vector<u8> faulted;
-            Capture("GroomSceneShadow_GL_" + cell + "_Vsm" + lampName + "NoLocalLayers", faulted);
+            Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + cell + "_Vsm" + lampName + "NoLocalLayers", faulted);
             Levers::SetFaultSkipGroomVsmLocalLayers(false);
             ASSERT_FALSE(::testing::Test::HasFatalFailure());
 
@@ -1377,7 +1379,7 @@ namespace OloEngine::Tests
 
             // THE CONTROL: routed neither way.
             std::vector<u8> control;
-            Capture(std::string("GroomSceneShadowOff_GL_") + pathCase.Name, control);
+            Capture(TestRenderBackend::EvidenceName("GroomSceneShadowOff") + pathCase.Name, control);
             if (::testing::Test::HasFatalFailure())
             {
                 return;
@@ -1387,20 +1389,20 @@ namespace OloEngine::Tests
             Routing().m_CastShadows = true;
             Routing().m_ReceiveShadows = false;
             std::vector<u8> castOnly;
-            Capture(std::string("GroomSceneShadow_GL_") + pathCase.Name + "_CastOnly", castOnly);
+            Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + pathCase.Name + "_CastOnly", castOnly);
 
             // SCENE -> HAIR alone.
             Routing().m_CastShadows = false;
             Routing().m_ReceiveShadows = true;
             std::vector<u8> receiveOnly;
-            Capture(std::string("GroomSceneShadow_GL_") + pathCase.Name + "_ReceiveOnly", receiveOnly);
+            Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + pathCase.Name + "_ReceiveOnly", receiveOnly);
 
             // BOTH, in ONE frame — acceptance criterion 4, which two separate
             // captures explicitly do not satisfy.
             Routing().m_CastShadows = true;
             Routing().m_ReceiveShadows = true;
             std::vector<u8> both;
-            Capture(std::string("GroomSceneShadow_GL_") + pathCase.Name, both);
+            Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + pathCase.Name, both);
             if (::testing::Test::HasFatalFailure())
             {
                 return;
@@ -1501,7 +1503,7 @@ namespace OloEngine::Tests
         // honestly it crosses a texel centre essentially never.
         Routing().m_ShadowWidthTexels = 0.0f;
         std::vector<u8> honest;
-        Capture("GroomSceneShadow_GL_Forward_NoWidthFloor", honest);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_NoWidthFloor", honest);
 
         Routing().m_ShadowWidthTexels = 1.0f;
         std::vector<u8> widened;
@@ -1585,17 +1587,17 @@ namespace OloEngine::Tests
 
         Levers::SetGroomShadowCasterFraction(1.0f);
         std::vector<u8> whole;
-        Capture("GroomSceneShadow_GL_Forward_CasterWhole", whole);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_CasterWhole", whole);
         const GroomShadowCasterStats wholeStats = shadowStats();
 
         Levers::SetGroomShadowCasterFraction(std::nullopt);
         std::vector<u8> subset;
-        Capture("GroomSceneShadow_GL_Forward_CasterSubset", subset);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_CasterSubset", subset);
         const GroomShadowCasterStats subsetStats = shadowStats();
 
         Levers::SetGroomShadowCasterFraction(1.0f / 64.0f);
         std::vector<u8> sliver;
-        Capture("GroomSceneShadow_GL_Forward_CasterSixtyFourth", sliver);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_CasterSixtyFourth", sliver);
         if (::testing::Test::HasFatalFailure())
         {
             return;
@@ -1699,12 +1701,12 @@ namespace OloEngine::Tests
             }
 
             std::vector<u8> control;
-            Capture(std::string("GroomSceneShadowOff_GL_Deferred_") + variants[v].Name, control);
+            Capture((TestRenderBackend::EvidenceName("GroomSceneShadowOff") + "Deferred_") + variants[v].Name, control);
 
             Routing().m_CastShadows = true;
             Routing().m_ReceiveShadows = true;
             std::vector<u8> routed;
-            Capture(std::string("GroomSceneShadow_GL_Deferred_") + variants[v].Name, routed);
+            Capture((TestRenderBackend::EvidenceName("GroomSceneShadow") + "Deferred_") + variants[v].Name, routed);
             if (::testing::Test::HasFatalFailure())
             {
                 deferred.MSAASampleCount = restoreSamples;
@@ -1775,7 +1777,7 @@ namespace OloEngine::Tests
             return;
         }
 
-        const auto measure = [&](bool volumeActive, const char* saveAs)
+        const auto measure = [&](bool volumeActive, const std::string& saveAs)
         {
             Coat().m_Enabled = volumeActive;
 
@@ -1799,12 +1801,12 @@ namespace OloEngine::Tests
         // BOTH VOLUME STATES, because the offset is gated on CASTING and
         // therefore must hold in both — and the one that broke was the arm
         // WITHOUT a volume, which is the commonest authoring.
-        const auto [noVolControl, noVolRouted] = measure(false, "GroomSceneShadow_GL_Forward_NoCoatVolume");
+        const auto [noVolControl, noVolRouted] = measure(false, TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_NoCoatVolume");
         if (::testing::Test::HasFatalFailure())
         {
             return;
         }
-        const auto [volControl, volRouted] = measure(true, "GroomSceneShadow_GL_Forward_CoatVolume");
+        const auto [volControl, volRouted] = measure(true, TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_CoatVolume");
         if (::testing::Test::HasFatalFailure())
         {
             return;
@@ -1872,11 +1874,11 @@ namespace OloEngine::Tests
             return;
         }
         std::vector<u8> control;
-        Capture("GroomSceneShadowOff_GL_Deferred_Vsm", control);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadowOff") + "Deferred_Vsm", control);
 
         Routing().m_CastShadows = true;
         std::vector<u8> cast;
-        Capture("GroomSceneShadow_GL_Deferred_Vsm", cast);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + "Deferred_Vsm", cast);
         if (::testing::Test::HasFatalFailure())
         {
             return;
@@ -1921,7 +1923,7 @@ namespace OloEngine::Tests
         Levers::SetFaultSkipGroomVsmInvalidation(true);
         groomTransform.Translation = away;
         std::vector<u8> movedWithoutInvalidation;
-        Capture("GroomSceneShadow_GL_Deferred_VsmMovedNoInvalidation", movedWithoutInvalidation);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + "Deferred_VsmMovedNoInvalidation", movedWithoutInvalidation);
         Levers::SetFaultSkipGroomVsmInvalidation(false);
         if (::testing::Test::HasFatalFailure())
         {
@@ -1931,7 +1933,7 @@ namespace OloEngine::Tests
         // The reference: the coat at `away`, rendered from scratch.
         ASSERT_TRUE(restartVsm());
         std::vector<u8> fresh;
-        Capture("GroomSceneShadow_GL_Deferred_VsmMovedFresh", fresh);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + "Deferred_VsmMovedFresh", fresh);
         if (::testing::Test::HasFatalFailure())
         {
             return;
@@ -1947,7 +1949,7 @@ namespace OloEngine::Tests
         Step(1);
         const u32 invalidations = CasterStats().VirtualShadowInvalidations;
         std::vector<u8> moved;
-        Capture("GroomSceneShadow_GL_Deferred_VsmMoved", moved);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + "Deferred_VsmMoved", moved);
         groomTransform.Translation = home;
         if (::testing::Test::HasFatalFailure())
         {
@@ -1998,7 +2000,7 @@ namespace OloEngine::Tests
     {
         // BEHIND AND ABOVE, towards the camera: the camera faces the body's
         // shadowed side, and the coat's own cast falls in front of the body.
-        RunBacklitBodyCase("sun", "GroomSceneShadow_GL_Forward_Backlit", ShadowMap::OpaqueCopy::Cascades,
+        RunBacklitBodyCase("sun", TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_Backlit", ShadowMap::OpaqueCopy::Cascades,
                            [this]
                            {
                                m_LightEntity.GetComponent<DirectionalLightComponent>().m_Direction =
@@ -2012,7 +2014,7 @@ namespace OloEngine::Tests
     // light and every darkened pixel is its shadow.
     TEST_F(GroomSceneShadowVisualEvidenceTest, TheBodyShadowsItsOwnFurUnderASpotLight)
     {
-        RunBacklitBodyCase("spot", "GroomSceneShadow_GL_Forward_SpotBacklit", ShadowMap::OpaqueCopy::Atlas,
+        RunBacklitBodyCase("spot", TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_SpotBacklit", ShadowMap::OpaqueCopy::Atlas,
                            [this]
                            {
                                GetScene().DestroyEntity(m_LightEntity);
@@ -2038,7 +2040,7 @@ namespace OloEngine::Tests
     TEST_F(GroomSceneShadowVisualEvidenceTest, OneCoatsFurShadowsAnotherCoatUnderTheSun)
     {
         const glm::vec3 travels = glm::normalize(glm::vec3(-0.45f, -0.78f, -0.44f));
-        RunCoatOverCoatCase("sun", "GroomSceneShadow_GL_Forward_CoatOverCoat", travels, ShadowMap::OpaqueCopy::Cascades,
+        RunCoatOverCoatCase("sun", TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_CoatOverCoat", travels, ShadowMap::OpaqueCopy::Cascades,
                             [this, travels]
                             { m_LightEntity.GetComponent<DirectionalLightComponent>().m_Direction = travels; });
     }
@@ -2046,7 +2048,7 @@ namespace OloEngine::Tests
     TEST_F(GroomSceneShadowVisualEvidenceTest, OneCoatsFurShadowsAnotherCoatUnderASpotLight)
     {
         const glm::vec3 travels = glm::normalize(glm::vec3(-0.45f, -0.78f, -0.44f));
-        RunCoatOverCoatCase("spot", "GroomSceneShadow_GL_Forward_SpotCoatOverCoat", travels, ShadowMap::OpaqueCopy::Atlas,
+        RunCoatOverCoatCase("spot", TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_SpotCoatOverCoat", travels, ShadowMap::OpaqueCopy::Atlas,
                             [this, travels]
                             {
                                 GetScene().DestroyEntity(m_LightEntity);
@@ -2070,7 +2072,7 @@ namespace OloEngine::Tests
     {
         // The old reach through the light's own normal bias: 7 cm.
         RunVsmNearOccluderCase(
-            "sun", "GroomSceneShadow_GL_Forward_VsmNearOccluder",
+            "sun", TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_VsmNearOccluder",
             [this]
             {
                 m_LightEntity.GetComponent<DirectionalLightComponent>().m_Direction =
@@ -2085,7 +2087,7 @@ namespace OloEngine::Tests
         // The old reach through the atlas's depth bias: a hundred texels of a
         // lamp 1.5 m away is about 7 cm. Process-wide, so put back on every exit.
         const f32 shipped = Renderer3D::GetShadowMap().GetSettings().AtlasDepthBiasTexels;
-        RunVsmNearOccluderCase("spot", "GroomSceneShadow_GL_Forward_SpotVsmNearOccluder", [this]
+        RunVsmNearOccluderCase("spot", TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_SpotVsmNearOccluder", [this]
                                { PlaceShortFurSpot({ 0.0f, 1.0f, 0.0f }); }, [shipped](bool old)
                                {
                                    auto& shadowMap = Renderer3D::GetShadowMap();
@@ -2154,7 +2156,7 @@ namespace OloEngine::Tests
         // THE STRIP, casting or not.
         u32 darkened = 0;
         u32 brightened = 0;
-        (void)StripShadow(strip, coatMask, "GroomSceneShadow_GL_Forward_ThinOccluder", darkened, brightened);
+        (void)StripShadow(strip, coatMask, TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_ThinOccluder", darkened, brightened);
         ASSERT_FALSE(HasFatalFailure());
 
         // THE ACNE CHECK, overhead and grazing: the slab casting or not.
@@ -2324,7 +2326,7 @@ namespace OloEngine::Tests
         { return SetVsm(false, true) && SetVsm(true, true); };
 
         std::vector<u8> home;
-        Capture("GroomSceneShadow_GL_Deferred_VsmPointHome", home);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + "Deferred_VsmPointHome", home);
         const u32 layerDraws = CasterStats().VirtualShadowLocalLayerDraws;
 
         auto& groomTransform = m_GroomEntity.GetComponent<TransformComponent>();
@@ -2336,13 +2338,13 @@ namespace OloEngine::Tests
         Levers::SetFaultSkipGroomVsmInvalidation(true);
         groomTransform.Translation = away;
         std::vector<u8> movedWithoutInvalidation;
-        Capture("GroomSceneShadow_GL_Deferred_VsmPointMovedNoInvalidation", movedWithoutInvalidation);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + "Deferred_VsmPointMovedNoInvalidation", movedWithoutInvalidation);
         Levers::SetFaultSkipGroomVsmInvalidation(false);
 
         // The reference: the coat at `away`, rendered from scratch.
         ASSERT_TRUE(restartVsm());
         std::vector<u8> fresh;
-        Capture("GroomSceneShadow_GL_Deferred_VsmPointMovedFresh", fresh);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + "Deferred_VsmPointMovedFresh", fresh);
 
         // The real move: warm the layers at home from scratch, move once.
         groomTransform.Translation = homePosition;
@@ -2352,7 +2354,7 @@ namespace OloEngine::Tests
         Step(1);
         const u32 invalidations = CasterStats().VirtualShadowInvalidations;
         std::vector<u8> moved;
-        Capture("GroomSceneShadow_GL_Deferred_VsmPointMoved", moved);
+        Capture(TestRenderBackend::EvidenceName("GroomSceneShadow") + "Deferred_VsmPointMoved", moved);
         groomTransform.Translation = homePosition;
         ASSERT_FALSE(HasFatalFailure());
 
@@ -2424,10 +2426,10 @@ namespace OloEngine::Tests
             ASSERT_FALSE(HasFatalFailure());
             Routing().m_ReceiveShadows = true;
             std::vector<u8> receiveOnly;
-            Capture(std::string("GroomSceneShadow_GL_Forward_") + arm.Name + "PointInsideReceiveOnly", receiveOnly);
+            Capture((TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_") + arm.Name + "PointInsideReceiveOnly", receiveOnly);
             Routing().m_CastShadows = true;
             std::vector<u8> routed;
-            Capture(std::string("GroomSceneShadow_GL_Forward_") + arm.Name + "PointInsideRouted", routed);
+            Capture((TestRenderBackend::EvidenceName("GroomSceneShadow") + "Forward_") + arm.Name + "PointInsideRouted", routed);
             ASSERT_FALSE(HasFatalFailure());
             const f64 receiveLuma = MeanLumaIn(receiveOnly, coatMask, true);
             const f64 routedLuma = MeanLumaIn(routed, coatMask, true);

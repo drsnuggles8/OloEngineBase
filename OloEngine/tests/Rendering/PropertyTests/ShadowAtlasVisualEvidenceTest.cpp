@@ -16,13 +16,15 @@
 //      shadowless before #435, so the same six darkenings there pin the new
 //      cluster-path atlas sampling.
 //
-// PNGs land in OloEditor/assets/tests/visual/ShadowAtlas_*.png.
+// PNGs land in OloEditor/assets/tests/visual/ShadowAtlas_<GL|Vulkan>_*.png (Vulkan from
+// the --olo-rhi=vulkan process, #1556).
 // =============================================================================
 
 #include "OloEnginePCH.h"
 
 #include "RenderPropertyTest.h"
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -245,7 +247,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No composited framebuffer for shadow-atlas capture '" << tag << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kW, kH, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kW, kH, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kW) * kH * 4u);
 
             const std::size_t rowBytes = static_cast<std::size_t>(kW) * 4u;
@@ -262,7 +264,7 @@ namespace OloEngine::Tests
             const fs::path dir = fs::path("assets") / "tests" / "visual";
             std::error_code ec;
             fs::create_directories(dir, ec);
-            const std::string path = (dir / ("ShadowAtlas_" + tag + ".png")).string();
+            const std::string path = (dir / (TestRenderBackend::EvidenceName("ShadowAtlas") + tag + ".png")).string();
             const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kW), static_cast<int>(kH),
                                                4, outPixels.data(), static_cast<int>(kW) * 4);
             ASSERT_NE(wrote, 0) << "stbi_write_png failed for '" << path << "'";
@@ -436,7 +438,7 @@ namespace OloEngine::Tests
             if (!fb)
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
             ASSERT_TRUE(fb) << "No composited framebuffer for '" << tag << "'";
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kW, kH, out);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kW, kH, out);
             ASSERT_EQ(out.size(), static_cast<std::size_t>(kW) * kH * 4u);
             const std::size_t rowBytes = static_cast<std::size_t>(kW) * 4u;
             std::vector<u8> tmp(rowBytes);
@@ -453,7 +455,7 @@ namespace OloEngine::Tests
                 const fs::path dir = fs::path("assets") / "tests" / "visual";
                 std::error_code ec;
                 fs::create_directories(dir, ec);
-                const std::string path = (dir / ("ShadowAtlasBias_" + tag + ".png")).string();
+                const std::string path = (dir / (TestRenderBackend::EvidenceName("ShadowAtlasBias") + tag + ".png")).string();
                 ASSERT_NE(::stbi_write_png(path.c_str(), static_cast<int>(kW), static_cast<int>(kH), 4, out.data(),
                                            static_cast<int>(kW) * 4),
                           0)
