@@ -1955,8 +1955,11 @@ namespace OloEngine::Tests
         // READS BACK the last frame the graph rendered into `out`: the entity ids,
         // the world point under each pixel through `viewProjection`, and (when
         // `luminance`) scene colour's linear luminance. Top row first. Advances
-        // nothing.
-        static void ReadbackLinear(const glm::mat4& viewProjection, LinearFrame& out, bool luminance = true)
+        // nothing. Without `world` the depth is not read and `out.World` stays
+        // empty: a caller that counts ids and luminance pays for neither the
+        // readback nor the unprojection of every pixel (#1630).
+        static void ReadbackLinear(const glm::mat4& viewProjection, LinearFrame& out, bool luminance = true,
+                                   bool world = true)
         {
             out = LinearFrame{};
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
@@ -1987,6 +1990,16 @@ namespace OloEngine::Tests
             std::vector<i32> ids(static_cast<sizet>(width) * height);
             ::glGetTextureImage(fb->GetColorAttachmentRendererID(1), 0, GL_RED_INTEGER, GL_INT,
                                 static_cast<GLsizei>(ids.size() * sizeof(i32)), ids.data());
+            if (!world)
+            {
+                out.Ids.resize(pixels);
+                for (u32 y = 0; y < activeHeight; ++y)
+                {
+                    std::copy_n(ids.data() + (static_cast<sizet>(y) * width), activeWidth,
+                                out.Ids.data() + (static_cast<sizet>(activeHeight - 1u - y) * activeWidth));
+                }
+                return;
+            }
             std::vector<f32> depth(static_cast<sizet>(width) * height);
             ::glGetTextureImage(fb->GetDepthAttachmentRendererID(), 0, GL_DEPTH_COMPONENT, GL_FLOAT,
                                 static_cast<GLsizei>(depth.size() * sizeof(f32)), depth.data());
@@ -4640,7 +4653,7 @@ namespace OloEngine::Tests
                 for (u32 k = 0; k < frames; ++k)
                 {
                     HoldRuntime(1);
-                    ReadbackLinear(RenderedViewProjection(), frame, true);
+                    ReadbackLinear(RenderedViewProjection(), frame, true, /*world=*/false);
                     if (HasFatalFailure())
                     {
                         return;
@@ -6369,7 +6382,7 @@ namespace OloEngine::Tests
             for (u32 k = 0; k < kFrames; ++k)
             {
                 HoldRuntime(1);
-                ReadbackLinear(RenderedViewProjection(), frame, true);
+                ReadbackLinear(RenderedViewProjection(), frame, true, /*world=*/false);
                 for (sizet p = 0; p < frame.Ids.size(); ++p)
                 {
                     if (frame.Ids[p] == coatId)
