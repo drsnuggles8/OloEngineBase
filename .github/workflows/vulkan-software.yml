@@ -109,17 +109,19 @@ env:
   # ADR 0010. Bump forward freely; never back.
   MESA_VERSION: '26.2.0'
   # The scene suite the --olo-rhi=vulkan step runs and its gate requires
-  # (#1556): the renderer-attached smoke cases, the cross-path matrix's native
-  # Vulkan arms (less the rows whose estimator a raster arm does not host:
-  # ReSTIR needs ray query, SSGI is Deferred-only), and the groom, shadow
-  # atlas, VSM, PCSS and shadow-family evidence. A case added to these suites
-  # joins the requirement automatically; a NEW suite must be added here.
-  # FOUR GroomSceneShadow cases are excluded on lavapipe ONLY (#1652): with the
-  # shadow region forked and split for the groom opaque copies, lavapipe 26.2.0
-  # renders their frames without scene shadows, with no validation error; they
-  # pass on hardware, and on lavapipe with any one of those three conditions
-  # removed. Delete the four exclusions when #1652 closes.
-  OLO_VK_SCENE_FILTER: 'EmptyScene.*:SceneWithCamera.*:SceneRenders3D.*:CrossPathMatrixArms.*:AllRowsAllArms/CrossPathLightingMatrix.*_vk_forward_native:AllRowsAllArms/CrossPathLightingMatrix.*_vk_forward_plus_native:AllRowsAllArms/CrossPathLightingMatrix.*_vk_deferred_native:GroomSceneShadowVisualEvidenceTest.*:ShadowAtlasVisualEvidenceTest.*:ShadowAtlasBiasEvidenceTest.*:VirtualShadowMapVisualEvidenceTest.*:VirtualShadowMapLocalVisualEvidenceTest.*:VirtualShadowMapLocalSingleLightTest.*:PCSSVisualEvidenceTest.*:ShadowFamilyVisualEvidence.*-*ReSTIR*:*SSGIBounce_vk_forward_native:*SSGIBounce_vk_forward_plus_native:GroomSceneShadowVisualEvidenceTest.ACoatCastsTheShareItsTexelsNeedAndASubsetNeverAddsShadow:GroomSceneShadowVisualEvidenceTest.TheBodyShadowsItsOwnFurAndTheFurStillNotItself:GroomSceneShadowVisualEvidenceTest.UnderTheVsmAnOccluderJustPastTheCoatShadowsItUnderASpotLight:GroomSceneShadowVisualEvidenceTest.AThinOccluderJustAboveShortFurShadowsItUnderACloseSpot'
+  # (#1556): the renderer-attached smoke cases (less the GL-state one, which
+  # skips on Vulkan by design), the cross-path matrix's native Vulkan arms (less
+  # the rows whose estimator a raster arm does not host: ReSTIR needs ray query,
+  # SSGI is Deferred-only), and the groom, shadow atlas, VSM and PCSS evidence.
+  # A case added to these suites joins the requirement automatically; a NEW
+  # suite must be added here. Ported but left to hardware for runtime: the
+  # shadow-family evidence (one terrain case ran past 20 min on lavapipe in a
+  # Debug build) and the dog showcase (hours on the RTX 4090).
+  # FOUR GroomSceneShadow cases are excluded (#1652): with the shadow region
+  # forked and split for the groom opaque copies they shade the fur with
+  # garbage, every time on lavapipe 26.2.0 and on a loaded hardware GPU, with
+  # no validation error. Delete the four exclusions when #1652 closes.
+  OLO_VK_SCENE_FILTER: 'EmptyScene.*:SceneWithCamera.*:SceneRenders3D.*:CrossPathMatrixArms.*:AllRowsAllArms/CrossPathLightingMatrix.*_vk_forward_native:AllRowsAllArms/CrossPathLightingMatrix.*_vk_forward_plus_native:AllRowsAllArms/CrossPathLightingMatrix.*_vk_deferred_native:GroomSceneShadowVisualEvidenceTest.*:ShadowAtlasVisualEvidenceTest.*:ShadowAtlasBiasEvidenceTest.*:VirtualShadowMapVisualEvidenceTest.*:VirtualShadowMapLocalVisualEvidenceTest.*:VirtualShadowMapLocalSingleLightTest.*:PCSSVisualEvidenceTest.*-SceneRenders3D.RenderLeavesNoGlobalGlStateBehind:*ReSTIR*:*SSGIBounce_vk_forward_native:*SSGIBounce_vk_forward_plus_native:GroomSceneShadowVisualEvidenceTest.ACoatCastsTheShareItsTexelsNeedAndASubsetNeverAddsShadow:GroomSceneShadowVisualEvidenceTest.TheBodyShadowsItsOwnFurAndTheFurStillNotItself:GroomSceneShadowVisualEvidenceTest.UnderTheVsmAnOccluderJustPastTheCoatShadowsItUnderASpotLight:GroomSceneShadowVisualEvidenceTest.AThinOccluderJustAboveShortFurShadowsItUnderACloseSpot'
 
 jobs:
   lavapipe:

@@ -306,13 +306,16 @@ Why two processes and not a parameterised fixture:
 - **Readback is backend-neutral.** `ReadbackComposite` and the handle overloads of `ReadbackRgba8`,
   `ReadbackRgbaFloat`, `ReadbackR32Int` and `ReadbackDepth32F` read through
   `RenderCommand::ReadTextureImage` and return GL row order on both backends. A test that reads a GL
-  name, or calls GL, is GL-only; in the Vulkan process it must `GTEST_SKIP()` with the reason.
+  name, or calls GL, is GL-only. A suite runs in the Vulkan process only once it overrides
+  `RunsInVulkanProcess()`; every other suite skips there with the reason, so an unported GL call
+  never runs without a context.
 - **Evidence names carry the backend.** `TestRenderBackend::EvidenceName("Feature")` gives
   `Feature_GL_` or `Feature_Vulkan_`, so the two processes never write each other's cells.
 
-What the Vulkan process covers today is what `vulkan-software.yml`'s `OLO_VK_SCENE_FILTER` names:
-the smoke cases, `CrossPathLightingMatrix`'s native Vulkan arms, and the groom, shadow atlas, VSM,
-PCSS and shadow-family evidence. A suite joins by porting its readback and names, passing on the
+The suites ported today: the smoke cases, `CrossPathLightingMatrix`, and the groom scene-shadow,
+shadow atlas, VSM, PCSS, shadow-family and dog showcase evidence. The lavapipe nightly runs the
+ones `vulkan-software.yml`'s `OLO_VK_SCENE_FILTER` names; shadow-family and the dog showcase are
+left to hardware for their software-rasteriser runtime. A suite joins by porting its readback and names, passing on the
 windowless context, and being added to that filter, whose gate then requires every case to execute.
 What stays live-only: anything the windowless target cannot show -- the swapchain present, the ImGui
 overlay, window-size and vsync behaviour -- and the one cell per task that compares a windowless

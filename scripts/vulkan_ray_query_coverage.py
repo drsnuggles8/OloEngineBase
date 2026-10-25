@@ -198,7 +198,7 @@ def main(argv=None):
         return 1
     if args.require and missing_execution:
         for entry in missing_execution:
-            print('::error::Required ray-query case did not execute: ' + entry)
+            print('::error::Required case did not execute: ' + entry)
         return 1
     return 0
 
