@@ -3781,7 +3781,7 @@ namespace OloEngine
         m_BackbufferWritten = false;
     }
 
-    bool VulkanRendererAPI::FinalizeBackbufferForPresent(const bool frameRendered)
+    bool VulkanRendererAPI::FinalizeBackbufferForPresent(const bool frameRendered, const RHI::Access after)
     {
         auto& ctx = Ctx();
         if (ctx.Cmd == VK_NULL_HANDLE || !m_Backbuffer.IsValid())
@@ -3820,7 +3820,7 @@ namespace OloEngine
         toPresent.Range.BaseLayer = 0u;
         toPresent.Range.LayerCount = 1u;
         toPresent.Before = RHI::Access::ColorAttachmentWrite;
-        toPresent.After = RHI::Access::Present;
+        toPresent.After = after;
         IssueBarrierBatch(MemoryBarrierFlags::None, std::span<const RHI::Barrier>{ &toPresent, 1 });
         return true;
     }

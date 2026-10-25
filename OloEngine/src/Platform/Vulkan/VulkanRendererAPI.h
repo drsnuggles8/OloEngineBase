@@ -265,7 +265,11 @@ namespace OloEngine
         /// content and has been transitioned to Present; false means nothing
         /// touched it and the caller's clear-only fallback is both safe and
         /// necessary.
-        [[nodiscard]] bool FinalizeBackbufferForPresent(bool frameRendered);
+        ///
+        /// `after` is the access the image ends the frame in: Present for a
+        /// swapchain image, TransferRead for the windowless context's target
+        /// (#1556), which is read back rather than presented.
+        [[nodiscard]] bool FinalizeBackbufferForPresent(bool frameRendered, RHI::Access after = RHI::Access::Present);
 
         // Observability for the execution test: how many packets/entry points
         // hit an unimplemented stub (nothing may fall through silently). Split by

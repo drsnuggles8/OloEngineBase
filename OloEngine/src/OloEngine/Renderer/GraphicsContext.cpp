@@ -39,4 +39,14 @@ namespace OloEngine
         OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
         return nullptr;
     }
+
+    Scope<GraphicsContext> GraphicsContext::CreateWindowless([[maybe_unused]] const u32 width,
+                                                             [[maybe_unused]] const u32 height)
+    {
+#if OLO_WITH_VULKAN
+        if (Renderer::GetAPI() == RendererAPI::API::Vulkan)
+            return CreateScope<VulkanContext>(VulkanContext::OffscreenTarget{ width, height });
+#endif
+        return nullptr;
+    }
 } // namespace OloEngine
