@@ -1530,14 +1530,14 @@ namespace OloEngine::Tests::StateMachine
         return result;
     }
 
-    bool RendererStateMachineFixture::TraceStillFails(const Trace& trace, const std::string& pairId)
+    bool RendererStateMachineFixture::TraceStillFails(const Trace& trace, const std::string& pairId, bool narrow)
     {
         RunOptions options;
         // The harness's own checks (the lever round trip, resolve failures,
         // capture) only fail when the pairs around them flip levers, so a
         // failure of one of them is replayed with every pair on.
         const bool harnessCheck = pairId.starts_with("harness.") || pairId == "resolve-failures";
-        options.OnlyPair = harnessCheck ? std::string{} : pairId;
+        options.OnlyPair = (harnessCheck || !narrow) ? std::string{} : pairId;
         const TraceResult result = RunTrace(trace, options);
         return std::ranges::any_of(result.Failures, [&pairId](const PairFailure& failure)
                                    { return failure.PairId == pairId; });
@@ -1561,11 +1561,18 @@ namespace OloEngine::Tests::StateMachine
         std::string minimisedReport = "  (minimisation off: --olo-state-machine-minimize-budget=0)\n";
         if (const u32 budget = Options().StateMachineMinimizeBudget; budget > 0u)
         {
-            const std::function<bool(const std::vector<Op>&)> fails = [this, &trace, &first](const std::vector<Op>& ops)
+            // Narrowed to the failing pair first, which is cheap. If that does
+            // not reproduce, the failure may need a pair that runs before it
+            // (#1516: seed 1349's batch-vs-nobatch failure did not recur alone,
+            // and alias-vs-noalias, which clears the transient pool, runs
+            // before it), so replay with every pair on before concluding the
+            // reset misses some state.
+            const bool narrow = TraceStillFails(trace, first.PairId, true);
+            const std::function<bool(const std::vector<Op>&)> fails = [this, &trace, &first, narrow](const std::vector<Op>& ops)
             {
                 Trace candidate = trace;
                 candidate.Ops = ops;
-                return TraceStillFails(candidate, first.PairId);
+                return TraceStillFails(candidate, first.PairId, narrow);
             };
             const MinimizeResult<Op> minimised = MinimizeTrace(trace.Ops, fails, budget);
             Trace reduced = trace;
@@ -1577,10 +1584,12 @@ namespace OloEngine::Tests::StateMachine
                     << Serialize(reduced);
             }
             minimisedReport = "Minimised to " + std::to_string(reduced.Ops.size()) + " op(s) in " +
-                              std::to_string(minimised.Evaluations) + " replay(s)" +
+                              std::to_string(minimised.Evaluations + 1u) + " replay(s)" +
+                              (narrow ? "" : " with every pair on (the failing pair alone did not reproduce it)") +
                               (minimised.InputDidNotFail
-                                   ? " -- but the trace did NOT fail again when replayed from the canonical reset, so the "
-                                     "failure depends on state the reset does not restore; replay it in a fresh process"
+                                   ? " -- but the trace did NOT fail again when replayed from the canonical reset, even "
+                                     "with every pair on, so the failure depends on state the reset does not restore; "
+                                     "replay it in a fresh process"
                                    : (minimised.OneMinimal ? ", 1-minimal" : ", budget exhausted before 1-minimal")) +
                               " (" + reducedPath.string() + "):\n" + Serialize(reduced);
         }
