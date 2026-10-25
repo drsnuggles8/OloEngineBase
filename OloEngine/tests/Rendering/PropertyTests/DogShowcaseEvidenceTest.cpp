@@ -2281,10 +2281,10 @@ namespace OloEngine::Tests
 
         struct BodyParts; // below, with the parts it names
 
-        // Four arms in ONE IDENTICAL STATE each: the clip replayed from its start
-        // with the solver reset (StartClip), paused at `frames`, the frame
-        // sequences reset and the history cold -- so the bake is the only thing
-        // that differs. POSE, POSE again (the noise), REST, and OFF (no
+        // Four arms in ONE IDENTICAL STATE: the clip replayed once from its start
+        // with the solver reset (StartClip) and paused at `frames`, then each arm
+        // with the frame sequences reset and the history cold -- so the bake is
+        // the only thing that differs. POSE, POSE again (the noise), REST, and OFF (no
         // self-shadow). Linear scene colour throughout. `where` is in the dog's
         // own frame and placed where the dog stands (DogRelative): the walk
         // carries it 0.31 m a second, and a camera left at the origin would
@@ -2317,8 +2317,19 @@ namespace OloEngine::Tests
             {
                 shadow.m_BakeAtRest = atRest;
                 shadow.m_Enabled = enabled;
-                (void)StartClip(clip, true, frames);
-                anim.m_IsPlaying = false;
+                // ONE REPLAY for the four arms. They differ only in what the
+                // shader does with the bake, and CaptureLinear renders
+                // editor-preview frames of a paused clip, which step neither
+                // the clip nor the guide solver (see "How each helper moves the
+                // scene"), so each arm reads the state the first one replayed.
+                // Replaying the clip from its start for every arm cost four
+                // times the frames for one state (#1630); the dog's world
+                // matrix is still compared across the arms below.
+                if (arms == 0u)
+                {
+                    (void)StartClip(clip, true, frames);
+                    anim.m_IsPlaying = false;
+                }
                 Renderer3D::ResetFrameSequences();
                 ColdHistory();
                 const glm::mat4 dogWorld = DogWorld();
