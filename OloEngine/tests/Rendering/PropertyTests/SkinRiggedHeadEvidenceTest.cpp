@@ -538,6 +538,21 @@ namespace OloEngine::Tests
     class SkinRiggedHeadCloseUp : public RendererAttachedTest
     {
       protected:
+        // OLO_HUMAN_HAIR_AUTHORING=1: render the head's full look-dev series --
+        // every pose, control and motion PNG the inspected cases can write
+        // (#1630). Without it each such case keeps every assertion and the
+        // frames those assertions read, and drops the frames only a person
+        // looks at.
+        [[nodiscard]] static bool FullLookDev()
+        {
+            static const bool s_Full = []
+            {
+                const char* flag = std::getenv("OLO_HUMAN_HAIR_AUTHORING");
+                return flag != nullptr && flag[0] != '\0' && flag[0] != '0';
+            }();
+            return s_Full;
+        }
+
         void BuildScene() override
         {
             if (!RenderPropertyFixture::IsGpuAvailable())
@@ -998,7 +1013,9 @@ namespace OloEngine::Tests
     // The close-up framings a person judges, with the coat, on every path:
     // front, three-quarter, profile under the studio rig, and the backlit ear.
     // The numbers only guard against an empty or blown frame; the PNGs are the
-    // evidence.
+    // evidence. By default the guards read the front framing on every path and
+    // the backlit rig on Forward; FullLookDev() renders all four framings on
+    // every path (#1630).
     TEST_F(SkinRiggedHeadCloseUp, CloseUpFramingsOnEveryPath)
     {
         OLO_ENSURE_GPU_OR_SKIP();
@@ -1007,7 +1024,16 @@ namespace OloEngine::Tests
         for (const RenderingPath path : kPaths)
         {
             const char* p = PathName(path);
-            for (const Pose& pose : { kFront, kThreeQuarter, kProfile, kBacklit })
+            std::vector<Pose> poses{ kFront };
+            if (FullLookDev())
+            {
+                poses.insert(poses.end(), { kThreeQuarter, kProfile, kBacklit });
+            }
+            else if (path == RenderingPath::Forward)
+            {
+                poses.push_back(kBacklit);
+            }
+            for (const Pose& pose : poses)
             {
                 SetRig(std::string_view(pose.Name) == kBacklit.Name ? Rig::Backlit : Rig::Studio);
                 Capture frame;
@@ -1156,13 +1182,9 @@ namespace OloEngine::Tests
     TEST_F(SkinRiggedHeadCloseUp, NativeHairAuthoringEvidenceOnEveryPath)
     {
         OLO_ENSURE_GPU_OR_SKIP();
-        static const bool s_Authoring = []
-        {
-            const char* flag = std::getenv("OLO_HUMAN_HAIR_AUTHORING");
-            return flag != nullptr && flag[0] != '\0' && flag[0] != '0';
-        }();
+        const bool authoring = FullLookDev();
         std::vector<Pose> poses{ kFront };
-        if (s_Authoring)
+        if (authoring)
         {
             poses.insert(poses.end(), { kThreeQuarter, kProfile, kCrown, kBacklit });
         }
@@ -1182,7 +1204,7 @@ namespace OloEngine::Tests
                 EXPECT_LT(all.MeanLuma, 0.9) << "blown evidence frame";
             }
             SetRig(Rig::Studio);
-            if (s_Authoring)
+            if (authoring)
             {
                 ShowHair(false);
                 Capture without;
@@ -1198,7 +1220,7 @@ namespace OloEngine::Tests
                 }
                 fibre.m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
             }
-            if (!s_Authoring && path != RenderingPath::Forward)
+            if (!authoring && path != RenderingPath::Forward)
             {
                 continue; // the motion below is the path-independent half
             }
@@ -1270,6 +1292,10 @@ namespace OloEngine::Tests
                 rest = frame;
             else if (t > 1.4f && t < 1.6f)
                 held = frame;
+            // The check reads the rest and the held turn; the swing back and the
+            // nod are PNGs a person looks at, rendered by FullLookDev() (#1630).
+            if (!FullLookDev() && t > 1.4f)
+                break;
         }
         Window face;
         ASSERT_TRUE(ProjectBox(kFront, glm::vec3(-0.08f, 0.22f, 0.0f), glm::vec3(0.08f, 0.40f, 0.14f), face));
