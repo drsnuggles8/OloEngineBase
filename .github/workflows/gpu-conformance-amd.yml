@@ -88,9 +88,9 @@ on:
         description: 'AMD_DEBUG for the test step (radeonsi diagnostics; filtered runs only, the output is large)'
         type: string
         default: ''
-  # THE SAME JOB FOR THE SHOWCASE SUITES, WEEKLY (#1630). DogShowcaseEvidenceTest
-  # and BreedShowcaseEvidenceTest need four to five hours on this GPU, against
-  # the nightly's 75-minute budget for the whole suite, so the nightly leaves
+  # THE SAME JOB FOR THE SHOWCASE SUITES, WEEKLY (#1630). DogShowcaseEvidenceTest,
+  # BreedShowcaseEvidenceTest and DogPlayEvidenceTest need four to five hours on
+  # this GPU, against the nightly's 75-minute budget for the whole suite, so the nightly leaves
   # them out (the default filter below) and gpu-conformance-amd-showcase.yml
   # runs them once a week through this workflow, with its own budget and its
   # own red-streak issue. Every default here is the nightly's.
@@ -666,10 +666,10 @@ jobs:
           # no exclusion -- it adds "-X" as a second NEGATIVE PATTERN, which
           # matches no test name, and NetworkIntegrationTest silently runs. Join
           # the existing negative list in that case instead of starting one.
-          # The nightly's default leaves out the two showcase suites, which the
+          # The nightly's default leaves out the dog showcase suites, which the
           # weekly gpu-conformance-amd-showcase.yml runs (#1630). A dispatch with
           # a filter of its own runs exactly that filter.
-          FILTER="${OLO_GTEST_FILTER:-*-DogShowcaseEvidenceTest.*:*BreedShowcaseEvidenceTest.*}"
+          FILTER="${OLO_GTEST_FILTER:-*-DogShowcaseEvidenceTest.*:*BreedShowcaseEvidenceTest.*:*DogPlayEvidenceTest.*}"
           case "$FILTER" in
             *-*) FILTER="$FILTER:NetworkIntegrationTest.*" ;;
             *) FILTER="$FILTER:-NetworkIntegrationTest.*" ;;
