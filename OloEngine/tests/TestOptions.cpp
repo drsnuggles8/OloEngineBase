@@ -44,6 +44,9 @@ namespace OloEngine::Tests
                 "                                 `auto` is the default and may also be given explicitly\n"
                 "  --olo-require-gpu              fail, rather than skip, a GPU-gated test when no GL 4.6\n"
                 "                                 context could be created (a GPU job's own guard)\n"
+                "  --olo-rhi=<opengl|vulkan>      the backend the scene suite runs on (default opengl); vulkan\n"
+                "                                 renders RendererAttachedTest on a windowless VulkanContext\n"
+                "                                 and refuses every GL-only test (#1556)\n"
                 "  --olo-vulkan-capability-report[=<path>] print (or write) the Vulkan capability report\n"
                 "                                 and exit; runs no tests (issue #1358)\n"
                 "  --olo-require-renderer-preset=<name> fail if a required support-matrix row is unsupported\n"
@@ -220,6 +223,15 @@ namespace OloEngine::Tests
             {
                 s_Options.RequireVulkan = true;
             }
+            else if (const auto v = ValueOf(arg, "--olo-rhi"))
+            {
+                if (*v == "opengl")
+                    s_Options.Rhi = TestRhi::OpenGL;
+                else if (*v == "vulkan")
+                    s_Options.Rhi = TestRhi::Vulkan;
+                else
+                    Fail("--olo-rhi must be one of opengl, vulkan", arg);
+            }
             else if (arg == "--olo-vulkan-capability-report")
             {
                 s_Options.VulkanCapabilityReport = true;
@@ -341,7 +353,7 @@ namespace OloEngine::Tests
                 s_Options.McpAttachSeconds = parsed;
             }
             else if (arg == "--olo-golden-vendor" || arg == "--olo-perf-machine" ||
-                     arg == "--olo-gl-backend" || arg == "--olo-video" ||
+                     arg == "--olo-gl-backend" || arg == "--olo-rhi" || arg == "--olo-video" ||
                      arg == "--olo-mcp-attach-seconds" || arg == "--olo-bake-shader-pack" ||
                      arg == "--olo-rss-ceiling-mb" || arg == "--olo-rss-ceiling-headroom-mb" ||
                      arg == "--olo-capture-manifest" || arg == "--olo-capture-out" ||
@@ -375,6 +387,17 @@ namespace OloEngine::Tests
         if (s_Options.RequireVulkan && s_Options.GlBackend == GlBackend::None)
         {
             Fail("--olo-require-vulkan contradicts --olo-gl-backend=none", "--olo-require-vulkan");
+        }
+
+        // A Vulkan process makes no GL context, so demanding one is a run that
+        // can only fail; and `none` refuses the Vulkan device this process is for.
+        if (s_Options.Rhi == TestRhi::Vulkan && s_Options.RequireGpu)
+        {
+            Fail("--olo-require-gpu contradicts --olo-rhi=vulkan (use --olo-require-vulkan)", "--olo-require-gpu");
+        }
+        if (s_Options.Rhi == TestRhi::Vulkan && s_Options.GlBackend == GlBackend::None)
+        {
+            Fail("--olo-rhi=vulkan contradicts --olo-gl-backend=none", "--olo-rhi");
         }
 
         if (s_Options.RendererNoRayQueries && s_Options.RequiredRendererPreset.empty())

@@ -13,6 +13,8 @@
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
 #include "GLErrorStateCheck.h"
+#include "TestRenderBackend.h"
+#include "../VulkanCoverageReport.h"
 
 #include <glad/gl.h>
 
@@ -38,8 +40,27 @@ namespace OloEngine::Tests
         //      the water-depth / planar-reflection texture publications in
         //      RenderPipeline::PrepareFrame), so a full-pipeline render is now
         //      expected to be error-clean — no benign-error carve-out remains.
+        //
+        // In the --olo-rhi=vulkan process (#1556) the same tick runs as one
+        // frame of the windowless VulkanContext instead -- a facade draw
+        // outside its frame bracket is dropped -- and the hygiene check is the
+        // Vulkan one: no validation error and no unimplemented-stub hit.
         void RunGuardedRenderTick(const char* label, const std::function<void()>& tick)
         {
+            if (TestRenderBackend::IsVulkanProcess())
+            {
+                const TestRenderBackend::FrameResult frame = TestRenderBackend::RunFrame(tick);
+                if (!frame.Ran)
+                    ADD_FAILURE() << label << ": the windowless Vulkan frame bracket did not run the tick";
+                if (frame.NewValidationErrors != 0u)
+                    ADD_FAILURE() << label << " render tick raised " << frame.NewValidationErrors
+                                  << " Vulkan validation error(s); OloEngine-Tests-<pid>.log has the VUIDs.";
+                if (frame.NewStubHits != 0u)
+                    ADD_FAILURE() << label << " render tick hit " << frame.NewStubHits
+                                  << " VulkanRendererAPI unimplemented stub(s); the log names each one.";
+                return;
+            }
+
             if (const u32 preErr = GLErrorState::DrainAndGetFirstError(); preErr != 0u)
                 ADD_FAILURE() << "GL error pending before " << label
                               << " render tick (setup/test-body leak, not this render): "
@@ -128,7 +149,31 @@ namespace OloEngine::Tests
 
     void RendererAttachedTest::SetUp()
     {
-        if (!RenderPropertyFixture::IsGpuAvailable())
+        if (TestRenderBackend::IsVulkanProcess())
+        {
+            // The --olo-rhi=vulkan process (#1556). Accounted like every
+            // device-gated Vulkan test, so --olo-require-vulkan fails a refusal
+            // and the coverage banner counts these cases. The context comes up
+            // once; every later test reads its cached verdict.
+            VulkanCoverage::MarkCurrentTestDeviceGated();
+            const TestRenderBackend::Admission& admission = TestRenderBackend::EnsureWindowlessContext();
+            if (!admission.Available)
+            {
+                VulkanCoverage::RecordGateRefusal(admission.Reason);
+                if (VulkanCoverage::Required())
+                {
+                    FAIL() << "--olo-require-vulkan: RendererAttachedTest could not bring up the windowless "
+                              "VulkanContext, and this run would otherwise skip every scene test and pass having "
+                              "verified nothing — "
+                           << admission.Reason;
+                }
+                GTEST_SKIP() << "RendererAttachedTest (--olo-rhi=vulkan): " << admission.Reason;
+            }
+            VulkanCoverage::RecordGateAdmission(admission.DeviceName);
+            if (!RenderPropertyFixture::ChangeToOloEditorDir())
+                FAIL() << "RendererAttachedTest: could not find OloEditor/ to run from";
+        }
+        else if (!RenderPropertyFixture::IsGpuAvailable())
         {
             // Same two outcomes as OLO_ENSURE_GPU_OR_SKIP, kept in step with it:
             // a plain skip, or a failure under --olo-require-gpu so a GPU job
@@ -319,13 +364,14 @@ namespace OloEngine::Tests
         outWidth = spec.Width;
         outHeight = spec.Height;
 
-        const u32 textureID = framebuffer->GetColorAttachmentRendererID(0);
-        if (textureID == 0 || outWidth == 0 || outHeight == 0)
+        // By RHI handle, so the read runs on either backend (#1556).
+        const RHI::ResourceHandle color = framebuffer->GetColorAttachmentHandle(0);
+        if (!color.IsValid() || outWidth == 0 || outHeight == 0)
         {
             return false;
         }
 
-        ReadbackRgba8(textureID, outWidth, outHeight, outRgba);
+        ReadbackRgba8(color, outWidth, outHeight, outRgba);
         return true;
     }
 } // namespace OloEngine::Tests

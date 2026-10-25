@@ -994,6 +994,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TerrainColourConstantsEvidenceTest.cpp
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
+		Rendering/PropertyTests/TestRenderBackend.cpp
 		Rendering/RendererMemoryTrackerTest.cpp
 		Rendering/RendererMemoryReportTest.cpp
 		Rendering/MaterialCopyTest.cpp

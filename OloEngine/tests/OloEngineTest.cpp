@@ -10,6 +10,7 @@
 #include "Rendering/PropertyTests/RendererStateCheck.h"
 #include "Rendering/CommandLifecycleCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
+#include "Rendering/PropertyTests/TestRenderBackend.h"
 #include "Rendering/VulkanCoverageReport.h"
 #if OLO_WITH_VULKAN
 #include "Platform/Vulkan/VulkanCapabilityReportText.h"
@@ -120,6 +121,10 @@ namespace
         OloEngine::Tests::StopMemoryCeilingWatchdog();
         OloEngine::Project::Unload();
         OloEngine::Renderer::Shutdown();
+        // The --olo-rhi=vulkan process's windowless context goes last: on
+        // Vulkan, Renderer::Shutdown leaves the device teardown and the final
+        // memory census to the context.
+        OloEngine::Tests::TestRenderBackend::Shutdown();
     }
 } // namespace
 
@@ -152,6 +157,11 @@ int main(int argc, char** argv)
     // is at its default. Also flushes any malformed-value warning the lazy seed
     // above deferred, now that the logger exists.
     OloEngine::Levers::LogActive();
+
+    // `--olo-rhi=vulkan` (#1556): pick the process's backend before any test
+    // touches the facade, as the Application constructor does before its window.
+    if (!OloEngine::Tests::TestRenderBackend::SelectFromOptions())
+        return 2;
 
     // `--olo-vulkan-capability-report` is a TOOL RUN (issue #1358): print the
     // Vulkan capability report and leave, before any test, GL context or

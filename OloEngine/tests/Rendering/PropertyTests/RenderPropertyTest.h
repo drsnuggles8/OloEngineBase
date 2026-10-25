@@ -29,6 +29,7 @@
 #include "OloEnginePCH.h"
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <gtest/gtest.h>
 
@@ -67,6 +68,11 @@ namespace OloEngine::Tests
         // than skip. Read here rather than at each site so the two cannot
         // disagree.
         static bool GpuRequired();
+
+        // Make OloEditor/ the working directory (assets and shaders resolve
+        // against it). The GL gate does this on its first call; the Vulkan
+        // process (--olo-rhi=vulkan) calls it before its own bring-up.
+        static bool ChangeToOloEditorDir();
 
         // Convenience: calls GTEST_SKIP() with a helpful message if no GPU --
         // or FAIL() under --olo-require-gpu, for a job that exists to run the
@@ -124,6 +130,14 @@ namespace OloEngine::Tests
     // Reads the full contents of an RGBA16F or RGBA32F texture as floats.
     // Sized to width * height * 4 floats (GL converts 16F → 32F internally).
     void ReadbackRgbaFloat(u32 textureId, u32 width, u32 height, std::vector<f32>& out);
+
+    // The same two reads by RHI handle, through RenderCommand::ReadTextureImage,
+    // so they run on either backend (#1556): pass a framebuffer's
+    // GetColorAttachmentHandle(i), never its GL name. Rows come back in GL
+    // order on both (a render target is top-down on Vulkan and is flipped). A
+    // refused read zeroes `out` and fails the running test.
+    void ReadbackRgba8(RHI::ResourceHandle texture, u32 width, u32 height, std::vector<u8>& out);
+    void ReadbackRgbaFloat(RHI::ResourceHandle texture, u32 width, u32 height, std::vector<f32>& out);
 
     // Basic statistics for validation. Tuples are per-channel.
     struct FloatStats

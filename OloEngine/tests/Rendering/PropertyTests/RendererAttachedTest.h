@@ -53,6 +53,20 @@
 // ------------------------------
 //   Every test using this fixture must begin with `OLO_ENSURE_GPU_OR_SKIP()`.
 //   On CI without a usable GL 4.6 context the test is SKIP'd (not failed).
+//
+// The Vulkan process (#1556)
+// --------------------------
+//   `OloEngine-Tests --olo-rhi=vulkan` runs this same fixture on Vulkan: the
+//   process selects the RHI before any test, and SetUp brings the renderer up
+//   on a windowless VulkanContext (TestRenderBackend.h) instead of the GL 4.6
+//   context. Each RunFrames / RunEditorFrames tick is one frame of that
+//   context's frame bracket, and fails on a Vulkan validation error or an
+//   unimplemented-stub hit the way the GL tick fails on a GL error.
+//   `ReadbackComposite` reads by RHI handle, so it works on both. A test that
+//   reads back with a GL name, or issues GL calls, is GL-only: it must
+//   `GTEST_SKIP()` in the Vulkan process with the reason, never pass silently.
+//   The Vulkan gate is the device gate: `--olo-require-vulkan` turns its
+//   refusal into a failure.
 // =============================================================================
 
 #include "OloEnginePCH.h"

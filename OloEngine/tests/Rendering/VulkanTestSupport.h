@@ -71,7 +71,11 @@ namespace OloEngine::Tests
     // while entering the full VulkanDevice/VulkanContext bring-up there can SEH-
     // fault before an exception can be reported. Restore volk's loader-scoped
     // entry points after the instance probe so the real bring-up starts cleanly.
-    [[nodiscard]] inline VulkanDeviceTestGateResult ProbeVulkanDeviceTestGate()
+    //
+    // The volkFinalize in that restore also drops a LIVE device's entry points,
+    // so this may run only while no VulkanDevice exists: the --olo-rhi=vulkan
+    // process (#1556) calls it once, before its windowless context comes up.
+    [[nodiscard]] inline VulkanDeviceTestGateResult ProbeVulkanDeviceAvailability()
     {
         // `--olo-gl-backend=none` is the suite's "this run tests no GPU"
         // contract (#1015): the sanitizer jobs pass it on the self-hosted box so
@@ -136,6 +140,20 @@ namespace OloEngine::Tests
 
         return finishProbe(false,
                            "No device satisfies the ADR 0010 capability contract here — the gate would refuse --rhi=vulkan.");
+    }
+
+    // The gate for the device-level suites, which each build their own
+    // VulkanDevice and swap the RenderCommand facade for one test. In the
+    // --olo-rhi=vulkan process the process-wide windowless VulkanContext owns
+    // the device and the facade, so those suites refuse there (and FAIL under
+    // --olo-require-vulkan: a filter that selects them in that process is
+    // wrong). They run in the OpenGL process, as before.
+    [[nodiscard]] inline VulkanDeviceTestGateResult ProbeVulkanDeviceTestGate()
+    {
+        if (OloEngine::Tests::Options().Rhi == OloEngine::Tests::TestRhi::Vulkan)
+            return { false, "This process runs --olo-rhi=vulkan: its windowless VulkanContext owns the device, and a "
+                            "device-level Vulkan suite builds its own. Run it in the OpenGL process." };
+        return ProbeVulkanDeviceAvailability();
     }
 
     // The one gate every device-backed Vulkan test goes through (issue #1300).
