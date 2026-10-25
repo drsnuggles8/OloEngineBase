@@ -13,7 +13,8 @@
 // (BoneAttachmentComponent), shaded through SkinOcularSurface; the nose, lips,
 // gums and tongue take their skin profiles through MaterialOverridesComponent.
 //
-// Evidence PNGs: OloEditor/assets/tests/visual/DogShowcase*_GL_<Path>[_*].png.
+// Evidence PNGs: OloEditor/assets/tests/visual/DogShowcase*_<GL|Vulkan>_<Path>[_*].png (Vulkan from
+// the --olo-rhi=vulkan process, #1556).
 // GL only; the Vulkan cells are live captures (docs/guides/groom-animals.md).
 //
 // "Pixar-level cute" is the user's call, not a metric's (#1533 F3). What a frame
@@ -35,6 +36,7 @@
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 #include "ScopedWarningCapture.h"
 #include "TestTempDir.h"
 
@@ -1840,7 +1842,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
             }
             ASSERT_TRUE(fb);
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, out);
             ASSERT_EQ(out.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
             const sizet rowBytes = static_cast<sizet>(kWidth) * 4u;
             std::vector<u8> tmp(rowBytes);
@@ -1971,7 +1973,7 @@ namespace OloEngine::Tests
             if (luminance)
             {
                 std::vector<f32> colour(static_cast<sizet>(width) * height * 4u);
-                ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), width, height, colour);
+                ReadbackRgbaFloat(fb->GetColorAttachmentHandle(0), width, height, colour);
                 out.Luminance.resize(pixels);
                 for (u32 y = 0; y < activeHeight; ++y)
                 {
@@ -1984,12 +1986,11 @@ namespace OloEngine::Tests
                     }
                 }
             }
+            // By RHI handle, so the oracle runs in both processes (#1556).
             std::vector<i32> ids(static_cast<sizet>(width) * height);
-            ::glGetTextureImage(fb->GetColorAttachmentRendererID(1), 0, GL_RED_INTEGER, GL_INT,
-                                static_cast<GLsizei>(ids.size() * sizeof(i32)), ids.data());
+            ReadbackR32Int(fb->GetColorAttachmentHandle(1), width, height, ids);
             std::vector<f32> depth(static_cast<sizet>(width) * height);
-            ::glGetTextureImage(fb->GetDepthAttachmentRendererID(), 0, GL_DEPTH_COMPONENT, GL_FLOAT,
-                                static_cast<GLsizei>(depth.size() * sizeof(f32)), depth.data());
+            ReadbackDepth32F(fb->GetDepthAttachmentHandle(), width, height, depth);
             const glm::mat4 inverseViewProjection = glm::inverse(viewProjection);
             out.Ids.assign(pixels, -1);
             out.World.assign(pixels, glm::vec3(std::numeric_limits<f32>::quiet_NaN()));
@@ -5131,7 +5132,7 @@ namespace OloEngine::Tests
             EXPECT_EQ(motion.MinGroomsDeformed, 1u) << "the coat must follow the body";
             EXPECT_EQ(motion.MaxBindingRefused, 0u) << "the cooked binding must attach to the dog's own mesh";
             const FrameParts covered =
-                MeasureAttachment(parts, view, coat, 6, nullptr, BreedPrefix() + "Parts_GL_Forward_" + view.Name);
+                MeasureAttachment(parts, view, coat, 6, nullptr, BreedPrefix() + (std::string("Parts_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_") + view.Name);
             ASSERT_FALSE(HasFatalFailure());
             f64 coatPx = 0.0;
             f64 skinPx = 0.0;
@@ -5141,8 +5142,8 @@ namespace OloEngine::Tests
                 skinPx += part.Skin;
             }
             std::vector<u8> on;
-            const u32 visible = CoatVisibleChange(view, BreedPrefix() + "Showcase_GL_Forward_" + view.Name,
-                                                  BreedPrefix() + "ShowcaseBald_GL_Forward_" + view.Name, &on);
+            const u32 visible = CoatVisibleChange(view, BreedPrefix() + (std::string("Showcase_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_") + view.Name,
+                                                  BreedPrefix() + (std::string("ShowcaseBald_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_") + view.Name, &on);
             ASSERT_FALSE(HasFatalFailure());
             const f64 coverage = coatPx + skinPx > 0.0 ? coatPx / (coatPx + skinPx) : 0.0;
             std::printf("[dog] %s: the coat covers %.3f of the furred skin in view (%.0f coat px; %.0f without a depth, %.0f "
@@ -5162,7 +5163,7 @@ namespace OloEngine::Tests
             EXPECT_GT(Fraction(visible), 0.03) << view.Name << ": the coat must visibly change the dog";
             frames.push_back(std::move(on));
         }
-        WriteStrip(BreedPrefix() + "ShowcaseHero_GL_Forward", frames, 3u);
+        WriteStrip(BreedPrefix() + (std::string("ShowcaseHero_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward"), frames, 3u);
     }
     TEST_F(DogShowcaseEvidenceTest, TheDogIsFurredFromEveryHeroAngle)
     {
@@ -5458,7 +5459,7 @@ namespace OloEngine::Tests
                 std::fflush(stdout);
                 if (std::string_view(view.Name) == views[0].Name)
                 {
-                    WriteSequenceStrip(BreedPrefix() + "Shimmer_GL_Forward_" + clip, resolved, raw);
+                    WriteSequenceStrip(BreedPrefix() + (std::string("Shimmer_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_") + clip, resolved, raw);
                 }
             }
         }
@@ -6193,10 +6194,9 @@ namespace OloEngine::Tests
                 const u32 activeWidth = std::min(fb->GetActiveViewportWidth(), width);
                 const u32 activeHeight = std::min(fb->GetActiveViewportHeight(), height);
                 ids.resize(static_cast<sizet>(width) * height);
-                ::glGetTextureImage(fb->GetColorAttachmentRendererID(1), 0, GL_RED_INTEGER, GL_INT,
-                                    static_cast<GLsizei>(ids.size() * sizeof(i32)), ids.data());
+                ReadbackR32Int(fb->GetColorAttachmentHandle(1), width, height, ids);
                 colour.resize(static_cast<sizet>(width) * height * 4u);
-                ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), width, height, colour);
+                ReadbackRgbaFloat(fb->GetColorAttachmentHandle(0), width, height, colour);
                 for (u32 y = 0; y < activeHeight; ++y)
                 {
                     for (u32 x = 0; x < activeWidth; ++x)
@@ -6544,7 +6544,7 @@ namespace OloEngine::Tests
             ADD_FAILURE() << "INSUFFICIENT EVIDENCE: " << undecided;
         }
         EXPECT_FALSE(verdict.Transitions.empty()) << "the ladder never changed over 0.6-15 m: the dolly tests nothing";
-        WriteDollyStrip("DogLodDolly_GL_Forward_Out", ladder, reference);
+        WriteDollyStrip((std::string("DogLodDolly_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_Out"), ladder, reference);
 
         // The negative control: no width compensation.
         const Dolly thinned = record(out, true, 1.0f);
@@ -6675,7 +6675,7 @@ namespace OloEngine::Tests
         {
             std::printf("[dog] dolly EXTENDED, undecided at this resolution: %s\n", undecided.c_str());
         }
-        WriteDollyStrip("DogLodDolly_GL_Forward_Extended", farLadders.front(), farReferences.front());
+        WriteDollyStrip((std::string("DogLodDolly_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_Extended"), farLadders.front(), farReferences.front());
     }
 
     // =========================================================================
@@ -6697,6 +6697,8 @@ namespace OloEngine::Tests
         {
             GTEST_SKIP() << "set OLO_DOG_FOOTAGE=<directory> to write the review footage";
         }
+        if (TestRenderBackend::IsVulkanProcess())
+            GTEST_SKIP() << "the footage stamps the GL renderer string; record it in the OpenGL process";
         const fs::path root(target);
         std::error_code ec;
         fs::create_directories(root, ec);
@@ -6895,6 +6897,9 @@ namespace OloEngine::Tests
         {
             GTEST_SKIP() << "set OLO_DOG_COST=1 to measure (OLO_DOG_COST_EXPORT=1 also rewrites Dog_Cost.txt)";
         }
+        if (TestRenderBackend::IsVulkanProcess())
+            GTEST_SKIP() << "Dog_Cost.txt is keyed on the GL renderer string and GL timer queries; measure it in the "
+                            "OpenGL process";
         // The editor's task workers (Application starts them; the test binary
         // does not): without them every ParallelFor on the coat's path runs on
         // this thread, and the record is not the cost the editor pays. The
@@ -7597,7 +7602,7 @@ namespace OloEngine::Tests
         {
             view = Scaled(view);
         }
-        const std::string lookDev = BreedPrefix() + "LookDev_GL_Forward";
+        const std::string lookDev = BreedPrefix() + (std::string("LookDev_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward");
         // OLO_DOG_LOOKDEV_ONLY=wag skips the stills for the wag flip-book alone.
         const bool wagOnly = []
         { const char* v = std::getenv("OLO_DOG_LOOKDEV_ONLY"); return v != nullptr && std::string(v) == "wag"; }();
@@ -7779,7 +7784,7 @@ namespace OloEngine::Tests
         (void)StartClip("Idle", true, 40);
         const View view = HeroViews()[0];
         std::vector<u8> lit;
-        CaptureHeld("DogShowcaseLook_GL_Forward_All", view, lit);
+        CaptureHeld((std::string("DogShowcaseLook_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_All"), view, lit);
         ASSERT_FALSE(HasFatalFailure());
 
         std::vector<u8> repeat;
@@ -7811,7 +7816,7 @@ namespace OloEngine::Tests
             SCOPED_TRACE(arm.Name);
             arm.Set(false);
             std::vector<u8> off;
-            CaptureHeld(std::string("DogShowcaseLook_GL_Forward_") + arm.Name, view, off);
+            CaptureHeld(std::string((std::string("DogShowcaseLook_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_")) + arm.Name, view, off);
             arm.Set(true);
             ASSERT_FALSE(HasFatalFailure());
             const u32 changed = CountDiffering(lit, off);
@@ -7883,12 +7888,12 @@ namespace OloEngine::Tests
             // the bald arm LAST, because hiding the coat ends a run.
             (void)StartClip("Idle", true, 40);
             std::vector<u8> fixed;
-            CaptureHeld(std::string("DogBodyShadow_GL_Forward_") + view.Name, view, fixed);
+            CaptureHeld(std::string((std::string("DogBodyShadow_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_")) + view.Name, view, fixed);
             std::vector<u8> repeat;
             CaptureHeld("", view, repeat);
             Levers::SetFaultGroomShadowAtCoatExit(true);
             std::vector<u8> atExit;
-            CaptureHeld(std::string("DogBodyShadow_GL_Forward_") + view.Name + "AtCoatExit", view, atExit);
+            CaptureHeld(std::string((std::string("DogBodyShadow_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_")) + view.Name + "AtCoatExit", view, atExit);
             Levers::SetFaultGroomShadowAtCoatExit(false);
             std::vector<u8> bald;
             m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
@@ -7954,11 +7959,11 @@ namespace OloEngine::Tests
             sun.m_CastShadows = false;
             (void)StartClip("Idle", true, 40);
             std::vector<u8> rimOpen;
-            CaptureHeld("DogBodyShadow_GL_Forward_RimUnshadowed", face, rimOpen);
+            CaptureHeld((std::string("DogBodyShadow_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_RimUnshadowed"), face, rimOpen);
             rim.m_CastShadows = true;
             rim.m_MaxShadowDistance = sun.m_MaxShadowDistance;
             std::vector<u8> rimShadowed;
-            CaptureHeld("DogBodyShadow_GL_Forward_RimShadowed", face, rimShadowed);
+            CaptureHeld((std::string("DogBodyShadow_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_RimShadowed"), face, rimShadowed);
             rim.m_CastShadows = false;
             rim.m_MaxShadowDistance = rimRange;
             std::vector<u8> bald;
@@ -8240,7 +8245,7 @@ namespace OloEngine::Tests
                         }
                     }
                 }
-                WritePng(std::string("DogLighting_GL_Forward_") + view.Name + "RimArms", strip, w * 4u, h);
+                WritePng(std::string((std::string("DogLighting_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_")) + view.Name + "RimArms", strip, w * 4u, h);
             }
             lights(shippedSun.m_Intensity, true, 0.0f, false, 0.0f);
             ASSERT_TRUE(setVsm(true)) << "the VSM did not come up";
@@ -8364,8 +8369,8 @@ namespace OloEngine::Tests
                 skyMap[(i * 4u) + 1u] = 0u;
                 skyMap[(i * 4u) + 2u] = static_cast<u8>(255.0 * visible);
             }
-            WritePng(std::string("DogLighting_GL_Forward_") + view.Name + "RimLeak", leakMap, key.Width, key.Height);
-            WritePng(std::string("DogLighting_GL_Forward_") + view.Name + "SkyVisibility", skyMap, key.Width, key.Height);
+            WritePng(std::string((std::string("DogLighting_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_")) + view.Name + "RimLeak", leakMap, key.Width, key.Height);
+            WritePng(std::string((std::string("DogLighting_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_")) + view.Name + "SkyVisibility", skyMap, key.Width, key.Height);
 
             const Sums& all = sums[kAll];
             char row[512];
@@ -8482,7 +8487,7 @@ namespace OloEngine::Tests
         for (const View& view : { heroes[2], heroes[5], heroes[1] })
         {
             SCOPED_TRACE(view.Name);
-            const std::string stem = std::string("DogCasterSubset_GL_Forward_") + view.Name;
+            const std::string stem = std::string((std::string("DogCasterSubset_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_")) + view.Name;
             std::vector<u8> bald;
             m_Dog.Coat.GetComponent<GroomComponent>().m_RenderStrands = false;
             ColdHistory();
@@ -8680,7 +8685,7 @@ namespace OloEngine::Tests
     {
         SetPath(RenderingPath::Forward);
         BodyParts parts = BuildBodyParts();
-        const BakeComparison c = CompareRestBake("Idle", 120, HeroViews()[2], "DogShowcaseCoatBake_GL_Forward_", true,
+        const BakeComparison c = CompareRestBake("Idle", 120, HeroViews()[2], (std::string("DogShowcaseCoatBake_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_"), true,
                                                  &parts); // the face close-up
         ASSERT_FALSE(HasFatalFailure());
         m_Dog.Body.GetComponent<AnimationStateComponent>().m_IsPlaying = true;
@@ -8744,7 +8749,7 @@ namespace OloEngine::Tests
                 const u32 frames = c.Frames + (20u * instant);
                 const BakeComparison comparison =
                     CompareRestBake(c.Clip, frames, c.Where,
-                                    instant == 0u ? std::string("DogCoatBakeLimits_GL_Forward_") + c.Name : std::string(),
+                                    instant == 0u ? std::string((std::string("DogCoatBakeLimits_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_")) + c.Name : std::string(),
                                     false, &parts);
                 ASSERT_FALSE(HasFatalFailure());
                 ReportRestBake(c.Name, frames, comparison);
@@ -8864,8 +8869,8 @@ namespace OloEngine::Tests
                 {
                     ADD_FAILURE() << failure;
                 }
-                WriteStrip(std::string("DogShowcaseClip_GL_Forward_") + clip.Name + "_" + view.Name, frames, 3u);
-                WriteStrip(std::string("DogParts_GL_Forward_") + clip.Name + "_" + view.Name, maps, 3u);
+                WriteStrip(std::string((std::string("DogShowcaseClip_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_")) + clip.Name + "_" + view.Name, frames, 3u);
+                WriteStrip(std::string((std::string("DogParts_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_")) + clip.Name + "_" + view.Name, maps, 3u);
             }
         }
     }
@@ -9356,7 +9361,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(motion.Last.GroomsDrawn, 1u);
         EXPECT_EQ(motion.MinGroomsDeformed, 1u) << "the packed binding attaches to the live body";
         EXPECT_EQ(motion.MaxBindingRefused, 0u);
-        const u32 drawnPacked = CoatVisibleChange(HeroViews()[0], "DogShowcasePacked_GL_Forward_FrontThreeQuarter", "");
+        const u32 drawnPacked = CoatVisibleChange(HeroViews()[0], (std::string("DogShowcasePacked_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_FrontThreeQuarter"), "");
         ASSERT_FALSE(HasFatalFailure());
         std::printf("[dog] packed: groom %zu bytes, binding %zu bytes; the coat changes %u px (the fixture's own pair %u px)\n",
                     groomSize, bindingSize, drawnPacked, drawnBefore);
@@ -9569,7 +9574,7 @@ namespace OloEngine::Tests
         EXPECT_GT(eyePixels[3], eyePixels[2]) << "no intermediate closure on the way up";
         EXPECT_GT(eyePixels[4], 0.8 * eyePixels[0]) << "the eye does not reopen";
         EXPECT_GT(catchLight, 3.0) << "the open eye carries no catch-light";
-        WriteStrip("DogBlink_GL_Forward", frames, 5u);
+        WriteStrip((std::string("DogBlink_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward"), frames, 5u);
 
         // The head tilt's brow: the brow bone's travel against the head, and the
         // face at the clip's furthest.
@@ -9600,7 +9605,7 @@ namespace OloEngine::Tests
         EXPECT_GT(browTravel, 0.002f) << "the head tilt raises no brow";
         (void)StartClip("HeadTilt", false, browFrame);
         std::vector<u8> tilt;
-        CaptureHeld("DogHeadTiltBrow_GL_Forward", { "FaceFront", { 0.0f, 0.60f, 1.05f }, { 0.0f, 0.57f, 0.42f }, 30.0f }, tilt);
+        CaptureHeld((std::string("DogHeadTiltBrow_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward"), { "FaceFront", { 0.0f, 0.60f, 1.05f }, { 0.0f, 0.57f, 0.42f }, 30.0f }, tilt);
     }
 
     // =========================================================================
@@ -9663,7 +9668,7 @@ namespace OloEngine::Tests
         ASSERT_FALSE(HasFatalFailure());
         std::vector<u8> noseLdr;
         ReadbackFrame(noseLdr);
-        WritePng("DogNoseClose_GL_Forward", noseLdr, kWidth, kHeight);
+        WritePng((std::string("DogNoseClose_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward"), noseLdr, kWidth, kHeight);
         std::vector<f32> leather;
         (void)materialPixels(noseFrame, "DogNose", &leather);
         std::vector<f32> fur;
@@ -9726,7 +9731,7 @@ namespace OloEngine::Tests
         ASSERT_FALSE(HasFatalFailure());
         std::vector<u8> mouthLdr;
         ReadbackFrame(mouthLdr);
-        WritePng("DogPantMouth_GL_Forward", mouthLdr, kWidth, kHeight);
+        WritePng((std::string("DogPantMouth_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward"), mouthLdr, kWidth, kHeight);
         const u32 tongue = materialPixels(mouthFrame, "DogTongue", nullptr);
         const u32 gums = materialPixels(mouthFrame, "DogGum", nullptr);
         const u32 lips = materialPixels(mouthFrame, "DogLip", nullptr);
@@ -10155,7 +10160,7 @@ namespace OloEngine::Tests
             // ring there (PostProcess_TAA.glsl's step 5).
             u32 DarkestBesideAFirefly = 255;
         };
-        const auto measure = [&](const char* png)
+        const auto measure = [&](const std::string& png)
         {
             Peaks peaks;
             LinearFrame frame;
@@ -10214,7 +10219,7 @@ namespace OloEngine::Tests
             return peaks;
         };
 
-        const Peaks shipped = measure("DogWetGlints_GL_Forward_Filtered");
+        const Peaks shipped = measure((std::string("DogWetGlints_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_Filtered"));
 
         // THE CONTROL: every dog profile's strength at 0, then back.
         std::vector<std::pair<Ref<SkinProfile>, SkinProfileParameters>> authored;
@@ -10227,7 +10232,7 @@ namespace OloEngine::Tests
             unfiltered.Specular.NormalVarianceStrength = 0.0f;
             (void)profile->SetParameters(unfiltered);
         }
-        const Peaks control = measure("DogWetGlints_GL_Forward_Unfiltered");
+        const Peaks control = measure((std::string("DogWetGlints_") + TestRenderBackend::EvidenceBackendPrefix() + "Forward_Unfiltered"));
         for (auto& [profile, parameters] : authored)
         {
             (void)profile->SetParameters(parameters);
