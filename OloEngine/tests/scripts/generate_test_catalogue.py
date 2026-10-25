@@ -26,6 +26,10 @@
 #               // OLO_TEST_LAYER marker nor a file_layer_map entry. Used by
 #               pre-commit / CI. The rendered tables are git-ignored, so there
 #               is nothing to diff — only the classification gate is enforced.
+#   --durations <gtest.xml>
+#               Print each case's wall time beside its layer and the layer's
+#               per-case budget (case_budget_s), slowest first (#1630). The AMD
+#               nightly runs it on its report.
 #
 # This is the registration mechanism that replaces manual doc edits: every test
 # file (any .cpp declaring >=1 TEST macro) must be in file_layer_map — there are
@@ -439,6 +443,61 @@ def build_unit_block(cfg):
     return "\n".join(lines)
 
 
+def suite_layers(effective):
+    """{suite: layer} for every suite a classified file registers."""
+    layers = {}
+    for rel, layer in effective.items():
+        for suite, _ in extract_tests(REPO_ROOT / rel):
+            layers.setdefault(suite, layer)
+    return layers
+
+
+def read_durations(xml_path):
+    """[(classname parts, full case name, seconds)] from a gtest XML report. A
+    parameterised case's classname is `Instance/Suite` and a typed one's
+    `Suite/Type`, so the suite is one of the slash-separated parts."""
+    import xml.etree.ElementTree as ET
+
+    cases = []
+    for case in ET.parse(xml_path).getroot().iter("testcase"):
+        classname = case.get("classname", "")
+        try:
+            seconds = float(case.get("time", "0"))
+        except ValueError:
+            continue
+        cases.append((classname.split("/"), f"{classname}.{case.get('name', '')}", seconds))
+    return cases
+
+
+def report_durations(cfg, effective, xml_path, github, top):
+    """Print each case's wall time beside its layer and the layer's budget
+    (#1630), slowest first: every case over budget, then the `top` slowest of
+    the rest. A case that outgrows its layer is visible the night it lands, not
+    six hours into a local sweep. Returns the number of cases over budget."""
+    budgets = cfg.get("case_budget_s", {})
+    default = budgets.get("default")
+    layers = suite_layers(effective)
+    rows = []
+    for parts, name, seconds in read_durations(xml_path):
+        layer = next((layers[p] for p in parts if p in layers), "?")
+        budget = budgets.get(layer, default)
+        rows.append((seconds, layer, budget, name))
+    rows.sort(reverse=True)
+    over = [r for r in rows if r[2] is not None and r[0] > r[2]]
+    shown = over + [r for r in rows if r not in over][:top]
+    total = sum(r[0] for r in rows)
+    print(f"{len(rows)} cases, {total / 60.0:.1f} min; {len(over)} over their layer's budget "
+          f"(case_budget_s in {CATALOGUE_PATH.name}).")
+    for seconds, layer, budget, name in shown:
+        mark = "OVER" if (budget is not None and seconds > budget) else "    "
+        limit = f"{budget:>5.0f} s" if budget is not None else "    - "
+        print(f"  {seconds:8.1f} s  {layer:<11} budget {limit}  {mark}  {name}")
+        if github and mark == "OVER":
+            print(f"::warning title=Test over its layer budget::{name} took {seconds:.0f} s, "
+                  f"over the {layer} budget of {budget:.0f} s")
+    return len(over)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -463,6 +522,23 @@ def main():
         help="Comma-separated layer ids to EXCLUDE in --gtest-filter "
         "(e.g. 'L6,L7,L8' for a fast inner loop that skips perf/golden/visual tests).",
     )
+    parser.add_argument(
+        "--durations",
+        metavar="GTEST_XML",
+        help="Print each case's wall time from a gtest XML report beside its layer and "
+        "the layer's case_budget_s, slowest first, and exit.",
+    )
+    parser.add_argument(
+        "--top",
+        type=int,
+        default=20,
+        help="With --durations: how many of the slowest in-budget cases to list (default 20).",
+    )
+    parser.add_argument(
+        "--github",
+        action="store_true",
+        help="With --durations: also emit a GitHub Actions ::warning:: per case over budget.",
+    )
     args = parser.parse_args()
 
     cfg = load_config()
@@ -483,6 +559,10 @@ def main():
         inc = {x.strip() for x in args.include.split(",") if x.strip()}
         exc = {x.strip() for x in args.exclude.split(",") if x.strip()}
         print(build_gtest_filter(effective, inc, exc))
+        return
+
+    if args.durations:
+        report_durations(cfg, effective, args.durations, args.github, args.top)
         return
 
     # In --check mode the only thing we enforce is that every test .cpp is

@@ -770,6 +770,22 @@ jobs:
         if: always()
         run: python3 OloEngine/tests/scripts/perf_trend.py
 
+      # #1630: the suite went from 38 to over 75 minutes in a month (#1516) one
+      # evidence case at a time, and nothing said so until the night the budget
+      # ran out. Each case's wall time beside its layer's budget
+      # (case_budget_s in test_catalogue.json) makes the next one visible the
+      # night it lands. Report-only: a warning per case over budget, never red.
+      - name: Case durations against the layer budgets
+        if: always()
+        run: |
+          if [ -s test_results/gpu_amd.xml ]; then
+            python3 OloEngine/tests/scripts/generate_test_catalogue.py \
+              --durations test_results/gpu_amd.xml --github > test_results/case_durations.txt || true
+            # The ::warning:: lines are for the log, which turns them into annotations.
+            cat test_results/case_durations.txt
+            { echo '```'; grep -v '^::' test_results/case_durations.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       # A rebase dispatch REWRITES the AMD baselines on the runner, and a
       # successful rebase run then uploads nothing -- the diffs artifact below
       # is `if: failure()`, the runner is ephemeral, and GITHUB_TOKEN is

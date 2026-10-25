@@ -1097,6 +1097,11 @@ Local quick paths:
 $f = (python OloEngine/tests/scripts/generate_test_catalogue.py --gtest-filter --exclude L6,L7,L8)
 .\build\OloEngine\tests\Debug\OloEngine-Tests.exe "--gtest_filter=$f"
 
+# Which cases are slow: each case's wall time beside its layer's per-case budget
+# (case_budget_s in test_catalogue.json, sized for the AMD nightly), slowest first.
+.\build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_output=xml:run.xml
+python OloEngine/tests/scripts/generate_test_catalogue.py --durations run.xml
+
 # Golden rebase (only after a deliberate visual change)
 .\build\OloEngine\tests\Debug\OloEngine-Tests.exe --olo-golden-rebase --gtest_filter=GoldenImage*
 
