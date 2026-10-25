@@ -52,6 +52,16 @@ namespace OloEngine::Tests
             return AssetMetadata{ handle, type, std::filesystem::path{ path } };
         }
 
+        // Unloads the active project on every exit path, a failed ASSERT included, so a
+        // failing case does not leave its temp project active for the cases after it.
+        struct ProjectScope
+        {
+            ~ProjectScope()
+            {
+                Project::Unload();
+            }
+        };
+
         std::vector<char> ReadAllBytes(const std::filesystem::path& path)
         {
             std::ifstream in(path, std::ios::binary);
@@ -385,6 +395,7 @@ namespace OloEngine::Tests
         ASSERT_FALSE(ec) << ec.message();
 
         ASSERT_TRUE(Project::Load(root / "Test.oloproj"));
+        const ProjectScope projectScope;
         {
             auto manager = Ref<EditorAssetManager>::Create();
             manager->Initialize(/*startFileWatcher=*/false);
@@ -414,7 +425,6 @@ namespace OloEngine::Tests
             EXPECT_TRUE(manager->ReloadData(handle));
             EXPECT_EQ(manager->GetMetadata(handle).Status, AssetStatus::Loaded) << "a reload that worked kept Failed";
         }
-        Project::Unload();
     }
 
     // -------------------------------------------------------------------------
@@ -454,6 +464,7 @@ namespace OloEngine::Tests
         const std::vector<char> originalBytes = ReadAllBytes(oar);
 
         ASSERT_TRUE(Project::Load(root / "Test.oloproj"));
+        const ProjectScope projectScope;
         {
             auto manager = Ref<EditorAssetManager>::Create();
             manager->Initialize(/*startFileWatcher=*/false);
