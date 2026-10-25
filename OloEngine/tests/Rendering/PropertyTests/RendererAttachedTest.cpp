@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Upscaling/TemporalUpscaler.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
 #include "GLErrorStateCheck.h"
@@ -148,6 +149,19 @@ namespace OloEngine::Tests
         if (!Renderer3D::IsInitialized())
         {
             Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
+        }
+
+        // THE ENGINE'S WORKER THREADS, as Application starts them (#1630). The
+        // test binary constructs no Application, so a renderer-attached test
+        // ran every ParallelFor in the frame inline -- unless some earlier test
+        // in the process had started the workers (FunctionalTest does, once,
+        // and FlockingViaSceneTickTest stops them again). The groom coat's bake
+        // and pose then cost ~90 ms a frame on one thread, and whether they did
+        // depended on the test order. Checked on every SetUp because a suite
+        // may stop them; StartWorkers does nothing while they run.
+        if (LowLevelTasks::FScheduler::Get().GetNumWorkers() == 0u)
+        {
+            LowLevelTasks::FScheduler::Get().StartWorkers();
         }
 
         // Snapshot the process-wide renderer configuration before BuildScene
