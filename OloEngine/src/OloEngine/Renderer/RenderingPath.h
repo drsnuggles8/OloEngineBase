@@ -383,10 +383,10 @@ namespace OloEngine
         // representation hand-over share these slots, and a coat holds at most
         // one. A fading coat draws both tiers, so a transition frame costs at
         // most this many coats' outgoing tiers on top of the steady frame. The
-        // dearest window is a halving going out, whose outgoing tier is twice
-        // the strands of the incoming one: about 1.5x the coat's strand cost
-        // before the halving, where a card hand-over adds the cards' few
-        // percent of the strands. A
+        // dearest window is a halving, whose two tiers draw 1.5x the strands
+        // of the finer one: on the dog's 11 m step GroomPass took 1.6-2.0x the
+        // finer tier's time across the window (Vulkan, Release), where a card
+        // hand-over adds the cards' few percent of the strands. A
         // hand-over past the cap hard-switches, as before, and is reported by
         // name (GroomLodFallbackReason::CrossFadeBudgetSpent). A window
         // already running keeps its slot; new hand-overs take the free ones in

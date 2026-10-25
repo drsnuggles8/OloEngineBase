@@ -1479,6 +1479,74 @@ namespace OloEngine::Tests
         GetScene().DestroyEntity(twin);
     }
 
+    TEST_F(GroomLodVisualEvidenceTest, ACoatBackInViewDoesNotFadeFromATierItNeverDrew)
+    {
+        // A coat's ladder keeps moving out of view. Here it reaches the cards'
+        // third halving while the camera looks away from far off; the camera
+        // then comes back, nearer, and the ladder refines to the second on the
+        // frame the coat is in view again. Nothing on screen ever showed the
+        // third: settling the window on the out-of-view tier faded the coat in
+        // from it (#1628). It comes back as a coat seen for the first time.
+        ASSERT_TRUE(Renderer3D::IsFrustumCullingEnabled()) << "without the view cull every coat is drawn";
+        RendererSettings& settings = Renderer3D::GetRendererSettings();
+        settings.Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        settings.GroomLodCrossFadeFrames = 12u;
+        settings.GroomLodMaxCrossFades = 4u;
+        // Its shadow must not reach the view either, or it is never out of it.
+        auto& routing = m_GroomEntity.AddOrReplaceComponent<GroomSceneShadowComponent>();
+        routing.m_CastShadows = false;
+        routing.m_ReceiveShadows = false;
+        // A twin where the far camera looks, so the pass still runs -- and
+        // reports -- on the frames the coat is out of view: a pass with
+        // nothing to draw keeps its last frame's counters.
+        const f32 farEye = EyeDistanceFor(80.0f);
+        Entity twin = GetScene().DuplicateEntity(m_GroomEntity);
+        twin.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f, 0.0f, farEye + 30.0f);
+
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 4000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        const UUID coat = m_GroomEntity.GetUUID();
+        camera.SetPose(glm::vec3(0.0f, 0.35f, EyeDistanceFor(300.0f)), 0.0f, 0.05f);
+        Lod().m_Enabled = false;
+        RunEditorFrames(camera, 2);
+        Lod().m_Enabled = true;
+        RunEditorFrames(camera, 30);
+        ASSERT_EQ(PassStats().GroomsSubmitted, 1u);
+
+        // Far off and looking away: cards, a coarse step, nothing drawn.
+        camera.SetPose(glm::vec3(0.0f, 0.35f, farEye), 3.14159265f, 0.05f);
+        RunEditorFrames(camera, 30);
+        ASSERT_EQ(PassStats().GroomsSubmitted, 1u) << "the coat is still in view, or the twin is not";
+        ASSERT_NE(GetScene().FindGroomLodState(coat), nullptr);
+        const GroomLodState away = *GetScene().FindGroomLodState(coat);
+        ASSERT_EQ(away.Representation, GroomRepresentation::Card);
+
+        // Back, nearer: still cards, a finer step from the first frame.
+        camera.SetPose(glm::vec3(0.0f, 0.35f, EyeDistanceFor(260.0f)), 0.0f, 0.05f);
+        RunEditorFrames(camera, 1);
+        const GroomLodState back = *GetScene().FindGroomLodState(coat);
+        const u32 fadingOnReturn = PassStats().Lod.CrossFading;
+        u32 fadingAfter = 0;
+        for (u32 frame = 0; frame < 12u; ++frame)
+        {
+            RunEditorFrames(camera, 1);
+            fadingAfter += PassStats().Lod.CrossFading;
+        }
+        std::printf("[groom-crossfade] back in view: away on %s step %u, back on %s step %u, fading %u on the "
+                    "frame, %u after\n",
+                    away.Representation == GroomRepresentation::Card ? "cards" : "strands", away.VisibilityStep,
+                    back.Representation == GroomRepresentation::Card ? "cards" : "strands", back.VisibilityStep,
+                    fadingOnReturn, fadingAfter);
+        ASSERT_EQ(back.Representation, GroomRepresentation::Card);
+        ASSERT_LT(back.VisibilityStep, away.VisibilityStep) << "the ladder did not refine on the return frame";
+        EXPECT_EQ(fadingOnReturn, 0u) << "the coat faded in from a tier it was never drawn on";
+        EXPECT_EQ(fadingAfter, 0u);
+
+        GetScene().DestroyEntity(twin);
+        m_GroomEntity.RemoveComponent<GroomSceneShadowComponent>();
+    }
+
     TEST_F(GroomLodVisualEvidenceTest, AFadeWhoseTwoTiersStreamToOneBuildGivesItsSlotBack)
     {
         // Under a representation budget too small for any detail, every coat
@@ -1820,6 +1888,201 @@ namespace OloEngine::Tests
         post.TAAEnabled = savedTaa;
         m_GroomEntity.GetComponent<GroomComponent>().m_CompositionMode =
             static_cast<u8>(GroomCompositionMode::OpaqueRibbon);
+    }
+
+    TEST_F(GroomLodVisualEvidenceTest, AHalvingsShadowFadesWithItsColourUnderASpotLight)
+    {
+        // #1628, the atlas cell: a spot light casts the coat into the
+        // local-light shadow atlas, and a halving's two tiers must cast there
+        // through their masks as they do into the cascades. The sun casts
+        // nothing here, so the shadow on the ground is the atlas's alone.
+        //
+        // TAA OFF, OPAQUE COAT: under TAA the atlas shadow on the ground
+        // swings 0.003 in an eight-frame cycle with the camera jitter, which
+        // is as large as the halving's whole step, so neither arm could be
+        // told from the other. Without it the ground is steady and the
+        // window's dither averages over thousands of shadow texels.
+        Scene& scene = GetScene();
+        auto& post = Renderer3D::GetPostProcessSettings();
+        RendererSettings& settings = Renderer3D::GetRendererSettings();
+        const bool savedTaa = post.TAAEnabled;
+        const u32 savedFrames = settings.GroomLodCrossFadeFrames;
+        settings.Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        post.TAAEnabled = false;
+        settings.GroomDetailBias = 1.0f;
+
+        // The sun is taken out, not just told not to cast: the cascades still
+        // drew the coat with its m_CastShadows off.
+        std::vector<std::pair<Entity, DirectionalLightComponent>> suns;
+        for (const auto e : scene.GetAllEntitiesWith<DirectionalLightComponent>())
+        {
+            Entity sun{ e, &scene };
+            suns.emplace_back(sun, sun.GetComponent<DirectionalLightComponent>());
+        }
+        for (auto& [sun, light] : suns)
+        {
+            sun.RemoveComponent<DirectionalLightComponent>();
+        }
+        Entity ground = scene.CreateEntity("Ground");
+        {
+            auto& tc = ground.GetComponent<TransformComponent>();
+            tc.Translation = glm::vec3(0.0f, -1.45f, 0.0f);
+            tc.Scale = glm::vec3(20.0f, 1.0f, 20.0f);
+            auto& mc = ground.AddComponent<MeshComponent>();
+            mc.m_Primitive = MeshPrimitive::Plane;
+            if (Ref<Mesh> mesh = MeshPrimitives::CreatePlane())
+            {
+                mc.m_MeshSource = mesh->GetMeshSource();
+            }
+            ground.AddComponent<MaterialComponent>().m_Material.SetBaseColorFactor(glm::vec4(0.6f, 0.6f, 0.62f, 1.0f));
+        }
+        Entity lamp = scene.CreateEntity("Lamp");
+        {
+            const glm::vec3 position(1.5f, 5.0f, 1.5f);
+            lamp.GetComponent<TransformComponent>().Translation = position;
+            auto& spot = lamp.AddComponent<SpotLightComponent>();
+            spot.m_Direction = glm::normalize(-position);
+            spot.m_Color = glm::vec3(1.0f, 0.97f, 0.93f);
+            spot.m_Intensity = 80.0f;
+            spot.m_Range = 14.0f;
+            spot.m_InnerCutoff = 30.0f;
+            spot.m_OuterCutoff = 36.0f;
+            spot.m_CastShadows = true;
+        }
+        auto& routing = m_GroomEntity.AddComponent<GroomSceneShadowComponent>();
+        routing.m_ReceiveShadows = false;
+        routing.m_CastShadows = true;
+
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 4000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose(glm::vec3(0.0f, 1.6f, EyeDistanceFor(300.0f)), 0.0f, 0.3f);
+
+        std::vector<u8> pixels;
+        const auto readLuma = [&](std::vector<f64>& luma)
+        {
+            auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
+            if (!fb)
+            {
+                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
+            }
+            ASSERT_TRUE(fb);
+            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            luma.resize(static_cast<sizet>(kWidth) * kHeight);
+            for (sizet i = 0; i < luma.size(); ++i)
+            {
+                luma[i] = (0.2126 * pixels[i * 4u] + 0.7152 * pixels[i * 4u + 1u] + 0.0722 * pixels[i * 4u + 2u]) / 255.0;
+            }
+        };
+        const f32 savedFull = Lod().m_VisibilityFullPixelSize;
+        const auto settled = [&](bool cast, std::vector<f64>& luma)
+        {
+            routing.m_CastShadows = cast;
+            Lod().m_VisibilityFullPixelSize = savedFull;
+            Lod().m_Enabled = false;
+            RunEditorFrames(camera, 2);
+            Lod().m_Enabled = true;
+            RunEditorFrames(camera, 48);
+            readLuma(luma);
+        };
+        std::vector<f64> cast, bare;
+        settled(false, bare);
+        settled(true, cast);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        ASSERT_GT(PassStats().SceneShadow.AtlasDraws, 0u) << "the coat cast nothing into the atlas";
+        std::vector<u8> mask(cast.size(), 0u);
+        u32 maskPixels = 0;
+        f64 bareLight = 0.0;
+        f64 castLight = 0.0;
+        for (sizet i = 0; i < mask.size(); ++i)
+        {
+            if (bare[i] - cast[i] > 0.03)
+            {
+                mask[i] = 1u;
+                ++maskPixels;
+                bareLight += bare[i];
+                castLight += cast[i];
+            }
+        }
+        const auto shadowLight = [&](const std::vector<f64>& luma)
+        {
+            f64 sum = 0.0;
+            for (sizet i = 0; i < luma.size(); ++i)
+            {
+                sum += mask[i] ? luma[i] : 0.0;
+            }
+            return sum / std::max<u32>(maskPixels, 1u);
+        };
+        std::printf("[groom-crossfade-atlas] %u shadow px   ground light: bare %.4f   under the coat %.4f\n", maskPixels,
+                    bareLight / std::max<u32>(maskPixels, 1u), castLight / std::max<u32>(maskPixels, 1u));
+        ASSERT_GT(maskPixels, 500u) << "the coat casts no measurable atlas shadow onto the ground";
+
+        const auto halving = [&](u32 window, const char* label, const std::string& saveAs)
+        {
+            settings.GroomLodCrossFadeFrames = window;
+            std::vector<f64> luma;
+            settled(true, luma);
+            const u32 stepBefore = GetScene().FindGroomLodState(m_GroomEntity.GetUUID())->VisibilityStep;
+            Lod().m_VisibilityFullPixelSize = savedFull * 2.0f;
+            std::vector<f64> series;
+            for (u32 f = 0; f < 24u; ++f)
+            {
+                RunEditorFrames(camera, 1);
+                readLuma(luma);
+                series.push_back(shadowLight(luma));
+                if (f == window / 2u && !saveAs.empty())
+                {
+                    std::vector<u8> flipped(pixels.size());
+                    const sizet row = static_cast<sizet>(kWidth) * 4u;
+                    for (u32 y = 0; y < kHeight; ++y)
+                    {
+                        std::memcpy(flipped.data() + y * row, pixels.data() + (kHeight - 1u - y) * row, row);
+                    }
+                    WriteEvidence(saveAs, flipped, kWidth, kHeight);
+                }
+            }
+            std::printf("[groom-crossfade-atlas] %-13s halving %u -> %u, ground light:", label, stepBefore,
+                        GetScene().FindGroomLodState(m_GroomEntity.GetUUID())->VisibilityStep);
+            for (const f64 v : series)
+            {
+                std::printf(" %.4f", v);
+            }
+            std::printf("\n");
+            EXPECT_GT(GetScene().FindGroomLodState(m_GroomEntity.GetUUID())->VisibilityStep, stepBefore) << label;
+            return series;
+        };
+        const std::vector<f64> hard = halving(0u, "hard halving", "GroomLodHalvingFadeShadowOff_GL_Forward_Atlas");
+        const std::vector<f64> faded = halving(12u, "faded halving", "GroomLodHalvingFadeShadow_GL_Forward_Atlas");
+        const auto largestStep = [](const std::vector<f64>& series, sizet to)
+        {
+            f64 largest = 0.0;
+            for (sizet f = 1; f < std::min(series.size(), to); ++f)
+            {
+                largest = std::max(largest, std::abs(series[f] - series[f - 1]));
+            }
+            return largest;
+        };
+        // The hold's frames, before the ladder moves, are the series' noise:
+        // bit-identical frames without TAA, so the floor is the readback's.
+        const f64 noise = std::max({ largestStep(hard, 4u), largestStep(faded, 4u), 1.0e-5 });
+        const f64 hardStep = largestStep(hard, hard.size());
+        const f64 fadedStep = largestStep(faded, faded.size());
+        std::printf("[groom-crossfade-atlas] halving largest step: hard %.4f   cross-fade %.4f (%.2f of it)   quiet "
+                    "frames %.4f\n",
+                    hardStep, fadedStep, fadedStep / std::max(hardStep, 1.0e-9), noise);
+        EXPECT_GT(hardStep, 10.0 * noise) << "the hard halving's atlas shadow step is too small to judge";
+        EXPECT_LT(fadedStep, 0.5 * hardStep) << "the halving coat's atlas shadow did not fade with its colour";
+
+        Lod().m_VisibilityFullPixelSize = savedFull;
+        m_GroomEntity.RemoveComponent<GroomSceneShadowComponent>();
+        scene.DestroyEntity(lamp);
+        scene.DestroyEntity(ground);
+        for (auto& [sun, light] : suns)
+        {
+            sun.AddComponent<DirectionalLightComponent>(light);
+        }
+        settings.GroomLodCrossFadeFrames = savedFrames;
+        post.TAAEnabled = savedTaa;
     }
 
     // =========================================================================

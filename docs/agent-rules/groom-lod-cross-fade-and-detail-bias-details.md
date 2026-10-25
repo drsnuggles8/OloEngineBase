@@ -59,17 +59,21 @@ so halving windows are the commoner kind. Giving them a budget of their own woul
 transition frame; sharing keeps one number for it. A coat holds at most one window, whatever moved:
 a halving during a hand-over's window is a hand-over to a third tier and restarts the window on the
 slot it holds. Its outgoing side is whichever tier showed more of the coat on the last frame, so the
-restart drops at most half the mix: a two-draw window cannot show three tiers.
+restart drops at most half the mix: a two-draw window cannot show three tiers. Pinned on #1612's
+own path (strands, cards, shells) by `ARestartMidWindowKeepsTheTierThatShowedMoreOfTheCoat`.
 
 A window whose two tiers resolve to one build (a streaming floor under both) closes on the frame
 Scene drops its outgoing copy, and gives its slot to the coats decided after it. Left open, it held
 the slot for its whole length while drawing one tier; with one slot, a twin's hand-over two frames
-later was refused (`AFadeWhoseTwoTiersStreamToOneBuildGivesItsSlotBack`: 1 refused before, 0 after). The dearest window is a halving going out, whose outgoing tier has twice the strands
-of the incoming one: about 1.5 times the coat's strand cost before the halving. A card hand-over
-adds only the cards, a few percent of the strands. Measured on the dog's 1 → 2 halving (Release
-editor, Vulkan, median GroomPass ms, three sibling test processes sharing the GPU): 1.57–1.88 ms
-on step 1, 3.0–3.2 ms in the window, 1.1–1.25 ms on step 2, on Forward, Forward+ and Deferred alike,
-and the same coming back. The window costs the two tiers' sum.
+later was refused (`AFadeWhoseTwoTiersStreamToOneBuildGivesItsSlotBack`: 1 refused before, 0 after).
+
+The dearest window is a halving, whose two tiers draw 1.5 times the strands of the finer one. A
+card hand-over adds only the cards, a few percent of the strands. Measured on the dog's 1 → 2
+halving (Release editor, Vulkan, median GroomPass ms, three sibling test processes sharing the
+GPU): 1.57–1.88 ms on step 1, 3.0–3.2 ms in the window, 1.1–1.25 ms on step 2, on Forward, Forward+
+and Deferred alike, and the same coming back. The window costs about the two tiers' sum, 1.6–2.0
+times the finer tier's time rather than the 1.5 its strand count suggests: each tier's draw also
+pays its own prepass, root frames and fixed per-draw work.
 
 ## 6. Tests that force or walk to a tier
 
@@ -148,7 +152,7 @@ ahead of the fade, a coat behind the camera that changed tier took a slot, and a
 refused. A coat out of every view drops its window state, so it holds no slot and comes back as a
 coat seen for the first time, settled on the tier it then draws. Settling it on its out-of-view tier
 instead faded it in from a tier it never drew, whenever the ladder or the population budget moved
-it while it was out of view.
+it while it was out of view. Pinned by `ACoatBackInViewDoesNotFadeFromATierItNeverDrew`.
 Pinned by `ACoatOutOfViewTakesNoCrossFadeSlot` (negative control: 0 fading frames, 1 refused).
 Coats whose window runs on into the frame are decided first, and each takes its slot only once it's
 known to be in view. A count taken before the loop kept a slot for a coat that left the view that

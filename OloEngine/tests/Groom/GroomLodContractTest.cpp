@@ -1040,6 +1040,28 @@ TEST(GroomLodCrossFade, ACoatSettledOnItsTierOpensNoWindowForIt)
     EXPECT_TRUE(AdvanceGroomCrossFade(coarse, 12u, true, fromDefault).Active) << "the default state is not a settled one";
 }
 
+TEST(GroomLodCrossFade, ARestartMidWindowKeepsTheTierThatShowedMoreOfTheCoat)
+{
+    // #1612's own path: strands -> cards, then cards -> shells before the
+    // window ends. The restart used to fade in against the tier the coat was
+    // handing over TO, so the strands' whole share left in one frame. It now
+    // keeps whichever tier showed more of the coat on the last frame.
+    constexpr u32 kFrames = 12;
+    GroomCrossFadeState fade = SettledGroomCrossFade(DecisionOn(GroomRepresentation::Strand));
+    for (u32 i = 0; i < 3u; ++i)
+    {
+        (void)AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Card), kFrames, i == 0u, fade);
+    }
+    ASSERT_TRUE(fade.IsActive());
+    ASSERT_NEAR(GroomCrossFadeThreshold(fade.Frame, fade.Frames), 3.0f / 13.0f, 1e-6f) << "cards hold 3/13";
+    const GroomCrossFadeDecision restart =
+        AdvanceGroomCrossFade(DecisionOn(GroomRepresentation::Mesh), kFrames, false, fade);
+    ASSERT_TRUE(restart.Active);
+    EXPECT_FALSE(restart.TookSlot);
+    EXPECT_EQ(restart.Outgoing, GroomRepresentation::Strand)
+        << "the restart dropped the strands, which held 10/13 of the coat";
+}
+
 TEST(GroomLodCrossFade, AHalvingAndAHandOverShareOneWindowAndItsSlot)
 {
     // One window per coat, whatever moved: a hand-over during a halving's
