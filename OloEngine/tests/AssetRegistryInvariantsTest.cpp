@@ -275,6 +275,51 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // AssetStatus is this process's load state, not part of the file (#1644): a
+    // registry whose entries were loaded (or failed) writes the same bytes as one
+    // nothing touched, so a session that loads assets does not rewrite the
+    // git-tracked .oar, and every entry reads back as not loaded.
+    // -------------------------------------------------------------------------
+    TEST(AssetRegistryInvariants, SerializeDoesNotPersistTheRuntimeLoadStatus)
+    {
+        const std::filesystem::path untouchedOar = TempDir() / "Untouched.oar";
+        const std::filesystem::path loadedOar = TempDir() / "Loaded.oar";
+        const AssetHandle loadedHandle{ 424242ULL };
+        const AssetHandle failedHandle{ 434343ULL };
+
+        AssetRegistry untouched;
+        untouched.AddAsset(MakeMetadata(loadedHandle, AssetType::Texture2D, "Assets/Textures/Foo.png"));
+        untouched.AddAsset(MakeMetadata(failedHandle, AssetType::Mesh, "Assets/Meshes/Bar.obj"));
+        ASSERT_TRUE(untouched.Serialize(untouchedOar));
+
+        AssetRegistry loaded;
+        AssetMetadata loadedEntry = MakeMetadata(loadedHandle, AssetType::Texture2D, "Assets/Textures/Foo.png");
+        loadedEntry.Status = AssetStatus::Loaded;
+        AssetMetadata failedEntry = MakeMetadata(failedHandle, AssetType::Mesh, "Assets/Meshes/Bar.obj");
+        failedEntry.Status = AssetStatus::Failed;
+        loaded.AddAsset(loadedEntry);
+        loaded.AddAsset(failedEntry);
+        ASSERT_TRUE(loaded.Serialize(loadedOar));
+
+        auto readAll = [](const std::filesystem::path& path)
+        {
+            std::ifstream in(path, std::ios::binary);
+            return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        };
+        EXPECT_EQ(readAll(loadedOar), readAll(untouchedOar)) << "the load status changed the file's bytes";
+
+        AssetRegistry reread;
+        ASSERT_TRUE(reread.Deserialize(loadedOar));
+        ASSERT_EQ(reread.GetAssetCount(), 2u);
+        for (const AssetHandle handle : { loadedHandle, failedHandle })
+        {
+            const AssetMetadata metadata = reread.GetMetadata(handle);
+            EXPECT_TRUE(metadata.IsNotLoaded()) << static_cast<u64>(handle) << " read back as "
+                                                << AssetStatusUtils::AssetStatusToString(metadata.Status);
+        }
+    }
+
+    // -------------------------------------------------------------------------
     // EditorAssetManager::Initialize rebuilds a rejected registry from a rescan
     // with NEW handles. The rejected file is the only record of the handles
     // scenes refer to, so it is moved to AssetRegistry.oar.rejected (replacing
