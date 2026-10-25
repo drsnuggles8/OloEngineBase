@@ -451,14 +451,21 @@ namespace OloEngine
         {
             std::error_code ec;
             auto absolutePath = m_ProjectPath / path;
-            metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath, ec);
+            const auto lastWriteTime = std::filesystem::last_write_time(absolutePath, ec);
             if (!ec)
             {
-                // Thread-safe update of the metadata in the registry. Not saved:
-                // the .oar stores neither LastWriteTime nor the load status (#1644),
-                // so a reload changes nothing the file holds.
+                // Only the timestamp, onto the entry as it stands NOW: the copy
+                // taken above predates the reload, so writing it back undid the
+                // Failed status set for a placeholder and any move made meanwhile.
+                // Not saved: the .oar stores neither LastWriteTime nor the load
+                // status (#1644), so a reload changes nothing the file holds.
                 TUniqueLock<FSharedMutex> lock(m_RegistryMutex);
-                m_AssetRegistry.UpdateMetadata(assetHandle, metadata);
+                AssetMetadata current = m_AssetRegistry.GetMetadata(assetHandle);
+                if (current.IsValid())
+                {
+                    current.LastWriteTime = lastWriteTime;
+                    m_AssetRegistry.UpdateMetadata(assetHandle, current);
+                }
             }
             else
             {

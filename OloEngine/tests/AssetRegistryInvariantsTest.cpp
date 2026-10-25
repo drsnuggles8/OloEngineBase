@@ -55,6 +55,12 @@ namespace OloEngine::Tests
         std::vector<char> ReadAllBytes(const std::filesystem::path& path)
         {
             std::ifstream in(path, std::ios::binary);
+            if (!in.is_open())
+            {
+                // Two missing files compare equal; a byte comparison must not pass on that.
+                ADD_FAILURE() << "cannot read " << path.string();
+                return {};
+            }
             return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
         }
     } // namespace
@@ -350,6 +356,57 @@ namespace OloEngine::Tests
         }
 
         EXPECT_EQ(ReadAllBytes(forwardOar), ReadAllBytes(reversedOar)) << "the insertion order reached the file";
+    }
+
+    // -------------------------------------------------------------------------
+    // A hot-reload refreshes the entry's LastWriteTime in memory and does not
+    // re-save the registry: the .oar stores neither the timestamp nor the load
+    // status (#1644), so the save only rewrote identical bytes. And it updates
+    // only the timestamp: writing back the copy taken before the load undid the
+    // Failed status a reload that fell back to a placeholder had just set.
+    // -------------------------------------------------------------------------
+    TEST(AssetRegistryInvariants, HotReloadNeitherSavesTheRegistryNorRevertsTheStatusItSet)
+    {
+        const std::filesystem::path root = TempDir("reload-oar");
+        std::error_code ec;
+        std::filesystem::create_directories(root / "Assets", ec);
+        ASSERT_FALSE(ec) << ec.message();
+        {
+            std::ofstream project(root / "Test.oloproj");
+            project << "Project:\n"
+                       "  Name: ReloadOar\n"
+                       "  StartScene: \"\"\n"
+                       "  AssetDirectory: \"Assets\"\n"
+                       "  ScriptModulePath: \"\"\n";
+        }
+        const std::filesystem::path profile = root / "Assets" / "DogGum.oloskin";
+        std::filesystem::copy_file(std::filesystem::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / "Assets" / "Materials" / "DogGum.oloskin",
+                                   profile, ec);
+        ASSERT_FALSE(ec) << ec.message();
+
+        ASSERT_TRUE(Project::Load(root / "Test.oloproj"));
+        {
+            auto manager = Ref<EditorAssetManager>::Create();
+            manager->Initialize(/*startFileWatcher=*/false);
+            const AssetHandle handle = manager->ImportAsset(profile);
+            ASSERT_NE(static_cast<u64>(handle), 0u);
+            ASSERT_TRUE(manager->SerializeAssetRegistry());
+            ASSERT_TRUE(manager->GetAsset(handle));
+
+            const std::filesystem::path oar = Project::GetAssetRegistryPath();
+            const std::vector<char> savedBytes = ReadAllBytes(oar);
+            const auto savedTime = std::filesystem::last_write_time(oar);
+
+            EXPECT_TRUE(manager->ReloadData(handle));
+            EXPECT_EQ(ReadAllBytes(oar), savedBytes);
+            EXPECT_EQ(std::filesystem::last_write_time(oar), savedTime) << "a hot-reload re-saved the registry";
+
+            std::ofstream(profile, std::ios::trunc) << "not: [a skin profile";
+            EXPECT_TRUE(manager->ReloadData(handle)) << "a failed load falls back to a placeholder";
+            EXPECT_EQ(manager->GetMetadata(handle).Status, AssetStatus::Failed)
+                << "the reload wrote back the status it read before loading";
+        }
+        Project::Unload();
     }
 
     // -------------------------------------------------------------------------
