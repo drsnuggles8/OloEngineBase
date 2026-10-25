@@ -33,6 +33,19 @@
 // term, a swapped argument) cannot hide under it, loose enough to survive a
 // different transcendental implementation.
 //
+// THE BACK-SCATTER LOBE ALSO PAYS FOR THE DRIVER'S asin(). GLSL does not
+// specify asin's precision, and Mesa (radeonsi, 25.2) lowers it for |x| >= 0.5
+// to sign(x) * (pi/2 - sqrt(1 - |x|) * (pi/2 + |x| * (pi/4 - 1 + |x| * (p0 +
+// |x| * p1)))), which is off by up to 3.9e-4 rad. At a grazing theta_o the lobe
+// is steep in theta, so that error alone moved 29 samples past 2e-3 on the AMD
+// nightly (#1516) while NVIDIA passed. That polynomial, fed through the C++
+// twin, reproduces every printed AMD shader value to ~1e-6 relative, so the
+// twins agree and the driver's asin is the whole difference. The lobe half
+// therefore adds, per sample, kDriverAsinError times the lobe's slope in
+// theta_o and theta_i (measured on the C++ twin), and
+// TheLobeSlackStillRejectsAStructuralSlip shows the widened bar still rejects
+// the mistakes the twin can make.
+//
 // SKIPs cleanly without a GL 4.6 context, like every other GPU test here.
 // =============================================================================
 
@@ -88,10 +101,13 @@ namespace OloEngine::Tests
             return args;
         }
 
-        [[nodiscard]] bool WithinTolerance(f32 shader, f32 expected)
+        // `slack` is error the comparison inherits from an input the shader
+        // computes with a driver builtin of unspecified precision; zero
+        // everywhere but the back-scatter lobe.
+        [[nodiscard]] bool WithinTolerance(f32 shader, f32 expected, f32 slack = 0.0f)
         {
             const f32 delta = std::abs(shader - expected);
-            return delta <= std::max(kAbsoluteFloor, std::abs(expected) * kRelativeTolerance);
+            return delta <= std::max(kAbsoluteFloor, std::abs(expected) * kRelativeTolerance) + slack;
         }
 
         struct CoatProbeHarness
@@ -182,6 +198,30 @@ namespace OloEngine::Tests
             dual.BackShift = 0.0625f;
             dual.BackWidth = 0.375f;
             return dual;
+        }
+
+        // The largest asin() error the comparison forgives, in radians: Mesa's
+        // |x| >= 0.5 polynomial (see the header) peaks at 3.9e-4 over [0.5, 1].
+        // A driver whose asin is worse than this fails the test, which is the
+        // point: the bound is a measured fact, not a margin.
+        constexpr f64 kDriverAsinError = 4.0e-4;
+
+        // How far an asin() error of kDriverAsinError in theta_o and in theta_i
+        // can move one channel of the lobe: the C++ twin's slope in each angle,
+        // by central difference, times the bound.
+        [[nodiscard]] f32 LobeAsinSlack(const GroomFibreDualScattering& lobe, const BackArgs& args, int channel)
+        {
+            constexpr f64 kStep = 1.0e-3;
+            const f64 thetaO = std::asin(static_cast<f64>(args.SinThetaO));
+            const f64 thetaI = std::asin(static_cast<f64>(args.SinThetaI));
+            const auto at = [&](f64 o, f64 i)
+            {
+                return static_cast<f64>(GroomFibreBackScatterProjected(lobe, static_cast<f32>(std::sin(o)),
+                                                                       static_cast<f32>(std::sin(i)), args.CosPhi)[channel]);
+            };
+            const f64 slopeO = std::abs(at(thetaO + kStep, thetaI) - at(thetaO - kStep, thetaI)) / (2.0 * kStep);
+            const f64 slopeI = std::abs(at(thetaO, thetaI + kStep) - at(thetaO, thetaI - kStep)) / (2.0 * kStep);
+            return static_cast<f32>(kDriverAsinError * (slopeO + slopeI));
         }
 
         struct DualProbeHarness
@@ -310,6 +350,7 @@ namespace OloEngine::Tests
             {
                 const sizet i = (static_cast<sizet>(y) * kDualWidth + x) * 4u;
                 glm::vec3 expected(0.0f);
+                glm::vec3 slack(0.0f);
                 if (x < 64u)
                 {
                     const ForwardArgs args = ForwardArgsAt(x, y);
@@ -328,10 +369,12 @@ namespace OloEngine::Tests
                         << "the probe grid disagrees about cos(phi) at (" << x << ", " << y << ")";
                     expected = GroomFibreBackScatterProjected(lobe, args.SinThetaO, args.SinThetaI, args.CosPhi);
                     largestLobe = std::max(largestLobe, expected.r);
+                    for (int c = 0; c < 3; ++c)
+                        slack[c] = LobeAsinSlack(lobe, args, c);
                 }
                 for (int c = 0; c < 3; ++c)
                 {
-                    if (WithinTolerance(pixels[i + static_cast<sizet>(c)], expected[c]))
+                    if (WithinTolerance(pixels[i + static_cast<sizet>(c)], expected[c], slack[c]))
                     {
                         continue;
                     }
@@ -351,6 +394,43 @@ namespace OloEngine::Tests
         // The lobe half has to have reached the lobe at all, or it compared
         // zeros with zeros.
         EXPECT_GT(largestLobe, 0.1f);
+    }
+
+    TEST(GroomCoatTransmittanceParity, TheLobeSlackStillRejectsAStructuralSlip)
+    {
+        // The asin slack above widens the bar most where the lobe is steepest,
+        // which is also where a wrong lobe differs most. Without this, the
+        // slack could have grown into a bar the lobe passes whatever it
+        // computes. Each slip here is one a hand-written twin can make; a
+        // majority of the lobe samples must still reject it. CPU only.
+        const GroomFibreDualScattering lobe = ProbeLobe();
+        GroomFibreDualScattering mirrored = lobe;
+        mirrored.BackShift = -lobe.BackShift;
+        u32 lit = 0;
+        u32 swappedRejected = 0;
+        u32 mirroredRejected = 0;
+        for (u32 y = 0; y < kDualHeight; ++y)
+        {
+            for (u32 x = 0; x < 64u; ++x)
+            {
+                const BackArgs args = BackArgsAt(x, y);
+                const f32 expected = GroomFibreBackScatterProjected(lobe, args.SinThetaO, args.SinThetaI, args.CosPhi).r;
+                if (expected <= 0.0f)
+                    continue;
+                ++lit;
+                const f32 slack = LobeAsinSlack(lobe, args, 0);
+                const f32 swapped = GroomFibreBackScatterProjected(lobe, args.SinThetaI, args.SinThetaO, args.CosPhi).r;
+                const f32 shifted =
+                    GroomFibreBackScatterProjected(mirrored, args.SinThetaO, args.SinThetaI, args.CosPhi).r;
+                swappedRejected += WithinTolerance(swapped, expected, slack) ? 0u : 1u;
+                mirroredRejected += WithinTolerance(shifted, expected, slack) ? 0u : 1u;
+            }
+        }
+        ASSERT_GT(lit, 0u);
+        EXPECT_GT(swappedRejected, lit / 2u) << "theta_i and theta_o swapped passes " << (lit - swappedRejected)
+                                             << " of " << lit << " lobe samples";
+        EXPECT_GT(mirroredRejected, lit / 2u) << "the shift's sign flipped passes " << (lit - mirroredRejected)
+                                              << " of " << lit << " lobe samples";
     }
 
     TEST(GroomCoatTransmittanceParity, TheGridWouldRejectTheFormulaThatWasReplaced)
