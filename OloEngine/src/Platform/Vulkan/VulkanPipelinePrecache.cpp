@@ -414,6 +414,10 @@ namespace OloEngine
     void VulkanPipelinePrecache::SetConfigurationTag(const std::string_view tag)
     {
         std::lock_guard lock(m_Mutex);
+        if (!m_Started)
+        {
+            return;
+        }
         if (m_PublishedTag.ToView() != tag)
         {
             m_PublishedTag = FString(tag);
@@ -426,8 +430,9 @@ namespace OloEngine
         }
         // The session's first configuration needs no window: there is no
         // previous selection to protect, and the boot requests are waiting.
-        const bool nothingSelected =
-            m_SelectedTags.IsEmpty() || (m_SelectedTags.Num() == 1 && m_SelectedTags[0].IsEmpty());
+        // (Only while the empty tag is the start-up placeholder, never once it
+        // has been drawn: then it is a configuration like any other.)
+        const bool nothingSelected = m_TagLastSeen.empty() && m_SelectedTags.Num() == 1 && m_SelectedTags[0].IsEmpty();
         if (nothingSelected && !tag.empty())
         {
             TArray<FString> first;
@@ -479,14 +484,20 @@ namespace OloEngine
 
     void VulkanPipelinePrecache::ApplySelectedTagsLocked(TArray<FString> tags)
     {
+        const bool added = tags.ContainsByPredicate([this](const FString& tag) { return !IsSelectedLocked(tag.ToView()); });
         m_SelectedTags = std::move(tags);
-        // The selected configuration moved: every live shader's entries for the
-        // new one are requested at the front of the queue (already-created ones
-        // are duplicates), readiness is judged against the new set, and every
-        // pipeline's next draw records under the new tag.
-        RevokeReadyClaimsLocked();
-        VulkanPipelineBuilder::Get().BeginRecordingEpoch();
+        if (added)
+        {
+            // A configuration joined: its entries are requested at the front of
+            // the queue, readiness is judged against the larger set, and every
+            // pipeline's next draw records under the new tag.
+            RevokeReadyClaimsLocked();
+            VulkanPipelineBuilder::Get().BeginRecordingEpoch();
+        }
+        // Recompute each shader's selected keys (a shrink only drops keys, so
+        // an existing claim stays valid; the requests are duplicates).
         RequestAllLocked();
+        m_ReadinessDirty = true;
     }
 
     void VulkanPipelinePrecache::RevokeReadyClaimsLocked()
@@ -563,9 +574,11 @@ namespace OloEngine
                 {
                     return std::ranges::equal(x, y, [](const FString& l, const FString& r) { return l.ToView() == r.ToView(); });
                 };
+                bool windowChanged = false;
                 for (const FString& tag : m_FrameTags)
                 {
-                    m_TagLastSeen[tag.ToStdString()] = m_PublishFrame;
+                    const auto [it, inserted] = m_TagLastSeen.insert_or_assign(tag.ToStdString(), m_PublishFrame);
+                    windowChanged = windowChanged || inserted;
                 }
                 std::ranges::sort(m_FrameTags, byName);
                 if (!sameTags(m_FrameTags, m_LastFrameTags))
@@ -575,17 +588,22 @@ namespace OloEngine
                 m_LastFrameTags = std::move(m_FrameTags);
                 m_FrameTags.Empty();
 
-                std::erase_if(m_TagLastSeen, [this](const auto& item)
-                              { return m_PublishFrame - item.second >= kTagWindowFrames; });
-                TArray<FString> window;
-                for (const auto& [tag, seen] : m_TagLastSeen)
+                windowChanged = std::erase_if(m_TagLastSeen, [this](const auto& item)
+                                              { return m_PublishFrame - item.second >= kTagWindowFrames; }) > 0 ||
+                                windowChanged;
+                // Steady state (the same tags every frame) rebuilds nothing.
+                if (windowChanged)
                 {
-                    window.Add(FString(tag));
-                }
-                std::ranges::sort(window, byName);
-                if (!sameTags(window, m_SelectedTags))
-                {
-                    ApplySelectedTagsLocked(std::move(window));
+                    TArray<FString> window;
+                    for (const auto& [tag, seen] : m_TagLastSeen)
+                    {
+                        window.Add(FString(tag));
+                    }
+                    std::ranges::sort(window, byName);
+                    if (!sameTags(window, m_SelectedTags))
+                    {
+                        ApplySelectedTagsLocked(std::move(window));
+                    }
                 }
             }
             EvaluateReadinessLocked(/*force=*/false);

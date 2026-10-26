@@ -1529,4 +1529,43 @@ TEST_F(VulkanShaderPipeline, TwoConfigurationsDrawnEveryFrameAreBothSelectedAndC
     EXPECT_TRUE(snapshot.PendingShaders.IsEmpty());
 }
 
+TEST_F(VulkanShaderPipeline, TheSelectedConfigurationIsEveryTagDrawnWithinTheWindow)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+    constexpr std::string_view kViewport = "Deferred/msaa1/native/oit0";
+    constexpr std::string_view kPreview = "Forward/msaa0/native/oit0";
+    ScopedPrecache precache(kViewport);
+    auto& p = VulkanPipelinePrecache::Get();
+    const auto selected = [&p] { return p.GetConfigurationTag(); };
+    const std::string both = std::string(kViewport) + " + " + std::string(kPreview);
+
+    // A preview that renders only every other frame stays selected.
+    for (u64 frame = 0; frame < 3 * VulkanPipelinePrecache::kTagWindowFrames; ++frame)
+    {
+        p.SetConfigurationTag(kViewport);
+        if (frame % 2 == 0)
+        {
+            p.SetConfigurationTag(kPreview);
+        }
+        p.Tick();
+        ASSERT_EQ(selected(), both) << "frame " << frame;
+    }
+
+    // Frames that compile no frame graph change nothing.
+    for (u64 frame = 0; frame < 3 * VulkanPipelinePrecache::kTagWindowFrames; ++frame)
+    {
+        p.Tick();
+    }
+    EXPECT_EQ(selected(), both);
+
+    // The preview stops: it leaves once it has not been drawn for the window.
+    for (u64 frame = 1; frame <= VulkanPipelinePrecache::kTagWindowFrames; ++frame)
+    {
+        p.SetConfigurationTag(kViewport);
+        p.Tick();
+        const bool expired = frame >= VulkanPipelinePrecache::kTagWindowFrames - 1;
+        EXPECT_EQ(selected(), expired ? std::string(kViewport) : both) << "frame " << frame;
+    }
+}
+
 #endif // OLO_WITH_VULKAN
