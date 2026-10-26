@@ -91,8 +91,8 @@ namespace OloEngine::MCP::PipelineReadinessReport
             case PipelineReadinessModel::OpenGLProgramLink:
                 out["pipelines"] = nullptr;
                 out["note"] = "OpenGL has no pipeline objects: a program is ready when its link completes. "
-                              "shaders.programLinks counts links issued, shaders.linksForcedAtUse the binds that "
-                              "had to wait for one (the GL form of a late request). The driver's own recompile on "
+                              "shaders.programLinks counts links issued, shaders.linksForcedAtUse the uses (a bind, "
+                              "a raw program fetch) that had to wait for one (the GL form of a late request). The driver's own recompile on "
                               "a program's first draw has no GL signal and is not measured.";
                 out["readiness"] = nullptr;
                 out["unmeasurable"] = Json::array({ "firstDrawDriverCompile" });

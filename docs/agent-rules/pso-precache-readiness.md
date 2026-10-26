@@ -68,8 +68,9 @@ request and when, and `olo_perf_pipeline_readiness` reports both.
    frames, or over the load, instead of becoming a stall.
 9. **On OpenGL "ready" means the program link completed, and nothing more is claimed.** GL has no
    pipeline object. The counters there are compiles, SPIR-V cache hits, links issued, program-binary
-   hits and rejects, and binds that forced an unfinished link (`EnsureLinked`, the GL form of a late
-   request). The driver's recompile on a program's first draw under new state has no GL signal; the
+   hits and rejects, and uses (a bind, a raw program or handle fetch) that forced an unfinished link
+   (`ForceLinkAtUse`, the GL form of a late request; the deliberate synchronous finishes in the
+   constructors, `Reload` and `FlushPendingShaders` are not counted). The driver's recompile on a program's first draw under new state has no GL signal; the
    tool lists it as `unmeasurable`, never as zero.
 10. **Measure cold against warm in fresh processes with fixed quality.** Point `OLO_SHADER_CACHE_DIR`
     at a copy of a primed cache and delete `vulkan/pipeline_cache.vkpc` (pipeline-cold) and

@@ -2220,8 +2220,8 @@ namespace OloEngine
         const auto linkStart = std::chrono::steady_clock::now();
         glLinkProgram(program);
         // Issue time only: under parallel shader compile the link finishes later
-        // (PollCompilationStatus), and a bind that cannot wait for it is counted
-        // in EnsureLinked as a forced link (#1345).
+        // (PollCompilationStatus), and a use that cannot wait for it is counted
+        // in ForceLinkAtUse as a forced link (#1345).
         ShaderPreparationCounters::Get().AddProgramLink(
             std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - linkStart).count());
 
@@ -2524,13 +2524,22 @@ namespace OloEngine
 
         OLO_CORE_INFO("EnsureLinked: Force-completing shader '{}' (ID {})", GetName(), m_RendererID);
         // Force-complete: check link status (this blocks until the driver finishes).
-        // The GL analogue of a pipeline requested too late (#1345): counted
-        // with the time the bind blocked.
-        const auto forcedStart = std::chrono::steady_clock::now();
         FinalizeAfterLink();
+        OLO_CORE_INFO("EnsureLinked: Completed shader '{}', status={}", GetName(), static_cast<int>(m_CompilationStatus));
+    }
+
+    void OpenGLShader::ForceLinkAtUse() const
+    {
+        if (m_CompilationStatus != ShaderCompilationStatus::Compiling)
+        {
+            return;
+        }
+        // The GL analogue of a pipeline requested too late (#1345): counted
+        // with the time the use blocked.
+        const auto forcedStart = std::chrono::steady_clock::now();
+        const_cast<OpenGLShader*>(this)->EnsureLinked();
         ShaderPreparationCounters::Get().AddLinkForcedAtUse(
             std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - forcedStart).count());
-        OLO_CORE_INFO("EnsureLinked: Completed shader '{}', status={}", GetName(), static_cast<int>(m_CompilationStatus));
     }
 
     static bool VerifyProgramLink(GLenum const& program, const std::string& filePath)
@@ -2979,7 +2988,7 @@ namespace OloEngine
         // force-complete it now (one-time micro-stall on first bind).
         if (m_CompilationStatus == ShaderCompilationStatus::Compiling)
         {
-            const_cast<OpenGLShader*>(this)->EnsureLinked();
+            ForceLinkAtUse();
         }
 
         if (m_CompilationStatus != ShaderCompilationStatus::Ready)

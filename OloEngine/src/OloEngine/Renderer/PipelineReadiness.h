@@ -68,8 +68,8 @@ namespace OloEngine
         f64 ProgramLinkIssueMs = 0.0;
         u64 ProgramBinaryHits = 0;    ///< GL programs restored from the program-binary cache.
         u64 ProgramBinaryRejects = 0; ///< GL program binaries the driver refused (a legal miss).
-        u64 LinksForcedAtUse = 0;     ///< GL: a bind forced a link that had not completed yet.
-        f64 LinksForcedAtUseMs = 0.0; ///< Time those binds blocked.
+        u64 LinksForcedAtUse = 0;     ///< GL: a use (bind, raw program/handle fetch) forced an unfinished link.
+        f64 LinksForcedAtUseMs = 0.0; ///< Time those uses blocked.
     };
 
     // Process-wide accumulators. Relaxed atomics: these are diagnostics, read
