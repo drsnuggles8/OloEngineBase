@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <bit>
 #include <functional>
+#include <tuple>
 #include <unordered_map>
 #include <format>
 
@@ -154,7 +155,10 @@ namespace OloEngine
                 all.Add({ entries[i].LastSeenSession, &identity, i });
             }
         }
-        std::ranges::stable_sort(all, [](const EntryRef& a, const EntryRef& b) { return a.Session < b.Session; });
+        // Ties broken by identity and position, never by hash-map order, so
+        // every standard library trims the same entries from the same file.
+        std::ranges::sort(all, [](const EntryRef& a, const EntryRef& b)
+                          { return std::tie(a.Session, *a.Identity, a.Index) < std::tie(b.Session, *b.Identity, b.Index); });
 
         std::unordered_map<const std::string*, TArray<i32>> doomed;
         for (sizet i = 0; i < count - maxEntries; ++i)

@@ -6,7 +6,6 @@
 // VulkanDevice.h pulls <volk.h> (and <vk_mem_alloc.h>) — volk must come before
 // GLFW: glfw3.h only declares its Vulkan entry points (glfwCreateWindowSurface
 // et al.) when VK_VERSION_1_0 is already visible.
-#include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
@@ -23,6 +22,9 @@
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanSamplerHeap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
+// After the Vulkan block above (see the volk-before-GLFW note): it reaches
+// Window.h, and the precache start asks whether an application is running.
+#include "OloEngine/Core/Application.h"
 
 #include <exception>
 #include <GLFW/glfw3.h>

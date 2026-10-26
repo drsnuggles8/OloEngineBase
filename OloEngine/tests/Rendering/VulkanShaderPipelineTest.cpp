@@ -1485,4 +1485,48 @@ TEST_F(VulkanShaderPipeline, CompileCacheHitModuleAndPipelineCreationAreCountedA
     first.Reset();
 }
 
+TEST_F(VulkanShaderPipeline, TwoConfigurationsDrawnEveryFrameAreBothSelectedAndClaimed)
+{
+    // A viewport and a preview with different settings render in the same
+    // frame: both tags are published every frame. The selection settles on
+    // both, both sets of keys are requested at the front, and readiness is
+    // claimed instead of being withdrawn forever.
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+    builder.ResetRequestCounters();
+
+    constexpr std::string_view kViewport = "Deferred/msaa1/native/oit0";
+    constexpr std::string_view kPreview = "Forward/msaa0/native/oit0";
+    const u32 stages = static_cast<u32>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    PipelineManifest manifest;
+    PipelineSignature rgba8;
+    rgba8.ColorCount = 1;
+    rgba8.ColorFormats[0] = VK_FORMAT_R8G8B8A8_UNORM;
+    PipelineSignature rgba16;
+    rgba16.ColorCount = 1;
+    rgba16.ColorFormats[0] = VK_FORMAT_R16G16B16A16_SFLOAT;
+    ASSERT_TRUE(manifest.Record("PsoMixed", stages, rgba8, kViewport));
+    ASSERT_TRUE(manifest.Record("PsoMixed", stages, rgba16, kPreview));
+
+    ScopedPrecache precache(kViewport);
+    VulkanPipelinePrecache::Get().SetManifestForTesting(manifest);
+    Ref<Shader> shader = MakeConstantShader("PsoMixed");
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        VulkanPipelinePrecache::Get().SetConfigurationTag(kViewport);
+        VulkanPipelinePrecache::Get().SetConfigurationTag(kPreview);
+        VulkanPipelinePrecache::Get().Tick();
+    }
+    ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 2u);
+    VulkanPipelinePrecache::Get().SetConfigurationTag(kViewport);
+    VulkanPipelinePrecache::Get().SetConfigurationTag(kPreview);
+
+    PipelineReadinessSnapshot snapshot;
+    VulkanPipelinePrecache::Get().FillSnapshot(snapshot);
+    EXPECT_TRUE(snapshot.RenderReady);
+    EXPECT_NE(snapshot.ConfigurationTag.ToView().find(kViewport), std::string_view::npos);
+    EXPECT_NE(snapshot.ConfigurationTag.ToView().find(kPreview), std::string_view::npos);
+    EXPECT_TRUE(snapshot.PendingShaders.IsEmpty());
+}
+
 #endif // OLO_WITH_VULKAN

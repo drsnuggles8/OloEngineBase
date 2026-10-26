@@ -64,11 +64,30 @@
 #include <array>
 #include <chrono>
 #include <unordered_map>
+#include <vector>
 
 namespace OloEngine
 {
     class VulkanComputeShader;
     class VulkanShader;
+
+    // A key a draw created or refreshed, waiting to be merged into the manifest.
+    struct VulkanPipelinePrecacheRecord
+    {
+        FString Shader;
+        u32 StageMask = 0;
+        PipelineSignature Signature;
+        FString Tag;
+    };
+
+    template<>
+    struct TIsTriviallyRelocatable<VulkanPipelinePrecacheRecord>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(VulkanPipelinePrecacheRecord::Shader)> &&
+                                      TIsTriviallyRelocatable_V<decltype(VulkanPipelinePrecacheRecord::StageMask)> &&
+                                      TIsTriviallyRelocatable_V<decltype(VulkanPipelinePrecacheRecord::Signature)> &&
+                                      TIsTriviallyRelocatable_V<decltype(VulkanPipelinePrecacheRecord::Tag)>;
+    };
 
     class VulkanPipelinePrecache
     {
@@ -96,12 +115,13 @@ namespace OloEngine
         void OnComputeShaderDestroyed(const VulkanComputeShader& shader);
 
         // --- Configuration -----------------------------------------------------
-        // The renderer publishes its tag every frame graph compile. The first
-        // tag a session sees is selected at once; a change is selected only
-        // after it has been the one tag published for kTagSettleTicks frames,
-        // so two renderers drawing different configurations in one frame (a
-        // viewport and a preview) cannot make the selection flip every frame.
-        // Draw creations are always recorded under the tag published last.
+        // The renderer publishes its tag every frame graph compile. The
+        // SELECTED configuration is the set of tags drawn in a frame: one tag
+        // normally, two when a viewport and a preview with different settings
+        // render in the same frame. The first tag a session sees is selected at
+        // once; a change is selected after the same set has been drawn for
+        // kTagSettleTicks frames. Draw creations are recorded under the tag
+        // published last.
         void SetConfigurationTag(std::string_view tag);
         [[nodiscard]] std::string GetConfigurationTag() const;
         static constexpr u32 kTagSettleTicks = 2;
@@ -126,7 +146,7 @@ namespace OloEngine
         void SaveManifest();
 
         // The manifest, for tests and for the game build's staging step.
-        [[nodiscard]] PipelineManifest CopyManifest() const;
+        [[nodiscard]] PipelineManifest CopyManifest();
         void SetManifestForTesting(PipelineManifest manifest);
 
         static constexpr u32 kDefaultJobsPerFrame = 4;
@@ -151,8 +171,11 @@ namespace OloEngine
         void RequestFromManifest(Tracked& tracked, VulkanShader* graphics, VulkanComputeShader* compute);
         void RequestAllLocked();
         void EvaluateReadinessLocked(bool force);
-        void ApplySelectedTagLocked(std::string_view tag);
+        void ApplySelectedTagsLocked(const TArray<FString>& tags);
         void RevokeReadyClaimsLocked();
+        [[nodiscard]] bool IsSelectedLocked(std::string_view tag) const;
+        [[nodiscard]] bool ClaimsAllowedLocked() const;
+        void DrainPendingRecordsLocked();
         void SaveManifestLocked();
         void WorkerLoop();
         void StopWorkers();
@@ -161,13 +184,19 @@ namespace OloEngine
         bool m_Started = false;
         bool m_Persist = false;
         PipelineManifest m_Manifest;
-        FString m_Tag;          ///< The selected configuration: what requests are prioritised and judged by.
-        FString m_PublishedTag; ///< The tag published last: what draw creations are recorded under.
-        FString m_FrameTag;     ///< The tag published this frame, when only one was.
-        bool m_FrameTagSeen = false;
-        bool m_FrameTagMixed = false; ///< More than one distinct tag was published this frame.
-        FString m_CandidateTag;
+        TArray<FString> m_SelectedTags;  ///< Sorted: what requests are prioritised and judged by.
+        FString m_PublishedTag;          ///< The tag published last.
+        TArray<FString> m_FrameTags;     ///< Tags published since the last Tick.
+        TArray<FString> m_LastFrameTags; ///< The previous frame's tags (sorted).
+        TArray<FString> m_CandidateTags; ///< A different set waiting to settle.
         u32 m_CandidateTicks = 0;
+
+        // Draw records arrive from recording threads; they take only this
+        // small lock and are merged into the manifest under m_Mutex at Tick,
+        // so a hit's manifest refresh never waits for readiness or a save.
+        std::mutex m_RecordMutex;
+        FString m_RecordTag; ///< m_PublishedTag, as the recording threads see it.
+        TArray<VulkanPipelinePrecacheRecord> m_PendingRecords;
         std::unordered_map<const VulkanShader*, Tracked> m_Graphics;
         std::unordered_map<const VulkanComputeShader*, Tracked> m_Compute;
         u64 m_EvaluatedCompletions = ~0ull;
@@ -179,9 +208,13 @@ namespace OloEngine
         std::mutex m_WorkMutex;
         std::condition_variable m_WorkCv;
         u32 m_Tokens = 0;
-        std::chrono::steady_clock::time_point m_LastTick{}; ///< When a budget was last granted.
-        // With no frame for this long, the workers grant themselves the
-        // per-frame budget (loading; see WorkerLoop).
+        std::chrono::steady_clock::time_point m_LastFrameTick{}; ///< The last Tick (a real frame).
+        std::chrono::steady_clock::time_point m_LastGrant{};     ///< The last budget grant, Tick or refill.
+        // With no frame for kNoFrameThreshold the process is loading, and the
+        // workers grant themselves the per-frame budget every
+        // kLoadingRefillInterval (see WorkerLoop). A slow frame (under 4 fps)
+        // is not loading; the per-frame bound holds for it.
+        static constexpr std::chrono::milliseconds kNoFrameThreshold{ 250 };
         static constexpr std::chrono::milliseconds kLoadingRefillInterval{ 33 };
         bool m_StopRequested = false;
         static constexpr u32 kMaxWorkers = 8;

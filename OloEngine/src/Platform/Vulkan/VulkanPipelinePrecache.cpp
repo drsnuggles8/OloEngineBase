@@ -4,6 +4,7 @@
 
 #include "Platform/Vulkan/VulkanPipelinePrecache.h"
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "Platform/Vulkan/VulkanComputeShader.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanShader.h"
@@ -120,6 +121,18 @@ namespace OloEngine
                 LoadInto(m_Manifest, PipelineManifest::MachineFilePath(), "manifest");
             }
             m_Manifest.BeginSession();
+            // A session starts with no configuration: nothing published before
+            // it (or after a previous Stop) describes what this one draws.
+            m_SelectedTags.Empty();
+            m_PublishedTag = {};
+            m_FrameTags.Empty();
+            m_LastFrameTags.Empty();
+            m_CandidateTags.Empty();
+            m_CandidateTicks = 0;
+            {
+                std::lock_guard recordLock(m_RecordMutex);
+                m_RecordTag = {};
+            }
             m_JobsPerFrame = static_cast<u32>(
                 std::clamp<i64>(Levers::VulkanPsoPrecacheJobsPerFrame().value_or(kDefaultJobsPerFrame), 1, 1024));
             m_Started = true;
@@ -135,7 +148,8 @@ namespace OloEngine
             std::lock_guard workLock(m_WorkMutex);
             m_StopRequested = false;
             m_Tokens = 0;
-            m_LastTick = std::chrono::steady_clock::now();
+            m_LastFrameTick = std::chrono::steady_clock::now();
+            m_LastGrant = m_LastFrameTick;
             for (u32 i = 0; i < workers; ++i)
             {
                 m_Workers[i] = std::thread([this] { WorkerLoop(); });
@@ -175,13 +189,14 @@ namespace OloEngine
         }
         SaveManifestLocked();
         m_Started = false;
-        m_Tag = {};
+        m_SelectedTags.Empty();
         m_PublishedTag = {};
-        m_FrameTag = {};
-        m_FrameTagSeen = false;
-        m_FrameTagMixed = false;
-        m_CandidateTag = {};
+        m_FrameTags.Empty();
+        m_LastFrameTags.Empty();
+        m_CandidateTags.Empty();
         m_CandidateTicks = 0;
+        std::lock_guard recordLock(m_RecordMutex);
+        m_RecordTag = {};
     }
 
     void VulkanPipelinePrecache::SaveManifest()
@@ -192,17 +207,18 @@ namespace OloEngine
 
     void VulkanPipelinePrecache::SaveManifestLocked()
     {
+        DrainPendingRecordsLocked();
         if (!m_Started || !m_Persist || !m_Manifest.IsDirty())
         {
             return;
         }
         m_Manifest.Trim();
         const auto path = PipelineManifest::MachineFilePath();
-        std::error_code ec;
-        std::filesystem::create_directories(path.parent_path(), ec);
-        std::ofstream out(path, std::ios::binary | std::ios::trunc);
-        const std::string text = m_Manifest.Serialize();
-        if (!out || !out.write(text.data(), static_cast<std::streamsize>(text.size())))
+        // Atomic (temporary + rename): another editor sharing the cache root
+        // may be reading it, and Build Game copies it straight into a package.
+        AtomicWriteOptions options;
+        options.CreateParentDirectories = true;
+        if (!FileSystem::WriteFileAtomically(path, m_Manifest.Serialize(), options))
         {
             OLO_CORE_WARN("[Vulkan/PSO] could not write {} — the next session starts without it", path.string());
             return;
@@ -234,10 +250,18 @@ namespace OloEngine
         auto& builder = VulkanPipelineBuilder::Get();
         // EntriesFor's pointers stay valid while m_Mutex is held: only Record
         // (also under m_Mutex) grows the manifest.
-        for (const PipelineManifestEntry* entry :
-             m_Manifest.EntriesFor(tracked.Name.ToView(), tracked.StageMask, m_Tag.ToView()))
+        // Selected-configuration entries first, the others speculatively after.
+        TArray<const PipelineManifestEntry*> entries =
+            m_Manifest.EntriesFor(tracked.Name.ToView(), tracked.StageMask, std::string_view{});
+        const auto isSelected = [this](const PipelineManifestEntry* entry)
         {
-            const bool selected = entry->SeenUnder(m_Tag.ToView());
+            return m_SelectedTags.ContainsByPredicate([entry](const FString& tag)
+                                                      { return entry->SeenUnder(tag.ToView()); });
+        };
+        std::ranges::stable_partition(entries, isSelected);
+        for (const PipelineManifestEntry* entry : entries)
+        {
+            const bool selected = isSelected(entry);
             const auto priority = selected ? PipelineRequestPriority::Selected : PipelineRequestPriority::Speculative;
             std::optional<VulkanPipelineBuilder::Key> key;
             if (compute != nullptr)
@@ -384,41 +408,56 @@ namespace OloEngine
         if (m_PublishedTag.ToView() != tag)
         {
             m_PublishedTag = FString(tag);
+            std::lock_guard recordLock(m_RecordMutex);
+            m_RecordTag = m_PublishedTag;
+        }
+        if (!m_FrameTags.ContainsByPredicate([tag](const FString& t) { return t.ToView() == tag; }))
+        {
+            m_FrameTags.Add(FString(tag));
             m_ReadinessDirty = true;
-            // A readiness claim is a claim about the SELECTED configuration.
-            // Draws under a different one start now, before the new tag
-            // settles, and must not be judged against the old claim: withdraw
-            // it at once (EvaluateReadinessLocked makes none while the two
-            // tags differ).
-            if (!m_Tag.IsEmpty() && m_PublishedTag != m_Tag)
-            {
-                RevokeReadyClaimsLocked();
-            }
-        }
-        if (!m_FrameTagSeen)
-        {
-            m_FrameTag = m_PublishedTag;
-            m_FrameTagSeen = true;
-        }
-        else if (m_FrameTag.ToView() != tag)
-        {
-            m_FrameTagMixed = true;
         }
         // The session's first configuration needs no settling: there is no
         // previous selection to protect, and the boot requests are waiting.
-        if (m_Tag.IsEmpty() && !tag.empty())
+        const bool nothingSelected =
+            m_SelectedTags.IsEmpty() || (m_SelectedTags.Num() == 1 && m_SelectedTags[0].IsEmpty());
+        if (nothingSelected && !tag.empty())
         {
-            ApplySelectedTagLocked(tag);
+            TArray<FString> first;
+            first.Add(FString(tag));
+            ApplySelectedTagsLocked(first);
+            return;
+        }
+        // A readiness claim is a claim about the SELECTED configurations. A
+        // draw under another one starts now, before the change settles, and
+        // must not be judged against the old claim: withdraw it at once
+        // (ClaimsAllowedLocked makes none until the drawn set is selected).
+        if (!IsSelectedLocked(tag))
+        {
+            RevokeReadyClaimsLocked();
         }
     }
 
-    void VulkanPipelinePrecache::ApplySelectedTagLocked(const std::string_view tag)
+    bool VulkanPipelinePrecache::IsSelectedLocked(const std::string_view tag) const
     {
-        if (m_Tag.ToView() == tag)
+        return m_SelectedTags.ContainsByPredicate([tag](const FString& t) { return t.ToView() == tag; });
+    }
+
+    bool VulkanPipelinePrecache::ClaimsAllowedLocked() const
+    {
+        // Every configuration drawn last frame and so far this frame must be a
+        // selected one; with no tag published at all (a 2D-only session), the
+        // empty tag is the configuration.
+        if (m_LastFrameTags.IsEmpty() && m_FrameTags.IsEmpty())
         {
-            return;
+            return !m_SelectedTags.IsEmpty() && IsSelectedLocked(m_PublishedTag.ToView());
         }
-        m_Tag = FString(tag);
+        const auto selected = [this](const FString& tag) { return IsSelectedLocked(tag.ToView()); };
+        return std::ranges::all_of(m_LastFrameTags, selected) && std::ranges::all_of(m_FrameTags, selected);
+    }
+
+    void VulkanPipelinePrecache::ApplySelectedTagsLocked(const TArray<FString>& tags)
+    {
+        m_SelectedTags = tags;
         // The selected configuration moved: every live shader's entries for the
         // new one are requested at the front of the queue (already-created ones
         // are duplicates), readiness is judged against the new set, and every
@@ -452,14 +491,34 @@ namespace OloEngine
     std::string VulkanPipelinePrecache::GetConfigurationTag() const
     {
         std::lock_guard lock(m_Mutex);
-        return m_Tag.ToStdString();
+        std::string joined;
+        for (const FString& tag : m_SelectedTags)
+        {
+            joined += joined.empty() ? "" : " + ";
+            joined += tag.ToView();
+        }
+        return joined;
     }
 
     void VulkanPipelinePrecache::RecordDrawCreation(const std::string_view shader, const u32 stageMask,
                                                     const PipelineSignature& signature)
     {
-        std::lock_guard lock(m_Mutex);
-        (void)m_Manifest.Record(shader, stageMask, signature, m_PublishedTag.ToView());
+        std::lock_guard recordLock(m_RecordMutex);
+        m_PendingRecords.Add({ FString(shader), stageMask, signature, m_RecordTag });
+    }
+
+    void VulkanPipelinePrecache::DrainPendingRecordsLocked()
+    {
+        TArray<VulkanPipelinePrecacheRecord> pending;
+        {
+            std::lock_guard recordLock(m_RecordMutex);
+            pending = std::move(m_PendingRecords);
+            m_PendingRecords.Empty();
+        }
+        for (const VulkanPipelinePrecacheRecord& record : pending)
+        {
+            (void)m_Manifest.Record(record.Shader.ToView(), record.StageMask, record.Signature, record.Tag.ToView());
+        }
     }
 
     void VulkanPipelinePrecache::Tick()
@@ -470,29 +529,38 @@ namespace OloEngine
             {
                 return;
             }
-            // Settle the configuration tag (see SetConfigurationTag).
-            if (m_FrameTagMixed)
+            DrainPendingRecordsLocked();
+            // Settle the configuration (see SetConfigurationTag): the set of
+            // tags this frame drew, or the last published one if it drew none.
+            TArray<FString> drawn = m_FrameTags;
+            if (drawn.IsEmpty())
             {
-                m_CandidateTicks = 0;
+                drawn.Add(m_PublishedTag);
             }
-            else if (m_FrameTagSeen)
+            std::ranges::sort(drawn, [](const FString& a, const FString& b) { return a.ToView() < b.ToView(); });
+            const auto sameTags = [](const TArray<FString>& a, const TArray<FString>& b)
             {
-                if (m_FrameTag == m_CandidateTag)
-                {
-                    ++m_CandidateTicks;
-                }
-                else
-                {
-                    m_CandidateTag = m_FrameTag;
-                    m_CandidateTicks = 1;
-                }
-                if (m_CandidateTicks >= kTagSettleTicks && m_CandidateTag != m_Tag)
-                {
-                    ApplySelectedTagLocked(m_CandidateTag.ToView());
-                }
+                return std::ranges::equal(a, b, [](const FString& x, const FString& y) { return x.ToView() == y.ToView(); });
+            };
+            if (sameTags(drawn, m_CandidateTags))
+            {
+                ++m_CandidateTicks;
             }
-            m_FrameTagSeen = false;
-            m_FrameTagMixed = false;
+            else
+            {
+                m_CandidateTags = drawn;
+                m_CandidateTicks = 1;
+            }
+            if (m_CandidateTicks >= kTagSettleTicks && !sameTags(m_CandidateTags, m_SelectedTags))
+            {
+                ApplySelectedTagsLocked(m_CandidateTags);
+            }
+            if (!sameTags(drawn, m_LastFrameTags))
+            {
+                m_ReadinessDirty = true;
+            }
+            m_LastFrameTags = drawn;
+            m_FrameTags.Empty();
             EvaluateReadinessLocked(/*force=*/false);
         }
         // This frame's budget. Not accumulated: an idle frame does not buy a
@@ -500,7 +568,8 @@ namespace OloEngine
         {
             std::lock_guard workLock(m_WorkMutex);
             m_Tokens = m_WorkerCount > 0 ? m_JobsPerFrame : 0u;
-            m_LastTick = std::chrono::steady_clock::now();
+            m_LastFrameTick = std::chrono::steady_clock::now();
+            m_LastGrant = m_LastFrameTick;
         }
         m_WorkCv.notify_all();
     }
@@ -519,11 +588,14 @@ namespace OloEngine
                     // seconds before its first frame). Refill at the per-frame
                     // rate, so requests made during loading are prepared on
                     // these threads instead of all landing on the first frame;
-                    // nothing waits for them, so loading gains no stall.
-                    if (m_Tokens == 0 && std::chrono::steady_clock::now() - m_LastTick >= kLoadingRefillInterval)
+                    // nothing waits for them, so loading gains no stall. While
+                    // frames are coming, even slow ones, only Tick grants.
+                    const auto now = std::chrono::steady_clock::now();
+                    if (m_Tokens == 0 && now - m_LastFrameTick >= kNoFrameThreshold &&
+                        now - m_LastGrant >= kLoadingRefillInterval)
                     {
                         m_Tokens = m_JobsPerFrame;
-                        m_LastTick = std::chrono::steady_clock::now();
+                        m_LastGrant = now;
                     }
                 }
                 if (m_StopRequested)
@@ -567,9 +639,9 @@ namespace OloEngine
         m_EvaluatedCompletions = completions;
         m_ReadinessDirty = false;
 
-        // Claims are made only while the configuration drawn is the selected
-        // one; during a switch, before the new tag settles, nothing is ready.
-        const bool claimsAllowed = !m_Tag.IsEmpty() && m_PublishedTag == m_Tag;
+        // Claims are made only while every configuration drawn is a selected
+        // one; during a switch, before the new set settles, nothing is ready.
+        const bool claimsAllowed = ClaimsAllowedLocked();
 
         PipelineReadinessSnapshot& r = m_LastReadiness;
         r.TrackedShaders = 0;
@@ -628,11 +700,18 @@ namespace OloEngine
     {
         const auto stats = VulkanPipelineBuilder::Get().GetRequestStats();
         std::lock_guard lock(m_Mutex);
+        DrainPendingRecordsLocked();
         EvaluateReadinessLocked(/*force=*/true);
         snapshot.Model = PipelineReadinessModel::VulkanPipelineObjects;
         snapshot.Pipelines = stats.Counters;
         snapshot.PrecacheEnabled = m_Started && Levers::VulkanPsoPrecache() != Levers::Tristate::Off;
-        snapshot.ConfigurationTag = m_Tag;
+        std::string joined;
+        for (const FString& tag : m_SelectedTags)
+        {
+            joined += joined.empty() ? "" : " + ";
+            joined += tag.ToView();
+        }
+        snapshot.ConfigurationTag = FString(joined);
         snapshot.JobsPerFrame = m_WorkerCount > 0 ? m_JobsPerFrame : 0u;
         snapshot.Queued = stats.Queued;
         snapshot.InFlight = stats.InFlight;
@@ -650,9 +729,10 @@ namespace OloEngine
         VulkanPipelineBuilder::Get().ResetRequestCounters();
     }
 
-    PipelineManifest VulkanPipelinePrecache::CopyManifest() const
+    PipelineManifest VulkanPipelinePrecache::CopyManifest()
     {
         std::lock_guard lock(m_Mutex);
+        DrainPendingRecordsLocked();
         return m_Manifest;
     }
 

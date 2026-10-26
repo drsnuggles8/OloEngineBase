@@ -395,6 +395,22 @@ TEST(PipelineManifest, TrimNeverKeepsAnOlderEntryOverANewerOne)
     }
 }
 
+TEST(PipelineManifest, TrimBreaksTiesByIdentityNotByHashOrder)
+{
+    // Five shaders, all seen in the same session; keep two. The survivors are
+    // the same on every standard library: the last two identities in order.
+    PipelineManifest manifest;
+    manifest.BeginSession();
+    for (const char* name : { "Echo", "Alpha", "Delta", "Charlie", "Bravo" })
+    {
+        ASSERT_TRUE(manifest.Record(name, kClassicStages, Signature(1, 37, 0, 1), "a"));
+    }
+    manifest.Trim(2);
+    EXPECT_EQ(manifest.GetEntryCount(), 2u);
+    EXPECT_EQ(manifest.EntriesFor("Delta", kClassicStages, "a").Num(), 1);
+    EXPECT_EQ(manifest.EntriesFor("Echo", kClassicStages, "a").Num(), 1);
+}
+
 TEST(PipelineManifest, TheConfigurationTagNamesEveryInputThatChangesAPassTarget)
 {
     const std::string base = MakePipelineConfigurationTag("Deferred", 1, "native", false, true);

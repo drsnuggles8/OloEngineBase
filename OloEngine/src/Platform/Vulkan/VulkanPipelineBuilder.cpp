@@ -956,9 +956,14 @@ namespace OloEngine
             if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
             {
                 // Published while this thread waited: already counted as a
-                // late request, so it is not ALSO a prepared first use. The
-                // ordinary hit path still refreshes its manifest entry.
-                it->second.FirstUseSeen.store(true, std::memory_order_relaxed);
+                // late request, so it is not ALSO a prepared first use. A draw
+                // that merely raced the publish (nothing counted yet) found a
+                // prepared pipeline and is one. The hit path refreshes the
+                // manifest entry either way.
+                if (counted)
+                {
+                    it->second.FirstUseSeen.store(true, std::memory_order_relaxed);
+                }
                 lock.unlock();
                 if (const VkPipeline pipeline = LookUp(key); pipeline != VK_NULL_HANDLE)
                 {
