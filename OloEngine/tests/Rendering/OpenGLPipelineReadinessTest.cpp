@@ -65,12 +65,13 @@ TEST(OpenGLPipelineReadiness, CompileLinkAndForcedLinkAreCountedApart)
     EXPECT_EQ(created.ProgramLinks - before.ProgramLinks, 1u) << "New source cannot come from a program binary";
     EXPECT_EQ(created.ProgramBinaryHits, before.ProgramBinaryHits);
 
-    // The first bind finishes a link the driver is still running in the
-    // background; without parallel shader compile the link was synchronous
-    // and nothing is left to force.
+    // The first bind forces a link the driver is still running in the
+    // background. One the driver already finished is finalized uncounted, so
+    // under parallel shader compile the count is 0 or 1 depending on driver
+    // timing; without it the link was synchronous and nothing is left to force.
     shader->Bind();
     const ShaderPreparationStats bound = ShaderPreparationCounters::Get().Snapshot();
-    EXPECT_EQ(bound.LinksForcedAtUse - created.LinksForcedAtUse, OpenGLContext::HasParallelShaderCompile() ? 1u : 0u);
+    EXPECT_LE(bound.LinksForcedAtUse - created.LinksForcedAtUse, OpenGLContext::HasParallelShaderCompile() ? 1u : 0u);
     EXPECT_TRUE(shader->IsReady());
     shader->Unbind();
     shader.Reset();

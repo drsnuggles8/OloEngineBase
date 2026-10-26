@@ -2534,10 +2534,17 @@ namespace OloEngine
         {
             return;
         }
+        // A link the driver already finished in the background, but nobody
+        // polled yet, makes the use wait for nothing: finalized, not counted.
+        auto* self = const_cast<OpenGLShader*>(this);
+        if (self->PollCompilationStatus())
+        {
+            return;
+        }
         // The GL analogue of a pipeline requested too late (#1345): counted
         // with the time the use blocked.
         const auto forcedStart = std::chrono::steady_clock::now();
-        const_cast<OpenGLShader*>(this)->EnsureLinked();
+        self->EnsureLinked();
         ShaderPreparationCounters::Get().AddLinkForcedAtUse(
             std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - forcedStart).count());
     }
