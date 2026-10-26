@@ -1840,7 +1840,7 @@ namespace OloEngine
 
     bool GroomRenderPass::BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
                                          u32 resolution, bool ring, u32* outOccupiedVoxels,
-                                         const GroomDeformationInputs* body)
+                                         const GroomDeformationInputs* body, f32 radiusExtent)
     {
         if (segments.empty())
         {
@@ -1849,15 +1849,7 @@ namespace OloEngine
 
         GroomCoatShadow::DensityVolumeSettings volumeSettings;
         volumeSettings.Resolution = resolution;
-        // A pose bake's stride subset carries its dropped segments' fibre in its
-        // radii (AcquireDrawnPose, SubsampleCoatSegments: full/kept times each);
-        // only the share of a radius that is thickness pads the grid, so the
-        // subset bakes on the full pose's grid.
-        if (ring && entry.CoatFullPoseSegments > segments.size())
-        {
-            volumeSettings.RadiusExtent =
-                static_cast<f32>(segments.size()) / static_cast<f32>(entry.CoatFullPoseSegments);
-        }
+        volumeSettings.RadiusExtent = radiusExtent;
         GroomCoatShadow::DensityVolume& volume = m_CoatVolumeScratch;
         m_BakeScratchUsedTick = m_CacheTick;
         GroomCoatShadow::DensityVolumeBuildStats volumeStats;
@@ -2517,7 +2509,19 @@ namespace OloEngine
             m_Stats.CoatShadow.BakeSegmentMicroseconds += MicrosecondsSince(segmentStart);
 
             u32 occupiedVoxels = 0;
-            if (emitted > 0 && BakeCoatVolume(entry, segments, resolution, deformed, &occupiedVoxels, restBody))
+            // A pose bake's stride subset carries its dropped segments' fibre in
+            // its radii (AcquireDrawnPose, SubsampleCoatSegments: full/kept times
+            // each); only the share of a radius that is thickness pads the grid,
+            // so the subset bakes on the full pose's grid. From the subset as
+            // drawn, before BuildCoatSegmentsFromPose drops a non-finite segment,
+            // and never on a full bake, whose radii are all thickness.
+            const f32 radiusExtent =
+                deformed && entry.CoatPoseStride > 1u && !drawnPose.empty() &&
+                        entry.CoatFullPoseSegments > drawnPose.size()
+                    ? static_cast<f32>(drawnPose.size()) / static_cast<f32>(entry.CoatFullPoseSegments)
+                    : 1.0f;
+            if (emitted > 0 &&
+                BakeCoatVolume(entry, segments, resolution, deformed, &occupiedVoxels, restBody, radiusExtent))
             {
                 entry.CoatLodStep = lodStep;
                 entry.CoatWidthScale = request.WidthScale;

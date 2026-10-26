@@ -1153,7 +1153,7 @@ namespace OloEngine
         // the volume after the coat; see GroomCoatShadow::MarkBodyInDensityVolume.
         bool BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
                             u32 resolution, bool ring, u32* outOccupiedVoxels = nullptr,
-                            const GroomDeformationInputs* body = nullptr);
+                            const GroomDeformationInputs* body = nullptr, f32 radiusExtent = 1.0f);
 
         /// The CPU path's rebuilt stream for the groom being processed, reused
         /// across draws so a bound coat does not allocate it twice. Empty on the
