@@ -121,13 +121,20 @@ min–max over the three counted runs. Full per-pass tables:
 
 GPU memory (#1342 report): live 1674 MiB (Forward, Forward+) and 1761 MiB (Deferred); peak 4253 and
 4340 MiB. Largest owners: ShadowPass 501 MiB, GroomPass 412 MiB, unattributed 197 MiB, transient pool
-166 MiB, foliage pinned representations 124 MiB. The process's resident set exceeds the test host's
-6 GB guard, so these runs pass `--olo-rss-ceiling-mb=0` (the plan's `testHostArgs`; #1591).
+166 MiB, foliage pinned representations 124 MiB. When these rows were measured the process's resident
+set exceeded the test host's 6 GB guard, so the runs passed `--olo-rss-ceiling-mb=0` (the plan's
+`testHostArgs`). Since #1591 it stays inside the guard and the flag is not needed: the gate case peaks
+at 3.5 GB working set and 7.5 GB private bytes, against 9.0 GB and 16.6 GB before. The scene built
+all 44 bound coats at full density in its first frame, because a coat's LOD started on full strands
+and coarsened only after its hold; now it starts on the tier it measures, and the coats arrive a few a
+frame inside the strand cache's budget.
 
 ### Vulkan: live editor
 
-The editor host's capture reopens the scene, and that load outlasts the MCP main-thread wait, so every
-capture attempt failed (#1591). The Vulkan cells were measured live with
+The editor host's capture reopens the scene, and that load outlasted the MCP main-thread wait, so every
+capture attempt failed. Since #1591 the capture waits the load out, and `olo_benchmark_capture`
+completes on Forward, Forward+ and Deferred, so these cells can be re-measured under the controlled
+protocol; the rows below are still the live ones. The Vulkan cells were measured live with
 `scripts/perf/acceptance-live.py` on one editor that opened the scene once: Release, `--rhi=vulkan`, ThrottleEditMode off, three passes over every
 cell and camera, the last 120 completed frames after a 6 s settle. Frame time here is the completed
 frame interval and the editor animates on its own clock with the animal paths still, so these are
@@ -174,9 +181,11 @@ light requests nor the waste, and agree with the post-fix Deferred check within 
 
 GPU memory at the end of the session: live 2.75 GiB, peak 6.26 GiB; ShadowPass 696 MiB, ShadowMap
 640 MiB, unattributed 427 MiB, transient pool 273 MiB, GroomPass 199 MiB. The editor process held
-6.6–6.8 GB of private memory throughout, and a reload of the scene peaks at 12.9 GB for about 30 s
-(#1591). The editor log has no shader error; it warns that the groom strand cache runs 50–85 MiB
-over its 1 GiB budget at the head close-up with every entry in use (1.3–1.6 GiB over while the scene loads), and that the VSM's lamps
+6.6–6.8 GB of private memory throughout, and a reload of the scene peaked at 12.9 GB for about 30 s.
+Since #1591 a reload peaks at 6.3 GB and settles at 6.2 GB (15.4 GB and 6.4 GB on the same machine
+before), and the strand cache stays within its budget while the scene loads. The editor log has no
+shader error; it warns that the groom strand cache runs 50–85 MiB
+over its 1 GiB budget at the head close-up with every entry in use, and that the VSM's lamps
 cast no groom shadow (below).
 
 **Validation.** A separate walk ran the Release editor under the Khronos validation layer (forced
@@ -304,7 +313,6 @@ would not change the verdict, and the CPU-bound frame would not get faster at a 
 | #1588 | bound-coat deformation and the strand pass's CPU side on the main thread (59–128 ms + 34–76 ms with the herd in view) | every outdoor and head camera, both backends |
 | #1589 | GroomPass on OpenGL: `RootFrames` 36–75 ms and ~45 ms unbracketed at the head close-up | GL head-closeup |
 | #1590 | ShadowPass outside its brackets: the VSM sun (+25–35 ms over CSM) and the lamp atlas route (0.1–0.9 s) | every outdoor camera; CSM control |
-| #1591 | a 12.9 GB load transient, the strand cache 1.5 GiB over budget at load, and the editor-host capture timing out on the load | Vulkan protocol runs; GL RSS guard |
 | #1594 | 0.65–2.1 s CPU hitches in the live Vulkan editor | Vulkan p95/p99 |
 | #1578 | the vegetation build budget withholds the RT TLAS at every acceptance camera | Vulkan hybrid |
 | #1593 | the head's hair below the film-quality bar | picture (head) |
