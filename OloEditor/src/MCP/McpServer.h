@@ -51,6 +51,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -273,11 +274,20 @@ namespace OloEngine::MCP
         u32 GroomsAwaitingBuild = 0;
     };
 
-    // The error a main-thread read reports when the main thread did not take it
-    // in time. A scene-load wait counts it as a long frame, not a failure, and
-    // the Python drivers (scripts/perf/editor_mcp.py) match on the same text.
+    // The error a main-thread read throws when the main thread did not take it
+    // in time. A scene-load wait catches it by TYPE and counts it as a long
+    // frame, not a failure; the Python drivers (scripts/perf/editor_mcp.py)
+    // match the text, so the text is a contract too.
     inline constexpr std::string_view kMainThreadTimeoutMessage =
         "Timed out waiting for the editor main thread (is the editor responsive?)";
+    class McpMainThreadTimeout : public std::runtime_error
+    {
+      public:
+        McpMainThreadTimeout()
+            : std::runtime_error(std::string(kMainThreadTimeoutMessage))
+        {
+        }
+    };
 
     struct McpSceneOpenResult
     {

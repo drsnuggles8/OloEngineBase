@@ -245,6 +245,18 @@ namespace OloEngine::MCP::SceneControl
         return outcome;
     }
 
+    // Frames of the new scene a load must have rendered before it is called
+    // loaded, and how long a tool waits for one. Polled, so a slow load costs
+    // only the wait and never a timeout that leaves a queued backlog behind.
+    inline constexpr u32 kSceneLoadSettleFrames = 2;
+    inline constexpr std::chrono::milliseconds kSceneLoadTimeout{ 300000 };
+
+    [[nodiscard]] inline std::string StillLoadingMessage(const SceneLoadOutcome& outcome)
+    {
+        return "The scene opened but was still loading after " + std::to_string(static_cast<int>(outcome.Seconds)) +
+               " s (" + std::to_string(outcome.GroomsAwaitingBuild) + " bound coat(s) awaiting their first build)";
+    }
+
     [[nodiscard]] inline Json ToJson(const SceneLoadOutcome& outcome)
     {
         return Json{

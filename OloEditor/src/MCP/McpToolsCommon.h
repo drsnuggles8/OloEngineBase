@@ -359,10 +359,9 @@ namespace OloEngine::MCP
             probe.FramesSinceOpen = state.value("framesSinceOpen", static_cast<u64>(0));
             probe.GroomsAwaitingBuild = state.value("awaiting", 0u);
         }
-        catch (const std::runtime_error& error)
+        catch (const McpMainThreadTimeout&)
         {
-            if (std::string_view(error.what()) != kMainThreadTimeoutMessage)
-                throw;
+            // A long frame: the poll stays unanswered. Anything else propagates.
         }
         return probe;
     }

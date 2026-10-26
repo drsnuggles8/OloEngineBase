@@ -243,17 +243,15 @@ namespace OloEngine::MCP
             // is waited through rather than reported.
             if (host.Context().GetSceneLoadState)
             {
-                const SceneControl::SceneLoadOutcome load = AwaitSceneLoaded(host, 2u, kBenchmarkMarshalTimeout);
+                const SceneControl::SceneLoadOutcome load =
+                    AwaitSceneLoaded(host, SceneControl::kSceneLoadSettleFrames, SceneControl::kSceneLoadTimeout);
                 if (load.Cancelled)
                 {
                     return ToolResult::Error("Benchmark capture cancelled while the scene was loading.");
                 }
                 if (!load.Loaded)
                 {
-                    return ToolResult::Error("The scene was still loading after " +
-                                             std::to_string(static_cast<int>(load.Seconds)) + " s (" +
-                                             std::to_string(load.GroomsAwaitingBuild) +
-                                             " bound coat(s) awaiting their first build); nothing was captured.");
+                    return ToolResult::Error(SceneControl::StillLoadingMessage(load) + "; nothing was captured.");
                 }
             }
 

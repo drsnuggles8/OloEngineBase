@@ -355,14 +355,6 @@ namespace OloEngine::MCP
         // the 5s default deliberately, so slow tools genuinely hang rather than
         // silently blocking behind the queue for minutes.
         constexpr std::chrono::milliseconds kSceneControlTimeout{ 120000 };
-        // How long olo_scene_open waits for an opened scene to finish loading
-        // (#1591): polled, so a slow load costs only the wait, never a timeout
-        // that leaves a backlog behind it. The #1259 acceptance scene builds 44
-        // bound coats over its first frames.
-        constexpr std::chrono::milliseconds kSceneLoadTimeout{ 300000 };
-        // Frames of the new scene a load must have rendered before it can be
-        // called loaded, and the settle olo_scene_open always took (#519).
-        constexpr u32 kPostLoadSettleFrames = 2;
 
         // ---- olo_scene_load_status (main-marshaled; read-only, #1591) -------
         // One poll of the scene load, for a caller that opened with wait:false.
@@ -374,7 +366,7 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Scene load status is not available in this editor build.");
             const SceneControl::SceneLoadProbe probe = ProbeSceneLoad(host);
             return ToolResult::Structured(Json{ { "answered", probe.Answered },
-                                                { "loaded", SceneControl::IsSceneLoaded(probe, kPostLoadSettleFrames) },
+                                                { "loaded", SceneControl::IsSceneLoaded(probe, SceneControl::kSceneLoadSettleFrames) },
                                                 { "framesSinceOpen", probe.FramesSinceOpen },
                                                 { "groomsAwaitingBuild", probe.GroomsAwaitingBuild } });
         }
@@ -443,15 +435,23 @@ namespace OloEngine::MCP
             // build its bound coats, and a 5 s read made during one of them
             // reported "Timed out waiting for the editor main thread" for a load
             // that was still going. AwaitSceneLoaded polls with short reads and
-            // counts an unanswered one as a long frame, not a failure.
+            // counts an unanswered one as a long frame, not a failure. The
+            // settle after it is best effort for the same reason: a loaded scene
+            // whose next frame runs long is still loaded.
             const auto settle = [&host]
             {
                 if (!host.Context().GetFrameIndex)
                     return;
-                const u64 baseFrame = host.MarshalRead([&host]() -> Json
-                                                       { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
-                                          .value("frame", static_cast<u64>(0));
-                AwaitRenderedFrames(host, baseFrame, static_cast<int>(kPostLoadSettleFrames));
+                try
+                {
+                    const u64 baseFrame = host.MarshalRead([&host]() -> Json
+                                                           { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
+                                              .value("frame", static_cast<u64>(0));
+                    AwaitRenderedFrames(host, baseFrame, static_cast<int>(kSceneLoadSettleFrames));
+                }
+                catch (const McpMainThreadTimeout&)
+                {
+                }
             };
             if (!host.Context().GetSceneLoadState)
             {
@@ -459,28 +459,16 @@ namespace OloEngine::MCP
                 return ToolResult::Structured(result);
             }
             Json response = result;
-            if (!waitForLoad)
-            {
-                SceneControl::SceneLoadOutcome pending;
-                const SceneControl::SceneLoadProbe probe = ProbeSceneLoad(host);
-                pending.Polls = 1;
-                pending.UnansweredPolls = probe.Answered ? 0u : 1u;
-                pending.FramesRendered = probe.FramesSinceOpen;
-                pending.GroomsAwaitingBuild = probe.GroomsAwaitingBuild;
-                pending.Loaded = SceneControl::IsSceneLoaded(probe, kPostLoadSettleFrames);
-                response["load"] = SceneControl::ToJson(pending);
-                return ToolResult::Structured(response);
-            }
-            const SceneControl::SceneLoadOutcome load = AwaitSceneLoaded(host, kPostLoadSettleFrames, kSceneLoadTimeout);
-            response["load"] = SceneControl::ToJson(load);
+            // wait:false is the same wait with no budget: one poll.
+            const SceneLoadOutcome load = AwaitSceneLoaded(host, kSceneLoadSettleFrames,
+                                                           waitForLoad ? kSceneLoadTimeout : std::chrono::milliseconds(0));
+            response["load"] = ToJson(load);
             if (load.Cancelled)
                 return ToolResult::Error("Request cancelled while the scene was loading.");
             if (!load.Loaded)
             {
-                response["message"] = "The scene opened but was still loading after " +
-                                      std::to_string(static_cast<int>(load.Seconds)) + " s (" +
-                                      std::to_string(load.GroomsAwaitingBuild) +
-                                      " bound coat(s) awaiting their first build); poll olo_scene_load_status.";
+                if (waitForLoad)
+                    response["message"] = StillLoadingMessage(load) + "; poll olo_scene_load_status.";
                 return ToolResult::Structured(response);
             }
             settle();
@@ -1004,7 +992,7 @@ namespace OloEngine::MCP
             tool.InputSchema = SceneControl::OpenInputSchema();
             tool.OutputSchema = Schema::Object()
                                     .Prop("available", Schema::Bool().Desc("False when this editor build has no scene-open hook."))
-                                    .Prop("ok", Schema::Bool().Desc("Whether the scene loaded."))
+                                    .Prop("ok", Schema::Bool().Desc("Whether the scene opened; 'load' says whether it finished loading."))
                                     .Prop("path", Schema::String().Desc("Resolved scene path."))
                                     .Prop("sceneName", Schema::String().Desc("Name of the newly active scene."))
                                     .Prop("entityCount", Schema::Int().Min(0))
