@@ -35,10 +35,11 @@ request and when, and `olo_perf_pipeline_readiness` reports both.
    configuration tag.** `MakePipelineConfigurationTag` (path, G-Buffer samples, upscaled or native,
    temporal upscale, OIT) is published from `RenderPipeline::CompileFrameGraph`. A setting left out
    of the tag still works, but its keys are prepared speculatively instead of first, and a switch to
-   it can land before they are ready. The selected configuration is the set of tags drawn in a
-   frame (a viewport and a preview with different settings make two). The first tag of a session
-   is selected at once; a different set is selected after it has been drawn for two frames.
-   Readiness claims are withdrawn the moment an unselected tag is published.
+   it can land before they are ready. The selected configuration is every tag published within the
+   last 8 frames that published any (a viewport and a preview with different settings make two).
+   The first tag of a session is selected at once; a new tag joins at the next frame and an old one
+   leaves once it has not been drawn for the window. Readiness claims are withdrawn the moment an
+   unselected tag is published.
 5. **Never hold the builder lock across `vkCreate*Pipelines`.** The hit path of every recording
    thread shares that lock. A creation claims its key under the lock, snapshots the shader's modules
    and layout on the asking thread, releases the lock for the driver call, then publishes under the
