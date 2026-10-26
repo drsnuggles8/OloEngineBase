@@ -788,15 +788,24 @@ namespace OloEngine
             u64 FillMicroseconds = 0;
         };
 
+        /// The sky bake's cells (kBodySkyCellVoxels a side, x fastest) within
+        /// one cell of a voxel that holds density: the only cells whose sky fur
+        /// reads, so the only ones MarkBodyInDensityVolume bakes. It is the
+        /// ONLY thing the marking reads of the coat's density, so two coats on
+        /// one grid with the same cells mark the same body texels (#1646).
+        [[nodiscard]] std::vector<u8> BodySkyCellsNearCoat(const DensityVolume& volume);
+
         // Marks `surface` -- positions in its own object space, taken to the
         // volume's by `surfaceToVolume` -- into `volume.Body`, occupancy and
         // sky; `volume` must already hold the coat (BuildDensityVolume), whose
         // arrays are never touched. Returns false, with the volume untouched,
         // when the surface has no closed part or no voxel passes the floor; the
-        // caller then says the coat has no body.
+        // caller then says the coat has no body. `nearCoat`, when given, is
+        // BodySkyCellsNearCoat(volume), for a caller that already has it.
         [[nodiscard]] bool MarkBodyInDensityVolume(DensityVolume& volume, const GroomSurfaceView& surface,
                                                    const glm::mat4& surfaceToVolume, const BodyVoxelSettings& settings,
-                                                   BodyVoxelStats* outStats = nullptr);
+                                                   BodyVoxelStats* outStats = nullptr,
+                                                   const std::vector<u8>* nearCoat = nullptr);
 
         // ── Deep opacity map ────────────────────────────────────────────────
 

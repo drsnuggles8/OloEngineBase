@@ -45,11 +45,22 @@ namespace OloEngine
 {
     namespace
     {
-        // Everything MarkBodyInDensityVolume reads, hashed: the grid, where the
-        // coat's density lies (it reads only whether a voxel holds any), the
-        // surface's positions and indices, and its transform into the coat.
-        // The key of GroomRenderPass's body bakes (#1559).
-        [[nodiscard]] u64 CoatBodyKey(const GroomCoatShadow::DensityVolume& volume, const GroomDeformationInputs& body)
+        // Everything MarkBodyInDensityVolume reads but the body's transform,
+        // hashed: the grid, the sky cells near the coat (all it reads of the
+        // density, GroomCoatShadow::BodySkyCellsNearCoat), and the surface's
+        // positions and indices. The key of GroomRenderPass's body bakes
+        // (#1559); the transform is matched beside it, within
+        // kCoatBodyPlacementVoxels (BodyPlacementVoxels).
+        //
+        // NEITHER THE DENSITY NOR THE TRANSFORM'S BITS (#1646). A herd shares
+        // one body on a handful of grids, under coats a few strands apart and
+        // through a body-to-coat matrix that is the same matrix for every
+        // animal -- but evaluated through each animal's own world transform, so
+        // its bits differ in the last places. Keyed on either, no two foxes
+        // shared a bake, and the acceptance scene re-marked the same body at
+        // 150-250 ms a time, once per fox and per coat LOD step.
+        [[nodiscard]] u64 CoatBodyKey(const GroomCoatShadow::DensityVolume& volume, std::span<const u8> nearCoat,
+                                      const GroomSurfaceView& surface)
         {
             u64 hash = 1469598103934665603ull;
             const auto mix = [&hash](u64 value)
@@ -63,9 +74,9 @@ namespace OloEngine
             }
             u64 bits = 0;
             u32 filled = 0;
-            for (const f32 density : volume.Density)
+            for (const u8 cell : nearCoat)
             {
-                bits = (bits << 1u) | (density > 0.0f ? 1u : 0u);
+                bits = (bits << 1u) | (cell != 0u ? 1u : 0u);
                 if (++filled == 64u)
                 {
                     mix(bits);
@@ -74,7 +85,6 @@ namespace OloEngine
                 }
             }
             mix(bits ^ filled);
-            const GroomSurfaceView& surface = body.Surface;
             mix((static_cast<u64>(surface.VertexCount) << 32u) | surface.IndexCount);
             for (u32 v = 0; v < surface.VertexCount; ++v)
             {
@@ -90,14 +100,45 @@ namespace OloEngine
             {
                 mix(surface.Indices[surface.IndexCount - 1u]);
             }
-            for (glm::length_t column = 0; column < 4; ++column)
-            {
-                for (glm::length_t row = 0; row < 4; ++row)
-                {
-                    mix(std::bit_cast<u32>(body.SurfaceToGroom[column][row]));
-                }
-            }
             return hash;
+        }
+
+        // How far a body bake made through one transform may lie from another
+        // and still serve it, in the volume's voxels. The herd's matrices differ
+        // by float noise, measured at up to 0.0021 of a voxel on the acceptance
+        // foxes' 128^3 grids; a hundredth is five times that and a twenty-fifth
+        // of the occupancy raster's own sub-column (kBodySubColumns), so a body
+        // served across it is the body marked again to within that noise.
+        constexpr f32 kCoatBodyPlacementVoxels = 1.0e-2f;
+
+        // The farthest any point of `surface` lies between its placements by
+        // `a` and by `b`, in voxels of `voxelLength`. The displacement is
+        // affine, so its length peaks at a corner of the surface's box.
+        [[nodiscard]] f32 BodyPlacementVoxels(const glm::mat4& a, const glm::mat4& b, const GroomSurfaceView& surface,
+                                              f32 voxelLength)
+        {
+            if (surface.VertexCount == 0u || !(voxelLength > 0.0f))
+            {
+                return std::numeric_limits<f32>::infinity();
+            }
+            glm::vec3 lo = surface.Position(0);
+            glm::vec3 hi = lo;
+            for (u32 v = 1; v < surface.VertexCount; ++v)
+            {
+                const glm::vec3 p = surface.Position(v);
+                lo = glm::min(lo, p);
+                hi = glm::max(hi, p);
+            }
+            const glm::mat4 difference = a - b;
+            f32 farthest = 0.0f;
+            for (u32 corner = 0; corner < 8u; ++corner)
+            {
+                const glm::vec4 p((corner & 1u) != 0u ? hi.x : lo.x, (corner & 2u) != 0u ? hi.y : lo.y,
+                                  (corner & 4u) != 0u ? hi.z : lo.z, 1.0f);
+                farthest = std::max(farthest, glm::length(glm::vec3(difference * p)));
+            }
+            // A non-finite transform is never near anything.
+            return std::isfinite(farthest) ? farthest / voxelLength : std::numeric_limits<f32>::infinity();
         }
 
         // The stochastic hash's seed. Fixed rather than random: two runs of the
@@ -1740,13 +1781,26 @@ namespace OloEngine
         // fur through the body, as they did before the body was there.
         u32 bodyVoxels = 0;
         const bool haveSurface = body != nullptr && body->Surface.IsUsable();
-        const u64 bodyKey = haveSurface ? CoatBodyKey(volume, *body) : 0u;
-        const auto known = haveSurface ? std::ranges::find(m_CoatBodyBakes, bodyKey, &CoatBodyBake::Key)
-                                       : m_CoatBodyBakes.end();
+        const std::vector<u8> nearCoat =
+            haveSurface ? GroomCoatShadow::BodySkyCellsNearCoat(volume) : std::vector<u8>{};
+        const u64 bodyKey = haveSurface ? CoatBodyKey(volume, nearCoat, body->Surface) : 0u;
+        const glm::vec3 gridVoxel = volume.VoxelSize();
+        const f32 voxelLength = std::min({ gridVoxel.x, gridVoxel.y, gridVoxel.z });
+        const auto known =
+            haveSurface ? std::ranges::find_if(m_CoatBodyBakes,
+                                               [&](const CoatBodyBake& bake)
+                                               {
+                                                   return bake.Key == bodyKey &&
+                                                          BodyPlacementVoxels(bake.SurfaceToGroom, body->SurfaceToGroom,
+                                                                              body->Surface, voxelLength) <=
+                                                              kCoatBodyPlacementVoxels;
+                                               })
+                        : m_CoatBodyBakes.end();
         if (known != m_CoatBodyBakes.end())
         {
-            // The same body in the same grid around the same coat: the answer
-            // an earlier bake marked, not 150-200 ms of marking again.
+            // The same body in the same grid, the same cells of coat around it
+            // and placed within a hundredth of a voxel: the answer an earlier
+            // bake marked, not 150-250 ms of marking again.
             volume.Body = known->Body;
             bodyVoxels = known->MarkedVoxels;
             known->LastUsedTick = m_CacheTick;
@@ -1759,7 +1813,7 @@ namespace OloEngine
             GroomCoatShadow::BodyVoxelStats bodyStats;
             const bool marked = GroomCoatShadow::MarkBodyInDensityVolume(volume, body->Surface, body->SurfaceToGroom,
                                                                          GroomCoatShadow::BodyVoxelSettings{},
-                                                                         &bodyStats);
+                                                                         &bodyStats, &nearCoat);
             const u64 bodyMicroseconds = MicrosecondsSince(bodyStart);
             m_Stats.CoatShadow.BakeBodyMicroseconds += bodyMicroseconds;
             if (marked)
@@ -1774,11 +1828,22 @@ namespace OloEngine
                               static_cast<f64>(bodyStats.RasterMicroseconds) / 1000.0,
                               static_cast<f64>(bodyStats.SkyMicroseconds) / 1000.0, bodyStats.SkyCellsOutside,
                               bodyStats.SkyCells, static_cast<f64>(bodyStats.FillMicroseconds) / 1000.0);
-                if (m_CoatBodyBakes.size() >= kCoatBodyBakesKept)
+                // Bounded in BYTES (#1646), the oldest out first: a herd's bodies
+                // are small grids, and a count evicted them before their next use.
+                const auto bakeBytes = [](const CoatBodyBake& bake)
+                { return static_cast<u64>(bake.Body.size()) * sizeof(glm::u8vec4); };
+                u64 keptBytes = static_cast<u64>(volume.Body.size()) * sizeof(glm::u8vec4);
+                for (const CoatBodyBake& bake : m_CoatBodyBakes)
                 {
-                    m_CoatBodyBakes.erase(std::ranges::min_element(m_CoatBodyBakes, {}, &CoatBodyBake::LastUsedTick));
+                    keptBytes += bakeBytes(bake);
                 }
-                m_CoatBodyBakes.push_back({ bodyKey, volume.Body, bodyVoxels, m_CacheTick });
+                while (!m_CoatBodyBakes.empty() && keptBytes > kCoatBodyBakeBytes)
+                {
+                    const auto oldest = std::ranges::min_element(m_CoatBodyBakes, {}, &CoatBodyBake::LastUsedTick);
+                    keptBytes -= bakeBytes(*oldest);
+                    m_CoatBodyBakes.erase(oldest);
+                }
+                m_CoatBodyBakes.push_back({ bodyKey, body->SurfaceToGroom, volume.Body, bodyVoxels, m_CacheTick });
                 m_CoatBodyUsedTick = m_CacheTick;
             }
             else

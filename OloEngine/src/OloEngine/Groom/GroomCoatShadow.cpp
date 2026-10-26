@@ -1699,9 +1699,52 @@ namespace OloEngine::GroomCoatShadow
 
     } // namespace
 
+    std::vector<u8> BodySkyCellsNearCoat(const DensityVolume& volume)
+    {
+        if (!volume.IsValid())
+        {
+            return {};
+        }
+        constexpr i32 kCell = static_cast<i32>(kBodySkyCellVoxels);
+        const glm::ivec3 dims = volume.Dimensions;
+        const glm::ivec3 cells = (dims + glm::ivec3(kCell - 1)) / kCell;
+        const sizet cellCount = static_cast<sizet>(cells.x) * static_cast<sizet>(cells.y) * static_cast<sizet>(cells.z);
+        std::vector<u8> nearCoat(cellCount, 0u);
+        for (i32 z = 0; z < dims.z; ++z)
+        {
+            for (i32 y = 0; y < dims.y; ++y)
+            {
+                for (i32 x = 0; x < dims.x; ++x)
+                {
+                    if (!(volume.Density[VoxelIndex(dims, x, y, z)] > 0.0f))
+                    {
+                        continue;
+                    }
+                    const glm::ivec3 home(x / kCell, y / kCell, z / kCell);
+                    for (i32 dz = -1; dz <= 1; ++dz)
+                    {
+                        for (i32 dy = -1; dy <= 1; ++dy)
+                        {
+                            for (i32 dx = -1; dx <= 1; ++dx)
+                            {
+                                const glm::ivec3 c = home + glm::ivec3(dx, dy, dz);
+                                if (glm::all(glm::greaterThanEqual(c, glm::ivec3(0))) && glm::all(glm::lessThan(c, cells)))
+                                {
+                                    nearCoat[static_cast<sizet>(c.x) +
+                                             (static_cast<sizet>(cells.x) * (static_cast<sizet>(c.y) + (static_cast<sizet>(cells.y) * static_cast<sizet>(c.z))))] = 1u;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return nearCoat;
+    }
+
     bool MarkBodyInDensityVolume(DensityVolume& volume, const GroomSurfaceView& surface,
                                  const glm::mat4& surfaceToVolume, const BodyVoxelSettings& settings,
-                                 BodyVoxelStats* outStats)
+                                 BodyVoxelStats* outStats, const std::vector<u8>* nearCoatCells)
     {
         BodyVoxelStats stats;
         const auto stageStart = std::chrono::steady_clock::now();
@@ -2054,36 +2097,13 @@ namespace OloEngine::GroomCoatShadow
         std::vector<u8> cellOutside(cellCount, 0u);
         // Only the cells within one of the coat: fur is the sky's only reader,
         // and a voxel of fur interpolates between the cells around it.
-        std::vector<u8> nearCoat(cellCount, 0u);
-        for (i32 z = 0; z < dims.z; ++z)
+        std::vector<u8> ownNearCoat;
+        if (nearCoatCells == nullptr || nearCoatCells->size() != cellCount)
         {
-            for (i32 y = 0; y < dims.y; ++y)
-            {
-                for (i32 x = 0; x < dims.x; ++x)
-                {
-                    if (!(volume.Density[VoxelIndex(dims, x, y, z)] > 0.0f))
-                    {
-                        continue;
-                    }
-                    const glm::ivec3 home(x / kCell, y / kCell, z / kCell);
-                    for (i32 dz = -1; dz <= 1; ++dz)
-                    {
-                        for (i32 dy = -1; dy <= 1; ++dy)
-                        {
-                            for (i32 dx = -1; dx <= 1; ++dx)
-                            {
-                                const glm::ivec3 c = home + glm::ivec3(dx, dy, dz);
-                                if (glm::all(glm::greaterThanEqual(c, glm::ivec3(0))) && glm::all(glm::lessThan(c, cells)))
-                                {
-                                    nearCoat[static_cast<sizet>(c.x) +
-                                             (static_cast<sizet>(cells.x) * (static_cast<sizet>(c.y) + (static_cast<sizet>(cells.y) * static_cast<sizet>(c.z))))] = 1u;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            ownNearCoat = BodySkyCellsNearCoat(volume);
+            nearCoatCells = &ownNearCoat;
         }
+        const std::vector<u8>& nearCoat = *nearCoatCells;
         ParallelFor("GroomBodySky", static_cast<i32>(cellCount), 16,
                     [&](i32 index)
                     {

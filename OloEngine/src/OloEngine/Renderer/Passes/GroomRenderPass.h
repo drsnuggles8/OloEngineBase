@@ -1171,17 +1171,22 @@ namespace OloEngine
         /// the same grid again on the main thread: 150-200 ms each on the breeds,
         /// the stutter a playing dog's coat showed at its LOD changes. Keyed on
         /// everything the marking reads -- the surface's positions and indices,
-        /// its transform into the coat, the grid and where the coat's density
-        /// lies -- so a hit is the same answer. A few, the oldest out first, and
-        /// all of them given back after kCoatBodyIdleFrames without a bake.
+        /// the grid and the sky cells near the coat -- with its transform into
+        /// the coat matched within a hundredth of a voxel (#1646), so a hit is
+        /// the same answer. Up to kCoatBodyBakeBytes of them, the oldest out
+        /// first: the acceptance herd's coats sit on 28 grids (a handful of coat
+        /// bounds, four LOD steps), about 10 MiB, and the four kept before were
+        /// evicted before their next use. All given back after
+        /// kCoatBodyIdleFrames without a bake.
         struct CoatBodyBake
         {
             u64 Key = 0;
+            glm::mat4 SurfaceToGroom{ 1.0f };
             std::vector<glm::u8vec4> Body;
             u32 MarkedVoxels = 0;
             u64 LastUsedTick = 0;
         };
-        static constexpr sizet kCoatBodyBakesKept = 4;
+        static constexpr u64 kCoatBodyBakeBytes = 32ull * 1024ull * 1024ull;
         static constexpr u64 kCoatBodyIdleFrames = 3600;
         std::vector<CoatBodyBake> m_CoatBodyBakes;
         u64 m_CoatBodyUsedTick = 0;

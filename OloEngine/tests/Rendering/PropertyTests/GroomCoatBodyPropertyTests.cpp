@@ -572,3 +572,81 @@ TEST(GroomCoatBody, TheSurfaceIsTakenToTheVolumeByItsTransform)
     (void)SampleDensityVolume(volume, glm::vec3(0.0f), glm::vec3(-1.0f, 0.0f, 0.0f), true, 1.5f, nullptr, &away);
     EXPECT_FALSE(away > 0.0) << "the ball was not moved: the ray away from it still found it";
 }
+
+// THE MARKING READS THE DENSITY ONLY THROUGH THE SKY CELLS NEAR THE COAT (#1646),
+// which is what lets GroomRenderPass key its body bakes on those cells: a herd of
+// one body under coats a few strands apart, on one grid, marks one body, not one
+// per animal. A coat with different density but the same cells marks the same
+// texels to the bit, the cells handed in mark what the marker finds itself, and
+// a coat whose cells differ is a different key.
+TEST(GroomCoatBody, CoatsWithTheSameSkyCellsMarkTheSameBody)
+{
+    const DensityVolume coat = FurredBallCoat();
+    ASSERT_TRUE(coat.IsValid());
+
+    // A neighbour of the same herd: the same grid, every strand a little
+    // thinner, and every occupied voxel but the first of its sky cell emptied.
+    // Its density differs throughout; the cells within one of fur do not.
+    DensityVolume neighbour = coat;
+    const i32 cell = static_cast<i32>(kBodySkyCellVoxels);
+    const glm::ivec3 cells3 = (coat.Dimensions + glm::ivec3(cell - 1)) / cell;
+    std::vector<u8> cellKept(static_cast<sizet>(cells3.x) * static_cast<sizet>(cells3.y) * static_cast<sizet>(cells3.z), 0u);
+    u32 emptied = 0;
+    for (i32 z = 0; z < neighbour.Dimensions.z; ++z)
+    {
+        for (i32 y = 0; y < neighbour.Dimensions.y; ++y)
+        {
+            for (i32 x = 0; x < neighbour.Dimensions.x; ++x)
+            {
+                f32& density = neighbour.Density[Index(neighbour, x, y, z)];
+                if (!(density > 0.0f))
+                {
+                    continue;
+                }
+                u8& kept = cellKept[static_cast<sizet>(x / cell) +
+                                    (static_cast<sizet>(cells3.x) *
+                                     (static_cast<sizet>(y / cell) + (static_cast<sizet>(cells3.y) * static_cast<sizet>(z / cell))))];
+                if (kept != 0u)
+                {
+                    density = 0.0f;
+                    ++emptied;
+                }
+                else
+                {
+                    density *= 0.75f;
+                    kept = 1u;
+                }
+            }
+        }
+    }
+    ASSERT_GT(emptied, 0u);
+    const std::vector<u8> cells = BodySkyCellsNearCoat(coat);
+    ASSERT_FALSE(cells.empty());
+    ASSERT_EQ(BodySkyCellsNearCoat(neighbour), cells) << "the fixture's neighbour changed which cells hold fur";
+
+    const Mesh ball = UvSphere(kBodyRadius, 48, 96);
+    DensityVolume first = coat;
+    DensityVolume second = neighbour;
+    DensityVolume handed = coat;
+    ASSERT_TRUE(MarkBodyInDensityVolume(first, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}));
+    ASSERT_TRUE(MarkBodyInDensityVolume(second, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}));
+    ASSERT_TRUE(MarkBodyInDensityVolume(handed, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}, nullptr, &cells));
+    ASSERT_EQ(first.Body.size(), second.Body.size());
+    EXPECT_TRUE(first.Body == second.Body) << "two coats with the same sky cells marked different bodies";
+    EXPECT_TRUE(SameVolume(first, handed)) << "the cells handed in marked a different body from the ones found";
+
+    // A coat that leaves a whole side bare reads different cells, so it can
+    // never be served another coat's bake.
+    DensityVolume half = coat;
+    for (i32 z = 0; z < half.Dimensions.z; ++z)
+    {
+        for (i32 y = 0; y < half.Dimensions.y; ++y)
+        {
+            for (i32 x = 0; x < half.Dimensions.x / 2; ++x)
+            {
+                half.Density[Index(half, x, y, z)] = 0.0f;
+            }
+        }
+    }
+    EXPECT_NE(BodySkyCellsNearCoat(half), cells);
+}
