@@ -219,6 +219,13 @@ namespace OloEngine::MCP::Schema
     {
         return Node(Json{ { "type", Json::array({ "boolean", "null" }) } });
     }
+    // An object that may be JSON null, for the same reason again: a section a
+    // backend has no data for (olo_perf_pipeline_readiness's Vulkan PSO block
+    // on OpenGL, #1345) is null with a note, not an object of zeros.
+    [[nodiscard]] inline Node NullableObject()
+    {
+        return Node(Json{ { "type", Json::array({ "object", "null" }) } });
+    }
     [[nodiscard]] inline Node String()
     {
         return Node(Json{ { "type", "string" } });

@@ -455,6 +455,32 @@ namespace OloEngine
                                  : RendererAPI::ParallelRecordingFrameStats{};
         }
 
+        [[nodiscard]] static PipelineReadinessSnapshot GetPipelineReadiness()
+        {
+            return s_RendererAPI ? s_RendererAPI->GetPipelineReadiness() : PipelineReadinessSnapshot{};
+        }
+        static void ResetPipelineReadinessCounters()
+        {
+            if (s_RendererAPI)
+            {
+                s_RendererAPI->ResetPipelineReadinessCounters();
+            }
+        }
+        static void SetPipelineConfigurationTag(std::string_view tag)
+        {
+            if (s_RendererAPI)
+            {
+                s_RendererAPI->SetPipelineConfigurationTag(tag);
+            }
+        }
+        static void SavePipelineManifest()
+        {
+            if (s_RendererAPI)
+            {
+                s_RendererAPI->SavePipelineManifest();
+            }
+        }
+
         // Per-attachment blend control. Tri-state: see the declaration in
         // RendererAPI.h -- an attachment a pass turned on or off keeps that
         // opinion until ResetBlendStateForAttachment withdraws it, so every

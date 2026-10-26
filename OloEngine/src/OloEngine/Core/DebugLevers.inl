@@ -207,6 +207,18 @@ OLO_LEVER_TRISTATE(VulkanAsyncCompute, "OLO_VK_ASYNC_COMPUTE",
                    "the A/B for attributing a frame, validation-layer or timing difference to the second queue, "
                    "and the only way to exercise the no-async-queue degrade path on hardware that HAS one; "
                    "unset or \"1\" crosses to the compute queue wherever the device and the frame allow.")
+OLO_LEVER_TRISTATE(VulkanPsoPrecache, "OLO_VK_PSO_PRECACHE",
+                   "Request every pipeline the PSO manifest knows for a live shader before its first draw, and "
+                   "create the requests on background workers within a per-frame budget (#1345). \"0\" makes "
+                   "no requests, so every first use is a counted synchronous creation on the draw thread — the "
+                   "A/B for what precaching removes. Misses are counted either way (olo_perf_pipeline_readiness).")
+OLO_LEVER_INT(VulkanPsoPrecacheJobsPerFrame, "OLO_VK_PSO_PRECACHE_JOBS_PER_FRAME", 1,
+              "How many requested pipelines the precache workers may START per frame (#1345; default 4). Work "
+              "beyond the budget carries over to the next frame, so a large manifest spreads over frames "
+              "instead of stalling one.")
+OLO_LEVER_INT(VulkanPsoPrecacheWorkers, "OLO_VK_PSO_PRECACHE_WORKERS", 1,
+              "Background threads creating requested pipelines (#1345; default 2). Each runs one driver "
+              "compile at a time, never on a recording thread.")
 OLO_LEVER_EXACT(VulkanRecordingCosts, "OLO_VK_RECORDING_COSTS",
                 "Time the caller-side micro-costs of a RecordParallel fork — the per-item selection copy, the "
                 "attachment and sampled-image pre-transitions, the frontend context seeding and the pipeline "

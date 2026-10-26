@@ -10,6 +10,7 @@
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
+#include "Platform/Vulkan/VulkanPipelinePrecache.h"
 #include "Platform/Vulkan/VulkanShaderReflection.h"
 
 // Shared preprocessing: the #include resolution (and its include-path capture
@@ -20,6 +21,7 @@
 // each other).
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/Hash.h"
+#include "OloEngine/Renderer/PipelineReadiness.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
 #include "OloEngine/Renderer/ShaderRegistry.h"
 #include "OloEngine/Renderer/ShaderSourceScan.h"
@@ -28,6 +30,7 @@
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
 
+#include <chrono>
 #include <format>
 #include <fstream>
 #include <utility>
@@ -299,6 +302,9 @@ namespace OloEngine
         if (BuildFromSources(stages, /*useCache=*/true, readsMaterialHeapOffsets))
         {
             m_Status = ShaderCompilationStatus::Ready;
+            // The content hook for PSO precaching (#1345): the pipelines the
+            // manifest knows for this shader are requested now, before a draw.
+            VulkanPipelinePrecache::Get().OnShaderReady(*this);
         }
     }
 
@@ -317,13 +323,16 @@ namespace OloEngine
         if (BuildFromSources(stages, /*useCache=*/false, readsMaterialHeapOffsets))
         {
             m_Status = ShaderCompilationStatus::Ready;
+            VulkanPipelinePrecache::Get().OnShaderReady(*this);
         }
     }
 
     VulkanShader::~VulkanShader()
     {
-        // First, before this address can be recycled (ShaderRegistry.h).
+        // First, before this address can be recycled (ShaderRegistry.h); the
+        // precache tracks shaders by address for the same reason.
         ShaderRegistry::Get().UnregisterShader(this);
+        VulkanPipelinePrecache::Get().OnShaderDestroyed(*this);
         if (s_CurrentlyBound == this)
         {
             s_CurrentlyBound = nullptr;
@@ -406,6 +415,7 @@ namespace OloEngine
             }
             if (loaded)
             {
+                ShaderPreparationCounters::Get().AddSpirvCacheHit();
                 continue;
             }
 
@@ -472,9 +482,12 @@ namespace OloEngine
             options.SetSuppressWarnings();
             options.AddMacroDefinition("OLO_VULKAN", "1");
 
+            const auto compileStart = std::chrono::steady_clock::now();
             const auto result = compiler.CompileGlslToSpv(source, StageToShaderC(stage),
                                                           GetFilePath().empty() ? GetName().c_str() : GetFilePath().c_str(),
                                                           options);
+            ShaderPreparationCounters::Get().AddSourceCompile(
+                std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - compileStart).count());
             if (result.GetCompilationStatus() != shaderc_compilation_status_success)
             {
                 OLO_CORE_ERROR("VulkanShader '{}' ({} stage): {}", GetName(), StageName(stage), result.GetErrorMessage());
@@ -519,7 +532,11 @@ namespace OloEngine
             moduleInfo.codeSize = data.Num() * sizeof(u32);
             moduleInfo.pCode = data.GetData();
             VkShaderModule module = VK_NULL_HANDLE;
-            if (vkCreateShaderModule(device->GetDevice(), &moduleInfo, nullptr, &module) != VK_SUCCESS)
+            const auto moduleStart = std::chrono::steady_clock::now();
+            const VkResult moduleResult = vkCreateShaderModule(device->GetDevice(), &moduleInfo, nullptr, &module);
+            ShaderPreparationCounters::Get().AddModuleCreate(
+                std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - moduleStart).count());
+            if (moduleResult != VK_SUCCESS)
             {
                 OLO_CORE_ERROR("VulkanShader '{}': vkCreateShaderModule failed ({} stage)", GetName(), StageName(stage));
                 destroyNewModules();
@@ -849,7 +866,10 @@ namespace OloEngine
             return false;
         }
 
-        const sizet invalidated = VulkanPipelineBuilder::Get().InvalidateShader(GetPipelineIndexKey());
+        // InvalidateShader also waits out any precache creation still reading
+        // the old modules, so destroying them below is safe (#1345).
+        TArray<VulkanPipelineBuilder::Key> invalidatedKeys;
+        const sizet invalidated = VulkanPipelineBuilder::Get().InvalidateShader(GetPipelineIndexKey(), &invalidatedKeys);
         m_PipelinesInvalidatedByLastReload = static_cast<u32>(invalidated);
         auto* device = VulkanDevice::Get();
         for (auto& [stage, module] : oldModules)
@@ -860,7 +880,11 @@ namespace OloEngine
             }
         }
         m_Status = ShaderCompilationStatus::Ready;
-        OLO_CORE_INFO("VulkanShader '{}': reloaded ({} dependent pipeline(s) invalidated, lazy recreation)",
+        // Dependent pipelines are re-requested against the new modules, so a
+        // reload is re-prepared off the draw threads instead of hitching the
+        // next frame (#1345); a draw that arrives first still recreates lazily.
+        VulkanPipelinePrecache::Get().OnShaderReloaded(*this, invalidatedKeys);
+        OLO_CORE_INFO("VulkanShader '{}': reloaded ({} dependent pipeline(s) invalidated, re-requested)",
                       GetName(), invalidated);
         MarkReloadSucceeded();
         return true;

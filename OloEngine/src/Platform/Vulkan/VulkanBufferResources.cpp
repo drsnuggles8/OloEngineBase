@@ -14,6 +14,7 @@
 #include "Platform/Vulkan/VulkanOneShot.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanComputeShader.h"
+#include "Platform/Vulkan/VulkanPipelinePrecache.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 #include "Platform/Vulkan/VulkanTransientUpload.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
@@ -217,6 +218,9 @@ namespace OloEngine
                 auto* shader = static_cast<VulkanComputeShader*>(entry.Object);
                 OLO_CORE_TRACE("[Vulkan] releasing module of surviving compute shader '{}' at context teardown",
                                shader->GetName());
+                // A zombie leaves the precache's tracking with its module, or the
+                // next context's Start() requests pipelines for it (#1345).
+                VulkanPipelinePrecache::Get().OnComputeShaderDestroyed(*shader);
                 shader->ReleaseDeviceObjects();
                 ++released;
                 continue;
@@ -231,6 +235,7 @@ namespace OloEngine
 #if defined(OLO_DEBUG) && defined(OLO_PLATFORM_WINDOWS)
             ReportRefHolders(shader, shader->GetName().c_str());
 #endif
+            VulkanPipelinePrecache::Get().OnShaderDestroyed(*shader);
             shader->ReleaseDeviceObjects();
             ++released;
         }

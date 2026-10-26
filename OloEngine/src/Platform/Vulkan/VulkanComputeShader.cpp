@@ -8,12 +8,14 @@
 #include "Platform/Vulkan/VulkanBufferResources.h"
 #include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
+#include "Platform/Vulkan/VulkanPipelinePrecache.h"
 #include "Platform/Vulkan/VulkanRecordingContext.h"
 #include "Platform/Vulkan/VulkanShaderReflection.h"
 
 // Shared preprocessing, same Platform-to-Platform reuse VulkanShader records.
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "OloEngine/Core/Hash.h"
+#include "OloEngine/Renderer/PipelineReadiness.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
 #include "OloEngine/Renderer/ShaderRegistry.h"
 #include "OloEngine/Renderer/ShaderToolchainFloor.h"
@@ -21,6 +23,7 @@
 #include <shaderc/shaderc.hpp>
 #include <spirv_cross/spirv_cross.hpp>
 
+#include <chrono>
 #include <filesystem>
 #include <format>
 #include <fstream>
@@ -87,20 +90,29 @@ namespace OloEngine
         const std::string directory = (dirEnd != std::string::npos) ? filepath.substr(0, dirEnd) : "";
         const std::string source = OpenGLShader::ProcessIncludes(raw, directory);
 
-        (void)BuildFromSource(source, /*useCache=*/true);
+        if (BuildFromSource(source, /*useCache=*/true))
+        {
+            // The content hook for PSO precaching (#1345).
+            VulkanPipelinePrecache::Get().OnComputeShaderReady(*this);
+        }
     }
 
     VulkanComputeShader::VulkanComputeShader(std::string name, const std::string& source)
         : m_Name(std::move(name))
     {
         OLO_PROFILE_FUNCTION();
-        (void)BuildFromSource(OpenGLShader::ProcessIncludes(source, ""), /*useCache=*/false);
+        if (BuildFromSource(OpenGLShader::ProcessIncludes(source, ""), /*useCache=*/false))
+        {
+            VulkanPipelinePrecache::Get().OnComputeShaderReady(*this);
+        }
     }
 
     VulkanComputeShader::~VulkanComputeShader()
     {
-        // First, before this address can be recycled (ShaderRegistry.h).
+        // First, before this address can be recycled (ShaderRegistry.h); the
+        // precache tracks shaders by address for the same reason.
         ShaderRegistry::Get().UnregisterComputeShader(this);
+        VulkanPipelinePrecache::Get().OnComputeShaderDestroyed(*this);
         if (s_CurrentlyBound == this)
         {
             s_CurrentlyBound = nullptr;
@@ -163,7 +175,11 @@ namespace OloEngine
             }
         }
 
-        if (!loaded)
+        if (loaded)
+        {
+            ShaderPreparationCounters::Get().AddSpirvCacheHit();
+        }
+        else
         {
             // The toolchain floor, on the same terms as the graphics tier
             // (issue #1139, amendment (97)): after the cache, and only for a
@@ -195,9 +211,12 @@ namespace OloEngine
             options.SetSuppressWarnings();
             options.AddMacroDefinition("OLO_VULKAN", "1");
 
+            const auto compileStart = std::chrono::steady_clock::now();
             const auto result = compiler.CompileGlslToSpv(preprocessedSource, shaderc_glsl_compute_shader,
                                                           GetFilePath().empty() ? GetName().c_str() : GetFilePath().c_str(),
                                                           options);
+            ShaderPreparationCounters::Get().AddSourceCompile(
+                std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - compileStart).count());
             if (result.GetCompilationStatus() != shaderc_compilation_status_success)
             {
                 OLO_CORE_ERROR("VulkanComputeShader '{}': {}", GetName(), result.GetErrorMessage());
@@ -224,7 +243,11 @@ namespace OloEngine
         moduleInfo.codeSize = spirv.Num() * sizeof(u32);
         moduleInfo.pCode = spirv.GetData();
         VkShaderModule newModule = VK_NULL_HANDLE;
-        if (vkCreateShaderModule(device->GetDevice(), &moduleInfo, nullptr, &newModule) != VK_SUCCESS)
+        const auto moduleStart = std::chrono::steady_clock::now();
+        const VkResult moduleResult = vkCreateShaderModule(device->GetDevice(), &moduleInfo, nullptr, &newModule);
+        ShaderPreparationCounters::Get().AddModuleCreate(
+            std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - moduleStart).count());
+        if (moduleResult != VK_SUCCESS)
         {
             OLO_CORE_ERROR("VulkanComputeShader '{}': vkCreateShaderModule failed", GetName());
             return false;
@@ -307,7 +330,13 @@ namespace OloEngine
             return false;
         }
 
-        // Commit.
+        // Commit. A queued or running precache creation may hold the old
+        // module (#1345): drop the queued ones and wait out the running ones
+        // before it is destroyed. The reload invalidates the pipelines after.
+        if (m_Module != VK_NULL_HANDLE)
+        {
+            VulkanPipelineBuilder::Get().QuiesceShader(GetPipelineIndexKey());
+        }
         DestroyModule();
         m_Module = newModule;
         m_SPIRV = std::move(spirv);
@@ -353,10 +382,13 @@ namespace OloEngine
         {
             return false;
         }
-        const sizet invalidated = VulkanPipelineBuilder::Get().InvalidateShader(GetPipelineIndexKey());
+        TArray<VulkanPipelineBuilder::Key> invalidatedKeys;
+        const sizet invalidated = VulkanPipelineBuilder::Get().InvalidateShader(GetPipelineIndexKey(), &invalidatedKeys);
         m_PipelinesInvalidatedByLastReload = static_cast<u32>(invalidated);
-        OLO_CORE_INFO("VulkanComputeShader '{}': reloaded ({} dependent pipeline(s) invalidated)", GetName(),
-                      invalidated);
+        // Re-requested against the rebuilt module (#1345).
+        VulkanPipelinePrecache::Get().OnComputeShaderReloaded(*this, invalidatedKeys);
+        OLO_CORE_INFO("VulkanComputeShader '{}': reloaded ({} dependent pipeline(s) invalidated, re-requested)",
+                      GetName(), invalidated);
         return true;
     }
 
