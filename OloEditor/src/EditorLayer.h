@@ -536,6 +536,8 @@ namespace OloEngine
         // m_LastViewportResizeFrame) to the MCP tools so a camera change can be
         // confirmed rendered before a capture is taken.
         u64 m_FrameIndex = 0;
+        // m_FrameIndex when SetEditorScene last installed a scene (#1591).
+        u64 m_SceneInstalledFrame = 0;
         // Wall clock at the top of the most recent OnUpdate. The frame counter alone
         // cannot distinguish "stalled" from "slow" without two samples, so an agent
         // would have to poll twice and reason about the interval; a timestamp turns

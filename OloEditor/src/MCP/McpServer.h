@@ -266,6 +266,19 @@ namespace OloEngine::MCP
     // is the resolved scene path, `SceneName` / `EntityCount` describe the scene now
     // active. The load bypasses the editor's auto-save recovery modal (an agent
     // can't click it) and loads the requested file directly.
+    // What a scene-load wait reads (#1591); see EditorMcpContext::GetSceneLoadState.
+    struct McpSceneLoadState
+    {
+        u64 FramesSinceOpen = 0;
+        u32 GroomsAwaitingBuild = 0;
+    };
+
+    // The error a main-thread read reports when the main thread did not take it
+    // in time. A scene-load wait counts it as a long frame, not a failure, and
+    // the Python drivers (scripts/perf/editor_mcp.py) match on the same text.
+    inline constexpr std::string_view kMainThreadTimeoutMessage =
+        "Timed out waiting for the editor main thread (is the editor responsive?)";
+
     struct McpSceneOpenResult
     {
         bool Available = false;
@@ -698,6 +711,14 @@ namespace OloEngine::MCP
         // host; tools then fall back to GetFrameIndex/IsCaptureUnready and simply
         // report nothing about liveness rather than guessing.
         std::function<McpEditorLiveness()> GetEditorLiveness;
+
+        // The active scene's load (#1591): frames rendered since the editor
+        // installed it, and the bound coats the groom pass has not built yet.
+        // An opened scene builds its coats over its first frames, a few a
+        // frame, and draws none of them until built, so a tool that captures
+        // after an open waits for both. Main-thread only. Null in a headless
+        // host, which has no scene load to wait for.
+        std::function<McpSceneLoadState()> GetSceneLoadState;
 
         // Editor-only UI/viewport state. Both setters are session mutations and
         // are therefore exposed through ProjectWrite tools; the callbacks are

@@ -30,8 +30,10 @@
 #include "MCP/McpSceneControl.h"
 #include "MCP/McpServer.h"
 
+#include <chrono>
 #include <optional>
 #include <string>
+#include <vector>
 
 // OLO_TEST_LAYER: unit
 
@@ -418,4 +420,120 @@ TEST(McpSceneControlValidation, LowercaseExtensionHandlesEdgeCases)
     EXPECT_EQ(SceneControl::LowercaseExtension("noext"), "");
     EXPECT_EQ(SceneControl::LowercaseExtension("dir.with.dot/file"), ""); // dot in dir, not leaf
     EXPECT_EQ(SceneControl::LowercaseExtension(".gitignore"), "");        // dotfile → no extension
+}
+
+// =============================================================================
+// Waiting out a scene load (#1591). A scene's first frames build its bound
+// coats; a capture that read the editor with the 5 s default during one of them
+// failed with "Timed out waiting for the editor main thread" while the load was
+// still progressing. AwaitSceneLoad polls instead: driven here by a scripted
+// probe and a fake clock, so no editor and no real time is involved.
+// =============================================================================
+
+namespace
+{
+    using SceneControl::SceneLoadProbe;
+
+    struct FakeLoad
+    {
+        std::vector<SceneLoadProbe> Script; // one per poll; the last repeats
+        std::chrono::steady_clock::time_point Now{};
+        sizet Next = 0;
+
+        SceneLoadProbe Poll()
+        {
+            const SceneLoadProbe probe = Script[std::min(Next, Script.size() - 1u)];
+            ++Next;
+            return probe;
+        }
+    };
+
+    [[nodiscard]] SceneControl::SceneLoadOutcome AwaitFake(FakeLoad& load, u32 settleFrames,
+                                                           std::chrono::milliseconds budget, bool cancelled = false)
+    {
+        return SceneControl::AwaitSceneLoad([&load] { return load.Poll(); }, [cancelled] { return cancelled; },
+                                            [&load] { return load.Now; },
+                                            [&load](std::chrono::milliseconds step) { load.Now += step; },
+                                            settleFrames, budget, std::chrono::milliseconds(50));
+    }
+} // namespace
+
+TEST(McpSceneLoadWait, LongFramesAreWaitedThroughAndTheLoadFinishes)
+{
+    // Two polls the main thread could not take (frames building coats), then
+    // coats still arriving, then none: loaded, with the unanswered polls said.
+    FakeLoad load;
+    load.Script = { { false, 0, 0 }, { false, 0, 0 }, { true, 3, 12 }, { true, 5, 4 }, { true, 6, 0 } };
+    const auto outcome = AwaitFake(load, 2, std::chrono::seconds(60));
+    EXPECT_TRUE(outcome.Loaded);
+    EXPECT_FALSE(outcome.Cancelled);
+    EXPECT_EQ(outcome.Polls, 5u);
+    EXPECT_EQ(outcome.UnansweredPolls, 2u);
+    EXPECT_EQ(outcome.FramesRendered, 6u);
+    EXPECT_EQ(outcome.GroomsAwaitingBuild, 0u);
+}
+
+TEST(McpSceneLoadWait, NoCoatAwaitingIsNotLoadedUntilTheNewSceneHasRendered)
+{
+    // Answered before the new scene's first frame, the groom count is the
+    // LAST scene's: zero coats awaiting says nothing about this one's.
+    FakeLoad load;
+    load.Script = { { true, 0, 0 }, { true, 1, 0 }, { true, 2, 0 } };
+    const auto outcome = AwaitFake(load, 2, std::chrono::seconds(60));
+    EXPECT_TRUE(outcome.Loaded);
+    EXPECT_EQ(outcome.Polls, 3u);
+
+    EXPECT_FALSE(SceneControl::IsSceneLoaded({ true, 0, 0 }, 2)) << "the status right after an open said loaded";
+    EXPECT_FALSE(SceneControl::IsSceneLoaded({ false, 9, 0 }, 2)) << "an unanswered poll knows nothing";
+    EXPECT_FALSE(SceneControl::IsSceneLoaded({ true, 9, 3 }, 2));
+    EXPECT_TRUE(SceneControl::IsSceneLoaded({ true, 2, 0 }, 2));
+}
+
+TEST(McpSceneLoadWait, ALoadOutlastingTheBudgetIsReportedNotThrown)
+{
+    FakeLoad load;
+    load.Script = { { true, 1, 7 } };
+    const auto outcome = AwaitFake(load, 2, std::chrono::milliseconds(500));
+    EXPECT_FALSE(outcome.Loaded);
+    EXPECT_FALSE(outcome.Cancelled);
+    EXPECT_EQ(outcome.GroomsAwaitingBuild, 7u);
+    EXPECT_GE(outcome.Seconds, 0.5);
+    EXPECT_EQ(outcome.Polls, 11u); // at t = 0, 50, ..., 500 ms
+}
+
+TEST(McpSceneLoadWait, ACancelledCallStopsWaiting)
+{
+    FakeLoad load;
+    load.Script = { { true, 1, 7 } };
+    const auto outcome = AwaitFake(load, 2, std::chrono::seconds(60), /*cancelled=*/true);
+    EXPECT_TRUE(outcome.Cancelled);
+    EXPECT_FALSE(outcome.Loaded);
+    EXPECT_EQ(outcome.Polls, 0u);
+}
+
+TEST(McpSceneLoadWait, TheOutcomeJsonCarriesEveryFieldTheSchemaRequires)
+{
+    SceneControl::SceneLoadOutcome outcome;
+    outcome.Loaded = true;
+    outcome.FramesRendered = 9;
+    outcome.Polls = 4;
+    outcome.UnansweredPolls = 1;
+    outcome.Seconds = 3.5;
+    const Json j = SceneControl::ToJson(outcome);
+    const Json schema = SceneControl::SceneLoadOutputSchema();
+    for (const auto& field : schema["required"])
+    {
+        EXPECT_TRUE(j.contains(field.get<std::string>())) << field;
+    }
+    EXPECT_TRUE(j["loaded"].get<bool>());
+    EXPECT_EQ(j["framesRendered"], 9);
+    EXPECT_EQ(j["unansweredPolls"], 1);
+}
+
+TEST(McpSceneLoadWait, TheOpenSchemaTakesAnOptionalWait)
+{
+    const Json schema = SceneControl::OpenInputSchema();
+    ASSERT_TRUE(schema["properties"].contains("wait"));
+    EXPECT_EQ(schema["properties"]["wait"]["type"], "boolean");
+    EXPECT_EQ(schema["required"].size(), 1u) << "wait must stay optional: every existing caller omits it";
 }

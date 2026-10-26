@@ -355,6 +355,29 @@ namespace OloEngine::MCP
         // the 5s default deliberately, so slow tools genuinely hang rather than
         // silently blocking behind the queue for minutes.
         constexpr std::chrono::milliseconds kSceneControlTimeout{ 120000 };
+        // How long olo_scene_open waits for an opened scene to finish loading
+        // (#1591): polled, so a slow load costs only the wait, never a timeout
+        // that leaves a backlog behind it. The #1259 acceptance scene builds 44
+        // bound coats over its first frames.
+        constexpr std::chrono::milliseconds kSceneLoadTimeout{ 300000 };
+        // Frames of the new scene a load must have rendered before it can be
+        // called loaded, and the settle olo_scene_open always took (#519).
+        constexpr u32 kPostLoadSettleFrames = 2;
+
+        // ---- olo_scene_load_status (main-marshaled; read-only, #1591) -------
+        // One poll of the scene load, for a caller that opened with wait:false.
+        // A poll the main thread does not take within 2 s comes back
+        // answered:false (a long frame of the load), never as an error.
+        ToolResult Handle_SceneLoadStatus(IAutomationHost& host, const Json& /*args*/)
+        {
+            if (!host.Context().GetSceneLoadState)
+                return ToolResult::Error("Scene load status is not available in this editor build.");
+            const SceneControl::SceneLoadProbe probe = ProbeSceneLoad(host);
+            return ToolResult::Structured(Json{ { "answered", probe.Answered },
+                                                { "loaded", SceneControl::IsSceneLoaded(probe, kPostLoadSettleFrames) },
+                                                { "framesSinceOpen", probe.FramesSinceOpen },
+                                                { "groomsAwaitingBuild", probe.GroomsAwaitingBuild } });
+        }
 
         // ---- olo_scene_open (main-marshaled; PROJECT WRITE) --------------------
         // Open / switch the active scene over MCP — the consented-write scene switch
@@ -380,6 +403,7 @@ namespace OloEngine::MCP
 
             if (!host.Context().OpenSceneFromMcp)
                 return ToolResult::Error("Scene open is not available in this editor build.");
+            const bool waitForLoad = !args.contains("wait") || args["wait"].get<bool>();
 
             // path is captured BY VALUE: MarshalRead's caller-side wait can time out
             // (kSceneControlTimeout) while the job it enqueued is still running on
@@ -398,6 +422,8 @@ namespace OloEngine::MCP
 
             if (result.is_object() && result.contains("__error"))
                 return ToolResult::Error(result["__error"].get<std::string>());
+            if (!result.value("ok", false))
+                return ToolResult::Structured(result);
 
             // Settle before returning (#519 "first perf-lever write right after
             // scene load doesn't take effect on the GPU"). The load above ran
@@ -412,16 +438,53 @@ namespace OloEngine::MCP
             // but waiting here as well means a plain scene-load caller (no
             // follow-up settings write) also gets a scene that has actually
             // rendered before the tool returns.
-            constexpr int kPostLoadSettleFrames = 2;
-            if (host.Context().GetFrameIndex)
+            //
+            // AND THE LOAD IS WAITED OUT FIRST (#1591): the scene's first frames
+            // build its bound coats, and a 5 s read made during one of them
+            // reported "Timed out waiting for the editor main thread" for a load
+            // that was still going. AwaitSceneLoaded polls with short reads and
+            // counts an unanswered one as a long frame, not a failure.
+            const auto settle = [&host]
             {
+                if (!host.Context().GetFrameIndex)
+                    return;
                 const u64 baseFrame = host.MarshalRead([&host]() -> Json
                                                        { return Json{ { "frame", host.Context().GetFrameIndex() } }; })
                                           .value("frame", static_cast<u64>(0));
-                AwaitRenderedFrames(host, baseFrame, kPostLoadSettleFrames);
+                AwaitRenderedFrames(host, baseFrame, static_cast<int>(kPostLoadSettleFrames));
+            };
+            if (!host.Context().GetSceneLoadState)
+            {
+                settle(); // a host with no scene load to wait for
+                return ToolResult::Structured(result);
             }
-
-            return ToolResult::Structured(result);
+            Json response = result;
+            if (!waitForLoad)
+            {
+                SceneControl::SceneLoadOutcome pending;
+                const SceneControl::SceneLoadProbe probe = ProbeSceneLoad(host);
+                pending.Polls = 1;
+                pending.UnansweredPolls = probe.Answered ? 0u : 1u;
+                pending.FramesRendered = probe.FramesSinceOpen;
+                pending.GroomsAwaitingBuild = probe.GroomsAwaitingBuild;
+                pending.Loaded = SceneControl::IsSceneLoaded(probe, kPostLoadSettleFrames);
+                response["load"] = SceneControl::ToJson(pending);
+                return ToolResult::Structured(response);
+            }
+            const SceneControl::SceneLoadOutcome load = AwaitSceneLoaded(host, kPostLoadSettleFrames, kSceneLoadTimeout);
+            response["load"] = SceneControl::ToJson(load);
+            if (load.Cancelled)
+                return ToolResult::Error("Request cancelled while the scene was loading.");
+            if (!load.Loaded)
+            {
+                response["message"] = "The scene opened but was still loading after " +
+                                      std::to_string(static_cast<int>(load.Seconds)) + " s (" +
+                                      std::to_string(load.GroomsAwaitingBuild) +
+                                      " bound coat(s) awaiting their first build); poll olo_scene_load_status.";
+                return ToolResult::Structured(response);
+            }
+            settle();
+            return ToolResult::Structured(response);
         }
 
         // ---- olo_scene_play / simulate / stop (main-marshaled; PROJECT WRITE) --
@@ -947,9 +1010,33 @@ namespace OloEngine::MCP
                                     .Prop("entityCount", Schema::Int().Min(0))
                                     .Prop("renderingPath", Schema::String().Desc("Rendering path the scene selected on open: Forward, ForwardPlus or Deferred. Empty when the load failed."))
                                     .Prop("message", Schema::String().Desc("Human-readable outcome detail."))
+                                    .Prop("load", SceneControl::SceneLoadOutputSchema().Desc("The wait for the opened scene's first frames to build what it draws (absent when the open failed)."))
                                     .Required({ "available", "ok", "path", "sceneName", "entityCount", "renderingPath", "message" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_SceneOpen;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_scene_load_status";
+            tool.Toolset = "scene";
+            tool.Title = "Scene load status";
+            tool.Annotations = ReadOnlyAnnotations();
+            tool.Description =
+                "Whether the active scene has finished loading: its first frames after an open build what it draws "
+                "(bound coats a few a frame, each undrawn until built). Use after olo_scene_open with wait:false, and "
+                "poll until loaded:true before capturing. answered:false means the editor's main thread was inside a "
+                "frame longer than the 2 s poll, which during a load is progress, not a fault.";
+            tool.InputSchema = Schema::EmptyObject();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("answered", Schema::Bool().Desc("The main thread took the poll within 2 s."))
+                                    .Prop("loaded", Schema::Bool().Desc("Answered, frames of this scene have rendered, and no bound coat awaits its first build."))
+                                    .Prop("framesSinceOpen", Schema::Int().Min(0).Desc("Frames rendered since the editor installed the active scene."))
+                                    .Prop("groomsAwaitingBuild", Schema::Int().Min(0).Desc("Bound coats not built (and not drawn) yet."))
+                                    .Required({ "answered", "loaded", "framesSinceOpen", "groomsAwaitingBuild" });
+            tool.MainMarshaled = true;
+            tool.Handler = Handle_SceneLoadStatus;
             registry.Register(std::move(tool));
         }
 

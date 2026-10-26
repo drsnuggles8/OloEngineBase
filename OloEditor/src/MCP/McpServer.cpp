@@ -923,7 +923,7 @@ namespace OloEngine::MCP
             else if (cancelFlag && cancelFlag->load(std::memory_order_acquire))
                 abortReason = "Request cancelled before main-thread operation";
             else if (std::chrono::steady_clock::now() >= deadline)
-                abortReason = "Timed out waiting for the editor main thread (is the editor responsive?)";
+                abortReason = kMainThreadTimeoutMessage.data();
             if (abortReason != nullptr)
             {
                 job->CancelPending(abortReason);

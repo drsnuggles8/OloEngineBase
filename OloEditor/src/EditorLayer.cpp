@@ -945,6 +945,12 @@ namespace OloEngine
             // about to read or inject can work" instead of quietly succeeding.
             mcpContext.GetEditorLiveness = [this]() -> MCP::McpEditorLiveness
             { return GetMcpEditorLiveness(); };
+            mcpContext.GetSceneLoadState = [this]() -> MCP::McpSceneLoadState
+            {
+                const GroomRenderPass* pass = Renderer3D::GetGroomRenderPass();
+                return { m_FrameIndex - std::min(m_FrameIndex, m_SceneInstalledFrame),
+                         pass != nullptr ? pass->GetStats().GroomsAwaitingBuild : 0u };
+            };
             mcpContext.GetEditorPanels = [this]() -> std::vector<MCP::McpEditorPanelState>
             { return GetMcpEditorPanels(); };
             mcpContext.SetEditorPanel = [this](const std::string& panel, bool open) -> MCP::McpEditorPanelSetResult
@@ -5270,6 +5276,7 @@ namespace OloEngine
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene, bool clearHistory)
     {
+        m_SceneInstalledFrame = m_FrameIndex; // a scene-load wait counts frames from here (#1591)
         OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null");
 
         // Reset hovered entity before changing scenes to prevent accessing stale registry
