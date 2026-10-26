@@ -223,6 +223,7 @@ namespace OloEngine
                     static_cast<u64>(m_CpuRootScratch.GetAllocatedSize());
         for (const CoatBodyBake& bake : m_CoatBodyBakes)
             cpuBytes += VectorBytes(bake.Body);
+        cpuBytes += m_DeformUploadRing.GetSize();
         for (const auto& table : m_CardFibreTables)
             cpuBytes += VectorBytes(table.ByGroup);
         {
