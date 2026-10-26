@@ -3525,17 +3525,6 @@ namespace OloEngine
         // second camera (a thumbnail, a game view) renders without grooms.
         if (m_Requests.empty())
         {
-            // EXCEPT the arrivals (#1591): no coat requested is no coat
-            // waiting, and a count left from the last groom frame would keep
-            // a scene-load wait waiting for coats no view asks for any more.
-            m_Stats.GroomsAwaitingBuild = 0;
-            m_Stats.GroomsAwaitingBudget = 0;
-            if (m_StagingWave)
-            {
-                m_StagingWave = false;
-                OLO_CORE_INFO("GroomRenderPass: no bound coat is requested any more; the coats still waiting for "
-                              "their first build are not built");
-            }
             return;
         }
         StartFrame();
@@ -3556,21 +3545,32 @@ namespace OloEngine
         m_CachedArrivals.clear();
         m_FirstBuildsThisFrame = 0;
         m_RestStreamBuildsThisFrame = 0;
-        m_StaleCacheBytes = 0;
         for (const auto& [key, entry] : m_Cache)
         {
             if (entry.ArrivalKey != 0u)
             {
                 m_CachedArrivals.insert(entry.ArrivalKey);
             }
-            // Only what EvictToBudget can free: a streaming admission's entry
-            // is never evicted there, so counting it would hold an arriving
-            // coat back every frame for room that never comes.
+        }
+    }
+
+    u64 GroomRenderPass::EvictableCacheBytes() const noexcept
+    {
+        // What this frame's EvictToBudget can still free, asked AT ADMISSION:
+        // an entry nothing drew last frame and nothing has drawn yet this one.
+        // Taken when the frame starts instead, an entry a returning coat
+        // re-used mid-frame still counted, and arrivals waited for room that
+        // eviction then could not free. A streaming admission's entry is never
+        // evicted there, so it never counts.
+        u64 bytes = 0;
+        for (const auto& [key, entry] : m_Cache)
+        {
             if (entry.StreamingKey == 0 && entry.LastUsedFrame + 1u < m_CacheTick)
             {
-                m_StaleCacheBytes += entry.Bytes + entry.CoatBytes;
+                bytes += entry.Bytes + entry.CoatBytes;
             }
         }
+        return bytes;
     }
 
     u64 GroomRenderPass::ArrivalKey(const GroomStrandRequest& request) noexcept
@@ -3611,7 +3611,7 @@ namespace OloEngine
             // last frame, which this frame's eviction gives back. With no such
             // entry the scene needs more than the budget, the coat is built,
             // and EvictToBudget's warning says the budget does not hold.
-            else if (m_CacheBytes > m_CacheBudgetBytes && m_StaleCacheBytes > 0u)
+            else if (m_CacheBytes > m_CacheBudgetBytes && EvictableCacheBytes() > 0u)
             {
                 verdict = FirstBuildVerdict::Budget;
             }

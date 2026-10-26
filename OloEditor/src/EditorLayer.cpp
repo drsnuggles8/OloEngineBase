@@ -946,11 +946,7 @@ namespace OloEngine
             mcpContext.GetEditorLiveness = [this]() -> MCP::McpEditorLiveness
             { return GetMcpEditorLiveness(); };
             mcpContext.GetSceneLoadState = [this]() -> MCP::McpSceneLoadState
-            {
-                const GroomRenderPass* pass = Renderer3D::GetGroomRenderPass();
-                return { m_FrameIndex - std::min(m_FrameIndex, m_SceneInstalledFrame),
-                         pass != nullptr ? pass->GetStats().GroomsAwaitingBuild : 0u };
-            };
+            { return { m_FrameIndex - std::min(m_FrameIndex, m_SceneInstalledFrame), m_GroomsAwaitingBuild }; };
             mcpContext.GetEditorPanels = [this]() -> std::vector<MCP::McpEditorPanelState>
             { return GetMcpEditorPanels(); };
             mcpContext.SetEditorPanel = [this](const std::string& panel, bool open) -> MCP::McpEditorPanelSetResult
@@ -1936,6 +1932,16 @@ namespace OloEngine
         OLO_PERF_SCOPE("EditorLayer::OnUpdate", Application::Get().GetPerformanceProfiler());
 
         ++m_FrameIndex; // MCP capture tools key off this to await a rendered frame
+        // The bound coats the LAST frame left waiting (#1591), read only if that
+        // frame drew grooms: a frame with no groom request leaves the pass's
+        // stats describing an older one, and a scene-load wait must not keep
+        // waiting on coats no view asks for any more.
+        if (const GroomRenderPass* groomPass = Renderer3D::GetGroomRenderPass())
+        {
+            const u64 tick = groomPass->GetFrameTick();
+            m_GroomsAwaitingBuild = tick != m_GroomFrameTick ? groomPass->GetStats().GroomsAwaitingBuild : 0u;
+            m_GroomFrameTick = tick;
+        }
         // Stamped in the same breath as the counter so the two can never disagree:
         // together they let one MCP call answer "is the editor running frames?"
         // (issue #607). While the window is iconified Application::Run never reaches

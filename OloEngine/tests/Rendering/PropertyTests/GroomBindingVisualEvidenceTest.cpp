@@ -1056,8 +1056,11 @@ namespace OloEngine::Tests
         }
         twins.clear();
 
-        // A wave no view asks for any more is not still arriving: a count left
-        // from the last groom frame kept a scene-load wait waiting forever.
+        // A wave no view asks for any more is not still arriving. A frame with
+        // no coat requested starts no groom frame and leaves the stats as the
+        // last one left them, so the editor reads GroomsAwaitingBuild only for a
+        // frame that moved the tick; without that, a count left from the last
+        // groom frame kept a scene-load wait waiting forever.
         for (u32 i = 0; i < kTwins; ++i)
         {
             Entity twin = GetScene().CreateEntity("GroomLateTwin" + std::to_string(i));
@@ -1072,8 +1075,12 @@ namespace OloEngine::Tests
         {
             twin.GetComponent<GroomComponent>().m_RenderStrands = false;
         }
+        const GroomRenderPass* groomPass = Renderer3D::GetGroomRenderPass();
+        ASSERT_NE(groomPass, nullptr);
+        const u64 tickBefore = groomPass->GetFrameTick();
         run(1u);
-        EXPECT_EQ(PassStats().GroomsAwaitingBuild, 0u) << "no coat is requested, so none is waiting";
+        EXPECT_EQ(groomPass->GetFrameTick(), tickBefore)
+            << "a frame with no coat requested moved the groom tick, so its stale awaiting count reads as current";
         m_GroomEntity.GetComponent<GroomComponent>().m_RenderStrands = true;
         for (Entity twin : twins)
         {

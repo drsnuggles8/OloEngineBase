@@ -538,6 +538,10 @@ namespace OloEngine
         u64 m_FrameIndex = 0;
         // m_FrameIndex when SetEditorScene last installed a scene (#1591).
         u64 m_SceneInstalledFrame = 0;
+        // The groom pass's frame tick at the last OnUpdate, and the coats the
+        // last frame left waiting for their first build (#1591).
+        u64 m_GroomFrameTick = 0;
+        u32 m_GroomsAwaitingBuild = 0;
         // Wall clock at the top of the most recent OnUpdate. The frame counter alone
         // cannot distinguish "stalled" from "slow" without two samples, so an agent
         // would have to poll twice and reason about the interval; a timestamp turns

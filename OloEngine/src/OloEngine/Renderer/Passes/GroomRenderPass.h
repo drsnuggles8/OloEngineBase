@@ -569,6 +569,15 @@ namespace OloEngine
         /// GroomRenderPassMemory.cpp.
         void AppendMemoryCapacityRows(TArray<MemoryCapacityRow>& rows) const;
 
+        /// Advances once per frame that drew grooms. A frame with no groom
+        /// request starts no frame and leaves the stats describing the last one
+        /// that did, so a reader that needs THIS frame's counts (a scene-load
+        /// wait reading GroomsAwaitingBuild) checks that the tick moved (#1591).
+        [[nodiscard]] u64 GetFrameTick() const noexcept
+        {
+            return m_CacheTick;
+        }
+
         /// Drops every cached coat and every shared rest stream nothing else
         /// holds, as eviction would (#1591). Entries that streaming admissions
         /// own stay, as they do under eviction. The cache otherwise keeps a
@@ -1014,6 +1023,8 @@ namespace OloEngine
         /// The awaiting counts into the stats, and the log line when a wave of
         /// first builds starts and when it has drained.
         void ReportStagedBuilds();
+        /// Bytes this frame's eviction can still give back (#1591).
+        [[nodiscard]] u64 EvictableCacheBytes() const noexcept;
         /// The GPU path's half of AcquireGeometry: returns null when the rest
         /// stream cannot be built for this request, so the caller can take the
         /// CPU path instead.
@@ -1155,10 +1166,6 @@ namespace OloEngine
         std::unordered_set<u64> m_CachedArrivals;
         u32 m_FirstBuildsThisFrame = 0;
         u32 m_RestStreamBuildsThisFrame = 0;
-        /// Bytes of entries no coat drew last frame and eviction may free (not
-        /// a streaming admission's), taken when the frame starts: what this
-        /// frame's eviction can give back.
-        u64 m_StaleCacheBytes = 0;
         bool m_StagingWave = false;
         u64 m_StagingWaveStartTick = 0;
         u32 m_StagingWavePeak = 0;

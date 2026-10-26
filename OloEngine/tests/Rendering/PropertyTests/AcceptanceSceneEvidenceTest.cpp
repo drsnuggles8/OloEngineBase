@@ -490,8 +490,9 @@ namespace OloEngine::Tests
         ASSERT_NE(herdSpec, nullptr) << "the gate manifest has no population-dolly camera";
         const auto herdPose = Benchmark::CameraPoseAtFrame(*herdSpec, 0u, manifest->FixedDtSeconds);
         const EditorCamera herd = Camera(herdPose.Position, herdPose.YawDegrees, herdPose.PitchDegrees, herdSpec->FovDegrees);
-        // The coats reach the pass once their assets have loaded, which takes
-        // seconds; the first frame that submits them is the one judged.
+        // The first frame that submits coats is the one judged: a frame whose
+        // view reaches none publishes none, and the load's warm-up overview
+        // camera reaches none.
         u32 frames = 1u;
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
         while (pass->GetStats().GroomsSubmitted == 0u && std::chrono::steady_clock::now() < deadline)
