@@ -324,7 +324,8 @@ namespace OloEngine::GroomCoatShadow
         return emitted;
     }
 
-    bool CoatSegmentBounds(std::span<const CoatSegment> segments, glm::vec3& outMin, glm::vec3& outMax)
+    bool CoatSegmentBounds(std::span<const CoatSegment> segments, glm::vec3& outMin, glm::vec3& outMax,
+                           f32 radiusExtent)
     {
         if (segments.empty())
         {
@@ -346,7 +347,7 @@ namespace OloEngine::GroomCoatShadow
             {
                 continue;
             }
-            const f32 r = std::max(segment.RadiusA, segment.RadiusB);
+            const f32 r = std::max(segment.RadiusA, segment.RadiusB) * radiusExtent;
             lo = glm::min(lo, glm::min(segment.A, segment.B) - glm::vec3(r));
             hi = glm::max(hi, glm::max(segment.A, segment.B) + glm::vec3(r));
             any = true;
@@ -1130,10 +1131,14 @@ namespace OloEngine::GroomCoatShadow
         {
             return false;
         }
+        if (!std::isfinite(settings.RadiusExtent) || !(settings.RadiusExtent > 0.0f) || settings.RadiusExtent > 1.0f)
+        {
+            return false;
+        }
 
         glm::vec3 lo;
         glm::vec3 hi;
-        if (!CoatSegmentBounds(segments, lo, hi))
+        if (!CoatSegmentBounds(segments, lo, hi, settings.RadiusExtent))
         {
             return false;
         }

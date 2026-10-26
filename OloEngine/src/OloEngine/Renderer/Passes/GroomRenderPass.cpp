@@ -1759,6 +1759,15 @@ namespace OloEngine
 
         GroomCoatShadow::DensityVolumeSettings volumeSettings;
         volumeSettings.Resolution = resolution;
+        // A pose bake's stride subset carries its dropped segments' fibre in its
+        // radii (AcquireDrawnPose, SubsampleCoatSegments: full/kept times each);
+        // only the share of a radius that is thickness pads the grid, so the
+        // subset bakes on the full pose's grid.
+        if (ring && entry.CoatFullPoseSegments > segments.size())
+        {
+            volumeSettings.RadiusExtent =
+                static_cast<f32>(segments.size()) / static_cast<f32>(entry.CoatFullPoseSegments);
+        }
         GroomCoatShadow::DensityVolume& volume = m_CoatVolumeScratch;
         m_BakeScratchUsedTick = m_CacheTick;
         GroomCoatShadow::DensityVolumeBuildStats volumeStats;

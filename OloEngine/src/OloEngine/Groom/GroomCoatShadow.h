@@ -149,8 +149,12 @@ namespace OloEngine
         // shadow — the opposite of BuildCoatSegments' promise that a bad curve
         // is dropped rather than allowed to poison the measurement. False now
         // means "nothing usable here at all".
+        //
+        // `radiusExtent` is the share of each radius that is a real thickness:
+        // 1 for strands as drawn, 1/stride for a stride subset whose radii also
+        // carry the fibre of the segments it dropped (SubsampleCoatSegments).
         [[nodiscard]] bool CoatSegmentBounds(std::span<const CoatSegment> segments, glm::vec3& outMin,
-                                             glm::vec3& outMax);
+                                             glm::vec3& outMax, f32 radiusExtent = 1.0f);
 
         // ── A deformed coat (#1426) ─────────────────────────────────────────
         //
@@ -607,6 +611,14 @@ namespace OloEngine
             /// whatever the split: the volume is bit for bit the one-slab bake's
             /// (1), which the tests hold it to.
             u32 BinSlabs = 0;
+            /// The share of each segment's radius that is a real thickness,
+            /// for the bounds only: the deposit reads a radius as fibre area,
+            /// never as a reach. 1/stride for a stride subset (#1445), whose
+            /// radii carry its dropped segments' fibre; padded by the whole
+            /// radius, the subset's grid came out up to seven times the full
+            /// pose's on the acceptance horses, with voxels as much coarser, and
+            /// the larger box read as a closer coat to the shadow LOD (#1646).
+            f32 RadiusExtent = 1.0f;
         };
 
         struct DensityVolumeBuildStats
