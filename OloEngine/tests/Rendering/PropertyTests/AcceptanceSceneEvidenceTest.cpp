@@ -20,9 +20,12 @@
 //     hybrid cell a copy of Deferred;
 //   * a camera path that dips under a hill captures the inside of the terrain;
 //   * a camera that does not see its subject captures nothing worth gating.
+//   * 44 bound coats built in the scene's first frame take the load gigabytes
+//     past what the scene holds afterwards (#1591).
 //
 // The last is the visual evidence: every manifest camera on every raster path,
-// written as Acceptance_GL_<Path>_<Camera>.png under assets/tests/visual/.
+// written as Acceptance_GL_<Path>_<Camera>.png under assets/tests/visual/,
+// beside Acceptance_GL_MidLoad.png and Acceptance_GL_Loaded.png.
 // Needs a GL 4.6 context; skips cleanly without one.
 // =============================================================================
 
@@ -35,6 +38,7 @@
 #include "OloEngine/Renderer/Benchmark/BenchmarkCapture.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
@@ -50,6 +54,7 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -135,7 +140,7 @@ namespace OloEngine::Tests
         // The committed scene, deserialized from a temp copy (its .scenebin
         // sidecar must not land in the working tree) in the real project, then
         // ticked until the terrain height field and the flora exist.
-        void Load()
+        void Load(u32 frames = 3u)
         {
             std::error_code ec;
             fs::current_path(EditorRoot(), ec);
@@ -166,7 +171,37 @@ namespace OloEngine::Tests
             m_Scene->SetIs3DModeEnabled(true);
             m_Scene->OnViewportResize(kWidth, kHeight);
             m_Scene->SetRenderingEnabled(true);
-            RunEditorFramesOn(*m_Scene, Camera({ 128.0f, 80.0f, 300.0f }, 0.0f, -20.0f, 60.0f), 3);
+            RunEditorFramesOn(*m_Scene, OverviewCamera(), frames);
+        }
+
+        [[nodiscard]] static EditorCamera OverviewCamera()
+        {
+            return Camera({ 128.0f, 80.0f, 300.0f }, 0.0f, -20.0f, 60.0f);
+        }
+
+        // The composited frame, rows top-down, written for inspection as
+        // assets/tests/visual/<name>.png; the pixels come back for checks.
+        void WriteFrame(const std::string& name, std::vector<u8>& rgba)
+        {
+            u32 w = 0;
+            u32 h = 0;
+            ASSERT_TRUE(ReadbackComposite(rgba, w, h));
+            ASSERT_EQ(rgba.size(), static_cast<sizet>(w) * h * 4u);
+            const sizet rowBytes = static_cast<sizet>(w) * 4u;
+            std::vector<u8> row(rowBytes);
+            for (u32 y = 0; y < h / 2u; ++y)
+            {
+                std::memcpy(row.data(), rgba.data() + y * rowBytes, rowBytes);
+                std::memcpy(rgba.data() + y * rowBytes, rgba.data() + (h - 1u - y) * rowBytes, rowBytes);
+                std::memcpy(rgba.data() + (h - 1u - y) * rowBytes, row.data(), rowBytes);
+            }
+            const fs::path dir = EditorRoot() / "assets" / "tests" / "visual";
+            fs::create_directories(dir);
+            const std::string file = (dir / (name + ".png")).string();
+            EXPECT_NE(::stbi_write_png(file.c_str(), static_cast<int>(w), static_cast<int>(h), 4, rgba.data(),
+                                       static_cast<int>(rowBytes)),
+                      0)
+                << file;
         }
 
         [[nodiscard]] static EditorCamera Camera(const glm::vec3& position, f32 yawDegrees, f32 pitchDegrees,
@@ -385,8 +420,6 @@ namespace OloEngine::Tests
         } paths[] = { { RenderingPath::Forward, "Forward" },
                       { RenderingPath::ForwardPlus, "ForwardPlus" },
                       { RenderingPath::Deferred, "Deferred" } };
-        const fs::path dir = EditorRoot() / "assets" / "tests" / "visual";
-        fs::create_directories(dir);
         for (const auto& path : paths)
         {
             auto& settings = Renderer3D::GetRendererSettings();
@@ -407,18 +440,8 @@ namespace OloEngine::Tests
                 }
 
                 std::vector<u8> rgba;
-                u32 w = 0;
-                u32 h = 0;
-                ASSERT_TRUE(ReadbackComposite(rgba, w, h));
-                ASSERT_EQ(rgba.size(), static_cast<sizet>(w) * h * 4u);
-                const sizet rowBytes = static_cast<sizet>(w) * 4u;
-                std::vector<u8> row(rowBytes);
-                for (u32 y = 0; y < h / 2u; ++y)
-                {
-                    std::memcpy(row.data(), rgba.data() + y * rowBytes, rowBytes);
-                    std::memcpy(rgba.data() + y * rowBytes, rgba.data() + (h - 1u - y) * rowBytes, rowBytes);
-                    std::memcpy(rgba.data() + (h - 1u - y) * rowBytes, row.data(), rowBytes);
-                }
+                ASSERT_NO_FATAL_FAILURE(
+                    WriteFrame("Acceptance_GL_" + std::string(path.Name) + "_" + spec.Id.ToStdString(), rgba));
                 f64 sum = 0.0;
                 f64 sumSq = 0.0;
                 for (sizet i = 0; i < rgba.size(); i += 4u)
@@ -432,14 +455,74 @@ namespace OloEngine::Tests
                 const f64 stddev = std::sqrt(std::max(0.0, sumSq / n - mean * mean));
                 EXPECT_GT(mean, 8.0) << "the frame is black";
                 EXPECT_GT(stddev, 6.0) << "the frame is flat: no subject in view";
-
-                const std::string file =
-                    (dir / ("Acceptance_GL_" + std::string(path.Name) + "_" + spec.Id.ToStdString() + ".png")).string();
-                EXPECT_NE(::stbi_write_png(file.c_str(), static_cast<int>(w), static_cast<int>(h), 4, rgba.data(),
-                                           static_cast<int>(rowBytes)),
-                          0)
-                    << file;
             }
         }
+    }
+
+    // #1591: the scene's bound coats arrive over its first frames, a few a
+    // frame, inside the strand cache's budget. Built all at once -- every coat
+    // at full detail, the LOD's hold not yet run out -- they held 3.6 GiB
+    // against a 1 GiB budget and took the process past 9 GB resident, over
+    // the 6 GB this host allows. The first frame and the loaded one are
+    // written for inspection: a coat not built yet is absent, never drawn
+    // wrong, and the pass counts it.
+    TEST_F(AcceptanceSceneTest, BoundCoatsArriveOverTheFirstFramesWithinTheBudget)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        // A cold load: an earlier case's coats share these entity ids, and the
+        // cache would hand them straight back.
+        GroomRenderPass* pass = Renderer3D::GetGroomRenderPass();
+        ASSERT_NE(pass, nullptr);
+        pass->ReleaseCachedGeometry();
+        ASSERT_NO_FATAL_FAILURE(Load(1u));
+        // From the camera that frames the herd: a coat no view can reach is
+        // never requested, so the overview the load warms up with sees none.
+        std::string error;
+        const auto manifest = Benchmark::LoadBenchmarkManifest(
+            EditorRoot() / "assets" / "benchmark" / "manifests" / "acceptance-deferred.yaml", error);
+        ASSERT_TRUE(manifest.has_value()) << error;
+        const Benchmark::ManifestCamera* herdSpec = nullptr;
+        for (const auto& spec : manifest->Cameras)
+        {
+            if (spec.Id.ToStdString() == "population-dolly")
+                herdSpec = &spec;
+        }
+        ASSERT_NE(herdSpec, nullptr) << "the gate manifest has no population-dolly camera";
+        const auto herdPose = Benchmark::CameraPoseAtFrame(*herdSpec, 0u, manifest->FixedDtSeconds);
+        const EditorCamera herd = Camera(herdPose.Position, herdPose.YawDegrees, herdPose.PitchDegrees, herdSpec->FovDegrees);
+        // The coats reach the pass once their assets have loaded, which takes
+        // seconds; the first frame that submits them is the one judged.
+        u32 frames = 1u;
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(180);
+        while (pass->GetStats().GroomsSubmitted == 0u && std::chrono::steady_clock::now() < deadline)
+        {
+            RunEditorFramesOn(*m_Scene, herd, 1);
+            ++frames;
+        }
+        ASSERT_GT(pass->GetStats().GroomsSubmitted, 0u) << "no coat reached the groom pass in " << frames << " frames";
+        frames = 1u;
+
+        const GroomRenderStats first = pass->GetStats();
+        EXPECT_GT(first.GroomsAwaitingBuild, 0u) << "every coat was built in the scene's first frame";
+        EXPECT_EQ(first.CacheOverBudgetBytes, 0u);
+        std::vector<u8> rgba;
+        ASSERT_NO_FATAL_FAILURE(WriteFrame("Acceptance_GL_MidLoad", rgba));
+
+        u64 peakCached = first.CachedBytes;
+        while (pass->GetStats().GroomsAwaitingBuild > 0u && frames < 64u)
+        {
+            RunEditorFramesOn(*m_Scene, herd, 1);
+            ++frames;
+            peakCached = std::max(peakCached, pass->GetStats().CachedBytes);
+            EXPECT_EQ(pass->GetStats().CacheOverBudgetBytes, 0u) << "frame " << frames;
+        }
+        const GroomRenderStats loaded = pass->GetStats();
+        EXPECT_EQ(loaded.GroomsAwaitingBuild, 0u) << "coats still waiting after " << frames << " frames";
+        EXPECT_GT(loaded.GroomsGpuDeformed, first.GroomsGpuDeformed);
+        ASSERT_NO_FATAL_FAILURE(WriteFrame("Acceptance_GL_Loaded", rgba));
+        std::printf("[acceptance-load] %u coats waited at the first frame; all built after %u frames; strand cache "
+                    "peak %.0f of %.0f MiB\n",
+                    first.GroomsAwaitingBuild, frames, static_cast<f64>(peakCached) / (1024.0 * 1024.0),
+                    static_cast<f64>(loaded.CacheBudgetBytes) / (1024.0 * 1024.0));
     }
 } // namespace OloEngine::Tests

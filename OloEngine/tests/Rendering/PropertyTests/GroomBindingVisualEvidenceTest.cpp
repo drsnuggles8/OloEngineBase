@@ -1003,6 +1003,147 @@ namespace OloEngine::Tests
         }
     } // namespace
 
+    // #1591: an opened scene's bound coats are built a few a frame, not all in
+    // its first frame -- 44 at once took the acceptance scene's load gigabytes
+    // and seconds past what it holds afterwards. A coat waiting for its first
+    // build is neither drawn nor cast, and is counted; a coat already on screen
+    // is never held back.
+    TEST_F(GroomBindingVisualEvidenceTest, ArrivingBoundCoatsAreBuiltAFewAFrameAndCounted)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBodyPose(55.0f);
+        SetBindingEnabled(true);
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+        const auto run = [&](u32 frames)
+        { RunEditorFrames(camera, frames); };
+
+        EvictUnused(run);
+        ASSERT_EQ(PassStats().GroomsGpuDeformed, 1u);
+        ASSERT_EQ(PassStats().GroomsAwaitingBuild, 0u);
+
+        // More wearers than one frame builds, arriving together as a scene's do.
+        constexpr u32 kTwins = GroomRenderPass::kFirstBuildsPerFrame + 3u;
+        std::vector<Entity> twins;
+        for (u32 i = 0; i < kTwins; ++i)
+        {
+            Entity twin = GetScene().CreateEntity("GroomTwin" + std::to_string(i));
+            twin.AddComponent<GroomComponent>(m_GroomEntity.GetComponent<GroomComponent>());
+            twin.AddComponent<GroomBindingComponent>(m_GroomEntity.GetComponent<GroomBindingComponent>());
+            twins.push_back(twin);
+        }
+
+        run(1u);
+        const GroomRenderStats first = PassStats();
+        EXPECT_EQ(first.GroomsGpuDeformed, 1u + GroomRenderPass::kFirstBuildsPerFrame)
+            << "the coat already drawn, plus one frame's allowance of arrivals";
+        EXPECT_EQ(first.GroomsAwaitingBuild, kTwins - GroomRenderPass::kFirstBuildsPerFrame);
+        EXPECT_EQ(first.GroomsAwaitingBudget, 0u) << "the default budget holds this coat";
+        EXPECT_EQ(first.Memory.Entries, 1u + GroomRenderPass::kFirstBuildsPerFrame)
+            << "a waiting coat must have built nothing";
+
+        run(1u);
+        const GroomRenderStats second = PassStats();
+        EXPECT_EQ(second.GroomsGpuDeformed, 1u + kTwins) << "the rest arrive on the next frame";
+        EXPECT_EQ(second.GroomsAwaitingBuild, 0u);
+        EXPECT_EQ(second.Memory.RestStreams, 1u) << "staging must not split the shared stream";
+
+        for (Entity twin : twins)
+        {
+            GetScene().DestroyEntity(twin);
+        }
+        twins.clear();
+
+        // A wave no view asks for any more is not still arriving: a count left
+        // from the last groom frame kept a scene-load wait waiting forever.
+        for (u32 i = 0; i < kTwins; ++i)
+        {
+            Entity twin = GetScene().CreateEntity("GroomLateTwin" + std::to_string(i));
+            twin.AddComponent<GroomComponent>(m_GroomEntity.GetComponent<GroomComponent>());
+            twin.AddComponent<GroomBindingComponent>(m_GroomEntity.GetComponent<GroomBindingComponent>());
+            twins.push_back(twin);
+        }
+        run(1u);
+        ASSERT_GT(PassStats().GroomsAwaitingBuild, 0u);
+        m_GroomEntity.GetComponent<GroomComponent>().m_RenderStrands = false;
+        for (Entity twin : twins)
+        {
+            twin.GetComponent<GroomComponent>().m_RenderStrands = false;
+        }
+        run(1u);
+        EXPECT_EQ(PassStats().GroomsAwaitingBuild, 0u) << "no coat is requested, so none is waiting";
+        m_GroomEntity.GetComponent<GroomComponent>().m_RenderStrands = true;
+        for (Entity twin : twins)
+        {
+            GetScene().DestroyEntity(twin);
+        }
+    }
+
+    // #1591: over its budget with every entry in use, the cache could only say
+    // so. An arriving coat is held back instead while the cache holds an entry
+    // nothing drew last frame -- that frame's eviction gives it back -- and is
+    // built the frame after; with no such entry it is built at once, and the
+    // budget warning, not a missing coat, reports the scene outgrowing it.
+    TEST_F(GroomBindingVisualEvidenceTest, AnArrivingCoatWaitsForTheBudgetWhileEvictionCanMakeRoom)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBodyPose(55.0f);
+        SetBindingEnabled(true);
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+        const auto run = [&](u32 frames)
+        { RunEditorFrames(camera, frames); };
+        EvictUnused(run);
+
+        const auto addWearer = [this](const char* name)
+        {
+            Entity twin = GetScene().CreateEntity(name);
+            twin.AddComponent<GroomComponent>(m_GroomEntity.GetComponent<GroomComponent>());
+            twin.AddComponent<GroomBindingComponent>(m_GroomEntity.GetComponent<GroomBindingComponent>());
+            return twin;
+        };
+        Entity stays = addWearer("GroomStays");
+        run(1u);
+        ASSERT_EQ(PassStats().GroomsGpuDeformed, 2u);
+
+        // The original wearer leaves the screen; the other keeps frames going,
+        // so the original's entry is one nothing drew last frame.
+        m_GroomEntity.GetComponent<GroomComponent>().m_RenderStrands = false;
+        run(1u);
+        ASSERT_EQ(PassStats().GroomsGpuDeformed, 1u);
+
+        struct BudgetRestore
+        {
+            u64 Previous;
+            ~BudgetRestore()
+            {
+                (void)Renderer3D::SetGroomCacheBudgetBytes(Previous);
+            }
+        } restore{ Renderer3D::SetGroomCacheBudgetBytes(1u) };
+        Entity arrives = addWearer("GroomArrives");
+        arrives.GetComponent<GroomComponent>().m_RenderStrands = true; // copied from the hidden wearer
+        run(1u);
+        const GroomRenderStats held = PassStats();
+        EXPECT_EQ(held.GroomsGpuDeformed, 1u) << "the arriving coat was built over the budget";
+        EXPECT_EQ(held.GroomsAwaitingBuild, 1u);
+        EXPECT_EQ(held.GroomsAwaitingBudget, 1u);
+        EXPECT_GT(held.CacheEvictions, 0u) << "the stale entry is what the frame gives back";
+
+        run(1u);
+        const GroomRenderStats built = PassStats();
+        EXPECT_EQ(built.GroomsGpuDeformed, 2u) << "nothing left to evict: the coat is built, over budget";
+        EXPECT_EQ(built.GroomsAwaitingBuild, 0u);
+        EXPECT_GT(built.CacheOverBudgetBytes, 0u);
+
+        m_GroomEntity.GetComponent<GroomComponent>().m_RenderStrands = true;
+        GetScene().DestroyEntity(arrives);
+        GetScene().DestroyEntity(stays);
+    }
+
     TEST_F(GroomBindingVisualEvidenceTest, TheMemoryBreakdownIsTheCacheAndASharedStreamCountsOnce)
     {
         Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
