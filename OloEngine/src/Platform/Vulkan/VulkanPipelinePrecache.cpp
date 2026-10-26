@@ -123,15 +123,20 @@ namespace OloEngine
             m_Manifest.BeginSession();
             // A session starts with no configuration: nothing published before
             // it (or after a previous Stop) describes what this one draws.
+            // Until a tag is published the configuration is the empty tag (a
+            // session that draws only 2D never publishes one).
             m_SelectedTags.Empty();
+            m_SelectedTags.Add(FString());
             m_PublishedTag = {};
             m_FrameTags.Empty();
             m_LastFrameTags.Empty();
-            m_CandidateTags.Empty();
-            m_CandidateTicks = 0;
+            m_PublishFrame = 0;
+            m_TagLastSeen.clear();
             {
                 std::lock_guard recordLock(m_RecordMutex);
                 m_RecordTag = {};
+                m_PendingRecords.Empty();
+                m_Recording = true;
             }
             m_JobsPerFrame = static_cast<u32>(
                 std::clamp<i64>(Levers::VulkanPsoPrecacheJobsPerFrame().value_or(kDefaultJobsPerFrame), 1, 1024));
@@ -193,10 +198,12 @@ namespace OloEngine
         m_PublishedTag = {};
         m_FrameTags.Empty();
         m_LastFrameTags.Empty();
-        m_CandidateTags.Empty();
-        m_CandidateTicks = 0;
+        m_PublishFrame = 0;
+        m_TagLastSeen.clear();
         std::lock_guard recordLock(m_RecordMutex);
         m_RecordTag = {};
+        m_PendingRecords.Empty();
+        m_Recording = false;
     }
 
     void VulkanPipelinePrecache::SaveManifest()
@@ -247,6 +254,8 @@ namespace OloEngine
         {
             return;
         }
+        // Keys recorded since the last Tick count too.
+        DrainPendingRecordsLocked();
         auto& builder = VulkanPipelineBuilder::Get();
         // EntriesFor's pointers stay valid while m_Mutex is held: only Record
         // (also under m_Mutex) grows the manifest.
@@ -414,9 +423,8 @@ namespace OloEngine
         if (!m_FrameTags.ContainsByPredicate([tag](const FString& t) { return t.ToView() == tag; }))
         {
             m_FrameTags.Add(FString(tag));
-            m_ReadinessDirty = true;
         }
-        // The session's first configuration needs no settling: there is no
+        // The session's first configuration needs no window: there is no
         // previous selection to protect, and the boot requests are waiting.
         const bool nothingSelected =
             m_SelectedTags.IsEmpty() || (m_SelectedTags.Num() == 1 && m_SelectedTags[0].IsEmpty());
@@ -424,13 +432,13 @@ namespace OloEngine
         {
             TArray<FString> first;
             first.Add(FString(tag));
-            ApplySelectedTagsLocked(first);
+            ApplySelectedTagsLocked(std::move(first));
             return;
         }
         // A readiness claim is a claim about the SELECTED configurations. A
-        // draw under another one starts now, before the change settles, and
-        // must not be judged against the old claim: withdraw it at once
-        // (ClaimsAllowedLocked makes none until the drawn set is selected).
+        // draw under another one starts now, before the next Tick selects it,
+        // and must not be judged against the old claim: withdraw it at once
+        // (ClaimsAllowedLocked makes none until the drawn tags are selected).
         if (!IsSelectedLocked(tag))
         {
             RevokeReadyClaimsLocked();
@@ -444,20 +452,34 @@ namespace OloEngine
 
     bool VulkanPipelinePrecache::ClaimsAllowedLocked() const
     {
-        // Every configuration drawn last frame and so far this frame must be a
-        // selected one; with no tag published at all (a 2D-only session), the
-        // empty tag is the configuration.
+        // Every configuration drawn in the last publishing frame and so far in
+        // this one must be selected; with nothing published (a 2D-only
+        // session) the last published tag (the empty one) is the configuration.
         if (m_LastFrameTags.IsEmpty() && m_FrameTags.IsEmpty())
         {
-            return !m_SelectedTags.IsEmpty() && IsSelectedLocked(m_PublishedTag.ToView());
+            return IsSelectedLocked(m_PublishedTag.ToView());
         }
         const auto selected = [this](const FString& tag) { return IsSelectedLocked(tag.ToView()); };
         return std::ranges::all_of(m_LastFrameTags, selected) && std::ranges::all_of(m_FrameTags, selected);
     }
 
-    void VulkanPipelinePrecache::ApplySelectedTagsLocked(const TArray<FString>& tags)
+    FString VulkanPipelinePrecache::JoinSelectedTagsLocked() const
     {
-        m_SelectedTags = tags;
+        FString joined;
+        for (const FString& tag : m_SelectedTags)
+        {
+            if (!joined.IsEmpty())
+            {
+                joined += " + ";
+            }
+            joined += tag;
+        }
+        return joined;
+    }
+
+    void VulkanPipelinePrecache::ApplySelectedTagsLocked(TArray<FString> tags)
+    {
+        m_SelectedTags = std::move(tags);
         // The selected configuration moved: every live shader's entries for the
         // new one are requested at the front of the queue (already-created ones
         // are duplicates), readiness is judged against the new set, and every
@@ -491,20 +513,17 @@ namespace OloEngine
     std::string VulkanPipelinePrecache::GetConfigurationTag() const
     {
         std::lock_guard lock(m_Mutex);
-        std::string joined;
-        for (const FString& tag : m_SelectedTags)
-        {
-            joined += joined.empty() ? "" : " + ";
-            joined += tag.ToView();
-        }
-        return joined;
+        return JoinSelectedTagsLocked().ToStdString();
     }
 
     void VulkanPipelinePrecache::RecordDrawCreation(const std::string_view shader, const u32 stageMask,
                                                     const PipelineSignature& signature)
     {
         std::lock_guard recordLock(m_RecordMutex);
-        m_PendingRecords.Add({ FString(shader), stageMask, signature, m_RecordTag });
+        if (m_Recording)
+        {
+            m_PendingRecords.Add({ FString(shader), stageMask, signature, m_RecordTag });
+        }
     }
 
     void VulkanPipelinePrecache::DrainPendingRecordsLocked()
@@ -512,6 +531,10 @@ namespace OloEngine
         TArray<VulkanPipelinePrecacheRecord> pending;
         {
             std::lock_guard recordLock(m_RecordMutex);
+            if (m_PendingRecords.IsEmpty())
+            {
+                return;
+            }
             pending = std::move(m_PendingRecords);
             m_PendingRecords.Empty();
         }
@@ -530,37 +553,41 @@ namespace OloEngine
                 return;
             }
             DrainPendingRecordsLocked();
-            // Settle the configuration (see SetConfigurationTag): the set of
-            // tags this frame drew, or the last published one if it drew none.
-            TArray<FString> drawn = m_FrameTags;
-            if (drawn.IsEmpty())
+            // The selection window (see SetConfigurationTag). A frame that
+            // published nothing (no frame graph compiled) changes nothing.
+            if (!m_FrameTags.IsEmpty())
             {
-                drawn.Add(m_PublishedTag);
+                ++m_PublishFrame;
+                const auto byName = [](const FString& x, const FString& y) { return x.ToView() < y.ToView(); };
+                const auto sameTags = [](const TArray<FString>& x, const TArray<FString>& y)
+                {
+                    return std::ranges::equal(x, y, [](const FString& l, const FString& r) { return l.ToView() == r.ToView(); });
+                };
+                for (const FString& tag : m_FrameTags)
+                {
+                    m_TagLastSeen[tag.ToStdString()] = m_PublishFrame;
+                }
+                std::ranges::sort(m_FrameTags, byName);
+                if (!sameTags(m_FrameTags, m_LastFrameTags))
+                {
+                    m_ReadinessDirty = true;
+                }
+                m_LastFrameTags = std::move(m_FrameTags);
+                m_FrameTags.Empty();
+
+                std::erase_if(m_TagLastSeen, [this](const auto& item)
+                              { return m_PublishFrame - item.second >= kTagWindowFrames; });
+                TArray<FString> window;
+                for (const auto& [tag, seen] : m_TagLastSeen)
+                {
+                    window.Add(FString(tag));
+                }
+                std::ranges::sort(window, byName);
+                if (!sameTags(window, m_SelectedTags))
+                {
+                    ApplySelectedTagsLocked(std::move(window));
+                }
             }
-            std::ranges::sort(drawn, [](const FString& a, const FString& b) { return a.ToView() < b.ToView(); });
-            const auto sameTags = [](const TArray<FString>& a, const TArray<FString>& b)
-            {
-                return std::ranges::equal(a, b, [](const FString& x, const FString& y) { return x.ToView() == y.ToView(); });
-            };
-            if (sameTags(drawn, m_CandidateTags))
-            {
-                ++m_CandidateTicks;
-            }
-            else
-            {
-                m_CandidateTags = drawn;
-                m_CandidateTicks = 1;
-            }
-            if (m_CandidateTicks >= kTagSettleTicks && !sameTags(m_CandidateTags, m_SelectedTags))
-            {
-                ApplySelectedTagsLocked(m_CandidateTags);
-            }
-            if (!sameTags(drawn, m_LastFrameTags))
-            {
-                m_ReadinessDirty = true;
-            }
-            m_LastFrameTags = drawn;
-            m_FrameTags.Empty();
             EvaluateReadinessLocked(/*force=*/false);
         }
         // This frame's budget. Not accumulated: an idle frame does not buy a
@@ -705,13 +732,7 @@ namespace OloEngine
         snapshot.Model = PipelineReadinessModel::VulkanPipelineObjects;
         snapshot.Pipelines = stats.Counters;
         snapshot.PrecacheEnabled = m_Started && Levers::VulkanPsoPrecache() != Levers::Tristate::Off;
-        std::string joined;
-        for (const FString& tag : m_SelectedTags)
-        {
-            joined += joined.empty() ? "" : " + ";
-            joined += tag.ToView();
-        }
-        snapshot.ConfigurationTag = FString(joined);
+        snapshot.ConfigurationTag = JoinSelectedTagsLocked();
         snapshot.JobsPerFrame = m_WorkerCount > 0 ? m_JobsPerFrame : 0u;
         snapshot.Queued = stats.Queued;
         snapshot.InFlight = stats.InFlight;

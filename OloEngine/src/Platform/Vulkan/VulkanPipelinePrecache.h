@@ -64,7 +64,6 @@
 #include <array>
 #include <chrono>
 #include <unordered_map>
-#include <vector>
 
 namespace OloEngine
 {
@@ -116,15 +115,17 @@ namespace OloEngine
 
         // --- Configuration -----------------------------------------------------
         // The renderer publishes its tag every frame graph compile. The
-        // SELECTED configuration is the set of tags drawn in a frame: one tag
-        // normally, two when a viewport and a preview with different settings
-        // render in the same frame. The first tag a session sees is selected at
-        // once; a change is selected after the same set has been drawn for
-        // kTagSettleTicks frames. Draw creations are recorded under the tag
-        // published last.
+        // SELECTED configuration is every tag published within the last
+        // kTagWindowFrames frames that published any: one tag normally, two
+        // when a viewport and a preview with different settings render (even
+        // on alternate frames). A switch adds the new tag at the next Tick and
+        // drops the old one once it has not been drawn for the window; frames
+        // that compile no frame graph change nothing. A draw creation is
+        // recorded under the tag published last, which is its own renderer's:
+        // each renderer's CompileFrameGraph is followed by its own Execute.
         void SetConfigurationTag(std::string_view tag);
         [[nodiscard]] std::string GetConfigurationTag() const;
-        static constexpr u32 kTagSettleTicks = 2;
+        static constexpr u64 kTagWindowFrames = 8;
 
         // The builder created `signature` for `shader` on a draw thread.
         void RecordDrawCreation(std::string_view shader, u32 stageMask, const PipelineSignature& signature);
@@ -171,10 +172,11 @@ namespace OloEngine
         void RequestFromManifest(Tracked& tracked, VulkanShader* graphics, VulkanComputeShader* compute);
         void RequestAllLocked();
         void EvaluateReadinessLocked(bool force);
-        void ApplySelectedTagsLocked(const TArray<FString>& tags);
+        void ApplySelectedTagsLocked(TArray<FString> tags);
         void RevokeReadyClaimsLocked();
         [[nodiscard]] bool IsSelectedLocked(std::string_view tag) const;
         [[nodiscard]] bool ClaimsAllowedLocked() const;
+        [[nodiscard]] FString JoinSelectedTagsLocked() const;
         void DrainPendingRecordsLocked();
         void SaveManifestLocked();
         void WorkerLoop();
@@ -187,15 +189,16 @@ namespace OloEngine
         TArray<FString> m_SelectedTags;  ///< Sorted: what requests are prioritised and judged by.
         FString m_PublishedTag;          ///< The tag published last.
         TArray<FString> m_FrameTags;     ///< Tags published since the last Tick.
-        TArray<FString> m_LastFrameTags; ///< The previous frame's tags (sorted).
-        TArray<FString> m_CandidateTags; ///< A different set waiting to settle.
-        u32 m_CandidateTicks = 0;
+        TArray<FString> m_LastFrameTags; ///< The last publishing frame's tags (sorted).
+        u64 m_PublishFrame = 0;          ///< Counts frames that published a tag.
+        std::unordered_map<std::string, u64> m_TagLastSeen; ///< Tag -> the publishing frame it was last drawn in.
 
         // Draw records arrive from recording threads; they take only this
         // small lock and are merged into the manifest under m_Mutex at Tick,
         // so a hit's manifest refresh never waits for readiness or a save.
         std::mutex m_RecordMutex;
-        FString m_RecordTag; ///< m_PublishedTag, as the recording threads see it.
+        bool m_Recording = false; ///< Records are kept only while started (guarded by m_RecordMutex).
+        FString m_RecordTag;      ///< m_PublishedTag, as the recording threads see it.
         TArray<VulkanPipelinePrecacheRecord> m_PendingRecords;
         std::unordered_map<const VulkanShader*, Tracked> m_Graphics;
         std::unordered_map<const VulkanComputeShader*, Tracked> m_Compute;
