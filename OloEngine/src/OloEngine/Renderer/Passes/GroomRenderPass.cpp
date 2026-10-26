@@ -1897,6 +1897,7 @@ namespace OloEngine
         }
         else if (haveSurface)
         {
+            OLO_PERF_SCOPE_AUTO("Groom::MarkBody");
             const auto bodyStart = std::chrono::steady_clock::now();
             GroomCoatShadow::BodyVoxelStats bodyStats;
             const bool marked = GroomCoatShadow::MarkBodyInDensityVolume(volume, body->Surface, body->SurfaceToGroom,
@@ -2190,6 +2191,9 @@ namespace OloEngine
                                                                std::span<const GroomCoatShadow::CoatSegment> drawnPose,
                                                                bool bakeAtRest)
     {
+        // Named in the CPU scope ring (#1594): a coat volume rebuilt, and a body
+        // marked into it, are main-thread work that lands in one frame.
+        OLO_PERF_SCOPE_AUTO("Groom::CoatVolume");
         GroomCoatShadowInputs inputs;
         inputs.Requested = request.CoatShadow;
         inputs.SegmentCount = entry.Stats.SegmentCount;
