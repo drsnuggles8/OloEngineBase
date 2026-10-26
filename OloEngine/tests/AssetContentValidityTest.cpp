@@ -76,7 +76,7 @@ namespace OloEngine::Tests
             // concatenate patch-version and source hashes (32 digits). Failed
             // GLSL dumps are diagnostic source, not content-addressed binaries.
             static const std::regex pattern(
-                R"RX((?:.+\.[0-9a-fA-F]{16}\.cached_(?:(?:opengl|vulkan(?:12)?)(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|pgr)|vulkan14(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|task|mesh|pgr)))|(?:.+\.[0-9a-fA-F]{32}\.cached_opengl\.bindless\.pgr)|(?:.+\.glsl\.cached_opengl\.(?:vert|frag|tesc|tese)(?:\.bindless)?\.failed\.glsl)|(?:program_binary_driver_stamp\.txt)|(?:pipeline_cache\.vkpc))RX");
+                R"RX((?:.+\.[0-9a-fA-F]{16}\.cached_(?:(?:opengl|vulkan(?:12)?)(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|pgr)|vulkan14(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|task|mesh|pgr)))|(?:.+\.[0-9a-fA-F]{32}\.cached_opengl\.bindless\.pgr)|(?:.+\.glsl\.cached_opengl\.(?:vert|frag|tesc|tese)(?:\.bindless)?\.failed\.glsl)|(?:program_binary_driver_stamp\.txt)|(?:pipeline_cache\.vkpc)|(?:pso_manifest\.yaml))RX");
             return pattern;
         }
 
@@ -1530,7 +1530,8 @@ namespace OloEngine::Tests
                  "Water.glsl.cached_opengl.vert.failed.glsl",
                  "Water.glsl.cached_opengl.frag.bindless.failed.glsl",
                  "program_binary_driver_stamp.txt",
-                 "pipeline_cache.vkpc" })
+                 "pipeline_cache.vkpc",
+                 "pso_manifest.yaml" })
             EXPECT_TRUE(std::regex_match(filename, pattern)) << filename;
 
         for (const char* filename : {
@@ -1587,7 +1588,8 @@ namespace OloEngine::Tests
             // pre-rename files on existing checkouts don't turn this test red;
             // they are dead weight, not a hazard (nothing constructs the old
             // name any more). `pipeline_cache.vkpc` is the process-wide
-            // VkPipelineCache blob (shader/vulkan/, §3(c)).
+            // VkPipelineCache blob (shader/vulkan/, §3(c)); `pso_manifest.yaml`
+            // beside it is the PSO precache's record of pipeline keys (#1345).
             // `task`/`mesh` are the VK_EXT_mesh_shader stages (issue #813) —
             // valid ONLY under the Vulkan backend's own `.cached_vulkan14`
             // tier, deliberately not added to the shared alternation: a stray
@@ -1595,8 +1597,8 @@ namespace OloEngine::Tests
             // stage it must reject, which is exactly the cache species this
             // whitelist exists to flag.
             { "shader",
-              std::regex(R"((?:.+?(\.glsl)?\.cached_(?:(?:opengl|vulkan(?:12)?)(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|pgr)|vulkan14(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|task|mesh|pgr)))|(?:program_binary_driver_stamp\.txt)|(?:pipeline_cache\.vkpc))"),
-              "<name>[.glsl].cached_{opengl|vulkan12}[.bindless].{stage|pgr} or .cached_vulkan14[.bindless].{stage|task|mesh|pgr}, program_binary_driver_stamp.txt, or pipeline_cache.vkpc" },
+              std::regex(R"((?:.+?(\.glsl)?\.cached_(?:(?:opengl|vulkan(?:12)?)(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|pgr)|vulkan14(?:\.bindless)?\.(?:vert|frag|comp|tesc|tese|geom|task|mesh|pgr)))|(?:program_binary_driver_stamp\.txt)|(?:pipeline_cache\.vkpc)|(?:pso_manifest\.yaml))"),
+              "<name>[.glsl].cached_{opengl|vulkan12}[.bindless].{stage|pgr} or .cached_vulkan14[.bindless].{stage|task|mesh|pgr}, program_binary_driver_stamp.txt, pipeline_cache.vkpc or pso_manifest.yaml" },
             { "ibl",
               std::regex(R"([0-9a-fA-F]+_(irradiance|prefilter|brdf)\.iblcache)"),
               "<hash>_{irradiance|prefilter|brdf}.iblcache" },
@@ -1712,7 +1714,7 @@ namespace OloEngine::Tests
                         entry.path().generic_string(),
                         "file under the shader cache root does not match the content-addressed "
                         "pattern for content-addressed stage/program binaries, failed GLSL "
-                        "diagnostics, program_binary_driver_stamp.txt, or pipeline_cache.vkpc.",
+                        "diagnostics, program_binary_driver_stamp.txt, pipeline_cache.vkpc or pso_manifest.yaml.",
                     });
                 }
             }
