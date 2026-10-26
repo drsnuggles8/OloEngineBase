@@ -451,9 +451,13 @@ namespace
     [[nodiscard]] SceneControl::SceneLoadOutcome AwaitFake(FakeLoad& load, u32 settleFrames,
                                                            std::chrono::milliseconds budget, bool cancelled = false)
     {
-        return SceneControl::AwaitSceneLoad([&load] { return load.Poll(); }, [cancelled] { return cancelled; },
-                                            [&load] { return load.Now; },
-                                            [&load](std::chrono::milliseconds step) { load.Now += step; },
+        return SceneControl::AwaitSceneLoad([&load]
+                                            { return load.Poll(); }, [cancelled]
+                                            { return cancelled; },
+                                            [&load]
+                                            { return load.Now; },
+                                            [&load](std::chrono::milliseconds step)
+                                            { load.Now += step; },
                                             settleFrames, budget, std::chrono::milliseconds(50));
     }
 } // namespace

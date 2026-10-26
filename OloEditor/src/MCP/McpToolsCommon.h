@@ -372,10 +372,14 @@ namespace OloEngine::MCP
     inline SceneControl::SceneLoadOutcome AwaitSceneLoaded(IAutomationHost& host, u32 settleFrames,
                                                            std::chrono::milliseconds budget)
     {
-        return SceneControl::AwaitSceneLoad([&host] { return ProbeSceneLoad(host); },
-                                            [&host] { return host.IsCurrentCallCancelled(); },
-                                            [] { return std::chrono::steady_clock::now(); },
-                                            [](std::chrono::milliseconds interval) { std::this_thread::sleep_for(interval); },
+        return SceneControl::AwaitSceneLoad([&host]
+                                            { return ProbeSceneLoad(host); },
+                                            [&host]
+                                            { return host.IsCurrentCallCancelled(); },
+                                            []
+                                            { return std::chrono::steady_clock::now(); },
+                                            [](std::chrono::milliseconds interval)
+                                            { std::this_thread::sleep_for(interval); },
                                             settleFrames, budget);
     }
 
