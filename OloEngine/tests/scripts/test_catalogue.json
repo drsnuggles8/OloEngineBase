@@ -4,7 +4,7 @@
   "test_root": "OloEngine/tests",
   "catalogue_dir": "docs",
   "functional_tag": "Functional",
-  "_case_budget_note": "Per-case wall-time budget in seconds, by layer id (default for any layer not listed), measured on the slowest machine that runs the whole suite: the AMD nightly (Release, radeonsi). generate_test_catalogue.py --durations <gtest.xml> prints each case beside its budget, and the nightly turns every case over budget into a warning (#1630). The nightly's whole suite must fit 75 minutes with a busy neighbour, about half that quiet; one L8 case over 120 s is a sixtieth of the quiet half.",
+  "_case_budget_note": "Per-case wall-time budget in seconds, by layer id (default for any layer not listed), measured on the slowest machine that runs the whole suite: the AMD nightly (Release, radeonsi). generate_test_catalogue.py --durations <gtest.xml> prints each case beside its budget, and the nightly turns every case over budget into a warning (#1630). The nightly's whole suite must fit 75 minutes with a busy neighbour, about half that quiet; one L8 case at its 120 s budget is about a nineteenth of the quiet half.",
   "case_budget_s": { "default": 30, "L8": 120 },
   "layers": [
     { "id": "L1",   "title": "Property / behavioural tests",         "anchor": "31-layer-1--property--behavioural-tests" },

@@ -471,8 +471,8 @@ def read_durations(xml_path):
 
 def report_durations(cfg, effective, xml_path, github, top):
     """Print each case's wall time beside its layer and the layer's budget
-    (#1630), slowest first: every case over budget, then the `top` slowest of
-    the rest. A case that outgrows its layer is visible the night it lands, not
+    (#1630): every case over budget and the `top` slowest of the rest, slowest
+    first. A case that outgrows its layer is visible the night it lands, not
     six hours into a local sweep. Returns the number of cases over budget."""
     budgets = cfg.get("case_budget_s", {})
     default = budgets.get("default")
@@ -484,7 +484,7 @@ def report_durations(cfg, effective, xml_path, github, top):
         rows.append((seconds, layer, budget, name))
     rows.sort(reverse=True)
     over = [r for r in rows if r[2] is not None and r[0] > r[2]]
-    shown = over + [r for r in rows if r not in over][:top]
+    shown = sorted(over + [r for r in rows if r not in over][:top], reverse=True)
     total = sum(r[0] for r in rows)
     print(f"{len(rows)} cases, {total / 60.0:.1f} min; {len(over)} over their layer's budget "
           f"(case_budget_s in {CATALOGUE_PATH.name}).")
