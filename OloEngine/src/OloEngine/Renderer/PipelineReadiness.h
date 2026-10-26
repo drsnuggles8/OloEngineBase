@@ -204,6 +204,7 @@ namespace OloEngine
         u32 TrackedShaders = 0;                                ///< Live shaders the collector requests for.
         u32 ReadyShaders = 0;                                  ///< Of those, every selected-configuration request prepared.
         u32 UnknownShaders = 0;                                ///< Live shaders the manifest has no entry for yet (first draw is a miss).
+        u32 UnsupportedSignatures = 0;                         ///< Manifest signatures this device cannot create: never requested.
         bool RenderReady = false;                              ///< Every tracked shader with requests is ready and nothing is queued.
         TArray<PipelineReadinessPendingShader> PendingShaders; ///< Capped list of the not-ready ones.
     };

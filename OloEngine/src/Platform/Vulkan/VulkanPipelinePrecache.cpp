@@ -140,6 +140,9 @@ namespace OloEngine
             }
             m_JobsPerFrame = static_cast<u32>(
                 std::clamp<i64>(Levers::VulkanPsoPrecacheJobsPerFrame().value_or(kDefaultJobsPerFrame), 1, 1024));
+            // Support is a fact about the device, and a new Start can be a new device.
+            m_SignatureSupport.clear();
+            m_UnsupportedSignatures = 0;
             m_Started = true;
             // Shaders built before the device's precache started (boot shaders)
             // are requested now.
@@ -281,6 +284,10 @@ namespace OloEngine
             }
             else if (graphics != nullptr)
             {
+                if (!IsSupportedOnDeviceLocked(entry->Signature))
+                {
+                    continue;
+                }
                 key = builder.RequestGraphics(*graphics, ToTargets(entry->Signature),
                                               entry->Signature.PatchControlPoints, priority);
             }
@@ -291,6 +298,96 @@ namespace OloEngine
             }
         }
         m_ReadinessDirty = true;
+    }
+
+    bool VulkanPipelinePrecache::IsSupportedOnDeviceLocked(const PipelineSignature& signature)
+    {
+        auto* device = VulkanDevice::Get();
+        if (device == nullptr)
+        {
+            return true; // no device: the builder refuses the request itself
+        }
+        std::string id = std::format("{}:{}:{}:", signature.DepthFormat, signature.Samples, signature.PatchControlPoints);
+        for (u32 i = 0; i < signature.ColorCount; ++i)
+        {
+            id += std::format("{},", signature.ColorFormats[i]);
+        }
+        if (const auto it = m_SignatureSupport.find(id); it != m_SignatureSupport.end())
+        {
+            return it->second;
+        }
+
+        const VkPhysicalDevice physical = device->GetPhysicalDevice();
+        VkPhysicalDeviceProperties properties{};
+        vkGetPhysicalDeviceProperties(physical, &properties);
+        const VkPhysicalDeviceLimits& limits = properties.limits;
+        const auto hasFeature = [physical](const u32 format, const VkFormatFeatureFlags feature)
+        {
+            VkFormatProperties formatProperties{};
+            vkGetPhysicalDeviceFormatProperties(physical, static_cast<VkFormat>(format), &formatProperties);
+            return (formatProperties.optimalTilingFeatures & feature) == feature;
+        };
+        const auto sampleBit = static_cast<VkSampleCountFlags>(signature.Samples);
+
+        std::string reason;
+        bool anyAttachment = false;
+        if (signature.ColorCount > limits.maxColorAttachments)
+        {
+            reason = std::format("{} colour attachments, the device allows {}", signature.ColorCount,
+                                 limits.maxColorAttachments);
+        }
+        for (u32 i = 0; i < signature.ColorCount && reason.empty(); ++i)
+        {
+            const u32 format = signature.ColorFormats[i];
+            if (format == VK_FORMAT_UNDEFINED)
+            {
+                continue; // an unused location under dynamic rendering
+            }
+            anyAttachment = true;
+            if (!hasFeature(format, VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT))
+            {
+                reason = std::format("colour format {} is not a colour attachment on this device", format);
+            }
+            else if ((limits.framebufferColorSampleCounts & sampleBit) == 0)
+            {
+                reason = std::format("{} samples exceed framebufferColorSampleCounts {:#x}", signature.Samples,
+                                     limits.framebufferColorSampleCounts);
+            }
+        }
+        if (reason.empty() && signature.DepthFormat != VK_FORMAT_UNDEFINED)
+        {
+            anyAttachment = true;
+            if (!hasFeature(signature.DepthFormat, VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT))
+            {
+                reason = std::format("depth format {} is not a depth attachment on this device", signature.DepthFormat);
+            }
+            else if ((limits.framebufferDepthSampleCounts & sampleBit) == 0)
+            {
+                reason = std::format("{} samples exceed framebufferDepthSampleCounts {:#x}", signature.Samples,
+                                     limits.framebufferDepthSampleCounts);
+            }
+        }
+        if (reason.empty() && !anyAttachment && (limits.framebufferNoAttachmentsSampleCounts & sampleBit) == 0)
+        {
+            reason = std::format("{} samples exceed framebufferNoAttachmentsSampleCounts {:#x}", signature.Samples,
+                                 limits.framebufferNoAttachmentsSampleCounts);
+        }
+        if (reason.empty() && signature.PatchControlPoints > limits.maxTessellationPatchSize)
+        {
+            reason = std::format("patch size {} exceeds maxTessellationPatchSize {}", signature.PatchControlPoints,
+                                 limits.maxTessellationPatchSize);
+        }
+
+        const bool supported = reason.empty();
+        m_SignatureSupport.emplace(std::move(id), supported);
+        if (!supported)
+        {
+            ++m_UnsupportedSignatures;
+            OLO_CORE_WARN("[Vulkan/PSO] a manifest signature is not requested on this device: {} (recorded on "
+                          "another GPU, or from a packaged seed)",
+                          reason);
+        }
+        return supported;
     }
 
     void VulkanPipelinePrecache::RequestAllLocked()
@@ -775,6 +872,7 @@ namespace OloEngine
         snapshot.TrackedShaders = m_LastReadiness.TrackedShaders;
         snapshot.ReadyShaders = m_LastReadiness.ReadyShaders;
         snapshot.UnknownShaders = m_LastReadiness.UnknownShaders;
+        snapshot.UnsupportedSignatures = m_UnsupportedSignatures;
         snapshot.RenderReady = m_LastReadiness.RenderReady && stats.Queued == 0 && stats.InFlight == 0;
         snapshot.PendingShaders = m_LastReadiness.PendingShaders;
     }

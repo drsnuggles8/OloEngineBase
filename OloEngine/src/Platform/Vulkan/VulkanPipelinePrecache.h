@@ -178,6 +178,12 @@ namespace OloEngine
         [[nodiscard]] bool ClaimsAllowedLocked() const;
         [[nodiscard]] FString JoinSelectedTagsLocked() const;
         void DrainPendingRecordsLocked();
+        // Lock held. False when this device cannot create the signature (a
+        // manifest recorded on another GPU or a packaged seed): an attachment
+        // format without the attachment feature, a sample count or colour
+        // count over the device limits, a patch over maxTessellationPatchSize.
+        // Each unsupported signature is logged once per device and counted.
+        [[nodiscard]] bool IsSupportedOnDeviceLocked(const PipelineSignature& signature);
         void SaveManifestLocked();
         void WorkerLoop();
         void StopWorkers();
@@ -206,6 +212,8 @@ namespace OloEngine
         bool m_ReadinessDirty = true;
         PipelineReadinessSnapshot m_LastReadiness;
         u32 m_JobsPerFrame = kDefaultJobsPerFrame;
+        std::unordered_map<std::string, bool> m_SignatureSupport; ///< Per device: cleared at Start.
+        u32 m_UnsupportedSignatures = 0;
 
         // Workers: Tick() grants m_Tokens; each started creation spends one.
         std::mutex m_WorkMutex;

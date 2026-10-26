@@ -84,6 +84,7 @@ namespace OloEngine::MCP::PipelineReadinessReport
                                          { "trackedShaders", r.TrackedShaders },
                                          { "readyShaders", r.ReadyShaders },
                                          { "unknownShaders", r.UnknownShaders },
+                                         { "unsupportedSignatures", r.UnsupportedSignatures },
                                          { "pendingShaders", std::move(pending) } };
                 out["unmeasurable"] = Json::array();
                 break;

@@ -33,6 +33,7 @@ TEST(McpPipelineReadiness, VulkanReportsEveryMissKindAndReadinessSeparately)
     snapshot.TrackedShaders = 3;
     snapshot.ReadyShaders = 2;
     snapshot.UnknownShaders = 0;
+    snapshot.UnsupportedSignatures = 1;
     snapshot.PendingShaders.Add({ FString("PBR_GBuffer_Skinned"), 2, 1, 0 });
 
     const auto json = ToJson(snapshot);
@@ -54,6 +55,7 @@ TEST(McpPipelineReadiness, VulkanReportsEveryMissKindAndReadinessSeparately)
     const auto& readiness = json["readiness"];
     EXPECT_EQ(readiness["configuration"], "Deferred/msaa1/native/oit1");
     EXPECT_FALSE(readiness["renderReady"]);
+    EXPECT_EQ(readiness["unsupportedSignatures"], 1) << "Entries this device cannot create are reported, not hidden";
     ASSERT_EQ(readiness["pendingShaders"].size(), 1u);
     EXPECT_EQ(readiness["pendingShaders"][0]["shader"], "PBR_GBuffer_Skinned");
     EXPECT_EQ(readiness["pendingShaders"][0]["prepared"], 1);

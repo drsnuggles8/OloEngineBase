@@ -38,7 +38,8 @@ request and when, and `olo_perf_pipeline_readiness` reports both.
    it can land before they are ready. The selected configuration is every tag published within the
    last 8 frames that published any (a viewport and a preview with different settings make two).
    The first tag of a session is selected at once; a new tag joins at the next frame and an old one
-   leaves once it has not been drawn for the window. Readiness claims are withdrawn the moment an
+   leaves once it has not been drawn for the window. A session that publishes no tag (2D only) draws
+   under the empty tag, which is recorded and selected like any other. Readiness claims are withdrawn the moment an
    unselected tag is published.
 5. **Never hold the builder lock across `vkCreate*Pipelines`.** The hit path of every recording
    thread shares that lock. A creation claims its key under the lock, snapshots the shader's modules
@@ -82,7 +83,10 @@ request and when, and `olo_perf_pipeline_readiness` reports both.
     stages the machine's `pso_manifest.yaml` as `assets/PipelineManifest.yaml`. Only an application
     session reads and writes the machine manifest; a test that builds a `VulkanContext` does not. The runtime merges it under its own
     manifest and requests keys for the shaders its cooked content creates. A seed entry whose shader
-    is not in the build is never requested.
+    is not in the build is never requested, and neither is one whose targets this device cannot
+    create (an attachment format without the attachment feature, a sample count, colour count or
+    patch size over the device limits): it is logged once per device and counted as
+    `unsupportedSignatures`.
 
 ## Where it lives
 

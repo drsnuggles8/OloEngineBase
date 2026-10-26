@@ -1366,6 +1366,47 @@ TEST_F(VulkanShaderPipeline, ReadinessComesFromTheManifestAndADrawThatContradict
     EXPECT_FALSE(settling.RenderReady) << "Nothing is ready while the drawn configuration is not the selected one";
 }
 
+TEST_F(VulkanShaderPipeline, AManifestSignatureThisDeviceCannotCreateIsNeverRequested)
+{
+    // A packaged seed or a manifest from another GPU can name a target this
+    // device lacks. Requesting it would hand vkCreateGraphicsPipelines an
+    // invalid attachment; it is skipped, logged and counted instead.
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+    builder.ResetRequestCounters();
+
+    constexpr std::string_view kTag = "Forward/msaa1/native/oit0";
+    const u32 stages = static_cast<u32>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    PipelineManifest manifest;
+    PipelineSignature rgba8;
+    rgba8.ColorCount = 1;
+    rgba8.ColorFormats[0] = VK_FORMAT_R8G8B8A8_UNORM;
+    // A block-compressed format is never a colour attachment on any device.
+    PipelineSignature compressed;
+    compressed.ColorCount = 1;
+    compressed.ColorFormats[0] = VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+    ASSERT_TRUE(manifest.Record("PsoUnsupported", stages, rgba8, kTag));
+    ASSERT_TRUE(manifest.Record("PsoUnsupported", stages, compressed, kTag));
+
+    ScopedPrecache precache(kTag);
+    VulkanPipelinePrecache::Get().SetManifestForTesting(manifest);
+    Ref<Shader> shader = MakeConstantShader("PsoUnsupported");
+    ASSERT_TRUE(shader);
+
+    EXPECT_EQ(builder.GetRequestStats().Counters.Requests, 1u) << "Only the supported signature is requested";
+    PipelineReadinessSnapshot snapshot;
+    VulkanPipelinePrecache::Get().FillSnapshot(snapshot);
+    EXPECT_EQ(snapshot.UnsupportedSignatures, 1u);
+
+    // Readiness is judged on what can be created: the supported key prepared
+    // is enough.
+    ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 1u);
+    PipelineReadinessSnapshot after;
+    VulkanPipelinePrecache::Get().FillSnapshot(after);
+    EXPECT_TRUE(after.RenderReady);
+    EXPECT_EQ(builder.GetRequestStats().Counters.FailedCreations, 0u);
+}
+
 TEST_F(VulkanShaderPipeline, RequestsArePreparedByTheWorkersWhileNoFrameTicks)
 {
     // A packaged runtime loads for tens of seconds before its first frame. The
