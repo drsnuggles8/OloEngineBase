@@ -150,6 +150,7 @@ namespace OloEngine
         void RequestAllLocked();
         void EvaluateReadinessLocked(bool force);
         void ApplySelectedTagLocked(std::string_view tag);
+        void RevokeReadyClaimsLocked();
         void SaveManifestLocked();
         void WorkerLoop();
         void StopWorkers();

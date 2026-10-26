@@ -1345,6 +1345,24 @@ TEST_F(VulkanShaderPipeline, ReadinessComesFromTheManifestAndADrawThatContradict
     ASSERT_NE(hdr, nullptr);
     EXPECT_TRUE((*hdr)->SeenUnder(kSelected));
     EXPECT_TRUE((*hdr)->SeenUnder(kOther));
+
+    // A configuration switch: the renderer publishes the other tag, and its
+    // draws start before the tag settles. The claim made for the selected
+    // configuration is withdrawn at once, so a draw the new configuration
+    // needs is an ordinary counted miss, not a broken claim.
+    PipelineReadinessSnapshot claimed;
+    VulkanPipelinePrecache::Get().FillSnapshot(claimed);
+    ASSERT_TRUE(claimed.RenderReady);
+    VulkanPipelinePrecache::Get().SetConfigurationTag(kOther);
+    EXPECT_NE(builder.GetOrCreateGraphics(vkShader, vkShader.GetRootDataLayout(), state,
+                                          ColourTargets(VK_FORMAT_A2B10G10R10_UNORM_PACK32)),
+              VK_NULL_HANDLE);
+    const auto switched = builder.GetRequestStats().Counters;
+    EXPECT_EQ(switched.NeverRequested, 2u);
+    EXPECT_EQ(switched.ReadyClaimViolations, 1u) << "A draw during a switch was judged against the old claim";
+    PipelineReadinessSnapshot settling;
+    VulkanPipelinePrecache::Get().FillSnapshot(settling);
+    EXPECT_FALSE(settling.RenderReady) << "Nothing is ready while the drawn configuration is not the selected one";
 }
 
 TEST_F(VulkanShaderPipeline, CompileCacheHitModuleAndPipelineCreationAreCountedApart)

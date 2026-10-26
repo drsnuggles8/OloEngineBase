@@ -382,6 +382,16 @@ namespace OloEngine
         if (m_PublishedTag.ToView() != tag)
         {
             m_PublishedTag = FString(tag);
+            m_ReadinessDirty = true;
+            // A readiness claim is a claim about the SELECTED configuration.
+            // Draws under a different one start now, before the new tag
+            // settles, and must not be judged against the old claim: withdraw
+            // it at once (EvaluateReadinessLocked makes none while the two
+            // tags differ).
+            if (!m_Tag.IsEmpty() && m_PublishedTag != m_Tag)
+            {
+                RevokeReadyClaimsLocked();
+            }
         }
         if (!m_FrameTagSeen)
         {
@@ -411,6 +421,13 @@ namespace OloEngine
         // new one are requested at the front of the queue (already-created ones
         // are duplicates), readiness is judged against the new set, and every
         // pipeline's next draw records under the new tag.
+        RevokeReadyClaimsLocked();
+        VulkanPipelineBuilder::Get().BeginRecordingEpoch();
+        RequestAllLocked();
+    }
+
+    void VulkanPipelinePrecache::RevokeReadyClaimsLocked()
+    {
         for (auto& [shader, tracked] : m_Graphics)
         {
             if (tracked.DeclaredReady)
@@ -427,8 +444,7 @@ namespace OloEngine
                 tracked.DeclaredReady = false;
             }
         }
-        VulkanPipelineBuilder::Get().BeginRecordingEpoch();
-        RequestAllLocked();
+        m_ReadinessDirty = true;
     }
 
     std::string VulkanPipelinePrecache::GetConfigurationTag() const
@@ -534,6 +550,10 @@ namespace OloEngine
         m_EvaluatedCompletions = completions;
         m_ReadinessDirty = false;
 
+        // Claims are made only while the configuration drawn is the selected
+        // one; during a switch, before the new tag settles, nothing is ready.
+        const bool claimsAllowed = !m_Tag.IsEmpty() && m_PublishedTag == m_Tag;
+
         PipelineReadinessSnapshot& r = m_LastReadiness;
         r.TrackedShaders = 0;
         r.ReadyShaders = 0;
@@ -559,7 +579,7 @@ namespace OloEngine
                 failed += state == VulkanPipelineBuilder::RequestState::Failed ? 1u : 0u;
             }
             const u32 requested = static_cast<u32>(tracked.SelectedKeys.Num());
-            const bool ready = prepared == requested;
+            const bool ready = claimsAllowed && prepared == requested;
             if (ready != tracked.DeclaredReady)
             {
                 builder.DeclareShaderReady(tracked.ShaderKey, ready);
