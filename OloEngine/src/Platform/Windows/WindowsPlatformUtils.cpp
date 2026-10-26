@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include <chrono>
 #include <optional>
 #include "OloEngine/Core/Interactivity.h"
 #include "OloEngine/Core/Environment.h"
@@ -18,7 +19,11 @@ namespace OloEngine
     {
         if (HasMockTime())
             return GetMockTime();
-        return static_cast<f32>(GLFWAPI::glfwGetTime());
+        // A steady clock from the first call, as on Linux, rather than
+        // glfwGetTime(), which reads 0 in a process that never calls glfwInit()
+        // (OloServer; a test on a context GLFW did not create) (#1516).
+        static const auto s_Epoch = std::chrono::steady_clock::now();
+        return std::chrono::duration<f32>(std::chrono::steady_clock::now() - s_Epoch).count();
     }
 
     std::string FileDialogs::OpenFile(const char* const filter, const char* const initialDir)

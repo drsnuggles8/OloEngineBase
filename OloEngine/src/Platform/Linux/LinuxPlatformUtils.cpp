@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include <chrono>
 #include <optional>
 #include "OloEngine/Core/Environment.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -25,7 +26,12 @@ namespace OloEngine
     {
         if (HasMockTime())
             return GetMockTime();
-        return static_cast<f32>(::glfwGetTime());
+        // A steady clock from the first call, not glfwGetTime(): GLFW's clock
+        // reads 0 until glfwInit(), which nothing calls on a process that has
+        // no window -- OloServer, and the test binary on its EGL context (the
+        // AMD nightly, #1516), where every wall-clock read was 0.
+        static const auto s_Epoch = std::chrono::steady_clock::now();
+        return std::chrono::duration<f32>(std::chrono::steady_clock::now() - s_Epoch).count();
     }
 
     namespace

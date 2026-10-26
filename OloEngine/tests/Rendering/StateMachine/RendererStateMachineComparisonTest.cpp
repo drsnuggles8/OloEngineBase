@@ -160,6 +160,24 @@ namespace OloEngine::Tests::StateMachine
         EXPECT_EQ(comparison.Targets[0].DifferingTexels, 1u);
     }
 
+    // #1516: a failure that happens only on the AMD runner is diagnosed from
+    // its log, so an exact failure says WHERE it differs, not only how much.
+    TEST(RendererStateMachineComparison, AnExactFailureSaysWhereItDiffers)
+    {
+        FrameCapture a = Frame(PatchImage(0u, 0u));
+        FrameCapture b = a;
+        // The patch's bottom-left 16x16 corner is cell (0, 0) of the 16 x 9
+        // map at 64 x 64: rows of ~7.1 texels, columns of 4. Change only
+        // its interior, away from every edge.
+        Fill(b.Targets[0], 1u, 1u, 3u, 3u, 0.5f);
+        const Comparison comparison = CompareCaptures(a, b, MeasureControls(a, a));
+        ASSERT_FALSE(comparison.Held);
+        EXPECT_TRUE(Mentions(comparison, "0 of the 4 differing texels are on an edge")) << comparison.Describe();
+        EXPECT_TRUE(Mentions(comparison, "(0.900000, 0.900000, 0.900000, 1.000000) vs (0.500000"))
+            << comparison.Describe();
+        EXPECT_TRUE(Mentions(comparison, "\n      1...............\n      ................")) << comparison.Describe();
+    }
+
     TEST(RendererStateMachineComparison, ANoisyControlFallsBackToDistributionAndSaysSo)
     {
         FrameCapture first;

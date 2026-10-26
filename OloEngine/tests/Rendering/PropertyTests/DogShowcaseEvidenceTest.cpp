@@ -1955,8 +1955,11 @@ namespace OloEngine::Tests
         // READS BACK the last frame the graph rendered into `out`: the entity ids,
         // the world point under each pixel through `viewProjection`, and (when
         // `luminance`) scene colour's linear luminance. Top row first. Advances
-        // nothing.
-        static void ReadbackLinear(const glm::mat4& viewProjection, LinearFrame& out, bool luminance = true)
+        // nothing. Without `world` the depth is not read and `out.World` stays
+        // empty: a caller that counts ids and luminance pays for neither the
+        // readback nor the unprojection of every pixel (#1630).
+        static void ReadbackLinear(const glm::mat4& viewProjection, LinearFrame& out, bool luminance = true,
+                                   bool world = true)
         {
             out = LinearFrame{};
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
@@ -1987,6 +1990,16 @@ namespace OloEngine::Tests
             std::vector<i32> ids(static_cast<sizet>(width) * height);
             ::glGetTextureImage(fb->GetColorAttachmentRendererID(1), 0, GL_RED_INTEGER, GL_INT,
                                 static_cast<GLsizei>(ids.size() * sizeof(i32)), ids.data());
+            if (!world)
+            {
+                out.Ids.resize(pixels);
+                for (u32 y = 0; y < activeHeight; ++y)
+                {
+                    std::copy_n(ids.data() + (static_cast<sizet>(y) * width), activeWidth,
+                                out.Ids.data() + (static_cast<sizet>(activeHeight - 1u - y) * activeWidth));
+                }
+                return;
+            }
             std::vector<f32> depth(static_cast<sizet>(width) * height);
             ::glGetTextureImage(fb->GetDepthAttachmentRendererID(), 0, GL_DEPTH_COMPONENT, GL_FLOAT,
                                 static_cast<GLsizei>(depth.size() * sizeof(f32)), depth.data());
@@ -2281,18 +2294,22 @@ namespace OloEngine::Tests
 
         struct BodyParts; // below, with the parts it names
 
-        // Four arms in ONE IDENTICAL STATE each: the clip replayed from its start
-        // with the solver reset (StartClip), paused at `frames`, the frame
-        // sequences reset and the history cold -- so the bake is the only thing
-        // that differs. POSE, POSE again (the noise), REST, and OFF (no
+        // Four arms in ONE IDENTICAL STATE: the clip replayed once from its start
+        // with the solver reset (StartClip) and paused at `frames`, then each arm
+        // with the frame sequences reset and the history cold -- so the bake is
+        // the only thing that differs. POSE, POSE again (the noise), REST, and OFF (no
         // self-shadow). Linear scene colour throughout. `where` is in the dog's
         // own frame and placed where the dog stands (DogRelative): the walk
         // carries it 0.31 m a second, and a camera left at the origin would
         // frame less and less of it. The coarse regions are classified in the
         // dog's frame; `parts`, when given, also classifies each coat pixel by
         // its nearest skinned body vertex (BakeComparison::Anatomical).
+        // `playOnFrom`, when not zero, is the frame an earlier comparison left
+        // the same clip paused at: the clip plays on from there to `frames`
+        // rather than being replayed from its start (#1630). The capture steps
+        // neither the clip nor the solver, so the state is the replay's.
         BakeComparison CompareRestBake(const char* clip, u32 frames, const View& where, const std::string& pngStem,
-                                       bool writeOff, BodyParts* parts = nullptr)
+                                       bool writeOff, BodyParts* parts = nullptr, u32 playOnFrom = 0u)
         {
             auto& shadow = m_Dog.Coat.GetComponent<GroomCoatShadowComponent>();
             auto& anim = m_Dog.Body.GetComponent<AnimationStateComponent>();
@@ -2317,8 +2334,27 @@ namespace OloEngine::Tests
             {
                 shadow.m_BakeAtRest = atRest;
                 shadow.m_Enabled = enabled;
-                (void)StartClip(clip, true, frames);
-                anim.m_IsPlaying = false;
+                // ONE REPLAY for the four arms. They differ only in what the
+                // shader does with the bake, and CaptureLinear renders
+                // editor-preview frames of a paused clip, which step neither
+                // the clip nor the guide solver (see "How each helper moves the
+                // scene"), so each arm reads the state the first one replayed.
+                // Replaying the clip from its start for every arm cost four
+                // times the frames for one state (#1630); the dog's world
+                // matrix is still compared across the arms below.
+                if (arms == 0u)
+                {
+                    if (playOnFrom == 0u)
+                    {
+                        (void)StartClip(clip, true, frames);
+                    }
+                    else
+                    {
+                        anim.m_IsPlaying = true;
+                        (void)AdvanceRuntime(frames - playOnFrom);
+                    }
+                    anim.m_IsPlaying = false;
+                }
                 Renderer3D::ResetFrameSequences();
                 ColdHistory();
                 const glm::mat4 dogWorld = DogWorld();
@@ -4617,7 +4653,7 @@ namespace OloEngine::Tests
                 for (u32 k = 0; k < frames; ++k)
                 {
                     HoldRuntime(1);
-                    ReadbackLinear(RenderedViewProjection(), frame, true);
+                    ReadbackLinear(RenderedViewProjection(), frame, true, /*world=*/false);
                     if (HasFatalFailure())
                     {
                         return;
@@ -6346,7 +6382,7 @@ namespace OloEngine::Tests
             for (u32 k = 0; k < kFrames; ++k)
             {
                 HoldRuntime(1);
-                ReadbackLinear(RenderedViewProjection(), frame, true);
+                ReadbackLinear(RenderedViewProjection(), frame, true, /*world=*/false);
                 for (sizet p = 0; p < frame.Ids.size(); ++p)
                 {
                     if (frame.Ids[p] == coatId)
@@ -8741,11 +8777,13 @@ namespace OloEngine::Tests
             f64 firstCoatPixels = 0.0;
             for (u32 instant = 0; instant < 3u; ++instant)
             {
+                // The clip is replayed from its start for the first instant and
+                // plays on to the next two (#1630).
                 const u32 frames = c.Frames + (20u * instant);
                 const BakeComparison comparison =
                     CompareRestBake(c.Clip, frames, c.Where,
                                     instant == 0u ? std::string("DogCoatBakeLimits_GL_Forward_") + c.Name : std::string(),
-                                    false, &parts);
+                                    false, &parts, instant == 0u ? 0u : frames - 20u);
                 ASSERT_FALSE(HasFatalFailure());
                 ReportRestBake(c.Name, frames, comparison);
                 const BakeRegion& all = comparison.Regions[3];

@@ -2568,11 +2568,23 @@ namespace OloEngine::Tests
                 const GroomCoatContext coatContext{ &req->Coat, req->Groom->GetGroupCoats() };
                 arm.Strands = PlanGroomStrandMesh(req->BuildSource(), req->Build, &coatContext).StrandsSelected;
             }
-            auto& shadow = s.Coat.GetComponent<GroomCoatShadowComponent>();
-            const f32 kappa = shadow.m_Kappa;
-            shadow.m_Kappa = 0.0f;
-            arm.Unshadowed = linear(view, id, false);
-            shadow.m_Kappa = kappa;
+            // THE UNSHADOWED ARM splits the energy ratio into radiance and
+            // shadow for the printed record and feeds no bound, at the cost of
+            // a second converged measurement: half the case's frames (#1630).
+            // OLO_GROOM_ANIMALS_RADIANCE_SPLIT=1 measures it.
+            static const bool s_SplitRadiance = []
+            {
+                const char* flag = std::getenv("OLO_GROOM_ANIMALS_RADIANCE_SPLIT");
+                return flag != nullptr && flag[0] != '\0' && flag[0] != '0';
+            }();
+            if (s_SplitRadiance)
+            {
+                auto& shadow = s.Coat.GetComponent<GroomCoatShadowComponent>();
+                const f32 kappa = shadow.m_Kappa;
+                shadow.m_Kappa = 0.0f;
+                arm.Unshadowed = linear(view, id, false);
+                shadow.m_Kappa = kappa;
+            }
             if (!crop.empty())
             {
                 // Rule 1 of the visual criteria: look at it enlarged. The crop is
@@ -2610,10 +2622,14 @@ namespace OloEngine::Tests
             const auto ratio = [](f64 on, f64 off)
             { return off > 0.0 ? on / off : 0.0; };
             k.Coverage = ratio(k.On.Lit.Cov, k.Off.Lit.Cov);
-            k.Radiance = ratio(k.On.Unshadowed.Luma / std::max(k.On.Unshadowed.Cov, 1.0),
-                               k.Off.Unshadowed.Luma / std::max(k.Off.Unshadowed.Cov, 1.0));
-            k.Shadow = ratio(k.On.Lit.Luma / std::max(k.On.Unshadowed.Luma, 1.0e-9),
-                             k.Off.Lit.Luma / std::max(k.Off.Unshadowed.Luma, 1.0e-9));
+            // Zero (printed as such) unless the unshadowed arm was measured.
+            if (k.On.Unshadowed.Frames > 0u && k.Off.Unshadowed.Frames > 0u)
+            {
+                k.Radiance = ratio(k.On.Unshadowed.Luma / std::max(k.On.Unshadowed.Cov, 1.0),
+                                   k.Off.Unshadowed.Luma / std::max(k.Off.Unshadowed.Cov, 1.0));
+                k.Shadow = ratio(k.On.Lit.Luma / std::max(k.On.Unshadowed.Luma, 1.0e-9),
+                                 k.Off.Lit.Luma / std::max(k.Off.Unshadowed.Luma, 1.0e-9));
+            }
             k.Energy = ratio(k.On.Lit.Luma, k.Off.Lit.Luma);
             k.EnergyError = std::sqrt((k.On.Lit.RelativeError * k.On.Lit.RelativeError) +
                                       (k.Off.Lit.RelativeError * k.Off.Lit.RelativeError));

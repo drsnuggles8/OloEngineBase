@@ -35,6 +35,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -375,6 +376,49 @@ TEST(GroomCoatShadowVolume, BinningConservesTheCoatsFibreAreaExactly)
     EXPECT_EQ(stats.SegmentsBinned, segments.size());
     EXPECT_GT(stats.OccupiedVoxels, 0u);
     EXPECT_LT(stats.OccupiedVoxels, stats.TotalVoxels) << "a coat that fills its whole bounding box is not a coat";
+}
+
+TEST(GroomCoatShadowVolume, TheSlabbedBakeIsTheSerialBakeBitForBit)
+{
+    // The deposit is split into z-slabs on the task system (#1630). Each voxel
+    // must still sum the same terms in the same order as the serial bake, or
+    // the shadow would move by rounding with the core count: a pixel test
+    // could then pass on one machine and fail on another. So: bit for bit,
+    // against one slab, for splits that do and do not divide the grid, and
+    // one slab per z layer, where every tap clamped at the boundary meets
+    // the slab edge.
+    const auto pelt = Tests::GroomStrandFixture::MakePelt(1500u, 6u);
+    ASSERT_TRUE(pelt.Groom) << pelt.FailureReason;
+    CoatSampleSettings sampleSettings;
+    sampleSettings.WidthScale = kSceneWidthScale;
+    std::vector<CoatSegment> segments;
+    ASSERT_GT(BuildCoatSegments(*pelt.Groom, glm::mat4(1.0f), sampleSettings, segments), 0u);
+
+    DensityVolumeSettings settings;
+    settings.Resolution = 40u;
+    settings.BoundsPadding = 0.0f; // every boundary tap clamps
+    settings.BinSlabs = 1u;
+    DensityVolume serial;
+    DensityVolumeBuildStats serialStats;
+    ASSERT_TRUE(BuildDensityVolume(segments, settings, serial, &serialStats));
+    ASSERT_GT(serial.Dimensions.z, 3);
+
+    for (const u32 slabs : { 2u, 3u, 7u, static_cast<u32>(serial.Dimensions.z), 0u })
+    {
+        SCOPED_TRACE(slabs);
+        settings.BinSlabs = slabs;
+        DensityVolume split;
+        DensityVolumeBuildStats splitStats;
+        ASSERT_TRUE(BuildDensityVolume(segments, settings, split, &splitStats));
+        ASSERT_EQ(split.Density.size(), serial.Density.size());
+        EXPECT_EQ(0, std::memcmp(split.Density.data(), serial.Density.data(), serial.Density.size() * sizeof(f32)));
+        EXPECT_EQ(0, std::memcmp(split.Direction.data(), serial.Direction.data(),
+                                 serial.Direction.size() * sizeof(glm::vec3)));
+        EXPECT_EQ(splitStats.SegmentsBinned, serialStats.SegmentsBinned);
+        EXPECT_EQ(splitStats.OccupiedVoxels, serialStats.OccupiedVoxels);
+        // Bit for bit, like the volume: compared as bytes, not as values.
+        EXPECT_EQ(0, std::memcmp(&splitStats.TotalArealMass, &serialStats.TotalArealMass, sizeof(f64)));
+    }
 }
 
 TEST(GroomCoatShadowVolume, AShortFibreCrossingAVoxelBoundaryDoesNotJumpInShadow)

@@ -20,6 +20,9 @@
 #include "OloEngine/Renderer/ShaderRegistry.h"
 #include "OloEngine/Task/ParallelFor.h"
 
+#include <array>
+#include <cctype>
+#include <charconv>
 #include <cstring>
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -554,7 +557,68 @@ namespace OloEngine
             const auto* const vendor = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
             return std::strstr(vendor, "ATI") != nullptr || std::strstr(vendor, "AMD") != nullptr;
         }
+
+        // ONE ROUTE DECISION FOR AN AMD DRIVER, read by the load and by Reload
+        // alike (#1516). A Mesa before 23.5.2 cannot take the SPIR-V route, so
+        // its programs compile the cross-compiled GLSL text; a newer one takes
+        // glShaderBinary like every other driver. Reload used to send every
+        // AMD program down the text route whatever the version, so a reload on
+        // radeonsi swapped Mesa's SPIR-V frontend for its GLSL one and the frame
+        // moved in the last bits at every edge. The version parse is
+        // OpenGLShader::AmdGlVersionTakesGlslTextRoute.
+        [[nodiscard]] bool AmdDriverTakesGlslTextRoute()
+        {
+            static const bool s_TextRoute = IsAmdGpu() && OpenGLShader::AmdGlVersionTakesGlslTextRoute(
+                                                              reinterpret_cast<const char*>(glGetString(GL_VERSION)));
+            return s_TextRoute;
+        }
     } // namespace Utils
+
+    bool OpenGLShader::AmdGlVersionTakesGlslTextRoute(const std::string_view glVersion)
+    {
+        constexpr std::string_view kMesa = "Mesa ";
+        const sizet mesa = glVersion.find(kMesa);
+        const sizet lastSpace = glVersion.rfind(' ');
+        sizet start = std::string_view::npos;
+        if (mesa != std::string_view::npos)
+        {
+            start = mesa + kMesa.size();
+        }
+        else if (lastSpace != std::string_view::npos)
+        {
+            start = lastSpace + 1;
+        }
+
+        std::array<int, 3> version{};
+        sizet parsed = 0;
+        if (start != std::string_view::npos)
+        {
+            const char* cursor = glVersion.data() + start;
+            const char* const end = glVersion.data() + glVersion.size();
+            while (parsed < version.size() && cursor != end && std::isdigit(static_cast<unsigned char>(*cursor)) != 0)
+            {
+                const auto [next, error] = std::from_chars(cursor, end, version[parsed]);
+                if (error != std::errc{})
+                {
+                    break;
+                }
+                ++parsed;
+                cursor = next;
+                if (cursor == end || *cursor != '.')
+                {
+                    break;
+                }
+                ++cursor;
+            }
+        }
+        if (parsed == 0)
+        {
+            OLO_CORE_ERROR("Could not find driver version in string: '{0}'; AMD programs take the GLSL text route",
+                           glVersion);
+            return true;
+        }
+        return version < std::array<int, 3>{ 23, 5, 2 };
+    }
 
     namespace
     {
@@ -732,44 +796,9 @@ namespace OloEngine
             // crashing the editor (issue #568). Already logged via OLO_CORE_CRITICAL.
             m_CompilationStatus = ShaderCompilationStatus::Failed;
         }
-        else if (TakesGlslTextRoute())
+        else if (TakesGlslTextRoute() || Utils::AmdDriverTakesGlslTextRoute())
         {
             CreateProgramFromGlslText();
-        }
-        else if (Utils::IsAmdGpu())
-        {
-            std::string fullVersion(reinterpret_cast<const char*>(glGetString(GL_VERSION)));
-
-            if (sizet lastSpace = fullVersion.rfind(' '); lastSpace != std::string::npos)
-            {
-                std::string driverVersion = fullVersion.substr(lastSpace + 1);
-                std::istringstream versionStream(driverVersion);
-                std::string token;
-                std::vector<int> versionNumbers;
-
-                while (std::getline(versionStream, token, '.'))
-                {
-                    versionNumbers.push_back(std::stoi(token));
-                }
-
-                if (versionNumbers[0] < 23 || (versionNumbers[0] == 23 && versionNumbers[1] < 5) || (versionNumbers[0] == 23 && versionNumbers[1] == 5 && versionNumbers[2] < 2))
-                {
-                    CreateProgramFromGlslText();
-                }
-                else if (m_OpenGLCompileOk)
-                {
-                    CreateProgram();
-                }
-                else
-                {
-                    m_CompilationStatus = ShaderCompilationStatus::Failed;
-                }
-            }
-            else
-            {
-                OLO_CORE_ERROR("Could not find driver version in string: '{0}'", fullVersion);
-                m_CompilationStatus = ShaderCompilationStatus::Failed;
-            }
         }
         else if (m_OpenGLCompileOk)
         {
@@ -918,7 +947,7 @@ namespace OloEngine
 
         OLO_SHADER_COMPILATION_START(GetName(), "runtime_source");
 
-        if (Utils::IsAmdGpu() || TakesGlslTextRoute())
+        if (TakesGlslTextRoute() || Utils::AmdDriverTakesGlslTextRoute())
         {
             // The GLSL text route: compile the cross-compiled GLSL directly (no
             // glShaderBinary SPIR-V).
@@ -2890,7 +2919,7 @@ namespace OloEngine
                 // block below keeps the previously-working shader bound (issue #568).
                 m_CompilationStatus = ShaderCompilationStatus::Failed;
             }
-            else if (Utils::IsAmdGpu() || TakesGlslTextRoute())
+            else if (TakesGlslTextRoute() || Utils::AmdDriverTakesGlslTextRoute())
             {
                 CreateProgramFromGlslText();
             }

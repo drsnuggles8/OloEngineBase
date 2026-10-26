@@ -38,7 +38,10 @@ Rules for how an OpenGL program reaches the driver (#1533, E2). Read before touc
 4. **`OLO_GL_SHADERS_FROM_GLSL` is the A/B.** Unset, each shader's token decides; `1` puts every
    program on the text route (narrowed by `OLO_GL_SHADERS_FROM_GLSL_MATCH=Foliage_,Terrain`);
    `0` puts none. It is read as each program is created, so set it before launch; `Reload()`
-   re-decides, so a test can swap routes in one process.
+   re-decides, so a test can swap routes in one process. It re-decides by the load's own rule,
+   AMD's driver-version check included (`Utils::AmdDriverTakesGlslTextRoute`): until #1516 a reload
+   on any AMD driver took the text route, and on Mesa 25 every reloaded frame moved in its last
+   bits at the edges.
 
 5. **A colour program and the prepass it depth-tests against take one route.** `invariant
    gl_Position` holds only within one compiler. The forward foliage colour pass draws at `GL_LEQUAL`

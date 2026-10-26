@@ -176,6 +176,32 @@ Found on #1052 / PR #1054. The *rest* of that issue — why nothing rendered eve
 after the device loss was fixed — is a second mechanism, in
 [no-silent-fallbacks.md](no-silent-fallbacks.md).
 
+## Third and fourth instances: what the test process never set up (#1630, #1516)
+
+Both are seams nobody chose to substitute: the editor sets them up in
+`Application`, and the test binary, which has no `Application`, simply never did.
+
+**No worker threads.** `Application` calls `LowLevelTasks::FScheduler::StartWorkers()`.
+The test binary did not, except that `FunctionalTest` starts them once for Jolt and
+`FlockingViaSceneTickTest` stops them again. Every `ParallelFor` in a
+renderer-attached test therefore ran inline unless an earlier test in the same
+process had started the workers. Profiling one `SkinRiggedHeadCloseUp` capture put
+`GroomPass` at 280-365 ms of CPU against 5-45 ms of GPU: the drawn-pose twin took
+~38 ms a frame on one thread, and the coat-volume rebake 230 ms every fourth or
+fifth frame. Measured against the AMD runner, every slow groom case ran 1.0-1.8x
+slower there than on the dev box, which is the CPU gap, not the GPU's 6-8x. With
+`RendererAttachedTest::SetUp` starting the workers, and the bake and pose made
+parallel and bit-identical, a 1080p hair frame went from 121-146 ms to 67-80 ms.
+
+**No wall clock.** `Time::GetTime()` read `glfwGetTime()`, which returns 0 until
+`glfwInit()`. The GL fixture's GLFW path calls it; its EGL path, which the AMD
+nightly uses (`--olo-gl-backend=egl`), does not. So for the whole AMD suite every
+unmocked wall-clock read was 0, and every scene animation clock (wind, water,
+foliage) stood still. Nothing noticed until `AnimationClockThrottleTest`, which
+checks that the clock moves, ran there for the first time: the nightly had always
+run out of time before reaching it. `GetTime()` is now a steady clock from its
+first call. OloServer had the same frozen clock.
+
 ## Related
 
 - [gl-global-setter-resets-indexed-state.md](gl-global-setter-resets-indexed-state.md)

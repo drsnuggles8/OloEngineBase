@@ -5,8 +5,10 @@
 #include "OloEngine/Core/FramePacer.h"
 #include "OloEngine/Utils/PlatformUtils.h"
 
+#include <chrono>
 #include <cmath>
 #include <limits>
+#include <thread>
 
 namespace
 {
@@ -249,6 +251,31 @@ namespace
             pacer.LimitFrameRate(123.0f); // returns immediately by contract
             SUCCEED();
         }
+        Time::ClearMockTime();
+    }
+
+    // =========================================================================
+    // Time::GetTime -- the wall clock
+    // =========================================================================
+
+    // #1516: GetTime() read glfwGetTime(), which is 0 until glfwInit(). A
+    // process that never opens a GLFW window -- OloServer, or this binary on an
+    // EGL context, which is how the AMD nightly runs it -- saw a wall clock
+    // frozen at 0, and AnimationClockThrottleTest failed there alone.
+    TEST(TimeWallClock, AdvancesWhetherOrNotAWindowExists)
+    {
+        Time::ClearMockTime();
+        const f32 before = Time::GetTime();
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        const f32 after = Time::GetTime();
+        EXPECT_TRUE(std::isfinite(before) && std::isfinite(after));
+        EXPECT_GE(after - before, 0.015f) << "the wall clock did not advance over a 20 ms sleep";
+    }
+
+    TEST(TimeWallClock, AMockTimeStillWins)
+    {
+        Time::SetMockTime(12.5f);
+        EXPECT_FLOAT_EQ(Time::GetTime(), 12.5f);
         Time::ClearMockTime();
     }
 } // namespace

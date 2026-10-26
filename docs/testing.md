@@ -859,7 +859,7 @@ paths. Append a `SceneRow` in `BuildRows()`:
 | `gl-deferred-native`, `gl-deferred-msaa4`, `gl-deferred-spatial-msaa4`, `gl-deferred-temporal` | every row except the ReSTIR rows | `ReSTIRDI`, `ReSTIRGIOwnership`, `ReSTIRPTOwnership`: need a ray-tracing Vulkan device (`gl-deferred-native` exports their raster reference). The temporal arm skips if FSR2 does not engage (`IsTemporalUpscaleActive`) |
 | `vk-forward-native`, `vk-forward-plus-native`, `vk-deferred-native` | skip: scene-level Vulkan is unreachable in-process | live: `scripts/cross-path-matrix-live.py` in an editor launched with `--rhi vulkan` (SSGI and the ReSTIR DI/GI/PT rows on Deferred only; each ReSTIR tier must report itself active) |
 | `gl-deferred-temporal-msaa4`, `vk-deferred-temporal`, `gl-deferred-ray-query`, `vk-forward-ray-query`, `vk-deferred-ray-query-unavailable` | skip: the registry declares them Unsupported, with its `Reason` | nowhere, by declaration. They stay arms so the declared and tested matrices cannot drift |
-| any GL arm without a GL 4.6 context (CI software-driver jobs) | skip: the fixture's GPU gate | the AMD nightly (`gpu-conformance-amd.yml` runs the whole suite) |
+| any GL arm without a GL 4.6 context (CI software-driver jobs) | skip: the fixture's GPU gate | the AMD nightly (`gpu-conformance-amd.yml` runs the whole suite but the DogShowcase, Breed and DogPlay evidence, which `gpu-conformance-amd-showcase.yml` runs weekly) |
 
 The temporal arm is measured converged. FSR2 carries history across the OFF→ON switch of a term's
 source, so the fixture resets it with a resolution change before each capture. It also reads
@@ -1096,6 +1096,11 @@ Local quick paths:
 # (Or just run the "run-fast-tests-debug" VS Code task, which does this for you.)
 $f = (python OloEngine/tests/scripts/generate_test_catalogue.py --gtest-filter --exclude L6,L7,L8)
 .\build\OloEngine\tests\Debug\OloEngine-Tests.exe "--gtest_filter=$f"
+
+# Which cases are slow: each case's wall time beside its layer's per-case budget
+# (case_budget_s in test_catalogue.json, sized for the AMD nightly), slowest first.
+.\build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_output=xml:run.xml
+python OloEngine/tests/scripts/generate_test_catalogue.py --durations run.xml
 
 # Golden rebase (only after a deliberate visual change)
 .\build\OloEngine\tests\Debug\OloEngine-Tests.exe --olo-golden-rebase --gtest_filter=GoldenImage*

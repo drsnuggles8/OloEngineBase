@@ -538,6 +538,21 @@ namespace OloEngine::Tests
     class SkinRiggedHeadCloseUp : public RendererAttachedTest
     {
       protected:
+        // OLO_HUMAN_HAIR_AUTHORING=1: render the head's full look-dev series --
+        // every pose, control and motion PNG the inspected cases can write
+        // (#1630). Without it each such case keeps every assertion and the
+        // frames those assertions read, and drops the frames only a person
+        // looks at.
+        [[nodiscard]] static bool FullLookDev()
+        {
+            static const bool s_Full = []
+            {
+                const char* flag = std::getenv("OLO_HUMAN_HAIR_AUTHORING");
+                return flag != nullptr && flag[0] != '\0' && flag[0] != '0';
+            }();
+            return s_Full;
+        }
+
         void BuildScene() override
         {
             if (!RenderPropertyFixture::IsGpuAvailable())
@@ -998,7 +1013,9 @@ namespace OloEngine::Tests
     // The close-up framings a person judges, with the coat, on every path:
     // front, three-quarter, profile under the studio rig, and the backlit ear.
     // The numbers only guard against an empty or blown frame; the PNGs are the
-    // evidence.
+    // evidence. By default the guards read the front framing on every path and
+    // the backlit rig on Forward; FullLookDev() renders all four framings on
+    // every path (#1630).
     TEST_F(SkinRiggedHeadCloseUp, CloseUpFramingsOnEveryPath)
     {
         OLO_ENSURE_GPU_OR_SKIP();
@@ -1007,7 +1024,16 @@ namespace OloEngine::Tests
         for (const RenderingPath path : kPaths)
         {
             const char* p = PathName(path);
-            for (const Pose& pose : { kFront, kThreeQuarter, kProfile, kBacklit })
+            std::vector<Pose> poses{ kFront };
+            if (FullLookDev())
+            {
+                poses.insert(poses.end(), { kThreeQuarter, kProfile, kBacklit });
+            }
+            else if (path == RenderingPath::Forward)
+            {
+                poses.push_back(kBacklit);
+            }
+            for (const Pose& pose : poses)
             {
                 SetRig(std::string_view(pose.Name) == kBacklit.Name ? Rig::Backlit : Rig::Studio);
                 Capture frame;
@@ -1144,16 +1170,31 @@ namespace OloEngine::Tests
     // #1593: native-resolution authoring evidence. These are inspected images,
     // not a numerical realism verdict. Each path uses the same lights and pose,
     // includes the hair-off control and exposes the physical fibre lobes.
+    //
+    // THE FULL SERIES IS ON REQUEST (#1630): OLO_HUMAN_HAIR_AUTHORING=1. It is
+    // ~2,700 frames at 1080p, 47 min in Debug and the nightly's largest case.
+    // By default every assertion still runs: a native still per path with its
+    // guards, and the motion with every binding and deviation check -- on
+    // Forward only, because the coat's simulation and binding do not depend on
+    // the path. What the default gives up is the inspected series: the other
+    // four poses, the hair-off control, the lobe views and the motion PNGs on
+    // Forward+ and Deferred.
     TEST_F(SkinRiggedHeadCloseUp, NativeHairAuthoringEvidenceOnEveryPath)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        const bool authoring = FullLookDev();
+        std::vector<Pose> poses{ kFront };
+        if (authoring)
+        {
+            poses.insert(poses.end(), { kThreeQuarter, kProfile, kCrown, kBacklit });
+        }
         for (const RenderingPath path : kPaths)
         {
             const std::string prefix = std::string("HumanHairNative_GL_") + PathName(path) + "_";
             const Settings settings{ path, MaterialDebugView::None, true, 48, 1920, 1080 };
             HoldPose(0.0f);
             ShowHair(true);
-            for (const Pose& pose : { kFront, kThreeQuarter, kProfile, kCrown, kBacklit })
+            for (const Pose& pose : poses)
             {
                 SetRig(std::string_view(pose.Name) == kBacklit.Name ? Rig::Backlit : Rig::Studio);
                 Capture frame;
@@ -1163,19 +1204,26 @@ namespace OloEngine::Tests
                 EXPECT_LT(all.MeanLuma, 0.9) << "blown evidence frame";
             }
             SetRig(Rig::Studio);
-            ShowHair(false);
-            Capture without;
-            ASSERT_TRUE(CaptureFrame(settings, kFront, prefix + "HairOff", without));
-            ShowHair(true);
-            auto& fibre = m_Coat.GetComponent<GroomFibreComponent>();
-            for (const GroomFibreDebugMode lobe : { GroomFibreDebugMode::LobeR, GroomFibreDebugMode::LobeTT,
-                                                    GroomFibreDebugMode::LobeTRT, GroomFibreDebugMode::MultipleScattering })
+            if (authoring)
             {
-                fibre.m_DebugMode = static_cast<u8>(lobe);
-                Capture tap;
-                ASSERT_TRUE(CaptureFrame(settings, kFront, prefix + "Lobe" + std::to_string(fibre.m_DebugMode), tap));
+                ShowHair(false);
+                Capture without;
+                ASSERT_TRUE(CaptureFrame(settings, kFront, prefix + "HairOff", without));
+                ShowHair(true);
+                auto& fibre = m_Coat.GetComponent<GroomFibreComponent>();
+                for (const GroomFibreDebugMode lobe : { GroomFibreDebugMode::LobeR, GroomFibreDebugMode::LobeTT,
+                                                        GroomFibreDebugMode::LobeTRT, GroomFibreDebugMode::MultipleScattering })
+                {
+                    fibre.m_DebugMode = static_cast<u8>(lobe);
+                    Capture tap;
+                    ASSERT_TRUE(CaptureFrame(settings, kFront, prefix + "Lobe" + std::to_string(fibre.m_DebugMode), tap));
+                }
+                fibre.m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
             }
-            fibre.m_DebugMode = static_cast<u8>(GroomFibreDebugMode::Full);
+            if (!authoring && path != RenderingPath::Forward)
+            {
+                continue; // the motion below is the path-independent half
+            }
 
             // Advance the real Scene continuously through both turns and the
             // nod, rather than substituting static poses for motion evidence.
@@ -1244,6 +1292,10 @@ namespace OloEngine::Tests
                 rest = frame;
             else if (t > 1.4f && t < 1.6f)
                 held = frame;
+            // The check reads the rest and the held turn; the swing back and the
+            // nod are PNGs a person looks at, rendered by FullLookDev() (#1630).
+            if (!FullLookDev() && t > 1.4f)
+                break;
         }
         Window face;
         ASSERT_TRUE(ProjectBox(kFront, glm::vec3(-0.08f, 0.22f, 0.0f), glm::vec3(0.08f, 0.40f, 0.14f), face));
