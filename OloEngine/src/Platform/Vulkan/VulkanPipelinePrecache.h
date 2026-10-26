@@ -28,9 +28,10 @@
 //   modules). Creation runs on dedicated worker threads, never inside a
 //   recording region. Tick() runs once per frame on the render thread, outside
 //   recording, and hands the workers that frame's budget (JobsPerFrame starts);
-//   whatever exceeds it waits for the next frame. Nothing ever blocks on the
-//   queue: a draw that arrives first creates its own pipeline and is counted as
-//   requested too late.
+//   whatever exceeds it waits for the next frame. While no frame comes (loading)
+//   the workers refill the same budget every 33 ms themselves. Nothing ever
+//   blocks on the queue: a draw that arrives first creates its own pipeline and
+//   is counted as requested too late.
 //
 // READINESS
 //   A tracked shader is RENDER-READY when every request it has for the selected
@@ -61,6 +62,7 @@
 #include <string_view>
 #include <thread>
 #include <array>
+#include <chrono>
 #include <unordered_map>
 
 namespace OloEngine
@@ -177,6 +179,10 @@ namespace OloEngine
         std::mutex m_WorkMutex;
         std::condition_variable m_WorkCv;
         u32 m_Tokens = 0;
+        std::chrono::steady_clock::time_point m_LastTick{}; ///< When a budget was last granted.
+        // With no frame for this long, the workers grant themselves the
+        // per-frame budget (loading; see WorkerLoop).
+        static constexpr std::chrono::milliseconds kLoadingRefillInterval{ 33 };
         bool m_StopRequested = false;
         static constexpr u32 kMaxWorkers = 8;
         std::array<std::thread, kMaxWorkers> m_Workers;

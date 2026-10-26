@@ -60,8 +60,10 @@ request and when, and `olo_perf_pipeline_readiness` reports both.
    `VulkanPipelinePrecache::Tick` runs on the render thread after the frame fence and hands the
    workers `OLO_VK_PSO_PRECACHE_JOBS_PER_FRAME` starts (default 4; `OLO_VK_PSO_PRECACHE_WORKERS`
    threads, default 2). The budget does not accumulate, and work over it carries over to the next
-   frame. Nothing waits for the queue at load: a long manifest spreads over frames instead of
-   becoming a loading stall.
+   frame. While no frame comes (a packaged runtime compiles and loads for tens of seconds before its
+   first frame) the workers refill the same budget every 33 ms themselves, so loading prepares the
+   requests on background threads. Nothing ever waits for the queue: a long manifest spreads over
+   frames, or over the load, instead of becoming a stall.
 9. **On OpenGL "ready" means the program link completed, and nothing more is claimed.** GL has no
    pipeline object. The counters there are compiles, SPIR-V cache hits, links issued, program-binary
    hits and rejects, and binds that forced an unfinished link (`EnsureLinked`, the GL form of a late

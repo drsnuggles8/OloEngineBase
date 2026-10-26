@@ -56,6 +56,7 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 #include <memory>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace
@@ -1363,6 +1364,54 @@ TEST_F(VulkanShaderPipeline, ReadinessComesFromTheManifestAndADrawThatContradict
     PipelineReadinessSnapshot settling;
     VulkanPipelinePrecache::Get().FillSnapshot(settling);
     EXPECT_FALSE(settling.RenderReady) << "Nothing is ready while the drawn configuration is not the selected one";
+}
+
+TEST_F(VulkanShaderPipeline, RequestsArePreparedByTheWorkersWhileNoFrameTicks)
+{
+    // A packaged runtime loads for tens of seconds before its first frame. The
+    // workers' budget normally comes from Tick(); with no frame they must refill
+    // it themselves, or every request made during loading lands on the first
+    // frame as a synchronous creation (measured: 5.6 s of blocking in a cooked
+    // Samoyed runtime, against 32 ms with this refill).
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+    builder.ResetRequestCounters();
+
+    constexpr std::string_view kTag = "Forward/msaa1/native/oit0";
+    PipelineManifest manifest;
+    PipelineSignature rgba8;
+    rgba8.ColorCount = 1;
+    rgba8.ColorFormats[0] = VK_FORMAT_R8G8B8A8_UNORM;
+    ASSERT_TRUE(manifest.Record("PsoLoading", static_cast<u32>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT),
+                                rgba8, kTag));
+
+    VulkanPipelinePrecache::Get().Start({ .LoadAndSaveManifest = false, .StartWorkers = true });
+    VulkanPipelinePrecache::Get().SetConfigurationTag(kTag);
+    VulkanPipelinePrecache::Get().SetManifestForTesting(manifest);
+    Ref<Shader> shader = MakeConstantShader("PsoLoading");
+    auto& vkShader = *static_cast<VulkanShader*>(shader.get());
+    const auto key = builder.RequestGraphics(vkShader, ColourTargets(VK_FORMAT_R8G8B8A8_UNORM), 0);
+    ASSERT_TRUE(key.has_value());
+
+    // No Tick(), no PrepareQueued(): only the workers' own refill can run it.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (builder.GetRequestState(*key) != VulkanPipelineBuilder::RequestState::Ready &&
+           std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    VulkanPipelinePrecache::Get().Stop();
+    VulkanPipelinePrecache::Get().SetManifestForTesting({});
+
+    EXPECT_EQ(builder.GetRequestState(*key), VulkanPipelineBuilder::RequestState::Ready)
+        << "A request made while no frame ticks was never prepared";
+    EXPECT_NE(builder.GetOrCreateGraphics(vkShader, vkShader.GetRootDataLayout(), NoDepthState(),
+                                          ColourTargets(VK_FORMAT_R8G8B8A8_UNORM)),
+              VK_NULL_HANDLE);
+    const auto stats = builder.GetRequestStats().Counters;
+    EXPECT_GE(stats.PreparedCreations, 1u);
+    EXPECT_EQ(stats.BlockingCreations, 0u);
+    EXPECT_EQ(stats.PreparedFirstUses, 1u);
 }
 
 TEST_F(VulkanShaderPipeline, CompileCacheHitModuleAndPipelineCreationAreCountedApart)

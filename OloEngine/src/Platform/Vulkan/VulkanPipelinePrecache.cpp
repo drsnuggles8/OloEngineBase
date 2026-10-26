@@ -9,6 +9,7 @@
 #include "Platform/Vulkan/VulkanShader.h"
 
 #include <algorithm>
+#include <chrono>
 #include <format>
 #include <fstream>
 #include <sstream>
@@ -134,6 +135,7 @@ namespace OloEngine
             std::lock_guard workLock(m_WorkMutex);
             m_StopRequested = false;
             m_Tokens = 0;
+            m_LastTick = std::chrono::steady_clock::now();
             for (u32 i = 0; i < workers; ++i)
             {
                 m_Workers[i] = std::thread([this] { WorkerLoop(); });
@@ -498,6 +500,7 @@ namespace OloEngine
         {
             std::lock_guard workLock(m_WorkMutex);
             m_Tokens = m_WorkerCount > 0 ? m_JobsPerFrame : 0u;
+            m_LastTick = std::chrono::steady_clock::now();
         }
         m_WorkCv.notify_all();
     }
@@ -508,7 +511,21 @@ namespace OloEngine
         {
             {
                 std::unique_lock workLock(m_WorkMutex);
-                m_WorkCv.wait(workLock, [this] { return m_StopRequested || m_Tokens > 0; });
+                while (!m_StopRequested && m_Tokens == 0)
+                {
+                    m_WorkCv.wait_for(workLock, kLoadingRefillInterval);
+                    // No frame for a while: the process is loading (a packaged
+                    // runtime compiles shaders and loads its scene for tens of
+                    // seconds before its first frame). Refill at the per-frame
+                    // rate, so requests made during loading are prepared on
+                    // these threads instead of all landing on the first frame;
+                    // nothing waits for them, so loading gains no stall.
+                    if (m_Tokens == 0 && std::chrono::steady_clock::now() - m_LastTick >= kLoadingRefillInterval)
+                    {
+                        m_Tokens = m_JobsPerFrame;
+                        m_LastTick = std::chrono::steady_clock::now();
+                    }
+                }
                 if (m_StopRequested)
                 {
                     return;
