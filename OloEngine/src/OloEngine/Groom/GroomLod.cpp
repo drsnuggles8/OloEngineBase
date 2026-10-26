@@ -372,6 +372,18 @@ namespace OloEngine
         return decision;
     }
 
+    GroomLodState SettledGroomLodState(const GroomLodPolicy& policy, const GroomLodInputs& inputs) noexcept
+    {
+        // One decision with no hold: every axis lands on what this size asks
+        // for, and the counters record that request as already made, so the
+        // first real frame continues from it instead of re-counting the hold.
+        GroomLodPolicy immediate = policy;
+        immediate.HoldFrames = 0;
+        GroomLodState state;
+        (void)AdvanceGroomLod(immediate, inputs, state);
+        return state;
+    }
+
     f32 GroomCrossFadeThreshold(u32 frame, u32 frames) noexcept
     {
         if (frames == 0u || frame == 0u || frame > frames)

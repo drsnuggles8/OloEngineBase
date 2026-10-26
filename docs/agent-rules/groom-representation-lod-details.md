@@ -140,6 +140,20 @@ reference grooms under `OloEditor/assets/Grooms/` were regenerated with the chan
 | The coat detaches from the body only past the hand-over | a stale source map — rule 7 |
 | The hand-over rebuilds geometry every frame | the budget is sliding rather than halving — rule 3 |
 
+## A coat seen for the first time starts on the tier it measures
+
+`AdvanceGroomLod` refines at once and coarsens only after `HoldFrames` stable frames, which is right
+for a coat on screen and wrong for one that has drawn nothing: its default state is the finest tier
+at step 0, so it is built at full density until the hold runs out. Opening the #1259 acceptance
+scene built all 44 bound coats that way in one frame: 1.9 GiB of frame buffers, 3.5 GiB of their
+host mirrors, five full-density rest streams, the strand cache 2.6 GiB over its 1 GiB budget, and the
+process at 16.6 GB private / 9.0 GB working set before the second frame let most of it go (#1591).
+`Scene` now seeds a fresh coat's state with `SettledGroomLodState` (one decision with no hold), and
+only the frame's first view keeps it. The pass also stages arriving bound coats: at most
+`kFirstBuildsPerFrame` first builds and one new rest stream a frame, none while the cache is over
+budget and holds entries eviction can free; a waiting coat is neither drawn nor cast, and
+`GroomRenderStats::GroomsAwaitingBuild` counts it. The same load now peaks at 7.5 GB / 3.5 GB.
+
 ## Where the numbers are
 
 `docs/analysis/groom-representation-lod-1252.md` holds the measured comparison. Every number in it
