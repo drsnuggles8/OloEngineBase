@@ -1031,9 +1031,9 @@ namespace
     // with PrepareQueued and nothing touches the machine's manifest.
     struct ScopedPrecache
     {
-        explicit ScopedPrecache(std::string_view tag = {})
+        explicit ScopedPrecache(std::string_view tag = {}, const bool startWorkers = false)
         {
-            VulkanPipelinePrecache::Get().Start({ .LoadAndSaveManifest = false, .StartWorkers = false });
+            VulkanPipelinePrecache::Get().Start({ .LoadAndSaveManifest = false, .StartWorkers = startWorkers });
             VulkanPipelinePrecache::Get().SetConfigurationTag(tag);
         }
         ~ScopedPrecache()
@@ -1385,8 +1385,9 @@ TEST_F(VulkanShaderPipeline, RequestsArePreparedByTheWorkersWhileNoFrameTicks)
     ASSERT_TRUE(manifest.Record("PsoLoading", static_cast<u32>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT),
                                 rgba8, kTag));
 
-    VulkanPipelinePrecache::Get().Start({ .LoadAndSaveManifest = false, .StartWorkers = true });
-    VulkanPipelinePrecache::Get().SetConfigurationTag(kTag);
+    // The guard stops the workers on an early ASSERT exit; the explicit Stop()
+    // below runs first on the normal path (Stop is idempotent).
+    ScopedPrecache precache(kTag, /*startWorkers=*/true);
     VulkanPipelinePrecache::Get().SetManifestForTesting(manifest);
     Ref<Shader> shader = MakeConstantShader("PsoLoading");
     auto& vkShader = *static_cast<VulkanShader*>(shader.get());
