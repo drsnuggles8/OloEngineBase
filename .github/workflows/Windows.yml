@@ -565,10 +565,22 @@ jobs:
           Write-Host ('  {0}  {1:N0} bytes' -f $dll, (Get-Item $dll).Length)
         }
 
+    # Start the server before the parallel build so no compile has to: left to
+    # start on demand, the first two compiles each spawn one and race for the port
+    # (.github/actions/start-sccache has the failure and the measurements).
+    - name: Start the sccache server
+      uses: ./.github/actions/start-sccache
+
     - name: Build with CMake
       id: build
       # Build your program with the given configuration
       run: cmake --build ${{github.workspace}}/build --config ${{env.BUILD_TYPE}}
+
+    - name: Print the sccache server log
+      if: failure()
+      uses: ./.github/actions/start-sccache
+      with:
+        report: 'true'
 
     # Issue #858: a compiler-cache launcher that restores the object but not its
     # dependency file leaves ninja with no header dependencies for that object, so the
