@@ -1232,6 +1232,7 @@ namespace OloEngine
         /// VirtualMeshRegistry streams its pages (GPUCircularBuffer, #704).
         GPUCircularBuffer m_DeformUploadRing;
         bool m_DeformUploadRingTried = false;
+        u64 m_DeformUploadRingUsedTick = 0;
         static constexpr u64 kDeformUploadRingBytes = 64ull * 1024ull * 1024ull;
         /// Smaller sends (a palette, a wet record) go up directly: a fence each
         /// would cost more than the driver's own copy of a few kilobytes.

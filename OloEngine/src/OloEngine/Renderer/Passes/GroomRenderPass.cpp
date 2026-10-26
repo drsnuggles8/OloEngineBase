@@ -943,16 +943,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_PERF_SCOPE_AUTO("Groom::UploadDeformation");
         const auto packStart = std::chrono::steady_clock::now();
-        // GroomPass/RootFrames/{Pack,Upload,Dispatch} (#1589). On OpenGL the
-        // stage read 36-75 ms of "GPU" where Vulkan read ~5: the GPU sat
-        // between two timestamps while the driver stalled inside an upload.
-        // Split, the stage says which of the three owns the time.
+        // GroomPass/RootFrames/{Upload,Dispatch} (#1589). On OpenGL the stage
+        // read 36-75 ms of "GPU" where Vulkan read ~5: the GPU sat between two
+        // timestamps while the driver stalled inside an upload. Split, the
+        // stage says which owns the time. The pack before them is CPU work the
+        // GPU timeline does not see, so it has no bracket; and a coat the
+        // shadow pass acquired first this frame uploads under ShadowPass.
         auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
         const bool bracket = m_BracketDeformUpload;
-        if (bracket)
-        {
-            gpuSubTimers.BeginSubPass("Pack");
-        }
 
         const u32 baseCurveCount = request.Groom->GetCurveCount();
         const GroomStrandSimulation simulation = request.Simulation();
@@ -1116,10 +1114,6 @@ namespace OloEngine
         u64 streamingUploadedBytes = 0;
         m_Stats.DeformedBuildMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(uploadStart - packStart).count());
-        if (bracket)
-        {
-            gpuSubTimers.EndSubPass();
-        }
 
         if (entry.DeformGpu)
         {
@@ -1248,6 +1242,7 @@ namespace OloEngine
         {
             return false;
         }
+        m_DeformUploadRingUsedTick = m_CacheTick;
         // In slices: a fox's frame is ~4 MiB, a herd's ~170 MiB, and one thread
         // copies it at a fraction of the bus.
         constexpr sizet kSliceBytes = 1024u * 1024u;
@@ -3074,13 +3069,21 @@ namespace OloEngine
             // GroomPass/CoatVolumes (#1589): the pose and the coat volume's
             // bake and upload, which had no bracket of their own, so whatever
             // of them reached the GPU timeline was GroomPass time no sub-pass
-            // owned.
-            gpuSubTimers.BeginSubPass("CoatVolumes");
+            // owned. Only for a coat that asks for a volume: every bracket takes
+            // one of GPUPassTimerPool's per-frame slots.
+            const bool bracketCoat = request.CoatShadow != GroomCoatShadowTechnique::None;
+            if (bracketCoat)
+            {
+                gpuSubTimers.BeginSubPass("CoatVolumes");
+            }
             const std::span<const GroomCoatShadow::CoatSegment> drawnPose =
                 wantsPose ? AcquireDrawnPose(request, *entry) : std::span<const GroomCoatShadow::CoatSegment>{};
             const GroomCoatShadowDecision coatDecision =
                 AcquireCoatVolume(request, *entry, residentCoatVolumes, drawnPose, bakeAtRest);
-            gpuSubTimers.EndSubPass();
+            if (bracketCoat)
+            {
+                gpuSubTimers.EndSubPass();
+            }
             if (perGroom)
             {
                 m_Stats.CoatShadow.Record(coatDecision);
@@ -3741,6 +3744,14 @@ namespace OloEngine
         if (!m_CoatBodyBakes.empty() && m_CacheTick > m_CoatBodyUsedTick + kCoatBodyIdleFrames)
         {
             std::vector<CoatBodyBake>().swap(m_CoatBodyBakes);
+        }
+        // The upload ring (#1589) once no coat has staged through it for
+        // kScratchIdleFrames -- not on the first frame without a bound coat,
+        // which would make and free 64 MiB each time a herd left the view.
+        if (m_DeformUploadRing.IsCreated() && idle(m_DeformUploadRingUsedTick))
+        {
+            m_DeformUploadRing.Destroy();
+            m_DeformUploadRingTried = false;
         }
     }
 
