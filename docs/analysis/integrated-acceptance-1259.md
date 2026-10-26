@@ -185,7 +185,8 @@ GPU memory at the end of the session: live 2.75 GiB, peak 6.26 GiB; ShadowPass 6
 Since #1591 a reload peaks at 6.3 GB and settles at 6.2 GB (15.4 GB and 6.4 GB on the same machine
 before), and the strand cache stays within its budget while the scene loads. The editor log has no
 shader error; it warns that the groom strand cache runs 50–85 MiB
-over its 1 GiB budget at the head close-up with every entry in use, and that the VSM's lamps
+over its 1 GiB budget at the head close-up with every entry in use (0.1–0.6 GiB at the herd cameras, on
+master as on the #1591 branch: #1660), and that the VSM's lamps
 cast no groom shadow (below).
 
 **Validation.** A separate walk ran the Release editor under the Khronos validation layer (forced
