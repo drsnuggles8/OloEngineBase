@@ -182,6 +182,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [render-graph-attachment-feedback.md](render-graph-attachment-feedback.md): validate the original accesses against physical attachment identities, and give writable attached depth a snapshot.
 - [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md): `WriteNewVersion` renames a physical resource; use the poison and disable levers to find stale reads.
 - [render-pipeline-caches.md](render-pipeline-caches.md): process-wide render caches invalidate on every topology reset, not only on a fingerprint change.
+- [pso-precache-readiness.md](pso-precache-readiness.md): a pipeline a draw has to create is a counted, classified miss; requests come from the PSO manifest crossed with live shaders, and render-ready means every selected-configuration request is created.
 - [render-graph-out-of-band-work.md](render-graph-out-of-band-work.md): anything a pass touches that the graph cannot back is a named out-of-band boundary declared in `Setup()` and noted where it is accessed.
 - [render-graph-setup-declaration-gates.md](render-graph-setup-declaration-gates.md): a pass whose `Setup()` declares nothing when it has no work must report that gate in the declaration key, or it stays culled while its bucket fills.
 - [render-graph-declaration-config.md](render-graph-declaration-config.md): anything `Setup()` or `PopulateBlackboard` branches on is a `FrameGraphDeclarationConfig` field or an `AppendDeclarationInputs` entry.
