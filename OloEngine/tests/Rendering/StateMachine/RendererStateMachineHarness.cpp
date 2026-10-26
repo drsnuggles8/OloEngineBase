@@ -1549,16 +1549,23 @@ namespace OloEngine::Tests::StateMachine
         // that zero-fills new storage, and changes after a pool Clear on one
         // that recycles memory (radeonsi, #1516), so the failure showed on AMD
         // only. Poisoning every transient at acquire makes the read visible on
-        // any vendor.
+        // any vendor. With OLO_RG_POISON_TRANSIENTS set, the control frame is
+        // poisoned too, so the stale side is captured with the lever off.
         if (wants("poison-vs-stale.gl"))
         {
+            FrameCapture stale;
+            if (Levers::PoisonTransients())
+            {
+                const ScopedLever off(&Levers::PoisonTransients, &Levers::SetPoisonTransients, false);
+                stale = CaptureFrame();
+            }
             FrameCapture poisoned;
             {
                 const ScopedLever poison(&Levers::PoisonTransients, &Levers::SetPoisonTransients, true);
                 poisoned = CaptureFrame();
             }
             RenderFrames(1);
-            judge("poison-vs-stale.gl", control, poisoned, controls);
+            judge("poison-vs-stale.gl", stale.Width == 0u ? control : stale, poisoned, controls);
         }
 
         // --- the levers put back reproduce the frame ---------------------------
