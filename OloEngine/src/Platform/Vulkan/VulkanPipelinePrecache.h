@@ -186,11 +186,11 @@ namespace OloEngine
         bool m_Started = false;
         bool m_Persist = false;
         PipelineManifest m_Manifest;
-        TArray<FString> m_SelectedTags;  ///< Sorted: what requests are prioritised and judged by.
-        FString m_PublishedTag;          ///< The tag published last.
-        TArray<FString> m_FrameTags;     ///< Tags published since the last Tick.
-        TArray<FString> m_LastFrameTags; ///< The last publishing frame's tags (sorted).
-        u64 m_PublishFrame = 0;          ///< Counts frames that published a tag.
+        TArray<FString> m_SelectedTags;                     ///< Sorted: what requests are prioritised and judged by.
+        FString m_PublishedTag;                             ///< The tag published last.
+        TArray<FString> m_FrameTags;                        ///< Tags published since the last Tick.
+        TArray<FString> m_LastFrameTags;                    ///< The last publishing frame's tags (sorted).
+        u64 m_PublishFrame = 0;                             ///< Counts frames that published a tag.
         std::unordered_map<std::string, u64> m_TagLastSeen; ///< Tag -> the publishing frame it was last drawn in.
 
         // Draw records arrive from recording threads; they take only this

@@ -157,7 +157,8 @@ namespace OloEngine
             m_LastGrant = m_LastFrameTick;
             for (u32 i = 0; i < workers; ++i)
             {
-                m_Workers[i] = std::thread([this] { WorkerLoop(); });
+                m_Workers[i] = std::thread([this]
+                                           { WorkerLoop(); });
             }
             m_WorkerCount = workers;
         }
@@ -424,7 +425,8 @@ namespace OloEngine
             std::lock_guard recordLock(m_RecordMutex);
             m_RecordTag = m_PublishedTag;
         }
-        if (!m_FrameTags.ContainsByPredicate([tag](const FString& t) { return t.ToView() == tag; }))
+        if (!m_FrameTags.ContainsByPredicate([tag](const FString& t)
+                                             { return t.ToView() == tag; }))
         {
             m_FrameTags.Add(FString(tag));
         }
@@ -432,7 +434,8 @@ namespace OloEngine
         // previous selection to protect, and the boot requests are waiting.
         // (Only while the empty tag is the start-up placeholder, never once it
         // has been drawn: then it is a configuration like any other.)
-        const bool emptyTagDrawn = m_FrameTags.ContainsByPredicate([](const FString& t) { return t.IsEmpty(); });
+        const bool emptyTagDrawn = m_FrameTags.ContainsByPredicate([](const FString& t)
+                                                                   { return t.IsEmpty(); });
         const bool nothingSelected = m_TagLastSeen.empty() && !emptyTagDrawn && m_SelectedTags.Num() == 1 &&
                                      m_SelectedTags[0].IsEmpty();
         if (nothingSelected && !tag.empty())
@@ -454,7 +457,8 @@ namespace OloEngine
 
     bool VulkanPipelinePrecache::IsSelectedLocked(const std::string_view tag) const
     {
-        return m_SelectedTags.ContainsByPredicate([tag](const FString& t) { return t.ToView() == tag; });
+        return m_SelectedTags.ContainsByPredicate([tag](const FString& t)
+                                                  { return t.ToView() == tag; });
     }
 
     bool VulkanPipelinePrecache::ClaimsAllowedLocked() const
@@ -466,7 +470,8 @@ namespace OloEngine
         {
             return IsSelectedLocked(m_PublishedTag.ToView());
         }
-        const auto selected = [this](const FString& tag) { return IsSelectedLocked(tag.ToView()); };
+        const auto selected = [this](const FString& tag)
+        { return IsSelectedLocked(tag.ToView()); };
         return std::ranges::all_of(m_LastFrameTags, selected) && std::ranges::all_of(m_FrameTags, selected);
     }
 
@@ -486,7 +491,8 @@ namespace OloEngine
 
     void VulkanPipelinePrecache::ApplySelectedTagsLocked(TArray<FString> tags)
     {
-        const bool added = tags.ContainsByPredicate([this](const FString& tag) { return !IsSelectedLocked(tag.ToView()); });
+        const bool added = tags.ContainsByPredicate([this](const FString& tag)
+                                                    { return !IsSelectedLocked(tag.ToView()); });
         m_SelectedTags = std::move(tags);
         if (added)
         {
@@ -571,10 +577,12 @@ namespace OloEngine
             if (!m_FrameTags.IsEmpty())
             {
                 ++m_PublishFrame;
-                const auto byName = [](const FString& x, const FString& y) { return x.ToView() < y.ToView(); };
+                const auto byName = [](const FString& x, const FString& y)
+                { return x.ToView() < y.ToView(); };
                 const auto sameTags = [](const TArray<FString>& x, const TArray<FString>& y)
                 {
-                    return std::ranges::equal(x, y, [](const FString& l, const FString& r) { return l.ToView() == r.ToView(); });
+                    return std::ranges::equal(x, y, [](const FString& l, const FString& r)
+                                              { return l.ToView() == r.ToView(); });
                 };
                 bool windowChanged = false;
                 for (const FString& tag : m_FrameTags)

@@ -53,7 +53,8 @@ namespace OloEngine
         }
         auto& entries = m_ByShader[IdentityKey(shader, stageMask)];
         PipelineManifestEntry* entry =
-            entries.FindByPredicate([&signature](const PipelineManifestEntry& e) { return e.Signature == signature; });
+            entries.FindByPredicate([&signature](const PipelineManifestEntry& e)
+                                    { return e.Signature == signature; });
         bool changed = false;
         if (entry == nullptr)
         {
@@ -176,7 +177,8 @@ namespace OloEngine
                 entries.RemoveAt(index);
             }
         }
-        std::erase_if(m_ByShader, [](const auto& item) { return item.second.IsEmpty(); });
+        std::erase_if(m_ByShader, [](const auto& item)
+                      { return item.second.IsEmpty(); });
         m_Dirty = true;
     }
 
@@ -204,7 +206,8 @@ namespace OloEngine
         {
             identities.Add(&identity);
         }
-        std::ranges::sort(identities, [](const std::string* a, const std::string* b) { return *a < *b; });
+        std::ranges::sort(identities, [](const std::string* a, const std::string* b)
+                          { return *a < *b; });
 
         YAML::Emitter out;
         out << YAML::BeginMap;

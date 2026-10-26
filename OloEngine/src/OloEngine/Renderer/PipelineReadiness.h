@@ -59,17 +59,17 @@ namespace OloEngine
     // A plain copy of the counters for a snapshot.
     struct ShaderPreparationStats
     {
-        u64 SourceCompiles = 0;        ///< GLSL -> SPIR-V compiles (shaderc), or GL glCompileShader from text.
+        u64 SourceCompiles = 0; ///< GLSL -> SPIR-V compiles (shaderc), or GL glCompileShader from text.
         f64 SourceCompileMs = 0.0;
-        u64 SpirvCacheHits = 0;        ///< Stages served from the on-disk SPIR-V cache instead of compiling.
-        u64 ModuleCreates = 0;         ///< Vulkan vkCreateShaderModule calls.
+        u64 SpirvCacheHits = 0; ///< Stages served from the on-disk SPIR-V cache instead of compiling.
+        u64 ModuleCreates = 0;  ///< Vulkan vkCreateShaderModule calls.
         f64 ModuleCreateMs = 0.0;
-        u64 ProgramLinks = 0;          ///< GL glLinkProgram calls (issue time; an async link finishes later).
+        u64 ProgramLinks = 0; ///< GL glLinkProgram calls (issue time; an async link finishes later).
         f64 ProgramLinkIssueMs = 0.0;
-        u64 ProgramBinaryHits = 0;     ///< GL programs restored from the program-binary cache.
-        u64 ProgramBinaryRejects = 0;  ///< GL program binaries the driver refused (a legal miss).
-        u64 LinksForcedAtUse = 0;      ///< GL: a bind forced a link that had not completed yet.
-        f64 LinksForcedAtUseMs = 0.0;  ///< Time those binds blocked.
+        u64 ProgramBinaryHits = 0;    ///< GL programs restored from the program-binary cache.
+        u64 ProgramBinaryRejects = 0; ///< GL program binaries the driver refused (a legal miss).
+        u64 LinksForcedAtUse = 0;     ///< GL: a bind forced a link that had not completed yet.
+        f64 LinksForcedAtUseMs = 0.0; ///< Time those binds blocked.
     };
 
     // Process-wide accumulators. Relaxed atomics: these are diagnostics, read
@@ -195,16 +195,16 @@ namespace OloEngine
         // --- Vulkan pipeline objects (Model == VulkanPipelineObjects) --------
         PipelineRequestCounters Pipelines;
         bool PrecacheEnabled = false;
-        FString ConfigurationTag;   ///< The selected configuration requests are prepared for.
-        u32 JobsPerFrame = 0;       ///< The creation budget handed to the worker each frame.
-        u64 Queued = 0;             ///< Requests waiting for budget (carried over).
-        u64 InFlight = 0;           ///< Creations running now.
-        u64 CachedPipelines = 0;    ///< Pipelines live in the builder.
-        u64 ManifestEntries = 0;    ///< Keys the manifest knows, all shaders and configurations.
-        u32 TrackedShaders = 0;     ///< Live shaders the collector requests for.
-        u32 ReadyShaders = 0;       ///< Of those, every selected-configuration request prepared.
-        u32 UnknownShaders = 0;     ///< Live shaders the manifest has no entry for yet (first draw is a miss).
-        bool RenderReady = false;   ///< Every tracked shader with requests is ready and nothing is queued.
+        FString ConfigurationTag;                              ///< The selected configuration requests are prepared for.
+        u32 JobsPerFrame = 0;                                  ///< The creation budget handed to the worker each frame.
+        u64 Queued = 0;                                        ///< Requests waiting for budget (carried over).
+        u64 InFlight = 0;                                      ///< Creations running now.
+        u64 CachedPipelines = 0;                               ///< Pipelines live in the builder.
+        u64 ManifestEntries = 0;                               ///< Keys the manifest knows, all shaders and configurations.
+        u32 TrackedShaders = 0;                                ///< Live shaders the collector requests for.
+        u32 ReadyShaders = 0;                                  ///< Of those, every selected-configuration request prepared.
+        u32 UnknownShaders = 0;                                ///< Live shaders the manifest has no entry for yet (first draw is a miss).
+        bool RenderReady = false;                              ///< Every tracked shader with requests is ready and nothing is queued.
         TArray<PipelineReadinessPendingShader> PendingShaders; ///< Capped list of the not-ready ones.
     };
 } // namespace OloEngine

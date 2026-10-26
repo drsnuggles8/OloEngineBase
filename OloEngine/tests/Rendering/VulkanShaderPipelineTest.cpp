@@ -1548,7 +1548,8 @@ TEST_F(VulkanShaderPipeline, TheSelectedConfigurationIsEveryTagDrawnWithinTheWin
     constexpr std::string_view kPreview = "Forward/msaa0/native/oit0";
     ScopedPrecache precache(kViewport);
     auto& p = VulkanPipelinePrecache::Get();
-    const auto selected = [&p] { return p.GetConfigurationTag(); };
+    const auto selected = [&p]
+    { return p.GetConfigurationTag(); };
     const std::string both = std::string(kViewport) + " + " + std::string(kPreview);
 
     // A preview that renders only every other frame stays selected.
