@@ -20,6 +20,7 @@
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanSamplerHeap.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include <exception>
@@ -614,8 +615,11 @@ namespace OloEngine
         VmaAllocationCreateInfo allocInfo{};
         allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
         VkImage image = VK_NULL_HANDLE;
-        VkCheck(vmaCreateImage(d.Device.GetAllocator(), &imageInfo, &allocInfo, &image, &d.OffscreenAllocation, nullptr),
+        // Through the tracked wrapper, so the renderer memory report counts it.
+        VkCheck(TrackedVmaCreateImage(d.Device.GetAllocator(), &imageInfo, &allocInfo, &image, &d.OffscreenAllocation,
+                                      nullptr),
                 "vmaCreateImage (offscreen target)");
+        TrackedVmaSetAllocationName(d.Device.GetAllocator(), d.OffscreenAllocation, "VulkanContext offscreen target");
         d.SwapchainImages.assign(1u, image);
 
         VkImageViewCreateInfo viewInfo{};
@@ -654,7 +658,7 @@ namespace OloEngine
         for (VkImage image : d.SwapchainImages)
         {
             VulkanImageInfoRegistry::Get().Unregister(image);
-            vmaDestroyImage(d.Device.GetAllocator(), image, d.OffscreenAllocation);
+            TrackedVmaDestroyImage(d.Device.GetAllocator(), image, d.OffscreenAllocation);
         }
         d.SwapchainImages.clear();
         d.OffscreenAllocation = VK_NULL_HANDLE;
