@@ -64,7 +64,10 @@ namespace OloEngine
             entry->Signature = signature;
             changed = true;
         }
-        if (!configuration.empty() && !entry->SeenUnder(configuration))
+        // The empty tag is recorded like any other: a session that never
+        // publishes one (2D only) selects it, and its shaders must be able to
+        // become ready under it.
+        if (!entry->SeenUnder(configuration))
         {
             if (entry->Configurations.Num() >= static_cast<i32>(kMaxConfigurationsPerEntry))
             {

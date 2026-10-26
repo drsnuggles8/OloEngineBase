@@ -300,6 +300,24 @@ TEST(PipelineManifest, RecordsCompleteKeysPerShaderIdentityAndConfiguration)
     EXPECT_EQ(plainFirst[0]->Configurations.Num(), 2);
 }
 
+TEST(PipelineManifest, TheEmptyTagIsAConfigurationAndSurvivesARoundTrip)
+{
+    // A session that never publishes a tag (2D only) draws under the empty
+    // one; its entries must be selectable under it next session.
+    PipelineManifest manifest;
+    manifest.BeginSession();
+    EXPECT_TRUE(manifest.Record("Renderer2D_Quad", kClassicStages, Signature(1, 37, 0, 1), ""));
+    EXPECT_FALSE(manifest.Record("Renderer2D_Quad", kClassicStages, Signature(1, 37, 0, 1), ""))
+        << "Recording the same key under the same tag again changes nothing";
+
+    const auto parsed = PipelineManifest::Parse(manifest.Serialize());
+    ASSERT_TRUE(parsed.has_value());
+    const auto entries = parsed->EntriesFor("Renderer2D_Quad", kClassicStages, "");
+    ASSERT_EQ(entries.Num(), 1);
+    EXPECT_TRUE(entries[0]->SeenUnder(""));
+    EXPECT_FALSE(entries[0]->SeenUnder("Forward/msaa1/native/oit0"));
+}
+
 TEST(PipelineManifest, AClassicAndAMeshStageShaderOfOneNameNeverShareEntries)
 {
     PipelineManifest manifest;
