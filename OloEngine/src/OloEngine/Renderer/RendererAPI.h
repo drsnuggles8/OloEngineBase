@@ -4,6 +4,7 @@
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Containers/String.h"
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
+#include "OloEngine/Renderer/PipelineReadiness.h"
 #include "OloEngine/Renderer/RayTracing/RayTracingTypes.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
@@ -488,6 +489,29 @@ namespace OloEngine
         {
             return {};
         }
+
+        // --- Pipeline readiness (issue #1345) --------------------------------
+        // What "ready to draw" means differs per backend and is reported as
+        // such (PipelineReadiness.h): complete PSOs requested ahead of their
+        // first draw on Vulkan, program link on OpenGL. The shader-preparation
+        // counters are filled on every backend.
+        [[nodiscard]] virtual PipelineReadinessSnapshot GetPipelineReadiness() const
+        {
+            PipelineReadinessSnapshot snapshot;
+            snapshot.Shaders = ShaderPreparationCounters::Get().Snapshot();
+            return snapshot;
+        }
+        virtual void ResetPipelineReadinessCounters()
+        {
+            ShaderPreparationCounters::Get().Reset();
+        }
+        // The renderer's selected configuration, as MakePipelineConfigurationTag
+        // spells it; a backend that precaches by configuration re-prioritises
+        // its requests when it changes. Ignored where nothing is precached.
+        virtual void SetPipelineConfigurationTag(std::string_view /*tag*/) {}
+        // Write the backend's PSO manifest now (Build Game stages it into a
+        // packaged build). No-op where nothing is recorded.
+        virtual void SavePipelineManifest() {}
 
         // New methods for render graph
         virtual void BindDefaultFramebuffer() = 0;

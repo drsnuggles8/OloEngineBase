@@ -658,6 +658,11 @@ namespace OloEngine
         {
             return m_ParallelStats;
         }
+        // PSO readiness (#1345): VulkanPipelinePrecache + the builder's ledger.
+        [[nodiscard]] PipelineReadinessSnapshot GetPipelineReadiness() const override;
+        void ResetPipelineReadinessCounters() override;
+        void SetPipelineConfigurationTag(std::string_view tag) override;
+        void SavePipelineManifest() override;
         // The context the calling thread records on (main, or a running
         // item's). Backend-internal: the ImGui overlay and the texture
         // upload paths read the current command buffer through it.

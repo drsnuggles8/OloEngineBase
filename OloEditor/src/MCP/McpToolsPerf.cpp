@@ -6,6 +6,7 @@
 #include "MCP/McpCpuScopes.h"
 #include "MCP/McpFrameHistory.h"
 #include "MCP/McpPassTimings.h"
+#include "MCP/McpPipelineReadiness.h"
 #include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/Debug/CapturedFrameData.h"
 #include "OloEngine/Renderer/Debug/FrameCaptureManager.h"
@@ -15,11 +16,13 @@
 #include "OloEngine/Renderer/Debug/RendererMemoryReportJson.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
 #include <algorithm>
+#include <memory>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -522,6 +525,24 @@ namespace OloEngine::MCP
             return ToolResult::Structured(j);
         }
 
+        // olo_perf_pipeline_readiness (#1345). The snapshot is taken on the main
+        // thread — the precache's readiness is re-evaluated against the builder
+        // there — and shaped off it.
+        ToolResult Handle_PerfPipelineReadiness(IAutomationHost& host, const Json& args)
+        {
+            const bool reset = args.value("reset", false);
+            auto snapshot = std::make_shared<PipelineReadinessSnapshot>();
+            (void)host.MarshalRead([snapshot, reset]() -> Json
+                                   {
+                *snapshot = RenderCommand::GetPipelineReadiness();
+                if (reset)
+                    RenderCommand::ResetPipelineReadinessCounters();
+                return Json::object(); });
+            Json out = PipelineReadinessReport::ToJson(*snapshot);
+            out["reset"] = reset;
+            return ToolResult::Structured(out);
+        }
+
     } // namespace
 
     void RegisterPerfTools(AutomationRegistry& registry)
@@ -926,6 +947,47 @@ namespace OloEngine::MCP
                                     .Required({ "status", "note", "scopes", "totalTimeMs", "scopeCount" });
             tool.MainMarshaled = true;
             tool.Handler = Handle_PerfCpuScopes;
+            registry.Register(std::move(tool));
+        }
+
+        {
+            ToolDef tool;
+            tool.Name = "olo_perf_pipeline_readiness";
+            tool.Toolset = "perf";
+            tool.Title = "Pipeline readiness and first-use hitches";
+            // `reset` zeroes the counters after reading them, so a measurement
+            // window can start clean; nothing in the project changes.
+            tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
+            tool.Description =
+                "PSO precaching and first-use hitch counters (#1345). On Vulkan: pipelines prepared ahead of their "
+                "first draw (preparedFirstUses, the complete-PSO hits) against draws that had to create one "
+                "synchronously, split into never requested, requested too late (still queued / in flight) and "
+                "retried after a failure; the draw-thread time those cost (blockingCreateMs / blockingCreateMaxMs); "
+                "failed creations; pipeline-cache hits from creation feedback; the request queue and per-frame "
+                "budget; and readiness per selected rendering configuration (renderReady, shaders still pending, "
+                "shaders the manifest does not know yet, and readyClaimViolations: draws that needed a pipeline for "
+                "a shader already declared ready). On every backend: shader source compiles, SPIR-V cache hits, "
+                "module creates, program links, program-binary hits and uses (a bind, a raw program fetch) that "
+                "forced an unfinished GL link. "
+                "OpenGL reports model opengl-program-link with pipelines null: it has no pipeline objects, and the "
+                "driver's first-draw recompile is listed as unmeasurable. reset=true zeroes the counters after "
+                "this read (start of a measurement window). Hitch frames also show the creation as the "
+                "Vulkan::PipelineBlockingCreate scope in olo_perf_cpu_scope_ring.";
+            tool.InputSchema = Schema::Object()
+                                   .Prop("reset", Schema::Bool().Desc("Zero the counters after reading them (default false)."))
+                                   .NoAdditional();
+            tool.OutputSchema = Schema::Object()
+                                    .Prop("status", Schema::String().Enum({ "ok" }))
+                                    .Prop("model", Schema::String().Enum({ "none", "vulkan-pipeline-objects", "opengl-program-link" }))
+                                    .Prop("note", Schema::String())
+                                    .Prop("reset", Schema::Bool())
+                                    .Prop("shaders", Schema::Object().Desc("Shader preparation counters, every backend."))
+                                    .Prop("pipelines", Schema::NullableObject().Desc("Vulkan PSO counters; null on OpenGL."))
+                                    .Prop("readiness", Schema::NullableObject().Desc("Vulkan readiness for the selected configuration; null on OpenGL."))
+                                    .Prop("unmeasurable", Schema::Array(Schema::String()))
+                                    .Required({ "status", "model", "shaders", "reset" });
+            tool.MainMarshaled = false;
+            tool.Handler = Handle_PerfPipelineReadiness;
             registry.Register(std::move(tool));
         }
     }

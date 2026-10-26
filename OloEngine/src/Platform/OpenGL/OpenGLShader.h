@@ -39,7 +39,7 @@ namespace OloEngine
             // without going through Bind().
             if (m_CompilationStatus == ShaderCompilationStatus::Compiling)
             {
-                const_cast<OpenGLShader*>(this)->EnsureLinked();
+                ForceLinkAtUse();
             }
             return m_RendererID;
         }
@@ -52,7 +52,7 @@ namespace OloEngine
             // this hands back the null handle.
             if (m_CompilationStatus == ShaderCompilationStatus::Compiling)
             {
-                const_cast<OpenGLShader*>(this)->EnsureLinked();
+                ForceLinkAtUse();
             }
             return m_RHIHandle.Get();
         }
@@ -218,6 +218,12 @@ namespace OloEngine
         static TArray<Ref<Shader>> FinalizeBatch(TArray<Ref<Shader>> prepared, std::span<const bool> alreadyFinal);
 
       private:
+        // EnsureLinked from a use that cannot wait (Bind, or a raw program or
+        // handle fetch), counted as a forced link (#1345). The constructors,
+        // Reload and ShaderLibrary::FlushPendingShaders finish links on purpose
+        // and call EnsureLinked directly, so they are not counted.
+        void ForceLinkAtUse() const;
+
         // Tag type for the pack-data constructor (internal only)
         struct PackDataTag
         {

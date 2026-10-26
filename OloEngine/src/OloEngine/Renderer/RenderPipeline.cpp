@@ -4,6 +4,7 @@
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Upscaling/TemporalUpscalePolicy.h"
 #include "OloEngine/Accessibility/AccessibilitySettings.h"
+#include "OloEngine/Renderer/PipelineManifest.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/Renderer3DInternal.h"
@@ -3346,6 +3347,14 @@ namespace OloEngine
         TArray<u64> passKeys;
         const FrameGraphDeclarationConfig config = CaptureDeclarationConfig(data, &passKeys);
         const u64 key = config.ComputeKey();
+
+        // The PSO precache's selected configuration (#1345): the inputs that
+        // change which attachment formats and sample counts the passes draw
+        // into, and whether the upscaler's passes run at all. The resolution
+        // is not one of them — viewport and scissor are dynamic state.
+        RenderCommand::SetPipelineConfigurationTag(MakePipelineConfigurationTag(
+            ToToken(config.Path), config.GBufferSamples, config.Upscale == UpscaleMode::Off ? "native" : "upscaled",
+            config.TemporalUpscaleActive, config.OITEnabled));
 
         // History validity is keyed, generations are not; bring the sinks up to
         // the generations this configuration was captured against, so a cached

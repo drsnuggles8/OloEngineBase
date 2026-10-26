@@ -25,6 +25,8 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "OloEngine/Renderer/PipelineManifest.h"
+#include "OloEngine/Renderer/PipelineReadiness.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -35,6 +37,7 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanFrameArena.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanPipelineCache.h"
+#include "Platform/Vulkan/VulkanPipelinePrecache.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
@@ -45,6 +48,7 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -52,6 +56,7 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 #include <memory>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace
@@ -974,6 +979,657 @@ TEST_F(VulkanShaderPipeline, ReloadedShaderEditReachesThePixelsThroughThePipelin
     byName.clear(); // the lookup handed out strong Refs
     shader.Reset();
     EXPECT_TRUE(ShaderRegistry::Get().FindShaders("ReloadPixels").empty()) << "the destructor must unregister";
+}
+
+// =============================================================================
+// #1345 — PSO precaching through the REAL builder on a device. The ledger's
+// state machine is pinned device-free (PipelinePrecacheContractTest.cpp); these
+// pin that the production paths drive it: a request created off the draw is a
+// prepared hit at the first draw, a draw that beats its request (or had none)
+// is counted as such and still gets a real pipeline, incompatible targets get
+// distinct VkPipelines, a failed creation is counted and retried, a hot reload
+// re-prepares its dependants against the NEW modules before any draw, and a
+// readiness claim that a draw then contradicts is counted.
+// =============================================================================
+namespace
+{
+    // No bindings, no vertex buffer: only the shader and the targets decide the
+    // pipeline. A full-viewport triangle from gl_VertexIndex.
+    Ref<Shader> MakeConstantShader(const std::string& name, const char* colour = "vec4(1.0, 0.0, 1.0, 1.0)")
+    {
+        const std::string vertex = "#version 460 core\n"
+                                   "void main() {\n"
+                                   "    vec2 p = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));\n"
+                                   "    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n"
+                                   "}\n";
+        const std::string fragment = std::string("#version 460 core\nlayout(location = 0) out vec4 o_Color;\n"
+                                                 "void main() { o_Color = ") +
+                                     colour + "; }\n";
+        return Shader::Create(name, vertex, fragment);
+    }
+
+    VulkanRenderTargetDesc ColourTargets(const VkFormat format, const u32 samples = 1,
+                                         const VkFormat depth = VK_FORMAT_UNDEFINED)
+    {
+        VulkanRenderTargetDesc targets;
+        targets.ColorCount = 1;
+        targets.ColorFormats[0] = format;
+        targets.DepthFormat = depth;
+        targets.Samples = samples;
+        return targets;
+    }
+
+    VulkanRecordedPipelineState NoDepthState()
+    {
+        VulkanRecordedPipelineState state{};
+        state.DepthTest = false;
+        state.DepthWrite = false;
+        return state;
+    }
+
+    // Starts the collector without workers or files, so a test drives the queue
+    // with PrepareQueued and nothing touches the machine's manifest.
+    struct ScopedPrecache
+    {
+        explicit ScopedPrecache(std::string_view tag = {}, const bool startWorkers = false)
+        {
+            VulkanPipelinePrecache::Get().Start({ .LoadAndSaveManifest = false, .StartWorkers = startWorkers });
+            VulkanPipelinePrecache::Get().SetConfigurationTag(tag);
+        }
+        ~ScopedPrecache()
+        {
+            VulkanPipelinePrecache::Get().Stop();
+            VulkanPipelinePrecache::Get().SetManifestForTesting({});
+            VulkanPipelinePrecache::Get().SetConfigurationTag({});
+        }
+        ScopedPrecache(const ScopedPrecache&) = delete;
+        ScopedPrecache& operator=(const ScopedPrecache&) = delete;
+    };
+} // namespace
+
+TEST_F(VulkanShaderPipeline, RequestedPipelineIsAPreparedHitAtItsFirstDraw)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+    builder.ResetRequestCounters();
+
+    Ref<Shader> shader = MakeConstantShader("PsoPrepared");
+    ASSERT_EQ(shader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
+    auto& vkShader = *static_cast<VulkanShader*>(shader.get());
+    const auto targets = ColourTargets(VK_FORMAT_R8G8B8A8_UNORM);
+
+    const auto key = builder.RequestGraphics(vkShader, targets, 0);
+    ASSERT_TRUE(key.has_value());
+    EXPECT_EQ(builder.GetRequestState(*key), VulkanPipelineBuilder::RequestState::Queued);
+    EXPECT_EQ(builder.GetCachedPipelineCount(), 0u) << "A request creates nothing on the asking thread";
+
+    ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 1u);
+    EXPECT_EQ(builder.GetRequestState(*key), VulkanPipelineBuilder::RequestState::Ready);
+    EXPECT_EQ(builder.GetCachedPipelineCount(), 1u);
+
+    const VkPipeline pipeline =
+        builder.GetOrCreateGraphics(vkShader, vkShader.GetRootDataLayout(), NoDepthState(), targets);
+    EXPECT_NE(pipeline, VK_NULL_HANDLE);
+    EXPECT_EQ(builder.GetOrCreateGraphics(vkShader, vkShader.GetRootDataLayout(), NoDepthState(), targets), pipeline);
+
+    const auto stats = builder.GetRequestStats();
+    EXPECT_EQ(stats.Counters.PreparedFirstUses, 1u) << "Counted once per pipeline, not per draw";
+    EXPECT_EQ(stats.Counters.Misses(), 0u);
+    EXPECT_EQ(stats.Counters.BlockingCreations, 0u) << "No synchronous creation on the draw";
+    EXPECT_EQ(stats.Counters.PreparedCreations, 1u);
+    EXPECT_GT(stats.Counters.PreparedCreateMs, 0.0);
+    EXPECT_EQ(stats.Counters.DriverCacheHits + stats.Counters.DriverCacheMisses + stats.Counters.DriverCacheUnknown,
+              1u)
+        << "Creation feedback classifies the one creation";
+}
+
+TEST_F(VulkanShaderPipeline, ADrawThatBeatsOrLacksItsRequestIsCountedAndStillGetsAPipeline)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+    builder.ResetRequestCounters();
+
+    Ref<Shader> shader = MakeConstantShader("PsoLate");
+    auto& vkShader = *static_cast<VulkanShader*>(shader.get());
+    const auto requested = ColourTargets(VK_FORMAT_R8G8B8A8_UNORM);
+    const auto unrequested = ColourTargets(VK_FORMAT_R16G16B16A16_SFLOAT);
+
+    ASSERT_TRUE(builder.RequestGraphics(vkShader, requested, 0).has_value());
+    // The draw arrives before any worker ran the request.
+    EXPECT_NE(builder.GetOrCreateGraphics(vkShader, vkShader.GetRootDataLayout(), NoDepthState(), requested),
+              VK_NULL_HANDLE);
+    EXPECT_NE(builder.GetOrCreateGraphics(vkShader, vkShader.GetRootDataLayout(), NoDepthState(), unrequested),
+              VK_NULL_HANDLE);
+    EXPECT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 0u) << "The taken-over request is not created twice";
+
+    const auto stats = builder.GetRequestStats();
+    EXPECT_EQ(stats.Counters.TooLateQueued, 1u);
+    EXPECT_EQ(stats.Counters.NeverRequested, 1u);
+    EXPECT_EQ(stats.Counters.BlockingCreations, 2u);
+    EXPECT_EQ(stats.Counters.PreparedFirstUses, 0u);
+    EXPECT_GT(stats.Counters.BlockingCreateMs, 0.0) << "The hitch is measured on the draw thread";
+    EXPECT_EQ(builder.GetCachedPipelineCount(), 2u);
+}
+
+TEST_F(VulkanShaderPipeline, IncompatibleTargetsNeverShareAPipeline)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+
+    Ref<Shader> shader = MakeConstantShader("PsoKeys");
+    Ref<Shader> variant = MakeConstantShader("PsoKeysVariant", "vec4(0.0, 1.0, 1.0, 1.0)");
+    auto& vkShader = *static_cast<VulkanShader*>(shader.get());
+    auto& vkVariant = *static_cast<VulkanShader*>(variant.get());
+    const auto state = NoDepthState();
+    const auto get = [&](VulkanShader& s, const VulkanRenderTargetDesc& targets)
+    { return builder.GetOrCreateGraphics(s, s.GetRootDataLayout(), state, targets); };
+
+    const VkPipeline single = get(vkShader, ColourTargets(VK_FORMAT_R8G8B8A8_UNORM));
+    const VkPipeline msaa = get(vkShader, ColourTargets(VK_FORMAT_R8G8B8A8_UNORM, 4));
+    const VkPipeline hdr = get(vkShader, ColourTargets(VK_FORMAT_R16G16B16A16_SFLOAT));
+    const VkPipeline withDepth = get(vkShader, ColourTargets(VK_FORMAT_R8G8B8A8_UNORM, 1, VK_FORMAT_D32_SFLOAT));
+    const VkPipeline otherMaterial = get(vkVariant, ColourTargets(VK_FORMAT_R8G8B8A8_UNORM));
+    const std::array<VkPipeline, 5> all{ single, msaa, hdr, withDepth, otherMaterial };
+    for (const VkPipeline pipeline : all)
+    {
+        ASSERT_NE(pipeline, VK_NULL_HANDLE);
+    }
+    for (sizet i = 0; i < all.size(); ++i)
+    {
+        for (sizet j = i + 1; j < all.size(); ++j)
+        {
+            EXPECT_NE(all[i], all[j]) << "configurations " << i << " and " << j << " share a pipeline";
+        }
+    }
+    EXPECT_EQ(builder.GetCachedPipelineCount(), 5u);
+    EXPECT_EQ(get(vkShader, ColourTargets(VK_FORMAT_R8G8B8A8_UNORM, 4)), msaa) << "The same configuration hits";
+}
+
+TEST_F(VulkanShaderPipeline, AFailedRequestIsCountedAndTheDrawRetriesIt)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+    builder.ResetRequestCounters();
+    builder.ClearLastCreationFailure();
+
+    Ref<Shader> shader = MakeConstantShader("PsoFails");
+    auto& vkShader = *static_cast<VulkanShader*>(shader.get());
+    const auto targets = ColourTargets(VK_FORMAT_R8G8B8A8_UNORM);
+
+    const auto key = builder.RequestGraphics(vkShader, targets, 0);
+    ASSERT_TRUE(key.has_value());
+    builder.FailNextCreationsForTesting(1, VK_ERROR_OUT_OF_DEVICE_MEMORY);
+    ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 1u);
+    EXPECT_EQ(builder.GetRequestState(*key), VulkanPipelineBuilder::RequestState::Failed);
+    EXPECT_EQ(builder.GetRequestStats().Counters.FailedCreations, 1u);
+    EXPECT_TRUE(vkShader.GetPipelineState().CreationFailed) << "olo_shader_reload's failure signal sees it too";
+    EXPECT_EQ(builder.GetLastCreationFailure().Result, VK_ERROR_OUT_OF_DEVICE_MEMORY);
+
+    const VkPipeline pipeline =
+        builder.GetOrCreateGraphics(vkShader, vkShader.GetRootDataLayout(), NoDepthState(), targets);
+    EXPECT_NE(pipeline, VK_NULL_HANDLE);
+    const auto stats = builder.GetRequestStats();
+    EXPECT_EQ(stats.Counters.RetriedAfterFailure, 1u);
+    EXPECT_EQ(stats.Counters.FailedCreations, 1u) << "The retry succeeded";
+    EXPECT_EQ(builder.GetRequestState(*key), VulkanPipelineBuilder::RequestState::Ready);
+    EXPECT_FALSE(vkShader.GetPipelineState().CreationFailed);
+}
+
+TEST_F(VulkanShaderPipeline, AReloadRePreparesItsDependentPipelinesAgainstTheNewModules)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+    ScopedPrecache precache;
+    auto& builder = VulkanPipelineBuilder::Get();
+
+    struct ScratchDirectory
+    {
+        std::filesystem::path Previous = std::filesystem::current_path();
+        std::filesystem::path Directory = OloEngine::Tests::TempDir("pso-reload");
+        ~ScratchDirectory()
+        {
+            std::error_code error;
+            std::filesystem::current_path(Previous, error);
+        }
+    } scratch;
+    std::filesystem::current_path(scratch.Directory);
+    const auto sourcePath = scratch.Directory / "PsoReload.glsl";
+    const auto writeSource = [&sourcePath](std::string_view colour)
+    {
+        std::ofstream source(sourcePath, std::ios::trunc);
+        source << "#type vertex\n#version 460 core\n"
+                  "void main() {\n"
+                  "    vec2 p = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));\n"
+                  "    gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);\n"
+                  "}\n"
+                  "#type fragment\n#version 460 core\n"
+                  "layout(location = 0) out vec4 o_Color;\n"
+                  "void main() { o_Color = "
+               << colour << "; }\n";
+        source.close();
+        return !source.fail();
+    };
+
+    OffscreenImage target = CreateOffscreen(*m_Device, 16, 16);
+    ASSERT_NE(target.Image, VK_NULL_HANDLE);
+    const auto targets = ColourTargets(target.Format);
+    const auto state = NoDepthState();
+    auto& arena = VulkanFrameArena::Get();
+    arena.BeginFrame(0);
+    const u64 rootPlaceholder = 0;
+    const auto rootAlloc = arena.Push(&rootPlaceholder, sizeof(rootPlaceholder), 16);
+    ASSERT_TRUE(rootAlloc.IsValid());
+    const auto drawCentre = [&](VulkanShader& shader) -> std::array<u8, 4>
+    {
+        const VkPipeline pipeline = builder.GetOrCreateGraphics(shader, shader.GetRootDataLayout(), state, targets);
+        EXPECT_NE(pipeline, VK_NULL_HANDLE);
+        Submit([&](VkCommandBuffer cmd)
+               {
+            VulkanResourceHeap::Get().CmdBind(cmd);
+            CmdImageBarrier(cmd, target.Image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                            VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT,
+                            VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT);
+            CmdBeginRendering(cmd, target, /*clear=*/true);
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+            VulkanPipelineBuilder::FlushDynamicState(cmd, state, targets);
+            CmdPushRootPointer(cmd, rootAlloc.Gpu);
+            vkCmdDraw(cmd, 3, 1, 0, 0);
+            vkCmdEndRendering(cmd); });
+        std::vector<u8> pixels;
+        ReadbackImage(*this, *m_Device, target, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, pixels);
+        const sizet centre = (static_cast<sizet>(8) * 16 + 8) * 4;
+        if (pixels.size() < centre + 4)
+            return { 0, 0, 0, 0 };
+        return { pixels[centre], pixels[centre + 1], pixels[centre + 2], pixels[centre + 3] };
+    };
+
+    ASSERT_TRUE(writeSource("vec4(1.0, 0.0, 0.0, 1.0)"));
+    auto shader = Ref<VulkanShader>::Create(sourcePath.generic_string());
+    ASSERT_TRUE(shader->IsReady());
+    const auto red = drawCentre(*shader);
+    EXPECT_EQ(red[0], 255);
+    ASSERT_EQ(shader->GetPipelineState().Live, 1u);
+
+    builder.ResetRequestCounters();
+    ASSERT_TRUE(writeSource("vec4(0.0, 1.0, 0.0, 1.0)"));
+    ASSERT_TRUE(shader->Reload());
+    EXPECT_EQ(shader->GetPipelineState().Live, 0u) << "The old modules' pipeline is gone, not reused";
+    EXPECT_EQ(builder.GetRequestStats().Counters.Requests, 1u) << "The dependent pipeline was re-requested";
+
+    // Prepared off the draw: the pipeline exists BEFORE the next draw needs it.
+    ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 1u);
+    EXPECT_EQ(shader->GetPipelineState().Live, 1u);
+
+    const auto green = drawCentre(*shader);
+    EXPECT_EQ(green[0], 0) << "A pipeline built from the OLD modules reached the draw";
+    EXPECT_EQ(green[1], 255);
+    const auto stats = builder.GetRequestStats();
+    EXPECT_EQ(stats.Counters.PreparedFirstUses, 1u);
+    EXPECT_EQ(stats.Counters.BlockingCreations, 0u) << "The reload did not hitch the next draw";
+
+    DestroyOffscreen(*m_Device, target);
+    shader.Reset();
+}
+
+TEST_F(VulkanShaderPipeline, ReadinessComesFromTheManifestAndADrawThatContradictsItIsCounted)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+    builder.ResetRequestCounters();
+
+    // The manifest says this shader was drawn into RGBA8 under the selected
+    // configuration and into RGBA16F under another one.
+    constexpr std::string_view kSelected = "Forward/msaa1/native/oit0";
+    constexpr std::string_view kOther = "Forward/msaa4/native/oit0";
+    PipelineManifest manifest;
+    const u32 stages = static_cast<u32>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    PipelineSignature rgba8;
+    rgba8.ColorCount = 1;
+    rgba8.ColorFormats[0] = VK_FORMAT_R8G8B8A8_UNORM;
+    PipelineSignature rgba16;
+    rgba16.ColorCount = 1;
+    rgba16.ColorFormats[0] = VK_FORMAT_R16G16B16A16_SFLOAT;
+    ASSERT_TRUE(manifest.Record("PsoReadiness", stages, rgba8, kSelected));
+    ASSERT_TRUE(manifest.Record("PsoReadiness", stages, rgba16, kOther));
+
+    ScopedPrecache precache(kSelected);
+    VulkanPipelinePrecache::Get().SetManifestForTesting(manifest);
+
+    // Content: the shader comes into existence and is requested at once — the
+    // selected configuration's key and, speculatively, the other one.
+    Ref<Shader> shader = MakeConstantShader("PsoReadiness");
+    auto& vkShader = *static_cast<VulkanShader*>(shader.get());
+    EXPECT_EQ(builder.GetRequestStats().Counters.Requests, 2u);
+
+    PipelineReadinessSnapshot before;
+    VulkanPipelinePrecache::Get().FillSnapshot(before);
+    EXPECT_FALSE(before.RenderReady) << "Nothing is created yet";
+    ASSERT_FALSE(before.PendingShaders.IsEmpty());
+
+    ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 2u);
+    PipelineReadinessSnapshot after;
+    VulkanPipelinePrecache::Get().FillSnapshot(after);
+    EXPECT_TRUE(after.RenderReady);
+    EXPECT_GE(after.ReadyShaders, 1u);
+    EXPECT_TRUE(after.PendingShaders.IsEmpty());
+
+    // Both configurations' draws are prepared hits: a switch to the other
+    // configuration found its pipeline ready.
+    const auto state = NoDepthState();
+    EXPECT_NE(builder.GetOrCreateGraphics(vkShader, vkShader.GetRootDataLayout(), state,
+                                          ColourTargets(VK_FORMAT_R8G8B8A8_UNORM)),
+              VK_NULL_HANDLE);
+    EXPECT_NE(builder.GetOrCreateGraphics(vkShader, vkShader.GetRootDataLayout(), state,
+                                          ColourTargets(VK_FORMAT_R16G16B16A16_SFLOAT)),
+              VK_NULL_HANDLE);
+    EXPECT_EQ(builder.GetRequestStats().Counters.PreparedFirstUses, 2u);
+    EXPECT_EQ(builder.GetRequestStats().Counters.Misses(), 0u);
+
+    // A draw the manifest never saw, on a shader declared ready: synchronous,
+    // and counted as a broken claim rather than hidden behind it.
+    EXPECT_NE(builder.GetOrCreateGraphics(vkShader, vkShader.GetRootDataLayout(), state,
+                                          ColourTargets(VK_FORMAT_B8G8R8A8_UNORM)),
+              VK_NULL_HANDLE);
+    const auto stats = builder.GetRequestStats();
+    EXPECT_EQ(stats.Counters.NeverRequested, 1u);
+    EXPECT_EQ(stats.Counters.ReadyClaimViolations, 1u);
+
+    // The draw path recorded it, so the next session requests it; and a
+    // PREPARED hit refreshed its own entry too: the RGBA16F key, recorded only
+    // under the other configuration, was drawn under the selected one and now
+    // says so (otherwise a key that keeps hitting would never be re-recorded,
+    // and would be the first one Trim() drops).
+    const auto recorded = VulkanPipelinePrecache::Get().CopyManifest();
+    const auto entries = recorded.EntriesFor("PsoReadiness", stages, kSelected);
+    EXPECT_EQ(entries.Num(), 3);
+    const auto* hdr = entries.FindByPredicate([](const PipelineManifestEntry* e)
+                                              { return e->Signature.ColorFormats[0] == VK_FORMAT_R16G16B16A16_SFLOAT; });
+    ASSERT_NE(hdr, nullptr);
+    EXPECT_TRUE((*hdr)->SeenUnder(kSelected));
+    EXPECT_TRUE((*hdr)->SeenUnder(kOther));
+
+    // A configuration switch: the renderer publishes the other tag, and its
+    // draws start before the tag settles. The claim made for the selected
+    // configuration is withdrawn at once, so a draw the new configuration
+    // needs is an ordinary counted miss, not a broken claim.
+    PipelineReadinessSnapshot claimed;
+    VulkanPipelinePrecache::Get().FillSnapshot(claimed);
+    ASSERT_TRUE(claimed.RenderReady);
+    VulkanPipelinePrecache::Get().SetConfigurationTag(kOther);
+    EXPECT_NE(builder.GetOrCreateGraphics(vkShader, vkShader.GetRootDataLayout(), state,
+                                          ColourTargets(VK_FORMAT_A2B10G10R10_UNORM_PACK32)),
+              VK_NULL_HANDLE);
+    const auto switched = builder.GetRequestStats().Counters;
+    EXPECT_EQ(switched.NeverRequested, 2u);
+    EXPECT_EQ(switched.ReadyClaimViolations, 1u) << "A draw during a switch was judged against the old claim";
+    PipelineReadinessSnapshot settling;
+    VulkanPipelinePrecache::Get().FillSnapshot(settling);
+    EXPECT_FALSE(settling.RenderReady) << "Nothing is ready while the drawn configuration is not the selected one";
+}
+
+TEST_F(VulkanShaderPipeline, AManifestSignatureThisDeviceCannotCreateIsNeverRequested)
+{
+    // A packaged seed or a manifest from another GPU can name a target this
+    // device lacks. Requesting it would hand vkCreateGraphicsPipelines an
+    // invalid attachment; it is skipped, logged and counted instead.
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+    builder.ResetRequestCounters();
+
+    constexpr std::string_view kTag = "Forward/msaa1/native/oit0";
+    const u32 stages = static_cast<u32>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    PipelineManifest manifest;
+    PipelineSignature rgba8;
+    rgba8.ColorCount = 1;
+    rgba8.ColorFormats[0] = VK_FORMAT_R8G8B8A8_UNORM;
+    // A block-compressed format is never a colour attachment on any device.
+    PipelineSignature compressed;
+    compressed.ColorCount = 1;
+    compressed.ColorFormats[0] = VK_FORMAT_BC1_RGB_UNORM_BLOCK;
+    ASSERT_TRUE(manifest.Record("PsoUnsupported", stages, rgba8, kTag));
+    ASSERT_TRUE(manifest.Record("PsoUnsupported", stages, compressed, kTag));
+
+    ScopedPrecache precache(kTag);
+    VulkanPipelinePrecache::Get().SetManifestForTesting(manifest);
+    Ref<Shader> shader = MakeConstantShader("PsoUnsupported");
+    ASSERT_TRUE(shader);
+
+    EXPECT_EQ(builder.GetRequestStats().Counters.Requests, 1u) << "Only the supported signature is requested";
+    PipelineReadinessSnapshot snapshot;
+    VulkanPipelinePrecache::Get().FillSnapshot(snapshot);
+    EXPECT_EQ(snapshot.UnsupportedSignatures, 1u);
+
+    // Readiness is judged on what can be created: the supported key prepared
+    // is enough.
+    ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 1u);
+    PipelineReadinessSnapshot after;
+    VulkanPipelinePrecache::Get().FillSnapshot(after);
+    EXPECT_TRUE(after.RenderReady);
+    EXPECT_EQ(builder.GetRequestStats().Counters.FailedCreations, 0u);
+}
+
+TEST_F(VulkanShaderPipeline, RequestsArePreparedByTheWorkersWhileNoFrameTicks)
+{
+    // A packaged runtime loads for tens of seconds before its first frame. The
+    // workers' budget normally comes from Tick(); with no frame they must refill
+    // it themselves, or every request made during loading lands on the first
+    // frame as a synchronous creation (measured: 5.6 s of blocking in a cooked
+    // Samoyed runtime, against 32 ms with this refill).
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+    builder.ResetRequestCounters();
+
+    constexpr std::string_view kTag = "Forward/msaa1/native/oit0";
+    PipelineManifest manifest;
+    PipelineSignature rgba8;
+    rgba8.ColorCount = 1;
+    rgba8.ColorFormats[0] = VK_FORMAT_R8G8B8A8_UNORM;
+    ASSERT_TRUE(manifest.Record("PsoLoading", static_cast<u32>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT),
+                                rgba8, kTag));
+
+    // The guard stops the workers on an early ASSERT exit; the explicit Stop()
+    // below runs first on the normal path (Stop is idempotent).
+    ScopedPrecache precache(kTag, /*startWorkers=*/true);
+    VulkanPipelinePrecache::Get().SetManifestForTesting(manifest);
+    Ref<Shader> shader = MakeConstantShader("PsoLoading");
+    auto& vkShader = *static_cast<VulkanShader*>(shader.get());
+    const auto key = builder.RequestGraphics(vkShader, ColourTargets(VK_FORMAT_R8G8B8A8_UNORM), 0);
+    ASSERT_TRUE(key.has_value());
+
+    // No Tick(), no PrepareQueued(): only the workers' own refill can run it.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (builder.GetRequestState(*key) != VulkanPipelineBuilder::RequestState::Ready &&
+           std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    VulkanPipelinePrecache::Get().Stop();
+    VulkanPipelinePrecache::Get().SetManifestForTesting({});
+
+    EXPECT_EQ(builder.GetRequestState(*key), VulkanPipelineBuilder::RequestState::Ready)
+        << "A request made while no frame ticks was never prepared";
+    EXPECT_NE(builder.GetOrCreateGraphics(vkShader, vkShader.GetRootDataLayout(), NoDepthState(),
+                                          ColourTargets(VK_FORMAT_R8G8B8A8_UNORM)),
+              VK_NULL_HANDLE);
+    const auto stats = builder.GetRequestStats().Counters;
+    EXPECT_GE(stats.PreparedCreations, 1u);
+    EXPECT_EQ(stats.BlockingCreations, 0u);
+    EXPECT_EQ(stats.PreparedFirstUses, 1u);
+}
+
+TEST_F(VulkanShaderPipeline, CompileCacheHitModuleAndPipelineCreationAreCountedApart)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+    builder.ResetRequestCounters();
+
+    // A source no cache has seen: the token makes every SPIR-V cache key new.
+    const auto token = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto sourcePath = OloEngine::Tests::TempFile("PsoPreparation.glsl");
+    {
+        std::ofstream source(sourcePath, std::ios::trunc);
+        // Both stages carry the token: a stage whose text was ever compiled
+        // before is a cache hit, and the counts below would depend on run order.
+        source << "#type vertex\n#version 460 core\n"
+               << "const float kUniqueV = float(" << (token % 1000000) << "u % 991u) / 991.0;\n"
+               << "void main() {\n"
+                  "    vec2 p = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));\n"
+                  "    gl_Position = vec4(p * 2.0 - 1.0, kUniqueV * 0.0, 1.0);\n"
+                  "}\n"
+                  "#type fragment\n#version 460 core\n"
+                  "layout(location = 0) out vec4 o_Color;\n"
+               << "const float kUnique = float(" << (token % 1000000) << "u % 997u) / 997.0;\n"
+               << "void main() { o_Color = vec4(kUnique, 0.0, 0.0, 1.0); }\n";
+    }
+
+    // Source compile: new text, both stages compiled, two modules, no cache hit.
+    const ShaderPreparationStats before = ShaderPreparationCounters::Get().Snapshot();
+    auto first = Ref<VulkanShader>::Create(sourcePath.generic_string());
+    ASSERT_TRUE(first->IsReady());
+    const ShaderPreparationStats compiled = ShaderPreparationCounters::Get().Snapshot();
+    EXPECT_EQ(compiled.SourceCompiles - before.SourceCompiles, 2u);
+    EXPECT_EQ(compiled.SpirvCacheHits - before.SpirvCacheHits, 0u);
+    EXPECT_EQ(compiled.ModuleCreates - before.ModuleCreates, 2u);
+
+    // The same file again: both stages come from the SPIR-V cache, nothing is
+    // compiled, and the modules are still created (a module is per shader).
+    auto second = Ref<VulkanShader>::Create(sourcePath.generic_string());
+    ASSERT_TRUE(second->IsReady());
+    const ShaderPreparationStats cached = ShaderPreparationCounters::Get().Snapshot();
+    EXPECT_EQ(cached.SourceCompiles - compiled.SourceCompiles, 0u);
+    EXPECT_EQ(cached.SpirvCacheHits - compiled.SpirvCacheHits, 2u);
+    EXPECT_EQ(cached.ModuleCreates - compiled.ModuleCreates, 2u);
+
+    // Pipeline creation is counted by the builder, not as shader preparation.
+    const auto targets = ColourTargets(VK_FORMAT_R8G8B8A8_UNORM);
+    ASSERT_TRUE(builder.RequestGraphics(*first, targets, 0).has_value());
+    ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 1u);
+    const auto created = builder.GetRequestStats().Counters;
+    EXPECT_EQ(created.PreparedCreations, 1u);
+    EXPECT_EQ(ShaderPreparationCounters::Get().Snapshot().ModuleCreates, cached.ModuleCreates)
+        << "Creating a pipeline creates no shader module";
+
+    // Driver-cache hit: the same pipeline created again after invalidation is
+    // served from the VkPipelineCache the first creation filled. Creation
+    // feedback is the only signal that can tell; where a driver does not
+    // report it, the creation is counted as unknown instead of guessed.
+    (void)builder.InvalidateShader(first->GetPipelineIndexKey());
+    ASSERT_TRUE(builder.RequestGraphics(*first, targets, 0).has_value());
+    ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 1u);
+    const auto recreated = builder.GetRequestStats().Counters;
+    EXPECT_EQ(recreated.DriverCacheHits + recreated.DriverCacheMisses + recreated.DriverCacheUnknown, 2u);
+    if (created.DriverCacheMisses == 1u && recreated.DriverCacheUnknown == created.DriverCacheUnknown)
+    {
+        EXPECT_EQ(recreated.DriverCacheHits - created.DriverCacheHits, 1u)
+            << "The second creation of an identical pipeline must be a pipeline-cache hit";
+    }
+
+    second.Reset();
+    first.Reset();
+}
+
+TEST_F(VulkanShaderPipeline, TwoConfigurationsDrawnEveryFrameAreBothSelectedAndClaimed)
+{
+    // A viewport and a preview with different settings render in the same
+    // frame: both tags are published every frame. The selection settles on
+    // both, both sets of keys are requested at the front, and readiness is
+    // claimed instead of being withdrawn forever.
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+    builder.ResetRequestCounters();
+
+    constexpr std::string_view kViewport = "Deferred/msaa1/native/oit0";
+    constexpr std::string_view kPreview = "Forward/msaa0/native/oit0";
+    const u32 stages = static_cast<u32>(VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    PipelineManifest manifest;
+    PipelineSignature rgba8;
+    rgba8.ColorCount = 1;
+    rgba8.ColorFormats[0] = VK_FORMAT_R8G8B8A8_UNORM;
+    PipelineSignature rgba16;
+    rgba16.ColorCount = 1;
+    rgba16.ColorFormats[0] = VK_FORMAT_R16G16B16A16_SFLOAT;
+    ASSERT_TRUE(manifest.Record("PsoMixed", stages, rgba8, kViewport));
+    ASSERT_TRUE(manifest.Record("PsoMixed", stages, rgba16, kPreview));
+
+    ScopedPrecache precache(kViewport);
+    VulkanPipelinePrecache::Get().SetManifestForTesting(manifest);
+    Ref<Shader> shader = MakeConstantShader("PsoMixed");
+    for (int frame = 0; frame < 4; ++frame)
+    {
+        VulkanPipelinePrecache::Get().SetConfigurationTag(kViewport);
+        VulkanPipelinePrecache::Get().SetConfigurationTag(kPreview);
+        VulkanPipelinePrecache::Get().Tick();
+    }
+    ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 2u);
+    VulkanPipelinePrecache::Get().SetConfigurationTag(kViewport);
+    VulkanPipelinePrecache::Get().SetConfigurationTag(kPreview);
+
+    PipelineReadinessSnapshot snapshot;
+    VulkanPipelinePrecache::Get().FillSnapshot(snapshot);
+    EXPECT_TRUE(snapshot.RenderReady);
+    EXPECT_NE(snapshot.ConfigurationTag.ToView().find(kViewport), std::string_view::npos);
+    EXPECT_NE(snapshot.ConfigurationTag.ToView().find(kPreview), std::string_view::npos);
+    EXPECT_TRUE(snapshot.PendingShaders.IsEmpty());
+
+    // The preview closes. While its tag ages out and after it leaves, the
+    // viewport's readiness holds: a shrinking selection keeps its claims.
+    for (u64 frame = 0; frame < 2 * VulkanPipelinePrecache::kTagWindowFrames; ++frame)
+    {
+        VulkanPipelinePrecache::Get().SetConfigurationTag(kViewport);
+        VulkanPipelinePrecache::Get().Tick();
+        PipelineReadinessSnapshot shrinking;
+        VulkanPipelinePrecache::Get().FillSnapshot(shrinking);
+        EXPECT_TRUE(shrinking.RenderReady) << "frame " << frame;
+    }
+    EXPECT_EQ(VulkanPipelinePrecache::Get().GetConfigurationTag(), std::string(kViewport));
+}
+
+TEST_F(VulkanShaderPipeline, TheSelectedConfigurationIsEveryTagDrawnWithinTheWindow)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+    constexpr std::string_view kViewport = "Deferred/msaa1/native/oit0";
+    constexpr std::string_view kPreview = "Forward/msaa0/native/oit0";
+    ScopedPrecache precache(kViewport);
+    auto& p = VulkanPipelinePrecache::Get();
+    const auto selected = [&p]
+    { return p.GetConfigurationTag(); };
+    const std::string both = std::string(kViewport) + " + " + std::string(kPreview);
+
+    // A preview that renders only every other frame stays selected.
+    u64 publishingFramesSincePreview = 0;
+    for (u64 frame = 0; frame < 3 * VulkanPipelinePrecache::kTagWindowFrames; ++frame)
+    {
+        p.SetConfigurationTag(kViewport);
+        if (frame % 2 == 0)
+        {
+            p.SetConfigurationTag(kPreview);
+            publishingFramesSincePreview = 0;
+        }
+        else
+        {
+            ++publishingFramesSincePreview;
+        }
+        p.Tick();
+        ASSERT_EQ(selected(), both) << "frame " << frame;
+    }
+
+    // Frames that compile no frame graph change nothing.
+    for (u64 frame = 0; frame < 3 * VulkanPipelinePrecache::kTagWindowFrames; ++frame)
+    {
+        p.Tick();
+    }
+    EXPECT_EQ(selected(), both);
+
+    // The preview stops: it leaves once kTagWindowFrames publishing frames
+    // have passed since it was last drawn (frames that publish nothing do not
+    // count).
+    for (u64 frame = 1; frame <= VulkanPipelinePrecache::kTagWindowFrames; ++frame)
+    {
+        p.SetConfigurationTag(kViewport);
+        p.Tick();
+        ++publishingFramesSincePreview;
+        const bool expired = publishingFramesSincePreview >= VulkanPipelinePrecache::kTagWindowFrames;
+        EXPECT_EQ(selected(), expired ? std::string(kViewport) : both) << "frame " << frame;
+    }
 }
 
 #endif // OLO_WITH_VULKAN

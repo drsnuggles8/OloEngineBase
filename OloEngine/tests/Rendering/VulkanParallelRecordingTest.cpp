@@ -1161,6 +1161,20 @@ TEST_F(VulkanParallelRecordingDevice, BucketsReplayWithItemOwnedMaterialAndInsta
     // at this point would leave GL-currency handles in the dispatcher across the
     // Vulkan suites that follow — the hazard VulkanPassSuiteTest documents.
     // `Renderer3D::BeginScene` re-homes its own buffers when it next draws.
+    //
+    // After an OpenGL renderer test initialised Renderer3D in this process,
+    // CommandDispatch replays against that backend's state and this test dies
+    // with an access violation (#1655; reproduced on master with
+    // GPUResourceQueueAsyncComputeShader + RenderGraphOutOfBandSchedule run
+    // first). Same precondition, same honest skip as
+    // VulkanDrawPath.ProductionFrustumCullWritesRootDataForIndirectDraw: the
+    // test keeps its full strength in any Vulkan-filtered run.
+    if (Renderer3D::HasInitialized())
+    {
+        GTEST_SKIP() << "Renderer3D was initialised earlier in this process (an OpenGL renderer test); the bucket "
+                        "replay would dispatch against that backend's state (#1655). Run this tenant in a "
+                        "Vulkan-filtered invocation.";
+    }
     ScopedVulkanRenderCommandSelection renderCommandSelection;
     EnsureTaskWorkers();
     VulkanFrameArena::Get().BeginFrame(0);

@@ -69,6 +69,7 @@
 		"MCP/McpFroxelFogProbe.h"
 		"MCP/McpGpuReadbackStats.h"
 		"MCP/McpFrameGraphDeclarationStats.h"
+		"MCP/McpPipelineReadiness.h"
 		"MCP/McpShadowCapture.h"
 		"MCP/McpInputInject.h"
 		"MCP/McpToolsAssets.cpp"

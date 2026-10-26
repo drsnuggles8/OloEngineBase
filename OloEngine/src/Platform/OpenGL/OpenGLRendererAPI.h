@@ -29,6 +29,18 @@ namespace OloEngine
         ~OpenGLRendererAPI() override;
 
         void Init() override;
+
+        // GL has no pipeline object (#1345): readiness is program link, and the
+        // counters are compile / link / program-binary / forced-link-at-use.
+        // The driver's lazy recompile on a first draw is unmeasurable here and
+        // is reported as such by the model, never as zero.
+        [[nodiscard]] PipelineReadinessSnapshot GetPipelineReadiness() const override
+        {
+            PipelineReadinessSnapshot snapshot;
+            snapshot.Model = PipelineReadinessModel::OpenGLProgramLink;
+            snapshot.Shaders = ShaderPreparationCounters::Get().Snapshot();
+            return snapshot;
+        }
         // Release GPU-side renderer state while the context is still current.
         // MUST be called before the context is destroyed; the destructor cannot
         // do this safely because it runs at atexit.
