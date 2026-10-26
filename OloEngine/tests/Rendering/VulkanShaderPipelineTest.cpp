@@ -1527,6 +1527,18 @@ TEST_F(VulkanShaderPipeline, TwoConfigurationsDrawnEveryFrameAreBothSelectedAndC
     EXPECT_NE(snapshot.ConfigurationTag.ToView().find(kViewport), std::string_view::npos);
     EXPECT_NE(snapshot.ConfigurationTag.ToView().find(kPreview), std::string_view::npos);
     EXPECT_TRUE(snapshot.PendingShaders.IsEmpty());
+
+    // The preview closes. While its tag ages out and after it leaves, the
+    // viewport's readiness holds: a shrinking selection keeps its claims.
+    for (u64 frame = 0; frame < 2 * VulkanPipelinePrecache::kTagWindowFrames; ++frame)
+    {
+        VulkanPipelinePrecache::Get().SetConfigurationTag(kViewport);
+        VulkanPipelinePrecache::Get().Tick();
+        PipelineReadinessSnapshot shrinking;
+        VulkanPipelinePrecache::Get().FillSnapshot(shrinking);
+        EXPECT_TRUE(shrinking.RenderReady) << "frame " << frame;
+    }
+    EXPECT_EQ(VulkanPipelinePrecache::Get().GetConfigurationTag(), std::string(kViewport));
 }
 
 TEST_F(VulkanShaderPipeline, TheSelectedConfigurationIsEveryTagDrawnWithinTheWindow)
@@ -1540,12 +1552,18 @@ TEST_F(VulkanShaderPipeline, TheSelectedConfigurationIsEveryTagDrawnWithinTheWin
     const std::string both = std::string(kViewport) + " + " + std::string(kPreview);
 
     // A preview that renders only every other frame stays selected.
+    u64 publishingFramesSincePreview = 0;
     for (u64 frame = 0; frame < 3 * VulkanPipelinePrecache::kTagWindowFrames; ++frame)
     {
         p.SetConfigurationTag(kViewport);
         if (frame % 2 == 0)
         {
             p.SetConfigurationTag(kPreview);
+            publishingFramesSincePreview = 0;
+        }
+        else
+        {
+            ++publishingFramesSincePreview;
         }
         p.Tick();
         ASSERT_EQ(selected(), both) << "frame " << frame;
@@ -1558,12 +1576,15 @@ TEST_F(VulkanShaderPipeline, TheSelectedConfigurationIsEveryTagDrawnWithinTheWin
     }
     EXPECT_EQ(selected(), both);
 
-    // The preview stops: it leaves once it has not been drawn for the window.
+    // The preview stops: it leaves once kTagWindowFrames publishing frames
+    // have passed since it was last drawn (frames that publish nothing do not
+    // count).
     for (u64 frame = 1; frame <= VulkanPipelinePrecache::kTagWindowFrames; ++frame)
     {
         p.SetConfigurationTag(kViewport);
         p.Tick();
-        const bool expired = frame >= VulkanPipelinePrecache::kTagWindowFrames - 1;
+        ++publishingFramesSincePreview;
+        const bool expired = publishingFramesSincePreview >= VulkanPipelinePrecache::kTagWindowFrames;
         EXPECT_EQ(selected(), expired ? std::string(kViewport) : both) << "frame " << frame;
     }
 }

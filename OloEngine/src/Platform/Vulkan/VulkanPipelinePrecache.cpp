@@ -432,7 +432,9 @@ namespace OloEngine
         // previous selection to protect, and the boot requests are waiting.
         // (Only while the empty tag is the start-up placeholder, never once it
         // has been drawn: then it is a configuration like any other.)
-        const bool nothingSelected = m_TagLastSeen.empty() && m_SelectedTags.Num() == 1 && m_SelectedTags[0].IsEmpty();
+        const bool emptyTagDrawn = m_FrameTags.ContainsByPredicate([](const FString& t) { return t.IsEmpty(); });
+        const bool nothingSelected = m_TagLastSeen.empty() && !emptyTagDrawn && m_SelectedTags.Num() == 1 &&
+                                     m_SelectedTags[0].IsEmpty();
         if (nothingSelected && !tag.empty())
         {
             TArray<FString> first;
@@ -577,7 +579,7 @@ namespace OloEngine
                 bool windowChanged = false;
                 for (const FString& tag : m_FrameTags)
                 {
-                    const auto [it, inserted] = m_TagLastSeen.insert_or_assign(tag.ToStdString(), m_PublishFrame);
+                    const bool inserted = m_TagLastSeen.insert_or_assign(tag.ToStdString(), m_PublishFrame).second;
                     windowChanged = windowChanged || inserted;
                 }
                 std::ranges::sort(m_FrameTags, byName);
@@ -699,8 +701,14 @@ namespace OloEngine
             ++r.TrackedShaders;
             if (!tracked.HasSelectedEntries)
             {
-                // No claim either way: the manifest has never seen this shader
-                // drawn under this configuration.
+                // No claim: the manifest has never seen this shader drawn under
+                // the selected configuration (a claim made before the selection
+                // shrank past its last entry is withdrawn here).
+                if (tracked.DeclaredReady)
+                {
+                    builder.DeclareShaderReady(tracked.ShaderKey, false);
+                    tracked.DeclaredReady = false;
+                }
                 ++r.UnknownShaders;
                 return;
             }
