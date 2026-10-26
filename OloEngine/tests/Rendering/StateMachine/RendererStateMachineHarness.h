@@ -235,7 +235,9 @@ namespace OloEngine::Tests::StateMachine
       private:
         void ApplyFeature(FeatureId feature, bool on);
         void RenderOtherSceneFrame();
-        [[nodiscard]] bool TraceStillFails(const Trace& trace, const std::string& pairId);
+        // `narrow`: run only `pairId`'s own pair. Off, every pair runs, so a
+        // failure that needs another pair's lever flips first can still recur.
+        [[nodiscard]] bool TraceStillFails(const Trace& trace, const std::string& pairId, bool narrow);
 
         ModelConfig m_Config{};
         Ref<Scene> m_OtherScene;

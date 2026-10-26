@@ -136,6 +136,48 @@ namespace OloEngine::Tests
         EXPECT_FALSE(gl->IsGlslTextRoute()) << "a shader that names no OLO_GL_GLSL_ROUTE took the text route";
     }
 
+    // #1516: on radeonsi a reload sent every program down the text route
+    // whatever route it loaded on, so a reload swapped Mesa's SPIR-V frontend
+    // for its GLSL one and the frame moved in its last bits. Only the AMD
+    // nightly can see the difference; the route itself is checked anywhere.
+    TEST(OpenGLShaderRoute, AReloadKeepsTheRouteTheShaderLoadedOn)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        LeverBack back;
+        Levers::SetGLShadersFromGlsl(Levers::Tristate::Unset);
+
+        const std::vector<std::string> opted = OptedInShaders();
+        ASSERT_FALSE(opted.empty());
+        for (const std::string& path : { std::string("assets/shaders/PBR_MultiLight.glsl"), opted.front() })
+        {
+            SCOPED_TRACE(path);
+            Ref<Shader> shader = Shader::Create(path);
+            const OpenGLShader* gl = AsGL(shader);
+            ASSERT_NE(gl, nullptr);
+            ASSERT_TRUE(shader->IsReady());
+            const bool loadedOnText = gl->IsGlslTextRoute();
+            ASSERT_TRUE(shader->Reload());
+            EXPECT_EQ(gl->IsGlslTextRoute(), loadedOnText) << "the reload changed the route the program takes";
+        }
+    }
+
+    // The AMD route reads the Mesa version, not GL_VERSION's last token: a git
+    // build of Mesa appends "(git-<sha>)", which once read as no version and
+    // sent a new driver down the text route (#1658 review).
+    TEST(OpenGLShaderRoute, TheAmdRouteReadsTheMesaVersionWhereverItSits)
+    {
+        EXPECT_FALSE(OpenGLShader::AmdGlVersionTakesGlslTextRoute("4.6 (Core Profile) Mesa 25.2.6"));
+        EXPECT_FALSE(OpenGLShader::AmdGlVersionTakesGlslTextRoute("4.6 (Core Profile) Mesa 25.2.6 (git-3f12436d80)"));
+        EXPECT_FALSE(OpenGLShader::AmdGlVersionTakesGlslTextRoute("4.6 (Core Profile) Mesa 23.5.2"));
+        EXPECT_TRUE(OpenGLShader::AmdGlVersionTakesGlslTextRoute("4.6 (Core Profile) Mesa 23.5.1"));
+        EXPECT_TRUE(OpenGLShader::AmdGlVersionTakesGlslTextRoute("4.6 (Core Profile) Mesa 22.3.6 (git-0123abc)"));
+        EXPECT_FALSE(OpenGLShader::AmdGlVersionTakesGlslTextRoute("4.6 (Core Profile) Mesa 24.0.0-devel"));
+        EXPECT_TRUE(OpenGLShader::AmdGlVersionTakesGlslTextRoute("4.6.14830 Compatibility Profile Context 22.20.27.09.230330"))
+            << "a non-Mesa AMD string is read from its last token, as before";
+        EXPECT_TRUE(OpenGLShader::AmdGlVersionTakesGlslTextRoute("no version here"));
+        EXPECT_TRUE(OpenGLShader::AmdGlVersionTakesGlslTextRoute(""));
+    }
+
     TEST(OpenGLShaderRoute, TheLeverForcesTheRouteBothWays)
     {
         OLO_ENSURE_GPU_OR_SKIP();

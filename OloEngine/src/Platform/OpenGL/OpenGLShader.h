@@ -7,6 +7,7 @@
 #include <glm/glm.hpp>
 #include <atomic>
 #include <filesystem>
+#include <string_view>
 #include <unordered_set>
 #include <vector>
 
@@ -177,6 +178,13 @@ namespace OloEngine
         // also new) on-disk text would falsely validate stale bytes.
         [[nodiscard]] static std::string ComputeContentHashFromSources(
             const std::unordered_map<GLenum, std::string>& preprocessedSources);
+
+        // Does an AMD driver reporting this GL_VERSION take the GLSL text route
+        // (#1516)? A Mesa before 23.5.2 cannot take the SPIR-V route. The
+        // version is the one after "Mesa ", so a git build's trailing
+        // "(git-...)" does not hide it; a non-Mesa string is read from its last
+        // token. A string with no readable version keeps the text route.
+        [[nodiscard]] static bool AmdGlVersionTakesGlslTextRoute(std::string_view glVersion);
 
         // The preprocessed per-stage source that produced this shader's
         // compiled SPIR-V (issue #908: the input to

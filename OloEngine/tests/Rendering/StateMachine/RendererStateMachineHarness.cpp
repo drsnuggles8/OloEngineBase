@@ -448,6 +448,77 @@ namespace OloEngine::Tests::StateMachine
             return file;
         }
 
+        // Where an exact target differs, in words a CI log can carry (#1516: the
+        // composites stay on the runner). A 16 x 9 map of the differing share
+        // per cell, bottom row first as the texels are; how many differing
+        // texels sit on an edge of the first execution's image (a neighbour
+        // more than 0.05 away); and the mean of each execution over them.
+        [[nodiscard]] std::string LocateDifference(const TargetCapture& a, const TargetCapture& b)
+        {
+            constexpr u32 kCols = 16u;
+            constexpr u32 kRows = 9u;
+            if (a.Width == 0u || a.Height == 0u || a.Texels.size() != b.Texels.size() ||
+                a.Texels.size() != static_cast<sizet>(a.Width) * a.Height * 4u)
+                return "";
+            std::array<u32, kCols * kRows> differing{};
+            std::array<u32, kCols * kRows> area{};
+            std::array<f64, 4> meanA{};
+            std::array<f64, 4> meanB{};
+            u32 count = 0;
+            u32 onEdge = 0;
+            const auto at = [&a](u32 x, u32 y, u32 c)
+            { return a.Texels[((static_cast<sizet>(y) * a.Width + x) * 4u) + c]; };
+            for (u32 y = 0; y < a.Height; ++y)
+            {
+                for (u32 x = 0; x < a.Width; ++x)
+                {
+                    const u32 cell = ((y * kRows / a.Height) * kCols) + (x * kCols / a.Width);
+                    ++area[cell];
+                    const sizet i = (static_cast<sizet>(y) * a.Width + x) * 4u;
+                    if (std::memcmp(&a.Texels[i], &b.Texels[i], 4u * sizeof(f32)) == 0)
+                        continue;
+                    ++differing[cell];
+                    ++count;
+                    for (u32 c = 0; c < 4u; ++c)
+                    {
+                        meanA[c] += a.Texels[i + c];
+                        meanB[c] += b.Texels[i + c];
+                    }
+                    bool edge = false;
+                    for (const auto [dx, dy] : { std::pair{ -1, 0 }, std::pair{ 1, 0 }, std::pair{ 0, -1 }, std::pair{ 0, 1 } })
+                    {
+                        const i64 nx = static_cast<i64>(x) + dx;
+                        const i64 ny = static_cast<i64>(y) + dy;
+                        if (nx < 0 || ny < 0 || nx >= a.Width || ny >= a.Height)
+                            continue;
+                        for (u32 c = 0; c < 4u && !edge; ++c)
+                            edge = std::abs(at(static_cast<u32>(nx), static_cast<u32>(ny), c) - at(x, y, c)) > 0.05f;
+                    }
+                    onEdge += edge ? 1u : 0u;
+                }
+            }
+            if (count == 0u)
+                return "";
+            std::string out = "\n    " + std::to_string(onEdge) + " of the " + std::to_string(count) +
+                              " differing texels are on an edge; mean over them, first vs second execution: (";
+            for (u32 c = 0; c < 4u; ++c)
+                out += std::to_string(meanA[c] / count) + (c < 3u ? ", " : ") vs (");
+            for (u32 c = 0; c < 4u; ++c)
+                out += std::to_string(meanB[c] / count) + (c < 3u ? ", " : ")");
+            out += "\n    differing share per cell (0-9, # = all), bottom row first:";
+            for (u32 row = 0; row < kRows; ++row)
+            {
+                out += "\n      ";
+                for (u32 col = 0; col < kCols; ++col)
+                {
+                    const u32 cell = (row * kCols) + col;
+                    const u32 n = differing[cell];
+                    out += n == 0u ? '.' : (n == area[cell] ? '#' : static_cast<char>('0' + std::min(9u, (n * 10u) / area[cell])));
+                }
+            }
+            return out;
+        }
+
         [[nodiscard]] std::string DescribeFailures(const RenderGraph& graph)
         {
             std::string out;
@@ -690,7 +761,7 @@ namespace OloEngine::Tests::StateMachine
                 if (!verdict.Held)
                     verdict.Detail += std::to_string(verdict.DifferingTexels) + " of " + std::to_string(texels) +
                                       " texels differ (max delta " + std::to_string(verdict.MaxDelta) +
-                                      ") where the control pair was bit-identical";
+                                      ") where the control pair was bit-identical" + LocateDifference(target, *other);
             }
             else
             {
@@ -1273,7 +1344,7 @@ namespace OloEngine::Tests::StateMachine
         // trace fresh-vs-sequence, the minimiser's commonest predicate) skips
         // the control captures entirely: twelve rendered frames and every
         // target read back twice, for nothing.
-        static constexpr std::array<std::string_view, 11> kOwnedPairs{
+        static constexpr std::array<std::string_view, 12> kOwnedPairs{
             "cached-vs-rebuild.gl",
             "cached-vs-rebuild.plan",
             "alias-vs-noalias.gl",
@@ -1281,6 +1352,7 @@ namespace OloEngine::Tests::StateMachine
             "serial-vs-parallel.gl",
             "binding-cache-cold.gl",
             "schedule-reversed.gl",
+            "poison-vs-stale.gl",
             "out-of-band-ledger",
             "harness.round-trip",
             "harness.capture",
@@ -1471,6 +1543,31 @@ namespace OloEngine::Tests::StateMachine
             judge("binding-cache-cold.gl", control, cold, controls);
         }
 
+        // --- stale vs poisoned transients --------------------------------------
+        // A pass that reads a transient before anything wrote it this frame
+        // reads whatever its pool object last held. That is stable on a driver
+        // that zero-fills new storage, and changes after a pool Clear on one
+        // that recycles memory (radeonsi, #1516), so the failure showed on AMD
+        // only. Poisoning every transient at acquire makes the read visible on
+        // any vendor. With OLO_RG_POISON_TRANSIENTS set, the control frame is
+        // poisoned too, so the stale side is captured with the lever off.
+        if (wants("poison-vs-stale.gl"))
+        {
+            FrameCapture stale;
+            if (Levers::PoisonTransients())
+            {
+                const ScopedLever off(&Levers::PoisonTransients, &Levers::SetPoisonTransients, false);
+                stale = CaptureFrame();
+            }
+            FrameCapture poisoned;
+            {
+                const ScopedLever poison(&Levers::PoisonTransients, &Levers::SetPoisonTransients, true);
+                poisoned = CaptureFrame();
+            }
+            RenderFrames(1);
+            judge("poison-vs-stale.gl", stale.Width == 0u ? control : stale, poisoned, controls);
+        }
+
         // --- the levers put back reproduce the frame ---------------------------
         if (options.OnlyPair.empty() || options.OnlyPair == "harness.round-trip")
         {
@@ -1530,14 +1627,14 @@ namespace OloEngine::Tests::StateMachine
         return result;
     }
 
-    bool RendererStateMachineFixture::TraceStillFails(const Trace& trace, const std::string& pairId)
+    bool RendererStateMachineFixture::TraceStillFails(const Trace& trace, const std::string& pairId, bool narrow)
     {
         RunOptions options;
         // The harness's own checks (the lever round trip, resolve failures,
         // capture) only fail when the pairs around them flip levers, so a
         // failure of one of them is replayed with every pair on.
         const bool harnessCheck = pairId.starts_with("harness.") || pairId == "resolve-failures";
-        options.OnlyPair = harnessCheck ? std::string{} : pairId;
+        options.OnlyPair = (harnessCheck || !narrow) ? std::string{} : pairId;
         const TraceResult result = RunTrace(trace, options);
         return std::ranges::any_of(result.Failures, [&pairId](const PairFailure& failure)
                                    { return failure.PairId == pairId; });
@@ -1561,11 +1658,18 @@ namespace OloEngine::Tests::StateMachine
         std::string minimisedReport = "  (minimisation off: --olo-state-machine-minimize-budget=0)\n";
         if (const u32 budget = Options().StateMachineMinimizeBudget; budget > 0u)
         {
-            const std::function<bool(const std::vector<Op>&)> fails = [this, &trace, &first](const std::vector<Op>& ops)
+            // Narrowed to the failing pair first, which is cheap. If that does
+            // not reproduce, the failure may need a pair that runs before it
+            // (#1516: seed 1349's batch-vs-nobatch failure did not recur alone,
+            // and alias-vs-noalias, which clears the transient pool, runs
+            // before it), so replay with every pair on before concluding the
+            // reset misses some state.
+            const bool narrow = TraceStillFails(trace, first.PairId, true);
+            const std::function<bool(const std::vector<Op>&)> fails = [this, &trace, &first, narrow](const std::vector<Op>& ops)
             {
                 Trace candidate = trace;
                 candidate.Ops = ops;
-                return TraceStillFails(candidate, first.PairId);
+                return TraceStillFails(candidate, first.PairId, narrow);
             };
             const MinimizeResult<Op> minimised = MinimizeTrace(trace.Ops, fails, budget);
             Trace reduced = trace;
@@ -1577,10 +1681,12 @@ namespace OloEngine::Tests::StateMachine
                     << Serialize(reduced);
             }
             minimisedReport = "Minimised to " + std::to_string(reduced.Ops.size()) + " op(s) in " +
-                              std::to_string(minimised.Evaluations) + " replay(s)" +
+                              std::to_string(minimised.Evaluations + 1u) + " replay(s)" +
+                              (narrow ? "" : " with every pair on (the failing pair alone did not reproduce it)") +
                               (minimised.InputDidNotFail
-                                   ? " -- but the trace did NOT fail again when replayed from the canonical reset, so the "
-                                     "failure depends on state the reset does not restore; replay it in a fresh process"
+                                   ? " -- but the trace did NOT fail again when replayed from the canonical reset, even "
+                                     "with every pair on, so the failure depends on state the reset does not restore; "
+                                     "replay it in a fresh process"
                                    : (minimised.OneMinimal ? ", 1-minimal" : ", budget exhausted before 1-minimal")) +
                               " (" + reducedPath.string() + "):\n" + Serialize(reduced);
         }

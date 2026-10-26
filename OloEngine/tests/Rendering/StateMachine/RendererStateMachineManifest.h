@@ -227,6 +227,13 @@ namespace OloEngine::Tests::StateMachine
                  "Issue #1331: a frame that changes depended on registration order -- an undeclared edge, a hidden "
                  "CPU publication, or GL state one pass leaves for another. Vacuous at a checkpoint whose reversed "
                  "order equals the canonical one." },
+        PairRow{ "poison-vs-stale.gl", "transients holding whatever their pool object last held",
+                 "every transient cleared to its poison hue at acquire", "Levers::PoisonTransients for one frame",
+                 Criterion::ExactTexels, Placement::DeviceGL, RowStatus::Required,
+                 "RendererStateMachineEvidence.GeneratedSequencesHoldEveryPair",
+                 "Issue #1516: a read of a transient nothing wrote this frame. Stale content is stable on a driver "
+                 "that zero-fills new storage and moves after a pool Clear on one that recycles it, so without "
+                 "poison the read failed on radeonsi only." },
         PairRow{ "out-of-band-ledger", "out-of-band accesses the frame made (RGOutOfBand::Note)",
                  "the compiled out-of-band declarations and the boundary registry",
                  "RenderGraph::ValidateOutOfBandLedger, also under the reversed tie-break", Criterion::Invariant,
