@@ -424,7 +424,13 @@ namespace OloEngine
             const std::span<const u8> bytes(reinterpret_cast<const u8*>(words.GetData()), words.Num() * sizeof(u32));
             // A cache: a failed write (logged by the helper) costs a recompile on
             // the next run and nothing else, so there is nothing more to do here.
-            if (!FileSystem::WriteFileAtomically(target, bytes))
+            // The parent is created here: a source-string shader (the warmup boot
+            // shader is the first one built) writes before any file-backed shader
+            // has run CreateCacheDirectoryIfNeeded, so an empty cache root failed
+            // its first writes and recompiled them on every launch.
+            AtomicWriteOptions options;
+            options.CreateParentDirectories = true;
+            if (!FileSystem::WriteFileAtomically(target, bytes, options))
                 return;
         }
 
