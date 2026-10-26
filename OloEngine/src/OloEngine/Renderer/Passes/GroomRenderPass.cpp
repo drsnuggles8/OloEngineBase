@@ -113,23 +113,34 @@ namespace OloEngine
         // served across it is the body marked again to within that noise.
         constexpr f32 kCoatBodyPlacementVoxels = 1.0e-2f;
 
-        // The farthest any point of `surface` lies between its placements by
-        // `a` and by `b`, in voxels of `voxelLength`. The displacement is
-        // affine, so its length peaks at a corner of the surface's box.
-        [[nodiscard]] f32 BodyPlacementVoxels(const glm::mat4& a, const glm::mat4& b, const GroomSurfaceView& surface,
-                                              f32 voxelLength)
+        // The surface's box in its own space, for BodyPlacementVoxels; false for
+        // a surface with no vertex.
+        [[nodiscard]] bool SurfaceBounds(const GroomSurfaceView& surface, glm::vec3& outLo, glm::vec3& outHi)
         {
-            if (surface.VertexCount == 0u || !(voxelLength > 0.0f))
+            if (surface.VertexCount == 0u)
             {
-                return std::numeric_limits<f32>::infinity();
+                return false;
             }
-            glm::vec3 lo = surface.Position(0);
-            glm::vec3 hi = lo;
+            outLo = surface.Position(0);
+            outHi = outLo;
             for (u32 v = 1; v < surface.VertexCount; ++v)
             {
                 const glm::vec3 p = surface.Position(v);
-                lo = glm::min(lo, p);
-                hi = glm::max(hi, p);
+                outLo = glm::min(outLo, p);
+                outHi = glm::max(outHi, p);
+            }
+            return true;
+        }
+
+        // The farthest any point of a surface with box [lo, hi] lies between its
+        // placements by `a` and by `b`, in voxels of `voxelLength`. The
+        // displacement is affine, so its length peaks at a corner of the box.
+        [[nodiscard]] f32 BodyPlacementVoxels(const glm::mat4& a, const glm::mat4& b, const glm::vec3& lo,
+                                              const glm::vec3& hi, f32 voxelLength)
+        {
+            if (!(voxelLength > 0.0f))
+            {
+                return std::numeric_limits<f32>::infinity();
             }
             const glm::mat4 difference = a - b;
             f32 farthest = 0.0f;
@@ -1869,21 +1880,25 @@ namespace OloEngine
         // fur through the body, as they did before the body was there.
         u32 bodyVoxels = 0;
         const bool haveSurface = body != nullptr && body->Surface.IsUsable();
-        const std::vector<u8> nearCoat =
-            haveSurface ? GroomCoatShadow::BodySkyCellsNearCoat(volume) : std::vector<u8>{};
-        const u64 bodyKey = haveSurface ? CoatBodyKey(volume, nearCoat, body->Surface) : 0u;
+        const TArray<u8> nearCoat = haveSurface ? GroomCoatShadow::BodySkyCellsNearCoat(volume) : TArray<u8>{};
+        const u64 bodyKey =
+            haveSurface ? CoatBodyKey(volume, { nearCoat.GetData(), static_cast<sizet>(nearCoat.Num()) }, body->Surface)
+                        : 0u;
         const glm::vec3 gridVoxel = volume.VoxelSize();
         const f32 voxelLength = std::min({ gridVoxel.x, gridVoxel.y, gridVoxel.z });
+        glm::vec3 surfaceLo{ 0.0f };
+        glm::vec3 surfaceHi{ 0.0f };
+        const bool bounded = haveSurface && SurfaceBounds(body->Surface, surfaceLo, surfaceHi);
         const auto known =
-            haveSurface ? std::ranges::find_if(m_CoatBodyBakes,
-                                               [&](const CoatBodyBake& bake)
-                                               {
-                                                   return bake.Key == bodyKey &&
-                                                          BodyPlacementVoxels(bake.SurfaceToGroom, body->SurfaceToGroom,
-                                                                              body->Surface, voxelLength) <=
-                                                              kCoatBodyPlacementVoxels;
-                                               })
-                        : m_CoatBodyBakes.end();
+            bounded ? std::ranges::find_if(m_CoatBodyBakes,
+                                           [&](const CoatBodyBake& bake)
+                                           {
+                                               return bake.Key == bodyKey &&
+                                                      BodyPlacementVoxels(bake.SurfaceToGroom, body->SurfaceToGroom,
+                                                                          surfaceLo, surfaceHi, voxelLength) <=
+                                                          kCoatBodyPlacementVoxels;
+                                           })
+                    : m_CoatBodyBakes.end();
         if (known != m_CoatBodyBakes.end())
         {
             // The same body in the same grid, the same cells of coat around it

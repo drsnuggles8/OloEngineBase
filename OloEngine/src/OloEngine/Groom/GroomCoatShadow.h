@@ -60,6 +60,7 @@
 // analysis document, not in an assertion.
 // =============================================================================
 
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Math/Math.h"
 
@@ -805,7 +806,7 @@ namespace OloEngine
         /// reads, so the only ones MarkBodyInDensityVolume bakes. It is the
         /// ONLY thing the marking reads of the coat's density, so two coats on
         /// one grid with the same cells mark the same body texels (#1646).
-        [[nodiscard]] std::vector<u8> BodySkyCellsNearCoat(const DensityVolume& volume);
+        [[nodiscard]] TArray<u8> BodySkyCellsNearCoat(const DensityVolume& volume);
 
         // Marks `surface` -- positions in its own object space, taken to the
         // volume's by `surfaceToVolume` -- into `volume.Body`, occupancy and
@@ -817,7 +818,7 @@ namespace OloEngine
         [[nodiscard]] bool MarkBodyInDensityVolume(DensityVolume& volume, const GroomSurfaceView& surface,
                                                    const glm::mat4& surfaceToVolume, const BodyVoxelSettings& settings,
                                                    BodyVoxelStats* outStats = nullptr,
-                                                   const std::vector<u8>* nearCoat = nullptr);
+                                                   const TArray<u8>* nearCoat = nullptr);
 
         // ── Deep opacity map ────────────────────────────────────────────────
 

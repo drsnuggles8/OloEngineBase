@@ -34,6 +34,7 @@
 
 #include <bit>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <vector>
 
@@ -620,9 +621,9 @@ TEST(GroomCoatBody, CoatsWithTheSameSkyCellsMarkTheSameBody)
         }
     }
     ASSERT_GT(emptied, 0u);
-    const std::vector<u8> cells = BodySkyCellsNearCoat(coat);
-    ASSERT_FALSE(cells.empty());
-    ASSERT_EQ(BodySkyCellsNearCoat(neighbour), cells) << "the fixture's neighbour changed which cells hold fur";
+    const TArray<u8> cells = BodySkyCellsNearCoat(coat);
+    ASSERT_FALSE(cells.IsEmpty());
+    ASSERT_TRUE(BodySkyCellsNearCoat(neighbour) == cells) << "the fixture's neighbour changed which cells hold fur";
 
     const Mesh ball = UvSphere(kBodyRadius, 48, 96);
     DensityVolume first = coat;
@@ -632,7 +633,8 @@ TEST(GroomCoatBody, CoatsWithTheSameSkyCellsMarkTheSameBody)
     ASSERT_TRUE(MarkBodyInDensityVolume(second, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}));
     ASSERT_TRUE(MarkBodyInDensityVolume(handed, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}, nullptr, &cells));
     ASSERT_EQ(first.Body.size(), second.Body.size());
-    EXPECT_TRUE(first.Body == second.Body) << "two coats with the same sky cells marked different bodies";
+    EXPECT_EQ(std::memcmp(first.Body.data(), second.Body.data(), first.Body.size() * sizeof(glm::u8vec4)), 0)
+        << "two coats with the same sky cells marked different bodies";
     EXPECT_TRUE(SameVolume(first, handed)) << "the cells handed in marked a different body from the ones found";
 
     // A coat that leaves a whole side bare reads different cells, so it can
@@ -648,5 +650,5 @@ TEST(GroomCoatBody, CoatsWithTheSameSkyCellsMarkTheSameBody)
             }
         }
     }
-    EXPECT_NE(BodySkyCellsNearCoat(half), cells);
+    EXPECT_FALSE(BodySkyCellsNearCoat(half) == cells);
 }
