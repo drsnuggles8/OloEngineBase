@@ -21,6 +21,7 @@
 
 #include <array>
 #include <cctype>
+#include <charconv>
 #include <cstring>
 #include <glad/gl.h>
 #include <glm/gtc/type_ptr.hpp>
@@ -551,44 +552,61 @@ namespace OloEngine
         // glShaderBinary like every other driver. Reload used to send every
         // AMD program down the text route whatever the version, so a reload on
         // radeonsi swapped Mesa's SPIR-V frontend for its GLSL one and the frame
-        // moved in the last bits at every edge. A GL_VERSION with no readable
-        // version keeps the text route, which a reload always took.
+        // moved in the last bits at every edge. The version parse is
+        // OpenGLShader::AmdGlVersionTakesGlslTextRoute.
         [[nodiscard]] bool AmdDriverTakesGlslTextRoute()
         {
-            static const bool s_TextRoute = []
-            {
-                if (!IsAmdGpu())
-                {
-                    return false;
-                }
-                const std::string fullVersion(reinterpret_cast<const char*>(glGetString(GL_VERSION)));
-                const sizet lastSpace = fullVersion.rfind(' ');
-                std::array<int, 3> version{};
-                sizet parsed = 0;
-                if (lastSpace != std::string::npos)
-                {
-                    std::istringstream versionStream(fullVersion.substr(lastSpace + 1));
-                    std::string token;
-                    while (parsed < version.size() && std::getline(versionStream, token, '.'))
-                    {
-                        if (token.empty() || std::isdigit(static_cast<unsigned char>(token[0])) == 0)
-                        {
-                            break;
-                        }
-                        version[parsed++] = std::stoi(token);
-                    }
-                }
-                if (parsed == 0)
-                {
-                    OLO_CORE_ERROR("Could not find driver version in string: '{0}'; AMD programs take the GLSL text route",
-                                   fullVersion);
-                    return true;
-                }
-                return version < std::array<int, 3>{ 23, 5, 2 };
-            }();
+            static const bool s_TextRoute = IsAmdGpu() && OpenGLShader::AmdGlVersionTakesGlslTextRoute(
+                                                              reinterpret_cast<const char*>(glGetString(GL_VERSION)));
             return s_TextRoute;
         }
     } // namespace Utils
+
+    bool OpenGLShader::AmdGlVersionTakesGlslTextRoute(const std::string_view glVersion)
+    {
+        constexpr std::string_view kMesa = "Mesa ";
+        const sizet mesa = glVersion.find(kMesa);
+        const sizet lastSpace = glVersion.rfind(' ');
+        sizet start = std::string_view::npos;
+        if (mesa != std::string_view::npos)
+        {
+            start = mesa + kMesa.size();
+        }
+        else if (lastSpace != std::string_view::npos)
+        {
+            start = lastSpace + 1;
+        }
+
+        std::array<int, 3> version{};
+        sizet parsed = 0;
+        if (start != std::string_view::npos)
+        {
+            const char* cursor = glVersion.data() + start;
+            const char* const end = glVersion.data() + glVersion.size();
+            while (parsed < version.size() && cursor != end && std::isdigit(static_cast<unsigned char>(*cursor)) != 0)
+            {
+                const auto [next, error] = std::from_chars(cursor, end, version[parsed]);
+                if (error != std::errc{})
+                {
+                    break;
+                }
+                ++parsed;
+                cursor = next;
+                if (cursor == end || *cursor != '.')
+                {
+                    break;
+                }
+                ++cursor;
+            }
+        }
+        if (parsed == 0)
+        {
+            OLO_CORE_ERROR("Could not find driver version in string: '{0}'; AMD programs take the GLSL text route",
+                           glVersion);
+            return true;
+        }
+        return version < std::array<int, 3>{ 23, 5, 2 };
+    }
 
     namespace
     {
