@@ -50,6 +50,7 @@
 #if OLO_WITH_VULKAN
 
 #include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 #include "OloEngine/Renderer/PipelineManifest.h"
 #include "OloEngine/Renderer/PipelineReadiness.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
@@ -93,8 +94,15 @@ namespace OloEngine
         void OnComputeShaderDestroyed(const VulkanComputeShader& shader);
 
         // --- Configuration -----------------------------------------------------
+        // The renderer publishes its tag every frame graph compile. The first
+        // tag a session sees is selected at once; a change is selected only
+        // after it has been the one tag published for kTagSettleTicks frames,
+        // so two renderers drawing different configurations in one frame (a
+        // viewport and a preview) cannot make the selection flip every frame.
+        // Draw creations are always recorded under the tag published last.
         void SetConfigurationTag(std::string_view tag);
         [[nodiscard]] std::string GetConfigurationTag() const;
+        static constexpr u32 kTagSettleTicks = 2;
 
         // The builder created `signature` for `shader` on a draw thread.
         void RecordDrawCreation(std::string_view shader, u32 stageMask, const PipelineSignature& signature);
@@ -110,6 +118,11 @@ namespace OloEngine
         void FillSnapshot(PipelineReadinessSnapshot& snapshot);
         void ResetCounters();
 
+        // Write the manifest now if this session persists it and it changed
+        // (Stop() does the same). Build Game calls it before staging the file,
+        // so a packaged runtime gets this session's records too.
+        void SaveManifest();
+
         // The manifest, for tests and for the game build's staging step.
         [[nodiscard]] PipelineManifest CopyManifest() const;
         void SetManifestForTesting(PipelineManifest manifest);
@@ -123,7 +136,7 @@ namespace OloEngine
 
         struct Tracked
         {
-            std::string Name;
+            FString Name;
             u32 StageMask = 0;
             u64 ShaderKey = 0;
             bool Compute = false;
@@ -136,6 +149,8 @@ namespace OloEngine
         void RequestFromManifest(Tracked& tracked, VulkanShader* graphics, VulkanComputeShader* compute);
         void RequestAllLocked();
         void EvaluateReadinessLocked(bool force);
+        void ApplySelectedTagLocked(std::string_view tag);
+        void SaveManifestLocked();
         void WorkerLoop();
         void StopWorkers();
 
@@ -143,7 +158,13 @@ namespace OloEngine
         bool m_Started = false;
         bool m_Persist = false;
         PipelineManifest m_Manifest;
-        std::string m_Tag;
+        FString m_Tag;          ///< The selected configuration: what requests are prioritised and judged by.
+        FString m_PublishedTag; ///< The tag published last: what draw creations are recorded under.
+        FString m_FrameTag;     ///< The tag published this frame, when only one was.
+        bool m_FrameTagSeen = false;
+        bool m_FrameTagMixed = false; ///< More than one distinct tag was published this frame.
+        FString m_CandidateTag;
+        u32 m_CandidateTicks = 0;
         std::unordered_map<const VulkanShader*, Tracked> m_Graphics;
         std::unordered_map<const VulkanComputeShader*, Tracked> m_Compute;
         u64 m_EvaluatedCompletions = ~0ull;

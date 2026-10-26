@@ -473,6 +473,13 @@ namespace OloEngine
                 s_RendererAPI->SetPipelineConfigurationTag(tag);
             }
         }
+        static void SavePipelineManifest()
+        {
+            if (s_RendererAPI)
+            {
+                s_RendererAPI->SavePipelineManifest();
+            }
+        }
 
         // Per-attachment blend control. Tri-state: see the declaration in
         // RendererAPI.h -- an attachment a pass turned on or off keeps that

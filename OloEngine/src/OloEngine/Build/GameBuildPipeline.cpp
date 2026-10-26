@@ -2,6 +2,7 @@
 #include "GameBuildPipeline.h"
 
 #include "OloEngine/Renderer/PipelineManifest.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
 #include "OloEngine/Build/BuildPipelinePlatform.h"
 #include "OloEngine/Core/Application.h"
@@ -1250,6 +1251,9 @@ namespace OloEngine
         // its own machine manifest over it, and a key whose shader does not
         // exist in the build is simply never requested.
         {
+            // This session's records are still in memory until the editor
+            // exits: write them first, so the seed is current.
+            RenderCommand::SavePipelineManifest();
             const std::filesystem::path manifestSrc = PipelineManifest::MachineFilePath();
             const std::filesystem::path manifestDst =
                 outputDir / std::filesystem::path(PipelineManifest::kPackagedSeedPath);

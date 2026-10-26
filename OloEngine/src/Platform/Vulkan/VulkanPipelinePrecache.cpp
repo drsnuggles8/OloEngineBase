@@ -171,8 +171,26 @@ namespace OloEngine
         {
             return;
         }
+        SaveManifestLocked();
         m_Started = false;
-        if (!m_Persist || !m_Manifest.IsDirty())
+        m_Tag = {};
+        m_PublishedTag = {};
+        m_FrameTag = {};
+        m_FrameTagSeen = false;
+        m_FrameTagMixed = false;
+        m_CandidateTag = {};
+        m_CandidateTicks = 0;
+    }
+
+    void VulkanPipelinePrecache::SaveManifest()
+    {
+        std::lock_guard lock(m_Mutex);
+        SaveManifestLocked();
+    }
+
+    void VulkanPipelinePrecache::SaveManifestLocked()
+    {
+        if (!m_Started || !m_Persist || !m_Manifest.IsDirty())
         {
             return;
         }
@@ -214,15 +232,16 @@ namespace OloEngine
         auto& builder = VulkanPipelineBuilder::Get();
         // EntriesFor's pointers stay valid while m_Mutex is held: only Record
         // (also under m_Mutex) grows the manifest.
-        for (const PipelineManifestEntry* entry : m_Manifest.EntriesFor(tracked.Name, tracked.StageMask, m_Tag))
+        for (const PipelineManifestEntry* entry :
+             m_Manifest.EntriesFor(tracked.Name.ToView(), tracked.StageMask, m_Tag.ToView()))
         {
-            const bool selected = entry->SeenUnder(m_Tag);
+            const bool selected = entry->SeenUnder(m_Tag.ToView());
             const auto priority = selected ? PipelineRequestPriority::Selected : PipelineRequestPriority::Speculative;
             std::optional<VulkanPipelineBuilder::Key> key;
             if (compute != nullptr)
             {
                 key = builder.RequestCompute(tracked.ShaderKey, compute->GetModule(), compute->GetRootDataLayout(),
-                                             tracked.Name, priority);
+                                             tracked.Name.ToView(), priority);
             }
             else if (graphics != nullptr)
             {
@@ -258,7 +277,7 @@ namespace OloEngine
         }
         std::lock_guard lock(m_Mutex);
         Tracked& tracked = m_Graphics[&shader];
-        tracked.Name = shader.GetName();
+        tracked.Name = FString(shader.GetName());
         tracked.StageMask = GraphicsStageMask(shader);
         tracked.ShaderKey = shader.GetPipelineIndexKey();
         tracked.Compute = false;
@@ -271,7 +290,7 @@ namespace OloEngine
     {
         std::lock_guard lock(m_Mutex);
         Tracked& tracked = m_Graphics[&shader];
-        tracked.Name = shader.GetName();
+        tracked.Name = FString(shader.GetName());
         tracked.StageMask = GraphicsStageMask(shader); // an edit can change the stage set
         tracked.ShaderKey = shader.GetPipelineIndexKey();
         tracked.Compute = false;
@@ -311,7 +330,7 @@ namespace OloEngine
         }
         std::lock_guard lock(m_Mutex);
         Tracked& tracked = m_Compute[&shader];
-        tracked.Name = shader.GetName();
+        tracked.Name = FString(shader.GetName());
         tracked.StageMask = static_cast<u32>(VK_SHADER_STAGE_COMPUTE_BIT);
         tracked.ShaderKey = shader.GetPipelineIndexKey();
         tracked.Compute = true;
@@ -324,7 +343,7 @@ namespace OloEngine
     {
         std::lock_guard lock(m_Mutex);
         Tracked& tracked = m_Compute[&shader];
-        tracked.Name = shader.GetName();
+        tracked.Name = FString(shader.GetName());
         tracked.StageMask = static_cast<u32>(VK_SHADER_STAGE_COMPUTE_BIT);
         tracked.ShaderKey = shader.GetPipelineIndexKey();
         tracked.Compute = true;
@@ -336,7 +355,8 @@ namespace OloEngine
         }
         // A compute shader has one key per layout; the rebuilt one is requested.
         if (const auto key = VulkanPipelineBuilder::Get().RequestCompute(tracked.ShaderKey, shader.GetModule(),
-                                                                         shader.GetRootDataLayout(), tracked.Name);
+                                                                         shader.GetRootDataLayout(),
+                                                                         tracked.Name.ToView());
             key.has_value() && !tracked.SelectedKeys.Contains(*key))
         {
             tracked.SelectedKeys.Add(*key);
@@ -359,14 +379,38 @@ namespace OloEngine
     void VulkanPipelinePrecache::SetConfigurationTag(const std::string_view tag)
     {
         std::lock_guard lock(m_Mutex);
-        if (m_Tag == tag)
+        if (m_PublishedTag.ToView() != tag)
+        {
+            m_PublishedTag = FString(tag);
+        }
+        if (!m_FrameTagSeen)
+        {
+            m_FrameTag = m_PublishedTag;
+            m_FrameTagSeen = true;
+        }
+        else if (m_FrameTag.ToView() != tag)
+        {
+            m_FrameTagMixed = true;
+        }
+        // The session's first configuration needs no settling: there is no
+        // previous selection to protect, and the boot requests are waiting.
+        if (m_Tag.IsEmpty() && !tag.empty())
+        {
+            ApplySelectedTagLocked(tag);
+        }
+    }
+
+    void VulkanPipelinePrecache::ApplySelectedTagLocked(const std::string_view tag)
+    {
+        if (m_Tag.ToView() == tag)
         {
             return;
         }
-        m_Tag = std::string(tag);
+        m_Tag = FString(tag);
         // The selected configuration moved: every live shader's entries for the
         // new one are requested at the front of the queue (already-created ones
-        // are duplicates), and readiness is judged against the new set.
+        // are duplicates), readiness is judged against the new set, and every
+        // pipeline's next draw records under the new tag.
         for (auto& [shader, tracked] : m_Graphics)
         {
             if (tracked.DeclaredReady)
@@ -383,20 +427,21 @@ namespace OloEngine
                 tracked.DeclaredReady = false;
             }
         }
+        VulkanPipelineBuilder::Get().BeginRecordingEpoch();
         RequestAllLocked();
     }
 
     std::string VulkanPipelinePrecache::GetConfigurationTag() const
     {
         std::lock_guard lock(m_Mutex);
-        return m_Tag;
+        return m_Tag.ToStdString();
     }
 
     void VulkanPipelinePrecache::RecordDrawCreation(const std::string_view shader, const u32 stageMask,
                                                     const PipelineSignature& signature)
     {
         std::lock_guard lock(m_Mutex);
-        (void)m_Manifest.Record(shader, stageMask, signature, m_Tag);
+        (void)m_Manifest.Record(shader, stageMask, signature, m_PublishedTag.ToView());
     }
 
     void VulkanPipelinePrecache::Tick()
@@ -407,6 +452,29 @@ namespace OloEngine
             {
                 return;
             }
+            // Settle the configuration tag (see SetConfigurationTag).
+            if (m_FrameTagMixed)
+            {
+                m_CandidateTicks = 0;
+            }
+            else if (m_FrameTagSeen)
+            {
+                if (m_FrameTag == m_CandidateTag)
+                {
+                    ++m_CandidateTicks;
+                }
+                else
+                {
+                    m_CandidateTag = m_FrameTag;
+                    m_CandidateTicks = 1;
+                }
+                if (m_CandidateTicks >= kTagSettleTicks && m_CandidateTag != m_Tag)
+                {
+                    ApplySelectedTagLocked(m_CandidateTag.ToView());
+                }
+            }
+            m_FrameTagSeen = false;
+            m_FrameTagMixed = false;
             EvaluateReadinessLocked(/*force=*/false);
         }
         // This frame's budget. Not accumulated: an idle frame does not buy a
@@ -458,12 +526,12 @@ namespace OloEngine
     void VulkanPipelinePrecache::EvaluateReadinessLocked(const bool force)
     {
         auto& builder = VulkanPipelineBuilder::Get();
-        const auto stats = builder.GetRequestStats();
-        if (!force && !m_ReadinessDirty && stats.Completions == m_EvaluatedCompletions)
+        const u64 completions = builder.GetCompletions();
+        if (!force && !m_ReadinessDirty && completions == m_EvaluatedCompletions)
         {
             return;
         }
-        m_EvaluatedCompletions = stats.Completions;
+        m_EvaluatedCompletions = completions;
         m_ReadinessDirty = false;
 
         PipelineReadinessSnapshot& r = m_LastReadiness;
@@ -505,7 +573,7 @@ namespace OloEngine
             allReady = false;
             if (r.PendingShaders.Num() < static_cast<i32>(kMaxPendingShadersReported))
             {
-                r.PendingShaders.Add({ FString(tracked.Name), requested, prepared, failed });
+                r.PendingShaders.Add({ tracked.Name, requested, prepared, failed });
             }
         };
         for (auto& [shader, tracked] : m_Graphics)
@@ -527,7 +595,7 @@ namespace OloEngine
         snapshot.Model = PipelineReadinessModel::VulkanPipelineObjects;
         snapshot.Pipelines = stats.Counters;
         snapshot.PrecacheEnabled = m_Started && Levers::VulkanPsoPrecache() != Levers::Tristate::Off;
-        snapshot.ConfigurationTag = FString(m_Tag);
+        snapshot.ConfigurationTag = m_Tag;
         snapshot.JobsPerFrame = m_WorkerCount > 0 ? m_JobsPerFrame : 0u;
         snapshot.Queued = stats.Queued;
         snapshot.InFlight = stats.InFlight;

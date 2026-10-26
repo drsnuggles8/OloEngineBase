@@ -6,6 +6,7 @@
 // VulkanDevice.h pulls <volk.h> (and <vk_mem_alloc.h>) — volk must come before
 // GLFW: glfw3.h only declares its Vulkan entry points (glfwCreateWindowSurface
 // et al.) when VK_VERSION_1_0 is already visible.
+#include "OloEngine/Core/Application.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
@@ -357,8 +358,11 @@ namespace OloEngine
 
         // PSO precaching (#1345): load the manifest and start the creation
         // workers now that the device exists; shaders built from here on are
-        // requested as they appear.
-        VulkanPipelinePrecache::Get().Start({});
+        // requested as they appear. Only an application session reads and
+        // writes the machine manifest: a test that builds a context draws
+        // test shaders, and those keys must not reach the manifest the editor
+        // and every packaged build share.
+        VulkanPipelinePrecache::Get().Start({ .LoadAndSaveManifest = Application::TryGet() != nullptr });
 
         OLO_CORE_INFO("[Vulkan] Bring-up context initialised ({} swapchain images, {}x{})",
                       m_Data->SwapchainImages.size(), m_Data->SwapchainExtent.width, m_Data->SwapchainExtent.height);

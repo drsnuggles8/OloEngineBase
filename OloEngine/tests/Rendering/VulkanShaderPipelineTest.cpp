@@ -48,6 +48,7 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -1331,9 +1332,90 @@ TEST_F(VulkanShaderPipeline, ReadinessComesFromTheManifestAndADrawThatContradict
     EXPECT_EQ(stats.Counters.NeverRequested, 1u);
     EXPECT_EQ(stats.Counters.ReadyClaimViolations, 1u);
 
-    // The draw path recorded it, so the next session requests it.
+    // The draw path recorded it, so the next session requests it; and a
+    // PREPARED hit refreshed its own entry too: the RGBA16F key, recorded only
+    // under the other configuration, was drawn under the selected one and now
+    // says so (otherwise a key that keeps hitting would never be re-recorded,
+    // and would be the first one Trim() drops).
     const auto recorded = VulkanPipelinePrecache::Get().CopyManifest();
-    EXPECT_EQ(recorded.EntriesFor("PsoReadiness", stages, kSelected).Num(), 3);
+    const auto entries = recorded.EntriesFor("PsoReadiness", stages, kSelected);
+    EXPECT_EQ(entries.Num(), 3);
+    const auto* hdr = entries.FindByPredicate([](const PipelineManifestEntry* e)
+                                              { return e->Signature.ColorFormats[0] == VK_FORMAT_R16G16B16A16_SFLOAT; });
+    ASSERT_NE(hdr, nullptr);
+    EXPECT_TRUE((*hdr)->SeenUnder(kSelected));
+    EXPECT_TRUE((*hdr)->SeenUnder(kOther));
+}
+
+TEST_F(VulkanShaderPipeline, CompileCacheHitModuleAndPipelineCreationAreCountedApart)
+{
+    ScopedVulkanApiSelection vulkanSelected;
+    auto& builder = VulkanPipelineBuilder::Get();
+    builder.ResetRequestCounters();
+
+    // A source no cache has seen: the token makes every SPIR-V cache key new.
+    const auto token = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto sourcePath = OloEngine::Tests::TempFile("PsoPreparation.glsl");
+    {
+        std::ofstream source(sourcePath, std::ios::trunc);
+        // Both stages carry the token: a stage whose text was ever compiled
+        // before is a cache hit, and the counts below would depend on run order.
+        source << "#type vertex\n#version 460 core\n"
+               << "const float kUniqueV = float(" << (token % 1000000) << "u % 991u) / 991.0;\n"
+               << "void main() {\n"
+                  "    vec2 p = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));\n"
+                  "    gl_Position = vec4(p * 2.0 - 1.0, kUniqueV * 0.0, 1.0);\n"
+                  "}\n"
+                  "#type fragment\n#version 460 core\n"
+                  "layout(location = 0) out vec4 o_Color;\n"
+               << "const float kUnique = float(" << (token % 1000000) << "u % 997u) / 997.0;\n"
+               << "void main() { o_Color = vec4(kUnique, 0.0, 0.0, 1.0); }\n";
+    }
+
+    // Source compile: new text, both stages compiled, two modules, no cache hit.
+    const ShaderPreparationStats before = ShaderPreparationCounters::Get().Snapshot();
+    auto first = Ref<VulkanShader>::Create(sourcePath.generic_string());
+    ASSERT_TRUE(first->IsReady());
+    const ShaderPreparationStats compiled = ShaderPreparationCounters::Get().Snapshot();
+    EXPECT_EQ(compiled.SourceCompiles - before.SourceCompiles, 2u);
+    EXPECT_EQ(compiled.SpirvCacheHits - before.SpirvCacheHits, 0u);
+    EXPECT_EQ(compiled.ModuleCreates - before.ModuleCreates, 2u);
+
+    // The same file again: both stages come from the SPIR-V cache, nothing is
+    // compiled, and the modules are still created (a module is per shader).
+    auto second = Ref<VulkanShader>::Create(sourcePath.generic_string());
+    ASSERT_TRUE(second->IsReady());
+    const ShaderPreparationStats cached = ShaderPreparationCounters::Get().Snapshot();
+    EXPECT_EQ(cached.SourceCompiles - compiled.SourceCompiles, 0u);
+    EXPECT_EQ(cached.SpirvCacheHits - compiled.SpirvCacheHits, 2u);
+    EXPECT_EQ(cached.ModuleCreates - compiled.ModuleCreates, 2u);
+
+    // Pipeline creation is counted by the builder, not as shader preparation.
+    const auto targets = ColourTargets(VK_FORMAT_R8G8B8A8_UNORM);
+    ASSERT_TRUE(builder.RequestGraphics(*first, targets, 0).has_value());
+    ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 1u);
+    const auto created = builder.GetRequestStats().Counters;
+    EXPECT_EQ(created.PreparedCreations, 1u);
+    EXPECT_EQ(ShaderPreparationCounters::Get().Snapshot().ModuleCreates, cached.ModuleCreates)
+        << "Creating a pipeline creates no shader module";
+
+    // Driver-cache hit: the same pipeline created again after invalidation is
+    // served from the VkPipelineCache the first creation filled. Creation
+    // feedback is the only signal that can tell; where a driver does not
+    // report it, the creation is counted as unknown instead of guessed.
+    (void)builder.InvalidateShader(first->GetPipelineIndexKey());
+    ASSERT_TRUE(builder.RequestGraphics(*first, targets, 0).has_value());
+    ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 1u);
+    const auto recreated = builder.GetRequestStats().Counters;
+    EXPECT_EQ(recreated.DriverCacheHits + recreated.DriverCacheMisses + recreated.DriverCacheUnknown, 2u);
+    if (created.DriverCacheMisses == 1u && recreated.DriverCacheUnknown == created.DriverCacheUnknown)
+    {
+        EXPECT_EQ(recreated.DriverCacheHits - created.DriverCacheHits, 1u)
+            << "The second creation of an identical pipeline must be a pipeline-cache hit";
+    }
+
+    second.Reset();
+    first.Reset();
 }
 
 #endif // OLO_WITH_VULKAN

@@ -60,6 +60,7 @@
 #if OLO_WITH_VULKAN
 
 #include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 #include "OloEngine/Renderer/PipelineRequestLedger.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanShader.h"
@@ -252,6 +253,17 @@ namespace OloEngine
         };
         [[nodiscard]] RequestStats GetRequestStats() const;
         void ResetRequestCounters();
+        // The completion counter alone: what the per-frame readiness check
+        // compares against, without walking the ledger.
+        [[nodiscard]] u64 GetCompletions() const;
+
+        // A new recording epoch (the selected configuration changed, or a new
+        // session began): the next draw of every pipeline records its key in
+        // the precache manifest once more, so a pipeline that keeps hitting
+        // keeps its entry fresh and gains the new configuration tag. Without
+        // it a precached key would never be re-recorded, look least recently
+        // seen, and be the first thing Trim() drops.
+        void BeginRecordingEpoch();
 
         // Issue every vkCmdSet* for the states the pipelines above declare
         // dynamic, from the recorded state. Must run after vkCmdBindPipeline,
@@ -339,13 +351,18 @@ namespace OloEngine
 
         // Everything one creation reads, copied on the thread that asked for
         // it. The worker builds the create info from this alone.
+        struct StageModule
+        {
+            VkShaderStageFlagBits Stage = VK_SHADER_STAGE_VERTEX_BIT;
+            VkShaderModule Module = VK_NULL_HANDLE;
+        };
         struct CreateInputs
         {
             bool Compute = false;
             u64 ShaderKey = 0;
-            std::string ShaderName;
+            FString ShaderName;
             u32 StageMask = 0;
-            std::vector<std::pair<VkShaderStageFlagBits, VkShaderModule>> Modules;
+            TArray<StageModule> Modules;
             bool Mesh = false;
             VulkanRootDataLayout Layout;
             VulkanRecordedPipelineState State;
@@ -364,8 +381,15 @@ namespace OloEngine
             VkPipeline Pipeline = VK_NULL_HANDLE;
             bool Prepared = false;                           ///< Created through a request, not by a draw.
             mutable std::atomic<bool> FirstUseSeen{ false }; ///< The first draw that used it has been counted.
+            FString ShaderName;                              ///< For the manifest record a hit refreshes.
+            u32 StageMask = 0;
+            mutable std::atomic<u32> RecordedEpoch{ 0 }; ///< The recording epoch this key was last recorded in.
 
-            Entry(VkPipeline pipeline, bool prepared) : Pipeline(pipeline), Prepared(prepared), FirstUseSeen(!prepared) {}
+            Entry(VkPipeline pipeline, bool prepared, FString shaderName, u32 stageMask, u32 recordedEpoch)
+                : Pipeline(pipeline), Prepared(prepared), FirstUseSeen(!prepared), ShaderName(std::move(shaderName)),
+                  StageMask(stageMask), RecordedEpoch(recordedEpoch)
+            {
+            }
         };
 
         // The §4 mapping array for one root layout — shared verbatim by the
@@ -391,7 +415,7 @@ namespace OloEngine
         [[nodiscard]] VkPipeline ResolveMiss(const Key& key, const CreateInputs& inputs);
         bool Request(const Key& key, CreateInputs inputs, PipelineRequestPriority priority);
         // Run one creation the caller has claimed (lock NOT held), then publish.
-        VkPipeline CreateAndPublish(const Key& key, const CreateInputs& inputs, bool blocking,
+        VkPipeline CreateAndPublish(const Key& key, const CreateInputs& inputs, u64 ticket, bool blocking,
                                     PipelineMissKind missKind);
 
         // Readers (the per-draw hit path) share; a miss upgrades to exclusive
@@ -404,6 +428,7 @@ namespace OloEngine
         PipelineRequestLedger<Key, KeyHash, CreateInputs> m_Ledger;
         std::unordered_map<u64, u32> m_InFlightByShader; ///< Creations running now, per shader key.
         u64 m_Completions = 0;
+        std::atomic<u32> m_RecordEpoch{ 1 }; ///< Entries start at 0, so a session's first draw records.
         u32 m_LoggedMisses = 0;
         u32 m_FailNextCreations = 0;
         VkResult m_FailNextResult = VK_ERROR_UNKNOWN;

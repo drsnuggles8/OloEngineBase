@@ -570,7 +570,7 @@ namespace OloEngine
     {
         CreateInputs inputs;
         inputs.ShaderKey = shader.GetPipelineIndexKey();
-        inputs.ShaderName = shader.GetName();
+        inputs.ShaderName = FString(shader.GetName());
         inputs.Mesh = shader.HasMeshStage();
         // The classic stage set, or [task?, mesh, fragment] for a mesh
         // pipeline (issue #813) — GetModule returning null skips a stage, so
@@ -586,7 +586,7 @@ namespace OloEngine
         {
             if (const VkShaderModule module = shader.GetModule(stageBit); module != VK_NULL_HANDLE)
             {
-                inputs.Modules.emplace_back(stageBit, module);
+                inputs.Modules.Add({ stageBit, module });
                 inputs.StageMask |= static_cast<u32>(stageBit);
             }
         }
@@ -605,9 +605,9 @@ namespace OloEngine
         CreateInputs inputs;
         inputs.Compute = true;
         inputs.ShaderKey = shaderKey;
-        inputs.ShaderName = std::string(shaderName);
+        inputs.ShaderName = FString(shaderName);
         inputs.StageMask = static_cast<u32>(VK_SHADER_STAGE_COMPUTE_BIT);
-        inputs.Modules.emplace_back(VK_SHADER_STAGE_COMPUTE_BIT, module);
+        inputs.Modules.Add({ VK_SHADER_STAGE_COMPUTE_BIT, module });
         inputs.Layout = layout;
         return inputs;
     }
@@ -617,7 +617,7 @@ namespace OloEngine
     {
         CreateResult out;
         auto* device = VulkanDevice::Get();
-        if (device == nullptr || inputs.Modules.empty())
+        if (device == nullptr || inputs.Modules.IsEmpty())
         {
             out.Result = VK_ERROR_INITIALIZATION_FAILED;
             return out;
@@ -645,7 +645,7 @@ namespace OloEngine
             stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
             stage.pNext = &mappingInfo;
             stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-            stage.module = inputs.Modules.front().second;
+            stage.module = inputs.Modules[0].Module;
             stage.pName = "main";
 
             VkPipelineCreateFlags2CreateInfo flags2{};
@@ -677,9 +677,11 @@ namespace OloEngine
             // resourceMask discipline (VUID-11244 keys on (set, binding,
             // mask), not on stage kind).
             std::vector<VkPipelineShaderStageCreateInfo> stages;
-            stages.reserve(inputs.Modules.size());
-            for (const auto& [stageBit, module] : inputs.Modules)
+            stages.reserve(static_cast<sizet>(inputs.Modules.Num()));
+            for (const StageModule& stageModule : inputs.Modules)
             {
+                const VkShaderStageFlagBits stageBit = stageModule.Stage;
+                const VkShaderModule module = stageModule.Module;
                 VkPipelineShaderStageCreateInfo stage{};
                 stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
                 stage.pNext = &mappingInfo;
@@ -900,25 +902,45 @@ namespace OloEngine
 
     VkPipeline VulkanPipelineBuilder::LookUp(const Key& key)
     {
-        // The hit path shares the lock (#806: every draw and dispatch on every
-        // item comes through here).
-        std::shared_lock readLock(m_Mutex);
-        const auto it = m_Pipelines.find(key);
-        if (it == m_Pipelines.end())
+        bool countFirstUse = false;
+        bool record = false;
+        FString recordName;
+        u32 recordMask = 0;
+        VkPipeline pipeline = VK_NULL_HANDLE;
         {
-            return VK_NULL_HANDLE;
+            // The hit path shares the lock (#806: every draw and dispatch on
+            // every item comes through here).
+            std::shared_lock readLock(m_Mutex);
+            const auto it = m_Pipelines.find(key);
+            if (it == m_Pipelines.end())
+            {
+                return VK_NULL_HANDLE;
+            }
+            const Entry& entry = it->second;
+            pipeline = entry.Pipeline;
+            // A prepared pipeline's first use is the complete-PSO hit. The flag
+            // makes it once per pipeline; the ledger counter needs the
+            // exclusive lock, taken only on that one draw.
+            countFirstUse = !entry.FirstUseSeen.load(std::memory_order_relaxed) &&
+                            !entry.FirstUseSeen.exchange(true, std::memory_order_acq_rel);
+            // Once per recording epoch a hit refreshes its manifest entry.
+            const u32 epoch = m_RecordEpoch.load(std::memory_order_relaxed);
+            if (entry.RecordedEpoch.load(std::memory_order_relaxed) != epoch &&
+                entry.RecordedEpoch.exchange(epoch, std::memory_order_acq_rel) != epoch)
+            {
+                record = true;
+                recordName = entry.ShaderName;
+                recordMask = entry.StageMask;
+            }
         }
-        const Entry& entry = it->second;
-        const VkPipeline pipeline = entry.Pipeline;
-        // A prepared pipeline's first use is the complete-PSO hit. The flag
-        // makes it once per pipeline; the ledger counter needs the exclusive
-        // lock, taken only on that one draw.
-        if (!entry.FirstUseSeen.load(std::memory_order_relaxed) &&
-            !entry.FirstUseSeen.exchange(true, std::memory_order_acq_rel))
+        if (countFirstUse)
         {
-            readLock.unlock();
             std::lock_guard<std::shared_mutex> lock(m_Mutex);
             m_Ledger.NoteFirstUse(key);
+        }
+        if (record)
+        {
+            VulkanPipelinePrecache::Get().RecordDrawCreation(recordName.ToView(), recordMask, ToSignature(key));
         }
         return pipeline;
     }
@@ -926,17 +948,27 @@ namespace OloEngine
     VkPipeline VulkanPipelineBuilder::ResolveMiss(const Key& key, const CreateInputs& inputs)
     {
         std::unique_lock<std::shared_mutex> lock(m_Mutex);
+        // One hitching draw is one miss: after waiting for another thread it
+        // asks the ledger again without counting a second time.
+        bool counted = false;
         for (;;)
         {
             if (const auto it = m_Pipelines.find(key); it != m_Pipelines.end())
             {
                 // Published while this thread waited: already counted as a
-                // late request, so it is not ALSO a prepared first use.
+                // late request, so it is not ALSO a prepared first use. The
+                // ordinary hit path still refreshes its manifest entry.
                 it->second.FirstUseSeen.store(true, std::memory_order_relaxed);
-                return it->second.Pipeline;
+                lock.unlock();
+                if (const VkPipeline pipeline = LookUp(key); pipeline != VK_NULL_HANDLE)
+                {
+                    return pipeline;
+                }
+                lock.lock(); // invalidated in between: resolve again
+                continue;
             }
 
-            const auto miss = m_Ledger.ClaimMiss(key, inputs.ShaderKey);
+            const auto miss = m_Ledger.ClaimMiss(key, inputs.ShaderKey, !counted);
             if (miss.Action == decltype(m_Ledger)::MissAction::Wait)
             {
                 // Another thread (the precache worker, or a second recording
@@ -953,12 +985,13 @@ namespace OloEngine
                 const f64 waitMs =
                     std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - waitStart).count();
                 m_Ledger.NoteBlockingWait(waitMs);
-                if (m_LoggedMisses < kMaxLoggedMisses)
+                if (!counted && m_LoggedMisses < kMaxLoggedMisses)
                 {
                     ++m_LoggedMisses;
-                    OLO_CORE_WARN("[Vulkan/PSO] '{}': {} — the draw waited {:.2f} ms", inputs.ShaderName,
+                    OLO_CORE_WARN("[Vulkan/PSO] '{}': {} — the draw waited {:.2f} ms", inputs.ShaderName.ToView(),
                                   ToString(miss.Kind), waitMs);
                 }
+                counted = true;
                 continue;
             }
 
@@ -968,22 +1001,22 @@ namespace OloEngine
                 // still had to create a pipeline for it: the claim hid
                 // synchronous work. Loud by design (#1345 criterion 2).
                 static VulkanWarnOnceSet s_WarnedClaims;
-                if (s_WarnedClaims.Insert(inputs.ShaderName))
+                if (s_WarnedClaims.Insert(inputs.ShaderName.ToView()))
                 {
                     OLO_CORE_ERROR("[Vulkan/PSO] '{}' was declared render-ready, but a draw needed a pipeline nobody "
                                    "requested ({} colour attachment(s), {} sample(s), patch {}) — creating it "
                                    "synchronously; counted as a ready-claim violation",
-                                   inputs.ShaderName, key.ColorCount, key.Samples, key.PatchControlPoints);
+                                   inputs.ShaderName.ToView(), key.ColorCount, key.Samples, key.PatchControlPoints);
                 }
             }
             ++m_InFlightByShader[inputs.ShaderKey];
             lock.unlock();
-            return CreateAndPublish(key, inputs, /*blocking=*/true, miss.Kind);
+            return CreateAndPublish(key, inputs, miss.Ticket, /*blocking=*/true, miss.Kind);
         }
     }
 
-    VkPipeline VulkanPipelineBuilder::CreateAndPublish(const Key& key, const CreateInputs& inputs, const bool blocking,
-                                                       const PipelineMissKind missKind)
+    VkPipeline VulkanPipelineBuilder::CreateAndPublish(const Key& key, const CreateInputs& inputs, const u64 ticket,
+                                                       const bool blocking, const PipelineMissKind missKind)
     {
         // The pipeline cache handle and the test seam are read under the lock
         // (VulkanPipelineCache's lazy create relies on it), the driver call is
@@ -1023,7 +1056,7 @@ namespace OloEngine
         {
             std::lock_guard<std::shared_mutex> lock(m_Mutex);
             const bool success = result.Pipeline != VK_NULL_HANDLE;
-            fresh = m_Ledger.Complete(key, success, blocking, result.Milliseconds, result.Cache);
+            fresh = m_Ledger.Complete(key, ticket, success, blocking, result.Milliseconds, result.Cache);
             if (const auto it = m_InFlightByShader.find(inputs.ShaderKey); it != m_InFlightByShader.end())
             {
                 if (--it->second == 0)
@@ -1037,7 +1070,12 @@ namespace OloEngine
                 if (fresh)
                 {
                     m_FailedPipelines.erase(key);
-                    const auto [it, inserted] = m_Pipelines.try_emplace(key, result.Pipeline, /*prepared=*/!blocking);
+                    // A draw-created key is recorded in the manifest right below,
+                    // so it starts in the current epoch; a prepared one records
+                    // on its first draw.
+                    const auto [it, inserted] = m_Pipelines.try_emplace(
+                        key, result.Pipeline, /*prepared=*/!blocking, inputs.ShaderName, inputs.StageMask,
+                        blocking ? m_RecordEpoch.load(std::memory_order_relaxed) : 0u);
                     if (!inserted)
                     {
                         VulkanDeferredReclaim::Get().Enqueue(result.Pipeline);
@@ -1056,7 +1094,7 @@ namespace OloEngine
             }
             else
             {
-                m_LastCreationFailure = { true, inputs.ShaderName, result.Result };
+                m_LastCreationFailure = { true, inputs.ShaderName.ToStdString(), result.Result };
                 if (fresh)
                 {
                     m_FailedPipelines[key] = result.Result;
@@ -1073,7 +1111,8 @@ namespace OloEngine
         if (result.Pipeline == VK_NULL_HANDLE)
         {
             OLO_CORE_ERROR("VulkanPipelineBuilder: {} pipeline creation failed for '{}' (VkResult {}){}",
-                           inputs.Compute ? "compute" : "graphics", inputs.ShaderName, static_cast<int>(result.Result),
+                           inputs.Compute ? "compute" : "graphics", inputs.ShaderName.ToView(),
+                           static_cast<int>(result.Result),
                            blocking ? "" : " — requested ahead of the draw; the draw will retry and count it");
             return VK_NULL_HANDLE;
         }
@@ -1081,7 +1120,8 @@ namespace OloEngine
         {
             OLO_CORE_WARN("[Vulkan/PSO] '{}': {} — created synchronously in {:.2f} ms ({} colour, {} sample(s), "
                           "patch {}, pipeline cache {}){}",
-                          inputs.ShaderName, ToString(missKind), result.Milliseconds, key.ColorCount, key.Samples,
+                          inputs.ShaderName.ToView(), ToString(missKind), result.Milliseconds, key.ColorCount,
+                          key.Samples,
                           key.PatchControlPoints,
                           result.Cache == PipelineDriverCacheResult::Hit    ? "hit"
                           : result.Cache == PipelineDriverCacheResult::Miss ? "miss"
@@ -1092,7 +1132,7 @@ namespace OloEngine
         {
             // The draw path saw the complete key: record it so the next session
             // (and a packaged runtime shipping the manifest) requests it ahead.
-            VulkanPipelinePrecache::Get().RecordDrawCreation(inputs.ShaderName, inputs.StageMask,
+            VulkanPipelinePrecache::Get().RecordDrawCreation(inputs.ShaderName.ToView(), inputs.StageMask,
                                                              ToSignature(key));
         }
         return published;
@@ -1141,7 +1181,7 @@ namespace OloEngine
             return pipeline;
         }
         CreateInputs inputs = SnapshotGraphics(shader, layout, state, safeTargets);
-        if (inputs.Modules.empty())
+        if (inputs.Modules.IsEmpty())
         {
             OLO_CORE_ERROR("VulkanPipelineBuilder: shader '{}' has no modules", shader.GetName());
             return VK_NULL_HANDLE;
@@ -1151,7 +1191,7 @@ namespace OloEngine
 
     bool VulkanPipelineBuilder::Request(const Key& key, CreateInputs inputs, const PipelineRequestPriority priority)
     {
-        if (inputs.Modules.empty())
+        if (inputs.Modules.IsEmpty())
         {
             return false;
         }
@@ -1179,7 +1219,7 @@ namespace OloEngine
         const Key key = DeriveGraphicsKey(shader.GetPipelineIndexKey(), layout, tessellated,
                                           device->IsDynamicBlendStateEnabled(), state, safeTargets);
         CreateInputs inputs = SnapshotGraphics(shader, layout, state, safeTargets);
-        if (inputs.Modules.empty())
+        if (inputs.Modules.IsEmpty())
         {
             return std::nullopt;
         }
@@ -1214,6 +1254,7 @@ namespace OloEngine
     {
         Key key;
         CreateInputs inputs;
+        u64 ticket = 0;
         {
             std::lock_guard<std::shared_mutex> lock(m_Mutex);
             auto job = m_Ledger.TakeNextQueued();
@@ -1221,11 +1262,12 @@ namespace OloEngine
             {
                 return false;
             }
-            key = job->first;
-            inputs = std::move(job->second);
+            key = job->RequestKey;
+            inputs = std::move(job->Data);
+            ticket = job->Ticket;
             ++m_InFlightByShader[inputs.ShaderKey];
         }
-        (void)CreateAndPublish(key, inputs, /*blocking=*/false, PipelineMissKind::NeverRequested);
+        (void)CreateAndPublish(key, inputs, ticket, /*blocking=*/false, PipelineMissKind::NeverRequested);
         return true;
     }
 
@@ -1275,6 +1317,17 @@ namespace OloEngine
         stats.CachedPipelines = m_Pipelines.size();
         stats.Completions = m_Completions;
         return stats;
+    }
+
+    u64 VulkanPipelineBuilder::GetCompletions() const
+    {
+        std::shared_lock lock(m_Mutex);
+        return m_Completions;
+    }
+
+    void VulkanPipelineBuilder::BeginRecordingEpoch()
+    {
+        m_RecordEpoch.fetch_add(1u, std::memory_order_relaxed);
     }
 
     void VulkanPipelineBuilder::ResetRequestCounters()

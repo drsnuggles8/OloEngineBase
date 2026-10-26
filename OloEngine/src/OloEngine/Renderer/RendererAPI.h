@@ -509,6 +509,9 @@ namespace OloEngine
         // spells it; a backend that precaches by configuration re-prioritises
         // its requests when it changes. Ignored where nothing is precached.
         virtual void SetPipelineConfigurationTag(std::string_view /*tag*/) {}
+        // Write the backend's PSO manifest now (Build Game stages it into a
+        // packaged build). No-op where nothing is recorded.
+        virtual void SavePipelineManifest() {}
 
         // New methods for render graph
         virtual void BindDefaultFramebuffer() = 0;

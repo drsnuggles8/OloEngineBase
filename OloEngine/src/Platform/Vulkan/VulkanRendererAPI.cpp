@@ -8159,6 +8159,11 @@ namespace OloEngine
         VulkanPipelinePrecache::Get().SetConfigurationTag(tag);
     }
 
+    void VulkanRendererAPI::SavePipelineManifest()
+    {
+        VulkanPipelinePrecache::Get().SaveManifest();
+    }
+
     void VulkanRendererAPI::RecordParallelOrdered(const u32 itemCount, const std::function<void(u32)>& body,
                                                   const std::function<void(u32)>& beforeExecute,
                                                   const std::function<void(u32)>& afterExecute,

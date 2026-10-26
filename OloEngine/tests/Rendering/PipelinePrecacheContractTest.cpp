@@ -63,11 +63,12 @@ TEST(PipelineRequestLedger, APreparedRequestIsTheOnlyFirstUseWithoutASynchronous
     ASSERT_TRUE(ledger.Request(1, kShaderA, "inputs"));
     const auto job = ledger.TakeNextQueued();
     ASSERT_TRUE(job.has_value());
-    EXPECT_EQ(job->first, 1);
-    EXPECT_EQ(job->second, "inputs") << "The worker gets the snapshot the request carried";
+    EXPECT_EQ(job->RequestKey, 1);
+    EXPECT_EQ(job->Data, "inputs") << "The worker gets the snapshot the request carried";
     EXPECT_EQ(ledger.GetState(1), Ledger::State::InFlight);
 
-    EXPECT_TRUE(ledger.Complete(1, /*success=*/true, /*blocking=*/false, 12.5, PipelineDriverCacheResult::Miss));
+    EXPECT_TRUE(ledger.Complete(1, job->Ticket, /*success=*/true, /*blocking=*/false, 12.5,
+                                PipelineDriverCacheResult::Miss));
     EXPECT_EQ(ledger.GetState(1), Ledger::State::Ready);
     EXPECT_TRUE(ledger.NoteFirstUse(1));
 
@@ -90,7 +91,7 @@ TEST(PipelineRequestLedger, MissesAreClassifiedByTheStateTheDrawFound)
     EXPECT_EQ(miss.Action, Ledger::MissAction::CreateNow);
     EXPECT_EQ(miss.Kind, PipelineMissKind::NeverRequested);
     EXPECT_FALSE(miss.ReadyClaimViolation);
-    EXPECT_TRUE(ledger.Complete(1, true, /*blocking=*/true, 30.0, PipelineDriverCacheResult::Hit));
+    EXPECT_TRUE(ledger.Complete(1, miss.Ticket, true, /*blocking=*/true, 30.0, PipelineDriverCacheResult::Hit));
     EXPECT_FALSE(ledger.NoteFirstUse(1)) << "A pipeline the draw created is not a prepared hit";
 
     // Requested, still queued: the draw takes the request over.
@@ -99,16 +100,17 @@ TEST(PipelineRequestLedger, MissesAreClassifiedByTheStateTheDrawFound)
     EXPECT_EQ(miss.Action, Ledger::MissAction::CreateNow);
     EXPECT_EQ(miss.Kind, PipelineMissKind::TooLateQueued);
     EXPECT_FALSE(ledger.TakeNextQueued().has_value()) << "A taken-over request must not be created twice";
-    EXPECT_TRUE(ledger.Complete(2, true, true, 10.0));
+    EXPECT_TRUE(ledger.Complete(2, miss.Ticket, true, true, 10.0));
 
     // Requested, in flight: the draw waits for the worker instead of compiling.
     ASSERT_TRUE(ledger.Request(3, kShaderA, "flying"));
-    ASSERT_TRUE(ledger.TakeNextQueued().has_value());
+    const auto flying = ledger.TakeNextQueued();
+    ASSERT_TRUE(flying.has_value());
     miss = ledger.ClaimMiss(3, kShaderA);
     EXPECT_EQ(miss.Action, Ledger::MissAction::Wait);
     EXPECT_EQ(miss.Kind, PipelineMissKind::TooLateInFlight);
     ledger.NoteBlockingWait(4.0);
-    EXPECT_TRUE(ledger.Complete(3, true, /*blocking=*/false, 9.0));
+    EXPECT_TRUE(ledger.Complete(3, flying->Ticket, true, /*blocking=*/false, 9.0));
 
     const auto& c = ledger.GetCounters();
     EXPECT_EQ(c.NeverRequested, 1u);
@@ -123,19 +125,41 @@ TEST(PipelineRequestLedger, MissesAreClassifiedByTheStateTheDrawFound)
     EXPECT_EQ(c.DriverCacheUnknown, 2u);
 }
 
+TEST(PipelineRequestLedger, ADrawThatWaitedAndThenHasToCreateIsStillOneMiss)
+{
+    Ledger ledger;
+    ASSERT_TRUE(ledger.Request(5, kShaderA, "flying"));
+    const auto flying = ledger.TakeNextQueued();
+    ASSERT_TRUE(flying.has_value());
+    EXPECT_EQ(ledger.ClaimMiss(5, kShaderA).Action, Ledger::MissAction::Wait);
+    // The worker's creation fails while the draw waits; the draw asks again
+    // after the wait, without counting a second miss.
+    EXPECT_TRUE(ledger.Complete(5, flying->Ticket, /*success=*/false, false, 3.0));
+    const auto retry = ledger.ClaimMiss(5, kShaderA, /*countMiss=*/false);
+    EXPECT_EQ(retry.Action, Ledger::MissAction::CreateNow);
+    EXPECT_TRUE(ledger.Complete(5, retry.Ticket, true, true, 6.0));
+
+    const auto& c = ledger.GetCounters();
+    EXPECT_EQ(c.Misses(), 1u) << "One hitching draw is one miss";
+    EXPECT_EQ(c.TooLateInFlight, 1u);
+    EXPECT_EQ(c.RetriedAfterFailure, 0u);
+    EXPECT_EQ(c.FailedCreations, 1u);
+}
+
 TEST(PipelineRequestLedger, AFailedCreationIsCountedAndTheDrawRetriesIt)
 {
     Ledger ledger;
     ASSERT_TRUE(ledger.Request(7, kShaderA, "x"));
-    ASSERT_TRUE(ledger.TakeNextQueued().has_value());
-    EXPECT_TRUE(ledger.Complete(7, /*success=*/false, /*blocking=*/false, 1.0));
+    const auto job = ledger.TakeNextQueued();
+    ASSERT_TRUE(job.has_value());
+    EXPECT_TRUE(ledger.Complete(7, job->Ticket, /*success=*/false, /*blocking=*/false, 1.0));
     EXPECT_EQ(ledger.GetState(7), Ledger::State::Failed);
     EXPECT_EQ(ledger.GetCounters().FailedCreations, 1u);
 
     const auto miss = ledger.ClaimMiss(7, kShaderA);
     EXPECT_EQ(miss.Action, Ledger::MissAction::CreateNow);
     EXPECT_EQ(miss.Kind, PipelineMissKind::RetriedAfterFailure);
-    EXPECT_TRUE(ledger.Complete(7, true, true, 2.0));
+    EXPECT_TRUE(ledger.Complete(7, miss.Ticket, true, true, 2.0));
     EXPECT_EQ(ledger.GetCounters().RetriedAfterFailure, 1u);
     EXPECT_EQ(ledger.GetState(7), Ledger::State::Ready);
 
@@ -164,42 +188,68 @@ TEST(PipelineRequestLedger, InvalidationReturnsTheKeysToRequestAgainAndDiscardsW
 {
     Ledger ledger;
     ASSERT_TRUE(ledger.Request(1, kShaderA, "ready"));
-    ASSERT_TRUE(ledger.TakeNextQueued().has_value());
-    ASSERT_TRUE(ledger.Complete(1, true, false, 1.0));
+    const auto first = ledger.TakeNextQueued();
+    ASSERT_TRUE(first.has_value());
+    ASSERT_TRUE(ledger.Complete(1, first->Ticket, true, false, 1.0));
     ASSERT_TRUE(ledger.Request(2, kShaderA, "flying"));
     ASSERT_TRUE(ledger.Request(3, kShaderA, "queued"));
     ASSERT_TRUE(ledger.Request(4, kShaderB, "other shader"));
     const auto inFlight = ledger.TakeNextQueued();
     ASSERT_TRUE(inFlight.has_value());
-    ASSERT_EQ(inFlight->first, 2);
+    ASSERT_EQ(inFlight->RequestKey, 2);
 
     const TArray<int> invalidated = ledger.InvalidateShader(kShaderA);
     EXPECT_EQ(invalidated.Num(), 2) << "The ready and the queued key are re-requested; the in-flight one is discarded";
     EXPECT_TRUE(invalidated.Contains(1));
     EXPECT_TRUE(invalidated.Contains(3));
 
-    EXPECT_FALSE(ledger.Complete(2, true, false, 5.0)) << "A result built from the old modules must be discarded";
+    EXPECT_FALSE(ledger.Complete(2, inFlight->Ticket, true, false, 5.0))
+        << "A result built from the old modules must be discarded";
     EXPECT_EQ(ledger.GetCounters().DiscardedStale, 1u);
     EXPECT_FALSE(ledger.GetState(2).has_value());
 
     const auto next = ledger.TakeNextQueued();
     ASSERT_TRUE(next.has_value());
-    EXPECT_EQ(next->first, 4) << "Only the other shader's request is still queued";
+    EXPECT_EQ(next->RequestKey, 4) << "Only the other shader's request is still queued";
 }
 
-TEST(PipelineRequestLedger, TheSelectedConfigurationIsPreparedFirstAndPromotesASpeculativeRequest)
+TEST(PipelineRequestLedger, AnOldCreationCannotPublishOverTheClaimThatReplacedIt)
+{
+    // A worker compiles from the old modules; a reload invalidates the key and,
+    // before the worker returns, a draw claims the key again for the new
+    // modules. The worker's late result must be discarded, and the draw's
+    // accepted, whichever finishes first.
+    Ledger ledger;
+    ASSERT_TRUE(ledger.Request(9, kShaderA, "old modules"));
+    const auto worker = ledger.TakeNextQueued();
+    ASSERT_TRUE(worker.has_value());
+    (void)ledger.InvalidateShader(kShaderA);
+    const auto draw = ledger.ClaimMiss(9, kShaderA);
+    ASSERT_EQ(draw.Action, Ledger::MissAction::CreateNow);
+
+    EXPECT_FALSE(ledger.Complete(9, worker->Ticket, true, false, 8.0)) << "The pre-reload pipeline was published";
+    EXPECT_EQ(ledger.GetState(9), Ledger::State::InFlight) << "The draw's claim must survive the stale result";
+    EXPECT_TRUE(ledger.Complete(9, draw.Ticket, true, true, 7.0));
+    EXPECT_EQ(ledger.GetState(9), Ledger::State::Ready);
+    EXPECT_EQ(ledger.GetCounters().DiscardedStale, 1u);
+}
+
+TEST(PipelineRequestLedger, TheSelectedConfigurationIsPreparedFirstAndPromotesASpeculativeRequestOnce)
 {
     Ledger ledger;
     ASSERT_TRUE(ledger.Request(1, kShaderA, "msaa4", PipelineRequestPriority::Speculative));
     ASSERT_TRUE(ledger.Request(2, kShaderA, "msaa1", PipelineRequestPriority::Selected));
-    EXPECT_EQ(ledger.TakeNextQueued()->first, 2);
+    EXPECT_EQ(ledger.TakeNextQueued()->RequestKey, 2);
 
     // The configuration switched: key 1 is now selected and jumps the queue
-    // ahead of a speculative request made before it.
+    // ahead of a speculative request made before it. Asking again (the
+    // renderer re-requests on every switch) does not queue it again.
     ASSERT_TRUE(ledger.Request(3, kShaderB, "other", PipelineRequestPriority::Speculative));
     EXPECT_FALSE(ledger.Request(1, kShaderA, "msaa4", PipelineRequestPriority::Selected));
-    EXPECT_EQ(ledger.TakeNextQueued()->first, 1);
-    EXPECT_EQ(ledger.TakeNextQueued()->first, 3);
+    EXPECT_FALSE(ledger.Request(1, kShaderA, "msaa4", PipelineRequestPriority::Selected));
+    EXPECT_FALSE(ledger.Request(1, kShaderA, "msaa4", PipelineRequestPriority::Selected));
+    EXPECT_EQ(ledger.TakeNextQueued()->RequestKey, 1);
+    EXPECT_EQ(ledger.TakeNextQueued()->RequestKey, 3);
     EXPECT_FALSE(ledger.TakeNextQueued().has_value()) << "The promoted key's old slot is skipped, not created twice";
 }
 
@@ -324,6 +374,25 @@ TEST(PipelineManifest, MergeUnionsConfigurationsAndTrimDropsTheLeastRecentlySeen
     EXPECT_EQ(local.GetEntryCount(), 1u);
     EXPECT_TRUE(local.EntriesFor("Old", kClassicStages, "a").IsEmpty());
     EXPECT_EQ(local.EntriesFor("New", kClassicStages, "a").Num(), 1);
+}
+
+TEST(PipelineManifest, TrimNeverKeepsAnOlderEntryOverANewerOne)
+{
+    // Sessions {1, 2, 2}, keep one: whatever order the shaders hash in, the
+    // session-1 entry goes and exactly one session-2 entry stays.
+    for (int round = 0; round < 8; ++round)
+    {
+        PipelineManifest manifest;
+        manifest.BeginSession(); // 1
+        (void)manifest.Record("Oldest" + std::to_string(round), kClassicStages, Signature(1, 37, 0, 1), "a");
+        manifest.BeginSession(); // 2
+        (void)manifest.Record("NewA" + std::to_string(round), kClassicStages, Signature(1, 37, 0, 1), "a");
+        (void)manifest.Record("NewA" + std::to_string(round), kClassicStages, Signature(1, 44, 0, 1), "a");
+        manifest.Trim(1);
+        EXPECT_EQ(manifest.GetEntryCount(), 1u);
+        EXPECT_TRUE(manifest.EntriesFor("Oldest" + std::to_string(round), kClassicStages, "a").IsEmpty())
+            << "round " << round;
+    }
 }
 
 TEST(PipelineManifest, TheConfigurationTagNamesEveryInputThatChangesAPassTarget)

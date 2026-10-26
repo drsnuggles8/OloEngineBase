@@ -132,6 +132,15 @@ namespace OloEngine
             MissAction Action = MissAction::CreateNow;
             PipelineMissKind Kind = PipelineMissKind::NeverRequested;
             bool ReadyClaimViolation = false; ///< NeverRequested on a shader declared ready.
+            u64 Ticket = 0;                   ///< With CreateNow: hand back to Complete().
+        };
+
+        // A queued request a worker took over.
+        struct Job
+        {
+            Key RequestKey{};
+            Payload Data{};
+            u64 Ticket = 0; ///< Hand back to Complete().
         };
 
         // Returns true when the request was accepted (a new key, or one whose
@@ -142,10 +151,12 @@ namespace OloEngine
             if (const auto it = m_Entries.find(key); it != m_Entries.end() && it->second.Status != State::Failed)
             {
                 // A speculative request whose configuration became the selected
-                // one is promoted: queued a second time at the front priority.
-                // The speculative slot it leaves behind is skipped lazily.
-                if (it->second.Status == State::Queued && priority == PipelineRequestPriority::Selected)
+                // one is promoted, once: queued a second time at the front
+                // priority. The speculative slot it leaves behind is skipped.
+                if (it->second.Status == State::Queued && priority == PipelineRequestPriority::Selected &&
+                    it->second.Priority == PipelineRequestPriority::Speculative)
                 {
+                    it->second.Priority = PipelineRequestPriority::Selected;
                     m_SelectedQueue.PushLast(key);
                 }
                 ++m_Counters.DuplicateRequests;
@@ -155,6 +166,7 @@ namespace OloEngine
             entry.Status = State::Queued;
             entry.ShaderKey = shaderKey;
             entry.Prepared = true;
+            entry.Priority = priority;
             entry.Data = std::move(payload);
             (priority == PipelineRequestPriority::Selected ? m_SelectedQueue : m_SpeculativeQueue).PushLast(key);
             ++m_Counters.Requests;
@@ -162,8 +174,9 @@ namespace OloEngine
         }
 
         // The next queued request for a worker, selected configuration first.
-        // The entry moves to InFlight; the worker must Complete() it.
-        [[nodiscard]] std::optional<std::pair<Key, Payload>> TakeNextQueued()
+        // The entry moves to InFlight; the worker must Complete() it with the
+        // job's ticket.
+        [[nodiscard]] std::optional<Job> TakeNextQueued()
         {
             for (auto* queue : { &m_SelectedQueue, &m_SpeculativeQueue })
             {
@@ -173,13 +186,15 @@ namespace OloEngine
                     queue->PopFirst();
                     const auto it = m_Entries.find(key);
                     // A key leaves the queue lazily: a draw that took it over
-                    // (ClaimMiss) or an invalidation leaves a stale queue slot.
+                    // (ClaimMiss), a promotion or an invalidation leaves a
+                    // stale queue slot.
                     if (it == m_Entries.end() || it->second.Status != State::Queued)
                     {
                         continue;
                     }
                     it->second.Status = State::InFlight;
-                    return std::make_pair(std::move(key), std::move(it->second.Data));
+                    it->second.Ticket = ++m_LastTicket;
+                    return Job{ std::move(key), std::move(it->second.Data), it->second.Ticket };
                 }
             }
             return std::nullopt;
@@ -187,13 +202,22 @@ namespace OloEngine
 
         // A draw missed the pipeline map for `key`. Classify, count, and say
         // whether this thread creates it or waits for the thread that is.
-        MissResult ClaimMiss(const Key& key, u64 shaderKey)
+        // `countMiss` is false when the same draw asks again after waiting: it
+        // was counted once, as requested too late, and is one hitch.
+        MissResult ClaimMiss(const Key& key, u64 shaderKey, bool countMiss = true)
         {
+            const auto count = [countMiss](u64& counter)
+            {
+                if (countMiss)
+                {
+                    ++counter;
+                }
+            };
             const auto it = m_Entries.find(key);
             if (it == m_Entries.end())
             {
-                ++m_Counters.NeverRequested;
-                const bool brokenClaim = m_ReadyShaders.contains(shaderKey);
+                count(m_Counters.NeverRequested);
+                const bool brokenClaim = countMiss && m_ReadyShaders.contains(shaderKey);
                 if (brokenClaim)
                 {
                     ++m_Counters.ReadyClaimViolations;
@@ -202,44 +226,49 @@ namespace OloEngine
                 entry.Status = State::InFlight;
                 entry.ShaderKey = shaderKey;
                 entry.Prepared = false;
-                return { MissAction::CreateNow, PipelineMissKind::NeverRequested, brokenClaim };
+                entry.Ticket = ++m_LastTicket;
+                return { MissAction::CreateNow, PipelineMissKind::NeverRequested, brokenClaim, entry.Ticket };
             }
             Entry& entry = it->second;
+            PipelineMissKind kind = PipelineMissKind::NeverRequested;
             switch (entry.Status)
             {
                 case State::Queued:
-                    ++m_Counters.TooLateQueued;
-                    entry.Status = State::InFlight;
-                    entry.Prepared = false;
+                    count(m_Counters.TooLateQueued);
                     entry.Data = Payload{}; // the draw snapshots its own inputs
-                    return { MissAction::CreateNow, PipelineMissKind::TooLateQueued };
+                    kind = PipelineMissKind::TooLateQueued;
+                    break;
                 case State::InFlight:
-                    ++m_Counters.TooLateInFlight;
-                    return { MissAction::Wait, PipelineMissKind::TooLateInFlight };
+                    count(m_Counters.TooLateInFlight);
+                    return { MissAction::Wait, PipelineMissKind::TooLateInFlight, false, 0 };
                 case State::Failed:
-                    ++m_Counters.RetriedAfterFailure;
-                    entry.Status = State::InFlight;
-                    entry.Prepared = false;
-                    return { MissAction::CreateNow, PipelineMissKind::RetriedAfterFailure };
+                    count(m_Counters.RetriedAfterFailure);
+                    kind = PipelineMissKind::RetriedAfterFailure;
+                    break;
                 case State::Ready:
                     // The owner's map and this ledger disagree; the map is the
                     // authority for hits, so recreate rather than wait forever.
+                    count(m_Counters.NeverRequested);
                     break;
             }
-            ++m_Counters.NeverRequested;
             entry.Status = State::InFlight;
             entry.Prepared = false;
-            return { MissAction::CreateNow, PipelineMissKind::NeverRequested };
+            entry.Ticket = ++m_LastTicket;
+            return { MissAction::CreateNow, kind, false, entry.Ticket };
         }
 
-        // The creation the caller owned has finished. `blocking` is true when a
-        // draw thread paid for it. Returns false when the result must be
-        // discarded because the key was invalidated while it was in flight.
-        bool Complete(const Key& key, bool success, bool blocking, f64 createMs,
+        // The creation the caller owned (`ticket` from ClaimMiss or the Job) has
+        // finished. `blocking` is true when a draw thread paid for it. Returns
+        // false when the result must be discarded: the key was invalidated
+        // while it ran, and possibly claimed again since. The ticket tells this
+        // creation from the newer one, so an old result can never be published
+        // over the claim that replaced it.
+        bool Complete(const Key& key, u64 ticket, bool success, bool blocking, f64 createMs,
                       PipelineDriverCacheResult cache = PipelineDriverCacheResult::Unknown)
         {
             const auto it = m_Entries.find(key);
-            const bool stale = it == m_Entries.end() || it->second.Status != State::InFlight;
+            const bool stale =
+                it == m_Entries.end() || it->second.Status != State::InFlight || it->second.Ticket != ticket;
             if (blocking)
             {
                 ++m_Counters.BlockingCreations;
@@ -411,6 +440,8 @@ namespace OloEngine
             State Status = State::Queued;
             u64 ShaderKey = 0;
             bool Prepared = false; ///< Created through a request rather than by a draw.
+            PipelineRequestPriority Priority = PipelineRequestPriority::Selected;
+            u64 Ticket = 0; ///< Which claim the in-flight creation belongs to.
             Payload Data{};
         };
 
@@ -419,5 +450,6 @@ namespace OloEngine
         TDeque<Key> m_SpeculativeQueue;
         std::unordered_set<u64> m_ReadyShaders;
         PipelineRequestCounters m_Counters;
+        u64 m_LastTicket = 0;
     };
 } // namespace OloEngine

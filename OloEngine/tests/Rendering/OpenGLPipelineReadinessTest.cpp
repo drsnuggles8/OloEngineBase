@@ -39,8 +39,10 @@ namespace
         const auto token = std::chrono::steady_clock::now().time_since_epoch().count();
         const auto path = OloEngine::Tests::TempFile("ReadinessProbe.glsl");
         std::ofstream source(path, std::ios::trunc);
+        // Both stages carry the token, so neither is a cache hit from an earlier run.
         source << "#type vertex\n#version 460 core\n"
-                  "void main() { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }\n"
+               << std::format("const float kUniqueV = float({}u % 991u) / 991.0;\n", token % 1000000u)
+               << "void main() { gl_Position = vec4(0.0, 0.0, kUniqueV * 0.0, 1.0); }\n"
                   "#type fragment\n#version 460 core\n"
                   "layout(location = 0) out vec4 o_Color;\n"
                << std::format("const float kUnique = float({}u % 997u) / 997.0;\n", token % 1000000u)

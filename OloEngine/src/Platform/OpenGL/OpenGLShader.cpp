@@ -2186,7 +2186,6 @@ namespace OloEngine
         // on any miss/failure it returns false and we fall through to a full compile.
         if (LoadProgramBinaryCache(program, contentHash))
         {
-            ShaderPreparationCounters::Get().AddProgramBinaryHit();
             FinalizeProgram(program, m_OpenGLSPIRV);
             m_CompilationStatus = ShaderCompilationStatus::Ready;
             OLO_CORE_TRACE("Loaded shader program from binary cache: {0}", GetFilePath());
@@ -2379,6 +2378,9 @@ namespace OloEngine
             return false;
         }
 
+        // Counted here, beside the reject, so every route that restores a
+        // binary (SPIR-V, bindless, the AMD GLSL route) reports the hit (#1345).
+        ShaderPreparationCounters::Get().AddProgramBinaryHit();
         return true;
     }
 

@@ -6,6 +6,8 @@
 
 #include <algorithm>
 #include <bit>
+#include <functional>
+#include <unordered_map>
 #include <format>
 
 namespace OloEngine
@@ -129,33 +131,45 @@ namespace OloEngine
 
     void PipelineManifest::Trim(const sizet maxEntries)
     {
-        sizet count = GetEntryCount();
+        const sizet count = GetEntryCount();
         if (count <= maxEntries)
         {
             return;
         }
-        // Find the session cut-off below which entries go, then drop the oldest
-        // until the bound holds. Ties at the cut-off are broken by position.
-        TArray<u64> sessions;
+        // Every entry, oldest session first; the first (count - maxEntries)
+        // go. A global order, not a per-shader cut-off, so an entry tied with
+        // the cut-off can never be dropped while a strictly older one stays.
+        struct EntryRef
+        {
+            u64 Session = 0;
+            const std::string* Identity = nullptr;
+            i32 Index = 0;
+        };
+        TArray<EntryRef> all;
+        all.Reserve(static_cast<i32>(count));
         for (const auto& [identity, entries] : m_ByShader)
         {
-            for (const PipelineManifestEntry& entry : entries)
+            for (i32 i = 0; i < entries.Num(); ++i)
             {
-                sessions.Add(entry.LastSeenSession);
+                all.Add({ entries[i].LastSeenSession, &identity, i });
             }
         }
-        std::ranges::sort(sessions);
-        const u64 cutoff = sessions[static_cast<i32>(count - maxEntries - 1)];
-        sizet toDrop = count - maxEntries;
-        for (auto& [identity, entries] : m_ByShader)
+        std::ranges::stable_sort(all, [](const EntryRef& a, const EntryRef& b) { return a.Session < b.Session; });
+
+        std::unordered_map<const std::string*, TArray<i32>> doomed;
+        for (sizet i = 0; i < count - maxEntries; ++i)
         {
-            for (i32 i = entries.Num() - 1; i >= 0 && toDrop > 0; --i)
+            const EntryRef& entry = all[static_cast<i32>(i)];
+            doomed[entry.Identity].Add(entry.Index);
+        }
+        for (auto& [identity, indices] : doomed)
+        {
+            // Highest index first, so the earlier indices stay valid.
+            std::ranges::sort(indices, std::greater<>{});
+            auto& entries = m_ByShader[*identity];
+            for (const i32 index : indices)
             {
-                if (entries[i].LastSeenSession <= cutoff)
-                {
-                    entries.RemoveAt(i);
-                    --toDrop;
-                }
+                entries.RemoveAt(index);
             }
         }
         std::erase_if(m_ByShader, [](const auto& item) { return item.second.IsEmpty(); });
