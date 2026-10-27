@@ -552,7 +552,9 @@ namespace OloEngine
         }
 
         // Triggers with ChildSystemIndex >= 0 are handled by Scene (emitted into child systems).
-        // Only triggers with ChildSystemIndex == -1 fall back to the legacy parent-pool behavior.
+        // A trigger with ChildSystemIndex == -1 emits into this system's own pool. That is the
+        // default of every SubEmitterEntry and the only form content can author today (nothing
+        // populates ParticleSystemComponent::ChildSystems), so it is not a legacy path.
         auto& rng = m_Random;
 
         for (const auto& trigger : m_PendingTriggers)

@@ -345,7 +345,7 @@ namespace OloEngine::Tests
         // Switching the path three times in one test is safe here without a
         // restore of its own: RendererAttachedTest::TearDown already snapshots
         // and restores the process-wide RendererSettings for exactly this case
-        // (see its m_SavedRendererSettings). Re-doing it here would be a second
+        // (see its m_SavedSettings). Re-doing it here would be a second
         // owner of the same invariant.
         void SetPath(RenderingPath path)
         {

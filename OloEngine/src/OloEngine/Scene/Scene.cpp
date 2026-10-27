@@ -2169,7 +2169,7 @@ namespace OloEngine
         {
             if (trigger.ChildSystemIndex < 0 || static_cast<u32>(trigger.ChildSystemIndex) >= psc.ChildSystems.Num())
             {
-                continue; // Legacy parent-pool trigger or invalid index
+                continue; // Self-emitting trigger (ParticleSystem handles it) or invalid index
             }
 
             auto& childSystem = psc.ChildSystems[trigger.ChildSystemIndex];
@@ -13875,11 +13875,6 @@ namespace OloEngine
 
                     foliage.m_Renderer->SetStreamingEnabled(representationStreaming);
 
-                    const auto& globalWind = Renderer3D::GetWindSettings();
-                    const f32 envelope = globalWind.Enabled ? std::abs(globalWind.Speed) * (1.0f + std::abs(globalWind.GustStrength)) * 0.1f : 1.118034f;
-                    if (foliage.m_Renderer->SetLegacyWindEnvelope(envelope))
-                        foliage.m_NeedsRebuild = true;
-
                     // Instance positions are terrain-LOCAL, so the renderer needs
                     // the owning terrain's transform to place them. The main draw
                     // gets it via DrawFoliageLayer's modelTransform, but the SHADOW
@@ -15135,10 +15130,12 @@ namespace OloEngine
                         sp.m_JonswapGamma = clampF(water.m_FFTJonswapGamma, 1.0f, 10.0f, 3.3f);
                         sp.m_JonswapFetch = clampF(water.m_FFTJonswapFetch, 1.0f, 1.0e6f, 100000.0f);
                         // Band-limited multi-cascade preset (§1.3, issue #969).
-                        // 1 is the shipped default and the pre-#969 field
-                        // exactly; anything else selects the fixed three-band
-                        // preset, which derives its own tiles from m_PatchSize.
-                        sp.m_CascadeCount = (water.m_FFTCascades <= Ocean::kSingleCascadeCount)
+                        // Exactly 1 is the authored single tile; anything else,
+                        // 0 included, selects the fixed three-band preset (the
+                        // default), as the YAML and save-game loaders do with an
+                        // out-of-range count. The preset derives its own tiles
+                        // from m_PatchSize.
+                        sp.m_CascadeCount = (water.m_FFTCascades == Ocean::kSingleCascadeCount)
                                                 ? Ocean::kSingleCascadeCount
                                                 : Ocean::kThreeBandCascadeCount;
 

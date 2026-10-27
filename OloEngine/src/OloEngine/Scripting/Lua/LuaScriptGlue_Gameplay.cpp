@@ -771,8 +771,8 @@ namespace OloEngine
             GameplayTag tag(abilityTag);
             // Activate on the caster (checks cooldowns, costs, tags).
             // TryActivateAbility also applies ActivationEffects to the caster;
-            // for targeted abilities we additionally redirect effects to the
-            // target below (intentional self+target duplication — see C# mirror).
+            // only the explicit TargetActivationEffects list goes to the target
+            // below (see the C# mirror).
             if (!GameplayAbilitySystem::TryActivateAbility(scene, caster, tag))
                 return false;
 

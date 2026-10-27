@@ -24,7 +24,7 @@ sanitized weights, and a terrain matrix operator-norm bound.
 
 The far octahedral raster LOD has no view-independent card silhouette. RT keeps
 its authored source canopy and uses the impostor's rigid sway at influence 0.5
-(0.15 for legacy wind). It switches at the authored mesh handover end. Within
+(0.15 for a layer with no hierarchical weights). It switches at the authored mesh handover end. Within
 the raster dither transition, RT retains the authored near representation.
 Atlas angular quantization, texture filtering, and raster dither do not become
 ray geometry; the 0.25 m temporal error bound applies to the selected physical

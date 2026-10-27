@@ -106,11 +106,11 @@ TEST(ShaderBindingLayout, FoliageUBOSizeStable)
     // + the four leaf-material vec4s (#1234) = 176,
     // + six wind/history snapshot vec4s (#1236) = 272, + the two LOD transition
     // lanes (#1237) = 304, + the interaction params lane and its 16-slot
-    // influence array (#1238) = 1344.
+    // influence array (#1238) = 1344, - the legacy wind clock vec4 (#1502) = 1328.
     // Every foliage shader declares the block WHOLE, including the vec4s it
     // does not read, so a field appended for one of them cannot land at a
     // different offset in another.
-    EXPECT_EQ(sizeof(UBOStructures::FoliageUBO), 1344u);
+    EXPECT_EQ(sizeof(UBOStructures::FoliageUBO), 1328u);
 }
 
 TEST(ShaderBindingLayout, DecalUBOSizeStable)

@@ -42,6 +42,7 @@
 
 #include "RenderPropertyTest.h"
 
+#include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/RGCommandContext.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -1676,6 +1677,42 @@ void main()
                   RHI::kNullStorageHeapOffset)
             << "The image region must reset to the IMAGE null. Zeroing it would hand image2D a "
                "sampler descriptor — the undefined behaviour the two reserved nulls exist to avoid.";
+    }
+
+    // The table's buffer is released by Renderer::Shutdown, not only by a later
+    // flush under a new heap. This fixture's TearDown hands the process back a
+    // disabled heap, so FlushOffsets returns before it ever re-checks the epoch,
+    // and the buffer this suite minted outlived the renderer at the end of every
+    // full run: "1 GPU allocation(s) (352 bytes) survived the renderer".
+    TEST_F(HeapGpuFixture, ReleasingTheOffsetTableFreesItsBufferAndTheNextFlushMintsOne)
+    {
+        OLO_ENSURE_BINDLESS_OR_SKIP(*this, /*poison*/ false);
+
+        Shader::SetBoundProgramBindless(true);
+        auto& tracker = RendererMemoryTracker::GetInstance();
+        const auto uniformBuffers = [&tracker]
+        { return tracker.GetAllocationCount(RendererMemoryTracker::ResourceType::UniformBuffer); };
+
+        constexpr u32 kSlot = 3u;
+        const GLuint texture = MakeSolidTexture(255u, 0u, 0u, 255u);
+        OwnedTextures.push_back(texture);
+        const RHI::ResourceHandle resource = RegisterTexture(texture);
+
+        const RHI::HeapOffset live =
+            HeapBinding::BindTextureOrOffset(kSlot, resource, RHI::HeapSlotLifetime::Persistent);
+        ASSERT_TRUE(live.IsValid());
+        HeapBinding::FlushOffsets();
+        const u32 withTable = uniformBuffers();
+
+        HeapBinding::ReleaseOffsetTable();
+        EXPECT_EQ(uniformBuffers(), withTable - 1u) << "ReleaseOffsetTable must free the table's uniform buffer.";
+
+        const RHI::HeapOffset again =
+            HeapBinding::BindTextureOrOffset(kSlot, resource, RHI::HeapSlotLifetime::Persistent);
+        HeapBinding::FlushOffsets();
+        EXPECT_EQ(uniformBuffers(), withTable) << "The next flush must mint a fresh buffer.";
+        EXPECT_EQ(HeapBinding::StagedOffsetAt(kSlot).Value, again.Value)
+            << "A released table must take the next staged offset, not stay on the nulls.";
     }
 
     // A 3D texture reached through the heap samples with ITS OWN wrap mode. The

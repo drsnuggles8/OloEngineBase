@@ -232,7 +232,7 @@ StreamingSettings:
   DefaultLoadRadius: 125
   DefaultUnloadRadius: 135
   MaxLoadedRegions: 2
-  RegionDirectory: SandboxProject/Assets/Scenes/Benchmark/StreamingVegetationRegions
+  RegionDirectory: Assets/Scenes/Benchmark/StreamingVegetationRegions
   RepresentationResidentMegabytes: 128
   RepresentationUploadMegabytesPerFrame: 32
   RepresentationStagingMegabytes: 128

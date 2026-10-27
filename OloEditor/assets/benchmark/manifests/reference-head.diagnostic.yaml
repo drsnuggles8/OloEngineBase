@@ -85,6 +85,7 @@ Output:
 
 RendererSettings:
   Path: Deferred
+  RayTracedShadowsEnabled: false
   EnableDDGI: false
   TAAEnabled: true
 
@@ -331,3 +332,6 @@ Assets:
       OloEditor/assets/models/ReferenceHead/head.gltf. Then add a
       ModelComponent pointing at it to ReferenceHead.olo. Nothing else in this
       manifest changes.
+Presets:
+  opengl: gl-deferred-native
+  vulkan: vk-deferred-native

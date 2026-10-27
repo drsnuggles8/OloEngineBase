@@ -40,6 +40,8 @@
 #include "OloEngine/Gameplay/Progression/CharacterClassDatabase.h"
 #include "OloEngine/Gameplay/Progression/ExperienceCurve.h"
 #include "OloEngine/Gameplay/Progression/SkillTreeDatabase.h"
+#include "OloEngine/Project/ContentPath.h"
+#include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/ShaderCachePaths.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Scene/Streaming/StreamingRegionSerializer.h"
@@ -1354,6 +1356,36 @@ namespace OloEngine::Tests
 
     namespace
     {
+        // The Sandbox project open and the editor directory current, as in a
+        // running editor, restored on scope exit.
+        struct ScopedSandboxProject
+        {
+            Ref<Project> Previous = Project::GetActive();
+            Ref<AssetManagerBase> Assets = Project::HasAssetManager() ? Project::GetAssetManager() : nullptr;
+            fs::path WorkingDirectory = fs::current_path();
+
+            ScopedSandboxProject()
+            {
+                ProjectConfig config;
+                config.Name = "SandboxProject";
+                config.AssetDirectory = "Assets";
+                const fs::path editorRoot{ OLO_TEST_EDITOR_ROOT };
+                Project::NewInMemory(editorRoot / "SandboxProject", config);
+                fs::current_path(editorRoot);
+            }
+            ~ScopedSandboxProject()
+            {
+                fs::current_path(WorkingDirectory);
+                Project::Unload();
+                if (Previous)
+                    Project::NewInMemory(Previous->GetDirectory(), Previous->GetConfig());
+                if (Assets)
+                    Project::SetAssetManager(Assets);
+            }
+            ScopedSandboxProject(const ScopedSandboxProject&) = delete;
+            ScopedSandboxProject& operator=(const ScopedSandboxProject&) = delete;
+        };
+
         sizet ValidateStreamingVolumeRegions(const YAML::Node& scene, const fs::path& scenePath,
                                              std::vector<Failure>& failures)
         {
@@ -1388,13 +1420,17 @@ namespace OloEngine::Tests
                     return requestedIDs.size();
                 }
 
-                // SceneStreamer::DiscoverRegions resolves relative paths against
-                // the editor working directory and scans only immediate children.
-                const fs::path regionDirectory = fs::path{ OLO_TEST_EDITOR_ROOT } / fs::path{ directory };
-                if (!fs::is_directory(regionDirectory))
+                // Resolved the way SceneStreamer::DiscoverRegions does it: the
+                // one resolver, with the Sandbox project open and the editor
+                // directory as the working directory. It scans only immediate
+                // children.
+                const ScopedSandboxProject project;
+                const fs::path regionDirectory = ResolveContentPath(directory);
+                if (regionDirectory.empty() || !fs::is_directory(regionDirectory))
                 {
                     failures.push_back({ scenePath.generic_string(),
-                                         "StreamingSettings.RegionDirectory is not a directory: " + regionDirectory.generic_string() });
+                                         "StreamingSettings.RegionDirectory is not a directory: " +
+                                             (regionDirectory.empty() ? directory : regionDirectory.generic_string()) });
                     return requestedIDs.size();
                 }
 
@@ -1467,7 +1503,7 @@ namespace OloEngine::Tests
         EXPECT_NE(failures.front().Reason.find("not a .oloregion RegionID discoverable"), std::string::npos);
 
         failures.clear();
-        (*scene)["StreamingSettings"]["RegionDirectory"] = "SandboxProject/Assets/Scenes/Benchmark/StreamingGroomRegions/missing-directory";
+        (*scene)["StreamingSettings"]["RegionDirectory"] = "Assets/Scenes/Benchmark/StreamingGroomRegions/missing-directory";
         ValidateStreamingVolumeRegions(*scene, scenePath, failures);
         ASSERT_EQ(failures.size(), 1u);
         EXPECT_NE(failures.front().Reason.find("is not a directory"), std::string::npos);
@@ -2494,6 +2530,63 @@ namespace OloEngine::Tests
                     << f.Path << "\n    " << f.Reason << "\n";
             FAIL() << oss.str();
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // No scene path is spelled with the project directory in front
+    //
+    // "SandboxProject/Assets/Models/x.obj" is not a project path: nothing
+    // resolves that spelling against the project. ResolveContentPath sends it to
+    // the working directory, so it loads only while that happens to be
+    // OloEditor/, and a packaged game or another project root cannot find it.
+    // The project spelling is "Assets/Models/x.obj". The lenient any-root check
+    // above accepts both, which is how six dog scenes and two streaming
+    // benchmark scenes carried the prefix until #1502 rewrote them.
+    // -------------------------------------------------------------------------
+    TEST(AssetContentValidity, NoSandboxScenePathIsSpelledWithTheProjectDirectory)
+    {
+        const auto scenes = EnumerateFilesByExtension(SandboxAssetsRoot() / "Scenes", ".olo");
+        std::vector<Failure> failures;
+
+        std::function<void(const YAML::Node&, const std::string&, const std::string&)> walk;
+        walk = [&](const YAML::Node& node, const std::string& scenePath, const std::string& keyPath)
+        {
+            if (node.IsScalar())
+            {
+                const std::string value = node.as<std::string>();
+                if (value.starts_with("SandboxProject/") || value.starts_with("OloEditor/SandboxProject/"))
+                {
+                    failures.push_back({ scenePath, "'" + keyPath + "' = '" + value +
+                                                        "' names the project directory; spell it project-relative ('Assets/...')." });
+                }
+            }
+            else if (node.IsSequence())
+            {
+                for (sizet i = 0; i < node.size(); ++i)
+                    walk(node[i], scenePath, keyPath + "[" + std::to_string(i) + "]");
+            }
+            else if (node.IsMap())
+            {
+                for (auto it = node.begin(); it != node.end(); ++it)
+                {
+                    const std::string key = it->first.as<std::string>("?");
+                    walk(it->second, scenePath, keyPath.empty() ? key : (keyPath + "." + key));
+                }
+            }
+            else
+            {
+                // No additional handling required.
+            }
+        };
+
+        for (const auto& path : scenes)
+        {
+            std::string reason;
+            if (auto node = ParseYAMLFile(path, reason); node)
+                walk(*node, path.generic_string(), "");
+        }
+
+        ReportFailures("project-directory-prefixed scene path", failures, scenes.size());
     }
 
     // -------------------------------------------------------------------------

@@ -35,6 +35,7 @@ Output:
 
 RendererSettings:
   Path: Deferred
+  RayTracedShadowsEnabled: false
   EnableDDGI: false
 
 Exposure:
@@ -75,3 +76,6 @@ Assets:
     UpAxis: n/a
     ColorSpace: linear
     Acquisition: Already in-tree. A 1x1 Radiance HDR holding radiance (1, 1, 1); any HDR writer reproduces it
+Presets:
+  opengl: gl-deferred-native
+  vulkan: vk-deferred-native

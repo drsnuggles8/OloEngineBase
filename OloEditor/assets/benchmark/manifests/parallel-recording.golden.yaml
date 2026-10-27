@@ -36,6 +36,7 @@ Output:
   RenderScale: 1.0
 RendererSettings:
   Path: Deferred
+  RayTracedShadowsEnabled: false
   EnableDDGI: false
   TAAEnabled: false
 Exposure:
@@ -75,3 +76,6 @@ Assets:
     ColorSpace: n/a
     Acquisition: >-
       Already in-tree. Regenerate with: python OloEngine/tests/scripts/generate_recording_benchmark.py
+Presets:
+  opengl: gl-deferred-native
+  vulkan: vk-deferred-native

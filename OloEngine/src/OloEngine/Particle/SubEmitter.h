@@ -22,7 +22,7 @@ namespace OloEngine
         f32 InheritVelocityScale = 0.5f;
 
         // Index into ParticleSystemComponent::ChildSystems for the child particle system.
-        // -1 means no child system assigned (falls back to parent pool behavior).
+        // -1 (the default) emits into the parent system's own pool.
         i32 ChildSystemIndex = -1;
 
         auto operator==(const SubEmitterEntry&) const -> bool = default;
@@ -49,7 +49,7 @@ namespace OloEngine
         glm::vec3 Position{ 0.0f };
         glm::vec3 Velocity{ 0.0f };
         SubEmitterEvent Event = SubEmitterEvent::OnDeath;
-        i32 ChildSystemIndex = -1; // Which child system to emit from
+        i32 ChildSystemIndex = -1; // Which child system to emit into; -1 = this system's own pool
         u32 EmitCount = 5;         // How many particles to emit
     };
 } // namespace OloEngine

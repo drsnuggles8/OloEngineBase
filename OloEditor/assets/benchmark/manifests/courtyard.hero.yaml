@@ -37,6 +37,7 @@ Output:
 # frame is captured without TAA (golden and diagnostic turn it on).
 RendererSettings:
   Path: Deferred
+  RayTracedShadowsEnabled: false
   EnableDDGI: true
 
 Exposure:
@@ -361,3 +362,6 @@ Assets:
       Already in-tree. CC0 permits redistribution and modification, so the DERIVED plant is committed rather
       than fetched. Rebuild it from the Poly Haven source with: python
       tools/vegetation-import/import_vegetation.py pine
+Presets:
+  opengl: gl-deferred-native
+  vulkan: vk-deferred-native

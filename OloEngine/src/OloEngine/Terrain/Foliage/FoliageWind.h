@@ -7,8 +7,8 @@
 
 namespace OloEngine
 {
-    // Zero weights retain the legacy bend. Stiffness progressively replaces
-    // the linear blade bend with an anchored quadratic bend.
+    // Zero weights keep the linear blade bend. Stiffness progressively replaces
+    // it with an anchored quadratic bend.
     inline glm::vec4 SanitizeFoliageWind(f32 stiffness, f32 branch, f32 leaf, bool debug = false)
     {
         const auto weight = [](f32 value)
@@ -26,11 +26,13 @@ namespace OloEngine
         return static_cast<f32>(id & 0xffffffu) * (6.2831853f / 16777216.0f);
     }
 
-    // Shared with FoliageWind.glsl: global velocity is capped to length 20,
-    // trunk response <= 2*strength, branch <= .35*strength, leaf <= .15*strength.
-    inline f32 FoliageWindMaximumDisplacement(f32 strength, const glm::vec4& weights, f32 legacyEnvelope = 2.0f)
+    // Shared with FoliageWind.glsl, one model for every layer (#1502): the
+    // field's velocity is capped to length 20, so its trunk is <= 2*strength
+    // (the still-air sway peaks at 1.118*strength, and the per-plant
+    // modulation never exceeds 1); branch <= .35*strength, leaf <= .15*strength.
+    inline f32 FoliageWindMaximumDisplacement(f32 strength, const glm::vec4& weights)
     {
-        const f32 trunk = weights.x + weights.y + weights.z > 0.0f ? 2.0f : std::max(legacyEnvelope, 1.118034f);
+        constexpr f32 trunk = 2.0f;
         return std::abs(std::isfinite(strength) ? strength : 0.0f) *
                (trunk + 0.35f * weights.y + 0.15f * weights.z);
     }

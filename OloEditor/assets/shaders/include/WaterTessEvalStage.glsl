@@ -166,7 +166,7 @@ vec4 waterWakeFetch(int index)
 #include "BindlessHeap.glsl"
 // ARRAYS since issue #969: one layer per cascade band, so the three-band preset
 // costs the same two engine texture slots the single-cascade field did. A scene
-// that has not opted in gets a ONE-layer array holding the identical field.
+// that authors FFTCascades: 1 gets a ONE-layer array holding that one field.
 #ifdef OLO_BINDLESS
 #define u_FFTDisplacement OLO_HEAP_TEX_2D_ARRAY(50)  // rgb = (dx, h, dz), a = foam — TEX_WATER_FFT_DISPLACEMENT
 #define u_FFTDerivatives OLO_HEAP_TEX_2D_ARRAY(51)  // rgb = normal, a = jacobian — TEX_WATER_FFT_DERIVATIVES

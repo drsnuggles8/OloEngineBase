@@ -10,7 +10,7 @@ crowd spawn points. All three were learned on the foliage scatter (issues #1230,
 **Fold every input in, THEN avalanche. A hash that mixes its seed in before its only multiply
 produces streams that are affine images of each other, and the result looks fine in a screenshot.**
 
-`FoliagePlacement::HashPosition` does this:
+The original foliage hash, `HashPosition` (deleted in #1502), did this:
 
 ```cpp
 u32 h = hx ^ hz ^ seed;
@@ -43,8 +43,11 @@ There is no noise to absorb: these are deterministic pure functions of integers,
 outputs really are the same offset. If you must bucket, check the expected collision count
 `B(1 - (1 - 1/B)^N)` against your threshold first.
 
-**Fixing such a hash moves every object, so it is an opt-in flag, never a silent improvement.**
-`FoliageLayer::DecorrelatedVariation` defaults to `false`; only newly generated layers get `true`.
+**Fixing such a hash moves every object, so migrate in one change rather than behind a flag.** Switch
+every layer, accept that every id retires, and look at a before/after of every moved golden. #1254
+first shipped the fix as an opt-in `DecorrelatedVariation` flag defaulting to the old hash; #1502
+deleted the flag and the old hash, because a second placement path kept for content on disk costs
+forever and protects nobody.
 
 ## 2. A rule that gates emission is not a rule that moves things — and the registry knows the difference
 
@@ -76,8 +79,8 @@ A scatter rule that defaults to on rewrites every scene on disk. The house patte
 `FoliageLayer::TransmissionStrength = 0.0f` (#1234): the new behaviour has to be asked for.
 
 For #1254 that meant 19 new fields all defaulting to inert, and **one test that pins the identity**
-rather than a comment that claims it — `ADefaultLayerPlacesExactlyWhereItAlwaysDid` recomputes the
-expected position, scale and Y from the *legacy* hash and compares. A suitability of `0.999`
+rather than a comment that claims it — `ARuleFreeLayerPlacesExactlyOnTheCellHash` recomputes the
+expected position, scale and Y from the cell hash and compares. A suitability of `0.999`
 instead of `1.0` would wake up the stochastic emission comparison and start quietly deleting plants
 from shipped scenes; only an exact-equality test catches that.
 

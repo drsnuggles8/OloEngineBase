@@ -76,11 +76,11 @@ namespace OloEngine::FoliageLod
     // previous-frame deformation), and it is what makes this hash stable
     // across a cull, a leave-and-return and a backend switch.
     //
-    // An integer avalanche over the quantised position rather than the
-    // bit-reinterpreting HashPosition beside it in FoliagePlacement: that one
-    // finishes with a single multiply-and-shift, and #1254 measured it
-    // collapsing an 80x80 grid onto 32 distinct values. A thinning mask built
-    // on 32 values deletes plants in diagonal stripes.
+    // An integer avalanche over the quantised position, for the reason
+    // FoliagePlacement::HashCell is one: a bit-reinterpreting float hash that
+    // finishes with a single multiply-and-shift collapsed an 80x80 grid onto 32
+    // distinct values (#1254). A thinning mask built on 32 values deletes
+    // plants in diagonal stripes.
     [[nodiscard]] inline f32 InstanceHash(glm::vec3 terrainLocalPos)
     {
         // Quantise to a millimetre so the value is stable against the last

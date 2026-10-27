@@ -28,13 +28,13 @@ namespace OloEngine::Ocean
         CascadePreset preset;
         const f32 L = (std::isfinite(patchSize) && patchSize > 0.0f) ? patchSize : 1.0f;
 
-        // Single cascade: the legacy field, verbatim. No band limit (KMax is
-        // infinite, so ApplyBandLimit keeps every bin), no rotation, and the
-        // authored L and N — NOT floored to kMinCascadeResolution, which would
-        // quietly double the grid of a scene authored at 16. That floor exists
-        // for a DERIVED band, which needs enough distinct wave vectors to look
-        // like a spectrum; an authored resolution is the author's call. A scene
-        // that has not opted in must not be able to tell this file exists.
+        // Single cascade (authored FFTCascades: 1): one tile carrying the whole
+        // spectrum. No band limit (KMax is infinite, so ApplyBandLimit keeps
+        // every bin), no rotation, and the authored L and N — NOT floored to
+        // kMinCascadeResolution, which would quietly double the grid of a scene
+        // authored at 16. That floor exists for a DERIVED band, which needs
+        // enough distinct wave vectors to look like a spectrum; an authored
+        // resolution is the author's call.
         if (cascadeCount <= kSingleCascadeCount)
         {
             preset.m_Count = kSingleCascadeCount;
@@ -44,9 +44,7 @@ namespace OloEngine::Ocean
             preset.m_Bands[0].m_KMin = 0.0f;
             preset.m_Bands[0].m_KMax = std::numeric_limits<f32>::infinity();
             preset.m_Bands[0].m_DomainRotation = 0.0f;
-            // Unbounded above, so the proxy keeps the cap — exactly the size the
-            // pre-#969 field used, which is what leaves the fallback path's CPU
-            // cost where it was.
+            // Unbounded above, so the proxy keeps the cap.
             preset.m_Bands[0].m_PhysicsResolution = std::min(resolution, kPhysicsProxyResolution);
             return preset;
         }

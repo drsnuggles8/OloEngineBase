@@ -51,7 +51,7 @@ Entities:
     TagComponent:
       Tag: camera
     TransformComponent:
-      Translation: [128, 14, 196]
+      Translation: [122, 14, 196]
       Rotation: [-0.06, 0, 0]
       Scale: [1, 1, 1]
     CameraComponent:

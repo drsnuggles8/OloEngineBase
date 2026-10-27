@@ -140,7 +140,7 @@ StreamingSettings:
   DefaultLoadRadius: 45
   DefaultUnloadRadius: 55
   MaxLoadedRegions: 2
-  RegionDirectory: SandboxProject/Assets/Scenes/Benchmark/StreamingGroomRegions
+  RegionDirectory: Assets/Scenes/Benchmark/StreamingGroomRegions
   RepresentationResidentMegabytes: 64
   RepresentationUploadMegabytesPerFrame: 8
   RepresentationStagingMegabytes: 128

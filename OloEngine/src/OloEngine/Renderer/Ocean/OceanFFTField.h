@@ -27,11 +27,11 @@ namespace OloEngine::Ocean
     //   * Derivatives  (RGBA32F): rgb = surface normal, a = raw Jacobian.
     // Each layer tiles seamlessly (REPEAT) over its own band's PatchSize.
     //
-    // HOW MANY LAYERS IS THE ONLY THING THAT CHANGED FOR AN EXISTING SCENE.
-    // `SpectrumParams::m_CascadeCount == 1` is the shipped default and yields a
-    // ONE-layer array holding exactly the field this class produced before —
-    // the authored patch size and resolution, the whole spectrum, no rotation.
-    // The three-band preset (Ocean/OceanCascades.h) is opt-in per water surface.
+    // `SpectrumParams::m_CascadeCount == 1` yields a ONE-layer array holding
+    // exactly the field this class produced before #969 — the authored patch
+    // size and resolution, the whole spectrum, no rotation.
+    // A WaterComponent asks for the three-band preset (Ocean/OceanCascades.h)
+    // by default and for one cascade only when the scene authors FFTCascades: 1.
     // Making the single-cascade path a one-layer array rather than keeping a
     // separate 2D path is deliberate: one binding pair, one shader loop, one
     // CPU sampler — the alternative is two mirrors of the same contract, and

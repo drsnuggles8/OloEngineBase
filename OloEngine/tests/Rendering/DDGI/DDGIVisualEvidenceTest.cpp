@@ -45,7 +45,9 @@
 // Determinism / goldens
 // ---------------------
 //   The DDGI pipeline is deterministic by construction: the capture schedule
-//   is a linear cursor (no randomness), gather directions are fixed
+//   is a pure function of each probe's tier, cascade, distance to the camera
+//   and age, with the probe index as the tiebreak (no randomness; the
+//   linear-cursor scheduler it replaced went in #1502), gather directions are fixed
 //   octahedral texel centers (no stochastic rays), and the irradiance EMA
 //   converges to a fixed point. On top of that the tests freeze the wall
 //   clock (Time::SetMockTime) and pin TAA + auto-exposure OFF (their

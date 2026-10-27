@@ -462,8 +462,8 @@ Entities:
     Enabled: true
     Layers:
     - Name: Lawn
-      MeshPath: SandboxProject/Assets/Models/Vegetation/grass/grass.obj
-      AlbedoPath: SandboxProject/Assets/Models/Vegetation/grass/Textures/grass_card.png
+      MeshPath: Assets/Models/Vegetation/grass/grass.obj
+      AlbedoPath: Assets/Models/Vegetation/grass/Textures/grass_card.png
       Density: 60
       SplatmapChannel: -1
       MinSlopeAngle: 0
@@ -491,7 +491,6 @@ Entities:
       ClumpGroup: -1
       GroundOffset: 0
       SlopeSinkFactor: 0
-      DecorrelatedVariation: true
       ViewDistance: 45
       FadeStartDistance: 34
       UseAuthoredMesh: true

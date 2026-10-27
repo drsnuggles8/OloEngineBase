@@ -2,8 +2,11 @@
 
 Author grass with stiffness and zero branch/leaf weights; author woody plants
 with stiffness, branch movement, and leaf flutter. All three weights are in
-[0, 1]. Zero weights retain legacy linear sway, including the original global-field clock and amplitude, and the legacy
-impostor card amplitude.
+[0, 1]. There is one wind model (#1502): every layer, whatever its weights and
+representation, takes the same trunk, per-plant modulation and clock. Zero
+weights only switch off the branch and leaf modes, keep the authored normal
+(unless an interaction bends the plant), and sample an impostor card's rigid
+sway at 0.15 of its height instead of 0.5.
 
 `WindStrength` controls displacement in terrain-local metres. `WindStiffness`
 progressively replaces linear tip influence with a quadratic bend and reduces
@@ -19,9 +22,9 @@ phase uses absolute world roots, independent of camera-relative rebasing.
 Fine motion uses a phase hashed from the canonical instance ID and local vertex
 position, so regeneration and row ordering do not rephase surviving plants.
 
-The hierarchical global response is capped to velocity length 20 before applying
-the layer strength. Legacy zero-weight layers retain their uncapped response;
-their bounds track `abs(strength) * max(abs(speed) * (1 + abs(gust)) * .1, 1.118034)` instead. Registry instance, spatial-group, and layer bounds include
+With a wind field, the trunk follows its gusting velocity, capped to length 20
+before the layer strength applies. With none, each layer sways in still air on
+its own `WindSpeed`. Registry instance, spatial-group, and layer bounds include
 `abs(strength) * (2 + .35 * branch + .15 * leaf)` on each axis. This covers the trunk
 cap and the maximum lengths of both independent fine modes. Impostor card bounds
 also include `sqrt(2) * atlas radius`, covering square-card corners at oblique
@@ -30,9 +33,7 @@ change provides the raster deformation contract and conservative instance data.
 
 ## Motion history
 
-Hierarchical wind uses the scene animation clock, which freezes on pause.
-The existing field clock is retained for legacy layers and also freezes while
-rendering a paused scene. A paused frame
+Wind uses the scene animation clock, which freezes on pause. A paused frame
 evaluates both wind positions at the same time; camera motion still uses the previous view-projection matrix. Reset, first appearance, or regeneration seeds the
 previous wind time from the current time once. The following frame resumes
 normal history. Changes to global wind parameters also suppress stale wind

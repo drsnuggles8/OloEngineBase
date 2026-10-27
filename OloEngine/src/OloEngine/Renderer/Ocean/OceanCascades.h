@@ -80,11 +80,14 @@ namespace OloEngine::Ocean
     // array and what makes that trade visible rather than accidental.
     // =========================================================================
 
-    /// The preset is fixed at three bands; kSingleCascadeCount is the legacy
-    /// path every existing scene stays on until it opts in.
+    /// The preset is fixed at three bands, and it is the default for every
+    /// water surface (#1502). kSingleCascadeCount is an authored choice: one
+    /// tile at the patch size carrying the whole spectrum, for a scene that
+    /// wants that look.
     inline constexpr u32 kMaxOceanCascades = 3u;
     inline constexpr u32 kSingleCascadeCount = 1u;
     inline constexpr u32 kThreeBandCascadeCount = 3u;
+    inline constexpr u32 kDefaultOceanCascadeCount = kThreeBandCascadeCount;
 
     /// Tile-size ratios against the authored patch size L, which the preset
     /// treats as the MID band. The broad band extends L outward (the long swell
@@ -176,9 +179,9 @@ namespace OloEngine::Ocean
 
     /// Build the preset for `cascadeCount` bands over an authored patch size and
     /// resolution. `cascadeCount == 1` reproduces the single-cascade field
-    /// exactly: one band, the authored L and N, no rotation, no band limit — so
-    /// a scene that has not opted in is on its old path unchanged. Any other
-    /// count is treated as the fixed three-band preset.
+    /// exactly: one band, the authored L and N, no rotation, no band limit — the
+    /// look a scene gets by authoring FFTCascades: 1. Any other count is
+    /// treated as the fixed three-band preset.
     [[nodiscard]] CascadePreset MakeCascadePreset(u32 cascadeCount, f32 patchSize, u32 resolution);
 
     /// Rotate `v` by the angle whose cosine/sine are given. The sampling

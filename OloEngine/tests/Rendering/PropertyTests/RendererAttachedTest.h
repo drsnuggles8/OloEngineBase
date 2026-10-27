@@ -79,6 +79,7 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Core/Timestep.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Scene/Scene.h"
@@ -227,25 +228,35 @@ namespace OloEngine::Tests
         u32 m_RenderWidth = 0;
         u32 m_RenderHeight = 0;
 
-        // Per-test snapshot of the process-wide renderer configuration
-        // (rendering path, culling, post-process chain). Restored in
-        // TearDown so a test that reconfigures the renderer — e.g. the
-        // SSGI/SSR evidence tests switching to the deferred path — cannot
-        // leak the change into later tests in the same process. A leaked
-        // path renders every subsequent visual test through the wrong
-        // pipeline (dark frames, dead assertions, altered evidence PNGs)
-        // while GLStateGuard's raw-GL restore reports nothing wrong.
-        RendererSettings m_SavedRendererSettings{};
-        PostProcessSettings m_SavedPostProcessSettings{};
-        // The shadow map's settings live on the ShadowMap, not in either struct
-        // above, and a test that leaves PCSS on softens every golden shadow
-        // after it (FoliageWind/FoliageInteraction, SSIM 0.95 against 0.985).
-        ShadowSettings m_SavedShadowSettings{};
-        // Fog is a third process-wide struct (Renderer3D::GetFogSettings), and a
-        // fixture that turns it on (the fog, atmosphere and weather evidence
-        // tests) would haze every test after it in the process (#1533: found
-        // while trying fog for the dog's lawn).
-        FogSettings m_SavedFogSettings{};
+        // Per-test snapshot of EVERY process-wide renderer settings struct,
+        // restored in TearDown, so a test that reconfigures the renderer cannot
+        // leak the change into later tests in the same process. A leaked path
+        // renders every later visual test through the wrong pipeline, a leaked
+        // PCSS softens every golden shadow after it (FoliageWind /
+        // FoliageInteraction, SSIM 0.95 against 0.985), leaked fog hazes them
+        // (#1533), and leaked rain put falling particles into a paused foliage
+        // frame (#1502) — all while GLStateGuard's raw-GL restore reports
+        // nothing wrong. This used to list the structs one leak at a time; it
+        // now holds one field per Renderer3D::Get*Settings() accessor, and
+        // RendererAttachedIsolation.EveryProcessWideSettingsStructIsRestored
+        // fails when an accessor is added without a field here.
+        struct ProcessWideSettings
+        {
+            RendererSettings Renderer{};
+            PostProcessSettings PostProcess{};
+            ShadowSettings Shadow{}; // lives on the ShadowMap, not on Renderer3D
+            SnowSettings Snow{};
+            SkinDiffusionSettings SkinDiffusion{};
+            FogSettings Fog{};
+            WindSettings Wind{};
+            SnowAccumulationSettings SnowAccumulation{};
+            WaterDisturbanceSettings WaterDisturbance{};
+            WaterWakeSettings WaterWake{};
+            WaterFoam::WaterFoamSettings WaterFoam{};
+            SnowEjectaSettings SnowEjecta{};
+            PrecipitationSettings Precipitation{};
+        };
+        ProcessWideSettings m_SavedSettings{};
         bool m_SettingsSnapshotted = false;
     };
 } // namespace OloEngine::Tests

@@ -7,10 +7,18 @@
 // displacement rather than two that could be applied in different places.
 #include "FoliageInteraction.glsl"
 
+// THE foliage wind model, one since #1502: every layer — flat or hierarchical,
+// card, mesh or impostor — takes the same trunk, the same per-plant modulation
+// and the same branch and leaf modes, on the scene animation clock (u_Time).
+//
+// The trunk follows the wind field when the scene has one (u_WindFlags.w): its
+// gusting velocity, capped at 20 m/s. A scene with no wind field sways in still
+// air on each layer's own WindSpeed, so a calm scene is not a frozen one.
+//
 // Every raster consumer evaluates this producer for current and previous
 // positions. The field snapshot travels in FoliageParams, including shadows.
-// Coordinates of the root are absolute; offsets remain terrain local, matching
-// the legacy contract. Bounds use the same length cap and coefficient sum.
+// Coordinates of the root are absolute; offsets are terrain local. Bounds
+// (FoliageWindMaximumDisplacement) use the same length cap and coefficient sum.
 vec3 foliageWindOffset(vec3 vertex, vec3 root, vec2 localRootXZ, float phase, float time)
 {
     float h = clamp(vertex.y, 0.0, 1.0);
@@ -18,21 +26,19 @@ vec3 foliageWindOffset(vec3 vertex, vec3 root, vec2 localRootXZ, float phase, fl
     // and a gust lean the same plant along the same curve.
     float bend = foliageBendMask(vertex);
     vec3 trunk;
-    bool hierarchical = dot(u_WindWeights.xyz, vec3(1.0)) > 0.0;
-    if (u_WindFlags.w > 0.5 && (hierarchical || u_ImpostorParams1.x <= 0.5))
+    if (u_WindFlags.w > 0.5)
     {
         float gust = 1.0 + u_WindGust.x * sin(time * u_WindGust.y * 6.2831853 +
                                             dot(root, u_WindDirection.xyz) * 0.05);
         vec3 velocity = u_WindDirection.xyz * u_WindDirection.w * gust;
-        if (hierarchical) velocity *= min(1.0, 20.0 / max(length(velocity), 1e-6));
+        velocity *= min(1.0, 20.0 / max(length(velocity), 1e-6));
         trunk = velocity * u_WindStrength * bend * 0.1;
     }
     else
     {
-        trunk = foliageLegacyWindOffset(localRootXZ, time, u_WindSpeed, u_WindStrength, bend);
+        trunk = foliageStillAirSway(localRootXZ, time, u_WindSpeed, u_WindStrength, bend);
     }
-    if (dot(u_WindWeights.xyz, vec3(1.0)) > 0.0)
-        trunk *= 0.8 + 0.2 * sin(time * u_WindSpeed * 0.8 + phase);
+    trunk *= 0.8 + 0.2 * sin(time * u_WindSpeed * 0.8 + phase);
     // Macro gust phase is spatially coherent. Identity only modulates smaller
     // branch/leaf modes, so adjacent plants share gusts without moving in lockstep.
     float branchMask = h * h;
@@ -56,23 +62,6 @@ struct FoliageDeformation
     vec3 Previous;
 };
 
-// WHICH CLOCK THIS LAYER ANIMATES ON. A legacy layer (no hierarchical weights)
-// under an enabled wind field rides u_WindClock.x; everything else rides
-// u_Time. Extracted because foliageWindNormal's finite difference has to
-// evaluate the wind at the SAME instant the displacement it differences against
-// was evaluated at — differencing two clocks and dividing by epsilon = 0.001
-// scales the gap by a thousand and the transported normal becomes garbage.
-//
-// Latent until issue #1238: foliageWindNormal was unreachable for legacy layers,
-// so u_Time was always the right answer there. Interaction bending reaches them,
-// which is what made the two expressions have to agree.
-float foliageAnimationClock()
-{
-    bool legacyField = dot(u_WindWeights.xyz, vec3(1.0)) <= 0.0 && u_WindFlags.w > 0.5 &&
-                       u_ImpostorParams1.x <= 0.5;
-    return legacyField ? u_WindClock.x : u_Time;
-}
-
 // `model` / `prevModel` place the pivot in (render-relative) world space for
 // this frame and the previous one: the draw's instance transform in a raster
 // stage, the dispatch's own matrix in the ray-traced vegetation snapshot.
@@ -82,9 +71,8 @@ FoliageDeformation foliageDeform(vec3 rest, vec3 vertex, vec3 pivot, float phase
     vec3 root = (model * vec4(pivot, 1.0)).xyz + u_WindFlags.xyz;
     vec3 prevRoot = (prevModel * vec4(pivot, 1.0)).xyz + u_WindFlags.xyz;
     FoliageDeformation result;
-    bool legacyField = dot(u_WindWeights.xyz, vec3(1.0)) <= 0.0 && u_WindFlags.w > 0.5 && u_ImpostorParams1.x <= 0.5;
-    float currentTime = foliageAnimationClock();
-    float previousTime = legacyField ? u_WindClock.w : u_PrevTime;
+    float currentTime = u_Time;
+    float previousTime = u_PrevTime;
     if (u_WindHistoryValid <= 0.5 || abs(u_Time - u_PrevTime) < 1e-6) previousTime = currentTime;
     result.Current = rest + foliageWindOffset(vertex, root, pivot.xz, phase, currentTime) +
                      foliageInteractionOffset(vertex, root, 0);
@@ -94,12 +82,14 @@ FoliageDeformation foliageDeform(vec3 rest, vec3 vertex, vec3 pivot, float phase
 }
 
 // The cofactor Jacobian transports authored mesh normals with the same bend.
-// Legacy layers retain their original normal exactly. Shadows need no normals.
+// A layer with no hierarchical weights keeps its rest normal: its only motion
+// is the trunk lean, and the transport costs three extra wind evaluations per
+// vertex. Shadows need no normals.
 vec3 foliageWindNormal(vec3 normal, vec3 vertex, vec3 pivot, float phase,
                        mat3 restJacobian, vec3 offset, mat4 model)
 {
-    // Legacy layers (no hierarchical weights) still transport their authored
-    // normal unchanged, EXCEPT where an interaction is bending them — a plant
+    // A layer with no hierarchical weights keeps its rest normal, EXCEPT where
+    // an interaction is bending it — a plant
     // pushed flat under a foot and shaded as if upright is the same defect the
     // cofactor transport exists to prevent, and issue #1238's layers are not
     // required to opt into hierarchical wind first.
@@ -116,7 +106,7 @@ vec3 foliageWindNormal(vec3 normal, vec3 vertex, vec3 pivot, float phase,
     {
         vec3 step = vec3(0.0);
         step[axis] = epsilon;
-        jacobian[axis] += (foliageWindOffset(vertex + step, root, pivot.xz, phase, foliageAnimationClock()) +
+        jacobian[axis] += (foliageWindOffset(vertex + step, root, pivot.xz, phase, u_Time) +
                            foliageInteractionOffsetFromPush(interaction, vertex + step) - offset) / epsilon;
     }
     mat3 cofactor = mat3(cross(jacobian[1], jacobian[2]), cross(jacobian[2], jacobian[0]),

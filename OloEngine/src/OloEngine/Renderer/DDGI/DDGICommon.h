@@ -279,7 +279,8 @@ namespace OloEngine::DDGI
     }
 
     // -------------------------------------------------------------------------
-    // Volume membership. GLSL mirror: ddgiIsInsideVolume, ddgiVolumeWeightBounds.
+    // Volume membership. GLSL mirror: ddgiVolumeWeightBounds (margin 0 is the
+    // hard inside test; the shaders reach it per cascade through ddgiCascadeWeight).
     // -------------------------------------------------------------------------
 
     [[nodiscard("the membership test is the only effect")]] inline bool IsInsideVolume(const glm::vec3& worldPos, const glm::vec3& boundsMin, const glm::vec3& boundsMax) noexcept
@@ -488,8 +489,7 @@ namespace OloEngine::DDGI
         return CascadeBoundsMin(grid) + glm::vec3(glm::max(grid.Dims - glm::ivec3(1), glm::ivec3(0))) * grid.Spacing;
     }
 
-    // Continuous lattice coordinates of a world position (the cascade
-    // equivalent of ddgiWorldToProbeGrid).
+    // Continuous lattice coordinates of a world position.
     [[nodiscard("the lattice coordinates are the only effect")]] inline glm::vec3 WorldToCascadeLattice(const glm::vec3& worldPos, const CascadeGrid& grid) noexcept
     {
         return (worldPos - grid.Origin) / glm::max(grid.Spacing, glm::vec3(1e-6f));
@@ -756,6 +756,27 @@ namespace OloEngine::DDGI
                glm::clamp(intra, 0.0f, kMaxIntra);
     }
 
+    // How many of a frame's capture candidates, sorted most urgent first, are
+    // captured. Urgent ones (never captured, or in the relocation warm-up) may
+    // take the whole budget. The refresh tier gets at most an eighth of it in
+    // EVERY frame (Lumen's CardCaptureRefreshFraction), urgent work or not.
+    // Topping the budget up with refreshes while a warm-up runs re-rasterizes
+    // the full budget: 9.7 ms GPU on the 32-probe bring-up scene against
+    // 2.5 ms capped. Refusing refresh outright while anything is urgent would
+    // starve it for as long as a moving camera keeps scrolling cascades.
+    [[nodiscard("the capture count is the only effect")]] constexpr i32 CaptureSetSize(i32 budget, i32 urgentCount,
+                                                                                       i32 refreshCount) noexcept
+    {
+        if (budget <= 0)
+        {
+            return 0;
+        }
+        const i32 urgent = glm::clamp(urgentCount, 0, budget);
+        const i32 refreshCap = glm::max(1, budget / 8);
+        const i32 refresh = glm::min(glm::min(glm::max(refreshCount, 0), refreshCap), budget - urgent);
+        return urgent + refresh;
+    }
+
     // -------------------------------------------------------------------------
     // The relocation warm-up schedule (issue #1279). CPU-only, like the tiers
     // above: this is the single place that decides BOTH which tier a capture is
@@ -843,7 +864,7 @@ namespace OloEngine::DDGI
 
     // -------------------------------------------------------------------------
     // Sampler weights (the leak fix). GLSL mirror: ddgiChebyshevWeight,
-    // ddgiWrapShadingWeight, ddgiCrushWeight, ddgiSelfShadowBias.
+    // ddgiWrapShadingWeight, ddgiCrushWeight, ddgiSelfShadowBiasFor.
     // -------------------------------------------------------------------------
 
     // Chebyshev upper-bound visibility: probability the surface at distance r

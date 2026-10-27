@@ -32,6 +32,10 @@ namespace OloEngine
         f32 NothingWeight = 0.0f;
 
         [[nodiscard("rolled loot must be used")]] std::vector<ItemInstance> Roll(f32 itemLevel = 1.0f) const;
+
+        // How many affix rolls, process-wide, named a pool or affix the
+        // AffixDatabase does not hold. Each one is logged and skipped.
+        [[nodiscard]] static u64 GetUnresolvedAffixCount();
     };
 
 } // namespace OloEngine

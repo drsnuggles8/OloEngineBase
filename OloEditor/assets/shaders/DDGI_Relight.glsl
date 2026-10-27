@@ -210,7 +210,7 @@ void main()
     }
 
     // Frontface hit — reconstruct the render-relative hit point. The DDGI UBO
-    // bounds are render-origin-relative, so ddgiProbeWorldPosition already
+    // bounds are render-origin-relative, so ddgiCascadeProbeWorldPosition already
     // yields a render-relative probe position, consistent with the
     // render-relative light positions in the MultiLight UBO (issue #429).
     vec3 probeRelPos = ddgiCascadeProbeWorldPosition(storage, level, pdata.xyz);

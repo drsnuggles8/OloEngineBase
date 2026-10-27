@@ -31,7 +31,7 @@ domain warping). This produces convincing results for a moderate number of
 waves, but cannot match the spectral realism of thousands of superimposed
 frequency components.
 
-### Status — **partially shipped (single cascade, toggleable)**
+### Status — **partially shipped (toggleable; three-band cascades by default, §1.3)**
 
 A Tessendorf spectral ocean is wired end to end behind a `WaterComponent`
 toggle (`m_UseFFT`); the Gerstner path stays the default for comparison /
@@ -91,8 +91,8 @@ fallback. Shipped:
   Pinned by `OceanFFTSpectrumTest` (γ peak enhancement, fetch→peak-frequency
   shift, dispatch routing, metre-scale field) + a `ComponentRoundTrip` YAML test.
 
-- ✅ **Band-limited three-cascade preset (§1.3)** — opt-in per water surface
-  (`m_FFTCascades`), shipped by issue #969. See §1.3 below.
+- ✅ **Band-limited three-cascade preset (§1.3)** — the default for every water
+  surface since #1502 (`m_FFTCascades`), shipped by issue #969. See §1.3 below.
 
 **Buoyancy sampling from the FFT field** (§5.1) is also **shipped** —
 `BuoyancySystem` reads `OceanFFTField`'s band-limited CPU proxy via
@@ -154,8 +154,9 @@ Whitecaps"* (SIGGRAPH Asia 2012).
 
 What shipped is a **fixed three-band preset**, not an N-cascade system — the
 issue's non-goal is an artist knob surface before the preset is visually proven.
-A water surface opts in with `m_FFTCascades = 3` (default 1 = the pre-#969
-field, unchanged); everything else derives from the patch size and resolution
+Every water surface uses it by default (`m_FFTCascades = 3`, since #1502); a
+scene that wants one tile carrying the whole spectrum authors
+`FFTCascades: 1`. Everything else derives from the patch size and resolution
 the scene already authors. The full design, and the reasoning behind each
 constant, lives at the top of
 [`Ocean/OceanCascades.h`](../../OloEngine/src/OloEngine/Renderer/Ocean/OceanCascades.h)

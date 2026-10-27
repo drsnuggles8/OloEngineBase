@@ -126,13 +126,14 @@ namespace OloEngine
                                                                        static_cast<u32>(plants * (part.IndexCount / 3u)));
             return bytes;
         };
-        // How fast a layer's plants can move, world units a second.
-        const auto velocityBound = [&](const LayerRenderData& layer, bool impostor) -> f32
+        // How fast a layer's plants can move, world units a second. One bound
+        // for every representation: an impostor sways under the same wind
+        // model as the mesh it stands in for (#1502).
+        const auto velocityBound = [&](const LayerRenderData& layer) -> f32
         {
-            const bool hierarchy = layer.WindWeights.x + layer.WindWeights.y + layer.WindWeights.z > 0.0f;
             f32 bound = RayTracing::VegetationPolicy::WindVelocityBound(
                 layer.WindStrength, layer.WindSpeed, layer.WindWeights.y, layer.WindWeights.z,
-                hierarchy, field.TimeAndFlags.y > 0.5f && (hierarchy || !impostor), field.DirectionAndSpeed.w,
+                field.TimeAndFlags.y > 0.5f, field.DirectionAndSpeed.w,
                 field.GustAndTurbulence.x, field.GustAndTurbulence.y, transformNorm);
             // A running actor moves a plant far faster than wind does,
             // and ProxyAgeLimit is error/velocity — so a bound that
@@ -272,7 +273,6 @@ namespace OloEngine
             wind.WindWeights = layer.WindWeights;
             wind.WindDirection = field.DirectionAndSpeed;
             wind.WindGust = field.GustAndTurbulence;
-            wind.WindClock = field.TimeAndFlags;
             wind.WindFlags = glm::vec4(Renderer3D::GetRenderOrigin(), field.TimeAndFlags.y);
             wind.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;
             wind.MeshParams.x = mesh ? 1.0f : 0.0f;
@@ -296,7 +296,7 @@ namespace OloEngine
             input.HistoryContinuous = WindSystem::HasStableParameters() && m_Time >= m_PrevTime;
             input.CastShadows = layer.CastShadows;
             input.AccelerationBytes = estimatedAccelerationBytes;
-            input.VelocityBound = velocityBound(layer, impostor);
+            input.VelocityBound = velocityBound(layer);
             cache.Queue(std::move(input));
         };
         // What the cached split was taken from, besides the camera: every
@@ -347,10 +347,8 @@ namespace OloEngine
         };
         TArray<CastingCandidate> castingCandidates;
         // The wind clock's step since the last plan, which sets how often a
-        // proxy refreshes. The cache times a layer on the clock its wind is
-        // evaluated on: the wind field's for a legacy single-weight layer
-        // (VegetationSurfaceCache's WindTime), the scene animation clock
-        // otherwise.
+        // proxy refreshes. Every layer's wind runs on the scene animation clock
+        // (#1502), and so does the cache (VegetationSurfaceCache's WindTime).
         // A clock that did not move since the last plan (a second view this
         // frame, a paused scene) keeps the last real step: a zero step would
         // charge no refresh and flip every group to the mesh until it moves.
@@ -361,31 +359,20 @@ namespace OloEngine
             return kept;
         };
         const f32 animationStep = stepSince(m_Time, m_PlanAnimationTime, m_PlanAnimationStep);
-        const f32 fieldStep = stepSince(field.TimeAndFlags.x, m_PlanFieldTime, m_PlanFieldStep);
         m_PlanAnimationTime = m_Time;
-        m_PlanFieldTime = field.TimeAndFlags.x;
-        const auto frameSecondsFor = [&](const LayerRenderData& layer, bool impostor) -> f32
-        {
-            const bool legacyField = layer.WindWeights.x + layer.WindWeights.y + layer.WindWeights.z <= 0.0f &&
-                                     field.TimeAndFlags.y > 0.5f && !impostor;
-            return legacyField ? fieldStep : animationStep;
-        };
-        // Per layer, once: each tier's velocity bound and clock step.
+        // Per layer, once: the velocity bound and clock step.
         struct LayerRates
         {
-            f32 MeshVelocity = 0.0f;
-            f32 ImpostorVelocity = 0.0f;
-            f32 MeshStep = 0.0f;
-            f32 ImpostorStep = 0.0f;
+            f32 Velocity = 0.0f;
+            f32 Step = 0.0f;
         };
         TArray<LayerRates> layerRates;
         layerRates.Reserve(m_Layers.Num());
         f32 frameSeconds = 0.0f;
         for (const auto& layer : m_Layers)
         {
-            const LayerRates rates{ velocityBound(layer, false), velocityBound(layer, true), frameSecondsFor(layer, false),
-                                    frameSecondsFor(layer, true) };
-            frameSeconds = std::max({ frameSeconds, rates.MeshStep, rates.ImpostorStep });
+            const LayerRates rates{ velocityBound(layer), animationStep };
+            frameSeconds = std::max(frameSeconds, rates.Step);
             layerRates.Add(rates);
         }
         const bool forceDetailed = RayTracing::VegetationDiagnostics::GetForceDetailed();
@@ -552,10 +539,9 @@ namespace OloEngine
                     // bound only lets the cache reuse and hold longer.
                     const LayerRates& rates = layerRates[static_cast<i32>(group.m_LayerIndex)];
                     candidate.Cost.RequestedRate = RayTracing::VegetationPolicy::RefreshRate(
-                        forceDetailed || nearest <= castingDetailedDistance(layer, mesh), impostor ? rates.ImpostorVelocity : rates.MeshVelocity,
-                        impostor ? rates.ImpostorStep : rates.MeshStep);
+                        forceDetailed || nearest <= castingDetailedDistance(layer, mesh), rates.Velocity, rates.Step);
                     candidate.Cost.FallbackRate = RayTracing::VegetationPolicy::RefreshRate(
-                        forceDetailed || nearest <= castingDetailedDistance(layer, false), rates.MeshVelocity, rates.MeshStep);
+                        forceDetailed || nearest <= castingDetailedDistance(layer, false), rates.Velocity, rates.Step);
                     candidate.Distance = nearest;
                     candidate.FirstRecord = static_cast<u32>(castingRecords.Num());
                     candidate.RecordCount = static_cast<u32>(slice.size());
@@ -598,7 +584,7 @@ namespace OloEngine
                     }
                     candidate.Distance = nearest;
                     candidate.Cost.RequestedRate = RayTracing::VegetationPolicy::RefreshRate(
-                        forceDetailed || nearest <= castingDetailedDistance(layer, false), rates.MeshVelocity, rates.MeshStep);
+                        forceDetailed || nearest <= castingDetailedDistance(layer, false), rates.Velocity, rates.Step);
                     candidate.Cost.FallbackRate = candidate.Cost.RequestedRate;
                     castingCandidates.Add(std::move(candidate)); });
         }
@@ -2163,7 +2149,7 @@ namespace OloEngine
         const bool variantUnavailable = (impostorRequested && !impostorAvailable) ||
                                         (meshRequested && !meshDrawable);
 
-        renderData.BoundsProfile.m_WindDisplacement = FoliageWindMaximumDisplacement(layer.WindStrength, renderData.WindWeights, m_LegacyWindEnvelope);
+        renderData.BoundsProfile.m_WindDisplacement = FoliageWindMaximumDisplacement(layer.WindStrength, renderData.WindWeights);
         // Derived from the AUTHORED response, not from whatever the field
         // happens to hold this frame: the profile is hashed into every
         // instance's identity, so a bound that moved with a passing actor
@@ -2288,8 +2274,7 @@ namespace OloEngine
         // A changed height field is already visible on the terrain. Commit its
         // roots in this frame; holding old Y coordinates would detach plants.
         // Cold generation has no complete previous canopy to retain.
-        if (LowLevelTasks::FScheduler::Get().GetNumWorkers() == 0 || GetTotalInstanceCount() == 0 || !sameTerrain ||
-            !Math::BitwiseEqual(m_PublishedWindEnvelope, m_LegacyWindEnvelope))
+        if (LowLevelTasks::FScheduler::Get().GetNumWorkers() == 0 || GetTotalInstanceCount() == 0 || !sameTerrain)
         {
             GenerateInstances(layers, terrainData, material, worldSizeX, worldSizeZ, heightScale);
             return;
@@ -2319,7 +2304,6 @@ namespace OloEngine
         next.Input->Specs.SetNum(layers.Num());
         next.Staged = Ref<FoliageRenderer>::Create();
         next.Staged->m_StreamingEnabled = m_StreamingEnabled;
-        next.Staged->m_LegacyWindEnvelope = m_LegacyWindEnvelope;
         next.Staged->m_ImpostorDepthShader = m_ImpostorDepthShader;
         next.Staged->m_Layers = m_Layers;
         next.BorrowedAtlasNodes.Init(AtlasAllocator::kInvalidNode, layers.Num());
@@ -2753,7 +2737,6 @@ namespace OloEngine
         m_PublishedLayers = layers;
         m_PublishedResolution = heightResolution;
         m_PublishedTerrainSize = glm::vec3(worldSizeX, worldSizeZ, heightScale);
-        m_PublishedWindEnvelope = m_LegacyWindEnvelope;
         m_PublishedRebuildSerial = m_NextRebuildSerial++;
         RecordTerrainSources(terrainData, material, worldSizeX, worldSizeZ, heightScale);
         if (visibleChanged)
@@ -2884,7 +2867,6 @@ namespace OloEngine
                 const auto wind = WindSystem::GetGPUData();
                 foliageUBOData.WindDirection = wind.DirectionAndSpeed;
                 foliageUBOData.WindGust = wind.GustAndTurbulence;
-                foliageUBOData.WindClock = wind.TimeAndFlags;
                 foliageUBOData.PrevMeshViewPos = glm::vec4(MakePositionRelative(Renderer3D::GetPreviousViewPosition(), Renderer3D::GetRenderOrigin()), 0.0f);
                 foliageUBOData.WindFlags = glm::vec4(Renderer3D::GetRenderOrigin(), wind.TimeAndFlags.y);
                 foliageUBOData.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;
@@ -3009,7 +2991,6 @@ namespace OloEngine
         const u64 generation = m_Canonical->Registry.GetGeneration();
         mix(&generation, sizeof(generation));
         mix(&m_TerrainTransform, sizeof(m_TerrainTransform));
-        mix(&m_LegacyWindEnvelope, sizeof(m_LegacyWindEnvelope));
         for (const auto& layer : m_Layers)
         {
             const FoliageLod::Params lod = ActiveLod(layer);
@@ -3243,7 +3224,6 @@ namespace OloEngine
                 const auto wind = WindSystem::GetGPUData();
                 foliageUBOData.WindDirection = wind.DirectionAndSpeed;
                 foliageUBOData.WindGust = wind.GustAndTurbulence;
-                foliageUBOData.WindClock = wind.TimeAndFlags;
                 foliageUBOData.PrevMeshViewPos = glm::vec4(MakePositionRelative(Renderer3D::GetPreviousViewPosition(), Renderer3D::GetRenderOrigin()), 0.0f);
                 foliageUBOData.WindFlags = glm::vec4(Renderer3D::GetRenderOrigin(), wind.TimeAndFlags.y);
                 foliageUBOData.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;

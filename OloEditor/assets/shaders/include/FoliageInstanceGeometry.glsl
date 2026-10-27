@@ -102,11 +102,12 @@ mat3 foliageInstanceRotation(float rotation)
                 vec3(-sinR, 0.0, cosR));
 }
 
-// The legacy sine-wave wind offset, when no wind field is enabled. Shared so
-// the shadow stage sways a plant exactly as the beauty stage does — a shadow
-// that swings out of phase with its plant is the same class of desync.
-vec3 foliageLegacyWindOffset(vec2 instanceXZ, float time, float windSpeed, float windStrength,
-                             float windInfluence)
+// The trunk's still-air sway, for a scene with no wind field
+// (foliageWindOffset). Shared so the shadow stage sways a plant exactly as the
+// beauty stage does — a shadow that swings out of phase with its plant is the
+// same class of desync.
+vec3 foliageStillAirSway(vec2 instanceXZ, float time, float windSpeed, float windStrength,
+                         float windInfluence)
 {
     float phase = (instanceXZ.x + instanceXZ.y) * 0.1 + time * windSpeed;
     float wind = sin(phase) * cos(phase * 0.7 + 1.3) * windStrength * windInfluence;
