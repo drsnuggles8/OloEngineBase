@@ -7,6 +7,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Physics3D/JoltScene.h"
+#include "OloEngine/Project/ContentPath.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
 #include "OloEngine/Threading/UniqueLock.h"
 
@@ -200,10 +201,18 @@ namespace OloEngine
             return;
         }
 
-        std::filesystem::path regionDir(m_Config.RegionDirectory.ToStdString());
-        if (!std::filesystem::exists(regionDir))
+        // Spelled like every other stored content path: "Assets/..." is
+        // project-relative, anything else is against the working directory.
+        // ResolveContentPath reports a path that is not there.
+        const std::filesystem::path regionDir = ResolveContentPath(m_Config.RegionDirectory.ToView());
+        if (regionDir.empty())
         {
-            OLO_CORE_WARN("SceneStreamer: Region directory does not exist: {0}", m_Config.RegionDirectory.ToView());
+            return;
+        }
+        if (std::error_code ec; !std::filesystem::is_directory(regionDir, ec))
+        {
+            OLO_CORE_ERROR("SceneStreamer: region directory '{}' resolves to '{}', which is not a directory",
+                           m_Config.RegionDirectory.ToView(), regionDir.string());
             return;
         }
 

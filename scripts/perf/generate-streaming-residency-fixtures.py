@@ -120,7 +120,7 @@ def main():
         regional['StreamingSettings'] = {
             'Enabled': True, 'DefaultLoadRadius': load_radius, 'DefaultUnloadRadius': unload_radius,
             'MaxLoadedRegions': 2,
-            'RegionDirectory': f'SandboxProject/Assets/Scenes/Benchmark/Streaming{family}Regions',
+            'RegionDirectory': f'Assets/Scenes/Benchmark/Streaming{family}Regions',
             'RepresentationResidentMegabytes': resident_budget,
             'RepresentationUploadMegabytesPerFrame': upload_budget,
             'RepresentationStagingMegabytes': 128}
