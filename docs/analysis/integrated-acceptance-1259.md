@@ -180,10 +180,12 @@ The Forward, Forward+ and Deferred rows above come from the first session, which
 light requests nor the waste, and agree with the post-fix Deferred check within 10%.
 
 GPU memory at the end of the session: live 2.75 GiB, peak 6.26 GiB; ShadowPass 696 MiB, ShadowMap
-640 MiB, unattributed 427 MiB, transient pool 273 MiB, GroomPass 199 MiB. The editor process held
-6.6–6.8 GB of private memory throughout, and a reload of the scene peaked at 12.9 GB for about 30 s.
-Since #1591 a reload peaks at 6.3 GB and settles at 6.2 GB (15.4 GB and 6.4 GB on the same machine
-before), and the strand cache stays within its budget while the scene loads. The editor log has no
+640 MiB, unattributed 427 MiB, transient pool 273 MiB, GroomPass 199 MiB. In this session (the
+#1259 build, 2026-10-11) the editor process held 6.6–6.8 GB of private memory throughout, and a
+reload of the scene peaked at 12.9 GB for about 30 s. The #1591 measurements are a separate pair of
+Release builds on the same machine, reloading the scene in a Vulkan editor and sampling private bytes
+every 0.5 s: master `4c7832d2a` peaked at 15.4 GB and settled at 6.4 GB; the #1591 branch peaked at
+6.3 GB and settled at 6.2 GB, with the strand cache inside its budget throughout the load. The editor log has no
 shader error; it warns that the groom strand cache runs 50–85 MiB
 over its 1 GiB budget at the head close-up with every entry in use (0.1–0.6 GiB at the herd cameras, on
 master as on the #1591 branch: #1660), and that the VSM's lamps
