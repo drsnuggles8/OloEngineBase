@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "RendererAttachedTest.h"
 
+#include "OloEngine/Precipitation/PrecipitationSystem.h"
+#include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -8,9 +10,16 @@
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Renderer/Upscaling/TemporalUpscaler.h"
+#include "OloEngine/Renderer/Water/WaterDisturbanceSystem.h"
+#include "OloEngine/Renderer/Water/WaterRainRippleSystem.h"
+#include "OloEngine/Renderer/Water/WaterSpraySystem.h"
+#include "OloEngine/Renderer/Water/WaterWakeSystem.h"
+#include "OloEngine/Snow/SnowAccumulationSystem.h"
+#include "OloEngine/Snow/SnowEjectaSystem.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Task/Scheduler.h"
+#include "OloEngine/Terrain/Foliage/FoliageInteraction.h"
 #include "OloEngine/Terrain/Foliage/FoliageRenderer.h"
 
 #include "GLErrorStateCheck.h"
@@ -168,15 +177,41 @@ namespace OloEngine::Tests
         // gets a chance to mutate it; TearDown restores it. See the member
         // comment in the header for why a leaked setting is worse than a
         // leaked GL binding.
-        m_SavedRendererSettings = Renderer3D::GetRendererSettings();
-        m_SavedPostProcessSettings = Renderer3D::GetPostProcessSettings();
-        m_SavedShadowSettings = Renderer3D::GetShadowMap().GetSettings();
-        m_SavedFogSettings = Renderer3D::GetFogSettings();
+        m_SavedSettings.Renderer = Renderer3D::GetRendererSettings();
+        m_SavedSettings.PostProcess = Renderer3D::GetPostProcessSettings();
+        m_SavedSettings.Shadow = Renderer3D::GetShadowMap().GetSettings();
+        m_SavedSettings.Snow = Renderer3D::GetSnowSettings();
+        m_SavedSettings.SkinDiffusion = Renderer3D::GetSkinDiffusionSettings();
+        m_SavedSettings.Fog = Renderer3D::GetFogSettings();
+        m_SavedSettings.Wind = Renderer3D::GetWindSettings();
+        m_SavedSettings.SnowAccumulation = Renderer3D::GetSnowAccumulationSettings();
+        m_SavedSettings.WaterDisturbance = Renderer3D::GetWaterDisturbanceSettings();
+        m_SavedSettings.WaterWake = Renderer3D::GetWaterWakeSettings();
+        m_SavedSettings.WaterFoam = Renderer3D::GetWaterFoamSettings();
+        m_SavedSettings.SnowEjecta = Renderer3D::GetSnowEjectaSettings();
+        m_SavedSettings.Precipitation = Renderer3D::GetPrecipitationSettings();
         m_SettingsSnapshotted = true;
 
         // Every test renders the frame sequence a fresh process would, so its
         // output does not depend on how many frames earlier tests rendered.
         Renderer3D::ResetFrameSequences();
+        // ...and starts from the world state a fresh process has. Each of these
+        // systems keeps particles, a field or an intensity in process-global
+        // storage that outlives the scene that set it: rain left falling by
+        // WaterFoamSprayRain's rain test moved pixels in FoliageWind's paused
+        // frame (#1502). Scene::OnRuntimeStart resets some of them; a test that
+        // never starts the runtime gets none of that.
+        // RendererAttachedIsolation.EveryProcessWideSimulationSystemIsReset
+        // fails when a system with a static Reset() is missing here.
+        PrecipitationSystem::Reset();
+        ScreenSpacePrecipitation::Reset();
+        WaterDisturbanceSystem::Reset();
+        WaterRainRippleSystem::Reset();
+        WaterSpraySystem::Reset();
+        WaterWakeSystem::Reset();
+        SnowAccumulationSystem::Reset();
+        SnowEjectaSystem::Reset();
+        FoliageInteractionField::Reset();
 
         m_Scene = Scene::Create();
         // Rendering is OFF by default: the cheap smoke tests only need the
@@ -206,12 +241,21 @@ namespace OloEngine::Tests
             // guards the expensive ConfigureRenderGraph behind an actual
             // path/AO-technique mismatch, so an already-consistent graph costs
             // only a few scalar setters.
-            Renderer3D::GetPostProcessSettings() = m_SavedPostProcessSettings;
-            Renderer3D::GetRendererSettings() = m_SavedRendererSettings;
+            Renderer3D::GetPostProcessSettings() = m_SavedSettings.PostProcess;
+            Renderer3D::GetRendererSettings() = m_SavedSettings.Renderer;
             // Through SetSettings, which recreates the shadow textures on a
             // resolution change; a plain PCSS toggle only rewrites the flags.
-            Renderer3D::GetShadowMap().SetSettings(m_SavedShadowSettings);
-            Renderer3D::GetFogSettings() = m_SavedFogSettings;
+            Renderer3D::GetShadowMap().SetSettings(m_SavedSettings.Shadow);
+            Renderer3D::GetSnowSettings() = m_SavedSettings.Snow;
+            Renderer3D::GetSkinDiffusionSettings() = m_SavedSettings.SkinDiffusion;
+            Renderer3D::GetFogSettings() = m_SavedSettings.Fog;
+            Renderer3D::GetWindSettings() = m_SavedSettings.Wind;
+            Renderer3D::GetSnowAccumulationSettings() = m_SavedSettings.SnowAccumulation;
+            Renderer3D::GetWaterDisturbanceSettings() = m_SavedSettings.WaterDisturbance;
+            Renderer3D::GetWaterWakeSettings() = m_SavedSettings.WaterWake;
+            Renderer3D::GetWaterFoamSettings() = m_SavedSettings.WaterFoam;
+            Renderer3D::GetSnowEjectaSettings() = m_SavedSettings.SnowEjecta;
+            Renderer3D::GetPrecipitationSettings() = m_SavedSettings.Precipitation;
             Renderer3D::ApplyRendererSettings();
             m_SettingsSnapshotted = false;
         }
