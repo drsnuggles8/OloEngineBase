@@ -63,10 +63,16 @@ namespace OloEngine
         // that fails too does it return `DrainFailed`: the fence and command
         // buffer are leaked rather than released in flight, and a caller must
         // keep (leak) anything the recording reads, as UploadToBuffer does.
+        //
+        // A second wait that RETIRES the work makes the result `Completed`
+        // and true, with a warning: the 10 s first wait only separates a slow
+        // GPU from a hung one, and a readback whose copy finished in the
+        // drain holds valid data (#1556). `Submitted` is left for a device
+        // lost before anything proved the work retired.
         enum class Outcome
         {
             NotSubmitted, // never reached the queue — nothing recorded will run
-            Submitted,    // accepted by the queue, but the fence wait did not succeed
+            Submitted,    // accepted by the queue; the device was lost before the work was seen to retire
             DrainFailed,  // accepted, and nothing proves it retired: keep what it reads
             Completed,    // accepted and retired; the work is done
         };
@@ -111,10 +117,11 @@ namespace OloEngine
 
         // The OTHER half of the fault injection: the next `count` submits are
         // recorded and queued for real, then their fence wait is forced to
-        // fail — the VK_TIMEOUT shape. Outcome is `Submitted`, so a caller
-        // MUST still advance any state the queued work establishes. Without
-        // this the timeout path has no test, and it is the half that looks
-        // identical to a hard failure at the call site.
+        // fail — the VK_TIMEOUT shape. The drain that follows waits for real,
+        // so on a live device the work retires and the call reports
+        // `Completed` and true: a caller must still advance any state the
+        // queued work establishes, and a readback must return its data.
+        // Without this the timeout path has no test.
         void SetFailNextFenceWaitsForTesting(u32 count);
         [[nodiscard]] u32 GetPendingFailNextFenceWaitsForTesting();
 #endif
