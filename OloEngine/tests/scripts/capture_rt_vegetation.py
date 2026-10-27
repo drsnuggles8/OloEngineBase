@@ -114,7 +114,10 @@ def main():
     call('olo_scene_simulate')
     call('olo_editor_pause', {'paused': True})
     call('olo_editor_debug_draw_set', {'category': 'all', 'enabled': False})
-    call('olo_camera_set_pose', {'position': [128, 14, 196], 'target': [128, 5, 128], 'fov': 45})
+    # The scene camera's spot, 6 m west of where a pine has stood since #1502
+    # gave every foliage layer the decorrelated placement hash; the old eye
+    # sat inside its crown.
+    call('olo_camera_set_pose', {'position': [122, 14, 196], 'target': [122, 5, 128], 'fov': 45})
     with (args.output / 'cells.jsonl').open('w', encoding='utf-8') as log:
         for cell in plan:
             ident = f"{cell['path']}-msaa{cell['samples']}-{cell['upscale']}-{cell['size'][0]}-rt{int(cell['rt'])}"
