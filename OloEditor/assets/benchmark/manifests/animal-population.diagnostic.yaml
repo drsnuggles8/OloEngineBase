@@ -110,6 +110,7 @@ RendererSettings:
   # need the deferred path, and a forward capture of this scene is a different
   # measurement rather than the same one cheaper.
   Path: Deferred
+  RayTracedShadowsEnabled: false
   EnableDDGI: false
   TAAEnabled: true
 
@@ -268,3 +269,6 @@ Assets:
     UpAxis: +Y
     ColorSpace: n/a
     Acquisition: https://github.com/KhronosGroup/glTF-Sample-Assets/tree/main/Models/Fox
+Presets:
+  opengl: gl-deferred-native
+  vulkan: vk-deferred-native

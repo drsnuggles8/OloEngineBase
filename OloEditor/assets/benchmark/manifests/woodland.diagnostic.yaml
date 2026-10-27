@@ -107,6 +107,7 @@ Output:
 
 RendererSettings:
   Path: Deferred
+  RayTracedShadowsEnabled: false
   EnableDDGI: false
   TAAEnabled: true
 
@@ -497,3 +498,6 @@ Assets:
       Already in-tree. CC0 permits redistribution and modification, so the DERIVED
       plant is committed rather than fetched. Rebuild it from the Poly Haven source
       with: python tools/vegetation-import/import_vegetation.py shrub
+Presets:
+  opengl: gl-deferred-native
+  vulkan: vk-deferred-native

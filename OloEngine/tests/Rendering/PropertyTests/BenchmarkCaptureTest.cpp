@@ -164,7 +164,6 @@ TEST(BenchmarkCapture, RunWhenRequested)
     }
     std::string presetError;
     ASSERT_TRUE(Benchmark::ValidatePresetAdmission(*manifest, "opengl", presetError)) << presetError;
-    if (manifest->PresetIdsByBackend.contains("opengl"))
     {
         auto wrongBackend = *manifest;
         wrongBackend.PresetIdsByBackend["opengl"] = "vk-forward-native";
@@ -175,6 +174,12 @@ TEST(BenchmarkCapture, RunWhenRequested)
         missingPath.RendererSettings.Path.reset();
         EXPECT_FALSE(Benchmark::ValidatePresetAdmission(missingPath, "opengl", presetError));
         EXPECT_NE(presetError.find("path disagrees"), std::string::npos);
+
+        // #1502: there is no preset-less capture any more.
+        auto noPreset = *manifest;
+        noPreset.PresetIdsByBackend.erase("opengl");
+        EXPECT_FALSE(Benchmark::ValidatePresetAdmission(noPreset, "opengl", presetError));
+        EXPECT_NE(presetError.find("names no renderer-support preset"), std::string::npos);
     }
 
     // -- Project mount (the REAL SandboxProject — capture reads assets, and

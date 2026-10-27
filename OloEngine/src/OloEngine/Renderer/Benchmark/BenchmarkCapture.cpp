@@ -720,7 +720,10 @@ namespace OloEngine::Benchmark
     {
         const auto entry = manifest.PresetIdsByBackend.find(std::string(backend));
         if (entry == manifest.PresetIdsByBackend.end())
-            return true; // legacy capture manifests have no production preset
+        {
+            outError = "manifest names no renderer-support preset for backend " + std::string(backend);
+            return false;
+        }
         for (const auto& preset : RendererSupport::Presets)
         {
             if (preset.Name != entry->second.ToView())

@@ -31,6 +31,7 @@ Output:
 
 RendererSettings:
   Path: Deferred
+  RayTracedShadowsEnabled: false
   EnableDDGI: false
   TAAEnabled: true
 
@@ -186,3 +187,6 @@ Assets:
     Acquisition: >-
       Already in-tree; the copy predates this manifest. Upstream: the LearnOpenGL PBR sample textures
       (https://learnopengl.com/PBR/Lighting); their licence is not confirmed
+Presets:
+  opengl: gl-deferred-native
+  vulkan: vk-deferred-native

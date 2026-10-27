@@ -98,6 +98,10 @@ def main():
                                       camera('rapid-turn', near, [0, 0, 0], 180),
                                       camera('traversal', crossing, speed)]
                 capture['RendererSettings']['Path'] = path
+                # The production preset follows the path (#1502); the base
+                # manifest's preset names its own path, not this variant's.
+                capture['Presets'] = {api: {'opengl': 'gl', 'vulkan': 'vk'}[api] + f'-{label}-native'
+                                      for api in capture['Backends']['Supported']}
                 # Beauty/velocity/depth exist on every path. G-buffer-only AOVs
                 # would make a forward workload fail before collecting tails.
                 capture['Attachments'] = [a for a in capture['Attachments']
