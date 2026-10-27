@@ -62,7 +62,6 @@
 #include "OloEngine/Renderer/ResourceHandle.h"
 
 #include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
-#include "OloEngine/Renderer/GPUCache/GPUCircularBuffer.h"
 
 #include <array>
 #include <unordered_map>
@@ -235,7 +234,7 @@ namespace OloEngine
             u64 CpuDeformMirrorBytes = 0; ///< each GPU-deformed entity's packed frame buffer, host side
             u64 CpuBakeInputBytes = 0;    ///< a posed bake's captured pose, card fibre scales and their tables
             u64 CpuRootTableBytes = 0;    ///< per-strand tables: root slot -> curve, caster strand orders and poses
-            u64 CpuScratchBytes = 0;      ///< the pass's reusable bake, pose and CPU-stream scratch, and its upload ring
+            u64 CpuScratchBytes = 0;      ///< the pass's reusable bake, pose and CPU-stream scratch
             /// The caster pose's and the CPU root evaluation's scratch the pass
             /// owns (#1533 review). NOT in CpuBytes(): the memory report gives
             /// it, with every other owner's, in the evaluation-scratch ledger's
@@ -996,10 +995,6 @@ namespace OloEngine
         /// Packs and uploads this frame's deformation into `entry`'s buffer,
         /// (re)creating the buffer when the request outgrew it.
         void UploadDeformation(const GroomStrandRequest& request, CacheEntry& entry);
-        /// Sends `bytes` to `target` at `targetOffset` through m_DeformUploadRing:
-        /// a copy into its persistent mapping and a command-ordered buffer copy.
-        /// False when the ring cannot take them; the caller then uploads directly.
-        [[nodiscard]] bool StageDeformUpload(RHI::ResourceHandle target, u64 targetOffset, std::span<const u8> bytes);
         /// The GPU root evaluation's kernel, loaded on first use; false when it cannot run.
         [[nodiscard]] bool EnsureRootFrameKernel();
         /// Records GroomRootFrames.comp over `entry`'s drawn roots (#1533 E1).
@@ -1221,25 +1216,10 @@ namespace OloEngine
         /// Latched so a device that cannot create deformation buffers logs once.
         bool m_ReportedDeformBufferFailure = false;
         /// True while Execute's RootFrames loop runs, so UploadDeformation opens
-        /// its Pack / Upload / Dispatch brackets there (#1589) and not under
+        /// its Upload / Dispatch brackets there (#1589) and not under
         /// whichever pass acquired the coat first, where they would nest past
         /// GPUPassTimerPool::kMaxSubPassDepth.
         bool m_BracketDeformUpload = false;
-        /// THE DEFORMATION UPLOAD RING (#1589), where a fence can complete inside
-        /// the frame (OpenGL). A bound coat's per-frame bytes went up through
-        /// glNamedBufferSubData into a buffer the previous frame's draws still
-        /// read, and the driver took ~5 ms of each 4 MiB fox: the acceptance
-        /// herd's 41 foxes made RootFrames 36-75 ms of "GPU" on GL against ~5 on
-        /// Vulkan, whose StreamCommandOrdered write is already a recorded
-        /// transfer. Staged here and copied on the GPU timeline instead, the way
-        /// VirtualMeshRegistry streams its pages (GPUCircularBuffer, #704).
-        GPUCircularBuffer m_DeformUploadRing;
-        bool m_DeformUploadRingTried = false;
-        u64 m_DeformUploadRingUsedTick = 0;
-        static constexpr u64 kDeformUploadRingBytes = 64ull * 1024ull * 1024ull;
-        /// Smaller sends (a palette, a wet record) go up directly: a fence each
-        /// would cost more than the driver's own copy of a few kilobytes.
-        static constexpr u64 kDeformUploadRingMinBytes = 64ull * 1024ull;
 
         /// The GPU root evaluation (#1533 E1): its kernel and its params block,
         /// created on first use. A kernel that fails to load is said once and

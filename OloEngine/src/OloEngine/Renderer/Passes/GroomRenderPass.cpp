@@ -30,7 +30,6 @@
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
-#include "OloEngine/Task/ParallelFor.h"
 
 #include <glm/gtc/packing.hpp>
 
@@ -38,7 +37,6 @@
 #include <array>
 #include <bit>
 #include <chrono>
-#include <cstring>
 #include <limits>
 #include <optional>
 #include <vector>
@@ -1104,11 +1102,8 @@ namespace OloEngine
                 end = std::min<u64>(end, bytes.size());
                 if (end > begin)
                 {
-                    if (!StageDeformUpload(entry.DeformGpu->GetRHIHandle(), begin, bytes.subspan(begin, end - begin)))
-                    {
-                        entry.DeformGpu->SetData(bytes.data() + begin, static_cast<u32>(end - begin),
-                                                 static_cast<u32>(begin));
-                    }
+                    entry.DeformGpu->SetData(bytes.data() + begin, static_cast<u32>(end - begin),
+                                             static_cast<u32>(begin));
                     m_Stats.DeformedUploadBytes += end - begin;
                     streamingUploadedBytes += end - begin;
                 }
@@ -1183,51 +1178,6 @@ namespace OloEngine
         m_Stats.DeformedUploadMicroseconds += static_cast<u64>(
             std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - uploadStart)
                 .count());
-    }
-
-    bool GroomRenderPass::StageDeformUpload(RHI::ResourceHandle target, u64 targetOffset, std::span<const u8> bytes)
-    {
-        // Created on first use, and only where a fence completes inside the
-        // frame: the ring wraps several times a frame under a herd, and a wrap
-        // waits on this frame's own earlier copies (GPUCircularBuffer::Reserve).
-        // Vulkan's StreamCommandOrdered write is a recorded transfer already.
-        if (!m_DeformUploadRingTried)
-        {
-            m_DeformUploadRingTried = true;
-            if (RenderCommand::SupportsIntraFrameFenceCompletion() &&
-                !m_DeformUploadRing.Create(kDeformUploadRingBytes))
-            {
-                OLO_CORE_WARN("GroomRenderPass: the {} MiB deformation upload ring could not be mapped; bound coats "
-                              "upload directly",
-                              kDeformUploadRingBytes / (1024u * 1024u));
-            }
-        }
-        if (!m_DeformUploadRing.IsCreated() || bytes.size() < kDeformUploadRingMinBytes || !target.IsValid())
-        {
-            return false;
-        }
-        u64 ringOffset = 0;
-        u8* const staged = m_DeformUploadRing.Reserve(bytes.size(), ringOffset);
-        if (staged == nullptr)
-        {
-            return false;
-        }
-        m_DeformUploadRingUsedTick = m_CacheTick;
-        // In slices: a fox's frame is ~4 MiB, a herd's ~170 MiB, and one thread
-        // copies it at a fraction of the bus.
-        constexpr sizet kSliceBytes = 1024u * 1024u;
-        const auto slices = static_cast<i32>((bytes.size() + kSliceBytes - 1u) / kSliceBytes);
-        ParallelFor("GroomStageDeformation", slices, 1,
-                    [&](i32 slice)
-                    {
-                        const sizet begin = static_cast<sizet>(slice) * kSliceBytes;
-                        const sizet count = std::min(kSliceBytes, bytes.size() - begin);
-                        std::memcpy(staged + begin, bytes.data() + begin, count);
-                    });
-        RenderCommand::CopyBufferSubData(m_DeformUploadRing.GetDeviceHandle(), target, ringOffset, targetOffset,
-                                         bytes.size());
-        m_DeformUploadRing.Commit(bytes.size());
-        return true;
     }
 
     void GroomRenderPass::DispatchRootFrames(const GroomStrandRequest& request, CacheEntry& entry,
@@ -3719,14 +3669,6 @@ namespace OloEngine
         {
             std::vector<CoatBodyBake>().swap(m_CoatBodyBakes);
         }
-        // The upload ring (#1589) once no coat has staged through it for
-        // kScratchIdleFrames -- not on the first frame without a bound coat,
-        // which would make and free 64 MiB each time a herd left the view.
-        if (m_DeformUploadRing.IsCreated() && idle(m_DeformUploadRingUsedTick))
-        {
-            m_DeformUploadRing.Destroy();
-            m_DeformUploadRingTried = false;
-        }
     }
 
     void GroomRenderPass::PublishCacheStats()
@@ -3794,9 +3736,6 @@ namespace OloEngine
         {
             memory.CpuScratchBytes += capacityBytes(bake.Body);
         }
-        // The deformation upload ring (#1589): host-visible staging, outside
-        // the cache budget like every other row here.
-        memory.CpuScratchBytes += m_DeformUploadRing.GetSize();
         memory.CpuEvaluationScratchBytes = m_CasterPoseScratch.RetainedBytes() + m_CpuSkinScratch.RetainedBytes();
         return memory;
     }
@@ -4042,8 +3981,6 @@ namespace OloEngine
         m_RestStreams.clear();
         m_RefusedRestStreams.clear();
         std::vector<CoatBodyBake>().swap(m_CoatBodyBakes);
-        m_DeformUploadRing.Destroy();
-        m_DeformUploadRingTried = false;
         m_CacheBytes = 0;
         m_CacheBudgetWarning = {};
         std::vector<GroomStrandVertex>().swap(m_DeformedVertices);
