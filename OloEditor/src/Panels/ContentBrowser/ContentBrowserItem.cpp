@@ -34,7 +34,6 @@ namespace OloEngine
         { ".primitive", ContentFileType::Model3D },
         // Scenes
         { ".olo", ContentFileType::Scene },
-        { ".scene", ContentFileType::Scene },
         // Scripts
         { ".cs", ContentFileType::Script },
         { ".lua", ContentFileType::Script },

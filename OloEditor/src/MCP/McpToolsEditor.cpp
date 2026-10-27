@@ -343,7 +343,7 @@ namespace OloEngine::MCP
                 "Open a file in the editor panel that edits it, through the same dispatch as a Content Browser "
                 "double-click: .olosoundgraph -> Sound Graph Editor, .oloskilltree -> Skill Tree Editor, .olovs -> "
                 "Visual Script Editor, .olosg -> Shader Graph Editor, .olodialogue -> Dialogue Editor, .olocine -> "
-                "Cinematic Timeline, .glsl/.vert/.frag/.hlsl -> Shader Editor, .olo/.scene -> the active scene. A file "
+                "Cinematic Timeline, .glsl/.vert/.frag/.hlsl -> Shader Editor, .olo -> the active scene. A file "
                 "type the Content Browser does not open (e.g. .olomat) is refused with its type named. Pass 'handle' "
                 "or 'path'. Unsaved changes in the target refuse the open unless discardUnsaved:true. ok is true only "
                 "once the panel reports the requested file as loaded; the reply carries that readback.";

@@ -2169,7 +2169,7 @@ namespace OloEngine
         {
             if (trigger.ChildSystemIndex < 0 || static_cast<u32>(trigger.ChildSystemIndex) >= psc.ChildSystems.Num())
             {
-                continue; // Legacy parent-pool trigger or invalid index
+                continue; // Self-emitting trigger (ParticleSystem handles it) or invalid index
             }
 
             auto& childSystem = psc.ChildSystems[trigger.ChildSystemIndex];

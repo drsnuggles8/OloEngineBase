@@ -150,8 +150,10 @@ namespace OloEngine
 
     void CopyTierPPFields(const QualityTieringSettings& tiering, PostProcessSettings& pp)
     {
-        // Legacy scenes defer their AO selection to the active quality tier.
-        // A scene with an authored selection (including None) must retain it:
+        // A scene that does not author an AO technique follows the active
+        // quality tier, like every other tier-owned field here; that is what
+        // the tier is for, not a compatibility path (decided on #1502). A scene
+        // with an authored selection (including None) must retain it:
         // otherwise loading it immediately re-enables the tier's AO pass.
         if (!pp.m_AOTechniqueOverride)
         {

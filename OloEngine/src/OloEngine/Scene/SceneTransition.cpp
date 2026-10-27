@@ -54,7 +54,7 @@ namespace OloEngine::SceneTransition
     bool IsSceneFileExtension(const std::filesystem::path& path)
     {
         const std::string ext = LowercaseExtension(path);
-        return ext == ".olo" || ext == ".scene";
+        return ext == ".olo";
     }
 
     std::filesystem::path ResolveScenePath(std::string_view request, const std::filesystem::path& rootDirectory)
@@ -184,7 +184,7 @@ namespace OloEngine::SceneTransition
 
         if (!IsSceneFileExtension(path))
         {
-            result.Error = "'" + path.string() + "' is not a scene file (.olo/.scene)";
+            result.Error = "'" + path.string() + "' is not a scene file (.olo)";
             return result;
         }
 

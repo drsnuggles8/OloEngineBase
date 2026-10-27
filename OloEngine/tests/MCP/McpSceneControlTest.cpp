@@ -389,12 +389,11 @@ TEST(McpSceneControlShaping, PlayStopSchemaIsClosedEmptyObject)
     EXPECT_FALSE(schema["additionalProperties"].get<bool>());
 }
 
-// ValidateScenePath: accepts .olo / .scene (case-insensitive), rejects empty, a bad
+// ValidateScenePath: accepts .olo (case-insensitive), rejects empty, a bad
 // extension, and parent-directory traversal.
 TEST(McpSceneControlValidation, ValidateScenePathAcceptsSceneFiles)
 {
     EXPECT_FALSE(SceneControl::ValidateScenePath("Scenes/Sandbox.olo").has_value());
-    EXPECT_FALSE(SceneControl::ValidateScenePath("A.scene").has_value());
     EXPECT_FALSE(SceneControl::ValidateScenePath("Deep/Nested/Path/level.OLO").has_value()); // case-insensitive
     EXPECT_FALSE(SceneControl::ValidateScenePath("C:/abs/path/level.olo").has_value());      // absolute allowed
 }
@@ -403,6 +402,7 @@ TEST(McpSceneControlValidation, ValidateScenePathRejectsBadInputs)
 {
     EXPECT_TRUE(SceneControl::ValidateScenePath("").has_value());                   // empty
     EXPECT_TRUE(SceneControl::ValidateScenePath("notes.txt").has_value());          // bad extension
+    EXPECT_TRUE(SceneControl::ValidateScenePath("A.scene").has_value());            // retired extension (#1502)
     EXPECT_TRUE(SceneControl::ValidateScenePath("Scenes").has_value());             // no extension
     EXPECT_TRUE(SceneControl::ValidateScenePath("../secrets/x.olo").has_value());   // traversal
     EXPECT_TRUE(SceneControl::ValidateScenePath("Scenes/../../x.olo").has_value()); // traversal mid-path

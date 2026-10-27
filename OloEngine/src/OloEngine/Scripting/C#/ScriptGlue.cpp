@@ -3891,8 +3891,9 @@ namespace OloEngine
         mono_free(tagStr);
 
         // Activate on the caster (checks cooldowns, costs, tags).
-        // Note: TryActivateAbility also applies ActivationEffects to the caster.
-        // For targeted abilities, we redirect effects to the target below.
+        // TryActivateAbility also applies ActivationEffects to the caster; only
+        // the explicit TargetActivationEffects list goes to the target below,
+        // and an empty one gives the target nothing (see the Lua mirror).
         if (!GameplayAbilitySystem::TryActivateAbility(scene, caster, tag))
         {
             return false;

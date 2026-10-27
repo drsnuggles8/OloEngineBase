@@ -30,7 +30,7 @@ namespace OloEngine
         std::vector<GameplayEffect> ActivationEffects;
 
         // Effects applied to the target when using TryActivateAbilityOnTarget.
-        // If empty, ActivationEffects are used for the target as well (legacy behavior).
+        // If empty, the target receives nothing: ActivationEffects only ever go to the caster.
         std::vector<GameplayEffect> TargetActivationEffects;
 
         // Whether this is a channeled/toggled ability

@@ -4,8 +4,40 @@
 #include "OloEngine/Core/FastRandom.h"
 #include "OloEngine/Core/UUID.h"
 
+#include <atomic>
+#include <mutex>
+#include <string_view>
+#include <unordered_set>
+
 namespace OloEngine
 {
+    namespace
+    {
+        std::atomic<u64> s_UnresolvedAffixCount{ 0 };
+
+        // A loot entry that names an affix pool or affix the database does not
+        // hold is an authoring error: the roll drops that affix and says so,
+        // once per name, rather than inventing a stand-in affix (issue #1502).
+        void ReportUnresolvedAffix(const std::string& tableId, std::string_view kind, const std::string& id)
+        {
+            s_UnresolvedAffixCount.fetch_add(1, std::memory_order_relaxed);
+
+            static std::mutex s_ReportedMutex;
+            static std::unordered_set<std::string> s_Reported;
+            const std::scoped_lock lock(s_ReportedMutex);
+            if (s_Reported.insert(std::string(kind) + ":" + id).second)
+            {
+                OLO_CORE_ERROR("LootTable '{}': no {} named '{}' is registered (or it is empty); the affix is not rolled",
+                               tableId, kind, id);
+            }
+        }
+    } // namespace
+
+    u64 LootTable::GetUnresolvedAffixCount()
+    {
+        return s_UnresolvedAffixCount.load(std::memory_order_relaxed);
+    }
+
     std::vector<ItemInstance> LootTable::Roll(f32 itemLevel) const
     {
         OLO_PROFILE_FUNCTION();
@@ -110,20 +142,17 @@ namespace OloEngine
                             const AffixPool* pool = AffixDatabase::GetPool(poolId);
                             if (!pool || pool->AffixIDs.empty())
                             {
-                                // Fallback: use pool ID as a raw affix (legacy behavior)
-                                ItemAffix affix;
-                                affix.Name = poolId;
-                                affix.Attribute = poolId;
-                                affix.Value = RandomUtils::Float32(1.0f, 10.0f);
-                                instance.Affixes.push_back(std::move(affix));
+                                ReportUnresolvedAffix(TableID, "affix pool", poolId);
                                 continue;
                             }
 
                             // Pick a random affix definition from the pool
                             i32 affixIdx = RandomUtils::Int32(0, static_cast<i32>(pool->AffixIDs.size()) - 1);
-                            const AffixDefinition* affixDef = AffixDatabase::Get(pool->AffixIDs[static_cast<size_t>(affixIdx)]);
+                            const auto& affixId = pool->AffixIDs[static_cast<size_t>(affixIdx)];
+                            const AffixDefinition* affixDef = AffixDatabase::Get(affixId);
                             if (!affixDef || affixDef->Tiers.empty())
                             {
+                                ReportUnresolvedAffix(TableID, "affix", affixId);
                                 continue;
                             }
 

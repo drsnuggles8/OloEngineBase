@@ -250,11 +250,6 @@ namespace OloEngine
                 ImGui::EndCombo();
             }
         }
-        else if (animState.m_CurrentClip)
-        {
-            // Legacy case: single clip without available clips list
-            ImGui::Text("Single Clip Mode (re-import for full list)");
-        }
         else
         {
             ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.0f, 1.0f), "No animation clips available");

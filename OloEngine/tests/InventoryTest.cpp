@@ -646,6 +646,58 @@ TEST_F(InventoryTestFixture, LootTable_ItemLevelFilter)
     }
 }
 
+// An entry naming an affix pool the database does not hold is an authoring
+// error: no stand-in affix is invented from the pool id, and the miss is counted
+// (issue #1502 removed the raw-affix fallback).
+TEST_F(InventoryTestFixture, LootTable_UnregisteredAffixPoolRollsNoAffixAndIsCounted)
+{
+    LootTable table;
+    table.TableID = "missing_pool";
+    table.MinDrops = 1;
+    table.MaxDrops = 1;
+
+    LootTableEntry entry;
+    entry.ItemDefinitionID = "sword_iron";
+    entry.MinAffixes = 2;
+    entry.MaxAffixes = 2;
+    entry.PossibleAffixPoolIDs = { "no_such_pool" };
+    table.Entries.push_back(entry);
+
+    const u64 before = LootTable::GetUnresolvedAffixCount();
+    auto results = table.Roll(10.0f);
+
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_TRUE(results[0].Affixes.empty());
+    EXPECT_EQ(LootTable::GetUnresolvedAffixCount() - before, 2u);
+}
+
+TEST_F(InventoryTestFixture, LootTable_PoolNamingAnUnregisteredAffixIsCounted)
+{
+    AffixPool pool;
+    pool.PoolID = "dangling";
+    pool.AffixIDs = { "no_such_affix" };
+    AffixDatabase::RegisterPool(pool);
+
+    LootTable table;
+    table.TableID = "dangling_affix";
+    table.MinDrops = 1;
+    table.MaxDrops = 1;
+
+    LootTableEntry entry;
+    entry.ItemDefinitionID = "sword_iron";
+    entry.MinAffixes = 1;
+    entry.MaxAffixes = 1;
+    entry.PossibleAffixPoolIDs = { "dangling" };
+    table.Entries.push_back(entry);
+
+    const u64 before = LootTable::GetUnresolvedAffixCount();
+    auto results = table.Roll(10.0f);
+
+    ASSERT_EQ(results.size(), 1u);
+    EXPECT_TRUE(results[0].Affixes.empty());
+    EXPECT_EQ(LootTable::GetUnresolvedAffixCount() - before, 1u);
+}
+
 // ===== AffixDatabase Tests =====
 
 TEST_F(InventoryTestFixture, AffixDatabase_RegisterAndGet)
@@ -908,36 +960,6 @@ TEST_F(InventoryTestFixture, LootTable_AffixPrefixSuffixLimits)
         EXPECT_LE(prefixCount, 3);
         EXPECT_LE(suffixCount, 3);
     }
-}
-
-TEST_F(InventoryTestFixture, LootTable_LegacyAffixFallback)
-{
-    // Don't register any pool — should fall back to legacy behavior
-    LootTable table;
-    table.TableID = "legacy_test";
-    table.MinDrops = 1;
-    table.MaxDrops = 1;
-
-    LootTableEntry entry;
-    entry.ItemDefinitionID = "sword_iron";
-    entry.Weight = 1.0f;
-    entry.MinAffixes = 1;
-    entry.MaxAffixes = 1;
-    entry.PossibleAffixPoolIDs = { "unregistered_pool" };
-    table.Entries.push_back(entry);
-
-    auto results = table.Roll();
-    ASSERT_EQ(results.size(), 1u);
-    ASSERT_EQ(results[0].Affixes.size(), 1u);
-
-    // Legacy fallback uses pool ID as Name/Attribute
-    EXPECT_EQ(results[0].Affixes[0].Name, "unregistered_pool");
-    EXPECT_EQ(results[0].Affixes[0].Attribute, "unregistered_pool");
-    EXPECT_GE(results[0].Affixes[0].Value, 1.0f);
-    EXPECT_LE(results[0].Affixes[0].Value, 10.0f);
-    // Legacy affixes have empty DefinitionID and default Type/Tier
-    EXPECT_TRUE(results[0].Affixes[0].DefinitionID.empty());
-    EXPECT_EQ(results[0].Affixes[0].Tier, 0);
 }
 
 TEST_F(InventoryTestFixture, AffixTypeStringConversion)
