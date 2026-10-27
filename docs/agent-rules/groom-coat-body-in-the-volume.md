@@ -94,8 +94,9 @@ across.
 - **A body already marked into the same grid is reused, not marked again.** Marking takes
   150-200 ms on the main thread for the breeds. A playing dog's coat changes tier as it runs off and
   comes back, and each tier rebuilt marked its body again: the stutter behind the "coat volume holds
-  its body" log line (#1559). `GroomRenderPass` keeps up to 32 MiB of markings, keyed on what the
-  marking reads: the grid, the sky cells near the coat (`BodySkyCellsNearCoat`, the only thing it
+  its body" log line (#1559). `GroomRenderPass` always keeps the four most recently used
+  markings and evicts the least recently used past them down to a 32 MiB budget, so four large
+  grids can hold more than 32 MiB. The markings are keyed on what the marking reads: the grid, the sky cells near the coat (`BodySkyCellsNearCoat`, the only thing it
   reads of the density), and the surface's positions and indices. A hit counts in
   `CoatShadow.BodyBakesReused`. A tier's first bake still marks: each tier has its own grid, from
   its own segments' bounds. `DogPlayEvidenceTest.ACoatComingBackCloseDoesNotMarkItsBodyAgain` pins it.
