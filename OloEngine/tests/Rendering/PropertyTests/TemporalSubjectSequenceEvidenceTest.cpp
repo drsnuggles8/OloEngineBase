@@ -334,13 +334,14 @@ namespace OloEngine::Tests
             meadow.MaxSlopeAngle = 60.0f;
             meadow.MinScale = 1.6f;
             meadow.MaxScale = 2.4f;
-            // Unbounded on purpose. These are a terrain-height ACCEPTANCE band,
-            // and the first cut of this fixture set them to 4..9 against a
-            // height scale of 5 — which admitted only the very tops and put the
-            // meadow on 2% of the frame. The subject-presence guard caught it;
-            // an "is anything lit" guard would not have.
-            meadow.MinHeight = -10000.0f;
-            meadow.MaxHeight = 10000.0f;
+            // The drawn HEIGHT of each pine in metres, before the scale above —
+            // not a terrain-altitude band (that is UseAltitudeBand). This was
+            // once -10000..10000 on that misreading, which grew pines
+            // kilometres tall, and both the coverage guard and the motion guard
+            // below passed only because one of them happened to stand across
+            // the lens. The placement hash moving (#1502) took that pine away.
+            meadow.MinHeight = 4.0f;
+            meadow.MaxHeight = 9.0f;
             meadow.ViewDistance = 400.0f;
             meadow.FadeStartDistance = 370.0f;
             meadow.UseAuthoredMesh = true;
@@ -1065,11 +1066,12 @@ namespace OloEngine::Tests
     // shimmer and ghosting by blurring everything to a flat field, and that
     // trade reads as an improvement on every metric but this one.
     //
-    // The control arm is a DELIBERATELY OVER-BLURRED resolve — the same
-    // configuration at the maximum feedback the shader clamps to — because a
-    // retention figure on its own cannot say whether the instrument would have
-    // noticed blurring. If the shipping arm does not retain more than the
-    // over-blurred one, the number is not measuring blur.
+    // A second arm runs the same resolve at the maximum feedback the shader
+    // clamps to and is written out for a human to compare. It is not a
+    // control the shipping arm must beat: on this subject the feedback ceiling
+    // barely changes the output (see the measurements in the test). Whether
+    // the retention figure would notice blurring is pinned on the CPU, by
+    // TemporalSequenceMetricsContract.DetailLossSeparatesBlurFromAFlatReference.
     //
     // Sharpening is OFF in both arms (SetTaa pins TAASharpness to 0). That
     // makes this the WORST case rather than the shipping one: the post-TAA
@@ -1089,29 +1091,20 @@ namespace OloEngine::Tests
         ShowOnly(Subject::Foliage);
         const CameraPose pose = PoseFor(Subject::Foliage);
 
-        // THE MOTION IS THE CAMERA, NOT THE WIND, AND THAT IS A MEASURED
-        // DECISION RATHER THAN A CONVENIENCE.
+        // TWO SOURCES OF MOTION: the wind and a camera dolly.
         //
-        // This layer is configured for wind — WindStrength 2.0 with the
+        // The layer is configured for wind — WindStrength 2.0 with the
         // stiffness and branch/leaf weights FoliageWindEvidenceTest uses — and
-        // it still does not sway: captured with the wind on and with it off at
-        // the same instant, 0.012% of pixels differ, and a capture ten seconds
-        // of mock time later differs from the first by 0.010%. Both are the
-        // noise floor. So the wind displaces nothing measurable on this layer
-        // at this configuration, and a "windy meadow" sequence driven by it
-        // would have been a still life with a moving name — RetainedFraction
-        // near 1 for the trivial reason that there was nothing temporal to
-        // lose. That is worth reporting on its own (see the PR); it is a
-        // foliage-wind question rather than a temporal-reconstruction one, so
-        // it is not chased here.
+        // since the single wind model (#1502) it sways on its own: with the
+        // camera held still the un-resolved frame-to-frame delta is 0.026.
+        // (Before that, this comment recorded the wind as inert here.)
         //
-        // A lateral dolly supplies the motion instead, and it is the HARDER
-        // temporal test rather than a weaker substitute: every plant edge
-        // reprojects and disoccludes against the one behind it, which is
-        // exactly what the history rejection exists to handle. The path is a
-        // pure function of the frame index, so both arms traverse it
-        // identically and the final frames they are compared on are the same
-        // pose.
+        // A lateral dolly is added on top, and it is the HARDER temporal test:
+        // every plant edge reprojects and disoccludes against the one behind
+        // it, which is exactly what the history rejection exists to handle.
+        // The path is a pure function of the frame index, so both arms
+        // traverse it identically and the final frames they are compared on
+        // are the same pose.
         const auto dolly = [&pose](u32 frame) -> CameraPose
         {
             CameraPose moved = pose;
@@ -1174,47 +1167,36 @@ namespace OloEngine::Tests
         GTEST_LOG_(INFO) << "foliage detail: reference variance " << detail.ReferenceVariance << ", measured "
                          << detail.MeasuredVariance << ", retained " << detail.RetainedFraction << ", MAE "
                          << detail.MeanAbsoluteError << " | over-blurred control retained "
-                         << blurred.RetainedFraction;
+                         << blurred.RetainedFraction << ", MAE " << blurred.MeanAbsoluteError;
 
         ASSERT_GT(detail.ComparedPixels, 0u) << "the instrument measured nothing";
         ASSERT_GT(detail.ReferenceVariance, 1.0e-4)
             << "the un-resolved reference is nearly flat, so there was no detail to retain and this "
                "test cannot answer the question it asks.";
 
-        // The instrument, in DIRECTION only, and the margin is itself a
-        // finding: pushing the feedback from 0.9 to the 0.98 ceiling costs
-        // this subject about 1% of its retained variance (0.742 -> 0.734 under
-        // the dolly; 0.904 -> 0.892 on the same shot held still),
-        // not the large swing one might expect. The reason is that a meadow's
-        // spatial variance is dominated by STATIC structure — the terrain and
-        // the plant silhouettes — and temporal averaging can only blur the
-        // part that moves. So the feedback knob is a weak blur lever here,
-        // and an assertion with a factor on it would be pinning noise.
+        // The over-blurred arm is CAPTURED, logged and written out, and NOT
+        // asserted against the shipping one. The feedback ceiling is not a blur
+        // lever on this subject: the resolve scales feedback down with motion
+        // and clips history to the current neighbourhood, so 0.9 and 0.98 come
+        // out within a few percent of each other, and which one keeps more
+        // depends on the motion. Measured on the real meadow (#1502), over the
+        // dolly step: retained shipping/control 0.751/0.761 still, 0.668/0.703
+        // at 0.005, 0.659/0.658 at 0.01, 0.951/0.694 at 0.02, 0.912/1.039 at
+        // 0.03, 0.925/0.936 at 0.06 — and MAE against the reference flips the
+        // same way. A strict "control < shipping" held only on the earlier
+        // fixture, whose pines were kilometres tall, so it was a test of that
+        // fixture.
         //
-        // The instrument's blur RESPONSE is pinned properly, and cheaply, on
-        // the CPU instead: TemporalSequenceMetricsContract's
+        // The instrument's blur RESPONSE is pinned on the CPU instead:
+        // TemporalSequenceMetricsContract's
         // DetailLossSeparatesBlurFromAFlatReference feeds MeasureDetail a
-        // genuinely flattened field and requires RetainedFraction ~ 0. This
-        // arm is here to show the GPU path moves the same way, not to
-        // re-derive that contract.
-        // Strict, with no factor, and the ~1% margin is deliberate rather
-        // than careless: both arms render the same scene at the same mock
-        // times in the same process, so the only spread between them is driver
-        // rounding, and the gap reproduced at 0.008 across runs.
-        EXPECT_LT(blurred.RetainedFraction, detail.RetainedFraction)
-            << "the over-blurred control retained as much detail as the shipping one (" << blurred.RetainedFraction
-            << " vs " << detail.RetainedFraction << "), so this instrument is not measuring blur.";
+        // genuinely flattened field and requires RetainedFraction ~ 0.
 
         // The claim, as a regression floor. The shipping configuration measures
-        // ~0.74 under the dolly on this box with sharpening OFF, which is the
-        // honest headline: a meadow crossed by a moving camera costs about a
-        // quarter of its spatial variance to the resolve, and the post-TAA
-        // sharpen this test disables exists to put some of that back. (The
-        // same shot held still measures ~0.90, so most of that quarter is the
-        // price of MOTION rather than of the resolve idling.) 0.65 sits below
-        // the measurement and above the over-blurred control, so it catches a
-        // future change that blurs substantially more without pinning today's
-        // exact number.
+        // 0.925 under the dolly on this box with sharpening OFF, and 0.751 with
+        // the camera held still and only the wind moving the pines. 0.65 sits
+        // below both, so it catches a future change that blurs substantially
+        // more without pinning today's exact number.
         EXPECT_GT(detail.RetainedFraction, 0.65)
             << "the resolve retained only " << detail.RetainedFraction * 100.0
             << "% of the meadow's spatial variance — it is buying stillness by blurring, which is the "
