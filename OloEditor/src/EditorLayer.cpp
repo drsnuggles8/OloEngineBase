@@ -945,6 +945,11 @@ namespace OloEngine
             // about to read or inject can work" instead of quietly succeeding.
             mcpContext.GetEditorLiveness = [this]() -> MCP::McpEditorLiveness
             { return GetMcpEditorLiveness(); };
+            mcpContext.GetSceneLoadState = [this]() -> MCP::McpSceneLoadState
+            {
+                const u64 rendered = m_SceneInstallPending ? 0u : m_RenderedFrames - std::min(m_RenderedFrames, m_SceneInstalledFrame);
+                return { rendered, m_GroomsAwaitingBuild };
+            };
             mcpContext.GetEditorPanels = [this]() -> std::vector<MCP::McpEditorPanelState>
             { return GetMcpEditorPanels(); };
             mcpContext.SetEditorPanel = [this](const std::string& panel, bool open) -> MCP::McpEditorPanelSetResult
@@ -1930,6 +1935,31 @@ namespace OloEngine
         OLO_PERF_SCOPE("EditorLayer::OnUpdate", Application::Get().GetPerformanceProfiler());
 
         ++m_FrameIndex; // MCP capture tools key off this to await a rendered frame
+        // What a scene-load wait reads (#1591), from the LAST frame, and only if
+        // it RENDERED (m_ViewportRenderSkipped is still the last frame's here):
+        // the throttle skips the frame after a long one, which during a load
+        // is most of them, so counting updates let two skipped ones settle a
+        // scene that had not drawn. The coats it left waiting are read only if
+        // it drew grooms: a frame with no groom request leaves the pass's
+        // stats describing an older one, and a load must not keep waiting on
+        // coats no view asks for any more.
+        if (!m_ViewportRenderSkipped)
+        {
+            ++m_RenderedFrames;
+            if (const GroomRenderPass* groomPass = Renderer3D::GetGroomRenderPass())
+            {
+                const u64 tick = groomPass->GetFrameTick();
+                m_GroomsAwaitingBuild = tick != m_GroomFrameTick ? groomPass->GetStats().GroomsAwaitingBuild : 0u;
+                m_GroomFrameTick = tick;
+            }
+        }
+        // A scene installed since the last update counts from here: the frame
+        // just counted drew the scene before it.
+        if (m_SceneInstallPending)
+        {
+            m_SceneInstalledFrame = m_RenderedFrames;
+            m_SceneInstallPending = false;
+        }
         // Stamped in the same breath as the counter so the two can never disagree:
         // together they let one MCP call answer "is the editor running frames?"
         // (issue #607). While the window is iconified Application::Run never reaches
@@ -5263,6 +5293,7 @@ namespace OloEngine
 
     void EditorLayer::SetEditorScene(const Ref<Scene>& scene, bool clearHistory)
     {
+        m_SceneInstallPending = true; // a scene-load wait counts this scene's rendered frames (#1591)
         OLO_CORE_ASSERT(scene, "EditorLayer ActiveScene cannot be null");
 
         // Reset hovered entity before changing scenes to prevent accessing stale registry
