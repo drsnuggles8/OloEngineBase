@@ -53,6 +53,22 @@
 // ------------------------------
 //   Every test using this fixture must begin with `OLO_ENSURE_GPU_OR_SKIP()`.
 //   On CI without a usable GL 4.6 context the test is SKIP'd (not failed).
+//
+// The Vulkan process (#1556)
+// --------------------------
+//   `OloEngine-Tests --olo-rhi=vulkan` runs this same fixture on Vulkan: the
+//   process selects the RHI before any test, and SetUp brings the renderer up
+//   on a windowless VulkanContext (TestRenderBackend.h) instead of the GL 4.6
+//   context. Each RunFrames / RunEditorFrames tick is one frame of that
+//   context's frame bracket, and fails on a Vulkan validation error or an
+//   unimplemented-stub hit the way the GL tick fails on a GL error.
+//   `ReadbackComposite` reads by RHI handle, so it works on both. A suite runs
+//   there only once it overrides `RunsInVulkanProcess()` to return true --
+//   readback by RHI handle, evidence named with TestRenderBackend::EvidenceName,
+//   no GL call; every other suite skips with the reason. A ported suite's case
+//   that is GL-only by nature `GTEST_SKIP()`s in the Vulkan process itself.
+//   The Vulkan gate is the device gate: `--olo-require-vulkan` turns its
+//   refusal into a failure.
 // =============================================================================
 
 #include "OloEnginePCH.h"
@@ -70,6 +86,7 @@
 
 #include <gtest/gtest.h>
 
+#include <functional>
 #include <vector>
 
 namespace OloEngine
@@ -102,6 +119,16 @@ namespace OloEngine::Tests
       protected:
         void SetUp() override;
         void TearDown() override;
+
+        /// Whether this suite runs in the --olo-rhi=vulkan process (#1556). A
+        /// suite opts in once its readback goes by RHI handle, its evidence
+        /// names carry the backend and it issues no GL call; every other suite
+        /// skips there with the reason, so an unported GL call never runs
+        /// without a GL context.
+        [[nodiscard]] virtual bool RunsInVulkanProcess() const
+        {
+            return false;
+        }
 
         /// Construct entities. Called once per test, after the Scene is
         /// created and configured for runtime + rendering.
@@ -146,6 +173,13 @@ namespace OloEngine::Tests
         /// 3D rendering mode. For a test that changes which scene the renderer
         /// draws between frames (scene ownership, issue #1349).
         void RunEditorFramesOn(Scene& scene, const EditorCamera& camera, u32 count, f32 dtSeconds = 1.0f / 60.0f);
+
+        /// Run GPU work a test issues outside a scene tick -- a compute dispatch
+        /// or a recorded upload that production makes inside the frame (e.g.
+        /// SnowAccumulationSystem::Update) -- with the tick's hygiene. Inline
+        /// on GL; one frame of the windowless context in the Vulkan process,
+        /// where work recorded outside the frame bracket is dropped (#1556).
+        void RunInFrame(const std::function<void()>& work);
 
         /// Opt the Scene into the full 3D draw path. Call from `BuildScene()`.
         /// Enables 3D mode, sizes the camera + the Renderer3D render-graph

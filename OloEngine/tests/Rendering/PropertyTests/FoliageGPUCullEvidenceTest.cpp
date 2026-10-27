@@ -271,7 +271,7 @@ namespace OloEngine::Tests
 
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No SceneColor framebuffer for '" << saveAs << "'";
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
 
             // GL readback is bottom-up.

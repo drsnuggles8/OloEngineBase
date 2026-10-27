@@ -175,7 +175,7 @@ namespace OloEngine::Tests
             }
 
             std::vector<u8> upsideDown;
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, upsideDown);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, upsideDown);
             if (upsideDown.size() != static_cast<sizet>(kWidth) * kHeight * 4)
             {
                 return false;

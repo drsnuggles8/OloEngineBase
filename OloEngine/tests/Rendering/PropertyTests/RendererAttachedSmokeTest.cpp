@@ -24,6 +24,7 @@
 
 #include "OloEnginePCH.h"
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Scene/Components.h"
@@ -48,6 +49,11 @@ namespace OloEngine::Tests
     class EmptyScene : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         void BuildScene() override
         { /* deliberately empty */
         }
@@ -70,6 +76,11 @@ namespace OloEngine::Tests
     class SceneWithCamera : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         void BuildScene() override
         {
             Entity camera = GetScene().CreateEntity("MainCamera");
@@ -103,6 +114,11 @@ namespace OloEngine::Tests
     class SceneRenders3D : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         void BuildScene() override
         {
             Entity camera = GetScene().CreateEntity("MainCamera");
@@ -129,6 +145,8 @@ namespace OloEngine::Tests
     // downstream GPU tests bind their own resources before drawing.
     TEST_F(SceneRenders3D, RenderLeavesNoGlobalGlStateBehind)
     {
+        if (TestRenderBackend::IsVulkanProcess())
+            GTEST_SKIP() << "a GL-state contract; the Vulkan tick checks validation errors and stub hits instead";
         const GLStateSnapshot before = GLStateSnapshot::Capture();
         RunFrames(2);
         const GLStateSnapshot after = GLStateSnapshot::Capture();

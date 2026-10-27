@@ -46,8 +46,8 @@ namespace OloEngine::Tests
         target->Unbind();
         std::vector<f32> scalars;
         std::vector<f32> points;
-        ReadbackRgbaFloat(target->GetColorAttachmentRendererID(0), 64, 64, scalars);
-        ReadbackRgbaFloat(target->GetColorAttachmentRendererID(1), 64, 64, points);
+        ReadbackRgbaFloat(target->GetColorAttachmentHandle(0), 64, 64, scalars);
+        ReadbackRgbaFloat(target->GetColorAttachmentHandle(1), 64, 64, points);
         ASSERT_EQ(scalars.size(), 64u * 64u * 4u);
         ASSERT_EQ(points.size(), 64u * 64u * 4u);
 

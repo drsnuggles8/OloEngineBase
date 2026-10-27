@@ -1829,11 +1829,11 @@ TEST(GroomGuideSimulation, FurLyingOnAMovingBodyCapsuleMovesWithIt)
 TEST(GroomGuideSimulation, PastTheColliderCapTheFirstAreSolvedAndTheRestAreCounted)
 {
     const TestGuides patch = MakeFurPatch();
-    GroomCollider far;
-    far.PointA = far.PointB = glm::vec3(50.0f, 50.0f, 50.0f);
-    far.Radius = 0.01f;
+    GroomCollider distant;
+    distant.PointA = distant.PointB = glm::vec3(50.0f, 50.0f, 50.0f);
+    distant.Radius = 0.01f;
 
-    std::vector<GroomCollider> handFirst(GroomSimulationLimits::MaxColliders + 6u, far);
+    std::vector<GroomCollider> handFirst(GroomSimulationLimits::MaxColliders + 6u, distant);
     handFirst.front() = HandSphere(true);
     GroomSimulationStats stats;
     const std::vector<f32> solved = SettleAndMeasure(patch, handFirst, &stats);

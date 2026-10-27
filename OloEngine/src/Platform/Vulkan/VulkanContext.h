@@ -26,11 +26,36 @@ namespace OloEngine
     // consumers). Init() throws std::runtime_error to REFUSE initialisation when
     // the loader is absent or no device satisfies the capability contract; the
     // message names the missing capability and directs the user to --rhi=opengl.
+    //
+    // #1556 adds the WINDOWLESS mode (the OffscreenTarget constructor): no
+    // GLFW window, no surface, no swapchain. A context-owned colour image
+    // stands in for the acquired swapchain image, and SwapBuffers runs the
+    // same frame bracket around it -- frame slot, fence wait, deferred
+    // reclaim, frame callback, render-graph fence segments, async compute,
+    // mid-frame flush, final submit -- minus the acquire and the present.
+    // It is what lets the test binary run the whole Renderer3D pipeline on
+    // Vulkan (--olo-rhi=vulkan) without a display.
     class VulkanContext : public GraphicsContext
     {
       public:
+        // The windowless target's size. The image is fixed at Init: the
+        // render graph's own targets are sized by Renderer3D::OnWindowResize,
+        // and only FinalRenderPass ever writes this one.
+        struct OffscreenTarget
+        {
+            u32 Width = 0;
+            u32 Height = 0;
+        };
+
         explicit VulkanContext(GLFWwindow* windowHandle);
+        explicit VulkanContext(const OffscreenTarget& target);
         ~VulkanContext() override;
+
+        // True for a context made with the OffscreenTarget constructor.
+        [[nodiscard]] bool IsOffscreen() const
+        {
+            return m_WindowHandle == nullptr;
+        }
 
         VulkanContext(const VulkanContext&) = delete;
         VulkanContext& operator=(const VulkanContext&) = delete;
@@ -177,8 +202,14 @@ namespace OloEngine
         void CreateSwapchain();
         void DestroySwapchain();
         void RecreateSwapchain();
+        // The windowless mode's stand-in for CreateSwapchain/DestroySwapchain:
+        // one image, published through the same SwapchainImages/Views/Handles
+        // slots so SwapBuffers indexes it exactly like an acquired image.
+        void CreateOffscreenTarget();
+        void DestroyOffscreenTarget();
 
         GLFWwindow* m_WindowHandle;
+        OffscreenTarget m_OffscreenTarget{};
         Scope<VulkanContextData> m_Data;
         FrameRenderCallback m_FrameRenderCallback;
         /// Re-entrancy latch — see the nested-present guard in SwapBuffers.

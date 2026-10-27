@@ -262,8 +262,8 @@ namespace OloEngine::Tests
             const auto sceneFB = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             if (!sceneFB)
                 return false;
-            const u32 textureID = sceneFB->GetColorAttachmentRendererID(kVelocityAttachment);
-            if (textureID == 0u)
+            const RHI::ResourceHandle textureID = sceneFB->GetColorAttachmentHandle(kVelocityAttachment);
+            if (!textureID.IsValid())
                 return false;
             ReadbackRgbaFloat(textureID, kWidth, kHeight, out);
             return out.size() == static_cast<std::size_t>(kWidth) * kHeight * 4u;

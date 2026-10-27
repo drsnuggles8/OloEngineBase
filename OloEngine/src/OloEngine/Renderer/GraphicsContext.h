@@ -73,5 +73,13 @@ namespace OloEngine
         }
 
         static Scope<GraphicsContext> Create(void* window);
+
+        // #1556: a frame context with no window, rendering into a context-owned
+        // `width`x`height` target that is never presented -- Vulkan's offscreen
+        // mode. SwapBuffers runs the backend's full frame bracket around the
+        // frame callback, as in a windowed session. Null on a backend without
+        // one: a GL context cannot exist without a window, and the GL test
+        // process makes a hidden one instead (RenderPropertyFixture).
+        static Scope<GraphicsContext> CreateWindowless(u32 width, u32 height);
     };
 } // namespace OloEngine

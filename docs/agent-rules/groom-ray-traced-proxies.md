@@ -111,5 +111,6 @@ reflections) run only on the **Deferred** path — `Renderer3D::WantsRayTracingG
 Forward+, OpenGL, or a device without ray tracing, every coat is `NotRequested` and nothing is
 built. That is not a fallback; it is the absence of a consumer.
 
-The headless evidence fixtures need a real GL 4.6 context, so **the suite can never cover a Vulkan
-cell of this feature**. Its captures are live-editor work.
+This feature's evidence suite is not in the `--olo-rhi=vulkan` scene process (#1556), so **the
+suite does not cover a Vulkan cell of it**. Its captures are live-editor work until the suite is
+ported and added to `OloEngine/tests/vulkan_scene_filter.txt`.

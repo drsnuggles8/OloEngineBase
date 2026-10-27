@@ -142,10 +142,20 @@ jobs:
           git rev-parse HEAD | Set-Content build-memory-report/commit.txt
           & $env:OLO_CLANG_CL --version | Set-Content build-memory-report/compiler.txt
           Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory,NumberOfLogicalProcessors | ConvertTo-Json | Set-Content build-memory-report/host.json
+      # Start the server before the parallel build so no compile has to: left to
+      # start on demand, the first two compiles each spawn one and race for the port
+      # (.github/actions/start-sccache has the failure and the measurements).
+      - name: Start the sccache server
+        uses: ./.github/actions/start-sccache
       - name: Build through the resource gate
         run: |
           pwsh -NoProfile -File .claude/skills/run-oloengine/build-lock.ps1 -Jobs 2 -Command 'cmake --build build-cached --target OloEngine-Tests --config Debug --parallel 2'
           exit $LASTEXITCODE
+      - name: Print the sccache server log
+        if: failure()
+        uses: ./.github/actions/start-sccache
+        with:
+          report: 'true'
       - name: Rank and verify link measurement
         if: ${{ !cancelled() }}
         run: |

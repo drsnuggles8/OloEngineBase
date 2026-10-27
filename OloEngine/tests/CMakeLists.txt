@@ -1001,6 +1001,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/AssetPreviewRendererTest.cpp
 		Rendering/PropertyTests/RendererAttachedTest.cpp
 		Rendering/PropertyTests/RendererAttachedIsolationTest.cpp
+		Rendering/PropertyTests/TestRenderBackend.cpp
 		Rendering/RendererMemoryTrackerTest.cpp
 		Rendering/RendererMemoryReportTest.cpp
 		Rendering/MaterialCopyTest.cpp
@@ -2152,6 +2153,26 @@ set(OLO_TESTS_CTEST_ARGS "" CACHE STRING
 	"Extra --olo-* flags passed to every test process ctest launches (semicolon-separated)")
 if(OLO_TESTS_CTEST_ARGS)
 	message(STATUS "OloEngine-Tests: ctest will launch every test with: ${OLO_TESTS_CTEST_ARGS}")
+endif()
+
+# THE VULKAN SCENE PROCESS (#1556): one more entry, the same binary started with
+# --olo-rhi=vulkan, which renders the ported RendererAttachedTest suites on a
+# windowless VulkanContext. One process holds one backend, so it cannot be a
+# slice of the passes below; those same suites ALSO run there, on GL. The suite
+# list is vulkan_scene_filter.txt, which vulkan-software.yml's scene step reads
+# as well. On a machine with no satisfying Vulkan device every case skips, as the
+# device-gated suites do; --olo-gl-backend=none skips them too. --olo-require-gpu
+# demands the GL context this process never makes, so it is not passed on.
+if(OLO_WITH_VULKAN)
+	file(READ "${CMAKE_CURRENT_SOURCE_DIR}/vulkan_scene_filter.txt" OLO_VK_SCENE_FILTER)
+	string(STRIP "${OLO_VK_SCENE_FILTER}" OLO_VK_SCENE_FILTER)
+	set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/vulkan_scene_filter.txt")
+	set(_olo_vk_scene_args ${OLO_TESTS_CTEST_ARGS})
+	list(FILTER _olo_vk_scene_args EXCLUDE REGEX "^--olo-require-gpu$")
+	add_test(NAME OloEngine-Tests_VulkanScene
+		COMMAND OloEngine-Tests --olo-rhi=vulkan "--gtest_filter=${OLO_VK_SCENE_FILTER}" ${_olo_vk_scene_args}
+		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor)
+	set_tests_properties(OloEngine-Tests_VulkanScene PROPERTIES PROCESSORS 2 COST 100 TIMEOUT 3600)
 endif()
 
 # Three discovery passes over one binary, each a disjoint slice by gtest filter

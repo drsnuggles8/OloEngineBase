@@ -76,7 +76,7 @@ namespace OloEngine::Tests
                 return false;
             out.Width = fb->GetSpecification().Width;
             out.Height = fb->GetSpecification().Height;
-            ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(attachment), out.Width, out.Height, out.Pixels);
+            ReadbackRgbaFloat(fb->GetColorAttachmentHandle(attachment), out.Width, out.Height, out.Pixels);
             return out.Pixels.size() == static_cast<sizet>(out.Width) * out.Height * 4u;
         }
 
@@ -236,7 +236,7 @@ namespace OloEngine::Tests
             if (composite)
             {
                 std::vector<u8> ldr;
-                ReadbackRgba8(composite->GetColorAttachmentRendererID(0), kWidth, kHeight, ldr);
+                ReadbackRgba8(composite->GetColorAttachmentHandle(0), kWidth, kHeight, ldr);
                 const fs::path dir = fs::path("assets") / "tests" / "visual";
                 std::error_code ec;
                 fs::create_directories(dir, ec);

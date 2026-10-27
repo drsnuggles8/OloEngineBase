@@ -34,7 +34,7 @@ namespace OloEngine::Tests
         glFinish();
         target->Unbind();
         std::vector<f32> pixels;
-        ReadbackRgbaFloat(target->GetColorAttachmentRendererID(0), 64, 64, pixels);
+        ReadbackRgbaFloat(target->GetColorAttachmentHandle(0), 64, 64, pixels);
         ASSERT_EQ(pixels.size(), 64u * 64u * 4u);
         for (u32 y = 0; y < 64; ++y)
         {

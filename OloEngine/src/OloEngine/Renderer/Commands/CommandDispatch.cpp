@@ -3106,14 +3106,13 @@ namespace OloEngine
             BindUBOIfNeeded(api, ShaderBindingLayout::UBO_CAMERA, Data().CameraUBO->GetRHIHandle());
         }
 
-        // Set grid scale uniform if the shader supports it.
-        //
-        // This is the one facade call with no faithful Vulkan lowering — SPIR-V
-        // has push constants and UBO members, not a name-queryable default
-        // uniform block. The pipeline work folds u_GridScale into a UBO and deletes
-        // SetProgramUniformFloat (ADR 0011 amendment (9)); the debt is recorded
-        // rather than hidden so a later bring-up is not surprised by it.
-        api.SetProgramUniformFloat(cmd->shaderRendererID, "u_GridScale", cmd->gridScale);
+        // No grid-scale upload: InfiniteGrid.glsl declares no u_GridScale -- its
+        // spacing is the c_GridScale constant -- so the old SetProgramUniformFloat
+        // here set nothing on GL (glGetUniformLocation answered -1) and hit an
+        // unimplemented stub on Vulkan every frame the grid drew (#1556, found
+        // by the windowless Vulkan scene fixture's per-tick stub check).
+        // cmd->gridScale stays recorded for the day the shader reads one, which
+        // will be a UBO member (ADR 0011 amendment (9)), never a named uniform.
 
         // Bind fullscreen quad VAO (cached) and draw
         BindVAOIfNeeded(api, cmd->quadVAOID);

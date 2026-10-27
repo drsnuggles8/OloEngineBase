@@ -375,7 +375,7 @@ namespace OloEngine::Tests
             }
             ASSERT_TRUE(fb) << "No composited framebuffer for '" << saveAs << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
 
             // glGetTextureImage returns rows bottom-up; flip so the PNG is

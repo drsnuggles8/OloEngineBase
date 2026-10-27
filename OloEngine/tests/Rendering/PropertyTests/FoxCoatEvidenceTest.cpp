@@ -1468,7 +1468,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
             }
             ASSERT_TRUE(fb);
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, out);
             ASSERT_EQ(out.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
             const sizet rowBytes = static_cast<sizet>(kWidth) * 4u;
             std::vector<u8> tmp(rowBytes);
@@ -1537,7 +1537,7 @@ namespace OloEngine::Tests
                 if (luma)
                 {
                     colour.resize(static_cast<sizet>(width) * height * 4u);
-                    ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), width, height, colour);
+                    ReadbackRgbaFloat(fb->GetColorAttachmentHandle(0), width, height, colour);
                 }
                 for (sizet i = 0; i < ids.size(); ++i)
                 {

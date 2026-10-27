@@ -8,8 +8,14 @@
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/HeapBindingSeam.h"
+#include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
+#if OLO_WITH_VULKAN
+#include "Platform/Vulkan/VulkanImageInfoRegistry.h"
+#endif
 
 #define GLFW_INCLUDE_NONE
 #include <glad/gl.h>
@@ -32,8 +38,10 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -60,6 +68,9 @@ namespace OloEngine::Tests
             // Set when --olo-gl-backend=none forbade the attempt, so the skip
             // message can distinguish "no hardware" from "told not to".
             bool m_ForcedOff = false;
+            // Set in a --olo-rhi=vulkan process (#1556), which makes no GL
+            // context: its renderer runs on a windowless VulkanContext.
+            bool m_VulkanProcess = false;
             GLFWwindow* m_Window = nullptr;
 #if defined(OLO_TESTS_HAVE_EGL)
             EGLDisplay m_EglDisplay = EGL_NO_DISPLAY;
@@ -86,6 +97,12 @@ namespace OloEngine::Tests
                                    if (backend == GlBackend::None)
                                    {
                                        m_ForcedOff = true;
+                                       return;
+                                   }
+
+                                   if (OloEngine::Tests::Options().Rhi == TestRhi::Vulkan)
+                                   {
+                                       m_VulkanProcess = true;
                                        return;
                                    }
 
@@ -302,19 +319,39 @@ namespace OloEngine::Tests
         };
     } // namespace
 
+    namespace
+    {
+        bool s_VulkanSceneTestAdmitted = false;
+    } // namespace
+
     bool RenderPropertyFixture::IsGpuAvailable()
     {
         auto& ctx = GpuContext::Get();
         ctx.TryInitOnce();
+        if (ctx.m_VulkanProcess)
+            return s_VulkanSceneTestAdmitted;
         return ctx.m_Available;
+    }
+
+    void RenderPropertyFixture::SetVulkanSceneTestAdmitted(const bool admitted)
+    {
+        s_VulkanSceneTestAdmitted = admitted;
     }
 
     const char* RenderPropertyFixture::GpuUnavailableDetail()
     {
         auto& ctx = GpuContext::Get();
         ctx.TryInitOnce();
+        if (ctx.m_VulkanProcess)
+            return " (this process runs --olo-rhi=vulkan and makes no GL context; GL-only tests run in the OpenGL "
+                   "process)";
         return ctx.m_ForcedOff ? " (GL backend pinned to 'none' by --olo-gl-backend=none; no context was attempted)"
                                : "";
+    }
+
+    bool RenderPropertyFixture::ChangeToOloEditorDir()
+    {
+        return GpuContext::ChangeToOloEditorDir();
     }
 
     bool RenderPropertyFixture::GpuRequired()
@@ -499,6 +536,125 @@ namespace OloEngine::Tests
         out.resize(static_cast<std::size_t>(width) * height * 4);
         ::glGetTextureImage(static_cast<GLuint>(textureId), 0, GL_RGBA, GL_FLOAT,
                             static_cast<GLsizei>(out.size() * sizeof(f32)), out.data());
+    }
+
+    namespace
+    {
+        // The backend-neutral readback (#1556). In the Vulkan process it is
+        // RenderCommand::ReadTextureImage, a one-shot copy plus CPU conversion.
+        // In the GL process it stays the raw glGetTextureImage the GL-name
+        // overloads use, inside the same pack-state scope: the facade's GL path
+        // drains the error queue before reading, and a readback must not
+        // swallow an error a pass or a test left queued -- the tick's GL-error
+        // check exists to report exactly that.
+        //
+        // Rows come back in GL order (bottom row first) on both backends: a
+        // render target's rows are top-down on Vulkan (RHI::
+        // RenderTargetRowsAreBottomUp), and every caller was written against
+        // GL's layout, so the Vulkan read is flipped here, once.
+        void ReadbackThroughFacade(const RHI::ResourceHandle texture, const RHI::Format format, const u32 height,
+                                   const sizet bytes, void* const dest)
+        {
+            if (RendererAPI::GetAPI() == RendererAPI::API::OpenGL)
+            {
+                const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+                if (native == 0u)
+                {
+                    std::memset(dest, 0, bytes);
+                    ADD_FAILURE() << "readback by RHI handle: the handle does not resolve to a GL texture; the "
+                                     "buffer is zeroed";
+                    return;
+                }
+                GLenum glFormat = GL_RGBA;
+                GLenum glType = GL_UNSIGNED_BYTE;
+                switch (format)
+                {
+                    case RHI::Format::RGBA32Float:
+                        glType = GL_FLOAT;
+                        break;
+                    case RHI::Format::R32Int:
+                        glFormat = GL_RED_INTEGER;
+                        glType = GL_INT;
+                        break;
+                    case RHI::Format::D32Float:
+                        glFormat = GL_DEPTH_COMPONENT;
+                        glType = GL_FLOAT;
+                        break;
+                    default:
+                        break;
+                }
+                PixelStoreDefaultsScope packScope{ PackTag{} };
+                ::glGetTextureImage(static_cast<GLuint>(native), 0, glFormat, glType, static_cast<GLsizei>(bytes),
+                                    dest);
+                return;
+            }
+            if (!RenderCommand::ReadTextureImage(texture, 0u, format, bytes, dest))
+            {
+                std::memset(dest, 0, bytes);
+                ADD_FAILURE() << "RenderCommand::ReadTextureImage refused the readback (stale handle, unregistered "
+                                 "image or undecodable format); the buffer is zeroed";
+                return;
+            }
+            if (RHI::RenderTargetRowsAreBottomUp() || height < 2u)
+                return;
+            const sizet rowBytes = bytes / height;
+            auto* const rows = static_cast<u8*>(dest);
+            for (u32 y = 0; y < height / 2u; ++y)
+                std::swap_ranges(rows + y * rowBytes, rows + (y + 1u) * rowBytes, rows + (height - 1u - y) * rowBytes);
+        }
+    } // namespace
+
+    u32 TextureSampleCount(const RHI::ResourceHandle texture)
+    {
+        const u64 native = RHI::ResourceRegistry::Get().ResolveNativeForBackend(texture);
+        if (native == 0u)
+            return 0u;
+#if OLO_WITH_VULKAN
+        if (RendererAPI::GetAPI() == RendererAPI::API::Vulkan)
+        {
+            const auto* info = VulkanImageInfoRegistry::Get().Lookup(reinterpret_cast<VkImage>(native));
+            return info != nullptr ? std::max(info->Samples, 1u) : 0u;
+        }
+#endif
+        GLint samples = 0;
+        ::glGetTextureLevelParameteriv(static_cast<GLuint>(native), 0, GL_TEXTURE_SAMPLES, &samples);
+        return samples > 0 ? static_cast<u32>(samples) : 1u;
+    }
+
+    void ReadbackRgba8(const RHI::ResourceHandle texture, u32 width, u32 height, std::vector<u8>& out)
+    {
+        out.resize(static_cast<std::size_t>(width) * height * 4);
+        ReadbackThroughFacade(texture, RHI::Format::RGBA8UNorm, height, out.size(), out.data());
+    }
+
+    void ReadbackRgbaFloat(const RHI::ResourceHandle texture, u32 width, u32 height, std::vector<f32>& out)
+    {
+        out.resize(static_cast<std::size_t>(width) * height * 4);
+        ReadbackThroughFacade(texture, RHI::Format::RGBA32Float, height, out.size() * sizeof(f32), out.data());
+    }
+
+    void ReadbackR32Int(const RHI::ResourceHandle texture, u32 width, u32 height, std::span<i32> out)
+    {
+        if (out.size() < static_cast<std::size_t>(width) * height)
+        {
+            ADD_FAILURE() << "ReadbackR32Int: the destination holds " << out.size() << " values, not " << width << "x"
+                          << height;
+            return;
+        }
+        ReadbackThroughFacade(texture, RHI::Format::R32Int, height, static_cast<sizet>(width) * height * sizeof(i32),
+                              out.data());
+    }
+
+    void ReadbackDepth32F(const RHI::ResourceHandle texture, u32 width, u32 height, std::span<f32> out)
+    {
+        if (out.size() < static_cast<std::size_t>(width) * height)
+        {
+            ADD_FAILURE() << "ReadbackDepth32F: the destination holds " << out.size() << " values, not " << width
+                          << "x" << height;
+            return;
+        }
+        ReadbackThroughFacade(texture, RHI::Format::D32Float, height, static_cast<sizet>(width) * height * sizeof(f32),
+                              out.data());
     }
 
     FloatStats ComputeStats(const std::vector<f32>& pixels)

@@ -491,7 +491,7 @@ namespace OloEngine::Tests
             }
             ASSERT_TRUE(fb) << "No composited framebuffer for '" << saveAs << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), width, height, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), width, height, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<sizet>(width) * height * 4u);
 
             {

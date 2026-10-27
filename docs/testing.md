@@ -1077,10 +1077,27 @@ The conventional file header comment names the seam the test pins:
 Ordinary PR CI executes no Vulkan device test: the self-hosted AMD runner is refused by the ADR 0010
 contract and the hosted runners have no GPU. PRs that modify `vulkan-software.yml` or
 `VulkanCapabilities.*` run the hosted lavapipe device-gated suites with `--olo-require-vulkan`, as
-does the nightly job. No scheduled job executes the L7 ray-query suites (#1294); lavapipe can run part of them on dispatch. Run `OloEngine-Tests --olo-vulkan-capability-report`
+does the nightly job, which also runs the L7 ray-query suites under a gate that requires every
+case to execute (#1294). Run `OloEngine-Tests --olo-vulkan-capability-report`
 to see what a given machine can execute; the measured matrix, the single contract table and the rule
 for a designated job that must not silently skip are in
 [agent-rules/vulkan-support-matrix.md](agent-rules/vulkan-support-matrix.md).
+
+**Scene-level tests on Vulkan (#1556).** `RendererAttachedTest` runs on either backend, one per
+process. `OloEngine-Tests --olo-rhi=vulkan` selects Vulkan before any test, brings the renderer up
+on a windowless `VulkanContext` (the full frame bracket against an offscreen target, no window or
+swapchain) and runs each fixture tick as one frame of it; a tick fails on a Vulkan validation error
+or an unimplemented-stub hit. Readback goes through `RenderCommand::ReadTextureImage` and evidence
+files carry the backend (`<Feature>_Vulkan_<Path>.png`). GL-only tests refuse in that process with
+the reason, and so do the device-level Vulkan suites, which build their own device and run in the
+default process as before. The nightly lavapipe job runs the ported suites (`OloEngine/tests/vulkan_scene_filter.txt`) with `--olo-require-vulkan` and a gate that fails the job if any selected
+case did not execute. It runs the groom scene-shadow cases one per process, because on lavapipe a
+Forward → Forward+ → Deferred history in one process breaks the next Forward frame's sun light (#1666). Rules: [agent-rules/testing-architecture.md](agent-rules/testing-architecture.md)
+rule 13.
+
+```powershell
+build-cached\OloEngine\tests\Debug\OloEngine-Tests.exe --olo-rhi=vulkan --olo-require-vulkan --gtest_filter=GroomSceneShadowVisualEvidenceTest.*
+```
 
 Local quick paths:
 

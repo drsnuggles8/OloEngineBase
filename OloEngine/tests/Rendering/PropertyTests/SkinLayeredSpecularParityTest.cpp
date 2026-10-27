@@ -181,7 +181,7 @@ namespace OloEngine::Tests
 
             void ReadOutputRgbaFloat(std::vector<f32>& out) const
             {
-                ReadbackRgbaFloat(m_OutputFB->GetColorAttachmentRendererID(0), m_Width, m_Height, out);
+                ReadbackRgbaFloat(m_OutputFB->GetColorAttachmentHandle(0), m_Width, m_Height, out);
             }
         };
     } // namespace

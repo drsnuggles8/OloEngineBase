@@ -165,7 +165,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(fb) << "No UI-composited framebuffer for capture '" << tag
                             << "' — the UI overlay did not reach the render graph";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
 
             const std::size_t rowBytes = static_cast<std::size_t>(kWidth) * 4u;

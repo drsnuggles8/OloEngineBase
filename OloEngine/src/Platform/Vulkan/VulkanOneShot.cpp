@@ -213,8 +213,16 @@ namespace OloEngine
                 // caller destroying the staging buffer it copies from. So wait
                 // it out before releasing, as VulkanContext's flush does. A
                 // truly hung GPU becomes DEVICE_LOST through the OS watchdog,
-                // which ends this wait and makes the release legal. The call
-                // still reports the failed wait: the result stays false/Submitted.
+                // which ends this wait and makes the release legal.
+                //
+                // A drain that RETIRES the work turns the result into Completed
+                // and true: the bool means "fully completed and waited" (the
+                // header), and it now is. Reporting false there made a slow but
+                // working GPU indistinguishable from a broken one, and threw
+                // away data a readback had already copied: a groom frame on CI's
+                // software rasteriser runs past 10 s, and the readback queued
+                // behind it came back zeroed (#1556). Only device loss, or a
+                // drain that proves nothing, stays a failure.
                 if (waited != VK_SUCCESS && waited != VK_ERROR_DEVICE_LOST)
                 {
                     OLO_CORE_ERROR("VulkanOneShot::Submit({}): waiting for completion or device loss before "
@@ -241,6 +249,14 @@ namespace OloEngine
                                        what, static_cast<int>(drained));
                         setOutcome(Outcome::DrainFailed);
                         return false;
+                    }
+                    if (drained == VK_SUCCESS)
+                    {
+                        OLO_CORE_WARN("VulkanOneShot::Submit({}): the submission retired after its fence wait "
+                                      "failed; reporting it completed",
+                                      what);
+                        setOutcome(Outcome::Completed);
+                        ok = true;
                     }
                 }
             }

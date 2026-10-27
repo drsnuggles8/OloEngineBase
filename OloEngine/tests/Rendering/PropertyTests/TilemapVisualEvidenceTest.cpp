@@ -276,7 +276,7 @@ namespace OloEngine::Tests
 
             // Read after unbinding — NVIDIA rejects glGetTextureImage on a texture
             // still attached to the bound FBO (see the sibling 2D evidence test).
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kSize, kSize, out.Pixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kSize, kSize, out.Pixels);
             ASSERT_EQ(out.Pixels.size(), static_cast<sizet>(kSize) * kSize * 4u);
 
             if (tag.empty())
