@@ -268,7 +268,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No composited framebuffer for fog capture '" << tag << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kW, kH, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kW, kH, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kW) * kH * 4u);
 
             const std::size_t rowBytes = static_cast<std::size_t>(kW) * 4u;

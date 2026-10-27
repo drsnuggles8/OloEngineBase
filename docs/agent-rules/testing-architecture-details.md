@@ -279,28 +279,60 @@ refactor; that was wrong. The one real bug it found: `ScriptEngine::GetEntityCla
 null `s_Data` when the C# engine was not initialised, so a scene with a `ScriptComponent` crashed
 deserialise. It is now null-guarded and such scenes load with scripting off.
 
-## 9. A GPU test for the Vulkan backend goes in `VulkanPassSuiteTest.cpp`, not in a parameterised `RendererAttachedTest` (issue #1107)
+## 9. Scene-level Vulkan runs in a second process; a single-pass contract stays a `VulkanPassSuite` tenant (issues #1107, #1556)
 
-**Rule:** when a renderer contract has to hold on **both** backends, write the GL half on
-`RendererAttachedTest` and the Vulkan half as a `VulkanPassSuite` tenant, and anchor both to the
-same **analytic** reference. Do not try to make one fixture run twice, once per backend.
+**Rule:** a renderer contract that must hold on **both** backends is written once on
+`RendererAttachedTest` and runs in two processes of the same binary: the default (OpenGL) one and
+`OloEngine-Tests --olo-rhi=vulkan`. A contract about **one pass** -- its shader, its bindings, the
+projection seam -- is still a `VulkanPassSuite` tenant, because a tenant reaches a single pass in
+seconds and needs no scene. Never parameterise one fixture over both backends inside one process.
 
-The question is real — a whole backend having no visual or perf coverage is what let both #1106
-bugs ship — so here is why the answer is two fixtures:
+Why two processes and not a parameterised fixture:
 
-- **A process holds one backend at a time.** `RendererAttachedTest` sits on `RenderPropertyFixture`,
-  which brings up a GL 4.6 context and a process-wide `Renderer::Init` whose `Renderer3D::s_Data`
-  is a static full of GL handles. `VulkanPassSuite::SetUp` gets a Vulkan device by *displacing* that
-  — `RenderCommand::ShutdownGpuResources()`, `RendererAPI::SetAPI(Vulkan)`,
-  `RenderCommand::RecreateForSelectedBackend()` — and restores it in `TearDown`. A parameterised
-  fixture would have to do that swap per test case, and the swap is the expensive, fragile part.
-- **The blast radius is 118 files.** That many test files inherit `RendererAttachedTest` today.
-  Parameterising it makes every one of them a two-instantiation suite, of which the Vulkan
-  instantiation would `SKIP` for nearly all of them (they drive `Scene::OnUpdateRuntime`, which
-  needs the Renderer3D statics the swap just tore down).
-- **What actually blocks Vulkan coverage is not the fixture.** It is that `Scene::OnUpdateRuntime`
-  is unreachable on a displaced backend, so a Vulkan tenant hand-drives the passes it wants. That
-  cost does not change if the fixture is parameterised.
+- **A process holds one backend.** `Renderer::Init`'s `Renderer3D::s_Data` is a static full of one
+  backend's handles, and `VulkanPassSuite::SetUp` gets its device by *displacing* the GL facade
+  (`RenderCommand::ShutdownGpuResources()`, `RendererAPI::SetAPI(Vulkan)`,
+  `RenderCommand::RecreateForSelectedBackend()`) for one test. A per-case swap of the whole renderer
+  is the expensive, fragile part, so the swap happens once, in `main`, before any test
+  (`TestRenderBackend::SelectFromOptions`).
+- **Full-frame work needs a frame bracket.** On Vulkan every facade draw lands in the command buffer
+  `VulkanContext::SwapBuffers` opens; outside it a draw is dropped. The `--olo-rhi=vulkan` process
+  makes a **windowless** `VulkanContext` (`GraphicsContext::CreateWindowless`: the same bracket,
+  against a context-owned offscreen target, no GLFW window or swapchain), and the fixture runs each
+  `RunFrames` / `RunEditorFrames` tick as one frame of it. GPU work a test issues outside a tick goes
+  through `RunInFrame`.
+- **The tick's hygiene is the Vulkan one there.** A frame that raises a validation error (Debug) or
+  hits a `VulkanRendererAPI` unimplemented stub fails the test, as a GL error does in the GL process.
+- **Readback is backend-neutral.** `ReadbackComposite` and the handle overloads of `ReadbackRgba8`,
+  `ReadbackRgbaFloat`, `ReadbackR32Int` and `ReadbackDepth32F` read through
+  `RenderCommand::ReadTextureImage` and return GL row order on both backends. A test that reads a GL
+  name, or calls GL, is GL-only. A suite runs in the Vulkan process only once it overrides
+  `RunsInVulkanProcess()`; every other suite skips there with the reason, so an unported GL call
+  never runs without a context.
+- **Evidence names carry the backend.** `TestRenderBackend::EvidenceName("Feature")` gives
+  `Feature_GL_` or `Feature_Vulkan_`, so the two processes never write each other's cells.
+
+The suites ported today: the smoke cases, `CrossPathLightingMatrix`, and the groom scene-shadow,
+shadow atlas, VSM, PCSS, shadow-family and dog showcase evidence. The lavapipe nightly runs the
+ones `OloEngine/tests/vulkan_scene_filter.txt` names; shadow-family and the dog showcase are
+left to hardware for their software-rasteriser runtime. A suite joins by porting its readback and names, passing on the
+windowless context, and being added to that filter, whose gate then requires every case to execute.
+What stays live-only: anything the windowless target cannot show -- the swapchain present, the ImGui
+overlay, window-size and vsync behaviour -- and the one cell per task that compares a windowless
+frame with a live `--rhi vulkan` editor capture of the same scene.
+
+The first run of the existing shadow evidence on the windowless context found Vulkan defects no
+pass-level tenant could see: a depth-array layer larger than its framebuffer rendered and cleared
+only the framebuffer-sized corner (every shadow-atlas tile after the first was empty), and a
+timing-dependent one in the forked, groom-split shadow region that shades fur strands random
+colours on a loaded GPU and on lavapipe (#1652).
+
+A third is order-dependent: on lavapipe, once a process has rendered Forward, Forward+ and
+Deferred in that order, the next Forward frame on a new scene gets no direct light from the sun
+(#1666). Every groom case passes alone, so the lavapipe job runs `GroomSceneShadowVisualEvidenceTest`
+one case per process and the rest of the filter in one; its gate merges the reports. A suite whose
+cases fail only after other cases in the same process belongs in that isolated list, with the
+issue that says why, not in the filter's exclusions.
 
 **Anchor both halves to an analytic reference, not to each other.** "Vulkan matches GL" cannot be
 asserted inside one process, and passing numbers between two runs is a golden file with none of a
@@ -339,8 +371,9 @@ a workstation instrument — see `oloengine-perf-tests-are-dev-workstation-only`
 
 1. **A rendering feature that touches a pass, a shader or the projection seam adds a
    `VulkanPassSuite` tenant for it**, in the same PR, the way it already adds an L1 contract test.
-   Scene-level `RendererAttachedTest` coverage stays **OpenGL only** — see §9; it is not
-   parameterised by backend and will not be.
+   Its scene-level `RendererAttachedTest` evidence also runs in the `--olo-rhi=vulkan` process
+   (§9) when it ports cleanly: backend-neutral readback, backend-named evidence, and the suite in
+   `OloEngine/tests/vulkan_scene_filter.txt`.
 2. **Start every device-gated Vulkan test with `OLO_VULKAN_DEVICE_OR_SKIP()`**
    (`OloEngine/tests/Rendering/VulkanTestSupport.h`). Never an inline probe ladder, never a bare
    `ProbeVulkanDeviceTestGate()` + `GTEST_SKIP`. The macro is what makes a skipped run report
@@ -352,20 +385,19 @@ a workstation instrument — see `oloengine-perf-tests-are-dev-workstation-only`
 **The answer is the mix, and the line falls where §9 already put it** — this section is the missing
 other half of that decision, not a new one.
 
-- **Scene-level, backend-selectable (#1300 option 1) is refused, on the numbers in §9.** 118 test
-  files inherit `RendererAttachedTest`; its Vulkan instantiation would `SKIP` for nearly all of them
-  because `Scene::OnUpdateRuntime` is unreachable once the backend is displaced. Parameterising the
-  fixture does not remove that cost — it multiplies it by 118 and hides it behind a green
-  instantiation that ran nothing.
+- **Scene-level, backend-selectable (#1300 option 1) was refused then, and #1556 reversed it in a
+  different shape** (the maintainer's decision, 2026-10-25). Parameterising the fixture inside one
+  process stays refused: 118 test files inherit `RendererAttachedTest`, and a per-case backend swap
+  would `SKIP` nearly all of them. What #1556 added is a second process, `--olo-rhi=vulkan`, with a
+  windowless frame context, so `Scene::OnUpdateRuntime` runs on Vulkan with nothing displaced (§9).
 - **Pass-level (option 2) is where the bugs actually are.** Both #1106 bugs, #994's `.length()` and
   #1246's missing `abs()` are single-pass, single-shader faults reachable by driving one pass with
   production inputs. `VulkanPassSuite::RunSinglePassChain` makes the post-process shape roughly
   thirty lines; a geometry pass costs more because it has to hand-build its own bindings, and that
   is the real price of Vulkan coverage today.
-- **So the split is: pass-level is the expectation, scene-level composition stays a GL
-  artefact plus a live Vulkan capture in the PR body.** When a feature's whole point is how it
-  composes against other geometry, say so in the PR and capture the frame — do not fake it with a
-  scene fixture that boots the wrong backend.
+- **So the split is: pass-level is the expectation, and scene-level composition is an artefact in
+  both processes where the suite has been ported.** A feature whose suite is not yet in the Vulkan
+  process still captures a live Vulkan frame in the PR body, and says why the suite is not ported.
 
 ### What "cheap" means, concretely
 

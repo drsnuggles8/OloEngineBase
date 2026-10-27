@@ -332,7 +332,7 @@ namespace OloEngine::Tests
 
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No SceneColor framebuffer";
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), width, height, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), width, height, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<sizet>(width) * height * 4u);
         }
 

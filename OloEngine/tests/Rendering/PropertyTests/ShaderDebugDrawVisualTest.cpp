@@ -212,7 +212,7 @@ namespace OloEngine::Tests
                 framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(framebuffer) << "No composited framebuffer";
 
-            ReadbackRgba8(framebuffer->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(framebuffer->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
 
             // glGetTextureImage returns rows bottom-up; flip so the PNG is the
@@ -473,7 +473,7 @@ namespace OloEngine::Tests
         ASSERT_TRUE(framebuffer);
 
         std::vector<u8> pixels;
-        ReadbackRgba8(framebuffer->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+        ReadbackRgba8(framebuffer->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
 
         EXPECT_LT(CountHue(pixels, kAABBColor), 50u) << "Debug geometry drew while the feature was disabled";
         EXPECT_LT(CountHue(pixels, kBoxColor), 50u) << "Debug geometry drew while the feature was disabled";

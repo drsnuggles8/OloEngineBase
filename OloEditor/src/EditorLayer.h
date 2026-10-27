@@ -536,6 +536,16 @@ namespace OloEngine
         // m_LastViewportResizeFrame) to the MCP tools so a camera change can be
         // confirmed rendered before a capture is taken.
         u64 m_FrameIndex = 0;
+        // Frames that rendered, and their count when the active scene was
+        // installed (#1591): a scene-load wait counts the new scene's rendered
+        // frames. SetEditorScene marks the install; the next OnUpdate stamps it.
+        u64 m_RenderedFrames = 0;
+        u64 m_SceneInstalledFrame = 0;
+        bool m_SceneInstallPending = false;
+        // The groom pass's frame tick at the last OnUpdate, and the coats the
+        // last frame left waiting for their first build (#1591).
+        u64 m_GroomFrameTick = 0;
+        u32 m_GroomsAwaitingBuild = 0;
         // Wall clock at the top of the most recent OnUpdate. The frame counter alone
         // cannot distinguish "stalled" from "slow" without two samples, so an agent
         // would have to poll twice and reason about the interval; a timestamp turns

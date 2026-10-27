@@ -537,7 +537,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(fb) << "No composited framebuffer for capture '" << name << "'";
 
             std::vector<u8> pixels;
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
             ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
 
             // Flip to top-down for both the PNG and the band sampling.
@@ -802,7 +802,7 @@ namespace OloEngine::Tests
             std::vector<u8> pixels;
             if (!framebuffer)
                 return pixels;
-            ReadbackRgba8(framebuffer->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            ReadbackRgba8(framebuffer->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
             EXPECT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
             if (pixels.size() == static_cast<std::size_t>(kWidth) * kHeight * 4u)
                 FlipRgbaRows(pixels, kWidth, kHeight);

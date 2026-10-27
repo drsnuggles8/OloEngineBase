@@ -11,7 +11,7 @@
 // meets the ground (occluder touching receiver) and softens toward the far tip
 // (occluder far from receiver). The float­ing cube adds a second, gap-separated
 // shadow. In rebase mode the frames are written to
-//   OloEditor/assets/tests/visual/PCSS_<pose>_<mode>.png
+//   OloEditor/assets/tests/visual/PCSS_<GL|Vulkan>_<pose>_<mode>.png
 // for a human (or the agent) to eyeball the contact hardening.
 //
 // Driver-independent contracts (no committed golden PNGs, so no cross-GPU RMSE
@@ -35,6 +35,7 @@
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -103,6 +104,11 @@ namespace OloEngine::Tests
     class PCSSVisualEvidenceTest : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         void BuildScene() override
         {
             Scene& scene = GetScene();
@@ -171,7 +177,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No composited framebuffer for pose '" << poseName << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
 
             // GL readback is bottom-up; flip so row 0 is the TOP of the frame.
@@ -194,7 +200,7 @@ namespace OloEngine::Tests
                 std::error_code ec;
                 fs::create_directories(dir, ec);
                 const std::string path =
-                    (dir / ("PCSS_" + poseName + "_" + (softShadows ? "on" : "off") + ".png")).string();
+                    (dir / (TestRenderBackend::EvidenceName("PCSS") + poseName + "_" + (softShadows ? "on" : "off") + ".png")).string();
                 ::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4,
                                  outPixels.data(), static_cast<int>(kWidth) * 4);
             }

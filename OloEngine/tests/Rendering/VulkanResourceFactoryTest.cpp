@@ -677,6 +677,38 @@ TEST_F(VulkanResourceFactory, TextureUploadRoundTripsThroughGetData)
     EXPECT_EQ(std::memcmp(readback.GetData(), pixels.GetData(), pixels.Num()), 0);
 }
 
+TEST_F(VulkanResourceFactory, AReadbackWhoseFenceWaitTimesOutStillReturnsTheData)
+{
+    ScopedVulkanApiSelection vulkanApi;
+
+    // A readback queued behind a frame that runs past the one-shot's 10 s
+    // wait: CI's software rasteriser does that with a groom frame (#1556).
+    // The drain waits it out, so the copy has finished and the data is good;
+    // before the fix the call still failed and the caller zeroed the buffer.
+    TextureSpecification spec;
+    spec.Width = 4;
+    spec.Height = 4;
+    spec.Format = ImageFormat::RGBA8;
+    spec.GenerateMips = false;
+
+    auto texture = Texture2D::Create(spec);
+    ASSERT_NE(texture, nullptr);
+
+    TArray64<u8> pixels(4 * 4 * 4);
+    for (sizet i = 0; i < pixels.Num(); ++i)
+        pixels[i] = static_cast<u8>(i * 11 + 5);
+    texture->SetData(pixels.GetData(), static_cast<u32>(pixels.Num()));
+
+    VulkanOneShot::SetFailNextFenceWaitsForTesting(1u);
+    TArray64<u8> readback;
+    const bool read = texture->GetData(readback, 0);
+    EXPECT_EQ(VulkanOneShot::GetPendingFailNextFenceWaitsForTesting(), 0u)
+        << "the injected timeout must have been consumed by the readback's one-shot";
+    ASSERT_TRUE(read) << "the drain retired the copy, so the readback completed";
+    ASSERT_EQ(readback.Num(), pixels.Num());
+    EXPECT_EQ(std::memcmp(readback.GetData(), pixels.GetData(), pixels.Num()), 0);
+}
+
 TEST_F(VulkanResourceFactory, Rgba16fTextureArrayLayersRoundTripBitExactlyThroughThePublicFacade)
 {
     ScopedVulkanRenderCommand vulkanCommand;

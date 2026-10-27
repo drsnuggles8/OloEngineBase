@@ -106,7 +106,7 @@ namespace OloEngine::Tests
 
             void ReadOutputRgbaFloat(std::vector<f32>& out) const
             {
-                const u32 id = m_OutputFB->GetColorAttachmentRendererID(0);
+                const RHI::ResourceHandle id = m_OutputFB->GetColorAttachmentHandle(0);
                 ReadbackRgbaFloat(id, m_Width, m_Height, out);
             }
         };
@@ -591,7 +591,7 @@ namespace OloEngine::Tests
             ::glFinish();
             fb->Unbind();
 
-            ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), kSize, kSize, pixels);
+            ReadbackRgbaFloat(fb->GetColorAttachmentHandle(0), kSize, kSize, pixels);
         }
 
         // Expected encoded normal = (0, 0, 1) * 0.5 + 0.5 = (0.5, 0.5, 1.0).
@@ -695,7 +695,7 @@ namespace OloEngine::Tests
             ::glFinish();
             fb->Unbind();
 
-            ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), kSize, kSize, pixels);
+            ReadbackRgbaFloat(fb->GetColorAttachmentHandle(0), kSize, kSize, pixels);
         }
 
         // Encoded geometric normal (0,0,1) -> (0.5, 0.5, 1.0).
@@ -837,7 +837,7 @@ namespace OloEngine::Tests
             fb->Unbind();
             ::glBindTextureUnit(1, 0);
 
-            ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), kSize, kSize, pixels);
+            ReadbackRgbaFloat(fb->GetColorAttachmentHandle(0), kSize, kSize, pixels);
         }
 
         constexpr u32 kMargin = 4; // skip quadrant seams + frame edges (derivative quads)

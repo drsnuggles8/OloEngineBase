@@ -19,12 +19,13 @@
 // An arm that cannot run in this process skips LOUDLY with the reason. Every
 // skip reason is a fact about the world:
 //   * Unsupported in the registry -> the registry's Reason.
-//   * Vulkan -> "scene-level Vulkan is unreachable in-process": one process
-//     holds one backend, and Scene::OnUpdateRuntime needs the GL Renderer3D
-//     statics a Vulkan swap tears down (testing-architecture.md §9). Those
-//     cells are run live against the editor by
-//     scripts/cross-path-matrix-live.py, which renders the same rows.
-//   * no GL 4.6 context (CI software driver) -> the fixture's GPU gate.
+//   * the other backend's arm -> one process holds one backend (the
+//     Renderer3D statics do not survive a swap), so GL arms run in the default
+//     process and Vulkan arms in `OloEngine-Tests --olo-rhi=vulkan` (#1556),
+//     on its windowless VulkanContext. scripts/cross-path-matrix-live.py still
+//     replays the rows in a live --rhi vulkan editor, which is how a windowless
+//     frame is shown to match a windowed one.
+//   * no GL 4.6 context / no Vulkan device -> the fixture's gate.
 //
 // SEPARATED TERMS. The lighting-signal AOVs of #1336 are an ownership table,
 // not buffers, and the per-term debug views exist on Deferred only. So a row
@@ -42,7 +43,9 @@
 // contract's answer when that path does not host the estimator, instead of
 // hard-coding "Deferred only" a second time.
 //
-// Written for GL arms in-process; the row/probe declarations carry no GL.
+// The row/probe declarations carry no GL; each process runs its own
+// backend's arms, compared against that backend's Forward native arm and
+// against the analytic model -- never against the other process's pixels.
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
@@ -85,9 +88,16 @@ namespace OloEngine::Tests::CrossPath
         return arms;
     }
 
-    // The arm every other arm is compared against: GL Forward at native
-    // resolution, the simplest path (the light loop, no G-Buffer, no tiles).
+    // The arm every other arm in a process is compared against: that
+    // backend's Forward at native resolution, the simplest path (the light
+    // loop, no G-Buffer, no tiles).
     inline constexpr std::string_view kReferenceArmId = "gl-forward-native";
+    inline constexpr std::string_view kVulkanReferenceArmId = "vk-forward-native";
+
+    [[nodiscard]] inline std::string_view ReferenceArmId(RendererSupport::Backend process)
+    {
+        return process == RendererSupport::Backend::Vulkan ? kVulkanReferenceArmId : kReferenceArmId;
+    }
 
     [[nodiscard]] inline std::string_view ToString(RenderingPath path)
     {
@@ -126,18 +136,20 @@ namespace OloEngine::Tests::CrossPath
         std::string SkipReason; // set when !Runs; a fact, printed by the skip
     };
 
-    [[nodiscard]] inline ArmPlan PlanArm(const Arm& arm)
+    // `process` is the backend this test process renders on (--olo-rhi).
+    [[nodiscard]] inline ArmPlan PlanArm(const Arm& arm, RendererSupport::Backend process)
     {
         if (arm.Declared.Status == RendererSupport::Outcome::Unsupported)
             return { false, "the support registry declares " + std::string(arm.Id) + " Unsupported (" +
                                 std::string(RendererSupport::ToString(arm.Declared.Why)) +
                                 ") — the arm exists so the declared and tested matrices cannot drift" };
-        if (arm.Request.Api == RendererSupport::Backend::Vulkan)
+        if (arm.Request.Api != process)
             return { false, std::string(arm.Id) +
-                                ": scene-level Vulkan is unreachable in-process — one process holds one backend and "
-                                "Scene::OnUpdateRuntime needs the GL Renderer3D statics a Vulkan swap tears down "
-                                "(docs/agent-rules/testing-architecture.md §9). Live cell: "
-                                "scripts/cross-path-matrix-live.py renders the same rows in the editor with --rhi vulkan" };
+                                (arm.Request.Api == RendererSupport::Backend::Vulkan
+                                     ? ": a Vulkan arm runs in the `OloEngine-Tests --olo-rhi=vulkan` process — one "
+                                       "process holds one backend, and the Renderer3D statics do not survive a swap"
+                                     : ": a GL arm runs in the default (OpenGL) process — this one runs "
+                                       "--olo-rhi=vulkan, and one process holds one backend") };
         if (arm.Request.LightingTechnique != RendererSupport::Technique::Raster)
             return { false, std::string(arm.Id) + ": a ray-query arm needs a hardware ray-tracing Vulkan device" };
         return { true, {} };

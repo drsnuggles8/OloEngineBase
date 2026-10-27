@@ -376,7 +376,7 @@ namespace OloEngine::Tests
 
             auto hdr = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(hdr) << "no SceneColor framebuffer for '" << saveAs << "'";
-            ReadbackRgbaFloat(hdr->GetColorAttachmentRendererID(0), kWidth, kHeight, out.Hdr);
+            ReadbackRgbaFloat(hdr->GetColorAttachmentHandle(0), kWidth, kHeight, out.Hdr);
             ASSERT_EQ(out.Hdr.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
 
             if (saveAs.empty())
@@ -390,7 +390,7 @@ namespace OloEngine::Tests
             }
             ASSERT_TRUE(ldr) << "no composited framebuffer for '" << saveAs << "'";
             std::vector<u8> pixels;
-            ReadbackRgba8(ldr->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            ReadbackRgba8(ldr->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
             ASSERT_EQ(pixels.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
 
             const sizet rowBytes = static_cast<sizet>(kWidth) * 4u;

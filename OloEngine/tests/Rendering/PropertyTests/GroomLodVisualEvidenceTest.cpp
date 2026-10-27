@@ -395,7 +395,7 @@ namespace OloEngine::Tests
             }
             ASSERT_TRUE(fb) << "No composited framebuffer for '" << saveAs << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
 
             {
@@ -524,7 +524,7 @@ namespace OloEngine::Tests
                 {
                     return result;
                 }
-                ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+                ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
                 // The clear colour from a corner the coat never reaches.
                 const f64 background = (0.2126 * pixels[0] + 0.7152 * pixels[1] + 0.0722 * pixels[2]) / 255.0;
                 f64 light = 0.0;
@@ -1681,7 +1681,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
             }
             ASSERT_TRUE(fb);
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
             luma.resize(static_cast<sizet>(kWidth) * kHeight);
             for (sizet i = 0; i < luma.size(); ++i)
             {
@@ -1984,7 +1984,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
             }
             ASSERT_TRUE(fb);
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
             luma.resize(static_cast<sizet>(kWidth) * kHeight);
             for (sizet i = 0; i < luma.size(); ++i)
             {

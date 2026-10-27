@@ -794,7 +794,7 @@ Entities:
                 framebuffer = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
             ASSERT_TRUE(framebuffer);
             std::vector<u8> pixels;
-            ReadbackRgba8(framebuffer->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            ReadbackRgba8(framebuffer->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
             ASSERT_EQ(pixels.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
 
             if (std::string_view(angleName) == "Front")

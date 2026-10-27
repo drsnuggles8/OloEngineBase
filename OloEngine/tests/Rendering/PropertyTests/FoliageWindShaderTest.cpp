@@ -34,7 +34,7 @@ namespace OloEngine::Tests
         glFinish();
         framebuffer->Unbind();
         std::vector<f32> pixels;
-        ReadbackRgbaFloat(framebuffer->GetColorAttachmentRendererID(0), 10, 1, pixels);
+        ReadbackRgbaFloat(framebuffer->GetColorAttachmentHandle(0), 10, 1, pixels);
         ASSERT_EQ(pixels.size(), 40u);
         const auto magnitude = [&pixels](sizet column)
         { return glm::length(glm::vec3(pixels[column * 4], pixels[column * 4 + 1], pixels[column * 4 + 2])); };

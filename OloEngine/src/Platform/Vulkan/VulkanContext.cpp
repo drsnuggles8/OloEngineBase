@@ -21,6 +21,7 @@
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanSamplerHeap.h"
+#include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 // After the Vulkan block above (see the volk-before-GLFW note): it reaches
 // Window.h, and the precache start asks whether an application is running.
@@ -160,12 +161,25 @@ namespace OloEngine
         // VulkanImageInfoRegistry entry make the backbuffer reachable by
         // IssueBarrierBatch / the layout tracker exactly like any texture.
         std::vector<RHI::ScopedResourceHandle> SwapchainImageHandles;
+
+        // --- #1556 windowless mode -----------------------------------------
+        // The memory behind the one context-owned image that SwapchainImages[0]
+        // holds in place of a swapchain's. Null in a windowed context.
+        VmaAllocation OffscreenAllocation = VK_NULL_HANDLE;
     };
 
     VulkanContext::VulkanContext(GLFWwindow* windowHandle)
         : m_WindowHandle(windowHandle), m_Data(CreateScope<VulkanContextData>())
     {
         OLO_CORE_ASSERT(windowHandle, "Window handle is null!");
+        OLO_CORE_ASSERT(s_Instance == nullptr, "A VulkanContext already exists");
+        s_Instance = this;
+    }
+
+    VulkanContext::VulkanContext(const OffscreenTarget& target)
+        : m_WindowHandle(nullptr), m_OffscreenTarget(target), m_Data(CreateScope<VulkanContextData>())
+    {
+        OLO_CORE_ASSERT(target.Width > 0 && target.Height > 0, "A windowless VulkanContext needs a non-empty target");
         OLO_CORE_ASSERT(s_Instance == nullptr, "A VulkanContext already exists");
         s_Instance = this;
     }
@@ -211,7 +225,10 @@ namespace OloEngine
             // device is still alive (§3(c): a failed save is a log line).
             VulkanPipelineCache::Get().SaveAndDestroy();
 
-            DestroySwapchain();
+            if (IsOffscreen())
+                DestroyOffscreenTarget();
+            else
+                DestroySwapchain();
             for (VulkanContextData::Frame& frame : d.Frames)
             {
                 if (frame.ImageAvailable != VK_NULL_HANDLE)
@@ -285,21 +302,29 @@ namespace OloEngine
                 "Vulkan bring-up: no Vulkan loader found on this system. Run with --rhi=opengl.");
         }
         // Hand GLFW volk's loader so it doesn't LoadLibrary vulkan-1 a second time
-        // (GLFW >= 3.4 API; safe to call after glfwInit).
-        glfwInitVulkanLoader(vkGetInstanceProcAddr);
-        if (glfwVulkanSupported() != GLFW_TRUE)
+        // (GLFW >= 3.4 API; safe to call after glfwInit). The windowless mode
+        // never touches GLFW: it may run in a process that never called glfwInit.
+        if (!IsOffscreen())
         {
-            throw std::runtime_error(
-                "Vulkan bring-up: GLFW reports no Vulkan surface support. Run with --rhi=opengl.");
+            glfwInitVulkanLoader(vkGetInstanceProcAddr);
+            if (glfwVulkanSupported() != GLFW_TRUE)
+            {
+                throw std::runtime_error(
+                    "Vulkan bring-up: GLFW reports no Vulkan surface support. Run with --rhi=opengl.");
+            }
         }
 
         // --- Instance + device (the window-independent half) -----------------
         // The surface must exist AFTER the instance but BEFORE the physical-
         // device pick (present support is per queue family, per surface) —
         // hence the callback shape rather than create-then-pass. The surface
-        // handle lands in d.Surface and stays OWNED by this context.
+        // handle lands in d.Surface and stays OWNED by this context. The
+        // windowless mode yields no surface, which is VulkanDevice's headless
+        // pick (graphics only, no present requirement).
         d.Device.Init([this, &d](VkInstance instance) -> VkSurfaceKHR
                       {
+            if (IsOffscreen())
+                return VK_NULL_HANDLE;
             VkCheck(glfwCreateWindowSurface(instance, m_WindowHandle, nullptr, &d.Surface),
                     "glfwCreateWindowSurface");
             return d.Surface; });
@@ -343,8 +368,11 @@ namespace OloEngine
                     "vkCreateSemaphore(async compute timeline)");
         }
 
-        // --- Swapchain (+ its per-image semaphores) ---------------------------
-        CreateSwapchain();
+        // --- Swapchain (+ its per-image semaphores), or the offscreen target ---
+        if (IsOffscreen())
+            CreateOffscreenTarget();
+        else
+            CreateSwapchain();
 
         // --- Engine descriptor heap (#691) ----------------------------
         // RHI::DescriptorHeap runs on this backend too: slots [0,
@@ -571,6 +599,85 @@ namespace OloEngine
         DestroySwapchain();
         CreateSwapchain();
         OLO_CORE_INFO("[Vulkan] Swapchain recreated ({}x{})", d.SwapchainExtent.width, d.SwapchainExtent.height);
+    }
+
+    void VulkanContext::CreateOffscreenTarget()
+    {
+        VulkanContextData& d = *m_Data;
+        const VkDevice device = d.Device.GetDevice();
+
+        // B8G8R8A8_UNORM is the format CreateSwapchain picks wherever the
+        // surface offers it, so a pipeline built against "the backbuffer"
+        // (FinalRenderPass's) is built for the format a windowed session gets.
+        d.SwapchainFormat = VK_FORMAT_B8G8R8A8_UNORM;
+        d.SwapchainExtent = { m_OffscreenTarget.Width, m_OffscreenTarget.Height };
+        d.SwapchainMinImageCount = 1u;
+
+        VkImageCreateInfo imageInfo{};
+        imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+        imageInfo.imageType = VK_IMAGE_TYPE_2D;
+        imageInfo.format = d.SwapchainFormat;
+        imageInfo.extent = { d.SwapchainExtent.width, d.SwapchainExtent.height, 1u };
+        imageInfo.mipLevels = 1u;
+        imageInfo.arrayLayers = 1u;
+        imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+        imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+        // The swapchain's two usages (attachment, the fallback's clear) plus
+        // TRANSFER_SRC and SAMPLED, so a test can read the frame back.
+        imageInfo.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                          VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+        imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+        imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        VmaAllocationCreateInfo allocInfo{};
+        allocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+        VkImage image = VK_NULL_HANDLE;
+        // Through the tracked wrapper, so the renderer memory report counts it.
+        VkCheck(TrackedVmaCreateImage(d.Device.GetAllocator(), &imageInfo, &allocInfo, &image, &d.OffscreenAllocation,
+                                      nullptr),
+                "vmaCreateImage (offscreen target)");
+        TrackedVmaSetAllocationName(d.Device.GetAllocator(), d.OffscreenAllocation, "VulkanContext offscreen target");
+        d.SwapchainImages.assign(1u, image);
+
+        VkImageViewCreateInfo viewInfo{};
+        viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        viewInfo.image = image;
+        viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        viewInfo.format = d.SwapchainFormat;
+        viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+        d.SwapchainViews.assign(1u, VK_NULL_HANDLE);
+        VkCheck(vkCreateImageView(device, &viewInfo, nullptr, &d.SwapchainViews[0]), "vkCreateImageView (offscreen target)");
+
+        // Published exactly as CreateSwapchain publishes a presentable image.
+        // No RenderFinished semaphores: nothing is presented.
+        VulkanImageInfo info{};
+        info.Format = d.SwapchainFormat;
+        info.Width = d.SwapchainExtent.width;
+        info.Height = d.SwapchainExtent.height;
+        info.MipLevels = 1;
+        info.ArrayLayers = 1;
+        VulkanImageInfoRegistry::Get().Register(image, info);
+        d.SwapchainImageHandles.resize(1u);
+        d.SwapchainImageHandles[0].Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(image), RHI::Backend::Vulkan);
+    }
+
+    void VulkanContext::DestroyOffscreenTarget()
+    {
+        VulkanContextData& d = *m_Data;
+        const VkDevice device = d.Device.GetDevice();
+        for (VkImageView view : d.SwapchainViews)
+        {
+            if (view != VK_NULL_HANDLE)
+                vkDestroyImageView(device, view, nullptr);
+        }
+        d.SwapchainViews.clear();
+        d.SwapchainImageHandles.clear();
+        for (VkImage image : d.SwapchainImages)
+        {
+            VulkanImageInfoRegistry::Get().Unregister(image);
+            TrackedVmaDestroyImage(d.Device.GetAllocator(), image, d.OffscreenAllocation);
+        }
+        d.SwapchainImages.clear();
+        d.OffscreenAllocation = VK_NULL_HANDLE;
     }
 
     bool VulkanContext::CanSubmitRenderGraphFenceSegments() const
@@ -958,7 +1065,9 @@ namespace OloEngine
             return false;
         }
         auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
-        if (api.BackbufferWasWrittenThisRecording())
+        // The windowless target has no acquire semaphore, so a flush holding
+        // its work robs no later submit of anything.
+        if (!IsOffscreen() && api.BackbufferWasWrittenThisRecording())
         {
             // The acquire semaphore is a single-wait binary the FINAL submit
             // owns; swapchain-image work in a flush would need it first.
@@ -1197,33 +1306,38 @@ namespace OloEngine
         m_RenderGraphTimelineWaitCountThisFrame = 0u;
         m_AsyncComputeSubmitCountThisFrame = 0u;
 
-        // Minimised: a 0-sized framebuffer cannot host a swapchain — skip frames
-        // until the window has area again.
-        int fbWidth = 0;
-        int fbHeight = 0;
-        glfwGetFramebufferSize(m_WindowHandle, &fbWidth, &fbHeight);
-        if (fbWidth == 0 || fbHeight == 0)
+        // The window-only steps: minimise, the vsync recreate and the deferred
+        // swapchain creation. The windowless target always exists.
+        if (!IsOffscreen())
         {
-            return;
-        }
-
-        // A vsync change since the swapchain was made (SetVSync): applied here,
-        // before this frame acquires anything, never while one is recording.
-        if (m_PresentModeDirty && d.Swapchain != VK_NULL_HANDLE)
-        {
-            m_PresentModeDirty = false;
-            RecreateSwapchain();
-        }
-
-        // The window has area but no swapchain exists: creation was skipped while
-        // the surface was 0-sized (see CreateSwapchain). Recreate now; if the
-        // surface still reports zero (caps lag the framebuffer), skip the frame.
-        if (d.Swapchain == VK_NULL_HANDLE)
-        {
-            RecreateSwapchain();
-            if (d.Swapchain == VK_NULL_HANDLE)
+            // Minimised: a 0-sized framebuffer cannot host a swapchain — skip frames
+            // until the window has area again.
+            int fbWidth = 0;
+            int fbHeight = 0;
+            glfwGetFramebufferSize(m_WindowHandle, &fbWidth, &fbHeight);
+            if (fbWidth == 0 || fbHeight == 0)
             {
                 return;
+            }
+
+            // A vsync change since the swapchain was made (SetVSync): applied here,
+            // before this frame acquires anything, never while one is recording.
+            if (m_PresentModeDirty && d.Swapchain != VK_NULL_HANDLE)
+            {
+                m_PresentModeDirty = false;
+                RecreateSwapchain();
+            }
+
+            // The window has area but no swapchain exists: creation was skipped while
+            // the surface was 0-sized (see CreateSwapchain). Recreate now; if the
+            // surface still reports zero (caps lag the framebuffer), skip the frame.
+            if (d.Swapchain == VK_NULL_HANDLE)
+            {
+                RecreateSwapchain();
+                if (d.Swapchain == VK_NULL_HANDLE)
+                {
+                    return;
+                }
             }
         }
 
@@ -1255,17 +1369,22 @@ namespace OloEngine
         // creation budget and refresh readiness (#1345).
         VulkanPipelinePrecache::Get().Tick();
 
+        // The windowless target is image 0, always available: nothing outside
+        // this queue reads it, so there is no acquire to wait for.
         u32 imageIndex = 0;
-        const VkResult acquireResult = vkAcquireNextImageKHR(device, d.Swapchain, UINT64_MAX,
-                                                             frame.ImageAvailable, VK_NULL_HANDLE, &imageIndex);
-        if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
+        if (!IsOffscreen())
         {
-            RecreateSwapchain();
-            return;
-        }
-        if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
-        {
-            VkCheck(acquireResult, "vkAcquireNextImageKHR");
+            const VkResult acquireResult = vkAcquireNextImageKHR(device, d.Swapchain, UINT64_MAX,
+                                                                 frame.ImageAvailable, VK_NULL_HANDLE, &imageIndex);
+            if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
+            {
+                RecreateSwapchain();
+                return;
+            }
+            if (acquireResult != VK_SUCCESS && acquireResult != VK_SUBOPTIMAL_KHR)
+            {
+                VkCheck(acquireResult, "vkAcquireNextImageKHR");
+            }
         }
 
         // Only reset the fence once this frame will actually submit (a reset
@@ -1278,7 +1397,9 @@ namespace OloEngine
         // submit in this queue-order chain.
         frame.CommandBufferCursor = 0;
         frame.Cmd = frame.CommandBuffers.front();
-        frame.AcquireWaitConsumed = false;
+        // No acquire semaphore was signalled for the windowless target, so
+        // there is no wait for any submit of this frame to own.
+        frame.AcquireWaitConsumed = IsOffscreen();
         // #808: the same argument covers the async-compute buffers. The
         // frame's LAST graphics submit waits on the compute timeline, so the
         // InFlight fence above proves the compute work of this slot retired
@@ -1385,16 +1506,22 @@ namespace OloEngine
             // Platform/Vulkan, the overlay needs backend types (view,
             // extent, the facade), and a std::function adds a seam nothing
             // else would ever plug into.
-            const VulkanImGuiBackend::OverlayResult overlay = VulkanImGuiBackend::RecordOverlay(
-                api, d.SwapchainViews[imageIndex], d.SwapchainExtent, d.SwapchainImageHandles[imageIndex].Get(),
-                api.BackbufferWasWrittenThisRecording());
+            // The windowless mode has no UI: no ImGui renderer backend is
+            // brought up against a target nobody looks at.
+            const VulkanImGuiBackend::OverlayResult overlay =
+                IsOffscreen() ? VulkanImGuiBackend::OverlayResult::Skipped
+                              : VulkanImGuiBackend::RecordOverlay(api, d.SwapchainViews[imageIndex], d.SwapchainExtent,
+                                                                  d.SwapchainImageHandles[imageIndex].Get(),
+                                                                  api.BackbufferWasWrittenThisRecording());
 
             // Owning the present transition here (rather than asking the
             // callback for it) keeps swapchain-layout knowledge inside the
             // presenting backend, and lets the fallback below stay correct:
             // it returns false ONLY when nothing touched the image, so the
             // fallback's UNDEFINED oldLayout can never discard real work.
-            rendered = api.FinalizeBackbufferForPresent(callbackRendered);
+            // The windowless target ends the frame readable instead.
+            rendered = api.FinalizeBackbufferForPresent(callbackRendered, IsOffscreen() ? RHI::Access::TransferRead
+                                                                                        : RHI::Access::Present);
             if (overlay == VulkanImGuiBackend::OverlayResult::DrawnAndPresented)
             {
                 // The overlay cleared + drew the UI and transitioned the
@@ -1423,7 +1550,9 @@ namespace OloEngine
             // vkAcquireNextImageKHR. Bring-up shipped TOP_OF_PIPE here and passed,
             // because only core validation ran; the synchronization
             // validation flagged it on its first live run (issue #691).
-            toTransfer.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
+            // The windowless target has no acquire: what it must wait for is
+            // the previous frame's work on the same image, in any stage.
+            toTransfer.srcStageMask = IsOffscreen() ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_2_CLEAR_BIT;
             toTransfer.dstStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
             toTransfer.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
             toTransfer.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -1446,14 +1575,15 @@ namespace OloEngine
             clearColor.float32[3] = kClearColor[3];
             vkCmdClearColorImage(frame.Cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clearColor, 1, &fullColor);
 
-            // TRANSFER_DST -> PRESENT_SRC.
+            // TRANSFER_DST -> PRESENT_SRC, or TRANSFER_SRC for the windowless
+            // target: the layout FinalizeBackbufferForPresent leaves it in.
             VkImageMemoryBarrier2 toPresent{};
             toPresent.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
             toPresent.srcStageMask = VK_PIPELINE_STAGE_2_CLEAR_BIT;
             toPresent.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
             toPresent.dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT;
             toPresent.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-            toPresent.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+            toPresent.newLayout = IsOffscreen() ? VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
             toPresent.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             toPresent.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
             toPresent.image = image;
@@ -1500,11 +1630,14 @@ namespace OloEngine
             rendered ? VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT : VK_PIPELINE_STAGE_2_CLEAR_BIT;
         if (!frame.AcquireWaitConsumed)
             waitInfos.push_back(waitInfo);
-        VkSemaphoreSubmitInfo signalInfo{};
-        signalInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        signalInfo.semaphore = d.RenderFinished[imageIndex];
-        signalInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        signalInfos.push_back(signalInfo);
+        if (!IsOffscreen())
+        {
+            VkSemaphoreSubmitInfo signalInfo{};
+            signalInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
+            signalInfo.semaphore = d.RenderFinished[imageIndex];
+            signalInfo.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+            signalInfos.push_back(signalInfo);
+        }
         VkCommandBufferSubmitInfo cmdSubmitInfo{};
         cmdSubmitInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
         cmdSubmitInfo.commandBuffer = frame.Cmd;
@@ -1516,11 +1649,19 @@ namespace OloEngine
         submitInfo.commandBufferInfoCount = 1;
         submitInfo.pCommandBufferInfos = &cmdSubmitInfo;
         submitInfo.signalSemaphoreInfoCount = static_cast<u32>(signalInfos.size());
-        submitInfo.pSignalSemaphoreInfos = signalInfos.data();
+        submitInfo.pSignalSemaphoreInfos = signalInfos.empty() ? nullptr : signalInfos.data();
+        if (waitInfos.empty())
+            submitInfo.pWaitSemaphoreInfos = nullptr;
         VkCheck(vkQueueSubmit2(d.Device.GetQueue(), 1, &submitInfo, frame.InFlight), "vkQueueSubmit2");
         if (frame.QueryCompletion)
         {
             frame.QueryCompletion->SubmittedFence = frame.InFlight;
+        }
+
+        if (IsOffscreen())
+        {
+            d.FrameIndex = (d.FrameIndex + 1) % VulkanContextData::kFramesInFlight;
+            return;
         }
 
         VkPresentInfoKHR presentInfo{};

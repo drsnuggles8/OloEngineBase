@@ -1451,7 +1451,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
             }
             ASSERT_TRUE(fb);
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, out);
             ASSERT_EQ(out.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
             const sizet rowBytes = static_cast<sizet>(kWidth) * 4u;
             std::vector<u8> tmp(rowBytes);
@@ -1992,14 +1992,19 @@ namespace OloEngine::Tests
                 ++s->Coat.GetComponent<GroomSimulationComponent>().m_ResetKey;
             }
             WalkCost cost;
+            bool warming = true;
             for (u32 f = 0; f < frames; ++f)
             {
                 RunFrames(1, 1.0f / 60.0f);
                 const GroomCoatShadowStats& c = PassStats().CoatShadow;
-                // Frame 0 builds every volume for the first time; it is the
-                // warm-up, not the steady-state cost.
-                if (f == 0)
+                // The warm-up builds every volume for the first time, and is
+                // not the steady-state cost. Since #1591 the coats arrive a
+                // few a frame (one new rest stream a frame, and these are
+                // three grooms), so it lasts until none is waiting, the frame
+                // that builds the last one included.
+                if (warming)
                 {
+                    warming = PassStats().GroomsAwaitingBuild > 0u;
                     continue;
                 }
                 ++cost.Frames;
@@ -2431,7 +2436,7 @@ namespace OloEngine::Tests
                     // Seen energy needs every pixel either arm's coat covers, so
                     // the whole active viewport, not this arm's bounding box.
                     colour.resize(static_cast<sizet>(width) * height * 4u);
-                    ReadbackRgbaFloat(fb->GetColorAttachmentRendererID(0), width, height, colour);
+                    ReadbackRgbaFloat(fb->GetColorAttachmentHandle(0), width, height, colour);
                     if (out.Image.empty())
                     {
                         out.ImageWidth = activeWidth;

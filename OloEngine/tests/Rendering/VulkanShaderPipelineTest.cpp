@@ -50,6 +50,7 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -1512,15 +1513,33 @@ TEST_F(VulkanShaderPipeline, CompileCacheHitModuleAndPipelineCreationAreCountedA
     // served from the VkPipelineCache the first creation filled. Creation
     // feedback is the only signal that can tell; where a driver does not
     // report it, the creation is counted as unknown instead of guessed.
+    //
+    // What a VkPipelineCache keeps is up to the driver. lavapipe keeps nothing:
+    // its cache data is the bare 32-byte VkPipelineCacheHeaderVersionOne before
+    // and after the first creation, so its feedback truthfully reports a miss
+    // twice. The hit is asserted only where the first creation put data in the
+    // cache. Handle() only returns the cache here: the first creation already
+    // made it under the builder's lock, which is what its lazy create needs.
+    sizet cacheBytes = 0;
+    ASSERT_EQ(vkGetPipelineCacheData(m_Device->GetDevice(), VulkanPipelineCache::Get().Handle(), &cacheBytes, nullptr),
+              VK_SUCCESS);
+    const bool driverCachesPipelines = cacheBytes > sizeof(VkPipelineCacheHeaderVersionOne);
     (void)builder.InvalidateShader(first->GetPipelineIndexKey());
     ASSERT_TRUE(builder.RequestGraphics(*first, targets, 0).has_value());
     ASSERT_EQ(VulkanPipelinePrecache::Get().PrepareQueued(8), 1u);
     const auto recreated = builder.GetRequestStats().Counters;
     EXPECT_EQ(recreated.DriverCacheHits + recreated.DriverCacheMisses + recreated.DriverCacheUnknown, 2u);
-    if (created.DriverCacheMisses == 1u && recreated.DriverCacheUnknown == created.DriverCacheUnknown)
+    if (!driverCachesPipelines)
+    {
+        std::printf("[pso] the driver keeps no pipeline data in its VkPipelineCache (%zu bytes after a creation); "
+                    "the cache-hit expectation does not apply\n",
+                    cacheBytes);
+    }
+    else if (created.DriverCacheMisses == 1u && recreated.DriverCacheUnknown == created.DriverCacheUnknown)
     {
         EXPECT_EQ(recreated.DriverCacheHits - created.DriverCacheHits, 1u)
-            << "The second creation of an identical pipeline must be a pipeline-cache hit";
+            << "The second creation of an identical pipeline must be a pipeline-cache hit (" << cacheBytes
+            << " bytes of cache data after the first creation)";
     }
 
     second.Reset();

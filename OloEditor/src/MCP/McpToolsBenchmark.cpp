@@ -235,6 +235,26 @@ namespace OloEngine::MCP
                 return ToolResult::Error("Scene failed to open: " + opened.value("message", std::string("(no detail)")));
             }
 
+            // ---- Wait out the load before any 5 s read (#1591) ------------
+            // The scene's first frames build its bound coats. Every read below
+            // takes the 5 s default, and one made during a long load frame
+            // failed the capture with "Timed out waiting for the editor main
+            // thread" -- all 20 acceptance attempts did. Polled, so a long frame
+            // is waited through rather than reported.
+            if (host.Context().GetSceneLoadState)
+            {
+                const SceneControl::SceneLoadOutcome load =
+                    AwaitSceneLoaded(host, SceneControl::kSceneLoadSettleFrames, SceneControl::kSceneLoadTimeout);
+                if (load.Cancelled)
+                {
+                    return ToolResult::Error("Benchmark capture cancelled while the scene was loading.");
+                }
+                if (!load.Loaded)
+                {
+                    return ToolResult::Error(SceneControl::StillLoadingMessage(load) + "; nothing was captured.");
+                }
+            }
+
             // ---- Apply the manifest's renderer-side state + provenance reads.
             // A shared_ptr carries non-JSON state out of the marshaled job (and
             // keeps it alive if the caller-side wait times out while the job is

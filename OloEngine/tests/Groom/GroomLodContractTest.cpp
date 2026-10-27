@@ -1339,6 +1339,51 @@ TEST(GroomLodHysteresis, RefiningIsImmediateBecauseACoarseCoatUpCloseIsAPictureA
     EXPECT_EQ(decision.Reason, GroomLodFallbackReason::None);
 }
 
+// #1591: a coat that has drawn nothing has nothing to flicker from. Started
+// from the default state it was built at full density for its first HoldFrames
+// frames -- every coat of a freshly opened scene at once.
+TEST(GroomLodHysteresis, ACoatSeenForTheFirstTimeStartsOnTheTierItMeasures)
+{
+    GroomLodPolicy policy = EnabledPolicy();
+    policy.HoldFrames = 4;
+    const GroomLodInputs distant = InputsAt(100.0f); // on cards, past the mesh edge's fallback
+
+    // The control: from the default state the hold keeps a far coat on full
+    // strands for its first frames.
+    GroomLodState fromDefault;
+    const GroomLodDecision first = AdvanceGroomLod(policy, distant, fromDefault);
+    ASSERT_EQ(first.Representation, GroomRepresentation::Strand);
+    ASSERT_EQ(first.Reason, GroomLodFallbackReason::HeldByHysteresis);
+    ASSERT_EQ(first.VisibilityStep, 0u);
+
+    // Seeded, its very first frame is the tier and the steps the size asks for,
+    // and the frame after continues from there rather than re-counting a hold.
+    GroomLodState settled = SettledGroomLodState(policy, distant);
+    const GroomLodDecision seeded = AdvanceGroomLod(policy, distant, settled);
+    EXPECT_EQ(seeded.Representation, GroomRepresentation::Card);
+    EXPECT_EQ(seeded.Reason, GroomLodFallbackReason::None);
+    EXPECT_GT(seeded.VisibilityStep, 0u) << "a far coat's first frame was built at the full strand budget";
+    EXPECT_FALSE(seeded.RepresentationChanged);
+
+    // Where the default state would have ended up once the hold let it go.
+    for (u32 frame = 1; frame <= policy.HoldFrames + 1u; ++frame)
+    {
+        (void)AdvanceGroomLod(policy, distant, fromDefault);
+    }
+    const GroomLodDecision settledDefault = AdvanceGroomLod(policy, distant, fromDefault);
+    EXPECT_EQ(seeded.Representation, settledDefault.Representation);
+    EXPECT_EQ(seeded.VisibilityStep, settledDefault.VisibilityStep);
+    EXPECT_EQ(seeded.SimulationStep, settledDefault.SimulationStep);
+    EXPECT_EQ(seeded.ShadowStep, settledDefault.ShadowStep);
+
+    // A coat close enough for full detail is seeded there too: the seed only
+    // removes the wait, it never starts a coat coarser than its size.
+    GroomLodState close = SettledGroomLodState(policy, InputsAt(2000.0f));
+    const GroomLodDecision nearDecision = AdvanceGroomLod(policy, InputsAt(2000.0f), close);
+    EXPECT_EQ(nearDecision.Representation, GroomRepresentation::Strand);
+    EXPECT_EQ(nearDecision.VisibilityStep, 0u);
+}
+
 // =============================================================================
 // The cook
 // =============================================================================

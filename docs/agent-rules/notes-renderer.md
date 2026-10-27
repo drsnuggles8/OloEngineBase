@@ -43,6 +43,7 @@ Gotchas for render passes, GL wrappers, SSAO/SSR/FSR, IBL and offline capture. R
 37. **Build the control that removes an error before tuning its constant.** **Write guards against what ships (iterate the enum);** keep version lists as one named predicate. [Details](notes-renderer-details.md#measure-which-error-term-dominates-before-repairing-either-of-the-others)
 38. **Publish every storage buffer a shader declares, every frame it draws.** **Turn in-place post passes off under material debug views.** [Details](notes-renderer-details.md#a-buffer-a-shader-declares-must-be-published-every-frame-even-when-the-shader-gates-its-reads)
 39. **Re-run a failing sweep test alone; never `git add -A` after a sweep.** [Details](notes-renderer-details.md#a-full-local-ctest-sweep-is-1841-tests-and-runs-for-hours)
+40. **Size a rendering scope from the attachment it actually renders into.** A depth-array layer selected onto a smaller framebuffer (the shadow atlas) renders and clears at the layer's extent. [Details](notes-renderer-details.md#a-depth-array-layer-re-pointed-onto-a-smaller-framebuffer-renders-at-the-layers-extent)
 
 ---
 

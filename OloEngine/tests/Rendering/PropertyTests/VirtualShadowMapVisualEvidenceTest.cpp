@@ -19,7 +19,7 @@
 // sun whose cascaded shadow is ENABLED. Rendered twice through the full
 // Renderer3D pipeline from the same pose — once on CSM, once on VSM — and both
 // frames are written to
-//   OloEditor/assets/tests/visual/VirtualShadowMap_<technique>_<pose>.png
+//   OloEditor/assets/tests/visual/VirtualShadowMap_<GL|Vulkan>_<technique>_<pose>.png
 //
 // The contract is GOLDEN-FREE and differential, so it survives a GPU change and
 // needs no committed reference image:
@@ -56,6 +56,7 @@
 #include "OloEnginePCH.h"
 
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -205,6 +206,11 @@ namespace OloEngine::Tests
     class VirtualShadowMapVisualEvidenceTest : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         // SetVirtualShadowMaps mutates the PROCESS-WIDE shadow settings, and each
         // test body restores CSM only on its success path — an ASSERT_* firing
         // inside Capture leaves VSM enabled for every later test in the process,
@@ -316,7 +322,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No composited framebuffer for VSM capture '" << tag << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
 
             // GL readback is bottom-up; flip so row 0 is the top of the frame.
@@ -350,7 +356,7 @@ namespace OloEngine::Tests
                                  << " failed=" << s.PagesFailed << " drawInstances=" << s.DrawInstances;
             }
 
-            const std::string path = (dir / ("VirtualShadowMap_" + tag + ".png")).string();
+            const std::string path = (dir / (TestRenderBackend::EvidenceName("VirtualShadowMap") + tag + ".png")).string();
             const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth),
                                                static_cast<int>(kHeight), 4, outPixels.data(),
                                                static_cast<int>(kWidth) * 4);

@@ -34,6 +34,7 @@
 #include "OloEnginePCH.h"
 
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 #include "RenderPropertyTest.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -210,6 +211,11 @@ namespace OloEngine::Tests
     class VirtualShadowMapLocalVisualEvidenceTest : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         // Same unconditional restore as the directional evidence test: these
         // settings are PROCESS-WIDE, and an ASSERT_* firing mid-body would
         // otherwise leave VSM on for every later test in the binary.
@@ -390,7 +396,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No composited framebuffer for local-light capture '" << tag << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
 
             // GL readback is bottom-up; flip so row 0 is the top of the frame.
@@ -453,7 +459,7 @@ namespace OloEngine::Tests
             ASSERT_FALSE(ec) << "Failed to create evidence dir '" << dir.generic_string()
                              << "': " << ec.message();
 
-            const std::string path = (dir / ("VirtualShadowMapLocal_" + tag + ".png")).string();
+            const std::string path = (dir / (TestRenderBackend::EvidenceName("VirtualShadowMapLocal") + tag + ".png")).string();
             const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth),
                                                static_cast<int>(kHeight), 4, outPixels.data(),
                                                static_cast<int>(kWidth) * 4);
@@ -498,7 +504,7 @@ namespace OloEngine::Tests
         const f64 atlasLit = MeanLuma(atlasPixels, 0.0f, 1.0f, kFloorY0, kFloorY1);
         ASSERT_GT(atlasLit, 10.0)
             << "the floor is not lit in the atlas control (mean luma " << atlasLit
-            << ") — look at assets/tests/visual/VirtualShadowMapLocal_Atlas.png before trusting anything "
+            << ") — look at assets/tests/visual/VirtualShadowMapLocal_<GL|Vulkan>_Atlas.png before trusting anything "
                "below it";
 
         // ---- The page table --------------------------------------------------
@@ -564,7 +570,7 @@ namespace OloEngine::Tests
             << "% of the frame changed when the page table took over from the atlas, yet it is supposed "
                "to be casting the shadow of the subject lamp the atlas starved — the allocation numbers "
                "above are bookkeeping rather than pixels. Compare "
-               "assets/tests/visual/VirtualShadowMapLocal_{Atlas,Pages}.png";
+               "assets/tests/visual/VirtualShadowMapLocal_<GL|Vulkan>_{Atlas,Pages}.png";
 
         // …and the extra darkness has to be SHADOW, not the whole frame dimming:
         // the lit region must survive. A page table that darkened everything
@@ -608,6 +614,11 @@ namespace OloEngine::Tests
     class VirtualShadowMapLocalSingleLightTest : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         void TearDown() override
         {
             (void)SetVirtualShadowMaps(false);
@@ -644,7 +655,7 @@ namespace OloEngine::Tests
             if (!fb)
                 return false;
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
             const std::size_t rowBytes = static_cast<std::size_t>(kWidth) * 4u;
             std::vector<u8> tmp(rowBytes);
             for (u32 y = 0; y < kHeight / 2u; ++y)
@@ -667,7 +678,7 @@ namespace OloEngine::Tests
             const fs::path dir = fs::path("assets") / "tests" / "visual";
             std::error_code ec;
             fs::create_directories(dir, ec);
-            const std::string path = (dir / ("VirtualShadowMapLocalSingle_" + tag + ".png")).string();
+            const std::string path = (dir / (TestRenderBackend::EvidenceName("VirtualShadowMapLocalSingle") + tag + ".png")).string();
             ::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4,
                              pixels.data(), static_cast<int>(kWidth) * 4);
             return true;
@@ -786,7 +797,7 @@ namespace OloEngine::Tests
             << "turning shadows on changed the frame by only " << atlasVsNone
             << " luma on average — the ATLAS baseline is not casting a point-light shadow, so this test "
                "cannot say anything about the page table. Look at "
-               "assets/tests/visual/VirtualShadowMapLocalSingle_{NoShadow,Atlas}.png";
+               "assets/tests/visual/VirtualShadowMapLocalSingle_<GL|Vulkan>_{NoShadow,Atlas}.png";
 
         // ---- The page table --------------------------------------------------
         if (!SetVirtualShadowMaps(true))
@@ -816,7 +827,7 @@ namespace OloEngine::Tests
             << "the page table's frame differs from the atlas' by " << vsmVsAtlas
             << " luma but from the no-shadow control by only " << vsmVsNone
             << " — the two techniques are not drawing the same shadow. Compare "
-               "assets/tests/visual/VirtualShadowMapLocalSingle_{Atlas,Pages}.png";
+               "assets/tests/visual/VirtualShadowMapLocalSingle_<GL|Vulkan>_{Atlas,Pages}.png";
 
         // 3. And it is not merely a DARKER frame — a technique that dimmed
         //    everything uniformly would satisfy both checks above. The band
@@ -904,7 +915,7 @@ namespace OloEngine::Tests
             << "only " << azimuthsWithShadow << " of " << poses.size()
             << " azimuths changed when shadows were switched on. A point light is six faces sharing one "
                "page pool and this is how ONE broken face shows up — read the four "
-               "assets/tests/visual/VirtualShadowMapLocalSingle_Orbit*.png against their _NoShadow "
+               "assets/tests/visual/VirtualShadowMapLocalSingle_<GL|Vulkan>_Orbit*.png against their _NoShadow "
                "counterparts and compare which quadrant is identical, then map it onto the "
                "+X,-X,+Y,-Y,+Z,-Z face order";
     }

@@ -15,6 +15,11 @@ Two modes:
 
 Test failures are not this script's verdict; the test step that produced the XML already fails
 the job for those. This gate is about cases that did not run.
+
+vulkan-software.yml also runs it, with --require, over the --olo-rhi=vulkan scene suite (#1556):
+the suites there are whatever the scene filter's --gtest_list_tests names. That suite runs as one
+process plus one process per groom case, so --report repeats; a case is judged by the run that
+executed it.
 """
 import argparse
 import os
@@ -78,6 +83,19 @@ def parse_report(root, suites):
             status = 'passed'
         results[suite][case.get('name')] = (status, reason)
     return results
+
+
+_STATUS_RANK = {'notrun': 0, 'passed': 1, 'skipped': 2, 'failed': 3}
+
+
+def merge_results(merged, results):
+    """Fold one report's results into `merged`: an executed run beats notrun, a failure beats a pass."""
+    for suite, cases in results.items():
+        target = merged.setdefault(suite, {})
+        for name, outcome in cases.items():
+            if name not in target or _STATUS_RANK[outcome[0]] > _STATUS_RANK[target[name][0]]:
+                target[name] = outcome
+    return merged
 
 
 def evaluate(results, expected, allowed_skips):
@@ -153,7 +171,8 @@ def render(title, rows, missing_execution, require, device_lines):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument('--report', required=True, help='gtest XML from the suite run')
+    parser.add_argument('--report', action='append', required=True,
+                        help='gtest XML from the suite run; repeat for a suite run split across processes')
     parser.add_argument('--suite', action='append', required=True, help='a suite to account for')
     parser.add_argument('--expected-list', help='--gtest_list_tests output naming every defined case')
     parser.add_argument('--allow-skip', action='append', default=[], help='Suite.Case that may skip')
@@ -165,11 +184,14 @@ def main(argv=None):
         # Without the defined set, a case a filter dropped is absent from both sides and passes.
         parser.error('--require needs --expected-list')
 
-    try:
-        root = ET.parse(args.report).getroot()
-    except (OSError, ET.ParseError) as error:
-        print('::error::Could not read Vulkan ray-query device-suite report {}: {}'.format(args.report, error))
-        return 1
+    results = {suite: {} for suite in args.suite}
+    for report_path in args.report:
+        try:
+            root = ET.parse(report_path).getroot()
+        except (OSError, ET.ParseError) as error:
+            print('::error::Could not read Vulkan ray-query device-suite report {}: {}'.format(report_path, error))
+            return 1
+        merge_results(results, parse_report(root, args.suite))
 
     expected = None
     if args.expected_list:
@@ -180,7 +202,6 @@ def main(argv=None):
             print('::error::Could not read the expected test list {}: {}'.format(args.expected_list, error))
             return 1
 
-    results = parse_report(root, args.suite)
     rows, missing_execution = evaluate(results, expected, set(args.allow_skip))
     summary = render(args.title, rows, missing_execution, args.require, capability_lines(args.capability_report))
 
@@ -195,7 +216,7 @@ def main(argv=None):
         return 1
     if args.require and missing_execution:
         for entry in missing_execution:
-            print('::error::Required ray-query case did not execute: ' + entry)
+            print('::error::Required case did not execute: ' + entry)
         return 1
     return 0
 

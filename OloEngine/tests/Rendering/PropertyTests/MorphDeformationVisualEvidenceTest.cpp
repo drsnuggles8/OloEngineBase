@@ -261,7 +261,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(fb) << "No composited framebuffer for pose '" << poseName << "'";
 
             std::vector<u8> pixels;
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
             ASSERT_EQ(pixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
 
             // GL hands back rows bottom-up; the PNG and any row-indexed check treat
@@ -533,7 +533,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No composited framebuffer for '" << poseName << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
 
             const std::size_t rowBytes = static_cast<std::size_t>(kWidth) * 4u;
