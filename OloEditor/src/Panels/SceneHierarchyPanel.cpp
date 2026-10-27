@@ -7330,18 +7330,6 @@ namespace OloEngine
                             "own half-width, which buries the uphill side instead — and a "
                             "buried side is invisible where a floating one is not.");
 
-                        // ── Variation quality (issue #1254) ──────────────────
-                        if (ImGui::Checkbox("Decorrelated Variation", &layer.DecorrelatedVariation))
-                            component.m_NeedsRebuild = true;
-                        ImGui::SetItemTooltip(
-                            "Draws jitter, scale, height and rotation from an avalanche hash "
-                            "instead of the original one, whose seed is mixed in too late: "
-                            "measured over an 80x80 grid the two jitter draws differ by only 32 "
-                            "distinct offsets, so every plant sits on one of 32 diagonals "
-                            "inside its cell. TURNING THIS ON MOVES EVERY PLANT IN THE LAYER "
-                            "and retires every canonical instance id it had — they really are "
-                            "different plants in different places.");
-
                         ImGui::Separator();
                         ImGui::Text("Scale & Height");
 
@@ -7750,7 +7738,7 @@ namespace OloEngine
                     // surface before the fixed preset is visually proven, and
                     // everything the preset decides is derived from the patch
                     // size above.
-                    static constexpr std::array<const char*, 2> kCascadeLabels = { "Single (legacy)",
+                    static constexpr std::array<const char*, 2> kCascadeLabels = { "Single tile",
                                                                                   "Three-band preset" };
                     if (i32 cascadeIdx = (component.m_FFTCascades > Ocean::kSingleCascadeCount) ? 1 : 0;
                         ImGui::Combo("Cascades", &cascadeIdx, kCascadeLabels.data(),

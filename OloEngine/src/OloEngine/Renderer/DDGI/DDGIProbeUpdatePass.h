@@ -174,7 +174,6 @@ namespace OloEngine
         void ResetFrameSequence(u32 sequenceSeed) override
         {
             m_FrameIndex = sequenceSeed * kFrameSequenceSeedStride;
-            m_CaptureCursor = 0;
             for (ProbeRecord& record : m_Records)
                 record.LastCaptureFrame = m_FrameIndex; // every probe ages from the restart
         }
@@ -187,7 +186,7 @@ namespace OloEngine
             u64 captures = 0;
             for (const ProbeRecord& record : m_Records)
                 captures = captures * 31u + record.CaptureCount;
-            return ((static_cast<u64>(static_cast<u32>(m_CaptureCursor)) << 32u) | m_FrameIndex) ^ (captures << 1u);
+            return static_cast<u64>(m_FrameIndex) ^ (captures << 1u);
         }
 
         [[nodiscard]] bool IsReadyForExecution() const noexcept override;
@@ -402,8 +401,6 @@ namespace OloEngine
         void BindProbeBuffers() const;
 
         [[nodiscard]] TArray<i32> PickCaptureSet(i32 budget);
-        [[nodiscard]] TArray<i32> PickCaptureSetLegacy(i32 budget);
-        [[nodiscard]] TArray<i32> PickCaptureSetPrioritized(i32 budget);
         [[nodiscard]] bool IsProbeCpuLive(i32 probeIndex) const;
 
         void DispatchProbeMaintain();
@@ -484,7 +481,6 @@ namespace OloEngine
         // CPU scheduling state
         mutable TArray<ProbeRecord> m_Records;
         mutable ProbeStats m_Stats{};
-        i32 m_CaptureCursor = 0; // linear cursor over uncaptured probes (legacy path)
         u32 m_FrameIndex = 0;
         bool m_RanThisFrame = false;
 

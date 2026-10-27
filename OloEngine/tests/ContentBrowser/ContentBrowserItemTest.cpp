@@ -38,7 +38,8 @@ TEST(FileTypeMapping, ModelExtensions)
 TEST(FileTypeMapping, SceneExtensions)
 {
     EXPECT_EQ(GetFileTypeFromExtension("level.olo"), ContentFileType::Scene);
-    EXPECT_EQ(GetFileTypeFromExtension("level.scene"), ContentFileType::Scene);
+    // .scene was a second scene extension nothing ever wrote; retired on #1502.
+    EXPECT_EQ(GetFileTypeFromExtension("level.scene"), ContentFileType::Unknown);
 }
 
 TEST(FileTypeMapping, ScriptExtensions)

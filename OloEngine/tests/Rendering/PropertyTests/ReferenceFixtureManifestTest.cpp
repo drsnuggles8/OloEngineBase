@@ -95,6 +95,8 @@ Product: diagnostic
 Scene: Scenes/Benchmark/ReferenceHead.olo
 Backends:
   Supported: [opengl]
+Presets:
+  opengl: gl-forward-native
 Camera:
   Id: frontal
   Position: [0.0, 1.0, 3.0]
@@ -327,6 +329,21 @@ TEST(ReferenceFixtureManifest, RejectsEmptyAssetsInV2)
         EXPECT_FALSE(parsed.has_value()) << "accepted a v2 manifest documenting no assets";
         EXPECT_NE(error.find("Assets"), std::string::npos) << error;
     }
+}
+
+// #1502: every manifest names its production preset per backend. A manifest
+// without one used to capture with nothing checked against the renderer-support
+// matrix; it is refused now, and so is one that leaves a supported backend out.
+TEST(ReferenceFixtureManifest, RejectsAManifestWithoutAPresetPerBackend)
+{
+    const auto missing = ExpectParseFailure(
+        "no-presets", Replaced(ValidV2Manifest(), "Presets:\n  opengl: gl-forward-native\n", ""));
+    EXPECT_NE(missing.find("Presets is required"), std::string::npos) << missing;
+
+    const auto partial = ExpectParseFailure(
+        "preset-missing-backend",
+        Replaced(ValidV2Manifest(), "Supported: [opengl]", "Supported: [opengl, vulkan]"));
+    EXPECT_NE(partial.find("Presets is missing supported backend vulkan"), std::string::npos) << partial;
 }
 
 TEST(ReferenceFixtureManifest, RejectsEveryVersionButTheCurrentOne)

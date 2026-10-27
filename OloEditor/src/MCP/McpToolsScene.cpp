@@ -388,7 +388,7 @@ namespace OloEngine::MCP
             using namespace SceneControl;
 
             if (!args.contains("path") || !args["path"].is_string())
-                return ToolResult::Error("Missing required argument 'path' (a .olo or .scene scene file).");
+                return ToolResult::Error("Missing required argument 'path' (a .olo scene file).");
             const std::string path = args["path"].get<std::string>();
             if (const auto error = ValidateScenePath(path))
                 return ToolResult::Error(*error);
@@ -980,7 +980,7 @@ namespace OloEngine::MCP
             tool.Annotations = MutatingAnnotations(/*idempotent*/ false);
             tool.Description =
                 "Open / switch the active scene — the scriptable scene-switch that lets an agent set up a repro "
-                "without a manual project StartScene edit + editor relaunch. Give a 'path' to a .olo or .scene file "
+                "without a manual project StartScene edit + editor relaunch. Give a 'path' to a .olo file "
                 "(relative paths resolve against the project asset directory, e.g. \"Scenes/Sandbox.olo\"; an absolute "
                 "path also works). Loads the scene directly, the same install path as the editor's File > Open Scene "
                 "but WITHOUT the auto-save recovery modal (a remote agent can't click it). If Play mode is running it "

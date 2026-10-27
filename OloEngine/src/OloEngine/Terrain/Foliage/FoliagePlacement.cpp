@@ -267,23 +267,10 @@ namespace OloEngine::FoliagePlacement
         }
     } // namespace
 
-    f32 HashPosition(f32 x, f32 z, u32 seed)
-    {
-        u32 hx = 0;
-        u32 hz = 0;
-        f32 fx = x * 73856093.0f;
-        f32 fz = z * 19349663.0f;
-        std::memcpy(&hx, &fx, sizeof(u32));
-        std::memcpy(&hz, &fz, sizeof(u32));
-        u32 h = hx ^ hz ^ seed;
-        h = (h * 2654435761u) >> 16;
-        return static_cast<f32>(h & 0xFFFF) / 65536.0f;
-    }
-
     u32 HashCell(u32 cellX, u32 cellZ, u32 seed)
     {
-        // Fold all three inputs in first, THEN avalanche — the ordering
-        // HashPosition gets wrong, and the whole reason this exists.
+        // Fold all three inputs in first, THEN avalanche — the ordering the
+        // float-bit hash this replaced got wrong (#1254).
         u32 h = cellX * 0x9E3779B1u;
         h ^= cellZ * 0x85EBCA77u;
         h ^= seed * 0xC2B2AE3Du;
@@ -435,15 +422,9 @@ namespace OloEngine::FoliagePlacement
         const SanitizedRules rules = Sanitize(layer, seed);
         const SlopeGate slopeGate = MakeSlopeGate(layer, rules.m_SlopeFeather);
 
-        // Which hash the per-cell draws come from (issue #1254). Off by
-        // default, because switching it MOVES every plant in the layer — the
-        // registry's placement signature covers the flag for exactly that
-        // reason.
-        const bool decorrelated = layer.DecorrelatedVariation;
-        const auto draw = [decorrelated](u32 ix, u32 iz, u32 drawSeed) -> f32
+        const auto draw = [](u32 ix, u32 iz, u32 drawSeed) -> f32
         {
-            return decorrelated ? HashCellUnit(ix, iz, drawSeed)
-                                : HashPosition(static_cast<f32>(ix), static_cast<f32>(iz), drawSeed);
+            return HashCellUnit(ix, iz, drawSeed);
         };
 
         for (u32 iz = 0; iz < countZ; ++iz)
@@ -513,10 +494,7 @@ namespace OloEngine::FoliagePlacement
                 {
                     if (suitability <= 0.0f)
                         continue;
-                    const f32 threshold = decorrelated
-                                              ? HashCellUnit(ix, iz, seed + 13)
-                                              : HashPosition(static_cast<f32>(ix) + 0.5f,
-                                                             static_cast<f32>(iz) + 0.5f, seed + 13);
+                    const f32 threshold = draw(ix, iz, seed + 13);
                     if (threshold > suitability)
                         continue;
                 }

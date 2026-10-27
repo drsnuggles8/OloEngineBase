@@ -867,6 +867,12 @@ namespace OloEngine::Benchmark
                         errors.Add("Presets is missing supported backend " + backend.ToStdString());
             }
         }
+        else
+        {
+            // Every manifest names the production preset its settings claim to
+            // be, per backend (#1502); there is no preset-less capture.
+            errors.Add("Presets is required: map each supported backend to a renderer-support preset ID");
+        }
         if (const auto motions = root["EntityMotion"]; motions)
         {
             if (!motions.IsSequence())

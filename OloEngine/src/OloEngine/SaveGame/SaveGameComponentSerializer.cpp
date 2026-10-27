@@ -615,7 +615,6 @@ namespace OloEngine
         ar << l.ClumpStrength << l.ClumpScale << l.ClumpFalloff << l.ClumpScaleInfluence;
         ar << l.ClumpGroup;
         ar << l.GroundOffset << l.SlopeSinkFactor;
-        ar << l.DecorrelatedVariation;
 
         if (ar.IsLoading())
         {
@@ -2573,7 +2572,7 @@ namespace OloEngine
         ar << c.m_FFTCascades;
         if (ar.IsLoading() && c.m_FFTCascades != Ocean::kSingleCascadeCount &&
             c.m_FFTCascades != Ocean::kThreeBandCascadeCount)
-            c.m_FFTCascades = Ocean::kSingleCascadeCount;
+            c.m_FFTCascades = Ocean::kDefaultOceanCascadeCount;
 
         // Planar (mirror) reflections.
         ar << c.m_PlanarReflectionsEnabled;

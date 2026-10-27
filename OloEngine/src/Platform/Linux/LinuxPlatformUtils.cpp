@@ -55,7 +55,7 @@ namespace OloEngine
         // filter format verbatim: a double-NUL-terminated buffer of alternating
         // "description\0pattern\0" pairs, where a pattern field may list several globs
         // separated by ';'. For example:
-        //     "OloEditor Scene (*.olo;*.scene)\0*.olo;*.scene\0All Files\0*.*\0\0"
+        //     "OloEditor Scene (*.olo)\0*.olo\0All Files\0*.*\0\0"
         // Parse it into structured entries we can hand to zenity / kdialog.
         std::vector<FileFilter> ParseWin32Filter(const char* filter)
         {

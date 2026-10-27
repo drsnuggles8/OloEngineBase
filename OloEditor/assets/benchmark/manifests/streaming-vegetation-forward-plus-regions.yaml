@@ -69,6 +69,7 @@ Output:
   RenderScale: 1.0
 RendererSettings:
   Path: ForwardPlus
+  RayTracedShadowsEnabled: false
   EnableDDGI: false
   TAAEnabled: true
 Exposure:
@@ -389,3 +390,6 @@ Assets:
 Measurement:
   Frames: 1000
   DeadlineMs: 16.666667
+Presets:
+  opengl: gl-forward-plus-native
+  vulkan: vk-forward-plus-native

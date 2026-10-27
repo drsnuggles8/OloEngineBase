@@ -233,7 +233,7 @@ namespace OloEngine::RayTracing
         // Callers pass sanitized weights and the norm of the terrain's linear
         // transform, so the result bounds world-space position, not local units.
         [[nodiscard]] static f32 WindVelocityBound(f32 strength, f32 speed,
-                                                   f32 branch, f32 leaf, bool hierarchical,
+                                                   f32 branch, f32 leaf,
                                                    bool fieldEnabled, f32 fieldSpeed,
                                                    f32 gustAmplitude, f32 gustFrequency,
                                                    f32 transformNorm)
@@ -245,16 +245,18 @@ namespace OloEngine::RayTracing
             if (transformNorm < 0.0f || branch < 0.0f || branch > 1.0f || leaf < 0.0f || leaf > 1.0f)
                 return std::numeric_limits<f32>::infinity();
 
+            // One wind model for every layer (FoliageWind.glsl, #1502): the
+            // trunk is the field's capped velocity, or the still-air sway with
+            // no field, and every trunk carries the per-plant modulation.
             const f32 angularSpeed = std::abs(speed);
             f32 trunkRate = 1.118034f * 1.7f * angularSpeed;
             f32 trunkExtent = 1.118034f;
             if (fieldEnabled)
             {
                 trunkRate = 0.1f * std::abs(fieldSpeed * gustAmplitude * gustFrequency) * 6.28318530718f;
-                trunkExtent = hierarchical ? 2.0f : 0.1f * std::abs(fieldSpeed) * (1.0f + std::abs(gustAmplitude));
+                trunkExtent = std::min(2.0f, 0.1f * std::abs(fieldSpeed) * (1.0f + std::abs(gustAmplitude)));
             }
-            if (hierarchical)
-                trunkRate += trunkExtent * 0.2f * 0.8f * angularSpeed;
+            trunkRate += trunkExtent * 0.2f * 0.8f * angularSpeed;
             const f32 branchRate = 1.118034f * 0.3f * branch * 1.7f * angularSpeed;
             const f32 leafRate = 1.118034f * 0.13f * leaf * 8.3f * angularSpeed;
             return std::abs(strength) * (trunkRate + branchRate + leafRate) * transformNorm;

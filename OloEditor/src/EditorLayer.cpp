@@ -622,9 +622,9 @@ namespace OloEngine
                     scenePath = Project::GetAssetFileSystemPath(scenePath);
                 result.Path = scenePath.string();
 
-                if (auto const ext = LowercaseExtension(scenePath); ext != ".olo" && ext != ".scene")
+                if (auto const ext = LowercaseExtension(scenePath); ext != ".olo")
                 {
-                    result.Message = "Not a scene file (expected .olo or .scene): " + scenePath.string();
+                    result.Message = "Not a scene file (expected .olo): " + scenePath.string();
                     return result;
                 }
                 std::error_code ec;
@@ -2955,22 +2955,15 @@ namespace OloEngine
                 }
             }
 
-            // Accept generic items (images, prefabs, and legacy scene drops)
+            // Accept generic items (images, prefabs). A scene always arrives as
+            // CONTENT_BROWSER_SCENE above, never on this payload.
             if (const ImGuiPayload* const payload = ImGui::AcceptDragDropPayload("CONTENT_BROWSER_ITEM"))
             {
                 std::filesystem::path path = PathFromUtf8Payload(*payload);
 
                 auto const ext = LowercaseExtension(path);
-                if (ext == ".olo" || ext == ".scene") // Legacy: scene via generic payload
-                {
-                    if (ConfirmDiscardChanges())
-                    {
-                        m_HoveredEntity = Entity();
-                        OpenScene(path);
-                    }
-                }
-                else if (m_SceneState == SceneState::Edit && [&ext]
-                         { static constexpr std::string_view kImageExts[] = {".png", ".jpeg", ".jpg"}; return std::ranges::find(kImageExts, ext) != std::ranges::end(kImageExts); }() && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
+                if (m_SceneState == SceneState::Edit && [&ext]
+                    { static constexpr std::string_view kImageExts[] = {".png", ".jpeg", ".jpg"}; return std::ranges::find(kImageExts, ext) != std::ranges::end(kImageExts); }() && m_HoveredEntity && m_HoveredEntity.HasComponent<SpriteRendererComponent>()) // Load texture
                 {
                     // Sprite art is colour content, treat the dropped image as sRGB.
                     const Ref<Texture2D> texture = Texture2D::Create(path.string(), /*srgb=*/true);
@@ -4687,7 +4680,7 @@ namespace OloEngine
                              ? Project::GetAssetDirectory().string()
                              : std::filesystem::current_path(ec).string();
         const char* initialDir = ec ? nullptr : dir.c_str();
-        std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo;*.scene)\0*.olo;*.scene\0", initialDir);
+        std::string const filepath = FileDialogs::OpenFile("OloEditor Scene (*.olo)\0*.olo\0", initialDir);
         if (!filepath.empty())
         {
             OpenScene(filepath);
@@ -4701,7 +4694,7 @@ namespace OloEngine
             OnSceneStop();
         }
 
-        if (auto const ext = LowercaseExtension(path); ext != ".olo" && ext != ".scene")
+        if (auto const ext = LowercaseExtension(path); ext != ".olo")
         {
             OLO_WARN("Could not load {0} - not a scene file", path.filename().string());
             return false;

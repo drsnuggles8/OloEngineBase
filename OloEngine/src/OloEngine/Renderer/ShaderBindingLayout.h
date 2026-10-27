@@ -731,7 +731,6 @@ namespace OloEngine
             glm::vec4 WindDirection{ 0.0f };
             glm::vec4 WindGust{ 0.0f };
             glm::vec4 WindFlags{ 0.0f };       // xyz=absolute render origin, w=enabled
-            glm::vec4 WindClock{ 0.0f };       // current/previous legacy field clocks
             glm::vec4 PrevMeshViewPos{ 0.0f }; // previous main eye, relative to this frame origin
 
             // ── LOD transition + coverage-preserving density (issue #1237) ──
@@ -2966,7 +2965,7 @@ namespace OloEngine
     // include/FoliageParams.glsl and the CPU field cannot disagree about how
     // many influences one frame carries.
     static_assert(sizeof(FoliageInteractionSlot) == 64, "FoliageInteractionSlot must stay four std140 vec4");
-    static_assert(sizeof(UBOStructures::FoliageUBO) == 1344, "FoliageUBO unexpected size — update GLSL layout");
+    static_assert(sizeof(UBOStructures::FoliageUBO) == 1328, "FoliageUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::DecalUBO) % 16 == 0, "DecalUBO size must be 16-byte aligned for std140");
     static_assert(sizeof(UBOStructures::DecalUBO) == 160, "DecalUBO unexpected size — update GLSL layout");
     static_assert(sizeof(UBOStructures::LightProbeVolumeUBO) % 16 == 0, "LightProbeVolumeUBO size must be 16-byte aligned for std140");

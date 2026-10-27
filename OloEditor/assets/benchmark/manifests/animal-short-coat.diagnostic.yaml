@@ -87,6 +87,7 @@ Output:
 
 RendererSettings:
   Path: Deferred
+  RayTracedShadowsEnabled: false
   EnableDDGI: false
   TAAEnabled: true
 
@@ -223,3 +224,6 @@ Assets:
     UpAxis: n/a
     ColorSpace: linear
     Acquisition: http://www.hdrlabs.com/sibl/archive.html (upstream archive; the in-repo copy predates this manifest)
+Presets:
+  opengl: gl-deferred-native
+  vulkan: vk-deferred-native

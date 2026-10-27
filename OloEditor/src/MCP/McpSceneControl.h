@@ -51,7 +51,7 @@ namespace OloEngine::MCP::SceneControl
         if (dot == std::string_view::npos || dot == 0) // no dot, or a dotfile like ".gitignore"
             return {};
         std::string ext(leaf.substr(dot));
-        // Scene extensions are ASCII (.olo / .scene), so a locale-independent
+        // Scene extensions are ASCII (.olo), so a locale-independent
         // ASCII fold is correct and avoids <cctype>'s locale dependence.
         for (char& c : ext)
         {
@@ -63,7 +63,7 @@ namespace OloEngine::MCP::SceneControl
 
     // Validate a scene path argument for `olo_scene_open`. Pure: it enforces only
     // what can be checked without the filesystem — a non-empty string with a
-    // recognised scene extension (.olo / .scene) and no parent-directory traversal
+    // recognised scene extension (.olo) and no parent-directory traversal
     // (a ".." component would let a consented write escape the project tree). The
     // editor hook does the rest (resolve relative to the asset directory, check the
     // file exists, deserialize). Returns a human-readable error, or nullopt on OK.
@@ -89,14 +89,14 @@ namespace OloEngine::MCP::SceneControl
     [[nodiscard]] inline std::optional<std::string> ValidateScenePath(std::string_view path)
     {
         if (path.empty())
-            return "Missing required argument 'path' (a .olo or .scene scene file, relative to the project asset directory).";
+            return "Missing required argument 'path' (a .olo scene file, relative to the project asset directory).";
 
         // Reject a ".." path component (traversal out of the project).
         if (HasParentTraversal(path))
             return "Invalid 'path': parent-directory traversal ('..') is not allowed.";
 
-        if (const std::string ext = LowercaseExtension(path); ext != ".olo" && ext != ".scene")
-            return "Invalid 'path': expected a scene file ending in .olo or .scene.";
+        if (const std::string ext = LowercaseExtension(path); ext != ".olo")
+            return "Invalid 'path': expected a scene file ending in .olo.";
         return std::nullopt;
     }
 
@@ -107,7 +107,7 @@ namespace OloEngine::MCP::SceneControl
     [[nodiscard]] inline Json OpenInputSchema()
     {
         return Schema::Object()
-            .Prop("path", Schema::String().Desc("The scene file to open, ending in .olo or .scene. Relative paths resolve "
+            .Prop("path", Schema::String().Desc("The scene file to open, ending in .olo. Relative paths resolve "
                                                 "against the project's asset directory (e.g. \"Scenes/Sandbox.olo\"); an absolute "
                                                 "path is also accepted. Parent-directory traversal ('..') is rejected."))
             .Prop("wait", Schema::Bool().Desc("Wait for the opened scene to finish loading (default true): its first frames "

@@ -1599,8 +1599,18 @@ namespace OloEngine
                     layer.GroundOffset = v;
                 if (const f32 v = layerNode["SlopeSinkFactor"].as<f32>(layer.SlopeSinkFactor); std::isfinite(v))
                     layer.SlopeSinkFactor = std::clamp(v, 0.0f, 4.0f);
-                layer.DecorrelatedVariation =
-                    layerNode["DecorrelatedVariation"].as<bool>(layer.DecorrelatedVariation);
+                // Removed in #1502: every layer now draws from the decorrelated
+                // hash. `true` was that hash already, so such a layer places
+                // exactly as before and the key just drops on the next save.
+                // `false` was the old lattice: that layer's plants moved, and
+                // the scene says which layer it was.
+                if (const auto key = layerNode["DecorrelatedVariation"]; key && !key.as<bool>(true))
+                {
+                    OLO_CORE_WARN("SceneSerializer: foliage layer '{}' was written with DecorrelatedVariation: false, "
+                                  "which was removed (#1502). It now uses the decorrelated placement hash, so its "
+                                  "plants are not where the scene placed them. Re-save the scene to drop the key.",
+                                  layer.Name.ToView());
+                }
 
                 layer.ViewDistance = layerNode["ViewDistance"].as<f32>(layer.ViewDistance);
                 layer.FadeStartDistance = layerNode["FadeStartDistance"].as<f32>(layer.FadeStartDistance);
@@ -1907,9 +1917,9 @@ namespace OloEngine
             waterComponent["FFTSpectrumType"].as<u32>(static_cast<u32>(water.m_FFTSpectrumType)));
         water.m_FFTJonswapGamma = waterComponent["FFTJonswapGamma"].as<f32>(water.m_FFTJonswapGamma);
         water.m_FFTJonswapFetch = waterComponent["FFTJonswapFetch"].as<f32>(water.m_FFTJonswapFetch);
-        // Band-limited cascade preset (§1.3, issue #969). Absent in every scene
-        // written before it, and the default is 1 — the pre-#969 single-cascade
-        // field — so an old scene deserialises to exactly the sea it had.
+        // Band-limited cascade preset (§1.3, issue #969). Absent means the
+        // default three-band preset (#1502); a scene keeps the single tile by
+        // writing FFTCascades: 1.
         water.m_FFTCascades = waterComponent["FFTCascades"].as<u32>(water.m_FFTCascades);
 
         // Sanitize FFT fields (ranges match the clamps in Scene.cpp / the editor
@@ -1923,15 +1933,18 @@ namespace OloEngine
         SanitizeFloat(water.m_FFTHeightScale, 0.0f, 20.0f, 1.0f);
         // m_FFTSeed: any u32 is a valid RNG seed; m_UseFFT is a plain bool — no
         // validation needed for either.
-        // Cascades: a DISCRIMINATED value, not a magnitude — 1 is the legacy
-        // field and 3 the fixed preset, and there is nothing in between. An
-        // out-of-range value falls back to the single-cascade default rather
-        // than saturating to 3, so a corrupt scene cannot silently opt a
-        // surface into a different ocean (the Reject-not-Clamp rule in
+        // Cascades: a DISCRIMINATED value, not a magnitude — 1 is the single
+        // tile and 3 the fixed preset, and there is nothing in between. An
+        // out-of-range value is rejected to the default, exactly what an absent
+        // key gives, rather than clamped (the Reject-not-Clamp rule in
         // docs/agent-rules/component-serializer-codegen.md).
         if (water.m_FFTCascades != Ocean::kSingleCascadeCount &&
             water.m_FFTCascades != Ocean::kThreeBandCascadeCount)
-            water.m_FFTCascades = Ocean::kSingleCascadeCount;
+        {
+            OLO_CORE_WARN("SceneSerializer: WaterComponent FFTCascades {} is neither 1 nor 3; using the default {}",
+                          water.m_FFTCascades, Ocean::kDefaultOceanCascadeCount);
+            water.m_FFTCascades = Ocean::kDefaultOceanCascadeCount;
+        }
         // Spectrum: clamp unknown enum values back to Phillips; bound JONSWAP shape.
         if (static_cast<u32>(water.m_FFTSpectrumType) > static_cast<u32>(Ocean::SpectrumType::JONSWAP))
             water.m_FFTSpectrumType = Ocean::SpectrumType::Phillips;
@@ -6000,7 +6013,6 @@ namespace OloEngine
                     out << YAML::Key << "ClumpGroup" << YAML::Value << layer.ClumpGroup;
                     out << YAML::Key << "GroundOffset" << YAML::Value << layer.GroundOffset;
                     out << YAML::Key << "SlopeSinkFactor" << YAML::Value << layer.SlopeSinkFactor;
-                    out << YAML::Key << "DecorrelatedVariation" << YAML::Value << layer.DecorrelatedVariation;
                     out << YAML::Key << "ViewDistance" << YAML::Value << layer.ViewDistance;
                     out << YAML::Key << "FadeStartDistance" << YAML::Value << layer.FadeStartDistance;
                     out << YAML::Key << "UseAuthoredMesh" << YAML::Value << layer.UseAuthoredMesh;

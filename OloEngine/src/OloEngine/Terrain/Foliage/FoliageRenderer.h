@@ -870,13 +870,6 @@ namespace OloEngine
             m_PrevTime = m_WindHistory.PreviousTime;
         }
 
-        bool SetLegacyWindEnvelope(f32 envelope)
-        {
-            const bool changed = !Math::BitwiseEqual(m_LegacyWindEnvelope, envelope);
-            m_LegacyWindEnvelope = envelope;
-            return changed;
-        }
-
         [[nodiscard]] f32 GetPreviousTime() const
         {
             return m_PrevTime;
@@ -965,7 +958,6 @@ namespace OloEngine
         TArray<FoliageLayer> m_PublishedLayers;
         u32 m_PublishedResolution = 0;
         glm::vec3 m_PublishedTerrainSize{ 0.0f };
-        f32 m_PublishedWindEnvelope = 0;
         void CancelRebuild();
         void FenceIdentityReaders();
         void ShutdownRebuilds();
@@ -1019,15 +1011,13 @@ namespace OloEngine
         // (VegetationPolicy::UpgradeMarginDivisor), so a group at the edge of
         // the plan keeps its tier instead of flipping every frame.
         mutable std::unordered_set<u64> m_CastingRequested;
-        // The wind clocks at the last casting plan (#1354). The plan's refresh
+        // The wind clock at the last casting plan (#1354). The plan's refresh
         // rates come from the step since then, measured here rather than read
         // from m_PrevTime: the cache ages its snapshots once per plan, and a
         // previous time the scene re-seeds reads as a clock that stands still.
         mutable f32 m_PlanAnimationTime = -1.0f;
-        mutable f32 m_PlanFieldTime = -1.0f;
-        // The last step each clock actually took, kept while it stands still.
+        // The last step the clock actually took, kept while it stands still.
         mutable f32 m_PlanAnimationStep = 0.0f;
-        mutable f32 m_PlanFieldStep = 0.0f;
 
         TArray<LayerRenderData> m_Layers;
         Ref<FFoliageCanonicalState> m_Canonical = Ref<FFoliageCanonicalState>::Create();
@@ -1069,7 +1059,6 @@ namespace OloEngine
         // while the slot overflowed are not kept by the cache (#1580, #1581).
         mutable bool m_VsmRefreshAfterShadowGrow = false;
         u32 m_VisibleInstances = 0;
-        f32 m_LegacyWindEnvelope = 2.0f;
         Ref<Shader> m_ImpostorDepthShader;
         FoliageWindHistory m_WindHistory;
         f32 m_Time = 0.0f;

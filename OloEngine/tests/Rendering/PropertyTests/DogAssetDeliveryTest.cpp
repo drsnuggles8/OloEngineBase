@@ -11,15 +11,53 @@
 #include "OloEngine/Build/GameBuildPipeline.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/Project/ContentPath.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 
 #include <cstdlib>
 #include <filesystem>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include <yaml-cpp/yaml.h>
 
 namespace OloEngine::Tests
 {
     namespace fs = std::filesystem;
+
+    namespace
+    {
+        // The foliage layers' stored mesh and texture paths, from the authored
+        // scene file.
+        std::vector<std::string> FoliageLayerPaths(const fs::path& sceneFile)
+        {
+            std::vector<std::string> paths;
+            const YAML::Node root = YAML::LoadFile(sceneFile.string());
+            for (const auto& entity : root["Entities"])
+                if (const auto foliage = entity["FoliageComponent"]; foliage)
+                    for (const auto& layer : foliage["Layers"])
+                        for (const char* key : { "MeshPath", "AlbedoPath" })
+                            if (auto value = layer[key].as<std::string>(""); !value.empty())
+                                paths.push_back(std::move(value));
+            return paths;
+        }
+
+        // #1502: each path is project-relative, so it resolves inside whichever
+        // project is open, never against the working directory.
+        void ExpectResolvedUnder(const std::vector<std::string>& paths, const fs::path& root, std::string_view label)
+        {
+            const std::string base = fs::weakly_canonical(root).generic_string();
+            for (const auto& stored : paths)
+            {
+                const fs::path resolved = ResolveContentPath(stored);
+                ASSERT_FALSE(resolved.empty()) << label << ": " << stored << " did not resolve";
+                EXPECT_TRUE(fs::weakly_canonical(resolved).generic_string().starts_with(base))
+                    << label << ": " << stored << " resolved outside the project, to " << resolved.string();
+            }
+        }
+    } // namespace
 
     class DogAssetDelivery : public RendererAttachedTest, public ::testing::WithParamInterface<std::string>
     {
@@ -103,6 +141,10 @@ namespace OloEngine::Tests
         editorAssets->Initialize(false);
         Project::SetAssetManager(editorAssets);
 
+        const auto foliagePaths = FoliageLayerPaths(sandbox / scenePath);
+        ASSERT_FALSE(foliagePaths.empty()) << breed << " has no foliage layer paths to deliver";
+        ExpectResolvedUnder(foliagePaths, projectRoot, "loose");
+
         fs::path package = projectRoot / "Package";
         const char* retain = std::getenv("OLO_DOG_PACKAGE_DIR");
         std::atomic<f32> progress{ 0.0f };
@@ -143,6 +185,7 @@ namespace OloEngine::Tests
         auto runtime = Ref<RuntimeAssetManager>::Create(false);
         ASSERT_TRUE(runtime->LoadAssetPack(package / "Assets/AssetPack.olopack"));
         Project::SetAssetManager(runtime);
+        ExpectResolvedUnder(foliagePaths, package, "cooked");
         // Load the scene cold, as the shipped runtime does. Preloading its textures
         // masks recursive asset-dispatch locks while a mesh resolves its materials.
         auto scene = runtime->GetAsset(sceneHandle).As<Scene>();

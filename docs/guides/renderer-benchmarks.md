@@ -81,6 +81,10 @@ Backends:
     vulkan:
       UnsupportedAttachments: []          # attachment Names expected to be absent
 
+Presets:                         # REQUIRED: one renderer-support preset per supported backend.
+  opengl: gl-deferred-native      # An admission check, not a setting: RendererSettings must
+  vulkan: vk-deferred-native      # state Path and RayTracedShadowsEnabled and agree with it.
+
 Camera:                          # explicit editor-camera pose (not the scene camera)
   Id: hero
   Position: [x, y, z]
@@ -101,6 +105,7 @@ Output:
 
 RendererSettings:                # renderer-side state the scene CANNOT serialize
   Path: Deferred                 # Forward | ForwardPlus | Deferred
+  RayTracedShadowsEnabled: false # explicit: every preset requires it
   EnableDDGI: true
   TAAEnabled: true               # lives in PostProcessSettings but is not
                                  # scene-serialized, so it is pinned here

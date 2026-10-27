@@ -1356,7 +1356,7 @@ TEST(DDGIMath, CascadeInteriorWeightFallsMonotonicallyToZeroAcrossTheBand)
     EXPECT_TRUE(sawIntermediate) << "the band must actually ramp, not step";
 
     // Band 0 is the AUTHORED path's setting and must reproduce the hard
-    // membership test — boundary inclusive, exactly as ddgiIsInsideVolume.
+    // membership test — boundary inclusive, exactly as DDGI::IsInsideVolume.
     EXPECT_FLOAT_EQ(DDGI::CascadeInteriorWeight(boundsMax, grid, 0.0f), 1.0f);
     EXPECT_FLOAT_EQ(DDGI::CascadeInteriorWeight(boundsMin, grid, 0.0f), 1.0f);
     EXPECT_FLOAT_EQ(DDGI::CascadeInteriorWeight(boundsMax + glm::vec3(1e-3f), grid, 0.0f), 0.0f);
@@ -1608,6 +1608,22 @@ TEST(DDGIMath, CaptureRefreshTierOrdersOldestFirstAndIgnoresDistance)
     const f32 ancient = DDGI::CaptureScore(DDGI::CaptureTier::PeriodicRefresh, 0.0f, 0, 0xFFFFFFFFu);
     EXPECT_GE(ancient, 2.0f * DDGI::kCaptureTierBias);
     EXPECT_LT(ancient, 3.0f * DDGI::kCaptureTierBias);
+}
+
+// The refresh tier never takes more than an eighth of the budget, including
+// while urgent probes are still being captured (#1502). Before every volume used
+// the prioritized scheduler, a warm-up with 3 urgent probes and a 64 budget
+// re-rasterized 61 refreshes on top of them, every frame until it settled.
+TEST(DDGIMath, RefreshTakesAtMostAnEighthOfTheBudgetEvenWhileUrgentProbesRemain)
+{
+    EXPECT_EQ(DDGI::CaptureSetSize(64, 3, 200), 3 + 8) << "3 urgent plus the 1/8 refresh slice, not 64";
+    EXPECT_EQ(DDGI::CaptureSetSize(64, 0, 200), 8) << "steady state: the refresh slice alone";
+    EXPECT_EQ(DDGI::CaptureSetSize(64, 100, 200), 64) << "urgent probes may take the whole budget";
+    EXPECT_EQ(DDGI::CaptureSetSize(64, 60, 200), 64) << "refresh fills only what urgent work leaves";
+    EXPECT_EQ(DDGI::CaptureSetSize(64, 3, 2), 5) << "never more refreshes than there are candidates";
+    EXPECT_EQ(DDGI::CaptureSetSize(4, 0, 10), 1) << "a small budget still refreshes one probe a frame";
+    EXPECT_EQ(DDGI::CaptureSetSize(0, 5, 5), 0);
+    EXPECT_EQ(DDGI::CaptureSetSize(64, -1, -1), 0) << "garbage counts capture nothing";
 }
 
 // =============================================================================

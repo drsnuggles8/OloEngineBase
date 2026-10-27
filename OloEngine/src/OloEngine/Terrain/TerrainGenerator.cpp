@@ -835,10 +835,6 @@ namespace OloEngine
             layer.ClumpScaleInfluence = profile.ClumpScaleInfl;
             layer.ClumpGroup = profile.ClumpGroup;
             layer.SlopeSinkFactor = profile.SlopeSink;
-            // The avalanche hash, not the legacy one. Safe to switch on here
-            // for the same reason the rules above are: these plants have never
-            // been placed before, so nothing moves and no id retires.
-            layer.DecorrelatedVariation = true;
 
             layers.Add(std::move(layer));
         }

@@ -211,7 +211,6 @@ Entities:
           ClumpGroup: 0
           GroundOffset: 0
           SlopeSinkFactor: 0.6
-          DecorrelatedVariation: true
           ViewDistance: 180
           FadeStartDistance: 144
           MeshViewDistance: 12
@@ -272,7 +271,6 @@ Entities:
           ClumpGroup: 0
           GroundOffset: 0
           SlopeSinkFactor: 0.5
-          DecorrelatedVariation: true
           ViewDistance: 140
           FadeStartDistance: 112
           MeshViewDistance: 22
@@ -333,7 +331,6 @@ Entities:
           ClumpGroup: 1
           GroundOffset: 0
           SlopeSinkFactor: 0.9
-          DecorrelatedVariation: true
           ViewDistance: 220
           FadeStartDistance: 176
           WindStrength: 0.18
@@ -395,7 +392,6 @@ Entities:
           ClumpGroup: 1
           GroundOffset: 0
           SlopeSinkFactor: 1
-          DecorrelatedVariation: true
           ViewDistance: 90
           FadeStartDistance: 72
           MeshViewDistance: 16
@@ -449,7 +445,6 @@ Entities:
           ClumpGroup: -1
           GroundOffset: 0
           SlopeSinkFactor: 0.4
-          DecorrelatedVariation: true
           ViewDistance: 140
           FadeStartDistance: 112
           MeshViewDistance: 18
@@ -510,7 +505,6 @@ Entities:
           ClumpGroup: 1
           GroundOffset: 0
           SlopeSinkFactor: 0.4
-          DecorrelatedVariation: true
           ViewDistance: 420
           FadeStartDistance: 380
           UseAuthoredMesh: true

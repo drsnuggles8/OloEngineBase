@@ -14,7 +14,7 @@ namespace OloEngine
         f32 DefaultLoadRadius = 200.0f;
         f32 DefaultUnloadRadius = 250.0f;
         u32 MaxLoadedRegions = 16;
-        std::string RegionDirectory; // Relative to working directory
+        std::string RegionDirectory; // A stored content path: "Assets/..." is project-relative (ResolveContentPath)
 
         // Byte budgets (issue #1365), consulted next to MaxLoadedRegions. 0 means
         // "no byte budget". Megabytes as f32 because that is what a person types;

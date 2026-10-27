@@ -49,6 +49,11 @@ def prepare(args):
     HERE.mkdir(parents=True, exist_ok=True)
     source = ROOT / 'OloEditor/SandboxProject/Assets/Scenes/Benchmark/MaterialLabFurnace.olo'
     original = yaml.safe_load(source.read_text(encoding='utf-8'))
+    # The manifest schema is version 2 only: every asset carries its provenance
+    # record. These scenes are MaterialLabFurnace cut down, so they use exactly
+    # the assets of its committed path-tracer manifest.
+    committed = ROOT / 'OloEditor/assets/benchmark/manifests/material-lab-furnace.pathtracer.yaml'
+    assets = yaml.safe_load(committed.read_text(encoding='utf-8'))['Assets']
     scenes = {}
     for material, roughness, metallic in [('diffuse', .8, 0), ('glossy', .12, 1)]:
         scene = copy.deepcopy(original)
@@ -72,19 +77,21 @@ def prepare(args):
         path = HERE / (args.prefix + '-' + material + '.olo')
         path.write_text(yaml.safe_dump(scene, sort_keys=False), encoding='utf-8', newline='\n')
         scenes[material] = path
-        manifest = dict(ManifestVersion=1, Id='pt1211-'+material, Product='diagnostic',
+        manifest = dict(ManifestVersion=2, Id='pt1211-'+material, Product='diagnostic',
             Scene=str(path), Backends={'Supported': ['vulkan']},
             Camera=dict(Id='sphere', Position=POSES[0], YawDegrees=0, PitchDegrees=0,
                         FovDegrees=45, Near=.05, Far=300),
             Output={'Resolution': [160, 90], 'RenderScale': 1},
-            RendererSettings=dict(Path='Deferred', EnableDDGI=False, TAAEnabled=False,
-                                  GpuPathTracerEnabled=False),
+            RendererSettings=dict(Path='Deferred', RayTracedShadowsEnabled=False, EnableDDGI=False,
+                                  TAAEnabled=False, GpuPathTracerEnabled=False),
             Exposure={'Mode': 'Manual', 'Exposure': 1},
             Determinism={'Seed': args.seeds[0], 'StartTimeSeconds': 12, 'FixedDtSeconds': 1/60},
             Warmup={'Frames': 16},
             Tolerance={'RepeatRmse': 0},
             Attachments=[{'Name': 'PTRadiance', 'Source': TARGET, 'Format': 'hdr'},
-                         {'Name': 'Beauty', 'Source': 'UIComposite', 'Format': 'png'}])
+                         {'Name': 'Beauty', 'Source': 'UIComposite', 'Format': 'png'}],
+            Assets=assets,
+            Presets={'vulkan': 'vk-deferred-native'})
         (HERE / (args.prefix + '-' + material + '.yaml')).write_text(yaml.safe_dump(manifest, sort_keys=False), encoding='utf-8', newline='\n')
     return scenes
 

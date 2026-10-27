@@ -102,7 +102,7 @@ namespace OloEngine::Automation
                  Schema::Object().NoAdditional(),
                  [](const SceneDocumentAccess& access, CommandHistory& history, const Json&)
                  { return SaveSceneDocument(access, history); });
-        Register(registry, "olo_scene_save_as", "Save to an explicit .olo or .scene path, relative to project assets or absolute. Undo restores the destination's prior bytes and document identity.",
+        Register(registry, "olo_scene_save_as", "Save to an explicit .olo path, relative to project assets or absolute. Undo restores the destination's prior bytes and document identity.",
                  Schema::Object().Prop("path", Schema::String()).Required({ "path" }).NoAdditional(),
                  [](const SceneDocumentAccess& access, CommandHistory& history, const Json& arguments)
                  {

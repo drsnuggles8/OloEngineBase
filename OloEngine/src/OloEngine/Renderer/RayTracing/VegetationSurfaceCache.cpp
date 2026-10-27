@@ -134,12 +134,10 @@ namespace OloEngine::RayTracing
             }
         };
 
+        // Every layer's wind runs on the scene animation clock (#1502).
         f32 WindTime(const VegetationSurfaceInput& input)
         {
-            const auto& wind = input.Wind;
-            const bool legacyField = wind.WindWeights.x + wind.WindWeights.y + wind.WindWeights.z <= 0.0f &&
-                                     wind.WindFlags.w > 0.5f && wind.ImpostorParams1.x <= 0.5f;
-            return legacyField ? wind.WindClock.x : wind.Time;
+            return input.Wind.Time;
         }
 
         // The rows sent, or the count of the rows held for a keyed group.
@@ -159,7 +157,7 @@ namespace OloEngine::RayTracing
                 input.VelocityBound < 0.0f)
                 return false;
             for (const auto& lane : { input.Wind.WindDirection, input.Wind.WindGust,
-                                      input.Wind.WindClock, input.Wind.WindWeights, input.Wind.WindFlags })
+                                      input.Wind.WindWeights, input.Wind.WindFlags })
                 for (u32 i = 0u; i < 4u; ++i)
                     if (!std::isfinite(lane[i]))
                         return false;

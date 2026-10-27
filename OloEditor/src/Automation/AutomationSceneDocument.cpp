@@ -66,8 +66,8 @@ namespace OloEngine::Automation
             auto extension = path.extension().string();
             std::ranges::transform(extension, extension.begin(), [](unsigned char ch)
                                    { return static_cast<char>(std::tolower(ch)); });
-            if (extension != ".olo" && extension != ".scene")
-                throw std::runtime_error("Scene destination must end in .olo or .scene.");
+            if (extension != ".olo")
+                throw std::runtime_error("Scene destination must end in .olo.");
             if (!std::filesystem::is_directory(path.parent_path()))
                 throw std::runtime_error("Scene destination directory does not exist: " + path.parent_path().string());
             return path;

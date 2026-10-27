@@ -218,6 +218,15 @@ namespace OloEngine::HeapBinding
     // conversions.
     void FlushOffsets();
 
+    // Release the offset table's GPU buffer. Renderer::Shutdown calls it while the
+    // context is still current. The table is a process-lifetime static and drops
+    // its buffer only when a flush notices a new heap epoch, so a process whose
+    // heap ends disabled (the test binary after its bindless suite, an editor
+    // that never set OLO_RHI_BINDLESS) kept the buffer past the renderer: the
+    // teardown census reported "1 GPU allocation(s) (352 bytes) survived". The
+    // next flush mints a fresh buffer, so a renderer brought back up works.
+    void ReleaseOffsetTable();
+
     // Diagnostics/tests only: the value currently staged at a table index, or
     // HeapOffset::Invalid for an out-of-range index. Reads the CPU scratch, not
     // the GPU buffer, so it answers "what would the next flush publish".

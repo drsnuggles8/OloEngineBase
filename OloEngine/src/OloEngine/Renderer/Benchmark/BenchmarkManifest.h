@@ -368,8 +368,8 @@ namespace OloEngine::Benchmark
         ManifestProduct Product = ManifestProduct::Golden;
         FString ScenePath; // project-relative, e.g. Scenes/Benchmark/MaterialLab.olo
 
-        TArray<FString> SupportedBackends; // "opengl", "vulkan"
-        std::map<std::string, FString> PresetIdsByBackend;
+        TArray<FString> SupportedBackends;                             // "opengl", "vulkan"
+        std::map<std::string, FString> PresetIdsByBackend;             // required: one per supported backend
         std::map<std::string, TArray<FString>> UnsupportedAttachments; // backend -> attachment Names
 
         TArray<ManifestCamera> Cameras;

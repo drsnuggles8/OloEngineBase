@@ -58,7 +58,6 @@ namespace OloEngine::Tests
             layer.ClumpGroup = 3;
             layer.GroundOffset = -0.09375f;
             layer.SlopeSinkFactor = 0.84375f;
-            layer.DecorrelatedVariation = true;
             return layer;
         }
 
@@ -115,7 +114,6 @@ namespace OloEngine::Tests
         EXPECT_EQ(got.ClumpGroup, want.ClumpGroup);
         EXPECT_TRUE(Math::BitwiseEqual(got.GroundOffset, want.GroundOffset));
         EXPECT_TRUE(Math::BitwiseEqual(got.SlopeSinkFactor, want.SlopeSinkFactor));
-        EXPECT_EQ(got.DecorrelatedVariation, want.DecorrelatedVariation);
 
         // operator== is the editor-undo path, and a field missing from it means
         // undo silently skips that value. A full round-trip must compare equal.
