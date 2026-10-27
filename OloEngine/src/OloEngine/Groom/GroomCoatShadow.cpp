@@ -1749,6 +1749,30 @@ namespace OloEngine::GroomCoatShadow
         return cellsNearCoat;
     }
 
+    f32 BodyPlacementVoxels(const glm::mat4& a, const glm::mat4& b, const glm::vec3& lo, const glm::vec3& hi,
+                            f32 voxelLength) noexcept
+    {
+        if (!(voxelLength > 0.0f) || !std::isfinite(voxelLength))
+        {
+            return std::numeric_limits<f32>::infinity();
+        }
+        const glm::mat4 difference = a - b;
+        f32 farthest = 0.0f;
+        for (u32 corner = 0; corner < 8u; ++corner)
+        {
+            const glm::vec4 p((corner & 1u) != 0u ? hi.x : lo.x, (corner & 2u) != 0u ? hi.y : lo.y,
+                              (corner & 4u) != 0u ? hi.z : lo.z, 1.0f);
+            const f32 moved = glm::length(glm::vec3(difference * p));
+            // A NaN never compares greater, so it is caught here, not by max.
+            if (!std::isfinite(moved))
+            {
+                return std::numeric_limits<f32>::infinity();
+            }
+            farthest = std::max(farthest, moved);
+        }
+        return farthest / voxelLength;
+    }
+
     bool MarkBodyInDensityVolume(DensityVolume& volume, const GroomSurfaceView& surface,
                                  const glm::mat4& surfaceToVolume, const BodyVoxelSettings& settings,
                                  BodyVoxelStats* outStats, const TArray<u8>* nearCoatCells)

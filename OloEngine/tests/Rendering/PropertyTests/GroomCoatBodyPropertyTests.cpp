@@ -652,3 +652,83 @@ TEST(GroomCoatBody, CoatsWithTheSameSkyCellsMarkTheSameBody)
     }
     EXPECT_FALSE(BodySkyCellsNearCoat(half) == cells);
 }
+
+// A HERD'S PLACEMENTS ARE ONE BODY TO THE BAKE CACHE (#1646). Every animal's
+// body-to-coat matrix is the same matrix evaluated through its own world
+// transform, so the bits differ by float noise and a key on them never hit.
+// GroomRenderPass matches the placement within kBodyPlacementToleranceVoxels
+// instead: the noise falls inside it, a real offset outside, and a body served
+// at the tolerance's edge differs from the one marked exactly by a few u8 steps
+// on the skin.
+TEST(GroomCoatBody, AHerdsPlacementNoiseServesOneBodyAndARealOffsetDoesNot)
+{
+    const DensityVolume coat = FurredBallCoat();
+    ASSERT_TRUE(coat.IsValid());
+    const f32 voxel = coat.VoxelSize().x;
+    const Mesh ball = UvSphere(kBodyRadius, 48, 96);
+    glm::vec3 lo = ball.Positions.front();
+    glm::vec3 hi = lo;
+    for (const glm::vec3& p : ball.Positions)
+    {
+        lo = glm::min(lo, p);
+        hi = glm::max(hi, p);
+    }
+
+    // The scene's construction: the coat and its body share an animal, which
+    // stands somewhere in a 500 m world, turned.
+    std::vector<glm::mat4> herd;
+    for (const glm::vec3 at : { glm::vec3(232.858f, 8.056f, 212.276f), glm::vec3(247.437f, 9.963f, 236.988f),
+                                glm::vec3(-34.7f, 1.48f, 195.9f), glm::vec3(118.3f, 4.2f, -241.7f) })
+    {
+        const glm::mat4 animal = glm::rotate(glm::translate(glm::mat4(1.0f), at), 0.37f * at.x, glm::vec3(0.0f, 1.0f, 0.0f));
+        herd.push_back(MakeGroomSurfaceToGroomMatrix(animal, animal));
+    }
+    f32 widest = 0.0f;
+    for (const glm::mat4& a : herd)
+    {
+        for (const glm::mat4& b : herd)
+        {
+            widest = std::max(widest, BodyPlacementVoxels(a, b, lo, hi, voxel));
+        }
+    }
+    std::printf("[coat-body] a herd's placements differ by up to %.6f voxel (tolerance %.3f)\n",
+                static_cast<f64>(widest), static_cast<f64>(kBodyPlacementToleranceVoxels));
+    EXPECT_LE(widest, kBodyPlacementToleranceVoxels) << "float noise in a herd's placements misses the cache";
+
+    // A real offset is a different body: a twentieth of a voxel is five times
+    // the tolerance.
+    const glm::mat4 moved = glm::translate(glm::mat4(1.0f), glm::vec3(voxel * 0.05f, 0.0f, 0.0f)) * herd.front();
+    EXPECT_GT(BodyPlacementVoxels(herd.front(), moved, lo, hi, voxel), kBodyPlacementToleranceVoxels);
+    // And nothing non-finite is near anything.
+    glm::mat4 broken = herd.front();
+    broken[3].x = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(BodyPlacementVoxels(herd.front(), broken, lo, hi, voxel) <= kBodyPlacementToleranceVoxels);
+    EXPECT_FALSE(BodyPlacementVoxels(herd.front(), herd.front(), lo, hi, 0.0f) <= kBodyPlacementToleranceVoxels);
+
+    // Served at the tolerance's edge, a body differs from the one marked
+    // exactly by a few u8 steps on the skin: what the cache trades for a hit.
+    const glm::mat4 edge =
+        glm::translate(glm::mat4(1.0f), glm::vec3(voxel * kBodyPlacementToleranceVoxels * 0.99f, 0.0f, 0.0f));
+    ASSERT_LE(BodyPlacementVoxels(glm::mat4(1.0f), edge, lo, hi, voxel), kBodyPlacementToleranceVoxels);
+    DensityVolume exact = coat;
+    DensityVolume served = coat;
+    ASSERT_TRUE(MarkBodyInDensityVolume(exact, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}));
+    ASSERT_TRUE(MarkBodyInDensityVolume(served, ball.View(), edge, BodyVoxelSettings{}));
+    ASSERT_EQ(exact.Body.size(), served.Body.size());
+    i32 occupancyStep = 0;
+    i32 skyStep = 0;
+    for (sizet i = 0; i < exact.Body.size(); ++i)
+    {
+        occupancyStep = std::max(occupancyStep, std::abs(static_cast<i32>(exact.Body[i].w) - static_cast<i32>(served.Body[i].w)));
+        for (glm::length_t c = 0; c < 3; ++c)
+        {
+            skyStep = std::max(skyStep, std::abs(static_cast<i32>(exact.Body[i][c]) - static_cast<i32>(served.Body[i][c])));
+        }
+    }
+    std::printf("[coat-body] a body served at the tolerance's edge: occupancy within %d/255, sky within %d/255\n",
+                occupancyStep, skyStep);
+    // Measured 8/255 and 2/255: a hundredth of a voxel moves a quarter-voxel
+    // sub-column's crossing partway, which a texel on the skin shows.
+    EXPECT_LE(occupancyStep, 10) << "a body served at the tolerance's edge is not the body marked exactly";
+    EXPECT_LE(skyStep, 4);
+}

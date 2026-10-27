@@ -52,7 +52,7 @@ namespace OloEngine
         // density, GroomCoatShadow::BodySkyCellsNearCoat), and the surface's
         // positions and indices. The key of GroomRenderPass's body bakes
         // (#1559); the transform is matched beside it, within
-        // kCoatBodyPlacementVoxels (BodyPlacementVoxels).
+        // GroomCoatShadow::kBodyPlacementToleranceVoxels (BodyPlacementVoxels).
         //
         // NEITHER THE DENSITY NOR THE TRANSFORM'S BITS (#1646). A herd shares
         // one body on a handful of grids, under coats a few strands apart and
@@ -105,14 +105,6 @@ namespace OloEngine
             return hash;
         }
 
-        // How far a body bake made through one transform may lie from another
-        // and still serve it, in the volume's voxels. The herd's matrices differ
-        // by float noise, measured at up to 0.0021 of a voxel on the acceptance
-        // foxes' 128^3 grids; a hundredth is five times that and a twenty-fifth
-        // of the occupancy raster's own sub-column (kBodySubColumns), so a body
-        // served across it is the body marked again to within that noise.
-        constexpr f32 kCoatBodyPlacementVoxels = 1.0e-2f;
-
         // The surface's box in its own space, for BodyPlacementVoxels; false for
         // a surface with no vertex.
         [[nodiscard]] bool SurfaceBounds(const GroomSurfaceView& surface, glm::vec3& outLo, glm::vec3& outHi)
@@ -130,28 +122,6 @@ namespace OloEngine
                 outHi = glm::max(outHi, p);
             }
             return true;
-        }
-
-        // The farthest any point of a surface with box [lo, hi] lies between its
-        // placements by `a` and by `b`, in voxels of `voxelLength`. The
-        // displacement is affine, so its length peaks at a corner of the box.
-        [[nodiscard]] f32 BodyPlacementVoxels(const glm::mat4& a, const glm::mat4& b, const glm::vec3& lo,
-                                              const glm::vec3& hi, f32 voxelLength)
-        {
-            if (!(voxelLength > 0.0f))
-            {
-                return std::numeric_limits<f32>::infinity();
-            }
-            const glm::mat4 difference = a - b;
-            f32 farthest = 0.0f;
-            for (u32 corner = 0; corner < 8u; ++corner)
-            {
-                const glm::vec4 p((corner & 1u) != 0u ? hi.x : lo.x, (corner & 2u) != 0u ? hi.y : lo.y,
-                                  (corner & 4u) != 0u ? hi.z : lo.z, 1.0f);
-                farthest = std::max(farthest, glm::length(glm::vec3(difference * p)));
-            }
-            // A non-finite transform is never near anything.
-            return std::isfinite(farthest) ? farthest / voxelLength : std::numeric_limits<f32>::infinity();
         }
 
         // The stochastic hash's seed. Fixed rather than random: two runs of the
@@ -1881,9 +1851,10 @@ namespace OloEngine
                                            [&](const CoatBodyBake& bake)
                                            {
                                                return bake.Key == bodyKey &&
-                                                      BodyPlacementVoxels(bake.SurfaceToGroom, body->SurfaceToGroom,
-                                                                          surfaceLo, surfaceHi, voxelLength) <=
-                                                          kCoatBodyPlacementVoxels;
+                                                      GroomCoatShadow::BodyPlacementVoxels(
+                                                          bake.SurfaceToGroom, body->SurfaceToGroom, surfaceLo,
+                                                          surfaceHi, voxelLength) <=
+                                                          GroomCoatShadow::kBodyPlacementToleranceVoxels;
                                            })
                     : m_CoatBodyBakes.end();
         if (known != m_CoatBodyBakes.end())

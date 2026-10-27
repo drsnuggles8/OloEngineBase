@@ -104,8 +104,9 @@ across.
   so its bits differ by float noise (up to 0.0021 voxel), and a key on them, or on every voxel's
   density bit, missed for every animal: the acceptance scene marked 350 times a run, up to seven
   foxes in one frame at a camera cut (#1646, and the 0.65-2.1 s hitches of #1594). The transform
-  is matched beside the key within a hundredth of a voxel; `GroomCoatBody.CoatsWithTheSameSkyCellsMarkTheSameBody`
-  pins the cells as the whole of the density's say.
+  is matched beside the key within a hundredth of a voxel, which moves a skin texel by at most
+  8/255. `GroomCoatBody.CoatsWithTheSameSkyCellsMarkTheSameBody` and
+  `AHerdsPlacementNoiseServesOneBodyAndARealOffsetDoesNot` pin both.
 - **A rest bake marks the body at rest: unmorphed.** The morph pass rewrites the bound surface's
   positions in place, so the request carries `CoatRestBody`, the same triangles over the morph's
   `BasePositions`. Marked from the morphed surface, a blinking or panting Bernese was a different body

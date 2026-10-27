@@ -808,6 +808,24 @@ namespace OloEngine
         /// one grid with the same cells mark the same body texels (#1646).
         [[nodiscard]] TArray<u8> BodySkyCellsNearCoat(const DensityVolume& volume);
 
+        /// How far a body marked through one placement may lie from another and
+        /// still serve it, in the volume's voxels (#1646). A herd's body-to-coat
+        /// matrices are one matrix evaluated through each animal's world
+        /// transform, so they differ by float noise: up to 0.0021 of a voxel on
+        /// the acceptance foxes' 128^3 grids. A hundredth is five times that; a
+        /// body served at its edge differs from the one marked exactly by at most
+        /// 8/255 of occupancy and 2/255 of sky on the skin, where master's own
+        /// world-position noise moves it by about 2/255
+        /// (GroomCoatBody.AHerdsPlacementNoiseServesOneBodyAndARealOffsetDoesNot).
+        inline constexpr f32 kBodyPlacementToleranceVoxels = 1.0e-2f;
+
+        /// The farthest any point of a surface with box [lo, hi] lies between its
+        /// placements by `a` and by `b`, in voxels of `voxelLength`. The
+        /// displacement is affine, so its length peaks at a corner of the box.
+        /// Infinite for a non-finite placement or a voxel that is not positive.
+        [[nodiscard]] f32 BodyPlacementVoxels(const glm::mat4& a, const glm::mat4& b, const glm::vec3& lo,
+                                              const glm::vec3& hi, f32 voxelLength) noexcept;
+
         // Marks `surface` -- positions in its own object space, taken to the
         // volume's by `surfaceToVolume` -- into `volume.Body`, occupancy and
         // sky; `volume` must already hold the coat (BuildDensityVolume), whose

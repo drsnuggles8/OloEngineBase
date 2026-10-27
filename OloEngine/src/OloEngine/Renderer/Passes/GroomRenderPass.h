@@ -1178,7 +1178,7 @@ namespace OloEngine
         /// everything the marking reads -- the surface's positions and indices,
         /// the grid and the sky cells near the coat -- with its transform into
         /// the coat matched within a hundredth of a voxel (#1646), so a hit is
-        /// the same answer. Up to kCoatBodyBakeBytes of them, the oldest out
+        /// the same answer to within a few u8 steps on the skin. Up to kCoatBodyBakeBytes of them, the oldest out
         /// first: the acceptance herd's coats sit on 28 grids (a handful of coat
         /// bounds, four LOD steps), about 10 MiB, and the four kept before were
         /// evicted before their next use. All given back after
