@@ -546,6 +546,16 @@ namespace OloEngine::HeapBinding
         table.Dirty = false;
     }
 
+    void ReleaseOffsetTable()
+    {
+        OLO_CORE_ASSERT(!s_RecordingTable, "Release the offset table outside a recording");
+        auto& table = MainOffsetTable();
+        table.Buffer = nullptr;
+        // Epoch 0 is never a live heap's (Initialize bumps to at least 1), so the
+        // next stage or flush re-bases the scratch onto whichever heap is current.
+        table.Epoch = 0u;
+    }
+
     auto StagedOffsetAt(const u32 tableIndex) -> RHI::HeapOffset
     {
         if (tableIndex >= HeapOffsetTable::kSlots)

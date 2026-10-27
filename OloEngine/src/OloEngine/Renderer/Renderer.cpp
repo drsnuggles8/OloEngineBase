@@ -3,6 +3,7 @@
 #include "OloEngine/Renderer/BC6HGpuEncoder.h"
 
 #include "OloEngine/Renderer/Font.h"
+#include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer2D.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -145,6 +146,12 @@ namespace OloEngine
         // #839 it had NO release site anywhere; the atlases survived every session on
         // every backend, and only Vulkan's allocator teardown ever said so.
         Font::ShutdownDefault();
+
+        // The heap-offset table's uniform buffer: another process-wide static of
+        // the same class. It lives in HeapBinding, not in Renderer3D, because the
+        // compute systems reach it without a render graph. Released ahead of the
+        // heap itself, while the context is current.
+        HeapBinding::ReleaseOffsetTable();
 
         // Release the descriptor heap and its backend WHILE THE CONTEXT IS STILL
         // CURRENT. ~OpenGLRendererAPI cannot do this: it runs from the static
