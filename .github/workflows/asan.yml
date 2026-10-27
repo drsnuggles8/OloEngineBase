@@ -766,6 +766,12 @@ jobs:
         key: ${{ steps.vcpkg.outputs.cache-key }}
         path: ${{ steps.vcpkg.outputs.cache-path }}
 
+    # Start the server before the parallel build so no compile has to: left to
+    # start on demand, the first two compiles each spawn one and race for the port
+    # (.github/actions/start-sccache has the failure and the measurements).
+    - name: Start the sccache server
+      uses: ./.github/actions/start-sccache
+
     - name: Build (Release)
       # --parallel 2 matches the Linux sanitizer jobs: clang-cl under ASan uses several GB per
       # translation unit, and full concurrency exhausts runner memory on the largest instrumented
@@ -779,6 +785,12 @@ jobs:
       # does come back, the fix is the client-side mode named on the Setup sccache step,
       # not a retry that was already measured not to work.
       run: cmake --build build --config Release --target OloEngine-Tests --parallel 2
+
+    - name: Print the sccache server log
+      if: failure()
+      uses: ./.github/actions/start-sccache
+      with:
+        report: 'true'
 
     # THE NUMBER THIS CHANGE IS JUDGED ON, and it is printed unconditionally because a
     # cache that restores and hits on nothing looks exactly like a working one — that is
@@ -1680,6 +1692,13 @@ jobs:
         key: ${{ steps.vcpkg.outputs.cache-key }}
         path: ${{ steps.vcpkg.outputs.cache-path }}
 
+    # Start the server before the parallel build so no compile has to: left to
+    # start on demand, the first two compiles each spawn one and race for the port
+    # (.github/actions/start-sccache has the failure and the measurements).
+    - name: Start the sccache server
+      if: runner.environment == 'github-hosted'
+      uses: ./.github/actions/start-sccache
+
     - name: Build tests
       # Pinned to --parallel 2 on both arms: higher concurrency exhausts runner
       # memory, which on the hosted arm surfaces as `The hosted runner lost
@@ -1704,6 +1723,12 @@ jobs:
       # measuring per-TU RSS rather than assuming it. The same width is used
       # for ctest below, which bounds test RSS rather than compiler RSS.
       run: cmake --build build --target OloEngine-Tests --parallel 2
+
+    - name: Print the sccache server log
+      if: failure() && runner.environment == 'github-hosted'
+      uses: ./.github/actions/start-sccache
+      with:
+        report: 'true'
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,
@@ -2173,6 +2198,13 @@ jobs:
         key: ${{ steps.vcpkg.outputs.cache-key }}
         path: ${{ steps.vcpkg.outputs.cache-path }}
 
+    # Start the server before the parallel build so no compile has to: left to
+    # start on demand, the first two compiles each spawn one and race for the port
+    # (.github/actions/start-sccache has the failure and the measurements).
+    - name: Start the sccache server
+      if: runner.environment == 'github-hosted'
+      uses: ./.github/actions/start-sccache
+
     - name: Build tests
       # Pinned to --parallel 2: higher concurrency has been observed to
       # exhaust runner memory (clang++ under sanitizer instrumentation uses
@@ -2181,6 +2213,12 @@ jobs:
       # The sharded test artifact contains no shipped hosts. Build and exercise
       # them here so Linux Mono-free startup cannot pass through skipped cases.
       run: cmake --build build --target OloEngine-Tests OloRuntime OloServer oloctl --parallel 2
+
+    - name: Print the sccache server log
+      if: failure() && runner.environment == 'github-hosted'
+      uses: ./.github/actions/start-sccache
+      with:
+        report: 'true'
 
     - name: Verify Mono-free shipped host startup
       working-directory: ${{github.workspace}}/OloEditor
@@ -2679,12 +2717,25 @@ jobs:
         key: ${{ steps.vcpkg.outputs.cache-key }}
         path: ${{ steps.vcpkg.outputs.cache-path }}
 
+    # Start the server before the parallel build so no compile has to: left to
+    # start on demand, the first two compiles each spawn one and race for the port
+    # (.github/actions/start-sccache has the failure and the measurements).
+    - name: Start the sccache server
+      if: runner.environment == 'github-hosted'
+      uses: ./.github/actions/start-sccache
+
     - name: Build tests
       # Pinned to --parallel 2: higher concurrency has been observed to
       # exhaust runner memory (clang++ under sanitizer instrumentation uses
       # ~9 GB per translation unit, measured), causing `The hosted runner lost
       # communication with the server` failures.
       run: cmake --build build --target OloEngine-Tests --parallel 2
+
+    - name: Print the sccache server log
+      if: failure() && runner.environment == 'github-hosted'
+      uses: ./.github/actions/start-sccache
+      with:
+        report: 'true'
 
     # Read the cache hit rate. A cold cache (first run / after a real source
     # change) is mostly misses + writes; a warm cache shows a high hit rate,

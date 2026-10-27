@@ -174,8 +174,20 @@ jobs:
         key: ${{ steps.vcpkg.outputs.cache-key }}
         path: ${{ steps.vcpkg.outputs.cache-path }}
 
+    # Start the server before the parallel build so no compile has to: left to
+    # start on demand, the first two compiles each spawn one and race for the port
+    # (.github/actions/start-sccache has the failure and the measurements).
+    - name: Start the sccache server
+      uses: ./.github/actions/start-sccache
+
     - name: Build tests
       run: cmake --build "${{github.workspace}}/build" --target OloEngine-Tests --config ${{env.BUILD_TYPE}}
+
+    - name: Print the sccache server log
+      if: failure()
+      uses: ./.github/actions/start-sccache
+      with:
+        report: 'true'
 
     - name: Show sccache stats
       if: always()

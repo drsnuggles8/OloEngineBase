@@ -340,7 +340,7 @@ namespace OloEngine::Tests
             m_Target->Unbind();
 
             std::vector<u8> pixels;
-            ReadbackRgba8(m_Target->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            ReadbackRgba8(m_Target->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
             return pixels;
         }
 
@@ -592,7 +592,7 @@ namespace OloEngine::Tests
         m_Target->Unbind();
 
         std::vector<u8> gpuFrame;
-        ReadbackRgba8(m_Target->GetColorAttachmentRendererID(0), kWidth, kHeight, gpuFrame);
+        ReadbackRgba8(m_Target->GetColorAttachmentHandle(0), kWidth, kHeight, gpuFrame);
         WritePng("Splat_Corner_GpuOrdered.png", gpuFrame, kWidth, kHeight);
 
         const f64 difference = MeanAbsDifference(cpuFrame, gpuFrame);

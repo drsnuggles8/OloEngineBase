@@ -35,7 +35,7 @@ namespace OloEngine::Tests
         pass.Draw(0);
         glFinish();
         std::vector<f32> values;
-        ReadbackRgbaFloat(output->GetColorAttachmentRendererID(0), 64, 1, values);
+        ReadbackRgbaFloat(output->GetColorAttachmentHandle(0), 64, 1, values);
         ASSERT_EQ(values.size(), 64u * 4u);
         const glm::vec3 ray = glm::normalize(glm::vec3(-1.0f, 0.07f, -0.3f));
         const glm::vec3 perpendicular = glm::normalize(glm::vec3(-ray.y, ray.x, 0.0f));

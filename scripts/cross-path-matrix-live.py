@@ -2,9 +2,11 @@
 """Replay the cross-path lighting matrix's rows against a LIVE editor over MCP (issue #1347).
 
 The in-process fixture (OloEngine/tests/Rendering/CrossPath/CrossPathLightingMatrixTest.cpp)
-runs the GL arms only: scene-level Vulkan is unreachable in-process (one process holds one
-backend; docs/agent-rules/testing-architecture.md s9). This script is the live half of the
-matrix's Vulkan cells. It takes the rows the fixture EXPORTS from its reference arm (GL
+runs each backend's arms in its own process: the GL arms by default, the Vulkan arms under
+`OloEngine-Tests --olo-rhi=vulkan` on a windowless VulkanContext (#1556; one process holds one
+backend, docs/agent-rules/testing-architecture.md rule 13). This script is the live half: it
+shows a WINDOWED editor frame agrees with the same rows, which is the one thing the windowless
+process cannot show about itself. It takes the rows the fixture EXPORTS from its reference arm (GL
 Forward native) and, for every rendering path, renders each probe's OFF and ON scene in a
 running editor, reads the linear HDR colour the GL reference read (the tone map's input,
 the probe's "target") at exactly the exported pixels, and holds
@@ -224,6 +226,8 @@ def log_backend(path):
 
 class Session:
     def __init__(self, mcp, args):
+        # The path the current row is being replayed on; capture() re-applies it after each scene load.
+        self.current_path = None
         self.target = "SceneColor"
         self.estimator_field = ""
         self.cross_tolerance = {"relative": 0.0, "absolute": 1.0e-3}
@@ -355,6 +359,13 @@ class Session:
         # The fixture read each state from its own scene-band end (SSGI off has no SSGIColor).
         self.target, self.target_pass = (self.targets[1] if state else self.targets[0])
         self.open_scene(scene_path)
+        # A scene load publishes the scene's AUTHORED render settings
+        # (SceneTransition::ApplySceneRenderSettings), and every exported scene
+        # is authored on Forward, so the path chosen before the open is gone:
+        # every Forward+ and Deferred cell rendered Forward until this re-applied
+        # it (#1556, found replaying the rows on a live Vulkan editor).
+        self.set_renderer("renderpath", self.current_path)
+        self.set_renderer("msaa", "1")
         self.restore_postprocess(row, probe, state, scene_path)
         self.play()
         try:
@@ -437,6 +448,7 @@ class Session:
                 self.not_run.append(("%s %s" % (row, path), reason))
                 print("  %-12s NOT RUN: %s" % (path, reason))
                 continue
+            self.current_path = path
             self.set_renderer("renderpath", path)
             self.set_renderer("msaa", "1")  # the exported reference is single-sample
             for probe_name, probe in manifest.get("probes", {}).items():

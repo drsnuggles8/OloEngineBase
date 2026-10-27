@@ -192,7 +192,7 @@ namespace OloEngine::Tests
 
             void Readback(std::vector<u8>& out) const
             {
-                ReadbackRgba8(m_Fb->GetColorAttachmentRendererID(0), kImageSize, kImageSize,
+                ReadbackRgba8(m_Fb->GetColorAttachmentHandle(0), kImageSize, kImageSize,
                               out);
             }
         };

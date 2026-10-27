@@ -28,6 +28,15 @@ name: Vulkan Software Conformance
 # `--olo-require-vulkan` below). Measurements and the full extension table:
 # docs/agent-rules/vulkan-software-driver-ci.md.
 #
+# THE SCENE SUITE (#1556)
+# -----------------------
+# A second process of the same binary, `--olo-rhi=vulkan`, runs the
+# RendererAttachedTest scene family on a windowless VulkanContext: the full
+# Renderer3D pipeline, frame by frame, with no display. That is the
+# cross-path matrix's Vulkan arms and the groom, VSM and shadow evidence,
+# which before this ran only in a live editor session. Its own step and its
+# own missing-execution gate below; the filter is OloEngine/tests/vulkan_scene_filter.txt.
+#
 # WHAT IT DOES NOT PROVE
 # ----------------------
 # Nothing about any hardware driver. lavapipe is a software implementation, not
@@ -44,6 +53,13 @@ on:
         # the suites still requires every L7 case, so a filter that drops one
         # fails the job by design; that is the gate's negative control.
         description: 'gtest filter override (empty = the nightly filter)'
+        type: string
+        default: ''
+      scene_gtest_filter:
+        # Diagnostic only (#1556), the scene step's twin of gtest_filter. Empty
+        # keeps OloEngine/tests/vulkan_scene_filter.txt. The scene gate lists the cases from the
+        # SAME filter, so a narrower one is a smaller required set, not a red.
+        description: 'scene-suite gtest filter override (empty = the nightly filter)'
         type: string
         default: ''
       ray_query_off:
@@ -70,6 +86,10 @@ on:
       - '.github/workflows/vulkan-software.yml'
       - 'OloEngine/src/Platform/Vulkan/VulkanCapabilities.*'
       - 'scripts/vulkan_ray_query_coverage.py'
+      # The windowless frame bracket and the test process that drives it (#1556).
+      - 'OloEngine/src/Platform/Vulkan/VulkanContext.*'
+      - 'OloEngine/tests/Rendering/PropertyTests/TestRenderBackend.*'
+      - 'OloEngine/tests/vulkan_scene_filter.txt'
 
 # Read-only: this job builds and runs tests, it never comments, labels or
 # publishes. Declared explicitly so a future step cannot quietly acquire write
@@ -89,6 +109,22 @@ env:
   # See the header: 26.2.0 is the FIRST Mesa release whose lavapipe satisfies
   # ADR 0010. Bump forward freely; never back.
   MESA_VERSION: '26.2.0'
+  # The scene suite the --olo-rhi=vulkan step runs and its gate requires
+  # (#1556) is OloEngine/tests/vulkan_scene_filter.txt, which the
+  # OloEngine-Tests_VulkanScene ctest entry reads too: the renderer-attached smoke cases (less the GL-state one, which
+  # skips on Vulkan by design), the cross-path matrix's native Vulkan arms (less
+  # the rows whose estimator a raster arm does not host: ReSTIR needs ray query,
+  # SSGI is Deferred-only), and the groom, shadow atlas, VSM and PCSS evidence.
+  # A case added to these suites joins the requirement automatically; a NEW
+  # suite must be added here. Ported but left to hardware for runtime: the
+  # shadow-family evidence (one terrain case ran past 20 min on lavapipe in a
+  # Debug build) and the dog showcase (hours on the RTX 4090).
+  # FOUR GroomSceneShadow cases are excluded (#1652): with the shadow region
+  # forked and split for the groom opaque copies they shade the fur with
+  # garbage, every time on lavapipe 26.2.0 and on a loaded hardware GPU, with
+  # no validation error. Delete the four exclusions when #1652 closes.
+  # The rest of that suite runs one case per process (#1666, see the scene
+  # step); return it to the shared process when #1666 closes.
 
 jobs:
   lavapipe:
@@ -338,6 +374,81 @@ jobs:
             --allow-skip RayTracingDevice.VegetationDetailedVersusCardExperiment @suiteArgs
           exit $LASTEXITCODE
 
+      # THE SCENE SUITE ON THE WINDOWLESS VULKAN CONTEXT (#1556). Its own
+      # process: one process holds one backend, and --olo-rhi=vulkan selects
+      # Vulkan before any test runs, so no GL context is made (the llvmpipe env
+      # the step above sets is not needed here). --olo-require-vulkan fails a
+      # refused bring-up; each frame also fails on a validation error or an
+      # unimplemented-stub hit, the Vulkan counterpart of the GL error drain.
+      # !cancelled(): a red L7 step must not hide the scene suite's verdict.
+      #
+      # THE GROOM SUITE RUNS ONE CASE PER PROCESS (#1666). On lavapipe, once a
+      # process has rendered Forward, Forward+ and Deferred in that order --
+      # across any cases, ShadowAtlas's included -- the next Forward frame loses
+      # the sun's direct light, so whichever groom case follows fails. Every
+      # case passes alone, so each gets its own process; the rest of the filter
+      # stays one. Each writes its own XML and the gate below reads them all.
+      - name: Run the scene suite on the windowless Vulkan context (lavapipe)
+        if: ${{ !cancelled() }}
+        working-directory: OloEditor
+        timeout-minutes: 90
+        env:
+          VK_DRIVER_FILES: ${{ env.OLO_LAVAPIPE_ICD }}
+          VK_ICD_FILENAMES: ${{ env.OLO_LAVAPIPE_ICD }}
+          OLO_SCENE_FILTER_OVERRIDE: ${{ inputs.scene_gtest_filter }}
+        run: |
+          $filter = if ($env:OLO_SCENE_FILTER_OVERRIDE) { $env:OLO_SCENE_FILTER_OVERRIDE } else { (Get-Content ..\OloEngine\tests\vulkan_scene_filter.txt -Raw).Trim() }
+          $exe = "..\build\OloEngine\tests\$env:BUILD_TYPE\OloEngine-Tests.exe"
+          $common = '--olo-rhi=vulkan', '--olo-require-vulkan', '--olo-golden-vendor=lavapipe', '--olo-perf-machine=ci-lavapipe-windows', '--gtest_catch_exceptions=1'
+          $isolated = 'GroomSceneShadowVisualEvidenceTest'
+          $positive, $negative = $filter -split '-', 2
+          $mainFilter = $positive + '-' + ((@($negative, "$isolated.*") | Where-Object { $_ }) -join ':')
+          & $exe @common "--gtest_filter=$mainFilter" --gtest_output=xml:..\test_results\vulkan_scene.xml
+          $failed = $LASTEXITCODE -ne 0
+          # The isolated cases are the ones the SAME filter selects, so its exclusions apply.
+          $listing = & $exe --gtest_list_tests "--gtest_filter=$filter"
+          if ($LASTEXITCODE -ne 0) { Write-Error "--gtest_list_tests exited $LASTEXITCODE; the isolated case set is unknown"; exit 1 }
+          $suite = $null
+          $cases = $listing | ForEach-Object {
+            if ($_ -match '^([A-Za-z_][A-Za-z0-9_/]*)\.(\s+#.*)?$') { $suite = $Matches[1] }
+            elseif ($suite -eq $isolated -and $_ -match '^  ([A-Za-z_][A-Za-z0-9_/]*)') { "$suite.$($Matches[1])" }
+          }
+          $index = 0
+          foreach ($case in $cases) {
+            & $exe @common "--gtest_filter=$case" "--gtest_output=xml:..\test_results\vulkan_scene_isolated_$index.xml"
+            if ($LASTEXITCODE -ne 0) { Write-Output "::error::$case failed in its own process"; $failed = $true }
+            $index++
+          }
+          Write-Output "Isolated $isolated cases run: $index"
+          if ($failed) { exit 1 }
+
+      # The scene suite's MISSING-EXECUTION GATE, the L7 gate's twin: every case
+      # the filter selects must have executed. A case that skipped -- a GL-only
+      # read left in a ported test, an arm planned away -- fails the job here
+      # rather than passing as green. The required set comes from
+      # --gtest_list_tests over the same filter, and every suite it names is
+      # accounted for, so a suite added to the filter is required without
+      # editing this step.
+      - name: Require every scene case to execute on Vulkan
+        if: ${{ !cancelled() }}
+        working-directory: OloEditor
+        shell: pwsh
+        env:
+          OLO_SCENE_FILTER_OVERRIDE: ${{ inputs.scene_gtest_filter }}
+        run: |
+          $filter = if ($env:OLO_SCENE_FILTER_OVERRIDE) { $env:OLO_SCENE_FILTER_OVERRIDE } else { (Get-Content ..\OloEngine\tests\vulkan_scene_filter.txt -Raw).Trim() }
+          & "..\build\OloEngine\tests\$env:BUILD_TYPE\OloEngine-Tests.exe" --gtest_list_tests "--gtest_filter=$filter" *> ..\test_results\vulkan_scene_cases.txt
+          if ($LASTEXITCODE -ne 0) { Write-Error "--gtest_list_tests exited $LASTEXITCODE; the required case set is unknown"; exit 1 }
+          $suites = Get-Content ..\test_results\vulkan_scene_cases.txt | Where-Object { $_ -match '^([A-Za-z_][A-Za-z0-9_/]*)\.(\s+#.*)?$' } | ForEach-Object { $Matches[1] } | Select-Object -Unique
+          if (-not $suites) { Write-Error "the scene filter selected no suite"; exit 1 }
+          $suiteArgs = $suites | ForEach-Object { '--suite', $_ }
+          # One report from the shared process and one per isolated groom case.
+          $reportArgs = @('..\test_results\vulkan_scene.xml') + @(Get-ChildItem ..\test_results\vulkan_scene_isolated_*.xml | ForEach-Object { $_.FullName }) | ForEach-Object { '--report', $_ }
+          python ..\scripts\vulkan_ray_query_coverage.py --require --title 'Scene suite on the windowless Vulkan context (lavapipe)' `
+            @reportArgs --expected-list ..\test_results\vulkan_scene_cases.txt `
+            --capability-report ..\test_results\vulkan_capability_report.md @suiteArgs
+          exit $LASTEXITCODE
+
       - name: Upload Vulkan software test results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -346,6 +457,9 @@ jobs:
           path: |
             test_results/vulkan_software.xml
             test_results/ray_query_cases.txt
+            test_results/vulkan_scene.xml
+            test_results/vulkan_scene_isolated_*.xml
+            test_results/vulkan_scene_cases.txt
           if-no-files-found: warn
 
       - name: Upload golden-image diffs on failure

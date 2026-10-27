@@ -105,11 +105,11 @@ namespace OloEngine::Tests
 
             void ReadDirection(std::vector<f32>& out) const
             {
-                ReadbackRgbaFloat(m_OutputFB->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
+                ReadbackRgbaFloat(m_OutputFB->GetColorAttachmentHandle(0), kWidth, kHeight, out);
             }
             void ReadValue(std::vector<f32>& out) const
             {
-                ReadbackRgbaFloat(m_OutputFB->GetColorAttachmentRendererID(1), kWidth, kHeight, out);
+                ReadbackRgbaFloat(m_OutputFB->GetColorAttachmentHandle(1), kWidth, kHeight, out);
             }
         };
 

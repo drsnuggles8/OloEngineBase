@@ -29,10 +29,12 @@
 #include "OloEnginePCH.h"
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
 #include <gtest/gtest.h>
 
 #include <cstddef>
+#include <span>
 #include <vector>
 
 // Forward declares (avoid dragging GLFW into every test TU)
@@ -52,7 +54,16 @@ namespace OloEngine::Tests
       public:
         // Returns true if a usable GL 4.5+ context was successfully created in
         // the current process. Initializes the context on first call.
+        //
+        // In the --olo-rhi=vulkan process (#1556) there is no GL context, and
+        // this answers true only while a RendererAttachedTest the windowless
+        // VulkanContext admitted is running (SetVulkanSceneTestAdmitted), so a
+        // scene test's own OLO_ENSURE_GPU_OR_SKIP() lets it through while a
+        // GL-only test in that process still skips, naming the flag.
         static bool IsGpuAvailable();
+
+        // RendererAttachedTest's SetUp/TearDown in the Vulkan process.
+        static void SetVulkanSceneTestAdmitted(bool admitted);
 
         // Why IsGpuAvailable() is false, for the skip/fail message. Empty when
         // a context was simply not obtainable; otherwise names the flag that
@@ -67,6 +78,11 @@ namespace OloEngine::Tests
         // than skip. Read here rather than at each site so the two cannot
         // disagree.
         static bool GpuRequired();
+
+        // Make OloEditor/ the working directory (assets and shaders resolve
+        // against it). The GL gate does this on its first call; the Vulkan
+        // process (--olo-rhi=vulkan) calls it before its own bring-up.
+        static bool ChangeToOloEditorDir();
 
         // Convenience: calls GTEST_SKIP() with a helpful message if no GPU --
         // or FAIL() under --olo-require-gpu, for a job that exists to run the
@@ -124,6 +140,23 @@ namespace OloEngine::Tests
     // Reads the full contents of an RGBA16F or RGBA32F texture as floats.
     // Sized to width * height * 4 floats (GL converts 16F → 32F internally).
     void ReadbackRgbaFloat(u32 textureId, u32 width, u32 height, std::vector<f32>& out);
+
+    // The same two reads by RHI handle, through RenderCommand::ReadTextureImage,
+    // so they run on either backend (#1556): pass a framebuffer's
+    // GetColorAttachmentHandle(i), never its GL name. Rows come back in GL
+    // order on both (a render target is top-down on Vulkan and is flipped). A
+    // refused read zeroes `out` and fails the running test.
+    void ReadbackRgba8(RHI::ResourceHandle texture, u32 width, u32 height, std::vector<u8>& out);
+    void ReadbackRgbaFloat(RHI::ResourceHandle texture, u32 width, u32 height, std::vector<f32>& out);
+    // An R32I target (the scene entity IDs) into `out`, width * height values.
+    void ReadbackR32Int(RHI::ResourceHandle texture, u32 width, u32 height, std::span<i32> out);
+    // A texture's sample count by RHI handle, asked of the backend that owns
+    // it (1 for a single-sample texture, 0 for a handle that does not resolve).
+    [[nodiscard]] u32 TextureSampleCount(RHI::ResourceHandle texture);
+
+    // A depth attachment's depth as floats, GL's [0, 1] window depth on both
+    // backends (the projection seam keeps the stored values GL-shaped).
+    void ReadbackDepth32F(RHI::ResourceHandle texture, u32 width, u32 height, std::span<f32> out);
 
     // Basic statistics for validation. Tuples are per-channel.
     struct FloatStats

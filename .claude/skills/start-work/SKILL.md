@@ -182,8 +182,9 @@ this conversation:
   `{scene YAML, asset pack, save-game}`, scripting `{C#, Lua}`, physics `{Box2D, Jolt}`, assets
   `{loose, cooked}`) and write **every** dimension the subsystem's row lists, including the
   conditional ones (MSAA, upscale, resolution, a prior on-disk version), each as a cell or with a
-  one-line reason it is unreachable. Mark each cell **artefact-backed** or **live-only** (every
-  Vulkan cell is live-only: the headless fixtures need a GL 4.6 context). A cell known unreachable
+  one-line reason it is unreachable. Mark each cell **artefact-backed** or **live-only** (a
+  Vulkan cell is artefact-backed when its scene suite runs in the `--olo-rhi=vulkan` process,
+  `OloEngine/tests/vulkan_scene_filter.txt`; live-only otherwise, with the reason). A cell known unreachable
   up front (no hardware, backend lacks the feature) is decided here with its reason. A single-path
   change says so in one line ("single path: forward only, 2D feature"); omitting the section is not
   that decision.

@@ -188,7 +188,7 @@ namespace OloEngine::Tests
             if (!fb)
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
             ASSERT_TRUE(fb) << "no composited framebuffer for '" << name << "'";
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, out);
             ASSERT_EQ(out.size(), static_cast<std::size_t>(kWidth) * kHeight * 4u);
 
             const std::size_t rowBytes = static_cast<std::size_t>(kWidth) * 4u;

@@ -1120,7 +1120,7 @@ namespace OloEngine::Tests
                                    if (velocity != 0u && scene)
                                    {
                                        ReadbackRgbaFloat(velocity, kWidth, kHeight, sampled);
-                                       ReadbackRgbaFloat(scene->GetColorAttachmentRendererID(3), kWidth, kHeight, attachment);
+                                       ReadbackRgbaFloat(scene->GetColorAttachmentHandle(3), kWidth, kHeight, attachment);
                                    } });
         camera.SetPose(kEye + glm::vec3(0.25f * static_cast<f32>(kWarmFrames) + 1.0f, 0.0f, 0.0f), 0.0f, 0.06f);
         RunEditorFrames(camera, 1);
@@ -1281,7 +1281,7 @@ namespace OloEngine::Tests
                                    if (velocity != 0u && opaque != 0u && scene)
                                    {
                                        ReadbackRgbaFloat(velocity, kWidth, kHeight, sampled);
-                                       ReadbackRgbaFloat(scene->GetColorAttachmentRendererID(3), kWidth, kHeight, attachment);
+                                       ReadbackRgbaFloat(scene->GetColorAttachmentHandle(3), kWidth, kHeight, attachment);
                                        ReadbackRgbaFloat(opaque, kWidth, kHeight, gbuffer);
                                    } });
         camera.SetPose(kEye + glm::vec3(0.25f * static_cast<f32>(kWarmFrames) + 1.0f, 0.0f, 0.0f), 0.0f, 0.06f);

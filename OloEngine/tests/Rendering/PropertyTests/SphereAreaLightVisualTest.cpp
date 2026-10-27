@@ -118,7 +118,7 @@ namespace OloEngine::Tests
 
             void Readback(std::vector<u8>& out) const
             {
-                ReadbackRgba8(m_Fb->GetColorAttachmentRendererID(0), kWidth, kHeight, out);
+                ReadbackRgba8(m_Fb->GetColorAttachmentHandle(0), kWidth, kHeight, out);
             }
         };
 
@@ -456,7 +456,7 @@ namespace OloEngine::Tests
                 fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No composited framebuffer for area-light-shadow capture '" << tag << "'";
 
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kW, kH, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kW, kH, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kW) * kH * 4u);
 
             // GL readback is bottom-up; flip so row 0 is the top of the frame.

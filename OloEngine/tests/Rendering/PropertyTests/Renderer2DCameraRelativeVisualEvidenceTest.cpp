@@ -202,7 +202,7 @@ namespace OloEngine::Tests
             // ("not valid from a preview context") when glGetTextureImage samples
             // a texture still attached to the currently-bound FBO. Matches the
             // sibling CameraRelativeVisualEvidenceTest, which reads post-render.
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kSize, kSize, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kSize, kSize, outPixels);
 
             ASSERT_EQ(outPixels.size(), static_cast<std::size_t>(kSize) * kSize * 4u);
 

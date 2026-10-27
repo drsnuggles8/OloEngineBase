@@ -263,7 +263,7 @@ namespace OloEngine::Tests
         {
             auto fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
             ASSERT_TRUE(fb) << "No SceneColor framebuffer";
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, outPixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, outPixels);
             ASSERT_EQ(outPixels.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
             outSample = SampleSurface(*fb, outPixels,
                                       static_cast<i32>(std::to_underlying(static_cast<entt::entity>(m_TerrainEntity))));

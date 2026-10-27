@@ -340,8 +340,8 @@ namespace OloEngine::Tests
                 if (!framebuffer)
                     continue;
                 const auto& spec = framebuffer->GetSpecification();
-                const u32 textureId = framebuffer->GetColorAttachmentRendererID(0);
-                if (textureId == 0u || spec.Width == 0u || spec.Height == 0u)
+                const RHI::ResourceHandle textureId = framebuffer->GetColorAttachmentHandle(0);
+                if (!textureId.IsValid() || spec.Width == 0u || spec.Height == 0u)
                     continue;
                 std::vector<u8> pixels;
                 ReadbackRgba8(textureId, spec.Width, spec.Height, pixels);

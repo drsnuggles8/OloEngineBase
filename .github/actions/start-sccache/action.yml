@@ -1,0 +1,68 @@
+name: 'Start the sccache server'
+description: >
+  Start sccache's server in one serial call before a parallel build, so no compile
+  has to start it. Place it directly before the build step, after the SCCACHE_DIR
+  restore, in every job whose build uses sccache as its compiler launcher. Call it
+  again with `report: 'true'` in an `if: failure()` step after the build to print
+  the server's error log.
+
+  WHY (three Linux sanitizer builds, 10-18 x2 and 10-26): left to start on demand,
+  the build's first two parallel compiles each find no server and each spawn one.
+  One server binds the port and the other reports AddrInUse; its client then logs
+  "possible parallel server bootstraps" and retries the connection 10 x 500 ms
+  (sccache src/client.rs connect_with_retry). If the winning server is not
+  accepting within those 5 s, the compile dies with
+
+      sccache: error: Connection to server timed out: Os { code: 111,
+      kind: ConnectionRefused, ... }
+
+  exactly 5.0 s after `[  0%] Building ...`, before a single object exists. The
+  double start is not rare: two clang-cl compiles launched together against a
+  stopped sccache 0.17 server on Windows logged the second server's AddrInUse in
+  7 of 7 trials and took 2.2 s each; with the server started first, 0 of 3 and
+  0.39 s. Only the 5 s miss is rare. What held the port without accepting on those
+  runners is not known -- the server's error log was never captured, which is what
+  SCCACHE_ERROR_LOG here is for.
+inputs:
+  report:
+    description: "'true' prints the server's error log instead of starting the server."
+    required: false
+    default: 'false'
+runs:
+  using: 'composite'
+  steps:
+    - name: Start the sccache server
+      if: inputs.report != 'true'
+      shell: bash
+      run: |
+        set -u
+        # A job may already point the log elsewhere (Windows.yml's cache probe).
+        if [ -z "${SCCACHE_ERROR_LOG:-}" ]; then
+          SCCACHE_ERROR_LOG="${RUNNER_TEMP}/sccache-server.log"
+          echo "SCCACHE_ERROR_LOG=${SCCACHE_ERROR_LOG}" >> "$GITHUB_ENV"
+        fi
+        export SCCACHE_ERROR_LOG
+        if sccache --start-server; then
+          sccache --show-stats
+          exit 0
+        fi
+        # --start-server also fails with "Address in use" when a server is already
+        # running (an earlier step's compile started one). That server is fine if it
+        # answers; --show-stats connects to it. If nothing answers, --show-stats fails
+        # too, and so does this step, before the build can.
+        echo "--start-server did not start a server; checking for a running one"
+        if sccache --show-stats; then
+          echo "An sccache server was already running and answers; the build uses it."
+          exit 0
+        fi
+        echo "::error::No sccache server answers. Server error log (${SCCACHE_ERROR_LOG}):"
+        cat "${SCCACHE_ERROR_LOG}" 2>/dev/null || echo "(no log written)"
+        exit 1
+
+    - name: Print the sccache server's error log
+      if: inputs.report == 'true'
+      shell: bash
+      run: |
+        log="${SCCACHE_ERROR_LOG:-${RUNNER_TEMP}/sccache-server.log}"
+        echo "sccache server error log (${log}):"
+        cat "${log}" 2>/dev/null || echo "(no log written)"

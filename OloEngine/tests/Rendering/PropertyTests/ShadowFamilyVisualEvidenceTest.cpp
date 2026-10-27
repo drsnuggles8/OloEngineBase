@@ -4,6 +4,8 @@
 // outside the caster's footprint; turning casting off preserves its geometry.
 #include "OloEnginePCH.h"
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
@@ -129,6 +131,11 @@ namespace OloEngine::Tests
     class ShadowFamilyVisualEvidence : public RendererAttachedTest
     {
       protected:
+        // Ported to the --olo-rhi=vulkan process (#1556).
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
         u32 m_Width = kWidth;
         u32 m_Height = kHeight;
         f32 m_ReceiverMinX = 3.0f;
@@ -329,25 +336,25 @@ namespace OloEngine::Tests
             }
             // Restrict the oracle to the actual receiver, including deformation
             // controls where a leaf can move across the ray's floor intersection.
-            const u32 ids = Renderer3D::ResolveFrameGraphTexture(ResourceNames::SceneEntityID);
-            EXPECT_NE(ids, 0u);
-            if (ids != 0u)
+            // By RHI handle, so the oracle runs on both backends (#1556).
+            const RHI::ResourceHandle ids = Renderer3D::ResolveFrameGraphTextureHandle(ResourceNames::SceneEntityID);
+            EXPECT_TRUE(ids.IsValid());
+            if (ids.IsValid())
             {
-                GLint idWidth = 0, idHeight = 0;
-                glGetTextureLevelParameteriv(ids, 0, GL_TEXTURE_WIDTH, &idWidth);
-                glGetTextureLevelParameteriv(ids, 0, GL_TEXTURE_HEIGHT, &idHeight);
-                if (idWidth > 0 && idHeight > 0)
+                u32 idWidth = 0;
+                u32 idHeight = 0;
+                RenderCommand::GetTextureDimensions(ids, 0u, idWidth, idHeight);
+                if (idWidth > 0u && idHeight > 0u)
                 {
-                    frame.IDWidth = static_cast<u32>(idWidth);
-                    frame.IDHeight = static_cast<u32>(idHeight);
+                    frame.IDWidth = idWidth;
+                    frame.IDHeight = idHeight;
                     const auto receiver = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
                     EXPECT_TRUE(receiver);
                     frame.ActiveIDWidth = receiver ? std::min(frame.IDWidth, receiver->GetSpecification().Width) : frame.IDWidth;
                     frame.ActiveIDHeight = receiver ? std::min(frame.IDHeight, receiver->GetSpecification().Height) : frame.IDHeight;
                     frame.EntityIDs.SetNum(static_cast<sizet>(frame.IDWidth) * frame.IDHeight);
-                    glGetTextureImage(ids, 0, GL_RED_INTEGER, GL_INT,
-                                      static_cast<GLsizei>(frame.EntityIDs.Num() * sizeof(i32)), frame.EntityIDs.GetData());
-                    EXPECT_EQ(glGetError(), GL_NO_ERROR);
+                    ReadbackR32Int(ids, frame.IDWidth, frame.IDHeight,
+                                   std::span<i32>(frame.EntityIDs.GetData(), static_cast<sizet>(frame.EntityIDs.Num())));
                 }
             }
             return frame;
@@ -537,7 +544,7 @@ namespace OloEngine::Tests
                             const u32 modes = fullMatrix ? 3u : 2u;
                             for (u32 mode = 0; mode < modes; ++mode)
                             {
-                                const std::string cell = std::string(FamilyName(family)) + (m_ImpostorEvidence ? "Impostor_GL_" : "_GL_") + PathName(path) +
+                                const std::string cell = std::string(FamilyName(family)) + (m_ImpostorEvidence ? "Impostor_" : "_") + TestRenderBackend::EvidenceBackendPrefix() + PathName(path) +
                                                          "_" + presentation.Name + "_Angle" + std::to_string(angle) +
                                                          "_" + kLightNames[light] + "_" + kModeNames[fullMatrix ? mode : mode * 2];
                                 SCOPED_TRACE(cell);
@@ -596,7 +603,7 @@ namespace OloEngine::Tests
                         camera.SetViewportSize(kWidth, kHeight);
                         camera.SetPose(angle == 0 ? glm::vec3(4, 14, 26) : glm::vec3(-14, 14, 20),
                                        angle == 0 ? 0.0f : 0.7f, 0.45f);
-                        const std::string cell = std::string(FamilyName(family)) + (m_ImpostorEvidence ? "Impostor_GL_" : "_GL_") + PathName(path) +
+                        const std::string cell = std::string(FamilyName(family)) + (m_ImpostorEvidence ? "Impostor_" : "_") + TestRenderBackend::EvidenceBackendPrefix() + PathName(path) +
                                                  "_" + kLightNames[light] + "_Angle" + std::to_string(angle);
                         SCOPED_TRACE(cell);
                         std::array<ShadowMoment, 3> moments;
@@ -792,8 +799,11 @@ namespace OloEngine::Tests
             Renderer3D::GetRendererSettings().Path = path;
             Renderer3D::ApplyRendererSettings();
             snow.Enabled = false;
-            SnowAccumulationSystem::Update(snow, camera.GetPosition(), Timestep(0.0f));
-            const std::string cell = std::string("TerrainSnow_GL_") + PathName(path);
+            // Inside a frame, where production updates it: its compute work has
+            // no recording to land in outside one on Vulkan (#1556).
+            RunInFrame([&]()
+                       { SnowAccumulationSystem::Update(snow, camera.GetPosition(), Timestep(0.0f)); });
+            const std::string cell = (TestRenderBackend::EvidenceName("TerrainSnow")) + PathName(path);
             const auto dry = Capture(camera, cell + "_dry");
             EvidenceFrame dryVirtualLit;
             const auto measureModes = [&](const std::string& phase)
@@ -825,7 +835,8 @@ namespace OloEngine::Tests
             snow.MeltRate = snow.RestorationRate = 0.0f;
             snow.DisplacementScale = 2.0f;
             SnowAccumulationSystem::Reset();
-            SnowAccumulationSystem::Update(snow, camera.GetPosition(), Timestep(2.0f));
+            RunInFrame([&]()
+                       { SnowAccumulationSystem::Update(snow, camera.GetPosition(), Timestep(2.0f)); });
             const auto displaced = Capture(camera, cell + "_displaced");
             ASSERT_EQ(dry.EntityIDs.Num(), displaced.EntityIDs.Num());
             const i32 casterID = static_cast<i32>(static_cast<u32>(m_Caster));
@@ -893,7 +904,7 @@ namespace OloEngine::Tests
             settings.Enabled = true;
             settings.VSM.Enabled = mode != 0;
             Renderer3D::GetShadowMap().SetSettings(settings);
-            const std::string cell = std::string("FoliageFrozen_GL_Deferred_") + (mode ? "VSM" : "CSM");
+            const std::string cell = (TestRenderBackend::EvidenceName("FoliageFrozen") + "Deferred_") + (mode ? "VSM" : "CSM");
             Cast(false);
             const auto lit = Capture(observer, cell + "_lit");
             Cast(true);
@@ -924,7 +935,7 @@ namespace OloEngine::Tests
             settings.Enabled = true;
             settings.VSM.Enabled = mode != 0;
             Renderer3D::GetShadowMap().SetSettings(settings);
-            const std::string cell = std::string("TerrainOffscreen_GL_Deferred_") + (mode ? "VSM" : "CSM");
+            const std::string cell = (TestRenderBackend::EvidenceName("TerrainOffscreen") + "Deferred_") + (mode ? "VSM" : "CSM");
             Cast(false);
             const auto lit = Capture(camera, cell + "_lit");
             Cast(true);
@@ -975,7 +986,7 @@ namespace OloEngine::Tests
             settings.Enabled = true;
             settings.VSM.Enabled = mode != 0;
             Renderer3D::GetShadowMap().SetSettings(settings);
-            const std::string cell = std::string("TerrainReceiver_GL_Forward_") + (mode ? "VSM" : "CSM");
+            const std::string cell = (TestRenderBackend::EvidenceName("TerrainReceiver") + "Forward_") + (mode ? "VSM" : "CSM");
             Cast(false);
             const auto lit = Capture(camera, cell + "_lit");
             Cast(true);

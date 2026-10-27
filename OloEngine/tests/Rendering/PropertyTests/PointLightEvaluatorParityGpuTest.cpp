@@ -236,7 +236,7 @@ namespace OloEngine::Tests
             ::glBindBufferBase(GL_UNIFORM_BUFFER, 25, 0);
             ::glDeleteBuffers(static_cast<GLsizei>(buffers.size()), buffers.data());
         }
-        ReadbackRgbaFloat(output->GetColorAttachmentRendererID(0), columns, 2, pixels);
+        ReadbackRgbaFloat(output->GetColorAttachmentHandle(0), columns, 2, pixels);
         ASSERT_EQ(pixels.size(), static_cast<sizet>(columns) * 2u * 4u);
 
         const auto texel = [&](u32 column, u32 row)

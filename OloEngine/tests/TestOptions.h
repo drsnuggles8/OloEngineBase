@@ -51,6 +51,15 @@ namespace OloEngine::Tests
         None
     };
 
+    // --olo-rhi=<opengl|vulkan> (#1556). One process holds one backend: the
+    // Renderer3D statics do not survive a swap, so the Vulkan scene suite is
+    // a second process of this binary, not a parameter inside the GL one.
+    enum class TestRhi
+    {
+        OpenGL,
+        Vulkan
+    };
+
     struct TestOptions
     {
         // --olo-golden-rebase : overwrite golden images with this run's output.
@@ -124,6 +133,15 @@ namespace OloEngine::Tests
         // together with `--olo-gl-backend=none`, which pins "this run tests no
         // GPU" and which the Vulkan gate honours.
         bool RequireVulkan = false;
+        // --olo-rhi=<opengl|vulkan> : the backend the process-wide renderer
+        // runs on (#1556). `vulkan` selects the RHI before any test runs and
+        // brings RendererAttachedTest up on a windowless VulkanContext
+        // (GraphicsContext::CreateWindowless) instead of a GL 4.6 context; the
+        // GL gate then refuses every GL-only test, naming this flag. Rejected
+        // together with `--olo-require-gpu` (that flag demands the GL context
+        // this process will not make). With `--olo-gl-backend=none` every
+        // scene case skips, the Vulkan gate honouring `none` as it always has.
+        TestRhi Rhi = TestRhi::OpenGL;
         // --olo-vulkan-capability-report[=<path>] : a TOOL RUN (issue #1358).
         // Print (or write to <path>) the Markdown capability report -- every
         // Vulkan device evaluated against the ADR 0010 contract by the same

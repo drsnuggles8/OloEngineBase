@@ -215,8 +215,9 @@ parent: never add the two.
   the fur alone they agree within 0.03 coat-wide in every view; the legs differ both ways (0.14 front
   three-quarter, 0.10 rear, -0.45 low hero). The skin between the strands is lit unshadowed by such
   a light, by design ([groom-coat-body-in-the-volume.md](../agent-rules/groom-coat-body-in-the-volume.md)).
-- **Scene-level Vulkan is checked live.** The headless fixture renders GL, by policy
-  ([testing-architecture.md](../agent-rules/testing-architecture.md) §9–§10); #1556 proposes a
-  windowless Vulkan fixture. The groom passes have pass-level Vulkan tenants.
+- **Scene-level Vulkan runs in the `--olo-rhi=vulkan` process** (#1556,
+  [testing-architecture.md](../agent-rules/testing-architecture.md) rule 13): the same evidence
+  writes `Dog*_Vulkan_*` cells on a windowless Vulkan context. It is not in the lavapipe nightly
+  (hours of runtime), so run it on hardware. The groom passes also have pass-level Vulkan tenants.
 - **The look (F3) is a human call, signed off on 2026-10-04.** No test above settles it; a change to
   what the screen shows needs the look again.

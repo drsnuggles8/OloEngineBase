@@ -220,7 +220,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(fb) << "No composited framebuffer for pose '" << poseName << "'";
 
             std::vector<u8> pixels;
-            ReadbackRgba8(fb->GetColorAttachmentRendererID(0), kWidth, kHeight, pixels);
+            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, pixels);
             ASSERT_EQ(pixels.size(), static_cast<sizet>(kWidth) * kHeight * 4u);
 
             // GL rows come back bottom-up; stbi_write_png treats row 0 as the top.

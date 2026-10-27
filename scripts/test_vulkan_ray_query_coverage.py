@@ -43,12 +43,16 @@ def report(**overrides):
 
 class GateTest(unittest.TestCase):
     def run_gate(self, xml, require=True, listing=LISTING):
+        """`xml` is one report, or a list of them for a suite run split across processes."""
         with tempfile.TemporaryDirectory() as directory:
-            xml_path = Path(directory) / 'report.xml'
             list_path = Path(directory) / 'list.txt'
-            xml_path.write_text(xml, encoding='utf-8')
             list_path.write_text(listing, encoding='utf-8')
-            argv = ['--report', str(xml_path), '--expected-list', str(list_path), '--allow-skip', OPT_IN]
+            argv = []
+            for index, text in enumerate([xml] if isinstance(xml, str) else xml):
+                xml_path = Path(directory) / 'report{}.xml'.format(index)
+                xml_path.write_text(text, encoding='utf-8')
+                argv += ['--report', str(xml_path)]
+            argv += ['--expected-list', str(list_path), '--allow-skip', OPT_IN]
             for suite in SUITES:
                 argv += ['--suite', suite]
             if require:
@@ -93,6 +97,25 @@ class GateTest(unittest.TestCase):
         skipped = {'ReSTIRPTDevice.EveryMappingRunsTemporalSpatialAndResolveOnRealGeometry': SKIPPED}
         status, output = self.run_gate(report(**skipped), require=False)
         self.assertEqual(status, 0, output)
+
+    def test_a_suite_split_across_processes_counts_every_report(self):
+        # The scene suite runs one process for most of the filter and one per groom case (#1556).
+        moved = 'ReSTIRPTDevice.DiffuseAndNearSpecularEnvironmentAgreeWithTheWholeReferenceIntegral'
+        first = report(**{moved: None})
+        second = report(**{name: None for name in (
+            'RayTracingDevice.AStaticTriangleBuildsCompactsAndStaysTraceable', OPT_IN,
+            'ReSTIRPTDevice.EveryMappingRunsTemporalSpatialAndResolveOnRealGeometry')})
+        status, output = self.run_gate([first, second])
+        self.assertEqual(status, 0, output)
+        self.assertIn('Every required case executed.', output)
+
+    def test_a_case_in_no_split_report_still_fails_as_did_not_run(self):
+        moved = 'ReSTIRPTDevice.DiffuseAndNearSpecularEnvironmentAgreeWithTheWholeReferenceIntegral'
+        first = report(**{moved: None})
+        empty = '<?xml version="1.0"?><testsuites></testsuites>'
+        status, output = self.run_gate([first, empty])
+        self.assertEqual(status, 1)
+        self.assertIn('DiffuseAndNearSpecularEnvironmentAgreeWithTheWholeReferenceIntegral did not run', output)
 
     def test_the_listing_ignores_engine_log_lines(self):
         cases = parse_test_list(LISTING, SUITES)
