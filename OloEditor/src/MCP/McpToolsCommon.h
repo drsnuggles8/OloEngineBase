@@ -8,6 +8,7 @@
 // RegisterBuiltinTools (MCP/McpTools.cpp) composes. Editor-internal; not part
 // of the public MCP surface (that is McpTools.h).
 
+#include "MCP/McpSceneControl.h"
 #include "MCP/McpServer.h"
 #include "OloEngine/Core/UUID.h"
 
@@ -18,7 +19,9 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <vector>
 
@@ -330,6 +333,53 @@ namespace OloEngine::MCP
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
         return false;
+    }
+
+    // One poll of a scene load (#1591, McpSceneControl.h AwaitSceneLoad): the
+    // frames since the scene was installed and the coats awaiting their first
+    // build (EditorMcpContext::GetSceneLoadState), read on the main thread with
+    // a SHORT timeout. A read the main thread did not take in time is an
+    // unanswered poll -- a long frame of the load -- not an error; any other
+    // failure (the server stopping, the call cancelled) propagates. Only for a
+    // host with the hook.
+    inline SceneControl::SceneLoadProbe ProbeSceneLoad(IAutomationHost& host,
+                                                       std::chrono::milliseconds pollTimeout = std::chrono::seconds(2))
+    {
+        SceneControl::SceneLoadProbe probe;
+        try
+        {
+            const Json state = host.MarshalRead(
+                [&host]() -> Json
+                {
+                    const McpSceneLoadState load = host.Context().GetSceneLoadState();
+                    return Json{ { "framesSinceOpen", load.FramesSinceOpen }, { "awaiting", load.GroomsAwaitingBuild } };
+                },
+                pollTimeout);
+            probe.Answered = true;
+            probe.FramesSinceOpen = state.value("framesSinceOpen", static_cast<u64>(0));
+            probe.GroomsAwaitingBuild = state.value("awaiting", 0u);
+        }
+        catch (const McpMainThreadTimeout&)
+        {
+            // A long frame: the poll stays unanswered. Anything else propagates.
+        }
+        return probe;
+    }
+
+    // Waits for the scene the caller just opened to finish loading. Only for a
+    // host with EditorMcpContext::GetSceneLoadState.
+    inline SceneControl::SceneLoadOutcome AwaitSceneLoaded(IAutomationHost& host, u32 settleFrames,
+                                                           std::chrono::milliseconds budget)
+    {
+        return SceneControl::AwaitSceneLoad([&host]
+                                            { return ProbeSceneLoad(host); },
+                                            [&host]
+                                            { return host.IsCurrentCallCancelled(); },
+                                            []
+                                            { return std::chrono::steady_clock::now(); },
+                                            [](std::chrono::milliseconds interval)
+                                            { std::this_thread::sleep_for(interval); },
+                                            settleFrames, budget);
     }
 
     // ---- MCP ToolAnnotations builders (spec 2025-06-18) ---------------------

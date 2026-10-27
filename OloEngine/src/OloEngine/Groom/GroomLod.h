@@ -591,6 +591,21 @@ namespace OloEngine
     GroomLodDecision AdvanceGroomLod(const GroomLodPolicy& policy, const GroomLodInputs& inputs,
                                      GroomLodState& state) noexcept;
 
+    /// The state of a coat seen for the first time: already on the tier and the
+    /// steps its first measurement asks for, with nothing held (#1591).
+    ///
+    /// The default state is the FINEST tier and step, and coarsening waits for
+    /// the hold, so a coat that started there was built at full detail for its
+    /// first HoldFrames frames whatever its distance. Every coat of a freshly
+    /// opened scene starts at once: the #1259 acceptance scene built 44 bound
+    /// coats at full density -- 1.9 GiB of frame buffers and 3.5 GiB of their
+    /// host mirrors -- for the frames before the hold let them go. The hold
+    /// exists to stop a coat flickering between two tiers it has drawn; a coat
+    /// that has drawn nothing has nothing to flicker from. Refining stays
+    /// immediate either way, so the seed can only ever start a coat coarser
+    /// than the default did, never finer.
+    [[nodiscard]] GroomLodState SettledGroomLodState(const GroomLodPolicy& policy, const GroomLodInputs& inputs) noexcept;
+
     // -------------------------------------------------------------------------
     // The dithered cross-fade across a hand-over (#1612)
     // -------------------------------------------------------------------------

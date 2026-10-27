@@ -30,6 +30,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <chrono>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -109,6 +110,9 @@ namespace OloEngine::MCP::SceneControl
             .Prop("path", Schema::String().Desc("The scene file to open, ending in .olo or .scene. Relative paths resolve "
                                                 "against the project's asset directory (e.g. \"Scenes/Sandbox.olo\"); an absolute "
                                                 "path is also accepted. Parent-directory traversal ('..') is rejected."))
+            .Prop("wait", Schema::Bool().Desc("Wait for the opened scene to finish loading (default true): its first frames "
+                                              "build what it draws, bound coats a few a frame. false returns once the scene "
+                                              "is installed; poll olo_scene_load_status until 'loaded' before capturing."))
             .Required({ "path" })
             .NoAdditional();
     }
@@ -148,6 +152,135 @@ namespace OloEngine::MCP::SceneControl
             { "renderingPath", result.RenderingPath },
             { "message", result.Message },
         };
+    }
+
+    // ---- Waiting out a scene load (issue #1591) -----------------------------
+    //
+    // OPENING A SCENE IS NOT THE END OF LOADING IT. The open job deserializes
+    // and installs the scene; the frames after it build what the scene draws --
+    // the acceptance scene's 44 bound coats among them, staged a few a frame. A
+    // caller that reads the editor with the 5 s default right after the open
+    // asks the main thread during those frames, and a frame that outlasts the
+    // read reports "Timed out waiting for the editor main thread" for a load
+    // that is still progressing. Every olo_benchmark_capture of the acceptance
+    // scene failed that way.
+    //
+    // So a load is waited for by POLLING: a short read per poll, an unanswered
+    // poll counted as "the editor is busy with a long frame" rather than as a
+    // failure, until `settleFrames` frames have rendered since the editor
+    // installed the scene and the groom pass reports no coat awaiting its first
+    // build -- or the whole budget runs out, which is reported, not thrown.
+    // Counted from the INSTALL, not from a frame the caller read: a poll the
+    // main thread answers before the new scene's first frame sees the last
+    // scene's groom stats, and must not call the new one loaded.
+
+    // One poll. `Answered` false: the main thread did not take the read within
+    // the poll's own timeout, which during a load means a long frame.
+    struct SceneLoadProbe
+    {
+        bool Answered = false;
+        u64 FramesSinceOpen = 0;
+        u32 GroomsAwaitingBuild = 0;
+    };
+
+    [[nodiscard]] inline bool IsSceneLoaded(const SceneLoadProbe& probe, u32 settleFrames) noexcept
+    {
+        return probe.Answered && probe.FramesSinceOpen >= settleFrames && probe.GroomsAwaitingBuild == 0u;
+    }
+
+    struct SceneLoadOutcome
+    {
+        bool Loaded = false;
+        bool Cancelled = false;
+        /// Frames rendered since the scene was installed, at the last answered poll.
+        u64 FramesRendered = 0;
+        /// Coats still awaiting their first build at the last answered poll.
+        u32 GroomsAwaitingBuild = 0;
+        u32 Polls = 0;
+        u32 UnansweredPolls = 0;
+        f64 Seconds = 0.0;
+    };
+
+    // `probe()` -> SceneLoadProbe, `cancelled()` -> bool, `now()` ->
+    // steady_clock::time_point, `sleep(ms)`: injected so the dispatch tests can
+    // drive a load without an editor or a real clock.
+    template<typename ProbeFn, typename CancelledFn, typename NowFn, typename SleepFn>
+    [[nodiscard]] SceneLoadOutcome AwaitSceneLoad(ProbeFn&& probe, CancelledFn&& cancelled, NowFn&& now, SleepFn&& sleep,
+                                                  u32 settleFrames, std::chrono::milliseconds budget,
+                                                  std::chrono::milliseconds pollInterval = std::chrono::milliseconds(50))
+    {
+        SceneLoadOutcome outcome;
+        const auto start = now();
+        const auto deadline = start + budget;
+        for (;;)
+        {
+            if (cancelled())
+            {
+                outcome.Cancelled = true;
+                break;
+            }
+            const SceneLoadProbe state = probe();
+            ++outcome.Polls;
+            if (!state.Answered)
+            {
+                ++outcome.UnansweredPolls;
+            }
+            else
+            {
+                outcome.FramesRendered = state.FramesSinceOpen;
+                outcome.GroomsAwaitingBuild = state.GroomsAwaitingBuild;
+                if (IsSceneLoaded(state, settleFrames))
+                {
+                    outcome.Loaded = true;
+                    break;
+                }
+            }
+            if (now() >= deadline)
+            {
+                break;
+            }
+            sleep(pollInterval);
+        }
+        outcome.Seconds = std::chrono::duration<f64>(now() - start).count();
+        return outcome;
+    }
+
+    // Frames of the new scene a load must have rendered before it is called
+    // loaded, and how long a tool waits for one. Polled, so a slow load costs
+    // only the wait and never a timeout that leaves a queued backlog behind.
+    inline constexpr u32 kSceneLoadSettleFrames = 2;
+    inline constexpr std::chrono::milliseconds kSceneLoadTimeout{ 300000 };
+
+    [[nodiscard]] inline std::string StillLoadingMessage(const SceneLoadOutcome& outcome)
+    {
+        return "The scene opened but was still loading after " + std::to_string(static_cast<int>(outcome.Seconds)) +
+               " s (" + std::to_string(outcome.GroomsAwaitingBuild) + " bound coat(s) awaiting their first build)";
+    }
+
+    [[nodiscard]] inline Json ToJson(const SceneLoadOutcome& outcome)
+    {
+        return Json{
+            { "loaded", outcome.Loaded },
+            { "cancelled", outcome.Cancelled },
+            { "framesRendered", outcome.FramesRendered },
+            { "groomsAwaitingBuild", outcome.GroomsAwaitingBuild },
+            { "polls", outcome.Polls },
+            { "unansweredPolls", outcome.UnansweredPolls },
+            { "seconds", outcome.Seconds },
+        };
+    }
+
+    [[nodiscard]] inline Schema::Node SceneLoadOutputSchema()
+    {
+        return Schema::Object()
+            .Prop("loaded", Schema::Bool().Desc("Frames have rendered since the scene was installed and no bound coat awaits its first build."))
+            .Prop("cancelled", Schema::Bool())
+            .Prop("framesRendered", Schema::Int().Min(0).Desc("Frames rendered since the scene was installed, at the last answered poll."))
+            .Prop("groomsAwaitingBuild", Schema::Int().Min(0).Desc("Bound coats the groom pass has not built yet; they are not drawn until built."))
+            .Prop("polls", Schema::Int().Min(0))
+            .Prop("unansweredPolls", Schema::Int().Min(0).Desc("Polls the main thread did not take in time: frames that outlasted the poll."))
+            .Prop("seconds", Schema::Number().Min(0))
+            .Required({ "loaded", "cancelled", "framesRendered", "groomsAwaitingBuild", "polls", "unansweredPolls", "seconds" });
     }
 
     [[nodiscard]] inline Json ToJson(const McpScenePlayResult& result)

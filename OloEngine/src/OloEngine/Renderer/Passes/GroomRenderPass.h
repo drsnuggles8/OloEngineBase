@@ -264,6 +264,19 @@ namespace OloEngine
         u32 CachedGrooms = 0;
         u32 CacheBuilds = 0;
         u32 CacheEvictions = 0;
+        /// Bound coats with nothing in the strand cache that this frame did NOT
+        /// build, and so did not draw or cast (#1591). An opened scene's coats
+        /// are built a few a frame (GroomRenderPass::kFirstBuildsPerFrame, one
+        /// new rest stream a frame), not all in its first frame. Non-zero only
+        /// while a scene's coats are still arriving; the log says when a wave
+        /// starts and when it has drained.
+        u32 GroomsAwaitingBuild = 0;
+        /// Of GroomsAwaitingBuild, the coats held back by the budget rather
+        /// than by the per-frame allowance: the cache was over its budget while
+        /// it still held entries no coat drew last frame, which this frame's
+        /// eviction frees. Admitting the new coat first is what left the cache
+        /// gigabytes over its budget at load "with every entry in use".
+        u32 GroomsAwaitingBudget = 0;
         /// Rest streams whose pose segments were built this frame: once per
         /// stream, on the first posed bake that asks (#1533).
         u32 PoseSegmentBuilds = 0;
@@ -440,6 +453,54 @@ namespace OloEngine
         }
     };
 
+    // Whether a frame builds a bound coat that has nothing in the strand cache
+    // yet (#1591). Pure, so its rules are pinned on the CPU;
+    // GroomRenderPass::AdmitFirstBuild gathers the inputs and remembers the
+    // answer per coat for the frame.
+    enum class GroomFirstBuildVerdict : u8
+    {
+        Admitted,  ///< built this frame
+        Allowance, ///< this frame's first builds, or its one new rest stream, are spent
+        Budget     ///< the cache is over budget and this frame's eviction can still free room
+    };
+
+    struct GroomFirstBuildInputs
+    {
+        bool Cached = false;          ///< the coat already has an entry: it is not arriving
+        bool NeedsRestStream = false; ///< its shared rest stream does not exist yet
+        u32 FirstBuildsThisFrame = 0;
+        u32 RestStreamBuildsThisFrame = 0;
+        u32 MaxFirstBuilds = 0;
+        u32 MaxRestStreamBuilds = 0;
+        u64 CacheBytes = 0;
+        u64 CacheBudgetBytes = 0;
+        u64 EvictableBytes = 0; ///< what this frame's eviction can still free
+    };
+
+    [[nodiscard]] constexpr GroomFirstBuildVerdict DecideGroomFirstBuild(const GroomFirstBuildInputs& in) noexcept
+    {
+        // A coat already on screen is never held back -- a tier change or a
+        // rebuild would make it vanish for a frame.
+        if (in.Cached)
+        {
+            return GroomFirstBuildVerdict::Admitted;
+        }
+        if (in.FirstBuildsThisFrame >= in.MaxFirstBuilds ||
+            (in.NeedsRestStream && in.RestStreamBuildsThisFrame >= in.MaxRestStreamBuilds))
+        {
+            return GroomFirstBuildVerdict::Allowance;
+        }
+        // ADMISSION SAYS NO, not eviction, while saying no can help: over
+        // budget with room this frame's eviction frees. With none, the scene
+        // needs more than the budget; the coat is built and the budget
+        // warning says the budget does not hold.
+        if (in.CacheBytes > in.CacheBudgetBytes && in.EvictableBytes > 0u)
+        {
+            return GroomFirstBuildVerdict::Budget;
+        }
+        return GroomFirstBuildVerdict::Admitted;
+    }
+
     class GroomRenderPass : public RenderGraphNode
     {
       public:
@@ -555,6 +616,23 @@ namespace OloEngine
         /// deformation state, coat-volume rings and the CPU pose/shadow storage. Defined in
         /// GroomRenderPassMemory.cpp.
         void AppendMemoryCapacityRows(TArray<MemoryCapacityRow>& rows) const;
+
+        /// Advances once per frame that drew grooms. A frame with no groom
+        /// request starts no frame and leaves the stats describing the last one
+        /// that did, so a reader that needs THIS frame's counts (a scene-load
+        /// wait reading GroomsAwaitingBuild) checks that the tick moved (#1591).
+        [[nodiscard]] u64 GetFrameTick() const noexcept
+        {
+            return m_CacheTick;
+        }
+
+        /// Drops every cached coat and every shared rest stream nothing else
+        /// holds, as eviction would (#1591). Entries that streaming admissions
+        /// own stay, as they do under eviction. The cache otherwise keeps a
+        /// closed scene's coats until budget pressure evicts them, so a
+        /// measurement of a cold scene load starts here. The stats are reset
+        /// with it: until a frame draws again they describe the empty cache.
+        void ReleaseCachedGeometry();
 
         /// Upper bound on the strand-buffer cache, in bytes. Exceeding it
         /// evicts least-recently-used entries at the END of a frame, never
@@ -758,6 +836,10 @@ namespace OloEngine
             GroomCasterStream Caster;
             u64 Bytes = 0;
             u64 LastUsedFrame = 0;
+            /// The bound coat an entry belongs to, ArrivalKey(request), or 0
+            /// (#1591): a bound coat with no entry is arriving, and arrivals
+            /// are staged.
+            u64 ArrivalKey = 0;
 
             /// True when the buffers were created for repeated refills, which is
             /// what a bound groom needs: its vertices change every frame with
@@ -974,6 +1056,23 @@ namespace OloEngine
         /// produced — the frame buffer on the GPU path, the whole stream on the
         /// CPU path (left in m_DeformedVertices for the coat bake).
         [[nodiscard]] CacheEntry* AcquireGeometry(const GroomStrandRequest& request);
+        /// AcquireGeometry behind the first-build gate (#1591): null, without
+        /// building anything, for a bound coat AdmitFirstBuild held back.
+        [[nodiscard]] CacheEntry* AcquireStagedGeometry(const GroomStrandRequest& request);
+        /// Which bound coat a request is: its entity AND what it wears.
+        /// Entity ids restart in every opened scene and the cache outlives a
+        /// scene, so an id alone matched a new scene's coat to the last
+        /// scene's entry, and the new coat skipped staging.
+        [[nodiscard]] static u64 ArrivalKey(const GroomStrandRequest& request) noexcept;
+        /// Whether this frame may build a bound coat that has nothing in the
+        /// cache yet. Decided once per entity per frame, so the shadow pass, the
+        /// root-frame dispatch and the draw all agree about the same coat.
+        [[nodiscard]] bool AdmitFirstBuild(const GroomStrandRequest& request);
+        /// The awaiting counts into the stats, and the log line when a wave of
+        /// first builds starts and when it has drained.
+        void ReportStagedBuilds();
+        /// Bytes this frame's eviction can still give back (#1591).
+        [[nodiscard]] u64 EvictableCacheBytes() const noexcept;
         /// The GPU path's half of AcquireGeometry: returns null when the rest
         /// stream cannot be built for this request, so the caller can take the
         /// CPU path instead.
@@ -1089,6 +1188,29 @@ namespace OloEngine
         u64 m_CacheBudgetBytes = 1024ull * 1024ull * 1024ull;
         u64 m_CacheBytes = 0;
         GroomCacheBudgetWarningGate m_CacheBudgetWarning;
+
+        // ── Staged first builds (#1591) ───────────────────────────────────
+        // A scene opens with every bound coat uncached. Built in one frame, the
+        // #1259 acceptance scene's 44 coats took seconds and gigabytes before
+        // any eviction could run; a few a frame, the load is spread across its
+        // first frames and each frame stays short enough for the editor's
+        // main-thread waits.
+      public:
+        static constexpr u32 kFirstBuildsPerFrame = 8;
+        static constexpr u32 kRestStreamBuildsPerFrame = 1;
+
+      private:
+        /// This frame's verdict per arriving coat (ArrivalKey), cleared by
+        /// StartFrame.
+        std::unordered_map<u64, GroomFirstBuildVerdict> m_FirstBuildVerdicts;
+        /// The coats the cache holds an entry for, by ArrivalKey, taken when
+        /// the frame starts.
+        std::unordered_set<u64> m_CachedArrivals;
+        u32 m_FirstBuildsThisFrame = 0;
+        u32 m_RestStreamBuildsThisFrame = 0;
+        bool m_StagingWave = false;
+        u64 m_StagingWaveStartTick = 0;
+        u32 m_StagingWavePeak = 0;
 
         /// The cache's OWN monotonic tick, not GroomFrameState::FrameIndex.
         /// That one is the stochastic sample index and is deliberately wrapped

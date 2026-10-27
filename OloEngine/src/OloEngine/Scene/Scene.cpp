@@ -10575,10 +10575,28 @@ namespace OloEngine
                 }
                 else
                 {
-                    GroomLodState& lodState = m_GroomLodRuntime[groomEntity.GetUUID()];
-                    GroomLodState viewLodState = lodState;
+                    // A coat seen for the first time starts on the tier it
+                    // measures (#1591), not on the default's full detail
+                    // waiting out the hold -- the cross-fade's rule below.
+                    // Kept only by the frame's first view; a later one
+                    // decides from the seed and keeps nothing, as above.
+                    GroomLodState* lodState = nullptr;
+                    GroomLodState viewLodState;
+                    if (const auto lodIt = m_GroomLodRuntime.find(groomEntity.GetUUID()); lodIt != m_GroomLodRuntime.end())
+                    {
+                        lodState = &lodIt->second;
+                        viewLodState = lodIt->second;
+                    }
+                    else
+                    {
+                        viewLodState = SettledGroomLodState(request.LodPolicy, lodInputs);
+                        if (advanceLodState)
+                        {
+                            lodState = &m_GroomLodRuntime.emplace(groomEntity.GetUUID(), viewLodState).first->second;
+                        }
+                    }
                     request.Lod =
-                        AdvanceGroomLod(request.LodPolicy, lodInputs, advanceLodState ? lodState : viewLodState);
+                        AdvanceGroomLod(request.LodPolicy, lodInputs, advanceLodState ? *lodState : viewLodState);
                 }
                 if (advanceLodState)
                 {

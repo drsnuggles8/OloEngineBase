@@ -51,12 +51,19 @@ namespace OloEngine::Automation
         // references to the caller's handler frame or editor resources.
         bool CancelPending(const std::string& message)
         {
+            return CancelPending(std::make_exception_ptr(std::runtime_error(message)));
+        }
+
+        // The same, with the caller's own error: a waiter that must tell one
+        // cancellation from another catches its type, not its text.
+        bool CancelPending(std::exception_ptr error)
+        {
             State expected = State::Pending;
             if (!m_State.compare_exchange_strong(expected, State::Cancelled, std::memory_order_acq_rel))
                 return false;
 
             m_Job = {};
-            m_Promise.set_exception(std::make_exception_ptr(std::runtime_error(message)));
+            m_Promise.set_exception(std::move(error));
             return true;
         }
 

@@ -1992,14 +1992,19 @@ namespace OloEngine::Tests
                 ++s->Coat.GetComponent<GroomSimulationComponent>().m_ResetKey;
             }
             WalkCost cost;
+            bool warming = true;
             for (u32 f = 0; f < frames; ++f)
             {
                 RunFrames(1, 1.0f / 60.0f);
                 const GroomCoatShadowStats& c = PassStats().CoatShadow;
-                // Frame 0 builds every volume for the first time; it is the
-                // warm-up, not the steady-state cost.
-                if (f == 0)
+                // The warm-up builds every volume for the first time, and is
+                // not the steady-state cost. Since #1591 the coats arrive a
+                // few a frame (one new rest stream a frame, and these are
+                // three grooms), so it lasts until none is waiting, the frame
+                // that builds the last one included.
+                if (warming)
                 {
+                    warming = PassStats().GroomsAwaitingBuild > 0u;
                     continue;
                 }
                 ++cost.Frames;

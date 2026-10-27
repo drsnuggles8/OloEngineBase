@@ -2485,6 +2485,28 @@ namespace OloEngine
         }
     }
 
+    void GroomRenderPass::ReleaseCachedGeometry()
+    {
+        for (auto it = m_Cache.begin(); it != m_Cache.end();)
+        {
+            if (it->second.StreamingKey != 0)
+            {
+                ++it; // the representation consumer owns these admissions
+                continue;
+            }
+            ReleaseCoatVolume(it->second, m_CacheBytes);
+            m_CacheBytes -= std::min(m_CacheBytes, it->second.Bytes);
+            it = m_Cache.erase(it);
+        }
+        PruneRestStreams();
+        m_FirstBuildVerdicts.clear();
+        m_CachedArrivals.clear();
+        // The stats described the coats just released; until a frame draws
+        // again they describe an empty cache, not the last scene's frame.
+        m_Stats.Reset();
+        PublishCacheStats();
+    }
+
     void GroomRenderPass::Execute(RGCommandContext& context)
     {
         OLO_PROFILE_FUNCTION();
@@ -2568,9 +2590,12 @@ namespace OloEngine
             for (const auto& request : m_Requests)
             {
                 if (request.Groom && request.GpuRootFrames && request.BindingReject == GroomBindingRejectReason::None &&
-                    IsDeformed(request))
+                    IsDeformed(request) && AdmitFirstBuild(request))
                 {
-                    (void)AcquireGpuDeformedGeometry(request, CacheKey(request, true));
+                    if (CacheEntry* entry = AcquireGpuDeformedGeometry(request, CacheKey(request, true)))
+                    {
+                        entry->ArrivalKey = ArrivalKey(request);
+                    }
                 }
             }
             gpuSubTimers.EndSubPass();
@@ -2867,7 +2892,7 @@ namespace OloEngine
                     std::min(m_Stats.DeclaredStretchTolerance, request.SimulationStretchTolerance);
             }
 
-            CacheEntry* entry = AcquireGeometry(request);
+            CacheEntry* entry = AcquireStagedGeometry(request);
             if (entry == nullptr || !entry->Array)
             {
                 continue;
@@ -3483,6 +3508,7 @@ namespace OloEngine
         FinishStreamingFrame();
         EvictToBudget();
         PublishCacheStats();
+        ReportStagedBuilds();
 
         // Requests are per-frame; holding them would draw last frame's grooms
         // on a frame that published none.
@@ -3514,6 +3540,125 @@ namespace OloEngine
         // for why GroomFrameState::FrameIndex cannot serve.
         ++m_CacheTick;
         m_FrameBegun = true;
+
+        m_FirstBuildVerdicts.clear();
+        m_CachedArrivals.clear();
+        m_FirstBuildsThisFrame = 0;
+        m_RestStreamBuildsThisFrame = 0;
+        for (const auto& [key, entry] : m_Cache)
+        {
+            if (entry.ArrivalKey != 0u)
+            {
+                m_CachedArrivals.insert(entry.ArrivalKey);
+            }
+        }
+    }
+
+    u64 GroomRenderPass::EvictableCacheBytes() const noexcept
+    {
+        // What this frame's EvictToBudget can still free, asked AT ADMISSION:
+        // an entry nothing drew last frame and nothing has drawn yet this one.
+        // Taken when the frame starts instead, an entry a returning coat
+        // re-used mid-frame still counted, and arrivals waited for room that
+        // eviction then could not free. A streaming admission's entry is never
+        // evicted there, so it never counts.
+        u64 bytes = 0;
+        for (const auto& [key, entry] : m_Cache)
+        {
+            if (entry.StreamingKey == 0 && entry.LastUsedFrame + 1u < m_CacheTick)
+            {
+                bytes += entry.Bytes + entry.CoatBytes;
+            }
+        }
+        return bytes;
+    }
+
+    u64 GroomRenderPass::ArrivalKey(const GroomStrandRequest& request) noexcept
+    {
+        u64 key = static_cast<u64>(static_cast<u32>(request.EntityID));
+        key = (key ^ static_cast<u64>(request.Handle)) * 1099511628211ull;
+        key = (key ^ (request.Binding ? static_cast<u64>(request.Binding->GetHandle()) : 0ull)) * 1099511628211ull;
+        return key;
+    }
+
+    bool GroomRenderPass::AdmitFirstBuild(const GroomStrandRequest& request)
+    {
+        // Only a BOUND coat's entry is its own: an unbound groom's is shared by
+        // every entity drawing that asset at that budget, and is built once.
+        if (!IsDeformed(request))
+        {
+            return true;
+        }
+        const u64 arrival = ArrivalKey(request);
+        if (const auto it = m_FirstBuildVerdicts.find(arrival); it != m_FirstBuildVerdicts.end())
+        {
+            return it->second == GroomFirstBuildVerdict::Admitted;
+        }
+        GroomFirstBuildInputs inputs;
+        inputs.Cached = m_CachedArrivals.contains(arrival);
+        inputs.NeedsRestStream = !inputs.Cached && m_GpuDeformation && !m_RestStreams.contains(RestStreamKey(request));
+        inputs.FirstBuildsThisFrame = m_FirstBuildsThisFrame;
+        inputs.RestStreamBuildsThisFrame = m_RestStreamBuildsThisFrame;
+        inputs.MaxFirstBuilds = kFirstBuildsPerFrame;
+        inputs.MaxRestStreamBuilds = kRestStreamBuildsPerFrame;
+        inputs.CacheBytes = m_CacheBytes;
+        inputs.CacheBudgetBytes = m_CacheBudgetBytes;
+        // Walked only when it can matter: over budget, for an arriving coat.
+        inputs.EvictableBytes = !inputs.Cached && m_CacheBytes > m_CacheBudgetBytes ? EvictableCacheBytes() : 0u;
+        const GroomFirstBuildVerdict verdict = DecideGroomFirstBuild(inputs);
+        if (verdict == GroomFirstBuildVerdict::Admitted && !inputs.Cached)
+        {
+            ++m_FirstBuildsThisFrame;
+            m_RestStreamBuildsThisFrame += inputs.NeedsRestStream ? 1u : 0u;
+        }
+        m_FirstBuildVerdicts.emplace(arrival, verdict);
+        return verdict == GroomFirstBuildVerdict::Admitted;
+    }
+
+    GroomRenderPass::CacheEntry* GroomRenderPass::AcquireStagedGeometry(const GroomStrandRequest& request)
+    {
+        if (!AdmitFirstBuild(request))
+        {
+            return nullptr;
+        }
+        CacheEntry* entry = AcquireGeometry(request);
+        if (entry != nullptr && IsDeformed(request))
+        {
+            entry->ArrivalKey = ArrivalKey(request);
+        }
+        return entry;
+    }
+
+    void GroomRenderPass::ReportStagedBuilds()
+    {
+        for (const auto& [entity, verdict] : m_FirstBuildVerdicts)
+        {
+            m_Stats.GroomsAwaitingBuild += verdict != GroomFirstBuildVerdict::Admitted ? 1u : 0u;
+            m_Stats.GroomsAwaitingBudget += verdict == GroomFirstBuildVerdict::Budget ? 1u : 0u;
+        }
+        // Said when a wave of arriving coats starts and when it has drained, not
+        // per frame: the count per frame is in the stats.
+        if (m_Stats.GroomsAwaitingBuild > 0u && !m_StagingWave)
+        {
+            m_StagingWave = true;
+            m_StagingWaveStartTick = m_CacheTick;
+            m_StagingWavePeak = m_Stats.GroomsAwaitingBuild;
+            OLO_CORE_INFO("GroomRenderPass: {} bound coat(s) are waiting for their first build ({} held by the strand "
+                          "cache budget); up to {} are built a frame, one new rest stream a frame, and a coat is not "
+                          "drawn or cast until it is built",
+                          m_Stats.GroomsAwaitingBuild, m_Stats.GroomsAwaitingBudget, kFirstBuildsPerFrame);
+        }
+        else if (m_StagingWave)
+        {
+            m_StagingWavePeak = std::max(m_StagingWavePeak, m_Stats.GroomsAwaitingBuild);
+            if (m_Stats.GroomsAwaitingBuild == 0u)
+            {
+                m_StagingWave = false;
+                OLO_CORE_INFO("GroomRenderPass: every arriving bound coat is built, {} frame(s) after the first one "
+                              "waited (at most {} waited at once)",
+                              m_CacheTick - m_StagingWaveStartTick, m_StagingWavePeak);
+            }
+        }
     }
 
     void GroomRenderPass::ReleaseIdleScratch(bool noDeformedGroom)
@@ -3766,7 +3911,7 @@ namespace OloEngine
             StartFrame();
         }
 
-        CacheEntry* entry = AcquireGeometry(request);
+        CacheEntry* entry = AcquireStagedGeometry(request);
         if (entry == nullptr || !entry->Array || entry->Stats.IndexCount == 0u)
         {
             return false;
