@@ -45,20 +45,17 @@ namespace OloEngine::FoliagePlacement
         FoliageInstanceData m_Row;
     };
 
-    // Deterministic placement hash — returns a float in [0, 1).
+    // The placement hash: an integer avalanche of (cell x, cell z, seed).
+    // Every input bit is mixed through two multiply-xorshift rounds AFTER the
+    // seed is folded in, so seed, seed + 3 and seed + 7 give independent
+    // streams. Every per-cell draw (jitter, scale, height, rotation, the
+    // suitability threshold) comes from here.
     //
-    // LEGACY, and kept bit-for-bit because every foliage scene on disk was
-    // placed with it. It reinterprets a scaled float's bits and finishes with
-    // one multiply-and-shift, with the seed XORed in BEFORE that multiply, so
-    // two draws whose seeds differ by a small constant are near-affine images
-    // of each other. See FoliageLayer::DecorrelatedVariation for the measured
-    // consequence and HashCell below for the replacement.
-    [[nodiscard]] f32 HashPosition(f32 x, f32 z, u32 seed);
-
-    // Integer avalanche hash of (cell x, cell z, seed). Every input bit is
-    // mixed through two multiply-xorshift rounds AFTER the seed is folded in,
-    // which is the part HashPosition does not do — so seed, seed + 3 and
-    // seed + 7 give independent streams.
+    // It replaced a float-bit hash that XORed the seed in BEFORE its single
+    // multiply-and-shift (#1254; the old one was deleted in #1502). That one
+    // put the two jitter draws a near-constant offset apart: over an 80x80
+    // grid their difference took 32 distinct values, so every plant sat on one
+    // of 32 diagonals inside its cell.
     [[nodiscard]] u32 HashCell(u32 cellX, u32 cellZ, u32 seed);
 
     // HashCell as a float in [0, 1). 24 bits of mantissa, taken from the TOP

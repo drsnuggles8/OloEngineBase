@@ -53,7 +53,6 @@ namespace OloEngine::Tests
         layer.WindDebugDisplacement = true;
         layer.UseMoisture = true;
         layer.ClumpStrength = 0.5f;
-        layer.DecorrelatedVariation = true;
         authored.m_Layers.Add(layer);
         const auto loaded = Read(Write(authored));
         ASSERT_EQ(loaded.m_Layers.Num(), 1u);

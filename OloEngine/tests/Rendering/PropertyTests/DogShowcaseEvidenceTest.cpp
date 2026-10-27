@@ -966,7 +966,6 @@ namespace OloEngine::Tests
             grass.MinScale = 0.85f;
             grass.MaxScale = 1.25f;
             grass.RandomRotation = true;
-            grass.DecorrelatedVariation = true;
             grass.UseAuthoredMesh = true;
             grass.MeshViewDistance = 6.0f;
             grass.MeshFadeStartDistance = 4.5f;

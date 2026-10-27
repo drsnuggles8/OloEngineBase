@@ -391,7 +391,6 @@ Entities:
       ClumpGroup: -1
       GroundOffset: 0
       SlopeSinkFactor: 0
-      DecorrelatedVariation: true
       ViewDistance: 30
       FadeStartDistance: 25
       UseAuthoredMesh: true

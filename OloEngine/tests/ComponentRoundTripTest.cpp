@@ -45,6 +45,7 @@
 #include "OloEngine/Renderer/Font.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "TestTempDir.h"
+#include "PropertyTests/ScopedWarningCapture.h"
 
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
@@ -3079,6 +3080,63 @@ namespace OloEngine::Tests
             EXPECT_EQ(restored.GetComponent<WaterComponent>().m_FFTCascades, Ocean::kDefaultOceanCascadeCount)
                 << "a cascade count of " << bogus << " should be rejected to the default, not clamped";
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // FoliageLayer — DecorrelatedVariation was removed (#1502)
+    //
+    // Every layer now draws from the avalanche hash. A scene written before the
+    // removal still carries the key; it must load (the key is ignored), say so
+    // in the log rather than quietly placing the plants somewhere new, and drop
+    // the key on the next save.
+    // -------------------------------------------------------------------------
+    TEST(ComponentRoundTrip, FoliageLayerWithTheRemovedDecorrelatedKeyLoadsWarnsAndDropsIt)
+    {
+        std::string yaml;
+        {
+            auto scene = Scene::Create();
+            Entity entity = scene->CreateEntity(kTestTag);
+            auto& foliage = entity.AddComponent<FoliageComponent>();
+            FoliageLayer layer;
+            layer.Name = "Grass";
+            layer.Density = 0.5f;
+            foliage.m_Layers.Add(layer);
+            yaml = SceneSerializer(scene).SerializeToYAML();
+        }
+        ASSERT_EQ(yaml.find("DecorrelatedVariation"), std::string::npos) << "the removed key is still written";
+
+        // A pre-#1502 scene: the key sits after SlopeSinkFactor, at its indent.
+        const std::regex sinkLine(R"(( *)SlopeSinkFactor: [^\n]*\n)");
+        std::smatch match;
+        ASSERT_TRUE(std::regex_search(yaml, match, sinkLine));
+        const std::string legacyYaml = match.prefix().str() + match.str(0) + match[1].str() +
+                                       "DecorrelatedVariation: false\n" + match.suffix().str();
+
+        auto reloaded = Scene::Create();
+        {
+            const Tests::ScopedWarningCapture warnings;
+            ASSERT_TRUE(SceneSerializer(reloaded).DeserializeFromYAML(legacyYaml));
+            EXPECT_GE(warnings.Count("DecorrelatedVariation"), 1u) << "the removed key was ignored silently";
+        }
+        Entity restored = FindByTag(*reloaded, kTestTag);
+        ASSERT_TRUE(static_cast<bool>(restored));
+        ASSERT_TRUE(restored.HasComponent<FoliageComponent>());
+        EXPECT_EQ(restored.GetComponent<FoliageComponent>().m_Layers.Num(), 1u);
+        EXPECT_EQ(SceneSerializer(reloaded).SerializeToYAML().find("DecorrelatedVariation"), std::string::npos)
+            << "re-saving did not drop the removed key";
+
+        // `true` WAS the decorrelated hash, so that layer places exactly as
+        // before: nothing to warn about, and the key still drops on save.
+        const std::string unchangedYaml = match.prefix().str() + match.str(0) + match[1].str() +
+                                          "DecorrelatedVariation: true\n" + match.suffix().str();
+        auto unchanged = Scene::Create();
+        {
+            const Tests::ScopedWarningCapture warnings;
+            ASSERT_TRUE(SceneSerializer(unchanged).DeserializeFromYAML(unchangedYaml));
+            EXPECT_EQ(warnings.Count("DecorrelatedVariation"), 0u)
+                << "a layer whose placement did not change was reported as moved";
+        }
+        EXPECT_EQ(SceneSerializer(unchanged).SerializeToYAML().find("DecorrelatedVariation"), std::string::npos);
     }
 
     // -------------------------------------------------------------------------

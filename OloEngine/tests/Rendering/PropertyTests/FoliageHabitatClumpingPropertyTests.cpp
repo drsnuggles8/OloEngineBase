@@ -25,12 +25,11 @@
 //                            ClumpFieldIsAPureDeterministicFunction
 //                            SharedClumpGroupPutsTwoSpeciesInTheSamePatches
 //                            ClumpScaleInfluenceGrowsBiggerPlantsInPatchCores
-//   AC2 no repetition     -> LegacyJitterSitsOnThirtyTwoDiagonals
-//                            DecorrelatedVariationRemovesTheJitterLattice
+//   AC2 no repetition     -> PlacementJitterHasNoLattice
 //   AC2 no floating roots -> SlopeSinkLandsTheDownhillEdgeOnTheGround
 //                            FlatGroundIsUnaffectedBySlopeSink
 //   AC3 determinism       -> RegenerationIsBitIdentical
-//   backward compatibility-> ADefaultLayerPlacesExactlyWhereItAlwaysDid
+//   rule-free layer       -> ARuleFreeLayerPlacesExactlyOnTheCellHash
 //                            HabitatRulesOffIsExactlyOne
 //   self-review regressions-> ABandTouchingTheDomainEdgeIsNotFeatheredThere
 //                            AWideSlopeFeatherDoesNotHollowOutTheBandCentre
@@ -197,10 +196,9 @@ namespace
     }
 
     /// How many DISTINCT values the two jitter draws' difference takes over the
-    /// grid. This is the measurement the decorrelation switch exists for: a
-    /// small number means every plant in the layer sits on one of that many
-    /// diagonals inside its cell, which reads at landscape scale as a repeated
-    /// distribution.
+    /// grid. A small number means every plant in the layer sits on one of that
+    /// many diagonals inside its cell, which reads at landscape scale as a
+    /// repeated distribution (the float-bit hash #1502 deleted gave 32).
     ///
     /// Counted by EXACT float equality, deliberately. Bucketing the difference
     /// first looks more robust and is strictly worse: at 1e-4 buckets there are
@@ -209,7 +207,7 @@ namespace
     /// measurement. These are deterministic pure functions of integers, so two
     /// equal outputs are genuinely the same offset and there is no float noise
     /// to absorb.
-    [[nodiscard]] sizet DistinctJitterOffsets(bool decorrelated, u32 cells)
+    [[nodiscard]] sizet DistinctJitterOffsets(u32 cells)
     {
         constexpr u32 kSeed = 31u; // SeedForLayer(0)
         std::set<f32> seen;
@@ -217,11 +215,8 @@ namespace
         {
             for (u32 ix = 0; ix < cells; ++ix)
             {
-                const f32 jx = decorrelated ? FP::HashCellUnit(ix, iz, kSeed)
-                                            : FP::HashPosition(static_cast<f32>(ix), static_cast<f32>(iz), kSeed);
-                const f32 jz = decorrelated
-                                   ? FP::HashCellUnit(ix, iz, kSeed + 7)
-                                   : FP::HashPosition(static_cast<f32>(ix), static_cast<f32>(iz), kSeed + 7);
+                const f32 jx = FP::HashCellUnit(ix, iz, kSeed);
+                const f32 jz = FP::HashCellUnit(ix, iz, kSeed + 7);
                 f32 d = jz - jx;
                 if (d < 0.0f)
                     d += 1.0f;
@@ -232,15 +227,14 @@ namespace
     }
 } // namespace
 
-// ── Backward compatibility: nothing about a pre-#1254 layer moves ───────────
+// ── A rule-free layer: every draw is the cell hash, and nothing is rejected ─
 
-TEST(FoliageHabitatClumping, ADefaultLayerPlacesExactlyWhereItAlwaysDid)
+TEST(FoliageHabitatClumping, ARuleFreeLayerPlacesExactlyOnTheCellHash)
 {
-    // A layer with no habitat rules, no clumping, no ground offset and the
-    // legacy hash must reproduce the pre-#1254 generator EXACTLY — same cells,
-    // same jittered position, same scale, same Y. Every new field defaults to
-    // off precisely so a scene on disk is untouched, and this is the assertion
-    // that says so rather than the comment that claims it.
+    // A layer with no habitat rules, no clumping and no ground offset places
+    // each plant exactly where the cell hash puts it — same cells, same
+    // jittered position, same scale, same Y. This pins the placement formula,
+    // so a change that moves every plant on disk is a visible test change.
     FoliageLayer layer; // all #1254 fields at their defaults
     layer.Density = 0.25f;
 
@@ -253,15 +247,15 @@ TEST(FoliageHabitatClumping, ADefaultLayerPlacesExactlyWhereItAlwaysDid)
 
     for (const auto& p : placements)
     {
-        const f32 jx = FP::HashPosition(static_cast<f32>(p.m_CellX), static_cast<f32>(p.m_CellZ), seed);
-        const f32 jz = FP::HashPosition(static_cast<f32>(p.m_CellX), static_cast<f32>(p.m_CellZ), seed + 7);
+        const f32 jx = FP::HashCellUnit(p.m_CellX, p.m_CellZ, seed);
+        const f32 jz = FP::HashCellUnit(p.m_CellX, p.m_CellZ, seed + 7);
         EXPECT_FLOAT_EQ(p.m_Row.PositionScale.x, (static_cast<f32>(p.m_CellX) + jx) * spacing);
         EXPECT_FLOAT_EQ(p.m_Row.PositionScale.z, (static_cast<f32>(p.m_CellZ) + jz) * spacing);
 
         // Y is the raw sampled height: no offset, no sink.
         EXPECT_FLOAT_EQ(p.m_Row.PositionScale.y, 0.4f * kHeightScale);
 
-        const f32 scaleRand = FP::HashPosition(static_cast<f32>(p.m_CellX), static_cast<f32>(p.m_CellZ), seed + 3);
+        const f32 scaleRand = FP::HashCellUnit(p.m_CellX, p.m_CellZ, seed + 3);
         EXPECT_FLOAT_EQ(p.m_Row.PositionScale.w, glm::mix(layer.MinScale, layer.MaxScale, scaleRand));
     }
 
@@ -273,8 +267,8 @@ TEST(FoliageHabitatClumping, ADefaultLayerPlacesExactlyWhereItAlwaysDid)
     {
         for (u32 ix = 0; ix < countPerAxis; ++ix)
         {
-            const f32 jx = FP::HashPosition(static_cast<f32>(ix), static_cast<f32>(iz), seed);
-            const f32 jz = FP::HashPosition(static_cast<f32>(ix), static_cast<f32>(iz), seed + 7);
+            const f32 jx = FP::HashCellUnit(ix, iz, seed);
+            const f32 jz = FP::HashCellUnit(ix, iz, seed + 7);
             if ((static_cast<f32>(ix) + jx) * spacing < kWorldSize &&
                 (static_cast<f32>(iz) + jz) * spacing < kWorldSize)
                 ++inBounds;
@@ -574,29 +568,17 @@ TEST(FoliageHabitatClumping, ClumpScaleInfluenceGrowsBiggerPlantsInPatchCores)
 
 // ── AC2: no identical repeated distributions ────────────────────────────────
 
-TEST(FoliageHabitatClumping, LegacyJitterSitsOnThirtyTwoDiagonals)
+TEST(FoliageHabitatClumping, PlacementJitterHasNoLattice)
 {
-    // The defect DecorrelatedVariation exists to fix, measured rather than
-    // asserted from the code. HashPosition XORs the seed in BEFORE its single
-    // multiply-and-shift, so two draws whose seeds differ by 7 differ by a
-    // near-constant offset: over an 80x80 grid the difference of the two jitter
-    // draws takes only ~32 distinct values, which puts every plant in the layer
-    // on one of 32 diagonals inside its own cell.
-    //
-    // This test is here so that a future "harmless" change to HashPosition is
-    // recognised as a change to every foliage scene on disk.
-    const sizet legacy = DistinctJitterOffsets(/*decorrelated=*/false, 80);
-    std::printf("[foliage-hash] legacy distinct jitter offsets over 80x80: %zu\n", legacy);
-    EXPECT_EQ(legacy, 32u) << "HashPosition's structure changed — every placement on disk moved with it";
-}
+    // The defect the cell hash fixed (#1254): the float-bit hash it replaced
+    // XORed the seed in BEFORE its single multiply-and-shift, so the two jitter
+    // draws (seeds 7 apart) differed by a near-constant offset and their
+    // difference took 32 distinct values over this grid — every plant on one of
+    // 32 diagonals inside its cell. #1502 deleted that hash; this pins that the
+    // one left has no such structure.
+    const sizet mixed = DistinctJitterOffsets(80);
+    std::printf("[foliage-hash] distinct jitter offsets over 80x80: %zu\n", mixed);
 
-TEST(FoliageHabitatClumping, DecorrelatedVariationRemovesTheJitterLattice)
-{
-    const sizet legacy = DistinctJitterOffsets(/*decorrelated=*/false, 80);
-    const sizet mixed = DistinctJitterOffsets(/*decorrelated=*/true, 80);
-    std::printf("[foliage-hash] decorrelated distinct jitter offsets over 80x80: %zu\n", mixed);
-
-    EXPECT_GT(mixed, legacy * 50u) << "the avalanche hash did not break the diagonal lattice";
     // 6400 draws from the 2^24 values HashCellUnit can return collide only by
     // the birthday paradox: the expected distinct count is 6398.8, so anything
     // below ~6350 is structure in the hash rather than chance.
@@ -604,7 +586,8 @@ TEST(FoliageHabitatClumping, DecorrelatedVariationRemovesTheJitterLattice)
                                "replacement hash has structure of its own";
 
     // HashCell must also avalanche across the SEED, which is the specific thing
-    // HashPosition does not do: adjacent seeds at the same cell are independent.
+    // the deleted float-bit hash did not do: adjacent seeds at the same cell are
+    // independent.
     for (u32 cell = 0; cell < 32; ++cell)
     {
         const u32 a = FP::HashCell(cell, cell, 31u);
@@ -736,7 +719,6 @@ TEST(FoliageHabitatClumping, RegenerationIsBitIdentical)
     layer.ClumpGroup = 2;
     layer.GroundOffset = -0.05f;
     layer.SlopeSinkFactor = 0.8f;
-    layer.DecorrelatedVariation = true;
 
     const auto first = Generate(layer, 3, heights);
     const auto second = Generate(layer, 3, heights);
@@ -867,36 +849,6 @@ TEST(FoliageHabitatClumping, EnablingClumpingKeepsTheIdsOfEveryPlantItLeftStandi
     for (const FoliageInstanceId id : after)
         EXPECT_TRUE(before.contains(id)) << "clumping re-issued an id for a plant that did not move";
     EXPECT_TRUE(registry.GetLastDelta().m_Added.IsEmpty());
-}
-
-TEST(FoliageHabitatClumping, DecorrelatedVariationRetiresEveryIdInThatLayer)
-{
-    // The other side of the same coin, and the reason the flag IS in the
-    // placement signature: it re-draws the jitter, so every plant is somewhere
-    // else. Those are different plants in different places, and keeping their
-    // ids would be exactly the silent lie FoliageInstanceRegistry exists to
-    // prevent.
-    FoliageInstanceRegistry registry;
-    const auto heights = FlatField(0.4f);
-
-    FoliageLayer legacy;
-    legacy.Name = "Grass";
-    legacy.Density = 0.5f;
-
-    Regenerate(registry, { legacy }, heights);
-    const auto before = LiveIds(registry);
-    ASSERT_GT(before.size(), 100u);
-
-    FoliageLayer decorrelated = legacy;
-    decorrelated.DecorrelatedVariation = true;
-    Regenerate(registry, { decorrelated }, heights);
-
-    const auto after = LiveIds(registry);
-    ASSERT_FALSE(after.empty());
-    for (const FoliageInstanceId id : after)
-        EXPECT_FALSE(before.contains(id)) << "a plant that MOVED kept its canonical id";
-    EXPECT_EQ(registry.GetLastDelta().m_Retired.Num(), before.size());
-    EXPECT_EQ(registry.GetLastDelta().m_Survived, 0u);
 }
 
 TEST(FoliageHabitatClumping, GroundSinkIsAnAttributeEditNotAnIdentityChange)

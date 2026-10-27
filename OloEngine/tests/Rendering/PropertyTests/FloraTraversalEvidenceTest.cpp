@@ -364,7 +364,6 @@ namespace OloEngine::Tests
                 l.ClumpScale = 26.0f;
                 l.ClumpGroup = 0;
                 l.SlopeSinkFactor = 0.6f;
-                l.DecorrelatedVariation = true;
                 l.ViewDistance = 190.0f;
                 l.FadeStartDistance = 150.0f;
                 // Criterion 2 is "CLOSE grass, shrubs and trees have convincing
@@ -410,7 +409,6 @@ namespace OloEngine::Tests
                 l.ClumpScale = 14.0f;
                 l.ClumpGroup = 0;
                 l.SlopeSinkFactor = 0.5f;
-                l.DecorrelatedVariation = true;
                 l.ViewDistance = 120.0f;
                 l.FadeStartDistance = 96.0f;
                 l.UseAuthoredMesh = false;
@@ -443,7 +441,6 @@ namespace OloEngine::Tests
                 l.ClumpScale = 34.0f;
                 l.ClumpGroup = 1;
                 l.SlopeSinkFactor = 0.4f;
-                l.DecorrelatedVariation = true;
                 l.ViewDistance = 420.0f;
                 l.FadeStartDistance = 380.0f;
                 l.UseAuthoredMesh = true; // #1233
@@ -495,7 +492,6 @@ namespace OloEngine::Tests
                 l.ClumpScale = 18.0f;
                 l.ClumpGroup = 1; // clumps WITH the pines: understory, not lawn
                 l.SlopeSinkFactor = 0.5f;
-                l.DecorrelatedVariation = true;
                 l.ViewDistance = 150.0f;
                 l.FadeStartDistance = 120.0f;
                 l.UseAuthoredMesh = true;
@@ -533,7 +529,6 @@ namespace OloEngine::Tests
                 l.ClumpScale = 20.0f;
                 l.ClumpGroup = 1;
                 l.SlopeSinkFactor = 0.8f;
-                l.DecorrelatedVariation = true;
                 l.ViewDistance = 90.0f;
                 l.FadeStartDistance = 72.0f;
                 l.UseAuthoredMesh = false;

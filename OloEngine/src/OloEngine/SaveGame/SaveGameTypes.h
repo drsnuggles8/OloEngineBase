@@ -58,7 +58,8 @@ namespace OloEngine
     // changes, once per PR. The history of past layouts is in git.
     // 47: per-coat wetness authoring and state (#1615).
     // 48: NavAgentComponent root-motion locomotion and turn speed (#1559).
-    static constexpr u32 kSaveGameFormatVersion = 48;
+    // 49: FoliageLayer::DecorrelatedVariation removed (#1502).
+    static constexpr u32 kSaveGameFormatVersion = 49;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Compression flags (stored in Header.Flags)

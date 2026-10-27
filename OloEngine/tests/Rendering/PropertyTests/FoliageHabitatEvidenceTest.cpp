@@ -149,7 +149,6 @@ namespace OloEngine::Tests
                 layer.ClumpScaleInfluence = 0.0f;
                 layer.GroundOffset = 0.0f;
                 layer.SlopeSinkFactor = 0.0f;
-                layer.DecorrelatedVariation = false;
             }
             return layers;
         }

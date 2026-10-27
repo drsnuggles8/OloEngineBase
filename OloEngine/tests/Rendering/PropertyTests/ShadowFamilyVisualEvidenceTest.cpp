@@ -225,6 +225,18 @@ namespace OloEngine::Tests
                     layer.MeshFadeStartDistance = 90.0f;
                     if (m_ImpostorEvidence)
                     {
+                        // Four times the plants. An impostor card faces the
+                        // MAIN camera in the shadow pass too (it matches the
+                        // card that is drawn), so at Angle0 every card is
+                        // nearly edge-on to this sun and casts a sliver: 68-80
+                        // receiver pixels from the 8-plant patch, against a
+                        // 30-pixel floor and ~2000 for the same shrubs as
+                        // meshes. Which slivers cross the measured band is a
+                        // property of the scatter, and the #1502 placement hash
+                        // dropped it to 0-21. More plants sum more slivers, so
+                        // the floor tests the cast rather than where 8 shrubs
+                        // happen to stand.
+                        layer.Density = 2.0f;
                         layer.UseImpostor = true;
                         layer.MeshViewDistance = layer.MeshFadeStartDistance = 0.0f;
                         layer.ImpostorStartDistance = 0.0f;

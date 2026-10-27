@@ -615,7 +615,6 @@ namespace OloEngine
         ar << l.ClumpStrength << l.ClumpScale << l.ClumpFalloff << l.ClumpScaleInfluence;
         ar << l.ClumpGroup;
         ar << l.GroundOffset << l.SlopeSinkFactor;
-        ar << l.DecorrelatedVariation;
 
         if (ar.IsLoading())
         {

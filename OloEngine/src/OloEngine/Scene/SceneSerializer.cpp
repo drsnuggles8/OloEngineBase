@@ -1599,8 +1599,18 @@ namespace OloEngine
                     layer.GroundOffset = v;
                 if (const f32 v = layerNode["SlopeSinkFactor"].as<f32>(layer.SlopeSinkFactor); std::isfinite(v))
                     layer.SlopeSinkFactor = std::clamp(v, 0.0f, 4.0f);
-                layer.DecorrelatedVariation =
-                    layerNode["DecorrelatedVariation"].as<bool>(layer.DecorrelatedVariation);
+                // Removed in #1502: every layer now draws from the decorrelated
+                // hash. `true` was that hash already, so such a layer places
+                // exactly as before and the key just drops on the next save.
+                // `false` was the old lattice: that layer's plants moved, and
+                // the scene says which layer it was.
+                if (const auto key = layerNode["DecorrelatedVariation"]; key && !key.as<bool>(true))
+                {
+                    OLO_CORE_WARN("SceneSerializer: foliage layer '{}' was written with DecorrelatedVariation: false, "
+                                  "which was removed (#1502). It now uses the decorrelated placement hash, so its "
+                                  "plants are not where the scene placed them. Re-save the scene to drop the key.",
+                                  layer.Name.ToView());
+                }
 
                 layer.ViewDistance = layerNode["ViewDistance"].as<f32>(layer.ViewDistance);
                 layer.FadeStartDistance = layerNode["FadeStartDistance"].as<f32>(layer.FadeStartDistance);
@@ -6003,7 +6013,6 @@ namespace OloEngine
                     out << YAML::Key << "ClumpGroup" << YAML::Value << layer.ClumpGroup;
                     out << YAML::Key << "GroundOffset" << YAML::Value << layer.GroundOffset;
                     out << YAML::Key << "SlopeSinkFactor" << YAML::Value << layer.SlopeSinkFactor;
-                    out << YAML::Key << "DecorrelatedVariation" << YAML::Value << layer.DecorrelatedVariation;
                     out << YAML::Key << "ViewDistance" << YAML::Value << layer.ViewDistance;
                     out << YAML::Key << "FadeStartDistance" << YAML::Value << layer.FadeStartDistance;
                     out << YAML::Key << "UseAuthoredMesh" << YAML::Value << layer.UseAuthoredMesh;
