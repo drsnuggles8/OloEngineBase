@@ -15117,10 +15117,12 @@ namespace OloEngine
                         sp.m_JonswapGamma = clampF(water.m_FFTJonswapGamma, 1.0f, 10.0f, 3.3f);
                         sp.m_JonswapFetch = clampF(water.m_FFTJonswapFetch, 1.0f, 1.0e6f, 100000.0f);
                         // Band-limited multi-cascade preset (§1.3, issue #969).
-                        // 1 is the shipped default and the pre-#969 field
-                        // exactly; anything else selects the fixed three-band
-                        // preset, which derives its own tiles from m_PatchSize.
-                        sp.m_CascadeCount = (water.m_FFTCascades <= Ocean::kSingleCascadeCount)
+                        // Exactly 1 is the authored single tile; anything else,
+                        // 0 included, selects the fixed three-band preset (the
+                        // default), as the YAML and save-game loaders do with an
+                        // out-of-range count. The preset derives its own tiles
+                        // from m_PatchSize.
+                        sp.m_CascadeCount = (water.m_FFTCascades == Ocean::kSingleCascadeCount)
                                                 ? Ocean::kSingleCascadeCount
                                                 : Ocean::kThreeBandCascadeCount;
 

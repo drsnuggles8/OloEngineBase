@@ -7750,7 +7750,7 @@ namespace OloEngine
                     // surface before the fixed preset is visually proven, and
                     // everything the preset decides is derived from the patch
                     // size above.
-                    static constexpr std::array<const char*, 2> kCascadeLabels = { "Single (legacy)",
+                    static constexpr std::array<const char*, 2> kCascadeLabels = { "Single tile",
                                                                                   "Three-band preset" };
                     if (i32 cascadeIdx = (component.m_FFTCascades > Ocean::kSingleCascadeCount) ? 1 : 0;
                         ImGui::Combo("Cascades", &cascadeIdx, kCascadeLabels.data(),

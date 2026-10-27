@@ -5326,22 +5326,22 @@ namespace OloEngine
         u32 m_FFTSeed = 1337;                          ///< RNG seed for the spectrum (deterministic look)
         bool m_FFTUseGpuCompute = true;                ///< generate the field with the compute butterfly FFT (§1.2); off = CPU reference path
 
-        // Band-limited multi-cascade preset (§1.3, issue #969). ONE is the
-        // shipped default and the pre-#969 field exactly: a single tile at
+        // Band-limited multi-cascade preset (§1.3, issue #969). THREE, the
+        // default since #1502, selects the fixed three-band preset, which
+        // treats m_FFTPatchSize as the MID band and derives a broad and a fine
+        // tile either side of it at non-commensurate ratios, one of them
+        // rotated — long swell for the horizon, close chop for the bow, and no
+        // lattice the eye can lock onto. ONE is a single tile at
         // m_FFTPatchSize carrying the whole spectrum, which is also the tile
-        // size at which the sea visibly repeats. THREE selects the fixed
-        // three-band preset, which treats m_FFTPatchSize as the MID band and
-        // derives a broad and a fine tile either side of it at non-commensurate
-        // ratios, one of them rotated — long swell for the horizon, close chop
-        // for the bow, and no lattice the eye can lock onto. Everything else
+        // size at which the sea visibly repeats; a scene authors it when it
+        // wants that look. Everything else
         // about it (tile ratios, band limits, per-band resolutions, the
         // rotation) is fixed in Renderer/Ocean/OceanCascades.h and deliberately
         // NOT authored per scene: the issue's non-goal is a knob surface before
         // the preset is visually proven.
         //
-        // Opt-in per water surface, so no existing scene changes until someone
-        // sets it. Values other than 1 are treated as the three-band preset.
-        u32 m_FFTCascades = 1;
+        // Values other than 1 and 3 are rejected to the default on load.
+        u32 m_FFTCascades = Ocean::kDefaultOceanCascadeCount;
 
         // Spectrum selection (water-ocean.md §1.4). Phillips is the
         // classic Tessendorf spectrum; JONSWAP gives a sharper fetch-limited peak

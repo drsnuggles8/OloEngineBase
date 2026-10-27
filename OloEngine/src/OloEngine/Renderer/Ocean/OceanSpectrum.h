@@ -50,8 +50,10 @@ namespace OloEngine::Ocean
         u32 m_Seed = 1337u;                         ///< RNG seed for the Gaussian spectrum (deterministic)
 
         /// How many band-limited cascades OceanFFTField builds from these
-        /// params (issue #969). 1 — the default every existing scene keeps — is
-        /// the single-cascade field this struct always described: one tile at
+        /// params (issue #969). 1 is the single-cascade field this struct
+        /// always described, and what a bare SpectrumParams builds; a
+        /// WaterComponent asks for three unless its scene authors one (#1502,
+        /// Ocean::kDefaultOceanCascadeCount). One cascade is one tile at
         /// m_PatchSize, one grid at m_Resolution, the whole spectrum. Anything
         /// else selects the fixed three-band preset, which DERIVES its own tile
         /// sizes, per-band resolutions, band limits and one rotated sampling

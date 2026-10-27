@@ -2573,7 +2573,7 @@ namespace OloEngine
         ar << c.m_FFTCascades;
         if (ar.IsLoading() && c.m_FFTCascades != Ocean::kSingleCascadeCount &&
             c.m_FFTCascades != Ocean::kThreeBandCascadeCount)
-            c.m_FFTCascades = Ocean::kSingleCascadeCount;
+            c.m_FFTCascades = Ocean::kDefaultOceanCascadeCount;
 
         // Planar (mirror) reflections.
         ar << c.m_PlanarReflectionsEnabled;

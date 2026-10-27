@@ -220,6 +220,14 @@ namespace OloEngine::Tests
                 wc.m_FFTAmplitude = 2.0f;
                 wc.m_FFTChoppiness = 1.6f;
                 wc.m_FFTHeightScale = 1.0f;
+                // ONE tile, authored, not the three-band default (#1502). The
+                // amplitude sets a SUMMED RMS height, and a three-band sea at
+                // 24 m/s spends most of it on the broad band's swell, so its
+                // short waves stop folding: no spray at all, and the advected
+                // foam no longer outlasts the instantaneous kind. This fixture
+                // tests what foam, spray and rain do on a folding sea, and the
+                // single 90 m tile is the sea its numbers were tuned on.
+                wc.m_FFTCascades = Ocean::kSingleCascadeCount;
                 // The DEFAULT coverage. Raising it floods the near water with
                 // procedural crest foam, which is not what is under test and
                 // buries the advected field's own contribution in it.
