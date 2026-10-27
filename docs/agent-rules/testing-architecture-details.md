@@ -327,6 +327,13 @@ only the framebuffer-sized corner (every shadow-atlas tile after the first was e
 timing-dependent one in the forked, groom-split shadow region that shades fur strands random
 colours on a loaded GPU and on lavapipe (#1652).
 
+A third is order-dependent: on lavapipe, once a process has rendered Forward, Forward+ and
+Deferred in that order, the next Forward frame on a new scene gets no direct light from the sun
+(#1666). Every groom case passes alone, so the lavapipe job runs `GroomSceneShadowVisualEvidenceTest`
+one case per process and the rest of the filter in one; its gate merges the reports. A suite whose
+cases fail only after other cases in the same process belongs in that isolated list, with the
+issue that says why, not in the filter's exclusions.
+
 **Anchor both halves to an analytic reference, not to each other.** "Vulkan matches GL" cannot be
 asserted inside one process, and passing numbers between two runs is a golden file with none of a
 golden file's tooling. Instead compute the expected answer on the CPU from **GL-convention**
