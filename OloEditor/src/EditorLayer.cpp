@@ -1935,8 +1935,10 @@ namespace OloEngine
         // The bound coats the LAST frame left waiting (#1591), read only if that
         // frame drew grooms: a frame with no groom request leaves the pass's
         // stats describing an older one, and a scene-load wait must not keep
-        // waiting on coats no view asks for any more.
-        if (const GroomRenderPass* groomPass = Renderer3D::GetGroomRenderPass())
+        // waiting on coats no view asks for any more. A frame the throttle did
+        // not render (m_ViewportRenderSkipped, still the last frame's here)
+        // says nothing either way, so the count stands.
+        if (const GroomRenderPass* groomPass = Renderer3D::GetGroomRenderPass(); groomPass != nullptr && !m_ViewportRenderSkipped)
         {
             const u64 tick = groomPass->GetFrameTick();
             m_GroomsAwaitingBuild = tick != m_GroomFrameTick ? groomPass->GetStats().GroomsAwaitingBuild : 0u;
