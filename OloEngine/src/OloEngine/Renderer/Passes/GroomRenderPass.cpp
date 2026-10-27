@@ -45,11 +45,22 @@ namespace OloEngine
 {
     namespace
     {
-        // Everything MarkBodyInDensityVolume reads, hashed: the grid, where the
-        // coat's density lies (it reads only whether a voxel holds any), the
-        // surface's positions and indices, and its transform into the coat.
-        // The key of GroomRenderPass's body bakes (#1559).
-        [[nodiscard]] u64 CoatBodyKey(const GroomCoatShadow::DensityVolume& volume, const GroomDeformationInputs& body)
+        // Everything MarkBodyInDensityVolume reads but the body's transform,
+        // hashed: the grid, the sky cells near the coat (all it reads of the
+        // density, GroomCoatShadow::BodySkyCellsNearCoat), and the surface's
+        // positions and indices. The key of GroomRenderPass's body bakes
+        // (#1559); the transform is matched beside it, within
+        // GroomCoatShadow::kBodyPlacementToleranceVoxels (BodyPlacementVoxels).
+        //
+        // NEITHER THE DENSITY NOR THE TRANSFORM'S BITS (#1646). A herd shares
+        // one body on a handful of grids, under coats a few strands apart and
+        // through a body-to-coat matrix that is the same matrix for every
+        // animal -- but evaluated through each animal's own world transform, so
+        // its bits differ in the last places. Keyed on either, no two foxes
+        // shared a bake, and the acceptance scene re-marked the same body at
+        // 150-250 ms a time, once per fox and per coat LOD step.
+        [[nodiscard]] u64 CoatBodyKey(const GroomCoatShadow::DensityVolume& volume, std::span<const u8> nearCoat,
+                                      const GroomSurfaceView& surface)
         {
             u64 hash = 1469598103934665603ull;
             const auto mix = [&hash](u64 value)
@@ -63,9 +74,9 @@ namespace OloEngine
             }
             u64 bits = 0;
             u32 filled = 0;
-            for (const f32 density : volume.Density)
+            for (const u8 cell : nearCoat)
             {
-                bits = (bits << 1u) | (density > 0.0f ? 1u : 0u);
+                bits = (bits << 1u) | (cell != 0u ? 1u : 0u);
                 if (++filled == 64u)
                 {
                     mix(bits);
@@ -74,7 +85,6 @@ namespace OloEngine
                 }
             }
             mix(bits ^ filled);
-            const GroomSurfaceView& surface = body.Surface;
             mix((static_cast<u64>(surface.VertexCount) << 32u) | surface.IndexCount);
             for (u32 v = 0; v < surface.VertexCount; ++v)
             {
@@ -90,14 +100,26 @@ namespace OloEngine
             {
                 mix(surface.Indices[surface.IndexCount - 1u]);
             }
-            for (glm::length_t column = 0; column < 4; ++column)
-            {
-                for (glm::length_t row = 0; row < 4; ++row)
-                {
-                    mix(std::bit_cast<u32>(body.SurfaceToGroom[column][row]));
-                }
-            }
             return hash;
+        }
+
+        // The surface's box in its own space, for BodyPlacementVoxels; false for
+        // a surface with no vertex.
+        [[nodiscard]] bool SurfaceBounds(const GroomSurfaceView& surface, glm::vec3& outLo, glm::vec3& outHi)
+        {
+            if (surface.VertexCount == 0u)
+            {
+                return false;
+            }
+            outLo = surface.Position(0);
+            outHi = outLo;
+            for (u32 v = 1; v < surface.VertexCount; ++v)
+            {
+                const glm::vec3 p = surface.Position(v);
+                outLo = glm::min(outLo, p);
+                outHi = glm::max(outHi, p);
+            }
+            return true;
         }
 
         // The stochastic hash's seed. Fixed rather than random: two runs of the
@@ -889,6 +911,14 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_PERF_SCOPE_AUTO("Groom::UploadDeformation");
         const auto packStart = std::chrono::steady_clock::now();
+        // GroomPass/RootFrames/{Upload,Dispatch} (#1589). On OpenGL the stage
+        // read 36-75 ms of "GPU" where Vulkan read ~5: the GPU sat between two
+        // timestamps while the driver stalled inside an upload. Split, the
+        // stage says which owns the time. The pack before them is CPU work the
+        // GPU timeline does not see, so it has no bracket; and a coat the
+        // shadow pass acquired first this frame uploads under ShadowPass.
+        auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
+        const bool bracket = m_BracketDeformUpload;
 
         const u32 baseCurveCount = request.Groom->GetCurveCount();
         const GroomStrandSimulation simulation = request.Simulation();
@@ -1055,6 +1085,10 @@ namespace OloEngine
 
         if (entry.DeformGpu)
         {
+            if (bracket)
+            {
+                gpuSubTimers.BeginSubPass("Upload");
+            }
             // The WHOLE buffer after a relayout, because its static regions —
             // the guide weights, and on the GPU layout the surface — are new
             // too; only the per-frame regions after that. Never the displacement
@@ -1119,9 +1153,21 @@ namespace OloEngine
                     entry.DeformWetSent = wetRecord; // inside the dynamic region just sent
                 }
             }
+            if (bracket)
+            {
+                gpuSubTimers.EndSubPass();
+            }
             if (layout.RootsOnGpu())
             {
+                if (bracket)
+                {
+                    gpuSubTimers.BeginSubPass("Dispatch");
+                }
                 DispatchRootFrames(request, entry, usePreviousPose);
+                if (bracket)
+                {
+                    gpuSubTimers.EndSubPass();
+                }
             }
         }
         ++m_Stats.DeformedRebuilds;
@@ -1709,7 +1755,7 @@ namespace OloEngine
 
     bool GroomRenderPass::BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
                                          u32 resolution, bool ring, u32* outOccupiedVoxels,
-                                         const GroomDeformationInputs* body)
+                                         const GroomDeformationInputs* body, f32 radiusExtent)
     {
         if (segments.empty())
         {
@@ -1718,6 +1764,7 @@ namespace OloEngine
 
         GroomCoatShadow::DensityVolumeSettings volumeSettings;
         volumeSettings.Resolution = resolution;
+        volumeSettings.RadiusExtent = radiusExtent;
         GroomCoatShadow::DensityVolume& volume = m_CoatVolumeScratch;
         m_BakeScratchUsedTick = m_CacheTick;
         GroomCoatShadow::DensityVolumeBuildStats volumeStats;
@@ -1740,13 +1787,31 @@ namespace OloEngine
         // fur through the body, as they did before the body was there.
         u32 bodyVoxels = 0;
         const bool haveSurface = body != nullptr && body->Surface.IsUsable();
-        const u64 bodyKey = haveSurface ? CoatBodyKey(volume, *body) : 0u;
-        const auto known = haveSurface ? std::ranges::find(m_CoatBodyBakes, bodyKey, &CoatBodyBake::Key)
-                                       : m_CoatBodyBakes.end();
+        const TArray<u8> nearCoat = haveSurface ? GroomCoatShadow::BodySkyCellsNearCoat(volume) : TArray<u8>{};
+        const u64 bodyKey =
+            haveSurface ? CoatBodyKey(volume, { nearCoat.GetData(), static_cast<sizet>(nearCoat.Num()) }, body->Surface)
+                        : 0u;
+        const glm::vec3 gridVoxel = volume.VoxelSize();
+        const f32 voxelLength = std::min({ gridVoxel.x, gridVoxel.y, gridVoxel.z });
+        glm::vec3 surfaceLo{ 0.0f };
+        glm::vec3 surfaceHi{ 0.0f };
+        const bool bounded = haveSurface && SurfaceBounds(body->Surface, surfaceLo, surfaceHi);
+        const auto known =
+            bounded ? std::ranges::find_if(m_CoatBodyBakes,
+                                           [&](const CoatBodyBake& bake)
+                                           {
+                                               return bake.Key == bodyKey &&
+                                                      GroomCoatShadow::BodyPlacementVoxels(
+                                                          bake.SurfaceToGroom, body->SurfaceToGroom, surfaceLo,
+                                                          surfaceHi, voxelLength) <=
+                                                          GroomCoatShadow::kBodyPlacementToleranceVoxels;
+                                           })
+                    : m_CoatBodyBakes.end();
         if (known != m_CoatBodyBakes.end())
         {
-            // The same body in the same grid around the same coat: the answer
-            // an earlier bake marked, not 150-200 ms of marking again.
+            // The same body in the same grid, the same cells of coat around it
+            // and placed within a hundredth of a voxel: the answer an earlier
+            // bake marked, not 150-250 ms of marking again.
             volume.Body = known->Body;
             bodyVoxels = known->MarkedVoxels;
             known->LastUsedTick = m_CacheTick;
@@ -1755,11 +1820,12 @@ namespace OloEngine
         }
         else if (haveSurface)
         {
+            OLO_PERF_SCOPE_AUTO("Groom::MarkBody");
             const auto bodyStart = std::chrono::steady_clock::now();
             GroomCoatShadow::BodyVoxelStats bodyStats;
             const bool marked = GroomCoatShadow::MarkBodyInDensityVolume(volume, body->Surface, body->SurfaceToGroom,
                                                                          GroomCoatShadow::BodyVoxelSettings{},
-                                                                         &bodyStats);
+                                                                         &bodyStats, &nearCoat);
             const u64 bodyMicroseconds = MicrosecondsSince(bodyStart);
             m_Stats.CoatShadow.BakeBodyMicroseconds += bodyMicroseconds;
             if (marked)
@@ -1774,11 +1840,25 @@ namespace OloEngine
                               static_cast<f64>(bodyStats.RasterMicroseconds) / 1000.0,
                               static_cast<f64>(bodyStats.SkyMicroseconds) / 1000.0, bodyStats.SkyCellsOutside,
                               bodyStats.SkyCells, static_cast<f64>(bodyStats.FillMicroseconds) / 1000.0);
-                if (m_CoatBodyBakes.size() >= kCoatBodyBakesKept)
+                // At least kCoatBodyBakesAlwaysKept, as before (#1559), and past
+                // that as many as fit kCoatBodyBakeBytes (#1646), the oldest out
+                // first: a herd's bodies are small grids that four evicted before
+                // their next use, and a dog's tiers are large ones that a byte
+                // bound alone would evict before the dog came back.
+                const auto bakeBytes = [](const CoatBodyBake& bake)
+                { return static_cast<u64>(bake.Body.size()) * sizeof(glm::u8vec4); };
+                u64 keptBytes = static_cast<u64>(volume.Body.size()) * sizeof(glm::u8vec4);
+                for (const CoatBodyBake& bake : m_CoatBodyBakes)
                 {
-                    m_CoatBodyBakes.erase(std::ranges::min_element(m_CoatBodyBakes, {}, &CoatBodyBake::LastUsedTick));
+                    keptBytes += bakeBytes(bake);
                 }
-                m_CoatBodyBakes.push_back({ bodyKey, volume.Body, bodyVoxels, m_CacheTick });
+                while (m_CoatBodyBakes.size() >= kCoatBodyBakesAlwaysKept && keptBytes > kCoatBodyBakeBytes)
+                {
+                    const auto oldest = std::ranges::min_element(m_CoatBodyBakes, {}, &CoatBodyBake::LastUsedTick);
+                    keptBytes -= bakeBytes(*oldest);
+                    m_CoatBodyBakes.erase(oldest);
+                }
+                m_CoatBodyBakes.push_back({ bodyKey, body->SurfaceToGroom, volume.Body, bodyVoxels, m_CacheTick });
                 m_CoatBodyUsedTick = m_CacheTick;
             }
             else
@@ -2037,6 +2117,9 @@ namespace OloEngine
                                                                std::span<const GroomCoatShadow::CoatSegment> drawnPose,
                                                                bool bakeAtRest)
     {
+        // Named in the CPU scope ring (#1594): a coat volume rebuilt, and a body
+        // marked into it, are main-thread work that lands in one frame.
+        OLO_PERF_SCOPE_AUTO("Groom::CoatVolume");
         GroomCoatShadowInputs inputs;
         inputs.Requested = request.CoatShadow;
         inputs.SegmentCount = entry.Stats.SegmentCount;
@@ -2345,7 +2428,19 @@ namespace OloEngine
             m_Stats.CoatShadow.BakeSegmentMicroseconds += MicrosecondsSince(segmentStart);
 
             u32 occupiedVoxels = 0;
-            if (emitted > 0 && BakeCoatVolume(entry, segments, resolution, deformed, &occupiedVoxels, restBody))
+            // A pose bake's stride subset carries its dropped segments' fibre in
+            // its radii (AcquireDrawnPose, SubsampleCoatSegments: full/kept times
+            // each); only the share of a radius that is thickness pads the grid,
+            // so the subset bakes on the full pose's grid. From the subset as
+            // drawn, before BuildCoatSegmentsFromPose drops a non-finite segment,
+            // and never on a full bake, whose radii are all thickness.
+            const f32 radiusExtent =
+                deformed && entry.CoatPoseStride > 1u && !drawnPose.empty() &&
+                        entry.CoatFullPoseSegments > drawnPose.size()
+                    ? static_cast<f32>(drawnPose.size()) / static_cast<f32>(entry.CoatFullPoseSegments)
+                    : 1.0f;
+            if (emitted > 0 &&
+                BakeCoatVolume(entry, segments, resolution, deformed, &occupiedVoxels, restBody, radiusExtent))
             {
                 entry.CoatLodStep = lodStep;
                 entry.CoatWidthScale = request.WidthScale;
@@ -2587,6 +2682,7 @@ namespace OloEngine
         if (m_GpuDeformation)
         {
             gpuSubTimers.BeginSubPass("RootFrames");
+            m_BracketDeformUpload = true;
             for (const auto& request : m_Requests)
             {
                 if (request.Groom && request.GpuRootFrames && request.BindingReject == GroomBindingRejectReason::None &&
@@ -2598,6 +2694,7 @@ namespace OloEngine
                     }
                 }
             }
+            m_BracketDeformUpload = false;
             gpuSubTimers.EndSubPass();
         }
 
@@ -2918,10 +3015,24 @@ namespace OloEngine
             const bool wantsPose = !bakeAtRest && IsDeformed(request) &&
                                    request.CoatShadow != GroomCoatShadowTechnique::None &&
                                    GroomCoatShadowModeIsImplemented(request.CoatShadow);
+            // GroomPass/CoatVolumes (#1589): the pose and the coat volume's
+            // bake and upload, which had no bracket of their own, so whatever
+            // of them reached the GPU timeline was GroomPass time no sub-pass
+            // owned. Only for a coat that asks for a volume: every bracket takes
+            // one of GPUPassTimerPool's per-frame slots.
+            const bool bracketCoat = request.CoatShadow != GroomCoatShadowTechnique::None;
+            if (bracketCoat)
+            {
+                gpuSubTimers.BeginSubPass("CoatVolumes");
+            }
             const std::span<const GroomCoatShadow::CoatSegment> drawnPose =
                 wantsPose ? AcquireDrawnPose(request, *entry) : std::span<const GroomCoatShadow::CoatSegment>{};
             const GroomCoatShadowDecision coatDecision =
                 AcquireCoatVolume(request, *entry, residentCoatVolumes, drawnPose, bakeAtRest);
+            if (bracketCoat)
+            {
+                gpuSubTimers.EndSubPass();
+            }
             if (perGroom)
             {
                 m_Stats.CoatShadow.Record(coatDecision);

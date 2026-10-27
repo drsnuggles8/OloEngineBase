@@ -60,6 +60,7 @@
 // analysis document, not in an assertion.
 // =============================================================================
 
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Math/Math.h"
 
@@ -149,8 +150,12 @@ namespace OloEngine
         // shadow — the opposite of BuildCoatSegments' promise that a bad curve
         // is dropped rather than allowed to poison the measurement. False now
         // means "nothing usable here at all".
+        //
+        // `radiusExtent` is the share of each radius that is a real thickness:
+        // 1 for strands as drawn, 1/stride for a stride subset whose radii also
+        // carry the fibre of the segments it dropped (SubsampleCoatSegments).
         [[nodiscard]] bool CoatSegmentBounds(std::span<const CoatSegment> segments, glm::vec3& outMin,
-                                             glm::vec3& outMax);
+                                             glm::vec3& outMax, f32 radiusExtent = 1.0f);
 
         // ── A deformed coat (#1426) ─────────────────────────────────────────
         //
@@ -607,6 +612,14 @@ namespace OloEngine
             /// whatever the split: the volume is bit for bit the one-slab bake's
             /// (1), which the tests hold it to.
             u32 BinSlabs = 0;
+            /// The share of each segment's radius that is a real thickness,
+            /// for the bounds only: the deposit reads a radius as fibre area,
+            /// never as a reach. 1/stride for a stride subset (#1445), whose
+            /// radii carry its dropped segments' fibre; padded by the whole
+            /// radius, the subset's grid came out up to seven times the full
+            /// pose's on the acceptance horses, with voxels as much coarser, and
+            /// the larger box read as a closer coat to the shadow LOD (#1646).
+            f32 RadiusExtent = 1.0f;
         };
 
         struct DensityVolumeBuildStats
@@ -788,15 +801,42 @@ namespace OloEngine
             u64 FillMicroseconds = 0;
         };
 
+        /// The sky bake's cells (kBodySkyCellVoxels a side, x fastest) within
+        /// one cell of a voxel that holds density: the only cells whose sky fur
+        /// reads, so the only ones MarkBodyInDensityVolume bakes. It is the
+        /// ONLY thing the marking reads of the coat's density, so two coats on
+        /// one grid with the same cells mark the same body texels (#1646).
+        [[nodiscard]] TArray<u8> BodySkyCellsNearCoat(const DensityVolume& volume);
+
+        /// How far a body marked through one placement may lie from another and
+        /// still serve it, in the volume's voxels (#1646). A herd's body-to-coat
+        /// matrices are one matrix evaluated through each animal's world
+        /// transform, so they differ by float noise: up to 0.0021 of a voxel on
+        /// the acceptance foxes' 128^3 grids. A hundredth is five times that; a
+        /// body served at its edge differs from the one marked exactly by at most
+        /// 8/255 of occupancy and 2/255 of sky on the skin, where master's own
+        /// world-position noise moves it by about 2/255
+        /// (GroomCoatBody.AHerdsPlacementNoiseServesOneBodyAndARealOffsetDoesNot).
+        inline constexpr f32 kBodyPlacementToleranceVoxels = 1.0e-2f;
+
+        /// The farthest any point of a surface with box [lo, hi] lies between its
+        /// placements by `a` and by `b`, in voxels of `voxelLength`. The
+        /// displacement is affine, so its length peaks at a corner of the box.
+        /// Infinite for a non-finite placement or a voxel that is not positive.
+        [[nodiscard]] f32 BodyPlacementVoxels(const glm::mat4& a, const glm::mat4& b, const glm::vec3& lo,
+                                              const glm::vec3& hi, f32 voxelLength) noexcept;
+
         // Marks `surface` -- positions in its own object space, taken to the
         // volume's by `surfaceToVolume` -- into `volume.Body`, occupancy and
         // sky; `volume` must already hold the coat (BuildDensityVolume), whose
         // arrays are never touched. Returns false, with the volume untouched,
         // when the surface has no closed part or no voxel passes the floor; the
-        // caller then says the coat has no body.
+        // caller then says the coat has no body. `nearCoat`, when given, is
+        // BodySkyCellsNearCoat(volume), for a caller that already has it.
         [[nodiscard]] bool MarkBodyInDensityVolume(DensityVolume& volume, const GroomSurfaceView& surface,
                                                    const glm::mat4& surfaceToVolume, const BodyVoxelSettings& settings,
-                                                   BodyVoxelStats* outStats = nullptr);
+                                                   BodyVoxelStats* outStats = nullptr,
+                                                   const TArray<u8>* nearCoat = nullptr);
 
         // ── Deep opacity map ────────────────────────────────────────────────
 

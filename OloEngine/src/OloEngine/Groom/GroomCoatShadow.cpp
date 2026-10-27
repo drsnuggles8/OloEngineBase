@@ -324,7 +324,8 @@ namespace OloEngine::GroomCoatShadow
         return emitted;
     }
 
-    bool CoatSegmentBounds(std::span<const CoatSegment> segments, glm::vec3& outMin, glm::vec3& outMax)
+    bool CoatSegmentBounds(std::span<const CoatSegment> segments, glm::vec3& outMin, glm::vec3& outMax,
+                           f32 radiusExtent)
     {
         if (segments.empty())
         {
@@ -346,7 +347,7 @@ namespace OloEngine::GroomCoatShadow
             {
                 continue;
             }
-            const f32 r = std::max(segment.RadiusA, segment.RadiusB);
+            const f32 r = std::max(segment.RadiusA, segment.RadiusB) * radiusExtent;
             lo = glm::min(lo, glm::min(segment.A, segment.B) - glm::vec3(r));
             hi = glm::max(hi, glm::max(segment.A, segment.B) + glm::vec3(r));
             any = true;
@@ -1130,10 +1131,14 @@ namespace OloEngine::GroomCoatShadow
         {
             return false;
         }
+        if (!std::isfinite(settings.RadiusExtent) || !(settings.RadiusExtent > 0.0f) || settings.RadiusExtent > 1.0f)
+        {
+            return false;
+        }
 
         glm::vec3 lo;
         glm::vec3 hi;
-        if (!CoatSegmentBounds(segments, lo, hi))
+        if (!CoatSegmentBounds(segments, lo, hi, settings.RadiusExtent))
         {
             return false;
         }
@@ -1699,9 +1704,78 @@ namespace OloEngine::GroomCoatShadow
 
     } // namespace
 
+    TArray<u8> BodySkyCellsNearCoat(const DensityVolume& volume)
+    {
+        if (!volume.IsValid())
+        {
+            return {};
+        }
+        constexpr i32 kCell = static_cast<i32>(kBodySkyCellVoxels);
+        const glm::ivec3 dims = volume.Dimensions;
+        const glm::ivec3 cells = (dims + glm::ivec3(kCell - 1)) / kCell;
+        const sizet cellCount = static_cast<sizet>(cells.x) * static_cast<sizet>(cells.y) * static_cast<sizet>(cells.z);
+        TArray<u8> cellsNearCoat;
+        cellsNearCoat.Init(0u, static_cast<i32>(cellCount));
+        u8* const nearCoat = cellsNearCoat.GetData();
+        for (i32 z = 0; z < dims.z; ++z)
+        {
+            for (i32 y = 0; y < dims.y; ++y)
+            {
+                for (i32 x = 0; x < dims.x; ++x)
+                {
+                    if (!(volume.Density[VoxelIndex(dims, x, y, z)] > 0.0f))
+                    {
+                        continue;
+                    }
+                    const glm::ivec3 home(x / kCell, y / kCell, z / kCell);
+                    for (i32 dz = -1; dz <= 1; ++dz)
+                    {
+                        for (i32 dy = -1; dy <= 1; ++dy)
+                        {
+                            for (i32 dx = -1; dx <= 1; ++dx)
+                            {
+                                const glm::ivec3 c = home + glm::ivec3(dx, dy, dz);
+                                if (glm::all(glm::greaterThanEqual(c, glm::ivec3(0))) && glm::all(glm::lessThan(c, cells)))
+                                {
+                                    nearCoat[static_cast<sizet>(c.x) +
+                                             (static_cast<sizet>(cells.x) * (static_cast<sizet>(c.y) + (static_cast<sizet>(cells.y) * static_cast<sizet>(c.z))))] = 1u;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return cellsNearCoat;
+    }
+
+    f32 BodyPlacementVoxels(const glm::mat4& a, const glm::mat4& b, const glm::vec3& lo, const glm::vec3& hi,
+                            f32 voxelLength) noexcept
+    {
+        if (!(voxelLength > 0.0f) || !std::isfinite(voxelLength))
+        {
+            return std::numeric_limits<f32>::infinity();
+        }
+        const glm::mat4 difference = a - b;
+        f32 farthest = 0.0f;
+        for (u32 corner = 0; corner < 8u; ++corner)
+        {
+            const glm::vec4 p((corner & 1u) != 0u ? hi.x : lo.x, (corner & 2u) != 0u ? hi.y : lo.y,
+                              (corner & 4u) != 0u ? hi.z : lo.z, 1.0f);
+            const f32 moved = glm::length(glm::vec3(difference * p));
+            // A NaN never compares greater, so it is caught here, not by max.
+            if (!std::isfinite(moved))
+            {
+                return std::numeric_limits<f32>::infinity();
+            }
+            farthest = std::max(farthest, moved);
+        }
+        return farthest / voxelLength;
+    }
+
     bool MarkBodyInDensityVolume(DensityVolume& volume, const GroomSurfaceView& surface,
                                  const glm::mat4& surfaceToVolume, const BodyVoxelSettings& settings,
-                                 BodyVoxelStats* outStats)
+                                 BodyVoxelStats* outStats, const TArray<u8>* nearCoatCells)
     {
         BodyVoxelStats stats;
         const auto stageStart = std::chrono::steady_clock::now();
@@ -2054,36 +2128,13 @@ namespace OloEngine::GroomCoatShadow
         std::vector<u8> cellOutside(cellCount, 0u);
         // Only the cells within one of the coat: fur is the sky's only reader,
         // and a voxel of fur interpolates between the cells around it.
-        std::vector<u8> nearCoat(cellCount, 0u);
-        for (i32 z = 0; z < dims.z; ++z)
+        TArray<u8> ownNearCoat;
+        if (nearCoatCells == nullptr || static_cast<sizet>(nearCoatCells->Num()) != cellCount)
         {
-            for (i32 y = 0; y < dims.y; ++y)
-            {
-                for (i32 x = 0; x < dims.x; ++x)
-                {
-                    if (!(volume.Density[VoxelIndex(dims, x, y, z)] > 0.0f))
-                    {
-                        continue;
-                    }
-                    const glm::ivec3 home(x / kCell, y / kCell, z / kCell);
-                    for (i32 dz = -1; dz <= 1; ++dz)
-                    {
-                        for (i32 dy = -1; dy <= 1; ++dy)
-                        {
-                            for (i32 dx = -1; dx <= 1; ++dx)
-                            {
-                                const glm::ivec3 c = home + glm::ivec3(dx, dy, dz);
-                                if (glm::all(glm::greaterThanEqual(c, glm::ivec3(0))) && glm::all(glm::lessThan(c, cells)))
-                                {
-                                    nearCoat[static_cast<sizet>(c.x) +
-                                             (static_cast<sizet>(cells.x) * (static_cast<sizet>(c.y) + (static_cast<sizet>(cells.y) * static_cast<sizet>(c.z))))] = 1u;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+            ownNearCoat = BodySkyCellsNearCoat(volume);
+            nearCoatCells = &ownNearCoat;
         }
+        const u8* const nearCoat = nearCoatCells->GetData();
         ParallelFor("GroomBodySky", static_cast<i32>(cellCount), 16,
                     [&](i32 index)
                     {

@@ -1270,7 +1270,7 @@ namespace OloEngine
         // the volume after the coat; see GroomCoatShadow::MarkBodyInDensityVolume.
         bool BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
                             u32 resolution, bool ring, u32* outOccupiedVoxels = nullptr,
-                            const GroomDeformationInputs* body = nullptr);
+                            const GroomDeformationInputs* body = nullptr, f32 radiusExtent = 1.0f);
 
         /// The CPU path's rebuilt stream for the groom being processed, reused
         /// across draws so a bound coat does not allocate it twice. Empty on the
@@ -1293,17 +1293,25 @@ namespace OloEngine
         /// the same grid again on the main thread: 150-200 ms each on the breeds,
         /// the stutter a playing dog's coat showed at its LOD changes. Keyed on
         /// everything the marking reads -- the surface's positions and indices,
-        /// its transform into the coat, the grid and where the coat's density
-        /// lies -- so a hit is the same answer. A few, the oldest out first, and
-        /// all of them given back after kCoatBodyIdleFrames without a bake.
+        /// the grid and the sky cells near the coat -- with its transform into
+        /// the coat matched within a hundredth of a voxel (#1646), so a hit is
+        /// the same answer to within a few u8 steps on the skin. At least
+        /// kCoatBodyBakesAlwaysKept, and past that up to kCoatBodyBakeBytes of
+        /// them, the oldest out first: the acceptance herd's coats sit on 28
+        /// grids (a handful of coat bounds, four LOD steps), about 10 MiB, which
+        /// four evicted before their next use; a dog's tiers are large grids, which
+        /// a byte bound alone evicted before the dog came back. All given back
+        /// after kCoatBodyIdleFrames without a bake.
         struct CoatBodyBake
         {
             u64 Key = 0;
+            glm::mat4 SurfaceToGroom{ 1.0f };
             std::vector<glm::u8vec4> Body;
             u32 MarkedVoxels = 0;
             u64 LastUsedTick = 0;
         };
-        static constexpr sizet kCoatBodyBakesKept = 4;
+        static constexpr sizet kCoatBodyBakesAlwaysKept = 4;
+        static constexpr u64 kCoatBodyBakeBytes = 32ull * 1024ull * 1024ull;
         static constexpr u64 kCoatBodyIdleFrames = 3600;
         std::vector<CoatBodyBake> m_CoatBodyBakes;
         u64 m_CoatBodyUsedTick = 0;
@@ -1329,6 +1337,11 @@ namespace OloEngine
         Ref<StorageBuffer> m_DeformPlaceholder;
         /// Latched so a device that cannot create deformation buffers logs once.
         bool m_ReportedDeformBufferFailure = false;
+        /// True while Execute's RootFrames loop runs, so UploadDeformation opens
+        /// its Upload / Dispatch brackets there (#1589) and not under
+        /// whichever pass acquired the coat first, where they would nest past
+        /// GPUPassTimerPool::kMaxSubPassDepth.
+        bool m_BracketDeformUpload = false;
 
         /// The GPU root evaluation (#1533 E1): its kernel and its params block,
         /// created on first use. A kernel that fails to load is said once and

@@ -16,9 +16,12 @@ Protocol
 * Before each launch the host must be quiet: no competing process (another
   OloEditor / OloEngine-Tests / OloRuntime / OloServer not launched by this
   driver, a build tool, a named game), no GPU process from nvidia-smi that was
-  not there when the campaign started, and GPU utilisation at or below
-  idleGpuUtilMax. The driver waits up to contentionWaitSeconds for that, else
-  records the attempt as skipped. During the run the same probe is sampled
+  not there when the campaign started and is using the GPU (its busiest engine
+  type above newGpuProcessUtilMax, from the Windows GPU Engine counters; an
+  app that only holds a context, like a chat window or a screenshot tool, is
+  not contention, and one whose load cannot be read counts), and GPU
+  utilisation at or below idleGpuUtilMax. The driver waits up to
+  contentionWaitSeconds for that, else records the attempt as skipped. During the run the same probe is sampled
   every 30 s (and once after exit). A run that overlaps contention keeps its
   files on disk but is excluded from the summary, naming the process.
 * Statistics are per run and per scenario (camera); across runs each one is
@@ -54,6 +57,7 @@ Plan (JSON; relative paths are relative to "repo")
       "assetRoot": "OloEditor/SandboxProject/Assets",
       "extraCompetitors": [],
       "ignoreGpuProcesses": [],
+      "newGpuProcessUtilMax": 5,
       "idleGpuUtilMax": 30,
       "testHostArgs": [],
       "contentionWaitSeconds": 600,
@@ -254,6 +258,10 @@ def load_plan(raw: dict, *, default_repo: Path, gate_ms=None, repeats=None, max_
                              'OLO_NO_SHADOWPASS_BRACKETS never publishes')
         normalised_cells.append({'id': cell_id, 'host': cell['host'], 'manifest': str(manifest),
                                  'requirePasses': required, 'env': dict(cell_env)})
+    new_gpu_util_max = raw.get('newGpuProcessUtilMax', 5)
+    if (isinstance(new_gpu_util_max, bool) or not isinstance(new_gpu_util_max, (int, float))
+            or not math.isfinite(new_gpu_util_max) or new_gpu_util_max < 0):
+        raise ValueError(f'newGpuProcessUtilMax must be a finite percentage >= 0, got {new_gpu_util_max!r}')
     plan = {'repo': str(repo), 'buildConfig': 'Release', 'compiler': compiler.strip(), 'gateMs': float(gate),
             'repeats': count, 'maxRetries': retries,
             'timeoutSeconds': float(raw.get('timeoutSeconds', 1800)), 'mcpPort': int(raw.get('mcpPort', 7391)),
@@ -262,6 +270,7 @@ def load_plan(raw: dict, *, default_repo: Path, gate_ms=None, repeats=None, max_
             'assetRoot': str(resolve(raw.get('assetRoot', 'OloEditor/SandboxProject/Assets'))),
             'competitors': COMPETITORS + [str(n) for n in raw.get('extraCompetitors', [])],
             'ignoreGpuProcesses': [str(n) for n in raw.get('ignoreGpuProcesses', [])],
+            'newGpuProcessUtilMax': float(new_gpu_util_max),
             'idleGpuUtilMax': float(raw.get('idleGpuUtilMax', 30)),
             # Extra arguments for the GL test host, e.g. --olo-rss-ceiling-mb=0 for a
             # scene whose resident set legitimately exceeds the harness's guard.
@@ -640,21 +649,38 @@ def descendants(processes: list, root_pid: int) -> set:
     return out
 
 
-def reduce_sample(when: str, processes: list, gpu_apps, gpu_util, *, driver_pid: int, competitors: list,
-                  gpu_baseline: set, ignore: list) -> dict:
-    """One probe, reduced to what counts as contention: competitor processes
-    not descended from this driver, and GPU processes absent from the
-    campaign-start baseline (None when nvidia-smi is unavailable)."""
+def new_gpu_candidates(processes: list, gpu_apps: list, *, driver_pid: int, competitors: list,
+                       gpu_baseline: set, ignore: list) -> list:
+    """GPU processes absent from the campaign-start baseline, not ours, not
+    ignored and not a named competitor (those are reported as processes)."""
     own = descendants(processes, driver_pid)
     names = {c.lower() for c in competitors}
     ignored = {_stem(i) for i in ignore}
+    return [{'pid': a['pid'], 'path': a['path']} for a in gpu_apps
+            if a['pid'] not in own and a['path'].lower() not in gpu_baseline
+            and _stem(a['path']) not in ignored and _stem(a['path']) not in names]
+
+
+def reduce_sample(when: str, processes: list, gpu_apps, gpu_util, *, driver_pid: int, competitors: list,
+                  gpu_baseline: set, ignore: list, gpu_load=None, new_gpu_util_max: float = 5.0) -> dict:
+    """One probe, reduced to what counts as contention: competitor processes
+    not descended from this driver, and GPU processes absent from the
+    campaign-start baseline that use the GPU (None when nvidia-smi is
+    unavailable). gpu_load maps a PID to its busiest engine type's percentage;
+    a candidate at or below new_gpu_util_max only holds a context and is not
+    contention. With no gpu_load, or no reading for a PID, the candidate counts."""
+    own = descendants(processes, driver_pid)
+    names = {c.lower() for c in competitors}
     foreign = [{'pid': p['pid'], 'name': p['name'], 'path': p.get('path') or ''}
                for p in processes if p['pid'] not in own and _stem(p['name']) in names]
     new_gpu = None
     if gpu_apps is not None:
-        new_gpu = [{'pid': a['pid'], 'path': a['path']} for a in gpu_apps
-                   if a['pid'] not in own and a['path'].lower() not in gpu_baseline
-                   and _stem(a['path']) not in ignored and _stem(a['path']) not in names]
+        new_gpu = []
+        for app in new_gpu_candidates(processes, gpu_apps, driver_pid=driver_pid, competitors=competitors,
+                                      gpu_baseline=gpu_baseline, ignore=ignore):
+            load = None if gpu_load is None else gpu_load.get(app['pid'])
+            if load is None or load > new_gpu_util_max:
+                new_gpu.append({**app, 'gpuLoad': load})
     return {'time': when, 'gpuUtilization': gpu_util, 'foreignProcesses': foreign, 'newGpuProcesses': new_gpu}
 
 
@@ -673,13 +699,20 @@ def contention_reasons(samples: list) -> list:
         for kind, label, p in found:
             group = groups.setdefault((kind, label.lower()), {'kind': kind, 'label': label, 'pids': [],
                                                               'path': p.get('path') or 'path unknown',
-                                                              'time': sample['time']})
+                                                              'time': sample['time'], 'peakLoad': None})
             if p['pid'] not in group['pids']:
                 group['pids'].append(p['pid'])
+            load = p.get('gpuLoad')
+            if load is not None and (group['peakLoad'] is None or load > group['peakLoad']):
+                group['peakLoad'] = load
     for group in groups.values():
         count = len(group['pids'])
         instances = '' if count == 1 else f'{count} instances, first '
-        reasons.append(f"{group['kind']} {group['label']} ({instances}pid {group['pids'][0]}, {group['path']}) "
+        if group['peakLoad'] is not None:
+            load = f", up to {group['peakLoad']:.0f}% GPU"
+        else:
+            load = ', GPU load unreadable' if group['kind'] == 'new GPU process' else ''
+        reasons.append(f"{group['kind']} {group['label']} ({instances}pid {group['pids'][0]}, {group['path']}{load}) "
                        f"first seen at {group['time']}")
     return reasons
 
@@ -731,6 +764,51 @@ def list_gpu_apps():
     return apps
 
 
+# The CIM class, not Get-Counter: performance-counter paths are localized
+# ('\GPU Engine(*)\...' fails on a non-English Windows), CIM class and property
+# names are not. Same readings, whole percents.
+GPU_ENGINE_SCRIPT = ("Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine -ErrorAction Stop | "
+                     "ForEach-Object { '{0}|{1}' -f $_.Name,$_.UtilizationPercentage }")
+
+
+def parse_gpu_engine_load(lines) -> dict:
+    """PID -> its busiest engine type's utilisation, summed over that type's
+    engines (what Task Manager shows as a process's GPU). Instance names read
+    pid_<pid>_luid_..._eng_<n>_engtype_<type>."""
+    per_type = {}
+    for line in lines:
+        name, _, value = line.rpartition('|')
+        match = re.match(r'pid_(\d+)_.*_engtype_(.+)$', name.strip(), re.IGNORECASE)
+        if not match:
+            continue
+        try:
+            percent = float(value)
+        except ValueError:
+            continue
+        if not math.isfinite(percent):
+            continue  # a PID left with no finite reading counts as contention
+        key = (int(match.group(1)), match.group(2).lower())
+        per_type[key] = per_type.get(key, 0.0) + percent
+    load = {}
+    for (pid, _), percent in per_type.items():
+        load[pid] = max(load.get(pid, 0.0), percent)
+    return load
+
+
+def gpu_engine_load():
+    """Per-process GPU load from the Windows GPU Engine counters, or None when
+    they cannot be read (then every new GPU process counts as contention)."""
+    try:
+        completed = subprocess.run(['pwsh', '-NoProfile', '-Command', GPU_ENGINE_SCRIPT], capture_output=True,
+                                   text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode:
+        return None
+    load = parse_gpu_engine_load(completed.stdout.splitlines())
+    return load or None
+
+
 def gpu_utilisation(readings: int = 1):
     values = []
     for index in range(readings):
@@ -751,15 +829,23 @@ class LiveProbe:
     def __init__(self, plan: dict):
         self.competitors = plan['competitors']
         self.ignore = plan['ignoreGpuProcesses']
+        self.new_gpu_util_max = plan['newGpuProcessUtilMax']
         apps = list_gpu_apps()
         names = {c.lower() for c in self.competitors}
         self.gpu_baseline = (None if apps is None else
                              sorted({a['path'].lower() for a in apps if _stem(a['path']) not in names}))
 
     def __call__(self, util_readings: int = 1) -> dict:
-        return reduce_sample(now_iso(), list_processes(), list_gpu_apps(), gpu_utilisation(util_readings),
-                             driver_pid=os.getpid(), competitors=self.competitors,
-                             gpu_baseline=set(self.gpu_baseline or []), ignore=self.ignore)
+        processes, apps = list_processes(), list_gpu_apps()
+        baseline = set(self.gpu_baseline or [])
+        # The counters take seconds to read, so only when there is a new GPU process to judge.
+        load = None
+        if apps and new_gpu_candidates(processes, apps, driver_pid=os.getpid(), competitors=self.competitors,
+                                       gpu_baseline=baseline, ignore=self.ignore):
+            load = gpu_engine_load()
+        return reduce_sample(now_iso(), processes, apps, gpu_utilisation(util_readings),
+                             driver_pid=os.getpid(), competitors=self.competitors, gpu_baseline=baseline,
+                             ignore=self.ignore, gpu_load=load, new_gpu_util_max=self.new_gpu_util_max)
 
 
 class Sampler:

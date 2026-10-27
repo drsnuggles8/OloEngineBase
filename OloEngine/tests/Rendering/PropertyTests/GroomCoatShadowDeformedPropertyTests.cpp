@@ -819,6 +819,74 @@ TEST(GroomCoatShadowDeformed, TheSubsetIsTheSameSegmentsEveryFrameAndKeepsTheCoa
     EXPECT_EQ(first.size(), few.size()) << "an over-large stride keeps the coat whole";
 }
 
+TEST(GroomCoatShadowDeformed, ASubsetBakesOnTheFullPosesGrid)
+{
+    // A subset's radii carry the fibre of the segments it dropped, but the
+    // deposit reads a radius as area, never as reach: only the share of it that
+    // is thickness may pad the grid (DensityVolumeSettings::RadiusExtent). On a
+    // card tier, whose radii already stand for a lock of fibre, padding by the
+    // whole carried radius grew the acceptance horses' subset grid up to seven
+    // times the full pose's, and the shadow LOD read the larger box as a closer
+    // coat and refined, rebaked whole, coarsened, every few frames (#1646).
+    Pelt pelt = MakePelt(20000u);
+    ASSERT_TRUE(pelt.Groom);
+    constexpr u32 kResolution = 32u;
+    constexpr u32 kStride = 24u;
+    glm::vec3 lo{ 0.0f };
+    glm::vec3 hi{ 0.0f };
+    ASSERT_TRUE(CoatSegmentBounds(pelt.RestSegments, lo, hi));
+    // Card-wide: half a voxel of radius, the width a card tier's fibre scale reaches.
+    const f32 voxel = std::max({ hi.x - lo.x, hi.y - lo.y, hi.z - lo.z }) / static_cast<f32>(kResolution);
+    for (CoatSegment& segment : pelt.RestSegments)
+    {
+        segment.RadiusA = voxel * 0.5f;
+        segment.RadiusB = voxel * 0.5f;
+    }
+    std::vector<CoatSegment> subset;
+    (void)SubsampleCoatSegments(pelt.RestSegments, kStride, subset);
+    ASSERT_GT(subset.size(), 0u);
+    ASSERT_LT(subset.size(), pelt.RestSegments.size());
+
+    DensityVolumeSettings settings;
+    settings.Resolution = kResolution;
+    DensityVolume full;
+    DensityVolumeBuildStats fullStats;
+    ASSERT_TRUE(BuildDensityVolume(pelt.RestSegments, settings, full, &fullStats));
+
+    DensityVolumeSettings subsetSettings = settings;
+    subsetSettings.RadiusExtent = static_cast<f32>(subset.size()) / static_cast<f32>(pelt.RestSegments.size());
+    DensityVolume thinned;
+    DensityVolumeBuildStats thinnedStats;
+    ASSERT_TRUE(BuildDensityVolume(subset, subsetSettings, thinned, &thinnedStats));
+    const f32 fullVoxel = full.VoxelSize().x;
+    const f32 thinnedVoxel = thinned.VoxelSize().x;
+    std::printf("[groom-coat-deformed] stride %u subset grid: voxel %.5f against the full pose's %.5f\n", kStride,
+                static_cast<f64>(thinnedVoxel), static_cast<f64>(fullVoxel));
+    // Within the full pose's box (a subset reaches no further than its
+    // coat), and no more than a voxel inside it on any side.
+    for (glm::length_t axis = 0; axis < 3; ++axis)
+    {
+        EXPECT_GE(thinned.BoundsMin[axis], full.BoundsMin[axis] - (fullVoxel * 0.01f)) << "axis " << axis;
+        EXPECT_LE(thinned.BoundsMin[axis], full.BoundsMin[axis] + fullVoxel) << "axis " << axis;
+    }
+    EXPECT_NEAR(thinnedVoxel / fullVoxel, 1.0f, 0.05f) << "the subset bakes on a different grid from the coat it stands for";
+    EXPECT_NEAR(thinnedStats.TotalArealMass / fullStats.TotalArealMass, 1.0, 0.05)
+        << "the subset lost fibre area, which is shadow";
+
+    // The negative control: padded by the whole carried radius, the same subset
+    // bakes on a grid the test can tell apart.
+    DensityVolume padded;
+    ASSERT_TRUE(BuildDensityVolume(subset, settings, padded));
+    EXPECT_GT(padded.VoxelSize().x / fullVoxel, 1.3f) << "the control no longer inflates, so this case proves nothing";
+
+    // A radius share outside (0, 1] is refused rather than obeyed.
+    DensityVolume refused;
+    subsetSettings.RadiusExtent = 0.0f;
+    EXPECT_FALSE(BuildDensityVolume(subset, subsetSettings, refused));
+    subsetSettings.RadiusExtent = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(BuildDensityVolume(subset, subsetSettings, refused));
+}
+
 // ── 5. The rest bake (#1533) ─────────────────────────────────────────────────
 //
 // GroomCoatShadowComponent::m_BakeAtRest bakes the coat ONCE, at rest, and

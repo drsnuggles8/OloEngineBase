@@ -341,6 +341,44 @@ class ContentionTest(unittest.TestCase):
         self.assertEqual([p['pid'] for p in sample['newGpuProcesses']], [3001])
         self.assertIsNone(self.reduce(None)['newGpuProcesses'])
 
+    def test_a_new_gpu_process_counts_only_while_it_uses_the_gpu(self):
+        apps = [{'pid': 3001, 'path': 'C:/x/Game.exe'}, {'pid': 3003, 'path': 'C:/c/claude.exe'},
+                {'pid': 3004, 'path': 'C:/v/Player.exe'}]
+
+        def reduce(load):
+            return acceptance.reduce_sample('t', self.processes(), apps, 12.0, driver_pid=self.DRIVER,
+                                            competitors=acceptance.COMPETITORS, gpu_baseline=set(), ignore=[],
+                                            gpu_load=load, new_gpu_util_max=5.0)
+
+        # A context holder at or under the limit is not contention; one over it is, and a PID with no reading counts.
+        sample = reduce({3001: 41.0, 3003: 0.2, 3004: 5.0})
+        self.assertEqual([(p['pid'], p['gpuLoad']) for p in sample['newGpuProcesses']], [(3001, 41.0)])
+        self.assertEqual([p['pid'] for p in reduce({3001: 41.0})['newGpuProcesses']], [3001, 3003, 3004])
+        # Counters unreadable: every candidate counts, as before the load check existed.
+        self.assertEqual([p['pid'] for p in reduce(None)['newGpuProcesses']], [3001, 3003, 3004])
+        def gpu_reasons(samples):
+            return [r for r in acceptance.contention_reasons(samples) if r.startswith('new GPU process')]
+
+        self.assertEqual(gpu_reasons([reduce({3001: 41.0, 3003: 0.2, 3004: 0.0}),
+                                      reduce({3001: 63.0, 3003: 0.2, 3004: 0.0})]),
+                         ['new GPU process Game.exe (pid 3001, C:/x/Game.exe, up to 63% GPU) first seen at t'])
+        self.assertIn('GPU load unreadable', gpu_reasons([reduce(None)])[0])
+
+    def test_gpu_engine_load_is_the_busiest_engine_type_per_process(self):
+        lines = ['pid_7_luid_0x0_0xfdbc_phys_0_eng_0_engtype_3d|20.5',
+                 'pid_7_luid_0x0_0xfdbc_phys_0_eng_1_engtype_3D|10',
+                 'pid_7_luid_0x0_0xfdbc_phys_0_eng_10_engtype_copy|25',
+                 'pid_9_luid_0x0_0xfdbc_phys_0_eng_0_engtype_videodecode|3',
+                 'not an engine|50', 'pid_11_luid_0x0_0xfdbc_phys_0_eng_0_engtype_3d|n/a']
+        self.assertEqual(acceptance.parse_gpu_engine_load(lines), {7: 30.5, 9: 3.0})
+
+    def test_a_non_finite_gpu_engine_reading_is_no_reading(self):
+        lines = ['pid_7_luid_0x0_0xfdbc_phys_0_eng_0_engtype_3d|nan',
+                 'pid_8_luid_0x0_0xfdbc_phys_0_eng_0_engtype_3d|inf',
+                 'pid_9_luid_0x0_0xfdbc_phys_0_eng_0_engtype_3d|nan',
+                 'pid_9_luid_0x0_0xfdbc_phys_0_eng_1_engtype_copy|12']
+        self.assertEqual(acceptance.parse_gpu_engine_load(lines), {9: 12.0})
+
     def test_reasons_name_the_process_and_exclude_the_run(self):
         reasons = acceptance.contention_reasons([self.reduce([]), self.reduce([])])
         self.assertEqual(len(reasons), 2)  # deduplicated across samples
@@ -449,6 +487,13 @@ class PlanRefusalTest(TempCase):
             self.load(cells=[{'id': 'vk', 'host': 'vulkan', 'manifest': 'm.yaml'}])
         with self.assertRaisesRegex(ValueError, 'host'):
             self.load(cells=[{'id': 'x', 'host': 'dx12', 'manifest': 'm.yaml'}])
+
+    def test_new_gpu_process_limit_defaults_and_is_validated(self):
+        self.assertEqual(self.load()['newGpuProcessUtilMax'], 5.0)
+        self.assertEqual(self.load(newGpuProcessUtilMax=0)['newGpuProcessUtilMax'], 0.0)
+        for bad in (float('nan'), float('inf'), -1, True, '5'):
+            with self.assertRaisesRegex(ValueError, 'newGpuProcessUtilMax'):
+                self.load(newGpuProcessUtilMax=bad)
 
     def test_cell_env_is_kept_and_must_map_names_to_strings(self):
         self.assertEqual(self.load()['cells'][0]['env'], {})

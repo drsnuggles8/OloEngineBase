@@ -34,6 +34,7 @@
 
 #include <bit>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <vector>
 
@@ -571,4 +572,163 @@ TEST(GroomCoatBody, TheSurfaceIsTakenToTheVolumeByItsTransform)
     f64 away = 0.0;
     (void)SampleDensityVolume(volume, glm::vec3(0.0f), glm::vec3(-1.0f, 0.0f, 0.0f), true, 1.5f, nullptr, &away);
     EXPECT_FALSE(away > 0.0) << "the ball was not moved: the ray away from it still found it";
+}
+
+// THE MARKING READS THE DENSITY ONLY THROUGH THE SKY CELLS NEAR THE COAT (#1646),
+// which is what lets GroomRenderPass key its body bakes on those cells: a herd of
+// one body under coats a few strands apart, on one grid, marks one body, not one
+// per animal. A coat with different density but the same cells marks the same
+// texels to the bit, the cells handed in mark what the marker finds itself, and
+// a coat whose cells differ is a different key.
+TEST(GroomCoatBody, CoatsWithTheSameSkyCellsMarkTheSameBody)
+{
+    const DensityVolume coat = FurredBallCoat();
+    ASSERT_TRUE(coat.IsValid());
+
+    // A neighbour of the same herd: the same grid, every strand a little
+    // thinner, and every occupied voxel but the first of its sky cell emptied.
+    // Its density differs throughout; the cells within one of fur do not.
+    DensityVolume neighbour = coat;
+    const i32 cell = static_cast<i32>(kBodySkyCellVoxels);
+    const glm::ivec3 cells3 = (coat.Dimensions + glm::ivec3(cell - 1)) / cell;
+    std::vector<u8> cellKept(static_cast<sizet>(cells3.x) * static_cast<sizet>(cells3.y) * static_cast<sizet>(cells3.z), 0u);
+    u32 emptied = 0;
+    for (i32 z = 0; z < neighbour.Dimensions.z; ++z)
+    {
+        for (i32 y = 0; y < neighbour.Dimensions.y; ++y)
+        {
+            for (i32 x = 0; x < neighbour.Dimensions.x; ++x)
+            {
+                f32& density = neighbour.Density[Index(neighbour, x, y, z)];
+                if (!(density > 0.0f))
+                {
+                    continue;
+                }
+                u8& kept = cellKept[static_cast<sizet>(x / cell) +
+                                    (static_cast<sizet>(cells3.x) *
+                                     (static_cast<sizet>(y / cell) + (static_cast<sizet>(cells3.y) * static_cast<sizet>(z / cell))))];
+                if (kept != 0u)
+                {
+                    density = 0.0f;
+                    ++emptied;
+                }
+                else
+                {
+                    density *= 0.75f;
+                    kept = 1u;
+                }
+            }
+        }
+    }
+    ASSERT_GT(emptied, 0u);
+    const TArray<u8> cells = BodySkyCellsNearCoat(coat);
+    ASSERT_FALSE(cells.IsEmpty());
+    ASSERT_TRUE(BodySkyCellsNearCoat(neighbour) == cells) << "the fixture's neighbour changed which cells hold fur";
+
+    const Mesh ball = UvSphere(kBodyRadius, 48, 96);
+    DensityVolume first = coat;
+    DensityVolume second = neighbour;
+    DensityVolume handed = coat;
+    ASSERT_TRUE(MarkBodyInDensityVolume(first, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}));
+    ASSERT_TRUE(MarkBodyInDensityVolume(second, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}));
+    ASSERT_TRUE(MarkBodyInDensityVolume(handed, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}, nullptr, &cells));
+    ASSERT_EQ(first.Body.size(), second.Body.size());
+    EXPECT_EQ(std::memcmp(first.Body.data(), second.Body.data(), first.Body.size() * sizeof(glm::u8vec4)), 0)
+        << "two coats with the same sky cells marked different bodies";
+    EXPECT_TRUE(SameVolume(first, handed)) << "the cells handed in marked a different body from the ones found";
+
+    // A coat that leaves a whole side bare reads different cells, so it can
+    // never be served another coat's bake.
+    DensityVolume half = coat;
+    for (i32 z = 0; z < half.Dimensions.z; ++z)
+    {
+        for (i32 y = 0; y < half.Dimensions.y; ++y)
+        {
+            for (i32 x = 0; x < half.Dimensions.x / 2; ++x)
+            {
+                half.Density[Index(half, x, y, z)] = 0.0f;
+            }
+        }
+    }
+    EXPECT_FALSE(BodySkyCellsNearCoat(half) == cells);
+}
+
+// A HERD'S PLACEMENTS ARE ONE BODY TO THE BAKE CACHE (#1646). Every animal's
+// body-to-coat matrix is the same matrix evaluated through its own world
+// transform, so the bits differ by float noise and a key on them never hit.
+// GroomRenderPass matches the placement within kBodyPlacementToleranceVoxels
+// instead: the noise falls inside it, a real offset outside, and a body served
+// at the tolerance's edge differs from the one marked exactly by a few u8 steps
+// on the skin.
+TEST(GroomCoatBody, AHerdsPlacementNoiseServesOneBodyAndARealOffsetDoesNot)
+{
+    const DensityVolume coat = FurredBallCoat();
+    ASSERT_TRUE(coat.IsValid());
+    const f32 voxel = coat.VoxelSize().x;
+    const Mesh ball = UvSphere(kBodyRadius, 48, 96);
+    glm::vec3 lo = ball.Positions.front();
+    glm::vec3 hi = lo;
+    for (const glm::vec3& p : ball.Positions)
+    {
+        lo = glm::min(lo, p);
+        hi = glm::max(hi, p);
+    }
+
+    // The scene's construction: the coat and its body share an animal, which
+    // stands somewhere in a 500 m world, turned.
+    std::vector<glm::mat4> herd;
+    for (const glm::vec3 at : { glm::vec3(232.858f, 8.056f, 212.276f), glm::vec3(247.437f, 9.963f, 236.988f),
+                                glm::vec3(-34.7f, 1.48f, 195.9f), glm::vec3(118.3f, 4.2f, -241.7f) })
+    {
+        const glm::mat4 animal = glm::rotate(glm::translate(glm::mat4(1.0f), at), 0.37f * at.x, glm::vec3(0.0f, 1.0f, 0.0f));
+        herd.push_back(MakeGroomSurfaceToGroomMatrix(animal, animal));
+    }
+    f32 widest = 0.0f;
+    for (const glm::mat4& a : herd)
+    {
+        for (const glm::mat4& b : herd)
+        {
+            widest = std::max(widest, BodyPlacementVoxels(a, b, lo, hi, voxel));
+        }
+    }
+    std::printf("[coat-body] a herd's placements differ by up to %.6f voxel (tolerance %.3f)\n",
+                static_cast<f64>(widest), static_cast<f64>(kBodyPlacementToleranceVoxels));
+    EXPECT_LE(widest, kBodyPlacementToleranceVoxels) << "float noise in a herd's placements misses the cache";
+
+    // A real offset is a different body: a twentieth of a voxel is five times
+    // the tolerance.
+    const glm::mat4 moved = glm::translate(glm::mat4(1.0f), glm::vec3(voxel * 0.05f, 0.0f, 0.0f)) * herd.front();
+    EXPECT_GT(BodyPlacementVoxels(herd.front(), moved, lo, hi, voxel), kBodyPlacementToleranceVoxels);
+    // And nothing non-finite is near anything.
+    glm::mat4 broken = herd.front();
+    broken[3].x = std::numeric_limits<f32>::quiet_NaN();
+    EXPECT_FALSE(BodyPlacementVoxels(herd.front(), broken, lo, hi, voxel) <= kBodyPlacementToleranceVoxels);
+    EXPECT_FALSE(BodyPlacementVoxels(herd.front(), herd.front(), lo, hi, 0.0f) <= kBodyPlacementToleranceVoxels);
+
+    // Served at the tolerance's edge, a body differs from the one marked
+    // exactly by a few u8 steps on the skin: what the cache trades for a hit.
+    const glm::mat4 edge =
+        glm::translate(glm::mat4(1.0f), glm::vec3(voxel * kBodyPlacementToleranceVoxels * 0.99f, 0.0f, 0.0f));
+    ASSERT_LE(BodyPlacementVoxels(glm::mat4(1.0f), edge, lo, hi, voxel), kBodyPlacementToleranceVoxels);
+    DensityVolume exact = coat;
+    DensityVolume served = coat;
+    ASSERT_TRUE(MarkBodyInDensityVolume(exact, ball.View(), glm::mat4(1.0f), BodyVoxelSettings{}));
+    ASSERT_TRUE(MarkBodyInDensityVolume(served, ball.View(), edge, BodyVoxelSettings{}));
+    ASSERT_EQ(exact.Body.size(), served.Body.size());
+    i32 occupancyStep = 0;
+    i32 skyStep = 0;
+    for (sizet i = 0; i < exact.Body.size(); ++i)
+    {
+        occupancyStep = std::max(occupancyStep, std::abs(static_cast<i32>(exact.Body[i].w) - static_cast<i32>(served.Body[i].w)));
+        for (glm::length_t c = 0; c < 3; ++c)
+        {
+            skyStep = std::max(skyStep, std::abs(static_cast<i32>(exact.Body[i][c]) - static_cast<i32>(served.Body[i][c])));
+        }
+    }
+    std::printf("[coat-body] a body served at the tolerance's edge: occupancy within %d/255, sky within %d/255\n",
+                occupancyStep, skyStep);
+    // Measured 8/255 and 2/255: a hundredth of a voxel moves a quarter-voxel
+    // sub-column's crossing partway, which a texel on the skin shows.
+    EXPECT_LE(occupancyStep, 10) << "a body served at the tolerance's edge is not the body marked exactly";
+    EXPECT_LE(skyStep, 4);
 }

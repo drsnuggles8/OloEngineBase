@@ -94,11 +94,20 @@ across.
 - **A body already marked into the same grid is reused, not marked again.** Marking takes
   150-200 ms on the main thread for the breeds. A playing dog's coat changes tier as it runs off and
   comes back, and each tier rebuilt marked its body again: the stutter behind the "coat volume holds
-  its body" log line (#1559). `GroomRenderPass` keeps the last four markings, keyed on everything
-  the marking reads: the grid, which voxels hold coat, the surface's positions and indices, and its
-  transform into the coat. A hit counts in `CoatShadow.BodyBakesReused`. A tier's first bake still
-  marks: each tier has its own grid, from its own segments' bounds.
-  `DogPlayEvidenceTest.ACoatComingBackCloseDoesNotMarkItsBodyAgain` pins it.
+  its body" log line (#1559). `GroomRenderPass` always keeps the four most recently used
+  markings and evicts the least recently used past them down to a 32 MiB budget, so four large
+  grids can hold more than 32 MiB. The markings are keyed on what the marking reads: the grid, the sky cells near the coat (`BodySkyCellsNearCoat`, the only thing it
+  reads of the density), and the surface's positions and indices. A hit counts in
+  `CoatShadow.BodyBakesReused`. A tier's first bake still marks: each tier has its own grid, from
+  its own segments' bounds. `DogPlayEvidenceTest.ACoatComingBackCloseDoesNotMarkItsBodyAgain` pins it.
+- **Never key a cache on the bits of a matrix derived from world transforms.** The body-to-coat
+  matrix is the same for every fox of a herd but is evaluated through each fox's world transform,
+  so its bits differ by float noise (up to 0.0021 voxel), and a key on them, or on every voxel's
+  density bit, missed for every animal: the acceptance scene marked 350 times a run, up to seven
+  foxes in one frame at a camera cut (#1646, and the 0.65-2.1 s hitches of #1594). The transform
+  is matched beside the key within a hundredth of a voxel, which moves a skin texel by at most
+  8/255. `GroomCoatBody.CoatsWithTheSameSkyCellsMarkTheSameBody` and
+  `AHerdsPlacementNoiseServesOneBodyAndARealOffsetDoesNot` pin both.
 - **A rest bake marks the body at rest: unmorphed.** The morph pass rewrites the bound surface's
   positions in place, so the request carries `CoatRestBody`, the same triangles over the morph's
   `BasePositions`. Marked from the morphed surface, a blinking or panting Bernese was a different body
