@@ -1178,11 +1178,13 @@ namespace OloEngine
         /// everything the marking reads -- the surface's positions and indices,
         /// the grid and the sky cells near the coat -- with its transform into
         /// the coat matched within a hundredth of a voxel (#1646), so a hit is
-        /// the same answer to within a few u8 steps on the skin. Up to kCoatBodyBakeBytes of them, the oldest out
-        /// first: the acceptance herd's coats sit on 28 grids (a handful of coat
-        /// bounds, four LOD steps), about 10 MiB, and the four kept before were
-        /// evicted before their next use. All given back after
-        /// kCoatBodyIdleFrames without a bake.
+        /// the same answer to within a few u8 steps on the skin. At least
+        /// kCoatBodyBakesAlwaysKept, and past that up to kCoatBodyBakeBytes of
+        /// them, the oldest out first: the acceptance herd's coats sit on 28
+        /// grids (a handful of coat bounds, four LOD steps), about 10 MiB, which
+        /// four evicted before their next use; a dog's tiers are large grids, which
+        /// a byte bound alone evicted before the dog came back. All given back
+        /// after kCoatBodyIdleFrames without a bake.
         struct CoatBodyBake
         {
             u64 Key = 0;
@@ -1191,6 +1193,7 @@ namespace OloEngine
             u32 MarkedVoxels = 0;
             u64 LastUsedTick = 0;
         };
+        static constexpr sizet kCoatBodyBakesAlwaysKept = 4;
         static constexpr u64 kCoatBodyBakeBytes = 32ull * 1024ull * 1024ull;
         static constexpr u64 kCoatBodyIdleFrames = 3600;
         std::vector<CoatBodyBake> m_CoatBodyBakes;

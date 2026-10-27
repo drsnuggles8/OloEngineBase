@@ -1890,8 +1890,11 @@ namespace OloEngine
                               static_cast<f64>(bodyStats.RasterMicroseconds) / 1000.0,
                               static_cast<f64>(bodyStats.SkyMicroseconds) / 1000.0, bodyStats.SkyCellsOutside,
                               bodyStats.SkyCells, static_cast<f64>(bodyStats.FillMicroseconds) / 1000.0);
-                // Bounded in BYTES (#1646), the oldest out first: a herd's bodies
-                // are small grids, and a count evicted them before their next use.
+                // At least kCoatBodyBakesAlwaysKept, as before (#1559), and past
+                // that as many as fit kCoatBodyBakeBytes (#1646), the oldest out
+                // first: a herd's bodies are small grids that four evicted before
+                // their next use, and a dog's tiers are large ones that a byte
+                // bound alone would evict before the dog came back.
                 const auto bakeBytes = [](const CoatBodyBake& bake)
                 { return static_cast<u64>(bake.Body.size()) * sizeof(glm::u8vec4); };
                 u64 keptBytes = static_cast<u64>(volume.Body.size()) * sizeof(glm::u8vec4);
@@ -1899,7 +1902,7 @@ namespace OloEngine
                 {
                     keptBytes += bakeBytes(bake);
                 }
-                while (!m_CoatBodyBakes.empty() && keptBytes > kCoatBodyBakeBytes)
+                while (m_CoatBodyBakes.size() >= kCoatBodyBakesAlwaysKept && keptBytes > kCoatBodyBakeBytes)
                 {
                     const auto oldest = std::ranges::min_element(m_CoatBodyBakes, {}, &CoatBodyBake::LastUsedTick);
                     keptBytes -= bakeBytes(*oldest);
