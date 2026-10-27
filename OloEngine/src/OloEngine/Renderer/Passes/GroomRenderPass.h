@@ -453,6 +453,54 @@ namespace OloEngine
         }
     };
 
+    // Whether a frame builds a bound coat that has nothing in the strand cache
+    // yet (#1591). Pure, so its rules are pinned on the CPU;
+    // GroomRenderPass::AdmitFirstBuild gathers the inputs and remembers the
+    // answer per coat for the frame.
+    enum class GroomFirstBuildVerdict : u8
+    {
+        Admitted,  ///< built this frame
+        Allowance, ///< this frame's first builds, or its one new rest stream, are spent
+        Budget     ///< the cache is over budget and this frame's eviction can still free room
+    };
+
+    struct GroomFirstBuildInputs
+    {
+        bool Cached = false;          ///< the coat already has an entry: it is not arriving
+        bool NeedsRestStream = false; ///< its shared rest stream does not exist yet
+        u32 FirstBuildsThisFrame = 0;
+        u32 RestStreamBuildsThisFrame = 0;
+        u32 MaxFirstBuilds = 0;
+        u32 MaxRestStreamBuilds = 0;
+        u64 CacheBytes = 0;
+        u64 CacheBudgetBytes = 0;
+        u64 EvictableBytes = 0; ///< what this frame's eviction can still free
+    };
+
+    [[nodiscard]] constexpr GroomFirstBuildVerdict DecideGroomFirstBuild(const GroomFirstBuildInputs& in) noexcept
+    {
+        // A coat already on screen is never held back -- a tier change or a
+        // rebuild would make it vanish for a frame.
+        if (in.Cached)
+        {
+            return GroomFirstBuildVerdict::Admitted;
+        }
+        if (in.FirstBuildsThisFrame >= in.MaxFirstBuilds ||
+            (in.NeedsRestStream && in.RestStreamBuildsThisFrame >= in.MaxRestStreamBuilds))
+        {
+            return GroomFirstBuildVerdict::Allowance;
+        }
+        // ADMISSION SAYS NO, not eviction, while saying no can help: over
+        // budget with room this frame's eviction frees. With none, the scene
+        // needs more than the budget; the coat is built and the budget
+        // warning says the budget does not hold.
+        if (in.CacheBytes > in.CacheBudgetBytes && in.EvictableBytes > 0u)
+        {
+            return GroomFirstBuildVerdict::Budget;
+        }
+        return GroomFirstBuildVerdict::Admitted;
+    }
+
     class GroomRenderPass : public RenderGraphNode
     {
       public:
@@ -1152,15 +1200,9 @@ namespace OloEngine
         static constexpr u32 kRestStreamBuildsPerFrame = 1;
 
       private:
-        enum class FirstBuildVerdict : u8
-        {
-            Admitted,
-            Allowance,
-            Budget
-        };
         /// This frame's verdict per arriving coat (ArrivalKey), cleared by
         /// StartFrame.
-        std::unordered_map<u64, FirstBuildVerdict> m_FirstBuildVerdicts;
+        std::unordered_map<u64, GroomFirstBuildVerdict> m_FirstBuildVerdicts;
         /// The coats the cache holds an entry for, by ArrivalKey, taken when
         /// the frame starts.
         std::unordered_set<u64> m_CachedArrivals;

@@ -3592,37 +3592,27 @@ namespace OloEngine
         const u64 arrival = ArrivalKey(request);
         if (const auto it = m_FirstBuildVerdicts.find(arrival); it != m_FirstBuildVerdicts.end())
         {
-            return it->second == FirstBuildVerdict::Admitted;
+            return it->second == GroomFirstBuildVerdict::Admitted;
         }
-        // A coat with any entry is not arriving: a tier change, a refill or a
-        // rebuild of a coat already on screen is never held back, or it would
-        // vanish for a frame.
-        FirstBuildVerdict verdict = FirstBuildVerdict::Admitted;
-        if (!m_CachedArrivals.contains(arrival))
+        GroomFirstBuildInputs inputs;
+        inputs.Cached = m_CachedArrivals.contains(arrival);
+        inputs.NeedsRestStream = !inputs.Cached && m_GpuDeformation && !m_RestStreams.contains(RestStreamKey(request));
+        inputs.FirstBuildsThisFrame = m_FirstBuildsThisFrame;
+        inputs.RestStreamBuildsThisFrame = m_RestStreamBuildsThisFrame;
+        inputs.MaxFirstBuilds = kFirstBuildsPerFrame;
+        inputs.MaxRestStreamBuilds = kRestStreamBuildsPerFrame;
+        inputs.CacheBytes = m_CacheBytes;
+        inputs.CacheBudgetBytes = m_CacheBudgetBytes;
+        // Walked only when it can matter: over budget, for an arriving coat.
+        inputs.EvictableBytes = !inputs.Cached && m_CacheBytes > m_CacheBudgetBytes ? EvictableCacheBytes() : 0u;
+        const GroomFirstBuildVerdict verdict = DecideGroomFirstBuild(inputs);
+        if (verdict == GroomFirstBuildVerdict::Admitted && !inputs.Cached)
         {
-            const bool needsStream = m_GpuDeformation && !m_RestStreams.contains(RestStreamKey(request));
-            if (m_FirstBuildsThisFrame >= kFirstBuildsPerFrame ||
-                (needsStream && m_RestStreamBuildsThisFrame >= kRestStreamBuildsPerFrame))
-            {
-                verdict = FirstBuildVerdict::Allowance;
-            }
-            // ADMISSION SAYS NO, not eviction, while saying no can help: the
-            // cache is over its budget and still holds entries nothing drew
-            // last frame, which this frame's eviction gives back. With no such
-            // entry the scene needs more than the budget, the coat is built,
-            // and EvictToBudget's warning says the budget does not hold.
-            else if (m_CacheBytes > m_CacheBudgetBytes && EvictableCacheBytes() > 0u)
-            {
-                verdict = FirstBuildVerdict::Budget;
-            }
-            else
-            {
-                ++m_FirstBuildsThisFrame;
-                m_RestStreamBuildsThisFrame += needsStream ? 1u : 0u;
-            }
+            ++m_FirstBuildsThisFrame;
+            m_RestStreamBuildsThisFrame += inputs.NeedsRestStream ? 1u : 0u;
         }
         m_FirstBuildVerdicts.emplace(arrival, verdict);
-        return verdict == FirstBuildVerdict::Admitted;
+        return verdict == GroomFirstBuildVerdict::Admitted;
     }
 
     GroomRenderPass::CacheEntry* GroomRenderPass::AcquireStagedGeometry(const GroomStrandRequest& request)
@@ -3643,8 +3633,8 @@ namespace OloEngine
     {
         for (const auto& [entity, verdict] : m_FirstBuildVerdicts)
         {
-            m_Stats.GroomsAwaitingBuild += verdict != FirstBuildVerdict::Admitted ? 1u : 0u;
-            m_Stats.GroomsAwaitingBudget += verdict == FirstBuildVerdict::Budget ? 1u : 0u;
+            m_Stats.GroomsAwaitingBuild += verdict != GroomFirstBuildVerdict::Admitted ? 1u : 0u;
+            m_Stats.GroomsAwaitingBudget += verdict == GroomFirstBuildVerdict::Budget ? 1u : 0u;
         }
         // Said when a wave of arriving coats starts and when it has drained, not
         // per frame: the count per frame is in the stats.

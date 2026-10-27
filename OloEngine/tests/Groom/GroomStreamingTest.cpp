@@ -468,3 +468,75 @@ TEST_F(GroomStreamingTest, ExtremeRetiringBackingReportsResidentPressureWithoutW
     EXPECT_EQ(request.StreamingFallback, EGroomStreamingFallback::ResidentBudget);
     EXPECT_EQ(budget.GetStats().OptionalResidentGpuBytes, 0u);
 }
+
+// #1591: the rule that decides whether a frame builds an arriving bound coat.
+// The pass's evidence tests drive it end to end; these pin each arm.
+namespace
+{
+    [[nodiscard]] GroomFirstBuildInputs ArrivingCoat()
+    {
+        GroomFirstBuildInputs in;
+        in.MaxFirstBuilds = 8;
+        in.MaxRestStreamBuilds = 1;
+        in.CacheBytes = 100;
+        in.CacheBudgetBytes = 1000;
+        return in;
+    }
+} // namespace
+
+TEST(GroomFirstBuild, ACoatAlreadyCachedIsNeverHeldBack)
+{
+    GroomFirstBuildInputs in = ArrivingCoat();
+    in.Cached = true;
+    in.NeedsRestStream = true;
+    in.FirstBuildsThisFrame = in.MaxFirstBuilds;
+    in.RestStreamBuildsThisFrame = in.MaxRestStreamBuilds;
+    in.CacheBytes = 5000;
+    in.EvictableBytes = 4000;
+    EXPECT_EQ(DecideGroomFirstBuild(in), GroomFirstBuildVerdict::Admitted)
+        << "a coat on screen that changes tier would vanish for a frame";
+}
+
+TEST(GroomFirstBuild, ArrivalsAreBuiltUpToTheFrameAllowance)
+{
+    GroomFirstBuildInputs in = ArrivingCoat();
+    in.FirstBuildsThisFrame = in.MaxFirstBuilds - 1u;
+    EXPECT_EQ(DecideGroomFirstBuild(in), GroomFirstBuildVerdict::Admitted);
+    in.FirstBuildsThisFrame = in.MaxFirstBuilds;
+    EXPECT_EQ(DecideGroomFirstBuild(in), GroomFirstBuildVerdict::Allowance);
+}
+
+TEST(GroomFirstBuild, OnlyOneNewRestStreamIsBuiltAFrame)
+{
+    GroomFirstBuildInputs in = ArrivingCoat();
+    in.NeedsRestStream = true;
+    EXPECT_EQ(DecideGroomFirstBuild(in), GroomFirstBuildVerdict::Admitted);
+    in.RestStreamBuildsThisFrame = 1u;
+    EXPECT_EQ(DecideGroomFirstBuild(in), GroomFirstBuildVerdict::Allowance);
+    in.NeedsRestStream = false;
+    EXPECT_EQ(DecideGroomFirstBuild(in), GroomFirstBuildVerdict::Admitted)
+        << "a coat sharing an existing stream does not spend the stream allowance";
+}
+
+TEST(GroomFirstBuild, TheBudgetHoldsAnArrivalOnlyWhileEvictionCanMakeRoom)
+{
+    GroomFirstBuildInputs in = ArrivingCoat();
+    in.CacheBytes = 1500;
+    in.EvictableBytes = 300;
+    EXPECT_EQ(DecideGroomFirstBuild(in), GroomFirstBuildVerdict::Budget);
+    in.EvictableBytes = 0;
+    EXPECT_EQ(DecideGroomFirstBuild(in), GroomFirstBuildVerdict::Admitted)
+        << "with nothing to evict the scene needs more than the budget: build it and let the warning say so";
+    in.CacheBytes = in.CacheBudgetBytes;
+    in.EvictableBytes = 300;
+    EXPECT_EQ(DecideGroomFirstBuild(in), GroomFirstBuildVerdict::Admitted) << "at the budget is within it";
+}
+
+TEST(GroomFirstBuild, TheAllowanceIsReportedBeforeTheBudget)
+{
+    GroomFirstBuildInputs in = ArrivingCoat();
+    in.FirstBuildsThisFrame = in.MaxFirstBuilds;
+    in.CacheBytes = 1500;
+    in.EvictableBytes = 300;
+    EXPECT_EQ(DecideGroomFirstBuild(in), GroomFirstBuildVerdict::Allowance);
+}
