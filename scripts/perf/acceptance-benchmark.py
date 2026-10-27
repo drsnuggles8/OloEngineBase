@@ -764,8 +764,11 @@ def list_gpu_apps():
     return apps
 
 
-GPU_ENGINE_SCRIPT = ("(Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -ErrorAction Stop).CounterSamples | "
-                     "ForEach-Object { '{0}|{1}' -f $_.InstanceName,$_.CookedValue }")
+# The CIM class, not Get-Counter: performance-counter paths are localized
+# ('\GPU Engine(*)\...' fails on a non-English Windows), CIM class and property
+# names are not. Same readings, whole percents.
+GPU_ENGINE_SCRIPT = ("Get-CimInstance Win32_PerfFormattedData_GPUPerformanceCounters_GPUEngine -ErrorAction Stop | "
+                     "ForEach-Object { '{0}|{1}' -f $_.Name,$_.UtilizationPercentage }")
 
 
 def parse_gpu_engine_load(lines) -> dict:
@@ -782,6 +785,8 @@ def parse_gpu_engine_load(lines) -> dict:
             percent = float(value)
         except ValueError:
             continue
+        if not math.isfinite(percent):
+            continue  # a PID left with no finite reading counts as contention
         key = (int(match.group(1)), match.group(2).lower())
         per_type[key] = per_type.get(key, 0.0) + percent
     load = {}

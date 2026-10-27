@@ -372,6 +372,13 @@ class ContentionTest(unittest.TestCase):
                  'not an engine|50', 'pid_11_luid_0x0_0xfdbc_phys_0_eng_0_engtype_3d|n/a']
         self.assertEqual(acceptance.parse_gpu_engine_load(lines), {7: 30.5, 9: 3.0})
 
+    def test_a_non_finite_gpu_engine_reading_is_no_reading(self):
+        lines = ['pid_7_luid_0x0_0xfdbc_phys_0_eng_0_engtype_3d|nan',
+                 'pid_8_luid_0x0_0xfdbc_phys_0_eng_0_engtype_3d|inf',
+                 'pid_9_luid_0x0_0xfdbc_phys_0_eng_0_engtype_3d|nan',
+                 'pid_9_luid_0x0_0xfdbc_phys_0_eng_1_engtype_copy|12']
+        self.assertEqual(acceptance.parse_gpu_engine_load(lines), {9: 12.0})
+
     def test_reasons_name_the_process_and_exclude_the_run(self):
         reasons = acceptance.contention_reasons([self.reduce([]), self.reduce([])])
         self.assertEqual(len(reasons), 2)  # deduplicated across samples
