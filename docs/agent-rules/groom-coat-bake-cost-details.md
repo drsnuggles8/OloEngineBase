@@ -47,7 +47,8 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
 7. **A subset bakes on the full pose's grid.** Its radii are scaled by full/kept to carry the
    dropped segments' fibre, and the deposit reads a radius as area, never as reach; padded by the
    whole scaled radius, a card tier's subset grid came out up to seven times the full pose's, and
-   the shadow LOD read the larger box as a closer coat and flapped between bakes (#1646). The pass
+   the shadow LOD read the larger box as a closer coat, so its step alternated between two
+   resolutions and every change forced a full rebake (#1646). The pass
    sets `DensityVolumeSettings::RadiusExtent` to kept/full;
    `GroomCoatShadowDeformed.ASubsetBakesOnTheFullPosesGrid` pins it.
 
