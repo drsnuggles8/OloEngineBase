@@ -762,7 +762,6 @@ namespace OloEngine
                             static_cast<sizet>(std::max(m_Desc.CascadeCount, 1));
         m_Records.Reset();
         m_Records.SetNum(total, EAllowShrinking::No);
-        m_CaptureCursor = 0;
         m_IrradianceCurrent = 0;
         m_VisibilityCurrent = 0;
 
@@ -1031,108 +1030,10 @@ namespace OloEngine
         return m_ViewFrustum.IsSphereVisible(worldPos, hopReach);
     }
 
+    // The one capture scheduler, for every volume shape (#1502 deleted the
+    // single-volume linear-cursor scheduler of #632, which its goldens and
+    // reference-parity baselines had been measured against).
     TArray<i32> DDGIProbeUpdatePass::PickCaptureSet(i32 budget)
-    {
-        // The authored single-volume path keeps the EXACT #632 scheduler: its
-        // reference-path-tracer parity and its goldens were measured against
-        // that capture order, and "equivalent coverage" is not the same claim
-        // as "same order" when the thing being compared is a temporally
-        // converged field.
-        if (!m_Desc.Cascaded && !m_Desc.SparsityEnabled)
-        {
-            return PickCaptureSetLegacy(budget);
-        }
-        return PickCaptureSetPrioritized(budget);
-    }
-
-    TArray<i32> DDGIProbeUpdatePass::PickCaptureSetLegacy(i32 budget)
-    {
-        TArray<i32> result;
-        const i32 total = m_TotalProbes;
-        if (total <= 0 || budget <= 0)
-        {
-            return result;
-        }
-        budget = std::min(budget, total);
-        result.Reserve(static_cast<sizet>(budget));
-        TArray<u8> picked(static_cast<sizet>(total), 0u);
-
-        // 1) Never-captured probes, linear cursor. Scan indices derive from a
-        //    FROZEN copy of the cursor: advancing m_CaptureCursor on each
-        //    selection while also using it in the index expression made the
-        //    scan jump ahead by the accumulated selections, skipping probes
-        //    and underfilling the budget within a single frame's pass.
-        //
-        //    COVERAGE BEFORE REFINEMENT, and the order matters more since #707:
-        //    an uncaptured probe contributes NOTHING to the gather, while a
-        //    probe still in the relocation warm-up is already contributing —
-        //    slightly off, but contributing. Putting refinement first let the
-        //    first captured batch hold the entire budget for its follow-up
-        //    passes, which multiplies the time to full coverage by the
-        //    warm-up length (DDGI::kRelocationWarmupCaptures).
-        const i32 scanStart = m_CaptureCursor;
-        for (i32 n = 0; n < total && static_cast<i32>(result.Num()) < budget; ++n)
-        {
-            const i32 idx = (scanStart + n) % total;
-            if (picked[idx] == 0u && !m_Records[idx].Captured())
-            {
-                result.Add(idx);
-                picked[idx] = 1u;
-                m_CaptureCursor = (idx + 1) % total;
-            }
-        }
-
-        // 2) Probes still in the relocation warm-up — recapture from the new
-        //    spot, with whatever budget step 1 left. The LAST of those captures
-        //    is the settling one: it re-reads the hit cache and re-classifies
-        //    from the position the spring produced, without moving the probe
-        //    again (issue #1279).
-        for (i32 i = 0; i < total && static_cast<i32>(result.Num()) < budget; ++i)
-        {
-            if (picked[i] == 0u &&
-                DDGI::RelocationStepForCapture(m_Records[i].CaptureCount).Tier == DDGI::CaptureTier::RelocationFollowUp)
-            {
-                result.Add(i);
-                picked[i] = 1u;
-            }
-        }
-
-        // 3) Continuous refresh — only reachable once no uncaptured probes
-        //    remain (step 2 otherwise consumes the budget): re-capture the
-        //    oldest so moved static geometry heals at bounded cost. The
-        //    steady-state refresh runs at 1/8 of the capture budget (Lumen's
-        //    CardCaptureRefreshFraction=0.125 idea) — without this cap the
-        //    pass re-rasterized the FULL budget every frame forever, ~8x the
-        //    intended steady-state cost (measured 9.7 ms GPU on the 32-probe
-        //    bring-up scene; ~2.5 ms with the cap).
-        if (!result.IsEmpty())
-        {
-            return result; // initial fill / relocation still in progress — no refresh this frame
-        }
-        const i32 refreshBudget = std::max(1, budget / 8);
-        while (static_cast<i32>(result.Num()) < refreshBudget)
-        {
-            i32 oldest = -1;
-            u32 oldestFrame = std::numeric_limits<u32>::max();
-            for (i32 i = 0; i < total; ++i)
-            {
-                if (picked[i] == 0u && m_Records[i].Captured() && m_Records[i].LastCaptureFrame < oldestFrame)
-                {
-                    oldest = i;
-                    oldestFrame = m_Records[i].LastCaptureFrame;
-                }
-            }
-            if (oldest < 0)
-            {
-                break;
-            }
-            result.Add(oldest);
-            picked[oldest] = 1u;
-        }
-        return result;
-    }
-
-    TArray<i32> DDGIProbeUpdatePass::PickCaptureSetPrioritized(i32 budget)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1208,18 +1109,23 @@ namespace OloEngine
                               return a.Index < b.Index;
                           });
 
-        // Refresh throttle, same 1/8 rule as the legacy path: once every live
-        // probe is captured AND settled, only a slice of the budget
-        // re-rasterizes. The threshold is DERIVED from the tier bias rather
-        // than written as a literal, so raising kCaptureTierBias cannot leave
-        // this comparison quietly classifying every probe as urgent.
-        constexpr f32 kRefreshTierFloor =
+        // Refresh throttle, the 1/8 rule (DDGI::CaptureSetSize): urgent probes
+        // may take the whole budget, refreshes never more than an eighth of it.
+        // The sort puts every urgent candidate ahead of every refresh one, so
+        // the capture set is a prefix. The threshold is DERIVED from the tier
+        // bias rather than written as a literal, so raising kCaptureTierBias
+        // cannot leave this comparison quietly classifying every probe as
+        // urgent.
+        static constexpr f32 kRefreshTierFloor =
             static_cast<f32>(std::to_underlying(DDGI::CaptureTier::PeriodicRefresh)) * DDGI::kCaptureTierBias;
-        const bool anyUrgent = candidates.First().Score < kRefreshTierFloor;
-        const i32 effectiveBudget = anyUrgent ? budget : std::max(1, budget / 8);
+        const auto urgentCount = static_cast<i32>(std::count_if(
+            candidates.begin(), candidates.end(), [](const Candidate& c)
+            { return c.Score < kRefreshTierFloor; }));
+        const i32 captureCount =
+            DDGI::CaptureSetSize(budget, urgentCount, static_cast<i32>(candidates.Num()) - urgentCount);
 
-        result.Reserve(static_cast<sizet>(effectiveBudget));
-        for (sizet i = 0; i < keep && static_cast<i32>(result.Num()) < effectiveBudget; ++i)
+        result.Reserve(static_cast<sizet>(captureCount));
+        for (sizet i = 0; i < keep && static_cast<i32>(result.Num()) < captureCount; ++i)
         {
             result.Add(candidates[i].Index);
         }

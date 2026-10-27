@@ -284,48 +284,6 @@ vec3 ddgiCascadeBoundsMax(int level)
     return ddgiCascadeBoundsMin(level) + vec3(dims) * u_DDGICascadeSpacing[level].xyz;
 }
 
-// -----------------------------------------------------------------------------
-// Legacy single-volume forms.
-//
-// NOTHING IN THE SHIPPED SHADERS CALLS THESE any more — since #707 the passes
-// go through the ddgiCascade* siblings above, which reduce to exactly these for
-// a single authored cascade (lattice origin = BoundsMin, lattice min = 0). They
-// are kept for two reasons, and only those two:
-//
-//   * they are the documented one-for-one GLSL mirrors of DDGI::ProbeGridPosition
-//     / ProbeWorldPosition / IsInsideVolume / VolumeWeight / SelfShadowBias in
-//     DDGICommon.h, all of which ARE live on the C++ side (LightProbeBaker, the
-//     editor gizmo, the L1 contract tests and DDGIReferenceParityTest);
-//   * they document, in one place, what "the authored path is unchanged" means
-//     in terms a reader can check against the cascaded code above.
-//
-// A dead GLSL function costs nothing at runtime (the compiler drops it). If you
-// remove them, remove the mirror claim in this file's header at the same time.
-// -----------------------------------------------------------------------------
-
-vec3 ddgiProbeGridPosition(ivec3 coord)
-{
-    return u_DDGIBoundsMin.xyz + u_DDGIProbeSpacing.xyz * vec3(coord);
-}
-
-vec3 ddgiProbeWorldPosition(ivec3 coord, vec3 offsetNormalized)
-{
-    return ddgiProbeGridPosition(coord) + offsetNormalized * u_DDGIProbeSpacing.xyz;
-}
-
-// Continuous grid coordinates of a world position (same mapping as
-// LightProbeSampling.glsl::worldToProbeGrid, against the DDGI UBO).
-vec3 ddgiWorldToProbeGrid(vec3 worldPos)
-{
-    return (worldPos - u_DDGIBoundsMin.xyz) / max(u_DDGIProbeSpacing.xyz, vec3(1e-6));
-}
-
-bool ddgiIsInsideVolume(vec3 worldPos)
-{
-    return all(greaterThanEqual(worldPos, u_DDGIBoundsMin.xyz)) &&
-           all(lessThanEqual(worldPos, u_DDGIBoundsMax.xyz));
-}
-
 // Mirrors DDGI::VolumeWeight, generalized to explicit bounds so each cascade
 // can be tested against its own window. Smooth membership of `worldPos` in the
 // box grown by a per-axis `margin`: exactly 1 inside, smoothstep down to 0
@@ -479,11 +437,6 @@ float ddgiCrushWeight(float w)
 vec3 ddgiSelfShadowBiasFor(vec3 normal, vec3 viewDir, float minAxialSpacing)
 {
     return (0.2 * normal + 0.8 * viewDir) * (0.75 * minAxialSpacing) * u_DDGISelfShadowBias;
-}
-
-vec3 ddgiSelfShadowBias(vec3 normal, vec3 viewDir)
-{
-    return ddgiSelfShadowBiasFor(normal, viewDir, u_DDGIProbeSpacing.w);
 }
 
 // -----------------------------------------------------------------------------
