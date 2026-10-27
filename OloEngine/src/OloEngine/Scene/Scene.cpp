@@ -13857,11 +13857,6 @@ namespace OloEngine
 
                     foliage.m_Renderer->SetStreamingEnabled(representationStreaming);
 
-                    const auto& globalWind = Renderer3D::GetWindSettings();
-                    const f32 envelope = globalWind.Enabled ? std::abs(globalWind.Speed) * (1.0f + std::abs(globalWind.GustStrength)) * 0.1f : 1.118034f;
-                    if (foliage.m_Renderer->SetLegacyWindEnvelope(envelope))
-                        foliage.m_NeedsRebuild = true;
-
                     // Instance positions are terrain-LOCAL, so the renderer needs
                     // the owning terrain's transform to place them. The main draw
                     // gets it via DrawFoliageLayer's modelTransform, but the SHADOW

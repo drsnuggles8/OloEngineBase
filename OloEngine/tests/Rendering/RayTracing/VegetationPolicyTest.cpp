@@ -55,20 +55,18 @@ namespace OloEngine::Tests
         EXPECT_EQ(budget.Updates, VegetationPolicy::UpdatesPerFrame);
     }
 
-    TEST(VegetationPolicy, WindRateHandlesFieldCapLegacyModesAndWorldScale)
+    TEST(VegetationPolicy, WindRateHandlesFieldAndStillAirAndWorldScale)
     {
-        const auto rate = [](bool hierarchy, bool field, f32 norm)
+        const auto rate = [](bool field, f32 norm)
         {
-            return VegetationPolicy::WindVelocityBound(2.0f, 1.1f, 0.7f, 0.8f,
-                                                       hierarchy, field, 8.0f, 0.6f, 0.4f, norm);
+            return VegetationPolicy::WindVelocityBound(2.0f, 1.1f, 0.7f, 0.8f, field, 8.0f, 0.6f, 0.4f, norm);
         };
-        EXPECT_GT(rate(true, true, 1.0f), 0.0f);
-        EXPECT_NEAR(rate(true, true, 3.0f), 3.0f * rate(true, true, 1.0f), 1e-5f);
-        EXPECT_GT(rate(true, false, 1.0f), 0.0f);
-        EXPECT_GT(rate(false, false, 1.0f), 0.0f);
-        EXPECT_TRUE(std::isinf(rate(true, true, -1.0f)));
+        EXPECT_GT(rate(true, 1.0f), 0.0f);
+        EXPECT_NEAR(rate(true, 3.0f), 3.0f * rate(true, 1.0f), 1e-5f);
+        EXPECT_GT(rate(false, 1.0f), 0.0f);
+        EXPECT_TRUE(std::isinf(rate(true, -1.0f)));
         EXPECT_TRUE(std::isinf(VegetationPolicy::WindVelocityBound(1.0f, 1.0f, 2.0f, 0.0f,
-                                                                   true, true, 8.0f, 0.0f, 1.0f, 1.0f)));
+                                                                   true, 8.0f, 0.0f, 1.0f, 1.0f)));
     }
 
     // #1533: a layer that casts no raster shadow is masked out of shadow rays, so

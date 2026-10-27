@@ -3588,7 +3588,6 @@ namespace OloEngine
             const auto wind = WindSystem::GetGPUData();
             foliageData.WindDirection = wind.DirectionAndSpeed;
             foliageData.WindGust = wind.GustAndTurbulence;
-            foliageData.WindClock = wind.TimeAndFlags;
             foliageData.PrevMeshViewPos = glm::vec4(MakePositionRelative(Renderer3D::GetPreviousViewPosition(), Renderer3D::GetRenderOrigin()), 0.0f);
             foliageData.WindFlags = glm::vec4(Renderer3D::GetRenderOrigin(), wind.TimeAndFlags.y);
             foliageData.WindHistoryValid = WindSystem::HasStableParameters() ? 1.0f : 0.0f;

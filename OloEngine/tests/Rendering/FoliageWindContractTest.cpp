@@ -50,7 +50,8 @@ namespace OloEngine::Tests
                     }
             }
         }
-        EXPECT_GE(FoliageWindMaximumDisplacement(1.0f, glm::vec4(0), 100.0f), 100.0f);
+        // One model (#1502): a flat layer's trunk is bounded like any other.
+        EXPECT_FLOAT_EQ(FoliageWindMaximumDisplacement(1.0f, glm::vec4(0)), 2.0f);
     }
 
     TEST(FoliageWindContract, WindEditsPublishUpdatedBoundsWithoutRephasingIdentity)
