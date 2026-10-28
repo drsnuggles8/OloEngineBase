@@ -41,5 +41,8 @@ jobs:
       - name: Test the vendor-golden-twins check
         run: python -m unittest discover -s scripts -p test_vendor_golden_twins.py -v
 
+      - name: Test case-duration accounting
+        run: python -m unittest discover -s OloEngine/tests/scripts -p test_generate_test_catalogue.py -v
+
       - name: Run pre-commit
         run: pre-commit run --all-files

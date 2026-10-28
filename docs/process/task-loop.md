@@ -326,10 +326,14 @@ All real failures across all jobs plus all review findings, fixed together, push
 ### 5d. CI mechanics
 
 - For the literal all-`SUCCESS` gate, apply the `ci-full-checks` PR label before
-  the next head update or reopen. For eligible PR runs, it enables the Steam stub build and routes Linux
+  the next head update. For eligible PR runs, it enables the Steam stub build and routes Linux
   sanitizers to hosted shards, including their coverage jobs. Ordinary PR routing
   stays unchanged, including workflow-level path filters. Label-only edits do not start or cancel a run; wait for the current
-  checks to become terminal before the next push. A successful manual dispatch can
+  checks to become terminal before the next push. **Do not close/reopen to activate it:**
+  the close-event cleanup cancels the initial runs, and their `CANCELLED` contexts remain in
+  the same head's `statusCheckRollup`, even after replacement checks succeed. Wait for the
+  current runs, collect their findings, then push the next change with the label already set;
+  the new head gets its own complete check rollup. A successful manual dispatch can
   coexist with a `SKIPPED` PR check; inspect the PR rollup instead of assuming replacement.
 - **`mergeable == CONFLICTING`**: merge master in (`git fetch origin && git merge origin/master`),
   never rebase or force-push. If either side touched an ECS component, re-check the cross-binding

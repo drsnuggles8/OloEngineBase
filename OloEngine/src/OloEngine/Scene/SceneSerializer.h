@@ -4,6 +4,7 @@
 #include "OloEngine/Scene/SceneBinaryIO.h"
 #include "OloEngine/Core/UUID.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
+#include "OloEngine/Renderer/Model.h"
 
 #include <filesystem>
 #include <functional>
@@ -27,7 +28,23 @@ namespace OloEngine
         // (docs/agent-rules/binary-format-versioning.md).
         static constexpr u32 CurrentVersion = 1;
 
-        explicit SceneSerializer(const Ref<Scene>& scene);
+        // Optional residency across a read-only batch of scenes in ONE project
+        // and content root. The caller owns this cache, outlives its serializers,
+        // and clears it on the game thread before shutting down the renderer.
+        // It shares model data only; entity transforms/playback remain separate.
+        struct AssetLoadCache
+        {
+            std::unordered_map<std::string, Ref<Model>> Models;
+            std::unordered_map<std::string, Ref<AnimatedModel>> AnimatedModels;
+
+            void Clear()
+            {
+                Models.clear();
+                AnimatedModels.clear();
+            }
+        };
+
+        explicit SceneSerializer(const Ref<Scene>& scene, AssetLoadCache* sharedAssets = nullptr);
 
         // False (and an error in the log) when the file cannot be written. The write goes to a
         // temporary file that is renamed over the target, so a failure leaves any previous
@@ -85,9 +102,10 @@ namespace OloEngine
         Entity DeserializeEntity(u64 uuid, const std::string& name, const YAML::Node& entityNode);
 
         Ref<Scene> m_Scene;
+        AssetLoadCache* m_SharedAssets = nullptr; // borrowed, never process-global
 
-        // Dedup cache for AnimatedModel loads within a single Deserialize() /
-        // DeserializeFromYAML() / DeserializeAdditive() call, keyed by resolved
+        // Default dedup cache for AnimatedModel loads during this serializer's
+        // lifetime (unless the caller supplies sharedAssets), keyed by resolved
         // absolute source path (issue #525 cheap-wins slice). Many entities in a
         // crowd scene share the same rigged-character source file; without this,
         // each one re-runs Assimp import + allocates a fresh MeshSource/GPU-buffer

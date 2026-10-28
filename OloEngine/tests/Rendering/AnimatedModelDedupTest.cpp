@@ -20,6 +20,8 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "ProcessRendererInit.h"
+#include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
@@ -92,15 +94,83 @@ namespace OloEngine::Tests
         }
     } // namespace
 
+    TEST(AnimatedModelDedup, BatchCacheRetainsModelDataAcrossScenesAndReleasesItAtScopeExit)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        OloEngine::Tests::EnsureProcessRendererInitialized();
+        GLStateGuard glGuard("AnimatedModelDedup.Batch", GLStateGuard::Policy::Restore);
+        const fs::path assets = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets";
+        const fs::path staticPath = assets / "models/Suzanne/glTF/Suzanne.gltf";
+        const fs::path animatedPath = assets / "models/RiggedSimple/RiggedSimple.gltf";
+        ASSERT_TRUE(fs::exists(staticPath));
+        ASSERT_TRUE(fs::exists(animatedPath));
+        ASSERT_TRUE(Project::Load(WriteThrowawayProjectPointingAt(assets, TempDir("project"))));
+        struct Cleanup
+        {
+            ~Cleanup()
+            {
+                Project::Unload();
+                FrameResourceManager::Get().FlushAllDeletionQueues();
+            }
+        } cleanup;
+
+        WeakRef<Model> retainedModel;
+        WeakRef<MeshSource> retainedMesh;
+        const Model* firstModel = nullptr;
+        const MeshSource* firstMesh = nullptr;
+        {
+            SceneSerializer::AssetLoadCache sharedAssets;
+            for (u32 iteration = 0; iteration < 2u; ++iteration)
+            {
+                if (iteration > 0u)
+                {
+                    // The previous Scene AND serializer are gone. Only this
+                    // caller-owned cache can retain their source model data.
+                    ASSERT_TRUE(retainedModel.IsValid());
+                    ASSERT_TRUE(retainedMesh.IsValid());
+                }
+                auto authored = Scene::Create();
+                authored->CreateEntity("Static").AddComponent<ModelComponent>().m_FilePath = staticPath.generic_string();
+                auto& animation = authored->CreateEntity("Animated").AddComponent<AnimationStateComponent>();
+                animation.m_SourceFilePath = animatedPath.generic_string();
+                animation.m_CurrentTime = 0.25f + 0.5f * static_cast<f32>(iteration);
+                const std::string yaml = SceneSerializer(authored).SerializeToYAML();
+                auto scene = Scene::Create();
+                ASSERT_TRUE(SceneSerializer(scene, &sharedAssets).DeserializeFromYAML(yaml));
+                const Entity modelEntity = FindByTag(*scene, "Static");
+                const Entity animatedEntity = FindByTag(*scene, "Animated");
+                ASSERT_TRUE(modelEntity && animatedEntity);
+                const auto& model = modelEntity.GetComponent<ModelComponent>();
+                const auto& mesh = animatedEntity.GetComponent<MeshComponent>().m_MeshSource;
+                ASSERT_TRUE(model.IsLoaded());
+                ASSERT_TRUE(mesh);
+                EXPECT_EQ(model.m_FilePath, staticPath.generic_string());
+                EXPECT_NEAR(animatedEntity.GetComponent<AnimationStateComponent>().m_CurrentTime,
+                            animation.m_CurrentTime, 1e-5f);
+                if (iteration == 0u)
+                {
+                    firstModel = model.m_Model.get();
+                    firstMesh = mesh.get();
+                    retainedModel = WeakRef<Model>(model.m_Model);
+                    retainedMesh = WeakRef<MeshSource>(mesh);
+                }
+                else
+                {
+                    EXPECT_EQ(model.m_Model.get(), firstModel);
+                    EXPECT_EQ(mesh.get(), firstMesh);
+                }
+            }
+        }
+        EXPECT_FALSE(retainedModel.IsValid());
+        EXPECT_FALSE(retainedMesh.IsValid());
+    }
+
     TEST(AnimatedModelDedup, SharedSourcePathReusesModelButKeepsPlaybackStateIndependent)
     {
         // AnimatedModel -> MeshSource::Build() needs a live GL 4.6 context.
         OLO_ENSURE_GPU_OR_SKIP();
 
-        if (!Renderer3D::IsInitialized())
-        {
-            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
-        }
+        OloEngine::Tests::EnsureProcessRendererInitialized();
         GLStateGuard glGuard("AnimatedModelDedup.Deserialize", GLStateGuard::Policy::Restore);
 
         const fs::path assetDir = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets";
@@ -198,10 +268,7 @@ namespace OloEngine::Tests
     TEST(AnimatedModelDedup, AMultiMaterialModelDrawsEveryMeshAsOneSharedSource)
     {
         OLO_ENSURE_GPU_OR_SKIP();
-        if (!Renderer3D::IsInitialized())
-        {
-            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
-        }
+        OloEngine::Tests::EnsureProcessRendererInitialized();
         GLStateGuard glGuard("AnimatedModelDedup.MultiMaterial", GLStateGuard::Policy::Restore);
 
         const fs::path horsePath = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject/Assets/Models/Horse/Horse.gltf";
@@ -258,10 +325,7 @@ namespace OloEngine::Tests
     TEST(AnimatedModelDedup, AOneMeshModelThatPatchesItsMaterialLoadsWithoutAShadowingMaterialComponent)
     {
         OLO_ENSURE_GPU_OR_SKIP();
-        if (!Renderer3D::IsInitialized())
-        {
-            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
-        }
+        OloEngine::Tests::EnsureProcessRendererInitialized();
         GLStateGuard glGuard("AnimatedModelDedup.PatchedOneMesh", GLStateGuard::Policy::Restore);
 
         const fs::path modelPath = fs::path{ OLO_TEST_EDITOR_ROOT } / "assets/models/RiggedSimple/RiggedSimple.gltf";

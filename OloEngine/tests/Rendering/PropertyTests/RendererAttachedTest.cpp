@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "ProcessRendererInit.h"
 #include "RendererAttachedTest.h"
 
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
@@ -207,10 +208,7 @@ namespace OloEngine::Tests
                          << RenderPropertyFixture::GpuUnavailableDetail();
         }
 
-        if (!Renderer3D::IsInitialized())
-        {
-            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
-        }
+        OloEngine::Tests::EnsureProcessRendererInitialized();
 
         // THE ENGINE'S WORKER THREADS, as Application starts them (#1630). The
         // test binary constructs no Application, so a renderer-attached test

@@ -27,6 +27,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "ProcessRendererInit.h"
 
 #include <gtest/gtest.h>
 #include "RenderPropertyTest.h"
@@ -158,10 +159,7 @@ TEST(BenchmarkCapture, RunWhenRequested)
     RandomUtils::SetGlobalSeed(manifest->Seed);
     ScopedMockClock mockClock(manifest->StartTimeSeconds);
 
-    if (!Renderer3D::IsInitialized())
-    {
-        Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
-    }
+    OloEngine::Tests::EnsureProcessRendererInitialized();
     std::string presetError;
     ASSERT_TRUE(Benchmark::ValidatePresetAdmission(*manifest, "opengl", presetError)) << presetError;
     {

@@ -18,6 +18,7 @@
 // RendererStateListener does not count it as a leak — the restore half of the
 // contract, verified in place.
 #include "OloEnginePCH.h"
+#include "ProcessRendererInit.h"
 
 #include "RenderPropertyTest.h"
 #include "RendererStateCheck.h"
@@ -123,8 +124,7 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        if (!Renderer3D::IsInitialized())
-            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
+        OloEngine::Tests::EnsureProcessRendererInitialized();
         ASSERT_TRUE(Renderer3D::IsInitialized());
 
         RendererState::Snapshot before;

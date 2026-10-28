@@ -1114,8 +1114,8 @@ Local quick paths:
 $f = (python OloEngine/tests/scripts/generate_test_catalogue.py --gtest-filter --exclude L6,L7,L8)
 .\build\OloEngine\tests\Debug\OloEngine-Tests.exe "--gtest_filter=$f"
 
-# Which cases are slow: each case's wall time beside its layer's per-case budget
-# (case_budget_s in test_catalogue.json, sized for the AMD nightly), slowest first.
+# Which cases are slow: body time beside the layer budget or reasoned case override
+# in test_catalogue.json (sized for the Release AMD nightly), slowest first.
 .\build\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_output=xml:run.xml
 python OloEngine/tests/scripts/generate_test_catalogue.py --durations run.xml
 
@@ -1128,6 +1128,26 @@ python OloEngine/tests/scripts/generate_test_catalogue.py --durations run.xml
 # Every knob the suite has of its own
 .\build\OloEngine\tests\Debug\OloEngine-Tests.exe --olo-help
 ```
+
+The duration report excludes the lazy process-wide renderer startup from the case
+that triggers it, using its `olo_process_renderer_init_s` gtest XML property. It
+prints `process renderer init: N s` separately and keeps that time in the suite
+total. A filter selecting no renderer test never starts the renderer. Tests that
+bring it up use `ProcessRendererInit.h` after their GPU gate.
+
+`case_budget_s` supplies layer defaults. A full-coverage case that still needs more
+time may have an exact `Suite.Case` entry in `case_budget_overrides`, with
+`{"budget_s": 180, "reason": "Measured full-coverage cost and why it is needed"}`.
+The reason is required and printed beside the case. Profile and remove redundant
+work before choosing an override. `--github` emits warnings for overages; overages
+alone never make the report or AMD workflow fail.
+
+The all-sandbox scene-load case keeps its asset manager and a caller-owned
+`SceneSerializer::AssetLoadCache` across the scene loop. The latter retains static
+and animated models loaded directly by path, which bypass the asset manager.
+It is confined to one project/content root, cleared before manager shutdown, and
+followed by a GPU-deletion flush; it must never become a process-global cache.
+Ordinary serializers keep their existing ownership when no cache is supplied.
 
 ### 8.1 The single-process run — what CI structurally cannot see
 

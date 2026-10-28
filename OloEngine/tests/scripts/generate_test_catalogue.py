@@ -27,9 +27,9 @@
 #               pre-commit / CI. The rendered tables are git-ignored, so there
 #               is nothing to diff — only the classification gate is enforced.
 #   --durations <gtest.xml>
-#               Print each case's wall time beside its layer and the layer's
-#               per-case budget (case_budget_s), slowest first (#1630). The AMD
-#               nightly runs it on its report.
+#               Print each case's body time beside its layer budget or reasoned
+#               case override, slowest first (#1630, #1668). Lazy renderer init
+#               is reported separately. The AMD nightly runs it on its report.
 #
 # This is the registration mechanism that replaces manual doc edits: every test
 # file (any .cpp declaring >=1 TEST macro) must be in file_layer_map — there are
@@ -40,6 +40,7 @@
 
 import argparse
 import json
+import math
 import pathlib
 import re
 import sys
@@ -96,7 +97,23 @@ LAYER_MARKER_RE = re.compile(
 
 def load_config():
     with CATALOGUE_PATH.open("r", encoding="utf-8") as f:
-        return json.load(f)
+        cfg = json.load(f)
+    validate_budget_overrides(cfg)
+    return cfg
+
+
+def validate_budget_overrides(cfg):
+    """An exceptional case budget must say what full coverage costs."""
+    for name, override in cfg.get("case_budget_overrides", {}).items():
+        if not isinstance(override, dict):
+            raise ValueError(f"{name}: case budget override needs budget_s and reason")
+        budget = override.get("budget_s")
+        reason = override.get("reason")
+        if (isinstance(budget, bool) or not isinstance(budget, (int, float))
+                or not math.isfinite(budget) or budget <= 0):
+            raise ValueError(f"{name}: budget_s must be a finite positive number")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ValueError(f"{name}: case budget override needs a non-empty reason")
 
 
 def scan_cpp_files(cfg):
@@ -453,7 +470,7 @@ def suite_layers(effective):
 
 
 def read_durations(xml_path):
-    """[(classname parts, full case name, seconds)] from a gtest XML report. A
+    """[(classname parts, full case name, seconds, init seconds)] from gtest XML. A
     parameterised case's classname is `Instance/Suite` and a typed one's
     `Suite/Type`, so the suite is one of the slash-separated parts."""
     import xml.etree.ElementTree as ET
@@ -465,36 +482,58 @@ def read_durations(xml_path):
             seconds = float(case.get("time", "0"))
         except ValueError:
             continue
-        cases.append((classname.split("/"), f"{classname}.{case.get('name', '')}", seconds))
+        if not math.isfinite(seconds) or seconds < 0:
+            continue
+        init = 0.0
+        for prop in case.findall("./properties/property"):
+            if prop.get("name") != "olo_process_renderer_init_s":
+                continue
+            try:
+                value = float(prop.get("value", ""))
+            except ValueError:
+                continue
+            if math.isfinite(value) and 0 <= value <= seconds + 0.001:
+                # gtest rounds the case time to milliseconds. Never produce a
+                # negative body time for that rounding, but ignore an impossible
+                # init duration instead of letting corrupt input hide an overage.
+                init = min(value, seconds)
+        cases.append((classname.split("/"), f"{classname}.{case.get('name', '')}", seconds, init))
     return cases
 
 
 def report_durations(cfg, effective, xml_path, github, top):
-    """Print each case's wall time beside its layer and the layer's budget
+    """Print each case's body time beside its layer budget or case override
     (#1630): every case over budget and the `top` slowest of the rest, slowest
     first. A case that outgrows its layer is visible the night it lands, not
     six hours into a local sweep. Returns the number of cases over budget."""
+    validate_budget_overrides(cfg)
     budgets = cfg.get("case_budget_s", {})
+    overrides = cfg.get("case_budget_overrides", {})
     default = budgets.get("default")
     layers = suite_layers(effective)
     rows = []
-    for parts, name, seconds in read_durations(xml_path):
+    process_init = 0.0
+    for parts, name, seconds, init in read_durations(xml_path):
         layer = next((layers[p] for p in parts if p in layers), "?")
-        budget = budgets.get(layer, default)
-        rows.append((seconds, layer, budget, name))
+        budget = overrides.get(name, {}).get("budget_s", budgets.get(layer, default))
+        rows.append((seconds - init, layer, budget, name))
+        process_init += init
     rows.sort(reverse=True)
     over = [r for r in rows if r[2] is not None and r[0] > r[2]]
     shown = sorted(over + [r for r in rows if r not in over][:top], reverse=True)
-    total = sum(r[0] for r in rows)
-    print(f"{len(rows)} cases, {total / 60.0:.1f} min; {len(over)} over their layer's budget "
-          f"(case_budget_s in {CATALOGUE_PATH.name}).")
+    total = sum(r[0] for r in rows) + process_init
+    print(f"{len(rows)} cases, {total / 60.0:.1f} min including process init; {len(over)} over their case budget "
+          f"(case_budget_s / case_budget_overrides in {CATALOGUE_PATH.name}).")
+    print(f"process renderer init: {process_init:.3f} s (excluded from the triggering case)")
     for seconds, layer, budget, name in shown:
         mark = "OVER" if (budget is not None and seconds > budget) else "    "
         limit = f"{budget:>5.0f} s" if budget is not None else "    - "
         print(f"  {seconds:8.1f} s  {layer:<11} budget {limit}  {mark}  {name}")
+        if name in overrides:
+            print(f"    override: {overrides[name]['reason']}")
         if github and mark == "OVER":
-            print(f"::warning title=Test over its layer budget::{name} took {seconds:.0f} s, "
-                  f"over the {layer} budget of {budget:.0f} s")
+            print(f"::warning title=Test over its case budget::{name} took {seconds:.0f} s, "
+                  f"over its {budget:.0f} s budget ({layer})")
     return len(over)
 
 
@@ -525,8 +564,8 @@ def main():
     parser.add_argument(
         "--durations",
         metavar="GTEST_XML",
-        help="Print each case's wall time from a gtest XML report beside its layer and "
-        "the layer's case_budget_s, slowest first, and exit.",
+        help="Print each case's time excluding process renderer init from a gtest XML report "
+        "beside its layer budget or case override, slowest first, and exit.",
     )
     parser.add_argument(
         "--top",
