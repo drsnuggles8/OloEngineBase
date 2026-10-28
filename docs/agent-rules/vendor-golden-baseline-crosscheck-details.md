@@ -155,10 +155,13 @@ which is the scale a real hash divergence would exceed.
 - **Only the `=value` form parses.** `--olo-golden-vendor amd` (space) is a hard error
   (`"option needs a =value"`), *not* a silent fallback. That is deliberate — a silent
   fallback under `--olo-golden-rebase` would overwrite the shared baselines.
-- **Two independent golden mechanisms scope by vendor**, and they are separate code:
+- **Five suites scope by vendor**, each composing the path itself:
   `GoldenImageTests.cpp::GoldenBaselineDir` → `assets/tests/golden[/<vendor>]`, and
-  `AtmosphereVisualEvidenceTest.cpp::GoldenBaselineDir` → `assets/tests/visual[/<vendor>]`.
-  A change to one is not a change to the other. The value is whitelisted once at parse time
+  `AtmosphereVisualEvidenceTest.cpp`, `DriftWeatherVisualEvidenceTest.cpp`,
+  `FoliageWindEvidenceTest.cpp` and `FoliageInteractionEvidenceTest.cpp` →
+  `assets/tests/visual[/<vendor>]`. (This list said two until #1516; Drift and the two
+  Foliage suites had been added without it.)
+  A change to one is not a change to the others. The value is whitelisted once at parse time
   (`RequirePlainPathComponent`) precisely so a third consumer cannot miss the rule —
   `--olo-perf-machine` is a third such path component (`perf_history/<machine>.tsv`).
 - **The working directory is `<repo>/OloEditor`**, which is why every baseline path is
