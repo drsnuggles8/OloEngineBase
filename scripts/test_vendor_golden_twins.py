@@ -57,6 +57,13 @@ class FindProblemsTest(unittest.TestCase):
         self.assertIn("deleted", report[0])
         self.assertEqual(check({WIND: "D", WIND_AMD: "D"}, tracked=TRACKED - {WIND, WIND_AMD}), [])
 
+    def test_a_waiver_does_not_cover_a_deleted_twin(self):
+        tracked = TRACKED - {WIND_AMD}
+        waived = f"{WIND}  blob-{WIND}  Vulkan-only image\n"
+        report = check({WIND: "M", WIND_AMD: "D"}, waived, tracked=tracked)
+        self.assertEqual(len(report), 1, report)
+        self.assertIn("deleted", report[0])
+
     def test_a_waiver_pinned_to_the_new_blob_passes(self):
         self.assertEqual(check({WIND: "M"}, f"# comment\n{WIND}  blob-{WIND}  Vulkan-only image\n"), [])
 

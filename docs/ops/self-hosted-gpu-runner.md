@@ -650,7 +650,7 @@ stable enough to be worth trending — unlike hosted-runner perf data.
 
 A branch that rebakes a golden under `assets/tests/{visual,golden}/` must rebake
 its AMD twin (`<root>/amd/<same name>`) in the same PR. The PR checks compare
-only the neutral image, so a stale twin turns the nightly red after the merge.
+only the neutral image, so a stale twin makes the nightly fail after the merge.
 The `vendor-golden-twins` pre-commit hook (`scripts/check_vendor_golden_twins.py`)
 fails the PR's pre-commit job until the twin changes too (#1516; #1667 left 28 stale). Locally it only prints, so the branch can still be pushed for the rebake.
 

@@ -6,7 +6,7 @@ A golden under OloEditor/assets/tests/{visual,golden}/ can have a vendor twin at
 The PR CI compares against the vendor-neutral image on NVIDIA; only the AMD nightly
 (gpu-conformance-amd.yml, --olo-golden-vendor=amd) reads the twin. So a change that
 rebakes the neutral golden and leaves the twin alone is green on every PR check and
-turns the nightly red after the merge. #1533 and #1667 both shipped that way.
+makes the nightly fail after the merge. #1533 and #1667 both shipped that way.
 
 The rules, for a diff from a base to a head:
 
@@ -14,7 +14,8 @@ The rules, for a diff from a base to a head:
 - an ADDED neutral golden whose family (same root, same name up to the first '_') has
   twins in a vendor directory needs its own twin added there, because a missing vendor
   baseline is a hard failure;
-- a DELETED twin whose neutral golden is still tracked is reported.
+- a DELETED twin whose neutral golden is still tracked is reported, waived or not: the
+  nightly fails on a missing vendor baseline whatever changed in the neutral image.
 
 A waiver is a line in scripts/vendor-golden-twin-waivers.txt:
 
@@ -117,7 +118,7 @@ def find_problems(
         root, vendor, name = parts
         if vendor:
             neutral = root + name
-            if status == "D" and neutral in tracked and not waived(neutral):
+            if status == "D" and neutral in tracked:
                 errors.append(f"{path}: deleted, but its neutral golden {neutral} is still tracked")
             continue
         if status == "M":
@@ -222,7 +223,7 @@ def main(argv: list[str] | None = None) -> int:
     if errors:
         print(
             f"\n{len(errors)} vendor-golden twin error(s). The AMD nightly compares against the twin, so it "
-            "goes red after the merge. Rebake the twins from this branch:\n"
+            "fails after the merge. Rebake the twins from this branch:\n"
             "    gh workflow run gpu-conformance-amd.yml --ref <branch> -f golden_rebase=true\n"
             "and commit the changed PNGs from its gpu_amd_rebaked_baselines artifact. If the change cannot "
             f"reach that vendor, add '<path> <blob id> <reason>' to {WAIVERS} "

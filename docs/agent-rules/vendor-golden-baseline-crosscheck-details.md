@@ -338,7 +338,7 @@ CI-gated one-liner rather than a session like this one.
 The PR checks run the golden suites on NVIDIA (or skip them on hosted runners) and compare
 against the neutral image; only `gpu-conformance-amd.yml` reads `amd/<name>.png`. A branch
 that rebakes the neutral golden and not its twin is therefore green on every PR check, and the
-first nightly after the merge goes red.
+first nightly after the merge fails.
 
 It happened twice. #1533's foliage changes left the AMD foliage twins stale, which nobody saw
 until the nightly's time budget stopped hiding its tail (#1658). Then #1667 (#1502) changed
@@ -350,9 +350,9 @@ and SSIM 0.50–0.57 (bar ≥ 0.985).
 `scripts/check_vendor_golden_twins.py` (the `vendor-golden-twins` pre-commit hook) now fails a
 diff that modifies a neutral golden with a tracked vendor twin unless the twin changes in the same
 diff, adds a neutral golden to a family with vendor twins without adding its twin, or deletes a
-twin whose neutral golden stays. `scripts/vendor-golden-twin-waivers.txt` waives one golden with an
-entry pinned to its blob id. Run against #1667's merge (`--base 415ff9428^1 --head 415ff9428`) it
-reports all 28 twins.
+twin whose neutral golden stays. `scripts/vendor-golden-twin-waivers.txt` waives one golden's
+change with an entry pinned to its blob id; it never covers a deleted twin. Run against #1667's
+merge (`--base 415ff9428^1 --head 415ff9428`) it reports all 28 twins.
 
 It fails only in CI. The pre-commit job checks out the PR's merge commit at depth 2 and passes its
 first parent in `OLO_GOLDEN_TWIN_BASE`. Locally the hook diffs against the merge-base with
