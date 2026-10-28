@@ -367,7 +367,7 @@ runs:
           echo "CCACHE_NOHASHDIR=1"
         } >> "$GITHUB_ENV"
         echo "persistent ccache for '${OLO_CACHE_NAME}': $dir ($ccache_bin)"
-        # 120G, RAISED FROM 30G ON A MEASUREMENT, and note this line is the ONLY
+        # 60G, LOWERED FROM 120G ON A MEASUREMENT, and note this line is the ONLY
         # place the cap is set: it re-asserts max_size into ccache.conf on every
         # job, so a hand-run `ccache -M` or a bump in the box's provisioning
         # script is silently reverted by the next run. Change it here.
@@ -388,10 +388,15 @@ runs:
         # Bounded by /home, not by taste: the cache is on /home (NVMe), measured
         # 218G used of 389G with 171G free, of which this cache was 28 GiB. 120G
         # is 111.8 GiB, so worst-case growth is ~84 GiB and ~87 GiB stays free.
+        # That worst case arrived: measured 2026-10-28, the cache sat at 112G
+        # against the cap and /home was 86% used with 57G free, the box now also
+        # hosting a game server and its database. 60G still holds two to three
+        # generations of every flag set (at ~20-26 GB each), so consecutive
+        # commits keep hitting; only older generations are evicted sooner.
         # The other three runner accounts (88G) and their _work trees live on the
         # same filesystem -- re-measure before raising this again, and do not
         # move the cache to /mnt/2TB-{A,B}: both are SMR spinning disks.
-        CCACHE_DIR="$dir" ccache --max-size=120G >/dev/null
+        CCACHE_DIR="$dir" ccache --max-size=60G >/dev/null
         # -v, because the rule above needs `Files` and `Cleanups` to tell eviction
         # from invalidation, and plain --show-stats prints neither.
         CCACHE_DIR="$dir" ccache --show-stats -v | head -40

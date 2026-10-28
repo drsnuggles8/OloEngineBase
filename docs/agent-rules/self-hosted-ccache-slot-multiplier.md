@@ -107,6 +107,11 @@ stays free. The other three runner accounts (88G) and every `_work` tree are on 
 filesystem, and a full `/home` takes out all four runner accounts and the login. Measure
 before raising it again.
 
+**The worst case arrived, and the cap came down to 60G.** Measured 2026-10-28: the cache
+sat at 112G against the 120G cap, `/home` was 86% used with 57G free, and the box now also
+hosts a game server and its database. 60G still holds two to three generations of every
+flag set, so consecutive commits keep hitting; only older generations go sooner.
+
 **Relocating is not the easy answer it looks like.** `/mnt/SSD` has 79G free and already
 carries the foxguard target cache; `/mnt/2TB-A` and `/mnt/2TB-B` are **SMR spinning
 disks**, which is the wrong medium for a cache doing 2.5M reads and 666K writes.
