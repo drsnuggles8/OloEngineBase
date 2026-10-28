@@ -29,5 +29,19 @@ jobs:
       - name: Install pre-commit
         run: python -m pip install --upgrade pip pre-commit
 
+      # The vendor-golden-twins hook diffs the PR against its base, which the
+      # depth-1 checkout does not contain. Both commits are enough: it diffs
+      # two trees and needs no merge-base.
+      - name: Fetch the PR base for the vendor-golden-twins hook
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          echo "OLO_GOLDEN_TWIN_BASE=$BASE_SHA" >> "$GITHUB_ENV"
+
+      - name: Test the vendor-golden-twins check
+        run: python -m unittest discover -s scripts -p test_vendor_golden_twins.py -v
+
       - name: Run pre-commit
         run: pre-commit run --all-files

@@ -332,3 +332,26 @@ Everything here compares *fresh NVIDIA at HEAD* against an *AMD recording from 2
 It cannot see a divergence introduced on the AMD side after that date. Re-running the audit
 on a freshly-baked AMD set is what closes that, and `GoldenBaselineAuditTest` now makes it a
 CI-gated one-liner rather than a session like this one.
+
+## 9. A neutral rebake leaves the vendor twin stale
+
+The PR checks run the golden suites on NVIDIA (or skip them on hosted runners) and compare
+against the neutral image; only `gpu-conformance-amd.yml` reads `amd/<name>.png`. A branch
+that rebakes the neutral golden and not its twin is therefore green on every PR check, and the
+first nightly after the merge goes red.
+
+It happened twice. #1533's foliage changes left the AMD foliage twins stale, which nobody saw
+until the nightly's time budget stopped hiding its tail (#1658). Then #1667 (#1502) changed
+`FoliageWind.glsl`, `FoliageInstanceGeometry.glsl`, `FoliageParams.glsl` and the foliage scenes,
+rebaked the 28 neutral `Foliage*.png` and none of the 28 twins. Night 52 failed
+`FoliageWindEvidenceTest` and `FoliageInteractionEvidenceTest` at RMSE 0.15–0.16 (bar ≤ 0.05)
+and SSIM 0.50–0.57 (bar ≥ 0.985).
+
+`scripts/check_vendor_golden_twins.py` (the `vendor-golden-twins` pre-commit hook) now fails a
+diff that modifies a neutral golden with a tracked vendor twin unless the twin changes in the same
+diff or `scripts/vendor-golden-twin-waivers.txt` carries a waiver pinned to the golden's blob id.
+Run against #1667's merge (`--base 415ff9428^1 --head 415ff9428`) it reports all 28 twins.
+In CI the pre-commit job fetches the PR's base commit at depth 1 and passes it in
+`OLO_GOLDEN_TWIN_BASE`; locally the base is the merge-base with `origin/master`. The local `Stop`
+hook only prints the failure, so a branch waiting for its AMD rebake is not blocked between
+turns.

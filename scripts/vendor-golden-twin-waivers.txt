@@ -1,0 +1,10 @@
+# Neutral goldens deliberately changed without rebaking their vendor twin.
+# Enforced by scripts/check_vendor_golden_twins.py (the `vendor-golden-twins` pre-commit hook, #1516).
+#
+# Format: <golden path>  <git blob id of its content>  <reason>. Get the blob id with
+# `git hash-object <path>`. The entry covers only that version of the golden and is reported as
+# stale once the golden changes again; delete it then.
+#
+# Waive only a change that cannot reach the vendor's run, e.g. a Vulkan-only image (the AMD
+# nightly runs GL only). A shader or scene change reaches every vendor: rebake the twin instead
+# (docs/ops/self-hosted-gpu-runner.md, "Rebaking the AMD twins from a branch").

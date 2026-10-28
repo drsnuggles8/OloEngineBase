@@ -646,6 +646,35 @@ Perf baselines follow the same pattern with `--olo-perf-rebase`. Because
 the box is dedicated rather than a shared hosted VM, these numbers are actually
 stable enough to be worth trending — unlike hosted-runner perf data.
 
+## Rebaking the AMD twins from a branch
+
+A branch that rebakes a golden under `assets/tests/{visual,golden}/` must rebake
+its AMD twin (`<root>/amd/<same name>`) in the same PR. The PR checks compare
+only the neutral image, so a stale twin turns the nightly red after the merge.
+The `vendor-golden-twins` pre-commit hook (`scripts/check_vendor_golden_twins.py`)
+fails the PR until the twin changes too (#1516; #1667 left 28 stale).
+
+1. Push the branch, check the runner is idle and it is not between ~00:45 UTC
+   and the end of the nightly (the workflow's concurrency group cancels a
+   sibling run in either direction), then dispatch:
+
+       gh run list --workflow=gpu-conformance-amd.yml --limit 2
+       gh workflow run gpu-conformance-amd.yml --ref <branch> -f golden_rebase=true
+
+   It runs the full nightly, about two hours.
+2. Download the `gpu_amd_rebaked_baselines` artifact. Every suite that reads a
+   vendor set rewrites each of its images under `--olo-golden-rebase`, failing or
+   not, so the artifact holds the whole `amd/` set. Commit only the twins of the
+   goldens your branch changed. Treat any other image that moved beyond its
+   test's threshold as drift, and decide about it separately.
+3. Look at each new twin beside its new neutral image: it must move the way the
+   neutral one moved, and nothing else may change.
+4. Dispatch again without `golden_rebase`; that run must be green.
+
+A change that cannot reach the AMD run (a Vulkan-only image: the AMD nightly runs
+GL only) is waived instead, with a line in
+`scripts/vendor-golden-twin-waivers.txt` pinned to the golden's blob id.
+
 ## Troubleshooting
 
 | Symptom | Cause |
