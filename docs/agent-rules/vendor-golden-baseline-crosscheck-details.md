@@ -162,8 +162,8 @@ which is the scale a real hash divergence would exceed.
   `assets/tests/visual[/<vendor>]`. (This list said two until #1516; Drift and the two
   Foliage suites had been added without it.)
   A change to one is not a change to the others. The value is whitelisted once at parse time
-  (`RequirePlainPathComponent`) precisely so a third consumer cannot miss the rule —
-  `--olo-perf-machine` is a third such path component (`perf_history/<machine>.tsv`).
+  (`RequirePlainPathComponent`) precisely so a new consumer cannot miss the rule —
+  `--olo-perf-machine` is a path component the same way (`perf_history/<machine>.tsv`).
 - **The working directory is `<repo>/OloEditor`**, which is why every baseline path is
   spelled `assets/...`. Running the binary from the repo root makes every golden "missing".
 - **`<name>.actual.png` / `<name>.diff.png` are generated L10 escalation artefacts**, written
@@ -349,9 +349,13 @@ and SSIM 0.50–0.57 (bar ≥ 0.985).
 
 `scripts/check_vendor_golden_twins.py` (the `vendor-golden-twins` pre-commit hook) now fails a
 diff that modifies a neutral golden with a tracked vendor twin unless the twin changes in the same
-diff or `scripts/vendor-golden-twin-waivers.txt` carries a waiver pinned to the golden's blob id.
-Run against #1667's merge (`--base 415ff9428^1 --head 415ff9428`) it reports all 28 twins.
-In CI the pre-commit job fetches the PR's base commit at depth 1 and passes it in
-`OLO_GOLDEN_TWIN_BASE`; locally the base is the merge-base with `origin/master`. The local `Stop`
-hook only prints the failure, so a branch waiting for its AMD rebake is not blocked between
-turns.
+diff, adds a neutral golden to a family with vendor twins without adding its twin, or deletes a
+twin whose neutral golden stays. `scripts/vendor-golden-twin-waivers.txt` waives one golden with an
+entry pinned to its blob id. Run against #1667's merge (`--base 415ff9428^1 --head 415ff9428`) it
+reports all 28 twins.
+
+It fails only in CI. The pre-commit job checks out the PR's merge commit at depth 2 and passes its
+first parent in `OLO_GOLDEN_TWIN_BASE`. Locally the hook diffs against the merge-base with
+`origin/master`, prints what it finds and exits 0. The `PreToolUse` push guard denies a push when
+any pre-commit hook fails, and the AMD rebake is dispatched from the pushed branch, so a local
+failure would make the rebake impossible to start.
