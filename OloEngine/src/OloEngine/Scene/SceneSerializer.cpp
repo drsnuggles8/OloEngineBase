@@ -2138,7 +2138,8 @@ namespace OloEngine
     }
 
     static void DeserializeEntityComponents(Entity& deserializedEntity, const YAML::Node& entity,
-                                            std::unordered_map<std::string, Ref<AnimatedModel>>& animatedModelCache)
+                                            std::unordered_map<std::string, Ref<AnimatedModel>>& animatedModelCache,
+                                            SceneSerializer::AssetLoadCache* sharedAssets)
     {
         if (auto transformComponent = entity["TransformComponent"]; transformComponent)
         {
@@ -2579,7 +2580,26 @@ namespace OloEngine
                 mc.m_FilePath = modelComponent["FilePath"].as<std::string>();
                 if (!mc.m_FilePath.empty())
                 {
-                    mc.Reload(); // Load the model from file
+                    if (sharedAssets == nullptr)
+                    {
+                        mc.Reload(); // The ordinary scene load keeps its own model.
+                    }
+                    else if (const auto resolved = ResolveContentPath(mc.m_FilePath); !resolved.empty())
+                    {
+                        const std::string key = resolved.generic_string();
+                        if (const auto found = sharedAssets->Models.find(key); found != sharedAssets->Models.end())
+                        {
+                            mc.m_Model = found->second;
+                        }
+                        else
+                        {
+                            mc.m_Model = Ref<Model>::Create(key);
+                            // A failed import must be tried and diagnosed on a
+                            // later load too, not cached as usable geometry.
+                            if (mc.IsLoaded())
+                                sharedAssets->Models.emplace(key, mc.m_Model);
+                        }
+                    }
                 }
             }
             if (modelComponent["Visible"])
@@ -3715,7 +3735,8 @@ namespace OloEngine
                     else
                     {
                         animatedModel = Ref<AnimatedModel>::Create(anim.m_SourceFilePath);
-                        animatedModelCache.emplace(anim.m_SourceFilePath, animatedModel);
+                        if (sharedAssets == nullptr || !animatedModel->GetMeshes().empty())
+                            animatedModelCache.emplace(anim.m_SourceFilePath, animatedModel);
                     }
 
                     if (animatedModel)
@@ -4586,8 +4607,8 @@ namespace OloEngine
         }
     }
 
-    SceneSerializer::SceneSerializer(const Ref<Scene>& scene)
-        : m_Scene(scene)
+    SceneSerializer::SceneSerializer(const Ref<Scene>& scene, AssetLoadCache* sharedAssets)
+        : m_Scene(scene), m_SharedAssets(sharedAssets)
     {
     }
 
@@ -7310,7 +7331,8 @@ namespace OloEngine
         std::exception_ptr entityFailure;
         try
         {
-            DeserializeEntityComponents(deserializedEntity, entityNode, m_AnimatedModelCache);
+            auto& animatedModels = m_SharedAssets ? m_SharedAssets->AnimatedModels : m_AnimatedModelCache;
+            DeserializeEntityComponents(deserializedEntity, entityNode, animatedModels, m_SharedAssets);
         }
         catch (...)
         {

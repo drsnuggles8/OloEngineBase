@@ -403,7 +403,9 @@ namespace OloEngine::Tests
     TEST_F(AcceptanceSceneTest, EveryGateCameraSeesItsSubjectOnEveryRasterPath)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        const auto profileStart = std::chrono::steady_clock::now();
         ASSERT_NO_FATAL_FAILURE(Load());
+        std::printf("[acceptance-profile] load %.3f s\n", std::chrono::duration<f64>(std::chrono::steady_clock::now() - profileStart).count());
         std::string error;
         const auto manifest = Benchmark::LoadBenchmarkManifest(
             EditorRoot() / "assets" / "benchmark" / "manifests" / "acceptance-deferred.yaml", error);
@@ -420,24 +422,41 @@ namespace OloEngine::Tests
         } paths[] = { { RenderingPath::Forward, "Forward" },
                       { RenderingPath::ForwardPlus, "ForwardPlus" },
                       { RenderingPath::Deferred, "Deferred" } };
-        for (const auto& path : paths)
+        // One scene/asset load for the whole grid. Visit a camera on every
+        // path before moving away: otherwise the herd evicts the head's coat
+        // geometry, and every later path rebuilds the same subjects (#1668).
+        // Keep all cameras and all 24 full render frames per path.
+        for (const auto& spec : manifest->Cameras)
         {
-            auto& settings = Renderer3D::GetRendererSettings();
-            settings.Path = path.Path;
-            Renderer3D::ApplyRendererSettings();
-            for (const auto& spec : manifest->Cameras)
+            for (const auto& path : paths)
             {
+                auto& settings = Renderer3D::GetRendererSettings();
+                settings.Path = path.Path;
+                Renderer3D::ApplyRendererSettings();
+                const auto cameraStart = std::chrono::steady_clock::now();
                 SCOPED_TRACE(std::string(path.Name) + " / " + spec.Id.ToStdString());
                 const u32 warm = spec.WarmupFrames.value_or(manifest->WarmupFrames);
                 const auto pose = Benchmark::CameraPoseAtFrame(spec, warm, manifest->FixedDtSeconds);
                 // Walk the animals as the capture step does (an edit-mode tick
                 // never runs the "AnimalPaths" system), one step per frame.
                 const EditorCamera camera = Camera(pose.Position, pose.YawDegrees, pose.PitchDegrees, spec.FovDegrees);
+                u32 cacheBuilds = 0u;
+                u32 cacheEvictions = 0u;
+                u32 poseBuilds = 0u;
                 for (u32 frame = 0; frame < 24u; ++frame)
                 {
+                    const u64 groomTick = Renderer3D::GetGroomRenderPass()->GetFrameTick();
                     m_Scene->AdvanceAnimalPaths(Timestep{ manifest->FixedDtSeconds });
                     RunEditorFramesOn(*m_Scene, camera, 1);
+                    const auto& stats = Renderer3D::GetGroomRenderPass()->GetStats();
+                    if (Renderer3D::GetGroomRenderPass()->GetFrameTick() != groomTick)
+                    {
+                        cacheBuilds += stats.CacheBuilds;
+                        cacheEvictions += stats.CacheEvictions;
+                        poseBuilds += stats.PoseSegmentBuilds;
+                    }
                 }
+                const auto renderEnd = std::chrono::steady_clock::now();
 
                 std::vector<u8> rgba;
                 ASSERT_NO_FATAL_FAILURE(
@@ -455,6 +474,9 @@ namespace OloEngine::Tests
                 const f64 stddev = std::sqrt(std::max(0.0, sumSq / n - mean * mean));
                 EXPECT_GT(mean, 8.0) << "the frame is black";
                 EXPECT_GT(stddev, 6.0) << "the frame is flat: no subject in view";
+                std::printf("[acceptance-profile] %s / %s render %.3f s readback %.3f s cache-builds %u evictions %u pose-builds %u\n", path.Name, spec.Id.ToStdString().c_str(),
+                            std::chrono::duration<f64>(renderEnd - cameraStart).count(),
+                            std::chrono::duration<f64>(std::chrono::steady_clock::now() - renderEnd).count(), cacheBuilds, cacheEvictions, poseBuilds);
             }
         }
     }

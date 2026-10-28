@@ -820,10 +820,11 @@ jobs:
 
       # #1630: the suite went from 38 to over 75 minutes in a month (#1516) one
       # evidence case at a time, and nothing said so until the night the budget
-      # ran out. Each case's wall time beside its layer's budget
-      # (case_budget_s in test_catalogue.json) makes the next one visible the
+      # ran out. Each case's body time beside its layer budget or reasoned
+      # override (test_catalogue.json), with lazy renderer init timed apart,
+      # makes the next one visible the
       # night it lands. Report-only: a warning per case over budget, never red.
-      - name: Case durations against the layer budgets
+      - name: Case durations against the budgets
         if: always()
         run: |
           if [ -s test_results/gpu_amd.xml ]; then

@@ -54,6 +54,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "ProcessRendererInit.h"
 
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
@@ -203,10 +204,7 @@ namespace OloEngine::Tests
         // shader library / default materials a scene may resolve are present,
         // matching the editor's state on "File → Open Scene". Teardown is the
         // process-wide Renderer::Shutdown in the test main(), not here.
-        if (!Renderer3D::IsInitialized())
-        {
-            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
-        }
+        OloEngine::Tests::EnsureProcessRendererInitialized();
 
         // Contain the GPU bindings the deserialise loop creates (bound VAO /
         // buffers / textures) so they can't poison later GPU tests in the
@@ -280,13 +278,22 @@ namespace OloEngine::Tests
         // Declared AFTER `cleanup` so it destructs FIRST: Shutdown serialises
         // the registry back to the temp project, which must happen before the
         // temp dir is removed.
+        SceneSerializer::AssetLoadCache sharedAssets;
         struct AssetManagerShutdown
         {
             Ref<EditorAssetManager> Mgr;
+            SceneSerializer::AssetLoadCache& SharedAssets;
             ~AssetManagerShutdown()
             {
+                SharedAssets.Clear();
                 if (Mgr)
+                {
+                    // Keep the shared mesh/texture cache throughout the scene
+                    // sweep, then release it once while the context is alive.
+                    Mgr->UnloadLoadedAssets();
                     Mgr->Shutdown();
+                    EXPECT_TRUE(Mgr->GetLoadedAssets().empty());
+                }
 
                 // Shutting the manager down is not the same as uninstalling it.
                 // `Project` holds the active project and the asset manager in
@@ -313,8 +320,11 @@ namespace OloEngine::Tests
                 // caller that forgets to check now fails loudly instead of
                 // silently reading a dead manager.
                 Project::Unload();
+                FrameResourceManager::Get().FlushAllDeletionQueues();
+                EXPECT_FALSE(Project::GetActive());
+                EXPECT_FALSE(Project::HasAssetManager());
             }
-        } assetManagerShutdown{ assetManager };
+        } assetManagerShutdown{ assetManager, sharedAssets };
 
         const fs::path scenesDir = tempRoot / "Assets" / "Scenes";
         std::vector<fs::path> scenes;
@@ -338,24 +348,19 @@ namespace OloEngine::Tests
 
         for (const auto& path : scenes)
         {
-            // Runs on EVERY way out of the iteration -- the exception and
-            // `!ok` paths `continue` past the end of the body, and skipping the
-            // cleanup there would leave that scene's assets and queued GPU
-            // deletions alive under the next scene (CodeRabbit on #1204).
-            // Declared before `scene` and the serializer so it destructs after
-            // both have released their Refs.
+            // Flush scene-local objects on every exit, including exceptions.
+            // The manager retains shared assets for the next scene (#1668).
+            // Declared before scene/serializer, so their Refs are gone first.
             struct PerSceneCleanup
             {
-                Ref<EditorAssetManager>& Mgr;
                 ~PerSceneCleanup()
                 {
-                    Mgr->UnloadLoadedAssets();
                     FrameResourceManager::Get().FlushAllDeletionQueues();
                 }
-            } perSceneCleanup{ assetManager };
+            } perSceneCleanup;
 
             auto scene = Scene::Create();
-            SceneSerializer serializer(scene);
+            SceneSerializer serializer(scene, &sharedAssets);
             bool ok = false;
             try
             {
@@ -430,19 +435,10 @@ namespace OloEngine::Tests
                 }
             }
 
-            // Release this scene's footprint before the next one (PerSceneCleanup
-            // above does the last two steps on every exit path). Three steps, and
-            // the third is the one that matters: the scene is dropped (its components
-            // hold the asset Refs), the manager lets go of everything it loaded for it
-            // while keeping the registry, and the GPU objects are actually deleted.
-            // Every GL buffer and texture destructor only QUEUES its glDelete* on
-            // FrameResourceManager, to run at the next frame boundary -- and this test
-            // renders no frame, so without the flush the driver kept every scene's
-            // vertex, index and texture storage alive until Shutdown: 5.7 GB committed
-            // across the sandbox scenes on the Windows dev box, ~400 MB per Sponza-class
-            // scene, doubling under --gtest_repeat, with the loaded-asset set already
-            // empty. The largest footprint in the suite, on runners that share a
-            // 14 GiB cgroup between two test processes.
+            // Drop the scene, retaining only the manager's shared assets. This
+            // test renders no frames, so PerSceneCleanup still drains deferred
+            // deletion of objects that no scene or cached asset holds. The final
+            // AssetManagerShutdown drains the shared assets' deletions too.
             scene.Reset();
         }
 
@@ -456,6 +452,7 @@ namespace OloEngine::Tests
             FAIL() << oss.str();
         }
 
+        ::testing::Test::RecordProperty("olo_scene_count", std::to_string(scenes.size()));
         EXPECT_GE(scenes.size(), 1u);
     }
 
@@ -579,10 +576,7 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        if (!Renderer3D::IsInitialized())
-        {
-            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
-        }
+        OloEngine::Tests::EnsureProcessRendererInitialized();
 
         GLStateGuard glGuard("AssetSceneLoad.TexturePathRoundTrip", GLStateGuard::Policy::Restore);
 
@@ -804,10 +798,7 @@ namespace OloEngine::Tests
         // Font::Create rasterises an MSDF atlas into a GPU texture.
         OLO_ENSURE_GPU_OR_SKIP();
 
-        if (!Renderer3D::IsInitialized())
-        {
-            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
-        }
+        OloEngine::Tests::EnsureProcessRendererInitialized();
 
         GLStateGuard glGuard("AssetSceneLoad.SceneFontPaths", GLStateGuard::Policy::Restore);
 
@@ -904,10 +895,7 @@ namespace OloEngine::Tests
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
-        if (!Renderer3D::IsInitialized())
-        {
-            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
-        }
+        OloEngine::Tests::EnsureProcessRendererInitialized();
 
         GLStateGuard glGuard("AssetSceneLoad.PortableTexturePaths", GLStateGuard::Policy::Restore);
 
@@ -947,10 +935,7 @@ namespace OloEngine::Tests
         // placeholder), so this needs the GL context its neighbours need.
         OLO_ENSURE_GPU_OR_SKIP();
 
-        if (!Renderer3D::IsInitialized())
-        {
-            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
-        }
+        OloEngine::Tests::EnsureProcessRendererInitialized();
 
         GLStateGuard glGuard("AssetSceneLoad.FailedTextureNoSidecar", GLStateGuard::Policy::Restore);
 

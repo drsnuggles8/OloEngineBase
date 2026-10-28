@@ -95,7 +95,7 @@ shadow: the shadow and the plant would disagree, the #1233 rule. With one reach 
 farthest (pines meshed to 87 m) held every layer to L7 and saved 3–17 %; per layer (meadow grass, leaf
 litter and dune grass L5, wildflowers L6, shrubs and pines L7) it saves 11–30 %: Forward 13.0/21.4/8.4 to
 10.7/16.0/7.1 ms, Deferred 17.9/16.8/8.5 to 15.9/11.9/7.0 ms at Step0/4/8.
-`FoliageCostBaselineTest.VsmCardCutoverKeepsTheShadowOfTheMeshBand` measures 0–5 moved pixels of shadow
+`FoliageVsmCardCutoverEvidenceTest.VsmCardCutoverKeepsTheShadowOfTheMeshBand` measures 0–5 moved pixels of shadow
 factor on Deferred at every pose and on every path at Step0 and Step4 (a repeat of one arm moves 0–4),
 against 437–630,000 for cards everywhere.
 

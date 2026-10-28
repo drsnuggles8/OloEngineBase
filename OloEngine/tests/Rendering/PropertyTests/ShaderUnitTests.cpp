@@ -17,6 +17,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "ProcessRendererInit.h"
 
 #include "RenderPropertyTest.h"
 #include "VirtualRasterCoverageMirror.h"
@@ -503,10 +504,7 @@ namespace OloEngine::Tests
         // The bake runs through the renderer's shader library, which
         // EnvironmentMap::InitializeIBLSystem installs from Renderer3D bring-up.
         // Without it CreateFromEquirectangular returns a map whose cubemap is null.
-        if (!Renderer3D::IsInitialized())
-        {
-            Renderer::Init(RendererType::Renderer3D, /*loadingWindow=*/nullptr);
-        }
+        OloEngine::Tests::EnsureProcessRendererInitialized();
 
         const char* kHdrPath = "assets/textures/hdr/newport_loft.hdr";
         std::error_code ec;
