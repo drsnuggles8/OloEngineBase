@@ -474,7 +474,7 @@ namespace OloEngine::Tests
                 const f64 stddev = std::sqrt(std::max(0.0, sumSq / n - mean * mean));
                 EXPECT_GT(mean, 8.0) << "the frame is black";
                 EXPECT_GT(stddev, 6.0) << "the frame is flat: no subject in view";
-                std::printf("[acceptance-profile] %s / %s render %.3f s readback %.3f s cache-builds %u evictions %u pose-builds %u\n", path.Name, spec.Id.ToStdString().c_str(),
+                std::printf("[acceptance-profile] %s / %s render %.3f s capture+validation %.3f s cache-builds %u evictions %u pose-builds %u\n", path.Name, spec.Id.ToStdString().c_str(),
                             std::chrono::duration<f64>(renderEnd - cameraStart).count(),
                             std::chrono::duration<f64>(std::chrono::steady_clock::now() - renderEnd).count(), cacheBuilds, cacheEvictions, poseBuilds);
             }
