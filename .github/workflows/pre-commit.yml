@@ -20,6 +20,8 @@ jobs:
           # `pre-commit run` only reads the working tree locally — no authenticated
           # git writes — so drop the persisted GITHUB_TOKEN to minimise exposure.
           persist-credentials: false
+          # The merge commit and its parents, for the vendor-golden-twins hook.
+          fetch-depth: 2
 
       - name: Setup Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -28,6 +30,16 @@ jobs:
 
       - name: Install pre-commit
         run: python -m pip install --upgrade pip pre-commit
+
+      # The vendor-golden-twins hook diffs the PR against its base and fails
+      # only when this is set. The checkout is the PR's merge commit, so its
+      # first parent (fetch-depth 2) is exactly the master it merges into.
+      - name: Point the vendor-golden-twins hook at the PR base
+        if: github.event_name == 'pull_request'
+        run: echo "OLO_GOLDEN_TWIN_BASE=$(git rev-parse HEAD^1)" >> "$GITHUB_ENV"
+
+      - name: Test the vendor-golden-twins check
+        run: python -m unittest discover -s scripts -p test_vendor_golden_twins.py -v
 
       - name: Run pre-commit
         run: pre-commit run --all-files

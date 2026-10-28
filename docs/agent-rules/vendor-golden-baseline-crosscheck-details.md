@@ -155,12 +155,15 @@ which is the scale a real hash divergence would exceed.
 - **Only the `=value` form parses.** `--olo-golden-vendor amd` (space) is a hard error
   (`"option needs a =value"`), *not* a silent fallback. That is deliberate — a silent
   fallback under `--olo-golden-rebase` would overwrite the shared baselines.
-- **Two independent golden mechanisms scope by vendor**, and they are separate code:
+- **Five suites scope by vendor**, each composing the path itself:
   `GoldenImageTests.cpp::GoldenBaselineDir` → `assets/tests/golden[/<vendor>]`, and
-  `AtmosphereVisualEvidenceTest.cpp::GoldenBaselineDir` → `assets/tests/visual[/<vendor>]`.
-  A change to one is not a change to the other. The value is whitelisted once at parse time
-  (`RequirePlainPathComponent`) precisely so a third consumer cannot miss the rule —
-  `--olo-perf-machine` is a third such path component (`perf_history/<machine>.tsv`).
+  `AtmosphereVisualEvidenceTest.cpp`, `DriftWeatherVisualEvidenceTest.cpp`,
+  `FoliageWindEvidenceTest.cpp` and `FoliageInteractionEvidenceTest.cpp` →
+  `assets/tests/visual[/<vendor>]`. (This list said two until #1516; Drift and the two
+  Foliage suites had been added without it.)
+  A change to one is not a change to the others. The value is whitelisted once at parse time
+  (`RequirePlainPathComponent`) precisely so a new consumer cannot miss the rule —
+  `--olo-perf-machine` is a path component the same way (`perf_history/<machine>.tsv`).
 - **The working directory is `<repo>/OloEditor`**, which is why every baseline path is
   spelled `assets/...`. Running the binary from the repo root makes every golden "missing".
 - **`<name>.actual.png` / `<name>.diff.png` are generated L10 escalation artefacts**, written
@@ -329,3 +332,30 @@ Everything here compares *fresh NVIDIA at HEAD* against an *AMD recording from 2
 It cannot see a divergence introduced on the AMD side after that date. Re-running the audit
 on a freshly-baked AMD set is what closes that, and `GoldenBaselineAuditTest` now makes it a
 CI-gated one-liner rather than a session like this one.
+
+## 9. A neutral rebake leaves the vendor twin stale
+
+The PR checks run the golden suites on NVIDIA (or skip them on hosted runners) and compare
+against the neutral image; only `gpu-conformance-amd.yml` reads `amd/<name>.png`. A branch
+that rebakes the neutral golden and not its twin is therefore green on every PR check, and the
+first nightly after the merge fails.
+
+It happened twice. #1533's foliage changes left the AMD foliage twins stale, which nobody saw
+until the nightly's time budget stopped hiding its tail (#1658). Then #1667 (#1502) changed
+`FoliageWind.glsl`, `FoliageInstanceGeometry.glsl`, `FoliageParams.glsl` and the foliage scenes,
+rebaked the 28 neutral `Foliage*.png` and none of the 28 twins. Night 52 failed
+`FoliageWindEvidenceTest` and `FoliageInteractionEvidenceTest` at RMSE 0.15–0.16 (bar ≤ 0.05)
+and SSIM 0.50–0.57 (bar ≥ 0.985).
+
+`scripts/check_vendor_golden_twins.py` (the `vendor-golden-twins` pre-commit hook) now fails a
+diff that modifies a neutral golden with a tracked vendor twin unless the twin changes in the same
+diff, adds a neutral golden to a family with vendor twins without adding its twin, or deletes a
+twin whose neutral golden stays. `scripts/vendor-golden-twin-waivers.txt` waives one golden's
+change with an entry pinned to its blob id; it never covers a deleted twin. Run against #1667's
+merge (`--base 415ff9428^1 --head 415ff9428`) it reports all 28 twins.
+
+It fails only in CI. The pre-commit job checks out the PR's merge commit at depth 2 and passes its
+first parent in `OLO_GOLDEN_TWIN_BASE`. Locally the hook diffs against the merge-base with
+`origin/master`, prints what it finds and exits 0. The `PreToolUse` push guard denies a push when
+any pre-commit hook fails, and the AMD rebake is dispatched from the pushed branch, so a local
+failure would make the rebake impossible to start.

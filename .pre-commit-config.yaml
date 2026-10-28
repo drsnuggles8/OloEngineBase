@@ -113,3 +113,20 @@ repos:
       language: system
       pass_filenames: false
       always_run: true
+
+    - id: vendor-golden-twins
+      name: a rebaked golden's vendor twin is rebaked too
+      description: >-
+        Fails if the branch modifies a golden under OloEditor/assets/tests/{visual,golden}/
+        while its vendor twin (e.g. visual/amd/<same name>) is unchanged and not waived in
+        scripts/vendor-golden-twin-waivers.txt. Only the AMD nightly reads the twin, so the
+        PR checks pass and the nightly fails after the merge (#1667 left 28 stale; issue
+        #1516). Fails only in CI, which sets $OLO_GOLDEN_TWIN_BASE; locally it diffs against
+        the merge-base with origin/master and only prints, so the push guard still lets a
+        branch out to dispatch its AMD rebake. Tests: scripts/test_vendor_golden_twins.py.
+        See docs/ops/self-hosted-gpu-runner.md.
+      entry: python scripts/check_vendor_golden_twins.py --hook
+      language: system
+      pass_filenames: false
+      always_run: true
+      verbose: true
