@@ -843,7 +843,7 @@ jobs:
       # the PNGs back. Upload them whenever a rebase was explicitly requested.
       - name: Upload rebaked baselines (rebase dispatch only)
         if: always() && (inputs.golden_rebase || inputs.perf_rebase)
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: gpu_amd_rebaked_baselines
           path: |
@@ -853,7 +853,7 @@ jobs:
 
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: gpu_amd_results
           path: |
@@ -866,7 +866,7 @@ jobs:
       # and diff images off the box so they can be inspected without SSH.
       - name: Upload golden-image diffs and visual evidence on failure
         if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: gpu_amd_golden_diffs
           path: |
