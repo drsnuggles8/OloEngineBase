@@ -108,11 +108,8 @@ namespace OloEngine::Audio::SoundGraph
             return m_CacheDirectory;
         }
 
-        void SetMaxCacheSize(sizet maxSize)
-        {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            m_MaxCacheSize = maxSize;
-        }
+        // Lowering the limit evicts least-recently-used entries immediately.
+        void SetMaxCacheSize(sizet maxSize);
 
         sizet GetMaxCacheSize() const
         {
@@ -156,6 +153,9 @@ namespace OloEngine::Audio::SoundGraph
         bool DeserializeResult(CompilationResult& result, const std::string& filePath) const;
         // Caller holds m_Mutex, including when saving before a directory switch.
         bool SaveToDiskLocked() const;
+        // Caller holds m_Mutex. StoreCompiled evicts one entry per insert, so a cache
+        // that a load or a lowered limit left over capacity must be trimmed here.
+        void EnforceMaxCacheSizeLocked();
 
         // Async save support
         void EnqueueSave(const CompilationResult& result, const std::string& filePath);

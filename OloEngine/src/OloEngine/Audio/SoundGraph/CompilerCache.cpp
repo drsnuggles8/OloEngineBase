@@ -411,7 +411,7 @@ namespace OloEngine::Audio::SoundGraph
 
         try
         {
-            sizet loadedCount = 0;
+            std::vector<CompilationResult> loaded;
 
             for (const auto& entry : std::filesystem::directory_iterator(m_CacheDirectory))
             {
@@ -420,21 +420,7 @@ namespace OloEngine::Audio::SoundGraph
                     CompilationResult result;
                     if (DeserializeResult(result, entry.path().string()))
                     {
-                        std::string key = GenerateCacheKey(result.m_SourcePath, result.m_CompilerVersion);
-                        m_CompiledResults[key] = std::make_shared<CompilationResult>(result);
-
-                        // A public reload can replace an entry already tracked in memory.
-                        if (auto orderIt = m_AccessOrderMap.find(key); orderIt != m_AccessOrderMap.end())
-                        {
-                            m_AccessOrder.erase(orderIt->second);
-                            m_AccessOrderMap.erase(orderIt);
-                        }
-
-                        // Initialize LRU tracking for loaded entries
-                        m_AccessOrder.push_back(key);
-                        m_AccessOrderMap[key] = std::prev(m_AccessOrder.end());
-
-                        ++loadedCount;
+                        loaded.push_back(std::move(result));
                     }
                     else
                     {
@@ -445,7 +431,31 @@ namespace OloEngine::Audio::SoundGraph
                 }
             }
 
-            OLO_CORE_INFO("CompilerCache: Loaded {} compiled results from disk", loadedCount);
+            // Directory order is arbitrary. Insert oldest compilations first so the
+            // newest end up most-recently-used and survive the capacity trim below.
+            std::ranges::stable_sort(loaded, {}, &CompilationResult::m_CompilationTime);
+
+            for (CompilationResult& result : loaded)
+            {
+                std::string key = GenerateCacheKey(result.m_SourcePath, result.m_CompilerVersion);
+                m_CompiledResults[key] = std::make_shared<CompilationResult>(std::move(result));
+
+                // A public reload can replace an entry already tracked in memory.
+                if (auto orderIt = m_AccessOrderMap.find(key); orderIt != m_AccessOrderMap.end())
+                {
+                    m_AccessOrder.erase(orderIt->second);
+                    m_AccessOrderMap.erase(orderIt);
+                }
+
+                // Initialize LRU tracking for loaded entries
+                m_AccessOrder.push_back(key);
+                m_AccessOrderMap[key] = std::prev(m_AccessOrder.end());
+            }
+
+            EnforceMaxCacheSizeLocked();
+
+            OLO_CORE_INFO("CompilerCache: Loaded {} compiled results from disk ({} kept within the {}-entry limit)",
+                          loaded.size(), m_CompiledResults.size(), m_MaxCacheSize);
             return true;
         }
         catch (const std::filesystem::filesystem_error& ex)
@@ -464,11 +474,34 @@ namespace OloEngine::Audio::SoundGraph
         return SaveToDiskLocked();
     }
 
+    void CompilerCache::SetMaxCacheSize(sizet maxSize)
+    {
+        TUniqueLock<FMutex> lock(m_Mutex);
+        m_MaxCacheSize = maxSize;
+        EnforceMaxCacheSizeLocked();
+    }
+
+    void CompilerCache::EnforceMaxCacheSizeLocked()
+    {
+        while (m_CompiledResults.size() > m_MaxCacheSize && !m_AccessOrder.empty())
+        {
+            const std::string& lruKey = m_AccessOrder.front();
+            m_CompiledResults.erase(lruKey);
+            m_AccessOrderMap.erase(lruKey);
+            m_AccessOrder.pop_front();
+        }
+    }
+
     bool CompilerCache::SaveToDiskLocked() const
     {
         try
         {
-            CreateCacheDirectory();
+            if (!CreateCacheDirectory())
+            {
+                OLO_CORE_ERROR("CompilerCache: Cannot save {} entries; cache directory '{}' is unavailable",
+                               m_CompiledResults.size(), m_CacheDirectory);
+                return false;
+            }
 
             sizet savedCount = 0;
             sizet failedCount = 0;
@@ -494,13 +527,11 @@ namespace OloEngine::Audio::SoundGraph
 
             if (failedCount > 0)
             {
-                OLO_CORE_INFO("CompilerCache: Saved {} compiled results to disk ({} failed)", savedCount, failedCount);
-            }
-            else
-            {
-                OLO_CORE_INFO("CompilerCache: Saved {} compiled results to disk", savedCount);
+                OLO_CORE_WARN("CompilerCache: Saved {} compiled results to disk ({} failed)", savedCount, failedCount);
+                return false;
             }
 
+            OLO_CORE_INFO("CompilerCache: Saved {} compiled results to disk", savedCount);
             return true;
         }
         catch (const std::filesystem::filesystem_error& ex)

@@ -374,3 +374,91 @@ TEST_F(SoundGraphCacheTest, CompilerCacheMaintenanceRemovalsResetEvictionState)
         EXPECT_NE(cache.GetCompiled(secondSource), nullptr);
     }
 }
+
+TEST_F(SoundGraphCacheTest, CompilerCacheLoadTrimsToTheLimitKeepingTheNewestCompilations)
+{
+    // Compilation times lie in the future so no entry reads as older than its source.
+    const auto now = std::chrono::system_clock::now();
+    const std::string oldest = MakeSourceFile("oldest.sgraph", "oldest");
+    const std::string middle = MakeSourceFile("middle.sgraph", "middle");
+    const std::string newest = MakeSourceFile("newest.sgraph", "newest");
+    const std::string fullDirectory = (m_TempDir / "full").string();
+    {
+        CompilerCache writer(fullDirectory);
+        writer.SetAutoSave(false);
+        CompilationResult result;
+        result.m_CompilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION;
+        result.m_IsValid = true;
+        // Insertion order differs from compilation order on purpose.
+        for (const auto& [source, hours] : { std::pair{ newest, 3 }, std::pair{ oldest, 1 }, std::pair{ middle, 2 } })
+        {
+            result.m_SourcePath = source;
+            result.m_CompilationTime = now + std::chrono::hours(hours);
+            writer.StoreCompiled(source, result);
+        }
+        ASSERT_TRUE(writer.SaveToDisk());
+    }
+
+    CompilerCache cache((m_TempDir / "empty").string());
+    cache.SetAutoSave(false);
+    cache.SetMaxCacheSize(2);
+    cache.SetCacheDirectory(fullDirectory);
+
+    ASSERT_EQ(cache.GetCacheSize(), 2u) << "a load must not leave the cache above its limit";
+    EXPECT_EQ(cache.GetCompiled(oldest), nullptr);
+    EXPECT_NE(cache.GetCompiled(middle), nullptr);
+    EXPECT_NE(cache.GetCompiled(newest), nullptr);
+
+    // Before the trim, one-per-insert eviction kept an over-full cache over capacity.
+    CompilationResult extra;
+    extra.m_SourcePath = MakeSourceFile("extra.sgraph", "extra");
+    extra.m_CompilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION;
+    extra.m_IsValid = true;
+    extra.m_CompilationTime = now + std::chrono::hours(4);
+    cache.StoreCompiled(extra.m_SourcePath, extra);
+    EXPECT_EQ(cache.GetCacheSize(), 2u);
+}
+
+TEST_F(SoundGraphCacheTest, CompilerCacheLoweringTheLimitEvictsLeastRecentlyUsedEntries)
+{
+    CompilerCache cache((m_TempDir / "compiler").string());
+    cache.SetAutoSave(false);
+
+    CompilationResult result;
+    result.m_CompilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION;
+    result.m_IsValid = true;
+    result.m_CompilationTime = std::chrono::system_clock::now() + std::chrono::hours(1);
+    const std::string first = MakeSourceFile("first.sgraph", "first");
+    const std::string second = MakeSourceFile("second.sgraph", "second");
+    const std::string third = MakeSourceFile("third.sgraph", "third");
+    for (const std::string& source : { first, second, third })
+    {
+        result.m_SourcePath = source;
+        cache.StoreCompiled(source, result);
+    }
+    // Touch the first entry so recency, not insertion order, decides the survivor.
+    ASSERT_NE(cache.GetCompiled(first), nullptr);
+
+    cache.SetMaxCacheSize(1);
+
+    EXPECT_EQ(cache.GetCacheSize(), 1u);
+    EXPECT_NE(cache.GetCompiled(first), nullptr);
+    EXPECT_EQ(cache.GetCompiled(second), nullptr);
+    EXPECT_EQ(cache.GetCompiled(third), nullptr);
+}
+
+TEST_F(SoundGraphCacheTest, CompilerCacheSaveReportsAnUnavailableDirectory)
+{
+    const std::string regularFile = MakeSourceFile("blocker", "not a directory");
+    CompilerCache cache((std::filesystem::path(regularFile) / "compiler").string());
+    cache.SetAutoSave(false);
+
+    CompilationResult result;
+    result.m_SourcePath = MakeSourceFile("graph.sgraph", "graph");
+    result.m_CompilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION;
+    result.m_IsValid = true;
+    result.m_CompilationTime = std::chrono::system_clock::now();
+    cache.StoreCompiled(result.m_SourcePath, result);
+
+    EXPECT_FALSE(cache.SaveToDisk()) << "nothing can be written when the cache directory cannot be created";
+}
