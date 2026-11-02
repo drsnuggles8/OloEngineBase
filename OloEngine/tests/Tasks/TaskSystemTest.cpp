@@ -27,6 +27,7 @@
 #include <thread>
 #include <chrono>
 #include <memory>
+#include <type_traits>
 
 using namespace OloEngine;
 using namespace OloEngine::Tasks;
@@ -126,6 +127,141 @@ TEST_F(TaskSystemTest, AsyncTaskFireAndForgetCompletesAndTearsDownCleanly)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
 
     EXPECT_EQ(ran->load(std::memory_order_relaxed), 1);
+}
+
+TEST_F(TaskSystemTest, DedicatedAsyncThreadsReturnWithNoSchedulerWorkers)
+{
+    auto& scheduler = LowLevelTasks::FScheduler::Get();
+    scheduler.StopWorkers();
+    struct RestoreWorkers
+    {
+        ~RestoreWorkers()
+        {
+            LowLevelTasks::FScheduler::Get().StartWorkers();
+        }
+    } restoreWorkers;
+
+    for (const bool useAsyncThread : { false, true })
+    {
+        SCOPED_TRACE(useAsyncThread ? "AsyncThread" : "Async(Thread)");
+        struct SharedState
+        {
+            FManualResetEvent AsyncReturned;
+            FManualResetEvent ReleaseCallable;
+            FManualResetEvent CallbackFinished;
+            std::atomic<bool> WatchdogReleasedCallable{ false };
+            std::atomic<u32> TaskExecutions{ 0 };
+            std::atomic<u32> CallbackExecutions{ 0 };
+        };
+        auto state = std::make_shared<SharedState>();
+
+        // Recover an inline-join deadlock without leaving a hung test process.
+        // This is a liveness budget, not a performance assertion: the callable
+        // cannot finish until its caller has received the future and releases it.
+        std::thread watchdog([state]
+                             {
+                                 if (!state->AsyncReturned.WaitFor(FMonotonicTimeSpan::FromSeconds(3.0)))
+                                 {
+                                     state->WatchdogReleasedCallable.store(true, std::memory_order_relaxed);
+                                     state->ReleaseCallable.Notify();
+                                 } });
+        auto work = [state]
+        {
+            Launch("DedicatedThreadTaskWithoutWorkers", [state]
+                   { state->TaskExecutions.fetch_add(1, std::memory_order_relaxed); })
+                .Wait();
+            state->ReleaseCallable.Wait();
+            return 37;
+        };
+        TUniqueFunction<void()> callback = [state]
+        {
+            state->CallbackExecutions.fetch_add(1, std::memory_order_relaxed);
+            state->CallbackFinished.Notify();
+        };
+        auto future = useAsyncThread ? AsyncThread(MoveTemp(work), 0, EThreadPriority::TPri_Normal, MoveTemp(callback))
+                                     : Async(EAsyncExecution::Thread, MoveTemp(work), MoveTemp(callback));
+
+        state->AsyncReturned.Notify();
+        state->ReleaseCallable.Notify();
+        watchdog.join();
+
+        EXPECT_FALSE(state->WatchdogReleasedCallable.load(std::memory_order_relaxed))
+            << "dedicated async launch must return without joining a callable that waits for its caller";
+        ASSERT_TRUE(future.WaitFor(FMonotonicTimeSpan::FromSeconds(3.0)));
+        EXPECT_EQ(future.Get(), 37);
+        ASSERT_TRUE(state->CallbackFinished.WaitFor(FMonotonicTimeSpan::FromSeconds(3.0)));
+        EXPECT_EQ(state->TaskExecutions.load(std::memory_order_relaxed), 1u);
+        EXPECT_EQ(state->CallbackExecutions.load(std::memory_order_relaxed), 1u);
+        EXPECT_EQ(scheduler.GetNumWorkers(), 0u);
+    }
+}
+
+namespace
+{
+    template<typename ResultType>
+    void CheckRejectedDedicatedThreadPreservesCallableAndPromise()
+    {
+        struct SharedState
+        {
+            u32 FactoryCalls = 0;
+            u32 WorkCalls = 0;
+            u32 CallbackCalls = 0;
+            u32 PayloadDestructions = 0;
+        };
+        auto state = std::make_shared<SharedState>();
+        auto destroyPayload = [state](i32* value)
+        {
+            ++state->PayloadDestructions;
+            delete value;
+        };
+        auto payload = std::unique_ptr<i32, decltype(destroyPayload)>(new i32(73), MoveTemp(destroyPayload));
+        TUniqueFunction<ResultType()> work = [state, payload = MoveTemp(payload)]() -> ResultType
+        {
+            ++state->WorkCalls;
+            EXPECT_EQ(*payload, 73);
+            if constexpr (!std::is_void_v<ResultType>)
+                return *payload;
+        };
+        TUniqueFunction<void()> callback = [state]
+        {
+            EXPECT_EQ(state->PayloadDestructions, 0u);
+            ++state->CallbackCalls;
+        };
+        TPromise<ResultType> promise;
+        auto originalFuture = promise.GetFuture();
+
+        // Substitute native thread creation only. This exercises the shared
+        // ownership/fallback boundary used by both public dedicated-thread APIs;
+        // HAL thread tests separately exercise actual OS initialization failure.
+        OloEngine::Private::LaunchAsyncThread(
+            MoveTemp(work), MoveTemp(promise), MoveTemp(callback),
+            "RejectedDedicatedThread", 0, EThreadPriority::TPri_Normal,
+            [state](FRunnable*, const char*, u32, EThreadPriority, u64, EThreadCreateFlags)
+            {
+                ++state->FactoryCalls;
+                return false;
+            });
+
+        ASSERT_TRUE(originalFuture.IsReady()) << "fallback must fulfill the original promise";
+        if constexpr (std::is_void_v<ResultType>)
+            originalFuture.Get();
+        else
+            EXPECT_EQ(originalFuture.Get(), 73);
+        EXPECT_EQ(state->FactoryCalls, FPlatformProcess::SupportsMultithreading() ? 1u : 0u);
+        EXPECT_EQ(state->WorkCalls, 1u);
+        EXPECT_EQ(state->CallbackCalls, 1u);
+        EXPECT_EQ(state->PayloadDestructions, 1u);
+    }
+} // namespace
+
+TEST_F(TaskSystemTest, DedicatedThreadStartFailurePreservesMoveOnlyResultCallable)
+{
+    CheckRejectedDedicatedThreadPreservesCallableAndPromise<i32>();
+}
+
+TEST_F(TaskSystemTest, DedicatedThreadStartFailurePreservesMoveOnlyVoidCallable)
+{
+    CheckRejectedDedicatedThreadPreservesCallableAndPromise<void>();
 }
 
 TEST_F(TaskSystemTest, LaunchAndWait)
@@ -1475,24 +1611,45 @@ TEST_F(WorkerRestartTest, RestartWorkersAndOversubscription)
     LowLevelTasks::FScheduler::Get().RestartWorkers();
 }
 
-// DISABLED: This test may deadlock in certain configurations - stress test for scheduler edge cases
-// Matches UE5.7's hidden test: [.][ApplicationContextMask][EngineFilter]
-TEST_F(WorkerRestartTest, DISABLED_RestartWorkersAndExternalThreads)
+TEST_F(WorkerRestartTest, RestartWorkersAndExternalThreads)
 {
     // Stress test RestartWorkers while having a thread trying to launch tasks on workers
-    std::atomic<bool> bExit = false;
-    FManualResetEvent Done;
+    struct SharedState
+    {
+        std::atomic<bool> Exit{ false };
+        std::atomic<u32> TaskExecutions{ 0 };
+        std::atomic<u32> CallbackExecutions{ 0 };
+        FManualResetEvent Started;
+        FManualResetEvent Done;
+        FManualResetEvent CallbackFinished;
+    };
+    auto state = std::make_shared<SharedState>();
+    struct ExitAndRestoreWorkers
+    {
+        std::shared_ptr<SharedState> State;
+        ~ExitAndRestoreWorkers()
+        {
+            State->Exit.store(true, std::memory_order_relaxed);
+            LowLevelTasks::FScheduler::Get().RestartWorkers();
+        }
+    } cleanup{ state };
 
     // Use Async(EAsyncExecution::Thread, ...) like UE5.7 does
-    Async(EAsyncExecution::Thread,
-          [&Done, &bExit]()
-          {
-              while (!bExit.load(std::memory_order_relaxed))
-              {
-                  Launch("ExternalTask", []() {}).Wait();
-              }
-              Done.Notify();
-          });
+    auto future = Async(EAsyncExecution::Thread, [state]()
+                        {
+                            while (!state->Exit.load(std::memory_order_relaxed))
+                            {
+                                Launch("ExternalTask", []() {}).Wait();
+                                state->TaskExecutions.fetch_add(1, std::memory_order_relaxed);
+                                state->Started.Notify();
+                            }
+                            state->Done.Notify(); }, [state]
+                        {
+                            state->CallbackExecutions.fetch_add(1, std::memory_order_relaxed);
+                            state->CallbackFinished.Notify(); });
+    ASSERT_TRUE(state->Started.WaitFor(FMonotonicTimeSpan::FromSeconds(5.0)))
+        << "external thread must execute real task work before the restart stress begins";
+    const u32 executionsBeforeRestarts = state->TaskExecutions.load(std::memory_order_relaxed);
 
     constexpr i32 NumIterations = 1000; // Match UE5.7's iteration count
 
@@ -1503,11 +1660,15 @@ TEST_F(WorkerRestartTest, DISABLED_RestartWorkersAndExternalThreads)
         LowLevelTasks::FScheduler::Get().RestartWorkers(0, 4);
     }
 
-    bExit = true;
-    Done.Wait();
-
-    // Restore original worker count
-    LowLevelTasks::FScheduler::Get().RestartWorkers();
+    EXPECT_GT(state->TaskExecutions.load(std::memory_order_relaxed), executionsBeforeRestarts)
+        << "external task work must continue while scheduler workers restart";
+    state->Exit.store(true, std::memory_order_relaxed);
+    ASSERT_TRUE(state->Done.WaitFor(FMonotonicTimeSpan::FromSeconds(5.0)));
+    ASSERT_TRUE(future.WaitFor(FMonotonicTimeSpan::FromSeconds(5.0)));
+    future.Get();
+    ASSERT_TRUE(state->CallbackFinished.WaitFor(FMonotonicTimeSpan::FromSeconds(5.0)));
+    EXPECT_GT(state->TaskExecutions.load(std::memory_order_relaxed), 0u);
+    EXPECT_EQ(state->CallbackExecutions.load(std::memory_order_relaxed), 1u);
 }
 
 TEST_F(WorkerRestartTest, BackgroundWithNormalAsPrereq)

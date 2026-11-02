@@ -70,6 +70,58 @@ namespace OloEngine
         return s_CurrentThread;
     }
 
+    bool FRunnableThread::CreateAutoDelete(
+        FRunnable* InRunnable,
+        const char* ThreadName,
+        u32 InStackSize,
+        EThreadPriority InThreadPri,
+        u64 InThreadAffinityMask,
+        EThreadCreateFlags InCreateFlags)
+    {
+        auto* NewThread = new FRunnableThread();
+        NewThread->m_AutoDelete = true;
+        NewThread->m_AutoDeleteReferences.store(1, std::memory_order_relaxed);
+        if (!NewThread->CreateInternal(InRunnable, ThreadName, InStackSize,
+                                       InThreadPri, InThreadAffinityMask, InCreateFlags))
+        {
+            NewThread->ReleaseAutoDeleteReference();
+            return false;
+        }
+
+        // The creator reference keeps an early-completed thread alive. Check
+        // running state under the registry lock so a reused OS id is not replaced.
+        FThreadManager::Get().AddThread(NewThread->GetThreadID(), NewThread, true);
+        NewThread->m_OwnsRunnable = true;
+        NewThread->ReleaseAutoDeleteReference();
+        return true;
+    }
+
+    void FRunnableThread::ReleaseAutoDeleteReference()
+    {
+        if (m_AutoDeleteReferences.fetch_sub(1, std::memory_order_acq_rel) != 1)
+            return;
+
+        FRunnable* OwnedRunnable = m_OwnsRunnable ? m_Runnable : nullptr;
+        if (m_HasNativeHandle && FPlatformTLS::GetCurrentThreadId() == m_ThreadID)
+        {
+            // The native entry point has finished every access to this object.
+            // Joining the current thread would deadlock; release its handle
+            // without waiting. A creator-side last release instead joins below.
+#ifdef OLO_PLATFORM_WINDOWS
+            ::CloseHandle(reinterpret_cast<HANDLE>(m_NativeHandle));
+#elif defined(OLO_PLATFORM_LINUX)
+            pthread_detach(static_cast<pthread_t>(m_NativeHandle));
+#endif
+            m_NativeHandle = 0;
+            m_HasNativeHandle = false;
+        }
+
+        // ~FRunnableThread calls Stop(), so the runnable stays alive through
+        // thread teardown and is deleted only after the registry entry is gone.
+        delete this;
+        delete OwnedRunnable;
+    }
+
     bool FRunnableThread::CreateInternal(
         FRunnable* InRunnable,
         const char* InThreadName,
@@ -91,6 +143,8 @@ namespace OloEngine
 #ifdef OLO_PLATFORM_WINDOWS
         // Use CreateThread on Windows to support stack size configuration
         // Stack size of 0 means use default (1MB on Windows)
+        if (m_AutoDelete)
+            m_AutoDeleteReferences.fetch_add(1, std::memory_order_relaxed);
         HANDLE Handle = ::CreateThread(
             nullptr,     // Default security attributes
             InStackSize, // Stack size (0 = default)
@@ -101,6 +155,8 @@ namespace OloEngine
                 Thread->m_ThreadID = FPlatformTLS::GetCurrentThreadId();
                 // Common thread initialization
                 Thread->ThreadEntryPoint();
+                if (Thread->m_AutoDelete)
+                    Thread->ReleaseAutoDeleteReference();
                 return 0;
             },
             this,   // Thread parameter
@@ -110,6 +166,8 @@ namespace OloEngine
 
         if (Handle == nullptr)
         {
+            if (m_AutoDelete)
+                ReleaseAutoDeleteReference();
             return false;
         }
 
@@ -188,6 +246,8 @@ namespace OloEngine
 
         // Create the thread
         pthread_t PosixThread{};
+        if (m_AutoDelete)
+            m_AutoDeleteReferences.fetch_add(1, std::memory_order_relaxed);
         int Result = pthread_create(
             &PosixThread,
             &Attr,
@@ -196,6 +256,8 @@ namespace OloEngine
                 FRunnableThread* Thread = static_cast<FRunnableThread*>(Param);
                 Thread->m_ThreadID = FPlatformTLS::GetCurrentThreadId();
                 Thread->ThreadEntryPoint();
+                if (Thread->m_AutoDelete)
+                    Thread->ReleaseAutoDeleteReference();
                 return nullptr;
             },
             this);
@@ -204,6 +266,8 @@ namespace OloEngine
 
         if (Result != 0)
         {
+            if (m_AutoDelete)
+                ReleaseAutoDeleteReference();
             return false;
         }
 

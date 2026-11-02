@@ -70,6 +70,19 @@ namespace OloEngine
             EThreadCreateFlags InCreateFlags = EThreadCreateFlags::None);
 
         /**
+         * Starts a thread which releases its runnable and native resources on completion.
+         * Ownership of InRunnable transfers only on success. On failure the caller
+         * retains it. No joinable thread pointer escapes this factory.
+         */
+        static bool CreateAutoDelete(
+            FRunnable* InRunnable,
+            const char* ThreadName,
+            u32 InStackSize = 0,
+            EThreadPriority InThreadPri = EThreadPriority::TPri_Normal,
+            u64 InThreadAffinityMask = 0,
+            EThreadCreateFlags InCreateFlags = EThreadCreateFlags::None);
+
+        /**
          * @brief Gets the current thread's FRunnableThread
          *
          * This uses TLS to retrieve the FRunnableThread* for the currently
@@ -205,6 +218,13 @@ namespace OloEngine
         FManualResetEvent m_InitEvent;
 
       private:
+        // The creator holds one reference until registration is complete. The
+        // native entry point holds another until all runnable/TLS access ends.
+        void ReleaseAutoDeleteReference();
+        bool m_AutoDelete = false;
+        bool m_OwnsRunnable = false;
+        std::atomic<u32> m_AutoDeleteReferences{ 0 };
+
         // TLS storage for current thread pointer
         static thread_local FRunnableThread* s_CurrentThread;
     };
