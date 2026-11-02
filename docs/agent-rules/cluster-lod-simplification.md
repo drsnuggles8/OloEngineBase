@@ -17,7 +17,7 @@ Specifics of `Renderer/VirtualGeometry/VirtualMeshBuilder.cpp` and the meshoptim
 11. **Instrument both sides of an A/B.** Stash the change selectively, leaving instrumentation applied to both. [Details](cluster-lod-simplification-details.md#5-measuring-a-builder-change)
 12. **Do not delete or repoint the `xyzrgb_dragon.ply` registry entry.** It is fetch-on-demand (137 MB, 7.2M triangles) per `scripts/assets/asset-manifest.json`, fetched with `scripts/Fetch-Assets.ps1 -Name xyzrgb-dragon`; `AssetContentValidityTest` allowlists it on purpose and `VirtualGeometryStress.olo` places 24 of them. Check the manifest before calling a registry entry dead. [Details](cluster-lod-simplification-details.md#5-measuring-a-builder-change)
 13. **Revert `AssetRegistry.oar` and any patched `.oloproj` after an editor run.** The editor rewrites the registry as a side effect. [Details](cluster-lod-simplification-details.md#5-measuring-a-builder-change)
-14. **Bump `kVirtualMeshBuilderVersion` when geometry changes, and mix every new `VirtualMeshBuildConfig` field into `CurrentCookFingerprint()`.** Together they reject a stale `.omesh`. [Details](cluster-lod-simplification-details.md#5-measuring-a-builder-change)
+14. **Bump `kVirtualMeshBuilderVersion` when geometry changes, and mix every new `VirtualMeshBuildConfig` field into `CurrentCookFingerprint()`.** Together they reject a stale `.omesh`; the linked meshoptimizer version is mixed in already, so a dependency bump needs no builder bump. [Details](cluster-lod-simplification-details.md#5-measuring-a-builder-change)
 
 ## Commands and checks
 

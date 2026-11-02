@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
 
 #include <glm/geometric.hpp>
+#include <meshoptimizer.h>
 
 #include <algorithm>
 #include <cmath>
@@ -659,6 +660,11 @@ namespace OloEngine
 
         u32 CurrentCookFingerprint()
         {
+            return CookFingerprintForSimplifier(MESHOPTIMIZER_VERSION);
+        }
+
+        u32 CookFingerprintForSimplifier(u32 meshoptimizerVersion)
+        {
             // FNV-1a over the builder version and each config field individually (never the
             // raw struct — padding bytes would make the fingerprint non-deterministic).
             constexpr VirtualMeshBuildConfig kDefaults{};
@@ -679,6 +685,11 @@ namespace OloEngine
             };
 
             mix(kVirtualMeshBuilderVersion);
+            // The DAG is meshoptimizer's output as much as the builder's: 1.3 changed
+            // permissive simplification's border handling and collapse scoring, which every
+            // default cook uses, with no builder change at all. A dependency bump must
+            // invalidate caches the same way a builder change does.
+            mix(meshoptimizerVersion);
             mix(kDefaults.MaxClusterVertices);
             mix(kDefaults.MaxClusterTriangles);
             mix(kDefaults.MinClusterTriangles);

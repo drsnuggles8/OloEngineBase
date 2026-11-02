@@ -25,6 +25,8 @@
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMesh.h"
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshBuilder.h"
 
+#include <meshoptimizer.h>
+
 #include <cstring>
 #include <span>
 #include <vector>
@@ -157,5 +159,15 @@ namespace OloEngine::Tests
         // ...and not a degenerate constant.
         EXPECT_NE(VirtualMeshSerializer::CurrentCookFingerprint(), 0u);
         EXPECT_NE(VirtualMeshSerializer::CurrentCookFingerprint(), kVirtualMeshBuilderVersion);
+    }
+
+    TEST(VirtualMeshCookIdentity, FingerprintCoversTheLinkedSimplifierVersion)
+    {
+        // A meshoptimizer bump changes the DAG with no builder change (1.2 -> 1.3 reworked
+        // permissive simplification), so a cache cooked by another simplifier must not match.
+        EXPECT_EQ(VirtualMeshSerializer::CurrentCookFingerprint(),
+                  VirtualMeshSerializer::CookFingerprintForSimplifier(MESHOPTIMIZER_VERSION));
+        EXPECT_NE(VirtualMeshSerializer::CookFingerprintForSimplifier(1020),
+                  VirtualMeshSerializer::CookFingerprintForSimplifier(1030));
     }
 } // namespace OloEngine::Tests

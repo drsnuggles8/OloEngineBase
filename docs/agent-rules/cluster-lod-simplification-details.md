@@ -169,4 +169,6 @@ line looks obviously correct.
   you patched to change `StartScene`.
 - Bumping `kVirtualMeshBuilderVersion` is **not** optional when geometry changes, and any new
   `VirtualMeshBuildConfig` field must be mixed into `CurrentCookFingerprint()` — the two together
-  are what reject a stale `.omesh`.
+  are what reject a stale `.omesh`. The fingerprint also mixes the linked `MESHOPTIMIZER_VERSION`
+  (#1673): meshoptimizer 1.3 changed permissive simplification with no builder change, so a
+  vcpkg bump of meshoptimizer invalidates every cook on its own, with no version bump needed.
