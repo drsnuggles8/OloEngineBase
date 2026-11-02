@@ -7707,9 +7707,9 @@ namespace OloEngine
             bodyDef.type = Rigidbody2DTypeToBox2DBody(rb2d.Type);
             bodyDef.position = { transform.Translation.x, transform.Translation.y };
             bodyDef.rotation = b2MakeRot(transform.GetRotationEuler().z);
+            bodyDef.motionLocks.angularZ = rb2d.FixedRotation;
 
             b2BodyId body = b2CreateBody(m_PhysicsWorld, &bodyDef);
-            b2Body_SetFixedRotation(body, rb2d.FixedRotation);
             rb2d.RuntimeBody = body;
 
             // Apply persisted velocities (non-zero after a save/load cycle)
