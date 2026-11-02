@@ -82,11 +82,9 @@ namespace OloEngine
         u32 Run() override
         {
             SetPromise(m_Promise, m_Function);
-
-            // Mark as complete so the thread can be cleaned up
             m_Complete.store(true, std::memory_order_release);
 
-            // Publish the result before completion. The callback runs on this
+            // The result is already published. The callback runs on this
             // dedicated thread (or the caller on synchronous startup fallback),
             // while the callable's captures are still alive. It never needs a
             // scheduler worker to make progress.
@@ -107,21 +105,10 @@ namespace OloEngine
             return m_Complete.load(std::memory_order_acquire);
         }
 
-        void SetThread(FRunnableThread* InThread)
-        {
-            m_Thread = InThread;
-        }
-
-        FRunnableThread* GetThread() const
-        {
-            return m_Thread;
-        }
-
       private:
         TUniqueFunction<ResultType()> m_Function;
         TPromise<ResultType> m_Promise;
         TUniqueFunction<void()> m_CompletionCallback;
-        FRunnableThread* m_Thread = nullptr;
         std::atomic<bool> m_Complete{ false };
     };
 
