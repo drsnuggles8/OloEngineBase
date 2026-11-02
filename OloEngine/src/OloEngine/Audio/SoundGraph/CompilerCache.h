@@ -12,8 +12,6 @@
 #include <vector>
 #include <unordered_map>
 #include <list>
-#include <queue>
-#include <condition_variable>
 #include <atomic>
 
 // Default compiler version - can be overridden at compile time
@@ -156,15 +154,10 @@ namespace OloEngine::Audio::SoundGraph
         // Serialization
         bool SerializeResult(const CompilationResult& result, const std::string& filePath) const;
         bool DeserializeResult(CompilationResult& result, const std::string& filePath) const;
+        // Caller holds m_Mutex, including when saving before a directory switch.
+        bool SaveToDiskLocked() const;
 
         // Async save support
-        struct SaveTask
-        {
-            CompilationResult m_Result;
-            std::string m_FilePath;
-        };
-
-        void AsyncSaveWorker() const;
         void EnqueueSave(const CompilationResult& result, const std::string& filePath);
         void ShutdownAsyncSaver();
 
@@ -190,8 +183,6 @@ namespace OloEngine::Audio::SoundGraph
         std::string m_InitializationErrors;
 
         // Async save worker (using Task System)
-        std::queue<SaveTask> m_SaveQueue;
-        FMutex m_SaveQueueMutex;
         std::atomic<bool> m_ShuttingDown{ false };
         std::atomic<u32> m_ActiveSaveTasks{ 0 };
 

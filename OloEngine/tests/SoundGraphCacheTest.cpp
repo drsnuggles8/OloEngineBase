@@ -32,7 +32,10 @@
 
 #include <filesystem>
 #include <fstream>
+#include <future>
+#include <memory>
 #include <string>
+#include <thread>
 
 using namespace OloEngine;                    // NOLINT(google-build-using-namespace)
 using namespace OloEngine::Audio::SoundGraph; // NOLINT(google-build-using-namespace)
@@ -203,4 +206,171 @@ TEST_F(SoundGraphCacheTest, CompilerCacheRejectsALengthLongerThanTheFile)
     EXPECT_EQ(reader.GetCompiled(source).get(), nullptr);
     EXPECT_EQ(capture.Count("declares a string longer than the file"), 1u)
         << "the entry must be refused by the length bound, not by a failed allocation or a short read";
+}
+
+TEST_F(SoundGraphCacheTest, CompilerCacheDirectorySwitchSavesThePreviousCacheWithoutDeadlocking)
+{
+    const std::string originalDirectory = (m_TempDir / "original").string();
+    const std::string nextDirectory = (m_TempDir / "next").string();
+    const std::string source = MakeSourceFile("graph.sgraph", "graph");
+
+    CompilationResult result;
+    result.m_SourcePath = source;
+    result.m_CompilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION;
+    result.m_CompiledData = { 1, 2, 3, 4 };
+    result.m_IsValid = true;
+    result.m_CompilationTime = std::chrono::system_clock::now();
+
+    auto cache = std::make_shared<CompilerCache>(originalDirectory);
+    cache->SetAutoSave(false);
+    cache->StoreCompiled(source, result);
+    cache->SetAutoSave(true);
+
+    // Keep all worker state alive if a regression parks inside the non-recursive
+    // cache mutex. A detached thread lets the failing process exit after the
+    // liveness budget instead of hanging while a future/thread destructor joins.
+    auto switched = std::make_shared<std::promise<void>>();
+    auto completed = switched->get_future();
+    std::thread worker([cache, nextDirectory, switched]
+                       {
+                           cache->SetCacheDirectory(nextDirectory);
+                           switched->set_value(); });
+    worker.detach();
+    ASSERT_EQ(completed.wait_for(std::chrono::seconds(5)), std::future_status::ready)
+        << "SetCacheDirectory must not call a self-locking SaveToDisk while holding m_Mutex";
+    completed.get();
+
+    EXPECT_EQ(cache->GetCacheDirectory(), nextDirectory);
+    EXPECT_EQ(cache->GetCacheSize(), 0u);
+
+    // Returning without saving would avoid the deadlock but lose the old cache.
+    CompilerCache original(originalDirectory);
+    original.SetAutoSave(false);
+    ASSERT_EQ(original.GetCacheSize(), 1u);
+    const auto restored = original.GetCompiled(source);
+    ASSERT_NE(restored, nullptr);
+    EXPECT_EQ(restored->m_CompiledData, result.m_CompiledData);
+}
+
+TEST_F(SoundGraphCacheTest, CompilerCacheDirectorySwitchResetsEvictionState)
+{
+    CompilerCache cache((m_TempDir / "original").string());
+    cache.SetAutoSave(false);
+    cache.SetMaxCacheSize(1);
+
+    const std::string oldSource = MakeSourceFile("old.sgraph", "old");
+    const std::string firstSource = MakeSourceFile("first.sgraph", "first");
+    const std::string secondSource = MakeSourceFile("second.sgraph", "second");
+    CompilationResult result;
+    result.m_CompilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION;
+    result.m_IsValid = true;
+    result.m_CompilationTime = std::chrono::system_clock::now();
+
+    result.m_SourcePath = oldSource;
+    cache.StoreCompiled(oldSource, result);
+    cache.SetCacheDirectory((m_TempDir / "next").string());
+    ASSERT_EQ(cache.GetCacheSize(), 0u);
+
+    result.m_SourcePath = firstSource;
+    cache.StoreCompiled(firstSource, result);
+    result.m_SourcePath = secondSource;
+    cache.StoreCompiled(secondSource, result);
+
+    EXPECT_EQ(cache.GetCacheSize(), 1u) << "old-directory LRU keys must not consume an eviction";
+    EXPECT_EQ(cache.GetCompiled(firstSource), nullptr);
+    EXPECT_NE(cache.GetCompiled(secondSource), nullptr);
+}
+
+TEST_F(SoundGraphCacheTest, CompilerCacheReloadDoesNotDuplicateEvictionState)
+{
+    CompilerCache cache((m_TempDir / "compiler").string());
+    cache.SetAutoSave(false);
+    cache.SetMaxCacheSize(2);
+
+    CompilationResult result;
+    result.m_CompilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION;
+    result.m_IsValid = true;
+    for (const char* name : { "first.sgraph", "second.sgraph" })
+    {
+        result.m_SourcePath = MakeSourceFile(name, "graph");
+        result.m_CompilationTime = std::chrono::system_clock::now();
+        cache.StoreCompiled(result.m_SourcePath, result);
+    }
+    ASSERT_TRUE(cache.SaveToDisk());
+    ASSERT_TRUE(cache.LoadFromDisk());
+    ASSERT_EQ(cache.GetCacheSize(), 2u);
+
+    // Three evictions traverse beyond the original two keys. Duplicate LRU
+    // nodes left by a reload would evict an absent key and exceed the limit.
+    for (const char* name : { "third.sgraph", "fourth.sgraph", "fifth.sgraph" })
+    {
+        result.m_SourcePath = MakeSourceFile(name, "graph");
+        result.m_CompilationTime = std::chrono::system_clock::now();
+        cache.StoreCompiled(result.m_SourcePath, result);
+        EXPECT_EQ(cache.GetCacheSize(), 2u) << name;
+    }
+    EXPECT_NE(cache.GetCompiled((m_TempDir / "fourth.sgraph").string()), nullptr);
+    EXPECT_NE(cache.GetCompiled((m_TempDir / "fifth.sgraph").string()), nullptr);
+}
+
+TEST_F(SoundGraphCacheTest, CompilerCacheReportsDiskInitializationFailures)
+{
+    const std::string regularFile = MakeSourceFile("blocker", "not a directory");
+
+    // Directory creation reports failure internally when a parent is a file.
+    // The constructor must retain that return value instead of claiming success.
+    CompilerCache blocked((std::filesystem::path(regularFile) / "compiler").string());
+    blocked.SetAutoSave(false);
+    EXPECT_FALSE(blocked.IsDirectoryInitialized());
+    EXPECT_FALSE(blocked.IsFullyInitialized());
+    EXPECT_FALSE(blocked.GetInitializationErrors().empty());
+
+    // Loading an existing regular file as a directory fails inside LoadFromDisk.
+    CompilerCache unreadable(regularFile);
+    unreadable.SetAutoSave(false);
+    EXPECT_FALSE(unreadable.IsDirectoryInitialized());
+    EXPECT_FALSE(unreadable.IsDiskCacheLoaded());
+    EXPECT_FALSE(unreadable.IsFullyInitialized());
+    EXPECT_FALSE(unreadable.GetInitializationErrors().empty());
+}
+
+TEST_F(SoundGraphCacheTest, CompilerCacheMaintenanceRemovalsResetEvictionState)
+{
+    for (const bool cleanupExpired : { false, true })
+    {
+        const std::string label = cleanupExpired ? "expired" : "missing";
+        SCOPED_TRACE(label);
+        CompilerCache cache((m_TempDir / label).string());
+        cache.SetAutoSave(false);
+        cache.SetMaxCacheSize(1);
+
+        CompilationResult result;
+        result.m_SourcePath = MakeSourceFile(label + ".sgraph", "graph");
+        result.m_CompilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION;
+        result.m_IsValid = true;
+        result.m_CompilationTime = std::chrono::system_clock::now() - std::chrono::hours(48);
+        cache.StoreCompiled(result.m_SourcePath, result);
+        if (cleanupExpired)
+        {
+            cache.CleanupOldEntries(std::chrono::hours(24));
+        }
+        else
+        {
+            ASSERT_TRUE(std::filesystem::remove(result.m_SourcePath));
+            cache.ValidateAllEntries();
+        }
+        ASSERT_EQ(cache.GetCacheSize(), 0u);
+
+        const std::string firstSource = MakeSourceFile(label + "_first.sgraph", "first");
+        const std::string secondSource = MakeSourceFile(label + "_second.sgraph", "second");
+        result.m_CompilationTime = std::chrono::system_clock::now();
+        result.m_SourcePath = firstSource;
+        cache.StoreCompiled(firstSource, result);
+        result.m_SourcePath = secondSource;
+        cache.StoreCompiled(secondSource, result);
+
+        EXPECT_EQ(cache.GetCacheSize(), 1u) << "removed entries must not consume later evictions";
+        EXPECT_EQ(cache.GetCompiled(firstSource), nullptr);
+        EXPECT_NE(cache.GetCompiled(secondSource), nullptr);
+    }
 }

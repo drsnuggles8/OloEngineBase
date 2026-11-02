@@ -3,8 +3,7 @@ name: Live acceptance sampler tests
 on:
   pull_request:
     paths:
-      - 'scripts/perf/acceptance-live.py'
-      - 'scripts/perf/test_acceptance_live.py'
+      - 'scripts/perf/**'
       - '.github/workflows/acceptance-live-tests.yml'
 
 permissions:
@@ -22,4 +21,7 @@ jobs:
         with:
           python-version: '3.10'
       - run: python -m pip install PyYAML==6.0.2
-      - run: python -m unittest discover -s scripts/perf -p 'test_acceptance_live.py' -v
+      # The acceptance, foliage and streaming drivers share capture helpers with
+      # the live sampler. Keep their verdict and contention regression tests in
+      # this gate too, including when a shared helper changes.
+      - run: python -m unittest discover -s scripts/perf -p 'test_*.py' -v

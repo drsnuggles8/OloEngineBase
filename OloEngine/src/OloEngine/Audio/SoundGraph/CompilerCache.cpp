@@ -21,9 +21,15 @@ namespace OloEngine::Audio::SoundGraph
         // Initialize directory creation with enhanced error handling
         try
         {
-            CreateCacheDirectory();
-            m_DirectoryInitialized = true;
-            OLO_CORE_INFO("CompilerCache: Successfully created/verified cache directory '{}'", m_CacheDirectory);
+            m_DirectoryInitialized = CreateCacheDirectory();
+            if (m_DirectoryInitialized)
+            {
+                OLO_CORE_INFO("CompilerCache: Successfully created/verified cache directory '{}'", m_CacheDirectory);
+            }
+            else
+            {
+                m_InitializationErrors += "Failed to create cache directory; ";
+            }
         }
         catch (const std::filesystem::filesystem_error& ex)
         {
@@ -53,9 +59,15 @@ namespace OloEngine::Audio::SoundGraph
         // Initialize disk cache loading with enhanced error handling
         try
         {
-            LoadFromDisk();
-            m_DiskCacheLoaded = true;
-            OLO_CORE_INFO("CompilerCache: Successfully loaded {} entries from disk", m_CompiledResults.size());
+            m_DiskCacheLoaded = LoadFromDisk();
+            if (m_DiskCacheLoaded)
+            {
+                OLO_CORE_INFO("CompilerCache: Successfully loaded {} entries from disk", m_CompiledResults.size());
+            }
+            else
+            {
+                m_InitializationErrors += "Failed to load disk cache; ";
+            }
         }
         catch (const std::filesystem::filesystem_error& ex)
         {
@@ -411,6 +423,13 @@ namespace OloEngine::Audio::SoundGraph
                         std::string key = GenerateCacheKey(result.m_SourcePath, result.m_CompilerVersion);
                         m_CompiledResults[key] = std::make_shared<CompilationResult>(result);
 
+                        // A public reload can replace an entry already tracked in memory.
+                        if (auto orderIt = m_AccessOrderMap.find(key); orderIt != m_AccessOrderMap.end())
+                        {
+                            m_AccessOrder.erase(orderIt->second);
+                            m_AccessOrderMap.erase(orderIt);
+                        }
+
                         // Initialize LRU tracking for loaded entries
                         m_AccessOrder.push_back(key);
                         m_AccessOrderMap[key] = std::prev(m_AccessOrder.end());
@@ -442,6 +461,11 @@ namespace OloEngine::Audio::SoundGraph
 
         TUniqueLock<FMutex> Lock(m_Mutex);
 
+        return SaveToDiskLocked();
+    }
+
+    bool CompilerCache::SaveToDiskLocked() const
+    {
         try
         {
             CreateCacheDirectory();
@@ -525,6 +549,11 @@ namespace OloEngine::Audio::SoundGraph
         for (const std::string& key : invalidKeys)
         {
             m_CompiledResults.erase(key);
+            if (auto orderIt = m_AccessOrderMap.find(key); orderIt != m_AccessOrderMap.end())
+            {
+                m_AccessOrder.erase(orderIt->second);
+                m_AccessOrderMap.erase(orderIt);
+            }
         }
 
         if (!invalidKeys.empty())
@@ -553,6 +582,11 @@ namespace OloEngine::Audio::SoundGraph
         for (const std::string& key : oldKeys)
         {
             m_CompiledResults.erase(key);
+            if (auto orderIt = m_AccessOrderMap.find(key); orderIt != m_AccessOrderMap.end())
+            {
+                m_AccessOrder.erase(orderIt->second);
+                m_AccessOrderMap.erase(orderIt);
+            }
         }
 
         if (!oldKeys.empty())
@@ -633,7 +667,7 @@ namespace OloEngine::Audio::SoundGraph
                 // Save current cache before switching
                 if (m_AutoSave && !m_CompiledResults.empty())
                 {
-                    SaveToDisk();
+                    SaveToDiskLocked();
                 }
 
                 m_CacheDirectory = directory;
@@ -641,6 +675,8 @@ namespace OloEngine::Audio::SoundGraph
 
                 // Clear in-memory cache and reload from new directory
                 m_CompiledResults.clear();
+                m_AccessOrder.clear();
+                m_AccessOrderMap.clear();
             }
         } // Lock is released here
 
@@ -710,6 +746,11 @@ namespace OloEngine::Audio::SoundGraph
             if (!std::filesystem::exists(m_CacheDirectory))
             {
                 std::filesystem::create_directories(m_CacheDirectory);
+            }
+            if (!std::filesystem::is_directory(m_CacheDirectory))
+            {
+                OLO_CORE_ERROR("CompilerCache: Cache path '{}' is not a directory", m_CacheDirectory);
+                return false;
             }
             return true;
         }
@@ -1151,13 +1192,6 @@ namespace OloEngine::Audio::SoundGraph
                        result.m_SourcePath, m_ActiveSaveTasks.load(std::memory_order_relaxed));
     }
 
-    void CompilerCache::AsyncSaveWorker() const
-    {
-        // NOTE: This method is no longer used. Async saves are now handled via Tasks::Launch() in EnqueueSave().
-        // Kept for API compatibility but should never be called.
-        OLO_CORE_ASSERT(false, "CompilerCache::AsyncSaveWorker should not be called - using Task System instead");
-    }
-
     void CompilerCache::ShutdownAsyncSaver()
     {
         OLO_PROFILE_FUNCTION();
@@ -1179,21 +1213,6 @@ namespace OloEngine::Audio::SoundGraph
             while (m_ActiveSaveTasks.load(std::memory_order_acquire) > 0)
             {
                 std::this_thread::yield();
-            }
-        }
-
-        // Check if any tasks were left in the queue (shouldn't happen with Task System)
-        {
-            TUniqueLock<FMutex> Lock(m_SaveQueueMutex);
-            if (!m_SaveQueue.empty())
-            {
-                OLO_CORE_WARN("CompilerCache: {} save tasks were not processed during shutdown",
-                              m_SaveQueue.size());
-                // Clear the queue since we're using Task System now (tasks are already launched)
-                while (!m_SaveQueue.empty())
-                {
-                    m_SaveQueue.pop();
-                }
             }
         }
 
