@@ -36,6 +36,11 @@ namespace OloEngine
         // file?" before it decides which importer to run (issue #1272).
         static constexpr const char* kCachePrefix = "anim_";
 
+        // This route's Assimp post-process steps and importer settings. Public so a test
+        // can check what the route imports without the GL context LoadModel needs.
+        [[nodiscard]] static u32 ImportFlags();
+        static void ConfigureImporter(Assimp::Importer& importer);
+
         AnimatedModel() = default;
         AnimatedModel(const std::string& path);
         ~AnimatedModel() = default;

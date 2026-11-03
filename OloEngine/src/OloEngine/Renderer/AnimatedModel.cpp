@@ -570,6 +570,16 @@ namespace OloEngine
 
     } // anonymous namespace
 
+    u32 AnimatedModel::ImportFlags()
+    {
+        return kAnimatedImportFlags;
+    }
+
+    void AnimatedModel::ConfigureImporter(Assimp::Importer& importer)
+    {
+        ConfigureAnimatedImporter(importer);
+    }
+
     AnimatedModel::AnimatedModel(const std::string& path)
     {
         LoadModel(path);
