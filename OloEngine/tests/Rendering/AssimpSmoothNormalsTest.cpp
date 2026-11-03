@@ -39,8 +39,7 @@ namespace OloEngine::Tests
             }
 
             // Each side as a quad of corner indices in order around it.
-            constexpr std::array<std::array<u32, 4>, 6> sides = { { { 0, 1, 3, 2 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 },
-                                                                   { 2, 3, 7, 6 }, { 0, 2, 6, 4 }, { 1, 3, 7, 5 } } };
+            constexpr std::array<std::array<u32, 4>, 6> sides = { { { 0, 1, 3, 2 }, { 4, 5, 7, 6 }, { 0, 1, 5, 4 }, { 2, 3, 7, 6 }, { 0, 2, 6, 4 }, { 1, 3, 7, 5 } } };
             mesh.mNumFaces = 12;
             mesh.mFaces = new aiFace[12];
             u32 face = 0;

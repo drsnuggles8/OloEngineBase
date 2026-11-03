@@ -71,7 +71,8 @@ namespace OloEngine
         {
             const aiFace& face = mesh.mFaces[f];
             if (face.mNumIndices < 3 ||
-                !std::all_of(face.mIndices, face.mIndices + face.mNumIndices, [&](u32 i) { return i < vertexCount; }))
+                !std::all_of(face.mIndices, face.mIndices + face.mNumIndices, [&](u32 i)
+                             { return i < vertexCount; }))
             {
                 continue;
             }
@@ -150,7 +151,8 @@ namespace OloEngine
                 if (SameNormal(normals[vertex], normal))
                     continue;
                 std::vector<u32>& copies = copiesOf[vertex];
-                const auto copy = std::ranges::find_if(copies, [&](u32 c) { return SameNormal(normals[c], normal); });
+                const auto copy = std::ranges::find_if(copies, [&](u32 c)
+                                                       { return SameNormal(normals[c], normal); });
                 if (copy != copies.end())
                 {
                     face.mIndices[k] = *copy;
