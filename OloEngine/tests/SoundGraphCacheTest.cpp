@@ -462,3 +462,54 @@ TEST_F(SoundGraphCacheTest, CompilerCacheSaveReportsAnUnavailableDirectory)
 
     EXPECT_FALSE(cache.SaveToDisk()) << "nothing can be written when the cache directory cannot be created";
 }
+
+TEST_F(SoundGraphCacheTest, CompilerCacheDirectorySwitchKeepsEntriesItCouldNotSave)
+{
+    const std::string regularFile = MakeSourceFile("blocker", "not a directory");
+    const std::string unwritable = (std::filesystem::path(regularFile) / "compiler").string();
+    CompilerCache cache(unwritable);
+    cache.SetAutoSave(true);
+
+    CompilationResult result;
+    result.m_SourcePath = MakeSourceFile("graph.sgraph", "graph");
+    result.m_CompilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION;
+    result.m_IsValid = true;
+    result.m_CompilationTime = std::chrono::system_clock::now() + std::chrono::hours(1);
+    cache.StoreCompiled(result.m_SourcePath, result);
+
+    EXPECT_FALSE(cache.SetCacheDirectory((m_TempDir / "next").string()));
+    EXPECT_EQ(cache.GetCacheDirectory(), unwritable);
+    EXPECT_NE(cache.GetCompiled(result.m_SourcePath), nullptr) << "the only copy of an unsaved entry must survive";
+}
+
+TEST_F(SoundGraphCacheTest, CompilerCacheLoadSkipsStaleEntriesBeforeTrimming)
+{
+    const auto now = std::chrono::system_clock::now();
+    const std::string usable = MakeSourceFile("usable.sgraph", "usable");
+    const std::string stale = MakeSourceFile("stale.sgraph", "stale");
+    const std::string fullDirectory = (m_TempDir / "full").string();
+    {
+        CompilerCache writer(fullDirectory);
+        writer.SetAutoSave(false);
+        CompilationResult result;
+        result.m_CompilerVersion = OLO_SOUND_GRAPH_COMPILER_VERSION;
+        result.m_IsValid = true;
+        for (const auto& [source, hours] : { std::pair{ usable, 1 }, std::pair{ stale, 2 } })
+        {
+            result.m_SourcePath = source;
+            result.m_CompilationTime = now + std::chrono::hours(hours);
+            writer.StoreCompiled(source, result);
+        }
+        ASSERT_TRUE(writer.SaveToDisk());
+    }
+    // The newer compilation's source was edited after it, so GetCompiled would reject it.
+    std::filesystem::last_write_time(stale, std::filesystem::file_time_type::clock::now() + std::chrono::hours(3));
+
+    CompilerCache cache((m_TempDir / "empty").string());
+    cache.SetAutoSave(false);
+    cache.SetMaxCacheSize(1);
+    ASSERT_TRUE(cache.SetCacheDirectory(fullDirectory));
+
+    EXPECT_EQ(cache.GetCacheSize(), 1u);
+    EXPECT_NE(cache.GetCompiled(usable), nullptr) << "a stale entry must not evict a usable one";
+}

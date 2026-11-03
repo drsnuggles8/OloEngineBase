@@ -101,7 +101,9 @@ namespace OloEngine::Audio::SoundGraph
         void LogStatistics() const;
 
         /// Configuration
-        void SetCacheDirectory(const std::string& directory);
+        // False when the current entries could not be saved first (the cache then keeps
+        // its directory and entries) or the new directory failed to load.
+        bool SetCacheDirectory(const std::string& directory);
         std::string GetCacheDirectory() const
         {
             TUniqueLock<FMutex> lock(m_Mutex);

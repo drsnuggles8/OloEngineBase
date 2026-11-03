@@ -412,6 +412,7 @@ namespace OloEngine::Audio::SoundGraph
         try
         {
             std::vector<CompilationResult> loaded;
+            sizet skippedCount = 0;
 
             for (const auto& entry : std::filesystem::directory_iterator(m_CacheDirectory))
             {
@@ -420,6 +421,13 @@ namespace OloEngine::Audio::SoundGraph
                     CompilationResult result;
                     if (DeserializeResult(result, entry.path().string()))
                     {
+                        // GetCompiled would reject these, so they must not take a slot
+                        // (and evict a usable entry) in the capacity trim below.
+                        if (!result.m_IsValid || IsSourceNewer(result.m_SourcePath, result))
+                        {
+                            ++skippedCount;
+                            continue;
+                        }
                         loaded.push_back(std::move(result));
                     }
                     else
@@ -454,8 +462,8 @@ namespace OloEngine::Audio::SoundGraph
 
             EnforceMaxCacheSizeLocked();
 
-            OLO_CORE_INFO("CompilerCache: Loaded {} compiled results from disk ({} kept within the {}-entry limit)",
-                          loaded.size(), m_CompiledResults.size(), m_MaxCacheSize);
+            OLO_CORE_INFO("CompilerCache: Loaded {} compiled results from disk ({} kept within the {}-entry limit, {} invalid or stale skipped)",
+                          loaded.size(), m_CompiledResults.size(), m_MaxCacheSize, skippedCount);
             return true;
         }
         catch (const std::filesystem::filesystem_error& ex)
@@ -686,7 +694,7 @@ namespace OloEngine::Audio::SoundGraph
                       GetCacheHitRatio() * 100.0f, m_HitCount, m_HitCount + m_MissCount);
     }
 
-    void CompilerCache::SetCacheDirectory(const std::string& directory)
+    bool CompilerCache::SetCacheDirectory(const std::string& directory)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -695,10 +703,12 @@ namespace OloEngine::Audio::SoundGraph
 
             if (m_CacheDirectory != directory)
             {
-                // Save current cache before switching
-                if (m_AutoSave && !m_CompiledResults.empty())
+                // The switch clears memory, so an unsaved entry would be lost: stay put instead.
+                if (m_AutoSave && !m_CompiledResults.empty() && !SaveToDiskLocked())
                 {
-                    SaveToDiskLocked();
+                    OLO_CORE_ERROR("CompilerCache: Not switching to '{}': saving the current {} entries to '{}' failed",
+                                   directory, m_CompiledResults.size(), m_CacheDirectory);
+                    return false;
                 }
 
                 m_CacheDirectory = directory;
@@ -714,7 +724,7 @@ namespace OloEngine::Audio::SoundGraph
         // Reload from disk without holding the lock (profiled for telemetry)
         {
             OLO_PROFILE_SCOPE("CompilerCache::LoadFromDisk");
-            LoadFromDisk();
+            return LoadFromDisk();
         }
     }
 
