@@ -340,6 +340,66 @@ namespace OloEngine
 #define OLO_PROFILE_GPU_COLLECT()
 #endif
 
+// Tracy sections (Tracy 0.14): high-level program phases on the timeline, such as
+// a scene load, a play session or a streaming region in flight. Unlike zones they
+// may overlap, span frames and cross threads, and the profiler can filter them by
+// category or limit any statistics window to one. The enter macro returns an id
+// that is 0 when no profiler is connected (TRACY_ON_DEMAND), and leaving section
+// 0 is a no-op, so callers never branch on the connection. Labels are printf
+// formats; without Tracy their arguments are not evaluated.
+namespace OloEngine
+{
+    enum class EProfileSection : u16
+    {
+        Scene = 1,     // loading or opening a scene file
+        Session = 2,   // Play or Simulate, from start to stop
+        Streaming = 3, // a streaming region loading or unloading
+    };
+} // namespace OloEngine
+
+#if OLO_PROFILE && TRACY_ENABLE
+#define OLO_PROFILE_SECTION_ENTER(category, ...) TracySectionEnterCategory(static_cast<u16>(category), __VA_ARGS__)
+#define OLO_PROFILE_SECTION_LEAVE(id) TracySectionLeave(id)
+#else
+#define OLO_PROFILE_SECTION_ENTER(category, ...) static_cast<u32>(0)
+#define OLO_PROFILE_SECTION_LEAVE(id) static_cast<void>(id)
+#endif
+
+namespace OloEngine
+{
+    // Names the EProfileSection categories in the profiler. Call once at startup;
+    // under TRACY_ON_DEMAND Tracy replays the names to a profiler that connects later.
+    inline void RegisterProfileSectionCategories()
+    {
+#if OLO_PROFILE && TRACY_ENABLE
+        TracySectionSetup(static_cast<u16>(EProfileSection::Scene), "Scene load");
+        TracySectionSetup(static_cast<u16>(EProfileSection::Session), "Play session");
+        TracySectionSetup(static_cast<u16>(EProfileSection::Streaming), "Streaming");
+#endif
+    }
+
+    class ScopedProfileSection
+    {
+      public:
+        explicit ScopedProfileSection(u32 id) : m_Id(id) {}
+        ~ScopedProfileSection()
+        {
+            OLO_PROFILE_SECTION_LEAVE(m_Id);
+        }
+        ScopedProfileSection(const ScopedProfileSection&) = delete;
+        ScopedProfileSection& operator=(const ScopedProfileSection&) = delete;
+
+      private:
+        u32 m_Id;
+    };
+} // namespace OloEngine
+
+#define OLO_PROFILE_SECTION_NAME2(line) oloProfileSection##line
+#define OLO_PROFILE_SECTION_NAME(line) OLO_PROFILE_SECTION_NAME2(line)
+// A section covering the rest of the enclosing scope.
+#define OLO_PROFILE_SECTION(category, ...) \
+    const ::OloEngine::ScopedProfileSection OLO_PROFILE_SECTION_NAME(__LINE__){ OLO_PROFILE_SECTION_ENTER(category, __VA_ARGS__) }
+
 // Additional profiler macros for compatibility
 #if OLO_PROFILE && TRACY_ENABLE
 #define OLO_PROFILER_THREAD(name) // tracy::SetThreadName(name) - TODO(olbu): Implement when Tracy SetThreadName is available

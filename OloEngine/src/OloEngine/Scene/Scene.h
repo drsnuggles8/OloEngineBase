@@ -1441,6 +1441,8 @@ namespace OloEngine
         bool m_IsRunning = false;
         bool m_IsPaused = false;
         bool m_PendingReload = false;
+        // Profiler section spanning the current Play or Simulate session (0 = none).
+        u32 m_SessionProfileSection = 0;
         // Script-requested scene to switch to, unresolved. Empty = no request.
         FString m_PendingSceneLoad;
         // Optional save slot restored into the loaded scene before runtime

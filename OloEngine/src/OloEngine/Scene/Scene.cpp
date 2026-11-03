@@ -454,6 +454,8 @@ namespace OloEngine
 
     Scene::~Scene()
     {
+        // A scene destroyed mid-session never reaches OnRuntimeStop/OnSimulationStop.
+        OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
         // Tear down subsystems that hold references back into the scene
         // *before* the implicit member-destruction pass starts unwinding
         // m_EntityMap / m_Registry. DialogueSystem owns a UIController whose
@@ -1495,6 +1497,8 @@ namespace OloEngine
     void Scene::OnRuntimeStart()
     {
         m_IsRunning = true;
+        OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
+        m_SessionProfileSection = OLO_PROFILE_SECTION_ENTER(EProfileSection::Session, "Play %s", m_Name.ToStdString().c_str());
 
         // Entering Play is a frame-pacing discontinuity too: the edit-mode
         // frames in the window describe a different workload entirely, and a
@@ -1861,6 +1865,8 @@ namespace OloEngine
 
     void Scene::OnRuntimeStop()
     {
+        OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
+        m_SessionProfileSection = 0;
         // Leaving Play is the same discontinuity as entering it, seen from the
         // other side: the coat that is about to be drawn is the edit-mode one
         // and the positions held describe the runtime pose (#1249).
@@ -2034,6 +2040,8 @@ namespace OloEngine
 
     void Scene::OnSimulationStart()
     {
+        OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
+        m_SessionProfileSection = OLO_PROFILE_SECTION_ENTER(EProfileSection::Session, "Simulate %s", m_Name.ToStdString().c_str());
         // Same discontinuity as OnRuntimeStart (#1249).
         ResetGroomBindingHistory(GroomHistoryResetCause::SceneTransition);
         ResetGroomSimulation(GroomHistoryResetCause::SceneTransition);
@@ -2091,6 +2099,8 @@ namespace OloEngine
 
     void Scene::OnSimulationStop()
     {
+        OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
+        m_SessionProfileSection = 0;
         // Same discontinuity as OnRuntimeStop (#1249).
         ResetGroomBindingHistory(GroomHistoryResetCause::SceneTransition);
         ResetGroomSimulation(GroomHistoryResetCause::SceneTransition);
