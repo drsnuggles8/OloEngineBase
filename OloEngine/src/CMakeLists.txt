@@ -1515,6 +1515,8 @@
 		"OloEngine/Scene/EntityFacing.h"
 		"OloEngine/Scene/Prefab.cpp"
 		"OloEngine/Scene/Prefab.h"
+		"OloEngine/Scene/Physics2DTasks.cpp"
+		"OloEngine/Scene/Physics2DTasks.h"
 		"OloEngine/Scene/Scene.cpp"
 		"OloEngine/Scene/Scene.h"
 		"OloEngine/Scene/SceneCamera.cpp"

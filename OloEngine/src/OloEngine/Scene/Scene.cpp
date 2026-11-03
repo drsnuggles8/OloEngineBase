@@ -131,6 +131,7 @@
 #include "OloEngine/Terrain/TerrainTile.h"
 #include "OloEngine/Terrain/TerrainStreamer.h"
 #include "OloEngine/Scene/ModelImporter.h"
+#include "OloEngine/Scene/Physics2DTasks.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Terrain/Voxel/VoxelOverride.h"
@@ -230,10 +231,11 @@ namespace OloEngine
                                  TArray<glm::vec3>& outNormals);
         TArray<u32> BuildClothGridIndices(u32 columns, u32 rows);
 
-        // Box2D velocity iterations, shared by the synchronous step (StepPhysics)
-        // and the async kick's world-step task so the two can never drift.
-        // TODO(olbu): position iterations when Box2D position-iteration support lands.
-        constexpr i32 kPhysics2DVelocityIterations = 6;
+        // Box2D sub-steps per b2World_Step, shared by the synchronous step (StepPhysics)
+        // and the async kick's world-step task so the two can never drift. Box2D 3.x has
+        // no velocity/position iteration counts: its soft-step solver takes sub-steps
+        // instead (upstream recommends 4; 6 is this engine's long-standing value).
+        constexpr i32 kPhysics2DSubSteps = 6;
 
         // Terrain quadtree LOD / frustum-cull inputs transformed into the terrain
         // entity's LOCAL space (issue #429, terrain slice). The quadtree stores node
@@ -3762,7 +3764,7 @@ namespace OloEngine
         // in to 2D physics.
         if (b2World_IsValid(m_PhysicsWorld))
         {
-            b2World_Step(m_PhysicsWorld, ts.GetSeconds(), kPhysics2DVelocityIterations);
+            b2World_Step(m_PhysicsWorld, ts.GetSeconds(), kPhysics2DSubSteps);
         }
 
         // Fluid domains step + queue coupling impulses BEFORE the Jolt step
@@ -3872,7 +3874,7 @@ namespace OloEngine
                 {
                     if (b2World_IsValid(m_PhysicsWorld))
                     {
-                        b2World_Step(m_PhysicsWorld, frameSeconds, kPhysics2DVelocityIterations);
+                        b2World_Step(m_PhysicsWorld, frameSeconds, kPhysics2DSubSteps);
                     }
                     m_JoltScene->StepWorldPhase(fixedDt);
                 },
@@ -3886,7 +3888,7 @@ namespace OloEngine
             // order matches StepPhysics exactly.
             if (b2World_IsValid(m_PhysicsWorld))
             {
-                b2World_Step(m_PhysicsWorld, frameSeconds, kPhysics2DVelocityIterations);
+                b2World_Step(m_PhysicsWorld, frameSeconds, kPhysics2DSubSteps);
             }
             if (m_JoltScene)
             {
@@ -7705,6 +7707,7 @@ namespace OloEngine
     {
         b2WorldDef worldDef = b2DefaultWorldDef();
         worldDef.gravity = { 0.0f, -9.81f };
+        Physics2D::UseEngineTaskSystem(worldDef);
         m_PhysicsWorld = b2CreateWorld(&worldDef);
 
         for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)
