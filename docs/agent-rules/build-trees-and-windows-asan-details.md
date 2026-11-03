@@ -840,6 +840,17 @@ arrived, because the fetch ran under `bash -e` with no `pipefail` and so reporte
 an action rather than a fifth corrected copy: one `workflow_dispatch` run that
 exercises it is evidence for every call site.
 
+apt.llvm.org is also unreliable from hosted runners: it can stay unreachable for
+minutes ("Network is unreachable" over IPv6). In #1677 and #1678 that failed the key
+fetch in one job and a later `apt-get update` in another, before either built
+anything. The action retries the key fetch. `setup-linux-build` registers the source
+best-effort, because it now supplies only the `lld-23` fallback. If the registration
+fails, or `apt-get update` keeps failing with the source present, the job warns,
+drops the source and installs without `lld-23`. It always removes the source after
+the install, so setup-vcpkg's later `apt-get update` cannot fail on it.
+`setup-llvm-linux` still fails loudly if the release's own `ld.lld` will not start
+and the fallback is missing.
+
 ## 6. A compiler cache in front of clang-cl can leave ninja with no header dependencies (issue #858)
 
 **The failure:** in the `dev-cached` tree, an object served from the compiler
