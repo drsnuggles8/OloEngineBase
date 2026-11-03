@@ -198,6 +198,7 @@ add_executable(OloEngine-Tests
 		SoundGraphParameterWiringTest.cpp
 		SoundGraphControlRoutingTest.cpp
 		SoundGraphCacheTest.cpp
+		Physics2DTasksTest.cpp
 		SoundGraphNodeSchemaCoverageTest.cpp
 		AudioEventQueueTest.cpp
 		AudioDSPTest.cpp
@@ -635,6 +636,9 @@ add_executable(OloEngine-Tests
 		Rendering/SelectionOutlineTest.cpp
 		Rendering/DeccerCubesLoadingTest.cpp
 		Rendering/AnimatedModelDedupTest.cpp
+		Rendering/AnimatedModelImportSettingsTest.cpp
+		Rendering/AssimpSmoothNormalsTest.cpp
+		Rendering/AnimatedModelNormalsImportTest.cpp
 		# Rendering property tests (require GL 4.5+ context; skip gracefully if unavailable)
 		Rendering/PropertyTests/RenderPropertyTest.cpp
 		Rendering/PropertyTests/FacadeReadbackParityTest.cpp
@@ -1886,6 +1890,7 @@ add_executable(OloEngine-Tests
 		# skinning correctness against the MeshSource bone-influence contract.
 		Rendering/PropertyTests/AnimatedMeshPrimitivesPropertyTests.cpp
 		Rendering/PropertyTests/SkeletalDeformationVisualEvidenceTest.cpp
+		Rendering/PropertyTests/SkinnedNormalsVisualEvidenceTest.cpp
 		# Skinned auto-batching (issue #1031): a same-pose crowd must collapse into
 		# one instanced draw and render the same colour AND motion vectors as the
 		# one-draw-per-actor path, measured against a same-input control render.

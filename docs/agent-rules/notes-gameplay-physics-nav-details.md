@@ -304,3 +304,35 @@ crowd, whose own integration would move it a second time. `Navigation` is ordere
 ("RootMotionApply")`, pinned by `SystemSchedulerTest`'s seam test. Navigation judges arrival on the
 position root motion produced; a script stopping a fast clip must start the next clip early, because
 the blend out of a run still travels.
+
+## 15. Box2D runs on the engine scheduler
+
+Configure every `b2WorldDef` with `Physics2D::UseEngineTaskSystem` before `b2CreateWorld`; a world
+created without it steps single-threaded inside `b2World_Step`, even when that step already runs as
+the async physics task.
+
+Box2D 3.2 takes `enqueueTask`/`finishTask` callbacks and a `workerCount` on `b2WorldDef`.
+`UseEngineTaskSystem` maps each Box2D task onto one `Tasks::Launch` (High priority) and waits on it
+in `finishTask`, with scheduler workers + 1 Box2D workers, capped at 8; with no scheduler workers
+the world stays single-threaded. With no callbacks Box2D stays single-threaded at `workerCount` 1;
+it would start its own threads only for a count above 1, which the engine never asks for without
+the callbacks.
+
+Box2D results do not depend on the worker count:
+`Physics2DTasks.SchedulerSteppedWorldMatchesASingleThreadedOneBitForBit` pins that a
+scheduler-stepped world is bit-identical to a single-threaded one. The third `b2World_Step`
+argument is the sub-step count (`kPhysics2DSubSteps`), not an iteration count; Box2D 3.x has no
+velocity or position iterations.
+
+Two properties make this safe and are worth knowing before touching it:
+
+- **Progress never depends on the scheduler.** The thread inside `b2World_Step` races for the
+  solver's orchestrator slot itself (Box2D enqueues worker 0 first, then runs worker 0 inline), so
+  a task the scheduler runs inline (no workers) or late cannot deadlock the step. Workers that
+  start after the solve see its end sentinel and return. `SteppingCompletesWhenTheSchedulerHasNoWorkers`
+  stops the workers mid-test to pin this.
+- **Non-orchestrating solver workers spin for the whole constraint solve.** Each one holds a
+  scheduler thread while the world steps, which is why the count is capped at 8.
+
+The test binary does not start the scheduler (an `Application` does), so a test that wants the
+parallel path starts workers in its suite fixture.

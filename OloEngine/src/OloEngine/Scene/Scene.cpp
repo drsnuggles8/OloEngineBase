@@ -131,6 +131,7 @@
 #include "OloEngine/Terrain/TerrainTile.h"
 #include "OloEngine/Terrain/TerrainStreamer.h"
 #include "OloEngine/Scene/ModelImporter.h"
+#include "OloEngine/Scene/Physics2DTasks.h"
 #include "OloEngine/Scene/Streaming/SceneStreamer.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Terrain/Voxel/VoxelOverride.h"
@@ -230,10 +231,11 @@ namespace OloEngine
                                  TArray<glm::vec3>& outNormals);
         TArray<u32> BuildClothGridIndices(u32 columns, u32 rows);
 
-        // Box2D velocity iterations, shared by the synchronous step (StepPhysics)
-        // and the async kick's world-step task so the two can never drift.
-        // TODO(olbu): position iterations when Box2D position-iteration support lands.
-        constexpr i32 kPhysics2DVelocityIterations = 6;
+        // Box2D sub-steps per b2World_Step, shared by the synchronous step (StepPhysics)
+        // and the async kick's world-step task so the two can never drift. Box2D 3.x has
+        // no velocity/position iteration counts: its soft-step solver takes sub-steps
+        // instead (upstream recommends 4; 6 is this engine's long-standing value).
+        constexpr i32 kPhysics2DSubSteps = 6;
 
         // Terrain quadtree LOD / frustum-cull inputs transformed into the terrain
         // entity's LOCAL space (issue #429, terrain slice). The quadtree stores node
@@ -454,6 +456,8 @@ namespace OloEngine
 
     Scene::~Scene()
     {
+        // A scene destroyed mid-session never reaches OnRuntimeStop/OnSimulationStop.
+        OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
         // Tear down subsystems that hold references back into the scene
         // *before* the implicit member-destruction pass starts unwinding
         // m_EntityMap / m_Registry. DialogueSystem owns a UIController whose
@@ -1495,6 +1499,8 @@ namespace OloEngine
     void Scene::OnRuntimeStart()
     {
         m_IsRunning = true;
+        OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
+        m_SessionProfileSection = OLO_PROFILE_SECTION_ENTER(EProfileSection::Session, "Play %s", m_Name.ToStdString().c_str());
 
         // Entering Play is a frame-pacing discontinuity too: the edit-mode
         // frames in the window describe a different workload entirely, and a
@@ -1861,6 +1867,8 @@ namespace OloEngine
 
     void Scene::OnRuntimeStop()
     {
+        OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
+        m_SessionProfileSection = 0;
         // Leaving Play is the same discontinuity as entering it, seen from the
         // other side: the coat that is about to be drawn is the edit-mode one
         // and the positions held describe the runtime pose (#1249).
@@ -2034,6 +2042,8 @@ namespace OloEngine
 
     void Scene::OnSimulationStart()
     {
+        OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
+        m_SessionProfileSection = OLO_PROFILE_SECTION_ENTER(EProfileSection::Session, "Simulate %s", m_Name.ToStdString().c_str());
         // Same discontinuity as OnRuntimeStart (#1249).
         ResetGroomBindingHistory(GroomHistoryResetCause::SceneTransition);
         ResetGroomSimulation(GroomHistoryResetCause::SceneTransition);
@@ -2091,6 +2101,8 @@ namespace OloEngine
 
     void Scene::OnSimulationStop()
     {
+        OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
+        m_SessionProfileSection = 0;
         // Same discontinuity as OnRuntimeStop (#1249).
         ResetGroomBindingHistory(GroomHistoryResetCause::SceneTransition);
         ResetGroomSimulation(GroomHistoryResetCause::SceneTransition);
@@ -3752,7 +3764,7 @@ namespace OloEngine
         // in to 2D physics.
         if (b2World_IsValid(m_PhysicsWorld))
         {
-            b2World_Step(m_PhysicsWorld, ts.GetSeconds(), kPhysics2DVelocityIterations);
+            b2World_Step(m_PhysicsWorld, ts.GetSeconds(), kPhysics2DSubSteps);
         }
 
         // Fluid domains step + queue coupling impulses BEFORE the Jolt step
@@ -3862,7 +3874,7 @@ namespace OloEngine
                 {
                     if (b2World_IsValid(m_PhysicsWorld))
                     {
-                        b2World_Step(m_PhysicsWorld, frameSeconds, kPhysics2DVelocityIterations);
+                        b2World_Step(m_PhysicsWorld, frameSeconds, kPhysics2DSubSteps);
                     }
                     m_JoltScene->StepWorldPhase(fixedDt);
                 },
@@ -3876,7 +3888,7 @@ namespace OloEngine
             // order matches StepPhysics exactly.
             if (b2World_IsValid(m_PhysicsWorld))
             {
-                b2World_Step(m_PhysicsWorld, frameSeconds, kPhysics2DVelocityIterations);
+                b2World_Step(m_PhysicsWorld, frameSeconds, kPhysics2DSubSteps);
             }
             if (m_JoltScene)
             {
@@ -7695,6 +7707,7 @@ namespace OloEngine
     {
         b2WorldDef worldDef = b2DefaultWorldDef();
         worldDef.gravity = { 0.0f, -9.81f };
+        Physics2D::UseEngineTaskSystem(worldDef);
         m_PhysicsWorld = b2CreateWorld(&worldDef);
 
         for (const auto view = m_Registry.view<Rigidbody2DComponent>(); const auto e : view)

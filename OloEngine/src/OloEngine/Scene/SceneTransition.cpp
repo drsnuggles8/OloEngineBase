@@ -174,6 +174,7 @@ namespace OloEngine::SceneTransition
 
     LoadResult LoadSceneFile(const std::filesystem::path& path, bool requirePrimaryCamera, std::string_view saveSlot)
     {
+        OLO_PROFILE_SECTION(EProfileSection::Scene, "Load %s", path.filename().string().c_str());
         LoadResult result;
 
         if (path.empty())

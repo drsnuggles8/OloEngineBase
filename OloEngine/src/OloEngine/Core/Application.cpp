@@ -65,6 +65,7 @@ namespace OloEngine
         // should say so in its own log, not in a shell history nobody has.
         // Silent when everything is at its default, which is the normal case.
         Levers::LogActive();
+        RegisterProfileSectionCategories();
 
         // Initialize Game Thread identity for the task system
         LowLevelTasks::InitGameThreadId();

@@ -446,7 +446,8 @@ namespace OloEngine::VirtualMeshBuilder
                 ctx.Positions(), ctx.VertexCount, sizeof(Vertex),
                 ctx.Attributes.GetData(), kAttributeCount * sizeof(f32), kAttributeWeights.data(), kAttributeCount,
                 locks.GetData(), targetIndexCount, std::numeric_limits<f32>::max(),
-                kSimplifyBaseOptions | extraOptions, &error);
+                kSimplifyBaseOptions | (ctx.Config.SimplifyErrorClamped ? meshopt_SimplifyErrorClamped : 0u) | extraOptions,
+                &error);
 
             simplified.SetNum(resultCount, EAllowShrinking::No);
             outAbsoluteError = error;

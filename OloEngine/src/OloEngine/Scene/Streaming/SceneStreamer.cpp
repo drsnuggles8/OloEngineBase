@@ -35,6 +35,29 @@ namespace OloEngine
         return b2_staticBody;
     }
 
+    // The only writer of StreamingRegion::m_State. A profiler section spans each
+    // Loading and Unloading phase, so a region's whole trip from request to
+    // instantiation (or cancellation) shows as one span on the timeline.
+    static void SetRegionState(StreamingRegion& region, StreamingRegion::State next)
+    {
+        using enum StreamingRegion::State;
+        if (region.m_State == next)
+        {
+            return;
+        }
+        OLO_PROFILE_SECTION_LEAVE(region.m_ProfileSection);
+        region.m_ProfileSection = 0;
+        if (next == Loading)
+        {
+            region.m_ProfileSection = OLO_PROFILE_SECTION_ENTER(EProfileSection::Streaming, "Stream in %s", region.m_Name.ToStdString().c_str());
+        }
+        else if (next == Unloading)
+        {
+            region.m_ProfileSection = OLO_PROFILE_SECTION_ENTER(EProfileSection::Streaming, "Stream out %s", region.m_Name.ToStdString().c_str());
+        }
+        region.m_State = next;
+    }
+
     const char* ToString(StreamingRegion::State state) noexcept
     {
         switch (state)
@@ -164,7 +187,7 @@ namespace OloEngine
             {
                 if (region->m_State == StreamingRegion::State::Loading)
                 {
-                    region->m_State = StreamingRegion::State::Unloaded;
+                    SetRegionState(*region, StreamingRegion::State::Unloaded);
                 }
             }
         }
@@ -239,7 +262,7 @@ namespace OloEngine
             region->m_SourcePath = entry.path();
             region->m_BoundsMin = meta.BoundsMin;
             region->m_BoundsMax = meta.BoundsMax;
-            region->m_State = StreamingRegion::State::Unloaded;
+            SetRegionState(*region, StreamingRegion::State::Unloaded);
 
             // The file's size is the region's byte estimate: known before any load,
             // and proportional to what instantiating it costs. An unreadable size is
@@ -419,7 +442,7 @@ namespace OloEngine
             return;
         }
 
-        region->m_State = StreamingRegion::State::Unloading;
+        SetRegionState(*region, StreamingRegion::State::Unloading);
         region->m_ManuallyLoaded = false;
 
         // Physics bodies must be destroyed BEFORE entity destruction
@@ -465,7 +488,7 @@ namespace OloEngine
         }
 
         region->m_EntityUUIDs.Reset();
-        region->m_State = StreamingRegion::State::Unloaded;
+        SetRegionState(*region, StreamingRegion::State::Unloaded);
 
         OLO_CORE_TRACE("SceneStreamer: Unloaded region '{0}'", region->m_Name.ToView());
     }
@@ -638,7 +661,7 @@ namespace OloEngine
             return admission;
         }
 
-        region->m_State = StreamingRegion::State::Loading;
+        SetRegionState(*region, StreamingRegion::State::Loading);
         region->m_ManuallyLoaded = region->m_LoadRequested;
         region->m_LoadRequested = false;
         region->m_UnloadRequested = false;
@@ -684,7 +707,7 @@ namespace OloEngine
         TUniqueLock<FMutex> lock(m_RegionMutex);
         if (auto it = m_Regions.find(regionId); it != m_Regions.end() && it->second->m_State == StreamingRegion::State::Loading)
         {
-            it->second->m_State = StreamingRegion::State::Unloaded;
+            SetRegionState(*it->second, StreamingRegion::State::Unloaded);
             it->second->m_ManuallyLoaded = false;
         }
         OLO_CORE_TRACE("SceneStreamer: Cancelled load for region {0}: {1}", static_cast<u64>(regionId), ToString(result));
@@ -742,7 +765,7 @@ namespace OloEngine
 
                 {
                     TUniqueLock<FMutex> lock(m_RegionMutex);
-                    region->m_State = StreamingRegion::State::Ready;
+                    SetRegionState(*region, StreamingRegion::State::Ready);
                     unloadRequested = region->m_UnloadRequested;
                     region->m_UnloadRequested = false;
                 }
@@ -776,7 +799,7 @@ namespace OloEngine
                 TUniqueLock<FMutex> lock(m_RegionMutex);
                 if (region->m_State == StreamingRegion::State::Loading)
                 {
-                    region->m_State = StreamingRegion::State::Unloaded;
+                    SetRegionState(*region, StreamingRegion::State::Unloaded);
                     region->m_ManuallyLoaded = false;
                 }
                 region->m_UnloadRequested = false;

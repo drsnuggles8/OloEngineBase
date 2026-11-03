@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "FoliageStreamingPayload.h"
 #include "OloEngine/Renderer/AlphaCoverageMips.h"
+#include "OloEngine/Renderer/AssimpSmoothNormals.h"
 
 #include <assimp/Importer.hpp>
 #include <assimp/DefaultIOSystem.h>
@@ -258,7 +259,7 @@ namespace OloEngine
         constexpr u32 flags = aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_CalcTangentSpace |
                               aiProcess_JoinIdenticalVertices | aiProcess_ValidateDataStructure | aiProcess_FindInvalidData |
                               aiProcess_SortByPType | aiProcess_PreTransformVertices;
-        const aiScene* scene = importer.ReadFile(absolutePath.string(), flags);
+        const aiScene* scene = ReadSceneWithSmoothNormals(importer, absolutePath.string(), flags);
         if (!scene || !scene->HasMeshes())
             return {};
 

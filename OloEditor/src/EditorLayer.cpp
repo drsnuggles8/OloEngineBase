@@ -4745,6 +4745,7 @@ namespace OloEngine
     // (leaving the current scene untouched) if the deserialize fails.
     bool EditorLayer::LoadEditorSceneFile(const std::filesystem::path& loadPath, const std::filesystem::path& scenePath)
     {
+        OLO_PROFILE_SECTION(EProfileSection::Scene, "Open %s", scenePath.filename().string().c_str());
         Ref<Scene> const newScene = Ref<Scene>::Create();
         if (SceneSerializer serializer(newScene); !serializer.Deserialize(loadPath.string()))
         {

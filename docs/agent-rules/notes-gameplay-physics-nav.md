@@ -27,6 +27,7 @@ Accumulated gotchas from dialogue/quest, inventory, Jolt joints and ragdolls, De
 21. **Carry a body with `Scene::AttachEntity` and read where it is with the world translation.** A carried body is kinematic and driven to its entity's composed pose before each step; `DetachEntity` restores its type and gives it the velocity it was carried at. Its own translation is parent-relative: use Lua `entity_utils.get_world_translation` / C# `Entity.WorldTranslation`. A sleeping body has no contacts. [Details](notes-gameplay-physics-nav-details.md#12-script-writes-reach-the-live-jolt-body-a-carried-body-follows-its-entity-issue-1559)
 22. **A navmesh bake skips geometry that moves and reads the terrain GPU-free.** Nav agents, animated or skinned bodies, character controllers and non-static bodies (and their children) are left out; a single-tile terrain's heights come from `Scene::CpuTerrainHeights`. [Details](notes-gameplay-physics-nav-details.md#13-navmesh-bake-no-moving-geometry-and-it-builds-its-own-ground-issue-1559)
 23. **A nav agent on root motion is turned by navigation and moved by its clip.** `m_UseRootMotion` keeps it out of the crowd; `Navigation` runs `.After("RootMotionApply")`. [Details](notes-gameplay-physics-nav-details.md#14-steering-on-root-motion-issue-1559)
+24. **Create every Box2D world through `Physics2D::UseEngineTaskSystem` (`Scene/Physics2DTasks.h`), so Box2D runs on the engine scheduler.** [Details](notes-gameplay-physics-nav-details.md#15-box2d-runs-on-the-engine-scheduler)
 
 ---
 

@@ -446,6 +446,11 @@ per-config `target_compile_definitions`. Consequences:
   backstop (`MANGLED_NAME_BASED_ON_CONFIG(GetProfiler)` in `TracyProfiler.hpp`), but
   still do not hand-add per-config Tracy defines on top of the imported target.
   A 0.14 client also needs a 0.14 profiler GUI to connect.
+- 0.14 adds **sections**: named program phases that overlap, span frames and filter by
+  category. The engine wraps them as `OLO_PROFILE_SECTION` (scoped) and
+  `OLO_PROFILE_SECTION_ENTER`/`_LEAVE` (`Debug/Instrumentor.h`) with categories `Scene` (a scene
+  load or editor open), `Session` (Play/Simulate, start to stop) and `Streaming` (a region
+  loading or unloading). Ids are 0 while no profiler is connected, and leaving 0 is a no-op.
 
 `TRACY_ENABLE` remains the CMake option gating whether Tracy is linked at all (the
 TSan preset turns it off, per `cmake/Sanitizers.cmake`).

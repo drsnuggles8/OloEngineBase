@@ -1205,9 +1205,11 @@ TEST(MeshOptimization, AutoLODChainIsInvariantToModelScale)
 //     collapse, not how many.
 //   * the STORED ERROR must land outside the 10% band the scale-invariance test
 //     tolerates, since that is the number selection actually consumes. Measured gap
-//     on this mesh: 41-72% at the deeper levels. Part of that comes from the
-//     `stepError / (1 + normalWeight)` renormalisation rather than from the
-//     simplification, which is exactly why the geometry assertion above is here too.
+//     on this mesh: 41-72% at the deeper levels, back when the stored error was
+//     divided by (1 + normalWeight). Part of an error gap can come from how the
+//     error is reported rather than from the simplification (meshoptimizer now
+//     clamps the attribute term), which is exactly why the geometry assertion
+//     above is here too.
 TEST(MeshOptimization, NormalWeightMustBeNormalizedByModelExtent)
 {
     auto mesh = MakeScaledWavyGridMesh(48, 1.0f);

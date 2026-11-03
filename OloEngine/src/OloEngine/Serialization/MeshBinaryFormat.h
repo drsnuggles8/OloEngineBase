@@ -9,7 +9,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .omesh Binary Mesh Format — Version 10
+    // .omesh Binary Mesh Format — Version 16 (history at CurrentVersion below)
     //
     // Layout:
     //   [FileHeader]
@@ -131,7 +131,14 @@ namespace OloEngine
         // went to wire version 4 (#1259: each record now carries the KHR_materials_volume
         // thickness map) and rejects the v3 blob a v14 file holds. Without the bump a warm
         // load would decode-fail that section and serve the mesh with NO materials.
-        constexpr u32 CurrentVersion = 15;
+        //
+        // v16 adds no section. It invalidates every v15 cache of a source without normals.
+        // The animated importer generated flat per-face normals, which split every vertex,
+        // and now generates the static route's shared smooth normals (#653). Both routes
+        // also stopped trusting aiProcess_GenSmoothNormals on an indexed (glTF) mesh, which
+        // gave each shared vertex one face's normal (AssimpSmoothNormals.h). A warm load
+        // would keep serving the old normals.
+        constexpr u32 CurrentVersion = 16;
 
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed (always set; required by the reader)
         constexpr u32 FlagPreOptimized = 2; // Mesh was already optimized before caching

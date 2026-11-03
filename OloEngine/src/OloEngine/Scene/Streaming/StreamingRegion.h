@@ -65,6 +65,9 @@ namespace OloEngine
 
         // State (guarded by SceneStreamer::m_RegionMutex)
         State m_State = State::Unloaded;
+        // Profiler section open while Loading or Unloading (0 = none). SceneStreamer
+        // moves m_State only through SetRegionState so the two cannot drift apart.
+        u32 m_ProfileSection = 0;
 
         // LRU tracking (frame number of last proximity hit)
         u64 m_LastUsedFrame = 0;
