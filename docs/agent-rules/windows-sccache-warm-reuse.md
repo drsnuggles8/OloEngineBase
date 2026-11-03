@@ -118,8 +118,11 @@ Actions annotation and a machine-readable artifact. The threshold detects this r
 passing it alone is not the 94.8-98.5% recovery criterion.
 
 Hosted cache prefixes include a fingerprint of compiler bytes/path, MSVC and Windows SDK
-versions, the actual image revision and sccache version. A toolchain roll starts a cold lineage;
-there is no fallback to another identity. The fingerprint follows the Vulkan stamp so the
+versions, the actual image revision, sccache version, the vcpkg `builtin-baseline` and a hash
+of `cmake/overlay-ports/`. A toolchain roll or a dependency bump starts a cold lineage;
+there is no fallback to another identity. The dependency inputs were added by #1673: its
+baseline bump restored master's lineage, missed on nearly every TU (96/2119, 4.53%) because
+the dependency headers changed, and failed this gate as near-zero-warm on a correct build. The fingerprint follows the Vulkan stamp so the
 existing janitor strips run/attempt, then fingerprint, then SDK, grouping superseded lineages.
 Cache saves require a successful build and remain disabled on PRs and oversized probes.
 

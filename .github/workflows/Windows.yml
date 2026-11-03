@@ -310,8 +310,15 @@ jobs:
       env:
         OLO_CACHE_VULKAN_VERSION: ${{ steps.vulkan.outputs.version }}
         OLO_CACHE_PROBE: ${{ inputs.cache_probe }}
+        OLO_CACHE_OVERLAY_PORTS: ${{ hashFiles('cmake/overlay-ports/**') }}
       run: |
         $compiler = (Get-Command cl.exe).Source
+        # The dependency set is part of the lineage (#1673): a vcpkg baseline bump changes
+        # headers nearly every TU includes, so a cache restored across one is reused at ~5%
+        # and check_sccache_health.py rightly calls that near-zero-warm. Keyed on the
+        # baseline and our overlay ports, such a bump starts a fresh lineage that the
+        # health check reports as cold, which is what it is.
+        $baseline = (Get-Content -Raw vcpkg.json | ConvertFrom-Json).'builtin-baseline'
         $identity = [ordered]@{
           compiler = $compiler
           compiler_sha256 = (Get-FileHash -Algorithm SHA256 $compiler).Hash.ToLowerInvariant()
@@ -319,9 +326,14 @@ jobs:
           windows_sdk = $env:WindowsSDKVersion
           image = $env:ImageVersion
           sccache = '0.15.0'
+          vcpkg_baseline = $baseline
+          overlay_ports = $env:OLO_CACHE_OVERLAY_PORTS
         }
         if (-not $identity.image -or -not $identity.msvc -or -not $identity.windows_sdk) {
           throw 'Hosted compiler/image identity is incomplete'
+        }
+        if (-not $baseline -or -not $env:OLO_CACHE_OVERLAY_PORTS) {
+          throw 'Hosted dependency identity is incomplete'
         }
         $json = $identity | ConvertTo-Json -Compress
         $fingerprint = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData(
