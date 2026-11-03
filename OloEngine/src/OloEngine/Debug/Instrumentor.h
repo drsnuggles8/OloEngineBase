@@ -397,8 +397,11 @@ namespace OloEngine
 #define OLO_PROFILE_SECTION_NAME2(line) oloProfileSection##line
 #define OLO_PROFILE_SECTION_NAME(line) OLO_PROFILE_SECTION_NAME2(line)
 // A section covering the rest of the enclosing scope.
-#define OLO_PROFILE_SECTION(category, ...) \
-    const ::OloEngine::ScopedProfileSection OLO_PROFILE_SECTION_NAME(__LINE__){ OLO_PROFILE_SECTION_ENTER(category, __VA_ARGS__) }
+#define OLO_PROFILE_SECTION(category, ...)                                     \
+    const ::OloEngine::ScopedProfileSection OLO_PROFILE_SECTION_NAME(__LINE__) \
+    {                                                                          \
+        OLO_PROFILE_SECTION_ENTER(category, __VA_ARGS__)                       \
+    }
 
 // Additional profiler macros for compatibility
 #if OLO_PROFILE && TRACY_ENABLE
