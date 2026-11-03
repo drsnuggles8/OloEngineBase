@@ -3,6 +3,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Renderer/AssimpSmoothNormals.h"
 #include "OloEngine/Renderer/AssimpTriangleIndices.h"
 #include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
@@ -58,7 +59,8 @@ namespace OloEngine
             // to give each face its own normal, so a rigged normal-less source arrived as
             // triangle soup, three vertices per triangle: no classic or virtual-geometry LOD
             // for the skinned mesh (#1150) and faceted shading. Same 66 degree crease limit
-            // as Model.cpp. A no-op when the source already carries normals.
+            // as Model.cpp. A no-op when the source already carries normals. Read through
+            // ReadSceneWithSmoothNormals, which generates them correctly on indexed meshes.
             importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 66.0f);
             // Keep the skin's joints that weight no vertex. Assimp drops them by
             // default, and they are exactly the bones other entities attach to: a
@@ -640,7 +642,7 @@ namespace OloEngine
                         {
                             Assimp::Importer matImporter;
                             ConfigureAnimatedImporter(matImporter);
-                            const aiScene* matScene = matImporter.ReadFile(path, kAnimatedImportFlags);
+                            const aiScene* matScene = ReadSceneWithSmoothNormals(matImporter, path, kAnimatedImportFlags);
                             if (matScene && !(matScene->mFlags & AI_SCENE_FLAGS_INCOMPLETE) && matScene->mRootNode)
                             {
                                 TArray<u32> materialIndices;
@@ -708,8 +710,9 @@ namespace OloEngine
 
         ConfigureAnimatedImporter(importer);
 
-        // Read the file
-        const aiScene* scene = importer.ReadFile(path, kAnimatedImportFlags);
+        // Read the file. ReadSceneWithSmoothNormals, not ReadFile: aiProcess_GenSmoothNormals
+        // alone gives every shared vertex of an indexed (glTF) mesh one face's normal.
+        const aiScene* scene = ReadSceneWithSmoothNormals(importer, path, kAnimatedImportFlags);
 
         // Check for errors
         if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)

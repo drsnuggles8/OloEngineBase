@@ -132,10 +132,12 @@ namespace OloEngine
         // thickness map) and rejects the v3 blob a v14 file holds. Without the bump a warm
         // load would decode-fail that section and serve the mesh with NO materials.
         //
-        // v16 adds no section. It invalidates every v15 ANIMATED cache of a source without
-        // normals: the animated importer generated flat per-face normals, which split every
-        // vertex, and a warm load would keep serving that triangle soup after the importer
-        // moved to the static route's shared smooth normals (#653).
+        // v16 adds no section. It invalidates every v15 cache of a source without normals.
+        // The animated importer generated flat per-face normals, which split every vertex,
+        // and now generates the static route's shared smooth normals (#653). Both routes
+        // also stopped trusting aiProcess_GenSmoothNormals on an indexed (glTF) mesh, which
+        // gave each shared vertex one face's normal (AssimpSmoothNormals.h). A warm load
+        // would keep serving the old normals.
         constexpr u32 CurrentVersion = 16;
 
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed (always set; required by the reader)

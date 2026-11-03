@@ -637,6 +637,7 @@ add_executable(OloEngine-Tests
 		Rendering/DeccerCubesLoadingTest.cpp
 		Rendering/AnimatedModelDedupTest.cpp
 		Rendering/AnimatedModelImportSettingsTest.cpp
+		Rendering/AssimpSmoothNormalsTest.cpp
 		Rendering/AnimatedModelNormalsImportTest.cpp
 		# Rendering property tests (require GL 4.5+ context; skip gracefully if unavailable)
 		Rendering/PropertyTests/RenderPropertyTest.cpp

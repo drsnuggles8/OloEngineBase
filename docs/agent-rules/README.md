@@ -80,6 +80,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [animation-clock-survives-unrendered-ticks.md](animation-clock-survives-unrendered-ticks.md): never reset a previous-frame time on a tick that does not render.
 - [groom-scene-temporal-resolve.md](groom-scene-temporal-resolve.md): a scene holding a stochastic groom requests engine TAA every frame instead of storing it.
 - [mesh-cache-must-return-the-surface-it-was-given.md](mesh-cache-must-return-the-surface-it-was-given.md): a cold import, a warm `.omesh` load and a pack load must give the same index buffer corner for corner.
+- [assimp-smooth-normals-on-indexed-meshes.md](assimp-smooth-normals-on-indexed-meshes.md): read imports through `ReadSceneWithSmoothNormals`; `aiProcess_GenSmoothNormals` gives an indexed glTF mesh one face's normal per vertex.
 - [a-bound-coat-rides-its-body.md](a-bound-coat-rides-its-body.md): parent a bound groom's entity to its binding's target.
 - [groom-surface-binding.md](groom-surface-binding.md): a binding addresses triangles by index, so a topology mismatch refuses instead of rebinding.
 - [groom-runtime-scalp-clearance.md](groom-runtime-scalp-clearance.md): inspect scalp-following curves with simulation enabled through the full animation.

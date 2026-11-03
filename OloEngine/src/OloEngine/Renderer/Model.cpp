@@ -36,6 +36,7 @@
 #include "OloEngine/Serialization/ImportedMaterialCodec.h"
 #include "OloEngine/Task/ParallelFor.h"
 
+#include "OloEngine/Renderer/AssimpSmoothNormals.h"
 #include "OloEngine/Renderer/PercentDecodingAssimpIO.h"
 
 #include <assimp/GltfMaterial.h>
@@ -121,7 +122,8 @@ namespace OloEngine
             // virtual), faceted shading, and a bloated vertex buffer (issue #653). Smooth normals are
             // shared, so the mesh welds. The smoothing angle keeps genuine hard creases (> ~66 deg)
             // split, which is the correct result for hard-surface geometry. A no-op when the source
-            // already carries normals.
+            // already carries normals. Every read goes through AssimpSmoothNormals.h, which
+            // generates them correctly on indexed meshes.
             importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 66.0f);
             // Keep each authored node mesh reference as a separate baked instance.
             // The default PTV behaviour merges all meshes with the same material,
@@ -922,7 +924,7 @@ namespace OloEngine
                     // breaks the 1:1 m_Meshes[i] ↔ DFS-mesh[i] mapping the rebuild relies on.
                     Assimp::Importer importer;
                     ConfigureStaticImporter(importer);
-                    const aiScene* scene = importer.ReadFile(path, kStaticImportFlags);
+                    const aiScene* scene = ReadSceneWithSmoothNormals(importer, path, kStaticImportFlags);
                     if (scene && scene->mRootNode)
                     {
                         TArray<u32> sceneMeshIndices;
@@ -1053,6 +1055,9 @@ namespace OloEngine
                           path, lineOrPointMeshes, scene->mNumMeshes);
         }
 
+        // aiProcess_GenSmoothNormals alone gives every shared vertex of an indexed (glTF)
+        // mesh one face's normal; generate them on the raw scene instead (AssimpSmoothNormals.h).
+        GenerateMissingSmoothNormals(importer);
         scene = importer.ApplyPostProcessing(kStaticImportFlags);
 
         // Check for errors

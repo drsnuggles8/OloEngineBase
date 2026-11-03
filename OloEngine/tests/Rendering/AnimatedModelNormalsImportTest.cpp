@@ -18,7 +18,7 @@
 
 #include <gtest/gtest.h>
 
-#include "NormallessSkinnedGridFixture.h"
+#include "NormallessSkinnedMeshFixture.h"
 #include "TestTempDir.h"
 #include "OloEngine/Renderer/AnimatedModel.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"

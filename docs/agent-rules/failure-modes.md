@@ -18,6 +18,7 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 | [force-model-vehicles.md](force-model-vehicles.md) | A boat with no thrust still floats and an oscillating aircraft still has finite positions. |
 | [shadow-receiver-bias-is-texels-of-the-map-sampled.md](shadow-receiver-bias-is-texels-of-the-map-sampled.md) | A VSM-against-CSM floor test compared a shadow the VSM's own bias does not change. |
 | [vulkan-software-driver-ci.md](vulkan-software-driver-ci.md) | A CI job on a driver below the ADR 0010 contract skipped every device-gated test and printed `[  PASSED  ]`. |
+| [assimp-smooth-normals-on-indexed-meshes.md](assimp-smooth-normals-on-indexed-meshes.md) | A flat-grid test of smooth normal generation passed while every shared vertex of a curved glTF kept one face's normal. |
 | [lavapipe-ray-query-suites.md](lavapipe-ray-query-suites.md) | Eight `ReSTIRPTDevice` cases "timed out on slow software compute". |
 | [vulkan-support-matrix.md](vulkan-support-matrix.md) | A green `Windows.yml` while no runner could execute the Vulkan device or L7 ray-query suites. |
 | [generated-evidence-stays-out-of-git.md](generated-evidence-stays-out-of-git.md) | Every PR stayed green while evidence commits grew the tracked tree to 2.19 GB. |

@@ -745,6 +745,8 @@
 		"OloEngine/Renderer/Model.h"
 		"OloEngine/Renderer/AnimatedModel.cpp"
 		"OloEngine/Renderer/AnimatedModel.h"
+		"OloEngine/Renderer/AssimpSmoothNormals.cpp"
+		"OloEngine/Renderer/AssimpSmoothNormals.h"
 		"OloEngine/Renderer/AtlasAllocator.cpp"
 		"OloEngine/Renderer/AtlasAllocator.h"
 		"OloEngine/Renderer/SlugData.h"
