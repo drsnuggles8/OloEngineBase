@@ -28,6 +28,14 @@ namespace OloEngine
         // what made flat-normal sources produce a flat, useless DAG (issue #651).
         bool SimplifyPermissive = true;
 
+        // Clamp attribute error to the position error's scale (clodConfig::simplify_error_clamped,
+        // meshopt_SimplifyErrorClamped, meshoptimizer 1.3). Without it a group with high
+        // attribute variance (sharp normals, UV wedges) reports an error far above its geometric
+        // deviation, and view-dependent selection keeps the finer level much longer than the
+        // silhouette needs. Upstream recommends it for every attribute-aware simplification and
+        // turns it on in clodDefaultConfig.
+        bool SimplifyErrorClamped = true;
+
         // Fallback chain when a group will not reduce, in order. Both mirror
         // clodConfig::simplify_fallback_* ; a group that survives the whole chain becomes a
         // terminal (FLT_MAX-error) group as before.

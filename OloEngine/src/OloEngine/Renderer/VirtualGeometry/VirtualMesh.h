@@ -119,7 +119,10 @@ namespace OloEngine
     // still had the rejection is indistinguishable from one cooked by this
     // builder only if the rigid path is byte-identical — and it is not required
     // to be, so the version moves rather than being argued about.
-    inline constexpr u32 kVirtualMeshBuilderVersion = 4;
+    // v5: attribute-aware simplification clamps attribute error to the position error's scale
+    // (meshopt_SimplifyErrorClamped, meshoptimizer 1.3, the clusterlod default). Every group
+    // error changes, and with it every LOD selection threshold.
+    inline constexpr u32 kVirtualMeshBuilderVersion = 5;
 
     // Sphere + object-space error used for view-dependent LOD selection.
     // For groups these are conservative: the sphere of a group contains the spheres of all

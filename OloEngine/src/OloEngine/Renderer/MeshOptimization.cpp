@@ -19,6 +19,13 @@ namespace OloEngine::MeshOptimization
 {
     namespace
     {
+        // Options for every attribute-aware simplification. ErrorClamped (meshoptimizer 1.3)
+        // keeps attribute error on the position error's scale: without it a step across sharp
+        // normals or UV wedges reports an error far above its geometric deviation, so a target
+        // error rejects collapses the silhouette would never show and the error-bounded chain
+        // drops levels it could keep. Upstream recommends it for all attribute-aware use.
+        constexpr u32 kAttributeSimplifyOptions = meshopt_SimplifySparse | meshopt_SimplifyErrorClamped;
+
         // Position-weld an index buffer for the simplifier (issue #653).
         //
         // meshoptimizer derives edge adjacency from shared vertex INDICES, not shared positions.
@@ -578,7 +585,7 @@ namespace OloEngine::MeshOptimization
             attributes.GetData(), sizeof(f32) * kAttributeCount,
             attributeWeights, kAttributeCount,
             nullptr, // no vertex locking
-            targetIndexCount, targetError, meshopt_SimplifySparse, nullptr);
+            targetIndexCount, targetError, kAttributeSimplifyOptions, nullptr);
 
         if (resultIndexCount == 0)
         {
@@ -995,7 +1002,7 @@ namespace OloEngine::MeshOptimization
                 attributes.GetData(), sizeof(f32) * kAttributeCount,
                 attributeWeights, kAttributeCount,
                 nullptr, // no vertex locking
-                targetIndexCount, std::numeric_limits<f32>::max(), meshopt_SimplifySparse, &stepError);
+                targetIndexCount, std::numeric_limits<f32>::max(), kAttributeSimplifyOptions, &stepError);
 
             if (resultIndexCount < 12 || resultIndexCount >= prevIndexCount)
             {

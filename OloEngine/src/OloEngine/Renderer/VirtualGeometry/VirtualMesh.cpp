@@ -699,6 +699,7 @@ namespace OloEngine
             mixF32(kDefaults.ClusterSplitFactor);
             mix(kDefaults.MaxLevels);
             mix(kDefaults.SimplifyPermissive ? 1u : 0u);
+            mix(kDefaults.SimplifyErrorClamped ? 1u : 0u);
             mix(kDefaults.SimplifyFallbackWelded ? 1u : 0u);
             mix(kDefaults.SimplifyFallbackSloppy ? 1u : 0u);
             mixF32(kDefaults.SimplifyErrorFactorSloppy);
