@@ -307,11 +307,22 @@ the blend out of a run still travels.
 
 ## 15. Box2D runs on the engine scheduler
 
+Configure every `b2WorldDef` with `Physics2D::UseEngineTaskSystem` before `b2CreateWorld`; a world
+created without it steps single-threaded inside `b2World_Step`, even when that step already runs as
+the async physics task.
+
 Box2D 3.2 takes `enqueueTask`/`finishTask` callbacks and a `workerCount` on `b2WorldDef`.
-`Physics2D::UseEngineTaskSystem` maps each Box2D task onto one `Tasks::Launch` (High priority) and
-waits on it in `finishTask`. With no callbacks Box2D stays single-threaded at `workerCount` 1; it
-would start its own threads only for a count above 1, which the engine never asks for without
+`UseEngineTaskSystem` maps each Box2D task onto one `Tasks::Launch` (High priority) and waits on it
+in `finishTask`, with scheduler workers + 1 Box2D workers, capped at 8; with no scheduler workers
+the world stays single-threaded. With no callbacks Box2D stays single-threaded at `workerCount` 1;
+it would start its own threads only for a count above 1, which the engine never asks for without
 the callbacks.
+
+Box2D results do not depend on the worker count:
+`Physics2DTasks.SchedulerSteppedWorldMatchesASingleThreadedOneBitForBit` pins that a
+scheduler-stepped world is bit-identical to a single-threaded one. The third `b2World_Step`
+argument is the sub-step count (`kPhysics2DSubSteps`), not an iteration count; Box2D 3.x has no
+velocity or position iterations.
 
 Two properties make this safe and are worth knowing before touching it:
 

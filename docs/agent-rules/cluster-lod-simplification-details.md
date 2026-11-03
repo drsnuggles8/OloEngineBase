@@ -172,3 +172,19 @@ line looks obviously correct.
   are what reject a stale `.omesh`. The fingerprint also mixes the linked `MESHOPTIMIZER_VERSION`
   (#1673): meshoptimizer 1.3 changed permissive simplification with no builder change, so a
   vcpkg bump of meshoptimizer invalidates every cook on its own, with no version bump needed.
+
+## 6. Attribute error is clamped, and border dilation is not ported
+
+meshoptimizer 1.3 added `meshopt_SimplifyErrorClamped`, which caps each vertex's attribute error at
+its triangle area, the scale of position error. Without it, a group with sharp normals or UV wedges
+reports an error far above its geometric deviation, and selection holds the finer level too long.
+Upstream recommends it for all attribute-aware simplification and turns it on in
+`clodDefaultConfig`, which `VirtualMeshBuilder` mirrors. `VirtualMeshBuildConfig::SimplifyErrorClamped`
+(default on) is mixed into the cook fingerprint, and turning it on bumped the builder to v5, since
+every group error and so every selection threshold moved. The classic-mesh LOD generators share
+`kAttributeSimplifyOptions`; their stored error is the reported one, see
+[pixel-error-mesh-lod-details.md](pixel-error-mesh-lod-details.md#2-the-error-is-a-ratio-and-meshoptimizer-is-why).
+
+Border dilation (`simplify_dilate_borders`) from the same release is not ported. No
+virtual-geometry asset is foliage, and with one vertex array shared by every LOD level (rule 7) it
+would need dilated vertex copies per level.
