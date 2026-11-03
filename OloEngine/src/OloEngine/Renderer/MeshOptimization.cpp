@@ -1015,13 +1015,11 @@ namespace OloEngine::MeshOptimization
                 break;
             }
 
-            // Undo the deliberate normal boost. `stepError` is the quadric error with
-            // the attribute term scaled up for PRIORITISATION; the number stored on the
-            // level is meant to read as a fraction of the model extent, so it is
-            // renormalised by the weight that inflated it. With normalWeight == 0
-            // (normals ignored) this is a no-op, and it degrades smoothly in between.
-            f32 const renormalizedError = stepError / (1.0f + normalWeight);
-            if (renormalizedError > maxStepError)
+            // Stored as reported: kAttributeSimplifyOptions clamps each vertex's
+            // attribute error at its triangle area, the scale of position error, so the
+            // normal boost cannot inflate it past that. Dividing by (1 + normalWeight),
+            // as before clamping, would understate a step whose error hit the clamp.
+            if (stepError > maxStepError)
             {
                 // Past this point a level is visibly a different mesh, not a cheaper
                 // one. Stop; the caller keeps the chain built so far.
@@ -1039,12 +1037,12 @@ namespace OloEngine::MeshOptimization
             // to the selector, which then has no reason ever to keep the finer one, so
             // a zero-cost step would silently delete a level's worth of detail. nextafter
             // is the smallest nudge that cannot itself change a selection decision.
-            accumulatedError = std::nextafter(accumulatedError + renormalizedError,
+            accumulatedError = std::nextafter(accumulatedError + stepError,
                                               std::numeric_limits<f32>::max());
             chain.Add(AutoLODChainEntry{ lodMeshSource, static_cast<u32>(resultIndexCount / 3), accumulatedError });
 
             OLO_CORE_TRACE("MeshOptimization::BuildAutoLODChain: LOD {} - {} triangles, step error {:.4f}, accumulated {:.4f}",
-                           level, resultIndexCount / 3, renormalizedError, accumulatedError);
+                           level, resultIndexCount / 3, stepError, accumulatedError);
 
             prevIndices.Reset();
             prevIndices.Append(simplified.GetData(), static_cast<i32>(resultIndexCount));

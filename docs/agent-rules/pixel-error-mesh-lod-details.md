@@ -68,9 +68,12 @@ level 1 propagates down a nine-level chain. Measured drift is ~0.1% on counts an
 error. Because "within 10%" could be satisfied by accident, a companion case —
 `MeshOptimization.NormalWeightMustBeNormalizedByModelExtent` — simulates the missing division and
 asserts both that the chain lands outside that band **and that the index buffers differ**. Keep the
-pair together, and keep the geometry half: the error gap alone is partly produced by the
-`stepError / (1 + normalWeight)` renormalisation, so on its own it would be measuring the divisor
-rather than the simplifier.
+pair together, and keep the geometry half: the error gap alone is partly produced by how the error
+is reported, so on its own it would be measuring the reporting rather than the simplifier. The
+stored step error is meshoptimizer's `result_error` as returned. It used to be divided by
+`(1 + normalWeight)` to undo the normal boost, but `meshopt_SimplifyErrorClamped` (on since the
+meshoptimizer 1.3 adoption) caps each vertex's attribute error at its triangle area, the scale of
+position error, and the divisor would understate a step whose error hit that cap.
 
 **The average vertex distance is recomputed from the level being simplified**, not estimated as
 `sqrt(2)^level`. The estimate assumes every step really halved; the moment a step is
