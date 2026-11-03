@@ -37,7 +37,7 @@ namespace OloEngine
         // stbi_set_flip_vertically_on_load is active.
         constexpr u32 kAnimatedImportFlags =
             aiProcess_Triangulate |           // Make sure we get triangles
-            aiProcess_GenNormals |            // Create normals if not present
+            aiProcess_GenSmoothNormals |      // Shared smooth normals when missing (#653, below)
             aiProcess_CalcTangentSpace |      // Calculate tangents and bitangents
             aiProcess_ValidateDataStructure | // Validate the imported data structure
             aiProcess_LimitBoneWeights |      // Limit bone weights to 4 per vertex
@@ -53,6 +53,13 @@ namespace OloEngine
             // one in ProcessMesh instead left a mesh with no indices at all, which
             // MeshSource::Build cannot upload (issue #1440).
             importer.SetPropertyInteger(AI_CONFIG_PP_SBP_REMOVE, aiPrimitiveType_POINT | aiPrimitiveType_LINE);
+            // Smooth, not flat, normals for a source that has none: the static import's
+            // #653 fix, which this route missed. aiProcess_GenNormals makes the mesh verbose
+            // to give each face its own normal, so a rigged normal-less source arrived as
+            // triangle soup, three vertices per triangle: no classic or virtual-geometry LOD
+            // for the skinned mesh (#1150) and faceted shading. Same 66 degree crease limit
+            // as Model.cpp. A no-op when the source already carries normals.
+            importer.SetPropertyFloat(AI_CONFIG_PP_GSN_MAX_SMOOTHING_ANGLE, 66.0f);
             // Keep the skin's joints that weight no vertex. Assimp drops them by
             // default, and they are exactly the bones other entities attach to: a
             // prop's socket, or an eye riding its eye bone (#1533). Dropped, a
