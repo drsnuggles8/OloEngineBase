@@ -47,9 +47,10 @@ namespace OloEngine
          * @brief Used internally to add a new thread object
          * @param ThreadId The thread's ID
          * @param Thread Pointer to the thread object
+         * @param OnlyIfRunning Skip a completed owned thread while holding the registry lock
          * @see RemoveThread
          */
-        void AddThread(u32 ThreadId, FRunnableThread* Thread);
+        void AddThread(u32 ThreadId, FRunnableThread* Thread, bool OnlyIfRunning = false);
 
         /**
          * @brief Used internally to remove thread object
@@ -63,6 +64,7 @@ namespace OloEngine
          */
         i32 NumThreads() const
         {
+            FScopeLock Lock(&m_ThreadsCritical);
             return static_cast<i32>(m_Threads.size());
         }
 
@@ -77,9 +79,9 @@ namespace OloEngine
         /**
          * @brief Returns the name of a thread given its TLS id
          * @param ThreadId The thread ID to look up
-         * @return Reference to the thread name string
+         * @return A copy that remains valid after the thread exits
          */
-        static const std::string& GetThreadName(u32 ThreadId);
+        static std::string GetThreadName(u32 ThreadId);
 
         /**
          * @brief Enumerate each thread
@@ -149,7 +151,7 @@ namespace OloEngine
         /**
          * @brief Returns internal name of a thread given its TLS id
          */
-        const std::string& GetThreadNameInternal(u32 ThreadId);
+        std::string GetThreadNameInternal(u32 ThreadId);
 
         /**
          * @brief Notification that the parent is about to fork
@@ -159,7 +161,7 @@ namespace OloEngine
         /**
          * @brief Check if it's safe to continue thread list iteration
          */
-        bool CheckThreadListSafeToContinueIteration();
+        bool CheckThreadListSafeToContinueIteration(u64 Revision) const;
 
         /**
          * @brief Called when the thread list is modified
@@ -173,13 +175,13 @@ namespace OloEngine
         /** Map of thread ID to thread object */
         std::unordered_map<u32, FRunnableThread*> m_Threads;
 
-        /** Helper variable for catching unexpected modification of the thread map/list */
-        bool m_IsThreadListDirty = false;
+        /** Changes are monotonic so recursive enumeration cannot hide a mutation. */
+        u64 m_ThreadListRevision = 0;
 
         /** Static empty string for unknown threads */
         // const, and short enough for the SSO buffer, so it is constant-initialised:
         // no global constructor and no exit-time destructor (issue #763). It is only
-        // ever returned by reference, never written.
+        // copied on lookup and never written.
         inline static const std::string s_UnknownThreadName = "UnknownThread";
     };
 
@@ -210,9 +212,11 @@ namespace OloEngine
         return *s_Instance;
     }
 
-    inline void FThreadManager::AddThread(u32 ThreadId, FRunnableThread* Thread)
+    inline void FThreadManager::AddThread(u32 ThreadId, FRunnableThread* Thread, bool OnlyIfRunning)
     {
         FScopeLock Lock(&m_ThreadsCritical);
+        if (OnlyIfRunning && !Thread->IsRunning())
+            return;
         m_Threads[ThreadId] = Thread;
         OnThreadListModified();
     }
@@ -235,12 +239,11 @@ namespace OloEngine
     {
         FScopeLock Lock(&m_ThreadsCritical);
 
-        // Reset dirty flag before iteration
-        m_IsThreadListDirty = false;
+        const u64 revision = m_ThreadListRevision;
 
         for (auto& [ThreadId, Thread] : m_Threads)
         {
-            if (!CheckThreadListSafeToContinueIteration())
+            if (!CheckThreadListSafeToContinueIteration(revision))
             {
                 break;
             }
@@ -254,13 +257,13 @@ namespace OloEngine
         }
     }
 
-    inline const std::string& FThreadManager::GetThreadName(u32 ThreadId)
+    inline std::string FThreadManager::GetThreadName(u32 ThreadId)
     {
         // Look up from the thread registry
         return Get().GetThreadNameInternal(ThreadId);
     }
 
-    inline const std::string& FThreadManager::GetThreadNameInternal(u32 ThreadId)
+    inline std::string FThreadManager::GetThreadNameInternal(u32 ThreadId)
     {
         FScopeLock Lock(&m_ThreadsCritical);
         auto It = m_Threads.find(ThreadId);
@@ -275,15 +278,16 @@ namespace OloEngine
     {
         FScopeLock Lock(&m_ThreadsCritical);
 
-        m_IsThreadListDirty = false;
-
-        for (auto& [ThreadId, Thread] : m_Threads)
+        const u64 revision = m_ThreadListRevision;
+        for (auto it = m_Threads.begin(); it != m_Threads.end();)
         {
-            if (!CheckThreadListSafeToContinueIteration())
-            {
-                break;
-            }
+            const auto [ThreadId, Thread] = *it;
             Func(ThreadId, Thread);
+            // A callback can recursively create/remove threads and rehash the
+            // registry. Never increment an iterator invalidated by that change.
+            if (!CheckThreadListSafeToContinueIteration(revision))
+                break;
+            ++it;
         }
     }
 
@@ -314,14 +318,14 @@ namespace OloEngine
         }
     }
 
-    inline bool FThreadManager::CheckThreadListSafeToContinueIteration()
+    inline bool FThreadManager::CheckThreadListSafeToContinueIteration(u64 Revision) const
     {
-        return !m_IsThreadListDirty;
+        return m_ThreadListRevision == Revision;
     }
 
     inline void FThreadManager::OnThreadListModified()
     {
-        m_IsThreadListDirty = true;
+        ++m_ThreadListRevision;
     }
 
 #if OLO_SUPPORTS_ALL_THREAD_BACKTRACES

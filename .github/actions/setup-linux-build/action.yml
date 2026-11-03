@@ -173,7 +173,12 @@ runs:
       uses: ./.github/actions/setup-shader-toolchain-linux
 
     - name: Add LLVM apt repository (hosted)
+      id: llvm-apt
       if: runner.environment == 'github-hosted'
+      # Best-effort: apt.llvm.org supplies only lld-23, the fallback linker below.
+      # The install step warns when it is missing, and setup-llvm-linux fails loudly
+      # if the fallback is then actually needed.
+      continue-on-error: true
       uses: ./.github/actions/setup-llvm-apt
 
     - name: Install Linux deps (hosted)
@@ -185,7 +190,30 @@ runs:
         # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
         # Drop any Microsoft source so a Microsoft-side outage cannot break our update.
         sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
-        sudo apt-get update
+
+        # apt.llvm.org is the one third-party source left, and it is flaky: the key
+        # fetch or the update can fail for minutes at a time. It supplies only lld-23
+        # (see below), so an outage costs that fallback, with a warning, not the job.
+        llvm_list=/etc/apt/sources.list.d/llvm-23.list
+        lld_pkg=lld-23
+        if [ "${{ steps.llvm-apt.outcome }}" != "success" ]; then
+          echo "::warning::apt.llvm.org could not be registered; installing without lld-23. setup-llvm-linux fails if the release's own ld.lld then does not start."
+          sudo rm -f "$llvm_list"
+          lld_pkg=
+        fi
+        updated=false
+        for attempt in 1 2 3; do
+          if sudo apt-get update; then updated=true; break; fi
+          echo "apt-get update attempt ${attempt}/3 failed; retrying in $((attempt * 15))s" >&2
+          sleep $((attempt * 15))
+        done
+        if [ "$updated" != true ]; then
+          [ -f "$llvm_list" ] || { echo "::error::apt-get update failed 3 times with no apt.llvm.org source registered."; exit 1; }
+          echo "::warning::apt-get update kept failing with apt.llvm.org registered; dropping it and installing without lld-23."
+          sudo rm -f "$llvm_list"
+          lld_pkg=
+          sudo apt-get update
+        fi
         # One superset list for every Linux job. The jobs' old lists differed only
         # by libvulkan-dev/vulkan-validationlayers, which cost seconds; a single
         # list is worth far more than those seconds, because a per-job list is how
@@ -201,13 +229,16 @@ runs:
         # the pinned prefix needs when the release's own ld.lld will not start on
         # this image. See .github/actions/setup-llvm-linux.
         sudo apt-get install -y \
-          lld-23 \
+          ${lld_pkg} \
           libvulkan-dev vulkan-validationlayers \
           mesa-vulkan-drivers \
           libgl-dev libglu1-mesa-dev \
           libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
           libwayland-dev wayland-protocols libxkbcommon-dev \
           glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools
+        # Nothing later installs from apt.llvm.org, and a later `apt-get update`
+        # (setup-vcpkg's prerequisites) must not fail because it is down.
+        sudo rm -f "$llvm_list"
 
     # THE PIN THE CACHE KEY NEEDS (#1095), and the one that makes the two arms
     # twins. Installs the same official LLVM release the box carries, at the same

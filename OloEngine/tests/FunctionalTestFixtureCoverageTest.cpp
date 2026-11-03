@@ -15,9 +15,9 @@
 // Detection
 // ---------
 //   Parse `FunctionalTest.h` for the public `Enable*` method
-//   declarations. Then for each, grep every .cpp under
-//   `OloEngine/tests/Functional/` for a callsite (`.Enable*(`). At
-//   least one must exist.
+//   declarations, including const helpers. Then search test translation units
+//   under `OloEngine/tests/Functional/` for calls. Fixture definitions,
+//   declarations, comments and literals do not count as coverage.
 //
 // The check is static text search; runtime introspection isn't needed
 // (and isn't available in C++ without RTTI tricks).
@@ -52,7 +52,131 @@ namespace OloEngine::Tests
         {
             return fs::path{ OLO_TEST_EDITOR_ROOT }.parent_path();
         }
+
+        // Preserve only code tokens. The raw-string alternative precedes the
+        // ordinary string alternative so embedded C++/Lua fixtures cannot
+        // manufacture helper calls (or TEST registrations).
+        std::string CodeOnly(const std::string& source)
+        {
+            // Keep preprocessing-number tokens before matching character
+            // literals: an apostrophe in 1'000 is a digit separator. C++ also
+            // permits multi-character literals, which can contain decoy calls.
+            static const std::regex tokens{
+                R"olo((\b[0-9][A-Za-z0-9_'.]*)|//[^\n]*|/\*[\s\S]*?\*/|R"([^ ()\\\t\r\n]{0,16})\([\s\S]*?\)\2"|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*')olo"
+            };
+            std::string code;
+            sizet previousEnd = 0;
+            for (auto it = std::sregex_iterator(source.begin(), source.end(), tokens);
+                 it != std::sregex_iterator(); ++it)
+            {
+                const auto start = static_cast<sizet>(it->position());
+                code.append(source, previousEnd, start - previousEnd);
+                code += (*it)[1].matched ? it->str() : " ";
+                previousEnd = start + static_cast<sizet>(it->length());
+            }
+            code.append(source, previousEnd, source.size() - previousEnd);
+            return code;
+        }
+
+        std::set<std::string> EnableDeclarations(const std::string& header)
+        {
+            const std::string code = CodeOnly(header);
+            static const std::regex declaration{
+                R"(\bvoid\s+(Enable\w+)\s*\([^)]*\)\s*(?:const\s*)?(?:noexcept\s*)?;)"
+            };
+            std::set<std::string> methods;
+            for (auto it = std::sregex_iterator(code.begin(), code.end(), declaration);
+                 it != std::sregex_iterator(); ++it)
+            {
+                methods.insert((*it)[1].str());
+            }
+            return methods;
+        }
+
+        std::set<std::string> EnableCallsInTests(const std::string& source,
+                                                 const std::set<std::string>& methods)
+        {
+            std::string code = CodeOnly(source);
+            static const std::regex testRegistration{ R"(\b(?:TEST|TEST_F|TEST_P|TYPED_TEST)\s*\()" };
+            if (!std::regex_search(code, testRegistration))
+                return {};
+
+            // Even a test TU can define fixture methods. A signature is not a
+            // call, so erase it before searching the remaining code.
+            static const std::regex helperSignature{
+                R"(\bvoid\s+(?:\w+::)*Enable\w+\s*\([^)]*\)\s*(?:const\s*)?(?:noexcept\s*)?)"
+            };
+            code = std::regex_replace(code, helperSignature, " ");
+
+            std::set<std::string> calls;
+            for (const auto& name : methods)
+            {
+                if (std::regex_search(code, std::regex{ R"(\b)" + name + R"(\s*\()" }))
+                    calls.insert(name);
+            }
+            return calls;
+        }
     } // namespace
+
+    TEST(FunctionalTestFixtureCoverage, ConstHelpersAreIncludedInTheContract)
+    {
+        EXPECT_EQ(EnableDeclarations(R"(
+            void EnablePhysics3D();
+            void EnableAnimation() const;
+            // void EnableCommentOnly();
+        )"),
+                  (std::set<std::string>{ "EnableAnimation", "EnablePhysics3D" }));
+    }
+
+    TEST(FunctionalTestFixtureCoverage, FixtureDefinitionsAndDeclarationsAreNotCoverage)
+    {
+        const std::set<std::string> methods{ "EnableAnimation", "EnablePhysics3D" };
+        EXPECT_TRUE(EnableCallsInTests(R"(
+            void FunctionalTest::EnablePhysics3D() {}
+            void EnableAnimation() const;
+            TEST /* synthetic registration */ (OtherContract, Runs) {}
+        )",
+                                       methods)
+                        .empty());
+        EXPECT_TRUE(EnableCallsInTests("void Helper() { EnablePhysics3D(); }", methods).empty());
+    }
+
+    TEST(FunctionalTestFixtureCoverage, OnlyCodeCallsInTestsProvideCoverage)
+    {
+        const std::set<std::string> methods{ "EnableAnimation", "EnablePhysics3D" };
+        EXPECT_EQ(EnableCallsInTests(R"source(
+            // EnablePhysics3D();
+            /* EnablePhysics3D(); */
+            const char* ordinary = "EnablePhysics3D();";
+            const char* raw = R"decoy("EnablePhysics3D();")decoy";
+            TEST_F /* synthetic registration */ (SceneContract, Runs) { this->EnableAnimation(); }
+        )source",
+                                     methods),
+                  (std::set<std::string>{ "EnableAnimation" }));
+        EXPECT_TRUE(EnableCallsInTests(R"source(
+            const char* decoy = R"text(TEST_F(Fake, Test) { EnablePhysics3D(); })text";
+        )source",
+                                       methods)
+                        .empty());
+    }
+
+    TEST(FunctionalTestFixtureCoverage, DigitSeparatorsPreserveCallsAndCharacterLiteralsDoNotCount)
+    {
+        const std::set<std::string> methods{ "EnableAnimation", "EnableLua", "EnablePhysics3D" };
+        EXPECT_EQ(EnableCallsInTests(R"source(
+            TEST_F /* synthetic registration */ (SceneContract, Runs)
+            {
+                auto a = 1'000;
+                EnableLua();
+                auto b = 2'000;
+                auto character = 'x';
+                auto multiCharacter = 'EnablePhysics3D()';
+                this->EnableAnimation();
+            }
+        )source",
+                                     methods),
+                  (std::set<std::string>{ "EnableAnimation", "EnableLua" }));
+    }
 
     TEST(FunctionalTestFixtureCoverage, EveryEnableHelperIsCalledBySomeFunctionalTest)
     {
@@ -70,17 +194,7 @@ namespace OloEngine::Tests
             headerSrc = buf.str();
         }
 
-        // Extract every `void Enable<X>(...);` method declared on the
-        // class. The fixture's idiom is one declaration per line of the
-        // form `void EnableX(...);` (the leading `void` and trailing
-        // `;` keep the regex sharp).
-        const std::regex enableDeclPat{ R"(void\s+(Enable\w+)\s*\([^)]*\)\s*;)" };
-        std::set<std::string> enableMethods;
-        for (auto it = std::sregex_iterator(headerSrc.begin(), headerSrc.end(), enableDeclPat);
-             it != std::sregex_iterator(); ++it)
-        {
-            enableMethods.insert((*it)[1].str());
-        }
+        const auto enableMethods = EnableDeclarations(headerSrc);
         ASSERT_FALSE(enableMethods.empty())
             << "Regex did not detect any `Enable*` method in FunctionalTest.h — "
                "the fixture header's signature style changed and this test needs updating.";
@@ -104,15 +218,8 @@ namespace OloEngine::Tests
             buf << f.rdbuf();
             const std::string src = buf.str();
 
-            for (const auto& name : enableMethods)
-            {
-                // Match `EnableX(` (with any leading qualifier) as a
-                // function call. The trailing `(` excludes the method's
-                // own declaration / address-of references.
-                const std::regex callPat{ R"(\b)" + name + R"(\s*\()" };
-                if (std::regex_search(src, callPat))
-                    callsiteMethods.insert(name);
-            }
+            const auto calls = EnableCallsInTests(src, enableMethods);
+            callsiteMethods.insert(calls.begin(), calls.end());
         }
 
         // Difference: declared - called.

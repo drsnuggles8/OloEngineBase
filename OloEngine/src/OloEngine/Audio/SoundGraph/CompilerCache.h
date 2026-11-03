@@ -12,8 +12,6 @@
 #include <vector>
 #include <unordered_map>
 #include <list>
-#include <queue>
-#include <condition_variable>
 #include <atomic>
 
 // Default compiler version - can be overridden at compile time
@@ -103,18 +101,17 @@ namespace OloEngine::Audio::SoundGraph
         void LogStatistics() const;
 
         /// Configuration
-        void SetCacheDirectory(const std::string& directory);
+        // False when the current entries could not be saved first (the cache then keeps
+        // its directory and entries) or the new directory failed to load.
+        bool SetCacheDirectory(const std::string& directory);
         std::string GetCacheDirectory() const
         {
             TUniqueLock<FMutex> lock(m_Mutex);
             return m_CacheDirectory;
         }
 
-        void SetMaxCacheSize(sizet maxSize)
-        {
-            TUniqueLock<FMutex> lock(m_Mutex);
-            m_MaxCacheSize = maxSize;
-        }
+        // Lowering the limit evicts least-recently-used entries immediately.
+        void SetMaxCacheSize(sizet maxSize);
 
         sizet GetMaxCacheSize() const
         {
@@ -156,15 +153,13 @@ namespace OloEngine::Audio::SoundGraph
         // Serialization
         bool SerializeResult(const CompilationResult& result, const std::string& filePath) const;
         bool DeserializeResult(CompilationResult& result, const std::string& filePath) const;
+        // Caller holds m_Mutex, including when saving before a directory switch.
+        bool SaveToDiskLocked() const;
+        // Caller holds m_Mutex. StoreCompiled evicts one entry per insert, so a cache
+        // that a load or a lowered limit left over capacity must be trimmed here.
+        void EnforceMaxCacheSizeLocked();
 
         // Async save support
-        struct SaveTask
-        {
-            CompilationResult m_Result;
-            std::string m_FilePath;
-        };
-
-        void AsyncSaveWorker() const;
         void EnqueueSave(const CompilationResult& result, const std::string& filePath);
         void ShutdownAsyncSaver();
 
@@ -190,8 +185,6 @@ namespace OloEngine::Audio::SoundGraph
         std::string m_InitializationErrors;
 
         // Async save worker (using Task System)
-        std::queue<SaveTask> m_SaveQueue;
-        FMutex m_SaveQueueMutex;
         std::atomic<bool> m_ShuttingDown{ false };
         std::atomic<u32> m_ActiveSaveTasks{ 0 };
 

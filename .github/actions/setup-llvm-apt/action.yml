@@ -54,8 +54,18 @@ runs:
         # scopes it to the single source written below.  apt on noble reads armored
         # (.asc) keys directly, so no --dearmor step is needed.
         sudo install -d -m 0755 /etc/apt/keyrings
-        wget --max-redirect=0 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee "$KEYRING" > /dev/null
-        test -s "$KEYRING" || { echo "::error::Fetched an empty LLVM signing key from apt.llvm.org."; exit 1; }
+        # Retried: apt.llvm.org drops hosted runners' connections for minutes at a time
+        # ("Network is unreachable" over IPv6, wget exit 4), and one blip used to fail
+        # the whole job before it built anything.
+        for attempt in 1 2 3 4; do
+          if wget --max-redirect=0 -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee "$KEYRING" > /dev/null \
+             && test -s "$KEYRING"; then
+            break
+          fi
+          [ "$attempt" -lt 4 ] || { echo "::error::Could not fetch the LLVM signing key from apt.llvm.org after 4 attempts."; exit 1; }
+          echo "LLVM key fetch attempt ${attempt}/4 failed; retrying in $((attempt * 15))s" >&2
+          sleep $((attempt * 15))
+        done
 
         # Non-empty is not an identity check — pin the fingerprint. Collect the PRIMARY
         # key fingerprints only (the `fpr` record right after each `pub`, ignoring

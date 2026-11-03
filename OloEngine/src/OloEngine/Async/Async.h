@@ -23,6 +23,8 @@
 #include "OloEngine/Templates/Function.h"
 
 #include <atomic>
+#include <cstdio>
+#include <memory>
 #include <type_traits>
 
 namespace OloEngine
@@ -70,25 +72,32 @@ namespace OloEngine
     class TAsyncRunnable : public FRunnable
     {
       public:
-        TAsyncRunnable(TUniqueFunction<ResultType()>&& InFunction, TPromise<ResultType>&& InPromise)
-            : m_Function(MoveTemp(InFunction)), m_Promise(MoveTemp(InPromise))
+        TAsyncRunnable(TUniqueFunction<ResultType()>&& InFunction, TPromise<ResultType>&& InPromise,
+                       TUniqueFunction<void()> InCompletionCallback = nullptr)
+            : m_Function(MoveTemp(InFunction)), m_Promise(MoveTemp(InPromise)),
+              m_CompletionCallback(MoveTemp(InCompletionCallback))
         {
         }
 
         u32 Run() override
         {
             SetPromise(m_Promise, m_Function);
-
-            // Mark as complete so the thread can be cleaned up
             m_Complete.store(true, std::memory_order_release);
+
+            // The result is already published. The callback runs on this
+            // dedicated thread (or the caller on synchronous startup fallback),
+            // while the callable's captures are still alive. It never needs a
+            // scheduler worker to make progress.
+            if (m_CompletionCallback)
+                m_CompletionCallback();
 
             return 0;
         }
 
         void Exit() override
         {
-            // Schedule self-destruction - the thread will clean up after itself
-            // We need to delete the runnable after the thread is done
+            // CreateAutoDelete releases us after the native entry point finishes
+            // its remaining thread-state and TLS accesses.
         }
 
         bool IsComplete() const
@@ -96,20 +105,10 @@ namespace OloEngine
             return m_Complete.load(std::memory_order_acquire);
         }
 
-        void SetThread(FRunnableThread* InThread)
-        {
-            m_Thread = InThread;
-        }
-
-        FRunnableThread* GetThread() const
-        {
-            return m_Thread;
-        }
-
       private:
         TUniqueFunction<ResultType()> m_Function;
         TPromise<ResultType> m_Promise;
-        FRunnableThread* m_Thread = nullptr;
+        TUniqueFunction<void()> m_CompletionCallback;
         std::atomic<bool> m_Complete{ false };
     };
 
@@ -175,22 +174,30 @@ namespace OloEngine
             LowLevelTasks::TryLaunch(Owner->Task);
         }
 
-        /**
-         * @brief Clean up completed async threads
-         *
-         * This is scheduled on the task graph to delete the runnable and thread
-         * after execution completes.
-         */
-        template<typename ResultType>
-        void CleanupAsyncThread(TAsyncRunnable<ResultType>* Runnable, FRunnableThread* Thread)
+        // Both public dedicated-thread APIs use this ownership boundary. Keeping
+        // the original promise in the runnable also makes a native-start failure
+        // safe for move-only callables: the still-owned runnable executes inline.
+        template<typename ResultType, typename ThreadFactory = decltype(&FRunnableThread::CreateAutoDelete)>
+        void LaunchAsyncThread(TUniqueFunction<ResultType()>&& Function,
+                               TPromise<ResultType>&& Promise,
+                               TUniqueFunction<void()>&& CompletionCallback,
+                               const char* ThreadName, u32 StackSize, EThreadPriority ThreadPri,
+                               ThreadFactory CreateThread = &FRunnableThread::CreateAutoDelete)
         {
-            // Wait for the thread to finish
-            if (Thread)
+            auto Runnable = std::make_unique<TAsyncRunnable<ResultType>>(
+                MoveTemp(Function), MoveTemp(Promise), MoveTemp(CompletionCallback));
+            if (FPlatformProcess::SupportsMultithreading() &&
+                CreateThread(Runnable.get(), ThreadName, StackSize, ThreadPri,
+                             0, EThreadCreateFlags::None))
             {
-                Thread->WaitForCompletion();
-                delete Thread;
+                // The auto-delete thread can already have completed, so do not
+                // dereference Runnable after transferring ownership.
+                (void)Runnable.release();
             }
-            delete Runnable;
+            else
+            {
+                Runnable->Run();
+            }
         }
 
     } // namespace Private
@@ -215,6 +222,8 @@ namespace OloEngine
      * @param Execution The execution method to use
      * @param Callable The function to execute
      * @param CompletionCallback Optional callback when execution completes
+     *        Dedicated-thread callbacks run after the result on that thread,
+     *        before callable captures are destroyed; startup fallback runs inline.
      * @return A TFuture that will receive the return value
      */
     template<typename CallableType>
@@ -247,65 +256,14 @@ namespace OloEngine
             break;
 
             case EAsyncExecution::Thread:
-                if (FPlatformProcess::SupportsMultithreading())
-                {
-                    // Create a dedicated thread
-                    auto* Runnable = new TAsyncRunnable<ResultType>(MoveTemp(Function), MoveTemp(Promise));
-
-                    char ThreadName[64];
-                    snprintf(ThreadName, sizeof(ThreadName), "TAsync %d", Private::FAsyncThreadIndex::GetNext());
-
-                    FRunnableThread* Thread = FRunnableThread::Create(
-                        Runnable,
-                        ThreadName,
-                        0, // Default stack size
-                        EThreadPriority::TPri_Normal);
-
-                    if (Thread)
-                    {
-                        Runnable->SetThread(Thread);
-
-                        // Schedule cleanup on the task graph after completion. The
-                        // thread will self-clean via the runnable's Exit().
-                        Private::LaunchFireAndForget(
-                            "AsyncCleanup",
-                            LowLevelTasks::ETaskPriority::BackgroundLow,
-                            [Runnable, Thread, Callback = MoveTemp(CompletionCallback)]() mutable
-                            {
-                                // Wait for completion and clean up
-                                Thread->WaitForCompletion();
-                                delete Thread;
-                                delete Runnable;
-                                if (Callback)
-                                {
-                                    Callback();
-                                }
-                            });
-                    }
-                    else
-                    {
-                        // Thread creation failed, run synchronously
-                        delete Runnable;
-                        TPromise<ResultType> SyncPromise;
-                        TFuture<ResultType> SyncFuture = SyncPromise.GetFuture();
-                        SetPromise(SyncPromise, Function);
-                        if (CompletionCallback)
-                        {
-                            CompletionCallback();
-                        }
-                        return SyncFuture;
-                    }
-                }
-                else
-                {
-                    // No multithreading, run synchronously
-                    SetPromise(Promise, Function);
-                    if (CompletionCallback)
-                    {
-                        CompletionCallback();
-                    }
-                }
-                break;
+            {
+                char ThreadName[64];
+                snprintf(ThreadName, sizeof(ThreadName), "TAsync %d", Private::FAsyncThreadIndex::GetNext());
+                Private::LaunchAsyncThread(MoveTemp(Function), MoveTemp(Promise),
+                                           MoveTemp(CompletionCallback), ThreadName,
+                                           0, EThreadPriority::TPri_Normal);
+            }
+            break;
 
             case EAsyncExecution::ThreadPool:
                 // ThreadPool requires FQueuedThreadPool - use AsyncPool() directly
@@ -337,6 +295,8 @@ namespace OloEngine
      * @param StackSize Stack size for the thread (0 = default)
      * @param ThreadPri Thread priority
      * @param CompletionCallback Optional callback when execution completes
+     *        Runs after the result on the dedicated thread, before callable
+     *        captures are destroyed; startup fallback runs inline.
      * @return A TFuture that will receive the return value
      */
     template<typename CallableType>
@@ -351,59 +311,10 @@ namespace OloEngine
         TPromise<ResultType> Promise;
         TFuture<ResultType> Future = Promise.GetFuture();
 
-        if (FPlatformProcess::SupportsMultithreading())
-        {
-            auto* Runnable = new TAsyncRunnable<ResultType>(MoveTemp(Function), MoveTemp(Promise));
-
-            char ThreadName[64];
-            snprintf(ThreadName, sizeof(ThreadName), "TAsyncThread %d", Private::FAsyncThreadIndex::GetNext());
-
-            FRunnableThread* Thread = FRunnableThread::Create(
-                Runnable,
-                ThreadName,
-                StackSize,
-                ThreadPri);
-
-            if (Thread)
-            {
-                Runnable->SetThread(Thread);
-
-                // Schedule cleanup after completion.
-                Private::LaunchFireAndForget(
-                    "AsyncThreadCleanup",
-                    LowLevelTasks::ETaskPriority::BackgroundLow,
-                    [Runnable, Thread, Callback = MoveTemp(CompletionCallback)]() mutable
-                    {
-                        Thread->WaitForCompletion();
-                        delete Thread;
-                        delete Runnable;
-                        if (Callback)
-                        {
-                            Callback();
-                        }
-                    });
-            }
-            else
-            {
-                delete Runnable;
-                // Run synchronously on failure
-                TPromise<ResultType> SyncPromise;
-                SetPromise(SyncPromise, Function);
-                if (CompletionCallback)
-                {
-                    CompletionCallback();
-                }
-                return SyncPromise.GetFuture();
-            }
-        }
-        else
-        {
-            SetPromise(Promise, Function);
-            if (CompletionCallback)
-            {
-                CompletionCallback();
-            }
-        }
+        char ThreadName[64];
+        snprintf(ThreadName, sizeof(ThreadName), "TAsyncThread %d", Private::FAsyncThreadIndex::GetNext());
+        Private::LaunchAsyncThread(MoveTemp(Function), MoveTemp(Promise),
+                                   MoveTemp(CompletionCallback), ThreadName, StackSize, ThreadPri);
 
         return MoveTemp(Future);
     }

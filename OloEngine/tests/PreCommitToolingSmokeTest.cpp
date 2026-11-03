@@ -12,7 +12,7 @@
 //   For every `.py` file under `OloEngine/tests/scripts/`:
 //     Invoke `python -m py_compile <file>`. py_compile parses the source
 //     to bytecode without executing it. A non-zero exit code means a
-//     syntax error or an unresolved import on a top-level module.
+//     syntax error. Imports are not executed by py_compile.
 //
 // Why a runtime test instead of a pre-commit-time check
 // -----------------------------------------------------
@@ -58,12 +58,13 @@ namespace OloEngine::Tests
         // Probe a Python interpreter. Tries `python`, `python3`, then
         // `py -3` (the Windows launcher). Returns the working invocation
         // string, or empty if none found.
-        std::string FindPythonInterpreter()
+        template<typename RunCommand>
+        std::string FindPythonInterpreter(RunCommand&& runCommand)
         {
             const std::array<const char*, 3> candidates{
-                "python --version",
-                "python3 --version",
-                "py -3 --version",
+                "python",
+                "python3",
+                "py -3",
             };
             for (const auto& cmd : candidates)
             {
@@ -74,29 +75,51 @@ namespace OloEngine::Tests
                 // but adds files. We accept the stderr noise for the
                 // probe; if the interpreter isn't there, the noise is
                 // a single "command not found" line.
-                std::string probeCmd = std::string{ cmd };
+                std::string probeCmd = std::string{ cmd } +
+                                       " -c \"import sys; sys.exit(sys.version_info[0] != 3)\"";
 #ifdef _WIN32
                 probeCmd += " >NUL 2>&1";
 #else
                 probeCmd += " >/dev/null 2>&1";
 #endif
-                const int rc = std::system(probeCmd.c_str());
+                const int rc = runCommand(probeCmd.c_str());
                 if (rc == 0)
                 {
-                    // Return the bare command stem (drop the
-                    // " --version" suffix).
-                    const std::string bare{ cmd };
-                    const auto sp = bare.find(' ');
-                    return sp == std::string::npos ? bare : bare.substr(0, sp);
+                    return cmd;
                 }
             }
             return {};
         }
     } // namespace
 
+    // Substitute only OS command execution: the existing compile smoke below
+    // still exercises a real interpreter. Pin the launcher's Python 3 argument
+    // and reject a Python 2 executable that accepts --version successfully.
+    TEST(PreCommitToolingSmoke, PythonLauncherFallbackPreservesVersionSelection)
+    {
+        std::vector<std::string> probes;
+        const auto python = FindPythonInterpreter([&probes](const char* command)
+                                                  {
+                                                     probes.emplace_back(command);
+                                                     return probes.back().starts_with("py -3 -c ") ? 0 : 1; });
+        EXPECT_EQ(python, "py -3");
+        ASSERT_EQ(probes.size(), 3u);
+        for (const auto& probe : probes)
+        {
+            EXPECT_NE(probe.find("sys.version_info[0] != 3"), std::string::npos);
+        }
+    }
+
+    TEST(PreCommitToolingSmoke, NoPython3InterpreterReturnsEmpty)
+    {
+        EXPECT_TRUE(FindPythonInterpreter([](const char*)
+                                          { return 1; })
+                        .empty());
+    }
+
     TEST(PreCommitToolingSmoke, EveryToolingPythonScriptCompiles)
     {
-        const std::string python = FindPythonInterpreter();
+        const std::string python = FindPythonInterpreter(std::system);
         if (python.empty())
         {
             GTEST_SKIP() << "No usable Python interpreter on PATH "
