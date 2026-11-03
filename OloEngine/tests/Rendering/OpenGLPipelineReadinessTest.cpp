@@ -93,6 +93,14 @@ TEST(OpenGLPipelineReadiness, TheSnapshotReportsTheProgramLinkModelWithNoPipelin
 {
     OLO_ENSURE_GPU_OR_SKIP();
     ASSERT_EQ(RendererAPI::GetAPI(), RendererAPI::API::OpenGL);
+    // Prepare a program here rather than rely on an earlier test having done so:
+    // run alone (or first in a shard) the counters are legitimately zero.
+    {
+        Ref<Shader> shader = Shader::Create(WriteUniqueShader().generic_string());
+        ASSERT_TRUE(shader);
+        shader->Bind();
+        shader->Unbind();
+    }
     const PipelineReadinessSnapshot snapshot = RenderCommand::GetPipelineReadiness();
     EXPECT_EQ(snapshot.Model, PipelineReadinessModel::OpenGLProgramLink);
     EXPECT_FALSE(snapshot.PrecacheEnabled) << "Nothing is precached on GL; there is no pipeline object to prepare";

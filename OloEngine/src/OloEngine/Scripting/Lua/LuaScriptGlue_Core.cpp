@@ -286,7 +286,11 @@ namespace OloEngine
                                                                               {
                     rb.FixedRotation = v;
                     if (b2Body_IsValid(rb.RuntimeBody))
-                        b2Body_SetFixedRotation(rb.RuntimeBody, v); }),
+                    {
+                        b2MotionLocks locks = b2Body_GetMotionLocks(rb.RuntimeBody);
+                        locks.angularZ = v;
+                        b2Body_SetMotionLocks(rb.RuntimeBody, locks);
+                    } }),
                                                "linearVelocity", sol::property([](Rigidbody2DComponent& rb) -> glm::vec2
                                                                                { return rb.LinearVelocity; }, [](Rigidbody2DComponent& rb, const glm::vec2& v)
                                                                                {

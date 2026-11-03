@@ -22,22 +22,17 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO ValveSoftware/GameNetworkingSockets
-    # POST-RELEASE COMMIT, on purpose, and it is PR #420's MERGE COMMIT rather
-    # than a later master snapshot. v1.6.0 (2026-06-03) is still the latest tag
-    # and predates the fix for the stack-buffer-overflow that
-    # GameNetworkingSockets_Init's service thread trips under AddressSanitizer:
-    # ValveSoftware/GameNetworkingSockets#418, fixed by PR #420 (merged to master
-    # 2026-08-24). Without that fix, NetworkManager::Init has to skip the live
-    # init under ASan and the networking suites lose their sanitizer coverage.
-    #
-    # Pinning the merge commit and not master's head is the smaller step: it is
-    # the first commit that contains the fix and nothing else we need. An earlier
-    # revision of this port pinned master@2026-08-26, which carried 17 further
-    # commits (an iOS build port, a mingw cmsg fix, CI changes) that this engine
-    # has no use for and would have to vet. Move to a TAG as soon as one ships
-    # containing #420.
-    REF "3b542769a68cd535d41e74af3898becc444940c9" # PR #420 merge commit, 2026-08-24
-    SHA512 983dbd53c74fecd083a4fc6784609f3aeed7072dade2c194d610cb4c9f144057a7162929dced47e31fc65d506f96a9a1e1d7d9a485641907b555ca93b9aafaef
+    # A release TAG that must contain PR #420: the fix for the stack-buffer-
+    # overflow GameNetworkingSockets_Init's service thread trips under
+    # AddressSanitizer (ValveSoftware/GameNetworkingSockets#418). Without it,
+    # NetworkManager::Init has to skip the live init under ASan and the
+    # networking suites lose their sanitizer coverage. v1.6.0 predates #420, so
+    # this overlay pinned #420's merge commit (3b542769, 2026-08-24) until v1.6.1
+    # (2026-10-03) shipped containing it. v1.6.1 also fixes GNS's own TSan
+    # warnings (#429) and hardens STUN attribute parsing; no public API changed.
+    # The SHA512 is the registry port's for the same tag.
+    REF "v${VERSION}"
+    SHA512 b044010aad017804e1b16b5664431e56f59feb35284adaedfd35f518251e8d8abeb3a29d3d273dea57bde63af63b4b3dd54d2cb2712d28975373b54b640da611
     HEAD_REF master
 )
 

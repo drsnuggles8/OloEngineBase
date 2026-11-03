@@ -328,12 +328,16 @@ namespace OloEngine
     // "OVGS" set. DeserializeSetFromBlob accepts exactly that and rejects a bare "OVGM" blob.
     namespace VirtualMeshSerializer
     {
-        // Fingerprint of the cook this build produces: kVirtualMeshBuilderVersion mixed with a
-        // hash of the DEFAULT (sanitized) VirtualMeshBuildConfig — the config every cook path
-        // uses. Written into every blob header and required to match on read, so changing the
-        // builder or a config default invalidates every previously cached DAG instead of
-        // leaving it to render forever. Exposed for the round-trip tests.
+        // Fingerprint of the cook this build produces: kVirtualMeshBuilderVersion and the linked
+        // meshoptimizer version mixed with a hash of the DEFAULT (sanitized)
+        // VirtualMeshBuildConfig — the config every cook path uses. Written into every blob
+        // header and required to match on read, so changing the builder, the simplifier or a
+        // config default invalidates every previously cached DAG instead of leaving it to
+        // render forever. Exposed for the round-trip tests.
         [[nodiscard]] u32 CurrentCookFingerprint();
+        // The same fingerprint for an arbitrary meshoptimizer version (MESHOPTIMIZER_VERSION
+        // encoding, e.g. 1030 for 1.3). CurrentCookFingerprint() is this at the linked version.
+        [[nodiscard]] u32 CookFingerprintForSimplifier(u32 meshoptimizerVersion);
 
         [[nodiscard]] std::vector<u8> SerializeToBlob(const VirtualMesh& mesh);
         [[nodiscard]] bool DeserializeFromBlob(std::span<const u8> blob, VirtualMesh& out);

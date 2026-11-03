@@ -888,9 +888,9 @@ namespace OloEngine
                 bodyDef.type = ToBox2DBodyType(rb2d.Type);
                 bodyDef.position = { transform.Translation.x, transform.Translation.y };
                 bodyDef.rotation = b2MakeRot(transform.GetRotationEuler().z);
+                bodyDef.motionLocks.angularZ = rb2d.FixedRotation;
 
                 b2BodyId body = b2CreateBody(m_Scene->m_PhysicsWorld, &bodyDef);
-                b2Body_SetFixedRotation(body, rb2d.FixedRotation);
                 rb2d.RuntimeBody = body;
 
                 if (entity.HasComponent<BoxCollider2DComponent>())

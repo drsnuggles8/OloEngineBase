@@ -424,6 +424,13 @@ exchange for coverage, all three moved:
 | **glm** | master @2026-04-07 | **1.0.3** (2025-12-31) | Nothing measurable: 1.0.3 is upstream's newest *release*; we were tracking unreleased master. A full suite run on each gave identical results. |
 | **tracy** | v0.14.0 (released 2026-08-09) | **0.13.1** (2025-12-11) | Two real things, below. |
 
+**Both regressions were undone by the `af839a4` baseline bump (#1673)**, which brought
+entt **4.0.0** and tracy **0.14.1**. entt 4.0 needed no source change: the engine was
+written against v4, `ENTT_USE_ATOMIC` is still honoured, and `type_hash` values are
+unchanged (same `hashed_string` and `type_name` stripping), so stored component hashes
+still match. The tracy table row and the backstop paragraph below describe the
+0.13.1 interval.
+
 **Tracy is the one with a behavioural consequence.** The port exports
 `INTERFACE_COMPILE_DEFINITIONS "TRACY_ENABLE;TRACY_ON_DEMAND"`, so linking
 `Tracy::TracyClient` defines both in **every** configuration. Previously the engine
@@ -435,8 +442,10 @@ per-config `target_compile_definitions`. Consequences:
 - The client and consumer now agree *by construction*, because both sides read the
   same imported target — which matters, because **0.13.1 does not carry v0.14.0's
   config-mangled `GetProfiler` symbol**. On 0.14.0 a TRACY_ON_DEMAND mismatch was a
-  loud `LNK2001`; on 0.13.1 it would be silent. We no longer have that backstop, so
-  do not hand-add per-config Tracy defines on top of the imported target.
+  loud `LNK2001`; on 0.13.1 it would be silent. The 0.14.1 port restores that
+  backstop (`MANGLED_NAME_BASED_ON_CONFIG(GetProfiler)` in `TracyProfiler.hpp`), but
+  still do not hand-add per-config Tracy defines on top of the imported target.
+  A 0.14 client also needs a 0.14 profiler GUI to connect.
 
 `TRACY_ENABLE` remains the CMake option gating whether Tracy is linked at all (the
 TSan preset turns it off, per `cmake/Sanitizers.cmake`).

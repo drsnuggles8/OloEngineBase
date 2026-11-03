@@ -60,7 +60,7 @@ namespace OloEngine::MCP::Physics2D
         j["categoryBits"] = std::to_string(filter.categoryBits);
         j["maskBits"] = std::to_string(filter.maskBits);
         j["groupIndex"] = filter.groupIndex;
-        const auto bounds = b2Shape_GetAABB(id);
+        const auto bounds = b2Shape_GetBounds(id);
         j["aabb"] = Json{ { "min", Vec(bounds.lowerBound) }, { "max", Vec(bounds.upperBound) } };
         switch (b2Shape_GetType(id))
         {
