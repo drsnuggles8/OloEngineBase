@@ -1890,6 +1890,7 @@ add_executable(OloEngine-Tests
 		# skinning correctness against the MeshSource bone-influence contract.
 		Rendering/PropertyTests/AnimatedMeshPrimitivesPropertyTests.cpp
 		Rendering/PropertyTests/SkeletalDeformationVisualEvidenceTest.cpp
+		Rendering/PropertyTests/SkinnedNormalsVisualEvidenceTest.cpp
 		# Skinned auto-batching (issue #1031): a same-pose crowd must collapse into
 		# one instanced draw and render the same colour AND motion vectors as the
 		# one-draw-per-actor path, measured against a same-input control render.
