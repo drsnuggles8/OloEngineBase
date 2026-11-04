@@ -10,7 +10,7 @@ threads a private cache.
    UE leaves the cache with the thread because UE's threads live as long as the process. Here
    the scheduler restarts its workers (`FScheduler::RestartWorkers`), so every exited worker
    stranded what it held, and the pool replaced it with fresh memory or index space.
-   [Details](per-thread-caches-hand-back-at-thread-exit-details.mdpr-1679-worker-restarts-grew-past-6-gb).
+   [Details](per-thread-caches-hand-back-at-thread-exit-details.md#pr-1679-worker-restarts-grew-past-6-gb).
 2. **Run the hand-back from a separate `thread_local` hook object, never from the cache's own
    destructor.** Keep the cache trivially destructible, so code that runs later in thread
    teardown and frees into it writes valid storage. Its blocks are lost then, but nothing is
