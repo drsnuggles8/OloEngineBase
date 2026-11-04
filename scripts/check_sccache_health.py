@@ -14,7 +14,8 @@ def counter(value):
 
 
 def assess(data, restored_key, build_outcome, prediction=None, minimum_requests=500,
-           minimum_hit_rate=5.0, minimum_predicted=100, minimum_reuse_percent=50.0):
+           minimum_hit_rate=5.0, minimum_predicted=100, minimum_reuse_percent=50.0,
+           minimum_manifest_coverage_percent=50.0):
     """Classify a build's compiler reuse.
 
     `prediction` is sccache_object_manifest.compare(producer, current): how many objects kept
@@ -64,7 +65,17 @@ def assess(data, restored_key, build_outcome, prediction=None, minimum_requests=
         result['prediction'] = prediction
         changed = (f"{prediction['changed_files']} input files changed since the producer, e.g. "
                    f"{', '.join(prediction['changed_file_sample'][:3]) or 'none'}")
-        if predicted < minimum_predicted:
+        # A wide change still records every object, with new hashes. A manifest that
+        # covers few of the compiles is the manifest step failing (a ninja deps format
+        # or launcher command shape it no longer reads), and judging it would pass a
+        # broken cache as inputs-changed.
+        covered = predicted + prediction['predicted_changed']
+        if covered < result['executed'] * minimum_manifest_coverage_percent / 100.0:
+            result.update(disposition='unavailable',
+                          reason=f"this build's object manifest covers {covered} of {result['executed']} "
+                                 f'compiles (below {minimum_manifest_coverage_percent:g}%), so it cannot '
+                                 'say which objects the cache must serve')
+        elif predicted < minimum_predicted:
             result.update(disposition='inputs-changed',
                           reason=f'only {predicted} objects kept their inputs since the producer '
                                  f'(fewer than {minimum_predicted}), so there is no reuse to measure; '

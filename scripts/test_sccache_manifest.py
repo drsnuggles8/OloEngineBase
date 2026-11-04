@@ -15,7 +15,7 @@ BUILD = os.path.abspath('build')
 LAUNCHER = 'sccache.exe cl.exe /nologo'
 
 
-def tree(count=600, shared='// tracing macros\n', private_suffix=''):
+def tree(count=2000,shared='// tracing macros\n', private_suffix=''):
     """`count` objects that all include one shared header (Instrumentor.h's position)."""
     files = {normalise(os.path.join(BUILD, '../src/Shared.h')): shared.encode()}
     compdb, deps = [], {}
@@ -46,7 +46,7 @@ class ParseDepsTest(unittest.TestCase):
 class BuildManifestTest(unittest.TestCase):
     def test_identical_trees_predict_every_object_reusable(self):
         first, second = manifest(*tree()), manifest(*tree())
-        self.assertEqual(compare(first, second)['predicted_reusable'], 600)
+        self.assertEqual(compare(first, second)['predicted_reusable'], 2000)
 
     def test_a_header_every_object_includes_leaves_nothing_reusable_and_names_it(self):
         # #1678: Instrumentor.h gained the Tracy section macros and every TU missed.
@@ -95,9 +95,23 @@ class PredictedHealthTest(unittest.TestCase):
         result = assess(statistics(hits=0, misses=2000), 'restored', 'success', prediction)
         self.assertEqual(result['disposition'], 'reuse-shortfall')
 
+    def test_an_empty_current_manifest_fails_instead_of_reading_as_inputs_changed(self):
+        # A deps format or launcher command shape the builder no longer reads records
+        # nothing; 0 reusable objects must not pass as inputs-changed.
+        prediction = compare(manifest(*tree()), manifest([], {}, {}))
+        result = assess(statistics(hits=0, misses=2000), 'restored', 'success', prediction)
+        self.assertEqual(result['disposition'], 'unavailable')
+
+    def test_a_manifest_covering_few_of_the_compiles_fails(self):
+        prediction = compare(manifest(*tree(600)), manifest(*tree(600)))
+        for executed, disposition in ((1200, 'healthy-warm'), (1201, 'unavailable')):
+            with self.subTest(executed=executed):
+                result = assess(statistics(hits=600, misses=executed - 600), 'restored', 'success', prediction)
+                self.assertEqual(result['disposition'], disposition)
+
     def test_reuse_is_judged_against_the_predicted_objects(self):
         prediction = compare(manifest(*tree()), manifest(*tree()))
-        for hits, disposition in ((299, 'reuse-shortfall'), (300, 'healthy-warm')):
+        for hits, disposition in ((999, 'reuse-shortfall'), (1000, 'healthy-warm')):
             with self.subTest(hits=hits):
                 result = assess(statistics(hits=hits, misses=2000 - hits), 'restored', 'success', prediction)
                 self.assertEqual(result['disposition'], disposition)
