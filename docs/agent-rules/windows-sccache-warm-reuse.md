@@ -123,8 +123,10 @@ saves nothing. The consumer sets it aside
 before sccache starts, records its own after the build, and counts the objects with an
 unchanged hash. A current manifest that covers under 50% of the compiles fails as
 `unavailable`: the manifest step stopped reading the build. Fewer than 100 unchanged objects is
-`inputs-changed`, which passes and names the changed files. Otherwise, hits below 50% of that
-count fail as `reuse-shortfall`. A snapshot without a manifest falls back to the old floor (a
+`inputs-changed`, which passes and names the changed files. Otherwise, sccache's hits are
+attributed to that count conservatively: any compile the manifest does not predict may be a hit.
+At least 50% passes; under 50% even crediting every hit to it fails as `reuse-shortfall`; between
+the two is `unavailable`. A snapshot without a manifest falls back to the old floor (a
 warm result below 5% fails as `near-zero-warm`) and the report says so. A snapshot with a
 manifest but no current one fails. Passing the gate is not the 94.8-98.5% recovery criterion.
 [Why the raw rate was replaced](windows-sccache-warm-reuse-details.md#1678-a-correct-cache-read-as-near-zero-warm).
@@ -132,9 +134,8 @@ manifest but no current one fails. Passing the gate is not the 94.8-98.5% recove
 Hosted cache prefixes include a fingerprint of compiler bytes/path, MSVC and Windows SDK
 versions, the actual image revision, sccache version, the vcpkg `builtin-baseline` and a hash
 of `cmake/overlay-ports/`. A toolchain roll or a dependency bump starts a cold lineage;
-there is no fallback to another identity. The dependency inputs were added by #1673: its
-baseline bump restored master's lineage, missed on nearly every TU (96/2119, 4.53%) because
-the dependency headers changed, and failed this gate as near-zero-warm on a correct build. The fingerprint follows the Vulkan stamp so the
+there is no fallback to another identity. The dependency inputs were added by #1673
+([why](windows-sccache-warm-reuse-details.md#1678-a-correct-cache-read-as-near-zero-warm)). The fingerprint follows the Vulkan stamp so the
 existing janitor strips run/attempt, then fingerprint, then SDK, grouping superseded lineages.
 Cache saves require a successful build and remain disabled on PRs and oversized probes.
 

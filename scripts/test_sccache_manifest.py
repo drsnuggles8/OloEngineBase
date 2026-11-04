@@ -115,7 +115,18 @@ class PredictedHealthTest(unittest.TestCase):
         prediction = compare(manifest(*tree(600)), manifest(*tree(600)))
         for executed, disposition in ((1200, 'healthy-warm'), (1201, 'unavailable')):
             with self.subTest(executed=executed):
-                result = assess(statistics(hits=600, misses=executed - 600), 'restored', 'success', prediction)
+                result = assess(statistics(hits=1200, misses=executed - 1200), 'restored', 'success',
+                                prediction)
+                self.assertEqual(result['disposition'], disposition)
+                self.assertIn('covers' if disposition == 'unavailable' else 'at least', result['reason'])
+
+    def test_hits_the_manifest_cannot_attribute_never_pass_the_predicted_objects(self):
+        # 2000 predicted objects among 3000 compiles: the 1000 the manifest does not
+        # predict can account for 1000 hits, which alone would read as 50% reuse.
+        prediction = compare(manifest(*tree()), manifest(*tree()))
+        for hits, disposition in ((1000, 'unavailable'), (2000, 'healthy-warm'), (999, 'reuse-shortfall')):
+            with self.subTest(hits=hits):
+                result = assess(statistics(hits=hits, misses=3000 - hits), 'restored', 'success', prediction)
                 self.assertEqual(result['disposition'], disposition)
 
     def test_reuse_is_judged_against_the_predicted_objects(self):

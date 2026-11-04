@@ -81,16 +81,29 @@ def assess(data, restored_key, build_outcome, prediction=None, minimum_requests=
                                  f'(fewer than {minimum_predicted}), so there is no reuse to measure; '
                                  + changed)
         else:
-            result['reuse_of_predicted_percent'] = 100.0 * result['hits'] / predicted
-            if result['reuse_of_predicted_percent'] < minimum_reuse_percent:
+            # sccache counts hits in aggregate. Every compile the manifest does not
+            # predict (unpredictable, or not recorded) may be one of them, so the
+            # predicted objects account for at least `hits - unattributed` and at
+            # most `min(hits, predicted)`. Pass on the lower bound, fail on the upper.
+            unattributed = max(0, result['executed'] - covered)
+            least = max(0, result['hits'] - unattributed)
+            most = min(result['hits'], predicted)
+            result.update(unattributed_compiles=unattributed,
+                          reuse_of_predicted_percent=100.0 * least / predicted)
+            if 100.0 * least / predicted >= minimum_reuse_percent:
+                result.update(disposition='healthy-warm',
+                              reason=f'at least {least} of {result["hits"]} hits served the {predicted} '
+                                     'objects whose inputs are unchanged since the producer')
+            elif 100.0 * most / predicted < minimum_reuse_percent:
                 result.update(disposition='reuse-shortfall',
                               reason=f"{result['hits']} hits for {predicted} objects whose inputs are "
                                      f'unchanged since the producer, below {minimum_reuse_percent:g}%: '
                                      'the restored cache is not serving what it holds; ' + changed)
             else:
-                result.update(disposition='healthy-warm',
-                              reason=f"{result['hits']} hits for {predicted} objects whose inputs are "
-                                     'unchanged since the producer')
+                result.update(disposition='unavailable',
+                              reason=f"{result['hits']} hits, but {unattributed} compiles the manifest does "
+                                     'not predict could account for enough of them that it cannot tell '
+                                     f'whether the {predicted} predicted objects were served')
     return result
 
 
