@@ -523,13 +523,11 @@ namespace OloEngine
         FHazardPointerCollection::FHazardRecord* m_Record = nullptr;
 
       public:
+        // Takes over Other's slot. Releasing it here would hand it to the next
+        // acquirer while this pointer still uses it.
         THazardPointer(THazardPointer&& Other)
             : m_Hazard(Other.m_Hazard), m_Record(Other.m_Record)
         {
-            if (m_Record)
-            {
-                m_Record->Release();
-            }
             Other.m_Hazard = nullptr;
             Other.m_Record = nullptr;
         }

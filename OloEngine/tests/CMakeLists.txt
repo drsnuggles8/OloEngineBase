@@ -227,6 +227,7 @@ add_executable(OloEngine-Tests
 		Tasks/TaskSystemTest.cpp
 		HAL/ThreadManagerTest.cpp
 		Containers/ConcurrentQueuesTest.cpp
+		Containers/HazardPointerTest.cpp
 		Containers/LinkedListTest.cpp
 		Containers/OwnedContainerInvariantsTest.cpp
 		Containers/StringTest.cpp
