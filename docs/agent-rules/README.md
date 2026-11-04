@@ -287,6 +287,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [retained-scratch-has-an-owner-and-a-ledger.md](retained-scratch-has-an-owner-and-a-ledger.md): retained scratch is passed in by an owner that gives it back and counted once in the memory report.
 - [bump-allocator-rollover-padding.md](bump-allocator-rollover-padding.md): a rollover must not reserve padding computed for the block it is leaving; over-align the blocks instead.
 - [cancel-a-load-by-removing-its-record.md](cancel-a-load-by-removing-its-record.md): a cancelled async load is dropped by removing its pending record, and abandoned tasks are waited out at shutdown.
+- [per-thread-caches-hand-back-at-thread-exit.md](per-thread-caches-hand-back-at-thread-exit.md): a pool that outlives its threads takes back each thread's cache when the thread exits, from a hook rather than the cache's own destructor.
 
 ## Subsystem notes (`notes-*.md`)
 

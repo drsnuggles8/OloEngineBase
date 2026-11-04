@@ -341,6 +341,7 @@ The logic is right, but when it runs or how long it lives is wrong.
 | [foliage-regeneration-is-async-once-workers-start.md](foliage-regeneration-is-async-once-workers-start.md) | Seven foliage evidence tests passed alone and failed after another suite had started the task workers. |
 | [gpu-scan-compaction.md](gpu-scan-compaction.md) | A `barrier()` only some invocations reach. |
 | [lazy-static-release-ownership.md](lazy-static-release-ownership.md) | A shared lazy static released from a conditional teardown. |
+| [per-thread-caches-hand-back-at-thread-exit.md](per-thread-caches-hand-back-at-thread-exit.md) | A test that restarts the scheduler's workers grew past 6 GB on a starved runner, because three pools let each exiting worker keep its cache. |
 | [configure-time-variable-visibility.md](configure-time-variable-visibility.md) | A CMake variable read by a subdirectory processed before the line that sets it. |
 
 ## 6. It was never actually called
