@@ -32,6 +32,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <mutex>
 
 namespace OloEngine
 {
@@ -124,6 +125,100 @@ namespace OloEngine
                 ReclamationList.Empty();
             }
         };
+
+        /**
+         * @struct FLifetime
+         * @brief Whether the collection still exists, for a thread exiting after it
+         *
+         * Shared by the collection and every thread that retired through it, and freed
+         * by whichever lets go last.
+         */
+        struct FLifetime
+        {
+            std::mutex Mutex;
+            FHazardPointerCollection* Collection = nullptr;
+            std::atomic<i32> References{ 1 };
+
+            void Release()
+            {
+                if (References.fetch_sub(1, std::memory_order_acq_rel) == 1)
+                {
+                    delete this;
+                }
+            }
+        };
+
+        /**
+         * @struct FThreadExitHook
+         * @brief Hands a thread's retired objects to their collections when it exits
+         *
+         * A thread collects its own list at most once a second, so a thread that exits
+         * holds the last ones it retired. The scheduler restarts its workers, and every
+         * exited worker kept its last retired FAAArrayQueue nodes for the life of the
+         * process.
+         */
+        struct FThreadExitHook
+        {
+            struct FEntry
+            {
+                FLifetime* Lifetime;
+                FTlsData* TlsData;
+            };
+            TArray<FEntry> Entries;
+
+            ~FThreadExitHook()
+            {
+                ThreadIsExiting() = true;
+                for (const FEntry& Entry : Entries)
+                {
+                    {
+                        const std::lock_guard<std::mutex> Lock(Entry.Lifetime->Mutex);
+                        if (Entry.Lifetime->Collection)
+                        {
+                            Entry.Lifetime->Collection->AdoptExitedThread(Entry.TlsData);
+                        }
+                    }
+                    Entry.Lifetime->Release();
+                }
+                Entries.Empty();
+            }
+        };
+
+        // Trivially destructible, so readable after the hook's destructor has run.
+        static bool& ThreadIsExiting()
+        {
+            static thread_local bool s_Exiting = false;
+            return s_Exiting;
+        }
+
+        static FThreadExitHook& ThreadExitHook()
+        {
+            static thread_local FThreadExitHook s_Hook;
+            return s_Hook;
+        }
+
+        // Called on the exiting thread, with the lifetime mutex held.
+        void AdoptExitedThread(FTlsData* TlsData)
+        {
+            FPlatformTLS::SetTlsValue(m_CollectablesTlsSlot, nullptr);
+            FScopeLock Lock(&m_AllTlsVariablesCS);
+            Collect(TlsData->ReclamationList);
+            for (const HazardPointer_Impl::FHazardDeleter& Deleter : TlsData->ReclamationList)
+            {
+                m_Orphans.Add(Deleter);
+            }
+            TlsData->ReclamationList.Empty();
+            m_HasOrphans.store(!m_Orphans.IsEmpty(), std::memory_order_relaxed);
+            m_AllTlsVariables.RemoveSingleSwap(TlsData);
+            delete TlsData;
+        }
+
+        void CollectOrphans()
+        {
+            FScopeLock Lock(&m_AllTlsVariablesCS);
+            Collect(m_Orphans);
+            m_HasOrphans.store(!m_Orphans.IsEmpty(), std::memory_order_relaxed);
+        }
 
         /**
          * @class FHazardRecord
@@ -221,6 +316,11 @@ namespace OloEngine
         u32 m_CollectablesTlsSlot = FPlatformTLS::InvalidTlsSlot;
         std::atomic_uint m_TotalNumHazardRecords{ HazardChunkSize };
 
+        FLifetime* m_Lifetime = nullptr;
+        // Exited threads' retired objects that were still protected; under m_AllTlsVariablesCS.
+        TArray<HazardPointer_Impl::FHazardDeleter> m_Orphans;
+        std::atomic<bool> m_HasOrphans{ false };
+
         void Collect(TArray<HazardPointer_Impl::FHazardDeleter>& Collectables) const;
 
         // Mark pointer for deletion
@@ -236,10 +336,22 @@ namespace OloEngine
             m_CollectablesTlsSlot = FPlatformTLS::AllocTlsSlot();
             OLO_CORE_ASSERT(FPlatformTLS::IsValidTlsSlot(m_CollectablesTlsSlot),
                             "Failed to allocate TLS slot for HazardPointerCollection");
+            m_Lifetime = new FLifetime();
+            m_Lifetime->Collection = this;
         }
+
+        FHazardPointerCollection(const FHazardPointerCollection&) = delete;
+        FHazardPointerCollection& operator=(const FHazardPointerCollection&) = delete;
 
         ~FHazardPointerCollection()
         {
+            // A thread exiting from here on must not hand anything to this collection.
+            {
+                const std::lock_guard<std::mutex> Lock(m_Lifetime->Mutex);
+                m_Lifetime->Collection = nullptr;
+            }
+            m_Lifetime->Release();
+
             // Clean up all TLS data
             {
                 FScopeLock Lock(&m_AllTlsVariablesCS);
@@ -248,6 +360,11 @@ namespace OloEngine
                     delete TlsData;
                 }
                 m_AllTlsVariables.Empty();
+                for (HazardPointer_Impl::FHazardDeleter& Deleter : m_Orphans)
+                {
+                    Deleter.Delete();
+                }
+                m_Orphans.Empty();
             }
 
             // Clean up hazard record chunks (not the head, which is embedded)
@@ -387,10 +504,19 @@ namespace OloEngine
 
         if (TlsData == nullptr)
         {
-            FScopeLock Lock(&m_AllTlsVariablesCS);
-            TlsData = new FTlsData();
-            m_AllTlsVariables.Add(TlsData);
+            {
+                FScopeLock Lock(&m_AllTlsVariablesCS);
+                TlsData = new FTlsData();
+                m_AllTlsVariables.Add(TlsData);
+            }
             FPlatformTLS::SetTlsValue(m_CollectablesTlsSlot, TlsData);
+            // Past the hook's destructor (a thread_local destroyed after it retiring
+            // something), the list stays with the collection until it is destroyed.
+            if (!ThreadIsExiting())
+            {
+                m_Lifetime->References.fetch_add(1, std::memory_order_relaxed);
+                ThreadExitHook().Entries.Add({ m_Lifetime, TlsData });
+            }
         }
 
         OLO_CORE_ASSERT(!TlsData->ReclamationList.Contains(Deleter), "Deleter already in reclamation list");
@@ -411,6 +537,10 @@ namespace OloEngine
         {
             TlsData->TimeOfLastCollection = CurrentTime;
             Collect(TlsData->ReclamationList);
+            if (m_HasOrphans.load(std::memory_order_relaxed))
+            {
+                CollectOrphans();
+            }
         }
     }
 

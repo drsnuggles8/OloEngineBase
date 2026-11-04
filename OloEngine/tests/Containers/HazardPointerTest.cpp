@@ -1,7 +1,9 @@
 // OLO_TEST_LAYER: unit
 //
 // FHazardPointerCollection defers deleting a retired object until no hazard
-// pointer protects it.
+// pointer protects it. Each thread keeps its retired objects in its own list,
+// collected at most once a second; FAAArrayQueue retires its 8 KB nodes this
+// way, and the scheduler's worker threads are the ones that retire them.
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
@@ -9,6 +11,7 @@
 #include "OloEngine/Core/Base.h"
 
 #include <atomic>
+#include <thread>
 #include <utility>
 
 namespace
@@ -25,6 +28,26 @@ namespace
         }
     };
 } // namespace
+
+// A thread's first retirement is collected at once; the next one waits for a
+// collection up to a second later, which a thread that exits never runs. The
+// scheduler restarts its workers, so every exited worker would keep its last
+// retired queue nodes for the life of the process.
+TEST(HazardPointer, AnExitedThreadsRetiredObjectsAreReclaimed)
+{
+    std::atomic<i32> destroyed{ 0 };
+    FHazardPointerCollection collection;
+
+    std::thread retiring(
+        [&collection, &destroyed]
+        {
+            collection.Delete(new FTracked{ &destroyed });
+            collection.Delete(new FTracked{ &destroyed });
+        });
+    retiring.join();
+
+    EXPECT_EQ(destroyed.load(), 2) << "the exited thread's unprotected retired object is still waiting for a collection";
+}
 
 // A moved-to hazard pointer keeps the slot it took over. Released on the move,
 // the slot goes to the next hazard pointer acquired before the moved-to one's
