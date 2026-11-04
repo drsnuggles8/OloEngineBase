@@ -32,10 +32,9 @@ namespace OloEngine::Tests::ProjectIsolation
                    now.AssetManager.Raw() == before.AssetManager.Raw();
         }
 
-        // Back to `before`. Project has no setter for the active project, so a
-        // replaced one is restored the way AcceptanceSceneTest's TearDown always
-        // has: a project object with the same directory and config. Its identity
-        // differs; nothing between tests holds the old one but this snapshot.
+        // Back to exactly `before`: the captured objects themselves, so a suite
+        // that holds the project it set up in SetUpTestSuite still sees that one
+        // when a test swapped only the asset manager.
         void Restore(const Snapshot& before, const std::string& owner)
         {
             const Snapshot left = Capture();
@@ -43,15 +42,8 @@ namespace OloEngine::Tests::ProjectIsolation
                           left.ActiveProject ? left.ActiveProject->GetDirectory().string() : std::string("(none)"),
                           left.AssetManager ? " with its asset manager" : "",
                           before.ActiveProject ? "project" : "empty state");
-            Project::Unload(); // drops the test's asset manager, and with it every asset only it held
-            if (before.ActiveProject)
-            {
-                Project::NewInMemory(before.ActiveProject->GetDirectory(), before.ActiveProject->GetConfig());
-            }
-            if (before.AssetManager)
-            {
-                Project::SetAssetManager(before.AssetManager);
-            }
+            // Drops the test's asset manager, and with it every asset only it held.
+            Project::RestoreActive(before.ActiveProject, before.AssetManager);
         }
 
         class ProjectIsolationListener final : public ::testing::EmptyTestEventListener
