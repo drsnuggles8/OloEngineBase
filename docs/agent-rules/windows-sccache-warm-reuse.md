@@ -120,15 +120,13 @@ compile.** Every saving run banks `olo-object-manifest.json` in its snapshot
 (`scripts/sccache_object_manifest.py`): one hash per launcher-compiled object over its compile
 command, source and every header in ninja's deps log, by content. The consumer sets it aside
 before sccache starts, records its own after the build, and counts the objects with an
-unchanged hash. Fewer than 100 such objects is `inputs-changed`, which passes and names the
-changed files. Otherwise, hits below 50% of that count fail as `reuse-shortfall`. A
-snapshot without a manifest falls back to the old floor (a warm result below 5% fails as
-`near-zero-warm`) and the report says so. A snapshot with a manifest but no current one fails.
-The raw rate could not tell a broken cache from a correct one: #1678 added Tracy section
-macros to `Debug/Instrumentor.h`, which almost every TU includes, and read 106/2126 (4.99%)
-on a correct cache. On a local tree the manifest predicts 33 of 1725 objects reusable across
-that change and names `Instrumentor.h` as the one changed input. Passing the gate is not the
-94.8-98.5% recovery criterion.
+unchanged hash. A current manifest that covers under 50% of the compiles fails as
+`unavailable`: the manifest step stopped reading the build. Fewer than 100 unchanged objects is
+`inputs-changed`, which passes and names the changed files. Otherwise, hits below 50% of that
+count fail as `reuse-shortfall`. A snapshot without a manifest falls back to the old floor (a
+warm result below 5% fails as `near-zero-warm`) and the report says so. A snapshot with a
+manifest but no current one fails. Passing the gate is not the 94.8-98.5% recovery criterion.
+[Why the raw rate was replaced](windows-sccache-warm-reuse-details.md#1678-a-correct-cache-read-as-near-zero-warm).
 
 Hosted cache prefixes include a fingerprint of compiler bytes/path, MSVC and Windows SDK
 versions, the actual image revision, sccache version, the vcpkg `builtin-baseline` and a hash
