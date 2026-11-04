@@ -76,6 +76,15 @@ class BuildManifestTest(unittest.TestCase):
         self.assertEqual(len(result['unpredictable']), 3)
         self.assertNotIn('obj/a.asm.obj', result['unpredictable'])  # not a cache request
 
+    def test_a_response_file_left_in_a_command_is_unpredictable_not_hashed_as_a_path(self):
+        # The flags in it (a /Yu among them) are invisible to the hash and the PCH check.
+        compdb, deps, files = tree(3)
+        compdb[0]['command'] += ' @obj/Unit0.cpp.obj.rsp'
+        compdb[1]['command'] += ' "@obj/Unit1.cpp.obj.rsp"'
+        result = manifest(compdb, deps, files)
+        self.assertEqual(sorted(result['objects']), ['obj/Unit2.cpp.obj'])
+        self.assertEqual(set(result['unpredictable'].values()), {'compile command reads a response file'})
+
     def test_an_unknown_schema_is_refused_rather_than_compared(self):
         with self.assertRaises(ValueError):
             compare({'schema': 0, 'objects': {}}, manifest(*tree(1)))

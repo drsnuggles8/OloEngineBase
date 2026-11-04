@@ -17,9 +17,11 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 
 SCHEMA = 1
+RESPONSE_FILE = re.compile(r'(^|\s)"?@\S')
 
 
 def normalise(path):
@@ -46,6 +48,10 @@ def unpredictable_reason(entry, launcher, deps):
     command = entry.get('command', '')
     if launcher not in command.lower():
         return None  # not a cache request at all; neither predicted nor counted
+    if RESPONSE_FILE.search(command):
+        # main() asks ninja to expand these (`compdb -x`). One left over hashes a path, not
+        # the flags in it, and hides a /Yu from the check below.
+        return 'compile command reads a response file'
     if '/yu' in command.lower() or '-yu' in command.lower():
         return 'uses an MSVC precompiled header'
     if entry['output'] not in deps:
@@ -142,7 +148,8 @@ def main():
     ninja = [make_program(build_dir), '-C', build_dir]
     if args.config:
         ninja += ['-f', f'build-{args.config}.ninja']
-    compdb = json.loads(subprocess.run(ninja + ['-t', 'compdb'], check=True, capture_output=True,
+    # -x: hash the flags a response file holds, not its path.
+    compdb = json.loads(subprocess.run(ninja + ['-t', 'compdb', '-x'], check=True, capture_output=True,
                                        text=True).stdout)
     deps = parse_deps(subprocess.run(ninja + ['-t', 'deps'], check=True, capture_output=True,
                                      text=True, errors='replace').stdout)
