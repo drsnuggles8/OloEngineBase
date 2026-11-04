@@ -122,7 +122,7 @@ namespace
     // report: what keeping 256 MB costs in this build. The caller holds a
     // ScopedRetainingProbeEnabled.
     [[nodiscard]] OloEngine::Tests::LaunchResult RunRetainingProbeWithReport(const std::string& exe,
-                                                                            const std::filesystem::path& report)
+                                                                             const std::filesystem::path& report)
     {
         return OloEngine::Tests::RunProcessWithTimeout(
             exe,
