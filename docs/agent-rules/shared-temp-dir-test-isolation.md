@@ -18,6 +18,8 @@ Failure mode: green-but-wrong and intermittent. A test writes a file and the wri
 12. **Reproduce a cross-process race with concurrent processes, not a green single run.** 8 concurrent `OloEngine-Tests.exe` over `EngineSubsystemSmoke.*:LocalizationFixture.*:StreamingRegionSerializer.*` at `--gtest_repeat=5` gave 350 failures before the fix and 0 after; the failure text ("Failed to load project file ... Project::Load failed on the just-saved file") names nothing about a race. [Details](shared-temp-dir-test-isolation-details.md#5-what-the-fix-was-measured-against)
 13. **Resolve repo files from `OLO_TEST_EDITOR_ROOT`, never relative to the working directory.** Asset-manager-backed Functional fixtures `chdir` to a temp project, so a CWD-relative open passes alone and fails after them in the suite. Use `std::filesystem::path{ OLO_TEST_EDITOR_ROOT }.parent_path() / "OloEngine" / ...` (see the local `RepoRoot()` in `ComponentSerializerCoverageTest`, `ComponentTupleCoverageTest`, `OloHeaderToolOutputsTest`). [Details](shared-temp-dir-test-isolation-details.md#7-the-sibling-hazard-reading-a-repo-file-relative-to-the-working-directory)
 
+14. **Leave the active project and asset manager as the test found them; never reuse a project an earlier test left active.** The `ProjectIsolation.h` listener restores both after every test and suite and logs the test that left one behind; a project left active kept every asset it loaded resident for the rest of a whole-suite run (+1.3 GB from one fox test). [Details](shared-temp-dir-test-isolation-details.md#8-a-project-left-active-keeps-its-assets-resident-for-the-rest-of-the-run)
+
 ## Commands and checks
 
 ```

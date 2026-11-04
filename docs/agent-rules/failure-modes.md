@@ -304,6 +304,7 @@ The logic is right, but when it runs or how long it lives is wrong.
 | [runtime-scene-switching.md](runtime-scene-switching.md) | Five ordering rules for a swap that destroys the thing being iterated. |
 | [follow-camera-and-character-query-seams.md](follow-camera-and-character-query-seams.md) | Input before the physics kick, camera last. |
 | [fixture-assets-outlive-the-case.md](fixture-assets-outlive-the-case.md) | The dog's cases left about 120 MB of registered assets each and crossed the 6 GB ceiling 24 cases in. |
+| [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md) rule 14 | The AMD nightly crossed 6 GiB in a test that behaved identically to the green night; earlier evidence tests had left their projects, and gigabytes of assets, active. |
 | [cancel-a-load-by-removing-its-record.md](cancel-a-load-by-removing-its-record.md) | A cancelled load's result is dropped by removing its record. |
 | [two-phase-occlusion-culling.md](two-phase-occlusion-culling.md) | Pass order decides who still sees previous-frame depth. |
 | [virtual-shadow-map-page-cache.md](virtual-shadow-map-page-cache.md) | Clearing the LRU bit one step early evicts the whole cache every frame. |
