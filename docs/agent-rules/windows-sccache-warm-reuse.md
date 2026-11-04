@@ -58,8 +58,8 @@ reused objects. At 2G, early misses evict matching objects before their turn; th
 enlarged arm preserves them. This establishes capacity/LRU eviction, rather than a
 globally changing hash input, as the cause of the zero-hit regression.
 
-The final snapshot also retains obsolete source keys. It is an upper bound on the
-current object set, not its exact size. The refined probe measures unique requested
+The final snapshot also retains obsolete source keys, so it bounds the current
+object set from above. The refined probe measures unique requested
 keys separately and requires every requested key to remain resident before claiming
 a complete object-set measurement.
 
@@ -70,8 +70,8 @@ keys resident at restore**, with 862 misses and no errors/non-cacheable calls. I
 complete successful build took **61m57s**. All **2070 unique requested objects** remained
 resident, totaling **2,818,896,940 bytes (2688.31 MiB)**, with no obsolete objects left
 in this snapshot. The native JSON and complete probe are in `windows-cache-health`
-and `windows-cache-probe` artifacts. This is sizing evidence; 58.36% reuse from the
-truncated 2G snapshot is not the recovery criterion.
+and `windows-cache-probe` artifacts. This is sizing evidence: 58.36% reuse from a
+truncated 2G snapshot is no recovery.
 
 Production uses **3200M (3,355,443,200 bytes)**, reserving **511.69 MiB / 19.03%** above
 the measured current set. Keep measuring as the compiled graph grows. The shared-store
@@ -124,10 +124,11 @@ before sccache starts, records its own after the build, and counts the objects w
 unchanged hash. A current manifest that covers under 50% of the compiles fails as
 `unavailable`: the manifest step stopped reading the build. Fewer than 100 unchanged objects is
 `inputs-changed`, which passes and names the changed files. Otherwise, sccache's hits are
-attributed to that count conservatively: any compile the manifest does not predict may be a hit.
-At least 50% passes; under 50% even crediting every hit to it fails as `reuse-shortfall`; between
-the two is `unavailable`. A snapshot without a manifest falls back to the old floor (a
-warm result below 5% fails as `near-zero-warm`) and the report says so. A snapshot with a
+attributed to that count conservatively: any other compile may be a hit, a changed object included.
+At least 50% passes; under 50% even crediting every hit to it fails as `reuse-shortfall`. Between
+the two, it is `inputs-changed` if only changed objects could take the hits, else `unavailable`
+([why](windows-sccache-warm-reuse-details.md#attributing-hits-to-the-unchanged-objects)). A snapshot without a manifest falls back to the 5% floor
+(`near-zero-warm`) and says so. A snapshot with a
 manifest but no current one fails. Passing the gate is not the 94.8-98.5% recovery criterion.
 [Why the raw rate was replaced](windows-sccache-warm-reuse-details.md#1678-a-correct-cache-read-as-near-zero-warm).
 

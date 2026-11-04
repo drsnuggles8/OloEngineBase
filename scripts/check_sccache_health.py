@@ -81,12 +81,15 @@ def assess(data, restored_key, build_outcome, prediction=None, minimum_requests=
                                  f'(fewer than {minimum_predicted}), so there is no reuse to measure; '
                                  + changed)
         else:
-            # sccache counts hits in aggregate. Every compile the manifest does not
-            # predict (unpredictable, or not recorded) may be one of them, so the
-            # predicted objects account for at least `hits - unattributed` and at
+            # sccache counts hits in aggregate, and any compile other than a predicted
+            # object may be one of them: one the manifest does not predict (unpredictable,
+            # or not recorded), or a changed object whose edit leaves sccache's key alone
+            # (it hashes the preprocessed source, so a header comment or an inactive #if
+            # branch does not count) or matches an entry older than the producer. So the
+            # predicted objects account for at least `hits - (executed - predicted)` and at
             # most `min(hits, predicted)`. Pass on the lower bound, fail on the upper.
             unattributed = max(0, result['executed'] - covered)
-            least = max(0, result['hits'] - unattributed)
+            least = max(0, result['hits'] - unattributed - prediction['predicted_changed'])
             most = min(result['hits'], predicted)
             result.update(unattributed_compiles=unattributed,
                           reuse_of_predicted_percent=100.0 * least / predicted)
@@ -99,6 +102,16 @@ def assess(data, restored_key, build_outcome, prediction=None, minimum_requests=
                               reason=f"{result['hits']} hits for {predicted} objects whose inputs are "
                                      f'unchanged since the producer, below {minimum_reuse_percent:g}%: '
                                      'the restored cache is not serving what it holds; ' + changed)
+            elif 100.0 * (result['hits'] - unattributed) / predicted >= minimum_reuse_percent:
+                # Only the changed objects stand in the way of a verdict. A healthy cache
+                # hits the unchanged objects and misses the changed ones, so once over a
+                # third of the covered objects changed it lands here; failing would turn
+                # every such PR red, as #1678's raw floor did. Reuse is unmeasurable, as
+                # with fewer than `minimum_predicted` unchanged objects.
+                result.update(disposition='inputs-changed',
+                              reason=f"{prediction['predicted_changed']} objects with changed inputs could "
+                                     f"account for enough of the {result['hits']} hits that the reuse of the "
+                                     f'{predicted} unchanged objects cannot be measured; ' + changed)
             else:
                 result.update(disposition='unavailable',
                               reason=f"{result['hits']} hits, but {unattributed} compiles the manifest does "

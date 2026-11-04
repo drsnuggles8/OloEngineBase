@@ -23,3 +23,23 @@ CI result.
 The coverage check came from review of the same change: a manifest that records no objects
 (a ninja deps format or launcher command shape the builder no longer reads) also predicts 0
 reusable objects, and without the check it would have passed as `inputs-changed`.
+
+## Attributing hits to the unchanged objects
+
+sccache reports hits in aggregate, so the gate cannot see which objects hit. Review of #1679 found
+two ways the gate credited hits to the unchanged objects that other compiles may have taken. A
+compile the manifest does not predict (an unpredictable command, or one it did not record) may be
+a hit. So may a changed object: sccache keys an MSVC object on its preprocessed source, so an edit
+to a header comment or an inactive `#if` branch changes the manifest hash but not the key, and a
+changed object can also match an entry older than the producer. The lower bound therefore
+subtracts every compile that is not an unchanged object.
+
+That bound makes a healthy cache ambiguous after a wide change. Every unchanged object hits and
+every changed one misses, but once more than a third of the covered objects changed, the bound
+drops under 50%. Failing those builds would repeat #1678's false red on every PR that edits a
+widely included header, and the statistics cannot separate them from a cache whose changed
+objects hit while its unchanged ones missed. That mix needs the cache to hold the changed
+objects' keys while losing the unchanged ones', which eviction does not produce, so the band
+passes as `inputs-changed` and says reuse could not be measured. When compiles the manifest
+does not predict are what blocks the verdict, the manifest step is incomplete, and the gate
+fails as `unavailable`.

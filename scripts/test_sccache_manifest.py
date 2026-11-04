@@ -129,6 +129,25 @@ class PredictedHealthTest(unittest.TestCase):
                 result = assess(statistics(hits=hits, misses=3000 - hits), 'restored', 'success', prediction)
                 self.assertEqual(result['disposition'], disposition)
 
+    def test_hits_changed_objects_could_account_for_never_pass_as_reuse(self):
+        # 2000 unchanged and 1000 changed objects. A changed object can still hit when
+        # its edit leaves the preprocessed source alone, so 1000 of the hits may be
+        # theirs: the 2000 unchanged objects served at least `hits - 1000`.
+        compdb, deps, files = tree(3000)
+        edited = dict(files)
+        for index in range(2000, 3000):
+            edited[normalise(os.path.join(BUILD, f'../src/Unit{index}.h'))] = b'#pragma once // edited'
+        prediction = compare(manifest(compdb, deps, files), manifest(compdb, deps, edited))
+        self.assertEqual((prediction['predicted_reusable'], prediction['predicted_changed']), (2000, 1000))
+        # 1000 hits: every unchanged object may have missed while every changed one hit.
+        for hits, disposition in ((2000, 'healthy-warm'), (1999, 'inputs-changed'),
+                                  (1000, 'inputs-changed'), (999, 'reuse-shortfall')):
+            with self.subTest(hits=hits):
+                result = assess(statistics(hits=hits, misses=3000 - hits), 'restored', 'success', prediction)
+                self.assertEqual(result['disposition'], disposition)
+                if disposition == 'inputs-changed':
+                    self.assertIn('1000 objects with changed inputs', result['reason'])
+
     def test_reuse_is_judged_against_the_predicted_objects(self):
         prediction = compare(manifest(*tree()), manifest(*tree()))
         for hits, disposition in ((999, 'reuse-shortfall'), (1000, 'healthy-warm')):
