@@ -100,6 +100,36 @@ namespace
         chunk = std::make_unique<char[]>(bytes);
         std::memset(chunk.get(), fill, bytes);
     }
+
+    struct ReportRow
+    {
+        std::string Name;
+        long long StartMb = 0;
+        long long EndMb = 0;
+        long long PeakMb = 0;
+        long long RetainedMb = 0;
+    };
+
+    [[nodiscard]] ReportRow ParseReportRow(const std::string& row)
+    {
+        ReportRow parsed;
+        std::istringstream fields(row);
+        fields >> parsed.Name >> parsed.StartMb >> parsed.EndMb >> parsed.PeakMb >> parsed.RetainedMb;
+        return parsed;
+    }
+
+    // The retaining probe alone in an uncapped child, writing the per-test
+    // report: what keeping 256 MB costs in this build. The caller holds a
+    // ScopedRetainingProbeEnabled.
+    [[nodiscard]] OloEngine::Tests::LaunchResult RunRetainingProbeWithReport(const std::string& exe,
+                                                                            const std::filesystem::path& report)
+    {
+        return OloEngine::Tests::RunProcessWithTimeout(
+            exe,
+            { "--olo-rss-ceiling-mb=0", "--olo-rss-report=" + report.string(),
+              "--gtest_filter=MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit" },
+            "", 120000);
+    }
 } // namespace
 
 // A test that keeps a quarter gigabyte after it finishes: what a whole-suite
@@ -219,11 +249,7 @@ TEST(MemoryCeiling, TheReportHasARowPerFinishedTestWithTheMemoryItKept)
     ASSERT_FALSE(exe.empty());
     const std::filesystem::path report = OloEngine::Tests::TempFile("rss.tsv");
     const ScopedRetainingProbeEnabled enabled;
-    const OloEngine::Tests::LaunchResult r = OloEngine::Tests::RunProcessWithTimeout(
-        exe,
-        { "--olo-rss-ceiling-mb=0", "--olo-rss-report=" + report.string(),
-          "--gtest_filter=MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit" },
-        "", 120000);
+    const OloEngine::Tests::LaunchResult r = RunRetainingProbeWithReport(exe, report);
     ASSERT_TRUE(r.Launched) << r.Error;
     ASSERT_EQ(r.ExitCode, 0) << r.Output;
 
@@ -233,17 +259,11 @@ TEST(MemoryCeiling, TheReportHasARowPerFinishedTestWithTheMemoryItKept)
     ASSERT_TRUE(std::getline(in, header)) << "the report is empty";
     EXPECT_EQ(header, "test\tstart_mb\tend_mb\tpeak_mb\tretained_mb");
     ASSERT_TRUE(std::getline(in, row)) << "the report has no row for the finished test";
-    std::istringstream fields(row);
-    std::string name;
-    long long start = 0;
-    long long end = 0;
-    long long peak = 0;
-    long long retained = 0;
-    fields >> name >> start >> end >> peak >> retained;
-    EXPECT_EQ(name, "MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit");
-    EXPECT_GE(retained, 200) << row;
-    EXPECT_EQ(retained, end - start) << row;
-    EXPECT_GE(peak, end) << row;
+    const ReportRow parsed = ParseReportRow(row);
+    EXPECT_EQ(parsed.Name, "MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit");
+    EXPECT_GE(parsed.RetainedMb, 200) << row;
+    EXPECT_EQ(parsed.RetainedMb, parsed.EndMb - parsed.StartMb) << row;
+    EXPECT_GE(parsed.PeakMb, parsed.EndMb) << row;
 }
 
 // A death-test child inherits --olo-rss-report. Opening it there truncated the
@@ -280,11 +300,31 @@ TEST(MemoryCeiling, TheStopMessageNamesTheFinishedTestsThatKeptTheMemory)
     const std::string exe = SelfExecutablePath();
     ASSERT_FALSE(exe.empty());
     const ScopedRetainingProbeEnabled enabled;
-    // 384 MB of headroom: the kept 256 MB fits, the half gigabyte after it does not.
+
+    // What the kept 256 MB costs in this build, measured, not assumed: a
+    // sanitizer's shadow memory counts toward the resident set (TSan kept
+    // +450 MB), and a fixed 384 MB headroom stopped that child inside the
+    // retaining probe, before any test had finished.
+    const std::filesystem::path report = OloEngine::Tests::TempFile("kept.tsv");
+    const OloEngine::Tests::LaunchResult measured = RunRetainingProbeWithReport(exe, report);
+    ASSERT_TRUE(measured.Launched) << measured.Error;
+    ASSERT_EQ(measured.ExitCode, 0) << measured.Output;
+    std::ifstream in(report);
+    std::string header;
+    std::string row;
+    ASSERT_TRUE(std::getline(in, header) && std::getline(in, row)) << "the measuring child wrote no row";
+    const ReportRow kept = ParseReportRow(row);
+    ASSERT_GE(kept.PeakMb - kept.StartMb, 200) << row;
+
+    // 128 MB above the kept probe's peak: it fits, and the half gigabyte after
+    // it crosses the ceiling a quarter of the way in, well inside the window a
+    // 100 ms poll sees.
+    const long long headroom = kept.PeakMb - kept.StartMb + 128;
     const OloEngine::Tests::LaunchResult r = OloEngine::Tests::RunProcessWithTimeout(
         exe,
-        { "--olo-rss-ceiling-headroom-mb=384", "--gtest_filter=MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit:"
-                                               "MemoryCeilingProbe.AllocatesAndTouchesHalfAGigabyte" },
+        { "--olo-rss-ceiling-headroom-mb=" + std::to_string(headroom),
+          "--gtest_filter=MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit:"
+          "MemoryCeilingProbe.AllocatesAndTouchesHalfAGigabyte" },
         "", 120000);
     ASSERT_TRUE(r.Launched) << r.Error;
     ASSERT_EQ(r.ExitCode, OloEngine::Tests::kMemoryCeilingExitCode) << r.Output;
