@@ -48,7 +48,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [generated-evidence-stays-out-of-git.md](generated-evidence-stays-out-of-git.md): commit what a test reads, never what it writes; evidence output stays in its ignored directory.
 - [timed-wait-test-assertions.md](timed-wait-test-assertions.md): measure timed waits in microseconds and assert one-sided.
 - [thread-local-lifetime-at-exit.md](thread-local-lifetime-at-exit.md): keep the "is it still alive?" signal in a trivially destructible `thread_local`; a destroyed one is not readable.
-- [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md): use `TestTempDir.h`, never a fixed temp path.
+- [shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md): use `TestTempDir.h`, never a fixed temp path, and leave the active project as the test found it.
 - [renderer-state-machine-harness.md](renderer-state-machine-harness.md): a new renderer cache, lever or execution mode joins the state-machine manifest as an operation or an equivalence pair.
 - [foliage-regeneration-is-async-once-workers-start.md](foliage-regeneration-is-async-once-workers-start.md): after `m_NeedsRebuild`, let `RunFrames` / `RunEditorFrames` finish the regeneration or wait on `IsRebuilding()`.
 - [cross-test-renderer-state.md](cross-test-renderer-state.md): never shut down a process-wide singleton you did not start, and leave the renderer configuration as you found it.
@@ -287,6 +287,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [retained-scratch-has-an-owner-and-a-ledger.md](retained-scratch-has-an-owner-and-a-ledger.md): retained scratch is passed in by an owner that gives it back and counted once in the memory report.
 - [bump-allocator-rollover-padding.md](bump-allocator-rollover-padding.md): a rollover must not reserve padding computed for the block it is leaving; over-align the blocks instead.
 - [cancel-a-load-by-removing-its-record.md](cancel-a-load-by-removing-its-record.md): a cancelled async load is dropped by removing its pending record, and abandoned tasks are waited out at shutdown.
+- [per-thread-caches-hand-back-at-thread-exit.md](per-thread-caches-hand-back-at-thread-exit.md): a pool that outlives its threads takes back each thread's cache when the thread exits, from a hook rather than the cache's own destructor.
 
 ## Subsystem notes (`notes-*.md`)
 

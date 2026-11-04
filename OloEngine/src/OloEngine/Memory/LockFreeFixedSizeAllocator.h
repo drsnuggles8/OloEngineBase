@@ -17,6 +17,7 @@
 #include "OloEngine/Memory/NoopCounter.h"
 
 #include <atomic>
+#include <mutex>
 #include <new>
 
 // Debug mode flag - useful for finding who really leaked
@@ -93,6 +94,10 @@ namespace OloEngine
                     TLS.PartialBundle = static_cast<void**>(m_GlobalFreeListBundles.Pop());
                     if (!TLS.PartialBundle)
                     {
+                        TLS.PartialBundle = static_cast<void**>(Orphanage().Bundles.Pop());
+                    }
+                    if (!TLS.PartialBundle)
+                    {
                         TLS.PartialBundle = static_cast<void**>(FMemory::Malloc(SIZE_PER_BUNDLE, BLOCK_ALIGNMENT));
                         void** Next = TLS.PartialBundle;
                         for (i32 Index = 0; Index < NUM_PER_BUNDLE - 1; ++Index)
@@ -159,22 +164,87 @@ namespace OloEngine
         }
 
       private:
-        // struct for the TLS cache.
+        // Blocks cached by threads that have exited. Without this every exiting
+        // thread stranded its cache, up to two bundles, which Allocate then
+        // replaced with fresh ones: WorkerRestartTest, which restarts the
+        // scheduler's workers a thousand times, grew past 6 GB when CPU-starved.
+        // Never destroyed, because a worker can exit during static destruction
+        // (~FScheduler joins its workers) after the allocator is gone.
+        struct FOrphanage
+        {
+            TBundleRecycler Bundles; // complete bundles, as m_GlobalFreeListBundles holds them
+            std::mutex Mutex;
+            void** Building = nullptr; // partial bundles' blocks, linked until NUM_PER_BUNDLE
+            i32 NumBuilding = 0;
+
+            void Adopt(void** Blocks)
+            {
+                const std::lock_guard<std::mutex> Lock(Mutex);
+                while (Blocks)
+                {
+                    void** Next = static_cast<void**>(*Blocks);
+                    *Blocks = static_cast<void*>(Building);
+                    Building = Blocks;
+                    if (++NumBuilding == NUM_PER_BUNDLE)
+                    {
+                        Bundles.Push(Building);
+                        Building = nullptr;
+                        NumBuilding = 0;
+                    }
+                    Blocks = Next;
+                }
+            }
+        };
+
+        static FOrphanage& Orphanage()
+        {
+            static FOrphanage* s_Orphanage = new FOrphanage();
+            return *s_Orphanage;
+        }
+
+        // struct for the TLS cache. Trivially destructible, so its storage stays
+        // valid for the whole thread: a block freed by thread-exit code after the
+        // hook below has run lands here and is lost, never written to freed memory.
         struct FThreadLocalCache
         {
-            void** FullBundle;
-            void** PartialBundle;
-            i32 NumPartial;
+            void** FullBundle = nullptr;
+            void** PartialBundle = nullptr;
+            i32 NumPartial = 0;
+            bool bExitHookRegistered = false;
+        };
 
-            FThreadLocalCache()
-                : FullBundle(nullptr), PartialBundle(nullptr), NumPartial(0)
+        // Hands the thread's cache to the orphanage when the thread exits.
+        struct FThreadExitHook
+        {
+            FThreadLocalCache* Cache = nullptr;
+
+            ~FThreadExitHook()
             {
+                if (!Cache)
+                {
+                    return;
+                }
+                if (Cache->FullBundle)
+                {
+                    Orphanage().Bundles.Push(Cache->FullBundle);
+                }
+                Orphanage().Adopt(Cache->PartialBundle);
+                Cache->FullBundle = nullptr;
+                Cache->PartialBundle = nullptr;
+                Cache->NumPartial = 0;
             }
         };
 
         FThreadLocalCache& GetTLS()
         {
             thread_local FThreadLocalCache TLS;
+            // Registered once, so nothing touches the hook after it has run.
+            if (!TLS.bExitHookRegistered)
+            {
+                TLS.bExitHookRegistered = true;
+                thread_local FThreadExitHook Hook;
+                Hook.Cache = &TLS;
+            }
             return TLS;
         }
 

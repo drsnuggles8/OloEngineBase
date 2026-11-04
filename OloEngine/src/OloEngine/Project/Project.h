@@ -130,6 +130,18 @@ namespace OloEngine
             s_ActiveProject = nullptr;
         }
 
+        // @brief Put back a pair taken from GetActive() and GetAssetManager(),
+        // either of them null: the same objects, not rebuilt copies, so a holder
+        // of the captured Ref still sees the active one. For code that must leave
+        // the process-wide project as it found it (the test harness's
+        // ProjectIsolation listener). Releases the current asset manager before
+        // the project, as Unload does.
+        static void RestoreActive(const Ref<Project>& project, const Ref<AssetManagerBase>& assetManager)
+        {
+            s_AssetManager = assetManager;
+            s_ActiveProject = project;
+        }
+
         /// Make an in-memory project rooted at `directory` the active one, with
         /// no `.oloproj` on disk.
         ///

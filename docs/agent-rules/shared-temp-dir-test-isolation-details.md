@@ -241,3 +241,40 @@ ran before it. The actual bug is entirely inside the failing test, and it was
 there the moment it was written. Any test that opens a **source or asset file
 that ships with the repo** — a text-scanning coverage test, a shader-source
 contract check — has this hazard; a test that only writes to `TempDir()` does not.
+
+## 8. A project left active keeps its assets resident for the rest of the run
+
+`Project::s_ActiveProject` and `Project::s_AssetManager` are process-wide, and
+the asset manager owns every asset loaded through it. About 45 test files switch
+the project (`Project::Load`, `NewInMemory`, `SetAssetManager`) without restoring
+it, and `FoxCoatEvidenceTest` had no `TearDown` at all. Whatever such a test
+loaded stayed resident until a later test happened to load a different project,
+and a test that reuses "whatever project is active" imported into the previous
+test's project instead of its own.
+
+The AMD nightly runs every case in one process and on 2026-11-04 crossed its
+6 GiB ceiling (6148 MB) in `AcceptanceSceneTest`, 6466 cases in. A local sweep
+of the nightly's filter with `--olo-rss-report` showed the acceptance test
+starting at 3140 MB, mostly what the groom and foliage evidence suites before it
+had kept. `FoxCoatEvidenceTest.AHerdKeepsEveryCoatVolume` alone kept +1330 MB.
+
+`ProjectIsolation.h` is the fix for the whole class rather than one more
+`TearDown`: a listener snapshots both references at every suite and test start
+and restores them at the end, logging `[test isolation] <test> left project ...`.
+It is registered last because gtest calls `OnTestEnd` in reverse order, so the
+release runs before the GL-error check and the memory reading. With it, the same
+sweep (11476 cases, none failing) started the acceptance test at 2345 MB and
+peaked at 4578 MB, against 5435 MB before. `ProjectIsolationTest` leaves a
+project behind on purpose and fails with the listener unregistered.
+
+The restore puts back the captured objects themselves (`Project::RestoreActive`),
+not copies, and it must let the test's asset manager die while the test's own
+project is still active. `EditorAssetManager::Shutdown` writes the registry to
+whichever project is active at that moment, so a reference held past the swap
+writes the test's registry over the restored project's `AssetRegistry.oar`.
+`RestoreActive` swaps the asset manager before the project for that reason, and
+`ProjectIsolationRegistryProbe` fails if the listener holds the old one longer.
+
+What remains after a heavy test is bounded: the strand cache, texture pools and
+renderer targets evict when the next heavy scene arrives, and the floor between
+heavy suites stays near 1.7 GB.

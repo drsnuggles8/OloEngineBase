@@ -8,6 +8,12 @@ assets when the case builds its scene, and remove the new ones and any files it 
 `TearDown`. Take no snapshot, and remove nothing, when the base fixture skipped before
 `BuildScene`.
 
+**Since `ProjectIsolation.h`, a project the case created is unloaded when the case ends**, with its
+asset manager and every asset only that manager held, and the run logs
+`[test isolation] <test> left project ...`. The rule above still applies to assets a case adds
+to a project it found active; between tests no project is active, so in the suite that is rare
+([shared-temp-dir-test-isolation.md](shared-temp-dir-test-isolation.md) rule 14).
+
 ## What happened (#1533)
 
 The dog's evidence suite builds the dog for every case: a 256k-triangle skinned body, whose import

@@ -81,6 +81,11 @@ compiled every variant, so the front end is not where it grows.
   the output. An OOM kill has neither, and can take the runner down. Resident set, not virtual
   size: a sanitizer build reserves terabytes it never touches, so `RLIMIT_AS` cannot express
   this, and Linux does not enforce `RLIMIT_RSS`.
+- **In a whole-suite process, read the retainers, not the test that tripped.** The AMD nightly
+  runs every case in one process, so it crosses 6 GiB on what earlier cases kept. The stop
+  message lists the finished tests that retained the most. `--olo-rss-report=<path>` writes
+  every case's start, end and peak resident set (the nightly uploads it as
+  `gpu_amd_rss.tsv`).
 
 ## Reading a CI OOM kill
 
