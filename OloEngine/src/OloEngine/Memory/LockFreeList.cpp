@@ -15,6 +15,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/PlatformTLS.h"
 
+#include <mutex>
 #include <random>
 #include <thread>
 
@@ -99,8 +100,12 @@ namespace OloEngine
     // 2. Avoid DLL boundary problems on Windows
     // 3. Match UE5.7's implementation pattern
     //
-    // IMPORTANT: Thread caches are intentionally NOT cleaned up on thread exit.
-    // This matches UE5.7 and avoids potential issues during thread teardown.
+    // DIVERGENCE FROM UE 5.7: a thread hands its cache back when it exits
+    // (ReclaimExitingThreadCache, called by a thread_local hook below). UE keeps
+    // its threads; the scheduler here restarts its workers, and every exited
+    // worker stranded two bundles of a fixed index space that LockFreeLinksExhausted
+    // stops the process on. The allocator is never destroyed, so a thread exiting
+    // during static destruction can still hand back to it.
     class LockFreeLinkAllocator_TLSCache
     {
         enum
@@ -256,12 +261,51 @@ namespace OloEngine
             return *Instance;
         }
 
+        // @brief Hand the calling thread's cache back; called as the thread exits.
+        //
+        // The full bundle goes to the global list. The partial bundle's links join
+        // the other exited threads' until they make a whole bundle.
+        void ReclaimExitingThreadCache()
+        {
+            FThreadLocalCache* TLS = static_cast<FThreadLocalCache*>(FPlatformTLS::GetTlsValue(m_TlsSlot));
+            if (!TLS)
+            {
+                return;
+            }
+            FPlatformTLS::SetTlsValue(m_TlsSlot, nullptr);
+            if (TLS->FullBundle)
+            {
+                m_GlobalFreeListBundles.Push(TLS->FullBundle);
+            }
+            {
+                const std::lock_guard<std::mutex> Lock(m_OrphanMutex);
+                TLinkPtr Link = TLS->PartialBundle;
+                while (Link)
+                {
+                    TLink* LinkP = FLockFreeLinkPolicy::DerefLink(Link);
+                    const TLinkPtr Next = static_cast<TLinkPtr>(
+                        reinterpret_cast<uptr>(LinkP->Payload.load(std::memory_order_relaxed)));
+                    LinkP->Payload.store(reinterpret_cast<void*>(static_cast<uptr>(m_OrphanBundle)),
+                                         std::memory_order_relaxed);
+                    m_OrphanBundle = Link;
+                    if (++m_NumOrphans == NUM_PER_BUNDLE)
+                    {
+                        m_GlobalFreeListBundles.Push(m_OrphanBundle);
+                        m_OrphanBundle = 0;
+                        m_NumOrphans = 0;
+                    }
+                    Link = Next;
+                }
+            }
+            delete TLS;
+        }
+
       private:
         // @struct FThreadLocalCache
         // @brief Per-thread cache of lock-free links
         //
-        // Matches UE5.7's FThreadLocalCache structure.
-        // Note: NO destructor - we intentionally leak on thread exit.
+        // Matches UE5.7's FThreadLocalCache structure. Freed by
+        // ReclaimExitingThreadCache when its thread exits.
         struct FThreadLocalCache
         {
             TLinkPtr FullBundle;
@@ -272,22 +316,14 @@ namespace OloEngine
                 : FullBundle(0), PartialBundle(0), NumPartial(0)
             {
             }
-
-            // NO destructor - intentionally leak on thread exit
-            // This matches UE5.7 and avoids issues during thread teardown
         };
 
-        FThreadLocalCache& GetTLS()
-        {
-            checkLockFreePointerList(FPlatformTLS::IsValidTlsSlot(m_TlsSlot));
-            FThreadLocalCache* TLS = static_cast<FThreadLocalCache*>(FPlatformTLS::GetTlsValue(m_TlsSlot));
-            if (!TLS)
-            {
-                TLS = new FThreadLocalCache();
-                FPlatformTLS::SetTlsValue(m_TlsSlot, TLS);
-            }
-            return *TLS;
-        }
+        FThreadLocalCache& GetTLS();
+
+        // Exited threads' partial bundles, linked by Payload until NUM_PER_BUNDLE.
+        std::mutex m_OrphanMutex;
+        TLinkPtr m_OrphanBundle = 0;
+        i32 m_NumOrphans = 0;
 
         // Slot for TLS struct
         u32 m_TlsSlot;
@@ -295,6 +331,46 @@ namespace OloEngine
         // Lock free list of free memory blocks, these are all linked into a bundle of NUM_PER_BUNDLE
         FLockFreePointerListLIFORoot<OLO_PLATFORM_CACHE_LINE_SIZE> m_GlobalFreeListBundles;
     };
+
+    namespace
+    {
+        // Trivially destructible, so readable after the hook below is destroyed.
+        thread_local bool t_LinkCacheThreadExiting = false;
+
+        // Hands the thread's link cache back when the thread exits.
+        struct FLinkCacheExitHook
+        {
+            bool bHasCache = false;
+
+            ~FLinkCacheExitHook()
+            {
+                t_LinkCacheThreadExiting = true;
+                if (bHasCache)
+                {
+                    LockFreeLinkAllocator_TLSCache::Get().ReclaimExitingThreadCache();
+                }
+            }
+        };
+        thread_local FLinkCacheExitHook t_LinkCacheExitHook;
+    } // namespace
+
+    LockFreeLinkAllocator_TLSCache::FThreadLocalCache& LockFreeLinkAllocator_TLSCache::GetTLS()
+    {
+        checkLockFreePointerList(FPlatformTLS::IsValidTlsSlot(m_TlsSlot));
+        FThreadLocalCache* TLS = static_cast<FThreadLocalCache*>(FPlatformTLS::GetTlsValue(m_TlsSlot));
+        if (!TLS)
+        {
+            TLS = new FThreadLocalCache();
+            FPlatformTLS::SetTlsValue(m_TlsSlot, TLS);
+            // Past the hook's destructor (a later thread_local freeing a link),
+            // the cache stays with the thread.
+            if (!t_LinkCacheThreadExiting)
+            {
+                t_LinkCacheExitHook.bHasCache = true;
+            }
+        }
+        return *TLS;
+    }
 
     // ========================================================================
     // Helper Function

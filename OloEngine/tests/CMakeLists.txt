@@ -234,6 +234,7 @@ add_executable(OloEngine-Tests
 		Memory/MemoryViewTest.cpp
 		Memory/LockFreeAllocatorConcurrencyTest.cpp
 		Memory/LockFreeFixedSizeAllocatorThreadExitTest.cpp
+		Memory/LockFreeLinkThreadExitTest.cpp
 		Templates/FunctionWithContextTest.cpp
 		Templates/TypeTraitsTest.cpp
 
