@@ -35,13 +35,21 @@ namespace OloEngine::Tests::ProjectIsolation
         // Back to exactly `before`: the captured objects themselves, so a suite
         // that holds the project it set up in SetUpTestSuite still sees that one
         // when a test swapped only the asset manager.
+        //
+        // The test's asset manager must die while the test's project is still
+        // active: EditorAssetManager::Shutdown writes its registry to whichever
+        // project is active then. So nothing here may hold it past the swap, or
+        // its registry overwrites the restored project's AssetRegistry.oar.
+        // RestoreActive swaps the asset manager before the project.
         void Restore(const Snapshot& before, const std::string& owner)
         {
-            const Snapshot left = Capture();
-            OLO_CORE_INFO("[test isolation] {} left project '{}' active{}; restoring the {} it found", owner,
-                          left.ActiveProject ? left.ActiveProject->GetDirectory().string() : std::string("(none)"),
-                          left.AssetManager ? " with its asset manager" : "",
-                          before.ActiveProject ? "project" : "empty state");
+            {
+                const Snapshot left = Capture();
+                OLO_CORE_INFO("[test isolation] {} left project '{}' active{}; restoring the {} it found", owner,
+                              left.ActiveProject ? left.ActiveProject->GetDirectory().string() : std::string("(none)"),
+                              left.AssetManager ? " with its asset manager" : "",
+                              before.ActiveProject ? "project" : "empty state");
+            }
             // Drops the test's asset manager, and with it every asset only it held.
             Project::RestoreActive(before.ActiveProject, before.AssetManager);
         }

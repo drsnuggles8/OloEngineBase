@@ -127,3 +127,60 @@ TEST_F(ProjectIsolationSuiteProbe, BSwapsTheAssetManagerAfterCheckingTheSuitesWa
 {
     CheckThenSwapTheAssetManager();
 }
+
+// A test's asset manager writes its registry to whichever project is active
+// when it is destroyed. The restore must destroy it while the test's own
+// project is still active, or the registry lands in the project being put
+// back -- in a real suite, a checked-in project's AssetRegistry.oar. The suite
+// project here starts with no registry, and nothing of the suite's writes one
+// before TearDownTestSuite, so a registry there is a test's.
+class ProjectIsolationRegistryProbe : public ::testing::Test
+{
+  protected:
+    static void SetUpTestSuite()
+    {
+        s_Directory = OloEngine::Tests::TempRoot() / "ProjectIsolationRegistryProbe";
+        std::error_code ec;
+        std::filesystem::remove_all(s_Directory, ec);
+        std::filesystem::create_directories(s_Directory, ec);
+        ASSERT_FALSE(ec) << "cannot create " << s_Directory.string() << ": " << ec.message();
+        s_Project = Project::NewInMemory(s_Directory, ProjectConfig{});
+        s_AssetManager = Ref<EditorAssetManager>::Create();
+        Project::SetAssetManager(s_AssetManager);
+        s_Switched = false;
+    }
+    static void TearDownTestSuite()
+    {
+        Project::Unload();
+        s_AssetManager = nullptr;
+        s_Project = nullptr;
+    }
+
+    static void CheckThenSwitchProjects()
+    {
+        if (s_Switched)
+        {
+            EXPECT_FALSE(std::filesystem::exists(s_Directory / "AssetRegistry.oar"))
+                << "the previous test's asset manager wrote its registry into the restored project";
+        }
+        Project::NewInMemory(OloEngine::Tests::TempDir("registry-leak"), ProjectConfig{});
+        Project::SetAssetManager(Ref<EditorAssetManager>::Create());
+        s_Switched = true;
+        ASSERT_NE(Project::GetActive().Raw(), s_Project.Raw());
+    }
+
+    inline static std::filesystem::path s_Directory;
+    inline static Ref<Project> s_Project;
+    inline static Ref<AssetManagerBase> s_AssetManager;
+    inline static bool s_Switched = false;
+};
+
+TEST_F(ProjectIsolationRegistryProbe, ASwitchesProjectsAfterCheckingTheRestoredOneKeptItsRegistry)
+{
+    CheckThenSwitchProjects();
+}
+
+TEST_F(ProjectIsolationRegistryProbe, BSwitchesProjectsAfterCheckingTheRestoredOneKeptItsRegistry)
+{
+    CheckThenSwitchProjects();
+}

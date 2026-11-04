@@ -267,6 +267,14 @@ sweep (11476 cases, none failing) started the acceptance test at 2345 MB and
 peaked at 4578 MB, against 5435 MB before. `ProjectIsolationTest` leaves a
 project behind on purpose and fails with the listener unregistered.
 
+The restore puts back the captured objects themselves (`Project::RestoreActive`),
+not copies, and it must let the test's asset manager die while the test's own
+project is still active. `EditorAssetManager::Shutdown` writes the registry to
+whichever project is active at that moment, so a reference held past the swap
+writes the test's registry over the restored project's `AssetRegistry.oar`.
+`RestoreActive` swaps the asset manager before the project for that reason, and
+`ProjectIsolationRegistryProbe` fails if the listener holds the old one longer.
+
 What remains after a heavy test is bounded: the strand cache, texture pools and
 renderer targets evict when the next heavy scene arrives, and the floor between
 heavy suites stays near 1.7 GB.
