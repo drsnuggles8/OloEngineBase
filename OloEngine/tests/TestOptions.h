@@ -107,6 +107,13 @@ namespace OloEngine::Tests
         // differs between processes of the same binary on the same runner, so a
         // ceiling meant to sit a fixed distance above it has to be taken here.
         u32 RssCeilingHeadroomMb = 0;
+        // --olo-rss-report=<path> : write each finished test's resident set at its
+        // start and end and its peak (MemoryCeiling.h). For a single-process run;
+        // empty writes nothing. Ignored in a death-test child, which inherits the
+        // parent's flags: reopening the file would truncate the parent's rows.
+        std::string RssReportPath;
+        // This process is a gtest death-test child (--gtest_internal_run_death_test).
+        bool IsDeathTestChild = false;
         // --olo-gl-backend=<egl|glfw|none|auto> : force the context-creation
         // path. `auto` is the default and is also accepted explicitly.
         // `egl` is the headless surfaceless route the GPU runners need. `none`

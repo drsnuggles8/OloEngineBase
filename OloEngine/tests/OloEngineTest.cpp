@@ -202,6 +202,14 @@ int main(int argc, char** argv)
     // kernel with no test name and, on the self-hosted box, sometimes with the
     // runner. Past the ceiling the process stops itself with exit code 77 and
     // says which test was running.
+    // A death-test child carries the parent's --olo-rss-report: opening it would
+    // truncate the parent's file mid-run (the first 1715 rows of a local sweep
+    // became NUL bytes that way), so only the parent writes the report.
+    if (!OloEngine::Tests::Options().IsDeathTestChild &&
+        !OloEngine::Tests::OpenResidentSetReport(OloEngine::Tests::Options().RssReportPath))
+    {
+        return 2;
+    }
     OloEngine::Tests::StartMemoryCeilingWatchdog(OloEngine::Tests::Options().RssCeilingMb,
                                                  OloEngine::Tests::Options().RssCeilingHeadroomMb);
 

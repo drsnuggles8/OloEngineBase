@@ -16,10 +16,16 @@
 
 #include "MemoryCeiling.h"
 #include "TestProcessLaunch.h"
+#include "TestTempDir.h"
 
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -55,7 +61,73 @@ namespace
         return n > 0 ? std::string(buffer, static_cast<sizet>(n)) : std::string();
 #endif
     }
+
+    // The retaining probe below keeps its memory until the process exits, so it
+    // runs only in a child these tests launch, never in a suite run it would leave
+    // a quarter gigabyte heavier. The child inherits the variable.
+    constexpr const char* kRetainingProbeVariable = "OLO_MEMORY_CEILING_RETAINING_PROBE";
+
+    class ScopedRetainingProbeEnabled
+    {
+      public:
+        ScopedRetainingProbeEnabled()
+        {
+            Set("1");
+        }
+        ~ScopedRetainingProbeEnabled()
+        {
+            Set(nullptr);
+        }
+        ScopedRetainingProbeEnabled(const ScopedRetainingProbeEnabled&) = delete;
+        ScopedRetainingProbeEnabled& operator=(const ScopedRetainingProbeEnabled&) = delete;
+
+      private:
+        static void Set(const char* value)
+        {
+#if defined(_WIN32)
+            ::_putenv_s(kRetainingProbeVariable, value != nullptr ? value : "");
+#else
+            if (value != nullptr)
+                ::setenv(kRetainingProbeVariable, value, 1);
+            else
+                ::unsetenv(kRetainingProbeVariable);
+#endif
+        }
+    };
+
+    void TouchedChunk(std::unique_ptr<char[]>& chunk, const sizet bytes, const int fill)
+    {
+        chunk = std::make_unique<char[]>(bytes);
+        std::memset(chunk.get(), fill, bytes);
+    }
 } // namespace
+
+// A test that keeps a quarter gigabyte after it finishes: what a whole-suite
+// process carries from one case into the next. Registered before the half-
+// gigabyte probe so gtest runs it first when a filter selects both.
+TEST(MemoryCeilingProbe, KeepsAQuarterGigabyteUntilExit)
+{
+    if (std::getenv(kRetainingProbeVariable) == nullptr)
+    {
+        GTEST_SKIP() << "runs only in the child MemoryCeiling.* launches (it never frees its memory)";
+    }
+    static std::unique_ptr<char[]> s_Kept;
+    TouchedChunk(s_Kept, 256u * kMiB, 7);
+    EXPECT_EQ(s_Kept[256u * kMiB - 1], 7);
+}
+
+// A death test after a finished test: on Windows gtest re-launches this binary
+// with the parent's whole command line, --olo-rss-report included. Registered
+// after the retaining probe so the parent has written a row the child could
+// truncate.
+TEST(MemoryCeilingProbe, ADeathTestRunsAfterAFinishedTest)
+{
+    if (std::getenv(kRetainingProbeVariable) == nullptr)
+    {
+        GTEST_SKIP() << "runs only in the child MemoryCeiling.* launches";
+    }
+    EXPECT_EXIT({ std::_Exit(0); }, ::testing::ExitedWithCode(0), "");
+}
 
 // The probe: grows the resident set by half a gigabyte, touching every page so
 // the growth is real memory rather than reserved address space, in steps slow
@@ -119,5 +191,105 @@ TEST(MemoryCeiling, ARunawayTestIsStoppedAtTheCeilingAndNamedInTheOutput)
         << r.Output;
     EXPECT_NE(r.Output.find("MemoryCeilingProbe.AllocatesAndTouchesHalfAGigabyte"), std::string::npos)
         << "the message does not name the test that was running.\n--- child output ---\n"
+        << r.Output;
+}
+
+TEST(MemoryCeiling, LargestRetainersRanksByRetainedGrowthAndNeverListsATestThatReleased)
+{
+    using OloEngine::Tests::TestResidency;
+    const std::vector<TestResidency> history = {
+        { "A.Small", 100, 110, 120 },
+        { "A.Released", 500, 100, 900 },
+        { "A.Large", 100, 400, 450 },
+        { "A.Flat", 300, 300, 300 },
+        { "A.Medium", 100, 250, 260 },
+    };
+    const auto top = OloEngine::Tests::LargestRetainers(history, 2);
+    ASSERT_EQ(top.size(), 2u);
+    EXPECT_EQ(top[0].Name, "A.Large");
+    EXPECT_EQ(top[1].Name, "A.Medium");
+    EXPECT_EQ(OloEngine::Tests::LargestRetainers(history, 10).size(), 3u);
+}
+
+// The report a whole-suite run uploads: one row per finished test, with the
+// memory it kept. The probe keeps 256 MB, so its row must say so.
+TEST(MemoryCeiling, TheReportHasARowPerFinishedTestWithTheMemoryItKept)
+{
+    const std::string exe = SelfExecutablePath();
+    ASSERT_FALSE(exe.empty());
+    const std::filesystem::path report = OloEngine::Tests::TempFile("rss.tsv");
+    const ScopedRetainingProbeEnabled enabled;
+    const OloEngine::Tests::LaunchResult r = OloEngine::Tests::RunProcessWithTimeout(
+        exe,
+        { "--olo-rss-ceiling-mb=0", "--olo-rss-report=" + report.string(),
+          "--gtest_filter=MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit" },
+        "", 120000);
+    ASSERT_TRUE(r.Launched) << r.Error;
+    ASSERT_EQ(r.ExitCode, 0) << r.Output;
+
+    std::ifstream in(report);
+    std::string header;
+    std::string row;
+    ASSERT_TRUE(std::getline(in, header)) << "the report is empty";
+    EXPECT_EQ(header, "test\tstart_mb\tend_mb\tpeak_mb\tretained_mb");
+    ASSERT_TRUE(std::getline(in, row)) << "the report has no row for the finished test";
+    std::istringstream fields(row);
+    std::string name;
+    long long start = 0;
+    long long end = 0;
+    long long peak = 0;
+    long long retained = 0;
+    fields >> name >> start >> end >> peak >> retained;
+    EXPECT_EQ(name, "MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit");
+    EXPECT_GE(retained, 200) << row;
+    EXPECT_EQ(retained, end - start) << row;
+    EXPECT_GE(peak, end) << row;
+}
+
+// A death-test child inherits --olo-rss-report. Opening it there truncated the
+// parent's file: a local sweep lost its first 1715 rows to NUL bytes at
+// ThreadManagerTest's EXPECT_EXIT. Every row must survive a death test.
+TEST(MemoryCeiling, ADeathTestChildLeavesTheParentsReportIntact)
+{
+    const std::string exe = SelfExecutablePath();
+    ASSERT_FALSE(exe.empty());
+    const std::filesystem::path report = OloEngine::Tests::TempFile("rss.tsv");
+    const ScopedRetainingProbeEnabled enabled;
+    const OloEngine::Tests::LaunchResult r = OloEngine::Tests::RunProcessWithTimeout(
+        exe,
+        { "--olo-rss-ceiling-mb=0", "--olo-rss-report=" + report.string(),
+          "--gtest_filter=MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit:"
+          "MemoryCeilingProbe.ADeathTestRunsAfterAFinishedTest" },
+        "", 120000);
+    ASSERT_TRUE(r.Launched) << r.Error;
+    ASSERT_EQ(r.ExitCode, 0) << r.Output;
+
+    std::ifstream in(report, std::ios::binary);
+    const std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    EXPECT_EQ(content.find('\0'), std::string::npos) << "the report holds NUL bytes: something truncated it";
+    EXPECT_EQ(content.find("test\tstart_mb"), 0u) << content;
+    EXPECT_NE(content.find("MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit\t"), std::string::npos) << content;
+    EXPECT_NE(content.find("MemoryCeilingProbe.ADeathTestRunsAfterAFinishedTest\t"), std::string::npos) << content;
+}
+
+// What the AMD nightly needed on 2026-11-04: the process crossed 6 GiB during
+// AcceptanceSceneTest, 6466 tests in, and the message named only that test.
+// It must also name the tests that left the memory behind.
+TEST(MemoryCeiling, TheStopMessageNamesTheFinishedTestsThatKeptTheMemory)
+{
+    const std::string exe = SelfExecutablePath();
+    ASSERT_FALSE(exe.empty());
+    const ScopedRetainingProbeEnabled enabled;
+    // 384 MB of headroom: the kept 256 MB fits, the half gigabyte after it does not.
+    const OloEngine::Tests::LaunchResult r = OloEngine::Tests::RunProcessWithTimeout(
+        exe,
+        { "--olo-rss-ceiling-headroom-mb=384", "--gtest_filter=MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit:"
+                                               "MemoryCeilingProbe.AllocatesAndTouchesHalfAGigabyte" },
+        "", 120000);
+    ASSERT_TRUE(r.Launched) << r.Error;
+    ASSERT_EQ(r.ExitCode, OloEngine::Tests::kMemoryCeilingExitCode) << r.Output;
+    const sizet listing = r.Output.find("Finished tests that kept the most memory");
+    ASSERT_NE(listing, std::string::npos) << r.Output;
+    EXPECT_NE(r.Output.find("MemoryCeilingProbe.KeepsAQuarterGigabyteUntilExit", listing), std::string::npos)
         << r.Output;
 }
