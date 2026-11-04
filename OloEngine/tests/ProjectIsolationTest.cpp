@@ -1,10 +1,11 @@
 // OLO_TEST_LAYER: meta
 //
 // ProjectIsolation.h: a test that leaves a project and an asset manager active
-// must not hand them to the test after it. Two probes in one suite, run in
-// declaration order: the first leaves both behind on purpose, the second
-// checks it found what the first found. FoxCoatEvidenceTest did the first half
-// for real and kept its fox assets resident for the rest of the AMD nightly.
+// must not hand them to the test after it. Each suite has two probes that both
+// check what the probe before them left, then leave their own change behind,
+// so whichever runs second checks the restore, in either order. A probe run on
+// its own has nothing earlier to check. FoxCoatEvidenceTest leaked for real and
+// kept its fox assets resident for the rest of the AMD nightly.
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 
@@ -32,36 +33,42 @@ namespace
         static ProbeRecord s_Record;
         return s_Record;
     }
+
+    // The previous probe's project and asset manager must be gone, and what that
+    // probe found active must be back. Then leave a project and an asset manager.
+    void CheckThenLeakAProject()
+    {
+        ProbeRecord& record = Record();
+        if (record.Ran)
+        {
+            EXPECT_EQ(Project::GetActive() != nullptr, record.HadProject);
+            EXPECT_EQ(Project::HasAssetManager(), record.HadAssetManager);
+            if (Project::GetActive())
+            {
+                EXPECT_NE(Project::GetActive()->GetDirectory(), record.LeakedDirectory)
+                    << "the previous test's project is still active";
+            }
+        }
+
+        record.HadProject = Project::GetActive() != nullptr;
+        record.HadAssetManager = Project::HasAssetManager();
+        record.LeakedDirectory = OloEngine::Tests::TempDir("leaked-project");
+        Project::NewInMemory(record.LeakedDirectory, ProjectConfig{});
+        Project::SetAssetManager(Ref<EditorAssetManager>::Create());
+        record.Ran = true;
+        ASSERT_TRUE(Project::GetActive());
+        ASSERT_TRUE(Project::HasAssetManager());
+    }
 } // namespace
 
-TEST(ProjectIsolationProbe, ALeavesAProjectAndAnAssetManagerActive)
+TEST(ProjectIsolationProbe, ALeavesAProjectAfterCheckingTheLastOneWasRemoved)
 {
-    ProbeRecord& record = Record();
-    record.HadProject = Project::GetActive() != nullptr;
-    record.HadAssetManager = Project::HasAssetManager();
-    record.LeakedDirectory = OloEngine::Tests::TempDir("leaked-project");
-
-    Project::NewInMemory(record.LeakedDirectory, ProjectConfig{});
-    Project::SetAssetManager(Ref<EditorAssetManager>::Create());
-    record.Ran = true;
-    ASSERT_TRUE(Project::GetActive());
-    ASSERT_TRUE(Project::HasAssetManager());
+    CheckThenLeakAProject();
 }
 
-TEST(ProjectIsolationProbe, BFindsTheStateTheLeakingTestFound)
+TEST(ProjectIsolationProbe, BLeavesAProjectAfterCheckingTheLastOneWasRemoved)
 {
-    const ProbeRecord& record = Record();
-    if (!record.Ran)
-    {
-        GTEST_SKIP() << "checks the state ALeavesAProjectAndAnAssetManagerActive left; run them together";
-    }
-    EXPECT_EQ(Project::GetActive() != nullptr, record.HadProject);
-    EXPECT_EQ(Project::HasAssetManager(), record.HadAssetManager);
-    if (Project::GetActive())
-    {
-        EXPECT_NE(Project::GetActive()->GetDirectory(), record.LeakedDirectory)
-            << "the previous test's project is still active";
-    }
+    CheckThenLeakAProject();
 }
 
 // The restore puts back the captured objects themselves. A suite that set up a
@@ -82,6 +89,7 @@ class ProjectIsolationSuiteProbe : public ::testing::Test
         s_Project = Project::NewInMemory(directory, ProjectConfig{});
         s_AssetManager = Ref<EditorAssetManager>::Create();
         Project::SetAssetManager(s_AssetManager);
+        s_Swapped = false;
     }
     static void TearDownTestSuite()
     {
@@ -90,19 +98,32 @@ class ProjectIsolationSuiteProbe : public ::testing::Test
         s_Project = nullptr;
     }
 
+    // After an earlier probe swapped the asset manager, the suite's own objects
+    // must be active again. Then swap it again for the next probe.
+    static void CheckThenSwapTheAssetManager()
+    {
+        if (s_Swapped)
+        {
+            EXPECT_EQ(Project::GetActive().Raw(), s_Project.Raw()) << "the suite's project was replaced by a copy";
+            ASSERT_TRUE(Project::HasAssetManager());
+            EXPECT_EQ(Project::GetAssetManager().Raw(), s_AssetManager.Raw());
+        }
+        Project::SetAssetManager(Ref<EditorAssetManager>::Create());
+        s_Swapped = true;
+        ASSERT_NE(Project::GetAssetManager().Raw(), s_AssetManager.Raw());
+    }
+
     inline static Ref<Project> s_Project;
     inline static Ref<AssetManagerBase> s_AssetManager;
+    inline static bool s_Swapped = false;
 };
 
-TEST_F(ProjectIsolationSuiteProbe, ASwapsOnlyTheAssetManager)
+TEST_F(ProjectIsolationSuiteProbe, ASwapsTheAssetManagerAfterCheckingTheSuitesWasRestored)
 {
-    Project::SetAssetManager(Ref<EditorAssetManager>::Create());
-    ASSERT_NE(Project::GetAssetManager().Raw(), s_AssetManager.Raw());
+    CheckThenSwapTheAssetManager();
 }
 
-TEST_F(ProjectIsolationSuiteProbe, BStillSeesTheSuitesOwnProjectAndAssetManager)
+TEST_F(ProjectIsolationSuiteProbe, BSwapsTheAssetManagerAfterCheckingTheSuitesWasRestored)
 {
-    EXPECT_EQ(Project::GetActive().Raw(), s_Project.Raw()) << "the suite's project was replaced by a copy";
-    ASSERT_TRUE(Project::HasAssetManager());
-    EXPECT_EQ(Project::GetAssetManager().Raw(), s_AssetManager.Raw());
+    CheckThenSwapTheAssetManager();
 }
