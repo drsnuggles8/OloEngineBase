@@ -113,9 +113,22 @@ The production guard reads `cache-matched-key`, which is populated by a prefix r
 though `cache-hit` is false. It records counts, hit rate, restore key, build outcome and exact
 cache/cap bytes. A successful build with at least 500 cacheable requests is required. Missing,
 malformed or inconsistent statistics fail; skipped/failed builds and smaller samples fail.
-A complete cold run passes without requiring hits. A warm result below 5% fails with an
-Actions annotation and a machine-readable artifact. The threshold detects this regression;
-passing it alone is not the 94.8-98.5% recovery criterion.
+A complete cold run passes without requiring hits.
+
+**Judge warm reuse against the objects whose inputs did not change, not against every
+compile.** Every saving run banks `olo-object-manifest.json` in its snapshot
+(`scripts/sccache_object_manifest.py`): one hash per launcher-compiled object over its compile
+command, source and every header in ninja's deps log, by content. The consumer sets it aside
+before sccache starts, records its own after the build, and counts the objects with an
+unchanged hash. Fewer than 100 such objects is `inputs-changed`, which passes and names the
+changed files. Otherwise, hits below 50% of that count fail as `reuse-shortfall`. A
+snapshot without a manifest falls back to the old floor (a warm result below 5% fails as
+`near-zero-warm`) and the report says so. A snapshot with a manifest but no current one fails.
+The raw rate could not tell a broken cache from a correct one: #1678 added Tracy section
+macros to `Debug/Instrumentor.h`, which almost every TU includes, and read 106/2126 (4.99%)
+on a correct cache. On a local tree the manifest predicts 33 of 1725 objects reusable across
+that change and names `Instrumentor.h` as the one changed input. Passing the gate is not the
+94.8-98.5% recovery criterion.
 
 Hosted cache prefixes include a fingerprint of compiler bytes/path, MSVC and Windows SDK
 versions, the actual image revision, sccache version, the vcpkg `builtin-baseline` and a hash

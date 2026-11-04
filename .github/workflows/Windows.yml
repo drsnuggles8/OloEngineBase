@@ -491,6 +491,22 @@ jobs:
         restore-keys: |
           ${{ steps.cache_identity.outputs.prefix }}
 
+    # The producer banked its object manifest inside the snapshot ("Bank the object
+    # manifest with the cache", below). It leaves SCCACHE_DIR before the daemon starts,
+    # so sccache never counts or evicts it, and before the residency snapshot, so the
+    # probe never reads it as an object. The health check compares it with this build's.
+    - name: Set aside the restored object manifest
+      if: runner.environment == 'github-hosted'
+      shell: pwsh
+      run: |
+        $manifest = Join-Path $env:SCCACHE_DIR 'olo-object-manifest.json'
+        if (Test-Path -LiteralPath $manifest) {
+          Move-Item -LiteralPath $manifest -Destination "$env:RUNNER_TEMP/cache-manifest-restored.json"
+          Write-Host 'The restored snapshot carries an object manifest.'
+        } else {
+          Write-Host 'The restored snapshot carries no object manifest; the health check judges the raw hit rate.'
+        }
+
     - name: Snapshot restored cache residency
       if: github.event_name == 'workflow_dispatch' && inputs.cache_probe
       shell: pwsh
@@ -607,6 +623,19 @@ jobs:
         & "${{github.workspace}}/scripts/Check-NinjaHeaderDeps.ps1"
         -BuildDir "${{github.workspace}}/build" -Config "${{env.BUILD_TYPE}}"
 
+    # One input hash per cached object: its compile command, its source and every
+    # header ninja recorded for it, by content. A raw hit rate cannot tell a broken
+    # cache from a change that legitimately invalidates most of the tree: #1678 added
+    # Tracy section macros to Debug/Instrumentor.h, every TU missed, and a correct
+    # cache read as 4.99 % near-zero-warm. Against the producer's manifest the health
+    # check counts only the objects whose inputs did not change.
+    - name: Record the compiler object manifest
+      if: runner.environment == 'github-hosted' && steps.build.outcome == 'success'
+      shell: pwsh
+      run: >
+        python scripts/sccache_object_manifest.py --build-dir "${{github.workspace}}/build"
+        --config "${{env.BUILD_TYPE}}" --output "$env:RUNNER_TEMP/cache-manifest.json"
+
     # A prefix restore has cache-hit=false; cache-matched-key, not cache-hit,
     # distinguishes warm from cold. A successful restore alone proves no reuse.
     - name: Check restored compiler cache health
@@ -620,7 +649,9 @@ jobs:
         if ($LASTEXITCODE -ne 0) { $stats = '' }
         $stats | Set-Content -Encoding utf8 "$env:RUNNER_TEMP/cache-stats.json"
         python scripts/check_sccache_health.py --stats "$env:RUNNER_TEMP/cache-stats.json" `
-          --output "$env:RUNNER_TEMP/cache-health.json"
+          --output "$env:RUNNER_TEMP/cache-health.json" `
+          --restored-manifest "$env:RUNNER_TEMP/cache-manifest-restored.json" `
+          --current-manifest "$env:RUNNER_TEMP/cache-manifest.json"
         exit $LASTEXITCODE
 
     - name: Upload compiler cache health
@@ -632,6 +663,8 @@ jobs:
           ${{ runner.temp }}/cache-stats.json
           ${{ runner.temp }}/cache-health.json
           ${{ runner.temp }}/cache-toolchain.json
+          ${{ runner.temp }}/cache-manifest.json
+          ${{ runner.temp }}/cache-manifest-restored.json
         if-no-files-found: error
 
     - name: Show persistent compiler cache statistics
@@ -681,6 +714,17 @@ jobs:
       run: >
         & "${{github.workspace}}/scripts/Report-NinjaBuildTail.ps1"
         -BuildDir "${{github.workspace}}/build"
+
+    # The save below banks this build's object manifest with its objects, so the next
+    # run's health check can tell which objects this snapshot must serve. Same
+    # condition as the save; a successful build always recorded one, so a missing
+    # file fails here instead of silently leaving the next run on the raw rate.
+    - name: Bank the object manifest with the cache
+      if: always() && steps.build.outcome == 'success' && runner.environment == 'github-hosted' && github.event_name != 'pull_request' && !inputs.cache_probe
+      shell: pwsh
+      run: >
+        Copy-Item -LiteralPath "$env:RUNNER_TEMP/cache-manifest.json"
+        -Destination (Join-Path $env:SCCACHE_DIR 'olo-object-manifest.json') -ErrorAction Stop
 
     # Paired with the restore above (#1009). `if: always()` is the point: the
     # combined actions/cache action saves in a POST-JOB step, and post-job steps
