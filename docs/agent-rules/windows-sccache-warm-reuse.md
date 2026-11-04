@@ -118,7 +118,8 @@ A complete cold run passes without requiring hits.
 **Judge warm reuse against the objects whose inputs did not change, not against every
 compile.** Every saving run banks `olo-object-manifest.json` in its snapshot
 (`scripts/sccache_object_manifest.py`): one hash per launcher-compiled object over its compile
-command, source and every header in ninja's deps log, by content. The consumer sets it aside
+command, source and every header in ninja's deps log, by content; a run that cannot bank it
+saves nothing. The consumer sets it aside
 before sccache starts, records its own after the build, and counts the objects with an
 unchanged hash. A current manifest that covers under 50% of the compiles fails as
 `unavailable`: the manifest step stopped reading the build. Fewer than 100 unchanged objects is

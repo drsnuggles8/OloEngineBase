@@ -718,8 +718,12 @@ jobs:
     # The save below banks this build's object manifest with its objects, so the next
     # run's health check can tell which objects this snapshot must serve. Same
     # condition as the save; a successful build always recorded one, so a missing
-    # file fails here instead of silently leaving the next run on the raw rate.
+    # file fails here instead of silently leaving the next run on the raw rate. The
+    # save requires this step to succeed: a snapshot without a manifest would put
+    # every run that restores it back on the raw rate, and skipping the save leaves
+    # the previous snapshot, which has one, as the newest.
     - name: Bank the object manifest with the cache
+      id: bank_manifest
       if: always() && steps.build.outcome == 'success' && runner.environment == 'github-hosted' && github.event_name != 'pull_request' && !inputs.cache_probe
       shell: pwsh
       run: >
@@ -747,7 +751,7 @@ jobs:
     # behind. The save is kept on workflow_dispatch so a warm/cold A/B can be measured
     # on a branch (that is how the fix for #1073 was verified).
     - name: Save sccache storage
-      if: always() && steps.build.outcome == 'success' && runner.environment == 'github-hosted' && github.event_name != 'pull_request' && !inputs.cache_probe
+      if: always() && steps.build.outcome == 'success' && steps.bank_manifest.outcome == 'success' && runner.environment == 'github-hosted' && github.event_name != 'pull_request' && !inputs.cache_probe
       uses: ./.github/actions/save-cache-pruned
       with:
         path: ${{ env.SCCACHE_DIR }}
