@@ -21,7 +21,7 @@ threads a private cache.
    the hook uses the pool after the hand-back. A cache started then has nothing left to hand it
    back. Either hand back whatever each later call leaves in the cache
    (`TLockFreeFixedSizeAllocator_TLSCache`), or serve the call from the shared orphans under
-   their lock (`LockFreeLinkAllocator_TLSCache`).
+   their lock (`LockFreeLinkAllocator_TLSCache`, `FHazardPointerCollection`).
    [Details](per-thread-caches-hand-back-at-thread-exit-details.md#pr-1679-a-hook-that-ran-after-the-pool-it-needed).
 4. **A hook that uses another pool registers that pool's hook first.** The allocator's hook
    pushes to a lock-free list, so it calls `FLockFreeLinkPolicy::RegisterThreadExitHook()`
@@ -36,7 +36,9 @@ threads a private cache.
 7. **A thread forgets a pool that died before it.** A thread that records each pool it must
    hand back to drops the records of destroyed pools when it adds a new one
    (`FHazardPointerCollection`). A long-lived thread otherwise keeps one record per pool it
-   ever used.
+   ever used. It only tries each pool's lifetime lock there: the call can come from a deleter
+   that a pool runs under its own lock, which an exiting thread holding the lifetime lock is
+   waiting for.
 8. **Test it on threads that exit.** Free on a thread, let it exit, then allocate on a fresh
    thread and assert the pool did not grow. For rule 3, declare a `thread_local` before the
    thread first uses the pool and use the pool from its destructor. The existing tests are

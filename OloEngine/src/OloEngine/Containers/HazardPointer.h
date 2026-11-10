@@ -169,6 +169,12 @@ namespace OloEngine
             // Forgets the collections destroyed since this thread retired through
             // them. A long-lived thread would otherwise keep an entry and the
             // lifetime block for every collection it ever used.
+            //
+            // Only tries each lock. This can run inside a deleter, which a
+            // collection may run under m_AllTlsVariablesCS, and an exiting thread
+            // holds the lifetime mutex while it waits for that lock; waiting for
+            // the mutex here would deadlock the two. A skipped entry is dropped on
+            // a later call.
             void DropDestroyedCollections()
             {
                 for (i32 Index = Entries.Num() - 1; Index >= 0; --Index)
@@ -176,8 +182,8 @@ namespace OloEngine
                     FLifetime* const Lifetime = Entries[Index].Lifetime;
                     bool bDestroyed = false;
                     {
-                        const std::lock_guard<std::mutex> Lock(Lifetime->Mutex);
-                        bDestroyed = Lifetime->Collection == nullptr;
+                        const std::unique_lock<std::mutex> Lock(Lifetime->Mutex, std::try_to_lock);
+                        bDestroyed = Lock.owns_lock() && Lifetime->Collection == nullptr;
                     }
                     if (bDestroyed)
                     {
@@ -532,21 +538,28 @@ namespace OloEngine
 
         if (TlsData == nullptr)
         {
+            // Past the hook's destructor (a thread_local destroyed after it retiring
+            // something), nothing would hand a new list back, so the object joins
+            // the orphans and is collected with them.
+            if (ThreadIsExiting())
+            {
+                {
+                    FScopeLock Lock(&m_AllTlsVariablesCS);
+                    m_Orphans.Add(Deleter);
+                }
+                CollectOrphans();
+                return;
+            }
             {
                 FScopeLock Lock(&m_AllTlsVariablesCS);
                 TlsData = new FTlsData();
                 m_AllTlsVariables.Add(TlsData);
             }
             FPlatformTLS::SetTlsValue(m_CollectablesTlsSlot, TlsData);
-            // Past the hook's destructor (a thread_local destroyed after it retiring
-            // something), the list stays with the collection until it is destroyed.
-            if (!ThreadIsExiting())
-            {
-                FThreadExitHook& Hook = ThreadExitHook();
-                Hook.DropDestroyedCollections();
-                m_Lifetime->References.fetch_add(1, std::memory_order_relaxed);
-                Hook.Entries.Add({ m_Lifetime, TlsData });
-            }
+            FThreadExitHook& Hook = ThreadExitHook();
+            Hook.DropDestroyedCollections();
+            m_Lifetime->References.fetch_add(1, std::memory_order_relaxed);
+            Hook.Entries.Add({ m_Lifetime, TlsData });
         }
 
         OLO_CORE_ASSERT(!TlsData->ReclamationList.Contains(Deleter), "Deleter already in reclamation list");
