@@ -336,7 +336,7 @@ glad_add_library(glad STATIC REPRODUCIBLE API gl:core=4.6 LOCATION ${CMAKE_CURRE
 
 FetchContent_Declare(stb_image
 	GIT_REPOSITORY https://github.com/nothings/stb.git
-	GIT_TAG d14d46f6b44456eb88beac58cba833a4135d4c89  # master @ 2026-06-05
+	GIT_TAG 4e9b368bfc071e97206ea5c6adba68dd0cbf8897  # master @ 2026-06-05
 	GIT_SHALLOW FALSE)
 FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
@@ -349,7 +349,7 @@ target_include_directories(stb_image INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/stb_
 
 CPMAddPackage(NAME imgui
 	GITHUB_REPOSITORY ocornut/imgui
-	GIT_TAG d682dc41f58b98c9343ffbaa7d94f07e9024b3ca  # docking @ 2026-06-05
+	GIT_TAG cf53467ab0db7a783f04b32dd9160e6aa5b720ef  # docking @ 2026-06-05
 	GIT_SHALLOW FALSE
 	DOWNLOAD_ONLY YES)
 if(imgui_ADDED)
