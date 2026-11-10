@@ -106,6 +106,19 @@ namespace OloEngine
     // worker stranded two bundles of a fixed index space that LockFreeLinksExhausted
     // stops the process on. The allocator is never destroyed, so a thread exiting
     // during static destruction can still hand back to it.
+    //
+    // thread_local destructors run in reverse order of construction, so another
+    // thread_local's destructor can push to a lock-free list after this cache has
+    // been handed back. Such a call gets no cache (GetTLS returns null) and takes
+    // one link at a time from the orphans under m_OrphanMutex. A cache created
+    // there would have no one left to hand it back.
+    namespace
+    {
+        // Set by the exit hook below. Trivially destructible, so readable after
+        // the hook is destroyed.
+        thread_local bool t_LinkCacheThreadExiting = false;
+    } // namespace
+
     class LockFreeLinkAllocator_TLSCache
     {
         enum
@@ -149,7 +162,12 @@ namespace OloEngine
         // Uses Payload field to chain free links.
         [[nodiscard]] TLinkPtr Pop()
         {
-            FThreadLocalCache& TLS = GetTLS();
+            FThreadLocalCache* const Cache = GetTLS();
+            if (!Cache)
+            {
+                return PopWithoutCache();
+            }
+            FThreadLocalCache& TLS = *Cache;
 
             if (!TLS.PartialBundle)
             {
@@ -167,18 +185,7 @@ namespace OloEngine
 
                     if (!TLS.PartialBundle)
                     {
-                        // Allocate new links from the main allocator
-                        // Chain them using Payload field (matching UE5.7)
-                        i32 FirstIndex = FLockFreeLinkPolicy::s_LinkAllocator.Alloc(NUM_PER_BUNDLE);
-                        for (i32 Index = 0; Index < NUM_PER_BUNDLE; ++Index)
-                        {
-                            TLink* Event = FLockFreeLinkPolicy::IndexToLink(FirstIndex + Index);
-                            Event->DoubleNext.Init();
-                            Event->SingleNext.store(0, std::memory_order_relaxed);
-                            Event->Payload.store(reinterpret_cast<void*>(static_cast<uptr>(TLS.PartialBundle)),
-                                                 std::memory_order_relaxed);
-                            TLS.PartialBundle = FLockFreeLinkPolicy::IndexToPtr(FirstIndex + Index);
-                        }
+                        TLS.PartialBundle = CarveBundle();
                     }
                 }
                 TLS.NumPartial = NUM_PER_BUNDLE;
@@ -204,7 +211,13 @@ namespace OloEngine
         // Named "Push" to match UE5.7 naming convention.
         void Push(TLinkPtr Item)
         {
-            FThreadLocalCache& TLS = GetTLS();
+            FThreadLocalCache* const Cache = GetTLS();
+            if (!Cache)
+            {
+                PushWithoutCache(Item);
+                return;
+            }
+            FThreadLocalCache& TLS = *Cache;
 
             if (TLS.NumPartial >= NUM_PER_BUNDLE)
             {
@@ -282,18 +295,9 @@ namespace OloEngine
                 TLinkPtr Link = TLS->PartialBundle;
                 while (Link)
                 {
-                    TLink* LinkP = FLockFreeLinkPolicy::DerefLink(Link);
-                    const TLinkPtr Next = static_cast<TLinkPtr>(
-                        reinterpret_cast<uptr>(LinkP->Payload.load(std::memory_order_relaxed)));
-                    LinkP->Payload.store(reinterpret_cast<void*>(static_cast<uptr>(m_OrphanBundle)),
-                                         std::memory_order_relaxed);
-                    m_OrphanBundle = Link;
-                    if (++m_NumOrphans == NUM_PER_BUNDLE)
-                    {
-                        m_GlobalFreeListBundles.Push(m_OrphanBundle);
-                        m_OrphanBundle = 0;
-                        m_NumOrphans = 0;
-                    }
+                    const TLinkPtr Next = static_cast<TLinkPtr>(reinterpret_cast<uptr>(
+                        FLockFreeLinkPolicy::DerefLink(Link)->Payload.load(std::memory_order_relaxed)));
+                    AdoptOrphan(Link);
                     Link = Next;
                 }
             }
@@ -318,9 +322,78 @@ namespace OloEngine
             }
         };
 
-        FThreadLocalCache& GetTLS();
+        // Null on a thread that has already handed its cache back.
+        FThreadLocalCache* GetTLS();
 
-        // Exited threads' partial bundles, linked by Payload until NUM_PER_BUNDLE.
+        // A bundle of NUM_PER_BUNDLE links from the main allocator, chained by
+        // the Payload field (matching UE5.7).
+        [[nodiscard]] static TLinkPtr CarveBundle()
+        {
+            TLinkPtr Bundle = 0;
+            const i32 FirstIndex = FLockFreeLinkPolicy::s_LinkAllocator.Alloc(NUM_PER_BUNDLE);
+            for (i32 Index = 0; Index < NUM_PER_BUNDLE; ++Index)
+            {
+                TLink* Event = FLockFreeLinkPolicy::IndexToLink(FirstIndex + Index);
+                Event->DoubleNext.Init();
+                Event->SingleNext.store(0, std::memory_order_relaxed);
+                Event->Payload.store(reinterpret_cast<void*>(static_cast<uptr>(Bundle)), std::memory_order_relaxed);
+                Bundle = FLockFreeLinkPolicy::IndexToPtr(FirstIndex + Index);
+            }
+            return Bundle;
+        }
+
+        // Adds one free link to the orphans; a whole bundle of them goes to the
+        // global list. Call with m_OrphanMutex held.
+        void AdoptOrphan(TLinkPtr Link)
+        {
+            FLockFreeLinkPolicy::DerefLink(Link)->Payload.store(
+                reinterpret_cast<void*>(static_cast<uptr>(m_OrphanBundle)), std::memory_order_relaxed);
+            m_OrphanBundle = Link;
+            if (++m_NumOrphans == NUM_PER_BUNDLE)
+            {
+                m_GlobalFreeListBundles.Push(m_OrphanBundle);
+                m_OrphanBundle = 0;
+                m_NumOrphans = 0;
+            }
+        }
+
+        // Pop for a thread past its exit hook: one link from the orphans.
+        [[nodiscard]] TLinkPtr PopWithoutCache()
+        {
+            const std::lock_guard<std::mutex> Lock(m_OrphanMutex);
+            if (!m_OrphanBundle)
+            {
+                m_OrphanBundle = m_GlobalFreeListBundles.Pop();
+                if (!m_OrphanBundle)
+                {
+                    m_OrphanBundle = CarveBundle();
+                }
+                m_NumOrphans = NUM_PER_BUNDLE;
+            }
+            const TLinkPtr Result = m_OrphanBundle;
+            TLink* ResultP = FLockFreeLinkPolicy::DerefLink(Result);
+            m_OrphanBundle = static_cast<TLinkPtr>(
+                reinterpret_cast<uptr>(ResultP->Payload.load(std::memory_order_relaxed)));
+            --m_NumOrphans;
+            ResultP->Payload.store(nullptr, std::memory_order_relaxed);
+            checkLockFreePointerList(!ResultP->DoubleNext.GetPtr() &&
+                                     !ResultP->SingleNext.load(std::memory_order_relaxed));
+            return Result;
+        }
+
+        // Push for a thread past its exit hook: the link joins the orphans.
+        void PushWithoutCache(TLinkPtr Item)
+        {
+            TLink* ItemP = FLockFreeLinkPolicy::DerefLink(Item);
+            ItemP->DoubleNext.SetPtr(0);
+            ItemP->SingleNext.store(0, std::memory_order_relaxed);
+            const std::lock_guard<std::mutex> Lock(m_OrphanMutex);
+            AdoptOrphan(Item);
+        }
+
+        // Free links no thread's cache holds, linked by Payload, fewer than
+        // NUM_PER_BUNDLE: exited threads' partial bundles, and what threads past
+        // their exit hook pushed.
         std::mutex m_OrphanMutex;
         TLinkPtr m_OrphanBundle = 0;
         i32 m_NumOrphans = 0;
@@ -334,13 +407,11 @@ namespace OloEngine
 
     namespace
     {
-        // Trivially destructible, so readable after the hook below is destroyed.
-        thread_local bool t_LinkCacheThreadExiting = false;
-
         // Hands the thread's link cache back when the thread exits.
         struct FLinkCacheExitHook
         {
             bool bHasCache = false;
+            bool bRegistered = false;
 
             ~FLinkCacheExitHook()
             {
@@ -354,22 +425,23 @@ namespace OloEngine
         thread_local FLinkCacheExitHook t_LinkCacheExitHook;
     } // namespace
 
-    LockFreeLinkAllocator_TLSCache::FThreadLocalCache& LockFreeLinkAllocator_TLSCache::GetTLS()
+    LockFreeLinkAllocator_TLSCache::FThreadLocalCache* LockFreeLinkAllocator_TLSCache::GetTLS()
     {
         checkLockFreePointerList(FPlatformTLS::IsValidTlsSlot(m_TlsSlot));
         FThreadLocalCache* TLS = static_cast<FThreadLocalCache*>(FPlatformTLS::GetTlsValue(m_TlsSlot));
         if (!TLS)
         {
+            // Past the hook's destructor (another thread_local's destructor using
+            // a list), nothing would hand a new cache back.
+            if (t_LinkCacheThreadExiting)
+            {
+                return nullptr;
+            }
             TLS = new FThreadLocalCache();
             FPlatformTLS::SetTlsValue(m_TlsSlot, TLS);
-            // Past the hook's destructor (a later thread_local freeing a link),
-            // the cache stays with the thread.
-            if (!t_LinkCacheThreadExiting)
-            {
-                t_LinkCacheExitHook.bHasCache = true;
-            }
+            t_LinkCacheExitHook.bHasCache = true;
         }
-        return *TLS;
+        return TLS;
     }
 
     // ========================================================================
@@ -403,6 +475,15 @@ namespace OloEngine
     void FLockFreeLinkPolicy::FreeLockFreeLink(u32 Item)
     {
         GetLockFreeAllocator().Push(Item);
+    }
+
+    void FLockFreeLinkPolicy::RegisterThreadExitHook()
+    {
+        if (!t_LinkCacheThreadExiting)
+        {
+            // The write is what constructs the hook where thread_locals are lazy.
+            t_LinkCacheExitHook.bRegistered = true;
+        }
     }
 
 } // namespace OloEngine

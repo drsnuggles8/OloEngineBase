@@ -25,6 +25,14 @@ namespace
     {
         return FLockFreeLinkPolicy::s_LinkAllocator.Alloc(1);
     }
+
+    struct FUsesALinkWhenDestroyed
+    {
+        ~FUsesALinkWhenDestroyed()
+        {
+            FLockFreeLinkPolicy::FreeLockFreeLink(FLockFreeLinkPolicy::AllocLockFreeLink());
+        }
+    };
 } // namespace
 
 TEST(LockFreeLinkThreadExit, ThreadsThatExitDoNotKeepCarvingTheIndexSpace)
@@ -58,4 +66,31 @@ TEST(LockFreeLinkThreadExit, ThreadsThatExitDoNotKeepCarvingTheIndexSpace)
     // bundles in all. Stranded, every thread carves its two cached bundles anew.
     EXPECT_LT(carved, static_cast<u32>(10 * kPerBundle))
         << carved << " links carved by " << kThreads << " threads that each needed at most " << kLinksPerThread;
+}
+
+// thread_local destructors run in reverse order of construction, so one that
+// was constructed before the thread first used a link runs after the link cache
+// was handed back. A link it takes then must not start a new cache: nothing is
+// left to hand that one back, and each such thread would strand a bundle.
+// (Where every thread constructs the link cache's hook at thread start, as
+// under the MSVC ABI, the destructor below runs first and this is the plain case.)
+TEST(LockFreeLinkThreadExit, AThreadLocalDestroyedAfterTheLinkCacheStrandsNothing)
+{
+    constexpr i32 kThreads = 50;
+
+    const u32 before = HighWater();
+    for (i32 t = 0; t < kThreads; ++t)
+    {
+        std::thread thread(
+            []
+            {
+                thread_local FUsesALinkWhenDestroyed usesALinkWhenDestroyed;
+                FLockFreeLinkPolicy::FreeLockFreeLink(FLockFreeLinkPolicy::AllocLockFreeLink());
+            });
+        thread.join();
+    }
+    const u32 carved = HighWater() - before - 1;
+
+    EXPECT_LT(carved, static_cast<u32>(10 * kPerBundle))
+        << carved << " links carved by " << kThreads << " threads that each held one link at a time";
 }

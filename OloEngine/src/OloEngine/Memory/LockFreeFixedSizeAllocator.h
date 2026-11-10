@@ -118,6 +118,10 @@ namespace OloEngine
             TLS.PartialBundle = static_cast<void**>(*TLS.PartialBundle);
             --TLS.NumPartial;
             OLO_CORE_ASSERT(TLS.NumPartial >= 0 && ((!!TLS.NumPartial) == (!!TLS.PartialBundle)));
+            if (TLS.bHandedBack) [[unlikely]]
+            {
+                HandBack(TLS);
+            }
             return Result;
 #endif
         }
@@ -146,6 +150,10 @@ namespace OloEngine
             *static_cast<void**>(Item) = static_cast<void*>(TLS.PartialBundle);
             TLS.PartialBundle = static_cast<void**>(Item);
             ++TLS.NumPartial;
+            if (TLS.bHandedBack) [[unlikely]]
+            {
+                HandBack(TLS);
+            }
 #endif
         }
 
@@ -203,15 +211,31 @@ namespace OloEngine
         }
 
         // struct for the TLS cache. Trivially destructible, so its storage stays
-        // valid for the whole thread: a block freed by thread-exit code after the
-        // hook below has run lands here and is lost, never written to freed memory.
+        // valid for the whole thread, past the hook below. thread_local destructors
+        // run in reverse order of construction, so one constructed before the hook
+        // can still allocate or free here after the cache was handed back; from
+        // then on (bHandedBack) every call hands back what it leaves in the cache.
         struct FThreadLocalCache
         {
             void** FullBundle = nullptr;
             void** PartialBundle = nullptr;
             i32 NumPartial = 0;
             bool bExitHookRegistered = false;
+            bool bHandedBack = false;
         };
+
+        // Moves everything the cache holds to the orphanage.
+        static void HandBack(FThreadLocalCache& Cache)
+        {
+            if (Cache.FullBundle)
+            {
+                Orphanage().Bundles.Push(Cache.FullBundle);
+            }
+            Orphanage().Adopt(Cache.PartialBundle);
+            Cache.FullBundle = nullptr;
+            Cache.PartialBundle = nullptr;
+            Cache.NumPartial = 0;
+        }
 
         // Hands the thread's cache to the orphanage when the thread exits.
         struct FThreadExitHook
@@ -220,18 +244,11 @@ namespace OloEngine
 
             ~FThreadExitHook()
             {
-                if (!Cache)
+                if (Cache)
                 {
-                    return;
+                    HandBack(*Cache);
+                    Cache->bHandedBack = true;
                 }
-                if (Cache->FullBundle)
-                {
-                    Orphanage().Bundles.Push(Cache->FullBundle);
-                }
-                Orphanage().Adopt(Cache->PartialBundle);
-                Cache->FullBundle = nullptr;
-                Cache->PartialBundle = nullptr;
-                Cache->NumPartial = 0;
             }
         };
 
@@ -242,6 +259,9 @@ namespace OloEngine
             if (!TLS.bExitHookRegistered)
             {
                 TLS.bExitHookRegistered = true;
+                // HandBack pushes to a lock-free list, so the thread's link cache
+                // has to outlive the hook.
+                FLockFreeLinkPolicy::RegisterThreadExitHook();
                 thread_local FThreadExitHook Hook;
                 Hook.Cache = &TLS;
             }
