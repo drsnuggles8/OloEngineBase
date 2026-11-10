@@ -166,6 +166,27 @@ namespace OloEngine
             };
             TArray<FEntry> Entries;
 
+            // Forgets the collections destroyed since this thread retired through
+            // them. A long-lived thread would otherwise keep an entry and the
+            // lifetime block for every collection it ever used.
+            void DropDestroyedCollections()
+            {
+                for (i32 Index = Entries.Num() - 1; Index >= 0; --Index)
+                {
+                    FLifetime* const Lifetime = Entries[Index].Lifetime;
+                    bool bDestroyed = false;
+                    {
+                        const std::lock_guard<std::mutex> Lock(Lifetime->Mutex);
+                        bDestroyed = Lifetime->Collection == nullptr;
+                    }
+                    if (bDestroyed)
+                    {
+                        Lifetime->Release();
+                        Entries.RemoveAtSwap(Index);
+                    }
+                }
+            }
+
             ~FThreadExitHook()
             {
                 ThreadIsExiting() = true;
@@ -343,6 +364,13 @@ namespace OloEngine
         FHazardPointerCollection(const FHazardPointerCollection&) = delete;
         FHazardPointerCollection& operator=(const FHazardPointerCollection&) = delete;
 
+        // How many collections the calling thread would hand retired objects to
+        // if it exited now. For tests.
+        [[nodiscard]] static i32 NumCollectionsThisThreadHandsBackTo()
+        {
+            return ThreadIsExiting() ? 0 : ThreadExitHook().Entries.Num();
+        }
+
         ~FHazardPointerCollection()
         {
             // A thread exiting from here on must not hand anything to this collection.
@@ -514,8 +542,10 @@ namespace OloEngine
             // something), the list stays with the collection until it is destroyed.
             if (!ThreadIsExiting())
             {
+                FThreadExitHook& Hook = ThreadExitHook();
+                Hook.DropDestroyedCollections();
                 m_Lifetime->References.fetch_add(1, std::memory_order_relaxed);
-                ThreadExitHook().Entries.Add({ m_Lifetime, TlsData });
+                Hook.Entries.Add({ m_Lifetime, TlsData });
             }
         }
 

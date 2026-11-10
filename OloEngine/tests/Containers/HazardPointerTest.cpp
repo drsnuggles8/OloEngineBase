@@ -77,3 +77,30 @@ TEST(HazardPointer, AMovedHazardPointerStillProtectsItsObject)
     }
     delete other;
 }
+
+// A thread remembers each collection it retired through, to hand its list back
+// when it exits. A collection destroyed first has nothing to take back, so the
+// thread forgets it the next time it meets a new collection; a long-lived
+// thread otherwise keeps a record of every collection it ever used.
+TEST(HazardPointer, AThreadForgetsTheCollectionsDestroyedBeforeIt)
+{
+    constexpr i32 kCollections = 100;
+    std::atomic<i32> destroyed{ 0 };
+    i32 remembered = -1;
+
+    std::thread retiring(
+        [&destroyed, &remembered]
+        {
+            for (i32 i = 0; i < kCollections; ++i)
+            {
+                FHazardPointerCollection collection;
+                collection.Delete(new FTracked{ &destroyed });
+            }
+            remembered = FHazardPointerCollection::NumCollectionsThisThreadHandsBackTo();
+        });
+    retiring.join();
+
+    EXPECT_EQ(destroyed.load(), kCollections);
+    // The last one is forgotten when the thread meets the next collection.
+    EXPECT_EQ(remembered, 1) << "the thread still remembers collections that no longer exist";
+}
