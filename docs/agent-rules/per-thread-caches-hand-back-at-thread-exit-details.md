@@ -51,3 +51,49 @@ it. A hazard pointer acquired before the moved-to one's first `Get` received the
 later `Get` then overwrote the protection, and the moved-to pointer's object could be deleted
 while in use. `HazardPointer.AMovedHazardPointerStillProtectsItsObject` acquires a second
 pointer in that window. It fails on the old constructor and passes on the fixed one.
+
+## PR 1679: a hook that ran after the pool it needed
+
+The first push of the three hand-backs was green on Windows and red in `ASan + LSan
+(Linux/Clang)`. `LockFreeFixedSizeAllocatorThreadExit.*` passed its assertion and then
+LeakSanitizer reported 65560 bytes in 3 allocations: one 64 KB bundle and two 12-byte link
+caches.
+
+The allocator's hook pushes the thread's bundles to a lock-free list, and a push takes a link
+from the thread's link cache. On Linux a `thread_local` is constructed on first use. The test
+thread used the allocator first and a link second, so the link cache's hook was constructed
+second and destroyed first. The allocator's hook then ran with the link cache already handed
+back, and its push started a second link cache that nothing handed back. That is the fault the
+hand-back was written to remove, one level down. Under clang-cl the link cache's hook is a
+namespace-scope `thread_local`, which the MSVC ABI constructs when the thread starts, so it is
+destroyed last and the fault cannot occur. A ten-line probe printed the two orders.
+
+The 64 KB bundle was a separate fault in the test. Its allocator was a function-local static,
+destroyed at exit, and its destructor emptied the free list that held the bundle.
+
+The fix has two parts. A thread past its link hook gets no link cache: it takes and returns
+single links from the orphans under their mutex. A thread past its allocator hook hands back
+whatever each call leaves in its cache. The allocator's hook also registers the link hook
+before itself, which keeps the common case on the lock-free path.
+
+Negative controls, on the Linux ASan harness:
+
+| Reverted | Result |
+|---|---|
+| nothing | 7 tests pass, no leak |
+| branch head before the fix | CI's report exactly: 65560 bytes in 3 allocations |
+| link cache started again after its hook | 50 threads carve 2944 links (limit 640); 50 link caches leaked |
+| allocator does not hand back after its hook | 120 threads carve 90 blocks (limit 15); 6 bundles leaked |
+| only the ordering call | 7 tests pass, no leak: the path without a cache is enough |
+| destroyed collections not forgotten | the thread remembers 100 collections instead of 1 |
+| the test's allocator destroyed at exit | the first test, run alone, leaks its 64 KB bundle |
+
+## The WSL harness
+
+Compile, with `clang++-19 -std=gnu++23 -fsanitize=address -g -O1` and the Linux defines from
+any Linux `build.ninja`, the three test files, a `main` that calls `RUN_ALL_TESTS`, and
+`Memory/LockFreeList.cpp`, `Memory/UnrealMemory.cpp`, `Memory/MallocAnsi.cpp`,
+`Memory/GenericPlatformMemory.cpp`, `Core/Log.cpp`, `Misc/Exec.cpp` and
+`Platform/Linux/LinuxPlatformMemory.cpp`. Link `gtest`, `spdlog` and `fmt` from a Linux
+`vcpkg_installed`. It builds in about five seconds. Run each suite in its own process, as ctest
+does: a later test in the same process can take back what an earlier one would have leaked.
