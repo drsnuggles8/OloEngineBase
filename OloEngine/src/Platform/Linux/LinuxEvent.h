@@ -67,8 +67,13 @@ namespace OloEngine
             std::unique_lock lock(m_Mutex);
             const u64 initialGeneration = m_Generation;
 
+            // Manual reset: a Trigger releases every thread waiting at that
+            // moment, even when a Reset follows before the thread runs again, so
+            // a trigger since this wait began counts (the generation).
+            // Auto reset: a Trigger releases one thread, the one that takes
+            // m_Triggered. A thread that wakes to find it taken keeps waiting.
             auto predicate = [this, initialGeneration]
-            { return m_Triggered || (m_Generation != initialGeneration); };
+            { return m_Triggered || (m_ManualReset && m_Generation != initialGeneration); };
 
             if (WaitTime == 0xFFFFFFFF) // INFINITE
             {
@@ -82,15 +87,16 @@ namespace OloEngine
                 }
             }
 
-            const bool wasTriggered = m_Triggered;
-
+            // The predicate held, so this wait was released: returning
+            // m_Triggered here reported a released wait as failed whenever
+            // another thread had cleared the flag first.
             // Auto-reset events reset after a successful wait
-            if (!m_ManualReset && wasTriggered)
+            if (!m_ManualReset)
             {
                 m_Triggered = false;
             }
 
-            return wasTriggered;
+            return true;
         }
 
       private:

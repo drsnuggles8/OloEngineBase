@@ -18,6 +18,10 @@
 #include <chrono>
 #include <vector>
 
+#if defined(__linux__)
+#include <time.h>
+#endif
+
 using namespace OloEngine;
 
 // ============================================================================
@@ -62,6 +66,32 @@ TEST_F(ManualResetEventTest, WaitForUnset)
     auto ElapsedUs = std::chrono::duration_cast<std::chrono::microseconds>(End - Start).count();
     EXPECT_GE(ElapsedUs, 5000) << "WaitFor(10ms) returned far too early: elapsed=" << ElapsedUs << "us";
 }
+
+// A wait that times out sleeps until its deadline. On Linux a timed-out WaitFor
+// waited its span twice, and the second half (and all of a timed-out WaitUntil)
+// spun a core on a futex call that returned at once. The lower-bound tests
+// around this one cannot see either. Measured as the thread's own CPU time,
+// which a busy machine does not inflate.
+#if defined(__linux__)
+TEST_F(ManualResetEventTest, ATimedOutWaitSleepsInsteadOfSpinning)
+{
+    const auto ThreadCpuMs = []
+    {
+        timespec Time{};
+        clock_gettime(CLOCK_THREAD_CPUTIME_ID, &Time);
+        return static_cast<i64>(Time.tv_sec) * 1000 + Time.tv_nsec / 1000000;
+    };
+    FManualResetEvent Event;
+
+    i64 CpuBefore = ThreadCpuMs();
+    EXPECT_FALSE(Event.WaitUntil(FMonotonicTimePoint::Now() + FMonotonicTimeSpan::FromMilliseconds(500.0)));
+    EXPECT_LT(ThreadCpuMs() - CpuBefore, 100) << "WaitUntil spent the wait on the CPU";
+
+    CpuBefore = ThreadCpuMs();
+    EXPECT_FALSE(Event.WaitFor(FMonotonicTimeSpan::FromMilliseconds(500.0)));
+    EXPECT_LT(ThreadCpuMs() - CpuBefore, 100) << "WaitFor spent the wait on the CPU";
+}
+#endif
 
 TEST_F(ManualResetEventTest, WaitForSet)
 {

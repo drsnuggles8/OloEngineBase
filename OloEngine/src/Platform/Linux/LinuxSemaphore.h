@@ -39,6 +39,19 @@ namespace OloEngine
 
         bool TryAcquireFor(FMonotonicTimeSpan Timeout)
         {
+            // An infinite span does not survive the conversion to the clock's
+            // integer duration inside try_acquire_for; it has to block instead,
+            // as the Windows semaphore does.
+            if (Timeout.IsInfinity())
+            {
+                m_Semaphore.acquire();
+                return true;
+            }
+            // Not positive, or not a number.
+            if (!(Timeout > FMonotonicTimeSpan::Zero()))
+            {
+                return m_Semaphore.try_acquire();
+            }
             return m_Semaphore.try_acquire_for(std::chrono::duration<f64>(Timeout.ToSeconds()));
         }
 
