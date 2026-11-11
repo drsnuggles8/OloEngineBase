@@ -203,8 +203,9 @@ namespace OloEngine::Tasks
         // @brief Push a task into the pipe
         //
         // Adds the task as subsequent to the last task and sets it as new last.
-        // @return The previous last task (caller must release), or nullptr if pipe was empty
-        [[nodiscard]] Private::FTaskBase* PushIntoPipe(Private::FTaskBase& Task)
+        // @return true if the task now waits for the previous last task, false if
+        //         the pipe was empty or that task had already completed
+        [[nodiscard]] bool PushIntoPipe(Private::FTaskBase& Task)
         {
             Task.AddRef(); // Pipe holds ref to last task
 
@@ -214,17 +215,25 @@ namespace OloEngine::Tasks
 
             if (LastTask_Local == nullptr)
             {
-                return nullptr;
+                return false;
             }
 
-            if (!LastTask_Local->AddSubsequent(Task))
-            {
-                // Last task already completed
-                LastTask_Local->Release();
-                return nullptr;
-            }
+            // Task's prerequisites take their own reference to the previous task
+            // BEFORE Task becomes its subsequent. As a subsequent, Task can be
+            // unlocked, executed and closed by other threads at once; a
+            // prerequisite recorded after that was never released, and was
+            // written into a task that could already be freed. A previous task
+            // that turns out to be completed stays in the prerequisites too, and
+            // is released with them.
+            LastTask_Local->AddRef();
+            Task.AddPipePredecessor(*LastTask_Local);
 
-            return LastTask_Local; // Transfer reference to caller
+            const bool bWaitsForLastTask = LastTask_Local->AddSubsequent(Task);
+
+            // The pipe's own reference, kept until here so that the previous task
+            // outlives the call above whatever happens to Task's prerequisites.
+            LastTask_Local->Release();
+            return bWaitsForLastTask;
         }
 
         // @brief Clear a task from the pipe

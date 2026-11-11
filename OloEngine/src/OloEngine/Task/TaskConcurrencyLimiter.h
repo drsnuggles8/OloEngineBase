@@ -359,7 +359,16 @@ namespace OloEngine::Tasks
                     {
                         // No more work - release slot
                         m_ConcurrencySlots.Release(ConcurrencySlot);
-                        break;
+
+                        // A push that finds every slot taken leaves its task to the
+                        // slot holders. This holder saw the queue empty before such a
+                        // push and has now given its slot up, so nobody was left to
+                        // launch that task. Look again: if work arrived, the loop
+                        // condition takes a slot back for it.
+                        if (m_WorkQueue.IsEmpty())
+                        {
+                            break;
+                        }
                     }
 
                     // Don't skip wake-up if we launch any additional tasks

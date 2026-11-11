@@ -449,7 +449,10 @@ namespace OloEngine
                 }
                 else
                 {
-                    // This can spawn new threads to handle tasks
+                    // FEvent::Wait opens no oversubscription scope in this port (see
+                    // Platform/Windows/WindowsEvent.h), so no thread is started to
+                    // replace this one. The master only waits here for batches that
+                    // a running thread already holds.
                     FinishedSignal->Wait();
                 }
             }

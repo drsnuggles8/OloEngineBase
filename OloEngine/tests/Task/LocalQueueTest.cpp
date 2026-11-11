@@ -4,6 +4,9 @@
 
 #include "OloEngine/Task/LocalQueue.h"
 
+#include <atomic>
+#include <thread>
+
 // Regression coverage for issue #611: TLocalQueueRegistry guarded two invariants only
 // with OLO_CORE_ASSERT, which is a no-op in Dist builds:
 //   - AddLocalQueue() overflow past MaxLocalQueues used to write out of bounds.
@@ -51,4 +54,43 @@ TEST(LocalQueueTest, AddLocalQueueBeyondCapacityDoesNotCorruptRegistry)
     // enqueued) but must not crash or read/write out of bounds.
     EXPECT_EQ(Registry.DequeueSteal(true), nullptr);
     EXPECT_EQ(Registry.DequeueSteal(false), nullptr);
+}
+
+// A stealing thread walks the registry's queue array up to the registered count,
+// so the count must never pass the capacity, not even while a registration that
+// is about to be rejected is in progress. Counting it first and undoing it
+// afterwards let a stealer read one slot past the array and use what it found
+// there as a queue.
+TEST(LocalQueueTest, ARejectedRegistrationIsNeverVisibleToAStealingThread)
+{
+    FSmallRegistry Registry;
+    FSmallRegistry::TLocalQueue QueueA;
+    FSmallRegistry::TLocalQueue QueueB;
+    QueueA.Init(Registry, ELocalQueueType::EForeground);
+    QueueB.Init(Registry, ELocalQueueType::EForeground);
+
+    std::atomic<bool> stop{ false };
+    std::atomic<int> stolen{ 0 };
+    std::thread stealing(
+        [&Registry, &stop, &stolen]
+        {
+            while (!stop.load(std::memory_order_relaxed))
+            {
+                if (Registry.DequeueSteal(/*GetBackGroundTasks*/ true) != nullptr)
+                {
+                    stolen.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+
+    constexpr int kRejected = 2000;
+    for (int i = 0; i < kRejected; ++i)
+    {
+        FSmallRegistry::TLocalQueue Rejected;
+        Rejected.Init(Registry, ELocalQueueType::EForeground);
+    }
+
+    stop.store(true, std::memory_order_relaxed);
+    stealing.join();
+    EXPECT_EQ(stolen.load(), 0) << "nothing was ever enqueued, so nothing can be stolen";
 }

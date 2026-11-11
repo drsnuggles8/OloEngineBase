@@ -157,18 +157,33 @@ namespace OloEngine::LowLevelTasks
 
         static void ProcessPendingTlsValuesNoLock()
         {
+            // Take the deletes before the inserts. A thread that both started and
+            // exited while another thread held the mutex is in both lists, insert
+            // first, so taking the deletes first takes its insert too. Taken in the
+            // other order, a thread that queued both between the two calls was
+            // freed here while still in the insert list, and the next call linked
+            // freed memory into the registry.
+            FTlsValues* Deleted = nullptr;
+            s_PendingDeleteTlsValues.ConsumeAllLifo(
+                [&Deleted](FTlsValues* TlsValues)
+                {
+                    TlsValues->NextPendingDelete = Deleted;
+                    Deleted = TlsValues;
+                });
+
             s_PendingInsertTlsValues.ConsumeAllLifo(
                 [](FTlsValues* TlsValues)
                 {
                     TlsValues->LinkHead(s_ThreadTlsValues);
                 });
 
-            s_PendingDeleteTlsValues.ConsumeAllLifo(
-                [](FTlsValues* TlsValues)
-                {
-                    TlsValues->Unlink();
-                    delete TlsValues;
-                });
+            while (Deleted)
+            {
+                FTlsValues* const Next = Deleted->NextPendingDelete;
+                Deleted->Unlink();
+                delete Deleted;
+                Deleted = Next;
+            }
         }
     };
 
@@ -726,6 +741,13 @@ namespace OloEngine::LowLevelTasks
         StopWorkers(bDrainGlobalQueue);
         StartWorkers(NumForegroundWorkers, NumBackgroundWorkers, IsForkable, InWorkerPriority, InBackgroundPriority, InWorkerAffinity, InBackgroundAffinity);
         m_TemporaryShutdown.store(false, std::memory_order_release);
+
+        // A thread that launched while the flag was set queued its task and woke
+        // no one (LaunchInternal returns early). The new workers scan the queues
+        // once when they start; a task queued after that scan and before the
+        // store above would wait for some unrelated launch to wake a worker.
+        m_WaitingQueue[0].Notify();
+        m_WaitingQueue[1].Notify();
     }
 
     void FScheduler::LaunchInternal(FTask& Task, EQueuePreference QueuePreference, bool bWakeUpWorker)
@@ -858,8 +880,12 @@ namespace OloEngine::LowLevelTasks
 
     bool FSchedulerTls::IsWorkerThread() const
     {
-        const FTlsValues& LocalTlsValues = FSchedulerTls::GetTlsValuesRef();
-        return LocalTlsValues.WorkerType != FSchedulerTls::EWorkerType::None && LocalTlsValues.ActiveScheduler == this;
+        // The null-tolerant accessor: a task drained by ~FScheduler runs after the
+        // main thread's holder was destroyed, and asks this from ExecuteTask or
+        // its own body (IsInWorkerThread, ParallelFor). A thread with no values,
+        // gone or never created, is not a worker.
+        const FTlsValues* const LocalTlsValues = FSchedulerTls::TryGetTlsValues();
+        return LocalTlsValues && LocalTlsValues->WorkerType != FSchedulerTls::EWorkerType::None && LocalTlsValues->ActiveScheduler == this;
     }
 
     template<typename QueueType, FTask* (QueueType::*DequeueFunction)(bool), bool bIsStandbyWorker>

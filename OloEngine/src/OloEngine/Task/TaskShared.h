@@ -9,8 +9,7 @@
 #include "OloEngine/Memory/Platform.h"
 #include "OloEngine/Templates/UnrealTemplate.h"
 #include "OloEngine/Templates/Function.h"
-#include "OloEngine/Threading/Mutex.h"
-#include "OloEngine/Threading/UniqueLock.h"
+#include "OloEngine/Core/CriticalSection.h"
 #include "OloEngine/Debug/Instrumentor.h"
 
 #if TRACY_ENABLE
@@ -23,6 +22,14 @@ namespace OloEngine::LowLevelTasks
     //
     // This delegate is broadcasted when all worker threads are waiting and we've reached
     // the oversubscription limit. The receiver needs to be thread-safe.
+    //
+    // Guarded by an OS lock, not FMutex. Broadcast runs inside FOversubscriptionScope's
+    // constructor, which a blocking wait opens from inside the ParkingLot, after the
+    // thread's wait node has been queued (ParkingLot::Wait -> Event.Wait -> WaitSlow).
+    // A contended FMutex parks through the ParkingLot again, on the node that is still
+    // queued, and corrupts that queue. For the same reason a callback must not take a
+    // ParkingLot-based lock (FMutex, FRecursiveMutex, FSharedMutex) or wait on an
+    // FManualResetEvent.
     class FOversubscriptionLimitReached
     {
       public:
@@ -32,7 +39,7 @@ namespace OloEngine::LowLevelTasks
         // @param Callback The callback function
         void Add(FCallback Callback)
         {
-            TUniqueLock<FMutex> Lock(m_Mutex);
+            FScopeLock Lock(&m_CriticalSection);
             m_Callbacks.Add(MoveTemp(Callback));
         }
 
@@ -41,7 +48,7 @@ namespace OloEngine::LowLevelTasks
         // Thread-safe - can be called from any thread.
         void Broadcast()
         {
-            TUniqueLock<FMutex> Lock(m_Mutex);
+            FScopeLock Lock(&m_CriticalSection);
             for (const auto& Callback : m_Callbacks)
             {
                 if (Callback)
@@ -54,12 +61,12 @@ namespace OloEngine::LowLevelTasks
         // @brief Clear all registered callbacks
         void Clear()
         {
-            TUniqueLock<FMutex> Lock(m_Mutex);
+            FScopeLock Lock(&m_CriticalSection);
             m_Callbacks.Empty();
         }
 
       private:
-        FMutex m_Mutex;
+        FCriticalSection m_CriticalSection;
         TArray<FCallback> m_Callbacks;
     };
 
