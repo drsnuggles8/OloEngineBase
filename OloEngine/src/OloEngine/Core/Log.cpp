@@ -7,6 +7,7 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/ringbuffer_sink.h>
+#include <spdlog/sinks/dist_sink.h>
 
 #if OLO_ASSERT_MESSAGE_BOX
 #ifdef OLO_PLATFORM_WINDOWS
@@ -124,6 +125,8 @@ namespace OloEngine
         logSinks.emplace_back(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
         logSinks.emplace_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(m_ResolvedLogFileName, true));
         logSinks.emplace_back(m_RingbufferSink);
+        m_AttachedSinks = std::make_shared<spdlog::sinks::dist_sink_mt>();
+        logSinks.emplace_back(m_AttachedSinks);
 
         logSinks[0]->set_pattern("%^[%T] %n: %v%$");
         logSinks[1]->set_pattern("[%T] [%l] %n: %v");
@@ -337,5 +340,18 @@ namespace OloEngine
     {
         auto newMap = std::make_shared<TagMap>();
         m_Tags.store(newMap, std::memory_order_release);
+    }
+} // namespace OloEngine
+
+namespace OloEngine
+{
+    void Log::AttachSink(const spdlog::sink_ptr& sink)
+    {
+        std::static_pointer_cast<spdlog::sinks::dist_sink_mt>(m_AttachedSinks)->add_sink(sink);
+    }
+
+    void Log::DetachSink(const spdlog::sink_ptr& sink)
+    {
+        std::static_pointer_cast<spdlog::sinks::dist_sink_mt>(m_AttachedSinks)->remove_sink(sink);
     }
 } // namespace OloEngine

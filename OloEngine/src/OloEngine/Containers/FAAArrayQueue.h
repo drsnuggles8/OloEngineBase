@@ -283,6 +283,17 @@ namespace OloEngine
                     {
                         break; // No more nodes in the queue
                     }
+                    // Move a tail that still points at this node off it before the
+                    // head leaves it. A hazard pointer only protects a node that
+                    // cannot be reached any more once it is retired: an enqueuer
+                    // that reads m_Tail validates its hazard against m_Tail, and
+                    // with the tail left behind that check still passed for a node
+                    // already handed to Delete, whose scan had passed the
+                    // enqueuer's slot. The enqueuer then wrote into freed memory.
+                    if (m_Tail.load() == LocalHead)
+                    {
+                        CasTail(LocalHead, LocalNext);
+                    }
                     if (CasHead(LocalHead, LocalNext))
                     {
                         Hazard.Retire();

@@ -68,10 +68,11 @@ namespace OloEngine
                 PushMessage(formatted, level, source);
             });
 
-        // Add sink to core, client, and editor console loggers
-        Log::Get().GetCoreLogger()->sinks().push_back(m_Sink);
-        Log::Get().GetClientLogger()->sinks().push_back(m_Sink);
-        Log::Get().GetEditorConsoleLogger()->sinks().push_back(m_Sink);
+        // Core, client and editor console loggers all feed it. Attached through
+        // Log, not pushed onto each logger's sink list: worker, asset and MCP
+        // threads log while the panel is created and destroyed, and a logger
+        // walks that list without a lock.
+        Log::Get().AttachSink(m_Sink);
     }
 
     void ConsolePanel::RemoveSink()
@@ -81,15 +82,7 @@ namespace OloEngine
             return;
         }
 
-        auto removeSinkFrom = [this](const std::shared_ptr<spdlog::logger>& logger)
-        {
-            auto& sinks = logger->sinks();
-            std::erase(sinks, m_Sink);
-        };
-
-        removeSinkFrom(Log::Get().GetCoreLogger());
-        removeSinkFrom(Log::Get().GetClientLogger());
-        removeSinkFrom(Log::Get().GetEditorConsoleLogger());
+        Log::Get().DetachSink(m_Sink);
         m_Sink.reset();
     }
 

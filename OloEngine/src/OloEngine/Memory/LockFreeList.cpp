@@ -15,6 +15,7 @@
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Core/PlatformTLS.h"
 
+#include <cstdlib>
 #include <mutex>
 #include <random>
 #include <thread>
@@ -67,7 +68,10 @@ namespace OloEngine
 
     void LockFreeLinksExhausted(u32 TotalNum)
     {
+        // Stop here, as UE does. OLO_CORE_FATAL only logs, and the caller would go
+        // on to hand out an index past the last page of links.
         OLO_CORE_FATAL("LockFreeList: Consumed {0} lock-free links; there are no more.", TotalNum);
+        std::abort();
     }
 
     void* LockFreeAllocLinks(sizet AllocSize)

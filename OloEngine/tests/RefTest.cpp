@@ -39,6 +39,7 @@
 
 #include <array>
 #include <atomic>
+#include <cstddef>
 #include <thread>
 #include <vector>
 
@@ -198,4 +199,103 @@ TEST(RefTest, WeakRefLockDuringConcurrentReleaseNeverObservesDestroyedObject)
     locker.join();
 
     EXPECT_EQ(destructCount.load(), kRounds);
+}
+
+// =============================================================================
+// The live registry must name one object, not one address
+// =============================================================================
+
+namespace
+{
+    // Every instance lives in the same static storage, so a new one is always
+    // allocated at the address the last one had.
+    class ReusedAddressObject final : public RefCounted
+    {
+      public:
+        static void* operator new(std::size_t size)
+        {
+            EXPECT_LE(size, sizeof(s_Storage));
+            return s_Storage;
+        }
+        static void operator delete(void* /*storage*/) noexcept {}
+
+        int Value = 0;
+
+      private:
+        alignas(std::max_align_t) static inline unsigned char s_Storage[64];
+    };
+
+    struct OtherBase
+    {
+        virtual ~OtherBase() = default;
+        int Tag = 7;
+    };
+
+    // RefCounted is the second base, so it is not at the object's address.
+    class SecondBaseObject final : public OtherBase, public RefCounted
+    {
+      public:
+        static void* operator new(std::size_t size)
+        {
+            EXPECT_LE(size, sizeof(s_Storage));
+            return s_Storage;
+        }
+        static void operator delete(void* /*storage*/) noexcept {}
+
+      private:
+        alignas(std::max_align_t) static inline unsigned char s_Storage[64];
+    };
+} // namespace
+
+// A WeakRef that outlives its object must not resolve to a later object that
+// was allocated at the same address. The registry used to hold addresses only,
+// so Lock() returned the new object: Font::Create's cache, which keeps a
+// WeakRef per path, could hand back an unrelated object as a font.
+TEST(RefTest, WeakRefDoesNotResolveToALaterObjectAtTheSameAddress)
+{
+    WeakRef<ReusedAddressObject> weak;
+    const ReusedAddressObject* firstAddress = nullptr;
+    {
+        Ref<ReusedAddressObject> first = Ref<ReusedAddressObject>::Create();
+        first->Value = 1;
+        firstAddress = first.get();
+        weak = first;
+        EXPECT_TRUE(weak.IsValid());
+    }
+    EXPECT_FALSE(weak.IsValid());
+
+    Ref<ReusedAddressObject> second = Ref<ReusedAddressObject>::Create();
+    second->Value = 2;
+    ASSERT_EQ(second.get(), firstAddress) << "the test needs both objects at one address";
+
+    EXPECT_FALSE(weak.IsValid()) << "a WeakRef to the first object reports the second as its own";
+    EXPECT_FALSE(weak.Lock()) << "a WeakRef to the first object locked the second";
+    EXPECT_EQ(second->GetRefCount(), 1u) << "the stale WeakRef took a reference on the second object";
+
+    WeakRef<ReusedAddressObject> weakToSecond = second;
+    EXPECT_TRUE(weakToSecond.IsValid());
+    EXPECT_TRUE(weakToSecond.Lock());
+}
+
+// The registry inserted an object under its own address and erased it under its
+// RefCounted base's address. For a class whose RefCounted base is not first the
+// two differ, so the object was never erased and its address stayed live after
+// it died (every SoundGraph did this).
+TEST(RefTest, AnObjectWhoseRefCountedBaseIsNotFirstLeavesTheRegistryWhenItDies)
+{
+    SecondBaseObject* raw = nullptr;
+    WeakRef<SecondBaseObject> weak;
+    {
+        Ref<SecondBaseObject> strong = Ref<SecondBaseObject>::Create();
+        raw = strong.get();
+        ASSERT_NE(static_cast<const void*>(raw), static_cast<const void*>(static_cast<const RefCounted*>(raw)))
+            << "the test needs RefCounted away from the object's address";
+        weak = strong;
+        EXPECT_TRUE(weak.IsValid());
+        EXPECT_TRUE(WeakRef<SecondBaseObject>(raw).IsValid());
+    }
+    EXPECT_FALSE(weak.IsValid());
+    EXPECT_FALSE(weak.Lock());
+    // The storage is static, so asking about the dead object's address is safe.
+    EXPECT_FALSE(WeakRef<SecondBaseObject>(raw).IsValid()) << "a dead object's address is still registered as live";
 }
