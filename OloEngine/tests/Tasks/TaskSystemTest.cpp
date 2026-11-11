@@ -1619,11 +1619,41 @@ TEST_F(WorkerRestartTest, RestartWorkersAndExternalThreads)
         std::atomic<bool> Exit{ false };
         std::atomic<u32> TaskExecutions{ 0 };
         std::atomic<u32> CallbackExecutions{ 0 };
+        std::atomic<u32> TasksReleased{ 0 };
         FManualResetEvent Started;
         FManualResetEvent Done;
         FManualResetEvent CallbackFinished;
     };
     auto state = std::make_shared<SharedState>();
+
+    // Wait() retracts the task and runs it on the launching thread, but the
+    // task's entry stays in the scheduler's queue, and keeps the task object
+    // alive, until a worker dequeues it. The launcher makes such entries as
+    // fast as it can loop, and workers that are being restarted on a starved
+    // machine discard them more slowly. With nothing to hold the launcher back,
+    // 660,000 finished tasks were queued at once on four cores shared with five
+    // busy processes, and a CI runner that shares four cores between six test
+    // processes reached the 6 GB memory ceiling. The task's result is destroyed
+    // with the task object, so it counts the releases, and the launcher waits
+    // while too many of its tasks are still queued.
+    struct FCountsItsRelease
+    {
+        std::shared_ptr<SharedState> State;
+
+        explicit FCountsItsRelease(std::shared_ptr<SharedState> InState) : State(std::move(InState)) {}
+        FCountsItsRelease(FCountsItsRelease&&) noexcept = default;
+        FCountsItsRelease& operator=(FCountsItsRelease&&) noexcept = default;
+        FCountsItsRelease(const FCountsItsRelease&) = delete;
+        FCountsItsRelease& operator=(const FCountsItsRelease&) = delete;
+        ~FCountsItsRelease()
+        {
+            if (State)
+            {
+                State->TasksReleased.fetch_add(1, std::memory_order_relaxed);
+            }
+        }
+    };
+    static constexpr u32 MaxTasksStillQueued = 4096;
     struct ExitAndRestoreWorkers
     {
         std::shared_ptr<SharedState> State;
@@ -1639,9 +1669,18 @@ TEST_F(WorkerRestartTest, RestartWorkersAndExternalThreads)
                         {
                             while (!state->Exit.load(std::memory_order_relaxed))
                             {
-                                Launch("ExternalTask", []() {}).Wait();
-                                state->TaskExecutions.fetch_add(1, std::memory_order_relaxed);
+                                Launch("ExternalTask", [state]()
+                                       { return FCountsItsRelease(state); })
+                                    .Wait();
+                                const u32 launched = state->TaskExecutions.fetch_add(1, std::memory_order_relaxed) + 1;
                                 state->Started.Notify();
+
+                                while (launched - state->TasksReleased.load(std::memory_order_relaxed) > MaxTasksStillQueued &&
+                                       !state->Exit.load(std::memory_order_relaxed))
+                                {
+                                    // Sleep, not yield: the workers need the core to catch up.
+                                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                                }
                             }
                             state->Done.Notify(); }, [state]
                         {

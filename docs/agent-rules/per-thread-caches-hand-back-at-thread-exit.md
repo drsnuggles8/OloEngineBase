@@ -53,3 +53,9 @@ threads a private cache.
 10. **A test's own pool instance is never destroyed.** Destroying a
     `TLockFreeFixedSizeAllocator_TLSCache` empties its free list and leaves the listed bundles
     unreachable, which LeakSanitizer reports. Allocate the instance with `new` and keep it.
+11. **A thread that launches and waits in a loop holds itself back by what the scheduler has
+    released, not by what has run.** `Wait()` runs the task on the waiting thread, but the task's
+    queue entry keeps the task object alive until a worker dequeues it. When workers are stopped
+    or starved, the loop makes such entries faster than they are discarded. Count releases with
+    the task's result, which is destroyed with the task object, and sleep while too many are
+    outstanding. [Details](per-thread-caches-hand-back-at-thread-exit-details.md#pr-1679-the-growth-the-hand-backs-did-not-explain).

@@ -97,3 +97,38 @@ any Linux `build.ninja`, the three test files, a `main` that calls `RUN_ALL_TEST
 `Platform/Linux/LinuxPlatformMemory.cpp`. Link `gtest`, `spdlog` and `fmt` from a Linux
 `vcpkg_installed`. It builds in about five seconds. Run each suite in its own process, as ctest
 does: a later test in the same process can take back what an earlier one would have leaked.
+
+## PR 1679: the growth the hand-backs did not explain
+
+With all three hand-backs in, the same CI shard passed once and then stopped at the ceiling
+again: 6159 MB, 57.81 seconds into `WorkerRestartTest.RestartWorkersAndExternalThreads`. The
+stranded caches were real, but they were not what filled 6 GB on the runner.
+
+The test's second thread loops `Launch(...).Wait()`. `Wait()` retracts the task and runs it
+on that thread. The task's entry stays in the scheduler's overflow queue, and holds the
+scheduler's reference to the 256-byte task object, until a worker dequeues it and finds it
+already run. Nothing in the scheduler limits how many such entries exist. While the workers
+restart, the launching thread still queues (and wakes no one), and a restarted worker only
+gets to discard entries when the runner gives it a core.
+
+Measured on a Release build, on four cores shared with five busy-loop processes, which is how
+the four-vCPU runner shares its cores between six ctest processes:
+
+| | launched | most finished tasks queued at once | memory kept | peak over start | time |
+|---|---|---|---|---|---|
+| branch before this change | 218 million | 660,127 | +202 MB | +294 MB | 106 s |
+| the same, a second run | not counted | not counted | +273 MB | +431 MB | 368 s |
+| launcher holds back at 4096 outstanding, yielding | not counted | 4096 | +5 MB, then -1 MB | +5 MB | 164 s, 230 s |
+| launcher holds back at 4096 outstanding, sleeping 1 ms | not counted | 4096 | +5 MB, then 0 MB | +5 MB | 45 s, 44 s |
+
+660,127 queued tasks are 169 MB of task objects, which accounts for the growth. The runner's
+contention is harsher than five busy loops, and its 6 GB is 23 million of them.
+
+The fix is in the test, because the scheduler behaves as designed and as UE's does: the
+launcher counts its tasks' releases through the task result and sleeps while more than 4096
+are outstanding. Sleeping rather than yielding matters as much as the limit. A yielding
+launcher stays runnable and keeps taking the core the restart needs, and the run was four
+times slower.
+
+The binary that reproduces this has to be a Release one. In Debug the launcher loop is slow
+enough that the workers keep up, and the same starvation kept 79 MB.
