@@ -668,6 +668,15 @@ namespace OloEngine::ParkingLot
 
     namespace Private
     {
+        std::atomic<void (*)()> GBetweenClearAndNotifyForTest{ nullptr };
+
+        static void BetweenClearAndNotify()
+        {
+            if (void (*const Hook)() = GBetweenClearAndNotifyForTest.load(std::memory_order_acquire))
+            {
+                Hook();
+            }
+        }
 
         FWaitState Wait(
             const void* Address,
@@ -868,6 +877,7 @@ namespace OloEngine::ParkingLot
             {
                 WakeThread->WakeToken = WakeToken;
                 WakeThread->WaitAddress.store(nullptr, std::memory_order_relaxed);
+                BetweenClearAndNotify();
                 WakeThread->Event.Notify();
             }
         }
@@ -920,6 +930,7 @@ namespace OloEngine::ParkingLot
         for (const auto& WakeThread : WakeThreads)
         {
             WakeThread->WaitAddress.store(nullptr, std::memory_order_relaxed);
+            Private::BetweenClearAndNotify();
             WakeThread->Event.Notify();
         }
 

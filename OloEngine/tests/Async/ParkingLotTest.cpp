@@ -186,3 +186,77 @@ TEST_F(ParkingLotTest, WakeAll)
 
     EXPECT_EQ(WokenCount.load(), TaskCount);
 }
+
+// A waker clears the woken thread's wait address, then notifies its event. A
+// timed wait whose timeout fires between the two finds itself dequeued and must
+// take that notify before it returns. It used to return at once, and the notify
+// then arrived during the thread's next, untimed wait, which returned as woken
+// although nobody had woken it, with its node still queued. The test hook holds
+// the waker in that gap for longer than the timed wait's timeout.
+TEST_F(ParkingLotTest, ATimedWaitTimingOutWhileItsWakerIsMidWakeLeavesNoWakeBehind)
+{
+    static std::atomic<int> s_HeldWakes{ 0 };
+    s_HeldWakes.store(0, std::memory_order_relaxed); // static, so reset for --gtest_repeat
+    struct FHook
+    {
+        FHook()
+        {
+            ParkingLot::Private::GBetweenClearAndNotifyForTest.store(
+                []
+                {
+                    s_HeldWakes.fetch_add(1, std::memory_order_relaxed);
+                    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                },
+                std::memory_order_release);
+        }
+        ~FHook()
+        {
+            ParkingLot::Private::GBetweenClearAndNotifyForTest.store(nullptr, std::memory_order_release);
+        }
+    };
+
+    i32 First = 0;
+    i32 Second = 0;
+    std::atomic<bool> bParkingOnSecond{ false };
+    std::atomic<bool> bReturnedFromSecond{ false };
+    std::thread Waiter(
+        [&]
+        {
+            ParkingLot::WaitFor(&First, []
+                                { return true; }, [] {}, FMonotonicTimeSpan::FromMilliseconds(100.0));
+            bParkingOnSecond.store(true, std::memory_order_release);
+            ParkingLot::Wait(&Second, []
+                             { return true; }, [] {});
+            bReturnedFromSecond.store(true, std::memory_order_release);
+        });
+
+    // Wake the timed waiter as soon as it is queued; the hook then holds this
+    // thread for 300 ms between the clear and the notify, past the 100 ms timeout.
+    bool bWoke = false;
+    {
+        FHook Hook;
+        const auto Deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(80);
+        while (!bWoke && std::chrono::steady_clock::now() < Deadline)
+        {
+            bWoke = ParkingLot::WakeOne(&First).bDidWake;
+        }
+    }
+
+    while (!bParkingOnSecond.load(std::memory_order_acquire))
+    {
+        std::this_thread::yield();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    const bool bReturnedUnwoken = bReturnedFromSecond.load(std::memory_order_acquire);
+
+    while (!bReturnedFromSecond.load(std::memory_order_acquire))
+    {
+        ParkingLot::WakeOne(&Second);
+        std::this_thread::yield();
+    }
+    Waiter.join();
+
+    ASSERT_TRUE(bWoke) << "the waiter was not queued within 80 ms, so the gap was never tested";
+    EXPECT_EQ(s_HeldWakes.load(), 1);
+    EXPECT_FALSE(bReturnedUnwoken) << "the untimed wait returned although nobody woke it: the timed wait left its wake behind";
+}
