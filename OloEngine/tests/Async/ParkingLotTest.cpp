@@ -233,12 +233,10 @@ TEST_F(ParkingLotTest, ATimedWaitTimingOutWhileItsWakerIsMidWakeLeavesNoWakeBehi
             bTimedWaitReturnedBeforeTheNotify = !s_HookDone.load();
             // BeforeWait runs once this park's node is queued and its event reset.
             ParkingLot::Wait(&Second, []
-                             { return true; },
-                             [&]
+                             { return true; }, [&]
                              {
                                  bSecondParkBeganBeforeTheNotify = !s_HookDone.load();
-                                 bParkingOnSecond.store(true, std::memory_order_release);
-                             });
+                                 bParkingOnSecond.store(true, std::memory_order_release); });
             bReturnedFromSecond.store(true, std::memory_order_release);
         });
 
