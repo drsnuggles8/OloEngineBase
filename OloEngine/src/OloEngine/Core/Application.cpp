@@ -29,6 +29,7 @@
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Task/Scheduler.h"
 #include "OloEngine/Task/NamedThreads.h"
+#include "OloEngine/Task/GameThreadCall.h"
 #include "Platform/Steam/SteamManager.h"
 
 #include <string>
@@ -374,6 +375,14 @@ namespace OloEngine
         m_LayerStack.Clear();
         m_ImGuiLayer = nullptr;
         OLO_CORE_INFO("Application: layers detached");
+
+        // A layer's destructor may just have joined a thread whose last act was
+        // to post a release to the game thread (a cancelled asset-pack build
+        // handing over its temporary asset manager). Nothing drains the queue
+        // from here on, so run those releases now, while the project and the
+        // renderer they release into are alive. Left queued, the manager was
+        // released at static destruction, after the graphics context.
+        Tasks::RunPostedGameThreadWork();
 
         // Drop the active project + asset manager NOW, while the renderer is
         // still alive: their static Refs otherwise keep every loaded asset's

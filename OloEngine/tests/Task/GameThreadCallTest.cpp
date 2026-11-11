@@ -161,6 +161,33 @@ TEST_F(GameThreadCallTest, APostedReleaseRunsOnTheGameThreadAndTheWorkerKeepsNoR
     EXPECT_EQ(releasedOn, gameThread);
 }
 
+// At teardown the game thread stops draining its queue once the layers are
+// gone, but a release posted just before must still run while the renderer is
+// alive. RunPostedGameThreadWork runs the posted work and nothing else: an
+// ordinary queued task may use what was just destroyed.
+TEST_F(GameThreadCallTest, PostedWorkLeftQueuedRunsOnceWithoutDrainingTheQueue)
+{
+    std::atomic<int> released{ 0 };
+    std::atomic<int> ordinary{ 0 };
+    std::thread thread([&released]
+                       { OloEngine::Tasks::PostToGameThread([&released]
+                                                            { released.fetch_add(1, std::memory_order_relaxed); }); });
+    thread.join();
+    OloEngine::Tasks::EnqueueGameThreadTask([&ordinary]
+                                            { ordinary.fetch_add(1, std::memory_order_relaxed); });
+    ASSERT_EQ(released.load(), 0) << "the post ran on the worker";
+
+    EXPECT_EQ(OloEngine::Tasks::RunPostedGameThreadWork(), 1u);
+    EXPECT_EQ(released.load(), 1);
+    EXPECT_EQ(ordinary.load(), 0) << "an ordinary queued task ran during the teardown release";
+
+    // The copy still in the queue finds its work already done.
+    FNamedThreadManager::Get().GetQueue(ENamedThread::GameThread).ProcessAll(true);
+    EXPECT_EQ(released.load(), 1) << "the posted work ran twice";
+    EXPECT_EQ(ordinary.load(), 1);
+    EXPECT_EQ(OloEngine::Tasks::RunPostedGameThreadWork(), 0u);
+}
+
 TEST_F(GameThreadCallTest, TheWorksExceptionReachesTheCaller)
 {
     std::string caught;

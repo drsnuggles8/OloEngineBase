@@ -22,6 +22,8 @@
 
 #if OLO_ASYNC_ASSETS
 #include <atomic>
+#include <memory>
+#include <mutex>
 #include "OloEngine/Task/Task.h"
 #include "FileWatch.hpp"
 #endif
@@ -478,8 +480,36 @@ namespace OloEngine
         std::atomic<bool> m_FileWatcherTaskActive{ false };
         std::atomic<u32> m_FileWatcherGeneration{ 0 };
 
-        // Async reload tracking
-        std::atomic<u32> m_ActiveReloadTasks{ 0 };
+        // Held by every task this manager queues to the game thread; such a task
+        // runs only while the gate is open. The queue outlives the manager: Open
+        // Project replaces the manager and ~Application destroys it with tasks
+        // still queued, and a task that captured `this` alone then ran on a
+        // destroyed manager. Shutdown() closes the gate under its mutex, so it
+        // also waits out a task that is running on another thread. Recursive,
+        // because a task's own body may shut the manager down.
+        struct FGameThreadTaskGate
+        {
+            std::recursive_mutex Mutex;
+            bool bOpen = true;
+        };
+        std::shared_ptr<FGameThreadTaskGate> m_GameThreadTaskGate = std::make_shared<FGameThreadTaskGate>();
+
+        // Queue Body to the game thread, to run only if this manager has not
+        // been shut down by then. Body may capture `this`.
+        template<typename TaskBody>
+        void EnqueueOnGameThread(TaskBody&& Body, const char* DebugName)
+        {
+            Tasks::EnqueueGameThreadTask(
+                [gate = m_GameThreadTaskGate, body = std::forward<TaskBody>(Body)]() mutable
+                {
+                    const std::lock_guard<std::recursive_mutex> lock(gate->Mutex);
+                    if (gate->bOpen)
+                    {
+                        body();
+                    }
+                },
+                DebugName);
+        }
 
         // Coalesced registry persistence. Auto-import (and any other game-thread
         // path that wants the registry persisted) sets this instead of calling
