@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 
+from sccache_object_manifest import compare
+
 
 def counter(value):
     if type(value) is not int or not 0 <= value <= 2**64 - 1:
@@ -11,7 +13,18 @@ def counter(value):
     return value
 
 
-def assess(data, restored_key, build_outcome, minimum_requests=500, minimum_hit_rate=5.0):
+def assess(data, restored_key, build_outcome, prediction=None, minimum_requests=500,
+           minimum_hit_rate=5.0, minimum_predicted=100, minimum_reuse_percent=50.0,
+           minimum_manifest_coverage_percent=50.0):
+    """Classify a build's compiler reuse.
+
+    `prediction` is sccache_object_manifest.compare(producer, current): how many objects kept
+    exactly the inputs the restored snapshot was saved with. With it, hits are judged against
+    the objects the cache must serve, so a change that legitimately invalidates most of the
+    tree (a widely included header, a compile flag) is not a broken cache. Without it -- a
+    snapshot saved before the manifest existed, or one whose manifest was lost -- the
+    raw-rate floor applies and the report says so.
+    """
     result = {'restored_key': restored_key, 'build_outcome': build_outcome,
               'disposition': 'unavailable'}
     try:
@@ -38,29 +51,108 @@ def assess(data, restored_key, build_outcome, minimum_requests=500, minimum_hit_
                       reason=f'only {executed} cacheable requests; expected at least {minimum_requests}')
     elif not restored_key:
         result.update(disposition='cold', reason='no Actions cache snapshot was restored')
-    elif result['hit_rate_percent'] < minimum_hit_rate:
-        result.update(disposition='near-zero-warm',
-                      reason=f'warm restore returned less than {minimum_hit_rate:g}% hits')
+    elif prediction is None:
+        if result['hit_rate_percent'] < minimum_hit_rate:
+            result.update(disposition='near-zero-warm',
+                          reason=f'warm restore returned less than {minimum_hit_rate:g}% hits '
+                                 '(the snapshot carries no object manifest, so judged on the raw rate)')
+        else:
+            result.update(disposition='healthy-warm',
+                          reason='restored cache demonstrated compiler reuse '
+                                 '(the snapshot carries no object manifest)')
     else:
-        result.update(disposition='healthy-warm', reason='restored cache demonstrated compiler reuse')
+        predicted = prediction['predicted_reusable']
+        result['prediction'] = prediction
+        changed = (f"{prediction['changed_files']} input files changed since the producer, e.g. "
+                   f"{', '.join(prediction['changed_file_sample'][:3]) or 'none'}")
+        # A wide change still records every object, with new hashes. A manifest that
+        # covers few of the compiles is the manifest step failing (a ninja deps format
+        # or launcher command shape it no longer reads), and judging it would pass a
+        # broken cache as inputs-changed.
+        covered = predicted + prediction['predicted_changed']
+        if covered < result['executed'] * minimum_manifest_coverage_percent / 100.0:
+            result.update(disposition='unavailable',
+                          reason=f"this build's object manifest covers {covered} of {result['executed']} "
+                                 f'compiles (below {minimum_manifest_coverage_percent:g}%), so it cannot '
+                                 'say which objects the cache must serve')
+        elif predicted < minimum_predicted:
+            result.update(disposition='inputs-changed',
+                          reason=f'only {predicted} objects kept their inputs since the producer '
+                                 f'(fewer than {minimum_predicted}), so there is no reuse to measure; '
+                                 + changed)
+        else:
+            # sccache counts hits in aggregate, and any compile other than a predicted
+            # object may be one of them: one the manifest does not predict (unpredictable,
+            # or not recorded), or a changed object whose edit leaves sccache's key alone
+            # (it hashes the preprocessed source, so a header comment or an inactive #if
+            # branch does not count) or matches an entry older than the producer. So the
+            # predicted objects account for at least `hits - (executed - predicted)` and at
+            # most `min(hits, predicted)`. Pass on the lower bound, fail on the upper.
+            unattributed = max(0, result['executed'] - covered)
+            least = max(0, result['hits'] - unattributed - prediction['predicted_changed'])
+            most = min(result['hits'], predicted)
+            result.update(unattributed_compiles=unattributed,
+                          reuse_of_predicted_percent=100.0 * least / predicted)
+            if 100.0 * least / predicted >= minimum_reuse_percent:
+                result.update(disposition='healthy-warm',
+                              reason=f'at least {least} of {result["hits"]} hits served the {predicted} '
+                                     'objects whose inputs are unchanged since the producer')
+            elif 100.0 * most / predicted < minimum_reuse_percent:
+                result.update(disposition='reuse-shortfall',
+                              reason=f"{result['hits']} hits for {predicted} objects whose inputs are "
+                                     f'unchanged since the producer, below {minimum_reuse_percent:g}%: '
+                                     'the restored cache is not serving what it holds; ' + changed)
+            elif 100.0 * (result['hits'] - unattributed) / predicted >= minimum_reuse_percent:
+                # Only the changed objects stand in the way of a verdict. A healthy cache
+                # hits the unchanged objects and misses the changed ones, so once over a
+                # third of the covered objects changed it lands here; failing would turn
+                # every such PR red, as #1678's raw floor did. Reuse is unmeasurable, as
+                # with fewer than `minimum_predicted` unchanged objects.
+                result.update(disposition='inputs-changed',
+                              reason=f"{prediction['predicted_changed']} objects with changed inputs could "
+                                     f"account for enough of the {result['hits']} hits that the reuse of the "
+                                     f'{predicted} unchanged objects cannot be measured; ' + changed)
+            else:
+                result.update(disposition='unavailable',
+                              reason=f"{result['hits']} hits, but {unattributed} compiles the manifest does "
+                                     'not predict could account for enough of them that it cannot tell '
+                                     f'whether the {predicted} predicted objects were served')
     return result
+
+
+def load_prediction(restored_path, current_path):
+    """None when the snapshot has no manifest (saved before manifests existed, or by a probe).
+
+    A restored manifest without a current one is not that case: this build failed to record
+    its own, and judging it on the raw rate would hide the broken step, so it raises.
+    """
+    if not restored_path or not Path(restored_path).is_file():
+        return None
+    if not current_path or not Path(current_path).is_file():
+        raise ValueError('the snapshot carries an object manifest but this build recorded none')
+    restored = json.loads(Path(restored_path).read_text(encoding='utf-8'))
+    current = json.loads(Path(current_path).read_text(encoding='utf-8'))
+    return compare(restored, current)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--stats', required=True)
     parser.add_argument('--output', required=True)
+    parser.add_argument('--restored-manifest', help='object manifest the restored snapshot was saved with')
+    parser.add_argument('--current-manifest', help="this build's object manifest")
     args = parser.parse_args()
     restored_key = os.environ.get('OLO_CACHE_RESTORED_KEY', '')
     build_outcome = os.environ.get('OLO_CACHE_BUILD_OUTCOME', '')
     try:
         data = json.loads(Path(args.stats).read_text(encoding='utf-8-sig'))
-        result = assess(data, restored_key, build_outcome)
-    except (OSError, ValueError) as error:
-        result = {'disposition': 'unavailable', 'reason': f'statistics unavailable: {error}',
+        prediction = load_prediction(args.restored_manifest, args.current_manifest) if restored_key else None
+        result = assess(data, restored_key, build_outcome, prediction)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        result = {'disposition': 'unavailable', 'reason': f'statistics or manifests unavailable: {error}',
                   'restored_key': restored_key, 'build_outcome': build_outcome}
     Path(args.output).write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
-    healthy = result['disposition'] in ('cold', 'healthy-warm')
+    healthy = result['disposition'] in ('cold', 'inputs-changed', 'healthy-warm')
     counts = (f"{result['hits']}/{result['executed']} hits ({result['hit_rate_percent']:.2f}%)"
               if 'hits' in result else 'counts unavailable')
     message = f"sccache {result['disposition']}: {counts}; {result['reason']}"

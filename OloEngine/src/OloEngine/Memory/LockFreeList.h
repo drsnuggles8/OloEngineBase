@@ -386,6 +386,13 @@ namespace OloEngine
         static u32 AllocLockFreeLink();
         static void FreeLockFreeLink(u32 Item);
 
+        // Call before constructing a thread_local whose destructor pushes to or
+        // pops from a lock-free list. thread_local destructors run in reverse
+        // order of construction, so the calling thread's link cache then outlives
+        // that destructor. Without the call the destructor still works, but takes
+        // every link under a mutex (see LockFreeLinkAllocator_TLSCache).
+        static void RegisterThreadExitHook();
+
         static TAllocator s_LinkAllocator;
     };
 

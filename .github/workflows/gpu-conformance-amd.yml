@@ -718,6 +718,10 @@ jobs:
             *) export AMD_DEBUG="$OLO_AMD_DEBUG" MESA_SHADER_CACHE_DISABLE=true
                echo "AMD_DEBUG=$AMD_DEBUG (shader cache disabled)" ;;
           esac
+          # --olo-rss-report: one process runs the whole suite, so the 6 GiB ceiling
+          # is crossed on what earlier cases kept, not by the case that trips it
+          # (2026-11-04: 6148 MB in AcceptanceSceneTest, 6466 cases in). Each
+          # case's start/end/peak resident set lands in gpu_amd_rss.tsv.
           set +e
           timeout --signal=TERM --kill-after=60s "${OLO_SUITE_MINUTES}m" \
             ../build/OloEngine/tests/OloEngine-Tests \
@@ -727,6 +731,7 @@ jobs:
             ${{ inputs.golden_rebase && '--olo-golden-rebase' || '' }} \
             ${{ inputs.perf_rebase && '--olo-perf-rebase' || '' }} \
             --gtest_catch_exceptions=1 \
+            --olo-rss-report=../test_results/gpu_amd_rss.tsv \
             --gtest_filter="$FILTER" \
             --gtest_output=xml:../test_results/gpu_amd.xml 2>&1 | tee ../test_results/gpu_amd.log
           rc=${PIPESTATUS[0]}
@@ -859,6 +864,7 @@ jobs:
           path: |
             test_results/gpu_amd.xml
             test_results/gpu_amd.log
+            test_results/gpu_amd_rss.tsv
             OloEngine/tests/Rendering/PropertyTests/perf_history/*.tsv
           if-no-files-found: warn
 

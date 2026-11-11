@@ -23,6 +23,9 @@
 
 #include "OloEngine/Core/Base.h"
 
+#include <string>
+#include <vector>
+
 namespace OloEngine::Tests
 {
     // Exit code of a process the watchdog stopped. Distinct from gtest's 1 and
@@ -44,7 +47,33 @@ namespace OloEngine::Tests
     // can never outlive the statics it reads. Safe to call when nothing was started.
     void StopMemoryCeilingWatchdog();
 
-    // Records the running test's name so the watchdog's message can carry it.
-    // Appends a gtest listener; call after InitGoogleTest and before RUN_ALL_TESTS.
+    // Records the running test's name so the watchdog's message can carry it, and
+    // each finished test's resident set at its start and end and its peak during
+    // it. A whole-suite process (the AMD nightly runs ~11k cases in one) crosses
+    // the ceiling with whatever earlier tests left behind, so the message also
+    // lists the finished tests that retained the most. Appends a gtest listener;
+    // call after InitGoogleTest and before RUN_ALL_TESTS.
     void RegisterMemoryCeilingListener();
+
+    // --olo-rss-report=<path>: also write one tab-separated row per finished test
+    // (test, start_mb, end_mb, peak_mb, retained_mb), flushed per row so a process
+    // the watchdog stops keeps every row before it. Starts the polling thread even
+    // with no ceiling, for the peaks. Call before StartMemoryCeilingWatchdog.
+    // Returns false, having said why on stderr, when the file cannot be opened.
+    // Meant for a single-process run: ctest's one process per case would have
+    // every process rewrite the same file.
+    [[nodiscard]] bool OpenResidentSetReport(const std::string& path);
+
+    // One finished test's resident-set figures, in bytes.
+    struct TestResidency
+    {
+        std::string Name;
+        u64 StartBytes = 0;
+        u64 EndBytes = 0;
+        u64 PeakBytes = 0;
+    };
+
+    // The `count` finished tests with the largest retained growth (end minus
+    // start), largest first; tests that released memory are never listed.
+    [[nodiscard]] std::vector<TestResidency> LargestRetainers(const std::vector<TestResidency>& history, sizet count);
 } // namespace OloEngine::Tests

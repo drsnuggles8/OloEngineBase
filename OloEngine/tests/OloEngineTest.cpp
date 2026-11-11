@@ -17,6 +17,7 @@
 #endif
 #include "Rendering/StateMachine/StateMachineCoverage.h"
 #include "MemoryCeiling.h"
+#include "ProjectIsolation.h"
 #include "Rendering/PropertyTests/ScopedWarningCapture.h"
 #include "TestOptions.h"
 #include "TestTempDir.h"
@@ -202,6 +203,14 @@ int main(int argc, char** argv)
     // kernel with no test name and, on the self-hosted box, sometimes with the
     // runner. Past the ceiling the process stops itself with exit code 77 and
     // says which test was running.
+    // A death-test child carries the parent's --olo-rss-report: opening it would
+    // truncate the parent's file mid-run (the first 1715 rows of a local sweep
+    // became NUL bytes that way), so only the parent writes the report.
+    if (!OloEngine::Tests::Options().IsDeathTestChild &&
+        !OloEngine::Tests::OpenResidentSetReport(OloEngine::Tests::Options().RssReportPath))
+    {
+        return 2;
+    }
     OloEngine::Tests::StartMemoryCeilingWatchdog(OloEngine::Tests::Options().RssCeilingMb,
                                                  OloEngine::Tests::Options().RssCeilingHeadroomMb);
 
@@ -259,6 +268,13 @@ int main(int argc, char** argv)
     // same process, same path) would otherwise silently take away. See
     // docs/agent-rules/shared-temp-dir-test-isolation.md.
     OloEngine::Tests::RegisterCleanSlateListener();
+    // Give every test and suite back the active project and asset manager it
+    // found (ProjectIsolation.h): a test that left its project active kept every
+    // asset it loaded resident for the rest of the run. Registered last because
+    // gtest calls OnTestEnd in reverse order: the release runs before the GL
+    // error check above can blame a later test for its teardown, and before the
+    // memory listener records the test's end.
+    OloEngine::Tests::ProjectIsolation::RegisterListener();
     // Say, at the END of the run and below gtest's own summary, whether this
     // run exercised the Vulkan backend or only skipped it (issue #1300).
     // The banner lands BELOW gtest's own summary because gtest prints that

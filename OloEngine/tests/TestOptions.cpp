@@ -58,6 +58,8 @@ namespace OloEngine::Tests
                 "  --olo-rss-ceiling-headroom-mb=<n> from the first test on, lower that ceiling to <n> MB\n"
                 "                                 above this process's own start-up (0, the default,\n"
                 "                                 keeps the absolute ceiling throughout)\n"
+                "  --olo-rss-report=<path>        write each test's start, end and peak resident set (MB)\n"
+                "                                 as tab-separated rows; for single-process runs\n"
                 "  --olo-video=<path>             an FFmpeg-decodable file for the decode tests\n"
                 "  --olo-pathtracer-evidence      write the path-tracer reference images\n"
                 "  --olo-mcp-attach-seconds=<n>   MCP discovery-file wait for the attach test\n"
@@ -142,6 +144,13 @@ namespace OloEngine::Tests
             // flags, the binary name, and any positional argument.
             if (i == 0 || !arg.starts_with("--olo-"))
             {
+                // gtest re-launches this binary with the parent's whole command
+                // line for a death test on Windows (and for threadsafe-style ones
+                // everywhere), so the child sees the parent's --olo-* flags too.
+                if (arg.starts_with("--gtest_internal_run_death_test"))
+                {
+                    s_Options.IsDeathTestChild = true;
+                }
                 kept.push_back(argv[i]);
                 continue;
             }
@@ -292,6 +301,14 @@ namespace OloEngine::Tests
                 }
                 s_Options.RssCeilingHeadroomMb = parsed;
             }
+            else if (const auto v = ValueOf(arg, "--olo-rss-report"))
+            {
+                if (v->empty())
+                {
+                    Fail("--olo-rss-report needs a file path", arg);
+                }
+                s_Options.RssReportPath = std::string(*v);
+            }
             else if (const auto v = ValueOf(arg, "--olo-cross-path-export"))
             {
                 s_Options.CrossPathExportDir = *v;
@@ -356,6 +373,7 @@ namespace OloEngine::Tests
                      arg == "--olo-gl-backend" || arg == "--olo-rhi" || arg == "--olo-video" ||
                      arg == "--olo-mcp-attach-seconds" || arg == "--olo-bake-shader-pack" ||
                      arg == "--olo-rss-ceiling-mb" || arg == "--olo-rss-ceiling-headroom-mb" ||
+                     arg == "--olo-rss-report" ||
                      arg == "--olo-capture-manifest" || arg == "--olo-capture-out" ||
                      arg == "--olo-require-renderer-preset" || arg == "--olo-state-machine-replay" ||
                      arg == "--olo-state-machine-seeds" || arg == "--olo-state-machine-length" ||

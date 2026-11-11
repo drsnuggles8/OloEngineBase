@@ -47,6 +47,8 @@ add_executable(OloEngine-Tests
 		TestXmlOutputPathTest.cpp
 		MemoryCeiling.cpp
 		MemoryCeilingTest.cpp
+		ProjectIsolation.cpp
+		ProjectIsolationTest.cpp
 		# Per-process, per-case scratch paths. Every test that writes a file goes
 		# through this instead of std::filesystem::temp_directory_path() — see
 		# docs/agent-rules/shared-temp-dir-test-isolation.md (issue #789).
@@ -225,11 +227,14 @@ add_executable(OloEngine-Tests
 		Tasks/TaskSystemTest.cpp
 		HAL/ThreadManagerTest.cpp
 		Containers/ConcurrentQueuesTest.cpp
+		Containers/HazardPointerTest.cpp
 		Containers/LinkedListTest.cpp
 		Containers/OwnedContainerInvariantsTest.cpp
 		Containers/StringTest.cpp
 		Memory/MemoryViewTest.cpp
 		Memory/LockFreeAllocatorConcurrencyTest.cpp
+		Memory/LockFreeFixedSizeAllocatorThreadExitTest.cpp
+		Memory/LockFreeLinkThreadExitTest.cpp
 		Templates/FunctionWithContextTest.cpp
 		Templates/TypeTraitsTest.cpp
 
