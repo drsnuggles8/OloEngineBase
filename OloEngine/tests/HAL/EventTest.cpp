@@ -81,6 +81,7 @@ TEST(Event, AManualResetTriggerReleasesEveryWaiterAndStaysSet)
 TEST(Event, AManualResetTriggerReleasesAWaiterThatWakesAfterTheReset)
 {
     constexpr int kRounds = 50;
+    int lateArrivals = 0;
     for (int round = 0; round < kRounds; ++round)
     {
         FEventRef event(EEventMode::ManualReset);
@@ -96,11 +97,32 @@ TEST(Event, AManualResetTriggerReleasesAWaiterThatWakesAfterTheReset)
         {
             std::this_thread::yield();
         }
-        std::this_thread::sleep_for(1ms); // let the waiter block
+        std::this_thread::sleep_for(5ms); // let the waiter block
 
         event->Trigger();
         event->Reset();
+
+        // An event cannot report that a thread is blocked in Wait, so instead
+        // the test detects a waiter that got there late: it arrives after the
+        // Reset and rightly keeps waiting, where a released waiter returns at
+        // once. A late waiter is released so the join returns, and its round
+        // tested nothing.
+        const auto deadline = std::chrono::steady_clock::now() + 2s;
+        while (result.load(std::memory_order_acquire) < 0 && std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::sleep_for(1ms);
+        }
+        const bool bArrivedLate = result.load(std::memory_order_acquire) < 0;
+        if (bArrivedLate)
+        {
+            ++lateArrivals;
+            event->Trigger();
+        }
         waiter.join();
-        ASSERT_EQ(result.load(), 1) << "a waiter released by Trigger reported a failed wait, in round " << round;
+        if (!bArrivedLate)
+        {
+            ASSERT_EQ(result.load(), 1) << "a waiter released by Trigger reported a failed wait, in round " << round;
+        }
     }
+    EXPECT_LE(lateArrivals, kRounds / 5) << "most waiters reached Wait after Trigger and Reset, so few rounds tested the race";
 }

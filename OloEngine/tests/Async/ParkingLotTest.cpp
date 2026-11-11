@@ -196,7 +196,10 @@ TEST_F(ParkingLotTest, WakeAll)
 TEST_F(ParkingLotTest, ATimedWaitTimingOutWhileItsWakerIsMidWakeLeavesNoWakeBehind)
 {
     static std::atomic<int> s_HeldWakes{ 0 };
-    s_HeldWakes.store(0, std::memory_order_relaxed); // static, so reset for --gtest_repeat
+    // Set when the hook lets the waker go on to its notify.
+    static std::atomic<bool> s_HookDone{ false };
+    s_HeldWakes.store(0, std::memory_order_relaxed); // statics, so reset for --gtest_repeat
+    s_HookDone.store(false);
     struct FHook
     {
         FHook()
@@ -206,6 +209,7 @@ TEST_F(ParkingLotTest, ATimedWaitTimingOutWhileItsWakerIsMidWakeLeavesNoWakeBehi
                 {
                     s_HeldWakes.fetch_add(1, std::memory_order_relaxed);
                     std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                    s_HookDone.store(true);
                 },
                 std::memory_order_release);
         }
@@ -219,14 +223,22 @@ TEST_F(ParkingLotTest, ATimedWaitTimingOutWhileItsWakerIsMidWakeLeavesNoWakeBehi
     i32 Second = 0;
     std::atomic<bool> bParkingOnSecond{ false };
     std::atomic<bool> bReturnedFromSecond{ false };
+    bool bTimedWaitReturnedBeforeTheNotify = false;
+    bool bSecondParkBeganBeforeTheNotify = false;
     std::thread Waiter(
         [&]
         {
             ParkingLot::WaitFor(&First, []
                                 { return true; }, [] {}, FMonotonicTimeSpan::FromMilliseconds(100.0));
-            bParkingOnSecond.store(true, std::memory_order_release);
+            bTimedWaitReturnedBeforeTheNotify = !s_HookDone.load();
+            // BeforeWait runs once this park's node is queued and its event reset.
             ParkingLot::Wait(&Second, []
-                             { return true; }, [] {});
+                             { return true; },
+                             [&]
+                             {
+                                 bSecondParkBeganBeforeTheNotify = !s_HookDone.load();
+                                 bParkingOnSecond.store(true, std::memory_order_release);
+                             });
             bReturnedFromSecond.store(true, std::memory_order_release);
         });
 
@@ -258,5 +270,9 @@ TEST_F(ParkingLotTest, ATimedWaitTimingOutWhileItsWakerIsMidWakeLeavesNoWakeBehi
 
     ASSERT_TRUE(bWoke) << "the waiter was not queued within 80 ms, so the gap was never tested";
     EXPECT_EQ(s_HeldWakes.load(), 1);
+    // A timed wait that returns before the notify leaves it pending; the second
+    // park only shows that if it reset its event before the notify arrived.
+    ASSERT_FALSE(bTimedWaitReturnedBeforeTheNotify && !bSecondParkBeganBeforeTheNotify)
+        << "the waiter was descheduled between its timeout and its second park until after the held notify, so nothing was tested";
     EXPECT_FALSE(bReturnedUnwoken) << "the untimed wait returned although nobody woke it: the timed wait left its wake behind";
 }

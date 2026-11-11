@@ -119,13 +119,28 @@ TEST(LogAttachedSink, DetachWaitsForALogCallThatIsInsideTheSink)
 
     std::thread logging([]
                         { Log::Get().GetCoreLogger()->info("{} held inside the sink", kMarker); });
-    while (!inside.load(std::memory_order_acquire))
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (!inside.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < deadline)
+    {
+        std::this_thread::sleep_for(1ms);
+    }
+    if (!inside.load(std::memory_order_acquire))
+    {
+        letGo.store(true, std::memory_order_release);
+        logging.join();
+        Log::Get().DetachSink(sink);
+        FAIL() << "the attached sink never received the message";
+    }
+
+    std::atomic<bool> detaching{ false };
+    std::future<void> detached = std::async(std::launch::async, [&sink, &detaching]
+                                            {
+                                                detaching.store(true, std::memory_order_release);
+                                                Log::Get().DetachSink(sink); });
+    while (!detaching.load(std::memory_order_acquire))
     {
         std::this_thread::yield();
     }
-
-    std::future<void> detached = std::async(std::launch::async, [&sink]
-                                            { Log::Get().DetachSink(sink); });
     EXPECT_EQ(detached.wait_for(200ms), std::future_status::timeout) << "DetachSink returned while a log call was inside the sink";
 
     letGo.store(true, std::memory_order_release);
