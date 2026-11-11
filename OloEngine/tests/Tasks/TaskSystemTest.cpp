@@ -1785,21 +1785,29 @@ TEST_F(WorkerRestartTest, ReachingTheOversubscriptionLimitWhileParkedDoesNotPark
         // Give the task time to block, which is what counts towards the limit.
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
-    ASSERT_GT(state->Broadcasts.load(), 0) << "blocking " << launched << " workers never reached the oversubscription limit";
 
-    // The first broadcast is asleep under the lock. Wake the first task: it blocks
-    // again at once, reaches the limit again and has to wait for that lock.
-    state->Release[0].Trigger();
-    while (!state->FirstBroadcastDone.load(std::memory_order_acquire))
+    // Every blocked task is released before the test ends, on every path:
+    // RestoreWorkers stops the workers, which joins them.
+    const auto releaseAll = [&state]
     {
-        std::this_thread::yield();
-    }
-
-    for (i32 index = 1; index < MaxTasks; ++index)
+        for (i32 index = 0; index < MaxTasks; ++index)
+        {
+            state->Release[static_cast<sizet>(index)].Trigger();
+        }
+        state->SecondRelease.Trigger();
+    };
+    const bool bReachedTheLimit = state->Broadcasts.load() > 0;
+    if (bReachedTheLimit)
     {
-        state->Release[static_cast<sizet>(index)].Trigger();
+        // The first broadcast is asleep under the lock. Wake the first task: it
+        // blocks again at once, reaches the limit again and has to wait for that lock.
+        state->Release[0].Trigger();
+        while (!state->FirstBroadcastDone.load(std::memory_order_acquire))
+        {
+            std::this_thread::yield();
+        }
     }
-    state->SecondRelease.Trigger();
+    releaseAll();
 
     const auto finishDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
     while (state->Finished.load(std::memory_order_relaxed) < launched && std::chrono::steady_clock::now() < finishDeadline)
@@ -1807,6 +1815,7 @@ TEST_F(WorkerRestartTest, ReachingTheOversubscriptionLimitWhileParkedDoesNotPark
         std::this_thread::yield();
     }
     EXPECT_EQ(state->Finished.load(), launched) << "a blocked task never woke";
+    ASSERT_TRUE(bReachedTheLimit) << "blocking " << launched << " workers never reached the oversubscription limit";
     EXPECT_TRUE(state->SecondWaitBeganDuringFirstBroadcast.load())
         << "the second limit was not reached while the first broadcast held the lock, so nothing was tested";
 }

@@ -415,7 +415,8 @@ namespace OloEngine
         WeakRef<T2> As() const
         {
             // Through a strong reference: dynamic_cast on a dead object is undefined.
-            const Ref<T> strong = Lock();
+            // Not const: a const Ref's get() returns const T*.
+            Ref<T> strong = Lock();
             return strong ? WeakRef<T2>(dynamic_cast<T2*>(strong.get())) : WeakRef<T2>();
         }
 

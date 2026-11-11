@@ -73,3 +73,34 @@ TEST(Event, AManualResetTriggerReleasesEveryWaiterAndStaysSet)
     event->Reset();
     EXPECT_FALSE(event->Wait(0));
 }
+
+// A manual-reset Trigger releases every thread waiting at that moment, even
+// when Reset runs before the thread gets to run again. On Linux the waiter woke,
+// found the flag already cleared, and returned false from a wait with no
+// timeout; a Windows kernel event satisfies the wait at Trigger.
+TEST(Event, AManualResetTriggerReleasesAWaiterThatWakesAfterTheReset)
+{
+    constexpr int kRounds = 50;
+    for (int round = 0; round < kRounds; ++round)
+    {
+        FEventRef event(EEventMode::ManualReset);
+        std::atomic<bool> waiting{ false };
+        std::atomic<int> result{ -1 };
+        std::thread waiter(
+            [&event, &waiting, &result]
+            {
+                waiting.store(true, std::memory_order_release);
+                result.store(event->Wait() ? 1 : 0, std::memory_order_release);
+            });
+        while (!waiting.load(std::memory_order_acquire))
+        {
+            std::this_thread::yield();
+        }
+        std::this_thread::sleep_for(1ms); // let the waiter block
+
+        event->Trigger();
+        event->Reset();
+        waiter.join();
+        ASSERT_EQ(result.load(), 1) << "a waiter released by Trigger reported a failed wait, in round " << round;
+    }
+}

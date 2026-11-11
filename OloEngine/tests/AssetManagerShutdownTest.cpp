@@ -19,6 +19,7 @@
 
 using namespace OloEngine; // NOLINT(google-build-using-namespace)
 
+#if OLO_ASYNC_ASSETS
 namespace
 {
     // Counts the reloads the manager is asked for instead of doing them.
@@ -40,6 +41,7 @@ namespace
         Tasks::FNamedThreadManager::Get().GetQueue(Tasks::ENamedThread::GameThread).ProcessAll(true);
     }
 } // namespace
+#endif // OLO_ASYNC_ASSETS
 
 TEST(AssetManagerShutdown, ExplicitRuntimeShutdownReleasesThePlaceholderSetOnce)
 {
@@ -66,7 +68,9 @@ TEST(AssetManagerShutdown, ExplicitEditorShutdownReleasesThePlaceholderSetOnce)
         << "a manager that is still alive lost the placeholder set";
 }
 
-// ReloadDataAsync queues the reload to the game thread. The queue outlives the
+#if OLO_ASYNC_ASSETS
+// ReloadDataAsync queues the reload to the game thread (with OLO_ASYNC_ASSETS
+// off it reloads at once, and these tests have nothing to check). The queue outlives the
 // manager (Open Project replaces it, ~Application destroys it), so what is
 // still queued when the manager shuts down must neither be waited for nor run.
 
@@ -104,3 +108,4 @@ TEST(AssetManagerShutdown, AQueuedReloadDoesNotTouchADestroyedManager)
     PumpGameThreadQueue();
     SUCCEED();
 }
+#endif // OLO_ASYNC_ASSETS
