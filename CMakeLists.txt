@@ -95,21 +95,26 @@ endif()
 # the AMD box that meant FMA-fused meshoptimizer and a Samoyed whose triangle order no
 # other machine produced. Refuse it before project() runs the manifest install. Checked
 # only when the vcpkg toolchain is in use; without it the fatal error below fires instead.
-# Before project() only the CMAKE_HOST_* platform variables exist; WIN32 is not set yet.
+# Before project() WIN32 is not set yet and neither is CMAKE_HOST_SYSTEM_PROCESSOR (it
+# comes from project()'s system detection); CMAKE_HOST_SYSTEM_NAME and CMAKE_HOST_WIN32
+# are, and the architecture is asked of the host directly.
 if(CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg\\.cmake$")
     set(_olo_triplet "${VCPKG_TARGET_TRIPLET}")
     if(_olo_triplet STREQUAL "")
         # What vcpkg builds when no triplet is named: VCPKG_DEFAULT_TRIPLET, else the
         # host's. Of the host defaults only x64 Linux is one this repo overrides.
+        cmake_host_system_information(RESULT _olo_host_arch QUERY OS_PLATFORM)
         if(NOT "$ENV{VCPKG_DEFAULT_TRIPLET}" STREQUAL "")
             set(_olo_triplet "$ENV{VCPKG_DEFAULT_TRIPLET}")
-        elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_HOST_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64)$")
+        elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND _olo_host_arch MATCHES "^(x86_64|AMD64|amd64)$")
             set(_olo_triplet "x64-linux")
         endif()
+        unset(_olo_host_arch)
     endif()
     set(_olo_overlay_dir "${CMAKE_SOURCE_DIR}/cmake/triplets")
     if(NOT _olo_triplet STREQUAL "" AND EXISTS "${_olo_overlay_dir}/${_olo_triplet}.cmake")
-        # vcpkg reads overlay triplets from the CMake variable and from the environment.
+        # vcpkg reads overlay triplets from the CMake variable, then the environment, and
+        # takes the triplet file from the FIRST directory in that order that has one.
         set(_olo_overlay_list ${VCPKG_OVERLAY_TRIPLETS})
         if(NOT "$ENV{VCPKG_OVERLAY_TRIPLETS}" STREQUAL "")
             set(_olo_env_overlays "$ENV{VCPKG_OVERLAY_TRIPLETS}")
@@ -123,21 +128,33 @@ if(CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg\\.cmake$")
             string(TOLOWER "${_olo_overlay_real}" _olo_overlay_real)
         endif()
         set(_olo_overlay_passed FALSE)
+        set(_olo_selected_dir "")
         foreach(_olo_dir IN LISTS _olo_overlay_list)
             file(REAL_PATH "${_olo_dir}" _olo_dir_real BASE_DIRECTORY "${CMAKE_SOURCE_DIR}")
+            if(NOT EXISTS "${_olo_dir_real}/${_olo_triplet}.cmake")
+                continue()
+            endif()
+            # The first directory holding the triplet is the one vcpkg builds with.
+            set(_olo_selected_dir "${_olo_dir_real}")
             if(CMAKE_HOST_WIN32)
                 string(TOLOWER "${_olo_dir_real}" _olo_dir_real)
             endif()
             if(_olo_dir_real STREQUAL _olo_overlay_real)
                 set(_olo_overlay_passed TRUE)
             endif()
+            break()
         endforeach()
         if(NOT _olo_overlay_passed)
+            if(_olo_selected_dir STREQUAL "")
+                set(_olo_overlay_verdict "do not include it, so vcpkg would build its stock triplet of the same name instead")
+            else()
+                set(_olo_overlay_verdict "list '${_olo_selected_dir}' first, so vcpkg would build that ${_olo_triplet}.cmake instead")
+            endif()
             message(FATAL_ERROR
                 "The vcpkg triplet is ${_olo_triplet}, which this repo overrides in "
                 "cmake/triplets/${_olo_triplet}.cmake, but the overlay triplet directories "
                 "('${_olo_overlay_list}', from VCPKG_OVERLAY_TRIPLETS and its environment variable) "
-                "do not include it, so vcpkg would build its stock triplet of the same name instead.\n"
+                "${_olo_overlay_verdict}.\n"
                 "Configure through a preset (`cmake --preset dev-cached` / `msvc` / `linux-gcc`), "
                 "or pass -DVCPKG_OVERLAY_TRIPLETS=<repo>/cmake/triplets. "
                 "See docs/agent-rules/vcpkg-dependency-management.md.")
@@ -146,6 +163,8 @@ if(CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg\\.cmake$")
         unset(_olo_env_overlays)
         unset(_olo_overlay_real)
         unset(_olo_overlay_passed)
+        unset(_olo_selected_dir)
+        unset(_olo_overlay_verdict)
         unset(_olo_dir_real)
     endif()
     unset(_olo_triplet)

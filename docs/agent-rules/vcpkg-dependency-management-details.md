@@ -342,7 +342,7 @@ git clone https://github.com/microsoft/vcpkg ~/vcpkg        # NOT --depth 1: the
 ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics                  # baseline commit must be present
 cmake -S . -B build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
-  -DVCPKG_TARGET_TRIPLET=x64-linux \
+  -DVCPKG_TARGET_TRIPLET=x64-linux -DVCPKG_OVERLAY_TRIPLETS=$PWD/cmake/triplets \
   -DCMAKE_CXX_COMPILER=clang++-23 -DCMAKE_C_COMPILER=clang-23 \
   -DCMAKE_BUILD_TYPE=Debug -DOLO_ENABLE_TSAN=ON -DBUILD_TESTS=ON \
   -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
@@ -394,8 +394,11 @@ The overlay keeps the stock name, so build trees, `vcpkg_installed/x64-linux` an
 workflows' `triplet: x64-linux` are unchanged. Because of that, a configure without
 `VCPKG_OVERLAY_TRIPLETS` would build the stock triplet without any warning. The root
 `CMakeLists.txt` therefore refuses, before `project()`, any configure whose triplet has a
-file in `cmake/triplets` and whose overlay list does not include that directory. The Linux
-presets and `.github/actions/setup-vcpkg` pass it.
+file in `cmake/triplets` unless that directory is the first overlay that holds the triplet
+(vcpkg takes the first match by name). The Linux presets and `.github/actions/setup-vcpkg`
+pass it. With no triplet named, the guard works out vcpkg's default itself; before
+`project()`, `CMAKE_HOST_SYSTEM_PROCESSOR` is still empty, so it asks
+`cmake_host_system_information(... QUERY OS_PLATFORM)` for the architecture.
 
 `OloEngine/tests/Groom/ShippedGroomBindingTest.cpp` checks every shipped binding against its
 body on the CPU. On the AMD box's nightly it is the test that goes red if a port's float math
