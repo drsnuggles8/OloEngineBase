@@ -195,6 +195,14 @@ by holding the store read-only, which stopped the nightly from writing the snaps
 branch actually restores from. **The PR runs were funding the mechanism that kept them
 cold.** They now restore and never save.
 
+The exception, a PR that changes the vcpkg manifest, did the same at the 25 GB cap. On
+2026-11-02 the renovate baseline bump #1673 banked 19481 MiB of PR-private vcpkg entries in one
+evening, the store crossed the cap, and GitHub evicted almost every master entry, the LFS objects
+among them. Four jobs then pulled ~1 GB each from a 10 GiB monthly LFS quota. `save-vcpkg-cache`
+now skips a save off master that would take the store past the working ceiling, and takes its own
+entry back if a parallel save crossed it (#1682). The
+full timeline is in [ci-lfs-bandwidth-details.md](ci-lfs-bandwidth-details.md#why-the-master-entry-disappeared).
+
 ## The arithmetic, so the next person does not have to re-derive it
 
 Re-measured 2026-09-13 (#1084), after #1170, #1205, #1207, #1208, #1209 and #1204.

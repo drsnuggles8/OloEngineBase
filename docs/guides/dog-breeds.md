@@ -4,7 +4,7 @@ The approved Samoyed and Bernese mountain dog are shipped with their complete st
 
 ## Get the assets
 
-Install Git LFS, then run `git lfs pull` after cloning. The repository's `.gitattributes` identifies the model buffers, Alembic sources, native grooms, bindings and intermediate authoring buffers. CI shares one object download with each build's test shards. Hosted jobs restore the default-branch cache; self-hosted jobs keep objects on local disk.
+Install Git LFS, then run `git lfs pull` after cloning. The repository's `.gitattributes` identifies the model buffers, Alembic sources, native grooms, bindings and intermediate authoring buffers. A full pull is ~1 GB against a 10 GiB monthly LFS bandwidth quota, so pull once per clone. CI fetches at most once per workflow run: hosted jobs restore the default-branch cache or an artifact from earlier in the run, self-hosted jobs keep objects on local disk, and every job reports the bytes it fetched ([ci-lfs-bandwidth.md](../agent-rules/ci-lfs-bandwidth.md)).
 
 Open `SandboxProject/Assets/Scenes/Samoyed.olo` or `Bernese.olo` in OloEditor. Keep each model together with its maps, eye profile, groom and binding. Copying a glTF without its external buffer produces an incomplete model.
 
