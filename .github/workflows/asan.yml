@@ -398,14 +398,53 @@ jobs:
         plan ubsan "${UBSAN_SELF_HOSTED}"
         plan tsan "${TSAN_SELF_HOSTED}"
 
+  # ONE LFS FETCH PER RUN (#1682). The four builds below used to restore the master
+  # `olo-lfs-v1-*` cache entry each, and when that entry was missing each pulled the
+  # full ~1 GB set from GitHub LFS in parallel: four pulls, 4 GB of a 10 GiB monthly
+  # quota, from one run. This job is the only one in the run that talks to the cache
+  # and to LFS; every build and every shard takes its artifact.
+  #
+  # It runs AFTER `detect-changes` and only when a build will run: the builds' own
+  # predicate, minus the per-arm `only` choice. Run ungated, a PR that skips every
+  # build would still pull the full set on a missing master entry, for an artifact
+  # nothing reads -- the exact spend this job exists to stop. The price is this job's
+  # runtime added serially to the builds' start (measured in #1682's PR), which a
+  # self-hosted build pays too although it ignores the artifact.
+  #
+  # The builds run under `!cancelled()`, so if this job fails they run anyway and fail
+  # red at the artifact download under their own check names, instead of being
+  # skipped -- a skipped check reads as green.
+  #
+  # On `push` (the master warm, `asan-windows` alone) it publishes no artifact. It
+  # restores, fetches on a miss and SAVES the master entry, so the build behind it
+  # finds an exact hit. On `schedule` it saves and publishes. Self-hosted builds keep
+  # their persistent store and ignore the artifact (the action's download is
+  # hosted-only), but their hosted shards take it.
+  lfs-objects:
+    name: LFS objects (one fetch for this run)
+    needs: detect-changes
+    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+    - name: Restore full model and groom assets
+      uses: ./.github/actions/restore-lfs-assets
+      with:
+        artifact-name: sanitizers-lfs
+
   asan-windows:
     # " build" since #1083: this job no longer runs the suite, it builds the tree the
     # `ASan (Windows) tests N/4` jobs execute. The name says so, because a check named
     # for a sanitizer run that only compiles is exactly the kind of green nobody reads
     # twice.
     name: ASan (Windows/clang-cl) build
-    needs: detect-changes
-    if: ${{ (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
+    needs: [detect-changes, lfs-objects]
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success'
+        && (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
         && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'asan-windows') }}
     # SELF-HOSTED WHEN THE CODE IS OURS AND THE SWITCH IS ON (#1076) -- the same
     # expression, the same kill switch and the same fork boundary as Windows.yml's
@@ -490,10 +529,13 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+    # From `lfs-objects`, which made the run's only LFS fetch (#1682). On `push` it
+    # publishes no artifact; it saved the master entry instead, so this restores that.
     - name: Restore full model and groom assets
       uses: ./.github/actions/restore-lfs-assets
       with:
-        artifact-name: asan-windows-lfs
+        artifact-name: sanitizers-lfs
+        restore-artifact: ${{ github.event_name != 'push' }}
 
     - name: Install Python 3.10
       id: py
@@ -1032,7 +1074,7 @@ jobs:
     - name: Restore full model and groom assets
       uses: ./.github/actions/restore-lfs-assets
       with:
-        artifact-name: asan-windows-lfs
+        artifact-name: sanitizers-lfs
         restore-artifact: 'true'
 
     - name: Download the instrumented test tree
@@ -1370,11 +1412,12 @@ jobs:
       # from the artifact the shards were fed: a number that travels with the
       # thing it is meant to check is not a check.
       ctest-total: ${{ steps.ctest-total.outputs.total }}
-    needs: detect-changes
+    needs: [detect-changes, lfs-objects]
     # `!= 'push'`: the cache warm (#1084) runs `asan-windows` alone. This job is
     # self-hosted and caches on the box's local disk, so a warm would bank nothing --
     # it would only add to the queue that is already this run's largest wait.
-    if: ${{ github.event_name != 'push'
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success'
+        && github.event_name != 'push'
         && (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
         && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'asan-lsan') }}
     # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not -- the same
@@ -1552,7 +1595,8 @@ jobs:
     - name: Restore full model and groom assets
       uses: ./.github/actions/restore-lfs-assets
       with:
-        artifact-name: asan-lsan-linux-lfs
+        artifact-name: sanitizers-lfs
+        restore-artifact: 'true'
 
     - name: Setup Linux build environment
       id: linux
@@ -1963,11 +2007,12 @@ jobs:
       # from the artifact the shards were fed: a number that travels with the
       # thing it is meant to check is not a check.
       ctest-total: ${{ steps.ctest-total.outputs.total }}
-    needs: detect-changes
+    needs: [detect-changes, lfs-objects]
     # `!= 'push'`: the cache warm (#1084) runs `asan-windows` alone. This job is
     # self-hosted and caches on the box's local disk, so a warm would bank nothing --
     # it would only add to the queue that is already this run's largest wait.
-    if: ${{ github.event_name != 'push'
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success'
+        && github.event_name != 'push'
         && (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
         && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'ubsan') }}
     # HOSTED ON EVERY EVENT SINCE #1219 -- this expression is NO LONGER a copy of
@@ -2068,7 +2113,8 @@ jobs:
     - name: Restore full model and groom assets
       uses: ./.github/actions/restore-lfs-assets
       with:
-        artifact-name: ubsan-linux-lfs
+        artifact-name: sanitizers-lfs
+        restore-artifact: 'true'
 
     - name: Setup Linux build environment
       id: linux
@@ -2469,11 +2515,12 @@ jobs:
       # from the artifact the shards were fed: a number that travels with the
       # thing it is meant to check is not a check.
       ctest-total: ${{ steps.ctest-total.outputs.total }}
-    needs: detect-changes
+    needs: [detect-changes, lfs-objects]
     # `!= 'push'`: the cache warm (#1084) runs `asan-windows` alone. This job is
     # self-hosted and caches on the box's local disk, so a warm would bank nothing --
     # it would only add to the queue that is already this run's largest wait.
-    if: ${{ github.event_name != 'push'
+    if: ${{ !cancelled() && needs.detect-changes.result == 'success'
+        && github.event_name != 'push'
         && (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true')
         && (github.event.inputs.only == '' || github.event.inputs.only == 'all' || github.event.inputs.only == 'tsan') }}
     # 180, not 120, not 90: the same cold-cache loop, measured twice.
@@ -2587,7 +2634,8 @@ jobs:
     - name: Restore full model and groom assets
       uses: ./.github/actions/restore-lfs-assets
       with:
-        artifact-name: tsan-linux-lfs
+        artifact-name: sanitizers-lfs
+        restore-artifact: 'true'
 
     - name: Setup Linux build environment
       id: linux
@@ -2998,7 +3046,7 @@ jobs:
     - name: Restore full model and groom assets
       uses: ./.github/actions/restore-lfs-assets
       with:
-        artifact-name: asan-lsan-linux-lfs
+        artifact-name: sanitizers-lfs
         restore-artifact: 'true'
 
     - name: Setup Linux build environment
@@ -3262,7 +3310,7 @@ jobs:
     - name: Restore full model and groom assets
       uses: ./.github/actions/restore-lfs-assets
       with:
-        artifact-name: ubsan-linux-lfs
+        artifact-name: sanitizers-lfs
         restore-artifact: 'true'
 
     - name: Setup Linux build environment
@@ -3528,7 +3576,7 @@ jobs:
     - name: Restore full model and groom assets
       uses: ./.github/actions/restore-lfs-assets
       with:
-        artifact-name: tsan-linux-lfs
+        artifact-name: sanitizers-lfs
         restore-artifact: 'true'
 
     - name: Setup Linux build environment
