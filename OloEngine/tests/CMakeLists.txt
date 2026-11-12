@@ -161,6 +161,7 @@ add_executable(OloEngine-Tests
 		Groom/GroomStrandMeshTest.cpp
 		Groom/GroomBindingBuilderTest.cpp
 		Groom/GroomBindingRoundTripTest.cpp
+		Groom/ShippedGroomBindingTest.cpp
 		Groom/GroomDeformationTest.cpp
 		Groom/GroomGpuDeformationTest.cpp
 		Groom/GroomRootFramesParityTest.cpp
