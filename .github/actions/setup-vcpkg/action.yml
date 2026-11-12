@@ -660,9 +660,13 @@ runs:
         args="-DCMAKE_TOOLCHAIN_FILE=${vr}/scripts/buildsystems/vcpkg.cmake"
         args="$args -DVCPKG_TARGET_TRIPLET=${{ inputs.triplet }}"
         args="$args -DVCPKG_OVERLAY_PORTS=${ws}/cmake/overlay-ports"
+        # Every triplet this repo builds has an overlay in cmake/triplets: the
+        # Windows one pins the CRT, the Linux one turns off FP contraction in the
+        # ports (#1674). Both keep vcpkg's stock names, so a job that drops this
+        # flag silently builds the stock triplet; the root CMakeLists.txt refuses that.
+        args="$args -DVCPKG_OVERLAY_TRIPLETS=${ws}/cmake/triplets"
         case "${{ inputs.triplet }}" in
           x64-windows-static-md)
-            args="$args -DVCPKG_OVERLAY_TRIPLETS=${ws}/cmake/triplets"
             args="$args -DVCPKG_HOST_TRIPLET=x64-windows-static-md"
             ;;
         esac

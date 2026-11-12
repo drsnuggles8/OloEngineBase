@@ -89,6 +89,49 @@ if(NOT DEFINED BUILD_TESTS OR BUILD_TESTS)
     list(APPEND VCPKG_MANIFEST_FEATURES "tests")
 endif()
 
+# The triplets in cmake/triplets keep vcpkg's stock names (x64-windows-static-md pins the
+# CRT, x64-linux turns off FP contraction in the ports, #1674), so a configure that does
+# not pass VCPKG_OVERLAY_TRIPLETS still builds -- against the STOCK triplet, silently. On
+# the AMD box that meant FMA-fused meshoptimizer and a Samoyed whose triangle order no
+# other machine produced. Refuse it before project() runs the manifest install. Checked
+# only when the vcpkg toolchain is in use; without it the fatal error below fires instead.
+if(CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg\\.cmake$")
+    set(_olo_triplet "${VCPKG_TARGET_TRIPLET}")
+    if(_olo_triplet STREQUAL "" AND CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux")
+        set(_olo_triplet "x64-linux") # vcpkg's default on an x64 Linux host
+    endif()
+    set(_olo_overlay_dir "${CMAKE_SOURCE_DIR}/cmake/triplets")
+    if(NOT _olo_triplet STREQUAL "" AND EXISTS "${_olo_overlay_dir}/${_olo_triplet}.cmake")
+        file(REAL_PATH "${_olo_overlay_dir}" _olo_overlay_real)
+        set(_olo_overlay_passed FALSE)
+        foreach(_olo_dir IN LISTS VCPKG_OVERLAY_TRIPLETS)
+            file(REAL_PATH "${_olo_dir}" _olo_dir_real BASE_DIRECTORY "${CMAKE_SOURCE_DIR}")
+            if(WIN32)
+                string(TOLOWER "${_olo_dir_real}" _olo_dir_real)
+                string(TOLOWER "${_olo_overlay_real}" _olo_overlay_real)
+            endif()
+            if(_olo_dir_real STREQUAL _olo_overlay_real)
+                set(_olo_overlay_passed TRUE)
+            endif()
+        endforeach()
+        if(NOT _olo_overlay_passed)
+            message(FATAL_ERROR
+                "VCPKG_TARGET_TRIPLET is ${_olo_triplet}, which this repo overrides in "
+                "cmake/triplets/${_olo_triplet}.cmake, but VCPKG_OVERLAY_TRIPLETS "
+                "('${VCPKG_OVERLAY_TRIPLETS}') does not include that directory, so vcpkg would "
+                "build its stock triplet of the same name instead.\n"
+                "Configure through a preset (`cmake --preset dev-cached` / `msvc` / `linux-gcc`), "
+                "or pass -DVCPKG_OVERLAY_TRIPLETS=<repo>/cmake/triplets. "
+                "See docs/agent-rules/vcpkg-dependency-management.md.")
+        endif()
+        unset(_olo_overlay_real)
+        unset(_olo_overlay_passed)
+        unset(_olo_dir_real)
+    endif()
+    unset(_olo_triplet)
+    unset(_olo_overlay_dir)
+endif()
+
 # No CSharp language here, under any generator: the C# assemblies are built by `dotnet build`
 # (cmake/CSharpAssembly.cmake, #1405), because CMake's CSharp exists only for Visual Studio.
 project(OloEngineBase
@@ -651,6 +694,8 @@ set(CMAKE_C_EXTENSIONS ON)
 # were then fused differently: BSDF::Sample's pdf and BSDF::Pdf on the same direction came
 # out 1 ulp apart (ClosureV2Consistency). Off makes a float expression mean the same thing
 # on every compiler and at every call site. MSVC and clang-cl do not contract by default.
+# This reaches the engine's own code only; the vcpkg ports get the same flag from the
+# x64-linux overlay triplet (cmake/triplets/x64-linux.cmake, #1674).
 if(NOT MSVC)
     add_compile_options("$<$<COMPILE_LANGUAGE:C,CXX>:-ffp-contract=off>")
 endif()

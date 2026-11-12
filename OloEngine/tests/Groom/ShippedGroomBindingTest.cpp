@@ -7,9 +7,11 @@
 // whatever the importer makes of that body today, on whatever platform it runs.
 // When the two disagree the coat is refused ("not the surface this binding was
 // built against") and stands at its bind pose. The Samoyed's was refused on
-// Linux for two weeks before the weekly AMD showcase said so (#1674): the GPU
-// suites that check this (DogShowcaseEvidenceTest, GroomAnimalsCookedBinding)
-// skip on every hosted runner. The check itself needs no GPU: with no graphics
+// the AMD box for two weeks before the weekly showcase said so (#1674): that
+// box's GCC fused meshoptimizer's float math into FMAs, which reordered one
+// submesh, and the GPU suites that check bindings (DogShowcaseEvidenceTest,
+// GroomAnimalsCookedBinding) skip on every hosted runner. Each case prints
+// every submesh's index hash, so a platform that disagrees names the submesh. The check itself needs no GPU: with no graphics
 // device MeshSource::Build keeps the CPU data, and AnimatedModel optimises it
 // to the surface a device-backed import builds (#1223).
 //
@@ -239,7 +241,9 @@ namespace OloEngine::Tests
             const GroomBindingRejectReason warm = binding->CheckCompatibility(signature, warmSignature);
             EXPECT_EQ(cold, GroomBindingRejectReason::None)
                 << coat << " refuses a cold import of " << body.ModelFile << ": " << ToString(cold)
-                << ". Re-cook the binding with the model (tools/dog-authoring/rebuild.py for a breed).";
+                << ". If the model changed, re-cook the binding with it (tools/dog-authoring/rebuild.py for a breed);"
+                << " if only one platform refuses, compare the [shipped-binding] submesh hashes across platforms"
+                << " and check the ports' FP flags (docs/agent-rules/vcpkg-dependency-management.md rule 21).";
             EXPECT_EQ(warm, GroomBindingRejectReason::None)
                 << coat << " refuses a warm load of " << body.ModelFile << ": " << ToString(warm);
         }
