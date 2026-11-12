@@ -218,7 +218,10 @@ The following development libraries and tools are required on Linux:
 
 Most other dependencies (GLFW, GLM, Jolt, protobuf, libsodium, assimp, …) come from the
 vcpkg manifest and are built once into the machine-global binary cache — see the vcpkg
-prerequisite above; the Linux presets use vcpkg's stock `x64-linux` triplet. A handful
+prerequisite above. The Linux presets use the repo's `x64-linux` overlay triplet
+([cmake/triplets/x64-linux.cmake](../../cmake/triplets/x64-linux.cmake)): vcpkg's stock one
+plus `-ffp-contract=off` for every port (#1674). A configure without
+`-DVCPKG_OVERLAY_TRIPLETS=<repo>/cmake/triplets` stops at a guard in the root `CMakeLists.txt`. A handful
 (ImGui, ImGuizmo, glad, Lua, sol2, stb, filewatch, …) are still fetched in-tree via FetchContent/CPM;
 `OloEngine/vendor/CMakeLists.txt`'s header comment names each one and why it did not move.
 

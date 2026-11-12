@@ -344,8 +344,10 @@ runs:
         # vcpkg-configuration.json carries the registry BASELINE: a Renovate bump of
         # the vcpkg digest changes every port's version set without touching
         # vcpkg.json, so it must be in the hash or the key stays "exact" across a
-        # bump that rebuilds everything.
-        OLO_VCPKG_CACHE_HASH: ${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'cmake/triplets/**', 'cmake/overlay-ports/**') }}
+        # bump that rebuilds everything. Only THIS triplet's file: each OS builds one
+        # triplet (its host triplet is the same one), and hashing the whole directory
+        # made an edit to the Linux triplet re-key, and re-bank, the Windows cache too.
+        OLO_VCPKG_CACHE_HASH: ${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', format('cmake/triplets/{0}.cmake', inputs.triplet), 'cmake/overlay-ports/**') }}
         # "true" exactly when this run cannot write the cache service: a
         # pull_request from a fork, whose GITHUB_TOKEN is read-only. Derived from
         # the event here rather than from the `read-only` input, because no caller

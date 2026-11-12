@@ -162,8 +162,9 @@ the toolchain is no longer on the list of explanations.
   of the download.
 - **The first self-hosted run after a compiler change is cold.** ccache keys on the compiler, so
   changing it invalidates the whole persistent cache; expect one slow round. The vcpkg binary
-  cache is *not* affected -- the Linux jobs use the stock `x64-linux` triplet, whose ports are
-  built with whatever compiler vcpkg detects rather than with `CMAKE_CXX_COMPILER`.
+  cache is *not* affected -- the Linux jobs use the `x64-linux` overlay triplet
+  (`cmake/triplets/x64-linux.cmake`), whose ports are built with whatever compiler vcpkg
+  detects rather than with `CMAKE_CXX_COMPILER`, and with `-ffp-contract=off` (#1674).
 
 ## Bumping the version
 
