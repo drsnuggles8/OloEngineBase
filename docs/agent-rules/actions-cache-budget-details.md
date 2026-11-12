@@ -116,15 +116,24 @@ read-only budget, a year of runs earlier, and written the rule down. `cache-prun
 had already been built to keep the store under the cap. Both were in place. The store
 filled anyway, for three reasons that the earlier work did not reach.
 
-### The cap is a wall, not an eviction threshold
+### The budget refuses saves, the cap evicts
 
-`ci-cache-that-looks-alive.md` §4 says GitHub "was already evicting" LRU. It is not, and
-that misreading is load-bearing: it makes an over-full store sound self-correcting.
-It is not self-correcting. Past the cap the **whole store goes read-only** and every save
-in the repository is refused until something is deleted. `actions/cache/save` reports
-that as a `warning` and **exits zero**, so the step's own status cannot tell you.
+What a full store does depends on which limit it hit, and neither outcome fails a step:
 
-The cap is 10 GB **decimal**, and that is measured rather than read off the docs: saves
+| limit | outcome | seen |
+|---|---|---|
+| the Actions budget, or the old default 10 GB cap | the **whole store goes read-only**; every save is refused until something is deleted | measured at ~9537 MiB before 2026-09-09; the "configured budget" warning quoted below |
+| the configured 25 GB cap (since 2026-09-09) | saves still land; GitHub evicts in last-access order, **hours later**, master's entries included | 2026-11-01/03, [ci-lfs-bandwidth-details.md](ci-lfs-bandwidth-details.md#why-the-master-entry-disappeared) |
+
+Neither outcome is self-correcting. A refused save is reported by `actions/cache/save` as a
+`warning` and **exits zero**, so the step's own status cannot tell you; an eviction takes
+whichever entry was read least recently, which on a busy PR evening is master's.
+
+The read-only case was the original bug. `ci-cache-that-looks-alive.md` §4 said GitHub
+"was already evicting" LRU; at the time it was not, and that misreading made an over-full
+store sound self-correcting.
+
+The old default cap was 10 GB **decimal**, and that is measured rather than read off the docs: saves
 were being refused with the store at 9,713,535,876 bytes = 9264 MiB. Had the cap been
 10 GiB (10737 MiB) there was 1.4 GiB free and the 706 MiB vcpkg save in the very same run
 would have landed. It did not. The wall is ~9537 MiB.
@@ -145,11 +154,11 @@ This repo: **25 GB**, with an Actions budget, from 2026-09-09.
 
 Two things that do NOT follow from the raise:
 
-* **The read-only failure above is still real, and the budget is now a second way to
-  reach it.** The warning this file quotes says "you have reached your **configured
-  budget**" — that is the budget path, which goes read-only. Plain overflow of the free
-  10 GB evicts LRU instead. A budget of $0 against a raised cap reproduces the original
-  bug exactly, which is why the budget is set rather than merely the cap.
+* **The read-only failure above is still real, through the budget.** The warning this
+  file quotes says "you have reached your **configured budget**": that is the budget
+  path, which goes read-only. Crossing the configured cap evicts instead (table above).
+  A budget of $0 against a raised cap reproduces the original bug exactly, which is why
+  the budget is set rather than merely the cap.
 * **`cache-prune.yml`'s working ceiling had to move with it**, and did not at first — for
   a few hours the raise was inert, because six sweeps a day went on enforcing the old
   limit. It is 20000 MiB as of 2026-09-09. See the note on it below.
@@ -195,12 +204,12 @@ by holding the store read-only, which stopped the nightly from writing the snaps
 branch actually restores from. **The PR runs were funding the mechanism that kept them
 cold.** They now restore and never save.
 
-The exception, a PR that changes the vcpkg manifest, did the same at the 25 GB cap. On
-2026-11-02 the renovate baseline bump #1673 banked 19481 MiB of PR-private vcpkg entries in one
-evening, the store crossed the cap, and GitHub evicted almost every master entry, the LFS objects
-among them. Four jobs then pulled ~1 GB each from a 10 GiB monthly LFS quota. `save-vcpkg-cache`
-now skips a save off master that would take the store past the working ceiling, and takes its own
-entry back if a parallel save crossed it (#1682). The
+The one PR-ref save left, a PR that changes the vcpkg manifest, must check the store has room
+first. `save-vcpkg-cache` skips a save off master that would take the store past the working
+ceiling, and takes its own entry back if a parallel save crossed it (#1682). Without that check,
+on 2026-11-02 the renovate baseline bump #1673 banked 19481 MiB of PR-private vcpkg entries in
+one evening, the store crossed the 25 GB cap, and GitHub evicted almost every master entry, the
+LFS objects among them. Four jobs then pulled ~1 GB each from a 10 GiB monthly LFS quota. The
 full timeline is in [ci-lfs-bandwidth-details.md](ci-lfs-bandwidth-details.md#why-the-master-entry-disappeared).
 
 ## The arithmetic, so the next person does not have to re-derive it
