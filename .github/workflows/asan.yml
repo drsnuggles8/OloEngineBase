@@ -92,15 +92,6 @@ on:
         type: choice
         options: [all, asan-lsan, ubsan, tsan, asan-windows]
         default: all
-      # TEMPORARY (#1682 verification, removed before merge): salt the LFS cache key.
-      lfs_salt:
-        description: 'TEMP #1682: salt for the olo-lfs cache key (empty = normal)'
-        type: string
-        default: ''
-      lfs_salt_restore_keys:
-        description: 'TEMP #1682: also salt the restore-keys prefix (a full miss)'
-        type: boolean
-        default: false
 
 concurrency:
   # The `force_hosted` input is PART OF THE KEY, not decoration. The parity A/B
@@ -127,9 +118,6 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # TEMPORARY (#1682 verification, removed before merge). Empty on every non-dispatch run.
-  OLO_LFS_CACHE_SALT: ${{ github.event.inputs.lfs_salt }}
-  OLO_LFS_CACHE_SALT_RESTORE_KEYS: ${{ github.event.inputs.lfs_salt_restore_keys }}
   # sccache uses a LOCAL-DISK cache (SCCACHE_DIR), persisted across runs as a
   # SINGLE actions/cache entry PER JOB (see each job's "Restore/Save sccache
   # storage" steps). We deliberately do NOT use sccache's GitHub Actions cache backend

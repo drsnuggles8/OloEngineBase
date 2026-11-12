@@ -53,15 +53,8 @@ runs:
         mkdir -p "$object_path"
         echo "path=$object_path" >> "$GITHUB_OUTPUT"
         digest=$(git lfs ls-files --long | awk '{print $1}' | sort | sha256sum | awk '{print $1}')
-        # TEMPORARY (#1682 verification, removed before merge): a dispatch-only salt.
-        salt="${OLO_LFS_CACHE_SALT:-}"
-        echo "key=olo-lfs-v1-${salt}${digest}" >> "$GITHUB_OUTPUT"
-        if [ "${OLO_LFS_CACHE_SALT_RESTORE_KEYS:-false}" = true ]; then
-          echo "restore-prefix=olo-lfs-v1-${salt}" >> "$GITHUB_OUTPUT"
-        else
-          echo "restore-prefix=olo-lfs-v1-" >> "$GITHUB_OUTPUT"
-        fi
-        echo "TEMP #1682 salt='${salt}' restore-keys-salted=${OLO_LFS_CACHE_SALT_RESTORE_KEYS:-false}"
+        echo "key=olo-lfs-v1-$digest" >> "$GITHUB_OUTPUT"
+        echo "restore-prefix=olo-lfs-v1-" >> "$GITHUB_OUTPUT"
 
     - name: Restore cached LFS objects
       id: cache
