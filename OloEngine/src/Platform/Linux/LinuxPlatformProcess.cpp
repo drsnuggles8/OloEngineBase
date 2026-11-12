@@ -15,6 +15,7 @@
 #include <cerrno>         // For errno (setpriority result check)
 #include <cstring>        // For strncpy
 #include <string>         // For std::to_string
+#include <system_error>   // For a probe thread that cannot be started
 #include <thread>         // For the one-off priority-restore probe
 #include <type_traits>    // For static_assert on pthread_t size
 
@@ -130,28 +131,40 @@ namespace OloEngine
         // restores it after, so on such a box the first background task left the
         // worker at nice 10 for good and every later task, foreground included,
         // ran deprioritised (#1674). Asked once, on a throwaway thread, so the
-        // probe cannot strand a real worker.
+        // probe cannot strand a real worker. A probe thread that cannot be
+        // started answers "no": priority is advisory, and the throw would
+        // otherwise escape SetThreadPriority into the scheduler's dispatch.
         [[nodiscard]] bool CanRestoreLoweredPriority()
         {
             static const bool s_CanRestore = []
             {
                 bool restored = false;
-                std::thread probe(
-                    [&restored]
-                    {
-                        const auto tid = static_cast<id_t>(CurrentTid());
-                        errno = 0;
-                        const int start = getpriority(PRIO_PROCESS, tid);
-                        if ((start == -1 && errno != 0) || start >= 19)
+                try
+                {
+                    std::thread probe(
+                        [&restored]
                         {
-                            return;
-                        }
-                        if (setpriority(PRIO_PROCESS, tid, start + 1) == 0)
-                        {
-                            restored = setpriority(PRIO_PROCESS, tid, start) == 0;
-                        }
-                    });
-                probe.join();
+                            const auto tid = static_cast<id_t>(CurrentTid());
+                            errno = 0;
+                            const int start = getpriority(PRIO_PROCESS, tid);
+                            if ((start == -1 && errno != 0) || start >= 19)
+                            {
+                                return;
+                            }
+                            if (setpriority(PRIO_PROCESS, tid, start + 1) == 0)
+                            {
+                                restored = setpriority(PRIO_PROCESS, tid, start) == 0;
+                            }
+                        });
+                    probe.join();
+                }
+                catch (const std::system_error& e)
+                {
+                    OLO_CORE_WARN("[PlatformProcess] Could not start the thread that probes whether a lowered "
+                                  "priority can be restored ({}); below-normal priorities stay disabled.",
+                                  e.what());
+                    return false;
+                }
                 return restored;
             }();
             return s_CanRestore;
