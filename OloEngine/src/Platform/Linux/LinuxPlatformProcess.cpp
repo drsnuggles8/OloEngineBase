@@ -15,6 +15,7 @@
 #include <cerrno>         // For errno (setpriority result check)
 #include <cstring>        // For strncpy
 #include <string>         // For std::to_string
+#include <thread>         // For the one-off priority-restore probe
 #include <type_traits>    // For static_assert on pthread_t size
 
 namespace OloEngine
@@ -102,20 +103,64 @@ namespace OloEngine
             return false;
         }
 
-        // A refused priority change is reported once per process for each call,
-        // not on every refusal. Without CAP_SYS_NICE the kernel lets a thread
-        // lower its priority (raise its nice) but never raise it back, and the
-        // scheduler lowers a worker for each background task and restores it
-        // afterwards. Every restore after the first is then refused: logged
-        // each time, that was ~3 million lines (644 MB) in one AMD showcase
-        // job (#1674). The first refusal still says what happened.
-        std::atomic<bool> s_SchedParamRefusalReported{ false };
-        std::atomic<bool> s_NiceRefusalReported{ false };
+        // A refused priority change is reported once per process for each call and
+        // error code, not on every refusal. The scheduler changes a worker's priority
+        // around every background task, so a refusal that repeats was ~3 million
+        // identical lines (644 MB) in one AMD showcase job (#1674). Keyed on the
+        // error code, a later failure with a different cause is still reported.
+        std::atomic<u64> s_SchedParamErrorsReported{ 0 };
+        std::atomic<u64> s_NiceErrorsReported{ 0 };
+        std::atomic<bool> s_LoweringDisabledReported{ false };
+
+        [[nodiscard]] bool FirstReportOf(std::atomic<u64>& Reported, int Error)
+        {
+            const u64 bit = u64{ 1 } << static_cast<u32>(Error < 0 || Error > 63 ? 63 : Error);
+            return (Reported.fetch_or(bit, std::memory_order_relaxed) & bit) == 0;
+        }
+
+        [[nodiscard]] pid_t CurrentTid()
+        {
+            return static_cast<pid_t>(syscall(SYS_gettid));
+        }
+
+        // Whether a thread of this process may raise its priority back (lower its
+        // nice) after lowering it. Without CAP_SYS_NICE, or an RLIMIT_NICE above
+        // the starting nice, the kernel allows the lowering and refuses the way
+        // back. The scheduler lowers a worker for each background task and
+        // restores it after, so on such a box the first background task left the
+        // worker at nice 10 for good and every later task, foreground included,
+        // ran deprioritised (#1674). Asked once, on a throwaway thread, so the
+        // probe cannot strand a real worker.
+        [[nodiscard]] bool CanRestoreLoweredPriority()
+        {
+            static const bool s_CanRestore = []
+            {
+                bool restored = false;
+                std::thread probe(
+                    [&restored]
+                    {
+                        const auto tid = static_cast<id_t>(CurrentTid());
+                        errno = 0;
+                        const int start = getpriority(PRIO_PROCESS, tid);
+                        if ((start == -1 && errno != 0) || start >= 19)
+                        {
+                            return;
+                        }
+                        if (setpriority(PRIO_PROCESS, tid, start + 1) == 0)
+                        {
+                            restored = setpriority(PRIO_PROCESS, tid, start) == 0;
+                        }
+                    });
+                probe.join();
+                return restored;
+            }();
+            return s_CanRestore;
+        }
 
         // Apply priority to a given pthread handle. Returns true if the kernel
         // accepted the change. Errors (typically EPERM without CAP_SYS_NICE) are
-        // logged once per process but not fatal — callers use Linux thread
-        // priority as advisory.
+        // logged once per process and error code but not fatal — callers use Linux
+        // thread priority as advisory.
         bool ApplyThreadPriority(pthread_t Handle, EThreadPriority Priority, bool IsSelf)
         {
             int CurrentPolicy = 0;
@@ -126,16 +171,22 @@ namespace OloEngine
             int NewPri = CurrentParam.sched_priority;
             const bool isRealtime = SelectSchedPolicy(Priority, NewPolicy, NewPri);
 
-            struct sched_param NewParam{};
-            NewParam.sched_priority = NewPri;
-            const int rc = pthread_setschedparam(Handle, NewPolicy, &NewParam);
-            bool accepted = (rc == 0);
-            if (!accepted && !s_SchedParamRefusalReported.exchange(true, std::memory_order_relaxed))
+            bool accepted = true;
+            // A non-RT request on a SCHED_OTHER thread asks for what it already has;
+            // the scheduler makes it twice per background task, so skip the syscall.
+            if (NewPolicy != CurrentPolicy || NewPri != CurrentParam.sched_priority)
             {
-                OLO_CORE_WARN("[PlatformProcess] pthread_setschedparam failed ({}); "
-                              "Linux thread priority changes typically require CAP_SYS_NICE. "
-                              "Further refusals in this process are not logged.",
-                              rc);
+                struct sched_param NewParam{};
+                NewParam.sched_priority = NewPri;
+                const int rc = pthread_setschedparam(Handle, NewPolicy, &NewParam);
+                accepted = (rc == 0);
+                if (!accepted && FirstReportOf(s_SchedParamErrorsReported, rc))
+                {
+                    OLO_CORE_WARN("[PlatformProcess] pthread_setschedparam failed ({}); "
+                                  "Linux thread priority changes typically require CAP_SYS_NICE. "
+                                  "Further refusals with this error in this process are not logged.",
+                                  rc);
+                }
             }
             // For SCHED_OTHER apply a nice value so different non-RT priorities are
             // still distinguishable. This only affects the calling thread (setpriority
@@ -144,13 +195,26 @@ namespace OloEngine
             if (!isRealtime && IsSelf)
             {
                 const int nice = ThreadPriorityToNice(Priority);
-                const pid_t tid = static_cast<pid_t>(syscall(SYS_gettid));
+                if (nice > 0 && !CanRestoreLoweredPriority())
+                {
+                    // Lowering is one-way here, so it is not done at all: a worker
+                    // stranded at a low priority would run every later task there.
+                    if (!s_LoweringDisabledReported.exchange(true, std::memory_order_relaxed))
+                    {
+                        OLO_CORE_WARN("[PlatformProcess] Below-normal thread priorities are disabled: this "
+                                      "process cannot raise a thread's priority back after lowering it "
+                                      "(no CAP_SYS_NICE, RLIMIT_NICE too low), so a lowered worker would stay "
+                                      "lowered for every later task. Threads keep their current nice.");
+                    }
+                    return false;
+                }
+                const pid_t tid = CurrentTid();
                 errno = 0;
                 const int niceRc = setpriority(PRIO_PROCESS, static_cast<id_t>(tid), nice);
                 if (niceRc == -1 && errno != 0)
                 {
-                    const int error = errno;
-                    if (!s_NiceRefusalReported.exchange(true, std::memory_order_relaxed))
+                    accepted = false;
+                    if (const int error = errno; FirstReportOf(s_NiceErrorsReported, error))
                     {
                         // getpriority may legitimately return -1, so errno tells
                         // a failure apart from a nice of -1.
@@ -159,7 +223,7 @@ namespace OloEngine
                         const bool currentKnown = !(current == -1 && errno != 0);
                         OLO_CORE_WARN("[PlatformProcess] setpriority(nice={}) failed (errno={}); the thread stays at "
                                       "nice {}. Non-RT priority raises typically require CAP_SYS_NICE. "
-                                      "Further refusals in this process are not logged.",
+                                      "Further refusals with this error in this process are not logged.",
                                       nice, error, currentKnown ? std::to_string(current) : std::string("unknown"));
                     }
                 }
