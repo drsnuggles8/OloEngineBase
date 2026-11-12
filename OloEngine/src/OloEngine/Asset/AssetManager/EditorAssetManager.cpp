@@ -162,8 +162,8 @@ namespace OloEngine
                     m_ProjectPath.string(),
                     [this](const std::string& file, const filewatch::Event change_type)
                     {
-                        OloEngine::Tasks::EnqueueGameThreadTask([this, file, change_type]()
-                                                                { OnFileSystemEvent(file, change_type); }, "AssetFileWatch");
+                        EnqueueOnGameThread([this, file, change_type]()
+                                            { OnFileSystemEvent(file, change_type); }, "AssetFileWatch");
                     });
                 OLO_CORE_INFO("Real-time file watcher started successfully");
             }
@@ -204,6 +204,16 @@ namespace OloEngine
             return;
 
 #if OLO_ASYNC_ASSETS
+        // Close the gate first: every task this manager queued to the game thread
+        // is a no-op from here on, including the ones the watcher queues until it
+        // is stopped below. Nothing waits for them. Shutdown() runs on the game
+        // thread, the only thread that can run them, so the old wait for queued
+        // reloads never returned.
+        {
+            const std::lock_guard<std::recursive_mutex> lock(m_GameThreadTaskGate->Mutex);
+            m_GameThreadTaskGate->bOpen = false;
+        }
+
         // Stop asset thread
         if (m_AssetThread)
         {
@@ -225,16 +235,6 @@ namespace OloEngine
         {
             OLO_CORE_INFO("EditorAssetManager: Waiting for file watcher task to complete...");
             while (m_FileWatcherTaskActive.load(std::memory_order_acquire))
-            {
-                std::this_thread::yield();
-            }
-        }
-
-        // Wait for any pending async reload tasks
-        if (u32 remainingReloads = m_ActiveReloadTasks.load(std::memory_order_acquire); remainingReloads > 0)
-        {
-            OLO_CORE_INFO("EditorAssetManager: Waiting for {} async reload tasks to complete...", remainingReloads);
-            while (m_ActiveReloadTasks.load(std::memory_order_acquire) > 0)
             {
                 std::this_thread::yield();
             }
@@ -525,16 +525,13 @@ namespace OloEngine
         // Note: ReloadData contains OpenGL operations via asset loading, so we must
         // submit the actual reload to the main thread. The "async" part is that we
         // don't block the caller - the reload happens later on the main thread.
-        m_ActiveReloadTasks.fetch_add(1, std::memory_order_relaxed);
-
-        Tasks::EnqueueGameThreadTask(
+        EnqueueOnGameThread(
             [this, assetHandle]()
             {
                 if (!ReloadData(assetHandle))
                 {
                     OLO_CORE_WARN_TAG("AssetManager", "Async reload failed for asset {}", static_cast<u64>(assetHandle));
                 }
-                m_ActiveReloadTasks.fetch_sub(1, std::memory_order_relaxed);
             },
             "AssetReloadAsync");
 #else

@@ -97,6 +97,9 @@ namespace OloEngine::LowLevelTasks
             EWorkerType WorkerType = EWorkerType::None;
             std::atomic<bool> bPendingWakeUp = false;
             bool bIsStandbyWorker = false;
+            // Chains the values taken off the pending-delete list while they wait
+            // to be unlinked and freed; under the registry mutex.
+            FTlsValues* NextPendingDelete = nullptr;
 
             OLO_FINLINE bool IsBackgroundWorker() const
             {

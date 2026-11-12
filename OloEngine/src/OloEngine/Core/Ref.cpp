@@ -1,7 +1,7 @@
 #include "OloEnginePCH.h"
 #include "Ref.h"
 
-#include <unordered_set>
+#include <unordered_map>
 #include <atomic>
 #include "OloEngine/Threading/Mutex.h"
 #include "OloEngine/Threading/UniqueLock.h"
@@ -11,7 +11,9 @@ namespace OloEngine
 
     struct LiveReferencesData
     {
-        std::unordered_set<void*> references;
+        // Live object -> the generation it was given when it became live.
+        std::unordered_map<const RefCounted*, u64> references;
+        u64 nextGeneration = 1; // 0 means "no object"
         FMutex mutex;
         std::atomic<bool> isValid{ true };
 
@@ -52,7 +54,7 @@ namespace OloEngine
 
     namespace RefUtils
     {
-        void AddToLiveReferences(void* instance)
+        void AddToLiveReferences(const RefCounted* instance)
         {
             auto& data = GetLiveReferencesData();
 
@@ -72,10 +74,32 @@ namespace OloEngine
                 return;
             }
 
-            data.references.insert(instance);
+            if (data.references.try_emplace(instance, data.nextGeneration).second)
+            {
+                ++data.nextGeneration;
+            }
         }
 
-        bool IsLive(void* instance)
+        u64 LiveGeneration(const RefCounted* instance)
+        {
+            auto& data = GetLiveReferencesData();
+            if (!data.isValid.load(std::memory_order_acquire))
+            {
+                return 0;
+            }
+
+            TUniqueLock<FMutex> lock(data.mutex);
+            OLO_CORE_ASSERT(instance);
+            if (!data.isValid.load(std::memory_order_acquire))
+            {
+                return 0;
+            }
+
+            const auto found = data.references.find(instance);
+            return found != data.references.end() ? found->second : 0;
+        }
+
+        bool IsLive(const RefCounted* instance, u64 generation)
         {
             auto& data = GetLiveReferencesData();
 
@@ -95,7 +119,8 @@ namespace OloEngine
                 return false;
             }
 
-            return data.references.find(instance) != data.references.end();
+            const auto found = data.references.find(instance);
+            return found != data.references.end() && found->second == generation;
         }
 
         bool Release(RefCounted* instance)
@@ -137,7 +162,7 @@ namespace OloEngine
             return true;
         }
 
-        bool TryLockLive(RefCounted* instance)
+        bool TryLockLive(RefCounted* instance, u64 generation)
         {
             auto& data = GetLiveReferencesData();
             OLO_CORE_ASSERT(instance);
@@ -160,7 +185,11 @@ namespace OloEngine
             // `instance` still present here, Release() cannot yet have (and, because
             // we hold the lock, cannot concurrently) removed it — incrementing the
             // refcount now is safe and visible to Release()'s own check.
-            if (data.references.find(instance) == data.references.end())
+            // The generation is compared before `instance` is touched: a stale
+            // WeakRef whose address now holds another object, or no object, must
+            // not write to it.
+            const auto found = data.references.find(instance);
+            if (found == data.references.end() || found->second != generation)
             {
                 return false;
             }

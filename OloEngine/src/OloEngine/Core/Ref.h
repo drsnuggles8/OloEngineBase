@@ -36,8 +36,21 @@ namespace OloEngine
 
     namespace RefUtils
     {
-        void AddToLiveReferences(void* instance);
-        bool IsLive(void* instance);
+        // The registry is keyed by the object's RefCounted address. Every call
+        // below takes that type, so a class whose RefCounted base is not at
+        // offset zero (a second base class) is inserted, looked up and erased
+        // under one key. Keyed by `T*` on insert and `RefCounted*` on erase, such
+        // an object was never erased and its address stayed "live" after it died.
+        void AddToLiveReferences(const RefCounted* instance);
+
+        /// The number the registry gave `instance` when it became live, or 0 if it
+        /// is not live. A WeakRef keeps it: an address alone cannot tell the
+        /// object the WeakRef was made from apart from a later one allocated at
+        /// the same address.
+        [[nodiscard]] u64 LiveGeneration(const RefCounted* instance);
+
+        /// True while the object that had `generation` at `instance` is alive.
+        [[nodiscard]] bool IsLive(const RefCounted* instance, u64 generation);
 
         /// Called by Ref<T>::DecRef()/SafeDecRefAndDelete() to release a reference.
         /// Decrements `instance`'s refcount *and* checks/updates the live-reference
@@ -55,8 +68,9 @@ namespace OloEngine
         /// Release() uses, so this can never resurrect an instance that has already
         /// committed to destruction, and Release() can never delete an instance this
         /// just resurrected. Returns false if `instance` is dead (or concurrently being
-        /// destroyed), in which case the caller must not touch it.
-        bool TryLockLive(RefCounted* instance);
+        /// destroyed), or if the live object at that address is not the one that had
+        /// `generation`; in either case the caller must not touch it.
+        bool TryLockLive(RefCounted* instance, u64 generation);
     } // namespace RefUtils
 
     template<typename T>
@@ -333,9 +347,11 @@ namespace OloEngine
       public:
         WeakRef() = default;
 
-        WeakRef(const Ref<T>& ref) : m_Instance(const_cast<T*>(ref.get())) {}
+        WeakRef(const Ref<T>& ref) : m_Instance(const_cast<T*>(ref.get())), m_Generation(GenerationOf(m_Instance)) {}
 
-        explicit WeakRef(T* instance) : m_Instance(instance) {}
+        /// Refers to the object that is live at `instance` now. A pointer to an
+        /// object no Ref owns yet (or any more) gives a WeakRef that is never valid.
+        explicit WeakRef(T* instance) : m_Instance(instance), m_Generation(GenerationOf(m_Instance)) {}
 
         /// Access the object via pointer.
         /// WARNING: This does not check if the object is still alive!
@@ -375,7 +391,7 @@ namespace OloEngine
 
         bool IsValid() const
         {
-            return m_Instance ? RefUtils::IsLive(m_Instance) : false;
+            return m_Instance ? RefUtils::IsLive(m_Instance, m_Generation) : false;
         }
         operator bool() const
         {
@@ -390,7 +406,7 @@ namespace OloEngine
         /// object.
         Ref<T> Lock() const
         {
-            if (m_Instance && RefUtils::TryLockLive(m_Instance))
+            if (m_Instance && RefUtils::TryLockLive(m_Instance, m_Generation))
                 return Ref<T>(m_Instance, typename Ref<T>::AdoptLockedTag{});
             return nullptr;
         }
@@ -398,11 +414,21 @@ namespace OloEngine
         template<typename T2>
         WeakRef<T2> As() const
         {
-            return WeakRef<T2>(dynamic_cast<T2*>(m_Instance));
+            // Through a strong reference: dynamic_cast on a dead object is undefined.
+            // Not const: a const Ref's get() returns const T*.
+            Ref<T> strong = Lock();
+            return strong ? WeakRef<T2>(dynamic_cast<T2*>(strong.get())) : WeakRef<T2>();
         }
 
       private:
+        [[nodiscard]] static u64 GenerationOf(const T* instance)
+        {
+            return instance ? RefUtils::LiveGeneration(instance) : 0;
+        }
+
         T* m_Instance = nullptr;
+        // Which object at m_Instance this refers to; 0 refers to none.
+        u64 m_Generation = 0;
     };
 
 } // namespace OloEngine

@@ -136,6 +136,15 @@ namespace OloEngine
             return m_EditorConsoleLogger;
         }
 
+        // Attach or detach an extra sink on all three loggers while other threads
+        // are logging. A logger reads its own sink list (logger->sinks()) without
+        // a lock on every log call, so adding to or erasing from that list at run
+        // time races those reads. These go through one mutex-guarded sink that
+        // the three loggers share. DetachSink returns once no log call is inside
+        // the sink any more.
+        void AttachSink(const spdlog::sink_ptr& sink);
+        void DetachSink(const spdlog::sink_ptr& sink);
+
         // Thread-safe readers: lock-free snapshot
         bool HasTag(const std::string& tag) const;
         std::unordered_map<std::string, TagDetails> GetEnabledTags() const; // returns copy
@@ -225,6 +234,8 @@ namespace OloEngine
         std::shared_ptr<spdlog::logger> m_ClientLogger;
         std::shared_ptr<spdlog::logger> m_EditorConsoleLogger;
         std::shared_ptr<spdlog::sinks::ringbuffer_sink<std::mutex>> m_RingbufferSink;
+        // A spdlog::sinks::dist_sink_mt holding the sinks attached at run time.
+        std::shared_ptr<spdlog::sinks::sink> m_AttachedSinks;
 
         // lock-free storage
         mutable std::atomic<std::shared_ptr<TagMap>> m_Tags{ nullptr };

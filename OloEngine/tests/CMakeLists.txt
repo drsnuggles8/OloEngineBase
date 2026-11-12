@@ -226,6 +226,8 @@ add_executable(OloEngine-Tests
 		Async/ExternalMutexTest.cpp
 		Tasks/TaskSystemTest.cpp
 		HAL/ThreadManagerTest.cpp
+		HAL/EventTest.cpp
+		Core/LogAttachedSinkTest.cpp
 		Containers/ConcurrentQueuesTest.cpp
 		Containers/HazardPointerTest.cpp
 		Containers/LinkedListTest.cpp

@@ -108,7 +108,7 @@ namespace OloEngine::Tasks::Private
     // FTaskBase pipe-related method implementations
     // ============================================================================
 
-    FTaskBase* FTaskBase::TryPushIntoPipe()
+    bool FTaskBase::TryPushIntoPipe()
     {
         return m_Pipe->PushIntoPipe(*this);
     }

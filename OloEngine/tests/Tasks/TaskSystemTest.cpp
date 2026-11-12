@@ -1710,6 +1710,186 @@ TEST_F(WorkerRestartTest, RestartWorkersAndExternalThreads)
     EXPECT_EQ(state->CallbackExecutions.load(std::memory_order_relaxed), 1u);
 }
 
+// A worker that waits for a task parks through the ParkingLot, and opens an
+// oversubscription scope from inside it, after its wait node was queued. When
+// that reaches the oversubscription limit, the limit event is broadcast under a
+// lock, and that lock must not park the thread through the ParkingLot a second
+// time: the second park overwrote the queued node. Here the first broadcast
+// holds the lock (its callback sleeps) while another worker reaches the limit
+// again. The workers block on task events because those park through the
+// ParkingLot; an FManualResetEvent waits on its own futex and queues no node.
+TEST_F(WorkerRestartTest, ReachingTheOversubscriptionLimitWhileParkedDoesNotParkAgain)
+{
+    LowLevelTasks::FScheduler& scheduler = LowLevelTasks::FScheduler::Get();
+    scheduler.RestartWorkers(2, 0);
+    struct RestoreWorkers
+    {
+        ~RestoreWorkers()
+        {
+            LowLevelTasks::FScheduler::Get().GetOversubscriptionLimitReachedEvent().Clear();
+            LowLevelTasks::FScheduler::Get().RestartWorkers();
+        }
+    } restore;
+
+    constexpr i32 MaxTasks = 32;
+    struct SharedState
+    {
+        std::atomic<i32> Broadcasts{ 0 };
+        std::atomic<bool> FirstBroadcastDone{ false };
+        std::atomic<bool> SecondWaitBeganDuringFirstBroadcast{ false };
+        std::atomic<i32> Started{ 0 };
+        std::atomic<i32> Finished{ 0 };
+        std::vector<FTaskEvent> Release;
+        FTaskEvent SecondRelease{ "SecondRelease" };
+    };
+    auto state = std::make_shared<SharedState>();
+    for (i32 index = 0; index < MaxTasks; ++index)
+    {
+        state->Release.emplace_back("Release");
+    }
+
+    scheduler.GetOversubscriptionLimitReachedEvent().Add(
+        [state]
+        {
+            if (state->Broadcasts.fetch_add(1, std::memory_order_relaxed) == 0)
+            {
+                // Hold the event's lock while another worker reaches the limit.
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                state->FirstBroadcastDone.store(true, std::memory_order_release);
+            }
+        });
+
+    // Block one worker after another until the limit is reached.
+    i32 launched = 0;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (state->Broadcasts.load(std::memory_order_relaxed) == 0 && launched < MaxTasks &&
+           std::chrono::steady_clock::now() < deadline)
+    {
+        const i32 index = launched++;
+        Launch("BlocksAWorker", [state, index]
+               {
+                   state->Started.fetch_add(1, std::memory_order_relaxed);
+                   state->Release[static_cast<sizet>(index)].Wait();
+                   if (index == 0)
+                   {
+                       state->SecondWaitBeganDuringFirstBroadcast.store(
+                           !state->FirstBroadcastDone.load(std::memory_order_acquire), std::memory_order_relaxed);
+                       state->SecondRelease.Wait();
+                   }
+                   state->Finished.fetch_add(1, std::memory_order_relaxed); });
+        while (state->Started.load(std::memory_order_relaxed) < launched && state->Broadcasts.load(std::memory_order_relaxed) == 0 &&
+               std::chrono::steady_clock::now() < deadline)
+        {
+            std::this_thread::yield();
+        }
+        // Give the task time to block, which is what counts towards the limit.
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+
+    // Every blocked task is released before the test ends, on every path:
+    // RestoreWorkers stops the workers, which joins them.
+    const auto releaseAll = [&state]
+    {
+        for (i32 index = 0; index < MaxTasks; ++index)
+        {
+            state->Release[static_cast<sizet>(index)].Trigger();
+        }
+        state->SecondRelease.Trigger();
+    };
+    const bool bReachedTheLimit = state->Broadcasts.load() > 0;
+    if (bReachedTheLimit)
+    {
+        // The first broadcast is asleep under the lock. Wake the first task: it
+        // blocks again at once, reaches the limit again and has to wait for that lock.
+        state->Release[0].Trigger();
+        while (!state->FirstBroadcastDone.load(std::memory_order_acquire))
+        {
+            std::this_thread::yield();
+        }
+    }
+    releaseAll();
+
+    const auto finishDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (state->Finished.load(std::memory_order_relaxed) < launched && std::chrono::steady_clock::now() < finishDeadline)
+    {
+        std::this_thread::yield();
+    }
+    EXPECT_EQ(state->Finished.load(), launched) << "a blocked task never woke";
+    ASSERT_TRUE(bReachedTheLimit) << "blocking " << launched << " workers never reached the oversubscription limit";
+    EXPECT_TRUE(state->SecondWaitBeganDuringFirstBroadcast.load())
+        << "the second limit was not reached while the first broadcast held the lock, so nothing was tested";
+}
+
+// RestartWorkers has to wake a worker for a task that was queued while it ran.
+// A thread launching during the restart queues its task and wakes no one; the
+// new workers scan the queues once when they start, and a task queued after
+// that scan sat there until some unrelated launch woke a worker.
+//
+// The launcher never waits on its task through the scheduler: Wait() retracts
+// the task and runs it inline, which hides a missed wake-up. That is why
+// RestartWorkersAndExternalThreads above cannot see this.
+TEST_F(WorkerRestartTest, ATaskLaunchedDuringARestartRunsWithoutAnotherLaunch)
+{
+    struct SharedState
+    {
+        std::atomic<bool> Exit{ false };
+        std::atomic<u32> Launched{ 0 };
+        std::atomic<u32> Executed{ 0 };
+    };
+    auto state = std::make_shared<SharedState>();
+    struct RestoreWorkers
+    {
+        ~RestoreWorkers()
+        {
+            LowLevelTasks::FScheduler::Get().RestartWorkers();
+        }
+    } restore;
+
+    // One task at a time, so a task that is not woken for stays the only one.
+    std::thread launcher(
+        [state]
+        {
+            while (!state->Exit.load(std::memory_order_relaxed))
+            {
+                state->Launched.fetch_add(1, std::memory_order_relaxed);
+                Launch("FireAndForget", [state]
+                       { state->Executed.fetch_add(1, std::memory_order_relaxed); });
+                while (state->Executed.load(std::memory_order_relaxed) != state->Launched.load(std::memory_order_relaxed) &&
+                       !state->Exit.load(std::memory_order_relaxed))
+                {
+                    std::this_thread::yield();
+                }
+            }
+        });
+
+    constexpr i32 NumIterations = 1000;
+    i32 stalledAfterRestart = -1;
+    for (i32 Index = 0; Index < NumIterations && stalledAfterRestart < 0; ++Index)
+    {
+        LowLevelTasks::FScheduler::Get().RestartWorkers(0, 4);
+
+        // Whatever was launched during this restart has to run before the next
+        // one, whose fresh workers would find it in their first scan.
+        const u32 launched = state->Launched.load(std::memory_order_relaxed);
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (state->Executed.load(std::memory_order_relaxed) < launched)
+        {
+            if (std::chrono::steady_clock::now() > deadline)
+            {
+                stalledAfterRestart = Index;
+                break;
+            }
+            std::this_thread::yield();
+        }
+    }
+
+    state->Exit.store(true, std::memory_order_relaxed);
+    launcher.join();
+    EXPECT_EQ(stalledAfterRestart, -1)
+        << "a task launched while the workers restarted was still queued 2 s after restart " << stalledAfterRestart
+        << " returned, with every worker asleep";
+}
+
 TEST_F(WorkerRestartTest, BackgroundWithNormalAsPrereq)
 {
     // This test will force the scheduling of a background task from the normal task
@@ -1736,4 +1916,49 @@ TEST_F(WorkerRestartTest, BackgroundWithNormalAsPrereq)
             std::this_thread::yield();
         }
     }
+}
+
+// ============================================================================
+// Scheduler state at thread exit
+// ============================================================================
+
+class SchedulerThreadExitTest : public TaskTestBase
+{
+};
+
+namespace
+{
+    struct FAsksWhetherItIsAWorkerWhenDestroyed
+    {
+        std::atomic<i32>* Answer = nullptr;
+
+        ~FAsksWhetherItIsAWorkerWhenDestroyed()
+        {
+            Answer->store(LowLevelTasks::FScheduler::Get().IsWorkerThread() ? 1 : 0, std::memory_order_relaxed);
+        }
+    };
+} // namespace
+
+// Code that runs after a thread's scheduler values are destroyed still asks
+// whether it is on a worker: a task drained by ~FScheduler does, from
+// ExecuteTask and from IsInWorkerThread or ParallelFor in its body. The answer
+// is no, not a read through the destroyed holder.
+//
+// thread_local destructors run in reverse order of construction, so the object
+// below, constructed before the thread first uses the scheduler, is destroyed
+// after the scheduler's values where thread_locals are constructed on first
+// use (Linux). Under the MSVC ABI the scheduler's holder is constructed when
+// the thread starts, and this is the plain case.
+TEST_F(SchedulerThreadExitTest, IsWorkerThreadAnswersAfterTheThreadsSchedulerValuesAreGone)
+{
+    std::atomic<i32> answer{ -1 };
+    std::thread thread(
+        [&answer]
+        {
+            thread_local FAsksWhetherItIsAWorkerWhenDestroyed asksWhenDestroyed;
+            asksWhenDestroyed.Answer = &answer;
+            Launch("UsesTheSchedulerValues", []() {}).Wait();
+        });
+    thread.join();
+    EXPECT_EQ(answer.load(), 0);
 }

@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Core/MonotonicTime.h"
 #include "OloEngine/Templates/FunctionWithContext.h"
+#include <atomic>
 
 namespace OloEngine::ParkingLot
 {
@@ -29,6 +30,11 @@ namespace OloEngine::ParkingLot
     // ============================================================================
     namespace Private
     {
+        // Tests only. Called on the waking thread after it has cleared a woken
+        // thread's wait address and before it notifies that thread's event, so a
+        // test can hold the waker in that gap. Null outside tests.
+        extern std::atomic<void (*)()> GBetweenClearAndNotifyForTest;
+
         // Wait until woken by a WakeOne/WakeAll call for the given address.
         //
         // @param Address The address to wait on (used as a hash key)

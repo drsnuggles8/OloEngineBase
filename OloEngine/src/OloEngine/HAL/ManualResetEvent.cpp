@@ -138,21 +138,10 @@ namespace OloEngine
             return true;
         }
 
-        LowLevelTasks::FOversubscriptionScope Scope;
-
-        const f64 WaitSeconds = WaitTime.ToSeconds();
-        timespec TimeSpec = SecondsToTimeSpec(WaitSeconds);
-
-        // FUTEX_WAIT_PRIVATE with timeout (relative time)
-        syscall(SYS_futex, &m_State, FUTEX_WAIT_PRIVATE, 0, &TimeSpec, nullptr, 0);
-
-        LocalState = m_State.load(std::memory_order_acquire);
-        if (LocalState != 0)
-        {
-            return true;
-        }
-
-        // Handle a spurious wake by waiting until the wait time has elapsed
+        // One deadline, fixed now. Waiting the span once and then calling
+        // WaitUntilSlow(Now() + WaitTime) "for a spurious wake" also ran after a
+        // real timeout, where the state is unchanged too, so every timed-out
+        // wait lasted twice as long as asked.
         return WaitUntilSlow(FMonotonicTimePoint::Now() + WaitTime);
     }
 
@@ -180,18 +169,15 @@ namespace OloEngine
             }
             else
             {
-                // Get absolute time for FUTEX_WAIT_BITSET_PRIVATE with CLOCK_REALTIME
-                // Note: FUTEX_WAIT_BITSET_PRIVATE with FUTEX_CLOCK_REALTIME uses absolute time
-                const f64 AbsoluteSeconds = FPlatformTime::Seconds() + WaitSpan.ToSeconds();
-                timespec AbsTimeSpec = SecondsToTimeSpec(AbsoluteSeconds);
-
-                // Use FUTEX_WAIT_BITSET_PRIVATE which supports absolute timeouts
-                // FUTEX_BITSET_MATCH_ANY (0xFFFFFFFF) matches any bit
-#ifndef FUTEX_BITSET_MATCH_ANY
-                constexpr u32 FUTEX_BITSET_MATCH_ANY = 0xFFFFFFFF;
-#endif
-                syscall(SYS_futex, &m_State, FUTEX_WAIT_BITSET_PRIVATE | FUTEX_CLOCK_REALTIME,
-                        0, &AbsTimeSpec, nullptr, FUTEX_BITSET_MATCH_ANY);
+                // FUTEX_WAIT takes a relative timeout on the monotonic clock: the
+                // span left until the deadline, worked out again on every pass, so
+                // a spurious wake or EINTR waits only for the remainder. The
+                // absolute form needs a wall-clock time; FPlatformTime::Seconds()
+                // counts from the first call, which as a wall-clock time lies in
+                // 1970, so that wait returned at once and this loop spun on the
+                // syscall until the deadline.
+                timespec TimeSpec = SecondsToTimeSpec(WaitSpan.ToSeconds());
+                syscall(SYS_futex, &m_State, FUTEX_WAIT_PRIVATE, 0, &TimeSpec, nullptr, 0);
             }
         }
     }

@@ -377,18 +377,21 @@ namespace OloEngine::LowLevelTasks
             //         not added and the caller must not treat it as steal-able by other threads.
             bool AddLocalQueue(TLocalQueue* QueueToAdd)
             {
-                u32 Index = m_NumLocalQueues.fetch_add(1, std::memory_order_relaxed);
-                if (Index >= MaxLocalQueues)
+                // Reserve an index only while one is free, so the count never passes
+                // MaxLocalQueues. StealItem walks m_LocalQueues up to the count; an
+                // add-then-undo here let it read one slot past the array.
+                //
+                // A full registry is a handled, recoverable condition (the caller falls
+                // back to running without work-stealing support), not a programmer
+                // error, so it is reported rather than asserted/debug-broken.
+                u32 Index = m_NumLocalQueues.load(std::memory_order_relaxed);
+                do
                 {
-                    // Registry is at capacity. This is a handled, recoverable condition (the
-                    // caller falls back to running without work-stealing support), not a
-                    // programmer error, so it is reported rather than asserted/debug-broken.
-                    // Undo the reservation so a burst of failed registrations doesn't leave the
-                    // counter climbing forever (it would otherwise never allow future callers to
-                    // observe a stable NumQueues either, since fetch_add never wraps back down).
-                    m_NumLocalQueues.fetch_sub(1, std::memory_order_relaxed);
-                    return false;
-                }
+                    if (Index >= MaxLocalQueues)
+                    {
+                        return false;
+                    }
+                } while (!m_NumLocalQueues.compare_exchange_weak(Index, Index + 1, std::memory_order_relaxed));
 
                 // std::memory_order_release to make sure values are all written to the TLocalQueue before publishing.
                 m_LocalQueues[Index].store(QueueToAdd, std::memory_order_release);

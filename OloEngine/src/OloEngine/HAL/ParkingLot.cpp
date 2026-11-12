@@ -668,6 +668,15 @@ namespace OloEngine::ParkingLot
 
     namespace Private
     {
+        std::atomic<void (*)()> GBetweenClearAndNotifyForTest{ nullptr };
+
+        static void BetweenClearAndNotify()
+        {
+            if (void (*const Hook)() = GBetweenClearAndNotifyForTest.load(std::memory_order_acquire))
+            {
+                Hook();
+            }
+        }
 
         FWaitState Wait(
             const void* Address,
@@ -688,6 +697,13 @@ namespace OloEngine::ParkingLot
                 {
                     return State;
                 }
+                // A thread's one wait node can be queued once. Parking again
+                // before the first wait has returned (a blocking call made from
+                // inside Event.Wait, such as a contended ParkingLot-based lock taken
+                // in FOversubscriptionScope's constructor) would overwrite the
+                // queued node and cut the bucket's list behind it.
+                OLO_CORE_ASSERT(Self->WaitAddress.load(std::memory_order_relaxed) == nullptr,
+                                "ParkingLot: this thread parked again while its wait node is still queued");
                 Self->WaitAddress.store(Address, std::memory_order_relaxed);
                 Self->Event.Reset();
                 Bucket.Enqueue(Self.Get());
@@ -732,6 +748,13 @@ namespace OloEngine::ParkingLot
                 {
                     return State;
                 }
+                // A thread's one wait node can be queued once. Parking again
+                // before the first wait has returned (a blocking call made from
+                // inside Event.Wait, such as a contended ParkingLot-based lock taken
+                // in FOversubscriptionScope's constructor) would overwrite the
+                // queued node and cut the bucket's list behind it.
+                OLO_CORE_ASSERT(Self->WaitAddress.load(std::memory_order_relaxed) == nullptr,
+                                "ParkingLot: this thread parked again while its wait node is still queued");
                 Self->WaitAddress.store(Address, std::memory_order_relaxed);
                 Self->Event.Reset();
                 Bucket.Enqueue(Self.Get());
@@ -749,6 +772,12 @@ namespace OloEngine::ParkingLot
             // WaitAddress is reset when the thread is dequeued
             if (!Self->WaitAddress.load(std::memory_order_relaxed))
             {
+                // The waker clears WaitAddress and then notifies the event. A
+                // timeout that fires between the two lands here before the Notify,
+                // so take it now. Left pending, it arrived during this thread's next
+                // park, after that park's Reset: an untimed Wait then returned as
+                // woken with its node still queued.
+                Self->Event.Wait();
                 State.bDidWake = true;
                 State.WakeToken = Self->WakeToken;
                 Self->WakeToken = 0;
@@ -848,6 +877,7 @@ namespace OloEngine::ParkingLot
             {
                 WakeThread->WakeToken = WakeToken;
                 WakeThread->WaitAddress.store(nullptr, std::memory_order_relaxed);
+                BetweenClearAndNotify();
                 WakeThread->Event.Notify();
             }
         }
@@ -869,6 +899,13 @@ namespace OloEngine::ParkingLot
 
     u32 WakeMultiple(const void* Address, u32 WakeCount)
     {
+        // The dequeue below compares the count after adding a thread, so a count
+        // of zero would never match and wake every waiter.
+        if (WakeCount == 0)
+        {
+            return 0;
+        }
+
         TArray<TRefCountPtr<FThread>> WakeThreads;
         WakeThreads.Reserve(FMath::Min(WakeCount, 128u));
 
@@ -893,6 +930,7 @@ namespace OloEngine::ParkingLot
         for (const auto& WakeThread : WakeThreads)
         {
             WakeThread->WaitAddress.store(nullptr, std::memory_order_relaxed);
+            Private::BetweenClearAndNotify();
             WakeThread->Event.Notify();
         }
 

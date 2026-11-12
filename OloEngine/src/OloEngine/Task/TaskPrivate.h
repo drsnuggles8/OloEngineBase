@@ -674,7 +674,18 @@ namespace OloEngine::Tasks
             void ClearPipe();
             void StartPipeExecution();
             void FinishPipeExecution();
-            FTaskBase* TryPushIntoPipe();
+            // @return true if this task now waits for the task ahead of it in its pipe
+            bool TryPushIntoPipe();
+
+            // @brief Record the task ahead of this one in its pipe as a prerequisite
+            //
+            // For FPipe, which calls it before making this task that task's
+            // subsequent. The caller has added the reference the prerequisites own.
+            friend class ::OloEngine::Tasks::FPipe;
+            void AddPipePredecessor(FTaskBase& Predecessor)
+            {
+                m_Prerequisites.Push(&Predecessor);
+            }
 
           private:
             bool TryUnlock(bool& bWakeUpWorker)
@@ -700,9 +711,8 @@ namespace OloEngine::Tasks
                         bool bFirstPipingAttempt = LocalNumLocks == 1;
                         if (bFirstPipingAttempt)
                         {
-                            if (FTaskBase* PrevPipedTask = TryPushIntoPipe(); PrevPipedTask != nullptr)
+                            if (TryPushIntoPipe())
                             {
-                                m_Prerequisites.Push(PrevPipedTask);
                                 return false;
                             }
                             m_NumLocks.store(0, std::memory_order_release);

@@ -312,6 +312,14 @@ namespace OloEngine::Tasks
                 // Push to work queue (lock-free)
                 m_WorkQueue.Push(Task);
 
+                // Pairs with the fence in ProcessQueue. Each side writes (this push,
+                // the holder's slot release) and then reads what the other wrote (the
+                // free slots here, the queue there). Without a full fence between the
+                // write and the read on both sides, both can read the old value: this
+                // thread finds no free slot and the holder finds the queue empty, and
+                // the task stays queued with a slot free.
+                std::atomic_thread_fence(std::memory_order_seq_cst);
+
                 // Try to acquire a slot and process
                 u32 ConcurrencySlot;
                 if (m_ConcurrencySlots.Alloc(ConcurrencySlot))
@@ -359,7 +367,19 @@ namespace OloEngine::Tasks
                     {
                         // No more work - release slot
                         m_ConcurrencySlots.Release(ConcurrencySlot);
-                        break;
+
+                        // Pairs with the fence in AddWorkItem.
+                        std::atomic_thread_fence(std::memory_order_seq_cst);
+
+                        // A push that finds every slot taken leaves its task to the
+                        // slot holders. This holder saw the queue empty before such a
+                        // push and has now given its slot up, so nobody was left to
+                        // launch that task. Look again: if work arrived, the loop
+                        // condition takes a slot back for it.
+                        if (m_WorkQueue.IsEmpty())
+                        {
+                            break;
+                        }
                     }
 
                     // Don't skip wake-up if we launch any additional tasks
