@@ -11,6 +11,11 @@
 // this binding was built against" and the coat stands at its bind pose while
 // the body walks (#1259 saw it for both horses).
 //
+// Groom/ShippedGroomBindingTest.cpp checks the same bindings with no graphics
+// device, where AnimatedModel optimises the mesh itself. This test keeps the
+// GPU gate on purpose: with a device the import optimises inside
+// MeshSource::Build instead, and that path must give the cooked surface too.
+//
 // Each model is copied into this test's temp directory, as
 // AnimatedModelCacheSurfaceTest does, so invalidating its cache cannot pull
 // the committed model's cache out from under another test process.
@@ -26,6 +31,7 @@
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Groom/GroomMeshSurface.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
@@ -53,22 +59,6 @@ namespace OloEngine::Tests
     namespace
     {
         namespace fs = std::filesystem;
-
-        // The surface exactly as Scene::MakeGroomSurfaceView builds it.
-        [[nodiscard]] GroomSurfaceView SurfaceView(const MeshSource& surface, const Skeleton* skeleton)
-        {
-            GroomSurfaceView view;
-            const auto& vertices = surface.GetVertices();
-            const auto& indices = surface.GetIndices();
-            view.PositionData = reinterpret_cast<const std::byte*>(vertices.GetData());
-            view.PositionStride = static_cast<u32>(sizeof(Vertex));
-            view.VertexCount = static_cast<u32>(vertices.Num());
-            view.Indices = indices.GetData();
-            view.IndexCount = static_cast<u32>(indices.Num());
-            view.BoneCount = skeleton != nullptr ? static_cast<u32>(skeleton->m_FinalBoneMatrices.size()) : 0u;
-            view.SkeletonNameHash = skeleton != nullptr ? HashGroomSkeletonNames(skeleton->m_BoneNames) : 0u;
-            return view;
-        }
 
         [[nodiscard]] std::string Describe(const GroomBindingTargetSignature& s)
         {
@@ -134,9 +124,9 @@ namespace OloEngine::Tests
             ASSERT_TRUE(warm->WasMeshLoadedFromCache());
 
             const GroomBindingTargetSignature coldSignature =
-                GroomBindingBuilder::SignTarget(SurfaceView(*cold->GetEntityMeshSource(), cold->GetSkeleton().Raw()));
+                GroomBindingBuilder::SignTarget(MakeGroomSurfaceView(*cold->GetEntityMeshSource(), cold->GetSkeleton().Raw()));
             const GroomBindingTargetSignature warmSignature =
-                GroomBindingBuilder::SignTarget(SurfaceView(*warm->GetEntityMeshSource(), warm->GetSkeleton().Raw()));
+                GroomBindingBuilder::SignTarget(MakeGroomSurfaceView(*warm->GetEntityMeshSource(), warm->GetSkeleton().Raw()));
             std::printf("[cooked-binding] %s cold: %s\n", subject.ModelFile, Describe(coldSignature).c_str());
             std::printf("[cooked-binding] %s warm: %s\n", subject.ModelFile, Describe(warmSignature).c_str());
             EXPECT_TRUE(coldSignature.MatchesTopology(warmSignature))

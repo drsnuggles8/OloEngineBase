@@ -29,6 +29,7 @@
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Groom/GroomMeshSurface.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
@@ -58,22 +59,6 @@ namespace OloEngine::Tests
         namespace fs = std::filesystem;
 
         const fs::path kGrooms = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject/Assets/Grooms";
-
-        // The surface exactly as Scene::MakeGroomSurfaceView builds it.
-        [[nodiscard]] GroomSurfaceView SurfaceView(const MeshSource& surface, const Skeleton* skeleton)
-        {
-            GroomSurfaceView view;
-            const auto& vertices = surface.GetVertices();
-            const auto& indices = surface.GetIndices();
-            view.PositionData = reinterpret_cast<const std::byte*>(vertices.GetData());
-            view.PositionStride = static_cast<u32>(sizeof(Vertex));
-            view.VertexCount = static_cast<u32>(vertices.Num());
-            view.Indices = indices.GetData();
-            view.IndexCount = static_cast<u32>(indices.Num());
-            view.BoneCount = skeleton != nullptr ? static_cast<u32>(skeleton->m_FinalBoneMatrices.size()) : 0u;
-            view.SkeletonNameHash = skeleton != nullptr ? HashGroomSkeletonNames(skeleton->m_BoneNames) : 0u;
-            return view;
-        }
 
         [[nodiscard]] std::string Describe(const GroomBindingTargetSignature& s)
         {
@@ -216,14 +201,14 @@ namespace OloEngine::Tests
             const Ref<AnimatedModel> cold = Ref<AnimatedModel>::Create(path.string());
             ASSERT_TRUE(cold->GetEntityMeshSource() && cold->GetSkeleton()) << body.ModelFile;
             ASSERT_FALSE(cold->WasMeshLoadedFromCache());
-            coldSignature = GroomBindingBuilder::SignTarget(SurfaceView(*cold->GetEntityMeshSource(), cold->GetSkeleton().Raw()));
+            coldSignature = GroomBindingBuilder::SignTarget(MakeGroomSurfaceView(*cold->GetEntityMeshSource(), cold->GetSkeleton().Raw()));
             PrintSubmeshIndexHashes(body.ModelFile, *cold->GetEntityMeshSource());
         }
         {
             const Ref<AnimatedModel> warm = Ref<AnimatedModel>::Create(path.string());
             ASSERT_TRUE(warm->GetEntityMeshSource() && warm->GetSkeleton()) << body.ModelFile;
             ASSERT_TRUE(warm->WasMeshLoadedFromCache());
-            warmSignature = GroomBindingBuilder::SignTarget(SurfaceView(*warm->GetEntityMeshSource(), warm->GetSkeleton().Raw()));
+            warmSignature = GroomBindingBuilder::SignTarget(MakeGroomSurfaceView(*warm->GetEntityMeshSource(), warm->GetSkeleton().Raw()));
         }
         std::printf("[shipped-binding] %s cold: %s\n", body.ModelFile, Describe(coldSignature).c_str());
         std::printf("[shipped-binding] %s warm: %s\n", body.ModelFile, Describe(warmSignature).c_str());

@@ -24,6 +24,7 @@
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Groom/GroomAsset.h"
+#include "OloEngine/Groom/GroomMeshSurface.h"
 #include "OloEngine/Groom/GroomPreview.h"
 #include "OloEngine/Groom/GroomWetness.h"
 #include "OloEngine/Physics3D/WaterProbe.h"
@@ -9775,46 +9776,6 @@ namespace OloEngine
                     break;
             }
             return GroomHistoryResetCause::BindingChanged;
-        }
-
-        // Identity of the skeleton behind a surface, for
-        // GroomBindingTargetSignature::SkeletonNameHash. Forwards to the one
-        // implementation (GroomSurfaceFrame.h) so the runtime and the editor
-        // cannot drift by a byte.
-        [[nodiscard]] u64 HashSkeletonIdentity(const Skeleton* skeleton)
-        {
-            return skeleton != nullptr ? HashGroomSkeletonNames(skeleton->m_BoneNames) : 0u;
-        }
-
-        // The surface as the binder and the deformation both see it.
-        //
-        // The positions are the mesh's LIVE vertex array, which the morph pass
-        // has already deformed in place — that is what makes a facial morph
-        // reach the coat with no morph-specific code in the groom at all. The
-        // INDEX hash is recomputed here every frame and that is deliberate: it
-        // is the one topology check that survives morphing, so it has to be
-        // taken from the same array the deformation will read rather than from
-        // something cached beside it.
-        [[nodiscard]] GroomSurfaceView MakeGroomSurfaceView(const MeshSource& surface, const Skeleton* skeleton)
-        {
-            GroomSurfaceView view;
-            const auto& vertices = surface.GetVertices();
-            const auto& indices = surface.GetIndices();
-            if (vertices.IsEmpty() || indices.IsEmpty())
-            {
-                return view;
-            }
-
-            static_assert(offsetof(Vertex, Position) == 0,
-                          "GroomSurfaceView addresses positions at the start of a Vertex");
-            view.PositionData = reinterpret_cast<const std::byte*>(vertices.GetData());
-            view.PositionStride = static_cast<u32>(sizeof(Vertex));
-            view.VertexCount = static_cast<u32>(vertices.Num());
-            view.Indices = indices.GetData();
-            view.IndexCount = static_cast<u32>(indices.Num());
-            view.BoneCount = skeleton != nullptr ? static_cast<u32>(skeleton->m_FinalBoneMatrices.size()) : 0u;
-            view.SkeletonNameHash = HashSkeletonIdentity(skeleton);
-            return view;
         }
 
         // The bone influences as the deformation sees them.

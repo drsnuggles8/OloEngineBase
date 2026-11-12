@@ -53,6 +53,7 @@
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Core/BuildInfo.h"
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Groom/GroomMeshSurface.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
@@ -429,21 +430,6 @@ namespace OloEngine::Tests
             out.Guides = out.Groom->GetGuideCount();
             out.Cards = out.Groom->GetLodLevels().empty() ? 0u : out.Groom->GetLodLevels().front().GetCurveCount();
             return out;
-        }
-
-        [[nodiscard]] GroomSurfaceView MakeSurfaceView(const MeshSource& surface, const Skeleton* skeleton)
-        {
-            GroomSurfaceView view;
-            const auto& vertices = surface.GetVertices();
-            const auto& indices = surface.GetIndices();
-            view.PositionData = reinterpret_cast<const std::byte*>(vertices.GetData());
-            view.PositionStride = static_cast<u32>(sizeof(Vertex));
-            view.VertexCount = static_cast<u32>(vertices.Num());
-            view.Indices = indices.GetData();
-            view.IndexCount = static_cast<u32>(indices.Num());
-            view.BoneCount = skeleton != nullptr ? static_cast<u32>(skeleton->m_FinalBoneMatrices.size()) : 0u;
-            view.SkeletonNameHash = skeleton != nullptr ? HashGroomSkeletonNames(skeleton->m_BoneNames) : 0u;
-            return view;
         }
 
         // The bare skins' profiles, patched over the imported materials by name.
@@ -1292,7 +1278,7 @@ namespace OloEngine::Tests
             std::string reason;
             if (DogCoatFromAbc())
             {
-                ASSERT_TRUE(GroomBindingCooker::CookPair(*d.CoatAsset.Groom, MakeSurfaceView(*surface, &skeleton), "Dog", bind,
+                ASSERT_TRUE(GroomBindingCooker::CookPair(*d.CoatAsset.Groom, MakeGroomSurfaceView(*surface, &skeleton), "Dog", bind,
                                                          bytes, d.Binding, stats, reason))
                     << reason;
             }
@@ -1309,7 +1295,7 @@ namespace OloEngine::Tests
             }
             ASSERT_TRUE(GroomBindingSerializer::DecodeFromBytes(bytes.data(), bytes.size(), d.Binding, reason)) << reason;
             ASSERT_EQ(d.Binding->CheckCompatibility(GroomBindingBuilder::SignGroom(*d.CoatAsset.Groom),
-                                                    GroomBindingBuilder::SignTarget(MakeSurfaceView(*surface, &skeleton))),
+                                                    GroomBindingBuilder::SignTarget(MakeGroomSurfaceView(*surface, &skeleton))),
                       GroomBindingRejectReason::None)
                 << "the shipped binding must match the shipped mesh and full coat";
             d.GroomHandle = AssetManager::AddMemoryOnlyAsset<GroomAsset>(d.CoatAsset.Groom);
@@ -3962,7 +3948,7 @@ namespace OloEngine::Tests
             GroomBindingBuildStats stats;
             Ref<GroomBindingAsset> binding;
             std::string reason;
-            ASSERT_TRUE(GroomBindingCooker::CookPair(*groom, MakeSurfaceView(*surface, &skeleton), "DogPlanted", bind,
+            ASSERT_TRUE(GroomBindingCooker::CookPair(*groom, MakeGroomSurfaceView(*surface, &skeleton), "DogPlanted", bind,
                                                      bytes, binding, stats, reason))
                 << reason;
             ASSERT_TRUE(GroomBindingSerializer::DecodeFromBytes(bytes.data(), bytes.size(), binding, reason)) << reason;
@@ -9295,7 +9281,7 @@ namespace OloEngine::Tests
             const Ref<AnimatedModel> bindModel = Ref<AnimatedModel>::Create(DogPath().string());
             ASSERT_TRUE(bindModel && bindModel->GetEntityMeshSource() && bindModel->GetSkeleton());
             ASSERT_TRUE(GroomBindingCooker::CookPair(*m_Dog.CoatAsset.Groom,
-                                                     MakeSurfaceView(*bindModel->GetEntityMeshSource(), bindModel->GetSkeleton().Raw()),
+                                                     MakeGroomSurfaceView(*bindModel->GetEntityMeshSource(), bindModel->GetSkeleton().Raw()),
                                                      "Dog", bind, again, recookedBinding, bindStats, reason))
                 << reason;
             EXPECT_EQ(again, bindingBytes) << "the shipped binding is not the one Dog.gltf cooks today: re-export with "
@@ -9384,7 +9370,7 @@ namespace OloEngine::Tests
             const Ref<AnimatedModel> reloaded = Ref<AnimatedModel>::Create(DogPath().string());
             ASSERT_TRUE(reloaded);
             ASSERT_FALSE(reloaded->GetMeshes().empty());
-            const GroomSurfaceView view = MakeSurfaceView(*reloaded->GetEntityMeshSource(), reloaded->GetSkeleton().Raw());
+            const GroomSurfaceView view = MakeGroomSurfaceView(*reloaded->GetEntityMeshSource(), reloaded->GetSkeleton().Raw());
             EXPECT_EQ(packedBinding->CheckCompatibility(groomSignature, GroomBindingBuilder::SignTarget(view)),
                       GroomBindingRejectReason::None)
                 << "the shipped binding must accept a " << which << " load of Dog.gltf";

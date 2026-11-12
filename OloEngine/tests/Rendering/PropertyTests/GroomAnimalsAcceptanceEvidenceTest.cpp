@@ -42,6 +42,7 @@
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Asset/Interchange/Alembic/AlembicGroomImporter.h"
+#include "OloEngine/Groom/GroomMeshSurface.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
@@ -759,21 +760,6 @@ namespace OloEngine::Tests
             return out;
         }
 
-        [[nodiscard]] GroomSurfaceView MakeSurfaceView(const MeshSource& surface, const Skeleton* skeleton)
-        {
-            GroomSurfaceView view;
-            const auto& vertices = surface.GetVertices();
-            const auto& indices = surface.GetIndices();
-            view.PositionData = reinterpret_cast<const std::byte*>(vertices.GetData());
-            view.PositionStride = static_cast<u32>(sizeof(Vertex));
-            view.VertexCount = static_cast<u32>(vertices.Num());
-            view.Indices = indices.GetData();
-            view.IndexCount = static_cast<u32>(indices.Num());
-            view.BoneCount = skeleton != nullptr ? static_cast<u32>(skeleton->m_FinalBoneMatrices.size()) : 0u;
-            view.SkeletonNameHash = skeleton != nullptr ? HashGroomSkeletonNames(skeleton->m_BoneNames) : 0u;
-            return view;
-        }
-
         // WIDTHS CARRY COVERAGE. A real horse has thousands of hairs per cm²;
         // these coats have a few, so each strand stands for a lock and is
         // authored several times thicker than one hair. At a real 0.1-0.3 mm
@@ -1153,7 +1139,7 @@ namespace OloEngine::Tests
             Ref<GroomBindingAsset> binding;
             GroomBindingBuildStats stats;
             std::string reason;
-            ASSERT_TRUE(GroomBindingCooker::CookPair(*out.Grown.Groom, MakeSurfaceView(*surface, skeleton), name.c_str(),
+            ASSERT_TRUE(GroomBindingCooker::CookPair(*out.Grown.Groom, MakeGroomSurfaceView(*surface, skeleton), name.c_str(),
                                                      bind, bytes, binding, stats, reason))
                 << reason;
             ASSERT_TRUE(GroomBindingSerializer::DecodeFromBytes(bytes.data(), bytes.size(), out.Binding, reason))
@@ -3256,7 +3242,7 @@ namespace OloEngine::Tests
                 ASSERT_TRUE(reloaded);
                 ASSERT_FALSE(reloaded->GetMeshes().empty());
                 const MeshSource& body = *reloaded->GetEntityMeshSource();
-                const GroomSurfaceView view = MakeSurfaceView(body, reloaded->GetSkeleton().Raw());
+                const GroomSurfaceView view = MakeGroomSurfaceView(body, reloaded->GetSkeleton().Raw());
                 EXPECT_EQ(subject->Binding->CheckCompatibility(GroomBindingBuilder::SignGroom(*subject->Grown.Groom),
                                                                GroomBindingBuilder::SignTarget(view)),
                           GroomBindingRejectReason::None)
