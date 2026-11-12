@@ -23,12 +23,89 @@ inputs:
 runs:
   using: 'composite'
   steps:
+    # A SAVE THAT ONLY ONE BRANCH CAN READ GOES ONLY INTO ROOM THE STORE HAS (#1682).
+    #
+    # setup-vcpkg emits a save key off master only when the run changed the manifest,
+    # so the entry holds ports master's snapshot lacks. That is worth banking, but it
+    # is readable by that one PR (or branch), and it is big: the renovate baseline
+    # bump #1673 banked five entries, 19481 MiB, on `refs/pull/1673/merge` in one
+    # evening of 2026-11-02. The store was already at 23419 MiB of a 25 GB
+    # (~23841 MiB) cap, and past the cap GitHub evicts in last-access order without
+    # asking which entry matters. By the 01:14 sweep it had evicted nearly every
+    # master entry, among them the Windows sccache, both master vcpkg sets and
+    # `olo-lfs-v1-*`, and four jobs then pulled the full LFS set (~1 GB each) from a
+    # monthly quota of 10 GiB.
+    #
+    # So a non-master save is skipped when it would take the store past
+    # cache-prune.yml's working ceiling (its `headroom_floor_mib`, ~3.8 GiB under the
+    # cap; move both together). The run then rebuilds the changed ports on its next
+    # push, which is the cost this accepts on purpose. A listing it cannot read also
+    # skips the save, with a warning: the fleet's master entries are the side to
+    # protect. Master's own saves are not gated.
+    #
+    # The check alone races. Windows.yml and asan.yml bank the same ~6 GB Windows
+    # set in parallel under two run ids, both read the store before either lands, and
+    # both pass. So after a save the store is listed again, and if it is over the
+    # ceiling this job deletes its OWN entry (deleting needs `actions: write`). Two
+    # racing jobs may then both take theirs back; a rebuild costs less than evicting
+    # master. GitHub's eviction is not immediate (the store sat at 24643 MiB for
+    # hours on 2026-11-01), which is what gives this re-check time to act.
+    - name: Check the store has room for a non-master save
+      id: room
+      if: inputs.key != '' && github.ref != 'refs/heads/master'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        CACHE_PATH: ${{ inputs.path }}
+        CEILING_MIB: '20000'
+      run: |
+        set -euo pipefail
+        entry_mib=$(du -sm "$CACHE_PATH" | cut -f1)
+        # Sum the listing, not /actions/cache/usage: that endpoint lags (cache-prune.yml).
+        if ! used_mib=$(gh api --paginate "repos/${GH_REPO}/actions/caches?per_page=100"               --jq '.actions_caches[].size_in_bytes' | awk '{ s += $1 } END { printf "%d", s / 1048576 }'); then
+          echo "::warning title=vcpkg save skipped::Could not list the Actions cache to check its headroom; the job needs 'actions: read'. Skipping the ${entry_mib} MiB ${GITHUB_REF} save so it cannot push the store past its cap and evict master entries."
+          echo "save=false" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        echo "store ${used_mib} MiB + this entry ~${entry_mib} MiB against the ${CEILING_MIB} MiB working ceiling"
+        if [ $((used_mib + entry_mib)) -gt "$CEILING_MIB" ]; then
+          echo "::warning title=vcpkg save skipped::The store holds ${used_mib} MiB; this ${entry_mib} MiB entry for ${GITHUB_REF} would take it past the ${CEILING_MIB} MiB working ceiling, and past the 25 GB cap GitHub evicts master's entries. This branch rebuilds its changed ports on the next run instead. See docs/agent-rules/actions-cache-budget.md rule 2."
+          echo "save=false" >> "$GITHUB_OUTPUT"
+        else
+          echo "save=true" >> "$GITHUB_OUTPUT"
+        fi
+
     - name: Save vcpkg binary archives
-      if: inputs.key != ''
+      id: save
+      if: inputs.key != '' && steps.room.outputs.save != 'false'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ${{ inputs.path }}
         key: ${{ inputs.key }}
+
+    - name: Take the save back if a parallel save filled the store
+      if: steps.room.outputs.save == 'true' && steps.save.outcome == 'success'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        GH_REPO: ${{ github.repository }}
+        KEY: ${{ inputs.key }}
+        CEILING_MIB: '20000'
+      run: |
+        set -euo pipefail
+        if ! used_mib=$(gh api --paginate "repos/${GH_REPO}/actions/caches?per_page=100"               --jq '.actions_caches[].size_in_bytes' | awk '{ s += $1 } END { printf "%d", s / 1048576 }'); then
+          echo "::warning title=vcpkg save not re-checked::Could not list the Actions cache after saving ${KEY}."
+          exit 0
+        fi
+        if [ "$used_mib" -le "$CEILING_MIB" ]; then
+          echo "store ${used_mib} MiB after the save, within the ${CEILING_MIB} MiB working ceiling; kept"
+          exit 0
+        fi
+        echo "::warning title=vcpkg save taken back::The store reached ${used_mib} MiB after this save, past the ${CEILING_MIB} MiB working ceiling (a parallel save landed too). Deleting this job's own entry ${KEY} on ${GITHUB_REF} before GitHub evicts master's."
+        if ! gh api -X DELETE "repos/${GH_REPO}/actions/caches?key=${KEY}&ref=${GITHUB_REF}" > /dev/null; then
+          echo "::warning title=vcpkg save not taken back::Deleting ${KEY} failed: the save may not have landed, or the job lacks 'actions: write'. The store is over its working ceiling and may evict master entries."
+        fi
 
     - name: Note why the save was skipped
       if: inputs.key == ''

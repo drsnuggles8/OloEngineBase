@@ -58,6 +58,10 @@ concurrency:
 
 permissions:
   contents: read
+  # Lets save-vcpkg-cache list the Actions cache before a non-master save and delete
+  # its own entry if a parallel save filled the store, so a branch cannot evict
+  # master's entries (#1682). Deleting a cache entry is `actions: write`.
+  actions: write
 
 jobs:
   archive:
