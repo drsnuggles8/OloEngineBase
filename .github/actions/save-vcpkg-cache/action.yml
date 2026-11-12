@@ -63,7 +63,7 @@ runs:
         set -euo pipefail
         entry_mib=$(du -sm "$CACHE_PATH" | cut -f1)
         # Sum the listing, not /actions/cache/usage: that endpoint lags (cache-prune.yml).
-        if ! used_mib=$(gh api --paginate "repos/${GH_REPO}/actions/caches?per_page=100"               --jq '.actions_caches[].size_in_bytes' | awk '{ s += $1 } END { printf "%d", s / 1048576 }'); then
+        if ! used_mib=$(gh api --paginate "repos/${GH_REPO}/actions/caches?per_page=100" --jq '.actions_caches[].size_in_bytes' | awk '{ s += $1 } END { printf "%d", s / 1048576 }'); then
           echo "::warning title=vcpkg save skipped::Could not list the Actions cache to check its headroom; the job needs 'actions: read'. Skipping the ${entry_mib} MiB ${GITHUB_REF} save so it cannot push the store past its cap and evict master entries."
           echo "save=false" >> "$GITHUB_OUTPUT"
           exit 0
@@ -94,7 +94,7 @@ runs:
         CEILING_MIB: '20000'
       run: |
         set -euo pipefail
-        if ! used_mib=$(gh api --paginate "repos/${GH_REPO}/actions/caches?per_page=100"               --jq '.actions_caches[].size_in_bytes' | awk '{ s += $1 } END { printf "%d", s / 1048576 }'); then
+        if ! used_mib=$(gh api --paginate "repos/${GH_REPO}/actions/caches?per_page=100" --jq '.actions_caches[].size_in_bytes' | awk '{ s += $1 } END { printf "%d", s / 1048576 }'); then
           echo "::warning title=vcpkg save not re-checked::Could not list the Actions cache after saving ${KEY}."
           exit 0
         fi
@@ -103,9 +103,18 @@ runs:
           exit 0
         fi
         echo "::warning title=vcpkg save taken back::The store reached ${used_mib} MiB after this save, past the ${CEILING_MIB} MiB working ceiling (a parallel save landed too). Deleting this job's own entry ${KEY} on ${GITHUB_REF} before GitHub evicts master's."
-        if ! gh api -X DELETE "repos/${GH_REPO}/actions/caches?key=${KEY}&ref=${GITHUB_REF}" > /dev/null; then
-          echo "::warning title=vcpkg save not taken back::Deleting ${KEY} failed: the save may not have landed, or the job lacks 'actions: write'. The store is over its working ceiling and may evict master entries."
+        # Delete by id, not by `?key=&ref=`: a raw query string would read a `+` in a
+        # branch name as a space and miss the entry. `-X GET -f` encodes the filter,
+        # and the key filter is a prefix match, so the exact key and ref are selected.
+        if ! ids=$(gh api -X GET "repos/${GH_REPO}/actions/caches" -f key="$KEY" -f ref="$GITHUB_REF" -f per_page=100 --jq '.actions_caches[] | select(.key == env.KEY and .ref == env.GITHUB_REF) | .id') || [ -z "$ids" ]; then
+          echo "::warning title=vcpkg save not taken back::Could not find ${KEY} on ${GITHUB_REF} to delete it. The store is over its working ceiling and may evict master entries."
+          exit 0
         fi
+        for id in $ids; do
+          if ! gh api -X DELETE "repos/${GH_REPO}/actions/caches/${id}" > /dev/null; then
+            echo "::warning title=vcpkg save not taken back::Deleting ${KEY} (id ${id}) failed; the job may lack 'actions: write'. The store is over its working ceiling and may evict master entries."
+          fi
+        done
 
     - name: Note why the save was skipped
       if: inputs.key == ''

@@ -109,16 +109,27 @@ runs:
         store_count() { find "$OBJECT_PATH" -type f | wc -l | tr -d ' '; }
         before_bytes=$(store_bytes)
         before_count=$(store_count)
-        git lfs pull
-        git lfs fsck
+        # A pull that downloads half the set and then fails has still spent the
+        # bandwidth, so the failure is held until the bytes are reported.
+        status=0
+        failed=""
+        git lfs pull || { status=$?; failed="git lfs pull"; }
+        if [ "$status" -eq 0 ]; then
+          git lfs fsck || { status=$?; failed="git lfs fsck"; }
+        fi
         fetched_bytes=$(( $(store_bytes) - before_bytes ))
         fetched_count=$(( $(store_count) - before_count ))
         fetched_mib=$(awk -v b="$fetched_bytes" 'BEGIN { printf "%.1f", b / 1048576 }')
-        echo "LFS fetched: ${fetched_count} object(s), ${fetched_bytes} bytes (${fetched_mib} MiB) on ${RUNNER_NAME}; objects from: ${source}"
-        echo "LFS fetched by \`${JOB_LABEL}\`: ${fetched_count} object(s), ${fetched_mib} MiB (objects from: ${source})" >> "$GITHUB_STEP_SUMMARY"
-        if [ "$fetched_bytes" -gt 0 ]; then
-          echo "::warning title=Git LFS download (${fetched_mib} MiB)::${JOB_LABEL} fetched ${fetched_count} object(s), ${fetched_bytes} bytes, from GitHub LFS on ${RUNNER_NAME} (objects from: ${source}). The free LFS bandwidth is 10 GiB/month and a full set is ~1 GB; see docs/agent-rules/ci-lfs-bandwidth.md."
+        outcome=""
+        if [ -n "$failed" ]; then
+          outcome=" (${failed} then failed with status ${status})"
         fi
+        echo "LFS fetched: ${fetched_count} object(s), ${fetched_bytes} bytes (${fetched_mib} MiB) on ${RUNNER_NAME}; objects from: ${source}${outcome}"
+        echo "LFS fetched by \`${JOB_LABEL}\`: ${fetched_count} object(s), ${fetched_mib} MiB (objects from: ${source})${outcome}" >> "$GITHUB_STEP_SUMMARY"
+        if [ "$fetched_bytes" -gt 0 ]; then
+          echo "::warning title=Git LFS download (${fetched_mib} MiB)::${JOB_LABEL} fetched ${fetched_count} object(s), ${fetched_bytes} bytes, from GitHub LFS on ${RUNNER_NAME} (objects from: ${source})${outcome}. The free LFS bandwidth is 10 GiB/month and a full set is ~1 GB; see docs/agent-rules/ci-lfs-bandwidth.md."
+        fi
+        exit "$status"
 
     # No PR-scoped large caches. One job publishes one short-lived artifact for the
     # rest of the run, which would otherwise each charge another full LFS download
