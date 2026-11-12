@@ -11,8 +11,10 @@
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <sys/resource.h> // For setpriority, PRIO_PROCESS
+#include <atomic>         // For the once-per-process refusal reports
 #include <cerrno>         // For errno (setpriority result check)
 #include <cstring>        // For strncpy
+#include <string>         // For std::to_string
 #include <type_traits>    // For static_assert on pthread_t size
 
 namespace OloEngine
@@ -100,9 +102,20 @@ namespace OloEngine
             return false;
         }
 
+        // A refused priority change is reported once per process for each call,
+        // not on every refusal. Without CAP_SYS_NICE the kernel lets a thread
+        // lower its priority (raise its nice) but never raise it back, and the
+        // scheduler lowers a worker for each background task and restores it
+        // afterwards. Every restore after the first is then refused: logged
+        // each time, that was ~3 million lines (644 MB) in one AMD showcase
+        // job (#1674). The first refusal still says what happened.
+        std::atomic<bool> s_SchedParamRefusalReported{ false };
+        std::atomic<bool> s_NiceRefusalReported{ false };
+
         // Apply priority to a given pthread handle. Returns true if the kernel
         // accepted the change. Errors (typically EPERM without CAP_SYS_NICE) are
-        // logged but not fatal — callers use Linux thread priority as advisory.
+        // logged once per process but not fatal — callers use Linux thread
+        // priority as advisory.
         bool ApplyThreadPriority(pthread_t Handle, EThreadPriority Priority, bool IsSelf)
         {
             int CurrentPolicy = 0;
@@ -117,10 +130,11 @@ namespace OloEngine
             NewParam.sched_priority = NewPri;
             const int rc = pthread_setschedparam(Handle, NewPolicy, &NewParam);
             bool accepted = (rc == 0);
-            if (!accepted)
+            if (!accepted && !s_SchedParamRefusalReported.exchange(true, std::memory_order_relaxed))
             {
                 OLO_CORE_WARN("[PlatformProcess] pthread_setschedparam failed ({}); "
-                              "Linux thread priority changes typically require CAP_SYS_NICE.",
+                              "Linux thread priority changes typically require CAP_SYS_NICE. "
+                              "Further refusals in this process are not logged.",
                               rc);
             }
             // For SCHED_OTHER apply a nice value so different non-RT priorities are
@@ -135,9 +149,19 @@ namespace OloEngine
                 const int niceRc = setpriority(PRIO_PROCESS, static_cast<id_t>(tid), nice);
                 if (niceRc == -1 && errno != 0)
                 {
-                    OLO_CORE_WARN("[PlatformProcess] setpriority(nice={}) failed (errno={}); "
-                                  "non-RT priority changes typically require CAP_SYS_NICE.",
-                                  nice, errno);
+                    const int error = errno;
+                    if (!s_NiceRefusalReported.exchange(true, std::memory_order_relaxed))
+                    {
+                        // getpriority may legitimately return -1, so errno tells
+                        // a failure apart from a nice of -1.
+                        errno = 0;
+                        const int current = getpriority(PRIO_PROCESS, static_cast<id_t>(tid));
+                        const bool currentKnown = !(current == -1 && errno != 0);
+                        OLO_CORE_WARN("[PlatformProcess] setpriority(nice={}) failed (errno={}); the thread stays at "
+                                      "nice {}. Non-RT priority raises typically require CAP_SYS_NICE. "
+                                      "Further refusals in this process are not logged.",
+                                      nice, error, currentKnown ? std::to_string(current) : std::string("unknown"));
+                    }
                 }
             }
             return accepted;
