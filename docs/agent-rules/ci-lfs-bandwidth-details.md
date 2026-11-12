@@ -35,7 +35,8 @@ the incident behind them (#1682).
    step-summary line. On a self-hosted box a concurrent slot's pull can land in the window, so the
    count is an upper bound there.
 4. Without `restore-artifact`, and not on `push`, publishes exactly the current objects as a
-   one-day artifact for the rest of the run.
+   three-day artifact for the rest of the run (three, so "Re-run failed jobs" a day later still
+   finds it: that does not re-run the job that published it).
 5. On a hosted `refs/heads/master` run without an exact hit, drops every object the tree does not
    reference and saves the entry.
 
@@ -59,9 +60,15 @@ per run. Since #1682 its `lfs-objects` job makes the run's only restore-or-fetch
 `sanitizers-lfs`. The builds `needs:` it and every build and shard takes that artifact. It runs
 after `detect-changes` and only when a build will, because ungated it would pull the full set for
 a PR that builds nothing. The builds run under `!cancelled()`, so a failed `lfs-objects` turns
-them red at the artifact download rather than skipped (a skipped check reads as green). Windows.yml and vulkan-software.yml have one fetching job per run and were
-already single-flight. A PR push that finds no master entry now costs one pull per workflow that
-runs: Windows, Sanitizers and lavapipe, three at most.
+them red at the artifact download rather than skipped (a skipped check reads as green).
+Windows.yml and vulkan-software.yml have one fetching job per run and were already single-flight.
+A PR push that finds no master entry now costs one pull per workflow that runs: Windows,
+Sanitizers and lavapipe, three at most.
+
+Measured on #1682's forced-miss dispatch (run 43178737320): `lfs-objects` fetched 12 objects,
+1024410138 bytes, and the four builds and sixteen test shards each reported
+`LFS fetched: 0 object(s) … objects from: artifact sanitizers-lfs`. The job takes 54–58 s and
+runs after `detect-changes`, so the builds start about a minute later than before.
 
 ## Why the master entry disappeared
 
