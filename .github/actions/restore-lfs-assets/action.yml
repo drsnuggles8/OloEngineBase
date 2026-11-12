@@ -144,6 +144,31 @@ runs:
         compression-level: 0
         if-no-files-found: error
 
+    # THE MASTER ENTRY HOLDS THE CURRENT SET AND NOTHING ELSE. A save after a
+    # restore-keys match used to bank the old entry's objects plus the new ones, so
+    # the entry grew with every LFS change on master: the one GitHub evicted on
+    # 2026-11-02 was 1402 MiB, and its replacement, saved from a cold pull, is
+    # 589 MiB. Nothing reads the old objects: PR runs check out the merge ref, whose
+    # LFS set is master's plus the PR's own changes. A hosted object store is
+    # ephemeral, so deleting from it here costs nothing.
+    - name: Drop objects the current tree does not reference
+      if: runner.environment == 'github-hosted' && github.ref == 'refs/heads/master' && inputs.restore-artifact != 'true' && steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        OBJECT_PATH: ${{ steps.objects.outputs.path }}
+      run: |
+        set -euo pipefail
+        current=$(mktemp)
+        git lfs ls-files --long | awk '{print $1}' | sort -u > "$current"
+        dropped=0
+        while read -r file; do
+          if ! grep -qxF "$(basename "$file")" "$current"; then
+            rm -f -- "$file"
+            dropped=$((dropped + 1))
+          fi
+        done < <(find "$OBJECT_PATH" -type f)
+        echo "dropped ${dropped} object(s) the current tree does not reference; saving $(wc -l < "$current" | tr -d ' ')"
+
     - name: Save the shared default-branch LFS snapshot
       if: runner.environment == 'github-hosted' && github.ref == 'refs/heads/master' && inputs.restore-artifact != 'true' && steps.cache.outputs.cache-hit != 'true'
       uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
