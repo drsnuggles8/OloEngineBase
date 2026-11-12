@@ -118,6 +118,13 @@ TEST(PlatformProcessPriorityTest, AnUnrestorableLoweringIsSkippedAndReportedOnce
         GTEST_SKIP() << "this process may raise its own priority (CAP_SYS_NICE or RLIMIT_NICE), "
                         "so the kernel never refuses the restore this test is about";
     }
+    if (CurrentNice() != 0)
+    {
+        // TPri_Normal is nice 0, which a process started above it may not reach
+        // without CAP_SYS_NICE: every restore is then a second, legitimate refusal.
+        GTEST_SKIP() << "this process starts at nice " << CurrentNice()
+                     << ", so the restore to TPri_Normal is refused and the report count differs";
+    }
     const std::string previousStyle = GTEST_FLAG_GET(death_test_style);
     GTEST_FLAG_SET(death_test_style, "threadsafe");
     // 10 is one report and an unstranded worker. 0 is a silent fallback, 11 the
