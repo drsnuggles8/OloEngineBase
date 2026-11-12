@@ -342,7 +342,7 @@ git clone https://github.com/microsoft/vcpkg ~/vcpkg        # NOT --depth 1: the
 ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics                  # baseline commit must be present
 cmake -S . -B build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
-  -DVCPKG_TARGET_TRIPLET=x64-linux -DVCPKG_OVERLAY_TRIPLETS=$PWD/cmake/triplets \
+  -DVCPKG_TARGET_TRIPLET=x64-linux "-DVCPKG_OVERLAY_TRIPLETS=$PWD/cmake/triplets" \
   -DCMAKE_CXX_COMPILER=clang++-23 -DCMAKE_C_COMPILER=clang-23 \
   -DCMAKE_BUILD_TYPE=Debug -DOLO_ENABLE_TSAN=ON -DBUILD_TESTS=ON \
   -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \

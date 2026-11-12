@@ -101,12 +101,11 @@ endif()
 if(CMAKE_TOOLCHAIN_FILE MATCHES "vcpkg\\.cmake$")
     set(_olo_triplet "${VCPKG_TARGET_TRIPLET}")
     if(_olo_triplet STREQUAL "")
-        # What vcpkg builds when no triplet is named: VCPKG_DEFAULT_TRIPLET, else the
-        # host's. Of the host defaults only x64 Linux is one this repo overrides.
+        # What vcpkg.cmake builds when no triplet is named: the host's architecture and
+        # platform. It does not read the CLI's VCPKG_DEFAULT_TRIPLET environment variable.
+        # Of the host defaults only x64 Linux is one this repo overrides.
         cmake_host_system_information(RESULT _olo_host_arch QUERY OS_PLATFORM)
-        if(NOT "$ENV{VCPKG_DEFAULT_TRIPLET}" STREQUAL "")
-            set(_olo_triplet "$ENV{VCPKG_DEFAULT_TRIPLET}")
-        elseif(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND _olo_host_arch MATCHES "^(x86_64|AMD64|amd64)$")
+        if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Linux" AND _olo_host_arch MATCHES "^(x86_64|AMD64|amd64)$")
             set(_olo_triplet "x64-linux")
         endif()
         unset(_olo_host_arch)
