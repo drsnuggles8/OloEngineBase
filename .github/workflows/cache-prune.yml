@@ -371,6 +371,14 @@ jobs:
           # Raise it only together with a re-measurement of the steady set AND a cap that
           # really moved. Raising it to silence the alarm under a FIXED cap is how #1073
           # happened, and that is a different act from following a cap that moved.
+          #
+          # THIS ALARM CANNOT STOP AN EVICTION, ONLY REPORT ONE (#1682). Past the 25 GB cap
+          # GitHub evicts in last-access order, between two sweeps. On 2026-11-01/02 this
+          # job failed five times on PR-ref vcpkg entries it may not delete, and the
+          # eviction then took nearly every master entry, `olo-lfs-v1-*` among them. The
+          # guard that prevents it runs at save time:
+          # .github/actions/save-vcpkg-cache skips a save off master that would cross
+          # this number. Its CEILING_MIB is this value; move the two together.
           headroom_floor_mib=20000
 
           # SUM THE LISTING, NOT `/actions/cache/usage` -- that endpoint LAGS behind

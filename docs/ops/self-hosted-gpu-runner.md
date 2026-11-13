@@ -33,8 +33,11 @@ Host-level rules (the update timer, the GPU resets, what the runners share) are 
 
 Git LFS is also required for the versioned model and fur sources. The host setup
 script installs it; an existing Rocky host needs `sudo dnf install git-lfs` once.
-CI checks `git lfs version`, restores cached objects and runs `git lfs pull` per
-checkout. It does not install system packages on a self-hosted runner.
+CI checks `git lfs version` and runs `git lfs pull` per checkout against the
+persistent store `$HOME/.cache/oloengine-lfs`. Each job logs the bytes it fetched,
+with a warning when that is non-zero, because LFS bandwidth is a monthly quota
+([ci-lfs-bandwidth.md](../agent-rules/ci-lfs-bandwidth.md)). It does not install
+system packages on a self-hosted runner.
 
 Neither pool requests the other's label, so a CI job can never queue in front of
 the nightly and the nightly can never starve CI. Do not "tidy" these into one

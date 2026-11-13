@@ -147,6 +147,20 @@ A new heavy or long test goes into `OLO_HEAVY_TESTS` by suite pattern; a new lig
 test needs nothing. The CI `--exclude-regex` lists are `^Suite\.` shaped and match
 both a per-case entry (`Suite.Case`) and a suite entry (`Suite.*`).
 
+### The discovery run must not pass stderr to MSBuild
+
+`OloSuiteDiscovery.cmake` captures the listing run's stderr and re-prints each line as
+`-- OloSuiteDiscovery: test binary stderr: <line>`. Under the Visual Studio generator the
+script is a POST_BUILD step, and MSBuild fails a custom build step on any output line shaped
+like a compiler diagnostic, whatever the exit code. Tracy's client prints
+`ERROR: SymInitialize FAILED with code 3221225476 (0xc0000004) | ` at start-up when DbgHelp's
+`SymInitialize` fails, which a hosted windows-2025 runner does intermittently. On PR #1683 the
+lavapipe job (the one MSBuild-generated test build in PR CI) went red twice that way. Discovery
+itself had succeeded (10308 cases), and the 07:55 run on the same tree and image was green. With two colons
+ahead of the original text, MSBuild's `origin: error:` pattern cannot match the line; a real
+`file(line): error` diagnostic still does and still fails the step. Any other build step that
+runs the test binary needs the same treatment.
+
 ### Reproducing flaky CI-only core-starvation races
 
 A race that passes 100/100 locally but flakes on CI is usually starved into existence by CI's **few, slow cores**. To recreate that pressure on a fat dev box, use [`scripts/repro-flaky-test.ps1`](../../scripts/repro-flaky-test.ps1): it loops a gtest binary + `--gtest_filter` under a restricted **CPU-affinity mask** (default 2 cores), with stall-based hang detection (the #281 deadlock signature) and `cdb` stack/dump capture on the first crash/hang. Two non-obvious levers, **both** needed for a faithful repro:

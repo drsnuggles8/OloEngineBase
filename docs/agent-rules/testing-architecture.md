@@ -26,6 +26,7 @@ Philosophy, value heuristic and the per-layer reference live in [../testing.md](
 19. **Reproduce a CI-only core-starvation race with `scripts/repro-flaky-test.ps1`.** Set both `OLO_TASK_GRAPH_NUM_WORKERS=N` (affinity alone does not shrink `FScheduler`'s pool; CI-faithful: `2` with affinity `0x3`) and `--gtest_repeat=N` for step density. [Details](testing-architecture-details.md#reproducing-flaky-ci-only-core-starvation-races)
 20. **Run tests from `OloEditor/` when possible** (what `ctest` uses). ctest runs mesh-cache and `OLO_HEAVY_TESTS` cases one per process, the rest one suite per process. [Details](testing-architecture-details.md#how-ctest-slices-the-binary-three-passes-one-process-each)
 21. **Rebase goldens or perf baselines only after a deliberate visual change or hardware move.** [Details](testing-architecture-details.md#5-running-tests-locally)
+22. **A build step that runs the test binary captures its stderr and re-prints it behind a prefix.** Under the VS generator MSBuild fails the step on any `ERROR: ...` line, and Tracy prints one when `SymInitialize` fails on a hosted runner. [Details](testing-architecture-details.md#the-discovery-run-must-not-pass-stderr-to-msbuild)
 
 ## Commands and checks
 

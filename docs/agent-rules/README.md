@@ -116,6 +116,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [pch-masked-missing-includes.md](pch-masked-missing-includes.md): a header must include what it uses even when the build is green; the PCH hides the omission on Windows.
 - [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md): a CI cache that restores is not one that works.
 - [actions-cache-budget.md](actions-cache-budget.md): the Actions cache store is a fixed budget every key must fit in.
+- [ci-lfs-bandwidth.md](ci-lfs-bandwidth.md): fetch LFS objects once per CI run through `restore-lfs-assets`; one cold pull is a tenth of the monthly quota.
 - [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md): set a compiler cache's size cap above the object set it has to hold, measured with `du`.
 - [windows-sccache-warm-reuse.md](windows-sccache-warm-reuse.md): require native compiler statistics after a complete warm restore.
 - [self-hosted-ccache-slot-multiplier.md](self-hosted-ccache-slot-multiplier.md): size a self-hosted compiler cache by configurations x the runner slots that can build them.

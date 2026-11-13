@@ -99,6 +99,10 @@ on:
 # explicitly rather than inherited so a future step cannot quietly acquire write scopes.
 permissions:
   contents: read
+  # Lets save-vcpkg-cache list the Actions cache before a non-master save and delete
+  # its own entry if a parallel save filled the store, so a branch cannot evict
+  # master's entries (#1682). Deleting a cache entry is `actions: write`.
+  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}

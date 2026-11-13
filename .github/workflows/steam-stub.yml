@@ -230,6 +230,14 @@ jobs:
 
   stub-build:
     name: Build + test OLO_WITH_STEAM=ON (stub SDK)
+    # The only job here that saves a vcpkg entry, so the only one granted the cache
+    # delete. save-vcpkg-cache lists the Actions cache before a non-master save and
+    # deletes its own entry if a parallel save filled the store, so a branch cannot
+    # evict master's entries (#1682); deleting a cache entry is `actions: write`. A
+    # job-level block replaces the workflow's, so `contents: read` is restated.
+    permissions:
+      contents: read
+      actions: write
     # SELF-HOSTED WHEN THE CODE IS OURS, hosted Ubuntu when it is not (#1009).
     # The condition IS the security boundary -- see vulkan-off.yml for the full
     # reasoning, including why the `github.event_name != 'pull_request'` disjunct

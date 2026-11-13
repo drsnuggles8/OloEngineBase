@@ -118,7 +118,9 @@ export function buildOutcome(log: string): EvidenceOutcome {
   return { state: /\[build-lock\] (?:acquired|waiting|queued)|^\[\d+\/\d+\]/m.test(log) ? 'running' : 'unknown', detail: 'no result in the log yet', failed: [], ran: 0, skipped: 0 }
 }
 
-const CTEST_SUMMARY = /^\s*(\d+)% tests passed, (\d+) tests? failed out of (\d+)/m
+// CMake 4 leaves the failed count out of a clean run ("100% tests passed out of 3"); older
+// ctest, and any run with a failure, print ", N tests failed" before "out of".
+const CTEST_SUMMARY = /^\s*(\d+)% tests passed(?:, (\d+) tests? failed)? out of (\d+)/m
 
 /** ctest's own summary, which it prints without -V where no gtest header appears. */
 function ctestOutcome(log: string): EvidenceOutcome | undefined {
@@ -126,7 +128,7 @@ function ctestOutcome(log: string): EvidenceOutcome | undefined {
   if (m === null) {
     return undefined
   }
-  const failedCount = Number(m[2])
+  const failedCount = Number(m[2] ?? 0)
   const total = Number(m[3])
   const list = log.slice(log.indexOf('The following tests FAILED:'))
   const names = failedCount > 0 ? unique([...list.matchAll(/^\s*\d+ - (\S+) \(/gm)].map(x => x[1] ?? '')) : []
@@ -234,8 +236,20 @@ export function judge(run: EvidenceRun, log: string | undefined): Judged {
   const outcome =
     fromLog !== undefined && fromLog.state !== 'unknown'
       ? fromLog
-      : run.captured ?? { state: 'unknown' as const, detail: log === undefined ? 'no output recorded' : 'no result in its output', failed: [], ran: 0, skipped: 0 }
+      : run.captured ?? { state: 'unknown' as const, detail: unknownDetail(run, log), failed: [], ran: 0, skipped: 0 }
   return { run, outcome }
+}
+
+/**
+ * Why a run has no outcome. A foreground run has no log file: it is judged only from the
+ * output captured when it finished, so "no output recorded" would send the reader looking
+ * for a lost file when the output was there and simply carried no result the parser read.
+ */
+function unknownDetail(run: EvidenceRun, log: string | undefined): string {
+  if (log !== undefined) {
+    return 'no result in its output'
+  }
+  return run.logPath === null ? 'no result in its captured output' : 'its log is gone'
 }
 
 export function runKey(run: EvidenceRun): string {

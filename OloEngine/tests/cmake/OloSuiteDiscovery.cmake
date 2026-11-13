@@ -67,19 +67,41 @@ endif()
 # cases these entries will run, and nothing the per-case discoveries also run.
 set(exclude "${TEST_EXCLUDE_FILTER}")
 
+# STDERR IS CAPTURED AND RE-PRINTED, NOT PASSED THROUGH. Under the Visual Studio
+# generator this script is a POST_BUILD step, and MSBuild fails a custom build
+# step on any output line shaped like a compiler diagnostic ("ERROR: ...", even
+# with exit code 0). Tracy's client prints exactly that at start-up when
+# SymInitialize fails ("ERROR: SymInitialize FAILED with code 3221225476
+# (0xc0000004) | "), which a hosted windows-2025 runner does intermittently: the
+# lavapipe job's build went red twice on PR #1683 with the listing itself fine
+# (10308 cases discovered). Each stderr line is re-printed behind a prefix with
+# two colons ahead of the line's own text, so MSBuild's `origin: error:` pattern
+# no longer matches it. A `file(line): error` line still does and still fails
+# the step, which is right: that is a real diagnostic, not start-up noise.
 execute_process(
 	COMMAND "${TEST_EXECUTABLE}" --gtest_list_tests "--gtest_filter=*-${exclude}"
 	WORKING_DIRECTORY "${TEST_WORKING_DIR}"
 	TIMEOUT ${TEST_DISCOVERY_TIMEOUT}
 	OUTPUT_VARIABLE listing
+	ERROR_VARIABLE listing_stderr
 	RESULT_VARIABLE result
 )
+string(REGEX REPLACE "[\r\n]+$" "" listing_stderr "${listing_stderr}")
+if(NOT listing_stderr STREQUAL "")
+	string(REPLACE "\r" "" listing_stderr "${listing_stderr}")
+	string(REPLACE ";" "\\;" listing_stderr "${listing_stderr}")
+	string(REPLACE "\n" ";" stderr_lines "${listing_stderr}")
+	foreach(stderr_line IN LISTS stderr_lines)
+		message(STATUS "OloSuiteDiscovery: test binary stderr: ${stderr_line}")
+	endforeach()
+endif()
 if(NOT result EQUAL 0)
 	message(FATAL_ERROR
 		"OloSuiteDiscovery: listing the tests failed (exit ${result}). The binary or the\n"
 		"working directory is wrong, or the listing took longer than ${TEST_DISCOVERY_TIMEOUT} s.\n"
 		"  Executable: '${TEST_EXECUTABLE}'\n"
-		"  Working dir: '${TEST_WORKING_DIR}'")
+		"  Working dir: '${TEST_WORKING_DIR}'\n"
+		"  Its stderr is printed above.")
 endif()
 
 # Parse gtest's listing. Suites are the lines that do not start with a space and
