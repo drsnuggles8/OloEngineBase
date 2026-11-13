@@ -280,6 +280,9 @@ namespace OloEngine::Tests
             const VulkanDevice* device = VulkanDevice::Get();
             return device != nullptr && VulkanCapabilities::Evaluate(device->GetPhysicalDevice()).IsSoftware;
         }
+        static constexpr const char* kSoftwareDeviceSkip =
+            "a software Vulkan device compiles every pipeline at its first draw: one path's cold render took 26 min "
+            "on lavapipe. This guard runs on a hardware device (ctest OloEngine-Tests_VulkanPipelineSeed)";
 #endif
 
         [[nodiscard]] static EditorCamera Camera(const glm::vec3& position, f32 yawDegrees, f32 pitchDegrees,
@@ -382,8 +385,7 @@ namespace OloEngine::Tests
         {
             constexpr u32 kMaxBuildFrames = 64;
             GroomRenderPass* pass = Renderer3D::GetGroomRenderPass();
-            if (pass == nullptr)
-                return;
+            ASSERT_NE(pass, nullptr) << "no groom pass: the acceptance scene's coats cannot be drawn";
             u32 frames = 0;
             while (pass->GetStats().GroomsAwaitingBuild > 0u && frames < kMaxBuildFrames)
             {
@@ -441,9 +443,7 @@ namespace OloEngine::Tests
             GTEST_SKIP() << "OpenGL has no pipeline objects to precache; this runs in the --olo-rhi=vulkan process";
 #if OLO_WITH_VULKAN
         if (OnASoftwareDevice())
-            GTEST_SKIP() << "a software Vulkan device compiles every pipeline at its first draw: one path's cold "
-                            "render took 26 min on lavapipe. This guard runs on a hardware device "
-                            "(ctest OloEngine-Tests_VulkanPipelineSeed)";
+            GTEST_SKIP() << kSoftwareDeviceSkip;
         const auto text = ReadText(SeedPath());
         ASSERT_TRUE(text.has_value()) << RegenerateHint();
         const auto seed = PipelineManifest::Parse(*text);
@@ -493,9 +493,7 @@ namespace OloEngine::Tests
             GTEST_SKIP() << "OpenGL has no pipeline objects to precache; this runs in the --olo-rhi=vulkan process";
 #if OLO_WITH_VULKAN
         if (OnASoftwareDevice())
-            GTEST_SKIP() << "a software Vulkan device compiles every pipeline at its first draw: one path's cold "
-                            "render took 26 min on lavapipe. This guard runs on a hardware device "
-                            "(ctest OloEngine-Tests_VulkanPipelineSeed)";
+            GTEST_SKIP() << kSoftwareDeviceSkip;
         const auto text = ReadText(SeedPath());
         ASSERT_TRUE(text.has_value()) << RegenerateHint();
         const auto seed = PipelineManifest::Parse(*text);

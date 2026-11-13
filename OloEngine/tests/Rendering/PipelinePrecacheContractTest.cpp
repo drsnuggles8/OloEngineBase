@@ -385,6 +385,8 @@ TEST(PipelineManifest, ParseKeepsTheConfigurationBoundAndTheNewestTags)
     {
         text += std::format("        - t{}\n", i);
     }
+    // A repeated tag is one tag: it must not push a distinct one out.
+    text += std::format("        - t{}\n", kTags - 1);
     text += "      LastSeen: 0\n";
     std::string error;
     const auto parsed = PipelineManifest::Parse(text, &error);

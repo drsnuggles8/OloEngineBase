@@ -444,7 +444,11 @@ namespace OloEngine
                     {
                         for (const YAML::Node& tag : configs)
                         {
-                            AddConfiguration(entry, FString(tag.as<std::string>()));
+                            const std::string value = tag.as<std::string>();
+                            if (!entry.SeenUnder(value))
+                            {
+                                AddConfiguration(entry, FString(value));
+                            }
                         }
                     }
                     entry.LastSeenSession = node["LastSeen"] ? node["LastSeen"].as<u64>() : 0u;

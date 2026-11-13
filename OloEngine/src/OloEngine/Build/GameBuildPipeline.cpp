@@ -170,7 +170,7 @@ namespace OloEngine
             text << in.rdbuf();
             std::string reason;
             sizet rejected = 0;
-            const auto parsed = PipelineManifest::Parse(text.str(), &reason, &rejected);
+            auto parsed = PipelineManifest::Parse(text.str(), &reason, &rejected);
             if (!parsed.has_value())
             {
                 *problem = std::format("{} left out: {}", path->string(), reason);
@@ -184,7 +184,7 @@ namespace OloEngine
             merged.Merge(*parsed);
             if (isSeed)
             {
-                seed = *parsed;
+                seed = std::move(parsed);
             }
             anySource = true;
         }
