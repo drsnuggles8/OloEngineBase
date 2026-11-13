@@ -353,7 +353,7 @@ namespace OloEngine
         m_IndirectSpecularShader = Shader::Create("assets/shaders/DeferredIndirectSpecular.glsl");
         m_IndirectSpecularShaderMSAA = Shader::Create("assets/shaders/DeferredIndirectSpecular_MSAA.glsl");
         m_ControlsUBO = UniformBuffer::Create(sizeof(DeferredControlsData),
-                                              ShaderBindingLayout::UBO_DEFERRED_LIGHTING);
+                                              ShaderBindingLayout::UBO_DEFERRED_LIGHTING, "DeferredLightingControls");
 
         OLO_CORE_INFO("DeferredLightingPass: Initialized ({}x{}); writes into scene FB color[0]",
                       spec.Width, spec.Height);

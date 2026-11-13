@@ -282,7 +282,7 @@ namespace OloEngine
         // per-draw model UBO for binding 3, and a UniformBuffer claims its
         // binding point at construction.
         m_ParamsUBO =
-            UniformBuffer::Create(UBOStructures::GroomStrandParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
+            UniformBuffer::Create(UBOStructures::GroomStrandParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0, "GroomStrandParams");
 
         // A 1x1x1 ZERO volume, bound whenever a draw has no coat volume of its
         // own. The shader declares the sampler unconditionally, and a dangling
@@ -890,7 +890,7 @@ namespace OloEngine
         {
             m_RootFrameShader = ComputeShader::Create("assets/shaders/compute/GroomRootFrames.comp");
             m_RootFrameParams = UniformBuffer::Create(UBOStructures::GroomRootFrameParamsUBO::GetSize(),
-                                                      ShaderBindingLayout::UBO_USER_0);
+                                                      ShaderBindingLayout::UBO_USER_0, "GroomRootFrameParams");
             if (!m_RootFrameShader || !m_RootFrameShader->IsValid() || !m_RootFrameParams)
             {
                 // Said once; the drawn roots are then evaluated on the CPU, the

@@ -193,7 +193,7 @@ namespace OloEngine::VirtualGeometryShadow
         // Owned by the view rather than created in PrepareViews because only this
         // route uses them, and PrepareViews is shared with the classic cascades.
         if (!resources.VsmCamera)
-            resources.VsmCamera = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+            resources.VsmCamera = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
         if (!resources.VsmPass)
             resources.VsmPass = UniformBuffer::Create(VSM::PassUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW_DRAW);
         return resources.VsmCamera && resources.VsmPass;

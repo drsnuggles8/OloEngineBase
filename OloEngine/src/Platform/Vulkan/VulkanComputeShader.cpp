@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanComputeShader.h"
+#include "OloEngine/Renderer/UniformBlockContract.h"
 
 #include "Platform/Vulkan/VulkanAftermath.h"
 #include "Platform/Vulkan/VulkanBufferResources.h"
@@ -292,12 +293,21 @@ namespace OloEngine
                 // resource for every element past [0].
                 const u32 arrayCount =
                     VulkanReflection::ReflectBindingArrayCount(reflector, resource, GetName().c_str());
+                u32 blockSize = 0;
+                u32 blockNameHash = 0;
+                if (kind == VulkanShaderBinding::Kind::UniformBuffer)
+                {
+                    blockSize = static_cast<u32>(reflector.get_declared_struct_size(reflector.get_type(resource.base_type_id)));
+                    blockNameHash = BindingContract::HashBlockName(resource.name);
+                }
                 newBindings.Add(VulkanShaderBinding{ .Set = reflector.get_decoration(resource.id, spv::DecorationDescriptorSet),
                                                      .Binding = reflector.get_decoration(resource.id, spv::DecorationBinding),
                                                      .BindingKind = kind,
                                                      .ImageDim = imageDim,
                                                      .Stages = VK_SHADER_STAGE_COMPUTE_BIT,
                                                      .ArrayCount = arrayCount,
+                                                     .BlockSize = blockSize,
+                                                     .BlockNameHash = blockNameHash,
                                                      .Name = resource.name });
             };
             for (const auto& resource : resources.uniform_buffers)

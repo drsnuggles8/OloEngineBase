@@ -3395,6 +3395,51 @@ namespace OloEngine
         static_assert(UBO_BINDING_LIMIT <= MIN_GUARANTEED_BUFFER_BINDINGS,
                       "Engine UBO binding points exceed the GL 4.6 minimum GL_MAX_UNIFORM_BUFFER_BINDINGS");
 
+        // The uniform binding points that host MORE THAN ONE block layout across
+        // the shader sources (ADR 0025 §5a). On these a buffer must declare the
+        // GLSL block it holds (UniformBuffer::Create's block name), because an
+        // occupant of another layout is a valid buffer of a plausible size: the
+        // vegetation deformer read the skeletal deformer's block at 65 as its
+        // own (#1437). Everywhere else one layout owns the point and the byte
+        // range is the whole check.
+        //
+        // Not hand-maintained in spirit: UniformBlockContractSourceTest derives
+        // the set from OloEditor/assets/shaders and fails when this disagrees.
+        [[nodiscard]] static constexpr bool IsMultiLayoutUBOBinding(u32 binding) noexcept
+        {
+            switch (binding)
+            {
+                case UBO_CAMERA:            // CameraMatrices / Camera (one layout, two spellings)
+                case UBO_MATERIAL:          // PBR material, particle params
+                case UBO_USER_0:            // post-process, IBL, DDGI, groom, splat, VSM family...
+                case UBO_USER_1:            // motion blur, splat sort
+                case UBO_SSS:               // snow SSS blur, skin diffusion
+                case UBO_PRECIPITATION:     // precipitation, shadow probes, material lab
+                case UBO_DEFERRED_LIGHTING: // deferred controls, spike parameters
+                case UBO_RAY_TRACING:       // every ray-tracing and deform producer
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        // The multi-layout binding points with NO frame owner: nothing
+        // publishes a buffer there for the frame, so every reader binds its
+        // own before it reads
+        // (docs/agent-rules/shared-uniform-binding-bind-before-dispatch.md) and
+        // none may depend on what the previous pass left. The other three are
+        // frame-published: the frame's camera (0), the dispatcher's material
+        // block (2) and the motion-blur matrices (8, re-bound once per frame by
+        // Renderer3D::RebindPersistentBuffers) are there for every pass to
+        // read, and a tenant that displaces one puts it back.
+        //
+        // FramePredecessorPoison leaves another layout on exactly these after
+        // every render-graph pass and requires an unchanged frame.
+        [[nodiscard]] static constexpr bool IsPassScopedUBOBinding(u32 binding) noexcept
+        {
+            return IsMultiLayoutUBOBinding(binding) && binding != UBO_CAMERA && binding != UBO_MATERIAL && binding != UBO_USER_1;
+        }
+
         // =============================================================================
         // TEXTURE SAMPLER BINDINGS
         // =============================================================================

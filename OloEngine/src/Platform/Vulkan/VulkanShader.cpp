@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanShader.h"
+#include "OloEngine/Renderer/UniformBlockContract.h"
 
 #include "Platform/Vulkan/VulkanAftermath.h"
 
@@ -681,12 +682,21 @@ namespace OloEngine
                         break;
                 }
             }
+            u32 blockSize = 0;
+            u32 blockNameHash = 0;
+            if (kind == VulkanShaderBinding::Kind::UniformBuffer)
+            {
+                blockSize = static_cast<u32>(compiler.get_declared_struct_size(compiler.get_type(resource.base_type_id)));
+                blockNameHash = BindingContract::HashBlockName(resource.name);
+            }
             m_Bindings.Add(VulkanShaderBinding{ .Set = set,
                                                 .Binding = binding,
                                                 .BindingKind = kind,
                                                 .ImageDim = imageDim,
                                                 .Stages = static_cast<VkShaderStageFlags>(stage),
                                                 .ArrayCount = arrayCount,
+                                                .BlockSize = blockSize,
+                                                .BlockNameHash = blockNameHash,
                                                 .Name = resource.name });
         };
 

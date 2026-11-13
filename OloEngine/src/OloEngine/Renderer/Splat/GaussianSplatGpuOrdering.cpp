@@ -186,8 +186,8 @@ namespace OloEngine::GaussianSplat
 
         if (m_Ready)
         {
-            m_CullUniforms = UniformBuffer::Create(static_cast<u32>(sizeof(CullUniforms)), kBindingCullUbo);
-            m_SortUniforms = UniformBuffer::Create(static_cast<u32>(sizeof(SortUniforms)), kBindingSortUbo);
+            m_CullUniforms = UniformBuffer::Create(static_cast<u32>(sizeof(CullUniforms)), kBindingCullUbo, "SplatCullUniforms", "SplatViewUniforms");
+            m_SortUniforms = UniformBuffer::Create(static_cast<u32>(sizeof(SortUniforms)), kBindingSortUbo, "SplatSortUniforms");
             m_Ready = m_CullUniforms && m_SortUniforms;
         }
         return m_Ready;

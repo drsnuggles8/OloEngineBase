@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLUniformBuffer.h"
+#include "Platform/OpenGL/OpenGLBlockContract.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
 #include "OloEngine/Renderer/Debug/RendererMemoryTracker.h"
 #include "OloEngine/Renderer/Debug/RendererProfiler.h"
@@ -19,6 +20,8 @@ namespace OloEngine
         m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferData(m_RendererID, size, nullptr, GL_DYNAMIC_DRAW);
         glBindBufferBase(GL_UNIFORM_BUFFER, binding, m_RendererID);
+        OpenGLBlockContract::RegisterBuffer(m_RendererID, this, size);
+        OpenGLBlockContract::NoteBufferBound(binding, m_RendererID);
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::BufferBinds, 1);
         // Track GPU memory allocation
         OLO_TRACK_GPU_ALLOC(this, size, RendererMemoryTracker::ResourceType::UniformBuffer, "OpenGL Uniform Buffer");
@@ -38,6 +41,8 @@ namespace OloEngine
         m_RHIHandle.Sync(RHI::ResourceKind::Buffer, m_RendererID, RHI::Backend::OpenGL);
         glNamedBufferStorage(m_RendererID, size, nullptr, flags);
         glBindBufferRange(GL_UNIFORM_BUFFER, binding, m_RendererID, 0, size);
+        OpenGLBlockContract::RegisterBuffer(m_RendererID, this, size);
+        OpenGLBlockContract::NoteBufferBound(binding, m_RendererID);
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::BufferBinds, 1);
 
         // Track GPU memory allocation
@@ -55,6 +60,7 @@ namespace OloEngine
 
         // Unregister from GPU Resource Inspector
         GPUResourceInspector::GetInstance().UnregisterResource(m_RendererID);
+        OpenGLBlockContract::UnregisterBuffer(m_RendererID);
 
         u32 id = m_RendererID;
         FrameResourceManager::Get().SubmitForDeletion([id, retireTicket]()
@@ -75,6 +81,7 @@ namespace OloEngine
     void OpenGLUniformBuffer::Bind() const
     {
         glBindBufferBase(GL_UNIFORM_BUFFER, m_Binding, m_RendererID);
+        OpenGLBlockContract::NoteBufferBound(m_Binding, m_RendererID);
     }
 
     void OpenGLUniformBuffer::Unbind() const
@@ -93,6 +100,9 @@ namespace OloEngine
         GLint current = 0;
         glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, m_Binding, &current);
         if (static_cast<u32>(current) == m_RendererID)
+        {
             glBindBufferBase(GL_UNIFORM_BUFFER, m_Binding, 0);
+            OpenGLBlockContract::NoteBufferBound(m_Binding, 0);
+        }
     }
 } // namespace OloEngine

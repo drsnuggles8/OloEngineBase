@@ -64,3 +64,29 @@ binds **zero-filled** stand-in tenants at both slots, then compares the dispatch
 against a cache nothing displaced. A zero block reads `TaskCount == 0`, and the shader returns on
 its first line. So a regression writes nothing and fails the comparison instead of losing the
 device. Pick the stand-in's contents so the shader's own guard turns a regression into a no-op.
+
+## The check that enforces it (issue #1330)
+
+Every draw and dispatch now compares each uniform block the program reads with the binding point's
+occupant: its size, and its declared GLSL block name ([ADR 0025 §5a](../adr/0025-renderer-state-has-four-owners.md)).
+A read of another tenant's buffer is refused, logged as `[BindingContract]` with the program, the
+binding and both blocks, and the shader is given a zero block. Three rules come with it:
+
+- **A buffer on a multi-layout binding declares its block.** Pass the GLSL block name to
+  `UniformBuffer::Create(size, binding, "BlockName")`. The multi-layout bindings are
+  `ShaderBindingLayout::IsMultiLayoutUBOBinding` (0, 2, 7, 8, 14, 18, 30, 65).
+  `UniformBlockContractSourceTest` fails on a creation site that does not, on a name no shader
+  declares at that binding, and when a shader adds a second layout to a binding the table does not
+  list.
+- **Size the buffer for the whole block the shader declares, not for the members you write.** The
+  particle renderer uploaded one `mat4` into a 64-byte buffer under a 384-byte camera block; the
+  shader read its previous view-projection and jitter past the end. The contract found it on its
+  first run.
+- **A new pass that reads a pass-scoped binding** (`IsPassScopedUBOBinding`: 7, 14, 18, 30, 65) is
+  covered by `FramePredecessorPoison`, which leaves another layout there after every render-graph
+  pass and requires an unchanged frame and no refusal. Add the feature to that test's scene if the
+  pass does not run in it.
+
+`OLO_BINDING_CONTRACT=0` turns the check off for an A/B. On OpenGL the block names come from the
+linked program, where SPIRV-Cross renames a later stage's copy `Name_1`: do not name a block with a
+`_<digits>` suffix.

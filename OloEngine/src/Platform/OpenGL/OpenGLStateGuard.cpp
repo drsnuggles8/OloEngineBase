@@ -8,6 +8,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "Platform/OpenGL/OpenGLBlockContract.h"
 #include "Platform/OpenGL/OpenGLStateGuard.h"
 
 #include <glad/gl.h>
@@ -177,7 +178,11 @@ namespace OloEngine::Detail
         ::glBindFramebuffer(GL_DRAW_FRAMEBUFFER, ValidOrZero(snapshot.m_FboDraw, ::glIsFramebuffer));
         ::glBindFramebuffer(GL_READ_FRAMEBUFFER, ValidOrZero(snapshot.m_FboRead, ::glIsFramebuffer));
 
-        ::glUseProgram(ValidOrZero(snapshot.m_ActiveProgram, ::glIsProgram));
+        const GLuint restoredProgram = ValidOrZero(snapshot.m_ActiveProgram, ::glIsProgram);
+
+        ::glUseProgram(restoredProgram);
+
+        OpenGLBlockContract::NoteProgramBound(restoredProgram);
         ::glBindVertexArray(ValidOrZero(snapshot.m_Vao, ::glIsVertexArray));
 
         // Depth

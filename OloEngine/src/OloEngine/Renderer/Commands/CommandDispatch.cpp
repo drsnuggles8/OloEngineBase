@@ -284,6 +284,8 @@ namespace OloEngine
                 retained.Reset();
             if (!retained)
                 retained = UniformBuffer::Create(required, binding);
+            if (retained)
+                retained->DeclareBlockLike(*source);
             if (!bytes.empty())
                 retained->SetData(bytes.data(), static_cast<u32>(bytes.size()));
             return retained;

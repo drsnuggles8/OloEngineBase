@@ -97,6 +97,7 @@ The three workflow skills live in [`.claude/skills/`](../.claude/skills/) and ar
 
 ## analysis/ — quality & code-health reports
 
+- [analysis/renderer-ownership-remainder-1330.md](analysis/renderer-ownership-remainder-1330.md) — every process-wide object left in the 3D renderer's submission and replay path after #1330, with the reason it does not break ADR 0025 or the child issue that owns it.
 - [analysis/dead-code.md](analysis/dead-code.md) — dead-code analysis (LOC reduction).
 - [analysis/perf-stress-findings-2026-07.md](analysis/perf-stress-findings-2026-07.md) — perf stress-scene battery findings (2026-07-03).
 - [analysis/sonarqube-rules.md](analysis/sonarqube-rules.md) — SonarCloud rule tuning suggestions & high-volume-rule decisions.

@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Shader.h"
+#include "OloEngine/Renderer/UniformBlockContract.h"
 
 #include "OloEngine/Renderer/Renderer.h"
 #include "Platform/OpenGL/OpenGLShader.h"
@@ -110,6 +111,9 @@ namespace OloEngine
         // left in either would mark an unrelated future program.
         BindlessPrograms().erase(programID);
         MaterialOffsetPrograms().erase(programID);
+        // ...and the backend's record of the blocks this program reads, for the
+        // same reason (ADR 0025 section 5a).
+        BindingContract::NotifyProgramRetired(programID);
     }
 
     auto Shader::ReadsMaterialHeapOffsets() -> bool

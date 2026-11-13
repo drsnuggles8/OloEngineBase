@@ -317,7 +317,7 @@ namespace OloEngine
         // state inside IBLPrecompute.
         auto cameraUBO = UniformBuffer::Create(
             ShaderBindingLayout::CameraUBO::GetSize(),
-            ShaderBindingLayout::UBO_CAMERA);
+            ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
         if (!cameraUBO)
         {
             OLO_CORE_ERROR("ProceduralSky::Generate: failed to allocate camera UBO");

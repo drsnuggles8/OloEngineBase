@@ -471,6 +471,8 @@ add_executable(OloEngine-Tests
 		Rendering/CommandLifecycleTest.cpp
 		Rendering/CommandLifecycleCheck.cpp
 		Rendering/CommandDispatchRecordingTest.cpp
+		Rendering/UniformBlockContractSourceTest.cpp
+		Rendering/UniformBlockContractTest.cpp
 		Rendering/RenderGraphParallelRecordingTest.cpp
 		Rendering/RenderGraphOutOfBandTest.cpp
 		Rendering/RenderGraphOutOfBandScheduleTest.cpp

@@ -188,6 +188,11 @@ OLO_LEVER_EXACT(FaultKeepStaleTemporalHistory, "OLO_FAULT_KEEP_STALE_TEMPORAL_HI
                 "sees it.")
 
 // --- RHI --------------------------------------------------------------------
+OLO_LEVER_TRISTATE(BindingContract, "OLO_BINDING_CONTRACT",
+                   "Check every uniform block a draw or dispatch reads against its binding point's occupant: byte "
+                   "range and declared layout (ADR 0025, #1330). A refused read is logged, counted and given the zero "
+                   "block. \"0\" skips the check, for measuring its cost and as the off arm of its negative control; "
+                   "unset or \"1\" runs it.")
 OLO_LEVER_TOGGLE(BindlessDescriptorHeap, "OLO_RHI_BINDLESS",
                  "Route texture binding through the bindless descriptor heap. Defaults off so a machine "
                  "without the extension, and every headless test, takes the slot-based path.")

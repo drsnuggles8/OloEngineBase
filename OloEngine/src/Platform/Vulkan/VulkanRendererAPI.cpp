@@ -2,6 +2,7 @@
 #include "Platform/Vulkan/VulkanAddressCommands.h"
 #include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
+#include "OloEngine/Renderer/UniformBlockContract.h"
 
 #if OLO_WITH_VULKAN
 
@@ -2744,6 +2745,9 @@ namespace OloEngine
 
                 u64 address = 0;
                 bool occupantAbsent = false;
+                // The occupant exists and was refused by the binding contract:
+                // already reported there, and substituted like an absent one.
+                bool occupantRefused = false;
                 if (pullStream != ~sizet{ 0 })
                 {
                     // A VAO with fewer streams than the shader pulls (a
@@ -2768,7 +2772,30 @@ namespace OloEngine
                 else if (auto* ubo = bindingState.GetUniformBuffer(binding.Binding);
                          ubo != nullptr && binding.BindingKind == VulkanShaderBinding::Kind::UniformBuffer)
                 {
-                    address = ubo->GetRootDataAddress();
+                    // A buffer is published here; whether it is the buffer of
+                    // THIS block is a separate question (ADR 0025 section 5a).
+                    // An occupant of another layout has a perfectly good
+                    // address, and the shader would read its bytes as its own
+                    // fields: the vegetation deformer chased the skeletal
+                    // deformer block past its end as device addresses (#1437).
+                    // Compare what the block declares with what the occupant
+                    // says it is, and hand over the address only when they agree.
+                    if (BindingContract::Enabled())
+                    {
+                        const BindingContract::BlockRequirement required{ .Binding = binding.Binding,
+                                                                          .Size = binding.BlockSize,
+                                                                          .NameHash = binding.BlockNameHash };
+                        const BindingContract::Verdict verdict =
+                            BindingContract::Check(required, ubo->GetAllocatedSize(), ubo->GetBlockDeclaration());
+                        if (verdict != BindingContract::Verdict::Satisfied)
+                        {
+                            BindingContract::ReportViolation(shaderName, required, binding.Name.ToView(),
+                                                             ubo->GetAllocatedSize(), ubo->GetBlockName(), verdict);
+                            occupantRefused = true;
+                        }
+                    }
+                    if (!occupantRefused)
+                        address = ubo->GetRootDataAddress();
                 }
                 else if (auto* ssbo = bindingState.GetStorageBuffer(binding.Binding);
                          ssbo != nullptr && isStorage)
@@ -2812,7 +2839,8 @@ namespace OloEngine
                     // matching what this comment always promised.
                     static VulkanWarnOnceSet s_WarnedBindings; // items may fail concurrently (#806)
                     const auto severity = ClassifyMissingVulkanBuffer(shaderName, binding, occupantAbsent);
-                    if (s_WarnedBindings.Insert(MissingVulkanBufferDiagnosticKey(shaderName, binding, severity)))
+                    if (!occupantRefused &&
+                        s_WarnedBindings.Insert(MissingVulkanBufferDiagnosticKey(shaderName, binding, severity)))
                     {
                         // An unfed UBO reads defined zeros — wrong, survivable.
                         // An unfed SSBO is a small block a shader INDEXES, and

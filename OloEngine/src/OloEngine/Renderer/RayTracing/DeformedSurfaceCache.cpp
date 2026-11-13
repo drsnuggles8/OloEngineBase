@@ -241,7 +241,7 @@ namespace OloEngine::RayTracing
             return false;
         }
         m_Params = UniformBuffer::Create(static_cast<u32>(sizeof(DeformParams)),
-                                         ShaderBindingLayout::UBO_RAY_TRACING);
+                                         ShaderBindingLayout::UBO_RAY_TRACING, "OloSkeletalDeformParams");
         if (!m_Params)
         {
             m_Shader.Reset();

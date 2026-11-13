@@ -160,10 +160,11 @@ namespace OloEngine
         s_Data.ParticleShaderOIT = Shader::Create("assets/shaders/Particle_Billboard_OIT.glsl");
 
         // Camera UBO (binding 0, shared with other renderers)
-        s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+        s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA,
+                                                 "CameraMatrices", "Camera");
 
         // Particle params UBO (binding 2)
-        s_Data.ParticleParamsUBO = UniformBuffer::Create(sizeof(ParticleBatchData::ParticleParamsData), 2);
+        s_Data.ParticleParamsUBO = UniformBuffer::Create(sizeof(ParticleBatchData::ParticleParamsData), 2, "ParticleParams");
 
         // Mesh particle resources
         s_Data.MeshParticleShader = Shader::Create("assets/shaders/Particle_Mesh.glsl");

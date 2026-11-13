@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLRendererAPI.h"
+#include "Platform/OpenGL/OpenGLBlockContract.h"
 #include "Platform/OpenGL/OpenGLDebug.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
 #include "Platform/OpenGL/OpenGLRHIConversions.h"
@@ -60,6 +61,9 @@ namespace OloEngine
         }
         RHI::DescriptorHeap::Get().Shutdown();
         m_DescriptorHeapBackend.Shutdown();
+        // The binding contract's zero block (ADR 0025 section 5a), created on
+        // the first refused read and released here, while the context is current.
+        OpenGLBlockContract::Shutdown();
         // The cubemap face-upload staging PBO: a lazily created GL buffer that
         // glNamedBufferData grows to the largest face the session ever uploaded (tens of
         // MB for a 2048² HDR skybox) and that nothing ever deleted (#839). GL-only, so
@@ -369,6 +373,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         vertexArray->Bind();
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDrawArrays(GL_TRIANGLE_FAN, 0, static_cast<GLsizei>(vertexCount));
     }
     void OpenGLRendererAPI::DrawIndexed(const Ref<VertexArray>& vertexArray, const u32 indexCount)
@@ -378,6 +383,7 @@ namespace OloEngine
 
         vertexArray->Bind();
         const u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr);
 
         // Update profiler counters
@@ -391,6 +397,7 @@ namespace OloEngine
 
         vertexArray->Bind();
         const u32 count = indexCount ? indexCount : vertexArray->GetIndexBuffer()->GetCount();
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr, static_cast<GLsizei>(instanceCount));
 
         // Update profiler counters
@@ -403,6 +410,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         vertexArray->Bind();
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDrawArrays(GL_LINES, 0, static_cast<GLsizei>(vertexCount));
 
         // Update profiler counters
@@ -435,6 +443,7 @@ namespace OloEngine
         {
             return;
         }
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDrawElements(GL_PATCHES, static_cast<GLsizei>(count), GL_UNSIGNED_INT, nullptr);
 
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
@@ -446,6 +455,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glBindVertexArray(vaoID);
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, nullptr);
 
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
@@ -460,6 +470,7 @@ namespace OloEngine
         glBindVertexArray(vaoID);
         // baseIndex is an index count; convert to a byte offset for glDrawElements.
         const void* indexOffset = reinterpret_cast<const void*>(static_cast<uintptr_t>(baseIndex) * sizeof(u32));
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDrawElements(GL_TRIANGLES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, indexOffset);
 
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
@@ -476,6 +487,7 @@ namespace OloEngine
 
         glBindVertexArray(vaoID);
         const void* indexOffset = reinterpret_cast<const void*>(static_cast<uintptr_t>(baseIndex) * sizeof(u32));
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDrawElementsInstanced(GL_TRIANGLES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, indexOffset,
                                 static_cast<GLsizei>(instanceCount));
 
@@ -514,6 +526,7 @@ namespace OloEngine
 
         glBindVertexArray(vaoID);
         glPatchParameteri(GL_PATCH_VERTICES, static_cast<GLint>(patchVertices));
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDrawElements(GL_PATCHES, static_cast<GLsizei>(indexCount), GL_UNSIGNED_INT, nullptr);
 
         RendererProfiler::GetInstance().IncrementCounter(RendererProfiler::MetricType::DrawCalls, 1);
@@ -809,6 +822,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        OpenGLBlockContract::ValidateBeforeDraw();
+
         glDispatchCompute(groupsX, groupsY, groupsZ);
     }
 
@@ -824,6 +839,7 @@ namespace OloEngine
         // kernel that wrote these arguments and this dispatch — without it the
         // group count read here is whatever was in the buffer before.
         glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, argsBufferID);
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDispatchComputeIndirect(static_cast<GLintptr>(offsetBytes));
         glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, 0);
     }
@@ -860,6 +876,7 @@ namespace OloEngine
         const GLuint indirectBufferID = Utils::ResolveNativeAs(indirectBuffer, RHI::ResourceKind::Buffer);
         vertexArray->Bind();
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDrawElementsIndirect(GL_TRIANGLES, GL_UNSIGNED_INT, nullptr);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 
@@ -881,6 +898,7 @@ namespace OloEngine
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
         // glDrawElementsIndirect takes the offset as a BYTE OFFSET cast to a
         // pointer, the usual GL buffer-object convention -- not an address.
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDrawElementsIndirect(Utils::ToGL(topology), GL_UNSIGNED_INT,
                                reinterpret_cast<const void*>(static_cast<uintptr_t>(offsetBytes)));
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
@@ -912,6 +930,7 @@ namespace OloEngine
         glBindVertexArray(vaoID);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
         glBindBuffer(GL_PARAMETER_BUFFER, parameterBufferID);
+        OpenGLBlockContract::ValidateBeforeDraw();
         glMultiDrawElementsIndirectCount(GL_TRIANGLES, GL_UNSIGNED_INT,
                                          reinterpret_cast<const void*>(static_cast<uintptr_t>(indirectOffsetBytes)),
                                          static_cast<GLintptr>(parameterOffsetBytes),
@@ -931,6 +950,7 @@ namespace OloEngine
         const GLuint indirectBufferID = Utils::ResolveNativeAs(indirectBuffer, RHI::ResourceKind::Buffer);
         vertexArray->Bind();
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, indirectBufferID);
+        OpenGLBlockContract::ValidateBeforeDraw();
         glDrawArraysIndirect(GL_TRIANGLES, nullptr);
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0);
 
@@ -1502,6 +1522,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint, bufferID);
+        OpenGLBlockContract::NoteBufferBound(bindingPoint, bufferID);
     }
 
     void OpenGLRendererAPI::BindStorageBuffer(u32 bindingPoint, u32 bufferID)
@@ -1518,6 +1539,7 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glUseProgram(programID);
+        OpenGLBlockContract::NoteProgramBound(programID);
 
         // PUBLISH WHETHER THIS PROGRAM READS THE HEAP (issue #691).
         //
@@ -1576,6 +1598,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        OpenGLBlockContract::ValidateBeforeDraw();
+
         glDrawElements(Utils::ToGL(topology), static_cast<GLsizei>(indexCount), Utils::ToGL(indexType),
                        IndexByteOffset(indexType, baseIndex));
     }
@@ -1586,6 +1610,8 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        OpenGLBlockContract::ValidateBeforeDraw();
+
         glDrawElementsInstanced(Utils::ToGL(topology), static_cast<GLsizei>(indexCount),
                                 Utils::ToGL(indexType), IndexByteOffset(indexType, baseIndex),
                                 static_cast<GLsizei>(instanceCount));
@@ -1594,6 +1620,8 @@ namespace OloEngine
     void OpenGLRendererAPI::DrawBoundArrays(RHI::PrimitiveTopology topology, u32 firstVertex, u32 vertexCount)
     {
         OLO_PROFILE_FUNCTION();
+
+        OpenGLBlockContract::ValidateBeforeDraw();
 
         glDrawArrays(Utils::ToGL(topology), static_cast<GLint>(firstVertex), static_cast<GLsizei>(vertexCount));
     }

@@ -36,13 +36,20 @@
 #include "OloEnginePCH.h"
 
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBlockContract.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -53,9 +60,14 @@
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
+#include <iostream>
+#include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -312,6 +324,249 @@ namespace OloEngine::Tests
     }
 
     INSTANTIATE_TEST_SUITE_P(AllPaths, FrameBindingKnockout,
+                             ::testing::Values(RenderingPath::Forward, RenderingPath::ForwardPlus,
+                                               RenderingPath::Deferred),
+                             [](const ::testing::TestParamInfo<RenderingPath>& info)
+                             { return std::string(PathName(info.param)); });
+
+    // =========================================================================
+    // The dirty predecessor (ADR 0025 section 5a, issue #1330).
+    //
+    // The knockout above EMPTIES the binding points before a frame. This is the
+    // other half: after EVERY render-graph pass, a buffer of another layout is
+    // left on the binding points that have no frame owner, the way a pass that
+    // shares the point leaves its own block there. A pass that reads such a
+    // point without binding its own buffer first then reads the predecessor's.
+    // That is #1437: the vegetation dispatch read the skeletal deformer's block.
+    //
+    // Two things must both hold, and each catches what the other cannot:
+    //  * the frame is byte-identical to the unpoisoned one (a pass that read
+    //    the poison through an UNDECLARED path still changes the picture: the
+    //    poison is 0xFF bytes);
+    //  * the binding contract refused nothing (a pass whose reliance happens
+    //    not to change this scene's pixels is still named, with its program
+    //    and binding, by the violation it raises).
+    //
+    // Runs in both processes: the poison is bound through UniformBuffer, so it
+    // is the same on OpenGL and on Vulkan.
+    // =========================================================================
+    namespace
+    {
+        // Large enough for any block, so the only thing wrong with the poison
+        // is whose it is: the verdict is WrongLayout, never Undersized.
+        constexpr u32 kPoisonBytes = 64u * 1024u;
+
+        // The multi-layout binding points with no frame owner, from the table
+        // that defines them (ShaderBindingLayout::IsPassScopedUBOBinding).
+        [[nodiscard]] std::vector<u32> PassScopedBindings()
+        {
+            std::vector<u32> bindings;
+            for (u32 binding = 0; binding < ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS; ++binding)
+            {
+                if (ShaderBindingLayout::IsPassScopedUBOBinding(binding))
+                    bindings.push_back(binding);
+            }
+            return bindings;
+        }
+
+        constexpr std::string_view kPoisonHook = "FramePredecessorPoison";
+    } // namespace
+
+    class FramePredecessorPoison : public FrameBindingKnockout
+    {
+      protected:
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
+        void SetUp() override
+        {
+            FrameBindingKnockout::SetUp();
+            m_RefusedAtSetUp = BindingContract::ViolationCount();
+        }
+
+        void TearDown() override
+        {
+            if (RenderGraph* graph = ActiveGraph())
+                graph->RemovePostPassHook(kPoisonHook);
+            m_Poison.clear();
+            FrameBindingKnockout::TearDown();
+        }
+
+        [[nodiscard]] static RenderGraph* ActiveGraph()
+        {
+            return const_cast<RenderGraph*>(RenderGraphDebugRuntime::GetActiveGraph().Raw());
+        }
+
+        // From now on, every pass ends with a buffer of another layout on each
+        // of `bindings`.
+        void PoisonAfterEveryPass(std::span<const u32> bindings)
+        {
+            const std::vector<u8> bytes(kPoisonBytes, u8{ 0xFF });
+            for (const u32 binding : bindings)
+            {
+                Ref<UniformBuffer> poison = UniformBuffer::Create(kPoisonBytes, binding, "PredecessorPoison");
+                poison->SetData(bytes.data(), kPoisonBytes);
+                m_Poison.push_back(std::move(poison));
+            }
+            RenderGraph* graph = ActiveGraph();
+            ASSERT_NE(graph, nullptr) << "no active render graph to hook";
+            graph->AddPostPassHook(kPoisonHook, [this](std::string_view, RenderGraph&)
+                                   {
+                for (const Ref<UniformBuffer>& poison : m_Poison)
+                    poison->Bind(); });
+        }
+
+        std::vector<Ref<UniformBuffer>> m_Poison;
+        u64 m_RefusedAtSetUp = 0;
+    };
+
+    TEST_P(FramePredecessorPoison, APassDoesNotReadWhatItsPredecessorLeftOnASharedBinding)
+    {
+        ScopedMockTime mockTime(kCaptureTime);
+        const char* path = PathName(GetParam());
+
+        std::vector<u8> reference;
+        Capture(reference);
+        ASSERT_FALSE(HasFatalFailure());
+        std::vector<u8> again;
+        Capture(again);
+        ASSERT_FALSE(HasFatalFailure());
+        ASSERT_EQ(Compare(reference, again).Changed, 0u) << "on " << path << ", two untouched captures differ";
+
+        const std::vector<u32> passScoped = PassScopedBindings();
+        ASSERT_GE(passScoped.size(), 5u) << "the pass-scoped binding table is empty or nearly so";
+        const u64 refusedBefore = BindingContract::ViolationCount();
+        // The reference frames above ran under the contract too. An ordinary
+        // frame is refused nothing: that alone is a regression test for every
+        // producer the scene runs (it is how the particle renderer's 64-byte
+        // camera buffer under a 384-byte block was found).
+        ASSERT_EQ(refusedBefore, m_RefusedAtSetUp)
+            << "on " << path << ", an ordinary frame had " << (refusedBefore - m_RefusedAtSetUp)
+            << " uniform block read(s) refused before anything was poisoned; see the [BindingContract] error in the log";
+        PoisonAfterEveryPass(passScoped);
+        ASSERT_FALSE(HasFatalFailure());
+        std::vector<u8> poisoned;
+        Capture(poisoned);
+        ASSERT_FALSE(HasFatalFailure());
+        const u64 refused = BindingContract::ViolationCount() - refusedBefore;
+
+        EXPECT_EQ(refused, 0u)
+            << "on " << path << ", " << refused
+            << " uniform block read(s) found a predecessor's buffer on a shared binding point. The [BindingContract] "
+               "error in the log names the program, the binding and both blocks. That pass reads the point without "
+               "binding its own buffer first: call Bind() before the draw or dispatch.";
+        const FrameDiff diff = Compare(reference, poisoned);
+        if (diff.Changed > 0)
+        {
+            WriteFailureEvidence(std::string("FramePredecessorPoison_") + path + "_Reference", reference);
+            WriteFailureEvidence(std::string("FramePredecessorPoison_") + path + "_Poisoned", poisoned);
+        }
+        EXPECT_EQ(diff.Changed, 0u)
+            << "on " << path << ", leaving another layout on the shared binding points after every pass changed "
+            << diff.Changed << " pixels (max " << diff.MaxAbsDiff << " levels): a pass's output depends on what ran before it.";
+    }
+
+    // The control for the test above: poison a binding point that DOES have a
+    // frame owner. The motion-blur matrices at UBO_USER_1 are published once per
+    // frame for the G-Buffer, the deferred lighting and the fog pass to read, so
+    // a predecessor that leaves another layout there is exactly the fault the
+    // contract exists for. It must be refused (the shader is given the zero
+    // block, not the 0xFF poison) and the frame must show it: the scene's fog
+    // reconstructs position through those matrices on every path.
+    TEST_P(FramePredecessorPoison, AnotherLayoutOnAFramePublishedBindingIsRefusedBeforeAnyShaderReadsIt)
+    {
+        ScopedMockTime mockTime(kCaptureTime);
+        const char* path = PathName(GetParam());
+
+        std::vector<u8> reference;
+        Capture(reference);
+        ASSERT_FALSE(HasFatalFailure());
+
+        const u64 refusedBefore = BindingContract::ViolationCount();
+        static constexpr std::array kFramePublished{ ShaderBindingLayout::UBO_USER_1 };
+        ASSERT_FALSE(ShaderBindingLayout::IsPassScopedUBOBinding(kFramePublished[0]));
+        PoisonAfterEveryPass(kFramePublished);
+        ASSERT_FALSE(HasFatalFailure());
+        std::vector<u8> poisoned;
+        Capture(poisoned);
+        ASSERT_FALSE(HasFatalFailure());
+
+        EXPECT_GT(BindingContract::ViolationCount() - refusedBefore, 0u)
+            << "on " << path << ", a buffer of another layout sat on a frame-published binding and no read of it was refused";
+        EXPECT_GT(Compare(reference, poisoned).Changed, 0u)
+            << "on " << path << ", the frame did not change although its motion-blur matrices were replaced: this control would "
+                                "not notice a refused read either";
+    }
+
+    // What the check costs (issue #1330: "measure validation cost; do not infer
+    // that all bindings need unconditional expensive reset"). The same frames
+    // with the contract on and with OLO_BINDING_CONTRACT=0, interleaved so that
+    // drift lands on both arms, timed on the CPU around the whole frame. A
+    // probe, not a budget: it prints the two medians and asserts only that the
+    // comparison is one (frames identical, nothing refused). Read the numbers
+    // from a Release build on an idle machine.
+    class UniformBlockContractPerfProbe : public FramePredecessorPoison
+    {
+    };
+
+    TEST_P(UniformBlockContractPerfProbe, FrameCpuTimeWithAndWithoutTheCheck)
+    {
+        ScopedMockTime mockTime(kCaptureTime);
+        const char* path = PathName(GetParam());
+        constexpr u32 kRounds = 7;
+        constexpr u32 kFramesPerRound = 40;
+
+        EditorCamera camera(60.0f, 1.0f, 0.05f, 300.0f);
+        camera.SetViewportSize(static_cast<f32>(kSize), static_cast<f32>(kSize));
+        camera.SetPose(glm::vec3(0.0f, 5.0f, 11.0f), 0.0f, 0.4f);
+        RunEditorFrames(camera, 8); // warm caches, pipelines and histories
+
+        const auto timeRound = [&]() -> f64
+        {
+            const auto start = std::chrono::steady_clock::now();
+            RunEditorFrames(camera, kFramesPerRound);
+            return std::chrono::duration<f64, std::micro>(std::chrono::steady_clock::now() - start).count() / kFramesPerRound;
+        };
+
+        const Levers::Tristate saved = Levers::BindingContract();
+        const u64 refusedBefore = BindingContract::ViolationCount();
+        std::vector<f64> on;
+        std::vector<f64> off;
+        for (u32 round = 0; round < kRounds; ++round)
+        {
+            Levers::SetBindingContract(Levers::Tristate::On);
+            on.push_back(timeRound());
+            Levers::SetBindingContract(Levers::Tristate::Off);
+            off.push_back(timeRound());
+        }
+        Levers::SetBindingContract(saved);
+        ASSERT_FALSE(HasFatalFailure());
+        EXPECT_EQ(BindingContract::ViolationCount(), refusedBefore) << "a refused read makes the two arms draw different frames";
+
+        const auto median = [](std::vector<f64> values)
+        {
+            std::ranges::sort(values);
+            return values[values.size() / 2];
+        };
+        const f64 onUs = median(on);
+        const f64 offUs = median(off);
+        std::cout << "[UniformBlockContractPerfProbe] " << TestRenderBackend::EvidenceBackendPrefix() << " " << path
+                  << ": frame CPU median " << onUs << " us with the check, " << offUs << " us without ("
+                  << (offUs > 0.0 ? (onUs - offUs) / offUs * 100.0 : 0.0) << " %), " << kRounds << " interleaved rounds of "
+                  << kFramesPerRound << " frames\n";
+        ::testing::Test::RecordProperty("contract_on_us", std::to_string(onUs));
+        ::testing::Test::RecordProperty("contract_off_us", std::to_string(offUs));
+    }
+
+    INSTANTIATE_TEST_SUITE_P(AllPaths, UniformBlockContractPerfProbe,
+                             ::testing::Values(RenderingPath::Forward, RenderingPath::ForwardPlus,
+                                               RenderingPath::Deferred),
+                             [](const ::testing::TestParamInfo<RenderingPath>& info)
+                             { return std::string(PathName(info.param)); });
+
+    INSTANTIATE_TEST_SUITE_P(AllPaths, FramePredecessorPoison,
                              ::testing::Values(RenderingPath::Forward, RenderingPath::ForwardPlus,
                                                RenderingPath::Deferred),
                              [](const ::testing::TestParamInfo<RenderingPath>& info)

@@ -401,9 +401,9 @@ namespace OloEngine
             }
         }
 
-        s_Data.SharedSceneUBOs.Camera = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+        s_Data.SharedSceneUBOs.Camera = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
         constexpr u32 materialBufferSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
-        s_Data.SharedSceneUBOs.Material = UniformBuffer::Create(materialBufferSize, ShaderBindingLayout::UBO_MATERIAL);
+        s_Data.SharedSceneUBOs.Material = UniformBuffer::Create(materialBufferSize, ShaderBindingLayout::UBO_MATERIAL, "PBRMaterialProperties");
         // Validate the MultiLightUBO fits within the GPU's uniform block size limit.
         // MAX_LIGHTS=256 produces ~20 KB which exceeds the GL spec minimum of 16 KB
         // but is within typical desktop GPU limits (64 KB+).
@@ -461,30 +461,30 @@ namespace OloEngine
         s_Data.TerrainUBO = UniformBuffer::Create(ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);
         s_Data.FoliageUBO = UniformBuffer::Create(ShaderBindingLayout::FoliageUBO::GetSize(), ShaderBindingLayout::UBO_FOLIAGE);
         s_Data.WaterUBO = UniformBuffer::Create(ShaderBindingLayout::WaterUBO::GetSize(), ShaderBindingLayout::UBO_WATER);
-        s_Data.PostProcessGPU.PostProcess = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0);
-        s_Data.PostProcessGPU.MotionBlur = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1);
+        s_Data.PostProcessGPU.PostProcess = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0, "PostProcessUBO");
+        s_Data.PostProcessGPU.MotionBlur = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1, "MotionBlurMatrices", "MotionBlurUBO");
         s_Data.PostProcessGPU.SSAO = UniformBuffer::Create(SSAOUBOData::GetSize(), ShaderBindingLayout::UBO_SSAO);
         s_Data.PostProcessGPU.GTAO = UniformBuffer::Create(UBOStructures::GTAOUBO::GetSize(), ShaderBindingLayout::UBO_GTAO);
         s_Data.PostProcessGPU.SSR = UniformBuffer::Create(SSRUBOData::GetSize(), ShaderBindingLayout::UBO_SSR);
         s_Data.PostProcessGPU.SSGI = UniformBuffer::Create(SSGIUBOData::GetSize(), ShaderBindingLayout::UBO_SSGI);
         s_Data.PostProcessGPU.ContactShadow = UniformBuffer::Create(ContactShadowUBOData::GetSize(), ShaderBindingLayout::UBO_CONTACT_SHADOW);
         s_Data.PostProcessGPU.RayTracedShadow = UniformBuffer::Create(
-            UBOStructures::RayTracingShadowUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+            UBOStructures::RayTracingShadowUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING, "RayTracingShadowParams");
         s_Data.PostProcessGPU.RayTracedReflection = UniformBuffer::Create(
-            UBOStructures::RayTracingReflectionUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+            UBOStructures::RayTracingReflectionUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING, "RayTracingReflectionParams");
         s_Data.PostProcessGPU.GpuPathTracer = UniformBuffer::Create(
-            UBOStructures::RayTracingPathTracerUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+            UBOStructures::RayTracingPathTracerUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING, "RayTracingPathTracerParams");
         s_Data.PostProcessGPU.ReSTIRDI = UniformBuffer::Create(
-            UBOStructures::ReSTIRDIUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+            UBOStructures::ReSTIRDIUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING, "ReSTIRDIParams");
         // The SAME binding, refilled per dispatch (#691): UBO_TERRAIN_BRUSH (83)
         // is the last engine binding and UBO_BINDING_LIMIT (84) is the GL 4.6
         // guaranteed floor, so there is no free binding for a fifth ray-tracing
         // block. Its own BUFFER, though, because the two tiers' blocks are
         // different sizes and one shared allocation would have to be the larger.
         s_Data.PostProcessGPU.ReSTIRGI = UniformBuffer::Create(
-            UBOStructures::ReSTIRGIUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+            UBOStructures::ReSTIRGIUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING, "ReSTIRGIParams");
         s_Data.SceneEffectsGPU.Snow = UniformBuffer::Create(SnowUBOData::GetSize(), ShaderBindingLayout::UBO_SNOW);
-        s_Data.SceneEffectsGPU.SSS = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
+        s_Data.SceneEffectsGPU.SSS = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS, "SSSParams");
         s_Data.SceneEffectsGPU.Fog = UniformBuffer::Create(FogUBOData::GetSize(), ShaderBindingLayout::UBO_FOG);
         s_Data.SceneEffectsGPU.FogVolumes = UniformBuffer::Create(FogVolumesUBOData::GetSize(), ShaderBindingLayout::UBO_FOG_VOLUMES);
         s_Data.SceneEffectsGPU.FogVolumesData = FogVolumesUBOData{};

@@ -138,14 +138,14 @@ namespace OloEngine
         // per-item pool.
         m_GroomVsmDepthShader = Shader::Create("assets/shaders/VSM_GroomDepth.glsl");
         m_GroomVsmCrossFadeShader = Shader::Create("assets/shaders/VSM_GroomDepthCrossFade.glsl");
-        m_FamilyViewUBO = UniformBuffer::Create(sizeof(FamilyViewParams), ShaderBindingLayout::UBO_USER_0);
+        m_FamilyViewUBO = UniformBuffer::Create(sizeof(FamilyViewParams), ShaderBindingLayout::UBO_USER_0, "VSMFamilyView");
         m_FamilyVsmShaders.Terrain = Shader::Create("assets/shaders/VSM_Terrain_Depth.glsl");
         m_FamilyVsmShaders.Voxel = Shader::Create("assets/shaders/VSM_Terrain_VoxelDepth.glsl");
         m_FamilyVsmShaders.VoxelQuad = Shader::Create("assets/shaders/VSM_Terrain_VoxelGreedyDepth.glsl");
         m_FamilyVsmShaders.Foliage = Shader::Create("assets/shaders/VSM_Foliage_Depth.glsl");
         m_FamilyVsmShaders.FoliageImpostor = Shader::Create("assets/shaders/VSM_Foliage_Impostor_Depth.glsl");
         m_GroomVsmParamsUBO = UniformBuffer::Create(UBOStructures::GroomShadowParamsUBO::GetSize(),
-                                                    ShaderBindingLayout::UBO_USER_0);
+                                                    ShaderBindingLayout::UBO_USER_0, "GroomShadowParams");
     }
 
     void ShadowRenderPass::Execute(RGCommandContext& context)
@@ -949,7 +949,7 @@ namespace OloEngine
             ItemResources resources;
             resources.Camera = UniformBuffer::Create(
                 ShaderBindingLayout::CameraUBO::GetSize(),
-                ShaderBindingLayout::UBO_CAMERA);
+                ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
             resources.Animation = UniformBuffer::Create(
                 ShaderBindingLayout::AnimationUBO::GetSize(),
                 ShaderBindingLayout::UBO_ANIMATION);
@@ -960,7 +960,7 @@ namespace OloEngine
             // resource creation on an item context.
             resources.Groom = UniformBuffer::Create(
                 UBOStructures::GroomShadowParamsUBO::GetSize(),
-                ShaderBindingLayout::UBO_USER_0);
+                ShaderBindingLayout::UBO_USER_0, "GroomShadowParams");
             // Sized HERE, on the render thread: an item may not grow its buffer
             // (StorageBuffer::Resize creates and reclaims GPU memory — amendment
             // (92) rule 7), so the capacity covers the largest batch any item can

@@ -212,13 +212,13 @@ namespace OloEngine
         m_DDGIUBO = UniformBuffer::Create(UBOStructures::DDGIVolumeUBO::GetSize(),
                                           ShaderBindingLayout::UBO_DDGI);
         m_PassDataUBO = UniformBuffer::Create(sizeof(DDGIPassDataUBO),
-                                              ShaderBindingLayout::UBO_USER_0);
+                                              ShaderBindingLayout::UBO_USER_0, "DDGIPassData");
         // Shares UBO_USER_0 with the block above — the slot is pass-local and
         // whichever of the two is about to be read rebinds itself first.
         m_RelocateParamsUBO = UniformBuffer::Create(sizeof(DDGIRelocateParamsUBO),
-                                                    ShaderBindingLayout::UBO_USER_0);
+                                                    ShaderBindingLayout::UBO_USER_0, "DDGIRelocateParams");
         m_CaptureCameraUBO = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(),
-                                                   ShaderBindingLayout::UBO_CAMERA);
+                                                   ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
 
         // The stats header and the per-probe aux records share ONE buffer
         // (SSBO_DDGI_PROBE_AUX, issue #1015); it is sized with the probe grid
@@ -1220,8 +1220,8 @@ namespace OloEngine
             resources.Target = Framebuffer::Create(m_CaptureFB->GetSpecification());
             SetAtlasTextureParams(resources.Target->GetColorAttachmentHandle(0), RHI::Filter::Nearest);
             SetAtlasTextureParams(resources.Target->GetColorAttachmentHandle(1), RHI::Filter::Nearest);
-            resources.Camera = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
-            resources.PassData = UniformBuffer::Create(sizeof(DDGIPassDataUBO), ShaderBindingLayout::UBO_USER_0);
+            resources.Camera = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
+            resources.PassData = UniformBuffer::Create(sizeof(DDGIPassDataUBO), ShaderBindingLayout::UBO_USER_0, "DDGIPassData");
         }
         (void)MeshPrimitives::GetFullscreenTriangle(); // prime the shared lazy builder before workers
     }

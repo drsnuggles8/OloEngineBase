@@ -55,7 +55,7 @@ namespace OloEngine
         if (!RenderCommand::SupportsRayTracing())
             return;
         m_Shader = Shader::Create("assets/shaders/ReSTIR_PT.glsl");
-        m_Parameters = UniformBuffer::Create(sizeof(ReSTIR::PT::Parameters), ShaderBindingLayout::UBO_RAY_TRACING);
+        m_Parameters = UniformBuffer::Create(sizeof(ReSTIR::PT::Parameters), ShaderBindingLayout::UBO_RAY_TRACING, "ReSTIRPTParams");
     }
 
     void ReSTIRPTPass::SetSettings(const ReSTIRPTSettings& settings) noexcept

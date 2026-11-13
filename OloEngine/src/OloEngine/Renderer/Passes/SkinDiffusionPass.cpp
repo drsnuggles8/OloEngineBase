@@ -87,7 +87,7 @@ namespace OloEngine
 
         m_FramebufferSpec = spec;
         m_Shader = Shader::Create("assets/shaders/SkinDiffusion.glsl");
-        m_UBO = UniformBuffer::Create(SkinDiffusionUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
+        m_UBO = UniformBuffer::Create(SkinDiffusionUBOData::GetSize(), ShaderBindingLayout::UBO_SSS, "SkinDiffusionParams");
         m_CachedValid.fill(false);
         m_CachedQuality = SkinDiffusionQuality::Count;
     }
