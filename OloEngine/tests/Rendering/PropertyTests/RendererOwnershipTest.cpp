@@ -24,6 +24,8 @@
 #include "OloEnginePCH.h"
 #include "RendererAttachedTest.h"
 
+#include "OloEngine/Math/Math.h"
+#include "OloEngine/Renderer/AtmosphereSky.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
@@ -31,6 +33,7 @@
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/FrontendRecordingContext.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ProceduralSky.h"
@@ -40,6 +43,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/SkyCubemapBake.h"
+#include "OloEngine/Renderer/StarNestSky.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/UniformBlockContract.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -316,7 +320,23 @@ namespace OloEngine::Tests
             const Ref<EnvironmentMap> sky = ProceduralSky::Generate(params, 64);
             ASSERT_TRUE(sky) << "the sky bake produced nothing, so this proves nothing about what it leaves bound";
             EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera)
-                << "the bake left a camera buffer of its own on the frame-published camera binding"; });
+                << "the bake left a camera buffer of its own on the frame-published camera binding";
+
+            // The other two sky generators create a camera buffer of their own
+            // on the same binding and go through the same two bakes.
+            CommandDispatch::BindSceneResources();
+            ASSERT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera);
+            const Ref<EnvironmentMap> atmosphere = AtmosphereSky::Generate(AtmosphereSkyParameters{}, 32);
+            ASSERT_TRUE(atmosphere) << "the atmosphere bake produced nothing";
+            EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera)
+                << "the atmosphere sky bake left a camera buffer of its own on the frame-published camera binding";
+
+            CommandDispatch::BindSceneResources();
+            ASSERT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera);
+            const Ref<EnvironmentMap> stars = StarNestSky::Generate(StarNestParameters{}, 32);
+            ASSERT_TRUE(stars) << "the star field bake produced nothing";
+            EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera)
+                << "the star field bake left a camera buffer of its own on the frame-published camera binding"; });
     }
 
     // A refusal belongs to the program that was refused. The OpenGL backend
@@ -372,5 +392,121 @@ namespace OloEngine::Tests
             EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_USER_0), prefilterBlock->GetRHIHandle())
                 << "after another program's refusal the prefilter did not find its own block on the binding point";
             target->Unbind(); });
+    }
+
+    // The alternate-camera seam with a real draw, on both backends. A replay
+    // through another camera (the planar reflection, a bucket's view override)
+    // hands the frame back as it found it: the main view, its camera block on
+    // the frame-published binding, the view- and scene-owned history, and every
+    // process-wide facility. Neither it nor a recording item's teardown owns
+    // any of them.
+    TEST_F(RendererOwnership, AnAlternateViewReplayAndARecordingItemHandTheFrameBackWhole)
+    {
+        RenderMovingFrames(2);
+        RunInFrame([]
+                   {
+            const RendererAPI& api = RenderCommand::GetRendererAPI();
+            ShaderLibrary& library = Renderer3D::GetShaderLibrary();
+            ASSERT_TRUE(library.Exists("IBLPrefilter"));
+            CommandDispatch::BindSceneResources();
+            const RHI::ResourceHandle frameCamera = api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA);
+            ASSERT_TRUE(frameCamera.IsValid());
+            const DispatchView main = CommandDispatch::GetView();
+            ASSERT_TRUE(main.MainViewLanes);
+            const auto before = Renderer3D::DebugOwnedStateCensus();
+            ASSERT_GT(before.ViewHistoryFacts, 0u);
+            ASSERT_GT(before.ScenePoseRecords, 0u);
+
+            // The main camera mirrored about y = 0, as the planar reflection builds it.
+            DispatchView mirror = main;
+            mirror.ViewMatrix = main.ViewMatrix * glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, -1.0f, 1.0f));
+            mirror.ViewProjectionMatrix = mirror.ProjectionMatrix * mirror.ViewMatrix;
+            mirror.PrevViewProjectionMatrix = mirror.ViewProjectionMatrix;
+            mirror.ViewPosition = glm::vec3(main.ViewPosition.x, -main.ViewPosition.y, main.ViewPosition.z);
+            mirror.MainViewLanes = false;
+
+            Ref<UniformBuffer> prefilterBlock = UniformBuffer::Create(
+                ShaderBindingLayout::IBLParametersUBO::GetSize(), ShaderBindingLayout::UBO_USER_0, "IBLParameters");
+            const ShaderBindingLayout::IBLParametersUBO parameters{};
+            prefilterBlock->SetData(&parameters, ShaderBindingLayout::IBLParametersUBO::GetSize());
+            FramebufferSpecification spec;
+            spec.Width = 32;
+            spec.Height = 32;
+            spec.Attachments = { FramebufferTextureFormat::RGBA32F, FramebufferTextureFormat::Depth };
+            Ref<Framebuffer> target = Framebuffer::Create(spec);
+            ASSERT_TRUE(target);
+            Ref<Mesh> cube = MeshPrimitives::CreateSkyboxCube();
+            ASSERT_TRUE(cube);
+            const auto vao = cube->GetVertexArray();
+
+            const auto expectFrameHandedBack = [&](const char* after)
+            {
+                const DispatchView& now = CommandDispatch::GetView();
+                EXPECT_TRUE(Math::BitwiseEqual(now.ViewMatrix, main.ViewMatrix)) << after;
+                EXPECT_TRUE(Math::BitwiseEqual(now.ViewProjectionMatrix, main.ViewProjectionMatrix)) << after;
+                EXPECT_TRUE(Math::BitwiseEqual(now.PrevViewProjectionMatrix, main.PrevViewProjectionMatrix))
+                    << after << " left another camera's history in the main view";
+                EXPECT_TRUE(Math::BitwiseEqual(now.ViewPosition, main.ViewPosition)) << after;
+                EXPECT_TRUE(now.MainViewLanes) << after << " left the main view's screen-space inputs switched off";
+                EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera)
+                    << after << " left another buffer on the frame-published camera binding";
+                const auto census = Renderer3D::DebugOwnedStateCensus();
+                EXPECT_EQ(census.ViewHistoryFacts, before.ViewHistoryFacts) << after << " changed the view's history";
+                EXPECT_EQ(census.ScenePoseRecords, before.ScenePoseRecords) << after << " changed the scene's pose records";
+                ExpectRendererSingletonsAlive(after);
+            };
+
+            {
+                const CommandDispatch::ScopedAlternateView mirrorView(mirror);
+                EXPECT_FALSE(CommandDispatch::GetView().MainViewLanes);
+                target->Bind();
+                RenderCommand::SetViewport(0, 0, 32, 32);
+                CommandDispatch::BindSceneResources();
+                prefilterBlock->Bind();
+                vao->Bind();
+                library.Get("IBLPrefilter")->Bind();
+                RenderCommand::DrawIndexed(vao);
+                target->Unbind();
+            }
+            expectFrameHandedBack("an alternate-view replay");
+
+            {
+                // Entered and left on the render thread, unprepared and with
+                // nothing recorded. Preparing an item creates its upload
+                // buffers, and a buffer claims its binding point when it is
+                // created: the backend prepares its items with those claims
+                // suppressed and gives each a binding state of its own
+                // (VulkanRendererAPI::RecordParallel), neither of which this
+                // test has. What is under test is that the dispatcher's half,
+                // selecting an item and dropping it, is invisible to the frame.
+                FrontendRecordingContext item;
+                const ScopedFrontendRecordingContext recording(item);
+            }
+            expectFrameHandedBack("a recording item's teardown"); });
+    }
+
+    // The rule that stands in for "nobody shuts down what it does not own"
+    // where a device-level teardown has to (ADR 0025 section 5): a Vulkan
+    // device test shuts the dispatcher and the GPU timer pool down, because
+    // their GPU objects die with its device, and the renderer that owns them
+    // re-arms both on its own backend when it next begins a frame.
+    TEST_F(RendererOwnership, WhatADeviceTeardownShutDownTheRendererReArmsAtItsNextFrame)
+    {
+        RenderMovingFrames(2);
+
+        CommandDispatch::Shutdown();
+        GPUPassTimerPool::GetInstance().Shutdown();
+        ASSERT_FALSE(CommandDispatch::HasUBOReferences());
+        ASSERT_FALSE(GPUPassTimerPool::GetInstance().IsInitialized());
+
+        RenderMovingFrames(2);
+        ExpectRendererSingletonsAlive("the frame after a device teardown");
+        RunInFrame([]
+                   {
+            CommandDispatch::BindSceneResources();
+            EXPECT_TRUE(RenderCommand::GetRendererAPI().GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA).IsValid())
+                << "the re-armed dispatcher bound no camera block"; });
+        EXPECT_GT(Renderer3D::DebugOwnedStateCensus().ScenePoseRecords, 0u)
+            << "the frame after a device teardown did not draw the scene";
     }
 } // namespace OloEngine::Tests

@@ -41,6 +41,7 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/VertexBuffer.h"
+#include "OloEngine/Renderer/UniformBlockContract.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/Vertex.h"
 #include "OloEngine/Renderer/Model.h"

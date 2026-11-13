@@ -627,11 +627,18 @@ TEST_F(RayTracingDevice, VegetationDispatchReadsItsOwnParamsAfterAnotherProducer
     const std::array<Vertex, 4> first = deform(cache, scene);
 
     // Then two other producers take the slots, the way DeformedSurfaceCache
-    // and the raster foliage path do every frame they run.
-    const std::array<u8, 96> zeros{};
-    auto rayTracingTenant = UniformBuffer::Create(static_cast<u32>(zeros.size()), ShaderBindingLayout::UBO_RAY_TRACING);
+    // and the raster foliage path do every frame they run. The ray-tracing
+    // tenant is the one that faulted the device: DeformedSurfaceCache's
+    // 48-byte block under the vegetation shader's 96-byte one, declared as
+    // that producer declares it. Since issue #1330 a read of it is refused
+    // before the shader sees it (the uniform block contract), so a regression
+    // reads the zero block and is counted, whatever the tenant holds.
+    const std::array<u8, 48> zeros{};
+    auto rayTracingTenant = UniformBuffer::Create(static_cast<u32>(zeros.size()), ShaderBindingLayout::UBO_RAY_TRACING,
+                                                  "OloSkeletalDeformParams");
     rayTracingTenant->SetData(zeros.data(), static_cast<u32>(zeros.size()));
     rayTracingTenant->Bind();
+    const u64 refusedBefore = BindingContract::ViolationCount();
     const std::vector<u8> foliageZeros(sizeof(ShaderBindingLayout::FoliageUBO), 0u);
     auto foliageTenant = UniformBuffer::Create(static_cast<u32>(foliageZeros.size()), ShaderBindingLayout::UBO_FOLIAGE);
     foliageTenant->SetData(foliageZeros.data(), static_cast<u32>(foliageZeros.size()));
@@ -641,6 +648,9 @@ TEST_F(RayTracingDevice, VegetationDispatchReadsItsOwnParamsAfterAnotherProducer
     // dispatch left in the buffer.
     input.Wind.Time += 0.5f;
     const std::array<Vertex, 4> displaced = deform(cache, scene);
+    EXPECT_EQ(BindingContract::ViolationCount(), refusedBefore)
+        << "the vegetation dispatch read the skeletal deform block that another producer left on UBO_RAY_TRACING; "
+        << "the [BindingContract] error in the log names both blocks";
 
     // The oracle: a fresh cache whose own buffers are created during this
     // dispatch, so nothing can have displaced them.
