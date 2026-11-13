@@ -288,7 +288,7 @@ The check passes for a correct implementation and for a broken one, so measure t
 | [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) | A cache fails by being slow, not by looking wrong: every save in the repo was refused for six days and every run stayed green. |
 | [actions-cache-budget.md](actions-cache-budget.md) | The Windows sccache entry had not existed for weeks. |
 | [ci-lfs-bandwidth.md](ci-lfs-bandwidth.md) | The monthly Git LFS bandwidth was gone in twelve days, and no job had failed or warned. |
-| [testing-architecture.md](testing-architecture.md) | The lavapipe build went red on a test listing that had succeeded: MSBuild read Tracy's `ERROR: SymInitialize FAILED` start-up line as a compiler error. |
+| [testing-architecture.md](testing-architecture.md) | A build step that runs the test binary must capture its stderr and re-print it behind a prefix: MSBuild read Tracy's `ERROR: SymInitialize FAILED` start-up line as a compiler error and failed a test listing that had succeeded. |
 | [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md) | A healthy restore still hit 32%, and `--show-stats` printed the same size line for a cache 20% over its cap and one with spare room. |
 | [windows-sccache-warm-reuse.md](windows-sccache-warm-reuse.md) | The nightly restored a same-commit, same-toolchain snapshot and still missed on all 2060 requests while ASan hit 99.90%. |
 | [self-hosted-ccache-slot-multiplier.md](self-hosted-ccache-slot-multiplier.md) | A cumulative 76.40% hit rate over a cache pinned at its cap averaged the warm era with the thrash. |
