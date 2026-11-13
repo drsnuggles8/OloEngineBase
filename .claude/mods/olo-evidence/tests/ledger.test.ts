@@ -58,6 +58,8 @@ test('ctest summaries are read, passing and failing', () => {
   ].join('\n')
   expect(testOutcome(failing)).toEqual(expect.objectContaining({ state: 'failed', failed: ['Water.Foam'], ran: 5 }))
   expect(testOutcome('100% tests passed, 0 tests failed out of 12').state).toBe('passed')
+  // CMake 4.x prints a clean run without the failed count.
+  expect(testOutcome('100% tests passed out of 3')).toEqual(expect.objectContaining({ state: 'passed', detail: '3 passed (ctest)', ran: 3 }))
 })
 
 test('colour sequences, CRs and NULs do not hide a result', () => {
@@ -186,6 +188,10 @@ test('PR problems: no runs, failing runs, unbacked claims, missing visual eviden
 test('runs with no known outcome are not evidence', () => {
   const unknown = judge(run({ scope: 'Lost.*', logPath: 'C:/gone.log' }), undefined)
   expect(unknown.outcome.state).toBe('unknown')
+  expect(unknown.outcome.detail).toBe('its log is gone')
+  // A foreground run has no log file; its captured output simply carried no result.
+  expect(judge(run({ logPath: null, captured: null }), undefined).outcome.detail).toBe('no result in its captured output')
+  expect(judge(run({ logPath: 'C:/a.log' }), 'nothing here').outcome.detail).toBe('no result in its output')
   // Only unknown runs: the branch has no evidence at all.
   const alone = prProblems([unknown], [], ['a.cpp'], '')
   expect(alone.map(p => p.rule)).toEqual(['no-runs'])
