@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/RHI/RHITypes.h"
 
 namespace OloEngine
 {
@@ -27,6 +28,10 @@ namespace OloEngine
 
         // glBindBufferBase(GL_UNIFORM_BUFFER, binding, glName) just ran.
         void NoteBufferBound(u32 binding, u32 glName);
+
+        // The engine buffer at a uniform binding point, or the null handle when
+        // the point is empty or holds a buffer this record does not know.
+        [[nodiscard]] RHI::ResourceHandle OccupantHandle(u32 binding);
 
         // glUseProgram(program) just ran.
         void NoteProgramBound(u32 program);

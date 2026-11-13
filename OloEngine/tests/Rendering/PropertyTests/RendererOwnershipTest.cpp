@@ -27,9 +27,12 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
@@ -210,5 +213,34 @@ namespace OloEngine::Tests
         RenderMovingFrames(2);
         EXPECT_EQ(s_CallbackRuns, 0u) << "a pass callback handed to the previous renderer ran on the restarted one";
         EXPECT_GT(Renderer3D::DebugOwnedStateCensus().ScenePoseRecords, 0u) << "the restarted renderer did not draw the scene";
+    }
+
+    // Which buffer occupies a uniform binding point has one owner: the
+    // backend's occupancy record (issue #1688). The dispatcher used to keep its
+    // own answer, a table of what IT last bound at bindings 0 to 7, and skip a
+    // bind the table called redundant. A buffer anyone else bound there (a
+    // shadow item's camera, a bake, the particle pass) was invisible to that
+    // table, so the next draw read the intruder through a bind it skipped, and
+    // every such pass had to remember to invalidate the table.
+    TEST_F(RendererOwnership, ABindBehindTheDispatchersBackCannotMakeItSkipTheCameraBind)
+    {
+        RenderMovingFrames(1);
+        RunInFrame([]
+                   {
+            const RendererAPI& api = RenderCommand::GetRendererAPI();
+            CommandDispatch::BindSceneResources();
+            const RHI::ResourceHandle frameCamera = api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA);
+            ASSERT_TRUE(frameCamera.IsValid()) << "the backend cannot name the buffer the dispatcher just bound";
+
+            // Same layout, same declaration: nothing but identity tells the two apart.
+            const Ref<UniformBuffer> intruder = UniformBuffer::Create(
+                ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
+            intruder->Bind();
+            ASSERT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), intruder->GetRHIHandle())
+                << "a direct bind did not reach the backend's occupancy record";
+
+            CommandDispatch::BindSceneResources();
+            EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera)
+                << "the dispatcher skipped its camera bind although another buffer occupied the binding point"; });
     }
 } // namespace OloEngine::Tests

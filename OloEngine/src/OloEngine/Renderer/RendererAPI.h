@@ -682,6 +682,17 @@ namespace OloEngine
         // "0 unbinds" contract the deleted u32 forms had, now spelled so it
         // cannot be confused with a real object.
         virtual void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) = 0;
+        // The buffer that occupies a uniform binding point in the CALLING
+        // recording context, or the null handle when the backend does not know
+        // (nothing bound, or a buffer bound behind its back). The backend's
+        // occupancy record is the one answer to "is this already bound": it
+        // sees every bind, whoever issued it, where a cache kept by one caller
+        // sees only that caller's (issue #1688). A redundant-bind check asks
+        // this rather than remembering.
+        [[nodiscard]] virtual RHI::ResourceHandle GetUniformBufferOccupant(u32 /*bindingPoint*/) const
+        {
+            return {};
+        }
         virtual void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) = 0;
         // Per-dispatch CPU data for a COMPUTE read at `bindingPoint` (#1543):
         // copies `size` bytes into memory that lives until the GPU has

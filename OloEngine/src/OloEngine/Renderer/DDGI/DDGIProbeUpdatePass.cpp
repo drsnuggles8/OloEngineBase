@@ -1754,9 +1754,9 @@ namespace OloEngine
                                          MemoryBarrierFlags::ShaderStorage);
 
             // The capture overwrote UBO binding 0 with this pass's own camera
-            // buffer. Invalidate the dispatch bind-cache FIRST so the re-upload
-            // actually rebinds the engine camera UBO (BindUBOIfNeeded would
-            // otherwise think it never left), then restore the real camera for
+            // buffer. Drop the dispatcher's render-state cache, then restore the
+            // real camera (the re-upload rebinds it: the dispatcher asks the
+            // backend who occupies the binding, issue #1688) for
             // the relight stage's CSM cascade selection — it is re-established
             // AGAIN at the end of Execute, after the last Shader::Bind (whose
             // resource-registry side effects can re-bind UBO point 0).

@@ -4800,6 +4800,14 @@ namespace OloEngine
         ctx.ConditionalRenderSkip = false;
     }
 
+    RHI::ResourceHandle VulkanRendererAPI::GetUniformBufferOccupant(u32 bindingPoint) const
+    {
+        // The calling recording context's mirror: a worker item's own while
+        // it records, the process-wide one otherwise.
+        const VulkanUniformBuffer* occupant = VulkanBindingState::Get().GetUniformBuffer(bindingPoint);
+        return occupant != nullptr ? occupant->GetRHIHandle() : RHI::ResourceHandle{};
+    }
+
     void VulkanRendererAPI::BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
     {
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(buffer);

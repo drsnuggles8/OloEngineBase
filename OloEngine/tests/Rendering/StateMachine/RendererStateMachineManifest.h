@@ -215,7 +215,7 @@ namespace OloEngine::Tests::StateMachine
                  "VulkanParallelRecordingDevice.* (#806); the scene-level half is a live capture." },
         PairRow{ "binding-cache-cold.gl", "dispatcher binding caches warm across passes and frames",
                  "every binding cache forgotten before the frame and after every pass",
-                 "CommandDispatch::InvalidateBindingCaches in a post-pass hook", Criterion::ExactTexels,
+                 "CommandDispatch::ForgetBindingCaches in a post-pass hook", Criterion::ExactTexels,
                  Placement::DeviceGL, RowStatus::Required, "RendererStateMachineEvidence.GeneratedSequencesHoldEveryPair",
                  "The redundant-bind cache is an optimisation: a frame that relies on a binding nobody reset (a "
                  "missing frame-start reset, or #1404's missing per-pass one) renders differently cold. A skipped "
@@ -305,7 +305,8 @@ namespace OloEngine::Tests::StateMachine
         NegativeControlRow{ "stale-declaration-key.cpu", "a mock pass whose Setup gate is not reported to the key",
                             "test-local pass", "cached-vs-rebuild.cpu", Placement::CpuEverywhere,
                             "RendererStateMachinePolicy.UnreportedSetupGateIsCaught" },
-        NegativeControlRow{ "missing-binding-reset", "the dispatcher's bound-state cache survives into the next frame",
+        NegativeControlRow{ "missing-binding-reset",
+                            "the dispatcher's bound-state cache survives every reset: frame start, pass entry and render state",
                             "Levers::FaultSkipDispatchBindingReset", "binding-cache-cold.gl", Placement::DeviceGL,
                             "RendererStateMachineNegativeControl.MissingBindingResetIsCaught" },
         NegativeControlRow{ "alias-lifetime", "the transient planner ends every lifetime one pass early",

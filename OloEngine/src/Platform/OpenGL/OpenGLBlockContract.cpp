@@ -40,6 +40,9 @@ namespace OloEngine::OpenGLBlockContract
             std::unordered_map<u32, BufferRecord> Buffers;
             // GL buffer name per uniform binding point, 0 for none.
             std::array<u32, ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS> Occupants{};
+            // ...and the same occupant as an engine identity, resolved once
+            // when it is bound so that asking costs one array read.
+            std::array<RHI::ResourceHandle, ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS> OccupantHandles{};
             // Bumped whenever an occupant changes, so an unchanged frame state
             // is recognised without walking the blocks.
             u64 Generation = 1;
@@ -164,11 +167,12 @@ namespace OloEngine::OpenGLBlockContract
     {
         auto& state = Get();
         state.Buffers.erase(glName);
-        for (u32& occupant : state.Occupants)
+        for (sizet binding = 0; binding < state.Occupants.size(); ++binding)
         {
-            if (occupant == glName)
+            if (state.Occupants[binding] == glName)
             {
-                occupant = 0;
+                state.Occupants[binding] = 0;
+                state.OccupantHandles[binding] = {};
                 ++state.Generation;
             }
         }
@@ -180,7 +184,15 @@ namespace OloEngine::OpenGLBlockContract
         if (binding >= state.Occupants.size() || state.Occupants[binding] == glName)
             return;
         state.Occupants[binding] = glName;
+        const auto found = state.Buffers.find(glName);
+        state.OccupantHandles[binding] = found != state.Buffers.end() ? found->second.Buffer->GetRHIHandle() : RHI::ResourceHandle{};
         ++state.Generation;
+    }
+
+    RHI::ResourceHandle OccupantHandle(u32 binding)
+    {
+        const auto& state = Get();
+        return binding < state.OccupantHandles.size() ? state.OccupantHandles[binding] : RHI::ResourceHandle{};
     }
 
     void NoteProgramBound(u32 program)
@@ -254,10 +266,13 @@ namespace OloEngine::OpenGLBlockContract
         auto& state = Get();
         if (state.ZeroBlock != 0)
         {
-            for (u32& occupant : state.Occupants)
+            for (sizet binding = 0; binding < state.Occupants.size(); ++binding)
             {
-                if (occupant == state.ZeroBlock)
-                    occupant = 0;
+                if (state.Occupants[binding] == state.ZeroBlock)
+                {
+                    state.Occupants[binding] = 0;
+                    state.OccupantHandles[binding] = {};
+                }
             }
             glDeleteBuffers(1, &state.ZeroBlock);
             state.ZeroBlock = 0;

@@ -210,11 +210,8 @@ namespace OloEngine
             // is therefore part of the cache key (issue #691).
             bool LastMaterialOffsetsLive = false;
             std::array<RHI::ResourceHandle, ShaderBindingLayout::MAX_ENGINE_TEXTURE_SLOTS> BoundTextures{};
-
-            // Track currently bound UBO renderer IDs per binding point to avoid
-            // redundant glBindBufferBase calls. Indexed by ShaderBindingLayout::UBO_*.
-            static constexpr u32 MAX_TRACKED_UBO_BINDINGS = 8;
-            std::array<RHI::ResourceHandle, MAX_TRACKED_UBO_BINDINGS> BoundUBOs{};
+            // No uniform-buffer entry: which buffer occupies a binding point is
+            // the backend's to answer (BindUBOIfNeeded, issue #1688).
         };
         BindCache Cache;
 
@@ -371,14 +368,6 @@ namespace OloEngine
         return s_RecordingData ? Data().Uploads.ModelInstanceBuffer : mainBuffer;
     }
 
-    void CommandDispatch::InvalidateUBOCache(u32 bindingPoint)
-    {
-        if (bindingPoint < CommandDispatchData::BindCache::MAX_TRACKED_UBO_BINDINGS)
-        {
-            Data().Cache.BoundUBOs[bindingPoint] = RHI::NullResource;
-        }
-    }
-
     void CommandDispatch::InvalidateTextureSlot(u32 slot)
     {
         // For a pass that binds a texture unit with RAW GL (glBindTextureUnit) behind this
@@ -428,16 +417,19 @@ namespace OloEngine
         }
     }
 
-    // Conditionally bind a UBO only when the binding point has changed,
-    // avoiding a redundant binding-point update each draw.
+    // Bind a UBO only when it is not already the binding point's occupant.
+    //
+    // The answer comes from the backend's occupancy record, not from a cache
+    // here (issue #1688). The dispatcher used to remember what IT last bound at
+    // bindings 0 to 7, which is not the same thing: a shadow item's camera
+    // buffer, a bake or the particle pass binds directly, and the next draw
+    // then skipped a bind it needed. Correctness rested on every such pass
+    // remembering to invalidate. The record sees every bind, in the calling
+    // recording context, so there is nothing to invalidate.
     static void BindUBOIfNeeded(RendererAPI& api, u32 bindingPoint, RHI::ResourceHandle buffer)
     {
-        if (bindingPoint < CommandDispatchData::BindCache::MAX_TRACKED_UBO_BINDINGS)
-        {
-            if (Data().Cache.BoundUBOs[bindingPoint] == buffer)
-                return;
-            Data().Cache.BoundUBOs[bindingPoint] = buffer;
-        }
+        if (buffer.IsValid() && api.GetUniformBufferOccupant(bindingPoint) == buffer)
+            return;
         api.BindUniformBuffer(bindingPoint, buffer);
     }
 
@@ -1834,17 +1826,26 @@ namespace OloEngine
         return Data().Tally.GPUSceneFallbackDraws;
     }
 
-    void CommandDispatch::ResetState()
+    // The reset both ResetState (frame start) and InvalidateBindingCaches (pass
+    // entry) perform, and the one place the #1349 negative control cuts.
+    //
+    // With the fault on, the texture, material and render-state caches outlive
+    // every reset the engine asks for, so state something else changed is
+    // skipped as already in place. It is a control, never a behaviour. Until
+    // #1688 the fault only cut the frame-start reset, and what it broke was the
+    // uniform-buffer cache. The dispatcher keeps no such record any more, and
+    // measured on the control's trace the frame-start and pass-entry resets
+    // alone are no longer missed by anything: the caches that remain are also
+    // dropped by targeted invalidations. So the fault cuts those two resets and
+    // InvalidateRenderStateCache, and it is the stale render state (a pass that
+    // set depth or blend state directly, then a draw whose state index matches
+    // the last one applied) that binding-cache-cold catches. The shader and
+    // vertex-array caches still reset: a stale VAO draws from VAO 0, which some
+    // drivers answer with an access violation rather than a wrong frame, and a
+    // control must fail a check, not take the process down.
+    static void ResetBindCacheUnlessFaulted()
     {
-        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
         auto& cache = Data().Cache;
-        // A negative control for #1349, never a behaviour: with the fault on,
-        // the texture, UBO, material and render-state caches outlive the frame,
-        // so a binding something else changed since the last frame is skipped
-        // as already bound. The shader and vertex-array caches still reset: a
-        // stale VAO draws from VAO 0, which some drivers answer with an access
-        // violation rather than a wrong frame, and a control must fail a check,
-        // not take the process down.
         if (Levers::FaultSkipDispatchBindingReset())
         {
             cache.CurrentBoundShader = {};
@@ -1854,6 +1855,12 @@ namespace OloEngine
         {
             cache = {};
         }
+    }
+
+    void CommandDispatch::ResetState()
+    {
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        ResetBindCacheUnlessFaulted();
         s_FrameData.CSMShadowTexture = {};
         s_FrameData.AtlasShadowTexture = {};
         s_FrameData.CSMRawShadowTexture = {};
@@ -1873,6 +1880,9 @@ namespace OloEngine
 
     void CommandDispatch::InvalidateRenderStateCache()
     {
+        // The #1349 negative control cuts this too: ResetBindCacheUnlessFaulted.
+        if (Levers::FaultSkipDispatchBindingReset())
+            return;
         Data().Cache.LastRenderStateIndex = INVALID_RENDER_STATE_INDEX;
     }
 
@@ -1890,6 +1900,12 @@ namespace OloEngine
         OLO_CORE_ASSERT(!s_RecordingData, "Binding caches are reset between passes, not during recording");
         // The binding half of ResetState(): the counters, viewport and pass
         // flags describe the frame so far and stay.
+        ResetBindCacheUnlessFaulted();
+    }
+
+    void CommandDispatch::ForgetBindingCaches()
+    {
+        OLO_CORE_ASSERT(!s_RecordingData, "Binding caches are reset between passes, not during recording");
         Data().Cache = {};
     }
 

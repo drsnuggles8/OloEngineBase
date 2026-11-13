@@ -86,6 +86,12 @@ namespace OloEngine
         // (found during issue #1404).
         static void InvalidateBindingCaches();
 
+        // The same reset, unconditionally: it ignores the
+        // FaultSkipDispatchBindingReset negative control. For the harness arm
+        // that must really forget the caches while the fault is injected
+        // (binding-cache-cold); engine code calls InvalidateBindingCaches.
+        static void ForgetBindingCaches();
+
         // Apply a command's PODRenderState (skipped when the index matches the
         // last one applied -- InvalidateRenderStateCache() is how a pass that
         // touched state behind the queue's back forces a re-apply).
@@ -98,7 +104,6 @@ namespace OloEngine
         // through a dispatch function the production path does not use is
         // verifying the setup, not the draw.
         static void ApplyPODRenderState(u16 renderStateIndex, RendererAPI& api);
-        static void InvalidateUBOCache(u32 bindingPoint);
 
         // Clear any cached texture-slot binding that points at this OpenGL texture ID.
         // Must be called when a Texture2D is destroyed so that a future call to

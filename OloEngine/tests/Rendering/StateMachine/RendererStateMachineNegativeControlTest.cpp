@@ -141,9 +141,14 @@ namespace OloEngine::Tests::StateMachine
             Coverage::RecordComparison("stale-declaration-key");
     }
 
-    // Missing binding reset. The dispatcher's texture, UBO, material and
-    // render-state caches survive the frame-start reset, while the fixture's
-    // GLStateGuard (and, in the editor, ImGui) changes bindings between frames.
+    // Missing binding reset. The dispatcher's texture, material and
+    // render-state caches survive the frame-start reset, every pass-entry one
+    // and every render-state invalidation, while passes that set state
+    // directly, the fixture's GLStateGuard (and, in the editor, ImGui) change
+    // it behind them. Uniform buffers are not in the list: since #1688 the
+    // dispatcher asks the backend who occupies a binding point and has no
+    // record of its own to go stale, which is also why the fault had to grow:
+    // cutting the frame-start reset alone, as it did before, is missed now.
     TEST_F(RendererStateMachineNegativeControl, MissingBindingResetIsCaught)
     {
         OLO_ENSURE_GPU_OR_SKIP();

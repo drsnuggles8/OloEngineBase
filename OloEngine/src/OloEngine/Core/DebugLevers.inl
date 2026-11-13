@@ -127,10 +127,10 @@ OLO_LEVER_EXACT(FaultStaleDeclarationKey, "OLO_FAULT_STALE_DECLARATION_KEY",
                 "readiness, bucket gates) out of the render-graph declaration key, so a pass that starts or stops "
                 "declaring work keeps the cached graph. Re-creates the #1315 class of bad cache invalidation.")
 OLO_LEVER_EXACT(FaultSkipDispatchBindingReset, "OLO_FAULT_SKIP_DISPATCH_BINDING_RESET",
-                "FAULT (#1349 negative control): keep CommandDispatch's bound-texture, bound-UBO, material and "
-                "render-state caches across the frame-start ResetState(), so a binding changed behind the "
-                "dispatcher's back since the last frame is skipped as already bound. Re-creates a missing binding "
-                "reset.")
+                "FAULT (#1349 negative control): keep CommandDispatch's bound-texture, material and render-state "
+                "caches across the frame-start ResetState(), every pass-entry InvalidateBindingCaches() and every "
+                "InvalidateRenderStateCache(), so state changed behind the dispatcher's back is skipped as already "
+                "in place. Re-creates a missing binding reset.")
 OLO_LEVER_TEXT(FaultOmitOutOfBandDeclaration, "OLO_FAULT_OMIT_OUT_OF_BAND_DECLARATION",
                "FAULT (#1331 negative control): drop matching out-of-band declarations in RGBuilder while the access "
                "they declare still runs. \"Boundary\" drops every pass's declaration of it, \"Pass/Boundary\" one "
