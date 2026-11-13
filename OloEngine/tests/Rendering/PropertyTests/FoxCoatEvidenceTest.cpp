@@ -38,6 +38,7 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/MeshCache.h"
+#include "OloEngine/Groom/GroomMeshSurface.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Groom/GroomBinding.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
@@ -985,21 +986,6 @@ namespace OloEngine::Tests
             return out;
         }
 
-        [[nodiscard]] GroomSurfaceView MakeSurfaceView(const MeshSource& surface, const Skeleton* skeleton)
-        {
-            GroomSurfaceView view;
-            const auto& vertices = surface.GetVertices();
-            const auto& indices = surface.GetIndices();
-            view.PositionData = reinterpret_cast<const std::byte*>(vertices.GetData());
-            view.PositionStride = static_cast<u32>(sizeof(Vertex));
-            view.VertexCount = static_cast<u32>(vertices.Num());
-            view.Indices = indices.GetData();
-            view.IndexCount = static_cast<u32>(indices.Num());
-            view.BoneCount = skeleton != nullptr ? static_cast<u32>(skeleton->m_FinalBoneMatrices.size()) : 0u;
-            view.SkeletonNameHash = skeleton != nullptr ? HashGroomSkeletonNames(skeleton->m_BoneNames) : 0u;
-            return view;
-        }
-
         // Closest point on triangle abc to p (Ericson, Real-Time Collision
         // Detection 5.1.5).
         [[nodiscard]] glm::vec3 ClosestOnTriangle(const glm::vec3& p, const glm::vec3& a, const glm::vec3& b,
@@ -1268,7 +1254,7 @@ namespace OloEngine::Tests
             std::vector<u8> bytes;
             GroomBindingBuildStats stats;
             std::string reason;
-            ASSERT_TRUE(GroomBindingCooker::CookPair(*out.Grown.Groom, MakeSurfaceView(*surface, skeleton), name.c_str(),
+            ASSERT_TRUE(GroomBindingCooker::CookPair(*out.Grown.Groom, MakeGroomSurfaceView(*surface, skeleton), name.c_str(),
                                                      bind, bytes, out.Binding, stats, reason))
                 << reason;
             ASSERT_TRUE(GroomBindingSerializer::DecodeFromBytes(bytes.data(), bytes.size(), out.Binding, reason)) << reason;
@@ -2041,7 +2027,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(reloaded);
             const Ref<MeshSource> body = reloaded->GetEntityMeshSource();
             ASSERT_TRUE(body);
-            const GroomSurfaceView view = MakeSurfaceView(*body, reloaded->GetSkeleton().Raw());
+            const GroomSurfaceView view = MakeGroomSurfaceView(*body, reloaded->GetSkeleton().Raw());
             for (FoxRig* f : Foxes())
             {
                 EXPECT_EQ(f->Binding->CheckCompatibility(GroomBindingBuilder::SignGroom(*f->Grown.Groom),
@@ -2125,7 +2111,7 @@ namespace OloEngine::Tests
             const MeshSource& body = *bodyRef;
             EXPECT_EQ(loadedBinding->CheckCompatibility(GroomBindingBuilder::SignGroom(*loadedGroom),
                                                         GroomBindingBuilder::SignTarget(
-                                                            MakeSurfaceView(body, f->Model->GetSkeleton().Raw()))),
+                                                            MakeGroomSurfaceView(body, f->Model->GetSkeleton().Raw()))),
                       GroomBindingRejectReason::None)
                 << f->Name;
 

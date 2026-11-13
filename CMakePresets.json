@@ -76,7 +76,7 @@
 		{
 			"name": "linux-gcc",
 			"displayName": "Linux GCC (Ninja)",
-			"description": "Base Linux preset using GCC 14 and Ninja Multi-Config. Uses vcpkg's stock x64-linux triplet (static libs, no CRT-linkage concept) rather than a custom one — the static-md triplets exist only to pin the Windows CRT choice.",
+			"description": "Base Linux preset using GCC 14 and Ninja Multi-Config. Uses the repo's x64-linux overlay triplet (cmake/triplets/x64-linux.cmake): vcpkg's stock static-lib triplet plus -ffp-contract=off for every port, so a GCC that targets FMA hardware builds the ports' float math the way every other compiler does (#1674).",
 			"generator": "Ninja Multi-Config",
 			"binaryDir": "${sourceDir}/build-linux",
 			"toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
@@ -85,6 +85,7 @@
 				"CMAKE_C_COMPILER": "gcc-14",
 				"CMAKE_CXX_COMPILER": "g++-14",
 				"VCPKG_OVERLAY_PORTS": "${sourceDir}/cmake/overlay-ports",
+				"VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/triplets",
 				"VCPKG_TARGET_TRIPLET": "x64-linux"
 			},
 			"condition": {
@@ -106,6 +107,7 @@
 				"CMAKE_CXX_COMPILER": "g++",
 				"OLO_VIDEO_FFMPEG": "OFF",
 				"VCPKG_OVERLAY_PORTS": "${sourceDir}/cmake/overlay-ports",
+				"VCPKG_OVERLAY_TRIPLETS": "${sourceDir}/cmake/triplets",
 				"VCPKG_TARGET_TRIPLET": "x64-linux"
 			},
 			"condition": {

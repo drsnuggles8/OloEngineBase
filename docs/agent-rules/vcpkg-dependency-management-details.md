@@ -342,7 +342,7 @@ git clone https://github.com/microsoft/vcpkg ~/vcpkg        # NOT --depth 1: the
 ~/vcpkg/bootstrap-vcpkg.sh -disableMetrics                  # baseline commit must be present
 cmake -S . -B build -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/vcpkg/scripts/buildsystems/vcpkg.cmake \
-  -DVCPKG_TARGET_TRIPLET=x64-linux \
+  -DVCPKG_TARGET_TRIPLET=x64-linux "-DVCPKG_OVERLAY_TRIPLETS=$PWD/cmake/triplets" \
   -DCMAKE_CXX_COMPILER=clang++-23 -DCMAKE_C_COMPILER=clang-23 \
   -DCMAKE_BUILD_TYPE=Debug -DOLO_ENABLE_TSAN=ON -DBUILD_TESTS=ON \
   -DOLO_VIDEO_FFMPEG=OFF -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
@@ -372,6 +372,38 @@ TSAN_OPTIONS='halt_on_error=0:abort_on_error=0:handle_segv=0' \
 
 `handle_segv=0` is the load-bearing part: without it TSan swallows the signal and prints
 nothing, which is the state the CI log was stuck in.
+
+## Trap 10 — the Linux triplet turns off FP contraction in every port
+
+`cmake/triplets/x64-linux.cmake` is vcpkg's stock `x64-linux` plus
+`VCPKG_C_FLAGS`/`VCPKG_CXX_FLAGS` of `-ffp-contract=off`. The root `CMakeLists.txt` has set
+the same flag on the engine's own code since #1473; until #1674 it never reached the ports.
+
+Under the GNU dialects GCC defaults to `-ffp-contract=fast` and fuses `a*b+c` into an FMA
+wherever the target has one. Rocky Linux 10's GCC targets x86-64-v3 by default, so on the AMD
+box, and only there, meshoptimizer's overdraw optimizer computed its cluster sort keys with
+FMAs. For one of the Samoyed's ten submeshes (DogNose) a key crossed a quantization boundary,
+so `meshopt_optimizeOverdraw` emitted a different triangle order. The body's topology hash
+moved with it, and the shipped `Samoyed.ologroombinding` refused the Linux import with
+`TargetTopologyMismatch`: 14 red showcase cases a week. A standalone harness reproduced it
+exactly. GCC 13 with `-march=x86-64-v3 -ffp-contract=fast`, given Assimp's DogNose output,
+printed the AMD box's hash (`beb99ff73518c3e2`); with `-ffp-contract=off` it printed the
+Windows hash (`1c2a4c8132149d66`). The other nine submeshes did not change.
+
+The overlay keeps the stock name, so build trees, `vcpkg_installed/x64-linux` and the
+workflows' `triplet: x64-linux` are unchanged. Because of that, a configure without
+`VCPKG_OVERLAY_TRIPLETS` would build the stock triplet without any warning. The root
+`CMakeLists.txt` therefore refuses, before `project()`, any configure whose triplet has a
+file in `cmake/triplets` unless that directory is the first overlay that holds the triplet
+(vcpkg takes the first match by name). The Linux presets and `.github/actions/setup-vcpkg`
+pass it. With no triplet named, the guard works out vcpkg's default itself; before
+`project()`, `CMAKE_HOST_SYSTEM_PROCESSOR` is still empty, so it asks
+`cmake_host_system_information(... QUERY OS_PLATFORM)` for the architecture.
+
+`OloEngine/tests/Groom/ShippedGroomBindingTest.cpp` checks every shipped binding against its
+body on the CPU. On the AMD box's nightly it is the test that goes red if a port's float math
+diverges again. On GitHub-hosted Linux, GCC targets plain x86-64 and has no FMA to fuse, so
+the test cannot see this class there.
 
 ## Per-port exceptions live in the triplet, not in a forked portfile
 

@@ -257,6 +257,10 @@
 		"OloEngine/Groom/GroomBindingCooker.cpp"
 		"OloEngine/Groom/GroomDeformation.h"
 		"OloEngine/Groom/GroomDeformation.cpp"
+		# The one bridge from a MeshSource + Skeleton to the GroomSurfaceView above,
+		# shared by the scene and every test that signs a body.
+		"OloEngine/Groom/GroomMeshSurface.h"
+		"OloEngine/Groom/GroomMeshSurface.cpp"
 		"OloEngine/Asset/Serializers/GroomBindingSerializer.cpp"
 		"OloEngine/Serialization/GroomBindingBinaryFormat.h"
 		# Fibre scattering (#1247). The BCSDF, its sampling triple and the
