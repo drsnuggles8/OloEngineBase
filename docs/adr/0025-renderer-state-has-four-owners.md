@@ -126,10 +126,19 @@ The policy has three values. Most binding points host **one layout**; the byte r
 check. Eight host **several layouts** (`IsMultiLayoutUBOBinding`: 0, 2, 7, 8, 14, 18, 30 and 65, which
 has eleven); every buffer the engine or the editor creates there declares its block, enforced on the
 sources by `UniformBlockContractSourceTest`, which also derives the set of eight from the shaders.
-Five of the eight are **pass-scoped** (`IsPassScopedUBOBinding`: 7, 14, 18, 30, 65): nothing publishes
-a buffer there for the frame, so each reader binds its own before it reads. The other three are
-**frame-published**: the frame's camera, the dispatcher's material block and the motion-blur matrices
-are there for every pass to read.
+Six of the eight are **pass-scoped** (`IsPassScopedUBOBinding`: 7, 8, 14, 18, 30, 65): nothing publishes
+a buffer there for the frame, so each reader binds its own before it reads. Binding 8 joined them in
+#1687: every pass whose shader declares the motion-blur matrices calls `Renderer3D::BindMotionMatrices`,
+and the scene buckets get it from `CommandDispatch::BindSceneResources`, before any fork. The other two
+are **frame-published**: the frame's camera and the dispatcher's material block are there for every pass
+to read. A tenant that displaces the camera puts it back (the sky and IBL bakes re-upload the frame's
+camera block before they return). The material block needs no such rule: the dispatcher asks the
+occupancy record before each draw and re-binds when another buffer is there (#1688).
+
+The occupancy record is also the only answer to "is this buffer already bound".
+`RendererAPI::GetUniformBufferOccupant` reads it in the calling recording context, and the dispatcher's
+redundant-bind check uses that where it used to keep a table of what it had last bound itself. That
+table could not see a bind issued by anyone else, so it was a second owner of the same fact.
 
 A refused read is logged once per program, binding and occupant with both blocks named, counted
 (`BindingContract::ViolationCount`), and the shader is given a zero-filled block instead of the
@@ -138,7 +147,8 @@ looked up, so it is not a second resource stack. `OLO_BINDING_CONTRACT=0` turns 
 
 What it does not detect: a buffer of the *same* layout holding the wrong content (two camera
 tenants), and a test's ad-hoc buffer that declares nothing, which is judged on its byte range alone.
-The first needs the frame comparison in §6; #1687 owns the camera case.
+The first needs the frame comparison in §6. The camera case is closed by the restore rule above and
+pinned by `RendererOwnership.ASkyBakeLeavesTheFramesCameraBlockBound`.
 
 ## 6. Tests that pin it
 
@@ -155,12 +165,15 @@ The first needs the frame comparison in §6; #1687 owns the camera case.
 | the contract's verdicts | `UniformBlockContract.*` |
 | the binding tables and every creation site | `UniformBlockContractSource.*` |
 | an ordinary frame is refused nothing; a dirty predecessor changes nothing | `FramePredecessorPoison.APassDoesNotReadWhatItsPredecessorLeftOnASharedBinding`, three paths, both backends |
-| another layout on a frame-published binding is refused before a shader reads it | `FramePredecessorPoison.AnotherLayoutOnAFramePublishedBindingIsRefusedBeforeAnyShaderReadsIt` |
+| another layout on a frame-published binding is refused before a shader reads it | `FramePredecessorPoison.AnotherLayoutOnAFramePublishedBindingIsRefusedBeforeAnyShaderReadsIt` (the camera block) |
+| a bind behind the dispatcher's back cannot make it skip a bind | `RendererOwnership.ABindBehindTheDispatchersBackCannotMakeItSkipTheCameraBind`, both backends |
+| a bake leaves the frame's camera block bound | `RendererOwnership.ASkyBakeLeavesTheFramesCameraBlockBound`, both backends |
+| a scene activation replaces every scene render setting, skin diffusion included | `SceneRenderSettingsActivationTest.*` |
 | a pass does not inherit its predecessor's blend state or write masks | `FramePredecessorPoison.APassDoesNotInheritItsPredecessorsBlendOrWriteMasks`, three paths, both backends |
 | the check changes no frame it does not refuse | `FramePredecessorPoison.TheContractChangesNoFrameItDoesNotRefuse` |
 
 ## 7. What is still global
 
 Every process-wide object that remains is audited against §4, with the reason it does not break the
-contract or the child issue that owns it, in
+contract, in
 [renderer-ownership-remainder-1330.md](../analysis/renderer-ownership-remainder-1330.md).

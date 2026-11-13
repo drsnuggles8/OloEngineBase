@@ -82,10 +82,20 @@ binding and both blocks, and the shader is given a zero block. Three rules come 
   particle renderer uploaded one `mat4` into a 64-byte buffer under a 384-byte camera block; the
   shader read its previous view-projection and jitter past the end. The contract found it on its
   first run.
-- **A new pass that reads a pass-scoped binding** (`IsPassScopedUBOBinding`: 7, 14, 18, 30, 65) is
+- **A new pass that reads a pass-scoped binding** (`IsPassScopedUBOBinding`: 7, 8, 14, 18, 30, 65) is
   covered by `FramePredecessorPoison`, which leaves another layout there after every render-graph
   pass and requires an unchanged frame and no refusal. Add the feature to that test's scene if the
   pass does not run in it.
+- **A shader that declares `MotionBlurMatrices` / `MotionBlurUBO` (binding 8) needs
+  `Renderer3D::BindMotionMatrices()` after its `Bind()`.** The matrices are uploaded once per frame
+  but nothing publishes them for the frame: the Gaussian-splat sort block is another tenant of 8
+  (#1687). A scene-bucket draw gets the bind from `CommandDispatch::BindSceneResources`.
+- **A tenant that displaces the camera block (binding 0) puts it back.** The camera is
+  frame-published and the post passes read it without binding it. A bake's own camera buffer has
+  the same layout, so no contract check can refuse it: end the bake with
+  `CommandDispatch::UploadCameraUBO()`, as `SkyBake::RenderSkyToCubemap` and `IBLPrecompute` do.
+- **Do not cache "which buffer is bound".** Ask `RendererAPI::GetUniformBufferOccupant`. A cache
+  kept by one caller sees only that caller's binds (#1688).
 
 `OLO_BINDING_CONTRACT=0` turns the check off for an A/B. On OpenGL the block names come from the
 linked program, where SPIRV-Cross renames a later stage's copy `Name_1`: do not name a block with a
