@@ -97,7 +97,11 @@ TEST(VirtualClusterCullParity, GpuSelectionMatchesCpuReferenceAtEveryThreshold)
     camera.ViewProjection = camera.Projection * camera.View;
     camera.Position = cameraPosition;
 
-    auto cameraUBO = UniformBuffer::Create(sizeof(CameraBlock), ShaderBindingLayout::UBO_CAMERA);
+    // The WHOLE block the cull shader declares, with the prefix this test fills
+    // at its head: a buffer sized for the prefix alone is smaller than the
+    // block, which the uniform block contract refuses (issue #1330) and which
+    // was only ever tolerated by the driver.
+    auto cameraUBO = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
     cameraUBO->SetData(&camera, sizeof(CameraBlock));
 
     // VirtualClusterCull.comp's parameters (issue #691): one std140
@@ -355,7 +359,11 @@ TEST(VirtualClusterCullParity, SwListAppendNeverWritesPastAnUndersizedCapacity)
     camera.ViewProjection = camera.Projection * camera.View;
     camera.Position = cameraPosition;
 
-    auto cameraUBO = UniformBuffer::Create(sizeof(CameraBlock), ShaderBindingLayout::UBO_CAMERA);
+    // The WHOLE block the cull shader declares, with the prefix this test fills
+    // at its head: a buffer sized for the prefix alone is smaller than the
+    // block, which the uniform block contract refuses (issue #1330) and which
+    // was only ever tolerated by the driver.
+    auto cameraUBO = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
     cameraUBO->SetData(&camera, sizeof(CameraBlock));
 
     auto cullParamsUBO = UniformBuffer::Create(UBOStructures::VirtualClusterCullUBO::GetSize(),

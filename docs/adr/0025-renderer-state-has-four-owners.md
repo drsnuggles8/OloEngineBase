@@ -146,6 +146,8 @@ The first needs the frame comparison in §6; #1687 owns the camera case.
 | the binding tables and every creation site | `UniformBlockContractSource.*` |
 | an ordinary frame is refused nothing; a dirty predecessor changes nothing | `FramePredecessorPoison.APassDoesNotReadWhatItsPredecessorLeftOnASharedBinding`, three paths, both backends |
 | another layout on a frame-published binding is refused before a shader reads it | `FramePredecessorPoison.AnotherLayoutOnAFramePublishedBindingIsRefusedBeforeAnyShaderReadsIt` |
+| a pass does not inherit its predecessor's blend state or write masks | `FramePredecessorPoison.APassDoesNotInheritItsPredecessorsBlendOrWriteMasks`, three paths, both backends |
+| the check changes no frame it does not refuse | `FramePredecessorPoison.TheContractChangesNoFrameItDoesNotRefuse` |
 
 ## 7. What is still global
 
