@@ -54,6 +54,7 @@ add_executable(OloEngine-Tests
 		# docs/agent-rules/shared-temp-dir-test-isolation.md (issue #789).
 		TestTempDir.cpp
 		TestTempDirTest.cpp
+		ScopedFileRestoreTest.cpp
 		FastRandomTest.cpp
 		RefTest.cpp
 		Core/BuildInfoTest.cpp

@@ -253,6 +253,11 @@ namespace OloEngine::Tests
             Project::Unload();
             ASSERT_TRUE(Project::Load(EditorRoot() / "SandboxProject" / "Sandbox.oloproj"));
             m_Registry.emplace(RegistryPath()); // Initialize and Shutdown both write it
+            if (!m_Registry->IsCaptured())
+            {
+                m_Registry.reset();
+                FAIL() << "cannot read " << RegistryPath().string() << " whole, so it could not be put back";
+            }
             m_AssetManager = Ref<EditorAssetManager>::Create();
             m_AssetManager->Initialize(/*startFileWatcher=*/false);
             Project::SetAssetManager(m_AssetManager);

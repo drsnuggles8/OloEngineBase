@@ -167,6 +167,11 @@ namespace OloEngine::Tests
             // The scene's coats are asset handles, so the project needs an asset
             // manager of its own; a process that runs this suite alone has none.
             m_Registry.emplace(RegistryPath()); // Initialize and Shutdown both write it
+            if (!m_Registry->IsCaptured())
+            {
+                m_Registry.reset();
+                FAIL() << "cannot read " << RegistryPath().string() << " whole, so it could not be put back";
+            }
             m_AssetManager = Ref<EditorAssetManager>::Create();
             m_AssetManager->Initialize(/*startFileWatcher=*/false);
             Project::SetAssetManager(m_AssetManager);

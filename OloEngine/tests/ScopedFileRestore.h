@@ -21,8 +21,8 @@
 
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <optional>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -33,14 +33,34 @@ namespace OloEngine::Tests
     class ScopedFileRestore
     {
       public:
+        // An existing file that cannot be read whole is NOT treated as absent
+        // (Restore would delete it): IsCaptured() is false, and Restore()
+        // then touches nothing.
         explicit ScopedFileRestore(std::filesystem::path path) : m_Path(std::move(path))
         {
-            if (std::ifstream in(m_Path, std::ios::binary); in)
+            std::error_code ec;
+            const bool exists = std::filesystem::exists(m_Path, ec);
+            if (ec)
             {
-                std::ostringstream bytes;
-                bytes << in.rdbuf();
-                m_Bytes = bytes.str();
+                return;
             }
+            if (!exists)
+            {
+                m_Captured = true;
+                return;
+            }
+            std::ifstream in(m_Path, std::ios::binary);
+            if (!in)
+            {
+                return;
+            }
+            std::string bytes{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+            if (in.bad())
+            {
+                return;
+            }
+            m_Bytes = std::move(bytes);
+            m_Captured = true;
         }
 
         ~ScopedFileRestore()
@@ -54,14 +74,19 @@ namespace OloEngine::Tests
         ScopedFileRestore& operator=(ScopedFileRestore&&) = delete;
 
         // Write the original bytes back (or remove a file that did not exist).
-        // Once: later calls, and the destructor, do nothing. False on failure.
+        // Once: later calls, and the destructor, do nothing. False on failure,
+        // and false without touching the file when nothing was captured.
         [[nodiscard]] bool Restore()
         {
             if (m_Restored)
             {
-                return true;
+                return m_Captured;
             }
             m_Restored = true;
+            if (!m_Captured)
+            {
+                return false;
+            }
             if (!m_Bytes.has_value())
             {
                 std::error_code ec;
@@ -69,6 +94,12 @@ namespace OloEngine::Tests
                 return !ec;
             }
             return FileSystem::WriteFileAtomically(m_Path, std::string_view(*m_Bytes));
+        }
+
+        // The file's state at construction was read whole (or it was absent).
+        [[nodiscard]] bool IsCaptured() const
+        {
+            return m_Captured;
         }
 
         [[nodiscard]] const std::filesystem::path& GetPath() const
@@ -79,6 +110,7 @@ namespace OloEngine::Tests
       private:
         std::filesystem::path m_Path;
         std::optional<std::string> m_Bytes; ///< nullopt: the file did not exist.
+        bool m_Captured = false;
         bool m_Restored = false;
     };
 } // namespace OloEngine::Tests
