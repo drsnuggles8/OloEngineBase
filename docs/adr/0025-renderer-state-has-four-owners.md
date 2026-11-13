@@ -77,7 +77,7 @@ consumes it in this change.
 |---|---|---|
 | V1 | The view is one value. Everything measured against a camera is in `RendererViewState` or keyed by view in `TemporalHistoryRegistry`; nothing else stores a camera, only snapshots rebuilt from it each frame | `Renderer3D::BeginScene` / `EndScene`, `RenderPipeline::PrepareFrame` |
 | V2 | The recording view is set in one call. `CommandDispatch::SetView(DispatchView)` replaces seven setters; the dispatcher never holds half of one camera | `RenderPipeline::PrepareFrame` |
-| V3 | A replay from another camera is a scope. `CommandDispatch::ScopedAlternateView` installs the whole alternate view in the calling recording context, uploads its camera block, withholds the main view's screen-space lanes, and restores all of it on every exit path. The alternate view declares its own history: none | `PlanarReflectionRenderPass`; `CommandBucket::ReplayPackets` and `ExecuteWithGPUTiming` for a bucket's view override |
+| V3 | A replay from another camera is a scope. `CommandDispatch::ScopedAlternateView` installs the whole alternate view in the calling recording context, uploads its camera block, withholds the main view's screen-space lanes, and restores all of it on every exit path. The alternate view declares its own history: none | `PlanarReflectionRenderPass`, the one production replay from another camera. A bucket's view override (`CommandBucket::SetViewState`) replays through the same scope; it has no production caller, is the seam #1352 replays a second view through, and is held to the scope by a test |
 | V4 | Scene state advances once per physical frame and is never reset by a view. Resetting a view touches no scene state and the reverse | `ResetFrameCamera`, `ResetSceneState` (the editor's scene swap, `Scene::OnRuntimeStart`, `Scene::OnSimulationStart`) |
 | V5 | Serial and worker replay read the same context type. A worker item's context is a copy of the primary's view, prepared before the fork, with its own uploads and empty caches; nothing an item needs is created inside it | `CommandBucket::Execute` / `ExecuteParallel`, `VulkanRendererAPI::RecordParallelOrdered` |
 | V6 | A binding point's occupant is checked, not assumed (§5a) | every draw and dispatch on both backends |
@@ -93,11 +93,19 @@ lifetime question any more.
 profiler and the GPU timer pools, so `Renderer3D::Shutdown` shuts them down. A Vulkan device test also
 shuts the dispatcher and the timer pool down, and must, because their GPU objects belong to the
 device it is about to destroy ([cross-test-renderer-state.md](../agent-rules/cross-test-renderer-state.md)).
-That stays: the rule is not "never shut down what you did not create" but **"what you shut down, its
-owner re-arms on its own backend before its next use"**. `Renderer3D::ReclaimSharedRenderState` does
-that at every `BeginScene`. The facilities `Renderer3D::Shutdown` releases without having created them
-are lazily created 3D-only statics whose only unconditional teardown is this one
-([lazy-static-release-ownership.md](../agent-rules/lazy-static-release-ownership.md)).
+So the issue's "no context shuts down a singleton it did not own" holds in two parts, and the second
+is a deliberate exception rather than a claim that none exists:
+
+1. **None of the owned contexts shuts anything down.** A scene reset, a view reset, an alternate-view
+   scope and a recording item's teardown leave every process-wide facility up
+   (`RendererOwnership` asserts the dispatcher, the frame data buffer and the timer pool after each).
+   Only `Renderer3D::Shutdown` takes down what `Renderer3D::Init` brought up.
+2. **Two device-level shutdowns cross owners and stay.** A Vulkan device test shuts down the
+   dispatcher and the timer pool it did not create, and `Renderer3D::Shutdown` releases lazily created
+   3D-only statics whose only unconditional teardown it is
+   ([lazy-static-release-ownership.md](../agent-rules/lazy-static-release-ownership.md)). For these the
+   rule is **"what you shut down, its owner re-arms on its own backend before its next use"**:
+   `Renderer3D::ReclaimSharedRenderState` does that at every `BeginScene`.
 
 A renderer can be restarted in one process: `Shutdown` followed by `Init` gives a renderer with no
 view, scene, frame, clock or recording state from the previous run.
@@ -141,7 +149,9 @@ The first needs the frame comparison in §6; #1687 owns the camera case.
 | view reset drops the view and keeps the scene and the clock | `RendererOwnership.ViewResetDropsTheViewAndKeepsTheSceneAndTheClock` |
 | device teardown leaves no recording state | `CommandDispatchRecording.DispatcherShutdownLeavesNoRecordingState` |
 | alternate view is whole and restored | `CommandDispatchRecording.AlternateViewIsWholeAndRestoredOnEveryExit`, the planar-reflection evidence on both backends |
-| serial and worker replay agree | `CommandDispatchRecording.SerialAndWorkerReplayReadTheSameView`, the parallel-recording device suite |
+| serial and worker replay agree | `CommandDispatchRecording.SerialAndWorkerReplayReadTheSameView`; `FrameWorkerReplay.WorkerReplayDrawsTheSerialFrameAndEveryItemHoldsTheContract` (a forked scene bucket against `OLO_VK_PARALLEL_RECORDING=0`, and a refusal raised inside the items); the parallel-recording device suite |
+| a bucket's view override replays inside the scope | `CommandDispatchRecording.ABucketViewOverrideReplaysInsideTheAlternateViewScope` |
+| no owned context shuts a singleton down | the `ExpectRendererSingletonsAlive` checks in `RendererOwnership.*` |
 | the contract's verdicts | `UniformBlockContract.*` |
 | the binding tables and every creation site | `UniformBlockContractSource.*` |
 | an ordinary frame is refused nothing; a dirty predecessor changes nothing | `FramePredecessorPoison.APassDoesNotReadWhatItsPredecessorLeftOnASharedBinding`, three paths, both backends |

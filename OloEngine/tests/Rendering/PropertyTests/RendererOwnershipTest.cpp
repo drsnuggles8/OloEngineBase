@@ -25,6 +25,9 @@
 #include "RendererAttachedTest.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
+#include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Scene/Components.h"
@@ -93,6 +96,18 @@ namespace OloEngine::Tests
                      context.TemporalUpscalePhaseIndex, context.CloudFrameIndex, context.FogFrameIndex };
         }
 
+        // The process-wide facilities Renderer3D::Init brought up. No reset of
+        // an owned context (scene, view, recording) may take one down: only the
+        // renderer that owns them does, in Shutdown.
+        static void ExpectRendererSingletonsAlive(const char* after)
+        {
+            EXPECT_TRUE(Renderer3D::HasInitialized()) << after;
+            EXPECT_TRUE(CommandDispatch::HasUBOReferences()) << after << " dropped the dispatcher's shared buffers";
+            EXPECT_TRUE(FrameDataBufferManager::IsInitialized()) << after << " shut the frame data buffer down";
+            EXPECT_TRUE(GPUPassTimerPool::GetInstance().IsInitialized()) << after << " shut the GPU pass timer pool down";
+            EXPECT_NE(CommandDispatch::GetDispatchFunction(CommandType::DrawMesh), nullptr) << after;
+        }
+
         Entity m_Cube;
     };
 
@@ -107,6 +122,7 @@ namespace OloEngine::Tests
         ASSERT_FALSE(before.ClockAtRest) << "the frames did not advance the sampling sequences";
 
         Renderer3D::ResetSceneState();
+        ExpectRendererSingletonsAlive("a scene reset");
 
         const auto after = Renderer3D::DebugOwnedStateCensus();
         EXPECT_EQ(after.ScenePoseRecords, 0u) << "a scene reset left object pose records keyed by the old world's entity ids";
@@ -133,6 +149,7 @@ namespace OloEngine::Tests
         ASSERT_GT(before.ScenePoseRecords, 0u);
 
         Renderer3D::ResetFrameCamera();
+        ExpectRendererSingletonsAlive("a view reset");
 
         const auto after = Renderer3D::DebugOwnedStateCensus();
         EXPECT_EQ(after.ViewHistoryFacts, 0u) << "a view reset left camera history behind";
@@ -179,6 +196,9 @@ namespace OloEngine::Tests
         EXPECT_EQ(down.FrameHandOffs, 0u) << "Shutdown left a selection, a request or a pending pass callback";
         EXPECT_TRUE(down.ClockAtRest) << "Shutdown left the sampling sequences where the previous run stopped";
         EXPECT_TRUE(Renderer3D::DebugLiveGpuOwningStatics().empty());
+        // The renderer brought these up, so its Shutdown is what takes them down.
+        EXPECT_FALSE(CommandDispatch::HasUBOReferences());
+        EXPECT_FALSE(FrameDataBufferManager::IsInitialized());
 
         Renderer3D::Init();
         ASSERT_TRUE(Renderer3D::HasInitialized());
@@ -186,6 +206,7 @@ namespace OloEngine::Tests
         Renderer3D::ApplyRendererSettings();
         EnableRendering(256, 256);
 
+        ExpectRendererSingletonsAlive("Init after Shutdown");
         RenderMovingFrames(2);
         EXPECT_EQ(s_CallbackRuns, 0u) << "a pass callback handed to the previous renderer ran on the restarted one";
         EXPECT_GT(Renderer3D::DebugOwnedStateCensus().ScenePoseRecords, 0u) << "the restarted renderer did not draw the scene";

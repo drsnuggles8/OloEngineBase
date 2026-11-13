@@ -661,6 +661,101 @@ namespace OloEngine::Tests
         ::testing::Test::RecordProperty("contract_off_us", std::to_string(offUs));
     }
 
+    // =========================================================================
+    // Worker replay with real draws (ADR 0025 V5, issue #1330).
+    //
+    // The tests above run scenes too small to fork. This one draws enough
+    // unbatchable meshes that the scene bucket is replayed by recording workers
+    // (CommandBucket::ExecuteParallel: 32 packets per item), asserts that a
+    // region really forked, and holds worker replay to the serial one: the same
+    // frame with OLO_VK_PARALLEL_RECORDING=0, nothing refused in either. Then
+    // the control: another layout on a frame-published binding, which the
+    // G-Buffer program reads in every item, must be refused BY THE ITEMS.
+    //
+    // OpenGL records every region inline, so the Vulkan process is where this
+    // means anything; there it is the artefact-backed worker-replay cell.
+    // =========================================================================
+    class FrameWorkerReplay : public FramePredecessorPoison
+    {
+      protected:
+        void BuildScene() override
+        {
+            FramePredecessorPoison::BuildScene();
+            // Each with its own base colour: identical materials would be
+            // auto-batched into a handful of instanced packets and nothing
+            // would fork.
+            for (u32 index = 0; index < kWorkerReplayBoxes; ++index)
+            {
+                Entity box = GetScene().CreateEntity("WorkerReplayBox");
+                auto& transform = box.GetComponent<TransformComponent>();
+                transform.Translation = { -6.0f + static_cast<f32>(index % 12u), 2.2f + static_cast<f32>(index / 12u) * 0.5f,
+                                          -3.0f - static_cast<f32>(index % 5u) };
+                transform.Scale = glm::vec3(0.35f);
+                auto& mesh = box.AddComponent<MeshComponent>();
+                mesh.m_Primitive = MeshPrimitive::Cube;
+                if (Ref<Mesh> cube = MeshPrimitives::CreateCube())
+                    mesh.m_MeshSource = cube->GetMeshSource();
+                auto& material = box.AddComponent<MaterialComponent>();
+                material.m_Material.SetBaseColorFactor(glm::vec4(0.2f + 0.008f * static_cast<f32>(index), 0.5f, 0.6f, 1.0f));
+            }
+        }
+
+        static constexpr u32 kWorkerReplayBoxes = 96;
+    };
+
+    TEST_P(FrameWorkerReplay, WorkerReplayDrawsTheSerialFrameAndEveryItemHoldsTheContract)
+    {
+        if (!TestRenderBackend::IsVulkanProcess())
+            GTEST_SKIP() << "worker replay is a Vulkan execution mode: OpenGL records every region inline";
+        ScopedMockTime mockTime(kCaptureTime);
+        const char* path = PathName(GetParam());
+
+        std::vector<u8> worker;
+        Capture(worker);
+        ASSERT_FALSE(HasFatalFailure());
+        const auto forked = RenderCommand::GetParallelRecordingStats();
+        ASSERT_GT(forked.Regions, 0u)
+            << "on " << path << ", no region forked (" << forked.InlineRegions
+            << " ran inline): this would compare serial replay with itself";
+        EXPECT_EQ(forked.MergeConflicts, 0u);
+        EXPECT_EQ(BindingContract::ViolationCount(), m_RefusedAtSetUp)
+            << "on " << path << ", worker replay had a uniform block read refused";
+
+        const Levers::Tristate saved = Levers::VulkanParallelRecording();
+        Levers::SetVulkanParallelRecording(Levers::Tristate::Off);
+        std::vector<u8> serial;
+        Capture(serial);
+        const u32 serialRegions = RenderCommand::GetParallelRecordingStats().Regions;
+        Levers::SetVulkanParallelRecording(saved);
+        ASSERT_FALSE(HasFatalFailure());
+        EXPECT_EQ(serialRegions, 0u) << "the serial arm forked";
+        const FrameDiff diff = Compare(worker, serial);
+        EXPECT_EQ(diff.Changed, 0u) << "on " << path << ", worker replay and serial replay differ in " << diff.Changed
+                                    << " pixels (max " << diff.MaxAbsDiff << " levels)";
+
+        // The control, in the items. Only Deferred replays a program that
+        // reads the motion-blur matrices from the scene bucket (PBR_GBuffer).
+        if (GetParam() != RenderingPath::Deferred)
+            return;
+        const u64 workerRefusedBefore = BindingContract::WorkerViolationCount();
+        static constexpr std::array kFramePublished{ ShaderBindingLayout::UBO_USER_1 };
+        PoisonAfterEveryPass(kFramePublished);
+        ASSERT_FALSE(HasFatalFailure());
+        std::vector<u8> poisoned;
+        Capture(poisoned);
+        ASSERT_FALSE(HasFatalFailure());
+        EXPECT_GT(RenderCommand::GetParallelRecordingStats().Regions, 0u) << "the poisoned frame did not fork";
+        EXPECT_GT(BindingContract::WorkerViolationCount(), workerRefusedBefore)
+            << "another layout sat on the motion-blur binding while recording workers replayed the G-Buffer bucket, and "
+               "no item refused the read: the contract is not running in worker recording contexts";
+    }
+
+    INSTANTIATE_TEST_SUITE_P(AllPaths, FrameWorkerReplay,
+                             ::testing::Values(RenderingPath::Forward, RenderingPath::ForwardPlus,
+                                               RenderingPath::Deferred),
+                             [](const ::testing::TestParamInfo<RenderingPath>& info)
+                             { return std::string(PathName(info.param)); });
+
     INSTANTIATE_TEST_SUITE_P(AllPaths, UniformBlockContractPerfProbe,
                              ::testing::Values(RenderingPath::Forward, RenderingPath::ForwardPlus,
                                                RenderingPath::Deferred),

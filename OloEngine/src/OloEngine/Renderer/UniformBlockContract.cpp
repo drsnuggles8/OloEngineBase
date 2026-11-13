@@ -2,6 +2,7 @@
 #include "OloEngine/Renderer/UniformBlockContract.h"
 
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 
 #include <atomic>
 #include <mutex>
@@ -13,6 +14,7 @@ namespace OloEngine::BindingContract
     namespace
     {
         std::atomic<u64> s_Violations{ 0 };
+        std::atomic<u64> s_WorkerViolations{ 0 };
         std::atomic<ProgramRetiredHandler> s_ProgramRetired{ nullptr };
 
         // Process lifetime and deliberately leaked: violations can be reported
@@ -39,6 +41,8 @@ namespace OloEngine::BindingContract
                          u32 occupantSize, std::string_view occupantBlock, Verdict verdict)
     {
         s_Violations.fetch_add(1, std::memory_order_relaxed);
+        if (RenderCommand::IsRecordingParallelItem())
+            s_WorkerViolations.fetch_add(1, std::memory_order_relaxed);
 
         std::string key;
         key.reserve(program.size() + occupantBlock.size() + 24u);
@@ -73,8 +77,14 @@ namespace OloEngine::BindingContract
         return s_Violations.load(std::memory_order_relaxed);
     }
 
+    u64 WorkerViolationCount()
+    {
+        return s_WorkerViolations.load(std::memory_order_relaxed);
+    }
+
     void ResetViolationCount()
     {
+        s_WorkerViolations.store(0, std::memory_order_relaxed);
         s_Violations.store(0, std::memory_order_relaxed);
     }
 } // namespace OloEngine::BindingContract

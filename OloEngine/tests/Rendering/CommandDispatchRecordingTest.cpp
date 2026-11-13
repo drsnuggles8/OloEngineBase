@@ -2,6 +2,9 @@
 #include "OloEnginePCH.h"
 #include "MockRendererAPI.h"
 #include "OloEngine/Math/Math.h"
+#include "RenderingTestUtils.h"
+#include "OloEngine/Renderer/Commands/CommandAllocator.h"
+#include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/FrontendRecordingContext.h"
 
@@ -296,6 +299,47 @@ TEST_F(CommandDispatchRecording, SerialAndWorkerReplayReadTheSameView)
     for (u32 item = 0; item < itemCount; ++item)
         EXPECT_TRUE(sawAlternate[item]) << "item " << item << " did not draw from the view the fork was made under";
     EXPECT_TRUE(SameView(CommandDispatch::GetView(), main));
+}
+
+// A bucket's view override (CommandBucket::SetViewState) used to patch four
+// camera fields through a read/write callback pair and never upload the camera
+// block. It has no production caller yet (it is the seam a second view would
+// replay through), so this is what holds it to the same scope the planar
+// reflection uses: a packet replayed under the override sees the whole
+// alternate view, and the primary's view is back afterwards.
+TEST_F(CommandDispatchRecording, ABucketViewOverrideReplaysInsideTheAlternateViewScope)
+{
+    const DispatchView main = MakeDistinctMainView();
+    CommandDispatch::SetView(main);
+
+    static DispatchView s_SeenByThePacket;
+    s_SeenByThePacket = {};
+    CommandAllocator allocator;
+    CommandBucket bucket;
+    CommandPacket* packet = allocator.CreateCommandPacket(MakeSyntheticViewportCommand(0, 0, 4, 4));
+    ASSERT_NE(packet, nullptr);
+    packet->SetDispatchFunction([](const void*, RendererAPI&)
+                                { s_SeenByThePacket = CommandDispatch::GetView(); });
+    bucket.SubmitPacket(packet);
+
+    BucketViewState override;
+    override.ViewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -9.0f, 0.0f));
+    override.ProjectionMatrix = glm::perspective(0.6f, 2.0f, 1.0f, 50.0f);
+    override.ViewProjectionMatrix = override.ProjectionMatrix * override.ViewMatrix;
+    override.ViewPosition = glm::vec3(0.0f, 9.0f, 0.0f);
+    bucket.SetViewState(override);
+    bucket.SortCommands();
+    MockRendererAPI api;
+    bucket.Execute(api);
+
+    EXPECT_TRUE(Math::BitwiseEqual(s_SeenByThePacket.ViewMatrix, override.ViewMatrix));
+    EXPECT_TRUE(Math::BitwiseEqual(s_SeenByThePacket.ViewProjectionMatrix, override.ViewProjectionMatrix));
+    EXPECT_TRUE(Math::BitwiseEqual(s_SeenByThePacket.ViewPosition, override.ViewPosition));
+    EXPECT_TRUE(Math::BitwiseEqual(s_SeenByThePacket.PrevViewProjectionMatrix, override.ViewProjectionMatrix))
+        << "the override drew with the main view's previous view-projection";
+    EXPECT_TRUE(Math::BitwiseEqual(s_SeenByThePacket.RenderOrigin, main.RenderOrigin));
+    EXPECT_FALSE(s_SeenByThePacket.MainViewLanes);
+    EXPECT_TRUE(SameView(CommandDispatch::GetView(), main)) << "the bucket's replay left its view override installed";
 }
 
 // CommandDispatch::Shutdown used to drop five buffer references and leave the

@@ -121,5 +121,8 @@ namespace OloEngine::BindingContract
 
     // Refused block reads since the last reset, for tests and diagnostics.
     [[nodiscard]] u64 ViolationCount();
+    // ...and how many of them were raised while recording a parallel item: the
+    // check runs in every recording context, a worker's included.
+    [[nodiscard]] u64 WorkerViolationCount();
     void ResetViolationCount();
 } // namespace OloEngine::BindingContract
