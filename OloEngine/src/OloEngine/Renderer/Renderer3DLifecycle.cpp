@@ -662,11 +662,12 @@ namespace OloEngine
         // each of those passes binds its own before it dispatches).
         //
         // Not here: the camera, material and both bone-matrix blocks. The
-        // dispatcher binds those per draw through its bound-state cache, which
-        // ResetState empties every frame. Re-binding them here as well would
-        // make a stale cache look right, and hide the missing-reset fault
-        // RendererStateMachineNegativeControl injects to prove the harness
-        // catches it.
+        // dispatcher binds those per draw, after asking the backend whether
+        // its buffer is already the binding point's occupant (issue #1688).
+        //
+        // The motion-blur matrices are re-bound here for parity with Init, but
+        // no pass may count on it: binding 8 is pass-scoped and every reader
+        // calls BindMotionMatrices (issue #1687).
         rebind(s_Data.MultiLightBuffer);
         rebind(s_Data.TerrainUBO);
         rebind(s_Data.FoliageUBO);
@@ -693,6 +694,12 @@ namespace OloEngine
         rebind(s_Data.SceneEffectsGPU.DRS);
         rebind(s_Data.UnderwaterFogBuffer);
         rebind(s_Data.LightProbeSHBuffer);
+    }
+
+    void Renderer3D::BindMotionMatrices()
+    {
+        if (s_Data.PostProcessGPU.MotionBlur)
+            s_Data.PostProcessGPU.MotionBlur->Bind();
     }
 
     std::vector<std::string> Renderer3D::DebugLiveGpuOwningStatics()

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include <format>
 #include <optional>
@@ -358,6 +359,10 @@ namespace OloEngine
         // Restore previous stencil state
         if (wasStencilTestEnabled)
             RenderCommand::EnableStencilTest();
+
+        // ...and the frame's camera block, which UpdateIBLCameraUBO displaced
+        // from the frame-published camera binding (issue #1687).
+        CommandDispatch::UploadCameraUBO();
     }
 
     void IBLPrecompute::RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader)

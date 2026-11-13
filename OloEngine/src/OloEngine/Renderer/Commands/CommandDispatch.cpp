@@ -1752,6 +1752,13 @@ namespace OloEngine
             s_FrameData.ForwardPlus->PublishBuffers();
         }
 
+        // The motion-blur matrices the G-Buffer programs, the deferred
+        // lighting pass and the virtual-geometry G-Buffer stage read at
+        // UBO_USER_1. That binding is pass-scoped: it has other tenants (the
+        // Gaussian-splat sort block) and no frame owner, so the reader binds.
+        // Here, before any fork, so every recording item inherits it (#1687).
+        Renderer3D::BindMotionMatrices();
+
         // Publish all shared PBR sampled inputs before the fork, including
         // freshly compute-written cloud shadows and the VSM physical pool.
         // Their first sampled transitions must belong to the caller.

@@ -346,7 +346,7 @@ namespace OloEngine::Tests::StateMachine
                             Placement::CpuEverywhere,
                             "RenderGraphOutOfBand.AccelerationStructureChainOrdersByDeclarationNotRegistration" },
         NegativeControlRow{ "wrong-layout-occupant",
-                            "another block layout left on a frame-published uniform binding (the motion-blur matrices)",
+                            "another block layout left on a frame-published uniform binding (the light list)",
                             "a render-graph post-pass hook that binds a declared poison buffer",
                             "predecessor-poison.gl (the read is refused before the shader runs, and the frame changes)",
                             Placement::DeviceGL,

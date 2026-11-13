@@ -328,6 +328,15 @@ namespace OloEngine
         static void RebindPersistentBuffers();
 
       public:
+        // Make the motion-blur matrices (inverse and previous view-projection)
+        // the occupant of UBO_USER_1. The binding is pass-scoped
+        // (ShaderBindingLayout::IsPassScopedUBOBinding): it has other tenants
+        // and no frame owner, so every pass whose shader declares
+        // `MotionBlurMatrices` / `MotionBlurUBO` calls this before it draws
+        // (issue #1687). Safe from a recording item: it publishes in the
+        // calling recording context and writes nothing.
+        static void BindMotionMatrices();
+
         // Diagnostics: which GPU-resource-holding members of s_Data are still alive?
         //
         // Shutdown() must release every one of them. A Ref<> it forgets survives into

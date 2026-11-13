@@ -3427,17 +3427,18 @@ namespace OloEngine
         // publishes a buffer there for the frame, so every reader binds its
         // own before it reads
         // (docs/agent-rules/shared-uniform-binding-bind-before-dispatch.md) and
-        // none may depend on what the previous pass left. The other three are
-        // frame-published: the frame's camera (0), the dispatcher's material
-        // block (2) and the motion-blur matrices (8, re-bound once per frame by
-        // Renderer3D::RebindPersistentBuffers) are there for every pass to
-        // read, and a tenant that displaces one puts it back.
+        // none may depend on what the previous pass left. The other two are
+        // frame-published: the frame's camera (0) and the dispatcher's
+        // material block (2) are there for every pass to read, and a tenant
+        // that displaces the camera puts it back (the bakes do, issue #1687).
+        // The motion-blur matrices at 8 were frame-published until #1687 and
+        // are pass-scoped now: Renderer3D::BindMotionMatrices.
         //
         // FramePredecessorPoison leaves another layout on exactly these after
         // every render-graph pass and requires an unchanged frame.
         [[nodiscard]] static constexpr bool IsPassScopedUBOBinding(u32 binding) noexcept
         {
-            return IsMultiLayoutUBOBinding(binding) && binding != UBO_CAMERA && binding != UBO_MATERIAL && binding != UBO_USER_1;
+            return IsMultiLayoutUBOBinding(binding) && binding != UBO_CAMERA && binding != UBO_MATERIAL;
         }
 
         // =============================================================================

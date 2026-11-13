@@ -29,9 +29,14 @@
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
+#include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/ProceduralSky.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/ShaderLibrary.h"
+#include "OloEngine/Renderer/SkyCubemapBake.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -242,5 +247,52 @@ namespace OloEngine::Tests
             CommandDispatch::BindSceneResources();
             EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera)
                 << "the dispatcher skipped its camera bind although another buffer occupied the binding point"; });
+    }
+
+    // The camera binding is frame-published: passes read it without binding it.
+    // A bake draws through its own camera buffer there, which has the same
+    // layout and so passes every contract check, and a pass that ran after a
+    // mid-frame bake read the bake's cube-face camera (issue #1687). A tenant
+    // that displaces a frame-published block puts it back.
+    TEST_F(RendererOwnership, ASkyBakeLeavesTheFramesCameraBlockBound)
+    {
+        RenderMovingFrames(1);
+        RunInFrame([]
+                   {
+            const RendererAPI& api = RenderCommand::GetRendererAPI();
+            CommandDispatch::BindSceneResources();
+            const RHI::ResourceHandle frameCamera = api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA);
+            ASSERT_TRUE(frameCamera.IsValid());
+
+            PreethamParameters params;
+            params.SunDirection = glm::normalize(glm::vec3(0.3f, 0.7f, 0.4f));
+
+            // The six-face bake on its own. ProceduralSky::Generate follows it
+            // with the IBL convolution, whose own restore would hide a face
+            // bake that left its camera behind (measured: with only the face
+            // bake's restore removed, the check at the end still passed).
+            ShaderLibrary& library = Renderer3D::GetShaderLibrary();
+            ASSERT_TRUE(library.Exists("ProceduralSky"));
+            CubemapSpecification faceSpec;
+            faceSpec.Width = 32;
+            faceSpec.Height = 32;
+            faceSpec.Format = ImageFormat::RGBA32F;
+            faceSpec.GenerateMips = true;
+            Ref<TextureCubemap> faces = TextureCubemap::Create(faceSpec);
+            Ref<UniformBuffer> bakeCamera = UniformBuffer::Create(
+                ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
+            const PreethamCoefficientsUBO coefficients = ProceduralSky::ComputeCoefficients(params);
+            Ref<UniformBuffer> skyBlock =
+                UniformBuffer::Create(sizeof(PreethamCoefficientsUBO), ShaderBindingLayout::UBO_PROCEDURAL_SKY);
+            skyBlock->SetData(&coefficients, sizeof(PreethamCoefficientsUBO));
+            ASSERT_TRUE(SkyBake::RenderSkyToCubemap(faces, library.Get("ProceduralSky"), bakeCamera, skyBlock));
+            EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera)
+                << "the sky face bake left its own camera buffer on the frame-published camera binding";
+
+            // The whole bake, IBL convolution included.
+            const Ref<EnvironmentMap> sky = ProceduralSky::Generate(params, 64);
+            ASSERT_TRUE(sky) << "the sky bake produced nothing, so this proves nothing about what it leaves bound";
+            EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera)
+                << "the bake left a camera buffer of its own on the frame-published camera binding"; });
     }
 } // namespace OloEngine::Tests

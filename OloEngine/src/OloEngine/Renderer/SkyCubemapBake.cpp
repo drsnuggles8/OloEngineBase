@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/SkyCubemapBake.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -159,6 +160,12 @@ namespace OloEngine::SkyBake
 
         if (wasStencilEnabled)
             RenderCommand::EnableStencilTest();
+
+        // The bake drew through its own camera buffer on the frame-published
+        // camera binding. Put the frame's back: a pass that reads the camera
+        // without binding it (every post pass does) must not find the bake's,
+        // which has the same layout and so passes every check (issue #1687).
+        CommandDispatch::UploadCameraUBO();
 
         return true;
     }

@@ -473,12 +473,21 @@ namespace OloEngine::Tests
     }
 
     // The control for the test above: poison a binding point that DOES have a
-    // frame owner. The motion-blur matrices at UBO_USER_1 are published once per
-    // frame for the G-Buffer, the deferred lighting and the fog pass to read, so
-    // a predecessor that leaves another layout there is exactly the fault the
+    // frame owner. The light list at UBO_MULTI_LIGHTS is bound once per frame
+    // (Renderer3D::RebindPersistentBuffers) for every lit pass to read, so a
+    // predecessor that leaves another layout there is exactly the fault the
     // contract exists for. It must be refused (the shader is given the zero
-    // block, not the 0xFF poison) and the frame must show it: the scene's fog
-    // reconstructs position through those matrices on every path.
+    // block, not the 0xFF poison) and the frame must show it: with no lights
+    // the scene is lit by nothing.
+    //
+    // Why this binding. Until issue #1687 the control used the motion-blur
+    // matrices at UBO_USER_1; that binding is pass-scoped now, every reader
+    // binds it, and poisoning it is part of the test above. The camera block
+    // does not serve either: in this scene every program that reads it gets it
+    // from the dispatcher, which asks the backend who occupies the binding and
+    // re-binds (issue #1688), or from a pass that binds its own (fog). Measured:
+    // the camera poisoned after every pass is refused nothing and changes no
+    // pixel on any path.
     TEST_P(FramePredecessorPoison, AnotherLayoutOnAFramePublishedBindingIsRefusedBeforeAnyShaderReadsIt)
     {
         ScopedMockTime mockTime(kCaptureTime);
@@ -489,7 +498,7 @@ namespace OloEngine::Tests
         ASSERT_FALSE(HasFatalFailure());
 
         const u64 refusedBefore = BindingContract::ViolationCount();
-        static constexpr std::array kFramePublished{ ShaderBindingLayout::UBO_USER_1 };
+        static constexpr std::array kFramePublished{ ShaderBindingLayout::UBO_MULTI_LIGHTS };
         ASSERT_FALSE(ShaderBindingLayout::IsPassScopedUBOBinding(kFramePublished[0]));
         PoisonAfterEveryPass(kFramePublished);
         ASSERT_FALSE(HasFatalFailure());
@@ -501,7 +510,7 @@ namespace OloEngine::Tests
         EXPECT_GT(BindingContract::ViolationCount() - refusedBefore, 0u)
             << "on " << path << ", a buffer of another layout sat on a frame-published binding and no read of it was refused";
         EXPECT_GT(Compare(reference, poisoned).Changed, 0u)
-            << "on " << path << ", the frame did not change although its motion-blur matrices were replaced: this control would "
+            << "on " << path << ", the frame did not change although its light list was replaced: this control would "
                                 "not notice a refused read either";
     }
 
@@ -669,8 +678,8 @@ namespace OloEngine::Tests
     // (CommandBucket::ExecuteParallel: 32 packets per item), asserts that a
     // region really forked, and holds worker replay to the serial one: the same
     // frame with OLO_VK_PARALLEL_RECORDING=0, nothing refused in either. Then
-    // the control: another layout on a frame-published binding, which the
-    // G-Buffer program reads in every item, must be refused BY THE ITEMS.
+    // the control: another layout on the light-list binding, which the forward
+    // shading programs read in every item, must be refused BY THE ITEMS.
     //
     // OpenGL records every region inline, so the Vulkan process is where this
     // means anything; there it is the artefact-backed worker-replay cell.
@@ -733,12 +742,17 @@ namespace OloEngine::Tests
         EXPECT_EQ(diff.Changed, 0u) << "on " << path << ", worker replay and serial replay differ in " << diff.Changed
                                     << " pixels (max " << diff.MaxAbsDiff << " levels)";
 
-        // The control, in the items. Only Deferred replays a program that
-        // reads the motion-blur matrices from the scene bucket (PBR_GBuffer).
-        if (GetParam() != RenderingPath::Deferred)
+        // The control, in the items. It needs a block the replayed programs
+        // read and nothing binds between the poison and the fork. The light
+        // list is that: bound once per frame (Renderer3D::
+        // RebindPersistentBuffers), read by the forward shading programs, and
+        // not by the G-Buffer programs the Deferred scene bucket replays. (The
+        // motion-blur matrices this control used on Deferred are bound before
+        // the fork since issue #1687, so no item can find the poison there.)
+        if (GetParam() == RenderingPath::Deferred)
             return;
         const u64 workerRefusedBefore = BindingContract::WorkerViolationCount();
-        static constexpr std::array kFramePublished{ ShaderBindingLayout::UBO_USER_1 };
+        static constexpr std::array kFramePublished{ ShaderBindingLayout::UBO_MULTI_LIGHTS };
         PoisonAfterEveryPass(kFramePublished);
         ASSERT_FALSE(HasFatalFailure());
         std::vector<u8> poisoned;
@@ -746,8 +760,8 @@ namespace OloEngine::Tests
         ASSERT_FALSE(HasFatalFailure());
         EXPECT_GT(RenderCommand::GetParallelRecordingStats().Regions, 0u) << "the poisoned frame did not fork";
         EXPECT_GT(BindingContract::WorkerViolationCount(), workerRefusedBefore)
-            << "another layout sat on the motion-blur binding while recording workers replayed the G-Buffer bucket, and "
-               "no item refused the read: the contract is not running in worker recording contexts";
+            << "on " << path << ", another layout sat on the light-list binding while recording workers replayed the scene "
+                                "bucket, and no item refused the read: the contract is not running in worker recording contexts";
     }
 
     INSTANTIATE_TEST_SUITE_P(AllPaths, FrameWorkerReplay,

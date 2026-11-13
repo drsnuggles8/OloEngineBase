@@ -597,6 +597,7 @@ namespace OloEngine
         const auto drawHardwarePhase = [&](u32 commandSlotBase, u32 argsInstanceBase)
         {
             m_GBufferShader->Bind();
+            Renderer3D::BindMotionMatrices(); // pass-scoped binding 8 (#1687)
             if (debugActive)
             {
                 // Image units 0/1 (separate namespace from the sampler texture units).
@@ -625,6 +626,7 @@ namespace OloEngine
             RenderCommand::RecordParallel(itemCount, [&](u32 itemIndex)
                                           {
                 m_GBufferShader->Bind();
+                Renderer3D::BindMotionMatrices(); // pass-scoped binding 8 (#1687)
                 auto& upload = m_RecordingUploads[itemIndex].DrawInfo;
                 bool meshShaderBound = false;
                 const sizet end = instances.size() * (itemIndex + 1) / itemCount;
@@ -993,6 +995,7 @@ namespace OloEngine
                 GPUPassTimerPool::GetInstance().BeginSubPass("Resolve");
                 RenderCommand::DisableCulling(); // fullscreen triangle
                 m_ResolveShader->Bind();
+                Renderer3D::BindMotionMatrices(); // pass-scoped binding 8 (#1687)
                 registry.GetSwListBuffer()->Bind();
                 registry.GetVisbufferBuffer()->Bind();
 
