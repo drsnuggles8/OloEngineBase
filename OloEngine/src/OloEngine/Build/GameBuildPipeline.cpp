@@ -21,6 +21,7 @@
 #include <format>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <unordered_map>
 #include <sstream>
 #include <unordered_set>
@@ -143,16 +144,16 @@ namespace OloEngine
     {
         PipelineManifestStaging result;
         PipelineManifest merged;
+        std::optional<PipelineManifest> seed; // kept to attribute the written keys
         bool anySource = false;
         struct Source
         {
             const std::filesystem::path* Path;
             std::string* Problem;
-            sizet* Keys;
+            bool IsSeed;
         };
-        for (const auto& [path, problem, keys] : { Source{ &engineSeed, &result.SeedProblem, &result.SeedKeys },
-                                                   Source{ &machineManifest, &result.MachineProblem,
-                                                           &result.MachineKeys } })
+        for (const auto& [path, problem, isSeed] : { Source{ &engineSeed, &result.SeedProblem, true },
+                                                     Source{ &machineManifest, &result.MachineProblem, false } })
         {
             std::error_code ec;
             if (!std::filesystem::is_regular_file(*path, ec))
@@ -180,8 +181,11 @@ namespace OloEngine
                 *problem = std::format("{}: {} invalid entr{} dropped", path->string(), rejected,
                                        rejected == 1 ? "y" : "ies");
             }
-            *keys = parsed->GetEntryCount();
             merged.Merge(*parsed);
+            if (isSeed)
+            {
+                seed = *parsed;
+            }
             anySource = true;
         }
         if (!anySource)
@@ -202,6 +206,12 @@ namespace OloEngine
         }
         result.Written = true;
         result.Keys = merged.GetEntryCount();
+        // Of what was WRITTEN (after the merge and the trim): the keys the
+        // seed holds, and the rest, which only this machine's manifest had.
+        // The two add up to Keys; a key in both files counts once, as a seed key.
+        result.MachineOnlyKeys =
+            seed.has_value() ? static_cast<sizet>(merged.EntriesMissingFrom(*seed).Num()) : result.Keys;
+        result.SeedKeys = result.Keys - result.MachineOnlyKeys;
         return result;
     }
 
@@ -1350,10 +1360,10 @@ namespace OloEngine
             }
             else if (staged.Written)
             {
-                OLO_CORE_INFO("[GameBuild] Staged the PSO manifest: {} pipeline key(s) ({} from the engine seed, {} "
-                              "from this machine's manifest) — the packaged runtime requests them before their first "
+                OLO_CORE_INFO("[GameBuild] Staged the PSO manifest: {} pipeline key(s) ({} in the engine seed, {} "
+                              "only in this machine's manifest) — the packaged runtime requests them before their first "
                               "draw",
-                              staged.Keys, staged.SeedKeys, staged.MachineKeys);
+                              staged.Keys, staged.SeedKeys, staged.MachineOnlyKeys);
             }
             else if (staged.SeedProblem.empty() && staged.MachineProblem.empty())
             {

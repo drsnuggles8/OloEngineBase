@@ -61,8 +61,8 @@ namespace OloEngine
     {
         bool Written = false;       ///< The destination was written (at least one source parsed).
         sizet Keys = 0;             ///< Keys in the written file.
-        sizet SeedKeys = 0;         ///< Keys read from the engine seed (0: absent or left out).
-        sizet MachineKeys = 0;      ///< Keys read from the machine manifest (0: absent or left out).
+        sizet SeedKeys = 0;         ///< Of Keys, those the engine seed holds (0: no seed was read).
+        sizet MachineOnlyKeys = 0;  ///< Of Keys, those only the machine manifest had; SeedKeys + this == Keys.
         std::string SeedProblem;    ///< Non-empty: the engine seed exists but was left out or lost entries.
         std::string MachineProblem; ///< Non-empty: the machine manifest exists but was left out or lost entries.
         std::string WriteError;     ///< Non-empty: there was something to stage and the write failed.

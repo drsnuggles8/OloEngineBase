@@ -100,7 +100,7 @@ TEST(GameBuildPipelineTest, PipelineManifestStagesTheEngineSeedMergedWithTheMach
     EXPECT_TRUE(staged.MachineProblem.empty()) << "an absent machine manifest is normal, not a problem";
     EXPECT_EQ(staged.Keys, 1u);
     EXPECT_EQ(staged.SeedKeys, 1u);
-    EXPECT_EQ(staged.MachineKeys, 0u);
+    EXPECT_EQ(staged.MachineOnlyKeys, 0u);
     auto parsed = PipelineManifest::Parse(ReadTextFile(destination));
     ASSERT_TRUE(parsed.has_value());
     EXPECT_EQ(parsed->EntriesFor("PBR", 0x11, "").Num(), 1);
@@ -114,8 +114,8 @@ TEST(GameBuildPipelineTest, PipelineManifestStagesTheEngineSeedMergedWithTheMach
     staged = StagePipelineManifest(root / "seed.yaml", root / "machine.yaml", destination);
     ASSERT_TRUE(staged.Written) << staged.WriteError;
     EXPECT_EQ(staged.Keys, 2u);
-    EXPECT_EQ(staged.SeedKeys, 1u);
-    EXPECT_EQ(staged.MachineKeys, 2u);
+    EXPECT_EQ(staged.SeedKeys, 1u) << "PBR is in both files: it counts once, as a seed key";
+    EXPECT_EQ(staged.MachineOnlyKeys, 1u) << "Sky";
     parsed = PipelineManifest::Parse(ReadTextFile(destination));
     ASSERT_TRUE(parsed.has_value());
     const auto pbr = parsed->EntriesFor("PBR", 0x11, "");
@@ -154,6 +154,8 @@ TEST(GameBuildPipelineTest, PipelineManifestStagingKeepsTheEntryCap)
     const auto staged = StagePipelineManifest(root / "seed.yaml", root / "machine.yaml", destination);
     ASSERT_TRUE(staged.Written) << staged.WriteError;
     EXPECT_EQ(staged.Keys, PipelineManifest::kDefaultMaxEntries);
+    EXPECT_EQ(staged.SeedKeys, 0u) << "the counts describe what was written, after the trim";
+    EXPECT_EQ(staged.MachineOnlyKeys, PipelineManifest::kDefaultMaxEntries);
     const auto parsed = PipelineManifest::Parse(ReadTextFile(destination));
     ASSERT_TRUE(parsed.has_value());
     EXPECT_TRUE(parsed->EntriesFor("SeedOnly", 0x11, "").IsEmpty()) << "the never-drawn seed key goes first";
@@ -180,6 +182,8 @@ TEST(GameBuildPipelineTest, PipelineManifestStagingAttributesABrokenSourceAndWri
     EXPECT_NE(staged.SeedProblem.find("left out"), std::string::npos) << staged.SeedProblem;
     EXPECT_TRUE(staged.MachineProblem.empty()) << staged.MachineProblem;
     EXPECT_EQ(staged.Keys, 1u) << "the machine's keys still ship";
+    EXPECT_EQ(staged.SeedKeys, 0u) << "a seed that was left out contributed nothing";
+    EXPECT_EQ(staged.MachineOnlyKeys, 1u);
 
     staged = StagePipelineManifest(root / "good.yaml", root / "broken.yaml", destination);
     ASSERT_TRUE(staged.Written) << staged.WriteError;
