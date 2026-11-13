@@ -263,6 +263,12 @@ namespace OloEngine::Tests::StateMachine
                  "AllPaths/FramePredecessorPoison.APassDoesNotReadWhatItsPredecessorLeftOnASharedBinding/Deferred",
                  "Issue #1330: a pass's output does not depend on what its predecessor left bound, and the uniform "
                  "block contract refuses nothing. Runs on all three paths and in the --olo-rhi=vulkan process." },
+        PairRow{ "predecessor-render-state.gl", "a frame as rendered",
+                 "the same frame with additive blending and closed colour and depth write masks left behind after every pass",
+                 "a render-graph post-pass hook through RenderCommand, which invalidates the dispatcher's state cache",
+                 Criterion::ExactTexels, Placement::DeviceGL, RowStatus::Required,
+                 "AllPaths/FramePredecessorPoison.APassDoesNotInheritItsPredecessorsBlendOrWriteMasks/Deferred",
+                 "Issue #1330 (#1469, #1475): a pass establishes the blend state and write masks its output needs." },
         PairRow{ "binding-contract-on-vs-off.gl", "a frame under the uniform block contract",
                  "the same frame with the check off", "Levers::BindingContract", Criterion::ExactTexels,
                  Placement::DeviceGL, RowStatus::Required,

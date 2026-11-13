@@ -41,6 +41,8 @@
 
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/RenderGraphDebugRuntime.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -501,6 +503,77 @@ namespace OloEngine::Tests
         EXPECT_GT(Compare(reference, poisoned).Changed, 0u)
             << "on " << path << ", the frame did not change although its motion-blur matrices were replaced: this control would "
                                 "not notice a refused read either";
+    }
+
+    // The fixed-function half of the dirty predecessor (#1469, #1475: attachment
+    // masks and blend state that escaped the pass that set them). After every
+    // render-graph pass the state a careless predecessor would leave is
+    // installed: additive blending, every colour attachment's writes masked off,
+    // depth writes off. The predecessor is dirty but honest about the
+    // dispatcher's cache, which it invalidates, as a pass that sets state behind
+    // the queue's back must (render-pass-published-state.md). Every pass that
+    // draws has to establish the state its own output needs, so the frame must
+    // not change.
+    TEST_P(FramePredecessorPoison, APassDoesNotInheritItsPredecessorsBlendOrWriteMasks)
+    {
+        ScopedMockTime mockTime(kCaptureTime);
+        const char* path = PathName(GetParam());
+
+        std::vector<u8> reference;
+        Capture(reference);
+        ASSERT_FALSE(HasFatalFailure());
+
+        RenderGraph* graph = ActiveGraph();
+        ASSERT_NE(graph, nullptr);
+        // Dirty the state after every pass, or (to attribute a failure) after
+        // the one pass named; either way note which passes ran.
+        std::vector<std::string> passes;
+        const auto captureDirtyAfter = [&](std::string_view onlyAfter, std::vector<u8>& out)
+        {
+            passes.clear();
+            graph->AddPostPassHook(kPoisonHook, [&passes, onlyAfter](std::string_view pass, RenderGraph&)
+                                   {
+                if (std::ranges::find(passes, pass) == passes.end())
+                    passes.emplace_back(pass);
+                if (!onlyAfter.empty() && pass != onlyAfter)
+                    return;
+                RenderCommand::SetBlendState(true);
+                RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One);
+                RenderCommand::SetColorMask(false, false, false, false);
+                RenderCommand::SetDepthMask(false);
+                CommandDispatch::InvalidateRenderStateCache(); });
+            Capture(out);
+            graph->RemovePostPassHook(kPoisonHook);
+        };
+        std::vector<u8> dirty;
+        captureDirtyAfter({}, dirty);
+        ASSERT_FALSE(HasFatalFailure());
+
+        const FrameDiff diff = Compare(reference, dirty);
+        StateMachine::Coverage::RecordComparison("predecessor-render-state.gl");
+        std::string inheritors;
+        if (diff.Changed > 0)
+        {
+            WriteFailureEvidence(std::string("FramePredecessorState_") + path + "_Reference", reference);
+            WriteFailureEvidence(std::string("FramePredecessorState_") + path + "_Dirty", dirty);
+            // Which boundary matters: dirty the state after one pass at a
+            // time. The pass that inherits it is the next one that draws.
+            const std::vector<std::string> ran = passes;
+            for (sizet index = 0; index < ran.size(); ++index)
+            {
+                std::vector<u8> one;
+                captureDirtyAfter(ran[index], one);
+                if (const FrameDiff single = Compare(reference, one); single.Changed > 0)
+                    inheritors += "\n    after " + ran[index] + " (next: " + (index + 1 < ran.size() ? ran[index + 1] : std::string("end of frame")) +
+                                  "): " + std::to_string(single.Changed) + " pixels";
+            }
+        }
+        EXPECT_EQ(diff.Changed, 0u)
+            << "on " << path << ", leaving additive blending and closed colour and depth masks behind after every pass changed "
+            << diff.Changed << " pixels (max " << diff.MaxAbsDiff
+            << " levels): some pass draws with the blend state or write masks it inherited. Dirtying one boundary at a "
+               "time, the frame changes:"
+            << inheritors << "\nCompare FramePredecessorState_" << path << "_Reference.png / _Dirty.png.";
     }
 
     // The check hands a shader the zero block only for a read it refuses. A frame
