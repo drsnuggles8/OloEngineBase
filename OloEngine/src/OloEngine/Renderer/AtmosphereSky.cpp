@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/AtmosphereSky.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -319,6 +320,11 @@ namespace OloEngine
             OLO_CORE_ERROR("AtmosphereSky::Generate: failed to allocate cubemap");
             return nullptr;
         }
+
+        // The camera buffer below claims the frame-published camera binding the
+        // moment it is created. Whatever happens after that, the frame's camera
+        // block is bound again when this function returns (issue #1687).
+        const CommandDispatch::ScopedFrameCameraRestore restoreFrameCamera;
 
         auto cameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(),
                                                ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");

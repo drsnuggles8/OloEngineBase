@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/FrontendRecordingContext.h"
+#include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 
 #include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
@@ -25,10 +26,27 @@ class CommandDispatchRecording : public ::testing::Test
     void SetUp() override
     {
         CommandDispatch::Initialize();
+        // These tests replay through MockRendererAPI, some of them on worker
+        // threads. With the whole suite in one process a renderer-attached
+        // test has usually run first and left the dispatcher holding the real
+        // camera and material buffers, and a view scope uploads the camera:
+        // SetData and a bind on a GL buffer from a thread with no context.
+        // Drop the references for the test. Renderer3D publishes them again
+        // at its next BeginScene (ReclaimSharedRenderState, issue #1074).
+        CommandDispatch::SetUBOReferences(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
         auto& profiler = RendererProfiler::GetInstance();
         profiler.Initialize();
         profiler.BeginFrame();
         profiler.SetRecordInstancedDraws(true);
+    }
+
+    // The calling recording context's view with another position. A view is
+    // replaced whole; the dispatcher has no field-wise setters.
+    static void SetViewPosition(const glm::vec3& position)
+    {
+        DispatchView view = CommandDispatch::GetView();
+        view.ViewPosition = position;
+        CommandDispatch::SetView(view);
     }
 
     void TearDown() override
@@ -52,7 +70,7 @@ class CommandDispatchRecording : public ::testing::Test
 
 TEST_F(CommandDispatchRecording, RecordingContextsIsolateCachesViewsAndProfilerWritesAcrossRealThreads)
 {
-    CommandDispatch::SetViewPosition(glm::vec3(99.0f));
+    SetViewPosition(glm::vec3(99.0f));
     auto& profiler = RendererProfiler::GetInstance();
     constexpr u32 itemCount = 8;
     std::array<FrontendRecordingContext, itemCount> items;
@@ -66,7 +84,7 @@ TEST_F(CommandDispatchRecording, RecordingContextsIsolateCachesViewsAndProfilerW
         threads.emplace_back([&, item]
                              {
             const ScopedFrontendRecordingContext scope(items[item]);
-            CommandDispatch::SetViewPosition(glm::vec3(static_cast<f32>(item)));
+            SetViewPosition(glm::vec3(static_cast<f32>(item)));
             start.arrive_and_wait();
             EXPECT_NEAR(CommandDispatch::GetViewPosition().x, static_cast<f32>(item), 0.001f);
             DrawIndexedCommand draw{};

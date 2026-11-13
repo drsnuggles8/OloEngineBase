@@ -312,6 +312,10 @@ namespace OloEngine
 
         const glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
 
+        // UpdateIBLCameraUBO below displaces the frame's camera block from the
+        // frame-published camera binding; it goes back on every exit (#1687).
+        const CommandDispatch::ScopedFrameCameraRestore restoreFrameCamera;
+
         // Store previous stencil state and disable for IBL rendering
         bool wasStencilTestEnabled = RenderCommand::IsStencilTestEnabled();
         if (wasStencilTestEnabled)
@@ -359,10 +363,6 @@ namespace OloEngine
         // Restore previous stencil state
         if (wasStencilTestEnabled)
             RenderCommand::EnableStencilTest();
-
-        // ...and the frame's camera block, which UpdateIBLCameraUBO displaced
-        // from the frame-published camera binding (issue #1687).
-        CommandDispatch::UploadCameraUBO();
     }
 
     void IBLPrecompute::RenderToTexture(const Ref<Texture2D>& texture, const Ref<Shader>& shader)

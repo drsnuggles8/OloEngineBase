@@ -183,26 +183,28 @@ namespace OloEngine
             DispatchView m_Previous;
         };
 
-        // Field-wise access to the same view, for the paths that derive one
-        // matrix (sort keys, the mirror derivation) and for existing callers.
-        static void SetViewProjectionMatrix(const glm::mat4& vp);
-        static void SetViewMatrix(const glm::mat4& view);
-        static void SetProjectionMatrix(const glm::mat4& projection);
-        // @brief Mirror the previous-frame view-projection from Renderer3D
-        // so dispatch paths that drive the shared CameraUBO themselves
-        // (terrain / voxel / decal) can fill CameraUBO::PrevViewProjection
-        // without aliasing the current-frame VP.
-        static void SetPrevViewProjectionMatrix(const glm::mat4& prevVP);
-        // @brief The TAA jitter offsets those two matrices carry (#1552): xy
-        // this frame's, zw the previous frame's, in velocity units -- what the
-        // shared CameraUBO re-upload hands the velocity writers to subtract.
-        static void SetJitterUV(const glm::vec4& jitterUV);
-        static void SetViewPosition(const glm::vec3& viewPos);
-        // @brief Camera-relative render origin for this frame (issue #429). The
-        // stored view / view-projection / position above remain *world*-space
-        // (sort keys and the planar-reflection mirror need them); the camera-UBO
-        // packing here derives the relative matrices from those plus this origin
-        // so the shared, terrain, voxel and mirror uploads all agree.
+        // For a tenant that draws through a camera buffer of its own on the
+        // frame-published camera binding (a bake). The frame's camera block is
+        // uploaded and bound again when the scope ends, on every exit: a bake
+        // that fails half way must not leave its buffer, or nothing at all,
+        // where the post passes read the camera without binding it (#1687).
+        // Declare it before the tenant's own camera buffer is created, which
+        // claims the binding point at construction.
+        class ScopedFrameCameraRestore
+        {
+          public:
+            ScopedFrameCameraRestore() = default;
+            ~ScopedFrameCameraRestore();
+            ScopedFrameCameraRestore(const ScopedFrameCameraRestore&) = delete;
+            ScopedFrameCameraRestore& operator=(const ScopedFrameCameraRestore&) = delete;
+            ScopedFrameCameraRestore(ScopedFrameCameraRestore&&) = delete;
+            ScopedFrameCameraRestore& operator=(ScopedFrameCameraRestore&&) = delete;
+        };
+
+        // No field-wise setters: a view is replaced whole (SetView, or a
+        // ScopedAlternateView), so the dispatcher never holds half of one
+        // camera (ADR 0025 V2).
+
         // The GPU Scene material table shares slot 17 with the instance cull's
         // draw-indirect buffer (issue #994). Anything that binds its own buffer
         // there must call this, or the next draw that reads a canonical
@@ -215,7 +217,11 @@ namespace OloEngine
         // the result. Reset once per frame by ResetState().
         [[nodiscard]] static u32 GetGPUSceneConsumedDrawCount();
         [[nodiscard]] static u32 GetGPUSceneFallbackDrawCount();
-        static void SetRenderOrigin(const glm::vec3& origin);
+        // @brief Camera-relative render origin for this frame (issue #429). The
+        // stored view / view-projection / position remain *world*-space (sort
+        // keys and the planar-reflection mirror need them); the camera-UBO
+        // packing derives the relative matrices from those plus this origin so
+        // the shared, terrain, voxel and mirror uploads all agree.
         static const glm::vec3& GetRenderOrigin();
 
         // Push the current CommandDispatch camera matrices (the Set* values above)

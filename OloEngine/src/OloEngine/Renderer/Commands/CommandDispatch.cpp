@@ -2049,29 +2049,9 @@ namespace OloEngine
         InvalidateRenderStateCache();
     }
 
-    void CommandDispatch::SetViewProjectionMatrix(const glm::mat4& vp)
+    CommandDispatch::ScopedFrameCameraRestore::~ScopedFrameCameraRestore()
     {
-        Data().View.ViewProjectionMatrix = vp;
-    }
-
-    void CommandDispatch::SetViewMatrix(const glm::mat4& view)
-    {
-        Data().View.ViewMatrix = view;
-    }
-
-    void CommandDispatch::SetProjectionMatrix(const glm::mat4& projection)
-    {
-        Data().View.ProjectionMatrix = projection;
-    }
-
-    void CommandDispatch::SetPrevViewProjectionMatrix(const glm::mat4& prevVP)
-    {
-        Data().View.PrevViewProjectionMatrix = prevVP;
-    }
-
-    void CommandDispatch::SetJitterUV(const glm::vec4& jitterUV)
-    {
-        Data().View.JitterUV = jitterUV;
+        UploadCameraUBO();
     }
 
     const glm::mat4& CommandDispatch::GetViewMatrix()
@@ -2092,16 +2072,6 @@ namespace OloEngine
     const glm::vec3& CommandDispatch::GetViewPosition()
     {
         return Data().View.ViewPosition;
-    }
-
-    void CommandDispatch::SetViewPosition(const glm::vec3& viewPos)
-    {
-        Data().View.ViewPosition = viewPos;
-    }
-
-    void CommandDispatch::SetRenderOrigin(const glm::vec3& origin)
-    {
-        Data().View.RenderOrigin = origin;
     }
 
     const glm::vec3& CommandDispatch::GetRenderOrigin()

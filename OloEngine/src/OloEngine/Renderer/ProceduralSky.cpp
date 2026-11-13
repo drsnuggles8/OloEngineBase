@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/ProceduralSky.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Shader.h"
@@ -311,6 +312,11 @@ namespace OloEngine
             OLO_CORE_ERROR("ProceduralSky::Generate: failed to allocate cubemap");
             return nullptr;
         }
+
+        // The camera buffer below claims the frame-published camera binding the
+        // moment it is created. Whatever happens after that, the frame's camera
+        // block is bound again when this function returns (issue #1687).
+        const CommandDispatch::ScopedFrameCameraRestore restoreFrameCamera;
 
         // Camera UBO is shared with the rest of the IBL pipeline (binding
         // UBO_CAMERA); allocate locally rather than reaching into static

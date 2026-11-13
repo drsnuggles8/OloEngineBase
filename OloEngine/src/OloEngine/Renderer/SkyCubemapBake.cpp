@@ -58,6 +58,13 @@ namespace OloEngine::SkyBake
             return false;
         }
 
+        // The bake draws through `cameraUBO` on the frame-published camera
+        // binding. The frame's block goes back on every exit, the failed ones
+        // included: a pass that reads the camera without binding it (the post
+        // passes do) must not find the bake's, which has the same layout and
+        // so passes every contract check (issue #1687).
+        const CommandDispatch::ScopedFrameCameraRestore restoreFrameCamera;
+
         const u32 face = cubemap->GetWidth();
         const auto& mats = GetCaptureMatrices();
 
@@ -160,12 +167,6 @@ namespace OloEngine::SkyBake
 
         if (wasStencilEnabled)
             RenderCommand::EnableStencilTest();
-
-        // The bake drew through its own camera buffer on the frame-published
-        // camera binding. Put the frame's back: a pass that reads the camera
-        // without binding it (every post pass does) must not find the bake's,
-        // which has the same layout and so passes every check (issue #1687).
-        CommandDispatch::UploadCameraUBO();
 
         return true;
     }
