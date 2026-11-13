@@ -36,6 +36,7 @@
 #include "OloEnginePCH.h"
 
 #include "RendererAttachedTest.h"
+#include "../StateMachine/StateMachineCoverage.h"
 #include "TestRenderBackend.h"
 
 #include "OloEngine/Core/DebugLevers.h"
@@ -458,6 +459,7 @@ namespace OloEngine::Tests
                "error in the log names the program, the binding and both blocks. That pass reads the point without "
                "binding its own buffer first: call Bind() before the draw or dispatch.";
         const FrameDiff diff = Compare(reference, poisoned);
+        StateMachine::Coverage::RecordComparison("predecessor-poison.gl");
         if (diff.Changed > 0)
         {
             WriteFailureEvidence(std::string("FramePredecessorPoison_") + path + "_Reference", reference);
@@ -493,11 +495,37 @@ namespace OloEngine::Tests
         Capture(poisoned);
         ASSERT_FALSE(HasFatalFailure());
 
+        StateMachine::Coverage::RecordComparison("wrong-layout-occupant");
         EXPECT_GT(BindingContract::ViolationCount() - refusedBefore, 0u)
             << "on " << path << ", a buffer of another layout sat on a frame-published binding and no read of it was refused";
         EXPECT_GT(Compare(reference, poisoned).Changed, 0u)
             << "on " << path << ", the frame did not change although its motion-blur matrices were replaced: this control would "
                                 "not notice a refused read either";
+    }
+
+    // The check hands a shader the zero block only for a read it refuses. A frame
+    // with no refusal is therefore the same frame with the check off, which is
+    // what lets OLO_BINDING_CONTRACT=0 be an honest A/B arm.
+    TEST_P(FramePredecessorPoison, TheContractChangesNoFrameItDoesNotRefuse)
+    {
+        ScopedMockTime mockTime(kCaptureTime);
+        const char* path = PathName(GetParam());
+        const Levers::Tristate saved = Levers::BindingContract();
+
+        Levers::SetBindingContract(Levers::Tristate::On);
+        std::vector<u8> checked;
+        Capture(checked);
+        Levers::SetBindingContract(Levers::Tristate::Off);
+        std::vector<u8> unchecked;
+        Capture(unchecked);
+        Levers::SetBindingContract(saved);
+        ASSERT_FALSE(HasFatalFailure());
+
+        ASSERT_EQ(BindingContract::ViolationCount(), m_RefusedAtSetUp) << "on " << path << ", the checked frame had a read refused";
+        const FrameDiff diff = Compare(checked, unchecked);
+        StateMachine::Coverage::RecordComparison("binding-contract-on-vs-off.gl");
+        EXPECT_EQ(diff.Changed, 0u) << "on " << path << ", turning the uniform block check off changed " << diff.Changed
+                                    << " pixels (max " << diff.MaxAbsDiff << " levels) of a frame it refused nothing in";
     }
 
     // What the check costs (issue #1330: "measure validation cost; do not infer

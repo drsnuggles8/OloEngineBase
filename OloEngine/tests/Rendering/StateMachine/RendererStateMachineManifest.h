@@ -254,8 +254,21 @@ namespace OloEngine::Tests::StateMachine
                  "The stochastic half of the split: same distribution, not the same texels." },
         PairRow{ "isolated-vs-shared-view", "a view rendered alone", "the same view rendered beside a second view",
                  "none yet", Criterion::ExactTexels, Placement::DeviceGL, RowStatus::Prerequisite, "#1352",
-                 "Needs two real scene views with isolated histories, culling and exposure; #1352 is blocked by "
-                 "#1330 (view/frame ownership). No partial substitute is counted." },
+                 "Needs two real scene views with isolated histories, culling and exposure. The ownership contract "
+                 "it builds on is ADR 0025 (#1330); the second view itself is #1352. No partial substitute is counted." },
+        PairRow{ "predecessor-poison.gl", "a frame as rendered",
+                 "the same frame with another block layout left on every pass-scoped uniform binding after every pass",
+                 "a render-graph post-pass hook that binds declared poison buffers", Criterion::ExactTexels,
+                 Placement::DeviceGL, RowStatus::Required,
+                 "AllPaths/FramePredecessorPoison.APassDoesNotReadWhatItsPredecessorLeftOnASharedBinding/Deferred",
+                 "Issue #1330: a pass's output does not depend on what its predecessor left bound, and the uniform "
+                 "block contract refuses nothing. Runs on all three paths and in the --olo-rhi=vulkan process." },
+        PairRow{ "binding-contract-on-vs-off.gl", "a frame under the uniform block contract",
+                 "the same frame with the check off", "Levers::BindingContract", Criterion::ExactTexels,
+                 Placement::DeviceGL, RowStatus::Required,
+                 "AllPaths/FramePredecessorPoison.TheContractChangesNoFrameItDoesNotRefuse/Deferred",
+                 "The check substitutes a zero block only for a read it refuses, so a frame with no refusal is the "
+                 "same frame with and without it." },
         PairRow{ "sequences.vulkan", "generated sequences on Vulkan", "same pairs as the GL rows",
                  "--rhi vulkan editor + MCP", Criterion::ExactTexels, Placement::LiveVulkan, RowStatus::LiveOnly,
                  "PR body: live editor A/B",
@@ -325,6 +338,13 @@ namespace OloEngine::Tests::StateMachine
                             "shows the reader scheduled ahead of the build)",
                             Placement::CpuEverywhere,
                             "RenderGraphOutOfBand.AccelerationStructureChainOrdersByDeclarationNotRegistration" },
+        NegativeControlRow{ "wrong-layout-occupant",
+                            "another block layout left on a frame-published uniform binding (the motion-blur matrices)",
+                            "a render-graph post-pass hook that binds a declared poison buffer",
+                            "predecessor-poison.gl (the read is refused before the shader runs, and the frame changes)",
+                            Placement::DeviceGL,
+                            "AllPaths/FramePredecessorPoison.AnotherLayoutOnAFramePublishedBindingIsRefusedBeforeAnyShaderReadsIt/"
+                            "Deferred" },
         NegativeControlRow{ "draw-order.cpu", "a batcher that groups blended draws on a partial key",
                             "test-local key", "batch-order.cpu", Placement::CpuEverywhere,
                             "RendererStateMachineDrawOrder.PartialKeyBatchingIsCaught" },
