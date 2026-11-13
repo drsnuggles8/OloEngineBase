@@ -415,15 +415,18 @@ jobs:
   # red at the artifact download under their own check names, instead of being
   # skipped -- a skipped check reads as green.
   #
-  # On `push` (the master warm, `asan-windows` alone) it publishes no artifact. It
-  # restores, fetches on a miss and SAVES the master entry, so the build behind it
-  # finds an exact hit. On `schedule` it saves and publishes. Self-hosted builds keep
+  # NOT ON `push`. The master warm runs `asan-windows` alone, so that build is the
+  # run's only restore-or-fetch and saves the master entry itself. Run here as well,
+  # a failed save (the store read-only, a transient error: actions/cache only warns)
+  # would leave `asan-windows` a miss and a second full pull. On `schedule` this job
+  # saves the entry and publishes the artifact. Self-hosted builds keep
   # their persistent store and ignore the artifact (the action's download is
   # hosted-only), but their hosted shards take it.
   lfs-objects:
     name: LFS objects (one fetch for this run)
     needs: detect-changes
-    if: ${{ github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true' }}
+    if: ${{ github.event_name != 'push'
+        && (github.event_name != 'pull_request' || needs.detect-changes.outputs.native == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -529,8 +532,10 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-    # From `lfs-objects`, which made the run's only LFS fetch (#1682). On `push` it
-    # publishes no artifact; it saved the master entry instead, so this restores that.
+    # From `lfs-objects`, which made the run's only LFS fetch (#1682). On `push` that
+    # job is skipped and this is the run's only restore-or-fetch: it restores the master
+    # entry, pulls on a miss and saves the entry (the action saves on a hosted master
+    # run without an exact hit).
     - name: Restore full model and groom assets
       uses: ./.github/actions/restore-lfs-assets
       with:

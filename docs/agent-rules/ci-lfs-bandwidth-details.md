@@ -61,6 +61,8 @@ per run. Since #1682 its `lfs-objects` job makes the run's only restore-or-fetch
 after `detect-changes` and only when a build will, because ungated it would pull the full set for
 a PR that builds nothing. The builds run under `!cancelled()`, so a failed `lfs-objects` turns
 them red at the artifact download rather than skipped (a skipped check reads as green).
+On `push` the master warm runs only the ASan Windows build, so `lfs-objects` is skipped and that
+build restores, fetches on a miss and saves the entry itself: one fetch, even when the save fails.
 Windows.yml and vulkan-software.yml have one fetching job per run and were already single-flight.
 A PR push that finds no master entry now costs one pull per workflow that runs: Windows,
 Sanitizers and lavapipe, three at most.
