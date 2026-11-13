@@ -17554,7 +17554,10 @@ namespace OloEngine
         // Set particle render callback — executed by ParticleRenderPass during graph execution
         Renderer3D::SetParticleRenderCallback([this, &camera]()
                                               {
-                                                  ParticleBatchRenderer::BeginBatch(camera);
+                                                  // Inside the particle pass: the batch is drawn into the
+                                                  // frame's main view and takes that view's history.
+                                                  const ParticleCameraHistory history = ParticleBatchRenderer::MainViewHistory();
+                                                  ParticleBatchRenderer::BeginBatch(camera, &history);
 
                                                   glm::vec3 camPos = camera.GetPosition();
 
@@ -17629,7 +17632,8 @@ namespace OloEngine
         // Set particle render callback — executed by ParticleRenderPass during graph execution
         Renderer3D::SetParticleRenderCallback([this, &camera, cameraTransform, cameraNearClip, cameraFarClip, cameraPosition]()
                                               {
-                                                  ParticleBatchRenderer::BeginBatch(camera, cameraTransform);
+                                                  const ParticleCameraHistory history = ParticleBatchRenderer::MainViewHistory();
+                                                  ParticleBatchRenderer::BeginBatch(camera, cameraTransform, &history);
                                                   RenderParticleSystems(cameraPosition, cameraNearClip, cameraFarClip);
 
                                                   // Render snow ejecta particles

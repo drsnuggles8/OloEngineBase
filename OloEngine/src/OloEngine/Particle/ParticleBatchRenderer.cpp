@@ -262,38 +262,39 @@ namespace OloEngine
     {
         // Fill and upload the particle camera block for `viewProjection`.
         //
-        // The previous view-projection and its jitter are the frame's main
-        // view's (the dispatcher holds them in world space, as this renderer's
-        // own matrix is): particles are drawn into that view's velocity
-        // target, so their camera motion has to be measured against the same
-        // previous camera as everything else in it. The particle matrix itself
-        // is not jittered, hence a current jitter of zero. Outside a 3D frame
-        // there is no previous camera, and the block is its own history.
-        void UploadCameraBlock(const glm::mat4& viewProjection)
+        // Particles are drawn into a view's velocity target, so their camera
+        // motion has to be measured against the same previous camera as
+        // everything else in it: the caller hands that in as `history`. The
+        // particle matrix itself is not jittered, hence a current jitter of
+        // zero. A batch begun with no history (outside a frame, or for a
+        // camera that is not the frame's) is its own history: no camera motion.
+        //
+        // The caller says which, because only the caller knows. This used to
+        // be guessed from the dispatcher's view being the identity, which is
+        // true before the first 3D frame and never again.
+        void UploadCameraBlock(const glm::mat4& viewProjection, const ParticleCameraHistory* history)
         {
             auto& block = s_Data.CameraBuffer;
             block = {};
             block.ViewProjection = viewProjection;
-            const DispatchView& frameView = CommandDispatch::GetView();
-            if (Math::BitwiseEqual(frameView.ViewProjectionMatrix, glm::mat4(1.0f)))
-            {
-                block.PrevViewProjection = viewProjection;
-                block.JitterUV = glm::vec4(0.0f);
-            }
-            else
-            {
-                block.PrevViewProjection = frameView.PrevViewProjectionMatrix;
-                block.JitterUV = glm::vec4(0.0f, 0.0f, frameView.JitterUV.z, frameView.JitterUV.w);
-            }
+            block.PrevViewProjection = history != nullptr ? history->PrevViewProjection : viewProjection;
+            block.JitterUV = history != nullptr ? glm::vec4(0.0f, 0.0f, history->PrevJitterUV) : glm::vec4(0.0f);
             s_Data.CameraUBO->SetData(&block, ShaderBindingLayout::CameraUBO::GetSize());
         }
     } // namespace
 
-    void ParticleBatchRenderer::BeginBatch(const EditorCamera& camera)
+    ParticleCameraHistory ParticleBatchRenderer::MainViewHistory()
+    {
+        const DispatchView& view = CommandDispatch::GetView();
+        return { .PrevViewProjection = view.PrevViewProjectionMatrix,
+                 .PrevJitterUV = glm::vec2(view.JitterUV.z, view.JitterUV.w) };
+    }
+
+    void ParticleBatchRenderer::BeginBatch(const EditorCamera& camera, const ParticleCameraHistory* history)
     {
         OLO_PROFILE_FUNCTION();
 
-        UploadCameraBlock(camera.GetViewProjection());
+        UploadCameraBlock(camera.GetViewProjection(), history);
 
         s_Data.CameraRight = camera.GetRightDirection();
         s_Data.CameraUp = camera.GetUpDirection();
@@ -306,11 +307,12 @@ namespace OloEngine
         s_Data.TrailVertexPtr = s_Data.TrailVertexBase.get();
     }
 
-    void ParticleBatchRenderer::BeginBatch(const Camera& camera, const glm::mat4& cameraTransform)
+    void ParticleBatchRenderer::BeginBatch(const Camera& camera, const glm::mat4& cameraTransform,
+                                           const ParticleCameraHistory* history)
     {
         OLO_PROFILE_FUNCTION();
 
-        UploadCameraBlock(camera.GetProjection() * glm::inverse(cameraTransform));
+        UploadCameraBlock(camera.GetProjection() * glm::inverse(cameraTransform), history);
 
         // Extract camera right and up from the transform matrix columns
         s_Data.CameraRight = glm::normalize(glm::vec3(cameraTransform[0]));
