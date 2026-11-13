@@ -46,6 +46,25 @@ namespace OloEngine
         std::string& errorMessage);
 
     /**
+     * @brief Stage the packaged PSO manifest: the engine seed merged with this machine's manifest.
+     *
+     * The checked-in engine seed (issue #1650) holds the keys the engine's own scenes draw; the
+     * machine manifest holds what this machine's editor sessions drew (#1345). A packaged runtime
+     * reads one file, so the two are merged here: the seed's entries ship even when this machine
+     * has never drawn on Vulkan. Either source may be missing. A source that does not parse is
+     * left out and named in `warning` (the build continues: a missing seed costs first-launch
+     * hitches, not the game). Returns false only when the destination could not be written, with
+     * the reason in `errorMessage`; `entryCount` is the number of keys staged (0: nothing written).
+     */
+    bool StagePipelineManifest(
+        const std::filesystem::path& engineSeed,
+        const std::filesystem::path& machineManifest,
+        const std::filesystem::path& destination,
+        sizet& entryCount,
+        std::string& warning,
+        std::string& errorMessage);
+
+    /**
      * @brief Stage project textures needed by legacy path-based scene components.
      *
      * Runtime scene deserialization still resolves UIImage/Sprite texture paths

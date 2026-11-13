@@ -19,6 +19,7 @@
 #include "OloEngine/Build/GameBuildPipeline.h"
 #include "OloEngine/Build/GameBuildSettings.h"
 #include "OloEngine/Build/LinuxDesktopLauncher.h"
+#include "OloEngine/Renderer/PipelineManifest.h"
 
 #include <algorithm>
 #include <array>
@@ -76,6 +77,80 @@ namespace
     }
 #endif
 } // namespace
+
+// #1650: a package ships the engine seed's keys even when the build machine
+// never drew on Vulkan, and the machine's own keys beside them when it did.
+TEST(GameBuildPipelineTest, PipelineManifestStagesTheEngineSeedMergedWithTheMachineManifest)
+{
+    const auto root = OloEngine::Tests::TempDir("pso-manifest-merge");
+    PipelineSignature gbuffer;
+    gbuffer.ColorCount = 1;
+    gbuffer.ColorFormats[0] = 97;
+    gbuffer.DepthFormat = 126;
+    PipelineManifest seed;
+    (void)seed.Record("PBR", 0x11, gbuffer, "forward/msaa1/native/oit1");
+    std::ofstream(root / "seed.yaml", std::ios::binary) << seed.NormalizedForSeed().Serialize();
+    const auto destination = root / "package" / "assets" / "PipelineManifest.yaml";
+
+    // No machine manifest: the seed alone ships.
+    sizet keys = 0;
+    std::string warning;
+    std::string error;
+    ASSERT_TRUE(StagePipelineManifest(root / "seed.yaml", root / "no-machine.yaml", destination, keys, warning, error))
+        << error;
+    EXPECT_TRUE(warning.empty()) << warning;
+    EXPECT_EQ(keys, 1u);
+    auto staged = PipelineManifest::Parse(ReadTextFile(destination));
+    ASSERT_TRUE(staged.has_value());
+    EXPECT_EQ(staged->EntriesFor("PBR", 0x11, "").Num(), 1);
+
+    // With one: the union, and a key in both is one entry.
+    PipelineManifest machine;
+    machine.BeginSession();
+    (void)machine.Record("PBR", 0x11, gbuffer, "deferred/msaa1/native/oit1");
+    (void)machine.Record("Sky", 0x11, gbuffer, "forward/msaa1/native/oit1");
+    std::ofstream(root / "machine.yaml", std::ios::binary) << machine.Serialize();
+    ASSERT_TRUE(StagePipelineManifest(root / "seed.yaml", root / "machine.yaml", destination, keys, warning, error))
+        << error;
+    EXPECT_EQ(keys, 2u);
+    staged = PipelineManifest::Parse(ReadTextFile(destination));
+    ASSERT_TRUE(staged.has_value());
+    const auto pbr = staged->EntriesFor("PBR", 0x11, "");
+    ASSERT_EQ(pbr.Num(), 1);
+    EXPECT_TRUE(pbr[0]->SeenUnder("forward/msaa1/native/oit1"));
+    EXPECT_TRUE(pbr[0]->SeenUnder("deferred/msaa1/native/oit1"));
+    EXPECT_EQ(staged->EntriesFor("Sky", 0x11, "").Num(), 1);
+}
+
+// A broken seed must not cost the build, and must not disappear silently:
+// what is left ships and the loss is reported. Nothing at all writes nothing.
+TEST(GameBuildPipelineTest, PipelineManifestStagingReportsABrokenSourceAndWritesNothingFromNothing)
+{
+    const auto root = OloEngine::Tests::TempDir("pso-manifest-broken");
+    std::ofstream(root / "seed.yaml", std::ios::binary) << "PipelineManifest: [not, a, map]";
+    PipelineSignature target;
+    target.ColorCount = 1;
+    target.ColorFormats[0] = 97;
+    PipelineManifest machine;
+    machine.BeginSession();
+    (void)machine.Record("Sky", 0x11, target, "forward/msaa1/native/oit1");
+    std::ofstream(root / "machine.yaml", std::ios::binary) << machine.Serialize();
+    const auto destination = root / "package" / "assets" / "PipelineManifest.yaml";
+
+    sizet keys = 0;
+    std::string warning;
+    std::string error;
+    ASSERT_TRUE(StagePipelineManifest(root / "seed.yaml", root / "machine.yaml", destination, keys, warning, error))
+        << error;
+    EXPECT_NE(warning.find("engine seed"), std::string::npos) << warning;
+    EXPECT_EQ(keys, 1u) << "the machine's keys still ship";
+
+    const auto empty = root / "empty-package" / "assets" / "PipelineManifest.yaml";
+    ASSERT_TRUE(StagePipelineManifest(root / "none.yaml", root / "none-either.yaml", empty, keys, warning, error));
+    EXPECT_EQ(keys, 0u);
+    EXPECT_TRUE(warning.empty());
+    EXPECT_FALSE(std::filesystem::exists(empty));
+}
 
 TEST(GameBuildPipelineTest, ManagedAssemblyStagesMatchingSymbols)
 {
