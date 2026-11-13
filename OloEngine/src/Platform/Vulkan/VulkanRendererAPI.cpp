@@ -745,6 +745,34 @@ namespace OloEngine
                                                   VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
                         vkBarrier.srcAccessMask |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
                     }
+                    // BARRIERS IN ONE vkCmdPipelineBarrier2 DO NOT CHAIN. Each is
+                    // judged against the state before the call, but the tracker
+                    // is advanced per barrier (SetLayout below), so when a batch
+                    // names one subresource twice the second entry derives its
+                    // source from the layout the FIRST entry moves it to and
+                    // misses whatever really wrote it last. A depth target that
+                    // was transfer-cleared because its pass drew nothing is the
+                    // case that showed it: the first entry carried the transfer
+                    // widening above, the second named only the attachment
+                    // stages, and sync validation reported WRITE_AFTER_WRITE
+                    // against the clear (a Deferred frame with no geometry).
+                    // Carry the earlier entry's source scope: it can only add
+                    // synchronisation, and only when such a duplicate exists.
+                    for (const VkImageMemoryBarrier2& earlier : imageBarriers)
+                    {
+                        if (earlier.image != image)
+                            continue;
+                        const VkImageSubresourceRange& a = earlier.subresourceRange;
+                        const bool mipsOverlap = a.baseMipLevel < run.baseMipLevel + run.levelCount &&
+                                                 run.baseMipLevel < a.baseMipLevel + a.levelCount;
+                        const bool layersOverlap = a.baseArrayLayer < run.baseArrayLayer + run.layerCount &&
+                                                   run.baseArrayLayer < a.baseArrayLayer + a.layerCount;
+                        if (mipsOverlap && layersOverlap)
+                        {
+                            vkBarrier.srcStageMask |= earlier.srcStageMask;
+                            vkBarrier.srcAccessMask |= earlier.srcAccessMask;
+                        }
+                    }
                     // The pure lowering emits the full shader-stage union;
                     // the device knows which stage features are ENABLED
                     // (VUID-…-03929/-03930). A masked-off stage can hold no
