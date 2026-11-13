@@ -32,6 +32,7 @@
 
 #include <gtest/gtest.h>
 
+#include <format>
 #include <functional>
 #include <span>
 #include <string>
@@ -347,6 +348,28 @@ TEST(PipelineManifest, SurvivesARoundTripByteForByte)
     const auto terrain = parsed->EntriesFor("Terrain_PBR", kClassicStages | 0x02 | 0x04, "");
     ASSERT_EQ(terrain.Num(), 1);
     EXPECT_EQ(terrain[0]->Signature.PatchControlPoints, 4u) << "The patch size is part of the key";
+}
+
+// Merge keeps the per-entry configuration bound Record keeps. Before, merging
+// two files (the shipped seed and the machine manifest at start-up, or the
+// two at Build Game staging) appended every tag the other had, so an entry
+// could grow past kMaxConfigurationsPerEntry and stay there.
+TEST(PipelineManifest, MergeKeepsTheConfigurationBoundAndDropsTheOldestTag)
+{
+    const PipelineSignature sig = Signature(1, 97, 126, 1);
+    PipelineManifest a;
+    PipelineManifest b;
+    for (sizet i = 0; i < PipelineManifest::kMaxConfigurationsPerEntry; ++i)
+    {
+        (void)a.Record("PBR", kClassicStages, sig, std::format("a{}", i));
+        (void)b.Record("PBR", kClassicStages, sig, std::format("b{}", i));
+    }
+    a.Merge(b);
+    const auto entries = a.EntriesFor("PBR", kClassicStages, "");
+    ASSERT_EQ(entries.Num(), 1);
+    EXPECT_EQ(entries[0]->Configurations.Num(), static_cast<i32>(PipelineManifest::kMaxConfigurationsPerEntry));
+    EXPECT_FALSE(entries[0]->SeenUnder("a0")) << "the oldest tag goes first";
+    EXPECT_TRUE(entries[0]->SeenUnder(std::format("b{}", PipelineManifest::kMaxConfigurationsPerEntry - 1)));
 }
 
 // #1650: the engine seed is checked in, so its text must be a function of the

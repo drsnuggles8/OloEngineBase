@@ -125,6 +125,11 @@ namespace OloEngine
                 {
                     if (!entry->SeenUnder(tag.ToView()))
                     {
+                        // The same bound Record keeps: the oldest tag goes first.
+                        if (entry->Configurations.Num() >= static_cast<i32>(kMaxConfigurationsPerEntry))
+                        {
+                            entry->Configurations.RemoveAt(0);
+                        }
                         entry->Configurations.Add(tag);
                         m_Dirty = true;
                     }
