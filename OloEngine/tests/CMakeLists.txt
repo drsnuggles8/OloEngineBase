@@ -2192,6 +2192,16 @@ if(OLO_WITH_VULKAN)
 		COMMAND OloEngine-Tests --olo-rhi=vulkan "--gtest_filter=${OLO_VK_SCENE_FILTER}" ${_olo_vk_scene_args}
 		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor)
 	set_tests_properties(OloEngine-Tests_VulkanScene PROPERTIES PROCESSORS 2 COST 100 TIMEOUT 3600)
+
+	# THE ENGINE PSO SEED GUARD (#1650): the same --olo-rhi=vulkan process, for
+	# EnginePipelineSeedTest alone. Not in vulkan_scene_filter.txt, because a
+	# software ICD compiles every pipeline at its first draw and one path's cold
+	# render of the acceptance scene took 26 minutes on lavapipe; its cold-render
+	# cases skip on a software device and run on hardware (every local ctest).
+	add_test(NAME OloEngine-Tests_VulkanPipelineSeed
+		COMMAND OloEngine-Tests --olo-rhi=vulkan "--gtest_filter=EnginePipelineSeedTest.*" ${_olo_vk_scene_args}
+		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor)
+	set_tests_properties(OloEngine-Tests_VulkanPipelineSeed PROPERTIES PROCESSORS 2 COST 100 TIMEOUT 3600)
 endif()
 
 # Three discovery passes over one binary, each a disjoint slice by gtest filter

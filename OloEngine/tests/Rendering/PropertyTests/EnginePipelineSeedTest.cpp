@@ -25,8 +25,12 @@
 //     one of its keys deleted names exactly that key (the negative control).
 //
 // Vulkan only: OpenGL has no pipeline objects to precache, so every case but
-// the parse check skips in the GL process. The Vulkan cases run in the
-// `--olo-rhi=vulkan` process (vulkan_scene_filter.txt).
+// the parse check skips in the GL process. The Vulkan cases run in their own
+// `--olo-rhi=vulkan` ctest entry, OloEngine-Tests_VulkanPipelineSeed, on a
+// HARDWARE device only: a software ICD compiles each pipeline at its first
+// draw, so one path's cold render took 26 minutes on lavapipe in CI and the
+// whole guard would not fit the scene step's 90. On a software device the
+// cold-render cases skip, saying so.
 //
 // EnginePipelineSeedWriter.WritesTheSeed is the regeneration mode the script
 // drives (OLO_PIPELINE_SEED_OUT=<file>); it renders exactly what the guard
@@ -53,6 +57,8 @@
 #include "OloEngine/Utils/PlatformUtils.h" // Time::SetMockTime
 
 #if OLO_WITH_VULKAN
+#include "Platform/Vulkan/VulkanCapabilities.h"
+#include "Platform/Vulkan/VulkanDevice.h"
 #include "Platform/Vulkan/VulkanPipelineBuilder.h"
 #include "Platform/Vulkan/VulkanPipelinePrecache.h"
 #endif
@@ -77,7 +83,7 @@ namespace OloEngine::Tests
     {
         // The resolution is not part of a pipeline key (viewport and scissor
         // are dynamic state), so the smallest frame that runs every pass is
-        // the right one: lavapipe renders this suite in CI.
+        // the right one.
         constexpr u32 kWidth = 320;
         constexpr u32 kHeight = 180;
         constexpr u32 kFramesPerCamera = 3;
@@ -263,6 +269,18 @@ namespace OloEngine::Tests
             ASSERT_FALSE(m_Cameras->Cameras.IsEmpty());
         }
 
+#if OLO_WITH_VULKAN
+        // lavapipe and other CPU ICDs: each cold render recreates every
+        // pipeline, and llvmpipe compiles each one at its first draw (tens of
+        // seconds for the heavy shaders), so the guard costs hours there.
+        // Classified by the capability report's rule, never an env variable.
+        [[nodiscard]] static bool OnASoftwareDevice()
+        {
+            const VulkanDevice* device = VulkanDevice::Get();
+            return device != nullptr && VulkanCapabilities::Evaluate(device->GetPhysicalDevice()).IsSoftware;
+        }
+#endif
+
         [[nodiscard]] static EditorCamera Camera(const glm::vec3& position, f32 yawDegrees, f32 pitchDegrees,
                                                  f32 fovDegrees)
         {
@@ -395,6 +413,10 @@ namespace OloEngine::Tests
         if (!TestRenderBackend::IsVulkanProcess())
             GTEST_SKIP() << "OpenGL has no pipeline objects to precache; this runs in the --olo-rhi=vulkan process";
 #if OLO_WITH_VULKAN
+        if (OnASoftwareDevice())
+            GTEST_SKIP() << "a software Vulkan device compiles every pipeline at its first draw: one path's cold "
+                            "render took 26 min on lavapipe. This guard runs on a hardware device "
+                            "(ctest OloEngine-Tests_VulkanPipelineSeed)";
         const auto text = ReadText(SeedPath());
         ASSERT_TRUE(text.has_value()) << RegenerateHint();
         const auto seed = PipelineManifest::Parse(*text);
@@ -443,6 +465,10 @@ namespace OloEngine::Tests
         if (!TestRenderBackend::IsVulkanProcess())
             GTEST_SKIP() << "OpenGL has no pipeline objects to precache; this runs in the --olo-rhi=vulkan process";
 #if OLO_WITH_VULKAN
+        if (OnASoftwareDevice())
+            GTEST_SKIP() << "a software Vulkan device compiles every pipeline at its first draw: one path's cold "
+                            "render took 26 min on lavapipe. This guard runs on a hardware device "
+                            "(ctest OloEngine-Tests_VulkanPipelineSeed)";
         const auto text = ReadText(SeedPath());
         ASSERT_TRUE(text.has_value()) << RegenerateHint();
         const auto seed = PipelineManifest::Parse(*text);

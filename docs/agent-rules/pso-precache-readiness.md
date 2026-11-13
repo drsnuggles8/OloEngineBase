@@ -97,7 +97,8 @@ request and when, and `olo_perf_pipeline_readiness` reports both.
     recorded under a bare fixture's struct defaults (no GTAO, bloom, FXAA or wind) missed 15 keys live.
     The editor (cwd `OloEditor/`) reads it as its shipped manifest, so a first session on a machine
     requests those keys before its first frame. The guard renders the same scene cold from the seed in
-    the `--olo-rhi=vulkan` process and fails, naming each key, when a draw needs one the seed lacks: a
+    the `--olo-rhi=vulkan` ctest entry `OloEngine-Tests_VulkanPipelineSeed`, on hardware only (lavapipe
+    compiles each pipeline at its first draw: one path took 26 min), and fails, naming each key, when a draw needs one the seed lacks: a
     new pass, shader or attachment format changes the keys. Never hand-edit the file; the test also
     rejects one that is not in its normalized form. A shipped manifest that does not parse is logged
     as an error, not a warning. Configurations the seed does not cover (MSAA, upscaling) and content
@@ -112,5 +113,5 @@ request and when, and `olo_perf_pipeline_readiness` reports both.
   `VulkanPipelinePrecache.*` (collection, workers, readiness). Lifecycle in `VulkanContext`: `Start`
   after device bring-up, `Tick` after the frame fence, `Stop` before `ReleaseAll`.
 - Tests: `PipelinePrecacheContractTest.cpp` (device-free), `VulkanShaderPipeline.*` precache cases
-  (device), `McpPipelineReadinessTest.cpp`, `EnginePipelineSeedTest.cpp` (the engine seed, Vulkan
-  scene process), `GameBuildPipelineTest.PipelineManifest*` (staging).
+  (device), `McpPipelineReadinessTest.cpp`, `EnginePipelineSeedTest.cpp` (the engine seed, its own
+  Vulkan ctest entry), `GameBuildPipelineTest.PipelineManifest*` (staging).
