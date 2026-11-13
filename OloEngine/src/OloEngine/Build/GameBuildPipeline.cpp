@@ -144,8 +144,15 @@ namespace OloEngine
         PipelineManifestStaging result;
         PipelineManifest merged;
         bool anySource = false;
-        for (const auto& [path, problem] : { std::pair{ &engineSeed, &result.SeedProblem },
-                                             std::pair{ &machineManifest, &result.MachineProblem } })
+        struct Source
+        {
+            const std::filesystem::path* Path;
+            std::string* Problem;
+            sizet* Keys;
+        };
+        for (const auto& [path, problem, keys] : { Source{ &engineSeed, &result.SeedProblem, &result.SeedKeys },
+                                                   Source{ &machineManifest, &result.MachineProblem,
+                                                           &result.MachineKeys } })
         {
             std::error_code ec;
             if (!std::filesystem::is_regular_file(*path, ec))
@@ -173,6 +180,7 @@ namespace OloEngine
                 *problem = std::format("{}: {} invalid entr{} dropped", path->string(), rejected,
                                        rejected == 1 ? "y" : "ies");
             }
+            *keys = parsed->GetEntryCount();
             merged.Merge(*parsed);
             anySource = true;
         }
@@ -1342,9 +1350,10 @@ namespace OloEngine
             }
             else if (staged.Written)
             {
-                OLO_CORE_INFO("[GameBuild] Staged the PSO manifest ({} pipeline key(s): the engine seed and this "
-                              "machine's records) — the packaged runtime requests them before their first draw",
-                              staged.Keys);
+                OLO_CORE_INFO("[GameBuild] Staged the PSO manifest: {} pipeline key(s) ({} from the engine seed, {} "
+                              "from this machine's manifest) — the packaged runtime requests them before their first "
+                              "draw",
+                              staged.Keys, staged.SeedKeys, staged.MachineKeys);
             }
             else if (staged.SeedProblem.empty() && staged.MachineProblem.empty())
             {

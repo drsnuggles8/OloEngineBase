@@ -99,6 +99,8 @@ TEST(GameBuildPipelineTest, PipelineManifestStagesTheEngineSeedMergedWithTheMach
     EXPECT_TRUE(staged.SeedProblem.empty()) << staged.SeedProblem;
     EXPECT_TRUE(staged.MachineProblem.empty()) << "an absent machine manifest is normal, not a problem";
     EXPECT_EQ(staged.Keys, 1u);
+    EXPECT_EQ(staged.SeedKeys, 1u);
+    EXPECT_EQ(staged.MachineKeys, 0u);
     auto parsed = PipelineManifest::Parse(ReadTextFile(destination));
     ASSERT_TRUE(parsed.has_value());
     EXPECT_EQ(parsed->EntriesFor("PBR", 0x11, "").Num(), 1);
@@ -112,6 +114,8 @@ TEST(GameBuildPipelineTest, PipelineManifestStagesTheEngineSeedMergedWithTheMach
     staged = StagePipelineManifest(root / "seed.yaml", root / "machine.yaml", destination);
     ASSERT_TRUE(staged.Written) << staged.WriteError;
     EXPECT_EQ(staged.Keys, 2u);
+    EXPECT_EQ(staged.SeedKeys, 1u);
+    EXPECT_EQ(staged.MachineKeys, 2u);
     parsed = PipelineManifest::Parse(ReadTextFile(destination));
     ASSERT_TRUE(parsed.has_value());
     const auto pbr = parsed->EntriesFor("PBR", 0x11, "");
