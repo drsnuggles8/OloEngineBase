@@ -33,34 +33,44 @@ namespace OloEngine::Tests
     class ScopedFileRestore
     {
       public:
-        // An existing file that cannot be read whole is NOT treated as absent
-        // (Restore would delete it): IsCaptured() is false, and Restore()
-        // then touches nothing.
+        // An existing path that is not a regular file, or that cannot be read
+        // whole, is NOT treated as absent (Restore would delete it):
+        // IsCaptured() is false, and Restore() then touches nothing.
         explicit ScopedFileRestore(std::filesystem::path path) : m_Path(std::move(path))
         {
             std::error_code ec;
-            const bool exists = std::filesystem::exists(m_Path, ec);
-            if (ec)
-            {
-                return;
-            }
-            if (!exists)
+            const std::filesystem::file_status status = std::filesystem::status(m_Path, ec);
+            if (status.type() == std::filesystem::file_type::not_found)
             {
                 m_Captured = true;
                 return;
             }
-            std::ifstream in(m_Path, std::ios::binary);
-            if (!in)
+            // Only a regular file can be captured. libstdc++ opens a directory
+            // as an ifstream and then throws from the first read, where MSVC
+            // fails the open.
+            if (ec || status.type() != std::filesystem::file_type::regular)
             {
                 return;
             }
-            std::string bytes{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
-            if (in.bad())
+            try
             {
-                return;
+                std::ifstream in(m_Path, std::ios::binary);
+                if (!in)
+                {
+                    return;
+                }
+                std::string bytes{ std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+                if (in.bad())
+                {
+                    return;
+                }
+                m_Bytes = std::move(bytes);
+                m_Captured = true;
             }
-            m_Bytes = std::move(bytes);
-            m_Captured = true;
+            catch (const std::ios_base::failure&)
+            {
+                // a read error: not captured
+            }
         }
 
         ~ScopedFileRestore()
