@@ -41,7 +41,11 @@ namespace OloEngine
         // since the last call; otherwise one pass over the program's active
         // uniform blocks. A refused block is reported (BindingContract::
         // ReportViolation) and its binding point is given a zero-filled buffer,
-        // so the shader reads zeros instead of another block's fields.
+        // so the shader reads zeros instead of another block's fields. The
+        // substitution lasts for that program's draws: the displaced occupant
+        // is bound again before another program (or the same one with other
+        // occupants) is validated, so one refusal does not zero the point for
+        // every later reader.
         void ValidateBeforeDraw();
 
         // Release the zero block while the context is alive.

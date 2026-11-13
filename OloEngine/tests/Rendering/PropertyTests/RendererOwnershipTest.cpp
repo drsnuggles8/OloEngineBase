@@ -30,13 +30,18 @@
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/Debug/GPUPassTimerPool.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
+#include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/IBLPrecompute.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/ProceduralSky.h"
+#include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/SkyCubemapBake.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
+#include "OloEngine/Renderer/UniformBlockContract.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -289,10 +294,83 @@ namespace OloEngine::Tests
             EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera)
                 << "the sky face bake left its own camera buffer on the frame-published camera binding";
 
+            // The IBL convolution on its own, for the same reason: the sky's
+            // Generate holds a restore of its own around both.
+            CommandDispatch::BindSceneResources();
+            ASSERT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera);
+            CubemapSpecification irradianceSpec;
+            irradianceSpec.Width = 16;
+            irradianceSpec.Height = 16;
+            irradianceSpec.Format = ImageFormat::RGBA32F;
+            irradianceSpec.GenerateMips = false;
+            Ref<TextureCubemap> irradiance = TextureCubemap::Create(irradianceSpec);
+            IBLConfiguration convolution;
+            convolution.IrradianceSamples = 16;
+            IBLPrecompute::GenerateIrradianceMapAdvanced(faces, irradiance, library, convolution);
+            EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera)
+                << "the IBL convolution left its capture camera on the frame-published camera binding";
+
             // The whole bake, IBL convolution included.
+            CommandDispatch::BindSceneResources();
+            ASSERT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera);
             const Ref<EnvironmentMap> sky = ProceduralSky::Generate(params, 64);
             ASSERT_TRUE(sky) << "the sky bake produced nothing, so this proves nothing about what it leaves bound";
             EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera)
                 << "the bake left a camera buffer of its own on the frame-published camera binding"; });
+    }
+
+    // A refusal belongs to the program that was refused. The OpenGL backend
+    // gives that program a zero block in place of the occupant, and the zero
+    // block used to stay on the binding point afterwards: the next program,
+    // for which the occupant was the right buffer, read zeros and was told
+    // nothing. Vulkan withholds one draw's address and has no binding to leave
+    // behind; the same sequence holds there.
+    TEST_F(RendererOwnership, ARefusedReadDoesNotTakeTheBindingFromTheNextProgram)
+    {
+        RenderMovingFrames(1);
+        RunInFrame([]
+                   {
+            const RendererAPI& api = RenderCommand::GetRendererAPI();
+            ShaderLibrary& library = Renderer3D::GetShaderLibrary();
+            ASSERT_TRUE(library.Exists("IBLPrefilter"));
+            // The post passes own their shaders; this is the tone-map pass's.
+            const Ref<Shader> toneMap = Shader::Create("assets/shaders/PostProcess_ToneMap.glsl");
+            ASSERT_TRUE(toneMap);
+
+            // Two programs, one binding point, two layouts: the tone mapper
+            // reads PostProcessUBO at UBO_USER_0, the prefilter IBLParameters.
+            Ref<UniformBuffer> prefilterBlock = UniformBuffer::Create(
+                ShaderBindingLayout::IBLParametersUBO::GetSize(), ShaderBindingLayout::UBO_USER_0, "IBLParameters");
+            const ShaderBindingLayout::IBLParametersUBO parameters{};
+            prefilterBlock->SetData(&parameters, ShaderBindingLayout::IBLParametersUBO::GetSize());
+
+            FramebufferSpecification spec;
+            spec.Width = 32;
+            spec.Height = 32;
+            spec.Attachments = { FramebufferTextureFormat::RGBA32F, FramebufferTextureFormat::Depth };
+            Ref<Framebuffer> target = Framebuffer::Create(spec);
+            ASSERT_TRUE(target);
+            Ref<Mesh> cube = MeshPrimitives::CreateSkyboxCube();
+            ASSERT_TRUE(cube);
+            target->Bind();
+            RenderCommand::SetViewport(0, 0, 32, 32);
+            CommandDispatch::BindSceneResources();
+            prefilterBlock->Bind();
+            const auto vao = cube->GetVertexArray();
+            vao->Bind();
+
+            const u64 refusedBefore = BindingContract::ViolationCount();
+            toneMap->Bind();
+            RenderCommand::DrawIndexed(vao);
+            ASSERT_EQ(BindingContract::ViolationCount() - refusedBefore, 1u)
+                << "the tone mapper read the prefilter's block and was not refused, so nothing below is tested";
+
+            library.Get("IBLPrefilter")->Bind();
+            RenderCommand::DrawIndexed(vao);
+            EXPECT_EQ(BindingContract::ViolationCount() - refusedBefore, 1u)
+                << "the prefilter was refused its own block";
+            EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_USER_0), prefilterBlock->GetRHIHandle())
+                << "after another program's refusal the prefilter did not find its own block on the binding point";
+            target->Unbind(); });
     }
 } // namespace OloEngine::Tests

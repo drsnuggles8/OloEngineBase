@@ -40,6 +40,7 @@
 #include "TestRenderBackend.h"
 
 #include "OloEngine/Core/DebugLevers.h"
+#include "OloEngine/Core/Environment.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/RenderCommand.h"
@@ -617,12 +618,18 @@ namespace OloEngine::Tests
     // probe, not a budget: it prints the two medians and asserts only that the
     // comparison is one (frames identical, nothing refused). Read the numbers
     // from a Release build on an idle machine.
+    //
+    // Opt-in (OLO_BINDING_CONTRACT_PROBE=1): it renders about 1,700 frames per
+    // path and asserts nothing about time, so a default run and a full-suite
+    // sweep skip it rather than pay for a number nobody reads.
     class UniformBlockContractPerfProbe : public FramePredecessorPoison
     {
     };
 
     TEST_P(UniformBlockContractPerfProbe, FrameCpuTimeWithAndWithoutTheCheck)
     {
+        if (!Env::Get("OLO_BINDING_CONTRACT_PROBE"))
+            GTEST_SKIP() << "set OLO_BINDING_CONTRACT_PROBE=1 to measure the uniform block contract's frame cost";
         ScopedMockTime mockTime(kCaptureTime);
         const char* path = PathName(GetParam());
         constexpr u32 kRounds = 7;

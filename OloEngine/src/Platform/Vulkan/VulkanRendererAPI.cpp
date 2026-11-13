@@ -2814,11 +2814,11 @@ namespace OloEngine
                                                                           .Size = binding.BlockSize,
                                                                           .NameHash = binding.BlockNameHash };
                         const BindingContract::Verdict verdict =
-                            BindingContract::Check(required, ubo->GetAllocatedSize(), ubo->GetBlockDeclaration());
+                            BindingContract::Check(required, ubo->GetReadableSize(), ubo->GetBlockDeclaration());
                         if (verdict != BindingContract::Verdict::Satisfied)
                         {
                             BindingContract::ReportViolation(shaderName, required, binding.Name.ToView(),
-                                                             ubo->GetAllocatedSize(), ubo->GetBlockName(), verdict);
+                                                             ubo->GetReadableSize(), ubo->GetBlockName(), verdict);
                             occupantRefused = true;
                         }
                     }

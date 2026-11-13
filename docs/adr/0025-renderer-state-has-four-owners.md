@@ -131,8 +131,8 @@ a buffer there for the frame, so each reader binds its own before it reads. Bind
 #1687: every pass whose shader declares the motion-blur matrices calls `Renderer3D::BindMotionMatrices`,
 and the scene buckets get it from `CommandDispatch::BindSceneResources`, before any fork. The other two
 are **frame-published**: the frame's camera and the dispatcher's material block are there for every pass
-to read. A tenant that displaces the camera puts it back (the sky and IBL bakes re-upload the frame's
-camera block before they return). The material block needs no such rule: the dispatcher asks the
+to read. A tenant that displaces the camera puts it back (the sky and IBL bakes hold a
+`CommandDispatch::ScopedFrameCameraRestore`, which re-uploads the frame's camera block on every exit). The material block needs no such rule: the dispatcher asks the
 occupancy record before each draw and re-binds when another buffer is there (#1688).
 
 The occupancy record is also the only answer to "is this buffer already bound".
@@ -142,7 +142,9 @@ table could not see a bind issued by anyone else, so it was a second owner of th
 
 A refused read is logged once per program, binding and occupant with both blocks named, counted
 (`BindingContract::ViolationCount`), and the shader is given a zero-filled block instead of the
-occupant: it reads zeros, never another tenant's fields. The check runs where the occupant is already
+occupant: it reads zeros, never another tenant's fields. The substitution is that program's alone on
+both backends: Vulkan withholds the address for the refused draw, and OpenGL binds the occupant again
+before the next program is validated, so one refusal does not zero the binding point for later readers. The check runs where the occupant is already
 looked up, so it is not a second resource stack. `OLO_BINDING_CONTRACT=0` turns it off.
 
 What it does not detect: a buffer of the *same* layout holding the wrong content (two camera

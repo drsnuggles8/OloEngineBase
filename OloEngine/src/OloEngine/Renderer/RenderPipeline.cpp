@@ -2988,13 +2988,14 @@ namespace OloEngine
             // reconstruction flavour agrees with the uploaded one on .xy.
             mb.JitterUV = glm::vec4(data.View.CurrJitterUV, data.View.PrevJitterUV);
             data.PostProcessGPU.MotionBlur->SetData(&mb, MotionBlurUBOData::GetSize());
-            // Re-establish the base-8 binding every upload: of this UBO's
-            // consumers only MotionBlurRenderPass binds it itself — the
-            // G-Buffer, deferred-lighting, fog, and TAA shaders read binding 8
-            // relying on the glBindBufferBase from the buffer's constructor,
-            // so anything else that creates a UBO on slot 8 (and then dies)
-            // leaves them reading an unbound buffer: zero matrices, broken
-            // world-position reconstruction, silently wrong deferred frames.
+            // Bound here as well, but no reader may count on it: binding 8 is
+            // pass-scoped (it has another tenant, the Gaussian-splat sort
+            // block), and every pass whose shader declares these matrices
+            // calls Renderer3D::BindMotionMatrices before it draws; the scene
+            // buckets get it from CommandDispatch::BindSceneResources (#1687).
+            // A reader that skips that reads whatever ran before it: zero
+            // matrices, broken world-position reconstruction, silently wrong
+            // deferred frames.
             data.PostProcessGPU.MotionBlur->Bind();
         }
     }

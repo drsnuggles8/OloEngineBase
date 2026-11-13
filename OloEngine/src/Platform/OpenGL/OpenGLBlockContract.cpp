@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLBlockContract.h"
 
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBlockContract.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -9,9 +11,8 @@
 
 #include <array>
 #include <cctype>
-#include <string>
+#include <string_view>
 #include <unordered_map>
-#include <vector>
 
 namespace OloEngine::OpenGLBlockContract
 {
@@ -26,13 +27,31 @@ namespace OloEngine::OpenGLBlockContract
         struct ProgramBlock
         {
             BindingContract::BlockRequirement Required;
-            std::string Name;
+            FString Name;
         };
+    } // namespace
+} // namespace OloEngine::OpenGLBlockContract
 
+namespace OloEngine
+{
+    // Member by member, so adding a member that does not survive a bitwise
+    // move closes the gate again (engine-owned-containers.md).
+    template<>
+    struct TIsTriviallyRelocatable<OpenGLBlockContract::ProgramBlock>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(OpenGLBlockContract::ProgramBlock::Required)> &&
+                                      TIsTriviallyRelocatable_V<decltype(OpenGLBlockContract::ProgramBlock::Name)>;
+    };
+} // namespace OloEngine
+
+namespace OloEngine::OpenGLBlockContract
+{
+    namespace
+    {
         struct ProgramRecord
         {
-            std::string Name;
-            std::vector<ProgramBlock> Blocks;
+            FString Name;
+            TArray<ProgramBlock> Blocks;
         };
 
         struct State
@@ -55,6 +74,13 @@ namespace OloEngine::OpenGLBlockContract
 
             u32 ZeroBlock = 0;
             u32 ZeroBlockSize = 0;
+            // Per binding point, the buffer the zero block is standing in for
+            // (0 for none). A refusal is one program's: the occupant goes back
+            // as soon as another program, or another set of occupants, is
+            // validated, so a later reader of the same point finds the buffer
+            // that was really bound there and not zeros.
+            std::array<u32, ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS> Displaced{};
+            u32 DisplacedCount = 0;
         };
 
         // Leaked on purpose: buffers unregister from their destructors, some of
@@ -72,15 +98,15 @@ namespace OloEngine::OpenGLBlockContract
         // reported as `Name.instance`. Neither is part of the name a producer
         // declares. No shader block name ends in `_<digits>`
         // (UniformBlockContractSourceTest pins that), so stripping it is exact.
-        std::string CanonicalBlockName(std::string name)
+        std::string_view CanonicalBlockName(std::string_view name)
         {
-            if (const sizet dot = name.find('.'); dot != std::string::npos)
-                name.erase(dot);
+            if (const sizet dot = name.find('.'); dot != std::string_view::npos)
+                name = name.substr(0, dot);
             sizet end = name.size();
             while (end > 0 && std::isdigit(static_cast<unsigned char>(name[end - 1])) != 0)
                 --end;
             if (end < name.size() && end > 1 && name[end - 1] == '_')
-                name.erase(end - 1);
+                name = name.substr(0, end - 1);
             return name;
         }
 
@@ -98,12 +124,12 @@ namespace OloEngine::OpenGLBlockContract
                 std::array<GLchar, 128> label{};
                 GLsizei length = 0;
                 glGetObjectLabel(GL_PROGRAM, program, static_cast<GLsizei>(label.size()), &length, label.data());
-                record.Name = length > 0 ? std::string(label.data(), static_cast<sizet>(length))
-                                         : "GL program " + std::to_string(program);
+                record.Name = length > 0 ? FString(std::string_view(label.data(), static_cast<sizet>(length)))
+                                         : FString(std::string_view(fmt::format("GL program {}", program)));
             }
             GLint blockCount = 0;
             glGetProgramInterfaceiv(program, GL_UNIFORM_BLOCK, GL_ACTIVE_RESOURCES, &blockCount);
-            record.Blocks.reserve(static_cast<sizet>(std::max(blockCount, 0)));
+            record.Blocks.Reserve(std::max(blockCount, 0));
             for (GLint index = 0; index < blockCount; ++index)
             {
                 static constexpr std::array<GLenum, 2> kProperties{ GL_BUFFER_BINDING, GL_BUFFER_DATA_SIZE };
@@ -118,11 +144,11 @@ namespace OloEngine::OpenGLBlockContract
                 if (values[0] < 0 || static_cast<sizet>(values[0]) >= state.Occupants.size())
                     continue;
                 ProgramBlock block;
-                block.Name = CanonicalBlockName(std::string(name.data(), static_cast<sizet>(std::max(nameLength, 0))));
+                block.Name = FString(CanonicalBlockName(std::string_view(name.data(), static_cast<sizet>(std::max(nameLength, 0)))));
                 block.Required = { .Binding = static_cast<u32>(values[0]),
                                    .Size = static_cast<u32>(std::max(values[1], 0)),
-                                   .NameHash = BindingContract::HashBlockName(block.Name) };
-                record.Blocks.push_back(std::move(block));
+                                   .NameHash = BindingContract::HashBlockName(block.Name.ToView()) };
+                record.Blocks.Add(std::move(block));
             }
             return state.Programs.emplace(program, std::move(record)).first->second;
         }
@@ -137,9 +163,10 @@ namespace OloEngine::OpenGLBlockContract
             if (state.ZeroBlock != 0)
                 glDeleteBuffers(1, &state.ZeroBlock);
             state.ZeroBlockSize = std::max<u32>(size, 64u * 1024u);
-            const std::vector<u8> zeros(state.ZeroBlockSize, u8{ 0 });
             glCreateBuffers(1, &state.ZeroBlock);
-            glNamedBufferData(state.ZeroBlock, state.ZeroBlockSize, zeros.data(), GL_STATIC_DRAW);
+            glNamedBufferData(state.ZeroBlock, state.ZeroBlockSize, nullptr, GL_STATIC_DRAW);
+            // A null data pointer fills the store with zeros.
+            glClearNamedBufferData(state.ZeroBlock, GL_R8UI, GL_RED_INTEGER, GL_UNSIGNED_BYTE, nullptr);
             return state.ZeroBlock;
         }
 
@@ -175,6 +202,11 @@ namespace OloEngine::OpenGLBlockContract
                 state.OccupantHandles[binding] = {};
                 ++state.Generation;
             }
+            if (state.Displaced[binding] == glName)
+            {
+                state.Displaced[binding] = 0;
+                --state.DisplacedCount;
+            }
         }
     }
 
@@ -200,11 +232,38 @@ namespace OloEngine::OpenGLBlockContract
         Get().BoundProgram = program;
     }
 
+    namespace
+    {
+        // Put back every occupant the zero block is standing in for. A point
+        // somebody bound since keeps what they bound, and a displaced buffer
+        // that was destroyed meanwhile is already forgotten (UnregisterBuffer).
+        void RestoreDisplaced(State& state)
+        {
+            if (state.DisplacedCount == 0) [[likely]]
+                return;
+            for (u32 binding = 0; binding < state.Displaced.size(); ++binding)
+            {
+                const u32 displaced = state.Displaced[binding];
+                if (displaced == 0)
+                    continue;
+                state.Displaced[binding] = 0;
+                if (state.Occupants[binding] != state.ZeroBlock)
+                    continue;
+                glBindBufferBase(GL_UNIFORM_BUFFER, binding, displaced);
+                NoteBufferBound(binding, displaced);
+            }
+            state.DisplacedCount = 0;
+        }
+    } // namespace
+
     void ValidateBeforeDraw()
     {
         auto& state = Get();
         if (state.BoundProgram == state.ValidatedProgram && state.Generation == state.ValidatedGeneration) [[likely]]
             return;
+        // Another program, or other occupants: what the last refused program
+        // was given instead of its occupant is not this draw's business.
+        RestoreDisplaced(state);
         if (state.BoundProgram == 0 || !BindingContract::Enabled())
         {
             state.ValidatedProgram = state.BoundProgram;
@@ -251,11 +310,17 @@ namespace OloEngine::OpenGLBlockContract
                 return;
             }
 
-            BindingContract::ReportViolation(record.Name, block.Required, block.Name, occupant.Size,
+            BindingContract::ReportViolation(record.Name.ToView(), block.Required, block.Name.ToView(), occupant.Size,
                                              occupant.Buffer->GetBlockName(), verdict);
             const u32 zeroBlock = EnsureZeroBlock(state, block.Required.Size);
             glBindBufferBase(GL_UNIFORM_BUFFER, binding, zeroBlock);
             NoteBufferBound(binding, zeroBlock);
+            // For this program's draws only: RestoreDisplaced puts the
+            // occupant back before anything else is validated, which is what
+            // the Vulkan root writer does by withholding one draw's address.
+            if (state.Displaced[binding] == 0)
+                ++state.DisplacedCount;
+            state.Displaced[binding] = occupantName;
         }
         state.ValidatedProgram = program;
         state.ValidatedGeneration = state.Generation;
@@ -274,6 +339,8 @@ namespace OloEngine::OpenGLBlockContract
                     state.OccupantHandles[binding] = {};
                 }
             }
+            state.Displaced.fill(0);
+            state.DisplacedCount = 0;
             glDeleteBuffers(1, &state.ZeroBlock);
             state.ZeroBlock = 0;
             state.ZeroBlockSize = 0;

@@ -70,7 +70,8 @@ device. Pick the stand-in's contents so the shader's own guard turns a regressio
 Every draw and dispatch now compares each uniform block the program reads with the binding point's
 occupant: its size, and its declared GLSL block name ([ADR 0025 §5a](../adr/0025-renderer-state-has-four-owners.md)).
 A read of another tenant's buffer is refused, logged as `[BindingContract]` with the program, the
-binding and both blocks, and the shader is given a zero block. Three rules come with it:
+binding and both blocks, and the shader is given a zero block for that program's draws (the occupant
+is back for the next program). These rules come with it:
 
 - **A buffer on a multi-layout binding declares its block.** Pass the GLSL block name to
   `UniformBuffer::Create(size, binding, "BlockName")`. The multi-layout bindings are
@@ -92,8 +93,9 @@ binding and both blocks, and the shader is given a zero block. Three rules come 
   (#1687). A scene-bucket draw gets the bind from `CommandDispatch::BindSceneResources`.
 - **A tenant that displaces the camera block (binding 0) puts it back.** The camera is
   frame-published and the post passes read it without binding it. A bake's own camera buffer has
-  the same layout, so no contract check can refuse it: end the bake with
-  `CommandDispatch::UploadCameraUBO()`, as `SkyBake::RenderSkyToCubemap` and `IBLPrecompute` do.
+  the same layout, so no contract check can refuse it: declare a
+  `CommandDispatch::ScopedFrameCameraRestore` before the bake's camera buffer is created, as the sky
+  bakes and `IBLPrecompute` do. It restores on every exit, the failed ones included.
 - **Do not cache "which buffer is bound".** Ask `RendererAPI::GetUniformBufferOccupant`. A cache
   kept by one caller sees only that caller's binds (#1688).
 
