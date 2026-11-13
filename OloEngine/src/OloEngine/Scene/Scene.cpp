@@ -1557,15 +1557,17 @@ namespace OloEngine
         FoliageInteractionField::Reset();
         WaterRainRippleSystem::Reset();
         WaterSpraySystem::Reset();
-        // Skin profile slots (issue #1231), reset here for the same reason as
-        // the fields above: the table is sticky across frames by design, so
-        // without this a scene switch carries the previous scene's profiles in
-        // the seven slots the G-Buffer can name and the new scene's run out.
-        // A handle that failed to load is forgotten too, so replacing a missing
-        // .oloskin and reloading recovers without restarting the editor.
-        Renderer3D::GetSkinProfileTable().Reset();
-        // The other tenant of the same G-Buffer slot field (issue #1234).
-        Renderer3D::GetFoliageLeafProfileTable().Reset();
+        // Everything the previous world left in the renderer (ADR 0025), through
+        // the renderer's own scene reset rather than table by table. It covers
+        // the skin profile slots (issue #1231: sticky across frames by design, so
+        // a scene switch would carry the previous scene's profiles in the seven
+        // slots the G-Buffer can name and the new scene's would run out; a handle
+        // that failed to load is forgotten too, so replacing a missing .oloskin
+        // and reloading recovers without restarting the editor), their leaf
+        // tenant (issue #1234), and the object pose history, which is keyed by
+        // entity id and would otherwise hand the new world's entities the old
+        // world's previous transforms for one frame.
+        Renderer3D::ResetSceneState();
 
         // Deterministic run setup (issue #452): reset the fixed-timestep tick
         // counter / accumulator / animation clock and re-seed the gameplay RNG
@@ -2080,10 +2082,8 @@ namespace OloEngine
         FoliageInteractionField::Reset();
         WaterRainRippleSystem::Reset();
         WaterSpraySystem::Reset();
-        // Same skin-profile slot reset as OnRuntimeStart, for the same reason.
-        Renderer3D::GetSkinProfileTable().Reset();
-        // The other tenant of the same G-Buffer slot field (issue #1234).
-        Renderer3D::GetFoliageLeafProfileTable().Reset();
+        // Same renderer scene reset as OnRuntimeStart, for the same reason.
+        Renderer3D::ResetSceneState();
 
         // Seed each particle system's RNG from the fixed preview seed so a
         // Simulate session's emission is decorrelated across systems and

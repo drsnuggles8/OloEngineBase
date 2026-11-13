@@ -153,8 +153,8 @@ namespace OloEngine
         // so it needs inverse(Y * VP), not inverse(VP). Recomputed from the
         // flipped forward rather than flipping the stored inverse — inverting
         // first is the drift this helper exists to prevent. Identity on GL, so
-        // it stays bit-identical to s_Data.InverseViewProjectionMatrix there.
-        cmd->inverseViewProjection = RHI::AdjustedInverseForShaderReconstruction(s_Data.ViewProjectionMatrix);
+        // it stays bit-identical to s_Data.View.InverseViewProjectionMatrix there.
+        cmd->inverseViewProjection = RHI::AdjustedInverseForShaderReconstruction(s_Data.View.ViewProjectionMatrix);
         cmd->decalColor = decalColor;
         cmd->decalParams = decalParams;
         cmd->albedoTextureID = albedoTextureID;
@@ -282,7 +282,7 @@ namespace OloEngine
         if (s_Data.FrustumCullingEnabled)
         {
             const BoundingBox worldBounds = layerBounds.Transform(modelTransform);
-            if (!s_Data.ViewFrustum.IsBoundingBoxVisible(worldBounds))
+            if (!s_Data.View.ViewFrustum.IsBoundingBoxVisible(worldBounds))
             {
                 return;
             }
@@ -433,7 +433,7 @@ namespace OloEngine
         if (s_Data.FrustumCullingEnabled)
         {
             const BoundingBox worldBounds = bounds.Transform(modelTransform);
-            if (!s_Data.ViewFrustum.IsBoundingBoxVisible(worldBounds))
+            if (!s_Data.View.ViewFrustum.IsBoundingBoxVisible(worldBounds))
             {
                 return nullptr;
             }

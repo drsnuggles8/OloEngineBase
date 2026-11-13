@@ -86,14 +86,14 @@ namespace OloEngine
 
     bool Renderer3D::IsDDGICollectingCasters()
     {
-        if (s_Data.AuxCasterSink != nullptr)
+        if (s_Data.Frame.AuxCasterSink != nullptr)
         {
             return true;
         }
         // Sphere-proxy AO (issue #710) is the third consumer of this funnel.
         // Answering yes here is what makes Scene.cpp build the casters at all;
         // AddDDGICaster below keeps the bounds off them.
-        if (s_Data.AOProxyCollecting)
+        if (s_Data.Frame.AOProxyCollecting)
         {
             return true;
         }
@@ -103,15 +103,15 @@ namespace OloEngine
 
     void Renderer3D::AddDDGICaster(const DDGIMeshCaster& caster)
     {
-        if (s_Data.AuxCasterSink != nullptr)
+        if (s_Data.Frame.AuxCasterSink != nullptr)
         {
-            s_Data.AuxCasterSink->Add(caster);
+            s_Data.Frame.AuxCasterSink->Add(caster);
         }
         // Sphere-proxy AO keeps only the world AABB (issue #710) — it fits
         // spheres to bounds, so the VAO, material and transform are dead weight.
-        if (s_Data.AOProxyCollecting)
+        if (s_Data.Frame.AOProxyCollecting)
         {
-            s_Data.AOProxyBounds.Add(caster.worldBounds);
+            s_Data.Frame.AOProxyBounds.Add(caster.worldBounds);
         }
         // Only feed the DDGI pass when IT asked for casters this frame — the
         // aux sink alone must not push bake-time geometry into the pass's
@@ -125,7 +125,7 @@ namespace OloEngine
 
     void Renderer3D::SetAuxCasterSink(TArray<DDGIMeshCaster>* sink)
     {
-        s_Data.AuxCasterSink = sink;
+        s_Data.Frame.AuxCasterSink = sink;
     }
 
     DDGIProbeUpdatePass* Renderer3D::GetDDGIPass()
@@ -182,43 +182,43 @@ namespace OloEngine
 
     void Renderer3D::SetViewPosition(const glm::vec3& position)
     {
-        s_Data.ViewPos = position;
+        s_Data.View.ViewPos = position;
         // Keep the culling camera following unless it is frozen (issue #726).
         // Scene pushes the position here AFTER BeginScene, so the mirror in
         // RefreshCullingCamera() alone would leave the cull position one call
         // behind on the runtime-camera path.
-        if (!s_Data.CullingCameraFrozen)
-            s_Data.CullViewPos = position;
+        if (!s_Data.View.CullingCameraFrozen)
+            s_Data.View.CullViewPos = position;
     }
 
     void Renderer3D::SetPrimaryDirectionalLightDirection(const glm::vec3& direction)
     {
-        s_Data.PrimaryDirectionalLightDir = direction;
+        s_Data.Scene.PrimaryDirectionalLightDir = direction;
     }
 
     void Renderer3D::SetPrimaryDirectionalLightRadiance(const glm::vec3& radiance)
     {
-        s_Data.PrimaryDirectionalLightRadiance = radiance;
+        s_Data.Scene.PrimaryDirectionalLightRadiance = radiance;
     }
 
     void Renderer3D::SetRayTracedShadowLightRequests(std::span<const RayTracedShadowLightRequest> requests)
     {
-        s_Data.RayTracedShadowLightRequests.Reset();
-        s_Data.RayTracedShadowLightRequests.Append(requests.data(), static_cast<i64>(requests.size()));
+        s_Data.Frame.RayTracedShadowLightRequests.Reset();
+        s_Data.Frame.RayTracedShadowLightRequests.Append(requests.data(), static_cast<i64>(requests.size()));
     }
 
     void Renderer3D::SetGroomStrandRequests(std::span<const GroomStrandRequest> requests)
     {
-        s_Data.GroomStrandRequests.Reset();
-        s_Data.GroomStrandRequests.Reserve(static_cast<i64>(requests.size()));
+        s_Data.Frame.GroomStrandRequests.Reset();
+        s_Data.Frame.GroomStrandRequests.Reserve(static_cast<i64>(requests.size()));
         for (const auto& request : requests)
-            s_Data.GroomStrandRequests.Add(request);
+            s_Data.Frame.GroomStrandRequests.Add(request);
         // A fading coat's outgoing copy VIEWS its primary's roots (#1612,
         // CrossFadeRootTransforms), and a copy of the list copied the view: it
         // still points at the SOURCE primary's block, which its owner may
         // recycle. Re-point it at the copied primary, which the producer always
         // places immediately before it.
-        auto& copied = s_Data.GroomStrandRequests;
+        auto& copied = s_Data.Frame.GroomStrandRequests;
         for (i64 i = 1; i < copied.Num(); ++i)
         {
             if (copied[i].IsCrossFadeSecondary() && !copied[i].CrossFadeRootTransforms.empty())
@@ -233,7 +233,7 @@ namespace OloEngine
     void Renderer3D::SetGroomStrandRequests(TArray64<GroomStrandRequest>&& requests) noexcept
     {
         // Move the storage without copying per-groom root/simulation buffers.
-        s_Data.GroomStrandRequests = std::move(requests);
+        s_Data.Frame.GroomStrandRequests = std::move(requests);
     }
 
     void Renderer3D::RecycleGroomStrandRequests() noexcept
@@ -243,14 +243,14 @@ namespace OloEngine
         // Whatever the last frame's producers did not take is dropped here, so
         // the pool is bounded by one frame's arrays.
         s_Data.GroomRootTransformPool.Empty();
-        for (GroomStrandRequest& request : s_Data.GroomStrandRequests)
+        for (GroomStrandRequest& request : s_Data.Frame.GroomStrandRequests)
         {
             if (request.RootTransforms.Max() > 0)
             {
                 s_Data.GroomRootTransformPool.Add(std::move(request.RootTransforms));
             }
         }
-        s_Data.GroomStrandRequests.Empty();
+        s_Data.Frame.GroomStrandRequests.Empty();
     }
 
     void Renderer3D::TakePooledGroomRootTransforms(TArray<GroomRootTransform>& storage, u32 needed) noexcept
@@ -285,12 +285,12 @@ namespace OloEngine
 
     void Renderer3D::SetCameraClipPlanes(f32 nearClip, f32 farClip)
     {
-        s_Data.CameraNearClip = nearClip;
-        s_Data.CameraFarClip = farClip;
-        if (!s_Data.CullingCameraFrozen)
+        s_Data.View.CameraNearClip = nearClip;
+        s_Data.View.CameraFarClip = farClip;
+        if (!s_Data.View.CullingCameraFrozen)
         {
-            s_Data.CullNearClip = nearClip;
-            s_Data.CullFarClip = farClip;
+            s_Data.View.CullNearClip = nearClip;
+            s_Data.View.CullFarClip = farClip;
         }
     }
 
@@ -315,7 +315,7 @@ namespace OloEngine
             // temp copy (the shift and/or the count fixup both need one); at the
             // origin the subtraction is a no-op and the bytes are identical to
             // before. Point/spot Position.w (the type tag) is preserved.
-            const glm::vec3 origin = s_Data.RenderOrigin;
+            const glm::vec3 origin = s_Data.View.RenderOrigin;
             UBOStructures::MultiLightUBO temp = data;
             temp.LightCount = activeLightCount;
             for (i32 i = 0; i < activeLightCount; ++i)
@@ -342,8 +342,8 @@ namespace OloEngine
             // position shifts consistently and the indexing is invariant. No-op
             // at the origin.
             ShaderBindingLayout::LightProbeVolumeUBO shifted = uboData;
-            shifted.BoundsMin -= glm::vec4(s_Data.RenderOrigin, 0.0f);
-            shifted.BoundsMax -= glm::vec4(s_Data.RenderOrigin, 0.0f);
+            shifted.BoundsMin -= glm::vec4(s_Data.View.RenderOrigin, 0.0f);
+            shifted.BoundsMax -= glm::vec4(s_Data.View.RenderOrigin, 0.0f);
             s_Data.LightProbeVolumeUBO->SetData(&shifted, ShaderBindingLayout::LightProbeVolumeUBO::GetSize());
         }
 
@@ -403,26 +403,26 @@ namespace OloEngine
                                   RHI::ResourceHandle brdfLutMap, RHI::ResourceHandle environmentMap,
                                   f32 iblIntensity)
     {
-        s_Data.GlobalIrradianceMapID = irradianceMap;
-        s_Data.GlobalPrefilterMapID = prefilterMap;
-        s_Data.GlobalBRDFLutMapID = brdfLutMap;
-        s_Data.GlobalEnvironmentMapID = environmentMap;
-        s_Data.GlobalIBLIntensity = iblIntensity;
+        s_Data.Scene.GlobalIrradianceMapID = irradianceMap;
+        s_Data.Scene.GlobalPrefilterMapID = prefilterMap;
+        s_Data.Scene.GlobalBRDFLutMapID = brdfLutMap;
+        s_Data.Scene.GlobalEnvironmentMapID = environmentMap;
+        s_Data.Scene.GlobalIBLIntensity = iblIntensity;
     }
 
     void Renderer3D::ClearGlobalIBL()
     {
-        s_Data.GlobalIrradianceMapID = {};
-        s_Data.GlobalPrefilterMapID = {};
-        s_Data.GlobalBRDFLutMapID = {};
-        s_Data.GlobalEnvironmentMapID = {};
-        s_Data.GlobalIBLIntensity = 1.0f;
+        s_Data.Scene.GlobalIrradianceMapID = {};
+        s_Data.Scene.GlobalPrefilterMapID = {};
+        s_Data.Scene.GlobalBRDFLutMapID = {};
+        s_Data.Scene.GlobalEnvironmentMapID = {};
+        s_Data.Scene.GlobalIBLIntensity = 1.0f;
     }
 
     void Renderer3D::OverrideGlobalIrradiance(RHI::ResourceHandle irradianceMap, f32 iblIntensity)
     {
-        s_Data.GlobalIrradianceMapID = irradianceMap;
-        s_Data.GlobalIBLIntensity = iblIntensity;
+        s_Data.Scene.GlobalIrradianceMapID = irradianceMap;
+        s_Data.Scene.GlobalIBLIntensity = iblIntensity;
     }
 
     void Renderer3D::UploadUnderwaterFogUBO(const UnderwaterFogUBOData& data)
@@ -471,14 +471,14 @@ namespace OloEngine
 
     const Frustum& Renderer3D::GetViewFrustum()
     {
-        return s_Data.ViewFrustum;
+        return s_Data.View.ViewFrustum;
     }
 
     // ---- Observer camera / frozen culling camera (issue #726) --------------
 
     void Renderer3D::SetCullingCameraFrozen(bool frozen)
     {
-        if (frozen == s_Data.CullingCameraFrozen)
+        if (frozen == s_Data.View.CullingCameraFrozen)
             return;
 
         if (frozen)
@@ -488,12 +488,12 @@ namespace OloEngine
             // its copy means the freeze captures the frame the user was looking
             // at when they pressed the button, not whatever the observer has
             // already drifted to by the next BeginScene.
-            s_Data.CullViewMatrix = s_Data.ViewMatrix;
-            s_Data.CullProjectionMatrix = s_Data.ProjectionMatrix;
-            s_Data.CullViewProjectionMatrix = s_Data.ViewProjectionMatrix;
-            s_Data.CullViewPos = s_Data.ViewPos;
-            s_Data.CullNearClip = s_Data.CameraNearClip;
-            s_Data.CullFarClip = s_Data.CameraFarClip;
+            s_Data.View.CullViewMatrix = s_Data.View.ViewMatrix;
+            s_Data.View.CullProjectionMatrix = s_Data.View.ProjectionMatrix;
+            s_Data.View.CullViewProjectionMatrix = s_Data.View.ViewProjectionMatrix;
+            s_Data.View.CullViewPos = s_Data.View.ViewPos;
+            s_Data.View.CullNearClip = s_Data.View.CameraNearClip;
+            s_Data.View.CullFarClip = s_Data.View.CameraFarClip;
             // The retained Hi-Z pyramid stops being regenerated from this point
             // (GenerateOcclusionHZB early-outs while frozen), so the VP that
             // describes it has to be pinned to the same instant. Without this
@@ -501,10 +501,10 @@ namespace OloEngine
             // matrix is the observer's, and the occlusion cull rejects a
             // plausible-but-wrong set — the exact failure mode this whole tool
             // exists to make impossible to miss.
-            s_Data.CullPrevViewProjectionMatrix = s_Data.PrevViewProjectionMatrix;
+            s_Data.View.CullPrevViewProjectionMatrix = s_Data.View.PrevViewProjectionMatrix;
         }
 
-        s_Data.CullingCameraFrozen = frozen;
+        s_Data.View.CullingCameraFrozen = frozen;
         // Keep the settings bool in step so the checkboxes that read it show the
         // truth after an MCP or code-driven toggle, and so the reconcile at the
         // top of RefreshCullingCamera() does not immediately undo this.
@@ -527,57 +527,57 @@ namespace OloEngine
 
     bool Renderer3D::IsCullingCameraFrozen()
     {
-        return s_Data.CullingCameraFrozen;
+        return s_Data.View.CullingCameraFrozen;
     }
 
     const glm::mat4& Renderer3D::GetCullViewMatrix()
     {
-        return s_Data.CullViewMatrix;
+        return s_Data.View.CullViewMatrix;
     }
 
     const LODViewParams& Renderer3D::GetLODViewParams()
     {
-        return s_Data.LODView;
+        return s_Data.View.LODView;
     }
 
     const glm::mat4& Renderer3D::GetCullProjectionMatrix()
     {
-        return s_Data.CullProjectionMatrix;
+        return s_Data.View.CullProjectionMatrix;
     }
 
     const glm::mat4& Renderer3D::GetCullViewProjectionMatrix()
     {
-        return s_Data.CullViewProjectionMatrix;
+        return s_Data.View.CullViewProjectionMatrix;
     }
 
     const glm::vec3& Renderer3D::GetCullViewPosition()
     {
-        return s_Data.CullViewPos;
+        return s_Data.View.CullViewPos;
     }
 
     f32 Renderer3D::GetCullNearClip()
     {
-        return s_Data.CullNearClip;
+        return s_Data.View.CullNearClip;
     }
 
     f32 Renderer3D::GetCullFarClip()
     {
-        return s_Data.CullFarClip;
+        return s_Data.View.CullFarClip;
     }
 
     const glm::mat4& Renderer3D::GetCullViewProjectionRelative()
     {
-        return s_Data.CullViewProjectionRelative;
+        return s_Data.View.CullViewProjectionRelative;
     }
 
     const glm::vec3& Renderer3D::GetCullViewPositionRelative()
     {
-        return s_Data.CullViewPosRelative;
+        return s_Data.View.CullViewPosRelative;
     }
 
     const glm::vec2& Renderer3D::GetCullProjParams()
     {
-        return s_Data.CullProjParams;
+        return s_Data.View.CullProjParams;
     }
 
     void Renderer3D::SetForceDisableCulling(bool disable)
@@ -662,7 +662,7 @@ namespace OloEngine
         // data — and the GPU cull immediately falls back to frustum-only.
         s_Data.HZBOcclusionCullingEnabled = enable;
         if (!enable)
-            s_Data.OcclusionHZBValid = false;
+            s_Data.View.OcclusionHZBValid = false;
     }
 
     bool Renderer3D::IsHZBOcclusionCullingEnabled()
@@ -682,12 +682,12 @@ namespace OloEngine
 
     Renderer3D::Statistics& Renderer3D::GetStats()
     {
-        return s_Data.Stats;
+        return s_Data.Frame.Stats;
     }
 
     void Renderer3D::ResetStats()
     {
-        s_Data.Stats.Reset();
+        s_Data.Frame.Stats.Reset();
     }
 
     void Renderer3D::ApplyRendererSettings()
@@ -789,7 +789,7 @@ namespace OloEngine
         BoundingSphere sphere = mesh->GetTransformedBoundingSphere(transform);
         sphere.Radius *= 1.3f;
 
-        return s_Data.ViewFrustum.IsBoundingSphereVisible(sphere);
+        return s_Data.View.ViewFrustum.IsBoundingSphereVisible(sphere);
     }
 
     bool Renderer3D::IsVisibleInFrustum(const BoundingSphere& sphere)
@@ -800,7 +800,7 @@ namespace OloEngine
         BoundingSphere expandedSphere = sphere;
         expandedSphere.Radius *= 1.3f;
 
-        return s_Data.ViewFrustum.IsBoundingSphereVisible(expandedSphere);
+        return s_Data.View.ViewFrustum.IsBoundingSphereVisible(expandedSphere);
     }
 
     bool Renderer3D::IsVisibleInFrustum(const BoundingBox& box)
@@ -808,6 +808,6 @@ namespace OloEngine
         if (!s_Data.FrustumCullingEnabled)
             return true;
 
-        return s_Data.ViewFrustum.IsBoundingBoxVisible(box);
+        return s_Data.View.ViewFrustum.IsBoundingBoxVisible(box);
     }
 } // namespace OloEngine

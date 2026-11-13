@@ -1,9 +1,11 @@
 // OLO_TEST_LAYER: plumbing
 #include "OloEnginePCH.h"
 #include "MockRendererAPI.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/FrontendRecordingContext.h"
 
+#include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 #include <array>
 #include <barrier>
@@ -172,4 +174,148 @@ TEST(CommandDispatchProfilerStorage, CounterHistoryKeepsChronologicalOrderAfterW
     counter.GetHistoryInOrder(history);
     ASSERT_EQ(history.Num(), 1);
     EXPECT_FLOAT_EQ(history[0], 42.0f);
+}
+
+// -----------------------------------------------------------------------------
+// The recording view (ADR 0025, issue #1330)
+// -----------------------------------------------------------------------------
+namespace
+{
+    // A main view whose every field differs from the default and from each
+    // other, so a field an alternate view failed to replace or restore shows.
+    [[nodiscard]] DispatchView MakeDistinctMainView()
+    {
+        DispatchView view;
+        view.ViewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 3.0f));
+        view.ProjectionMatrix = glm::perspective(0.9f, 1.5f, 0.1f, 500.0f);
+        view.ViewProjectionMatrix = view.ProjectionMatrix * view.ViewMatrix;
+        view.PrevViewProjectionMatrix = view.ProjectionMatrix * glm::translate(glm::mat4(1.0f), glm::vec3(1.5f, 2.0f, 3.0f));
+        view.JitterUV = glm::vec4(0.125f, -0.25f, 0.375f, -0.5f);
+        view.ViewPosition = glm::vec3(-1.0f, -2.0f, -3.0f);
+        view.RenderOrigin = glm::vec3(1024.0f, 0.0f, -2048.0f);
+        view.MainViewLanes = true;
+        return view;
+    }
+
+    [[nodiscard]] bool SameView(const DispatchView& a, const DispatchView& b)
+    {
+        return Math::BitwiseEqual(a.ViewMatrix, b.ViewMatrix) && Math::BitwiseEqual(a.ProjectionMatrix, b.ProjectionMatrix) &&
+               Math::BitwiseEqual(a.ViewProjectionMatrix, b.ViewProjectionMatrix) &&
+               Math::BitwiseEqual(a.PrevViewProjectionMatrix, b.PrevViewProjectionMatrix) &&
+               Math::BitwiseEqual(a.JitterUV, b.JitterUV) && Math::BitwiseEqual(a.ViewPosition, b.ViewPosition) &&
+               Math::BitwiseEqual(a.RenderOrigin, b.RenderOrigin) && a.MainViewLanes == b.MainViewLanes;
+    }
+
+    struct ReplayAborted
+    {
+    };
+} // namespace
+
+// The planar reflection used to swap four of the dispatcher's seven camera
+// fields by hand, so its camera block carried the main view's previous
+// view-projection and jitter, and restored them with straight-line code a
+// throwing packet skipped. An alternate view is installed whole and restored
+// by scope.
+TEST_F(CommandDispatchRecording, AlternateViewIsWholeAndRestoredOnEveryExit)
+{
+    const DispatchView main = MakeDistinctMainView();
+    CommandDispatch::SetView(main);
+
+    const glm::mat4 mirrorView = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, -1.0f, 1.0f));
+    const glm::mat4 mirrorProjection = glm::perspective(0.7f, 1.0f, 0.5f, 100.0f);
+    const glm::mat4 mirrorViewProjection = mirrorProjection * mirrorView;
+    const glm::vec3 mirrorPosition(4.0f, -5.0f, 6.0f);
+    const DispatchView alternate =
+        CommandDispatch::MakeAlternateView(mirrorView, mirrorProjection, mirrorViewProjection, mirrorPosition);
+
+    // What an alternate view is: the given camera, the frame's render origin,
+    // no history of its own, no claim on the main view's screen-space lanes.
+    EXPECT_TRUE(Math::BitwiseEqual(alternate.PrevViewProjectionMatrix, mirrorViewProjection))
+        << "an alternate view inherited the main view's previous view-projection";
+    EXPECT_TRUE(Math::BitwiseEqual(alternate.JitterUV, glm::vec4(main.JitterUV.x, main.JitterUV.y, main.JitterUV.x, main.JitterUV.y)))
+        << "an alternate view inherited the main view's previous jitter";
+    EXPECT_TRUE(Math::BitwiseEqual(alternate.RenderOrigin, main.RenderOrigin)) << "one render origin per frame";
+    EXPECT_FALSE(alternate.MainViewLanes);
+
+    {
+        const CommandDispatch::ScopedAlternateView scope(alternate);
+        EXPECT_TRUE(SameView(CommandDispatch::GetView(), alternate));
+        EXPECT_TRUE(Math::BitwiseEqual(CommandDispatch::GetViewPosition(), mirrorPosition));
+    }
+    EXPECT_TRUE(SameView(CommandDispatch::GetView(), main)) << "leaving the scope did not restore the whole main view";
+
+    try
+    {
+        const CommandDispatch::ScopedAlternateView scope(alternate);
+        throw ReplayAborted{};
+    }
+    catch (const ReplayAborted&)
+    {
+    }
+    EXPECT_TRUE(SameView(CommandDispatch::GetView(), main)) << "an aborted replay left the alternate view installed";
+}
+
+// Serial and worker replay read one context type. An item prepared inside an
+// alternate-view scope draws from that view, whole; what an item does to its
+// own view never reaches the primary or another item.
+TEST_F(CommandDispatchRecording, SerialAndWorkerReplayReadTheSameView)
+{
+    const DispatchView main = MakeDistinctMainView();
+    CommandDispatch::SetView(main);
+    const glm::mat4 mirrorViewProjection = glm::perspective(0.7f, 1.0f, 0.5f, 100.0f);
+    const DispatchView alternate =
+        CommandDispatch::MakeAlternateView(glm::mat4(1.0f), mirrorViewProjection, mirrorViewProjection, glm::vec3(7.0f));
+
+    constexpr u32 itemCount = 4;
+    std::array<FrontendRecordingContext, itemCount> items;
+    std::array<bool, itemCount> sawAlternate{};
+    {
+        const CommandDispatch::ScopedAlternateView scope(alternate);
+        // The serial replay's answer, on the primary.
+        EXPECT_TRUE(SameView(CommandDispatch::GetView(), alternate));
+        // The fork: prepared on the caller before any worker starts.
+        for (auto& item : items)
+            item.Prepare(1);
+        std::vector<std::jthread> threads;
+        for (u32 item = 0; item < itemCount; ++item)
+        {
+            threads.emplace_back([&, item]
+                                 {
+                const ScopedFrontendRecordingContext recording(items[item]);
+                sawAlternate[item] = SameView(CommandDispatch::GetView(), alternate);
+                // An item-local override (a bucket's view state) stays in the item.
+                DispatchView local = alternate;
+                local.ViewPosition = glm::vec3(static_cast<f32>(item) + 100.0f);
+                const CommandDispatch::ScopedAlternateView override(local); });
+        }
+        threads.clear();
+        for (auto& item : items)
+            item.Publish();
+        EXPECT_TRUE(SameView(CommandDispatch::GetView(), alternate)) << "an item's view override reached the primary";
+    }
+    for (u32 item = 0; item < itemCount; ++item)
+        EXPECT_TRUE(sawAlternate[item]) << "item " << item << " did not draw from the view the fork was made under";
+    EXPECT_TRUE(SameView(CommandDispatch::GetView(), main));
+}
+
+// CommandDispatch::Shutdown used to drop five buffer references and leave the
+// rest: a dispatcher shut down for a device teardown came back with the
+// previous device's camera, counters and pass flags.
+TEST_F(CommandDispatchRecording, DispatcherShutdownLeavesNoRecordingState)
+{
+    CommandDispatch::SetView(MakeDistinctMainView());
+    CommandDispatch::GetStatistics().DrawCalls = 12;
+    CommandDispatch::SetDepthPrepassActive(true);
+
+    CommandDispatch::Shutdown();
+
+    EXPECT_TRUE(SameView(CommandDispatch::GetView(), DispatchView{})) << "Shutdown left the previous camera in the primary context";
+    EXPECT_EQ(CommandDispatch::GetStatistics().DrawCalls, 0u);
+    EXPECT_FALSE(CommandDispatch::HasUBOReferences());
+    EXPECT_FALSE(CommandDispatch::IsDepthPrepassActive());
+
+    // The dispatch table and the queue's callbacks are device-independent and
+    // survive; Initialize re-arms the rest, as Renderer3D's reclaim does.
+    EXPECT_NE(CommandDispatch::GetDispatchFunction(CommandType::DrawMesh), nullptr);
+    CommandDispatch::Initialize();
 }

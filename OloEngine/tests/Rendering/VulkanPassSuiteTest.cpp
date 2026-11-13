@@ -546,6 +546,8 @@ class VulkanPassSuite : public ::testing::Test
         // camera the last rendered scene left in Renderer3D; an earlier GL test's
         // render origin would shift every origin-relative upload (#1484).
         Renderer3D::ResetFrameCamera();
+        // The same for what the last rendered scene published (ADR 0025).
+        Renderer3D::ResetSceneState();
 
         // The graph's pass bodies route through the RenderCommand statics —
         // the PROCESS-GLOBAL backend must be the Vulkan one for the duration.

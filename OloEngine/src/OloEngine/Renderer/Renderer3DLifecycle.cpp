@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Core/CVar.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -514,9 +515,9 @@ namespace OloEngine
         EnvironmentMap::InitializeIBLSystem(m_ShaderLibrary);
         OLO_CORE_INFO("IBL system initialized.");
 
-        s_Data.ViewPos = glm::vec3(0.0f, 0.0f, 3.0f);
+        s_Data.View.ViewPos = glm::vec3(0.0f, 0.0f, 3.0f);
 
-        s_Data.Stats.Reset();
+        s_Data.Frame.Stats.Reset();
 
         s_Data.RGraph = Ref<RenderGraph>::Create();
         RenderGraphDebugRuntime::SetActiveGraph(s_Data.RGraph);
@@ -597,11 +598,11 @@ namespace OloEngine
         // RenderPipeline.cpp's SampleMockableDt). Seeded from the CURRENT
         // clock — the mock when one is already installed — so the first
         // frame's dt is 0 rather than a wall-clock-dependent clamp.
-        s_Data.FogFrameIndex = 0;
-        s_Data.FogPrevTimeSeconds = Time::GetTime();
-        s_Data.AutoExposurePrevTimeSeconds = Time::GetTime();
-        s_Data.WindPrevTimeSeconds = Time::GetTime();
-        s_Data.FogTime = 0.0f;
+        s_Data.Clock.FogFrameIndex = 0;
+        s_Data.Clock.FogPrevTimeSeconds = Time::GetTime();
+        s_Data.Clock.AutoExposurePrevTimeSeconds = Time::GetTime();
+        s_Data.Clock.WindPrevTimeSeconds = Time::GetTime();
+        s_Data.Clock.FogTime = 0.0f;
 
         // Initialize Forward+ light culling system
         s_Data.ForwardPlus.Initialize(fbWidth, fbHeight);
@@ -731,6 +732,40 @@ namespace OloEngine
         return live;
     }
 
+    Renderer3D::OwnedStateCensus Renderer3D::DebugOwnedStateCensus()
+    {
+        OwnedStateCensus census;
+
+        const auto& view = s_Data.View;
+        census.ViewHistoryFacts += view.HasPreviousViewPosition ? 1u : 0u;
+        census.ViewHistoryFacts += view.HasTemporalProjectionMatrix ? 1u : 0u;
+        census.ViewHistoryFacts += view.MotionHistoryResetPending ? 0u : 1u;
+        census.ViewHistoryFacts += view.OcclusionHZBValid ? 1u : 0u;
+        census.ViewHistoryFacts += Math::BitwiseEqual(view.RenderOrigin, glm::vec3(0.0f)) ? 0u : 1u;
+
+        const auto& scene = s_Data.Scene;
+        census.ScenePoseRecords = static_cast<u32>(scene.PrevEntityTransforms.size() + scene.CurrEntityTransforms.size() +
+                                                   scene.PrevInstanceTransforms.size() + scene.CurrInstanceTransforms.size());
+        census.ScenePublications += scene.GlobalIrradianceMapID.IsValid() ? 1u : 0u;
+        census.ScenePublications += scene.GlobalPrefilterMapID.IsValid() ? 1u : 0u;
+        census.ScenePublications += scene.GlobalBRDFLutMapID.IsValid() ? 1u : 0u;
+        census.ScenePublications += scene.GlobalEnvironmentMapID.IsValid() ? 1u : 0u;
+        census.ScenePublications += scene.Cloudscape.Enabled ? 1u : 0u;
+
+        const auto& frame = s_Data.Frame;
+        census.FrameHandOffs = static_cast<u32>(frame.RayTracedShadowLightRequests.Num() + frame.GroomStrandRequests.Num() +
+                                                frame.GPUSceneDrawLinks.Num() + frame.SelectionOutlineEntityIDs.Num() +
+                                                frame.PendingFluidDraws.Num() + frame.AOProxyBounds.Num());
+        census.FrameHandOffs += frame.PendingParticleRenderCallback ? 1u : 0u;
+        census.FrameHandOffs += frame.PendingUICompositeRenderCallback ? 1u : 0u;
+
+        const auto& clock = s_Data.Clock;
+        census.ClockAtRest = clock.TAAJitterFrameIndex == 0u && clock.TemporalUpscalePhaseIndex == 0u &&
+                             clock.StochasticFrameIndex == 0u && clock.FrameSequenceSeed == 0u &&
+                             clock.CloudFrameIndex == 0u && clock.FogFrameIndex == 0u;
+        return census;
+    }
+
     void Renderer3D::Shutdown()
     {
         OLO_PROFILE_FUNCTION();
@@ -779,7 +814,6 @@ namespace OloEngine
         OcclusionStateManager::GetInstance().Clear();
         // Release the persistent Hi-Z occlusion pyramid (#431).
         s_Data.OcclusionHZB.Shutdown();
-        s_Data.OcclusionHZBValid = false;
 
         // Release the debug-draw channels + their readback staging (#725) while
         // GL is alive.
@@ -843,20 +877,6 @@ namespace OloEngine
         // Clear any pending GPU resource commands
         GPUResourceQueue::Clear();
 
-        // Reset the mockable per-frame dt trackers + fog temporal state
-        s_Data.FogFrameIndex = 0;
-        s_Data.FogPrevTimeSeconds = 0.0f;
-        s_Data.AutoExposurePrevTimeSeconds = 0.0f;
-        s_Data.WindPrevTimeSeconds = 0.0f;
-        s_Data.FogTime = 0.0f;
-
-        // Reset cloudscape state + wind-advection accumulators (issue #633)
-        s_Data.Cloudscape = {};
-        s_Data.CloudWindOffset = glm::vec2(0.0f);
-        s_Data.CloudTime = 0.0f;
-        s_Data.CloudFrameIndex = 0;
-        s_Data.CloudPrevTimeSeconds = 0.0f;
-
         if (s_Data.RGraph)
         {
             s_Data.RGraph->Shutdown();
@@ -897,7 +917,6 @@ namespace OloEngine
         s_Data.PathTracerMaterialTextures.Shutdown();
         s_Data.RasterMaterialTextures.Shutdown();
         s_Data.SceneGPU.Shutdown();
-        s_Data.GPUSceneExtractionActive = false;
         // The two-phase GPU culler (#431) owns a pool of StorageBuffers / InstanceBuffers.
         // It was created in Init but never released here, so it outlived Shutdown and was
         // destroyed during STATIC destruction at process exit — by which time the Meyer's
@@ -1026,6 +1045,17 @@ namespace OloEngine
         // session that can create it. See docs/agent-rules/lazy-static-release-ownership.md.
         GPUTimerQueryPool::GetInstance().Shutdown();
         RendererProfiler::GetInstance().Shutdown();
+
+        // The owned contexts go back to their defaults by assignment (ADR 0025),
+        // after every GPU object above is gone: a restarted renderer has no
+        // camera, no motion or sampling history, no scene publication and no
+        // pending pass callback from this run. A field added to one of these
+        // structs is covered without being listed here. The lists this replaces
+        // reset the clocks and the cloudscape and left everything else.
+        s_Data.View = {};
+        s_Data.Scene = {};
+        s_Data.Frame = {};
+        s_Data.Clock = {};
 
         s_Data.CoreInitialized = false;
 

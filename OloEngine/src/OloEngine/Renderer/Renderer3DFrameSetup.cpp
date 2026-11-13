@@ -9,10 +9,10 @@ namespace OloEngine
 {
     void Renderer3D::ObserveTemporalProjection(const glm::mat4& projection)
     {
-        if (s_Data.HasTemporalProjectionMatrix && !Math::BitwiseEqual(s_Data.TemporalProjectionMatrix, projection))
+        if (s_Data.View.HasTemporalProjectionMatrix && !Math::BitwiseEqual(s_Data.View.TemporalProjectionMatrix, projection))
             InvalidateTemporalHistories(TemporalHistoryInvalidationCause::ProjectionChanged);
-        s_Data.TemporalProjectionMatrix = projection;
-        s_Data.HasTemporalProjectionMatrix = true;
+        s_Data.View.TemporalProjectionMatrix = projection;
+        s_Data.View.HasTemporalProjectionMatrix = true;
     }
 
     void Renderer3D::RefreshCullingCamera()
@@ -25,7 +25,7 @@ namespace OloEngine
         // overlay is the only UI there is. SetCullingCameraFrozen is the
         // authority (it owns the snapshot) and writes the bool back, so the two
         // cannot drift.
-        if (s_Data.Settings.ObserverCameraEnabled != s_Data.CullingCameraFrozen)
+        if (s_Data.Settings.ObserverCameraEnabled != s_Data.View.CullingCameraFrozen)
             SetCullingCameraFrozen(s_Data.Settings.ObserverCameraEnabled);
 
         // Frozen: leave every Cull* field exactly as SetCullingCameraFrozen(true)
@@ -34,15 +34,15 @@ namespace OloEngine
         // needs a per-site "if frozen" branch, and a site that forgot to switch
         // over is a site that keeps following the observer rather than one that
         // silently half-freezes.
-        if (s_Data.CullingCameraFrozen)
+        if (s_Data.View.CullingCameraFrozen)
             return;
 
-        s_Data.CullViewMatrix = s_Data.ViewMatrix;
-        s_Data.CullProjectionMatrix = s_Data.ProjectionMatrix;
-        s_Data.CullViewProjectionMatrix = s_Data.ViewProjectionMatrix;
-        s_Data.CullViewPos = s_Data.ViewPos;
-        s_Data.CullNearClip = s_Data.CameraNearClip;
-        s_Data.CullFarClip = s_Data.CameraFarClip;
+        s_Data.View.CullViewMatrix = s_Data.View.ViewMatrix;
+        s_Data.View.CullProjectionMatrix = s_Data.View.ProjectionMatrix;
+        s_Data.View.CullViewProjectionMatrix = s_Data.View.ViewProjectionMatrix;
+        s_Data.View.CullViewPos = s_Data.View.ViewPos;
+        s_Data.View.CullNearClip = s_Data.View.CameraNearClip;
+        s_Data.View.CullFarClip = s_Data.View.CameraFarClip;
     }
 
     void Renderer3D::ReclaimSharedRenderState()
@@ -82,7 +82,7 @@ namespace OloEngine
         // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
-        s_Data.RayTracedShadowLightRequests.Reset();
+        s_Data.Frame.RayTracedShadowLightRequests.Reset();
         // Groom submissions are per-frame for the same reason (issue #1246).
         RecycleGroomStrandRequests();
         // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
@@ -94,12 +94,12 @@ namespace OloEngine
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
-        s_Data.ViewMatrix = camera.GetView();
-        s_Data.ProjectionMatrix = projection;
-        s_Data.ViewProjectionMatrix = camera.GetViewProjection();
-        s_Data.ViewPos = camera.GetPosition();
-        s_Data.CameraNearClip = camera.GetNearClip();
-        s_Data.CameraFarClip = camera.GetFarClip();
+        s_Data.View.ViewMatrix = camera.GetView();
+        s_Data.View.ProjectionMatrix = projection;
+        s_Data.View.ViewProjectionMatrix = camera.GetViewProjection();
+        s_Data.View.ViewPos = camera.GetPosition();
+        s_Data.View.CameraNearClip = camera.GetNearClip();
+        s_Data.View.CameraFarClip = camera.GetFarClip();
 
         RefreshCullingCamera();
 
@@ -114,7 +114,7 @@ namespace OloEngine
         // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
-        s_Data.RayTracedShadowLightRequests.Reset();
+        s_Data.Frame.RayTracedShadowLightRequests.Reset();
         // Groom submissions are per-frame for the same reason (issue #1246).
         RecycleGroomStrandRequests();
         // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
@@ -126,12 +126,12 @@ namespace OloEngine
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
-        s_Data.ViewMatrix = camera.GetViewMatrix();
-        s_Data.ProjectionMatrix = projection;
-        s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
-        s_Data.ViewPos = camera.GetPosition();
-        s_Data.CameraNearClip = camera.GetNearClip();
-        s_Data.CameraFarClip = camera.GetFarClip();
+        s_Data.View.ViewMatrix = camera.GetViewMatrix();
+        s_Data.View.ProjectionMatrix = projection;
+        s_Data.View.ViewProjectionMatrix = s_Data.View.ProjectionMatrix * s_Data.View.ViewMatrix;
+        s_Data.View.ViewPos = camera.GetPosition();
+        s_Data.View.CameraNearClip = camera.GetNearClip();
+        s_Data.View.CameraFarClip = camera.GetFarClip();
 
         RefreshCullingCamera();
 
@@ -146,7 +146,7 @@ namespace OloEngine
         // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
         // HERE so an empty list can only mean "no light asked this frame" —
         // a scene that stops publishing them must not keep the last frame's.
-        s_Data.RayTracedShadowLightRequests.Reset();
+        s_Data.Frame.RayTracedShadowLightRequests.Reset();
         // Groom submissions are per-frame for the same reason (issue #1246).
         RecycleGroomStrandRequests();
         // Leaf-profile slots are rebuilt from THIS frame's submissions (issue
@@ -158,10 +158,10 @@ namespace OloEngine
 
         const glm::mat4 projection = camera.GetProjection();
         ObserveTemporalProjection(projection);
-        s_Data.ViewMatrix = glm::inverse(transform);
-        s_Data.ProjectionMatrix = projection;
-        s_Data.ViewProjectionMatrix = s_Data.ProjectionMatrix * s_Data.ViewMatrix;
-        s_Data.ViewPos = glm::vec3(transform[3]);
+        s_Data.View.ViewMatrix = glm::inverse(transform);
+        s_Data.View.ProjectionMatrix = projection;
+        s_Data.View.ViewProjectionMatrix = s_Data.View.ProjectionMatrix * s_Data.View.ViewMatrix;
+        s_Data.View.ViewPos = glm::vec3(transform[3]);
         // Camera base class has no near/far — keep previous values
 
         RefreshCullingCamera();

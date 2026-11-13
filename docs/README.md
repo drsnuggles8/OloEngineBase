@@ -154,6 +154,7 @@ The three workflow skills live in [`.claude/skills/`](../.claude/skills/) and ar
 - [adr/0023-visual-script-exec-stack-owned-by-the-vm.md](adr/0023-visual-script-exec-stack-owned-by-the-vm.md) — visual scripting: the exec stack moves onto the instance, superseding ADR 0014 §2. (Two ADRs share number 0023 and two share 0024; they are cited by file name, so neither pair is renumbered.)
 - [adr/0024-material-kind-is-not-the-closure-version.md](adr/0024-material-kind-is-not-the-closure-version.md) — a material carries three independent selectors (what the surface IS, which version of the closure evaluates it, and which version of the skin transport its profile was authored against); none is derived from another, and the G-Buffer headroom that separation costs.
 - [adr/0024-skinned-virtual-geometry-stays-on-the-hardware-rasterizer.md](adr/0024-skinned-virtual-geometry-stays-on-the-hardware-rasterizer.md) — skinned virtual-geometry clusters never go to the software rasterizer; they stay on the hardware route.
+- [adr/0025-renderer-state-has-four-owners.md](adr/0025-renderer-state-has-four-owners.md) — renderer state belongs to one of four owners (device, scene, view, recording); each owner's state is one struct and reset is assignment.
 
 ## bug-investigations/ — postmortems & deep-dives
 

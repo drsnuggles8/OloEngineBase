@@ -13,6 +13,32 @@ namespace OloEngine
     class InstanceBuffer;
     class ShaderResourceRegistry;
 
+    // The view one recording context draws from (ADR 0025): the camera, its
+    // previous frame, and the render origin. A value, set and swapped whole, so
+    // the dispatcher never holds half of one camera.
+    struct DispatchView
+    {
+        // World space. The camera block's packing derives the render-relative
+        // copies from these plus RenderOrigin.
+        glm::mat4 ViewMatrix = glm::mat4(1.0f);
+        glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
+        glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+        // The same camera one frame ago, for the velocity writers. A view with
+        // no history sets it to ViewProjectionMatrix.
+        glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
+        // The TAA jitter the two view-projections carry (#1552): xy this
+        // frame's, zw the previous frame's, in velocity units.
+        glm::vec4 JitterUV = glm::vec4(0.0f);
+        glm::vec3 ViewPosition = glm::vec3(0.0f);
+        // Camera-relative render origin for this frame (issue #429).
+        glm::vec3 RenderOrigin = glm::vec3(0.0f);
+        // Whether this is the view the frame's screen-space buffers were made
+        // for. The forward shaders' AO lane and the lighting tap (issues #1452,
+        // #1526) are measured in the main view's screen space; another camera
+        // uploads them as "not live" and binds the white placeholders.
+        bool MainViewLanes = true;
+    };
+
     class CommandDispatch
     {
       public:
@@ -123,6 +149,37 @@ namespace OloEngine
         // ScreenParams. Set by WaterRenderPass before its bucket runs (issue
         // #1486: the field used to come from a viewport nothing ever set).
         static void SetWaterTargetSize(u32 width, u32 height);
+        // The recording view, whole (ADR 0025). The frame sets the primary
+        // context's once; inside a recording item these address the item's own.
+        static void SetView(const DispatchView& view);
+        [[nodiscard]] static const DispatchView& GetView();
+        // A view for a replay from another camera: the given camera, the
+        // frame's render origin, no motion history of its own, and no claim on
+        // the main view's screen-space lanes.
+        [[nodiscard]] static DispatchView MakeAlternateView(const glm::mat4& view, const glm::mat4& projection,
+                                                            const glm::mat4& viewProjection, const glm::vec3& position);
+        // Draw from another view for the lifetime of this object. Installs the
+        // whole view in the calling recording context, uploads its camera
+        // block, and on every exit path puts the previous view back, re-uploads
+        // its camera block and re-binds the main view's screen-space inputs.
+        // The planar reflection and a bucket's view override both replay
+        // through this; a fork inside it hands the alternate view to every item.
+        class ScopedAlternateView
+        {
+          public:
+            explicit ScopedAlternateView(const DispatchView& view);
+            ~ScopedAlternateView();
+            ScopedAlternateView(const ScopedAlternateView&) = delete;
+            ScopedAlternateView& operator=(const ScopedAlternateView&) = delete;
+            ScopedAlternateView(ScopedAlternateView&&) = delete;
+            ScopedAlternateView& operator=(ScopedAlternateView&&) = delete;
+
+          private:
+            DispatchView m_Previous;
+        };
+
+        // Field-wise access to the same view, for the paths that derive one
+        // matrix (sort keys, the mirror derivation) and for existing callers.
         static void SetViewProjectionMatrix(const glm::mat4& vp);
         static void SetViewMatrix(const glm::mat4& view);
         static void SetProjectionMatrix(const glm::mat4& projection);
@@ -193,10 +250,6 @@ namespace OloEngine
         // it (the prepass) reads the white placeholder with x = 0.
         static void SetForwardScreenSpaceAO(const glm::vec4& params, RHI::ResourceHandle aoTexture,
                                             RHI::ResourceHandle depthTexture);
-        // A replay from another camera (the planar mirror) must not read the
-        // main view's AO buffer: while suspended the camera lane uploads as
-        // "not live" and the samplers get the white placeholder.
-        static void SuspendForwardScreenSpaceAO(bool suspend);
         // The lighting tap the main view's colour passes read from the camera
         // lane (issue #1526, LightingTap). Set once per frame by the pipeline;
         // a suspended (mirrored) replay uploads 0 like the AO lane.

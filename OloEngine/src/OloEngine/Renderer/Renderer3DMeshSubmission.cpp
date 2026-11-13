@@ -455,7 +455,7 @@ namespace OloEngine
         // here: counting a part as proxyless because no extraction was open
         // would report a fault where there is only an idle frame.
         auto& vgDiagnostics = registry.GetMutableSubmissionDiagnostics();
-        const bool stageProxies = s_Data.GPUSceneExtractionActive;
+        const bool stageProxies = s_Data.Frame.GPUSceneExtractionActive;
 
         // One material slot per part. Precedence: an explicit MaterialComponent overrides
         // everything, else the entity's patch of the submesh's imported material (issue
@@ -748,20 +748,20 @@ namespace OloEngine
             OLO_CORE_ERROR("Renderer3D::DrawMesh: ScenePass is null!");
             return nullptr;
         }
-        ++s_Data.Stats.TotalMeshes;
+        ++s_Data.Frame.Stats.TotalMeshes;
 
         if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
         {
             if (mesh && !IsVisibleInFrustum(mesh, modelMatrix))
             {
-                ++s_Data.Stats.CulledMeshes;
+                ++s_Data.Frame.Stats.CulledMeshes;
                 return nullptr;
             }
         }
 
         // Temporal occlusion culling: skip objects that were occluded last frame,
         // and submit proxy bounding boxes for re-testing.
-        if (s_Data.OcclusionCullingEnabled && s_Data.OcclusionResultsAvailable && entityID >= 0 && mesh)
+        if (s_Data.OcclusionCullingEnabled && s_Data.Frame.OcclusionResultsAvailable && entityID >= 0 && mesh)
         {
             auto& stateMgr = OcclusionStateManager::GetInstance();
             auto& state = stateMgr.GetOrCreate(static_cast<u64>(entityID));
@@ -791,7 +791,7 @@ namespace OloEngine
                         worldBounds.Max = bs.Center + glm::vec3(bs.Radius);
                         OcclusionCuller::GetInstance().QueueBoundingBox(state.QueryIndex, worldBounds);
                     }
-                    ++s_Data.Stats.CulledMeshes;
+                    ++s_Data.Frame.Stats.CulledMeshes;
                     return nullptr;
                 }
 
@@ -808,21 +808,21 @@ namespace OloEngine
 
         // LOD selection.
         Ref<Mesh> meshToUse;
-        // s_Data.LODView is built from the CULLING camera, not the render camera
+        // s_Data.View.LODView is built from the CULLING camera, not the render camera
         // (issue #726): LOD is part of the cut, so a frozen frame must keep the LOD
         // levels it was frozen with. Flying the observer closer would otherwise swap
         // in a finer mesh and the picture would stop being the one the culling
         // camera produced.
-        if (auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.LODView, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
+        if (auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.View.LODView, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
         {
-            if (lodResult.SelectedLODIndex >= s_Data.Stats.ObjectsPerLODLevel.Num())
+            if (lodResult.SelectedLODIndex >= s_Data.Frame.Stats.ObjectsPerLODLevel.Num())
             {
-                s_Data.Stats.ObjectsPerLODLevel.SetNumZeroed(static_cast<i64>(lodResult.SelectedLODIndex + 1));
+                s_Data.Frame.Stats.ObjectsPerLODLevel.SetNumZeroed(static_cast<i64>(lodResult.SelectedLODIndex + 1));
             }
-            ++s_Data.Stats.ObjectsPerLODLevel[lodResult.SelectedLODIndex];
+            ++s_Data.Frame.Stats.ObjectsPerLODLevel[lodResult.SelectedLODIndex];
             if (lodResult.Switched)
             {
-                ++s_Data.Stats.LODSwitches;
+                ++s_Data.Frame.Stats.LODSwitches;
             }
         }
 
@@ -1107,7 +1107,7 @@ namespace OloEngine
             OLO_CORE_WARN("Renderer3D::DrawMeshInstanced: No transforms provided");
             return nullptr;
         }
-        s_Data.Stats.TotalMeshes += static_cast<u32>(transforms.size());
+        s_Data.Frame.Stats.TotalMeshes += static_cast<u32>(transforms.size());
 
         // GPU-side frustum cull pre-pass: when the input count is large
         // enough that the CPU sphere loop dominates submission cost, route
@@ -1146,13 +1146,13 @@ namespace OloEngine
             {
                 const auto& t = transforms[i];
                 BoundingSphere worldSphere = localSphere.Transform(t);
-                if (s_Data.ViewFrustum.IsBoundingSphereVisible(worldSphere))
+                if (s_Data.View.ViewFrustum.IsBoundingSphereVisible(worldSphere))
                 {
                     filteredTransforms.push_back(t);
                     visibleIndices.push_back(static_cast<u32>(i));
                 }
             }
-            s_Data.Stats.CulledMeshes += static_cast<u32>(transforms.size() - filteredTransforms.size());
+            s_Data.Frame.Stats.CulledMeshes += static_cast<u32>(transforms.size() - filteredTransforms.size());
             if (filteredTransforms.empty())
             {
                 return nullptr;
@@ -1340,7 +1340,7 @@ namespace OloEngine
             for (sizet i = 0; i < instances.size() && visibleIndices.size() < visibleCount; ++i)
             {
                 BoundingSphere worldSphere = localSphere.Transform(instances[i].Transform);
-                if (s_Data.ViewFrustum.IsBoundingSphereVisible(worldSphere))
+                if (s_Data.View.ViewFrustum.IsBoundingSphereVisible(worldSphere))
                     visibleIndices.push_back(static_cast<u32>(i));
             }
         }
@@ -1660,7 +1660,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        ++s_Data.Stats.TotalMeshes;
+        ++s_Data.Frame.Stats.TotalMeshes;
 
         // For animated meshes, be more conservative with frustum culling
         // since bone transforms can move vertices significantly beyond rest pose bounds.
@@ -1680,9 +1680,9 @@ namespace OloEngine
             // bound because it is a fudge for SKINNING (#1227).
             animatedSphere.Radius += MorphBoundsSlack(mesh, modelMatrix);
 
-            if (!s_Data.ViewFrustum.IsBoundingSphereVisible(animatedSphere))
+            if (!s_Data.View.ViewFrustum.IsBoundingSphereVisible(animatedSphere))
             {
-                ++s_Data.Stats.CulledMeshes;
+                ++s_Data.Frame.Stats.CulledMeshes;
                 return nullptr;
             }
         }
@@ -2134,7 +2134,7 @@ namespace OloEngine
                 // Seed it when the caller already owns authoritative history.
                 if (desc.HasPrevTransform && desc.EntityID >= 0)
                 {
-                    s_Data.PrevEntityTransforms.insert_or_assign(desc.EntityID, desc.PrevTransform);
+                    s_Data.Scene.PrevEntityTransforms.insert_or_assign(desc.EntityID, desc.PrevTransform);
                 }
                 CommandPacket* packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic,
                                                  desc.EntityID, desc.LODGroupPtr);
@@ -2279,14 +2279,14 @@ namespace OloEngine
         {
             totalSubmitted += workerStats[i].Submitted;
             overlaySubmitted += workerStats[i].Context.ForwardOverlaySubmitted;
-            s_Data.Stats.LODSwitches += workerStats[i].Context.LODSwitches;
+            s_Data.Frame.Stats.LODSwitches += workerStats[i].Context.LODSwitches;
             for (sizet j = 0; j < static_cast<sizet>(workerStats[i].Context.ObjectsPerLODLevel.Num()); ++j)
             {
-                if (j >= static_cast<sizet>(s_Data.Stats.ObjectsPerLODLevel.Num()))
+                if (j >= static_cast<sizet>(s_Data.Frame.Stats.ObjectsPerLODLevel.Num()))
                 {
-                    s_Data.Stats.ObjectsPerLODLevel.SetNumZeroed(static_cast<i64>(j + 1));
+                    s_Data.Frame.Stats.ObjectsPerLODLevel.SetNumZeroed(static_cast<i64>(j + 1));
                 }
-                s_Data.Stats.ObjectsPerLODLevel[j] += workerStats[i].Context.ObjectsPerLODLevel[j];
+                s_Data.Frame.Stats.ObjectsPerLODLevel[j] += workerStats[i].Context.ObjectsPerLODLevel[j];
             }
         }
         // The statistic is the worker branch's evidence, so it counts every
@@ -2294,7 +2294,7 @@ namespace OloEngine
         // return value matches the serial branch instead: DrawMesh submits an
         // overlay draw itself and returns nullptr, so that branch does not count
         // it either.
-        s_Data.Stats.ParallelSubmittedMeshes += totalSubmitted + overlaySubmitted;
+        s_Data.Frame.Stats.ParallelSubmittedMeshes += totalSubmitted + overlaySubmitted;
 
         return totalSubmitted;
     }

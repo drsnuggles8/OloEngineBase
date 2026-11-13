@@ -341,6 +341,29 @@ namespace OloEngine
         // Shutdown(). Add any new GPU-owning s_Data member here AND to Shutdown().
         [[nodiscard]] static std::vector<std::string> DebugLiveGpuOwningStatics();
 
+        // How much each owned context (ADR 0025) currently holds. Every count is
+        // zero and ClockAtRest is true on a fresh renderer, so a restart, a
+        // scene reset or a view reset is checked by asking which counts it
+        // returned to zero and which it left alone.
+        struct OwnedStateCensus
+        {
+            // Camera history facts that are set: a previous view position, an
+            // observed temporal projection, a consumed motion-history reset, a
+            // valid Hi-Z pyramid, a non-zero render origin.
+            u32 ViewHistoryFacts = 0;
+            // Previous and current entity and instance transform records.
+            u32 ScenePoseRecords = 0;
+            // Valid environment identities plus an enabled cloudscape.
+            u32 ScenePublications = 0;
+            // Requests, draw links, selection ids, fluid draws and pending pass
+            // callbacks still held.
+            u32 FrameHandOffs = 0;
+            // The sampling sequences and time accumulators are where a fresh
+            // renderer has them.
+            bool ClockAtRest = true;
+        };
+        [[nodiscard]] static OwnedStateCensus DebugOwnedStateCensus();
+
         // Asset hot-reload handler — ensures next frame picks up new RendererIDs
         static void OnAssetReloaded(const AssetReloadedEvent& e);
 
@@ -523,14 +546,22 @@ namespace OloEngine
             [[nodiscard]] u64 Fingerprint() const;
         };
         [[nodiscard]] static FrameSamplingContext GetFrameSamplingContext();
-        // Put the per-frame camera state (render and culling camera matrices,
-        // view positions, the camera-relative render origin, the LOD view) back
-        // to what it is before any scene has rendered. BeginScene overwrites all
-        // of it, so only code that drives a pass WITHOUT a scene needs this: a
-        // Vulkan pass-suite tenant run after a GL test inherited that scene's
-        // render origin of (-1024, 0, 0), and the groom pass shifted its strands
-        // off screen by it (#1484). The culling-freeze toggle is left alone.
+        // Put the view (ADR 0025: render and culling camera, the render origin,
+        // the LOD inputs, camera history, jitter and upscale state) back to what
+        // it is before any scene has rendered, and invalidate its texture
+        // histories. BeginScene overwrites the camera, so only code that drives a
+        // pass WITHOUT a scene needs this: a Vulkan pass-suite tenant run after a
+        // GL test inherited that scene's render origin of (-1024, 0, 0), and the
+        // groom pass shifted its strands off screen by it (#1484). The observer
+        // camera's freeze is re-derived from the settings at the next BeginScene.
+        // Scene state and the frame clock are not touched.
         static void ResetFrameCamera();
+        // Drop what the previous world left in the renderer: object pose
+        // history, environment identities, the scene-published weather and water
+        // settings, the skin and leaf profile slots, and the scene's texture
+        // histories. Call when the world a renderer draws is replaced. Leaves the
+        // view, the frame clock and the GPU Scene records (ResetGPUScene) alone.
+        static void ResetSceneState();
         static void ResetGPUScene();
         [[nodiscard]] static const GPUSceneFrameStats& GetGPUSceneStats();
 
@@ -985,11 +1016,11 @@ namespace OloEngine
         // the horizon (§7.1). Defaults to straight down before any light is seen.
         [[nodiscard]] static const glm::vec3& GetPrimaryDirectionalLightDirection()
         {
-            return s_Data.PrimaryDirectionalLightDir;
+            return s_Data.Scene.PrimaryDirectionalLightDir;
         }
         [[nodiscard]] static const glm::vec3& GetPrimaryDirectionalLightRadiance()
         {
-            return s_Data.PrimaryDirectionalLightRadiance;
+            return s_Data.Scene.PrimaryDirectionalLightRadiance;
         }
         static void SetCameraClipPlanes(f32 nearClip, f32 farClip);
 
@@ -1016,7 +1047,7 @@ namespace OloEngine
         // submitted this frame", never "last frame's is still here".
         [[nodiscard]] static const TArray64<GroomStrandRequest>& GetGroomStrandRequests()
         {
-            return s_Data.GroomStrandRequests;
+            return s_Data.Frame.GroomStrandRequests;
         }
         // Hands `storage` a root-transform ALLOCATION from the frame before
         // (#1533 E1), when it has none big enough and one is pooled. BeginScene
@@ -1053,14 +1084,14 @@ namespace OloEngine
         // the request cannot go stale.
         static void RequestSceneTemporalResolve(u32 stochasticGrooms) noexcept
         {
-            s_Data.PendingSceneTemporalResolveGrooms = stochasticGrooms;
+            s_Data.Frame.PendingSceneTemporalResolveGrooms = stochasticGrooms;
         }
         // What THIS frame's scene asked for, latched at BeginScene. Non-zero
         // with the user's TAAEnabled off means TAA is running on the scene's
         // behalf — the editor says so next to the TAA checkbox.
         [[nodiscard]] static u32 GetSceneTemporalResolveGrooms() noexcept
         {
-            return s_Data.SceneTemporalResolveGrooms;
+            return s_Data.Frame.SceneTemporalResolveGrooms;
         }
         // Whether engine TAA is wanted this frame: the user's setting OR an
         // honoured scene request, latched at BeginScene. Every pipeline site that
@@ -1070,14 +1101,14 @@ namespace OloEngine
         // gate a pass on TemporalUpscalePolicy::ShouldRunEngineTAA(this, ...).
         [[nodiscard]] static bool IsEngineTAAWanted() noexcept
         {
-            return s_Data.EngineTAAWanted;
+            return s_Data.Frame.EngineTAAWanted;
         }
         // Whether FSR2 owns this frame (see TemporalUpscaleActive). Exposed so a
         // caller explaining the resolve can tell "engine TAA runs" from "FSR2
         // runs instead", which IsEngineTAAWanted alone cannot.
         [[nodiscard]] static bool IsTemporalUpscaleActive() noexcept
         {
-            return s_Data.TemporalUpscaleActive;
+            return s_Data.View.TemporalUpscaleActive;
         }
         // The engine-wide stochastic frame counter (#706), for a draw that folds
         // it into a per-pixel pattern a temporal resolve accumulates. Whether to
@@ -1085,7 +1116,7 @@ namespace OloEngine
         // CommandDispatch::DrawFoliageLayer, which freezes it without a resolve).
         [[nodiscard]] static u32 GetStochasticFrameIndex() noexcept
         {
-            return s_Data.StochasticFrameIndex;
+            return s_Data.Clock.StochasticFrameIndex;
         }
         // What reconstructed the LAST PREPARED frame and, when a temporal request
         // fell back, why. Latched beside TemporalUpscaleActive from the same
@@ -1108,13 +1139,13 @@ namespace OloEngine
         };
         [[nodiscard]] static const UpscaleResolutionState& GetUpscaleResolution() noexcept
         {
-            return s_Data.UpscaleResolution;
+            return s_Data.View.UpscaleResolution;
         }
         // Cleared at BeginScene, so an empty list means "no light asked this
         // frame", never "the last frame's list is still here".
         [[nodiscard]] static std::span<const RayTracedShadowLightRequest> GetRayTracedShadowLightRequests()
         {
-            return { s_Data.RayTracedShadowLightRequests.GetData(), static_cast<sizet>(s_Data.RayTracedShadowLightRequests.Num()) };
+            return { s_Data.Frame.RayTracedShadowLightRequests.GetData(), static_cast<sizet>(s_Data.Frame.RayTracedShadowLightRequests.Num()) };
         }
 
         // Upload multi-light UBO data for the current frame (partial: only header + activeLightCount lights)
@@ -1156,19 +1187,19 @@ namespace OloEngine
         // Identity forms — what the command layer's bind cache consumes.
         [[nodiscard]] static RHI::ResourceHandle GetGlobalIrradianceMapHandle()
         {
-            return s_Data.GlobalIrradianceMapID;
+            return s_Data.Scene.GlobalIrradianceMapID;
         }
         [[nodiscard]] static RHI::ResourceHandle GetGlobalPrefilterMapHandle()
         {
-            return s_Data.GlobalPrefilterMapID;
+            return s_Data.Scene.GlobalPrefilterMapID;
         }
         [[nodiscard]] static RHI::ResourceHandle GetGlobalBRDFLutMapHandle()
         {
-            return s_Data.GlobalBRDFLutMapID;
+            return s_Data.Scene.GlobalBRDFLutMapID;
         }
         [[nodiscard]] static RHI::ResourceHandle GetGlobalEnvironmentMapHandle()
         {
-            return s_Data.GlobalEnvironmentMapID;
+            return s_Data.Scene.GlobalEnvironmentMapID;
         }
 
         // Native forms — what RenderPipeline's graph IMPORT consumes, and only
@@ -1183,22 +1214,22 @@ namespace OloEngine
         // ToneMap pass to find the per-pixel water boundary. See §7.2.
         static void SetWaterSurfaceDepthTextureID(RHI::ResourceHandle id)
         {
-            s_Data.WaterSurfaceDepthTextureID = id;
+            s_Data.Frame.WaterSurfaceDepthTextureID = id;
         }
         [[nodiscard]] static RHI::ResourceHandle GetWaterSurfaceDepthTextureID()
         {
-            return s_Data.WaterSurfaceDepthTextureID;
+            return s_Data.Frame.WaterSurfaceDepthTextureID;
         }
         // Planar-reflection colour texture published by PlanarReflectionRenderPass
         // each frame (0 when reflection is disabled / unavailable). Sampled by
         // WaterRenderPass at TEX_WATER_PLANAR_REFLECTION.
         static void SetPlanarReflectionTextureID(RHI::ResourceHandle id)
         {
-            s_Data.PlanarReflectionTextureID = id;
+            s_Data.Frame.PlanarReflectionTextureID = id;
         }
         [[nodiscard]] static RHI::ResourceHandle GetPlanarReflectionTextureID()
         {
-            return s_Data.PlanarReflectionTextureID;
+            return s_Data.Frame.PlanarReflectionTextureID;
         }
         // Per-frame planar-reflection state, pushed from Scene.cpp during water
         // submission and forwarded to PlanarReflectionRenderPass at EndScene.
@@ -1207,14 +1238,14 @@ namespace OloEngine
         // path supports the replay).
         static void SetPlanarReflectionState(const glm::vec4& plane, bool enabled, f32 intensity, f32 distortion)
         {
-            s_Data.PlanarReflectionPlane = plane;
-            s_Data.PlanarReflectionEnabled = enabled;
-            s_Data.PlanarReflectionIntensity = intensity;
-            s_Data.PlanarReflectionDistortion = distortion;
+            s_Data.Frame.PlanarReflectionPlane = plane;
+            s_Data.Frame.PlanarReflectionEnabled = enabled;
+            s_Data.Frame.PlanarReflectionIntensity = intensity;
+            s_Data.Frame.PlanarReflectionDistortion = distortion;
         }
         [[nodiscard]] static f32 GetGlobalIBLIntensity()
         {
-            return s_Data.GlobalIBLIntensity;
+            return s_Data.Scene.GlobalIBLIntensity;
         }
 
         // AssetHandle -> the three-bit slot the G-Buffer names a skin profile by
@@ -1360,11 +1391,11 @@ namespace OloEngine
         }
         static const glm::mat4& GetViewMatrix()
         {
-            return s_Data.ViewMatrix;
+            return s_Data.View.ViewMatrix;
         }
         static const glm::mat4& GetProjectionMatrix()
         {
-            return s_Data.ProjectionMatrix;
+            return s_Data.View.ProjectionMatrix;
         }
 
         // Per-frame camera-relative render origin (issue #429). Every world
@@ -1378,12 +1409,12 @@ namespace OloEngine
         // RenderPipeline::PrepareFrame.
         static const glm::vec3& GetPreviousViewPosition()
         {
-            return s_Data.HasPreviousViewPosition ? s_Data.PreviousViewPos : s_Data.ViewPos;
+            return s_Data.View.HasPreviousViewPosition ? s_Data.View.PreviousViewPos : s_Data.View.ViewPos;
         }
 
         static const glm::vec3& GetRenderOrigin()
         {
-            return s_Data.RenderOrigin;
+            return s_Data.View.RenderOrigin;
         }
 
         // Debug / bisect lever for camera-relative rendering (issue #429). When
@@ -1621,9 +1652,9 @@ namespace OloEngine
         {
             if (entityID < 0)
                 return currTransform;
-            s_Data.CurrEntityTransforms.insert_or_assign(entityID, currTransform);
-            auto prevIt = s_Data.PrevEntityTransforms.find(entityID);
-            return prevIt != s_Data.PrevEntityTransforms.end() ? prevIt->second : currTransform;
+            s_Data.Scene.CurrEntityTransforms.insert_or_assign(entityID, currTransform);
+            auto prevIt = s_Data.Scene.PrevEntityTransforms.find(entityID);
+            return prevIt != s_Data.Scene.PrevEntityTransforms.end() ? prevIt->second : currTransform;
         }
 
         // @brief Instanced variant: record this frame's full transform array for a
@@ -1662,12 +1693,12 @@ namespace OloEngine
             // Record the **full pre-cull** list so per-instance identity
             // survives across frames regardless of which instances were
             // visible this frame.
-            auto& current = s_Data.CurrInstanceTransforms[combinedKey];
+            auto& current = s_Data.Scene.CurrInstanceTransforms[combinedKey];
             current.Reset();
             current.Append(currFullTransforms.data(), static_cast<i64>(currFullTransforms.size()));
 
-            auto prevIt = s_Data.PrevInstanceTransforms.find(combinedKey);
-            const bool haveHistory = (prevIt != s_Data.PrevInstanceTransforms.end()) &&
+            auto prevIt = s_Data.Scene.PrevInstanceTransforms.find(combinedKey);
+            const bool haveHistory = (prevIt != s_Data.Scene.PrevInstanceTransforms.end()) &&
                                      (static_cast<sizet>(prevIt->second.Num()) == currFullTransforms.size());
 
             auto project = [&visibleIndices](std::span<const glm::mat4> src) -> TArray64<glm::mat4>
@@ -1907,11 +1938,11 @@ namespace OloEngine
         // scene's water update loop; consumed by `UnderwaterFogRenderPass`.
         static void SetUnderwaterFogState(const UnderwaterFogState& state)
         {
-            s_Data.UnderwaterFog = state;
+            s_Data.Scene.UnderwaterFog = state;
         }
         [[nodiscard]] static const UnderwaterFogState& GetUnderwaterFogState()
         {
-            return s_Data.UnderwaterFog;
+            return s_Data.Scene.UnderwaterFog;
         }
         [[nodiscard]] static Ref<UniformBuffer> GetUnderwaterFogUBO()
         {
@@ -2137,7 +2168,7 @@ namespace OloEngine
         /// scene, consumed by RenderPipeline's disturbance dispatch.
         static WaterDisturbanceSettings& GetWaterDisturbanceSettings()
         {
-            return s_Data.WaterDisturbance;
+            return s_Data.Scene.WaterDisturbance;
         }
 
         /// Boat / actor wake SHAPE settings (issue #968). Published by the
@@ -2147,7 +2178,7 @@ namespace OloEngine
         /// buoyancy samples.
         static WaterWakeSettings& GetWaterWakeSettings()
         {
-            return s_Data.WaterWakeShape;
+            return s_Data.Scene.WaterWakeShape;
         }
 
         /// Advected open-ocean foam settings (issue #1034, §2.2). Published by
@@ -2157,7 +2188,7 @@ namespace OloEngine
         /// disturbance dispatch.
         static WaterFoam::WaterFoamSettings& GetWaterFoamSettings()
         {
-            return s_Data.WaterFoamAdvection;
+            return s_Data.Scene.WaterFoamAdvection;
         }
 
         static SnowEjectaSettings& GetSnowEjectaSettings()
@@ -2178,11 +2209,11 @@ namespace OloEngine
         // and the AtmosphereShadingUBO upload.
         static void SetCloudscapeState(const CloudscapeRenderState& state)
         {
-            s_Data.Cloudscape = state;
+            s_Data.Scene.Cloudscape = state;
         }
         [[nodiscard]] static const CloudscapeRenderState& GetCloudscapeState()
         {
-            return s_Data.Cloudscape;
+            return s_Data.Scene.Cloudscape;
         }
 
         // Shader library access for PBR material shader selection
@@ -2535,6 +2566,306 @@ namespace OloEngine
         [[nodiscard]] static DeferredGPUOcclusionPass* GetDeferredGPUOcclusionPass();
 
       private:
+        // One camera and everything measured against it (ADR 0025). Reset is
+        // assignment: `s_Data.View = {}` in Shutdown and ResetFrameCamera, so a
+        // field added here cannot be missed by a reset list. Two scene views
+        // (#1352) are two of these.
+        struct RendererViewState
+        {
+            // True once OcclusionHZB has been generated at least once — guards
+            // the first frame, where no retained depth exists yet.
+            bool OcclusionHZBValid = false;
+            glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+            // Inverse of the *world* view-projection (issue #429). The depth was
+            // written by render-relative geometry (ndc = VP_rel * worldPos_rel),
+            // and inverse(VP_world) * ndc == worldPos_ABSOLUTE, so depth-recon
+            // consumers (decals, volumetric fog, underwater) get an absolute world
+            // position for free — the same value the pre-#429 pipeline produced,
+            // so their world-space UBO inputs stay unshifted. A consumer whose
+            // *other* inputs are render-relative (deferred lighting: camera /
+            // lights / shadow matrices) must instead subtract u_RenderOrigin from
+            // the reconstructed position in-shader to match. See
+            // docs/agent-rules/camera-relative-rendering.md.
+            glm::mat4 InverseViewProjectionMatrix = glm::mat4(1.0f);
+            glm::mat4 ViewMatrix = glm::mat4(1.0f);
+            glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
+            // Camera-relative render origin for this frame (issue #429); see
+            // GetRenderOrigin(). (0,0,0) within the first grid cell.
+            glm::vec3 RenderOrigin = glm::vec3(0.0f);
+            // Frustum of the CULLING camera — derived from
+            // CullViewProjectionMatrix, NOT ViewProjectionMatrix (issue #726).
+            Frustum ViewFrustum;
+            glm::vec3 ViewPos{ 0.0f };
+            glm::vec3 PreviousViewPos{ 0.0f };
+            bool HasPreviousViewPosition = false;
+            f32 CameraNearClip = 0.1f;
+            f32 CameraFarClip = 1000.0f;
+            // ---- Culling camera (issue #726) ------------------------------
+            // Mirrors the render camera above one-for-one. RefreshCullingCamera()
+            // copies render -> cull every frame while CullingCameraFrozen is
+            // false, so these are the same matrices in the normal case and the
+            // frozen ones the moment the observer is switched on. World space,
+            // like their render twins; the render-relative copies are derived
+            // where they are uploaded.
+            bool CullingCameraFrozen = false;
+            glm::mat4 CullViewMatrix = glm::mat4(1.0f);
+            glm::mat4 CullProjectionMatrix = glm::mat4(1.0f);
+            glm::mat4 CullViewProjectionMatrix = glm::mat4(1.0f);
+            glm::vec3 CullViewPos = glm::vec3(0.0f);
+            f32 CullNearClip = 0.1f;
+            f32 CullFarClip = 1000.0f;
+            // The culling camera's PREVIOUS-frame view-projection, i.e. the VP
+            // the retained Hi-Z pyramid was rendered with. Deliberately NOT
+            // PrevViewProjectionMatrix: that one is motion-vector history and
+            // must keep tracking the render camera or TAA / motion blur break.
+            // Frozen together with the pyramid itself — see
+            // GenerateOcclusionHZB(), which stops regenerating while frozen so
+            // the depth the occlusion cull tests against stays the depth the
+            // frozen camera actually rendered.
+            glm::mat4 CullPrevViewProjectionMatrix = glm::mat4(1.0f);
+            // Render-origin-relative derivations of the above, recomputed once
+            // per frame in PrepareFrame and consumed by the GPU cull dispatches
+            // (which read render-relative instance transforms, issue #429).
+            // Derived centrally rather than at each dispatch so the three cull
+            // shaders cannot disagree about which origin they were shifted by.
+            glm::mat4 CullViewProjectionRelative = glm::mat4(1.0f);
+            glm::vec3 CullViewPosRelative = glm::vec3(0.0f);
+            // x = |CullProjectionMatrix[1][1]| (cot(fovY/2)), y = near-plane
+            // distance. The virtual-geometry cull's screen-error math needs both
+            // and has no other route to the frozen projection.
+            glm::vec2 CullProjParams = glm::vec2(1.0f, 0.1f);
+            // Pixel-error mesh-LOD selection inputs (issue #711), derived once per
+            // frame in PrepareFrame from the CULLING camera + the render target.
+            // Deliberately carries no view matrix: LOD must not move when the
+            // camera merely rotates, so only position, FOV and resolution are
+            // inputs. Culling camera rather than render camera for the same reason
+            // CullViewPos is used for LOD today (issue #726) — a frozen cut must
+            // keep the levels it was cut with.
+            LODViewParams LODView;
+            glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
+            // The next frame has no previous camera or object pose of its own
+            // (#1348): PrepareFrame aliases the previous view-projection and
+            // jitter to the current ones and drops the transform caches. True
+            // on a fresh renderer, whose identity "previous" VP is no pose.
+            bool MotionHistoryResetPending = true;
+            // Unjittered camera projection observed at BeginScene. A bitwise
+            // change is an explicit temporal discontinuity (FOV/projection mode,
+            // near/far plane); per-frame jitter is applied later and excluded.
+            glm::mat4 TemporalProjectionMatrix = glm::mat4(1.0f);
+            bool HasTemporalProjectionMatrix = false;
+            glm::vec2 CurrJitterUV = glm::vec2(0.0f);
+            glm::vec2 PrevJitterUV = glm::vec2(0.0f);
+            // FSR2 temporal upscaling (#684).
+            //
+            // `TemporalUpscaleActive` is the ONE authoritative answer to "is FSR2
+            // running this frame", derived once per frame at the top of
+            // `RenderPipeline::PrepareFrame(...)` from the settings AND from
+            // whether the backend can actually do it. Everything downstream —
+            // the jitter branch below, the EASU/FSR2/TAA/Upscaler enable calls,
+            // the blackboard resource declaration and the pipeline fingerprint —
+            // reads this rather than re-deriving it, because re-deriving it is
+            // how one site ends up disagreeing with another and the frame ends up
+            // jittered with nothing accumulating it.
+            //
+            // `TemporalUpscaleJitterPixels` is the sub-pixel offset actually
+            // baked into ProjectionMatrix this frame, in RENDER-resolution
+            // pixels. FSR2 subtracts exactly this value, so it is passed to the
+            // pass rather than recomputed there.
+            bool TemporalUpscaleActive = false;
+            UpscaleResolutionState UpscaleResolution;
+            glm::vec2 TemporalUpscaleJitterPixels = glm::vec2(0.0f);
+        };
+
+        // What a loaded world put in the renderer and what is measured against
+        // it (ADR 0025). Advanced once per physical frame; reset by assignment
+        // in ResetSceneState and Shutdown, never by a view.
+        struct RendererSceneState
+        {
+            // The next frame has no previous object pose (#1348): PrepareFrame
+            // drops the transform caches and the GPU Scene's motion history. True
+            // for a fresh renderer and after ResetSceneState; the camera half is
+            // RendererViewState::MotionHistoryResetPending.
+            bool PoseHistoryResetPending = true;
+            // Direction of the scene's primary (first) directional light. Used
+            // by the fog/atmosphere sun-direction derivation; defaults to
+            // straight-down when the scene has no directional light.
+            glm::vec3 PrimaryDirectionalLightDir = glm::vec3(0.0f, -1.0f, 0.0f);
+            glm::vec3 PrimaryDirectionalLightRadiance = glm::vec3(0.0f);
+            // Per-entity transform history for G-Buffer motion vectors. Prev
+            // holds the previous frame's world transform keyed by entityID;
+            // Curr accumulates this frame's transforms and becomes Prev at the
+            // next BeginScene. Only populated / consulted when Deferred is
+            // active — Forward / Forward+ leave these empty.
+            std::unordered_map<i32, glm::mat4> PrevEntityTransforms;
+            std::unordered_map<i32, glm::mat4> CurrEntityTransforms;
+            // Per-mesh per-instance previous-frame transform cache for DrawMeshInstanced.
+            // Keyed by mesh AssetHandle; the array preserves per-instance order
+            // frame-to-frame — callers are expected to submit stable ordering, which
+            // matches how foliage / particle emitters allocate their instance streams.
+            // Only touched from Deferred submission (stays empty in Forward / Forward+).
+            std::unordered_map<u64, TArray64<glm::mat4>> PrevInstanceTransforms;
+            std::unordered_map<u64, TArray64<glm::mat4>> CurrInstanceTransforms;
+            // Volumetric cloudscape / atmosphere per-frame state (issue #633).
+            // Cloudscape: scene-published snapshot (see SetCloudscapeState).
+            // CloudWindOffset/CloudTime: wind-advection accumulators shared by
+            // the raymarch pass and the cloud-shadow compute so both sample
+            // the field at the same scroll position (advanced once per frame
+            // in RenderPipeline::UploadExecutionState from the wind settings).
+            CloudscapeRenderState Cloudscape;
+            UnderwaterFogState UnderwaterFog{};
+            // Boat / actor wake foam (issue #967). Written each frame by
+            // Scene::ProcessScene3DSharedLogic from the dominant enabled
+            // WaterComponent, read by RenderPipeline to drive the disturbance
+            // compute. Reset to defaults (disabled) by BeginScene when the
+            // scene stops publishing, so a scene with no water cannot inherit
+            // the previous one's wake settings.
+            WaterDisturbanceSettings WaterDisturbance;
+            // Advected open-ocean foam (issue #1034, §2.2), published the
+            // same way and reset the same way. Separate from the wake
+            // settings above because the two gate independently: a scene
+            // can advect whitecaps with no boat in it, and a boat can wake
+            // a Gerstner sea that has no fold signal to advect.
+            WaterFoam::WaterFoamSettings WaterFoamAdvection;
+            // Boat / actor wake SHAPE settings (issue #968), published the same
+            // way and reset to the disabled default by BeginScene for the same
+            // reason: a scene with no water must actively clear the wake rather
+            // than inherit the previous scene's.
+            WaterWakeSettings WaterWakeShape;
+            // Global IBL fallback (from scene's EnvironmentMap)
+            RHI::ResourceHandle GlobalIrradianceMapID{};
+            RHI::ResourceHandle GlobalPrefilterMapID{};
+            RHI::ResourceHandle GlobalBRDFLutMapID{};
+            RHI::ResourceHandle GlobalEnvironmentMapID{};
+            // Native siblings of the three above that RenderPipeline imports
+            // into the render graph. Set from the same SetGlobalIBL call so the
+            // two spellings cannot describe different textures.
+            f32 GlobalIBLIntensity = 1.0f;
+        };
+
+        // One frame's hand-offs from the scene and the editor (ADR 0025):
+        // published during the frame, drained or cleared at BeginScene, reset
+        // by assignment in Shutdown.
+        struct RendererFrameState
+        {
+            // See SetRayTracedShadowLightRequests (issue #1056).
+            TArray64<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
+            // See SetGroomStrandRequests (issue #1246).
+            TArray64<GroomStrandRequest> GroomStrandRequests;
+            // See RequestSceneTemporalResolve (issue #1429). Pending is what the
+            // scene published for the NEXT BeginScene; the other two are this
+            // frame's latched answer.
+            u32 PendingSceneTemporalResolveGrooms = 0;
+            u32 SceneTemporalResolveGrooms = 0;
+            bool EngineTAAWanted = false;
+            bool GPUSceneExtractionActive = false;
+            // This frame's draw links (GPUScene/GPUSceneDrawLink.h). Cleared at
+            // BeginGPUSceneExtraction, appended during submission, resolved
+            // once in EndScene. Kept as a vector because a link index is a
+            // plain position: the table is never reordered.
+            TArray64<GPUSceneDrawLink> GPUSceneDrawLinks;
+            bool GPUSceneDrawLinksResolved = false;
+            u32 GPUSceneLinkedDraws = 0;
+            u32 GPUSceneUnlinkedDraws = 0;
+            bool OcclusionResultsAvailable = false;
+            Statistics Stats;
+            u32 CommandCounter = 0;
+            // Auxiliary mesh-caster sink (issue #705) — see SetAuxCasterSink.
+            // Non-owning; null except while a bake path is collecting.
+            TArray<DDGIMeshCaster>* AuxCasterSink = nullptr;
+            // Sphere-proxy AO occluder collection (issue #710). Armed for the
+            // frame by RenderPipeline::PrepareFrame when the proxy pass is on,
+            // filled through AddDDGICaster during scene traversal, and drained
+            // in ConfigurePassesForFrame.
+            //
+            // It rides the DDGI caster funnel rather than the shadow-caster one
+            // for the reason SubmitDDGICasterIfCollecting states about itself:
+            // DDGI casters are deliberately NOT gated on the shadow toggle,
+            // because geometry has to occlude whether or not an artist asked it
+            // for a shadow. Sphere-proxy AO needs exactly that guarantee, and it
+            // needs the other property both lists share — neither is
+            // view-frustum culled, and a proxy that vanished with its object
+            // would defeat the whole feature.
+            bool AOProxyCollecting = false;
+            TArray64<BoundingBox> AOProxyBounds;
+            // Nearest water-surface depth texture for underwater fog (§7.2);
+            // published by WaterRenderPass, consumed by ToneMap. 0 = no water.
+            RHI::ResourceHandle WaterSurfaceDepthTextureID{};
+            // Planar-reflection colour texture published by
+            // PlanarReflectionRenderPass, sampled by WaterRenderPass. 0 = none.
+            RHI::ResourceHandle PlanarReflectionTextureID{};
+            // Per-frame planar-reflection request from Scene.cpp (dominant water
+            // surface), forwarded to PlanarReflectionRenderPass at EndScene.
+            glm::vec4 PlanarReflectionPlane{ 0.0f, 1.0f, 0.0f, 0.0f };
+            bool PlanarReflectionEnabled = false;
+            f32 PlanarReflectionIntensity = 1.0f;
+            f32 PlanarReflectionDistortion = 0.0f;
+            bool ParallelSubmissionActive = false;
+            TArray64<i32> SelectionOutlineEntityIDs;
+            RenderCallback PendingParticleRenderCallback;
+            RenderCallback PendingUICompositeRenderCallback;
+            TArray64<FluidRenderData> PendingFluidDraws; // #630, drained by ConfigurePassesForFrame
+        };
+
+        // The renderer's frame clock (ADR 0025): sampling-sequence indices and
+        // the time accumulators with their baselines. Advanced once per physical
+        // frame, restarted by ResetFrameSequences, reset in Shutdown. A scene
+        // change does not restart it.
+        struct RendererFrameClock
+        {
+            glm::vec2 CloudWindOffset{ 0.0f, 0.0f };
+            f32 CloudTime = 0.0f;
+            u32 CloudFrameIndex = 0;
+            // Previous Time::GetTime() sample for the cloud dt (mockable via
+            // Time::SetMockTime, unlike a steady_clock time point — the
+            // determinism hook the visual-evidence goldens rely on).
+            f32 CloudPrevTimeSeconds = 0.0f;
+            u32 FogFrameIndex = 0;
+            // Previous Time::GetTime() samples for the mockable per-frame dt
+            // idiom (RenderPipeline.cpp's SampleMockableDt, issue #974) —
+            // members rather than function-local statics so
+            // Renderer3DLifecycle's Init/Shutdown reset them and a renderer
+            // re-init in one process cannot leak a stale sample.
+            f32 FogPrevTimeSeconds = 0.0f;
+            f32 AutoExposurePrevTimeSeconds = 0.0f;
+            f32 WindPrevTimeSeconds = 0.0f;
+            f32 FogTime = 0.0f;
+            // Previous Time::GetTime() sample for the wake field's dt — the same
+            // mockable-clock trick CloudPrevTimeSeconds uses, so
+            // Time::SetMockTime freezes the decay for deterministic golden
+            // captures instead of decaying by however long the last frame took.
+            f32 WaterDisturbancePrevTimeSeconds = 0.0f;
+            // TAA projection jitter state (Halton(2,3) sub-pixel sequence).
+            // `RenderPipeline::PrepareFrame(...)` samples the next Halton pair
+            // when EngineTAAWanted (the user OR a scene request, #1429) and
+            // bakes it into `ProjectionMatrix` (and therefore
+            // `ViewProjectionMatrix`), so all downstream passes observe the
+            // jittered camera consistently.
+            //
+            // CurrJitterUV is the offset that jitter puts on every vertex, in
+            // VELOCITY units (the uploaded projection's NDC times 0.5,
+            // TemporalUpscalePolicy::ProjectionJitterVelocityOffset), and
+            // PrevJitterUV the previous frame's, rotated with
+            // PrevViewProjectionMatrix at the end of the frame. Both reach the
+            // camera block (CameraUBO::JitterUV) and the motion-blur block, and
+            // every velocity writer subtracts them (#1552): static content
+            // writes zero. Without a jitter both stay at zero.
+            u32 TAAJitterFrameIndex = 0;
+            u32 TemporalUpscalePhaseIndex = 0;
+            // Engine-wide counter for the shared blue-noise sampler (issue
+            // #706), advanced once per frame in RenderPipeline regardless of
+            // which passes are enabled — see the comment at the increment for
+            // why it must NOT be conditional the way the two indices above are.
+            // Wrapped to 2^20 so it stays exactly representable in the f32 the
+            // SSR / SSGI params blocks carry it in.
+            u32 StochasticFrameIndex = 0;
+            // The run ResetFrameSequences last started (#1348); 0 for a fresh
+            // renderer. Reported by GetFrameSamplingContext only.
+            u32 FrameSequenceSeed = 0;
+            // The seed's toroidal shift of the TAA Halton jitter (#1348): zero
+            // for seeds 0..7, so seed 0 stays the fresh renderer.
+            glm::vec2 TAAJitterRotation{ 0.0f };
+        };
+
         struct Renderer3DData
         {
             Renderer3DData();
@@ -2604,31 +2935,12 @@ namespace OloEngine
             RayTracing::DeformedSurfaceCache DeformedSurfaces;
             RayTracing::VegetationSurfaceCache VegetationSurfaces;
             RayTracing::GroomSurfaceCache GroomSurfaces;
-            // See SetRayTracedShadowLightRequests (issue #1056).
-            TArray64<RayTracedShadowLightRequest> RayTracedShadowLightRequests;
-            // See SetGroomStrandRequests (issue #1246).
-            TArray64<GroomStrandRequest> GroomStrandRequests;
             // See TakePooledGroomRootTransforms (#1533 E1). Refilled at every
             // BeginScene from the requests it clears, so it never holds more
             // than one frame's arrays.
             TArray<TArray<GroomRootTransform>> GroomRootTransformPool;
             // See SetGroomCoatRebakePolicy (issue #1426).
             GroomCoatShadow::CoatRebakePolicy GroomCoatRebakePolicy;
-            // See RequestSceneTemporalResolve (issue #1429). Pending is what the
-            // scene published for the NEXT BeginScene; the other two are this
-            // frame's latched answer.
-            u32 PendingSceneTemporalResolveGrooms = 0;
-            u32 SceneTemporalResolveGrooms = 0;
-            bool EngineTAAWanted = false;
-            bool GPUSceneExtractionActive = false;
-            // This frame's draw links (GPUScene/GPUSceneDrawLink.h). Cleared at
-            // BeginGPUSceneExtraction, appended during submission, resolved
-            // once in EndScene. Kept as a vector because a link index is a
-            // plain position: the table is never reordered.
-            TArray64<GPUSceneDrawLink> GPUSceneDrawLinks;
-            bool GPUSceneDrawLinksResolved = false;
-            u32 GPUSceneLinkedDraws = 0;
-            u32 GPUSceneUnlinkedDraws = 0;
 
             // GPU-side per-instance frustum cull pre-pass. Used by
             // `DrawMeshInstanced` when the input count crosses
@@ -2657,9 +2969,6 @@ namespace OloEngine
             // (the two-pass refinement that removes the popping is a documented
             // follow-up). Mirrors RendererSettings::HZBOcclusionCullingEnabled.
             bool HZBOcclusionCullingEnabled = false;
-            // True once OcclusionHZB has been generated at least once — guards
-            // the first frame, where no retained depth exists yet.
-            bool OcclusionHZBValid = false;
             // Device-Z slack subtracted before an instance is rejected as
             // occluded. Larger = more conservative (fewer false culls).
             f32 HZBOcclusionDepthBias = 0.0f;
@@ -2686,136 +2995,21 @@ namespace OloEngine
             // static — see docs/agent-rules/lazy-static-release-ownership.md.
             Ref<Texture2DArray> LightmapPlaceholderAtlas;
 
-            glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
-            // Inverse of the *world* view-projection (issue #429). The depth was
-            // written by render-relative geometry (ndc = VP_rel * worldPos_rel),
-            // and inverse(VP_world) * ndc == worldPos_ABSOLUTE, so depth-recon
-            // consumers (decals, volumetric fog, underwater) get an absolute world
-            // position for free — the same value the pre-#429 pipeline produced,
-            // so their world-space UBO inputs stay unshifted. A consumer whose
-            // *other* inputs are render-relative (deferred lighting: camera /
-            // lights / shadow matrices) must instead subtract u_RenderOrigin from
-            // the reconstructed position in-shader to match. See
-            // docs/agent-rules/camera-relative-rendering.md.
-            glm::mat4 InverseViewProjectionMatrix = glm::mat4(1.0f);
-            glm::mat4 ViewMatrix = glm::mat4(1.0f);
-            glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
-            // Camera-relative render origin for this frame (issue #429); see
-            // GetRenderOrigin(). (0,0,0) within the first grid cell.
-            glm::vec3 RenderOrigin = glm::vec3(0.0f);
             // Debug lever: when false the render origin is pinned to (0,0,0) so
             // the renderer reverts to exact pre-#429 world-space behaviour.
             bool CameraRelativeEnabled = true;
 
-            // Frustum of the CULLING camera — derived from
-            // CullViewProjectionMatrix, NOT ViewProjectionMatrix (issue #726).
-            Frustum ViewFrustum;
             bool FrustumCullingEnabled = true;
             bool DynamicCullingEnabled = true;
             bool DepthPrepassEnabled = false;
             bool DepthAwareClusterCullingEnabled = true;
             bool OcclusionCullingEnabled = false;
-            bool OcclusionResultsAvailable = false;
-
-            glm::vec3 ViewPos;
-            glm::vec3 PreviousViewPos{ 0.0f };
-            bool HasPreviousViewPosition = false;
-            // Direction of the scene's primary (first) directional light. Used
-            // by the fog/atmosphere sun-direction derivation; defaults to
-            // straight-down when the scene has no directional light.
-            glm::vec3 PrimaryDirectionalLightDir = glm::vec3(0.0f, -1.0f, 0.0f);
-            glm::vec3 PrimaryDirectionalLightRadiance = glm::vec3(0.0f);
-            f32 CameraNearClip = 0.1f;
-            f32 CameraFarClip = 1000.0f;
-
-            // ---- Culling camera (issue #726) ------------------------------
-            // Mirrors the render camera above one-for-one. RefreshCullingCamera()
-            // copies render -> cull every frame while CullingCameraFrozen is
-            // false, so these are the same matrices in the normal case and the
-            // frozen ones the moment the observer is switched on. World space,
-            // like their render twins; the render-relative copies are derived
-            // where they are uploaded.
-            bool CullingCameraFrozen = false;
-            glm::mat4 CullViewMatrix = glm::mat4(1.0f);
-            glm::mat4 CullProjectionMatrix = glm::mat4(1.0f);
-            glm::mat4 CullViewProjectionMatrix = glm::mat4(1.0f);
-            glm::vec3 CullViewPos = glm::vec3(0.0f);
-            f32 CullNearClip = 0.1f;
-            f32 CullFarClip = 1000.0f;
-            // The culling camera's PREVIOUS-frame view-projection, i.e. the VP
-            // the retained Hi-Z pyramid was rendered with. Deliberately NOT
-            // PrevViewProjectionMatrix: that one is motion-vector history and
-            // must keep tracking the render camera or TAA / motion blur break.
-            // Frozen together with the pyramid itself — see
-            // GenerateOcclusionHZB(), which stops regenerating while frozen so
-            // the depth the occlusion cull tests against stays the depth the
-            // frozen camera actually rendered.
-            glm::mat4 CullPrevViewProjectionMatrix = glm::mat4(1.0f);
-            // Render-origin-relative derivations of the above, recomputed once
-            // per frame in PrepareFrame and consumed by the GPU cull dispatches
-            // (which read render-relative instance transforms, issue #429).
-            // Derived centrally rather than at each dispatch so the three cull
-            // shaders cannot disagree about which origin they were shifted by.
-            glm::mat4 CullViewProjectionRelative = glm::mat4(1.0f);
-            glm::vec3 CullViewPosRelative = glm::vec3(0.0f);
-            // x = |CullProjectionMatrix[1][1]| (cot(fovY/2)), y = near-plane
-            // distance. The virtual-geometry cull's screen-error math needs both
-            // and has no other route to the frozen projection.
-            glm::vec2 CullProjParams = glm::vec2(1.0f, 0.1f);
-
-            // Pixel-error mesh-LOD selection inputs (issue #711), derived once per
-            // frame in PrepareFrame from the CULLING camera + the render target.
-            // Deliberately carries no view matrix: LOD must not move when the
-            // camera merely rotates, so only position, FOV and resolution are
-            // inputs. Culling camera rather than render camera for the same reason
-            // CullViewPos is used for LOD today (issue #726) — a frozen cut must
-            // keep the levels it was cut with.
-            LODViewParams LODView;
-
-            Statistics Stats;
-            u32 CommandCounter = 0;
 
             // Global resource registry for scene-wide resources like environment maps, shadows, etc.
             ShaderResourceRegistry GlobalResourceRegistry;
 
-            // Per-entity transform history for G-Buffer motion vectors. Prev
-            // holds the previous frame's world transform keyed by entityID;
-            // Curr accumulates this frame's transforms and becomes Prev at the
-            // next BeginScene. Only populated / consulted when Deferred is
-            // active — Forward / Forward+ leave these empty.
-            std::unordered_map<i32, glm::mat4> PrevEntityTransforms;
-            std::unordered_map<i32, glm::mat4> CurrEntityTransforms;
-
-            // Per-mesh per-instance previous-frame transform cache for DrawMeshInstanced.
-            // Keyed by mesh AssetHandle; the array preserves per-instance order
-            // frame-to-frame — callers are expected to submit stable ordering, which
-            // matches how foliage / particle emitters allocate their instance streams.
-            // Only touched from Deferred submission (stays empty in Forward / Forward+).
-            std::unordered_map<u64, TArray64<glm::mat4>> PrevInstanceTransforms;
-            std::unordered_map<u64, TArray64<glm::mat4>> CurrInstanceTransforms;
-
             Ref<RenderGraph> RGraph;
             std::unique_ptr<RenderPipeline> Pipeline;
-
-            // Auxiliary mesh-caster sink (issue #705) — see SetAuxCasterSink.
-            // Non-owning; null except while a bake path is collecting.
-            TArray<DDGIMeshCaster>* AuxCasterSink = nullptr;
-
-            // Sphere-proxy AO occluder collection (issue #710). Armed for the
-            // frame by RenderPipeline::PrepareFrame when the proxy pass is on,
-            // filled through AddDDGICaster during scene traversal, and drained
-            // in ConfigurePassesForFrame.
-            //
-            // It rides the DDGI caster funnel rather than the shadow-caster one
-            // for the reason SubmitDDGICasterIfCollecting states about itself:
-            // DDGI casters are deliberately NOT gated on the shadow toggle,
-            // because geometry has to occlude whether or not an artist asked it
-            // for a shadow. Sphere-proxy AO needs exactly that guarantee, and it
-            // needs the other property both lists share — neither is
-            // view-frustum culled, and a proxy that vanished with its object
-            // would defeat the whole feature.
-            bool AOProxyCollecting = false;
-            TArray64<BoundingBox> AOProxyBounds;
 
             // True once Init() has allocated the renderer's one-shot singletons
             // (FrameDataBufferManager, FrameResourceManager, command dispatch, …).
@@ -2903,21 +3097,6 @@ namespace OloEngine
             DecalVisibilityObservation LastDecalVisibilityObservation{};
             i32 LastDecalVisibilityEntity = -1;
 
-            // Volumetric cloudscape / atmosphere per-frame state (issue #633).
-            // Cloudscape: scene-published snapshot (see SetCloudscapeState).
-            // CloudWindOffset/CloudTime: wind-advection accumulators shared by
-            // the raymarch pass and the cloud-shadow compute so both sample
-            // the field at the same scroll position (advanced once per frame
-            // in RenderPipeline::UploadExecutionState from the wind settings).
-            CloudscapeRenderState Cloudscape;
-            glm::vec2 CloudWindOffset{ 0.0f, 0.0f };
-            f32 CloudTime = 0.0f;
-            u32 CloudFrameIndex = 0;
-            // Previous Time::GetTime() sample for the cloud dt (mockable via
-            // Time::SetMockTime, unlike a steady_clock time point — the
-            // determinism hook the visual-evidence goldens rely on).
-            f32 CloudPrevTimeSeconds = 0.0f;
-
             // Post-processing
             PostProcessSettings PostProcess;
             SnowSettings Snow;
@@ -2927,121 +3106,12 @@ namespace OloEngine
             // diffuses the separated diffuse half through an authored profile.
             SkinDiffusionSettings SkinDiffusion;
             FogSettings Fog;
-            u32 FogFrameIndex = 0;
-            // Previous Time::GetTime() samples for the mockable per-frame dt
-            // idiom (RenderPipeline.cpp's SampleMockableDt, issue #974) —
-            // members rather than function-local statics so
-            // Renderer3DLifecycle's Init/Shutdown reset them and a renderer
-            // re-init in one process cannot leak a stale sample.
-            f32 FogPrevTimeSeconds = 0.0f;
-            f32 AutoExposurePrevTimeSeconds = 0.0f;
-            f32 WindPrevTimeSeconds = 0.0f;
-            f32 FogTime = 0.0f;
-            UnderwaterFogState UnderwaterFog{};
             Ref<UniformBuffer> UnderwaterFogBuffer;
             WindSettings Wind;
             bool WindPaused = false;
-            // Boat / actor wake foam (issue #967). Written each frame by
-            // Scene::ProcessScene3DSharedLogic from the dominant enabled
-            // WaterComponent, read by RenderPipeline to drive the disturbance
-            // compute. Reset to defaults (disabled) by BeginScene when the
-            // scene stops publishing, so a scene with no water cannot inherit
-            // the previous one's wake settings.
-            WaterDisturbanceSettings WaterDisturbance;
-            // Advected open-ocean foam (issue #1034, §2.2), published the
-            // same way and reset the same way. Separate from the wake
-            // settings above because the two gate independently: a scene
-            // can advect whitecaps with no boat in it, and a boat can wake
-            // a Gerstner sea that has no fold signal to advect.
-            WaterFoam::WaterFoamSettings WaterFoamAdvection;
-            // Boat / actor wake SHAPE settings (issue #968), published the same
-            // way and reset to the disabled default by BeginScene for the same
-            // reason: a scene with no water must actively clear the wake rather
-            // than inherit the previous scene's.
-            WaterWakeSettings WaterWakeShape;
-            // Previous Time::GetTime() sample for the wake field's dt — the same
-            // mockable-clock trick CloudPrevTimeSeconds uses, so
-            // Time::SetMockTime freezes the decay for deterministic golden
-            // captures instead of decaying by however long the last frame took.
-            f32 WaterDisturbancePrevTimeSeconds = 0.0f;
             SnowAccumulationSettings SnowAccumulation;
             SnowEjectaSettings SnowEjecta;
             PrecipitationSettings Precipitation;
-            glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
-            // The next frame has no previous camera or object pose of its own
-            // (#1348): PrepareFrame aliases the previous view-projection and
-            // jitter to the current ones and drops the transform caches. True
-            // on a fresh renderer, whose identity "previous" VP is no pose.
-            bool MotionHistoryResetPending = true;
-            // Unjittered camera projection observed at BeginScene. A bitwise
-            // change is an explicit temporal discontinuity (FOV/projection mode,
-            // near/far plane); per-frame jitter is applied later and excluded.
-            glm::mat4 TemporalProjectionMatrix = glm::mat4(1.0f);
-            bool HasTemporalProjectionMatrix = false;
-
-            // TAA projection jitter state (Halton(2,3) sub-pixel sequence).
-            // `RenderPipeline::PrepareFrame(...)` samples the next Halton pair
-            // when EngineTAAWanted (the user OR a scene request, #1429) and
-            // bakes it into `ProjectionMatrix` (and therefore
-            // `ViewProjectionMatrix`), so all downstream passes observe the
-            // jittered camera consistently.
-            //
-            // CurrJitterUV is the offset that jitter puts on every vertex, in
-            // VELOCITY units (the uploaded projection's NDC times 0.5,
-            // TemporalUpscalePolicy::ProjectionJitterVelocityOffset), and
-            // PrevJitterUV the previous frame's, rotated with
-            // PrevViewProjectionMatrix at the end of the frame. Both reach the
-            // camera block (CameraUBO::JitterUV) and the motion-blur block, and
-            // every velocity writer subtracts them (#1552): static content
-            // writes zero. Without a jitter both stay at zero.
-            u32 TAAJitterFrameIndex = 0;
-            glm::vec2 CurrJitterUV = glm::vec2(0.0f);
-            glm::vec2 PrevJitterUV = glm::vec2(0.0f);
-
-            // FSR2 temporal upscaling (#684).
-            //
-            // `TemporalUpscaleActive` is the ONE authoritative answer to "is FSR2
-            // running this frame", derived once per frame at the top of
-            // `RenderPipeline::PrepareFrame(...)` from the settings AND from
-            // whether the backend can actually do it. Everything downstream —
-            // the jitter branch below, the EASU/FSR2/TAA/Upscaler enable calls,
-            // the blackboard resource declaration and the pipeline fingerprint —
-            // reads this rather than re-deriving it, because re-deriving it is
-            // how one site ends up disagreeing with another and the frame ends up
-            // jittered with nothing accumulating it.
-            //
-            // `TemporalUpscaleJitterPixels` is the sub-pixel offset actually
-            // baked into ProjectionMatrix this frame, in RENDER-resolution
-            // pixels. FSR2 subtracts exactly this value, so it is passed to the
-            // pass rather than recomputed there.
-            bool TemporalUpscaleActive = false;
-            UpscaleResolutionState UpscaleResolution;
-            u32 TemporalUpscalePhaseIndex = 0;
-            glm::vec2 TemporalUpscaleJitterPixels = glm::vec2(0.0f);
-
-            // Engine-wide counter for the shared blue-noise sampler (issue
-            // #706), advanced once per frame in RenderPipeline regardless of
-            // which passes are enabled — see the comment at the increment for
-            // why it must NOT be conditional the way the two indices above are.
-            // Wrapped to 2^20 so it stays exactly representable in the f32 the
-            // SSR / SSGI params blocks carry it in.
-            u32 StochasticFrameIndex = 0;
-            // The run ResetFrameSequences last started (#1348); 0 for a fresh
-            // renderer. Reported by GetFrameSamplingContext only.
-            u32 FrameSequenceSeed = 0;
-            // The seed's toroidal shift of the TAA Halton jitter (#1348): zero
-            // for seeds 0..7, so seed 0 stays the fresh renderer.
-            glm::vec2 TAAJitterRotation{ 0.0f };
-
-            // Global IBL fallback (from scene's EnvironmentMap)
-            RHI::ResourceHandle GlobalIrradianceMapID{};
-            RHI::ResourceHandle GlobalPrefilterMapID{};
-            RHI::ResourceHandle GlobalBRDFLutMapID{};
-            RHI::ResourceHandle GlobalEnvironmentMapID{};
-            // Native siblings of the three above that RenderPipeline imports
-            // into the render graph. Set from the same SetGlobalIBL call so the
-            // two spellings cannot describe different textures.
-            f32 GlobalIBLIntensity = 1.0f;
 
             // Skin profile identity table (issue #1231).
             SkinProfileTable SkinProfiles;
@@ -3049,24 +3119,8 @@ namespace OloEngine
             // the G-Buffer's three-bit profile-slot field.
             FoliageLeafProfileTable FoliageLeafProfiles;
 
-            // Nearest water-surface depth texture for underwater fog (§7.2);
-            // published by WaterRenderPass, consumed by ToneMap. 0 = no water.
-            RHI::ResourceHandle WaterSurfaceDepthTextureID{};
-
-            // Planar-reflection colour texture published by
-            // PlanarReflectionRenderPass, sampled by WaterRenderPass. 0 = none.
-            RHI::ResourceHandle PlanarReflectionTextureID{};
-
-            // Per-frame planar-reflection request from Scene.cpp (dominant water
-            // surface), forwarded to PlanarReflectionRenderPass at EndScene.
-            glm::vec4 PlanarReflectionPlane{ 0.0f, 1.0f, 0.0f, 0.0f };
-            bool PlanarReflectionEnabled = false;
-            f32 PlanarReflectionIntensity = 1.0f;
-            f32 PlanarReflectionDistortion = 0.0f;
-
             // Parallel submission state
             ParallelSceneContext ParallelContext;
-            bool ParallelSubmissionActive = false;
 
             // Forward+ light culling
             TiledForwardPlus ForwardPlus;
@@ -3095,10 +3149,14 @@ namespace OloEngine
 
             // Editor-only features gated behind opt-in flags
             bool EnableSelectionOutline = false;
-            TArray64<i32> SelectionOutlineEntityIDs;
-            RenderCallback PendingParticleRenderCallback;
-            RenderCallback PendingUICompositeRenderCallback;
-            TArray64<FluidRenderData> PendingFluidDraws; // #630, drained by ConfigurePassesForFrame
+
+            // The owned contexts (ADR 0025). Everything above and below this
+            // block is a device object, a scene or view GPU resource with its
+            // own Shutdown, or configuration.
+            RendererViewState View;
+            RendererSceneState Scene;
+            RendererFrameState Frame;
+            RendererFrameClock Clock;
         };
 
         static Renderer3DData s_Data;

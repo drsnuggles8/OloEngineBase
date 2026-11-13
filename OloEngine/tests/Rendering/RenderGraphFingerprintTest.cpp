@@ -111,10 +111,10 @@ namespace OloEngine::Tests
             Renderer3D::Renderer3DData data;
             data.Settings = RendererSettings{};
             data.Settings.Path = RenderingPath::Deferred;
-            data.GlobalIrradianceMapID = ibl.Irradiance;
-            data.GlobalPrefilterMapID = ibl.Prefilter;
-            data.GlobalBRDFLutMapID = ibl.BRDFLut;
-            data.GlobalEnvironmentMapID = ibl.Environment;
+            data.Scene.GlobalIrradianceMapID = ibl.Irradiance;
+            data.Scene.GlobalPrefilterMapID = ibl.Prefilter;
+            data.Scene.GlobalBRDFLutMapID = ibl.BRDFLut;
+            data.Scene.GlobalEnvironmentMapID = ibl.Environment;
             return data.Pipeline->ComputeDeclarationKey(data);
         }
 
@@ -302,7 +302,7 @@ namespace OloEngine::Tests
             // PrepareFrame before the key is captured. Toggling the setting
             // alone here would test a field PopulateBlackboard no longer reads.
             { "EngineTAAWanted", [](Access::Data& d)
-              { d.EngineTAAWanted = !d.EngineTAAWanted; } },
+              { d.Frame.EngineTAAWanted = !d.Frame.EngineTAAWanted; } },
             { "CASEnabled", [](Access::Data& d)
               { d.PostProcess.CASEnabled = !d.PostProcess.CASEnabled; } },
             { "ChromaticAberrationEnabled", [](Access::Data& d)
@@ -320,7 +320,7 @@ namespace OloEngine::Tests
             { "Fog.Enabled", [](Access::Data& d)
               { d.Fog.Enabled = !d.Fog.Enabled; } },
             { "Cloudscape.Enabled", [](Access::Data& d)
-              { d.Cloudscape.Enabled = !d.Cloudscape.Enabled; } },
+              { d.Scene.Cloudscape.Enabled = !d.Scene.Cloudscape.Enabled; } },
             // #1333, U2: missing from the old fingerprint entirely.
             { "Precipitation screen effects", [](Access::Data& d)
               {
@@ -622,23 +622,23 @@ namespace OloEngine::Tests
     {
         const std::vector<Toggle> executionOnly = {
             { "ViewMatrix", [](Access::Data& d)
-              { d.ViewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 1.0f, -2.0f)); } },
+              { d.View.ViewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(3.0f, 1.0f, -2.0f)); } },
             { "ProjectionMatrix", [](Access::Data& d)
-              { d.ProjectionMatrix = glm::perspective(0.9f, 1.7f, 0.1f, 500.0f); } },
+              { d.View.ProjectionMatrix = glm::perspective(0.9f, 1.7f, 0.1f, 500.0f); } },
             { "ViewProjectionMatrix", [](Access::Data& d)
-              { d.ViewProjectionMatrix = glm::perspective(0.9f, 1.7f, 0.1f, 500.0f); } },
+              { d.View.ViewProjectionMatrix = glm::perspective(0.9f, 1.7f, 0.1f, 500.0f); } },
             { "PrevViewProjectionMatrix", [](Access::Data& d)
-              { d.PrevViewProjectionMatrix = glm::perspective(0.8f, 1.7f, 0.1f, 500.0f); } },
+              { d.View.PrevViewProjectionMatrix = glm::perspective(0.8f, 1.7f, 0.1f, 500.0f); } },
             { "ViewPos", [](Access::Data& d)
-              { d.ViewPos = glm::vec3(12.0f, 4.0f, -30.0f); } },
+              { d.View.ViewPos = glm::vec3(12.0f, 4.0f, -30.0f); } },
             { "CurrJitterUV", [](Access::Data& d)
-              { d.CurrJitterUV = glm::vec2(0.25f, -0.125f); } },
+              { d.View.CurrJitterUV = glm::vec2(0.25f, -0.125f); } },
             { "TAAJitterFrameIndex", [](Access::Data& d)
-              { d.TAAJitterFrameIndex += 7u; } },
+              { d.Clock.TAAJitterFrameIndex += 7u; } },
             { "StochasticFrameIndex", [](Access::Data& d)
-              { d.StochasticFrameIndex += 7u; } },
+              { d.Clock.StochasticFrameIndex += 7u; } },
             { "CloudFrameIndex", [](Access::Data& d)
-              { d.CloudFrameIndex += 7u; } },
+              { d.Clock.CloudFrameIndex += 7u; } },
             { "BloomThreshold", [](Access::Data& d)
               { d.PostProcess.BloomThreshold += 0.5f; } },
             { "Exposure", [](Access::Data& d)
@@ -652,7 +652,7 @@ namespace OloEngine::Tests
               { d.PostProcess.MotionBlurStrength += 0.25f; } },
             // #1333, O1-O3: hashed by the old fingerprint, read only in Execute.
             { "GlobalEnvironmentMapID", [](Access::Data& d)
-              { d.GlobalEnvironmentMapID = TestHandle(77u); } },
+              { d.Scene.GlobalEnvironmentMapID = TestHandle(77u); } },
             { "RayTracedReflection.TierDebugView", [](Access::Data& d)
               { d.PostProcess.RayTracedReflection.TierDebugView = !d.PostProcess.RayTracedReflection.TierDebugView; } },
             { "SkinDiffusion.Quality", [](Access::Data& d)
