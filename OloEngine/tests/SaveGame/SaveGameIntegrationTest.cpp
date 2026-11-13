@@ -135,6 +135,30 @@ TEST_F(SaveGameIntegrationTest, CaptureAndRestoreWithEntities)
     EXPECT_TRUE(foundSprite);
 }
 
+// Skin diffusion became a scene setting in format 50 (issue #1689): a save
+// carries it, and a restore replaces whatever the target scene held.
+TEST_F(SaveGameIntegrationTest, SkinDiffusionSettingsSurviveCaptureAndRestore)
+{
+    SkinDiffusionSettings authored;
+    authored.Enabled = false;
+    authored.Quality = SkinDiffusionQuality::High;
+    authored.DepthRejectionScale = 3.5f;
+    authored.RadiusScale = 1.75f;
+    ASSERT_NE(authored, SkinDiffusionSettings{});
+    m_Scene->SetSkinDiffusionSettings(authored);
+
+    const auto payload = SaveGameSerializer::CaptureSceneState(*m_Scene);
+    ASSERT_GT(payload.size(), 0u);
+
+    Ref<Scene> restored = Ref<Scene>::Create();
+    restored->GetSkinDiffusionSettings().RadiusScale = 0.25f;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*restored, payload));
+    EXPECT_EQ(restored->GetSkinDiffusionSettings(), authored);
+
+    // The play-mode copy carries it too (scene-copy-must-carry-scene-level-settings.md).
+    EXPECT_EQ(Scene::Copy(m_Scene)->GetSkinDiffusionSettings(), authored);
+}
+
 TEST_F(SaveGameIntegrationTest, FullFileRoundTrip)
 {
     // Create test entity

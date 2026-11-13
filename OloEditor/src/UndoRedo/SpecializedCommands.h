@@ -68,6 +68,7 @@ namespace OloEngine
         WindSettings Wind;
         SnowAccumulationSettings SnowAccumulation;
         SnowEjectaSettings SnowEjecta;
+        SkinDiffusionSettings SkinDiffusion;
         PrecipitationSettings Precipitation;
         FogSettings Fog;
 
@@ -79,6 +80,7 @@ namespace OloEngine
                 Renderer3D::GetWindSettings(),
                 Renderer3D::GetSnowAccumulationSettings(),
                 Renderer3D::GetSnowEjectaSettings(),
+                Renderer3D::GetSkinDiffusionSettings(),
                 Renderer3D::GetPrecipitationSettings(),
                 Renderer3D::GetFogSettings()
             };
@@ -91,6 +93,7 @@ namespace OloEngine
             Renderer3D::GetWindSettings() = Wind;
             Renderer3D::GetSnowAccumulationSettings() = SnowAccumulation;
             Renderer3D::GetSnowEjectaSettings() = SnowEjecta;
+            Renderer3D::GetSkinDiffusionSettings() = SkinDiffusion;
             Renderer3D::GetPrecipitationSettings() = Precipitation;
             Renderer3D::GetFogSettings() = Fog;
         }

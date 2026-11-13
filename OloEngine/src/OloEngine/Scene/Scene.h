@@ -880,6 +880,19 @@ namespace OloEngine
             return m_SnowEjectaSettings;
         }
 
+        void SetSkinDiffusionSettings(const SkinDiffusionSettings& settings)
+        {
+            m_SkinDiffusionSettings = settings;
+        }
+        [[nodiscard]] const SkinDiffusionSettings& GetSkinDiffusionSettings() const
+        {
+            return m_SkinDiffusionSettings;
+        }
+        [[nodiscard]] SkinDiffusionSettings& GetSkinDiffusionSettings()
+        {
+            return m_SkinDiffusionSettings;
+        }
+
         void SetPrecipitationSettings(const PrecipitationSettings& settings)
         {
             m_PrecipitationSettings = settings;
@@ -1504,6 +1517,7 @@ namespace OloEngine
         WindSettings m_WindSettings;                            // Wind simulation settings
         SnowAccumulationSettings m_SnowAccumulationSettings;    // Snow accumulation & deformation
         SnowEjectaSettings m_SnowEjectaSettings;                // Snow ejecta particle settings
+        SkinDiffusionSettings m_SkinDiffusionSettings;          // Skin subsurface diffusion settings (issue #1689)
         PrecipitationSettings m_PrecipitationSettings;          // Precipitation system settings
         StreamingSettings m_StreamingSettings;                  // Scene streaming settings
         WorldOriginSettings m_WorldOriginSettings;              // Floating-origin / rebase config (issue #429)

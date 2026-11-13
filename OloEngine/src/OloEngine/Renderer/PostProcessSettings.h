@@ -1358,6 +1358,8 @@ namespace OloEngine
         // the physical answer; the slider exists because "physically correct and
         // slightly too much" is a real note to get on a face.
         f32 RadiusScale = 1.0f;
+
+        bool operator==(const SkinDiffusionSettings&) const = default;
     };
 
     // GPU-side UBO layout for the skin diffusion pass (std140, binding 14 —

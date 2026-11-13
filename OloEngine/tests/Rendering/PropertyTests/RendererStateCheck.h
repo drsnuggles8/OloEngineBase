@@ -98,6 +98,7 @@ namespace OloEngine::Tests::RendererState
         WaterWakeSettings WaterWakeShape{};
         WaterFoam::WaterFoamSettings WaterFoamAdvection{};
         SnowEjectaSettings SnowEjecta{};
+        SkinDiffusionSettings SkinDiffusion{};
         PrecipitationSettings Precipitation{};
 
         // --- Scene-published render state ---

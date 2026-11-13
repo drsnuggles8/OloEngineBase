@@ -230,14 +230,14 @@ namespace OloEngine::SceneTransition
     {
         return { scene.GetPostProcessSettings(), scene.GetSnowSettings(), scene.GetWindSettings(),
                  scene.GetSnowAccumulationSettings(), scene.GetSnowEjectaSettings(),
-                 scene.GetPrecipitationSettings(), scene.GetFogSettings(), scene.GetRenderingPath() };
+                 scene.GetSkinDiffusionSettings(), scene.GetPrecipitationSettings(), scene.GetFogSettings(), scene.GetRenderingPath() };
     }
 
     SceneRenderSettings SceneRenderSettings::CaptureRenderer()
     {
         return { Renderer3D::GetPostProcessSettings(), Renderer3D::GetSnowSettings(), Renderer3D::GetWindSettings(),
                  Renderer3D::GetSnowAccumulationSettings(), Renderer3D::GetSnowEjectaSettings(),
-                 Renderer3D::GetPrecipitationSettings(), Renderer3D::GetFogSettings(),
+                 Renderer3D::GetSkinDiffusionSettings(), Renderer3D::GetPrecipitationSettings(), Renderer3D::GetFogSettings(),
                  Renderer3D::GetRendererSettings().Path };
     }
 
@@ -248,6 +248,7 @@ namespace OloEngine::SceneTransition
         scene.SetWindSettings(Wind);
         scene.SetSnowAccumulationSettings(SnowAccumulation);
         scene.SetSnowEjectaSettings(SnowEjecta);
+        scene.SetSkinDiffusionSettings(SkinDiffusion);
         scene.SetPrecipitationSettings(Precipitation);
         scene.SetFogSettings(Fog);
         scene.SetRenderingPath(Path);
@@ -260,6 +261,7 @@ namespace OloEngine::SceneTransition
         Renderer3D::GetWindSettings() = Wind;
         Renderer3D::GetSnowAccumulationSettings() = SnowAccumulation;
         Renderer3D::GetSnowEjectaSettings() = SnowEjecta;
+        Renderer3D::GetSkinDiffusionSettings() = SkinDiffusion;
         Renderer3D::GetPrecipitationSettings() = Precipitation;
         Renderer3D::GetFogSettings() = Fog;
         Renderer3D::GetRendererSettings().Path = Path;

@@ -66,6 +66,7 @@ namespace OloEngine::Tests::RendererState
     X(WaterWakeShape, "WaterWakeSettings", Renderer3D::GetWaterWakeSettings())                 \
     X(WaterFoamAdvection, "WaterFoamSettings", Renderer3D::GetWaterFoamSettings())             \
     X(SnowEjecta, "SnowEjectaSettings", Renderer3D::GetSnowEjectaSettings())                   \
+    X(SkinDiffusion, "SkinDiffusionSettings", Renderer3D::GetSkinDiffusionSettings())          \
     X(Precipitation, "PrecipitationSettings", Renderer3D::GetPrecipitationSettings())          \
     X(Cloudscape, "CloudscapeRenderState", Renderer3D::GetCloudscapeState())                   \
     X(UnderwaterFog, "UnderwaterFogState", Renderer3D::GetUnderwaterFogState())
@@ -194,6 +195,7 @@ namespace OloEngine::Tests::RendererState
         Renderer3D::GetWaterWakeSettings() = snapshot.WaterWakeShape;
         Renderer3D::GetWaterFoamSettings() = snapshot.WaterFoamAdvection;
         Renderer3D::GetSnowEjectaSettings() = snapshot.SnowEjecta;
+        Renderer3D::GetSkinDiffusionSettings() = snapshot.SkinDiffusion;
         Renderer3D::GetPrecipitationSettings() = snapshot.Precipitation;
         Renderer3D::SetCloudscapeState(snapshot.Cloudscape);
         Renderer3D::SetUnderwaterFogState(snapshot.UnderwaterFog);

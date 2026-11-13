@@ -553,6 +553,7 @@ namespace OloEngine
         newScene->m_SnowSettings = other->m_SnowSettings;
         newScene->m_SnowAccumulationSettings = other->m_SnowAccumulationSettings;
         newScene->m_SnowEjectaSettings = other->m_SnowEjectaSettings;
+        newScene->m_SkinDiffusionSettings = other->m_SkinDiffusionSettings;
         newScene->m_PrecipitationSettings = other->m_PrecipitationSettings;
         // Floating-origin config must survive into the Play/Simulate copy (same
         // scene-level-settings contract as WindSettings above — issue #429). The

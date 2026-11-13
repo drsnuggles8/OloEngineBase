@@ -10,7 +10,8 @@
 // load, reload and script-driven switch.
 //
 // The shipped runtime used to load a scene and start it without publishing any
-// of the seven settings blocks Renderer3D draws from, so an authored exposure,
+// of the settings blocks Renderer3D draws from (eight, since skin diffusion
+// joined them in issue #1689), so an authored exposure,
 // upscale request or fog loaded fine and was never seen. These tests drive the
 // seam the way the runtime does — a scene file through LoadSceneFile — and
 // read back the renderer's effective settings:
@@ -76,6 +77,10 @@ namespace
         scene->GetWindSettings().Speed = 11.0f;
         scene->GetSnowAccumulationSettings().Enabled = true;
         scene->GetSnowEjectaSettings().Enabled = true;
+        scene->GetSkinDiffusionSettings().Enabled = false;
+        scene->GetSkinDiffusionSettings().Quality = SkinDiffusionQuality::High;
+        scene->GetSkinDiffusionSettings().DepthRejectionScale = 3.5f;
+        scene->GetSkinDiffusionSettings().RadiusScale = 1.75f;
         scene->GetPrecipitationSettings().Enabled = true;
         scene->GetPrecipitationSettings().Intensity = 0.9f;
         return scene;
@@ -165,8 +170,68 @@ TEST_F(SceneRenderSettingsActivationTest, EveryAuthoredBlockReachesTheRenderer)
     EXPECT_FLOAT_EQ(Renderer3D::GetWindSettings().Speed, 11.0f);
     EXPECT_TRUE(Renderer3D::GetSnowAccumulationSettings().Enabled);
     EXPECT_TRUE(Renderer3D::GetSnowEjectaSettings().Enabled);
+    const auto& skin = Renderer3D::GetSkinDiffusionSettings();
+    EXPECT_FALSE(skin.Enabled);
+    EXPECT_EQ(skin.Quality, SkinDiffusionQuality::High);
+    EXPECT_FLOAT_EQ(skin.DepthRejectionScale, 3.5f);
+    EXPECT_FLOAT_EQ(skin.RadiusScale, 1.75f);
     EXPECT_TRUE(Renderer3D::GetPrecipitationSettings().Enabled);
     EXPECT_FLOAT_EQ(Renderer3D::GetPrecipitationSettings().Intensity, 0.9f);
+}
+
+// An older scene file has no SkinDiffusionSettings node: it loads at the
+// struct's defaults, and the renderer is reset to them on activation.
+TEST_F(SceneRenderSettingsActivationTest, SceneWithoutSkinDiffusionNodeLoadsDefaults)
+{
+    EXPECT_TRUE(SceneSerializer(AuthoredScene()).Serialize(m_Root / "Skin.olo"));
+    std::string text = ReadText("Skin");
+    const auto at = text.find("SkinDiffusionSettings:");
+    ASSERT_NE(at, std::string::npos);
+    // Drop the node and its indented children, which end at the next top-level key.
+    auto end = text.find('\n', at);
+    while (end != std::string::npos && end + 1 < text.size() && text[end + 1] == ' ')
+        end = text.find('\n', end + 1);
+    ASSERT_NE(end, std::string::npos);
+    text.erase(at, end + 1 - at);
+    ASSERT_EQ(text.find("SkinDiffusionSettings"), std::string::npos);
+    WriteText("Skin", text);
+
+    const auto loaded = SceneTransition::LoadSceneFile(m_Root / "Skin.olo", /*requirePrimaryCamera=*/true);
+    ASSERT_TRUE(loaded) << loaded.Error.ToView();
+    EXPECT_EQ(loaded.LoadedScene->GetSkinDiffusionSettings(), SkinDiffusionSettings{});
+
+    SceneTransition::ApplySceneRenderSettings(*loaded.LoadedScene, nullptr);
+    EXPECT_EQ(Renderer3D::GetSkinDiffusionSettings(), SkinDiffusionSettings{});
+}
+
+// Every field survives the scene file, and a corrupt value is repaired.
+TEST_F(SceneRenderSettingsActivationTest, SkinDiffusionSettingsRoundTripThroughTheSceneFile)
+{
+    const Ref<Scene> scene = RoundTrip(AuthoredScene(), "SkinRoundTrip");
+    ASSERT_TRUE(scene);
+    const auto& skin = scene->GetSkinDiffusionSettings();
+    EXPECT_FALSE(skin.Enabled);
+    EXPECT_EQ(skin.Quality, SkinDiffusionQuality::High);
+    EXPECT_FLOAT_EQ(skin.DepthRejectionScale, 3.5f);
+    EXPECT_FLOAT_EQ(skin.RadiusScale, 1.75f);
+
+    std::string text = ReadText("SkinRoundTrip");
+    const std::string quality = "Quality: 2";
+    const auto at = text.find(quality, text.find("SkinDiffusionSettings"));
+    ASSERT_NE(at, std::string::npos);
+    text.replace(at, quality.size(), "Quality: 99");
+    const std::string radius = "RadiusScale: 1.75";
+    const auto rat = text.find(radius);
+    ASSERT_NE(rat, std::string::npos);
+    text.replace(rat, radius.size(), "RadiusScale: .nan");
+    WriteText("SkinRoundTrip", text);
+
+    const auto loaded = SceneTransition::LoadSceneFile(m_Root / "SkinRoundTrip.olo", /*requirePrimaryCamera=*/true);
+    ASSERT_TRUE(loaded) << loaded.Error.ToView();
+    const auto& repaired = loaded.LoadedScene->GetSkinDiffusionSettings();
+    EXPECT_EQ(repaired.Quality, SkinDiffusionQuality::Medium);
+    EXPECT_TRUE(std::isfinite(repaired.RadiusScale));
+    EXPECT_FLOAT_EQ(repaired.RadiusScale, 1.0f);
 }
 
 TEST_F(SceneRenderSettingsActivationTest, SpatialUpscaleRequestReachesTheRenderer)
@@ -202,6 +267,7 @@ TEST_F(SceneRenderSettingsActivationTest, SwitchingScenesReplacesTheOutgoingScen
     EXPECT_FALSE(Renderer3D::GetFogSettings().Enabled);
     EXPECT_FALSE(Renderer3D::GetWindSettings().Enabled);
     EXPECT_FALSE(Renderer3D::GetPrecipitationSettings().Enabled);
+    EXPECT_EQ(Renderer3D::GetSkinDiffusionSettings(), SkinDiffusionSettings{});
 }
 
 // The editor has always overlaid the project's tier on a loaded scene; the

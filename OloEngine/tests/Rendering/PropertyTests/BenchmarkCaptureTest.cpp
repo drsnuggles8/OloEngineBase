@@ -236,6 +236,7 @@ TEST(BenchmarkCapture, RunWhenRequested)
     const auto savedWindSettings = Renderer3D::GetWindSettings();
     const auto savedSnowAccumulationSettings = Renderer3D::GetSnowAccumulationSettings();
     const auto savedSnowEjectaSettings = Renderer3D::GetSnowEjectaSettings();
+    const auto savedSkinDiffusionSettings = Renderer3D::GetSkinDiffusionSettings();
     const auto savedPrecipitationSettings = Renderer3D::GetPrecipitationSettings();
     const auto savedFogSettings = Renderer3D::GetFogSettings();
     {
@@ -251,6 +252,7 @@ TEST(BenchmarkCapture, RunWhenRequested)
         Renderer3D::GetWindSettings() = scene->GetWindSettings();
         Renderer3D::GetSnowAccumulationSettings() = scene->GetSnowAccumulationSettings();
         Renderer3D::GetSnowEjectaSettings() = scene->GetSnowEjectaSettings();
+        Renderer3D::GetSkinDiffusionSettings() = scene->GetSkinDiffusionSettings();
         Renderer3D::GetPrecipitationSettings() = scene->GetPrecipitationSettings();
         Renderer3D::GetFogSettings() = scene->GetFogSettings();
 
@@ -435,6 +437,7 @@ TEST(BenchmarkCapture, RunWhenRequested)
     Renderer3D::GetWindSettings() = savedWindSettings;
     Renderer3D::GetSnowAccumulationSettings() = savedSnowAccumulationSettings;
     Renderer3D::GetSnowEjectaSettings() = savedSnowEjectaSettings;
+    Renderer3D::GetSkinDiffusionSettings() = savedSkinDiffusionSettings;
     Renderer3D::GetPrecipitationSettings() = savedPrecipitationSettings;
     Renderer3D::GetFogSettings() = savedFogSettings;
     Renderer3D::ApplyRendererSettings();
