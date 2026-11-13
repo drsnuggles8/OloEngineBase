@@ -2201,7 +2201,8 @@ if(OLO_WITH_VULKAN)
 	add_test(NAME OloEngine-Tests_VulkanPipelineSeed
 		COMMAND OloEngine-Tests --olo-rhi=vulkan "--gtest_filter=EnginePipelineSeedTest.*" ${_olo_vk_scene_args}
 		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor)
-	set_tests_properties(OloEngine-Tests_VulkanPipelineSeed PROPERTIES PROCESSORS 2 COST 100 TIMEOUT 3600)
+	set_tests_properties(OloEngine-Tests_VulkanPipelineSeed PROPERTIES PROCESSORS 2 COST 100 TIMEOUT 3600
+		RESOURCE_LOCK "olo_sandbox_registry")
 endif()
 
 # Three discovery passes over one binary, each a disjoint slice by gtest filter
@@ -2218,6 +2219,19 @@ gtest_discover_tests(OloEngine-Tests
 	TEST_FILTER "${OLO_MESH_CACHE_TESTS}"
 	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
 	PROPERTIES RESOURCE_LOCK "olo_mesh_cache" PROCESSORS 2 COST 100
+)
+# The fixtures that load the real Sandbox project and put its tracked
+# AssetRegistry.oar back afterwards (ScopedFileRestore): each snapshots the file
+# before its EditorAssetManager rewrites it, so two of them at once can each
+# restore the other's rewrite. One lock serialises them, with
+# OloEngine-Tests_VulkanPipelineSeed above.
+set(OLO_SANDBOX_REGISTRY_TESTS "AcceptanceSceneTest.*")
+gtest_discover_tests(OloEngine-Tests
+	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
+	DISCOVERY_TIMEOUT 120
+	TEST_FILTER "${OLO_SANDBOX_REGISTRY_TESTS}-${OLO_MESH_CACHE_TESTS}:${OLO_HEAVY_TESTS}"
+	EXTRA_ARGS ${OLO_TESTS_CTEST_ARGS}
+	PROPERTIES RESOURCE_LOCK "olo_sandbox_registry" PROCESSORS 2 COST 100
 )
 gtest_discover_tests(OloEngine-Tests
 	WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/OloEditor
@@ -2246,7 +2260,7 @@ add_custom_command(
 		"-DTEST_EXECUTABLE=$<TARGET_FILE:OloEngine-Tests>"
 		"-DTEST_WORKING_DIR=${CMAKE_SOURCE_DIR}/OloEditor"
 		"-DTEST_EXTRA_ARGS=${OLO_TESTS_CTEST_ARGS}"
-		"-DTEST_EXCLUDE_FILTER=${OLO_MESH_CACHE_TESTS}:${OLO_HEAVY_TESTS}"
+		"-DTEST_EXCLUDE_FILTER=${OLO_MESH_CACHE_TESTS}:${OLO_HEAVY_TESTS}:${OLO_SANDBOX_REGISTRY_TESTS}"
 		"-DCTEST_FILE=${_olo_suite_tests_file}"
 		-DTEST_DISCOVERY_TIMEOUT=120
 		-DCHUNK_SIZE=40
