@@ -35,6 +35,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -72,24 +73,42 @@ def entries(text: str) -> list[str]:
     return [text[a:b] for a, b in zip(starts, starts[1:] + [len(text)])]
 
 
-def regenerate(exe: Path, out: Path, verbose: bool) -> None:
+def regenerate(exe: Path, out: Path, verbose: bool, timeout_s: int) -> None:
     with tempfile.TemporaryDirectory(prefix="olo-pso-seed-cache-") as cache:
         env = dict(os.environ)
         env["OLO_SHADER_CACHE_DIR"] = cache  # a first session: nothing cached, no machine manifest
         env["OLO_PIPELINE_SEED_OUT"] = str(out)
         cmd = [str(exe), "--olo-rhi=vulkan", "--olo-require-vulkan", f"--gtest_filter={CASE}"]
-        print(f"running: {' '.join(cmd)}\n  OLO_SHADER_CACHE_DIR={cache}", flush=True)
-        proc = subprocess.run(cmd, cwd=REPO, env=env, capture_output=True, text=True, errors="replace")
-    output = proc.stdout + proc.stderr
-    if verbose:
-        print(output)
-    else:
-        for line in output.splitlines():
-            if line.startswith("[pipeline-seed]") or "[  FAILED" in line or "error" in line.lower()[:40]:
-                print("  " + line)
-    if proc.returncode != 0:
-        sys.exit(f"error: {CASE} failed (exit {proc.returncode}); rerun with --verbose for the full log")
-    if "[pipeline-seed] wrote" not in output or not out.is_file():
+        print(f"running: {' '.join(cmd)}\n  OLO_SHADER_CACHE_DIR={cache}\n"
+              "  (a Debug build compiles every shader from the empty cache first: expect 10-20 minutes)",
+              flush=True)
+        # Streamed, not captured: a slow or hung render must show where it is.
+        proc = subprocess.Popen(cmd, cwd=REPO, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, errors="replace")
+        timed_out = threading.Event()
+
+        def stop() -> None:
+            timed_out.set()
+            proc.kill()
+
+        timer = threading.Timer(timeout_s, stop)
+        timer.start()
+        wrote = False
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                line = line.rstrip("\n")
+                wrote = wrote or line.startswith("[pipeline-seed] wrote")
+                if verbose or line.startswith("[pipeline-seed]") or "[  FAILED" in line or "[ RUN" in line:
+                    print("  " + line, flush=True)
+            returncode = proc.wait()
+        finally:
+            timer.cancel()
+    if timed_out.is_set():
+        sys.exit(f"error: {CASE} did not finish within {timeout_s} s and was stopped (--timeout)")
+    if returncode != 0:
+        sys.exit(f"error: {CASE} failed (exit {returncode}); rerun with --verbose for the full log")
+    if not wrote or not out.is_file():
         sys.exit(f"error: {CASE} did not write the seed (skipped? a build without the case?); "
                  "rerun with --verbose")
 
@@ -100,12 +119,14 @@ def main() -> int:
     parser.add_argument("--check", action="store_true",
                         help="regenerate to a temporary file and fail if it differs from the checked-in seed")
     parser.add_argument("--verbose", action="store_true", help="print the test process's whole output")
+    parser.add_argument("--timeout", type=int, default=3600,
+                        help="stop the test process after this many seconds (default 3600)")
     args = parser.parse_args()
 
     exe = find_exe(args.exe)
     with tempfile.TemporaryDirectory(prefix="olo-pso-seed-") as work:
         fresh = Path(work) / "PipelineManifest.yaml"
-        regenerate(exe, fresh, args.verbose)
+        regenerate(exe, fresh, args.verbose, args.timeout)
         # Normalize line endings: the test writes LF; this guards a platform that would not.
         text = fresh.read_bytes().decode("utf-8").replace("\r\n", "\n")
 

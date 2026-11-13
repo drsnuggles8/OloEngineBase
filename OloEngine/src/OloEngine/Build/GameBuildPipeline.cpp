@@ -137,29 +137,25 @@ namespace OloEngine
         return true;
     }
 
-    bool StagePipelineManifest(const std::filesystem::path& engineSeed, const std::filesystem::path& machineManifest,
-                               const std::filesystem::path& destination, sizet& entryCount, std::string& warning,
-                               std::string& errorMessage)
+    PipelineManifestStaging StagePipelineManifest(const std::filesystem::path& engineSeed,
+                                                  const std::filesystem::path& machineManifest,
+                                                  const std::filesystem::path& destination)
     {
-        entryCount = 0;
-        warning.clear();
-        errorMessage.clear();
-
+        PipelineManifestStaging result;
         PipelineManifest merged;
         bool anySource = false;
-        for (const auto& [path, what] : { std::pair{ &engineSeed, "engine seed" },
-                                          std::pair{ &machineManifest, "machine manifest" } })
+        for (const auto& [path, problem] : { std::pair{ &engineSeed, &result.SeedProblem },
+                                             std::pair{ &machineManifest, &result.MachineProblem } })
         {
             std::error_code ec;
             if (!std::filesystem::is_regular_file(*path, ec))
             {
-                continue;
+                continue; // absent is normal: no seed in this checkout, or no Vulkan session yet
             }
             std::ifstream in(*path, std::ios::binary);
             if (!in)
             {
-                warning += std::format("{}{} {} left out: unreadable", warning.empty() ? "" : "; ", what,
-                                       path->string());
+                *problem = std::format("{} left out: unreadable", path->string());
                 continue;
             }
             std::ostringstream text;
@@ -169,32 +165,36 @@ namespace OloEngine
             const auto parsed = PipelineManifest::Parse(text.str(), &reason, &rejected);
             if (!parsed.has_value())
             {
-                warning += std::format("{}{} {} left out: {}", warning.empty() ? "" : "; ", what, path->string(),
-                                       reason);
+                *problem = std::format("{} left out: {}", path->string(), reason);
                 continue;
             }
             if (rejected > 0)
             {
-                warning += std::format("{}{} {}: {} invalid entr{} dropped", warning.empty() ? "" : "; ", what,
-                                       path->string(), rejected, rejected == 1 ? "y" : "ies");
+                *problem = std::format("{}: {} invalid entr{} dropped", path->string(), rejected,
+                                       rejected == 1 ? "y" : "ies");
             }
             merged.Merge(*parsed);
             anySource = true;
         }
         if (!anySource)
         {
-            return true;
+            return result;
         }
 
+        // The same bound a saved machine manifest keeps: the least recently
+        // seen go first, which drops seed keys no session has drawn before
+        // any key this machine drew.
+        merged.Trim();
         AtomicWriteOptions options;
         options.CreateParentDirectories = true;
         if (!FileSystem::WriteFileAtomically(destination, merged.Serialize(), options))
         {
-            errorMessage = std::format("could not write {}", destination.string());
-            return false;
+            result.WriteError = std::format("could not write {}", destination.string());
+            return result;
         }
-        entryCount = merged.GetEntryCount();
-        return true;
+        result.Written = true;
+        result.Keys = merged.GetEntryCount();
+        return result;
     }
 
     bool StageLooseRuntimeTextures(
@@ -1319,31 +1319,34 @@ namespace OloEngine
             RenderCommand::SavePipelineManifest();
             const std::filesystem::path manifestDst =
                 outputDir / std::filesystem::path(PipelineManifest::kPackagedSeedPath);
-            sizet stagedKeys = 0;
-            std::string warning;
-            std::string stageError;
-            const bool staged =
-                StagePipelineManifest(std::filesystem::path(PipelineManifest::kEngineSeedPath),
-                                      PipelineManifest::MachineFilePath(), manifestDst, stagedKeys, warning, stageError);
-            if (!warning.empty())
+            const PipelineManifestStaging staged = StagePipelineManifest(
+                std::filesystem::path(PipelineManifest::kEngineSeedPath), PipelineManifest::MachineFilePath(),
+                manifestDst);
+            if (!staged.SeedProblem.empty())
             {
-                // A source we ship (the engine seed) or this machine's record did
-                // not parse: what is left still ships, but say what was lost.
-                OLO_CORE_ERROR("[GameBuild] PSO manifest staging: {} — regenerate the engine seed with `{}`",
-                               warning, PipelineManifest::kSeedRegenerationCommand);
+                // A file we ship: a broken one is our bug, and the package
+                // loses every first-session key it held.
+                OLO_CORE_ERROR("[GameBuild] PSO manifest staging: the engine seed {} — regenerate it with `{}`",
+                               staged.SeedProblem, PipelineManifest::kSeedRegenerationCommand);
             }
-            if (!staged)
+            if (!staged.MachineProblem.empty())
+            {
+                // This machine's record (a crash mid-write, say): the package
+                // ships without what this machine had learned.
+                OLO_CORE_WARN("[GameBuild] PSO manifest staging: this machine's manifest {}", staged.MachineProblem);
+            }
+            if (!staged.WriteError.empty())
             {
                 // Optional content: a failed write costs first-launch hitches, not the build.
-                OLO_CORE_WARN("[GameBuild] Could not stage the PSO manifest: {}", stageError);
+                OLO_CORE_WARN("[GameBuild] Could not stage the PSO manifest: {}", staged.WriteError);
             }
-            else if (stagedKeys > 0)
+            else if (staged.Written)
             {
                 OLO_CORE_INFO("[GameBuild] Staged the PSO manifest ({} pipeline key(s): the engine seed and this "
                               "machine's records) — the packaged runtime requests them before their first draw",
-                              stagedKeys);
+                              staged.Keys);
             }
-            else
+            else if (staged.SeedProblem.empty() && staged.MachineProblem.empty())
             {
                 OLO_CORE_WARN("[GameBuild] No PSO manifest staged: no engine seed at {} and none recorded on this "
                               "machine — the packaged runtime discovers its pipelines on first use",

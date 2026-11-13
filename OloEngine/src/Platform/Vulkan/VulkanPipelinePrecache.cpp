@@ -112,15 +112,20 @@ namespace OloEngine
                 }
                 return;
             }
+            const std::string dropped =
+                rejected > 0 ? std::format(", {} invalid entr{} dropped", rejected, rejected == 1 ? "y" : "ies")
+                             : std::string{};
             if (rejected > 0 && source == ManifestSource::Shipped)
             {
-                OLO_CORE_ERROR("[Vulkan/PSO] {} {}: {} invalid entr{} dropped — regenerate it with `{}`", what,
-                               path.string(), rejected, rejected == 1 ? "y" : "ies",
+                OLO_CORE_ERROR("[Vulkan/PSO] {} {}: {} pipeline key(s){} — regenerate it with `{}`", what,
+                               path.string(), parsed->GetEntryCount(), dropped,
                                PipelineManifest::kSeedRegenerationCommand);
             }
-            OLO_CORE_INFO("[Vulkan/PSO] {} {}: {} pipeline key(s){}", what, path.string(), parsed->GetEntryCount(),
-                          rejected > 0 ? std::format(", {} invalid entr{} dropped", rejected, rejected == 1 ? "y" : "ies")
-                                       : std::string{});
+            else
+            {
+                OLO_CORE_INFO("[Vulkan/PSO] {} {}: {} pipeline key(s){}", what, path.string(),
+                              parsed->GetEntryCount(), dropped);
+            }
             manifest.Merge(*parsed);
         }
     } // namespace
@@ -148,21 +153,9 @@ namespace OloEngine
                 LoadInto(m_Manifest, PipelineManifest::MachineFilePath(), ManifestSource::Machine);
             }
             m_Manifest.BeginSession();
-            // A session starts with no configuration: nothing published before
-            // it (or after a previous Stop) describes what this one draws.
-            // Until a tag is published the configuration is the empty tag (a
-            // session that draws only 2D never publishes one).
-            m_SelectedTags.Empty();
-            m_SelectedTags.Add(FString());
-            m_PublishedTag = {};
-            m_FrameTags.Empty();
-            m_LastFrameTags.Empty();
-            m_PublishFrame = 0;
-            m_TagLastSeen.clear();
+            ResetSelectionLocked();
             {
                 std::lock_guard recordLock(m_RecordMutex);
-                m_RecordTag = {};
-                m_PendingRecords.Empty();
                 m_Recording = true;
             }
             m_JobsPerFrame = static_cast<u32>(
@@ -196,6 +189,24 @@ namespace OloEngine
                       m_Manifest.GetEntryCount(), m_JobsPerFrame, m_WorkerCount,
                       Levers::VulkanPsoPrecache() == Levers::Tristate::Off ? " — REQUESTS OFF (OLO_VK_PSO_PRECACHE=0)"
                                                                            : "");
+    }
+
+    void VulkanPipelinePrecache::ResetSelectionLocked()
+    {
+        // A session starts with no configuration: nothing published before
+        // it (or after a previous Stop) describes what this one draws.
+        // Until a tag is published the configuration is the empty tag (a
+        // session that draws only 2D never publishes one).
+        m_SelectedTags.Empty();
+        m_SelectedTags.Add(FString());
+        m_PublishedTag = {};
+        m_FrameTags.Empty();
+        m_LastFrameTags.Empty();
+        m_PublishFrame = 0;
+        m_TagLastSeen.clear();
+        std::lock_guard recordLock(m_RecordMutex);
+        m_RecordTag = {};
+        m_PendingRecords.Empty();
     }
 
     void VulkanPipelinePrecache::StopWorkers()
@@ -925,13 +936,11 @@ namespace OloEngine
     u64 VulkanPipelinePrecache::RestartColdForTesting(PipelineManifest manifest)
     {
         std::lock_guard lock(m_Mutex);
-        // Records still pending belong to the session being thrown away.
-        {
-            std::lock_guard recordLock(m_RecordMutex);
-            m_PendingRecords.Empty();
-        }
         m_Manifest = std::move(manifest);
         m_Manifest.BeginSession();
+        // The configuration selection and the records still pending belong to
+        // the session being thrown away, exactly as Start resets them.
+        ResetSelectionLocked();
         // Every created pipeline, request and readiness claim goes: the next
         // draw of every key either finds the request this restart makes from
         // `manifest`, or is a never-requested miss, exactly as in a new process

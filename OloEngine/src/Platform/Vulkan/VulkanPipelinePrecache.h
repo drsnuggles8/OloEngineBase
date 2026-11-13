@@ -180,6 +180,9 @@ namespace OloEngine
         void EvaluateReadinessLocked(bool force);
         void ApplySelectedTagsLocked(TArray<FString> tags);
         void RevokeReadyClaimsLocked();
+        // Lock held. The configuration selection of a new session (the empty
+        // tag) and no pending records: Start and RestartColdForTesting.
+        void ResetSelectionLocked();
         [[nodiscard]] bool IsSelectedLocked(std::string_view tag) const;
         [[nodiscard]] bool ClaimsAllowedLocked() const;
         [[nodiscard]] FString JoinSelectedTagsLocked() const;

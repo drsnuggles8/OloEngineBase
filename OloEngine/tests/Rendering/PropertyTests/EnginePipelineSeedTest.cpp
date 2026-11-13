@@ -164,6 +164,15 @@ namespace OloEngine::Tests
 
         void TearDown() override
         {
+#if OLO_WITH_VULKAN
+            // The precache is process-wide, and the cases after this one in the
+            // Vulkan process assume what a test VulkanContext starts with: an
+            // empty manifest (a test never loads a shipped one). Leaving the
+            // seed, or the negative control's reduced seed, would queue its
+            // requests for every shader a later case builds.
+            if (m_RestartedCold)
+                (void)VulkanPipelinePrecache::Get().RestartColdForTesting(PipelineManifest{});
+#endif
             Renderer3D::GetShadowMap().SetSettings(m_PreviousShadow);
             Renderer3D::GetRendererSettings().Path = m_PreviousPath;
             Renderer3D::ApplyRendererSettings();
@@ -239,6 +248,7 @@ namespace OloEngine::Tests
         {
             auto& precache = VulkanPipelinePrecache::Get();
             const u64 session = precache.RestartColdForTesting(seed);
+            m_RestartedCold = true;
 
             auto& settings = Renderer3D::GetRendererSettings();
             settings.Path = path.Path;
@@ -290,6 +300,7 @@ namespace OloEngine::Tests
         fs::path m_PreviousCwd;
         ShadowSettings m_PreviousShadow{};
         RenderingPath m_PreviousPath = RenderingPath::Forward;
+        bool m_RestartedCold = false;
     };
 
     // A seed that does not parse whole would be dropped at start-up (logged as
