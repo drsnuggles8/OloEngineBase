@@ -136,9 +136,9 @@ doc fix, not a task.
 **Right-size the unit of work.** A worktree + window + PR is real overhead. Batch Tier 2 hygiene by
 class ("every `-Wfoo` in `<module>`"), not one warning per loop.
 
-**Keep a large Tier 1/4 epic whole by default**: one long-running Fable 5.1 session that fans
+**Keep a large Tier 1/4 epic whole by default**: one long-running Fable 5.2 session that fans
 sub-pieces out to subagents and lands the whole issue as one PR
-([model-rubric.md](model-rubric.md#the-whole-epic-fable-51-session)). Slice only when the issue or
+([model-rubric.md](model-rubric.md#the-whole-epic-fable-52-session)). Slice only when the issue or
 user explicitly wants incremental PRs (as #429 floating-origin did), when the work is unbounded
 research with no single "done", or when the user asks for a slice. When you slice, say so in the
 HANDOVER, justify it like going down the rank, and file and score the follow-up.
@@ -176,7 +176,7 @@ this conversation:
   (task-loop Phase 1a, *owned elsewhere*).
 - **Plan**: the approach, covering the full scope (every acceptance criterion on the issue) unless
   you deliberately sliced (§3), in which case name what is deferred. For a whole-epic session,
-  structure it as the fan-out in [model-rubric.md](model-rubric.md#the-whole-epic-fable-51-session).
+  structure it as the fan-out in [model-rubric.md](model-rubric.md#the-whole-epic-fable-52-session).
 - **Verification axes**: the grid for **this** task, decided here, not at reporting time. Start from
   task-loop §2a's table (renderer `{OpenGL, Vulkan} x {Forward, Forward+, Deferred}`, serialization
   `{scene YAML, asset pack, save-game}`, scripting `{C#, Lua}`, physics `{Box2D, Jolt}`, assets
