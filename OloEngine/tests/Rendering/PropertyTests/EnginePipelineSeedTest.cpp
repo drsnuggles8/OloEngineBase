@@ -294,6 +294,11 @@ namespace OloEngine::Tests
             // same targets on every path). Forced onto Deferred, this UI-only
             // scene trips #1653's WRITE_AFTER_WRITE hazard on every frame.
             SceneTransition::ApplySceneRenderSettings(*m_StartScene);
+            // Under the shadow mode a session starts with (VSM is off by
+            // default), not whatever the previous path's loop left behind.
+            auto startShadow = Renderer3D::GetShadowMap().GetSettings();
+            startShadow.VSM.Enabled = false;
+            Renderer3D::GetShadowMap().SetSettings(startShadow);
             RunEditorFramesOn(*m_StartScene, Camera(glm::vec3(0.0f, 0.0f, 10.0f), 0.0f, 0.0f, 60.0f), kFramesPerCamera);
 
             OpenAsTheEditorDoes(*m_Scene, path);

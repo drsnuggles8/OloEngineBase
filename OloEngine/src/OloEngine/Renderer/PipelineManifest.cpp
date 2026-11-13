@@ -25,6 +25,17 @@ namespace OloEngine
             return signature.ColorCount <= PipelineSignature::kMaxColorAttachments &&
                    IsValidSampleCount(signature.Samples) && signature.PatchControlPoints <= 32u;
         }
+
+        // Record and Merge both add a tag this way, so the bound cannot be
+        // kept by one and missed by the other: the oldest tag goes first.
+        void AddConfiguration(PipelineManifestEntry& entry, FString tag)
+        {
+            if (entry.Configurations.Num() >= static_cast<i32>(PipelineManifest::kMaxConfigurationsPerEntry))
+            {
+                entry.Configurations.RemoveAt(0);
+            }
+            entry.Configurations.Add(std::move(tag));
+        }
     } // namespace
 
     bool PipelineManifestEntry::SeenUnder(const std::string_view configuration) const
@@ -69,11 +80,7 @@ namespace OloEngine
         // become ready under it.
         if (!entry->SeenUnder(configuration))
         {
-            if (entry->Configurations.Num() >= static_cast<i32>(kMaxConfigurationsPerEntry))
-            {
-                entry->Configurations.RemoveAt(0); // oldest configuration goes first
-            }
-            entry->Configurations.Add(FString(configuration));
+            AddConfiguration(*entry, FString(configuration));
             changed = true;
         }
         if (entry->LastSeenSession != m_Session)
@@ -125,12 +132,7 @@ namespace OloEngine
                 {
                     if (!entry->SeenUnder(tag.ToView()))
                     {
-                        // The same bound Record keeps: the oldest tag goes first.
-                        if (entry->Configurations.Num() >= static_cast<i32>(kMaxConfigurationsPerEntry))
-                        {
-                            entry->Configurations.RemoveAt(0);
-                        }
-                        entry->Configurations.Add(tag);
+                        AddConfiguration(*entry, tag);
                         m_Dirty = true;
                     }
                 }

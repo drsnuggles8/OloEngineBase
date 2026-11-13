@@ -236,15 +236,9 @@ namespace OloEngine
         }
         SaveManifestLocked();
         m_Started = false;
-        m_SelectedTags.Empty();
-        m_PublishedTag = {};
-        m_FrameTags.Empty();
-        m_LastFrameTags.Empty();
-        m_PublishFrame = 0;
-        m_TagLastSeen.clear();
+        ResetSelectionLocked();
+        m_SelectedTags.Empty(); // stopped: not even the start-up placeholder is selected
         std::lock_guard recordLock(m_RecordMutex);
-        m_RecordTag = {};
-        m_PendingRecords.Empty();
         m_Recording = false;
     }
 

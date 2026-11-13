@@ -1325,7 +1325,7 @@ namespace OloEngine
             if (!staged.SeedProblem.empty())
             {
                 // A file we ship: a broken one is our bug, and the package
-                // loses every first-session key it held.
+                // loses the first-session keys it could not read.
                 OLO_CORE_ERROR("[GameBuild] PSO manifest staging: the engine seed {} — regenerate it with `{}`",
                                staged.SeedProblem, PipelineManifest::kSeedRegenerationCommand);
             }
@@ -1351,6 +1351,13 @@ namespace OloEngine
                 OLO_CORE_WARN("[GameBuild] No PSO manifest staged: no engine seed at {} and none recorded on this "
                               "machine — the packaged runtime discovers its pipelines on first use",
                               PipelineManifest::kEngineSeedPath);
+            }
+            else
+            {
+                // Every source that exists was left out (reported above): say
+                // what that means for the package.
+                OLO_CORE_WARN("[GameBuild] No PSO manifest staged: no source could be read — the packaged runtime "
+                              "discovers its pipelines on first use");
             }
         }
 

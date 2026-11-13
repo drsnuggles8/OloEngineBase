@@ -26,6 +26,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -140,7 +141,8 @@ TEST(GameBuildPipelineTest, PipelineManifestStagingKeepsTheEntryCap)
     machine.BeginSession();
     for (u32 i = 0; i < PipelineManifest::kDefaultMaxEntries; ++i)
     {
-        (void)machine.Record("Machine", 0x11, signature(1000 + i), "forward/msaa1/native/oit1");
+        // One key per shader: Record's per-shader lookup is linear.
+        (void)machine.Record(std::format("Machine{}", i), 0x11, signature(1000), "forward/msaa1/native/oit1");
     }
     std::ofstream(root / "machine.yaml", std::ios::binary) << machine.Serialize();
 

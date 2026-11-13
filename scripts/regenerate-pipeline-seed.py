@@ -99,9 +99,18 @@ def regenerate(exe: Path, out: Path, verbose: bool, timeout_s: int) -> None:
             for line in proc.stdout:
                 line = line.rstrip("\n")
                 wrote = wrote or line.startswith("[pipeline-seed] wrote")
-                if verbose or line.startswith("[pipeline-seed]") or "[  FAILED" in line or "[ RUN" in line:
+                # gtest assertions ("file(line): error: ...") and the engine's
+                # error lines say why a run failed without a --verbose rerun.
+                if (verbose or line.startswith("[pipeline-seed]") or "[  FAILED" in line or "[ RUN" in line
+                        or ": error:" in line or "[error]" in line):
                     print("  " + line, flush=True)
             returncode = proc.wait()
+        except BaseException:
+            # Ctrl+C or a reader failure: never leave a GPU render running
+            # (it also holds the temporary cache open, so cleanup would fail).
+            proc.kill()
+            proc.wait()
+            raise
         finally:
             timer.cancel()
     if timed_out.is_set():
