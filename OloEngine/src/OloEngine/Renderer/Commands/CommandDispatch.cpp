@@ -229,6 +229,9 @@ namespace OloEngine
             // meshes".
             u32 GPUSceneConsumedDraws = 0;
             u32 GPUSceneFallbackDraws = 0;
+            // Pass entries that found another buffer on the frame-published
+            // camera binding and put the frame's back (PublishFrameCamera).
+            u32 FrameCameraRepublished = 0;
             CommandDispatch::Statistics Stats;
         };
         Counters Tally;
@@ -325,6 +328,7 @@ namespace OloEngine
         main.Stats.ConditionalDraws += item.Stats.ConditionalDraws;
         main.GPUSceneConsumedDraws += item.GPUSceneConsumedDraws;
         main.GPUSceneFallbackDraws += item.GPUSceneFallbackDraws;
+        main.FrameCameraRepublished += item.FrameCameraRepublished;
         // The secondaries just executed leave the primary's command-buffer
         // state undefined, so nothing the primary believed bound still is.
         s_MainData.Cache = {};
@@ -1731,6 +1735,24 @@ namespace OloEngine
             instanceBuffer->Bind();
         }
     } // namespace
+
+    void CommandDispatch::PublishFrameCamera()
+    {
+        const Ref<UniformBuffer>& camera = Data().Uploads.CameraUBO;
+        if (!camera)
+            return;
+        auto& api = RenderCommand::GetRendererAPI();
+        const RHI::ResourceHandle frameCamera = camera->GetRHIHandle();
+        if (api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA) == frameCamera)
+            return;
+        api.BindUniformBuffer(ShaderBindingLayout::UBO_CAMERA, frameCamera);
+        ++Data().Tally.FrameCameraRepublished;
+    }
+
+    u32 CommandDispatch::GetFrameCameraRepublishCount()
+    {
+        return Data().Tally.FrameCameraRepublished;
+    }
 
     void CommandDispatch::BindSceneResources()
     {

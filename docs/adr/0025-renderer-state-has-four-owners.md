@@ -131,9 +131,15 @@ a buffer there for the frame, so each reader binds its own before it reads. Bind
 #1687: every pass whose shader declares the motion-blur matrices calls `Renderer3D::BindMotionMatrices`,
 and the scene buckets get it from `CommandDispatch::BindSceneResources`, before any fork. The other two
 are **frame-published**: the frame's camera and the dispatcher's material block are there for every pass
-to read. A tenant that displaces the camera puts it back (the sky and IBL bakes hold a
-`CommandDispatch::ScopedFrameCameraRestore`, which re-uploads the frame's camera block on every exit). The material block needs no such rule: the dispatcher asks the
-occupancy record before each draw and re-binds when another buffer is there (#1688).
+to read. The camera has eleven other tenants of the same layout (shadow items, the particle batch,
+the bakes) and readers that never bind it (the groom and fluid passes), so its owner keeps it there:
+the render graph runs `CommandDispatch::PublishFrameCamera` before every pass, and once before a
+recording group forks, which binds the frame's block again if another buffer occupies the point. A
+tenant that draws camera readers of its own afterwards, inside the same pass, still puts the camera
+back itself (the sky and IBL bakes hold a `CommandDispatch::ScopedFrameCameraRestore`, which
+re-uploads the frame's camera block on every exit). The material block needs no such rule: the
+dispatcher asks the occupancy record before each draw and re-binds when another buffer is there
+(#1688).
 
 The occupancy record is also the only answer to "is this buffer already bound".
 `RendererAPI::GetUniformBufferOccupant` reads it in the calling recording context, and the dispatcher's
@@ -149,8 +155,10 @@ looked up, so it is not a second resource stack. `OLO_BINDING_CONTRACT=0` turns 
 
 What it does not detect: a buffer of the *same* layout holding the wrong content (two camera
 tenants), and a test's ad-hoc buffer that declares nothing, which is judged on its byte range alone.
-The first needs the frame comparison in §6. The camera case is closed by the restore rule above and
-pinned by `RendererOwnership.ASkyBakeLeavesTheFramesCameraBlockBound`.
+The first needs the frame comparison in §6. The camera case is closed by the pass-entry publication
+and the restore rule above, and pinned by
+`FramePredecessorPoison.ASameLayoutTenantLeftOnTheCameraBindingReachesNoPass` and
+`RendererOwnership.ASkyBakeLeavesTheFramesCameraBlockBound`.
 
 ## 6. Tests that pin it
 
@@ -159,17 +167,20 @@ pinned by `RendererOwnership.ASkyBakeLeavesTheFramesCameraBlockBound`.
 | restart leaves no view, scene, frame or clock state | `RendererOwnership.RestartStartsFromAFreshViewSceneFrameAndClock` |
 | scene reset drops scene history and keeps the view and the clock | `RendererOwnership.SceneResetDropsSceneHistoryAndKeepsTheViewAndTheClock` |
 | view reset drops the view and keeps the scene and the clock | `RendererOwnership.ViewResetDropsTheViewAndKeepsTheSceneAndTheClock` |
-| device teardown leaves no recording state | `CommandDispatchRecording.DispatcherShutdownLeavesNoRecordingState` |
-| alternate view is whole and restored | `CommandDispatchRecording.AlternateViewIsWholeAndRestoredOnEveryExit`, the planar-reflection evidence on both backends |
+| device teardown leaves no recording state | `CommandDispatchRecording.DispatcherShutdownLeavesNoRecordingState`; on a real Vulkan device, `VulkanParallelRecordingDevice.TheNextDeviceFindsNoUniformOccupantLeftByTheLastOne` |
+| what a device teardown shut down is re-armed at the renderer's next frame | `RendererOwnership.WhatADeviceTeardownShutDownTheRendererReArmsAtItsNextFrame`, both backends |
+| alternate view is whole and restored | `CommandDispatchRecording.AlternateViewIsWholeAndRestoredOnEveryExit`; with a real draw on both backends, `RendererOwnership.AnAlternateViewReplayAndARecordingItemHandTheFrameBackWhole`; the planar-reflection evidence on OpenGL |
 | serial and worker replay agree | `CommandDispatchRecording.SerialAndWorkerReplayReadTheSameView`; `FrameWorkerReplay.WorkerReplayDrawsTheSerialFrameAndEveryItemHoldsTheContract` (a forked scene bucket against `OLO_VK_PARALLEL_RECORDING=0`, and a refusal raised inside the items); the parallel-recording device suite |
 | a bucket's view override replays inside the scope | `CommandDispatchRecording.ABucketViewOverrideReplaysInsideTheAlternateViewScope` |
-| no owned context shuts a singleton down | the `ExpectRendererSingletonsAlive` checks in `RendererOwnership.*` |
+| no owned context shuts a singleton down | the `ExpectRendererSingletonsAlive` checks in `RendererOwnership.*`: after a scene reset, a view reset, an alternate-view replay and a recording item's teardown |
 | the contract's verdicts | `UniformBlockContract.*` |
 | the binding tables and every creation site | `UniformBlockContractSource.*` |
 | an ordinary frame is refused nothing; a dirty predecessor changes nothing | `FramePredecessorPoison.APassDoesNotReadWhatItsPredecessorLeftOnASharedBinding`, three paths, both backends |
-| another layout on a frame-published binding is refused before a shader reads it | `FramePredecessorPoison.AnotherLayoutOnAFramePublishedBindingIsRefusedBeforeAnyShaderReadsIt` (the camera block) |
+| another layout on a frame-published binding is refused before a shader reads it | `FramePredecessorPoison.AnotherLayoutOnAFramePublishedBindingIsRefusedBeforeAnyShaderReadsIt` (the light list) |
+| a same-layout tenant left on the camera binding reaches no pass | `FramePredecessorPoison.ASameLayoutTenantLeftOnTheCameraBindingReachesNoPass`, three paths, both backends |
+| a refused read does not take the binding from the next program | `RendererOwnership.ARefusedReadDoesNotTakeTheBindingFromTheNextProgram`, both backends |
 | a bind behind the dispatcher's back cannot make it skip a bind | `RendererOwnership.ABindBehindTheDispatchersBackCannotMakeItSkipTheCameraBind`, both backends |
-| a bake leaves the frame's camera block bound | `RendererOwnership.ASkyBakeLeavesTheFramesCameraBlockBound`, both backends |
+| a bake leaves the frame's camera block bound | `RendererOwnership.ASkyBakeLeavesTheFramesCameraBlockBound` (the face bake, the IBL convolution and the three sky generators), both backends |
 | a scene activation replaces every scene render setting, skin diffusion included | `SceneRenderSettingsActivationTest.*` |
 | a pass does not inherit its predecessor's blend state or write masks | `FramePredecessorPoison.APassDoesNotInheritItsPredecessorsBlendOrWriteMasks`, three paths, both backends |
 | the check changes no frame it does not refuse | `FramePredecessorPoison.TheContractChangesNoFrameItDoesNotRefuse` |

@@ -52,6 +52,7 @@
 #include "OloEngine/Renderer/RenderGraph.h"
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
+#include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/UniformBlockContract.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Scene/Components.h"
@@ -515,6 +516,82 @@ namespace OloEngine::Tests
                                 "not notice a refused read either";
     }
 
+    // The same-layout tenant (issue #1687). Eleven producers create a camera
+    // block of their own on the frame-published camera binding: shadow items,
+    // the particle batch, the bakes. Each has the frame camera's layout, so the
+    // block contract passes it, and some passes read the camera without
+    // binding it (the groom and fluid passes). What keeps a pass from reading
+    // its predecessor's camera is the owner: the render graph puts the frame's
+    // block back before every pass (CommandDispatch::PublishFrameCamera).
+    //
+    // After every pass a block of that layout holding no camera at all is left
+    // on the binding, as a tenant that never restores leaves it. The owner
+    // must have re-published at every pass entry that followed one, and the
+    // frame must not change.
+    TEST_P(FramePredecessorPoison, ASameLayoutTenantLeftOnTheCameraBindingReachesNoPass)
+    {
+        ScopedMockTime mockTime(kCaptureTime);
+        const char* path = PathName(GetParam());
+
+        std::vector<u8> reference;
+        Capture(reference);
+        ASSERT_FALSE(HasFatalFailure());
+        // What an ordinary frame's own tenants cost the owner: informative, and
+        // the reason the count below is compared against the pass count rather
+        // than against zero.
+        const u32 republishedUnpoisoned = CommandDispatch::GetFrameCameraRepublishCount();
+
+        const std::vector<u8> bytes(ShaderBindingLayout::CameraUBO::GetSize(), u8{ 0xFF });
+        Ref<UniformBuffer> tenant = UniformBuffer::Create(
+            ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
+        tenant->SetData(bytes.data(), ShaderBindingLayout::CameraUBO::GetSize());
+        m_Poison.push_back(std::move(tenant));
+        RenderGraph* graph = ActiveGraph();
+        ASSERT_NE(graph, nullptr) << "no active render graph to hook";
+        u32 passesRun = 0;
+        graph->AddPostPassHook(kPoisonHook, [this, &passesRun](std::string_view, RenderGraph&)
+                               {
+            for (const Ref<UniformBuffer>& poison : m_Poison)
+                poison->Bind();
+            ++passesRun; });
+
+        const u64 refusedBefore = BindingContract::ViolationCount();
+        std::vector<u8> poisoned;
+        Capture(poisoned);
+        graph->RemovePostPassHook(kPoisonHook);
+        ASSERT_FALSE(HasFatalFailure());
+
+        ASSERT_EQ(passesRun % kFramesPerCapture, 0u) << "the frames of one capture ran different pass counts";
+        const u32 passesPerFrame = passesRun / kFramesPerCapture;
+        ASSERT_GE(passesPerFrame, 4u) << "on " << path << ", the frame has too few passes to say anything";
+        const u32 republished = CommandDispatch::GetFrameCameraRepublishCount();
+        RecordProperty("camera_republished_unpoisoned", static_cast<int>(republishedUnpoisoned));
+        RecordProperty("camera_republished_poisoned", static_cast<int>(republished));
+        RecordProperty("passes_per_frame", static_cast<int>(passesPerFrame));
+        std::cout << "[camera-publication] " << TestRenderBackend::EvidenceName(path) << ": " << passesPerFrame
+                  << " passes per frame; the owner put the camera back " << republishedUnpoisoned
+                  << " times in an ordinary frame and " << republished << " times with a tenant left after every pass\n";
+        // Every pass but the frame's first follows a poisoned one. The first
+        // follows the previous frame's last pass, unless the frame's own
+        // prologue bound the camera in between.
+        EXPECT_GE(republished, passesPerFrame - 1u)
+            << "on " << path << ", " << passesPerFrame << " passes each ended with a tenant on the camera binding and the "
+            << "owner re-published only " << republished << " times: some pass began with its predecessor's camera block";
+        EXPECT_LE(republished, passesPerFrame);
+        EXPECT_EQ(BindingContract::ViolationCount(), refusedBefore);
+
+        const FrameDiff diff = Compare(reference, poisoned);
+        StateMachine::Coverage::RecordComparison("predecessor-poison.gl");
+        if (diff.Changed > 0)
+        {
+            WriteFailureEvidence(std::string("FrameCameraTenant_") + path + "_Reference", reference);
+            WriteFailureEvidence(std::string("FrameCameraTenant_") + path + "_Poisoned", poisoned);
+        }
+        EXPECT_EQ(diff.Changed, 0u)
+            << "on " << path << ", a same-layout tenant left on the camera binding after every pass changed " << diff.Changed
+            << " pixels (max " << diff.MaxAbsDiff << " levels): a pass drew with a camera block that was not the frame's";
+    }
+
     // The fixed-function half of the dirty predecessor (#1469, #1475: attachment
     // masks and blend state that escaped the pass that set them). After every
     // render-graph pass the state a careless predecessor would leave is
@@ -697,6 +774,24 @@ namespace OloEngine::Tests
         void BuildScene() override
         {
             FramePredecessorPoison::BuildScene();
+            // Three albedo textures, so that an item which resolves its
+            // material's textures wrongly draws another colour. Issue #1436
+            // was that: a recording worker's shader bind did not publish
+            // which heap offsets its program reads, and every textured draw
+            // in an item sampled heap slot zero.
+            static constexpr std::array<u32, 3> kAlbedo{ 0xFF2020E0u, 0xFF20E020u, 0xFFE02020u };
+            for (sizet index = 0; index < kAlbedo.size(); ++index)
+            {
+                TextureSpecification spec;
+                spec.Width = 1;
+                spec.Height = 1;
+                spec.Format = ImageFormat::RGBA8;
+                spec.SRGB = true;
+                m_Albedo[index] = Texture2D::Create(spec);
+                u32 texel = kAlbedo[index];
+                if (m_Albedo[index])
+                    m_Albedo[index]->SetData(&texel, sizeof(texel));
+            }
             // Each with its own base colour: identical materials would be
             // auto-batched into a handful of instanced packets and nothing
             // would fork.
@@ -713,10 +808,19 @@ namespace OloEngine::Tests
                     mesh.m_MeshSource = cube->GetMeshSource();
                 auto& material = box.AddComponent<MaterialComponent>();
                 material.m_Material.SetBaseColorFactor(glm::vec4(0.2f + 0.008f * static_cast<f32>(index), 0.5f, 0.6f, 1.0f));
+                if (const Ref<Texture2D>& albedo = m_Albedo[index % m_Albedo.size()])
+                    material.m_Material.SetAlbedoMap(albedo);
             }
         }
 
+        void TearDown() override
+        {
+            m_Albedo = {};
+            FramePredecessorPoison::TearDown();
+        }
+
         static constexpr u32 kWorkerReplayBoxes = 96;
+        std::array<Ref<Texture2D>, 3> m_Albedo;
     };
 
     TEST_P(FrameWorkerReplay, WorkerReplayDrawsTheSerialFrameAndEveryItemHoldsTheContract)

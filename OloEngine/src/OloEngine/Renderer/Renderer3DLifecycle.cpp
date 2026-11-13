@@ -520,6 +520,9 @@ namespace OloEngine
         s_Data.Frame.Stats.Reset();
 
         s_Data.RGraph = Ref<RenderGraph>::Create();
+        // The camera block is frame-published: the graph puts it back before
+        // every pass, so no pass reads a predecessor's (issue #1687).
+        s_Data.RGraph->SetPassEntryPublication(&CommandDispatch::PublishFrameCamera);
         RenderGraphDebugRuntime::SetActiveGraph(s_Data.RGraph);
 
         // The groom LOD console variables (#1616, #1612), once per process.

@@ -1196,6 +1196,16 @@ namespace OloEngine
         // in registration order; a listener must not add/remove hooks from
         // inside its own callback.
         using PostPassHook = std::function<void(std::string_view passName, RenderGraph& graph)>;
+        // What the frame's owner publishes for every pass to read without
+        // binding it, re-established before each pass runs so that no pass
+        // depends on what its predecessor left there. The 3D renderer installs
+        // CommandDispatch::PublishFrameCamera; a graph without an owner (a
+        // plan-shape test, a device test) installs nothing.
+        using PassEntryPublication = void (*)();
+        void SetPassEntryPublication(PassEntryPublication publish)
+        {
+            m_PassEntryPublication = publish;
+        }
         void AddPostPassHook(std::string_view key, PostPassHook hook);
         void RemovePostPassHook(std::string_view key);
         // True when ANY post-pass listener is registered. A tool that needs to
@@ -1703,6 +1713,7 @@ namespace OloEngine
         // Keyed post-pass listeners, fired in registration order (see
         // AddPostPassHook). A small vector — at most a couple of debug tools.
         TDoubleLinkedList<std::pair<FString, PostPassHook>> m_PostPassHooks;
+        PassEntryPublication m_PassEntryPublication = nullptr;
         BatchEventCallback m_BatchEventHook;
 
         // Execution-ready cache — rebuilt when m_DependencyGraphDirty is set.

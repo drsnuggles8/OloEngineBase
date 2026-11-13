@@ -41,6 +41,7 @@ Four arguments cover almost everything. Each row names the one that applies.
 | `RenderCommand::s_RendererAPI` | `RenderCommand.cpp` | Device. Replaced only by backend selection before any use |
 | `AssetPreviewRenderer`, `IBLPrecompute`, sky bakes: private shaders, meshes, framebuffers and buffers | `Renderer/Preview`, `IBLPrecompute.cpp`, the sky sources | Device objects with an owner teardown. They draw outside `BeginScene`/`EndScene` or behind `CaptureStateGuard`; what they leave in the dispatcher's texture and render-state caches is covered by Frame reset. Each bake re-uploads the frame's camera block before it returns, so its own camera buffer does not stay on the frame-published camera binding (#1687) |
 | Shadow placeholders, `MeshPrimitives`, GPU timer pools, profiler, readback stats, debug-draw channels | lazily created statics | Device, each released by the narrowest unconditional teardown ([lazy-static-release-ownership.md](../agent-rules/lazy-static-release-ownership.md)); `Renderer3D::ReclaimSharedRenderState` re-arms the two a device test shuts down |
+| Instance upload scratch (`thread_local` vector in `DrawMeshInstanced`) | `CommandDispatch.cpp` | Recording: one per recording thread, cleared and refilled by each draw before it is read. It holds capacity, never a value a later draw sees |
 | `s_LastTemporalUpscaleTime` | `RenderPipeline.cpp` | A raw wall-clock sample for FSR2 lock decay, deliberately not mockable. A restart or a second view reads one stale sample, which the 0.1 s clamp bounds |
 | Warn-once sets and flags, change-detection statics for logs, `CommandLifecycle` violation counters | submission and pipeline sources | Diagnostic |
 | `InflightFrameManager::GetFrameUniformBuffer` | `InflightFrameManager.cpp` | No caller. Its buffer is the one `OLO_BLOCK_UNDECLARED` exemption from the block declaration rule and is marked where it is created |
@@ -51,9 +52,38 @@ Three remainders were filed as children first and then decided and fixed here.
 
 | # | What it was | What was done |
 |---|---|---|
-| #1687 | A tenant that displaced a frame-published uniform binding did not put the owner back. The sky and IBL bakes left their camera buffer on binding 0, and the Gaussian-splat sort block shares binding 8 with the motion-blur matrices | Binding 8 is pass-scoped: every reader binds the matrices (`Renderer3D::BindMotionMatrices`; the scene buckets through `BindSceneResources`). The bakes re-upload the frame's camera block before they return. `FramePredecessorPoison` now poisons 8 after every pass on three paths and both backends; `RendererOwnership.ASkyBakeLeavesTheFramesCameraBlockBound` pins the camera |
+| #1687 | A tenant that displaced a frame-published uniform binding did not put the owner back. The sky and IBL bakes left their camera buffer on binding 0, shadow items and the particle batch leave theirs for the next pass, and the Gaussian-splat sort block shares binding 8 with the motion-blur matrices | Binding 8 is pass-scoped: every reader binds the matrices (`Renderer3D::BindMotionMatrices`; the scene buckets through `BindSceneResources`). The camera's owner re-publishes it before every render-graph pass (`CommandDispatch::PublishFrameCamera`), and the bakes re-upload the frame's camera block on every exit. `FramePredecessorPoison` poisons 8 with another layout and 0 with a same-layout tenant after every pass, on three paths and both backends; `RendererOwnership.ASkyBakeLeavesTheFramesCameraBlockBound` pins each bake |
 | #1688 | The dispatcher's `BoundUBOs` skip cache was a second record of what occupies bindings 0 to 7. It did not see a direct `Bind()` | The cache is gone. `BindUBOIfNeeded` asks `RendererAPI::GetUniformBufferOccupant`, which reads the backend's occupancy record in the calling recording context. `RendererOwnership.ABindBehindTheDispatchersBackCannotMakeItSkipTheCameraBind` pins it |
 | #1689 | Skin diffusion was the one scene-visible render setting with no scene owner: it lived only in the renderer and survived a scene change | `SkinDiffusionSettings` is a scene setting like the other seven: on `Scene`, in `SceneRenderSettings`, in the scene file, the play-mode copy, the save game (format 50) and the editor's undo snapshot. `SceneRenderSettingsActivationTest` pins activation, the round trip, a file without the node, and a corrupt value |
+
+## Invalidation calls
+
+The acceptance criterion asks for the invalidation calls as well as the globals. Outside the
+dispatcher there are 41, to six functions. All of them write one object: the calling recording
+context's skip cache (`CommandDispatchData::Cache`), which records what the dispatcher last put on
+a texture unit, which program and vertex array it bound, which render state it applied, and whether
+the GPU Scene material table is bound. Since #1688 it holds no uniform buffer record. It is
+assigned whole at every frame start (`ResetState`), and a recording item starts with an empty one.
+So a missing call can produce one wrong bind inside one frame of one context; it cannot carry
+anything across a frame, a scene, a view or an item, which is the contract in ADR 0025 §4.
+
+| Call | Sites | Who calls it, and why the cache cannot know |
+|---|---|---|
+| `ResetState` | 2 (`RenderPipeline.cpp`) | The frame start itself. The second mention is a comment |
+| `InvalidateBindingCaches` | 6 (`GBuffer.cpp`, `DecalRenderPass` x2, `ForwardOverlayRenderPass`, `SceneRenderPass`, `WaterRenderPass`) | A pass entry that follows work which bound programs and textures around the dispatcher. Asserted not to run inside a recording item |
+| `InvalidateRenderStateCache` | 20 (`CaptureStateGuard`, DDGI x2, decal x4, fluid x2, foliage x2, overlay, GPU occlusion, groom, overdraw, scene x2, debug draw, water x2) | A pass that set blend, depth, stencil or write masks through `RenderCommand` or the graph context, so the dispatcher's "last applied state index" no longer describes the context |
+| `InvalidateTextureSlot` | 5 (`GroomRenderPass` x4, `VirtualGeometryPass`) | A raw bind of a texture unit behind the cache |
+| `InvalidateTextureBinding` | 5 (`CloudShadowMap`, `VolumetricShadowMap`, `OpenGLTexture` x2, `OpenGLUtilities`) | A texture whose storage was recreated in place: the identity survives and the driver object does not |
+| `InvalidateGPUSceneMaterialBinding` | 3 (`GPUFrustumCuller`) | The instance cull binds its indirect buffer on the storage binding the material table shares |
+
+Every one of these is a writer outside the dispatcher telling it that driver state it mirrors has
+changed. Two checks show that no frame depends on a call being present beyond that: the state-machine
+harness renders the `binding-cache-cold` arm with the whole cache forgotten before the frame and after every pass, and
+requires the same frame; `FramePredecessorPoison.APassDoesNotInheritItsPredecessorsBlendOrWriteMasks`
+leaves a predecessor's blend state and write masks after every pass on three paths and both backends.
+The uniform-buffer half of this cache was the one part with a second, better record in the backend,
+and it is gone (#1688). Texture units and render state have no such record to ask, so the cache and
+its invalidation calls stay.
 
 Per-view storage for a second view (a Hi-Z pyramid, exposure state and `ParallelSceneContext` per
 view, and a non-zero view key in the history registry) is not a remainder of this issue. It is what

@@ -91,11 +91,14 @@ is back for the next program). These rules come with it:
   `Renderer3D::BindMotionMatrices()` after its `Bind()`.** The matrices are uploaded once per frame
   but nothing publishes them for the frame: the Gaussian-splat sort block is another tenant of 8
   (#1687). A scene-bucket draw gets the bind from `CommandDispatch::BindSceneResources`.
-- **A tenant that displaces the camera block (binding 0) puts it back.** The camera is
-  frame-published and the post passes read it without binding it. A bake's own camera buffer has
-  the same layout, so no contract check can refuse it: declare a
-  `CommandDispatch::ScopedFrameCameraRestore` before the bake's camera buffer is created, as the sky
-  bakes and `IBLPrecompute` do. It restores on every exit, the failed ones included.
+- **The camera block (binding 0) is the frame's at every pass entry, and a tenant that draws
+  camera readers after its own puts it back.** The camera is frame-published: some passes read it
+  without binding it. Other tenants have the same layout, so no contract check can refuse them. The
+  render graph binds the frame's block again before every pass (`CommandDispatch::PublishFrameCamera`),
+  so a pass may leave its own camera buffer there when it ends. Inside a pass the rule is still
+  yours: declare a `CommandDispatch::ScopedFrameCameraRestore` before a bake's camera buffer is
+  created, as the sky bakes and `IBLPrecompute` do. It restores on every exit, the failed ones
+  included.
 - **Do not cache "which buffer is bound".** Ask `RendererAPI::GetUniformBufferOccupant`. A cache
   kept by one caller sees only that caller's binds (#1688).
 

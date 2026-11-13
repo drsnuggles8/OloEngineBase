@@ -232,6 +232,21 @@ namespace OloEngine
         static void UploadCameraUBO();
         static void UploadCameraUBO(RendererAPI& api);
 
+        // Put the frame's camera block back on the frame-published camera
+        // binding if another buffer occupies it. The render graph runs this
+        // before every pass (RenderGraph::SetPassEntryPublication): eleven
+        // tenants create a buffer of the SAME layout on that binding (shadow
+        // items, the particle batch, the bakes), so the block contract cannot
+        // tell a predecessor's from the frame's, and several passes read the
+        // camera without binding it (the groom and fluid passes among them).
+        // The contents are not uploaded again: they are the frame's already.
+        // A tenant that draws camera readers of its own afterwards, inside the
+        // same pass, still restores (ScopedFrameCameraRestore).
+        static void PublishFrameCamera();
+        // How many pass entries this frame found another buffer there. Reset
+        // once per frame by ResetState().
+        [[nodiscard]] static u32 GetFrameCameraRepublishCount();
+
         // Shadow texture binding — set per-frame from Renderer3D/Scene.
         // The *Raw ids are the comparison-OFF views of the CSM array / shadow
         // atlas used by the PCSS blocker search (0 = none; bound only when
