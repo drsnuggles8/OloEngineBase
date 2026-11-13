@@ -26,14 +26,21 @@ namespace OloEngine
                    IsValidSampleCount(signature.Samples) && signature.PatchControlPoints <= 32u;
         }
 
-        // Record and Merge both add a tag this way, so the bound cannot be
-        // kept by one and missed by the other: the oldest tag goes first.
-        void AddConfiguration(PipelineManifestEntry& entry, FString tag)
+        // Drops the oldest tags until at most `room` remain. A list read from
+        // a file a previous build wrote can already be over the bound.
+        void KeepNewestConfigurations(PipelineManifestEntry& entry, const sizet room)
         {
-            if (entry.Configurations.Num() >= static_cast<i32>(PipelineManifest::kMaxConfigurationsPerEntry))
+            while (entry.Configurations.Num() > static_cast<i32>(room))
             {
                 entry.Configurations.RemoveAt(0);
             }
+        }
+
+        // Record, Merge and Parse all add a tag this way, so the bound cannot
+        // be kept by one and missed by another: the oldest tag goes first.
+        void AddConfiguration(PipelineManifestEntry& entry, FString tag)
+        {
+            KeepNewestConfigurations(entry, PipelineManifest::kMaxConfigurationsPerEntry - 1);
             entry.Configurations.Add(std::move(tag));
         }
     } // namespace
@@ -124,7 +131,8 @@ namespace OloEngine
                                                                        { return e.Signature == incoming.Signature; });
                 if (entry == nullptr)
                 {
-                    entries.Add(incoming);
+                    PipelineManifestEntry& added = entries.Add_GetRef(incoming);
+                    KeepNewestConfigurations(added, kMaxConfigurationsPerEntry);
                     m_Dirty = true;
                     continue;
                 }
@@ -436,7 +444,7 @@ namespace OloEngine
                     {
                         for (const YAML::Node& tag : configs)
                         {
-                            entry.Configurations.Add(FString(tag.as<std::string>()));
+                            AddConfiguration(entry, FString(tag.as<std::string>()));
                         }
                     }
                     entry.LastSeenSession = node["LastSeen"] ? node["LastSeen"].as<u64>() : 0u;

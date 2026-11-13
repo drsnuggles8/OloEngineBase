@@ -372,6 +372,31 @@ TEST(PipelineManifest, MergeKeepsTheConfigurationBoundAndDropsTheOldestTag)
     EXPECT_TRUE(entries[0]->SeenUnder(std::format("b{}", PipelineManifest::kMaxConfigurationsPerEntry - 1)));
 }
 
+// A file can hold more tags than the bound: one written before Merge kept it.
+// Parse reads it down to the newest kMaxConfigurationsPerEntry, so neither the
+// start-up merge nor the next save carries the oversized list on.
+TEST(PipelineManifest, ParseKeepsTheConfigurationBoundAndTheNewestTags)
+{
+    constexpr sizet kTags = PipelineManifest::kMaxConfigurationsPerEntry + 4;
+    std::string text = "PipelineManifest:\n  Version: 1\n  Session: 0\n  Entries:\n"
+                       "    - Shader: PBR\n      Stages: 17\n      Color: [97]\n      Depth: 126\n"
+                       "      Samples: 1\n      Patch: 0\n      Configs:\n";
+    for (sizet i = 0; i < kTags; ++i)
+    {
+        text += std::format("        - t{}\n", i);
+    }
+    text += "      LastSeen: 0\n";
+    std::string error;
+    const auto parsed = PipelineManifest::Parse(text, &error);
+    ASSERT_TRUE(parsed.has_value()) << error;
+    const auto entries = parsed->EntriesFor("PBR", kClassicStages, "");
+    ASSERT_EQ(entries.Num(), 1);
+    EXPECT_EQ(entries[0]->Configurations.Num(), static_cast<i32>(PipelineManifest::kMaxConfigurationsPerEntry));
+    EXPECT_FALSE(entries[0]->SeenUnder("t3")) << "the oldest tags go first";
+    EXPECT_TRUE(entries[0]->SeenUnder("t4"));
+    EXPECT_TRUE(entries[0]->SeenUnder(std::format("t{}", kTags - 1)));
+}
+
 // #1650: the engine seed is checked in, so its text must be a function of the
 // keys and tags alone: not of the order the draws recorded them in, nor of the
 // session counter of the machine that regenerated it.
