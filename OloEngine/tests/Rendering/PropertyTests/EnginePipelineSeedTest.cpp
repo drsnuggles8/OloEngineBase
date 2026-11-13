@@ -13,10 +13,13 @@
 //
 //   * it parses whole and is in its normalized form (a regeneration of an
 //     unchanged seed is a zero diff);
-//   * a cold session that starts from it renders the #1259 integrated
-//     acceptance scene on Forward, Forward+ and Deferred, under CSM and VSM,
-//     and no draw creates a pipeline nobody requested; a failure names every
-//     missing key and the script that regenerates the file;
+//   * a cold session that starts from it renders what a cold editor session
+//     of the Sandbox project opens (its start scene, then the #1259
+//     integrated acceptance scene, each with its own render settings and the
+//     project's quality tier, as the editor and runtime apply them) on
+//     Forward, Forward+ and Deferred, under CSM and VSM, and no draw creates a
+//     pipeline nobody requested; a failure names every missing key and the
+//     script that regenerates the file;
 //   * the same cold render WITHOUT the seed does create pipelines nobody
 //     requested (the A/B control: the seed is what fixed them), and a seed with
 //     one of its keys deleted names exactly that key (the negative control).
@@ -45,6 +48,7 @@
 #include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/Scene/SceneTransition.h"
 #include "OloEngine/Utils/PlatformUtils.h" // Time::SetMockTime
 
 #if OLO_WITH_VULKAN
@@ -178,6 +182,7 @@ namespace OloEngine::Tests
             Renderer3D::ApplyRendererSettings();
             Time::ClearMockTime();
             m_Scene = nullptr;
+            m_StartScene = nullptr;
             RendererAttachedTest::TearDown();
             if (m_AssetManager)
             {
@@ -195,8 +200,29 @@ namespace OloEngine::Tests
                 Project::SetAssetManager(m_PreviousAssetManager);
         }
 
-        // The committed acceptance scene, deserialized from a temp copy in the
-        // real project, as AcceptanceSceneEvidenceTest loads it.
+        // A committed Sandbox scene, deserialized from a temp copy (its
+        // .scenebin sidecar must not land in the working tree).
+        void LoadScene(const fs::path& relative, Ref<Scene>& scene)
+        {
+            const fs::path source = EditorRoot() / "SandboxProject" / "Assets" / relative;
+            const fs::path copy = TempDir("pipeline-seed") / relative.filename();
+            std::error_code ec;
+            fs::copy_file(source, copy, fs::copy_options::overwrite_existing, ec);
+            ASSERT_FALSE(ec) << "cannot copy " << source.string() << ": " << ec.message();
+            scene = Scene::Create();
+            SceneSerializer serializer(scene);
+            ASSERT_TRUE(serializer.Deserialize(copy)) << relative.string() << " failed to deserialize; see the log";
+            // The editor's helpers (grid, gizmos, frustums) stay at the scene's
+            // defaults, which is what the editor draws.
+            scene->SetIs3DModeEnabled(true);
+            scene->OnViewportResize(kWidth, kHeight);
+            scene->SetRenderingEnabled(true);
+        }
+
+        // What a cold editor session of the Sandbox project opens: its start
+        // scene (DriftMenu, a UI menu: the Renderer2D pipelines), then the
+        // #1259 integrated acceptance scene, as AcceptanceSceneEvidenceTest
+        // loads it.
         void Load()
         {
             std::error_code ec;
@@ -209,27 +235,25 @@ namespace OloEngine::Tests
             Project::SetAssetManager(m_AssetManager);
             Time::SetMockTime(kMockTime);
 
-            const fs::path source = EditorRoot() / "SandboxProject" / "Assets" / "Scenes" / "Benchmark" / "Acceptance.olo";
-            const fs::path copy = TempDir("pipeline-seed") / "Acceptance.olo";
-            fs::copy_file(source, copy, fs::copy_options::overwrite_existing, ec);
-            ASSERT_FALSE(ec) << "cannot copy " << source.string() << ": " << ec.message();
-
-            m_Scene = Scene::Create();
-            SceneSerializer serializer(m_Scene);
-            ASSERT_TRUE(serializer.Deserialize(copy)) << "Acceptance.olo failed to deserialize; see the engine log";
-            m_Scene->SetGridVisible(false);
-            m_Scene->SetWorldAxisHelperVisible(false);
-            m_Scene->SetLightGizmosVisible(false);
-            m_Scene->SetCameraFrustumsVisible(false);
-            m_Scene->SetIs3DModeEnabled(true);
-            m_Scene->OnViewportResize(kWidth, kHeight);
-            m_Scene->SetRenderingEnabled(true);
+            const fs::path startScene = Project::GetActive()->GetConfig().StartScene;
+            ASSERT_FALSE(startScene.empty()) << "the Sandbox project names no start scene";
+            ASSERT_NO_FATAL_FAILURE(LoadScene(startScene, m_StartScene));
+            ASSERT_NO_FATAL_FAILURE(LoadScene(fs::path("Scenes") / "Benchmark" / "Acceptance.olo", m_Scene));
 
             std::string error;
             m_Cameras = Benchmark::LoadBenchmarkManifest(
                 EditorRoot() / "assets" / "benchmark" / "manifests" / "acceptance-forward.yaml", error);
             ASSERT_TRUE(m_Cameras.has_value()) << error;
             ASSERT_FALSE(m_Cameras->Cameras.IsEmpty());
+        }
+
+        [[nodiscard]] static EditorCamera Camera(const glm::vec3& position, f32 yawDegrees, f32 pitchDegrees,
+                                                 f32 fovDegrees)
+        {
+            EditorCamera camera(fovDegrees, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 600.0f);
+            camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+            camera.SetPose(position, glm::radians(yawDegrees), glm::radians(pitchDegrees));
+            return camera;
         }
 
 #if OLO_WITH_VULKAN
@@ -240,19 +264,39 @@ namespace OloEngine::Tests
             std::string Tag;                  ///< The configuration the precache selected.
         };
 
+        // Each scene exactly as the editor (and a packaged runtime) opens it:
+        // its own render settings (post-process, wind, fog, path) and the
+        // project's quality tier on top, through the call both make, then the
+        // path under test. A bare fixture renders with struct defaults
+        // instead, which turn off GTAO, bloom, FXAA, the depth-normal prepass
+        // and wind: a seed recorded that way missed 15 keys in a cold editor
+        // session.
+        static void OpenAsTheEditorDoes(const Scene& scene, const PathSpec& path)
+        {
+            SceneTransition::ApplySceneRenderSettings(scene);
+            Renderer3D::GetRendererSettings().Path = path.Path;
+            Renderer3D::ApplyRendererSettings();
+        }
+
         // A first session in this process: no created pipeline, the request
         // counters at zero and `seed` as the only manifest (requested for every
         // live shader now, and for every shader built later when it is built).
-        // Then the scene on one path, CSM and then VSM, from every gate camera.
+        // Then, on one path, the start scene, and the acceptance scene under
+        // CSM and then VSM from every gate camera.
         [[nodiscard]] ColdRun RenderCold(const PipelineManifest& seed, const PathSpec& path)
         {
             auto& precache = VulkanPipelinePrecache::Get();
             const u64 session = precache.RestartColdForTesting(seed);
             m_RestartedCold = true;
 
-            auto& settings = Renderer3D::GetRendererSettings();
-            settings.Path = path.Path;
-            Renderer3D::ApplyRendererSettings();
+            // The start scene on its AUTHORED path, which is how the editor
+            // opens it at start-up (a UI menu: its Renderer2D keys have the
+            // same targets on every path). Forced onto Deferred, this UI-only
+            // scene trips #1653's WRITE_AFTER_WRITE hazard on every frame.
+            SceneTransition::ApplySceneRenderSettings(*m_StartScene);
+            RunEditorFramesOn(*m_StartScene, Camera(glm::vec3(0.0f, 0.0f, 10.0f), 0.0f, 0.0f, 60.0f), kFramesPerCamera);
+
+            OpenAsTheEditorDoes(*m_Scene, path);
             for (const bool vsm : { false, true })
             {
                 auto shadow = Renderer3D::GetShadowMap().GetSettings();
@@ -261,10 +305,7 @@ namespace OloEngine::Tests
                 for (const auto& spec : m_Cameras->Cameras)
                 {
                     const auto pose = Benchmark::CameraPoseAtFrame(spec, 0u, m_Cameras->FixedDtSeconds);
-                    EditorCamera camera(spec.FovDegrees, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f,
-                                        600.0f);
-                    camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
-                    camera.SetPose(pose.Position, glm::radians(pose.YawDegrees), glm::radians(pose.PitchDegrees));
+                    const EditorCamera camera = Camera(pose.Position, pose.YawDegrees, pose.PitchDegrees, spec.FovDegrees);
                     for (u32 frame = 0; frame < kFramesPerCamera; ++frame)
                     {
                         m_Scene->AdvanceAnimalPaths(Timestep{ m_Cameras->FixedDtSeconds });
@@ -291,6 +332,7 @@ namespace OloEngine::Tests
 #endif
 
         Ref<Scene> m_Scene;
+        Ref<Scene> m_StartScene;
         std::optional<Benchmark::BenchmarkManifest> m_Cameras;
 
       private:

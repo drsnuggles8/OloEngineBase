@@ -91,7 +91,10 @@ request and when, and `olo_perf_pipeline_readiness` reports both.
     `unsupportedSignatures`.
 12. **When `EnginePipelineSeedTest` fails, run `python scripts/regenerate-pipeline-seed.py` and commit
     the diff.** `OloEditor/assets/PipelineManifest.yaml` is the checked-in engine seed (#1650): the
-    keys the #1259 acceptance scene draws cold on Forward, Forward+ and Deferred under CSM and VSM.
+    keys the Sandbox start scene and the #1259 acceptance scene draw cold on Forward, Forward+ and
+    Deferred under CSM and VSM. Each scene is opened through `SceneTransition::ApplySceneRenderSettings`
+    (its own settings plus the project's quality tier), as the editor and runtime open it: a seed
+    recorded under a bare fixture's struct defaults (no GTAO, bloom, FXAA or wind) missed 15 keys live.
     The editor (cwd `OloEditor/`) reads it as its shipped manifest, so a first session on a machine
     requests those keys before its first frame. The guard renders the same scene cold from the seed in
     the `--olo-rhi=vulkan` process and fails, naming each key, when a draw needs one the seed lacks: a

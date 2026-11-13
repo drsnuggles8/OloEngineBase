@@ -9,7 +9,7 @@ PipelineManifest:
       Samples: 1
       Patch: 0
       Configs:
-        - ""
+        - Forward/msaa0/native/oit0
       LastSeen: 0
     - Shader: DeferredLighting
       Stages: 17
@@ -20,7 +20,17 @@ PipelineManifest:
       Configs:
         - Deferred/msaa1/native/oit0
       LastSeen: 0
-    - Shader: DepthPrepass
+    - Shader: DepthNormalPrepass
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: DepthNormalPrepass_Skinned
       Stages: 17
       Color: [97, 99, 83, 97, 97]
       Depth: 130
@@ -38,16 +48,6 @@ PipelineManifest:
       Patch: 0
       Configs:
         - Deferred/msaa1/native/oit0
-      LastSeen: 0
-    - Shader: DepthPrepass_Skinned
-      Stages: 17
-      Color: [97, 99, 83, 97, 97]
-      Depth: 130
-      Samples: 1
-      Patch: 0
-      Configs:
-        - Forward/msaa0/native/oit0
-        - ForwardPlus/msaa0/native/oit0
       LastSeen: 0
     - Shader: DepthPrepass_Skinned
       Stages: 17
@@ -65,7 +65,6 @@ PipelineManifest:
       Samples: 1
       Patch: 0
       Configs:
-        - ""
         - Deferred/msaa1/native/oit0
         - Forward/msaa0/native/oit0
         - ForwardPlus/msaa0/native/oit0
@@ -88,7 +87,6 @@ PipelineManifest:
       Samples: 1
       Patch: 0
       Configs:
-        - ""
         - Deferred/msaa1/native/oit0
         - Forward/msaa0/native/oit0
         - ForwardPlus/msaa0/native/oit0
@@ -125,6 +123,16 @@ PipelineManifest:
         - Forward/msaa0/native/oit0
         - ForwardPlus/msaa0/native/oit0
       LastSeen: 0
+    - Shader: Foliage_Impostor_DepthNormal
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
     - Shader: Foliage_Impostor_GBuffer
       Stages: 17
       Color: [37, 97, 97, 97, 99, 97]
@@ -135,6 +143,16 @@ PipelineManifest:
         - Deferred/msaa1/native/oit0
       LastSeen: 0
     - Shader: Foliage_Instance
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Foliage_Instance_DepthNormal
       Stages: 17
       Color: [97, 99, 83, 97, 97]
       Depth: 130
@@ -167,6 +185,28 @@ PipelineManifest:
     - Shader: FullscreenBlit
       Stages: 17
       Color: [44]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: GTAO
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: GTAO_Denoise
+      Stages: 32
+      Color: []
       Depth: 0
       Samples: 1
       Patch: 0
@@ -219,6 +259,17 @@ PipelineManifest:
         - Forward/msaa0/native/oit0
         - ForwardPlus/msaa0/native/oit0
       LastSeen: 0
+    - Shader: HZB
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
     - Shader: IBLPrefilterImportance
       Stages: 17
       Color: [109]
@@ -226,7 +277,7 @@ PipelineManifest:
       Samples: 1
       Patch: 0
       Configs:
-        - ""
+        - Forward/msaa0/native/oit0
       LastSeen: 0
     - Shader: Impostor_Bake
       Stages: 17
@@ -235,7 +286,18 @@ PipelineManifest:
       Samples: 1
       Patch: 0
       Configs:
-        - ""
+        - Forward/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: InfiniteGrid
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
       LastSeen: 0
     - Shader: IrradianceConvolutionAdvanced
       Stages: 17
@@ -244,7 +306,7 @@ PipelineManifest:
       Samples: 1
       Patch: 0
       Configs:
-        - ""
+        - Forward/msaa0/native/oit0
       LastSeen: 0
     - Shader: LightCulling
       Stages: 32
@@ -281,6 +343,7 @@ PipelineManifest:
       Samples: 1
       Patch: 0
       Configs:
+        - Deferred/msaa1/native/oit0
         - Forward/msaa0/native/oit0
         - ForwardPlus/msaa0/native/oit0
       LastSeen: 0
@@ -298,6 +361,61 @@ PipelineManifest:
       Stages: 17
       Color: [97, 99, 83, 97, 97]
       Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PostProcess_BloomComposite
+      Stages: 17
+      Color: [97]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PostProcess_BloomDownsample
+      Stages: 17
+      Color: [97]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PostProcess_BloomThreshold
+      Stages: 17
+      Color: [97]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PostProcess_BloomUpsample
+      Stages: 17
+      Color: [97]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PostProcess_FXAA
+      Stages: 17
+      Color: [37]
+      Depth: 0
       Samples: 1
       Patch: 0
       Configs:
@@ -334,7 +452,25 @@ PipelineManifest:
       Samples: 1
       Patch: 0
       Configs:
-        - ""
+        - Forward/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Renderer2D_Quad
+      Stages: 17
+      Color: [37, 99, 83]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Renderer2D_Text
+      Stages: 17
+      Color: [37, 99, 83]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
       LastSeen: 0
     - Shader: ShadowDepth
       Stages: 17
@@ -644,6 +780,17 @@ PipelineManifest:
       Depth: 0
       Samples: 1
       Patch: 3
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Wind_Generate
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
       Configs:
         - Deferred/msaa1/native/oit0
         - Forward/msaa0/native/oit0
