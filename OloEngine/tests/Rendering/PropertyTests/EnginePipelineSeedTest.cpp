@@ -99,6 +99,13 @@ namespace OloEngine::Tests
         // The test binary runs from the repo root (CI's scene step from
         // OloEditor/), so the seed is loaded by its full path, never through
         // the cwd-relative kEngineSeedPath.
+        // The registry EditorAssetManager::Shutdown writes into the active
+        // project, which here is the real, tracked Sandbox project.
+        [[nodiscard]] fs::path RegistryPath()
+        {
+            return EditorRoot() / "SandboxProject" / "AssetRegistry.oar";
+        }
+
         [[nodiscard]] fs::path SeedPath()
         {
             return EditorRoot() / fs::path(PipelineManifest::kEngineSeedPath);
@@ -189,6 +196,15 @@ namespace OloEngine::Tests
                 m_AssetManager->Shutdown();
                 m_AssetManager = nullptr;
             }
+            // Shutdown wrote the asset manager's registry into the real
+            // Sandbox project; a test must leave tracked files as it found them.
+            if (m_SavedRegistry.has_value())
+            {
+                std::ofstream registry(RegistryPath(), std::ios::binary | std::ios::trunc);
+                registry << *m_SavedRegistry;
+                EXPECT_TRUE(registry.good()) << "could not restore " << RegistryPath().string();
+                m_SavedRegistry.reset();
+            }
             std::error_code ec;
             if (!m_PreviousCwd.empty())
                 fs::current_path(m_PreviousCwd, ec);
@@ -230,6 +246,7 @@ namespace OloEngine::Tests
             ASSERT_FALSE(ec) << "cannot enter the editor root: " << ec.message();
             Project::Unload();
             ASSERT_TRUE(Project::Load(EditorRoot() / "SandboxProject" / "Sandbox.oloproj"));
+            m_SavedRegistry = ReadText(RegistryPath());
             m_AssetManager = Ref<EditorAssetManager>::Create();
             m_AssetManager->Initialize(/*startFileWatcher=*/false);
             Project::SetAssetManager(m_AssetManager);
@@ -344,6 +361,7 @@ namespace OloEngine::Tests
         Ref<Project> m_PreviousProject;
         Ref<AssetManagerBase> m_PreviousAssetManager;
         Ref<EditorAssetManager> m_AssetManager;
+        std::optional<std::string> m_SavedRegistry; ///< The project's registry bytes before the asset manager ran.
         fs::path m_PreviousCwd;
         ShadowSettings m_PreviousShadow{};
         RenderingPath m_PreviousPath = RenderingPath::Forward;
