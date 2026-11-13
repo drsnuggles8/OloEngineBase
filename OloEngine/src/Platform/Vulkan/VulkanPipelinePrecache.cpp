@@ -75,11 +75,22 @@ namespace OloEngine
             return text.str();
         }
 
-        // A missing file is normal (first launch); an unreadable or malformed
-        // one is logged and ignored — the manifest is an optimisation, and a
-        // broken one must cost a cold start, never a failed launch.
-        void LoadInto(PipelineManifest& manifest, const std::filesystem::path& path, const char* what)
+        enum class ManifestSource : u8
         {
+            Shipped, ///< Checked in or staged by Build Game: a broken one is our bug.
+            Machine, ///< This machine's record: a crash mid-write is the user's weather.
+        };
+
+        // A missing file is normal (first launch, or a build with no seed); an
+        // unreadable or malformed one is logged and ignored — the manifest is
+        // an optimisation, and a broken one must cost a cold start, never a
+        // failed launch. A SHIPPED manifest that does not parse whole is an
+        // error, not a warning (#1650): it is the engine seed or a packaged
+        // seed, both produced by our own tooling, and losing it silently would
+        // bring every first-session hitch back with nothing but a warning line.
+        void LoadInto(PipelineManifest& manifest, const std::filesystem::path& path, const ManifestSource source)
+        {
+            const char* what = source == ManifestSource::Shipped ? "shipped manifest" : "manifest";
             const auto text = ReadFile(path);
             if (!text.has_value())
             {
@@ -90,8 +101,22 @@ namespace OloEngine
             auto parsed = PipelineManifest::Parse(*text, &error, &rejected);
             if (!parsed.has_value())
             {
-                OLO_CORE_WARN("[Vulkan/PSO] {} {} ignored: {}", what, path.string(), error);
+                if (source == ManifestSource::Shipped)
+                {
+                    OLO_CORE_ERROR("[Vulkan/PSO] {} {} ignored: {} — regenerate it with `{}`", what, path.string(),
+                                   error, PipelineManifest::kSeedRegenerationCommand);
+                }
+                else
+                {
+                    OLO_CORE_WARN("[Vulkan/PSO] {} {} ignored: {}", what, path.string(), error);
+                }
                 return;
+            }
+            if (rejected > 0 && source == ManifestSource::Shipped)
+            {
+                OLO_CORE_ERROR("[Vulkan/PSO] {} {}: {} invalid entr{} dropped — regenerate it with `{}`", what,
+                               path.string(), rejected, rejected == 1 ? "y" : "ies",
+                               PipelineManifest::kSeedRegenerationCommand);
             }
             OLO_CORE_INFO("[Vulkan/PSO] {} {}: {} pipeline key(s){}", what, path.string(), parsed->GetEntryCount(),
                           rejected > 0 ? std::format(", {} invalid entr{} dropped", rejected, rejected == 1 ? "y" : "ies")
@@ -117,8 +142,10 @@ namespace OloEngine
             m_Persist = options.LoadAndSaveManifest;
             if (m_Persist)
             {
-                LoadInto(m_Manifest, std::filesystem::path(PipelineManifest::kPackagedSeedPath), "shipped manifest");
-                LoadInto(m_Manifest, PipelineManifest::MachineFilePath(), "manifest");
+                // The editor runs from OloEditor/, so this one path is the
+                // checked-in engine seed there and the staged seed in a package.
+                LoadInto(m_Manifest, std::filesystem::path(PipelineManifest::kPackagedSeedPath), ManifestSource::Shipped);
+                LoadInto(m_Manifest, PipelineManifest::MachineFilePath(), ManifestSource::Machine);
             }
             m_Manifest.BeginSession();
             // A session starts with no configuration: nothing published before
@@ -893,6 +920,38 @@ namespace OloEngine
     {
         std::lock_guard lock(m_Mutex);
         m_Manifest = std::move(manifest);
+    }
+
+    u64 VulkanPipelinePrecache::RestartColdForTesting(PipelineManifest manifest)
+    {
+        std::lock_guard lock(m_Mutex);
+        // Records still pending belong to the session being thrown away.
+        {
+            std::lock_guard recordLock(m_RecordMutex);
+            m_PendingRecords.Empty();
+        }
+        m_Manifest = std::move(manifest);
+        m_Manifest.BeginSession();
+        // Every created pipeline, request and readiness claim goes: the next
+        // draw of every key either finds the request this restart makes from
+        // `manifest`, or is a never-requested miss, exactly as in a new process
+        // with an empty pipeline cache. (Lock order: ours, then the builder's.)
+        auto& builder = VulkanPipelineBuilder::Get();
+        builder.ReleaseAll();
+        builder.ResetRequestCounters();
+        builder.BeginRecordingEpoch();
+        for (auto& [shader, tracked] : m_Graphics)
+        {
+            tracked.DeclaredReady = false;
+        }
+        for (auto& [shader, tracked] : m_Compute)
+        {
+            tracked.DeclaredReady = false;
+        }
+        m_EvaluatedCompletions = ~0ull;
+        RequestAllLocked();
+        m_ReadinessDirty = true;
+        return m_Manifest.GetSession();
     }
 } // namespace OloEngine
 

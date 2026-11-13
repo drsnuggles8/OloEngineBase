@@ -349,6 +349,86 @@ TEST(PipelineManifest, SurvivesARoundTripByteForByte)
     EXPECT_EQ(terrain[0]->Signature.PatchControlPoints, 4u) << "The patch size is part of the key";
 }
 
+// #1650: the engine seed is checked in, so its text must be a function of the
+// keys and tags alone: not of the order the draws recorded them in, nor of the
+// session counter of the machine that regenerated it.
+TEST(PipelineManifest, ASeedIsTheSameTextWhateverOrderAndSessionItWasRecordedIn)
+{
+    const auto record = [](PipelineManifest& m, const bool reversed)
+    {
+        struct Key
+        {
+            const char* Shader;
+            PipelineSignature Sig;
+            const char* Tag;
+        };
+        const Key keys[] = { { "PBR", Signature(2, 97, 126, 1), "forward/msaa1/native/oit1" },
+                             { "PBR", Signature(1, 97, 126, 1), "deferred/msaa1/native/oit1" },
+                             { "PBR", Signature(2, 97, 126, 1), "deferred/msaa1/native/oit1" },
+                             { "ShadowDepth", Signature(0, 0, 126, 1), "forward/msaa1/native/oit1" } };
+        for (i32 i = 0; i < 4; ++i)
+        {
+            const Key& k = keys[reversed ? 3 - i : i];
+            (void)m.Record(k.Shader, kClassicStages, k.Sig, k.Tag);
+        }
+    };
+    PipelineManifest forward;
+    forward.BeginSession();
+    record(forward, false);
+    PipelineManifest backward;
+    for (int i = 0; i < 5; ++i)
+    {
+        backward.BeginSession(); // another machine, another session count
+    }
+    record(backward, true);
+
+    ASSERT_NE(forward.Serialize(), backward.Serialize()) << "Sessions and tag order differ before normalizing";
+    const std::string seed = forward.NormalizedForSeed().Serialize();
+    EXPECT_EQ(seed, backward.NormalizedForSeed().Serialize());
+    EXPECT_EQ(seed.find("LastSeen: 1"), std::string::npos) << "No machine session survives into a seed";
+    EXPECT_NE(seed.find("Session: 0"), std::string::npos);
+    const auto parsed = PipelineManifest::Parse(seed);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->NormalizedForSeed().Serialize(), seed) << "A normalized seed is a fixed point";
+}
+
+// #1650: what the guard test compares. The keys a session drew are the
+// entries stamped with its session; the ones a seed lacks are named by
+// identity AND signature, so a shader the seed knows under another target is
+// still missing.
+TEST(PipelineManifest, TheKeysASessionDrewThatASeedLacksAreNamed)
+{
+    PipelineManifest seed;
+    (void)seed.Record("PBR", kClassicStages, Signature(2, 97, 126, 1), "forward/msaa1/native/oit1");
+    (void)seed.Record("ShadowDepth", kClassicStages, Signature(0, 0, 126, 1), "forward/msaa1/native/oit1");
+
+    PipelineManifest machine = seed;
+    machine.BeginSession();
+    (void)machine.Record("Old", kClassicStages, Signature(1, 97, 0, 1), "forward/msaa1/native/oit1");
+    const u64 session = machine.GetSession() + 1;
+    machine.BeginSession();
+    (void)machine.Record("PBR", kClassicStages, Signature(2, 97, 126, 1), "forward/msaa1/native/oit1");
+    (void)machine.Record("PBR", kClassicStages, Signature(2, 97, 126, 4), "forward/msaa4/native/oit1");
+    (void)machine.Record("Sky", kClassicStages, Signature(1, 97, 126, 1), "forward/msaa1/native/oit1");
+
+    const PipelineManifest drawn = machine.SeenInSession(session);
+    EXPECT_EQ(drawn.GetEntryCount(), 3u) << "The earlier session's 'Old' and the undrawn ShadowDepth are not drawn";
+    const TArray<PipelineManifestEntry> missing = drawn.EntriesMissingFrom(seed);
+    ASSERT_EQ(missing.Num(), 2);
+    EXPECT_EQ(missing[0].Shader.ToView(), "PBR");
+    EXPECT_EQ(missing[0].Signature.Samples, 4u) << "A known shader under a new sample count is still missing";
+    EXPECT_EQ(missing[1].Shader.ToView(), "Sky");
+    EXPECT_NE(PipelineManifest::Describe(missing[0]).find("samples=4"), std::string::npos);
+    EXPECT_NE(PipelineManifest::Describe(missing[0]).find("forward/msaa4/native/oit1"), std::string::npos);
+
+    // The negative control's step: delete one key and it is named.
+    PipelineManifest reduced = seed;
+    EXPECT_TRUE(reduced.Remove("PBR", kClassicStages, Signature(2, 97, 126, 1)));
+    EXPECT_FALSE(reduced.Remove("PBR", kClassicStages, Signature(2, 97, 126, 1))) << "Already gone";
+    EXPECT_EQ(drawn.EntriesMissingFrom(reduced).Num(), 3);
+    EXPECT_TRUE(reduced.EntriesFor("PBR", kClassicStages, "").IsEmpty());
+}
+
 TEST(PipelineManifest, RefusesAMalformedFileButKeepsTheValidEntriesOfAWellFormedOne)
 {
     std::string error;

@@ -200,10 +200,8 @@ namespace OloEngine
         return ShaderCachePaths::Root() / "vulkan" / "pso_manifest.yaml";
     }
 
-    std::string PipelineManifest::Serialize() const
+    TArray<const PipelineManifestEntry*> PipelineManifest::SortedEntries() const
     {
-        // Deterministic order (identity key, then record order) so two saves of
-        // the same manifest are byte-identical.
         TArray<const std::string*> identities;
         for (const auto& [identity, entries] : m_ByShader)
         {
@@ -211,38 +209,146 @@ namespace OloEngine
         }
         std::ranges::sort(identities, [](const std::string* a, const std::string* b)
                           { return *a < *b; });
+        const auto signatureOrder = [](const PipelineManifestEntry* a, const PipelineManifestEntry* b)
+        {
+            const PipelineSignature& x = a->Signature;
+            const PipelineSignature& y = b->Signature;
+            return std::tie(x.ColorCount, x.ColorFormats, x.DepthFormat, x.Samples, x.PatchControlPoints) <
+                   std::tie(y.ColorCount, y.ColorFormats, y.DepthFormat, y.Samples, y.PatchControlPoints);
+        };
+        TArray<const PipelineManifestEntry*> sorted;
+        for (const std::string* identity : identities)
+        {
+            TArray<const PipelineManifestEntry*> group;
+            for (const PipelineManifestEntry& entry : m_ByShader.at(*identity))
+            {
+                group.Add(&entry);
+            }
+            std::ranges::sort(group, signatureOrder);
+            sorted.Append(group);
+        }
+        return sorted;
+    }
 
+    PipelineManifest PipelineManifest::NormalizedForSeed() const
+    {
+        PipelineManifest seed;
+        seed.m_ByShader = m_ByShader;
+        for (auto& [identity, entries] : seed.m_ByShader)
+        {
+            for (PipelineManifestEntry& entry : entries)
+            {
+                entry.LastSeenSession = 0;
+                std::ranges::sort(entry.Configurations, [](const FString& a, const FString& b)
+                                  { return a.ToView() < b.ToView(); });
+            }
+        }
+        seed.m_Session = 0;
+        seed.m_Dirty = false;
+        return seed;
+    }
+
+    PipelineManifest PipelineManifest::SeenInSession(const u64 session) const
+    {
+        PipelineManifest seen;
+        seen.m_Session = session;
+        for (const auto& [identity, entries] : m_ByShader)
+        {
+            for (const PipelineManifestEntry& entry : entries)
+            {
+                if (entry.LastSeenSession == session)
+                {
+                    seen.m_ByShader[identity].Add(entry);
+                }
+            }
+        }
+        return seen;
+    }
+
+    TArray<PipelineManifestEntry> PipelineManifest::EntriesMissingFrom(const PipelineManifest& seed) const
+    {
+        TArray<PipelineManifestEntry> missing;
+        for (const PipelineManifestEntry* entry : SortedEntries())
+        {
+            const auto it = seed.m_ByShader.find(IdentityKey(entry->Shader.ToView(), entry->StageMask));
+            const bool covered = it != seed.m_ByShader.end() &&
+                                 it->second.ContainsByPredicate([entry](const PipelineManifestEntry& e)
+                                                                { return e.Signature == entry->Signature; });
+            if (!covered)
+            {
+                missing.Add(*entry);
+            }
+        }
+        return missing;
+    }
+
+    bool PipelineManifest::Remove(const std::string_view shader, const u32 stageMask, const PipelineSignature& signature)
+    {
+        const auto it = m_ByShader.find(IdentityKey(shader, stageMask));
+        if (it == m_ByShader.end())
+        {
+            return false;
+        }
+        const i32 removed = it->second.RemoveAll([&signature](const PipelineManifestEntry& e)
+                                                 { return e.Signature == signature; });
+        if (it->second.IsEmpty())
+        {
+            m_ByShader.erase(it);
+        }
+        m_Dirty = m_Dirty || removed > 0;
+        return removed > 0;
+    }
+
+    std::string PipelineManifest::Describe(const PipelineManifestEntry& entry)
+    {
+        std::string colors;
+        for (u32 i = 0; i < entry.Signature.ColorCount; ++i)
+        {
+            colors += std::format("{}{}", i == 0 ? "" : ",", entry.Signature.ColorFormats[i]);
+        }
+        std::string configs;
+        for (const FString& tag : entry.Configurations)
+        {
+            configs += std::format("{}{}", configs.empty() ? "" : " ", tag.ToView());
+        }
+        return std::format("{} stages={:#x} color=[{}] depth={} samples={} patch={} configs=[{}]", entry.Shader.ToView(),
+                           entry.StageMask, colors, entry.Signature.DepthFormat, entry.Signature.Samples,
+                           entry.Signature.PatchControlPoints, configs);
+    }
+
+    std::string PipelineManifest::Serialize() const
+    {
+        // Deterministic order (identity key, then signature) so two saves of
+        // the same keys are byte-identical whatever order they were recorded in.
         YAML::Emitter out;
         out << YAML::BeginMap;
         out << YAML::Key << "PipelineManifest" << YAML::Value << YAML::BeginMap;
         out << YAML::Key << "Version" << YAML::Value << kFormatVersion;
         out << YAML::Key << "Session" << YAML::Value << m_Session;
         out << YAML::Key << "Entries" << YAML::Value << YAML::BeginSeq;
-        for (const std::string* identity : identities)
+        for (const PipelineManifestEntry* entryPtr : SortedEntries())
         {
-            for (const PipelineManifestEntry& entry : m_ByShader.at(*identity))
+            const PipelineManifestEntry& entry = *entryPtr;
+            out << YAML::BeginMap;
+            out << YAML::Key << "Shader" << YAML::Value << entry.Shader.ToStdString();
+            out << YAML::Key << "Stages" << YAML::Value << entry.StageMask;
+            out << YAML::Key << "Color" << YAML::Value << YAML::Flow << YAML::BeginSeq;
+            for (u32 i = 0; i < entry.Signature.ColorCount; ++i)
             {
-                out << YAML::BeginMap;
-                out << YAML::Key << "Shader" << YAML::Value << entry.Shader.ToStdString();
-                out << YAML::Key << "Stages" << YAML::Value << entry.StageMask;
-                out << YAML::Key << "Color" << YAML::Value << YAML::Flow << YAML::BeginSeq;
-                for (u32 i = 0; i < entry.Signature.ColorCount; ++i)
-                {
-                    out << entry.Signature.ColorFormats[i];
-                }
-                out << YAML::EndSeq;
-                out << YAML::Key << "Depth" << YAML::Value << entry.Signature.DepthFormat;
-                out << YAML::Key << "Samples" << YAML::Value << entry.Signature.Samples;
-                out << YAML::Key << "Patch" << YAML::Value << entry.Signature.PatchControlPoints;
-                out << YAML::Key << "Configs" << YAML::Value << YAML::BeginSeq;
-                for (const FString& tag : entry.Configurations)
-                {
-                    out << tag.ToStdString();
-                }
-                out << YAML::EndSeq;
-                out << YAML::Key << "LastSeen" << YAML::Value << entry.LastSeenSession;
-                out << YAML::EndMap;
+                out << entry.Signature.ColorFormats[i];
             }
+            out << YAML::EndSeq;
+            out << YAML::Key << "Depth" << YAML::Value << entry.Signature.DepthFormat;
+            out << YAML::Key << "Samples" << YAML::Value << entry.Signature.Samples;
+            out << YAML::Key << "Patch" << YAML::Value << entry.Signature.PatchControlPoints;
+            out << YAML::Key << "Configs" << YAML::Value << YAML::BeginSeq;
+            for (const FString& tag : entry.Configurations)
+            {
+                out << tag.ToStdString();
+            }
+            out << YAML::EndSeq;
+            out << YAML::Key << "LastSeen" << YAML::Value << entry.LastSeenSession;
+            out << YAML::EndMap;
         }
         out << YAML::EndSeq;
         out << YAML::EndMap;

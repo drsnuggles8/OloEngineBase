@@ -80,13 +80,25 @@ request and when, and `olo_perf_pipeline_readiness` reports both.
     the CPU scope ring. `OLO_VK_PSO_PRECACHE=0` is the A/B: no requests, so every first use is a
     synchronous creation.
 11. **A packaged game ships the manifest as a seed.** Build Game saves the live manifest, then
-    stages the machine's `pso_manifest.yaml` as `assets/PipelineManifest.yaml`. Only an application
+    stages the engine seed (rule 12) merged with the machine's `pso_manifest.yaml` as
+    `assets/PipelineManifest.yaml` (`StagePipelineManifest`), so a package built on a machine that
+    never drew on Vulkan still carries the engine's keys. Only an application
     session reads and writes the machine manifest; a test that builds a `VulkanContext` does not. The runtime merges it under its own
     manifest and requests keys for the shaders its cooked content creates. A seed entry whose shader
     is not in the build is never requested, and neither is one whose targets this device cannot
     create (an attachment format without the attachment feature, a sample count, colour count or
     patch size over the device limits): it is logged once per device and counted as
     `unsupportedSignatures`.
+12. **When `EnginePipelineSeedTest` fails, run `python scripts/regenerate-pipeline-seed.py` and commit
+    the diff.** `OloEditor/assets/PipelineManifest.yaml` is the checked-in engine seed (#1650): the
+    keys the #1259 acceptance scene draws cold on Forward, Forward+ and Deferred under CSM and VSM.
+    The editor (cwd `OloEditor/`) reads it as its shipped manifest, so a first session on a machine
+    requests those keys before its first frame. The guard renders the same scene cold from the seed in
+    the `--olo-rhi=vulkan` process and fails, naming each key, when a draw needs one the seed lacks: a
+    new pass, shader or attachment format changes the keys. Never hand-edit the file; the test also
+    rejects one that is not in its normalized form. A shipped manifest that does not parse is logged
+    as an error, not a warning. Configurations the seed does not cover (MSAA, upscaling) and content
+    outside the engine's scenes are still learned per machine (rule 3); declaring them per pass is #1669.
 
 ## Where it lives
 
@@ -97,4 +109,5 @@ request and when, and `olo_perf_pipeline_readiness` reports both.
   `VulkanPipelinePrecache.*` (collection, workers, readiness). Lifecycle in `VulkanContext`: `Start`
   after device bring-up, `Tick` after the frame fence, `Stop` before `ReleaseAll`.
 - Tests: `PipelinePrecacheContractTest.cpp` (device-free), `VulkanShaderPipeline.*` precache cases
-  (device), `McpPipelineReadinessTest.cpp`.
+  (device), `McpPipelineReadinessTest.cpp`, `EnginePipelineSeedTest.cpp` (the engine seed, Vulkan
+  scene process), `GameBuildPipelineTest.PipelineManifest*` (staging).
