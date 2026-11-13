@@ -47,6 +47,7 @@
 #include "OloEngine/Project/Project.h"
 #include "OloEngine/Renderer/Benchmark/BenchmarkManifest.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/PipelineManifest.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
@@ -350,6 +351,7 @@ namespace OloEngine::Tests
                         m_Scene->AdvanceAnimalPaths(Timestep{ m_Cameras->FixedDtSeconds });
                         RunEditorFramesOn(*m_Scene, camera, 1);
                     }
+                    DrainCoatBuilds(camera);
                 }
             }
 
@@ -369,6 +371,31 @@ namespace OloEngine::Tests
             return run;
         }
 #endif
+
+        // An opened scene's coats are built a few a frame (#1591) and a coat
+        // draws only once built, so keep rendering this camera until none
+        // waits: a pipeline only an unbuilt coat would use is otherwise left
+        // out of the seed and out of the guard. A frame that drew no coat
+        // leaves the stats from the last one that did (the tick does not
+        // move), so that ends the wait instead of reading stale counts.
+        void DrainCoatBuilds(const EditorCamera& camera)
+        {
+            constexpr u32 kMaxBuildFrames = 64;
+            GroomRenderPass* pass = Renderer3D::GetGroomRenderPass();
+            if (pass == nullptr)
+                return;
+            u32 frames = 0;
+            while (pass->GetStats().GroomsAwaitingBuild > 0u && frames < kMaxBuildFrames)
+            {
+                const u64 tick = pass->GetFrameTick();
+                RunEditorFramesOn(*m_Scene, camera, 1);
+                ++frames;
+                if (pass->GetFrameTick() == tick)
+                    return;
+            }
+            EXPECT_EQ(pass->GetStats().GroomsAwaitingBuild, 0u)
+                << "coats still waiting for their first build after " << frames << " extra frames";
+        }
 
         Ref<Scene> m_Scene;
         Ref<Scene> m_StartScene;

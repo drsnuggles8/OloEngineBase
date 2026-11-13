@@ -11,12 +11,20 @@
 //
 // Prefer a temporary copy of the project when the test can use one
 // (TestTempDir.h); this is for content too large to copy per test.
+//
+// The restore replaces the file atomically, as the registry's own writer does:
+// other test processes may read the same file at the same moment under a
+// parallel ctest, and must see the old bytes or the whole new ones, never a
+// truncated file.
+
+#include "OloEngine/Core/FileSystem.h"
 
 #include <filesystem>
 #include <fstream>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <system_error>
 #include <utility>
 
@@ -60,10 +68,7 @@ namespace OloEngine::Tests
                 std::filesystem::remove(m_Path, ec);
                 return !ec;
             }
-            std::ofstream out(m_Path, std::ios::binary | std::ios::trunc);
-            out << *m_Bytes;
-            out.close();
-            return out.good();
+            return FileSystem::WriteFileAtomically(m_Path, std::string_view(*m_Bytes));
         }
 
         [[nodiscard]] const std::filesystem::path& GetPath() const
