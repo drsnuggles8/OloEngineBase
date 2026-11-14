@@ -4,6 +4,7 @@
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Core/Hash.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/Baking/LightmapUnwrap.h"
 #include "OloEngine/Renderer/LightmapAsset.h"
 #include "OloEngine/Renderer/LightmapPageEncoding.h"
@@ -366,6 +367,14 @@ namespace OloEngine
             // world transform is its own, and moving one instance of a batch
             // has to stale the bake exactly as moving a mesh entity does.
             hasher.Mix(receiver.WorldTransform);
+
+            // An instance's tint multiplies what the bake bounces off it (issue
+            // #1691). Mixed only when it is not white, so a bake made before
+            // the tint existed keeps its key for every scene that authors none.
+            if (const glm::vec3 white(1.0f); !Math::BitwiseEqual(receiver.Tint, white))
+            {
+                hasher.Mix(receiver.Tint);
+            }
 
             const auto& submeshes = source->GetSubmeshes();
             for (i32 s = 0; s < submeshes.Num(); ++s)

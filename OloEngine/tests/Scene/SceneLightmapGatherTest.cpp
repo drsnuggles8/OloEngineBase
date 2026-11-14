@@ -35,6 +35,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
+#include <limits>
 #include <tuple>
 
 namespace OloEngine::Tests
@@ -142,6 +143,39 @@ namespace OloEngine::Tests
         ASSERT_EQ(receivers.Num(), 1u);
         EXPECT_FLOAT_EQ(receivers[0].WorldTransform[3].x, 4.0f);
         EXPECT_FLOAT_EQ(receivers[0].WorldTransform[3].y, 0.0f);
+    }
+
+    // The bake shades an instance with the colour the frame shades it with
+    // (issue #1691): the receiver carries the instance's rgb, sanitized the way
+    // every CPU consumer of it is, and never its alpha.
+    TEST(SceneLightmapGather, InstanceReceiversCarryTheInstancesTint)
+    {
+        Ref<Scene> scene = Ref<Scene>::Create();
+        Entity rocks = scene->CreateEntity("Rocks");
+        auto& imc = rocks.AddComponent<InstancedMeshComponent>();
+        imc.MeshSource = MakeCubeSource();
+        imc.LightmapStatic = true;
+
+        InstanceData tinted = MakeInstance({ 4.0f, 0.0f, 0.0f }, 1);
+        tinted.Color = glm::vec4(0.2f, 0.4f, 0.6f, 0.3f);
+        InstanceData plain = MakeInstance({ 8.0f, 0.0f, 0.0f }, 2);
+        InstanceData broken = MakeInstance({ 12.0f, 0.0f, 0.0f }, 3);
+        broken.Color = glm::vec4(std::numeric_limits<f32>::quiet_NaN(), 0.5f, 0.5f, 1.0f);
+        imc.Instances.Add(tinted);
+        imc.Instances.Add(plain);
+        imc.Instances.Add(broken);
+
+        const auto receivers = GatherLightmapReceivers(*scene);
+        ASSERT_EQ(receivers.Num(), 3u);
+        EXPECT_FLOAT_EQ(receivers[0].Tint.r, 0.2f);
+        EXPECT_FLOAT_EQ(receivers[0].Tint.g, 0.4f);
+        EXPECT_FLOAT_EQ(receivers[0].Tint.b, 0.6f);
+        for (const sizet white : { sizet{ 1 }, sizet{ 2 } })
+        {
+            EXPECT_FLOAT_EQ(receivers[white].Tint.r, 1.0f) << "receiver " << white;
+            EXPECT_FLOAT_EQ(receivers[white].Tint.g, 1.0f) << "receiver " << white;
+            EXPECT_FLOAT_EQ(receivers[white].Tint.b, 1.0f) << "receiver " << white;
+        }
     }
 
     TEST(SceneLightmapGather, ZeroStableIDsAreRepairedRatherThanCollidingOnSubKeyZero)

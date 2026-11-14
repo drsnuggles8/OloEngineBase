@@ -78,6 +78,7 @@
 
 #include <glm/glm.hpp>
 
+#include <array>
 #include <functional>
 #include <map>
 #include <memory>
@@ -189,9 +190,15 @@ namespace OloEngine::PathTracing
         // `materialPatches` is the entity's MaterialOverridesComponent patches
         // (Scene::PrepareMaterialOverrides for this source, issue #1533), or null:
         // the same precedence step every raster path takes.
+        //
+        // `tint` multiplies the resolved material's base colour: an
+        // InstancedMeshComponent instance's colour (InstanceData::Color.rgb,
+        // issue #1691), which the raster and ray-traced frames apply and a bake
+        // of that instance therefore has to bounce. White for everything else.
         bool AddMeshEntity(const Ref<MeshSource>& meshSource, const glm::mat4& worldTransform,
                            const Material* overrideMaterial,
-                           const MaterialOverrideCache* materialPatches = nullptr);
+                           const MaterialOverrideCache* materialPatches = nullptr,
+                           const glm::vec3& tint = glm::vec3(1.0f));
 
         // Mirror one scene light. Packing matches Scene.cpp's MultiLight UBO
         // fill exactly — same attenuation parameterisation, same cone cosines,
@@ -286,11 +293,13 @@ namespace OloEngine::PathTracing
             glm::mat4 Transform{ 1.0f };
         };
 
-        // One entry per distinct resolved Material object (pointer identity —
-        // the resolution rule hands back stable references into the
-        // MaterialComponent / MeshSource / builder default, all of which
-        // outlive the walk).
-        [[nodiscard]] u32 ResolveMaterialIndex(const Material& material);
+        // One entry per distinct (resolved Material object, tint) pair. The
+        // Material is told apart by pointer identity — the resolution rule
+        // hands back stable references into the MaterialComponent /
+        // MeshSource / builder default, all of which outlive the walk — and
+        // the tint by its bits, so every untinted use of a material shares one
+        // entry as before and each instance colour gets its own.
+        [[nodiscard]] u32 ResolveMaterialIndex(const Material& material, const glm::vec3& tint);
 
         // Shared-geometry path: extract submesh `submeshIndex` of `meshSource`
         // in mesh-local space, once per distinct (MeshSource, submesh) pair.
@@ -312,7 +321,8 @@ namespace OloEngine::PathTracing
         TArray<PendingInstance> m_Instances;
         TArray<ReferenceLight> m_Lights;
 
-        std::map<const Material*, u32> m_MaterialCache;
+        using MaterialCacheKey = std::pair<const Material*, std::array<u32, 3>>;
+        std::map<MaterialCacheKey, u32> m_MaterialCache;
         std::map<std::pair<const MeshSource*, u32>, u32> m_GeometryCache;
 
         // The engine-default PBR material, mirrored from Scene.cpp's (file-
