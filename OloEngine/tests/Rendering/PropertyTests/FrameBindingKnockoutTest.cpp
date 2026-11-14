@@ -690,13 +690,20 @@ namespace OloEngine::Tests
 
     // What the check costs (issue #1330: "measure validation cost; do not infer
     // that all bindings need unconditional expensive reset"). The same frames
-    // with the contract on and with OLO_BINDING_CONTRACT=0, interleaved so that
-    // drift lands on both arms, timed on the CPU around the whole frame. A
-    // probe, not a budget: it prints the two medians and asserts only that the
-    // comparison is one (frames identical, nothing refused). Read the numbers
-    // from a Release build on an idle machine.
+    // with the contract on and with OLO_BINDING_CONTRACT=0, timed on the CPU
+    // around the whole frame. A probe, not a budget: it prints the two means
+    // and asserts only that the comparison is one (frames identical, nothing
+    // refused). Read the numbers from a Release build on an idle machine.
     //
-    // Opt-in (OLO_BINDING_CONTRACT_PROBE=1): it renders about 1,700 frames per
+    // The two arms alternate, and WHICH ARM GOES FIRST alternates too. A fixed
+    // order is not a fair comparison here: on OpenGL Forward+ this scene's
+    // frame cost alternates between consecutive rounds whichever arm runs in
+    // them (two identical arms measured 1.86 ms and 1.35 ms), and with "on"
+    // always first the probe reported that as a 35 % cost of the check. With
+    // the order alternating each arm runs first in half the rounds; the
+    // per-round times are printed so that such a pattern shows.
+    //
+    // Opt-in (OLO_BINDING_CONTRACT_PROBE=1): it renders about 2,000 frames per
     // path and asserts nothing about time, so a default run and a full-suite
     // sweep skip it rather than pay for a number nobody reads.
     class UniformBlockContractPerfProbe : public FramePredecessorPoison
@@ -709,7 +716,7 @@ namespace OloEngine::Tests
             GTEST_SKIP() << "set OLO_BINDING_CONTRACT_PROBE=1 to measure the uniform block contract's frame cost";
         ScopedMockTime mockTime(kCaptureTime);
         const char* path = PathName(GetParam());
-        constexpr u32 kRounds = 7;
+        constexpr u32 kRounds = 8; // even: each arm goes first in half of them
         constexpr u32 kFramesPerRound = 40;
 
         EditorCamera camera(60.0f, 1.0f, 0.05f, 300.0f);
@@ -728,28 +735,37 @@ namespace OloEngine::Tests
         const u64 refusedBefore = BindingContract::ViolationCount();
         std::vector<f64> on;
         std::vector<f64> off;
+        std::string sequence;
+        const auto timeArm = [&](const bool checked)
+        {
+            Levers::SetBindingContract(checked ? Levers::Tristate::On : Levers::Tristate::Off);
+            const f64 us = timeRound();
+            (checked ? on : off).push_back(us);
+            sequence += fmt::format(" {}{:.0f}", checked ? "on:" : "off:", us);
+        };
         for (u32 round = 0; round < kRounds; ++round)
         {
-            Levers::SetBindingContract(Levers::Tristate::On);
-            on.push_back(timeRound());
-            Levers::SetBindingContract(Levers::Tristate::Off);
-            off.push_back(timeRound());
+            const bool checkedFirst = round % 2u == 0u;
+            timeArm(checkedFirst);
+            timeArm(!checkedFirst);
         }
         Levers::SetBindingContract(saved);
         ASSERT_FALSE(HasFatalFailure());
         EXPECT_EQ(BindingContract::ViolationCount(), refusedBefore) << "a refused read makes the two arms draw different frames";
 
-        const auto median = [](std::vector<f64> values)
+        const auto mean = [](const std::vector<f64>& values)
         {
-            std::ranges::sort(values);
-            return values[values.size() / 2];
+            f64 sum = 0.0;
+            for (const f64 value : values)
+                sum += value;
+            return sum / static_cast<f64>(values.size());
         };
-        const f64 onUs = median(on);
-        const f64 offUs = median(off);
+        const f64 onUs = mean(on);
+        const f64 offUs = mean(off);
         std::cout << "[UniformBlockContractPerfProbe] " << TestRenderBackend::EvidenceBackendPrefix() << " " << path
-                  << ": frame CPU median " << onUs << " us with the check, " << offUs << " us without ("
-                  << (offUs > 0.0 ? (onUs - offUs) / offUs * 100.0 : 0.0) << " %), " << kRounds << " interleaved rounds of "
-                  << kFramesPerRound << " frames\n";
+                  << ": frame CPU mean " << onUs << " us with the check, " << offUs << " us without ("
+                  << (offUs > 0.0 ? (onUs - offUs) / offUs * 100.0 : 0.0) << " %), " << kRounds << " rounds of "
+                  << kFramesPerRound << " frames per arm, order alternating; per round (us):" << sequence << "\n";
         ::testing::Test::RecordProperty("contract_on_us", std::to_string(onUs));
         ::testing::Test::RecordProperty("contract_off_us", std::to_string(offUs));
     }
