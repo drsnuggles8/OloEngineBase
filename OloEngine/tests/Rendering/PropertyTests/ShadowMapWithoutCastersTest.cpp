@@ -26,7 +26,10 @@
 // and a scene that never had a caster is as bright with the sun's shadows on as
 // with them off.
 //
-// Runs on Forward, Forward+ and Deferred, and in the --olo-rhi=vulkan process.
+// Runs on Forward, Forward+ and Deferred, with the directional shadow on the
+// cascades and on the virtual shadow map's pages, and in the --olo-rhi=vulkan
+// process. The page route had the same hole one level up: the page work that
+// retires a departed caster's shadow ran only if the pass ran.
 // Classification: L8 (full pipeline through the real Scene render path). SKIPs
 // cleanly without a GPU context.
 // =============================================================================
@@ -43,6 +46,7 @@
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+#include "OloEngine/Renderer/Shadow/ShadowMap.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Utils/PlatformUtils.h"
@@ -154,14 +158,40 @@ namespace OloEngine::Tests
         // distance the other side of the frame's centre.
         constexpr f32 kShadowX = kSlabHeight;
         constexpr f32 kLitX = -kSlabHeight;
+
+        // One cell: a render path, and which technique holds the sun's shadow.
+        struct Cell
+        {
+            RenderingPath Path;
+            bool VirtualPages;
+        };
+
+        [[nodiscard]] std::string CellName(const Cell& cell)
+        {
+            return std::string(PathName(cell.Path)) + (cell.VirtualPages ? "_VSM" : "");
+        }
     } // namespace
 
-    class ShadowMapWithoutCasters : public RendererAttachedTest, public ::testing::WithParamInterface<RenderingPath>
+    class ShadowMapWithoutCasters : public RendererAttachedTest, public ::testing::WithParamInterface<Cell>
     {
       protected:
         [[nodiscard]] bool RunsInVulkanProcess() const override
         {
             return true;
+        }
+
+        void TearDown() override
+        {
+            if (m_ShadowSettingsSaved)
+                Renderer3D::GetShadowMap().SetSettings(m_SavedShadowSettings);
+            RendererAttachedTest::TearDown();
+        }
+
+        // False when this cell asks for the virtual shadow map and the backend
+        // refused it; the case then skips, saying so.
+        [[nodiscard]] bool TechniqueIsUp() const
+        {
+            return !GetParam().VirtualPages || Renderer3D::GetShadowMap().IsVirtualShadowMapActive();
         }
 
         Entity AddSlab(const char* name, const glm::vec3& centre, const glm::vec3& scale, bool castsShadows)
@@ -183,8 +213,14 @@ namespace OloEngine::Tests
             EnableRendering(kSize, kSize);
 
             auto& rs = Renderer3D::GetRendererSettings();
-            rs.Path = GetParam();
+            rs.Path = GetParam().Path;
             rs.ShowGrid = false;
+
+            m_SavedShadowSettings = Renderer3D::GetShadowMap().GetSettings();
+            m_ShadowSettingsSaved = true;
+            ShadowSettings shadow = m_SavedShadowSettings;
+            shadow.VSM.Enabled = GetParam().VirtualPages;
+            Renderer3D::GetShadowMap().SetSettings(shadow);
             auto& pp = Renderer3D::GetPostProcessSettings();
             pp.AutoExposureEnabled = false;
             pp.Exposure = 1.0f;
@@ -261,13 +297,17 @@ namespace OloEngine::Tests
 
         Entity m_Sun;
         Entity m_Slab;
+        ShadowSettings m_SavedShadowSettings{};
+        bool m_ShadowSettingsSaved = false;
     };
 
     TEST_P(ShadowMapWithoutCasters, ADeletedCastersShadowLeavesWithIt)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        if (!TechniqueIsUp())
+            GTEST_SKIP() << "the virtual shadow map did not come up on this backend";
         ScopedMockTime mockTime(kCaptureTime);
-        const std::string name = TestRenderBackend::EvidenceName("ShadowWithoutCasters") + PathName(GetParam()) + "_Deleted";
+        const std::string name = TestRenderBackend::EvidenceName("ShadowWithoutCasters") + CellName(GetParam()) + "_Deleted";
 
         AddCastingSlab();
         (void)CaptureTheSlabsShadow(name);
@@ -281,8 +321,10 @@ namespace OloEngine::Tests
     TEST_P(ShadowMapWithoutCasters, ACasterThatLeavesEveryCascadeTakesItsShadowWithIt)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        if (!TechniqueIsUp())
+            GTEST_SKIP() << "the virtual shadow map did not come up on this backend";
         ScopedMockTime mockTime(kCaptureTime);
-        const std::string name = TestRenderBackend::EvidenceName("ShadowWithoutCasters") + PathName(GetParam()) + "_MovedAway";
+        const std::string name = TestRenderBackend::EvidenceName("ShadowWithoutCasters") + CellName(GetParam()) + "_MovedAway";
 
         AddCastingSlab();
         (void)CaptureTheSlabsShadow(name);
@@ -298,8 +340,10 @@ namespace OloEngine::Tests
     TEST_P(ShadowMapWithoutCasters, ASceneThatNeverHadACasterIsLitTheSameWithShadowsOnAsOff)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        if (!TechniqueIsUp())
+            GTEST_SKIP() << "the virtual shadow map did not come up on this backend";
         ScopedMockTime mockTime(kCaptureTime);
-        const std::string name = TestRenderBackend::EvidenceName("ShadowWithoutCasters") + PathName(GetParam()) + "_Never";
+        const std::string name = TestRenderBackend::EvidenceName("ShadowWithoutCasters") + CellName(GetParam()) + "_Never";
 
         std::vector<u8> shadowsOn;
         Capture(shadowsOn);
@@ -325,8 +369,10 @@ namespace OloEngine::Tests
     }
 
     INSTANTIATE_TEST_SUITE_P(AllPaths, ShadowMapWithoutCasters,
-                             ::testing::Values(RenderingPath::Forward, RenderingPath::ForwardPlus,
-                                               RenderingPath::Deferred),
-                             [](const ::testing::TestParamInfo<RenderingPath>& info)
-                             { return std::string(PathName(info.param)); });
+                             ::testing::Values(Cell{ RenderingPath::Forward, false }, Cell{ RenderingPath::ForwardPlus, false },
+                                               Cell{ RenderingPath::Deferred, false }, Cell{ RenderingPath::Forward, true },
+                                               Cell{ RenderingPath::ForwardPlus, true },
+                                               Cell{ RenderingPath::Deferred, true }),
+                             [](const ::testing::TestParamInfo<Cell>& info)
+                             { return CellName(info.param); });
 } // namespace OloEngine::Tests

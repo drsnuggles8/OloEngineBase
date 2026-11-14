@@ -18,7 +18,8 @@ not this one ran.
 3. **Test the frame after the last caster leaves, not only the frames that have one.** A scene with
    a casting ground plane in every cascade cannot show this, and almost every scene and test has
    one. `ShadowMapWithoutCastersTest.cpp` has none: the caster is deleted, moved outside every
-   cascade, or was never there, on Forward, Forward+ and Deferred and on both backends.
+   cascade, or was never there, on Forward, Forward+ and Deferred, on the cascades and on the
+   virtual shadow map's pages, and on both backends.
 
 ## What it cost
 
@@ -34,8 +35,8 @@ what it held:
 It surfaced as the third. The evidence scene for #1691 has a sun and two fields of cubes that do not
 cast, and it rendered at 46 of 255 where the same scene with the sun's shadows off rendered at 129.
 The log said `ShadowRenderPass::Execute skipped: no shadow casters submitted`, once. With the fix
-removed, all nine cases of the test fail: the deleted caster's shadow is still 69 levels darker than
-the lit ground beside it.
+removed, all nine cascade cases of the test fail: the deleted caster's shadow is still 69 levels
+darker than the lit ground beside it.
 
 Virtual shadow maps had the same hole one level up: the page work that retires a departed caster's
 shadow ran only if the pass ran, and the pass did not run on the frame the last caster left.
