@@ -129,6 +129,40 @@ namespace OloEngine
         // runtime's working directory.
         static constexpr std::string_view kPackagedSeedPath = "assets/PipelineManifest.yaml";
 
+        // Where the ENGINE seed is checked in (issue #1650): the keys the
+        // engine's own scenes draw, so a first session on a machine requests
+        // them before its first frame. Relative to the editor's working
+        // directory, which makes it the same file as kPackagedSeedPath there:
+        // the editor reads it as its shipped manifest with no extra loading
+        // code, and Build Game merges it into the packaged seed. Regenerated
+        // by kSeedRegenerationCommand; EnginePipelineSeed.* keeps it current.
+        static constexpr std::string_view kEngineSeedPath = kPackagedSeedPath;
+        static constexpr std::string_view kSeedRegenerationCommand = "python scripts/regenerate-pipeline-seed.py";
+
+        // This manifest as a checked-in seed: every entry's LastSeenSession and
+        // the session counter zeroed, each entry's configurations sorted. With
+        // Serialize's ordering that makes the text a function of the keys and
+        // tags alone, so regenerating an unchanged seed is a zero diff.
+        [[nodiscard]] PipelineManifest NormalizedForSeed() const;
+
+        // The entries a draw stamped in `session` (Record), as a manifest of
+        // their own: what one session actually drew.
+        [[nodiscard]] PipelineManifest SeenInSession(u64 session) const;
+
+        // Every entry of this manifest whose shader identity and signature
+        // `seed` lacks: the keys a session drew that the seed would not have
+        // requested. Sorted like Serialize, so a failure message is stable.
+        [[nodiscard]] TArray<PipelineManifestEntry> EntriesMissingFrom(const PipelineManifest& seed) const;
+
+        // Remove one entry (identity + signature); true when it existed. For
+        // the seed test's negative control.
+        bool Remove(std::string_view shader, u32 stageMask, const PipelineSignature& signature);
+
+        // One line naming an entry's complete key, for logs and test failures.
+        [[nodiscard]] static std::string Describe(const PipelineManifestEntry& entry);
+
+        // Entries are written by identity, then by signature, so the order of
+        // a file is independent of the order its keys were recorded in.
         [[nodiscard]] std::string Serialize() const;
 
         // Parse a serialized manifest. A malformed document is refused whole
@@ -139,6 +173,8 @@ namespace OloEngine
 
       private:
         [[nodiscard]] static std::string IdentityKey(std::string_view shader, u32 stageMask);
+        // Identities in sorted order, each identity's entries sorted by signature.
+        [[nodiscard]] TArray<const PipelineManifestEntry*> SortedEntries() const;
 
         // Identity key -> that shader's entries.
         std::unordered_map<std::string, TArray<PipelineManifestEntry>> m_ByShader;

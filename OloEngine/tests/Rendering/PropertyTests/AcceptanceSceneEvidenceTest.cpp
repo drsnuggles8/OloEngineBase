@@ -31,6 +31,7 @@
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
+#include "ScopedFileRestore.h"
 #include "TestTempDir.h"
 
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -61,6 +62,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <type_traits>
 #include <vector>
@@ -80,6 +83,13 @@ namespace OloEngine::Tests
         [[nodiscard]] fs::path EditorRoot()
         {
             return fs::path{ OLO_TEST_EDITOR_ROOT };
+        }
+
+        // The registry EditorAssetManager::Shutdown writes into the active
+        // project, which here is the real, tracked Sandbox project.
+        [[nodiscard]] fs::path RegistryPath()
+        {
+            return EditorRoot() / "SandboxProject" / "AssetRegistry.oar";
         }
 
         [[nodiscard]] std::vector<fs::path> AcceptanceManifests()
@@ -126,6 +136,13 @@ namespace OloEngine::Tests
                 m_AssetManager->Shutdown();
                 m_AssetManager = nullptr;
             }
+            // Shutdown wrote the asset manager's registry into the real
+            // Sandbox project; a test must leave tracked files as it found them.
+            if (m_Registry.has_value())
+            {
+                EXPECT_TRUE(m_Registry->Restore()) << "could not restore " << m_Registry->GetPath().string();
+                m_Registry.reset();
+            }
             std::error_code ec;
             if (!m_PreviousCwd.empty())
                 fs::current_path(m_PreviousCwd, ec);
@@ -149,6 +166,12 @@ namespace OloEngine::Tests
             ASSERT_TRUE(Project::Load(EditorRoot() / "SandboxProject" / "Sandbox.oloproj"));
             // The scene's coats are asset handles, so the project needs an asset
             // manager of its own; a process that runs this suite alone has none.
+            m_Registry.emplace(RegistryPath()); // Initialize and Shutdown both write it
+            if (!m_Registry->IsCaptured())
+            {
+                m_Registry.reset();
+                FAIL() << "cannot read " << RegistryPath().string() << " whole, so it could not be put back";
+            }
             m_AssetManager = Ref<EditorAssetManager>::Create();
             m_AssetManager->Initialize(/*startFileWatcher=*/false);
             Project::SetAssetManager(m_AssetManager);
@@ -226,6 +249,7 @@ namespace OloEngine::Tests
         Ref<Project> m_PreviousProject;
         Ref<AssetManagerBase> m_PreviousAssetManager;
         Ref<EditorAssetManager> m_AssetManager;
+        std::optional<ScopedFileRestore> m_Registry; ///< The project's AssetRegistry.oar as the test found it.
         fs::path m_PreviousCwd;
         ShadowSettings m_PreviousShadow{};
     };

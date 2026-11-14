@@ -1,0 +1,798 @@
+PipelineManifest:
+  Version: 1
+  Session: 0
+  Entries:
+    - Shader: BRDFIntegrationAdvanced
+      Stages: 17
+      Color: [103]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: DeferredLighting
+      Stages: 17
+      Color: [97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+      LastSeen: 0
+    - Shader: DepthNormalPrepass
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: DepthNormalPrepass_Skinned
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: DepthPrepass
+      Stages: 17
+      Color: [37, 97, 97, 97, 99, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+      LastSeen: 0
+    - Shader: DepthPrepass_Skinned
+      Stages: 17
+      Color: [37, 97, 97, 97, 99, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+      LastSeen: 0
+    - Shader: FoliageGroupCull
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: FoliageGroupCullVsm
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: FoliageInstanceCull
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Foliage_Depth
+      Stages: 17
+      Color: []
+      Depth: 126
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Foliage_Impostor
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Foliage_Impostor_Depth
+      Stages: 17
+      Color: []
+      Depth: 126
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Foliage_Impostor_DepthNormal
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Foliage_Impostor_GBuffer
+      Stages: 17
+      Color: [37, 97, 97, 97, 99, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+      LastSeen: 0
+    - Shader: Foliage_Instance
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Foliage_Instance_DepthNormal
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Foliage_Instance_GBuffer
+      Stages: 17
+      Color: [37, 97, 97, 97, 99, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+      LastSeen: 0
+    - Shader: FullscreenBlit
+      Stages: 17
+      Color: [37]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: FullscreenBlit
+      Stages: 17
+      Color: [44]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: GTAO
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: GTAO_Denoise
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: GroomRootFrames
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: GroomStrand
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: GroomStrandDepth
+      Stages: 17
+      Color: []
+      Depth: 126
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: GroomStrandDepthCrossFade
+      Stages: 17
+      Color: []
+      Depth: 126
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: HZB
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: IBLPrefilterImportance
+      Stages: 17
+      Color: [109]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Impostor_Bake
+      Stages: 17
+      Color: [37, 37]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: InfiniteGrid
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: IrradianceConvolutionAdvanced
+      Stages: 17
+      Color: [109]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: LightCulling
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PBR_GBuffer
+      Stages: 17
+      Color: [37, 97, 97, 97, 99, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+      LastSeen: 0
+    - Shader: PBR_GBuffer_Skinned
+      Stages: 17
+      Color: [37, 97, 97, 97, 99, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+      LastSeen: 0
+    - Shader: PBR_MultiLight
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PBR_MultiLight_Skinned
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Particle_Billboard_GPU
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PostProcess_BloomComposite
+      Stages: 17
+      Color: [97]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PostProcess_BloomDownsample
+      Stages: 17
+      Color: [97]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PostProcess_BloomThreshold
+      Stages: 17
+      Color: [97]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PostProcess_BloomUpsample
+      Stages: 17
+      Color: [97]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PostProcess_FXAA
+      Stages: 17
+      Color: [37]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PostProcess_TAA
+      Stages: 17
+      Color: [97, 97]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: PostProcess_ToneMap
+      Stages: 17
+      Color: [97]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: ProceduralSky
+      Stages: 17
+      Color: [109]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Renderer2D_Quad
+      Stages: 17
+      Color: [37, 99, 83]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Renderer2D_Text
+      Stages: 17
+      Color: [37, 99, 83]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: ShadowDepth
+      Stages: 17
+      Color: []
+      Depth: 126
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: ShadowDepthSkinned
+      Stages: 17
+      Color: []
+      Depth: 126
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: SkeletalDeformToBuffer
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: SkinDiffusion
+      Stages: 17
+      Color: [97]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: SkinDiffusion
+      Stages: 17
+      Color: [97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Skybox
+      Stages: 17
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Skybox_GBuffer
+      Stages: 17
+      Color: [37, 97, 97, 97, 99, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+      LastSeen: 0
+    - Shader: Terrain_Depth
+      Stages: 23
+      Color: []
+      Depth: 126
+      Samples: 1
+      Patch: 3
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Terrain_GBuffer
+      Stages: 23
+      Color: [37, 97, 97, 97, 99, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 3
+      Configs:
+        - Deferred/msaa1/native/oit0
+      LastSeen: 0
+    - Shader: Terrain_PBR
+      Stages: 23
+      Color: [97, 99, 83, 97, 97]
+      Depth: 130
+      Samples: 1
+      Patch: 3
+      Configs:
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_AllocatePages
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_BuildHPB
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_ClearDirtyPages
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_CullCasters
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_CullLocalCasters
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_Depth
+      Stages: 17
+      Color: [13]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_DepthLocal
+      Stages: 17
+      Color: [13]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_DepthLocalSkinned
+      Stages: 17
+      Color: [13]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_DepthSkinned
+      Stages: 17
+      Color: [13]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_EndFrame
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_FindFreePages
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_Foliage_Depth
+      Stages: 17
+      Color: [13]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_Foliage_Impostor_Depth
+      Stages: 17
+      Color: [13]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_FreeWrappedPages
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_GroomDepth
+      Stages: 17
+      Color: [13]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_GroomDepthCrossFade
+      Stages: 17
+      Color: [13]
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_InvalidatePages
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_MarkRequiredPages
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: VSM_Terrain_Depth
+      Stages: 23
+      Color: [13]
+      Depth: 0
+      Samples: 1
+      Patch: 3
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
+    - Shader: Wind_Generate
+      Stages: 32
+      Color: []
+      Depth: 0
+      Samples: 1
+      Patch: 0
+      Configs:
+        - Deferred/msaa1/native/oit0
+        - Forward/msaa0/native/oit0
+        - ForwardPlus/msaa0/native/oit0
+      LastSeen: 0
