@@ -16323,7 +16323,11 @@ namespace OloEngine
                     cache.InlineDataPtr = inlineDataPtr;
                     cache.PlacementHandle = imc.PlacementAssetHandle;
                     cache.AssetSize = 0;
-                    cache.AssetDataPtr = nullptr;
+                    // The placement's own pointer, not null: an empty placement
+                    // list that still owns storage has a non-null data(), and a
+                    // null here made `assetInputChanged` above true on every
+                    // frame for it.
+                    cache.AssetDataPtr = assetInstances.data();
                 }
                 else
                 {
@@ -16358,18 +16362,26 @@ namespace OloEngine
 
                 // An instance colour tints the base colour with its rgb; its
                 // alpha is not applied (issue #1691, InstanceData.h). Say so
-                // when a component brings one, once per instance set rather
-                // than once per frame: `stableInputsChanged` is true on the
-                // first frame a set is seen and whenever it is resized or
-                // replaced. Capped per process, because a script that rebuilds
-                // its instances every frame would otherwise write a line a
-                // frame.
+                // when a component brings one: once per component for as long
+                // as its set keeps one, so a script that rebuilds its instances
+                // every frame writes one line and not one a frame. The set is
+                // looked at when `stableInputsChanged`: on the first frame it
+                // is seen, and whenever it is resized, replaced or invalidated.
+                // An edit in place is the component's own contract
+                // (InvalidateMergedCache), and the same call makes this look
+                // again. The process-wide cap is only a flood guard against
+                // components created without end, and it says when it closes.
                 if (stableInputsChanged)
                 {
-                    if (const sizet ignoredAlpha = CountInstancesWithIgnoredAlpha({ instData, totalCount });
-                        ignoredAlpha != 0)
+                    const sizet ignoredAlpha = CountInstancesWithIgnoredAlpha({ instData, totalCount });
+                    if (ignoredAlpha == 0)
                     {
-                        constexpr u32 kMaxReports = 16;
+                        cache.IgnoredAlphaReported = false;
+                    }
+                    else if (!cache.IgnoredAlphaReported)
+                    {
+                        cache.IgnoredAlphaReported = true;
+                        constexpr u32 kMaxReports = 64;
                         static std::atomic<u32> s_Reports{ 0 };
                         if (const u32 report = s_Reports.fetch_add(1, std::memory_order_relaxed); report < kMaxReports)
                         {
@@ -16493,7 +16505,7 @@ namespace OloEngine
                             (void)Renderer3D::ExtractGPUSceneMesh(stableEntityId, stableInstanceId, imc.MeshSource,
                                                                   static_cast<u32>(i), instData[k].Transform,
                                                                   materialKey, GPUSceneDrawLinkRequest::None, {},
-                                                                  glm::vec3(instData[k].Color));
+                                                                  InstanceTint(instData[k].Color));
                         }
                         auto submesh = Ref<Mesh>::Create(imc.MeshSource, i);
                         auto* packet = Renderer3D::DrawMeshInstanced(

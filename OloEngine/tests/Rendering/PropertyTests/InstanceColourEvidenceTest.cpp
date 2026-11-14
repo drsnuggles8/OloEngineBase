@@ -321,6 +321,13 @@ namespace OloEngine::Tests
         ASSERT_FALSE(HasFatalFailure());
         WriteEvidence(name, tinted);
 
+        // The right-hand field is evidence for the compute-cull route only if
+        // it took it. The route is chosen from the batch size, the culling
+        // switches and the culler existing, none of which this test sets.
+        EXPECT_GE(Renderer3D::GetStats().GPUCulledInstanceBatches, 1u)
+            << "no instanced batch went through SubmitGPUCulledInstanced in the last frame, so the 1156-instance "
+            << "field was CPU-culled and nothing here covers the lane copy on the compute-cull route";
+
         struct Region
         {
             const char* Name;

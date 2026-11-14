@@ -236,6 +236,12 @@ namespace OloEngine
             // (DrawMeshParallel). Zero under Levers::SerialMeshSubmission, which
             // is how a comparison proves the lever took the other branch.
             u32 ParallelSubmittedMeshes = 0;
+            // Instanced batches that took the compute-cull route
+            // (SubmitGPUCulledInstanced) and not the CPU loop. Which route a
+            // batch takes depends on its size, the culling switches and the
+            // culler existing, so a test that means to cover this route asks
+            // here whether it did.
+            u32 GPUCulledInstanceBatches = 0;
             TArray64<u32> ObjectsPerLODLevel;
 
             void Reset()
@@ -252,6 +258,7 @@ namespace OloEngine
                 TotalEmitters = 0;
                 CulledEmitters = 0;
                 ParallelSubmittedMeshes = 0;
+                GPUCulledInstanceBatches = 0;
                 ObjectsPerLODLevel.Reset();
             }
         };

@@ -803,10 +803,12 @@ sync.
 four PBR programs do. The lane is `(1, 1, 1, 1)` on every draw that authored none, so the multiply
 changes no frame that has no tint. Its alpha is not applied anywhere, and a producer that brings one
 reports it (`CountInstancesWithIgnoredAlpha`), because applying it in the colour pass alone would
-leave the depth prepass, the shadow programs and the ray-traced alpha test disagreeing with it. A
-material that brings its own shader is drawn with that shader; a tinted batch on one is reported
-once per shader (`Renderer3D::DrawMeshInstanced`), since the engine cannot know whether it reads the
-lane.
+leave the depth prepass, the shadow programs and the ray-traced alpha test disagreeing with it. The
+report is once per component for as long as its instances keep such an alpha, and it looks again
+when the instance set is resized, replaced or invalidated (`InvalidateMergedCache`, the component's
+contract for an edit in place). A material that brings its own shader is drawn with that shader; a
+tinted batch on one is reported once per shader name (`Renderer3D::DrawMeshInstanced`), since the
+engine cannot know whether it reads the lane.
 
 Until #1691 the colour was authored, serialized, batched and uploaded, and no shader read it, so
 `InstancingDemo.olo`'s 500 yellow-green cubes drew neutral grey. Above the GPU-cull threshold it was
@@ -816,6 +818,9 @@ batch of 1024 instances or more. A ray-traced hit reads the same tint from
 `GPUSceneInstance::Tint` ([gpu-scene-record-contract.md](gpu-scene-record-contract.md) rule 18).
 Pinned by `InstanceColourEvidenceTest.cpp` on Forward, Forward+ and Deferred, both submission
 routes, and by `GpuPathTracerDevice.AnInstancesTintMultipliesTheAlbedoARayFindsOnItAndOnNoOtherInstance`.
+The evidence test also requires `Renderer3D::GetStats().GPUCulledInstanceBatches` to be non-zero:
+which route a batch takes depends on its size, the culling switches and the culler existing, and a
+1156-instance field that was quietly CPU-culled would leave the compute-cull route untested.
 
 ---
 

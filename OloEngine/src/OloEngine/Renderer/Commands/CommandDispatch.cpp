@@ -1675,7 +1675,9 @@ namespace OloEngine
                                  Ref<InstanceBuffer>& instanceBuffer,
                                  const glm::vec4& lightmapScaleOffset = glm::vec4(0.0f),
                                  const GPUSceneDrawLink* gpuSceneLink = nullptr,
-                                 bool gpuSceneMaterialsBound = false)
+                                 bool gpuSceneMaterialsBound = false,
+                                 const glm::vec4& color = glm::vec4(1.0f),
+                                 f32 custom = 0.0f)
         {
             if (!instanceBuffer)
                 return;
@@ -1696,8 +1698,13 @@ namespace OloEngine
             inst.Normal = modelData.Normal;
             inst.EntityID = modelData.EntityID;
             inst.LightmapScaleOffset = lightmapScaleOffset;
-            // Color / Custom keep their defaults (white tint, 0) — the explicit
-            // instancing path populates them later.
+            // The command's own tint and free float (DrawMeshCommand::color /
+            // custom; white and 0 for every caller that passes none). A batch
+            // of these commands carries the same two values per source
+            // (CommandBucket::BatchCommands), so a draw is tinted the same
+            // whether or not it was batched.
+            inst.Color = color;
+            inst.Custom = custom;
 
             if (gpuSceneLink && gpuSceneLink->m_Resolved)
             {
@@ -2635,7 +2642,7 @@ namespace OloEngine
                 const bool gpuSceneMaterialsBound =
                     gpuSceneLink && gpuSceneLink->m_Resolved && BindGPUSceneMaterialsIfNeeded();
                 UploadModelInstance(modelData, Data().Uploads.ModelInstanceBuffer, cmd->lightmapScaleOffset, gpuSceneLink,
-                                    gpuSceneMaterialsBound);
+                                    gpuSceneMaterialsBound, cmd->color, cmd->custom);
             }
 
             // Material UBO + texture bindings (skipped when material unchanged)

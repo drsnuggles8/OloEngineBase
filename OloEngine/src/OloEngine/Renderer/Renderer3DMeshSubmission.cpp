@@ -30,7 +30,9 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <mutex>
+#include <string_view>
 #include <numeric>
 
 #include <atomic>
@@ -1305,21 +1307,26 @@ namespace OloEngine
         // shader, and nothing here can know whether it reads the lane, so a
         // tinted batch on one says so instead of leaving the author to find the
         // colour missing. Once per shader, and a white batch scans to its end
-        // only while the material keeps a shader of its own.
-        if (const Ref<Shader>& ownShader = material.GetShader();
-            ownShader && ownShader.Raw() != s_Data.PBRShader.Raw() && ownShader.Raw() != s_Data.PBRSkinnedShader.Raw() &&
-            ownShader.Raw() != s_Data.PBRGBufferShader.Raw() && ownShader.Raw() != s_Data.PBRGBufferSkinnedShader.Raw() &&
-            AnyInstanceIsTinted(instances))
+        // only while the material keeps a shader of its own. A shader is
+        // remembered by its name, not its address: a reload or a scene change
+        // frees the object, and the next shader can be handed the same address.
+        const Ref<Shader>& ownShader = material.GetShader();
+        const Shader* const ownShaderPtr = ownShader.Raw();
+        const bool isEnginePbrProgram = ownShaderPtr == s_Data.PBRShader.Raw() || ownShaderPtr == s_Data.PBRSkinnedShader.Raw() ||
+                                        ownShaderPtr == s_Data.PBRGBufferShader.Raw() ||
+                                        ownShaderPtr == s_Data.PBRGBufferSkinnedShader.Raw();
+        if (ownShaderPtr != nullptr && !isEnginePbrProgram && AnyInstanceIsTinted(instances))
         {
             constexpr sizet kMaxReportedShaders = 8;
             static std::mutex s_ReportedMutex;
-            static std::array<const Shader*, kMaxReportedShaders> s_Reported{};
+            static std::array<sizet, kMaxReportedShaders> s_Reported{};
             static sizet s_ReportedCount = 0;
+            const sizet nameHash = std::hash<std::string_view>{}(ownShader->GetName());
             const std::scoped_lock lock(s_ReportedMutex);
             const auto reportedEnd = s_Reported.begin() + static_cast<std::ptrdiff_t>(s_ReportedCount);
-            if (s_ReportedCount < kMaxReportedShaders && std::find(s_Reported.begin(), reportedEnd, ownShader.Raw()) == reportedEnd)
+            if (s_ReportedCount < kMaxReportedShaders && std::find(s_Reported.begin(), reportedEnd, nameHash) == reportedEnd)
             {
-                s_Reported[s_ReportedCount++] = ownShader.Raw();
+                s_Reported[s_ReportedCount++] = nameHash;
                 OLO_CORE_WARN("Renderer3D::DrawMeshInstanced: instances with a colour other than white are drawn with the "
                               "material's own shader '{}'. Only the engine's PBR programs are known to apply an instance "
                               "colour (albedo *= instances[v_InstanceIndex].Color.rgb); if this shader does not, the "
@@ -1483,6 +1490,7 @@ namespace OloEngine
                                                         std::span<const InstanceData> authoredInstances)
     {
         OLO_PROFILE_FUNCTION();
+        ++s_Data.Frame.Stats.GPUCulledInstanceBatches;
 
         // Pre-cull prev-transform history: look up the per-instance prev
         // array from the cache **before** the cull so survivors carry the

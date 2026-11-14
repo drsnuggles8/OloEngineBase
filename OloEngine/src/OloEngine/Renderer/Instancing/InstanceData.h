@@ -93,13 +93,28 @@ namespace OloEngine
         constexpr f32 kWhiteTolerance = 1.0e-4f;
         for (const InstanceData& instance : instances)
         {
-            for (int channel = 0; channel < 3; ++channel)
+            for (i32 channel = 0; channel < 3; ++channel)
             {
                 if (!(std::abs(instance.Color[channel] - 1.0f) <= kWhiteTolerance))
                     return true;
             }
         }
         return false;
+    }
+
+    // The tint a CPU-side consumer multiplies a base colour by: the GPU Scene
+    // record the ray-traced paths read, and the lightmap bake's reference
+    // material. Each channel is clamped to zero from below, and a colour with a
+    // non-finite channel is white, which is what the scene and placement loaders
+    // turn one into. A path tracer cannot be handed a negative or NaN albedo:
+    // it does not render that surface black, it poisons every path that
+    // touches it.
+    [[nodiscard]] inline glm::vec3 InstanceTint(const glm::vec4& color)
+    {
+        const glm::vec3 rgb(color);
+        if (!(std::isfinite(rgb.r) && std::isfinite(rgb.g) && std::isfinite(rgb.b)))
+            return glm::vec3(1.0f);
+        return glm::max(rgb, glm::vec3(0.0f));
     }
 
     // GPU payload owns only numerical values and carries no interior pointers.
