@@ -23,11 +23,6 @@ namespace OloEngine
     class ShadowFamilyCache
     {
       public:
-        [[nodiscard]] bool HasPreviousCasters() const
-        {
-            return !m_Previous.empty();
-        }
-
         template<typename Invalidate>
         void Update(std::span<const ShadowFamilyFootprint> current, Invalidate&& invalidate)
         {

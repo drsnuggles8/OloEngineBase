@@ -221,6 +221,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [light-path-photometric-parity.md](light-path-photometric-parity.md): the three light evaluators must agree, and a dropped GPU struct field is a dead knob.
 - [forward-deferred-parity-measurement.md](forward-deferred-parity-measurement.md): before blaming a shading function for a Forward/Deferred difference, turn off everything the paths apply differently.
 - [directional-shadow-ownership.md](directional-shadow-ownership.md): the directional cascades belong to light 0 alone.
+- [requested-shadow-map-is-written-every-frame.md](requested-shadow-map-is-written-every-frame.md): a light that requested shadows gets its map written that frame, casters or not, and an empty cascade is cleared.
 - [lighting-signal-contract.md](lighting-signal-contract.md): every lit-surface term has one owner, never two additive estimates.
 - [volumetric-cloud-debugging.md](volumetric-cloud-debugging.md): eight causes of a uniform veil, and how to tell "darker" from "directionally darker".
 - [water-shading-nyquist.md](water-shading-nyquist.md): a derived normal carries every factor its displacement carries; drop sub-pixel detail rather than filter it.
