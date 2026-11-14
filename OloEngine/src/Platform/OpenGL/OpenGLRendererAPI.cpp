@@ -2747,6 +2747,16 @@ namespace OloEngine
         return OpenGLBlockContract::OccupantHandle(bindingPoint);
     }
 
+    bool OpenGLRendererAPI::IsUniformBufferBound(u32 bindingPoint, RHI::ResourceHandle buffer) const
+    {
+        return OpenGLBlockContract::IsVouchedOccupant(bindingPoint, buffer);
+    }
+
+    void OpenGLRendererAPI::DistrustUniformBufferOccupancy()
+    {
+        OpenGLBlockContract::DistrustOccupants();
+    }
+
     void OpenGLRendererAPI::BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
     {
         BindStorageBuffer(bindingPoint, Utils::ResolveNativeAs(buffer, RHI::ResourceKind::Buffer));

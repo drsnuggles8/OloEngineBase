@@ -4808,6 +4808,14 @@ namespace OloEngine
         return occupant != nullptr ? occupant->GetRHIHandle() : RHI::ResourceHandle{};
     }
 
+    bool VulkanRendererAPI::IsUniformBufferBound(u32 bindingPoint, RHI::ResourceHandle buffer) const
+    {
+        // The mirror is the binding: there is no driver state behind it for
+        // anyone to change.
+        const VulkanUniformBuffer* occupant = VulkanBindingState::Get().GetUniformBuffer(bindingPoint);
+        return buffer.IsValid() && occupant != nullptr && occupant->GetRHIHandle() == buffer;
+    }
+
     void VulkanRendererAPI::BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)
     {
         const auto* entry = VulkanRootObjectRegistry::Get().Lookup(buffer);

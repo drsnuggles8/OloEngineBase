@@ -86,6 +86,14 @@ namespace OloEngine
         // (found during issue #1404).
         static void InvalidateBindingCaches();
 
+        // What the command queue calls at the start of every replay
+        // (CommandBucket::BeginReplay): the same reset, in the calling
+        // recording context. The caches therefore describe one replay, and a
+        // pass that replays twice with other work in between needs no call of
+        // its own. InvalidateBindingCaches stays for the code that dispatches
+        // without a replay (a pass executing packets itself, a direct draw).
+        static void BeginReplay();
+
         // The same reset, unconditionally: it ignores the
         // FaultSkipDispatchBindingReset negative control. For the harness arm
         // that must really forget the caches while the fault is injected

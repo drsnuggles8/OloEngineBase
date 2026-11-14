@@ -101,6 +101,14 @@ is back for the next program). These rules come with it:
   included.
 - **Do not cache "which buffer is bound".** Ask `RendererAPI::GetUniformBufferOccupant`. A cache
   kept by one caller sees only that caller's binds (#1688).
+- **To skip a bind, ask `RendererAPI::IsUniformBufferBound`, not the occupant.** On OpenGL the
+  record follows the engine's bind calls and a raw `glBindBufferBase` (a test, FSR2) goes around
+  it, so the backend vouches only for a point bound through the engine since the dispatcher last
+  dropped its caches.
+- **A pass that replays packets needs no cache invalidation before the replay.** The dispatcher's
+  redundant-bind caches (program, vertex array, textures, render state) are dropped at every
+  replay entry. `CommandDispatch::InvalidateBindingCaches` is for code that dispatches without a
+  replay.
 
 `OLO_BINDING_CONTRACT=0` turns the check off for an A/B. On OpenGL the block names come from the
 linked program, where SPIRV-Cross renames a later stage's copy `Name_1`: do not name a block with a

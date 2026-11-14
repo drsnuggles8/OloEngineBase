@@ -23,6 +23,7 @@
 
 #include "OloEnginePCH.h"
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/AtmosphereSky.h"
@@ -50,6 +51,8 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
+
+#include <glad/gl.h>
 
 #include <array>
 
@@ -256,6 +259,41 @@ namespace OloEngine::Tests
             CommandDispatch::BindSceneResources();
             EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), frameCamera)
                 << "the dispatcher skipped its camera bind although another buffer occupied the binding point"; });
+    }
+
+    // The other half of #1688. On OpenGL the occupancy record follows the
+    // engine's bind calls, but the binding point is driver state, and a raw
+    // glBindBufferBase (some thirty tests, and the FSR2 integration) changes it
+    // without the record hearing of it. The dispatcher's own table had the same
+    // blind spot and forgot once a frame and at pass entries; the record never
+    // forgot, so one raw bind made the dispatcher skip its camera or material
+    // bind for the rest of the process. In a whole-suite run that turned a
+    // deferred resolve test red that passes alone.
+    //
+    // The backend now vouches for a point only while it has seen it bound since
+    // the dispatcher last dropped its caches.
+    TEST_F(RendererOwnership, ARawBindBehindTheRecordCostsABindAndNeverASkippedOne)
+    {
+        if (TestRenderBackend::IsVulkanProcess())
+            GTEST_SKIP() << "Vulkan has no driver state behind its occupancy record for a raw call to change";
+        RenderMovingFrames(1);
+        RunInFrame([]
+                   {
+            CommandDispatch::BindSceneResources();
+            GLint frameCamera = 0;
+            ::glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, ShaderBindingLayout::UBO_CAMERA, &frameCamera);
+            ASSERT_NE(frameCamera, 0);
+
+            // Behind the record: it still names the frame's camera.
+            ::glBindBufferBase(GL_UNIFORM_BUFFER, ShaderBindingLayout::UBO_CAMERA, 0);
+            // What every frame start and six pass entries do.
+            CommandDispatch::InvalidateBindingCaches();
+            CommandDispatch::BindSceneResources();
+
+            GLint bound = 0;
+            ::glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, ShaderBindingLayout::UBO_CAMERA, &bound);
+            EXPECT_EQ(bound, frameCamera)
+                << "the dispatcher skipped its camera bind on the word of a record that a raw bind had made stale"; });
     }
 
     // The camera binding is frame-published: passes read it without binding it.

@@ -528,6 +528,7 @@ namespace OloEngine
         void EndConditionalRender() override;
         void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
         [[nodiscard]] RHI::ResourceHandle GetUniformBufferOccupant(u32 bindingPoint) const override;
+        [[nodiscard]] bool IsUniformBufferBound(u32 bindingPoint, RHI::ResourceHandle buffer) const override;
         void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
         [[nodiscard]] bool BindTransientStorage(u32 bindingPoint, const void* data, u32 size) override;
         void BindShaderProgram(RHI::ResourceHandle program) override;

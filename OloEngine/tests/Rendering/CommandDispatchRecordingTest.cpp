@@ -360,6 +360,53 @@ TEST_F(CommandDispatchRecording, ABucketViewOverrideReplaysInsideTheAlternateVie
     EXPECT_TRUE(SameView(CommandDispatch::GetView(), main)) << "the bucket's replay left its view override installed";
 }
 
+// The dispatcher's redundant-bind caches describe one replay. Between two
+// replays a pass binds programs, vertex arrays and textures through the API
+// (a compute dispatch, a fullscreen draw, a resolve), and the caches hear of
+// none of it. They used to live until some pass remembered to invalidate
+// them. DeferredGPUOcclusionPass did not: it dispatched the phase-2 cull and
+// replayed its recovered instances, and whenever the scene pass had ended on
+// the same G-Buffer program the draw kept the cull's COMPUTE program bound.
+// Which program the scene pass ends on follows the sort order, so the frame
+// was wrong in one test order and right in every other.
+TEST_F(CommandDispatchRecording, AReplayDoesNotTrustWhatWasBoundBeforeIt)
+{
+    CommandAllocator allocator;
+    CommandBucket bucket;
+    DrawIndexedCommand draw{};
+    draw.header.type = CommandType::DrawIndexed;
+    draw.vertexArrayID = RHI::ResourceHandle{ 100u, 1u };
+    draw.indexCount = 3;
+    const CommandPacket* packet = bucket.Submit(draw, {}, &allocator);
+    ASSERT_NE(packet, nullptr);
+    ASSERT_NE(bucket.Submit(draw, {}, &allocator), nullptr);
+    bucket.SortCommands();
+
+    MockRendererAPI api;
+    bucket.Execute(api);
+    // Inside one replay the cache still does its job: two draws, one bind.
+    ASSERT_EQ(api.CountCalls("DrawBoundIndexed"), 2u);
+    ASSERT_EQ(api.CountCalls("BindVertexArrayRaw"), 1u);
+
+    // What DeferredLightingPass does after its fullscreen draw, and what a
+    // compute dispatch does to the program: through the API, around the
+    // dispatcher.
+    api.BindVertexArrayRaw(RHI::NullResource);
+    ASSERT_EQ(api.CountCalls("BindVertexArrayRaw"), 2u);
+
+    // A pass replaying its own packet list: the occlusion passes' phase 2.
+    const std::array<const CommandPacket*, 1> packets{ packet };
+    (void)CommandBucket::RecordPackets(api, packets);
+    EXPECT_EQ(api.CountCalls("BindVertexArrayRaw"), 3u)
+        << "a replay skipped its vertex array bind on the word of the replay before it";
+
+    // ...and a bucket replaying whole.
+    api.BindVertexArrayRaw(RHI::NullResource);
+    bucket.Execute(api);
+    EXPECT_EQ(api.CountCalls("BindVertexArrayRaw"), 5u)
+        << "a bucket replay skipped its vertex array bind on the word of the replay before it";
+}
+
 // CommandDispatch::Shutdown used to drop five buffer references and leave the
 // rest: a dispatcher shut down for a device teardown came back with the
 // previous device's camera, counters and pass flags.

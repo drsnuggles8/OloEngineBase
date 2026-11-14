@@ -455,6 +455,8 @@ namespace OloEngine
 
     bool CommandBucket::BeginReplay(std::span<const CommandPacket* const> packets)
     {
+        if (s_ReplayEntryHook)
+            s_ReplayEntryHook();
         PublishFramePayloadsForReplay();
         const bool validate = CommandLifecycle::IsValidationEnabled();
         bool intact = true;

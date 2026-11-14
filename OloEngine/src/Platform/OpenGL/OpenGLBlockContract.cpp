@@ -62,6 +62,10 @@ namespace OloEngine::OpenGLBlockContract
             // ...and the same occupant as an engine identity, resolved once
             // when it is bound so that asking costs one array read.
             std::array<RHI::ResourceHandle, ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS> OccupantHandles{};
+            // The epoch in which each point was last bound through the engine.
+            // A point is vouched for while that is the current epoch.
+            std::array<u64, ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS> VouchedAt{};
+            u64 VouchEpoch = 1;
             // Bumped whenever an occupant changes, so an unchanged frame state
             // is recognised without walking the blocks.
             u64 Generation = 1;
@@ -213,7 +217,11 @@ namespace OloEngine::OpenGLBlockContract
     void NoteBufferBound(u32 binding, u32 glName)
     {
         auto& state = Get();
-        if (binding >= state.Occupants.size() || state.Occupants[binding] == glName)
+        if (binding >= state.Occupants.size())
+            return;
+        // The bind just happened, whatever the record said before it.
+        state.VouchedAt[binding] = state.VouchEpoch;
+        if (state.Occupants[binding] == glName)
             return;
         state.Occupants[binding] = glName;
         const auto found = state.Buffers.find(glName);
@@ -225,6 +233,18 @@ namespace OloEngine::OpenGLBlockContract
     {
         const auto& state = Get();
         return binding < state.OccupantHandles.size() ? state.OccupantHandles[binding] : RHI::ResourceHandle{};
+    }
+
+    bool IsVouchedOccupant(u32 binding, RHI::ResourceHandle buffer)
+    {
+        const auto& state = Get();
+        return buffer.IsValid() && binding < state.OccupantHandles.size() && state.VouchedAt[binding] == state.VouchEpoch &&
+               state.OccupantHandles[binding] == buffer;
+    }
+
+    void DistrustOccupants()
+    {
+        ++Get().VouchEpoch;
     }
 
     void NoteProgramBound(u32 program)

@@ -33,6 +33,14 @@ namespace OloEngine
         // the point is empty or holds a buffer this record does not know.
         [[nodiscard]] RHI::ResourceHandle OccupantHandle(u32 binding);
 
+        // Whether `buffer` is the occupant AND the point was bound through the
+        // engine since the last DistrustOccupants. The record above follows
+        // the engine's calls; the binding is driver state, and a raw
+        // glBindBufferBase changes it without passing through here. A caller
+        // that would SKIP a bind on the record's word asks this.
+        [[nodiscard]] bool IsVouchedOccupant(u32 binding, RHI::ResourceHandle buffer);
+        void DistrustOccupants();
+
         // glUseProgram(program) just ran.
         void NoteProgramBound(u32 program);
 

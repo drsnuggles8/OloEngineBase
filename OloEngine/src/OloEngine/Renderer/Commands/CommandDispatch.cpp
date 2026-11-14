@@ -428,11 +428,18 @@ namespace OloEngine
     // bindings 0 to 7, which is not the same thing: a shadow item's camera
     // buffer, a bake or the particle pass binds directly, and the next draw
     // then skipped a bind it needed. Correctness rested on every such pass
-    // remembering to invalidate. The record sees every bind, in the calling
-    // recording context, so there is nothing to invalidate.
+    // remembering to invalidate. The record sees every bind the engine makes,
+    // in the calling recording context.
+    //
+    // What it cannot see is a raw bind on OpenGL (a test, FSR2), so the skip
+    // asks whether the backend vouches for the record, and the dispatcher
+    // withdraws that at the points where it drops its own caches
+    // (ResetBindCacheUnlessFaulted). Without that a bind made behind the
+    // record was skipped for the rest of the process: the old table at least
+    // forgot once a frame.
     static void BindUBOIfNeeded(RendererAPI& api, u32 bindingPoint, RHI::ResourceHandle buffer)
     {
-        if (buffer.IsValid() && api.GetUniformBufferOccupant(bindingPoint) == buffer)
+        if (api.IsUniformBufferBound(bindingPoint, buffer))
             return;
         api.BindUniformBuffer(bindingPoint, buffer);
     }
@@ -1592,6 +1599,17 @@ namespace OloEngine
                     return 0u;
             } });
 
+        // The redundant-bind caches are valid for one replay. Between two
+        // replays a pass is free to bind programs, vertex arrays and textures
+        // through the API (a compute dispatch, a fullscreen draw, a resolve),
+        // and none of that reaches the caches. Every pass that replayed after
+        // such work had to remember InvalidateBindingCaches, and the ones that
+        // did each learned it from a draw out of vertex array 0 or a wrong
+        // frame; the two GPU occlusion passes never did, and drew their
+        // recovered instances with the cull's compute program bound whenever
+        // the scene pass happened to end on the same G-Buffer program.
+        CommandBucket::SetReplayEntryHook(&CommandDispatch::BeginReplay);
+
         // A bucket's view override replays inside the alternate-view scope.
         CommandBucket::SetViewScopeRunner([](const BucketViewState& view, const std::function<void()>& replay)
                                           {
@@ -1743,7 +1761,7 @@ namespace OloEngine
             return;
         auto& api = RenderCommand::GetRendererAPI();
         const RHI::ResourceHandle frameCamera = camera->GetRHIHandle();
-        if (api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA) == frameCamera)
+        if (api.IsUniformBufferBound(ShaderBindingLayout::UBO_CAMERA, frameCamera))
             return;
         api.BindUniformBuffer(ShaderBindingLayout::UBO_CAMERA, frameCamera);
         ++Data().Tally.FrameCameraRepublished;
@@ -1872,7 +1890,13 @@ namespace OloEngine
     // vertex-array caches still reset: a stale VAO draws from VAO 0, which some
     // drivers answer with an access violation rather than a wrong frame, and a
     // control must fail a check, not take the process down.
-    static void ResetBindCacheUnlessFaulted()
+    //
+    // `distrustUniformBuffers` is the uniform-buffer half of the same reset,
+    // which lives in the backend. A replay entry leaves it alone: the backend
+    // record sees every bind the engine makes between two replays, which is
+    // exactly what this cache cannot, so only the places that follow work done
+    // behind the engine (frame start, an explicit invalidation) withdraw it.
+    static void ResetBindCacheUnlessFaulted(bool distrustUniformBuffers)
     {
         auto& cache = Data().Cache;
         if (Levers::FaultSkipDispatchBindingReset())
@@ -1883,13 +1907,15 @@ namespace OloEngine
         else
         {
             cache = {};
+            if (distrustUniformBuffers)
+                RenderCommand::DistrustUniformBufferOccupancy();
         }
     }
 
     void CommandDispatch::ResetState()
     {
         OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
-        ResetBindCacheUnlessFaulted();
+        ResetBindCacheUnlessFaulted(true);
         s_FrameData.CSMShadowTexture = {};
         s_FrameData.AtlasShadowTexture = {};
         s_FrameData.CSMRawShadowTexture = {};
@@ -1924,18 +1950,26 @@ namespace OloEngine
         InvalidateRenderStateCache();
     }
 
+    void CommandDispatch::BeginReplay()
+    {
+        // Legal inside a recording item (a serial bucket replayed by a worker):
+        // Data() is then that item's cache.
+        ResetBindCacheUnlessFaulted(false);
+    }
+
     void CommandDispatch::InvalidateBindingCaches()
     {
         OLO_CORE_ASSERT(!s_RecordingData, "Binding caches are reset between passes, not during recording");
         // The binding half of ResetState(): the counters, viewport and pass
         // flags describe the frame so far and stay.
-        ResetBindCacheUnlessFaulted();
+        ResetBindCacheUnlessFaulted(true);
     }
 
     void CommandDispatch::ForgetBindingCaches()
     {
         OLO_CORE_ASSERT(!s_RecordingData, "Binding caches are reset between passes, not during recording");
         Data().Cache = {};
+        RenderCommand::DistrustUniformBufferOccupancy();
     }
 
     void CommandDispatch::SetDepthPrepassActive(bool active, bool writeViewNormals)

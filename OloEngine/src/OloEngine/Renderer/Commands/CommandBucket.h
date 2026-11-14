@@ -495,6 +495,19 @@ namespace OloEngine
         {
             return s_ParallelReplayClassifier;
         }
+        // Runs at the start of every replay (BeginReplay), on the calling
+        // thread and before any worker starts. Installed by CommandDispatch,
+        // which drops its redundant-bind caches there: what a pass bound
+        // around the dispatcher since the last replay is not in them.
+        using ReplayEntryHook = void (*)();
+        static void SetReplayEntryHook(ReplayEntryHook hook)
+        {
+            s_ReplayEntryHook = hook;
+        }
+        [[nodiscard]] static ReplayEntryHook GetReplayEntryHook()
+        {
+            return s_ReplayEntryHook;
+        }
 
       private:
         enum class Lifecycle : u8
@@ -519,6 +532,7 @@ namespace OloEngine
                                                       const std::optional<BucketViewState>& view);
         static inline ViewScopeRunner s_ViewScopeRunner = nullptr;
         static inline ParallelReplayClassifier s_ParallelReplayClassifier = nullptr;
+        static inline ReplayEntryHook s_ReplayEntryHook = nullptr;
         // Transform buffer for instanced rendering
         class InstancedTransformBuffer
         {

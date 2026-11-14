@@ -31,7 +31,7 @@ Read from the source, then pinned by the tests named in §6.
 | **Device** | Objects made from the graphics device and never replaced while it lives: primitive meshes, shader programs, the buffer *objects* behind every fixed binding, placeholders, the GPU cull pool | `Renderer3D::Init` | never | `Renderer3D::Shutdown`, while the context is alive | the renderer only |
 | **Scene** | What a loaded world put in the renderer: GPU Scene records, acceleration structures and their deform caches, material tables, skin and leaf profile slots, per-entity and per-instance previous transforms, environment identities, the scene's cloud, underwater and water publications | empty at `Init` | once per physical frame (`PrepareFrame` moves this frame's transforms to "previous") | `Renderer3D::ResetSceneState` on a scene change; `Shutdown` | the renderer; a scene change through `ResetSceneState` |
 | **View** | One camera and everything measured against it: render and culling camera, previous view-projection and position, jitter, the temporal-projection observation, upscale state, LOD inputs, the retained Hi-Z pyramid's validity. Texture histories belong to the view too and live in `TemporalHistoryRegistry`, keyed by view | default at `Init` | once per view per frame (`EndScene` rotates current to previous) | `RendererViewState{}` assignment: `Shutdown`, `ResetFrameCamera` | the renderer; never by a scene change, which only invalidates histories |
-| **Recording** | One replay's mutable state: the view it draws from, the bind caches, the upload objects it writes, which buffer occupies each binding point, counters. One primary context for the render thread, one per worker item | primary: `CommandDispatch::Initialize`; item: `CommandDispatchRecordingState::Prepare` on the render thread before the fork | caches emptied by `ResetState` each frame and by `Prepare` / `Publish` around a fork | primary: `CommandDispatch::Shutdown` (whole-struct assignment); item: with its `FrontendRecordingContext` | the dispatcher; a pass only through the `Invalidate*` calls and `ScopedAlternateView` |
+| **Recording** | One replay's mutable state: the view it draws from, the bind caches, the upload objects it writes, which buffer occupies each binding point, counters. One primary context for the render thread, one per worker item | primary: `CommandDispatch::Initialize`; item: `CommandDispatchRecordingState::Prepare` on the render thread before the fork | caches emptied at every replay entry, by `ResetState` each frame and by `Prepare` / `Publish` around a fork | primary: `CommandDispatch::Shutdown` (whole-struct assignment); item: with its `FrontendRecordingContext` | the dispatcher; a pass only through the `Invalidate*` calls and `ScopedAlternateView` |
 
 Two smaller groups sit beside them. **Frame hand-offs** (`RendererFrameState`) are requests the scene
 or the editor publishes for one frame and the renderer drains: ray-traced light requests, groom
@@ -61,8 +61,19 @@ Two rules follow from the table and are the reason for the structure:
 
 `CommandDispatchData` (one per recording context) is split the same way: `DispatchView View`,
 `Uploads` (buffer objects), `Cache` (every "already bound" answer) and `Tally` (counters).
-`ResetState`, `InvalidateBindingCaches`, `Prepare` and `Publish` assign `Cache = {}`; `Shutdown`
+`ResetState`, `InvalidateBindingCaches`, `Prepare` and `Publish` assign `Cache = {}`, and so does
+every replay entry (`CommandBucket::BeginReplay` calls `CommandDispatch::BeginReplay`); `Shutdown`
 assigns the whole primary context and the pass-flag struct.
+
+The cache is valid for one replay and no longer. Between two replays a pass binds programs, vertex
+arrays and textures through the API (a compute dispatch, a fullscreen draw, a resolve) and the cache
+hears of none of it. Until this rule the cache lived until a pass remembered
+`InvalidateBindingCaches`: six passes carry that call, each added after a draw from vertex array 0
+or a wrong frame, and the two GPU occlusion passes did not. `DeferredGPUOcclusionPass` dispatched
+the phase-2 cull and replayed the recovered instances; when the scene pass had ended on the same
+G-Buffer program the draw kept the cull's compute program bound. Which program the scene pass ends
+on follows the sort order, so the frame was wrong in one test order and right in every other.
+`CommandDispatchRecording.AReplayDoesNotTrustWhatWasBoundBeforeIt` pins the rule.
 
 The GPU objects that belong to the scene or the view (`GPUScene`, `RayTracingScene`, the deform
 caches, `HZBGenerator`, the render graph and its history registry) keep their own `Shutdown` and
@@ -145,6 +156,14 @@ The occupancy record is also the only answer to "is this buffer already bound".
 `RendererAPI::GetUniformBufferOccupant` reads it in the calling recording context, and the dispatcher's
 redundant-bind check uses that where it used to keep a table of what it had last bound itself. That
 table could not see a bind issued by anyone else, so it was a second owner of the same fact.
+
+On Vulkan the record is the binding. On OpenGL the binding is driver state and the record follows
+the engine's bind calls, so a raw `glBindBufferBase` (a test, a third-party SDK such as FSR2) changes
+the binding without changing the record. A bind is therefore skipped only when the backend vouches
+for the record (`RendererAPI::IsUniformBufferBound`): OpenGL vouches for a point bound through the
+engine since the last `DistrustUniformBufferOccupancy`, which the dispatcher calls at frame start
+and at every explicit cache invalidation. A bind behind the record costs one extra bind and never a
+skipped one (`RendererOwnership.ARawBindBehindTheRecordCostsABindAndNeverASkippedOne`).
 
 A refused read is logged once per program, binding and occupant with both blocks named, counted
 (`BindingContract::ViolationCount`), and the shader is given a zero-filled block instead of the

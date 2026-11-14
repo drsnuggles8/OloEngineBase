@@ -53,7 +53,7 @@ Three remainders were filed as children first and then decided and fixed here.
 | # | What it was | What was done |
 |---|---|---|
 | #1687 | A tenant that displaced a frame-published uniform binding did not put the owner back. The sky and IBL bakes left their camera buffer on binding 0, shadow items and the particle batch leave theirs for the next pass, and the Gaussian-splat sort block shares binding 8 with the motion-blur matrices | Binding 8 is pass-scoped: every reader binds the matrices (`Renderer3D::BindMotionMatrices`; the scene buckets through `BindSceneResources`). The camera's owner re-publishes it before every render-graph pass (`CommandDispatch::PublishFrameCamera`), and the bakes re-upload the frame's camera block on every exit. `FramePredecessorPoison` poisons 8 with another layout and 0 with a same-layout tenant after every pass, on three paths and both backends; `RendererOwnership.ASkyBakeLeavesTheFramesCameraBlockBound` pins each bake |
-| #1688 | The dispatcher's `BoundUBOs` skip cache was a second record of what occupies bindings 0 to 7. It did not see a direct `Bind()` | The cache is gone. `BindUBOIfNeeded` asks `RendererAPI::GetUniformBufferOccupant`, which reads the backend's occupancy record in the calling recording context. `RendererOwnership.ABindBehindTheDispatchersBackCannotMakeItSkipTheCameraBind` pins it |
+| #1688 | The dispatcher's `BoundUBOs` skip cache was a second record of what occupies bindings 0 to 7. It did not see a direct `Bind()` | The cache is gone. `BindUBOIfNeeded` asks the backend's occupancy record in the calling recording context (`RendererAPI::IsUniformBufferBound`; on OpenGL the record is trusted for a skip only for a point bound through the engine since the dispatcher last dropped its caches, because a raw GL bind goes around it). `RendererOwnership.ABindBehindTheDispatchersBackCannotMakeItSkipTheCameraBind` pins it |
 | #1689 | Skin diffusion was the one scene-visible render setting with no scene owner: it lived only in the renderer and survived a scene change | `SkinDiffusionSettings` is a scene setting like the other seven: on `Scene`, in `SceneRenderSettings`, in the scene file, the play-mode copy, the save game (format 50) and the editor's undo snapshot. `SceneRenderSettingsActivationTest` pins activation, the round trip, a file without the node, and a corrupt value |
 
 ## Invalidation calls
@@ -63,21 +63,35 @@ dispatcher there are 41, to six functions. All of them write one object: the cal
 context's skip cache (`CommandDispatchData::Cache`), which records what the dispatcher last put on
 a texture unit, which program and vertex array it bound, which render state it applied, and whether
 the GPU Scene material table is bound. Since #1688 it holds no uniform buffer record. It is
-assigned whole at every frame start (`ResetState`), and a recording item starts with an empty one.
-So a missing call can produce one wrong bind inside one frame of one context; it cannot carry
-anything across a frame, a scene, a view or an item, which is the contract in ADR 0025 §4.
+assigned whole at every frame start (`ResetState`) and at every replay entry
+(`CommandBucket::BeginReplay`), and a recording item starts with an empty one. So the cache carries
+nothing from one replay to the next, and nothing across a frame, a scene, a view or an item, which
+is the contract in ADR 0025 §4.
+
+The replay-entry reset is new with this issue, and the audit of these calls is what showed it was
+needed. The calls below are the ones that exist; the defect was a call that did not.
+`DeferredGPUOcclusionPass` and `GPUDrivenOcclusionPass` dispatch the phase-2 cull through the API
+and then replay their recovered instances with no invalidation in between. When the scene pass had
+ended on the same G-Buffer program, the dispatcher skipped its program bind and the instances were
+drawn with the cull's compute program bound: one centred black rectangle in the G-Buffer albedo and
+no instances. Which program the scene pass ends on follows the sort order, so it showed in one test
+order of a full sweep (`RenderTargetExportEvidence.DeferredResolveIncludesRecoveredPhaseTwoInstances`
+after a renderer restart) and nowhere else. A cache that needs every pass to remember a call has
+that failure at every pass that forgets, so the cache now ends with the replay.
 
 | Call | Sites | Who calls it, and why the cache cannot know |
 |---|---|---|
 | `ResetState` | 2 (`RenderPipeline.cpp`) | The frame start itself. The second mention is a comment |
-| `InvalidateBindingCaches` | 6 (`GBuffer.cpp`, `DecalRenderPass` x2, `ForwardOverlayRenderPass`, `SceneRenderPass`, `WaterRenderPass`) | A pass entry that follows work which bound programs and textures around the dispatcher. Asserted not to run inside a recording item |
+| `InvalidateBindingCaches` | 6 (`GBuffer.cpp`, `DecalRenderPass` x2, `ForwardOverlayRenderPass`, `SceneRenderPass`, `WaterRenderPass`) | A pass entry that follows work which bound programs and textures around the dispatcher. Asserted not to run inside a recording item. Since the replay-entry reset these matter only for what a pass dispatches without a replay: the scene-resource publication before the fork, and `DecalRenderPass` executing its G-Buffer packets itself |
 | `InvalidateRenderStateCache` | 20 (`CaptureStateGuard`, DDGI x2, decal x4, fluid x2, foliage x2, overlay, GPU occlusion, groom, overdraw, scene x2, debug draw, water x2) | A pass that set blend, depth, stencil or write masks through `RenderCommand` or the graph context, so the dispatcher's "last applied state index" no longer describes the context |
 | `InvalidateTextureSlot` | 5 (`GroomRenderPass` x4, `VirtualGeometryPass`) | A raw bind of a texture unit behind the cache |
 | `InvalidateTextureBinding` | 5 (`CloudShadowMap`, `VolumetricShadowMap`, `OpenGLTexture` x2, `OpenGLUtilities`) | A texture whose storage was recreated in place: the identity survives and the driver object does not |
 | `InvalidateGPUSceneMaterialBinding` | 3 (`GPUFrustumCuller`) | The instance cull binds its indirect buffer on the storage binding the material table shares |
 
 Every one of these is a writer outside the dispatcher telling it that driver state it mirrors has
-changed. Two checks show that no frame depends on a call being present beyond that: the state-machine
+changed. `CommandDispatchRecording.AReplayDoesNotTrustWhatWasBoundBeforeIt` shows that a replay does
+not depend on any of them having been made before it. Two more checks cover the calls made inside a
+replay and the state outside the cache: the state-machine
 harness renders the `binding-cache-cold` arm with the whole cache forgotten before the frame and after every pass, and
 requires the same frame; `FramePredecessorPoison.APassDoesNotInheritItsPredecessorsBlendOrWriteMasks`
 leaves a predecessor's blend state and write masks after every pass on three paths and both backends.

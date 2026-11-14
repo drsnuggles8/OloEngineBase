@@ -693,6 +693,26 @@ namespace OloEngine
         {
             return {};
         }
+        // Whether a bind of `buffer` at `bindingPoint` may be skipped: the
+        // record names it AND the backend vouches for the record. On OpenGL
+        // the record follows the engine's bind calls while the binding itself
+        // is driver state, which a raw GL call (a test, a third-party SDK such
+        // as FSR2) changes without telling anyone. So the OpenGL backend
+        // vouches only for a point bound through the engine since the last
+        // DistrustUniformBufferOccupancy. Vulkan has no state behind the
+        // record and always vouches.
+        [[nodiscard]] virtual bool IsUniformBufferBound(u32 bindingPoint, RHI::ResourceHandle buffer) const
+        {
+            return buffer.IsValid() && GetUniformBufferOccupant(bindingPoint) == buffer;
+        }
+        // Stop vouching for every uniform binding point until it is bound
+        // again. The dispatcher calls this where it drops its own bind caches
+        // (frame start, the pass entries that follow work done around it), so
+        // a bind somebody made behind the record costs at most one frame's
+        // first bind and never a skipped one.
+        virtual void DistrustUniformBufferOccupancy()
+        {
+        }
         virtual void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) = 0;
         // Per-dispatch CPU data for a COMPUTE read at `bindingPoint` (#1543):
         // copies `size` bytes into memory that lives until the GPU has

@@ -442,6 +442,15 @@ namespace OloEngine
                 s_RendererAPI->ReleaseParallelRecordingResources();
             }
         }
+        // Null-safe: the dispatcher resets its caches from Initialize, which a
+        // unit test may call with no backend at all.
+        static void DistrustUniformBufferOccupancy()
+        {
+            if (s_RendererAPI)
+            {
+                s_RendererAPI->DistrustUniformBufferOccupancy();
+            }
+        }
         static void NoteDeclinedRecordingGroup()
         {
             if (s_RendererAPI)
