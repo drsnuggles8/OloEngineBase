@@ -23,6 +23,7 @@
 
 #include "OloEnginePCH.h"
 #include "RendererAttachedTest.h"
+#include "RendererStateCheck.h"
 #include "TestRenderBackend.h"
 
 #include "OloEngine/Math/Math.h"
@@ -157,6 +158,27 @@ namespace OloEngine::Tests
         const u32 firstFrame = Renderer3D::DebugOwnedStateCensus().ScenePoseRecords;
         EXPECT_GT(firstFrame, 0u) << "the renderer stopped drawing after a scene reset";
         EXPECT_LT(firstFrame, before.ScenePoseRecords) << "the frame after a scene reset still had previous poses";
+    }
+
+    // A scene reset assigns the scene owner's state back to its default. Four
+    // settings structs in it (water wake, water foam, cloudscape, underwater
+    // fog) are in the cross-test state check, which compares BYTES. Assigning
+    // an aggregate-initialised temporary moved their padding, so every test
+    // that changed scene was reported as leaking settings it never set, and
+    // the report stopped saying anything about real leaks.
+    TEST_F(RendererOwnership, ASceneResetMovesNoBitOfASettingNoSceneSet)
+    {
+        RenderMovingFrames(1);
+        RendererState::Snapshot before;
+        ASSERT_TRUE(RendererState::Capture(before));
+
+        Renderer3D::ResetSceneState();
+
+        RendererState::Snapshot after;
+        ASSERT_TRUE(RendererState::Capture(after));
+        std::string changed;
+        EXPECT_EQ(RendererState::Describe(before, after, changed), 0u)
+            << "a scene reset of a scene that publishes none of them changed: " << changed;
     }
 
     TEST_F(RendererOwnership, ViewResetDropsTheViewAndKeepsTheSceneAndTheClock)

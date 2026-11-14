@@ -43,7 +43,13 @@ does not.
 Two rules follow from the table and are the reason for the structure:
 
 1. **An owner's state is one struct, and reset is assignment.** `s_Data.View = {}` cannot miss a field
-   added next month. A field-by-field reset list is a defect waiting for its next field.
+   added next month. A field-by-field reset list is a defect waiting for its next field. The scene
+   owner is assigned `RendererSceneState()`, not `{}`: for an aggregate `{}` leaves the temporary's
+   padding unspecified and `()` zero-initialises it, and the scene's settings publications are
+   compared byte-wise by the cross-test state check
+   ([cross-test-renderer-state.md](../agent-rules/cross-test-renderer-state.md)). With `{}` a full
+   sweep reported 635 tests as leaking settings none of them had set
+   (`RendererOwnership.ASceneResetMovesNoBitOfASettingNoSceneSet`).
 2. **A context resets only what the table gives it.** A scene change does not restart the view's
    camera history or the clock; a view reset does not drop object poses; a recording item never
    writes the primary's state.

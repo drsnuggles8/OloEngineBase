@@ -885,7 +885,17 @@ namespace OloEngine
         // sequences or time), and not the GPU Scene records, which
         // ResetGPUScene owns because an asset reload needs them dropped
         // without a scene change.
-        s_Data.Scene = {};
+        //
+        // RendererSceneState() and not {}: the struct is an aggregate, so {}
+        // is aggregate initialisation and leaves the temporary's padding
+        // unspecified, while () zero-initialises the whole object first. The
+        // scene's settings publications in here are trivially copyable and are
+        // copied padding and all, and the cross-test state check holds them to
+        // "not one bit moved" (RendererStateCheck compares bytes, because an
+        // epsilon is how a small real leak stops being reported). With {} every
+        // test that changed scene was reported as leaking four settings it had
+        // never touched: 635 tests of a full sweep.
+        s_Data.Scene = RendererSceneState();
         s_Data.SkinProfiles.Reset();
         s_Data.FoliageLeafProfiles.Reset();
         InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);

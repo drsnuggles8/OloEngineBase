@@ -1063,7 +1063,7 @@ namespace OloEngine
         // structs is covered without being listed here. The lists this replaces
         // reset the clocks and the cloudscape and left everything else.
         s_Data.View = {};
-        s_Data.Scene = {};
+        s_Data.Scene = RendererSceneState(); // () for its padding: see ResetSceneState
         s_Data.Frame = {};
         s_Data.Clock = {};
 
