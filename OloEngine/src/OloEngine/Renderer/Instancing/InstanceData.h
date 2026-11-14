@@ -86,6 +86,22 @@ namespace OloEngine
         return count;
     }
 
+    // Whether any instance authored a tint, i.e. a colour whose rgb is not
+    // white. A draw that cannot apply the tint asks this before it says so.
+    [[nodiscard]] inline bool AnyInstanceIsTinted(std::span<const InstanceData> instances)
+    {
+        constexpr f32 kWhiteTolerance = 1.0e-4f;
+        for (const InstanceData& instance : instances)
+        {
+            for (int channel = 0; channel < 3; ++channel)
+            {
+                if (!(std::abs(instance.Color[channel] - 1.0f) <= kWhiteTolerance))
+                    return true;
+            }
+        }
+        return false;
+    }
+
     // GPU payload owns only numerical values and carries no interior pointers.
     template<>
     struct TIsTriviallyRelocatable<InstanceData>

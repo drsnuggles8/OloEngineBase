@@ -803,7 +803,10 @@ sync.
 four PBR programs do. The lane is `(1, 1, 1, 1)` on every draw that authored none, so the multiply
 changes no frame that has no tint. Its alpha is not applied anywhere, and a producer that brings one
 reports it (`CountInstancesWithIgnoredAlpha`), because applying it in the colour pass alone would
-leave the depth prepass, the shadow programs and the ray-traced alpha test disagreeing with it.
+leave the depth prepass, the shadow programs and the ray-traced alpha test disagreeing with it. A
+material that brings its own shader is drawn with that shader; a tinted batch on one is reported
+once per shader (`Renderer3D::DrawMeshInstanced`), since the engine cannot know whether it reads the
+lane.
 
 Until #1691 the colour was authored, serialized, batched and uploaded, and no shader read it, so
 `InstancingDemo.olo`'s 500 yellow-green cubes drew neutral grey. Above the GPU-cull threshold it was

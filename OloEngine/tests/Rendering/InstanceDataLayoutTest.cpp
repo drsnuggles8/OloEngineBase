@@ -190,4 +190,23 @@ namespace OloEngine::Tests
         EXPECT_EQ(CountInstancesWithIgnoredAlpha(instances), 4u);
         EXPECT_EQ(CountInstancesWithIgnoredAlpha({}), 0u);
     }
+
+    // A draw that cannot apply an instance colour reports it only when one was
+    // authored: white, with any alpha, is not a tint.
+    TEST(InstanceDataLayout, ATintIsAColourWhoseRgbIsNotWhite)
+    {
+        std::vector<InstanceData> instances(4);
+        EXPECT_FALSE(AnyInstanceIsTinted(instances));
+        EXPECT_FALSE(AnyInstanceIsTinted({}));
+
+        instances[2].Color.a = 0.3f;
+        EXPECT_FALSE(AnyInstanceIsTinted(instances)) << "alpha is not part of the tint";
+
+        instances[3].Color.b = 0.5f;
+        EXPECT_TRUE(AnyInstanceIsTinted(instances)) << "one tinted instance at the end of the batch is enough";
+
+        instances[3].Color.b = 1.0f;
+        instances[0].Color.r = std::numeric_limits<f32>::quiet_NaN();
+        EXPECT_TRUE(AnyInstanceIsTinted(instances)) << "a non-finite channel is not white";
+    }
 } // namespace OloEngine::Tests

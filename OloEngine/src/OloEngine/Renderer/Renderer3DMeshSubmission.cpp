@@ -29,6 +29,8 @@
 #include "OloEngine/Task/ParallelFor.h"
 
 #include <algorithm>
+#include <array>
+#include <mutex>
 #include <numeric>
 
 #include <atomic>
@@ -1297,6 +1299,35 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         if (instances.empty())
             return nullptr;
+
+        // The instance colour is applied by the four PBR programs (issue
+        // #1691). A material that brings its own shader is drawn with that
+        // shader, and nothing here can know whether it reads the lane, so a
+        // tinted batch on one says so instead of leaving the author to find the
+        // colour missing. Once per shader, and a white batch scans to its end
+        // only while the material keeps a shader of its own.
+        if (const Ref<Shader>& ownShader = material.GetShader();
+            ownShader && ownShader.Raw() != s_Data.PBRShader.Raw() && ownShader.Raw() != s_Data.PBRSkinnedShader.Raw() &&
+            ownShader.Raw() != s_Data.PBRGBufferShader.Raw() && ownShader.Raw() != s_Data.PBRGBufferSkinnedShader.Raw() &&
+            AnyInstanceIsTinted(instances))
+        {
+            constexpr sizet kMaxReportedShaders = 8;
+            static std::mutex s_ReportedMutex;
+            static std::array<const Shader*, kMaxReportedShaders> s_Reported{};
+            static sizet s_ReportedCount = 0;
+            const std::scoped_lock lock(s_ReportedMutex);
+            const auto reportedEnd = s_Reported.begin() + static_cast<std::ptrdiff_t>(s_ReportedCount);
+            if (s_ReportedCount < kMaxReportedShaders && std::find(s_Reported.begin(), reportedEnd, ownShader.Raw()) == reportedEnd)
+            {
+                s_Reported[s_ReportedCount++] = ownShader.Raw();
+                OLO_CORE_WARN("Renderer3D::DrawMeshInstanced: instances with a colour other than white are drawn with the "
+                              "material's own shader '{}'. Only the engine's PBR programs are known to apply an instance "
+                              "colour (albedo *= instances[v_InstanceIndex].Color.rgb); if this shader does not, the "
+                              "colour is not shown (issue #1691). Reported once per shader{}.",
+                              ownShader->GetName(),
+                              s_ReportedCount == kMaxReportedShaders ? "; further shaders are not reported" : "");
+            }
+        }
 
         std::vector<glm::mat4> transforms;
         transforms.reserve(instances.size());
