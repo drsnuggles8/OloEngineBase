@@ -18,8 +18,12 @@ not this one ran.
 3. **Test the frame after the last caster leaves, not only the frames that have one.** A scene with
    a casting ground plane in every cascade cannot show this, and almost every scene and test has
    one. `ShadowMapWithoutCastersTest.cpp` has none: the caster is deleted, moved outside every
-   cascade, or was never there, on Forward, Forward+ and Deferred, on the cascades and on the
-   virtual shadow map's pages, and on both backends.
+   cascade, or was a roof over the whole ground that is then destroyed, on Forward, Forward+ and
+   Deferred, on the cascades and on the virtual shadow map's pages, and on both backends.
+
+4. **A test of a map that persists across frames fills the map itself.** What a shadow map holds
+   when a test starts depends on what ran before it. Draw the caster, check its shadow is there,
+   then take it away.
 
 ## What it cost
 
@@ -33,16 +37,19 @@ what it held:
   receiver of the sun is fully shadowed.
 
 It surfaced as the third. The evidence scene for #1691 has a sun and two fields of cubes that do not
-cast, and it rendered at 46 of 255 where the same scene with the sun's shadows off rendered at 129.
+cast, and it rendered at 46 of 255, about a third of the 129 the same scene shows with the sun's
+shadows off.
 The log said `ShadowRenderPass::Execute skipped: no shadow casters submitted`, once. With the fix
-removed, the deleted-caster case fails on the cascades and on the virtual shadow map, and the
-moved-away case fails on the cascades: the shadow is still 69 levels darker than the lit ground
-beside it.
+removed, 15 of the 18 cases fail: the deleted-caster case and the destroyed-roof case on the cascades
+and on the virtual shadow map, and the moved-away case on the cascades. A stale shadow is 67 to 69
+levels darker than the lit ground beside it (46 against 113 under the destroyed roof).
 
 Virtual shadow maps had the first half of the hole: the page work that retires a deleted caster's
 shadow ran only if the pass ran, and the pass did not run on the frame the last caster left. A
 caster that only moved away was retired correctly there, because the pass still ran.
 
-The never-had-a-caster case is weaker than it looks. It fails without the fix only when the map
-holds something other than far depth when it starts, which is true in a fresh process and not after
-a test that left the map cleared. Dirty the state a test depends on inside the test.
+The first version of the third test case rendered a scene that never had a caster and compared it
+with shadows off. It failed without the fix only when the map held something other than far depth
+when it started, which is true in a fresh process and not after a test that left the map cleared:
+in a sweep it passed with the bug in. It now shadows the whole visible ground with a roof outside
+the view, checks that, and destroys the roof (rule 4).

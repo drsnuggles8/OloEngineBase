@@ -14,7 +14,7 @@
 //     under which every receiver of the sun is fully shadowed.
 // Every scene and every test happened to keep a casting ground plane in every
 // cascade, which is what hid it. It surfaced in an evidence scene with a sun
-// and no caster, rendering at a fifth of its brightness.
+// and no caster, rendering at about a third of its brightness.
 //
 // WHAT THIS PINS. A non-casting ground under a slanted sun, seen from above,
 // with one casting slab over it. The slab's shadow is measured first, so the
@@ -22,9 +22,13 @@
 // probe must return to the lit ground's level each time:
 //   * its instances are removed: no caster is submitted at all;
 //   * it is moved far outside every cascade: a caster is submitted, and no
-//     cascade contains it;
-// and a scene that never had a caster is as bright with the sun's shadows on as
-// with them off.
+//     cascade contains it.
+// The third case shadows the whole ground with a roof outside the view, destroys
+// the roof, and requires the ground to be exactly as bright with the sun's
+// shadows on as with them off, at three points across the frame.
+//
+// Each case dirties the map it depends on itself, so each fails without the fix
+// whatever ran before it.
 //
 // Runs on Forward, Forward+ and Deferred, with the directional shadow on the
 // cascades and on the virtual shadow map's pages, and in the --olo-rhi=vulkan
@@ -159,6 +163,11 @@ namespace OloEngine::Tests
         // distance the other side of the frame's centre.
         constexpr f32 kShadowX = kSlabHeight;
         constexpr f32 kLitX = -kSlabHeight;
+
+        // A roof above the camera, so it is never in the frame, displaced
+        // against the sun by its own height so that its shadow lands centred on
+        // the ground and covers all of it the camera sees.
+        constexpr f32 kRoofHeight = 14.0f;
 
         // One cell: a render path, and which technique holds the sun's shadow.
         struct Cell
@@ -338,20 +347,27 @@ namespace OloEngine::Tests
         ExpectTheShadowHasLeft(name, "the only shadow caster moved outside every cascade");
     }
 
-    // What this case can catch depends on what the map held when it started: in
-    // a process that has drawn no caster that is the texture's initial zeroes,
-    // and the unfixed pass fails it by 67 levels; after a test that left the map
-    // cleared it passes either way. The two cases above dirty the map themselves
-    // and fail without the fix in any order. This one is kept for the contract
-    // it states, which an empty map must meet whatever came before it.
-    TEST_P(ShadowMapWithoutCasters, ASceneThatNeverHadACasterIsLitTheSameWithShadowsOnAsOff)
+    // A map with nothing in it has to light the ground exactly as no map does.
+    // What the map holds when a test starts depends on what ran before it (a
+    // fresh process has the texture's initial zeroes, a sweep usually a cleared
+    // map), so this case fills it first: a casting roof outside the view puts
+    // the whole visible ground in shadow, and that is checked. Then the roof's
+    // entity is destroyed, which leaves a sun and no caster of any kind.
+    TEST_P(ShadowMapWithoutCasters, ASceneLeftWithNoCasterIsLitTheSameWithShadowsOnAsOff)
     {
         OLO_ENSURE_GPU_OR_SKIP();
         if (!TechniqueIsUp())
             GTEST_SKIP() << "the virtual shadow map did not come up on this backend";
         ScopedMockTime mockTime(kCaptureTime);
-        const std::string name = TestRenderBackend::EvidenceName("ShadowWithoutCasters") + CellName(GetParam()) + "_Never";
+        const std::string name = TestRenderBackend::EvidenceName("ShadowWithoutCasters") + CellName(GetParam()) + "_Emptied";
 
+        Entity roof = AddSlab("Roof", { -kRoofHeight, kRoofHeight, 0.0f }, { 24.0f, 0.2f, 24.0f }, true);
+        std::vector<u8> roofed;
+        Capture(roofed);
+        ASSERT_FALSE(HasFatalFailure());
+        WriteEvidence(name + "_Roofed", roofed);
+
+        GetScene().DestroyEntity(roof);
         std::vector<u8> shadowsOn;
         Capture(shadowsOn);
         ASSERT_FALSE(HasFatalFailure());
@@ -364,13 +380,17 @@ namespace OloEngine::Tests
 
         for (const f32 x : { kLitX, 0.0f, kShadowX })
         {
+            const f32 under = GroundLevel(roofed, x);
             const f32 on = GroundLevel(shadowsOn, x);
             const f32 off = GroundLevel(shadowsOff, x);
-            std::cout << "[shadow-without-casters] " << name << " ground at x=" << x << ": shadows on " << on
-                      << ", shadows off " << off << "\n";
+            std::cout << "[shadow-without-casters] " << name << " ground at x=" << x << ": under the roof " << under
+                      << ", roof destroyed " << on << ", shadows off " << off << "\n";
             EXPECT_GT(off, 40.0f) << "the ground is not lit by the sun with its shadows off";
+            EXPECT_LT(under, 0.7f * off)
+                << "the roof did not shadow the ground at x=" << x << ", so the map this case means to fill was not "
+                << "filled there and the comparison below proves nothing. See " << name << "_Roofed.png";
             EXPECT_NEAR(on, off, 2.0f)
-                << "with no caster in the scene the sun's shadow map has nothing in it, so the ground at x=" << x
+                << "with no caster left in the scene the sun's shadow map has nothing in it, so the ground at x=" << x
                 << " should be exactly as bright as with the sun's shadows off. See " << name << ".png";
         }
     }

@@ -199,7 +199,7 @@ namespace OloEngine
         // process that had never drawn a caster, the texture's initial zeroes,
         // under which every receiver of the sun is fully shadowed. It was found
         // as the last of those (issue #1691's evidence scene has no casters and
-        // rendered at a fifth of its brightness), and the log said only
+        // rendered at about a third of its brightness), and the log said only
         // "skipped: no shadow casters submitted", once.
         //
         // What is left to skip is the case nobody samples: shadows off, or no

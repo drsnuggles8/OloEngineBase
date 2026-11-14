@@ -246,7 +246,12 @@ namespace OloEngine::Tests::RendererState
         Renderer3D::SetUnderwaterFogState(snapshot.UnderwaterFog);
         // Only when it moved: SetSettings with a new resolution rebuilds the
         // shadow textures, which no test should pay for when nothing leaked.
-        if (!BytesEqual(Renderer3D::GetShadowMap().GetSettings(), snapshot.Shadow))
+        // The live struct is copied and has its padding cleared the way Capture
+        // cleared the snapshot's, or padding alone would read as "moved".
+        ShadowSettings liveShadow;
+        std::memcpy(&liveShadow, &Renderer3D::GetShadowMap().GetSettings(), sizeof(liveShadow));
+        ClearPadding(liveShadow);
+        if (!BytesEqual(liveShadow, snapshot.Shadow))
             Renderer3D::GetShadowMap().SetSettings(snapshot.Shadow);
 
 #define OLO_RESTORE_SCALAR(member, label, getter, setter) setter(snapshot.member);
