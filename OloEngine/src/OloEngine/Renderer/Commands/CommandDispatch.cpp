@@ -436,7 +436,8 @@ namespace OloEngine
     // withdraws that at the points where it drops its own caches
     // (ResetBindCacheUnlessFaulted). Without that a bind made behind the
     // record was skipped for the rest of the process: the old table at least
-    // forgot once a frame.
+    // forgot once a frame. With it, such a bind is trusted no longer than the
+    // next frame start or explicit invalidation.
     static void BindUBOIfNeeded(RendererAPI& api, u32 bindingPoint, RHI::ResourceHandle buffer)
     {
         if (api.IsUniformBufferBound(bindingPoint, buffer))
@@ -4001,11 +4002,17 @@ namespace OloEngine
         // environment map, deterministically clear the slot rather than leaving a
         // stale cubemap from a previous frame/scene (BindTrackedTexture skips id 0,
         // so clear it directly and update the tracking).
+        //
+        // Unconditionally: this used to clear only when the cache said the slot
+        // held something, which made the cache decide an action and not a skip.
+        // The cache is empty at every replay entry and cannot say what an
+        // earlier replay left there (a skybox drawn with image lighting off
+        // leaves its cubemap on this unit).
         if (const auto envMap = Renderer3D::GetGlobalEnvironmentMapHandle(); envMap.IsValid())
         {
             BindTrackedTexture(api, envMap, ShaderBindingLayout::TEX_ENVIRONMENT);
         }
-        else if (Data().Cache.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT].IsValid())
+        else
         {
             HeapBinding::BindTextureOrOffset(api, ShaderBindingLayout::TEX_ENVIRONMENT, RHI::NullResource, RHI::HeapSlotLifetime::Persistent, {}, RHI::NullSamplerKind::Cube);
             Data().Cache.BoundTextures[ShaderBindingLayout::TEX_ENVIRONMENT] = {};

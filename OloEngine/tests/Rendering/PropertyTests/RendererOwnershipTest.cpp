@@ -272,7 +272,7 @@ namespace OloEngine::Tests
     //
     // The backend now vouches for a point only while it has seen it bound since
     // the dispatcher last dropped its caches.
-    TEST_F(RendererOwnership, ARawBindBehindTheRecordCostsABindAndNeverASkippedOne)
+    TEST_F(RendererOwnership, ARawBindBehindTheRecordIsNotTrustedPastACacheReset)
     {
         if (TestRenderBackend::IsVulkanProcess())
             GTEST_SKIP() << "Vulkan has no driver state behind its occupancy record for a raw call to change";

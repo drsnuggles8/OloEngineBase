@@ -707,9 +707,9 @@ namespace OloEngine
         }
         // Stop vouching for every uniform binding point until it is bound
         // again. The dispatcher calls this where it drops its own bind caches
-        // (frame start, the pass entries that follow work done around it), so
-        // a bind somebody made behind the record costs at most one frame's
-        // first bind and never a skipped one.
+        // for work done around the engine (frame start, an explicit
+        // invalidation), so a bind somebody made behind the record is trusted
+        // no longer than the next of those points.
         virtual void DistrustUniformBufferOccupancy()
         {
         }

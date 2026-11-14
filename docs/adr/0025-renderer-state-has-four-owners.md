@@ -162,8 +162,8 @@ the engine's bind calls, so a raw `glBindBufferBase` (a test, a third-party SDK 
 the binding without changing the record. A bind is therefore skipped only when the backend vouches
 for the record (`RendererAPI::IsUniformBufferBound`): OpenGL vouches for a point bound through the
 engine since the last `DistrustUniformBufferOccupancy`, which the dispatcher calls at frame start
-and at every explicit cache invalidation. A bind behind the record costs one extra bind and never a
-skipped one (`RendererOwnership.ARawBindBehindTheRecordCostsABindAndNeverASkippedOne`).
+and at every explicit cache invalidation. A bind made behind the record is therefore trusted no
+longer than the next of those points (`RendererOwnership.ARawBindBehindTheRecordIsNotTrustedPastACacheReset`).
 
 A refused read is logged once per program, binding and occupant with both blocks named, counted
 (`BindingContract::ViolationCount`), and the shader is given a zero-filled block instead of the
