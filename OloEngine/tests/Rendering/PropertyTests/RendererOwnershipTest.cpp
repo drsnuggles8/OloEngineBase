@@ -46,6 +46,7 @@
 #include "OloEngine/Renderer/ShaderLibrary.h"
 #include "OloEngine/Renderer/SkyCubemapBake.h"
 #include "OloEngine/Renderer/StarNestSky.h"
+#include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/UniformBlockContract.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -430,6 +431,14 @@ namespace OloEngine::Tests
                 ShaderBindingLayout::IBLParametersUBO::GetSize(), ShaderBindingLayout::UBO_USER_0, "IBLParameters");
             const ShaderBindingLayout::IBLParametersUBO parameters{};
             prefilterBlock->SetData(&parameters, ShaderBindingLayout::IBLParametersUBO::GetSize());
+            // The tone mapper also declares the auto-exposure state. Nothing
+            // here publishes it, and the one refusal this test provokes should
+            // be the only thing it puts in the log: Vulkan reports a declared
+            // storage binding with no occupant as an error of its own.
+            const std::array<f32, 4> manualExposure{};
+            Ref<StorageBuffer> exposureState = StorageBuffer::Create(
+                static_cast<u32>(sizeof(manualExposure)), ShaderBindingLayout::SSBO_AUTO_EXPOSURE_STATE);
+            exposureState->SetData(manualExposure.data(), static_cast<u32>(sizeof(manualExposure)));
 
             FramebufferSpecification spec;
             spec.Width = 32;
