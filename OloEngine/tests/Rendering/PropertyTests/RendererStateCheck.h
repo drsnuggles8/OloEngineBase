@@ -134,6 +134,12 @@ namespace OloEngine::Tests::RendererState
         f32 RenderScale = 1.0f;
     };
 
+    /// Whether a capture clears the padding of its copies, so that two
+    /// snapshots differ only in bits a member owns. False where the compiler
+    /// has no builtin for it: there a padding byte the engine moved by
+    /// assigning a struct from a temporary still reads as a leak.
+    [[nodiscard]] bool ComparesValueBitsOnly();
+
     /// Capture the current process-global renderer configuration. Returns false
     /// (leaving `out.Valid == false`) when `Renderer3D` is not initialized —
     /// there is no configuration to read, and no leak is possible.

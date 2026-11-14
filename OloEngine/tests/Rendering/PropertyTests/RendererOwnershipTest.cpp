@@ -160,14 +160,21 @@ namespace OloEngine::Tests
         EXPECT_LT(firstFrame, before.ScenePoseRecords) << "the frame after a scene reset still had previous poses";
     }
 
-    // A scene reset assigns the scene owner's state back to its default. Four
-    // settings structs in it (water wake, water foam, cloudscape, underwater
-    // fog) are in the cross-test state check, which compares BYTES. Assigning
-    // an aggregate-initialised temporary moved their padding, so every test
-    // that changed scene was reported as leaking settings it never set, and
-    // the report stopped saying anything about real leaks.
+    // A scene reset assigns the scene owner's state back to its default. Five
+    // settings structs in it (water disturbance, wake and foam, cloudscape,
+    // underwater fog) are in the cross-test state check. For a scene that
+    // publishes none of them the reset must be invisible to that check: the
+    // defaults it assigns are the values a non-publishing frame leaves.
+    //
+    // It was not invisible. The check compared bytes, padding included, and an
+    // assignment from a temporary moves padding, so every test that changed
+    // scene was reported as leaking settings it never set and the report
+    // stopped saying anything about real leaks. The check now compares the
+    // bits members own, where the compiler can tell which those are.
     TEST_F(RendererOwnership, ASceneResetMovesNoBitOfASettingNoSceneSet)
     {
+        if (!RendererState::ComparesValueBitsOnly())
+            GTEST_SKIP() << "this compiler cannot clear padding, so the state check still compares it";
         RenderMovingFrames(1);
         RendererState::Snapshot before;
         ASSERT_TRUE(RendererState::Capture(before));

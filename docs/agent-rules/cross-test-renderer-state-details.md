@@ -168,6 +168,15 @@ path, or a culling toggle. Restoring all of it changed the failure count by **0*
 "fixture leaks a settings struct" hypothesis was wrong, and the guard is what proved it rather than
 another five 20-minute bisection runs.
 
+**The comparison is of the bits members own, not of padding.** Each entry is captured with `memcpy`
+and compared byte-wise, and the capture clears its copy's padding first (a compiler builtin;
+`RendererState::ComparesValueBitsOnly` is false where there is none: clang-cl 23, GCC and MSVC
+have one, clang 19 on Linux does not). Without that, an engine assignment of one of these structs from a temporary reads as a
+leak: the temporary's padding is stack garbage, no setting changed. That is what a count that
+jumps for one named struct across unrelated tests means. Issue #1330 added one such assignment (the
+scene reset) and a Debug run of 645 tests went from 22 reported leaks to 557, all but one of the
+new ones `CloudscapeRenderState`.
+
 Adding a settings struct to `Renderer3D`? Add it to `RendererState::Snapshot` and the
 `OLO_RENDERER_STATE_STRUCT_ENTRIES` X-macro — one entry drives capture, comparison and restore
 together, because the original bug was a save list and a restore list that had drifted apart.

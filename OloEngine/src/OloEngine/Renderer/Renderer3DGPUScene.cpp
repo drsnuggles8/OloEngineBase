@@ -890,11 +890,10 @@ namespace OloEngine
         // is aggregate initialisation and leaves the temporary's padding
         // unspecified, while () zero-initialises the whole object first. The
         // scene's settings publications in here are trivially copyable and are
-        // copied padding and all, and the cross-test state check holds them to
-        // "not one bit moved" (RendererStateCheck compares bytes, because an
-        // epsilon is how a small real leak stops being reported). With {} every
-        // test that changed scene was reported as leaking four settings it had
-        // never touched: 635 tests of a full sweep.
+        // copied padding and all. Nothing in the engine reads padding; the
+        // cross-test state check did, and where the compiler gives it no way
+        // to clear padding (RendererStateCheck::ComparesValueBitsOnly) it
+        // still does. This keeps the reset from adding to that.
         s_Data.Scene = RendererSceneState();
         s_Data.SkinProfiles.Reset();
         s_Data.FoliageLeafProfiles.Reset();
