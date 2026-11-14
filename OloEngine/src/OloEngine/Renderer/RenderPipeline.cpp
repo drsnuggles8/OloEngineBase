@@ -2214,11 +2214,24 @@ namespace OloEngine
             // must not stall lock decay; benchmark manifests keep Upscale off
             // instead, enforced by the capture entry points). Clamped so a
             // breakpoint or a stalled frame does not expire every lock.
+            //
+            // Under a mocked clock (Time::SetMockTime: a test or a deterministic
+            // capture) the delta is a nominal frame instead. The caller has
+            // pinned every other clock, and the wall clock was the one input
+            // left that differed from run to run and with whatever else the GPU
+            // was doing: with a game using two thirds of the GPU beside it,
+            // DogPlayEvidenceTest's temporally upscaled cell measured a repeat
+            // of an unchanged coat as 3,400 changed pixels and failed, on master
+            // and on every branch. A nominal frame keeps the property this block
+            // exists for, the locks still decay, and makes them decay the same
+            // way every time.
+            constexpr f32 kMockedClockFrameSeconds = 1.0f / 60.0f;
             static auto s_LastTemporalUpscaleTime = std::chrono::steady_clock::now();
             const auto temporalNow = std::chrono::steady_clock::now();
-            const f32 temporalDt = std::clamp(
+            const f32 wallClockDt = std::clamp(
                 std::chrono::duration<f32>(temporalNow - s_LastTemporalUpscaleTime).count(), 0.0f, 0.1f);
             s_LastTemporalUpscaleTime = temporalNow;
+            const f32 temporalDt = Time::HasMockTime() ? kMockedClockFrameSeconds : wallClockDt;
             PostProcessPasses.FSR2->SetDeltaTimeSeconds(temporalDt);
         }
 

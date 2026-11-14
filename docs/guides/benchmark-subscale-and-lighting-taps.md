@@ -36,8 +36,9 @@ Before #1526, `renderWidth` read only the dynamic scale, so every upscale captur
 1280 × 720 `SceneColorHDR`), and a dynamic scale below 1.0 was refused because the whole-texture
 read would have captured the dead margin.
 
-**FSR2 is not run-twice deterministic.** Its lock decay reads the wall clock by contract, so the
-parser refuses a `Temporal` capture whose `Tolerance.RepeatRmse` is 0. Two runs of
+**FSR2 is not declared run-twice deterministic.** The parser refuses a `Temporal` capture whose
+`Tolerance.RepeatRmse` is 0. Its lock decay reads the wall clock in a live session; under a mocked
+clock it takes a nominal 1/60 s frame, so the delta no longer varies between runs. Two runs of
 `integrated-forward-upscale-quality-fsr2` differed by at most 0.044/255; the generated FSR2
 manifests declare 0.25. On Vulkan a Temporal request runs
 FSR1 and records `fallback: backendNotOpenGL`.
