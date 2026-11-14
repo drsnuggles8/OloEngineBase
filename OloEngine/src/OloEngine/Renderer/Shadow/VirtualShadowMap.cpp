@@ -397,6 +397,7 @@ namespace OloEngine
         // previous RHI lifetime would otherwise be bound as if they were current.
         m_InertPageTable.Reset();
         m_InertLocalLights.Reset();
+        m_InertHPB.Reset();
         m_InertGlobalsUBO.Reset();
         m_InertPassUBO.Reset();
         m_Initialized = false;
@@ -1163,6 +1164,22 @@ namespace OloEngine
     RHI::ResourceHandle VirtualShadowMap::GetHPBHandle() const
     {
         return m_HPB ? m_HPB->GetRHIHandle() : RHI::NullResource;
+    }
+
+    void VirtualShadowMap::BindHPBForDeclaredReader()
+    {
+        if (m_HPB)
+        {
+            m_HPB->Bind();
+            return;
+        }
+        if (!m_InertHPB)
+        {
+            m_InertHPB = StorageBuffer::Create(sizeof(u32), ShaderBindingLayout::SSBO_VSM_HPB);
+            const u32 clean = 0u;
+            m_InertHPB->SetData(&clean, sizeof(clean));
+        }
+        m_InertHPB->Bind();
     }
 
     void VirtualShadowMap::SubmitDynamicInvalidations(std::span<const ShadowMeshCaster> meshCasters,

@@ -389,6 +389,14 @@ namespace OloEngine
                 RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VIRTUAL_INDICES,
                                                  registry.GetIndexBuffer());
             }
+            // VirtualClusterCull.comp declares the virtual shadow map's
+            // dirty-page pyramid for its shadow route. The main view never
+            // reads it, but a declared block needs an occupant: the first
+            // main-view cull of a session ran before any shadow route had
+            // bound one, and Vulkan logged an [error] and substituted the null
+            // block (master too; seen opening VirtualGeometryParallelRecording
+            // in a Vulkan editor).
+            Renderer3D::GetShadowMap().GetVirtualShadowMap().BindHPBForDeclaredReader();
             CommandDispatch::BindSceneResources(); // camera UBO at binding 0
         };
         bindCullResources();
