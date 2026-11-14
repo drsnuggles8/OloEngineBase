@@ -207,10 +207,12 @@ namespace OloEngine::Tests
 
     TEST(GPUScene, RecordsMatchStd430AndOwnCameraRelativeTransformHistory)
     {
-        // 144 since issue #1228 appended the deformation lanes; the record's
-        // own static_assert block in GPUSceneTypes.h is the primary pin and
-        // this is the test-side copy of it.
-        static_assert(sizeof(GPUSceneInstance) == 144);
+        // 160 since issue #1691 appended the tint (144 since #1228 appended the
+        // deformation lanes); the record's own static_assert block in
+        // GPUSceneTypes.h is the primary pin and this is the test-side copy of
+        // it.
+        static_assert(sizeof(GPUSceneInstance) == 160);
+        static_assert(offsetof(GPUSceneInstance, Tint) == 144);
         static_assert(offsetof(GPUSceneInstance, CurrentTransform) == 0);
         static_assert(offsetof(GPUSceneInstance, PreviousTransform) == 48);
         static_assert(offsetof(GPUSceneInstance, GeometryIndex) == 96);

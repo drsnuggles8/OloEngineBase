@@ -738,6 +738,7 @@ namespace OloEngine
                 record.PreviousDeformationRevision = input.m_PrevDeformationRevision;
                 record.DeformationResetCause = input.m_DeformationResetCause;
                 record.DeformedContentRevision = input.m_DeformedContentRevision;
+                record.Tint = glm::vec4(input.m_Tint, 1.0f);
                 return record;
             },
             AlwaysCompatible{});

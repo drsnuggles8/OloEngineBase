@@ -1023,6 +1023,61 @@ namespace OloEngine::Tests
         EXPECT_GT(normal.y / static_cast<f32>(kSamples), 0.99f) << "the floor's normal points up";
     }
 
+    // An instance's tint multiplies the albedo a ray finds on it (issue #1691).
+    //
+    // The floor, the ceiling and the back wall are three instances of one white
+    // material, which is the case the tint exists for: N instances of an
+    // InstancedMeshComponent share a material record and differ only in their
+    // colour, so the material cannot carry it. Tinting the floor's instance
+    // record alone has to change the floor and leave the back wall, or the hit
+    // shader read the tint from the wrong record, or from none.
+    //
+    // The albedo AOV is the first hit's albedo, summed over the samples, so the
+    // expectation is exact rather than a budget: 0.73 times each tint channel.
+    TEST_F(GpuPathTracerDevice, AnInstancesTintMultipliesTheAlbedoARayFindsOnItAndOnNoOtherInstance)
+    {
+        ScopedVulkanRenderCommandSelection vulkanBackend;
+        VulkanFrameArena::Get().BeginFrame(0);
+        Rig rig;
+        ASSERT_TRUE(BuildRig(rig));
+
+        constexpr u32 kFloorInstance = 0; // MakeCornellBoxScene adds the floor first
+        const glm::vec3 kTint(0.5f, 0.25f, 1.0f);
+        ASSERT_GT(rig.Twin.Instances.size(), kFloorInstance);
+        ASSERT_EQ(rig.Twin.Instances[kFloorInstance].MaterialIndex, rig.Fixture.WhiteMaterial);
+        rig.Twin.Instances[kFloorInstance].Tint = glm::vec4(kTint, 1.0f);
+        rig.Twin.InstanceSsbo->SetData(rig.Twin.Instances.data(),
+                                       static_cast<u32>(rig.Twin.Instances.size() * sizeof(GPUSceneInstance)));
+
+        constexpr u32 kTintSamples = 16;
+        TraceFrame(rig, 0, std::nullopt, kTintSamples, kSeed);
+        TracedFrame gpu;
+        ASSERT_TRUE(ReadFrame(rig, 0, gpu));
+        ASSERT_FALSE(gpu.Albedo.empty());
+
+        const auto meanAlbedoAt = [&](const glm::vec3& world) -> glm::vec3
+        {
+            const glm::ivec2 pixel = CornellBoxScene::ProjectToPixel(world, kWidth, kHeight);
+            EXPECT_GE(pixel.x, 0);
+            if (pixel.x < 0)
+                return glm::vec3(-1.0f);
+            const glm::vec4 albedo = gpu.Albedo[static_cast<sizet>(pixel.y) * kWidth + pixel.x];
+            EXPECT_NEAR(albedo.a, static_cast<f32>(kTintSamples), 0.5f) << "every sample of this pixel hits something";
+            return glm::vec3(albedo) / albedo.a;
+        };
+
+        constexpr f32 kWhite = 0.73f;
+        const glm::vec3 floor = meanAlbedoAt(glm::vec3(-0.75f, -0.99f, 0.2f));
+        EXPECT_NEAR(floor.r, kWhite * kTint.r, 1e-3f) << "the tinted instance, red";
+        EXPECT_NEAR(floor.g, kWhite * kTint.g, 1e-3f) << "the tinted instance, green";
+        EXPECT_NEAR(floor.b, kWhite * kTint.b, 1e-3f) << "the tinted instance, blue";
+
+        const glm::vec3 backWall = meanAlbedoAt(glm::vec3(0.5f, 0.3f, -0.99f));
+        EXPECT_NEAR(backWall.r, kWhite, 1e-3f) << "another instance of the same material keeps the material's colour";
+        EXPECT_NEAR(backWall.g, kWhite, 1e-3f);
+        EXPECT_NEAR(backWall.b, kWhite, 1e-3f);
+    }
+
     // The Legacy closure: the same box with every material on PBRModel::Legacy,
     // so the hits are shaded with cookTorranceBRDF and sampled by the Legacy
     // mixture on both tracers. The regions are the plain box's.

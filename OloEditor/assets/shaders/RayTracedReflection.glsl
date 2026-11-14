@@ -379,7 +379,8 @@ void main()
     // ---- Shade the hit ----------------------------------------------------
     // Untextured: these are the material's FACTORS (textured hit shading is
     // #1355). See the pass header.
-    const vec3 hitAlbedo = material.BaseColorFactor.rgb;
+    // Times the instance's tint, as the raster paths do (issue #1691).
+    const vec3 hitAlbedo = material.BaseColorFactor.rgb * instance.Tint.rgb;
     const vec3 hitEmissive = material.EmissiveFactor.rgb;
     // The body lobe's reflectance (issue #1336): albedo * (1 - metallic), the
     // diffuse weight the raster ladder and the ReSTIR GI bounce vertex use, so

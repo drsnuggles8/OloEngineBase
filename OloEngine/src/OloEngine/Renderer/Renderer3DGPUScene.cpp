@@ -153,7 +153,8 @@ namespace OloEngine
                                                                    const glm::mat4& worldTransform,
                                                                    const GPUSceneMaterialKey& materialKey,
                                                                    u32 visibilityMask,
-                                                                   const GPUSceneAnimatedSurface& animated)
+                                                                   const GPUSceneAnimatedSurface& animated,
+                                                                   const glm::vec3& tint = glm::vec3(1.0f))
         {
             const GPUSceneGeometryKey geometryKey{
                 .m_VertexBuffer = RHI::HashKey(geometry.m_VertexHandle),
@@ -197,6 +198,7 @@ namespace OloEngine
                     .m_PrevDeformationRevision = animated.m_PrevDeformationRevision,
                     .m_DeformationResetCause = animated.m_ResetCause,
                     .m_DeformedContentRevision = animated.m_DeformedContentRevision,
+                    .m_Tint = tint,
                 });
             return instanceKey;
         }
@@ -335,7 +337,8 @@ namespace OloEngine
                                         const Ref<MeshSource>& meshSource, u32 submeshIndex,
                                         const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
                                         GPUSceneDrawLinkRequest linkRequest,
-                                        const GPUSceneAnimatedSurface& animatedSurface)
+                                        const GPUSceneAnimatedSurface& animatedSurface,
+                                        const glm::vec3& tint)
     {
         if (!s_Data.Frame.GPUSceneExtractionActive)
         {
@@ -439,7 +442,7 @@ namespace OloEngine
                                          .m_Flags = useDeformed ? GPUSceneGeometryFlagDeformed : 0u,
                                      },
                                      worldTransform, materialKey, GPUSceneInstanceInput{}.m_VisibilityMask,
-                                     resolvedAnimated);
+                                     resolvedAnimated, tint);
         // Queued, not walked: the material record this submesh emits with does
         // not exist until the commit at EndScene, where the table resolves it.
         s_Data.PathTracerEmissive.QueueSubmesh(meshSource, submeshIndex, worldTransform, materialKey);

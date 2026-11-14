@@ -30,7 +30,9 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <cstddef>
+#include <limits>
 #include <string_view>
+#include <vector>
 
 namespace OloEngine::Tests
 {
@@ -166,5 +168,26 @@ namespace OloEngine::Tests
         EXPECT_NE(glsl.find("std430"), std::string_view::npos);
         EXPECT_NE(glsl.find("binding = 15"), std::string_view::npos);
         EXPECT_NE(glsl.find("readonly buffer"), std::string_view::npos);
+    }
+
+    // An instance colour's alpha is not applied (issue #1691), so a producer
+    // has to be able to say how many instances brought one. Opaque within a
+    // tolerance is not reported; anything else is, a non-finite alpha included.
+    TEST(InstanceDataLayout, AnAlphaOtherThanOneIsCountedAsIgnored)
+    {
+        std::vector<InstanceData> instances(6);
+        EXPECT_EQ(CountInstancesWithIgnoredAlpha(instances), 0u) << "the default colour is opaque white";
+
+        instances[1].Color.a = 0.25f;
+        instances[2].Color.a = 0.0f;
+        instances[3].Color.a = 1.5f;
+        instances[4].Color.a = std::numeric_limits<f32>::quiet_NaN();
+        instances[5].Color.a = 1.0f - 1.0e-6f; // float noise around 1 is not an authored alpha
+        EXPECT_EQ(CountInstancesWithIgnoredAlpha(instances), 4u);
+
+        // The colour itself is not what is counted.
+        instances[0].Color = glm::vec4(0.2f, 0.4f, 0.6f, 1.0f);
+        EXPECT_EQ(CountInstancesWithIgnoredAlpha(instances), 4u);
+        EXPECT_EQ(CountInstancesWithIgnoredAlpha({}), 0u);
     }
 } // namespace OloEngine::Tests

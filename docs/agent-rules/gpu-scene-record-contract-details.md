@@ -155,3 +155,25 @@ source file that assembles previous-frame transform truth outside the records, w
 condition. `GPUSceneAntiDuplicationRatchetTest` enforces the list both ways — an unnamed duplicator
 fails, and so does a named file that stopped duplicating — so the list shrinks as paths migrate.
 Adding an entry is the deliberate act; ask first whether the path can take a link instead.
+
+## 8. The instance tint
+
+**A per-instance colour goes on the instance record, and every hit shader multiplies it into the
+base colour.** `GPUSceneInstance::Tint` (offset 144, the record is 160 bytes) holds the rgb an
+instance multiplies into its material's base colour; alpha is reserved and 1. N instances of an
+`InstancedMeshComponent` share one material record and differ only in their colour, so the material
+record cannot carry it and a ray that hits one has nothing else to tell them apart by.
+
+Raster reads the same value from `InstanceData::Color`
+([glsl-shaders-details.md §6a](glsl-shaders-details.md#6a-instancing-is-shader-transparent--dont-write-a-separate-_instanced-variant)).
+The two are filled from one authored value in `Scene.cpp`'s instanced loop: the draw takes the
+`InstanceData` span and `Renderer3D::ExtractGPUSceneMesh` takes `glm::vec3(instance.Color)`. A new
+producer with a per-instance colour has to pass both, or a hybrid frame and a raster frame disagree
+on its geometry. Every other producer leaves the tint at white, and a multiply by white is exact.
+
+The readers are `OloRtTraceHit` in `include/RayTracedSurfaceHit.glsl` (the path tracer, ReSTIR GI
+and PT) and the hit shading in `RayTracedReflection.glsl`. Until #1691 the record had no such lane
+and both shaded an instanced mesh with its untinted material.
+
+The CPU reference path tracer has no tint: `ReferenceSceneBuilder` does not take
+`InstancedMeshComponent` at all, so the reference has no instanced geometry to tint.

@@ -21,6 +21,7 @@ Contract behind the material, light and environment records (issues #992, #993, 
 15. **Do not shift a resolved record's transform again.** Records are render-relative; `DecodeGPUSceneTransform` is the one place affine rows become a `glm::mat4`. [Details](gpu-scene-record-contract-details.md#7-the-raster-consumer-a-draw-link-resolved-once-per-frame)
 16. **Read a raster material only through `oloGPUSceneMaterial`** (`include/GPUSceneMaterialResolve.glsl`), which validates the generation before the slot. [Details](gpu-scene-record-contract-details.md#7-the-raster-consumer-a-draw-link-resolved-once-per-frame)
 17. **Name every previous-frame-transform duplicator in `GPUScene/GPUSceneLegacyAdapters.h`.** `GPUSceneAntiDuplicationRatchetTest` fails on an unnamed duplicator and on a named file that stopped duplicating; before adding an entry, ask whether the path can take a link. [Details](gpu-scene-record-contract-details.md#7-the-raster-consumer-a-draw-link-resolved-once-per-frame)
+18. **A per-instance colour goes on the instance record (`GPUSceneInstance::Tint`), never on a material record.** A producer that draws with one passes the same value to `Renderer3D::ExtractGPUSceneMesh`; every hit shader multiplies it into the base colour. [Details](gpu-scene-record-contract-details.md#8-the-instance-tint)
 
 ## Where the contract is pinned
 

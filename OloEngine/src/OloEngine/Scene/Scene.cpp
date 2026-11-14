@@ -8,6 +8,7 @@
 // include is direct rather than transitive through RendererAPI.h, which is
 // now GL-free.
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cmath>
@@ -16355,6 +16356,36 @@ namespace OloEngine
                     totalCount = static_cast<sizet>(cache.Data.Num());
                 }
 
+                // An instance colour tints the base colour with its rgb; its
+                // alpha is not applied (issue #1691, InstanceData.h). Say so
+                // when a component brings one, once per instance set rather
+                // than once per frame: `stableInputsChanged` is true on the
+                // first frame a set is seen and whenever it is resized or
+                // replaced. Capped per process, because a script that rebuilds
+                // its instances every frame would otherwise write a line a
+                // frame.
+                if (stableInputsChanged)
+                {
+                    if (const sizet ignoredAlpha = CountInstancesWithIgnoredAlpha({ instData, totalCount });
+                        ignoredAlpha != 0)
+                    {
+                        constexpr u32 kMaxReports = 16;
+                        static std::atomic<u32> s_Reports{ 0 };
+                        if (const u32 report = s_Reports.fetch_add(1, std::memory_order_relaxed); report < kMaxReports)
+                        {
+                            const char* name = m_Registry.all_of<TagComponent>(entity)
+                                                   ? m_Registry.get<TagComponent>(entity).Tag.c_str()
+                                                   : "<unnamed>";
+                            OLO_CORE_WARN("InstancedMeshComponent on '{}': {} of {} instances have a colour alpha other "
+                                          "than 1. Instance alpha is not applied; the colour tints the material's base "
+                                          "colour with its RGB only (issue #1691).{}",
+                                          name, ignoredAlpha, totalCount,
+                                          report + 1 == kMaxReports ? " Further reports of this kind are suppressed."
+                                                                    : "");
+                        }
+                    }
+                }
+
                 // Baked lightmap regions, one PER INSTANCE (issue #867). This is
                 // the receiver the issue exists for: N copies of one mesh at N
                 // world transforms each receive their own bounce, so each needs
@@ -16454,9 +16485,15 @@ namespace OloEngine
                             // yet. Asking for no link keeps a 20k-instance
                             // scatter scene from staging and resolving 20k links
                             // per frame that nothing can read.
+                            //
+                            // The record carries the instance's tint (issue
+                            // #1691): the draw below reads it from the same
+                            // InstanceData, so a ray and a raster fragment
+                            // shade this instance with one colour.
                             (void)Renderer3D::ExtractGPUSceneMesh(stableEntityId, stableInstanceId, imc.MeshSource,
                                                                   static_cast<u32>(i), instData[k].Transform,
-                                                                  materialKey, GPUSceneDrawLinkRequest::None);
+                                                                  materialKey, GPUSceneDrawLinkRequest::None, {},
+                                                                  glm::vec3(instData[k].Color));
                         }
                         auto submesh = Ref<Mesh>::Create(imc.MeshSource, i);
                         auto* packet = Renderer3D::DrawMeshInstanced(

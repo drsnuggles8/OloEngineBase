@@ -1094,7 +1094,8 @@ namespace OloEngine
 
     CommandPacket* Renderer3D::BuildDrawMeshInstancedPacket(const Ref<Mesh>& mesh, std::span<const glm::mat4> transforms,
                                                             const Material& material, bool isStatic, u64 ownerKey,
-                                                            bool& outOverlayRoute)
+                                                            bool& outOverlayRoute,
+                                                            std::span<const InstanceData> authoredInstances)
     {
         outOverlayRoute = false;
         if (!s_Data.Pipeline->FrameCorePasses.Scene)
@@ -1123,7 +1124,7 @@ namespace OloEngine
             // ForwardOverlayPass submission end-to-end (overlay or not);
             // `outOverlayRoute` stays false here so callers never try to
             // submit its result a second time.
-            return SubmitGPUCulledInstanced(mesh, transforms, material, isStatic, ownerKey);
+            return SubmitGPUCulledInstanced(mesh, transforms, material, isStatic, ownerKey, authoredInstances);
         }
 
         std::span<const glm::mat4> activeTransforms = transforms;
@@ -1307,9 +1308,17 @@ namespace OloEngine
         // the Color/Custom/EntityID streams below are patched onto it (see
         // BuildDrawMeshInstancedPacket's comment).
         bool overlayRoute = false;
-        CommandPacket* packet = BuildDrawMeshInstancedPacket(mesh, transforms, material, isStatic, ownerKey, overlayRoute);
+        CommandPacket* packet = BuildDrawMeshInstancedPacket(mesh, transforms, material, isStatic, ownerKey, overlayRoute, instances);
         if (!packet)
             return nullptr; // entirely culled, alloc failure, or the GPU-cull path already fully handled submission
+
+        // A GPU-culled packet draws the survivors the cull compacted, and those
+        // records already carry every authored lane (SubmitGPUCulledInstanced
+        // copied them from `instances`). The streams below are read only by the
+        // CPU-assembled upload, which this packet skips, so writing them would
+        // spend frame memory on values nothing reads (issue #1691).
+        if (packet->GetCommandData<DrawMeshInstancedCommand>()->cullIndirectBufferID.IsValid())
+            return packet;
 
         // Post-cull instance count from the produced packet — the transform-only
         // overload may have filtered out frustum-culled instances. We only
@@ -1439,7 +1448,8 @@ namespace OloEngine
     CommandPacket* Renderer3D::SubmitGPUCulledInstanced(const Ref<Mesh>& mesh,
                                                         std::span<const glm::mat4> transforms,
                                                         const Material& material, bool isStatic,
-                                                        u64 ownerKey)
+                                                        u64 ownerKey,
+                                                        std::span<const InstanceData> authoredInstances)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -1457,16 +1467,32 @@ namespace OloEngine
             prevTransforms.Append(transforms.data(), static_cast<i64>(transforms.size())); // first frame / size mismatch -> zero velocity
         }
 
-        // Build the InstanceData[] the cull compute reads. Color / Custom /
-        // EntityID stay at their identity defaults — the transform-only
-        // overload doesn't carry that per-instance data. The InstanceData
-        // overload of DrawMeshInstanced overwrites them with the real values
-        // once the GPU-cull path is wired into it as a future follow-up.
+        // Build the InstanceData[] the cull compute reads. The cull compacts
+        // whole records, so whatever a record carries here is what the survivor
+        // is drawn with: an authored instance brings its Color, Custom,
+        // EntityID, StableID and lightmap region (issue #1691; before it this
+        // path dropped all five above the GPU-cull threshold, so a batch of 1024
+        // instances lost its tints, its picking IDs and its baked lightmap
+        // regions that a batch of 1023 kept). The transform-only overload has
+        // none of them and keeps the identity defaults. The GPU Scene link is
+        // not an authored lane and stays unlinked, as on the CPU-cull path.
+        const bool hasAuthoredLanes = authoredInstances.size() == transforms.size();
+        OLO_CORE_ASSERT(authoredInstances.empty() || hasAuthoredLanes,
+                        "SubmitGPUCulledInstanced: authored instances must match the transforms one to one");
         TArray<InstanceData> packed;
         packed.Reserve(transforms.size());
         for (sizet i = 0; i < transforms.size(); ++i)
         {
             InstanceData inst;
+            if (hasAuthoredLanes)
+            {
+                const InstanceData& authored = authoredInstances[i];
+                inst.Color = authored.Color;
+                inst.EntityID = authored.EntityID;
+                inst.Custom = authored.Custom;
+                inst.StableID = authored.StableID;
+                inst.LightmapScaleOffset = authored.LightmapScaleOffset;
+            }
             inst.Transform = transforms[i];
             inst.Normal = glm::transpose(glm::inverse(transforms[i]));
             inst.PrevTransform = prevTransforms[i];

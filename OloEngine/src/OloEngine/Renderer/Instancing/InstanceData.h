@@ -5,7 +5,9 @@
 
 #include <glm/glm.hpp>
 
+#include <cmath>
 #include <cstddef>
+#include <span>
 
 namespace OloEngine
 {
@@ -62,6 +64,27 @@ namespace OloEngine
         // must never disappear because its link is absent.
         glm::uvec4 GPUSceneRef = glm::uvec4(GPUSceneDrawRefUnlinked);
     };
+
+    // What InstanceData::Color means (issue #1691): its rgb multiplies the
+    // material's base colour on every path that shades the instance, raster and
+    // ray-traced; its alpha is NOT applied. Applying it would have to reach the
+    // depth prepass, every shadow program and the ray-traced alpha test as
+    // well, or a masked instance would cast a shadow that does not match its
+    // silhouette. So an authored alpha other than 1 is a value the renderer
+    // drops, and the producer reports it rather than dropping it silently: this
+    // counts the instances a report has to name.
+    [[nodiscard]] inline sizet CountInstancesWithIgnoredAlpha(std::span<const InstanceData> instances)
+    {
+        constexpr f32 kOpaqueTolerance = 1.0e-4f;
+        sizet count = 0;
+        for (const InstanceData& instance : instances)
+        {
+            // A non-finite alpha is "not 1" as well: !(x <= tolerance) is true for NaN.
+            if (!(std::abs(instance.Color.a - 1.0f) <= kOpaqueTolerance))
+                ++count;
+        }
+        return count;
+    }
 
     // GPU payload owns only numerical values and carries no interior pointers.
     template<>

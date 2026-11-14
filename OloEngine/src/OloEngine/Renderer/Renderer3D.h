@@ -433,11 +433,17 @@ namespace OloEngine
         // every caller before #1228 meant; an animated caller must pass it, and
         // passing it is what makes the record's Animated flag and its revision
         // lanes honest.
+        //
+        // `tint` (issue #1691) is the instance's own multiplier on its
+        // material's base colour, GPUSceneInstance::Tint. A producer that draws
+        // with a per-instance colour passes the same value here, or a ray that
+        // hits the instance shades it with the untinted material.
         [[nodiscard]] static u32 ExtractGPUSceneMesh(
             u64 stableEntityId, u64 stableInstanceId, const Ref<MeshSource>& meshSource, u32 submeshIndex,
             const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
             GPUSceneDrawLinkRequest linkRequest = GPUSceneDrawLinkRequest::Link,
-            const GPUSceneAnimatedSurface& animatedSurface = {});
+            const GPUSceneAnimatedSurface& animatedSurface = {},
+            const glm::vec3& tint = glm::vec3(1.0f));
         // Stages a virtual-geometry RAY-TRACING PROXY as a GPU Scene instance
         // (issue #1144): an ordinary rigid geometry + instance pair built from
         // the coarsest DAG cut, so a virtualized entity is present in the TLAS
@@ -2494,9 +2500,17 @@ namespace OloEngine
         // packet is either ready for the caller's normal SubmitPacket or
         // already null because SubmitGPUCulledInstanced handled everything
         // internally.
+        //
+        // `authoredInstances` is the InstanceData overload's source span, one
+        // entry per transform, or empty for the transform-only overload. The
+        // GPU-cull delegate needs it: its survivors are chosen on the GPU, so
+        // there is no packet for the caller to patch afterwards, and the
+        // authored lanes (Color, Custom, EntityID, StableID, the lightmap
+        // region) have to be in the records the cull compacts (issue #1691).
         static CommandPacket* BuildDrawMeshInstancedPacket(const Ref<Mesh>& mesh, std::span<const glm::mat4> transforms,
                                                            const Material& material, bool isStatic, u64 ownerKey,
-                                                           bool& outOverlayRoute);
+                                                           bool& outOverlayRoute,
+                                                           std::span<const InstanceData> authoredInstances = {});
 
         // GPU-cull submission helper called from DrawMeshInstanced when the
         // input count exceeds `s_Data.GPUCullThreshold`. Builds the full
@@ -2505,10 +2519,12 @@ namespace OloEngine
         // `cullIndirectBufferID` to the DrawMeshInstancedCommand so the
         // dispatcher takes the indirect-draw path. Returns nullptr on
         // allocation failure or if the cull resources weren't ready.
+        // `authoredInstances`: see BuildDrawMeshInstancedPacket.
         static CommandPacket* SubmitGPUCulledInstanced(const Ref<Mesh>& mesh,
                                                        std::span<const glm::mat4> transforms,
                                                        const Material& material, bool isStatic,
-                                                       u64 ownerKey);
+                                                       u64 ownerKey,
+                                                       std::span<const InstanceData> authoredInstances = {});
 
         // Regenerate the persistent Hi-Z occlusion pyramid (#431) from this
         // frame's scene depth. Called at the tail of EndScene() once the render

@@ -798,6 +798,22 @@ existing `PBR_GBuffer.glsl` is already instancing-capable and adding a
 duplicate variant would just be two copies of the same fragment logic to keep in
 sync.
 
+**A fragment program that shades an instanced mesh applies the instance's colour:**
+`albedo *= instances[v_InstanceIndex].Color.rgb;` straight after the base colour is resolved. The
+four PBR programs do. The lane is `(1, 1, 1, 1)` on every draw that authored none, so the multiply
+changes no frame that has no tint. Its alpha is not applied anywhere, and a producer that brings one
+reports it (`CountInstancesWithIgnoredAlpha`), because applying it in the colour pass alone would
+leave the depth prepass, the shadow programs and the ray-traced alpha test disagreeing with it.
+
+Until #1691 the colour was authored, serialized, batched and uploaded, and no shader read it, so
+`InstancingDemo.olo`'s 500 yellow-green cubes drew neutral grey. Above the GPU-cull threshold it was
+lost one step earlier: `SubmitGPUCulledInstanced` built the records the cull compacts from the
+transforms alone, which also dropped the picking ID, the free float and the lightmap region of any
+batch of 1024 instances or more. A ray-traced hit reads the same tint from
+`GPUSceneInstance::Tint` ([gpu-scene-record-contract.md](gpu-scene-record-contract.md) rule 18).
+Pinned by `InstanceColourEvidenceTest.cpp` on Forward, Forward+ and Deferred, both submission
+routes, and by `GpuPathTracerDevice.AnInstancesTintMultipliesTheAlbedoARayFindsOnItAndOnNoOtherInstance`.
+
 ---
 
 ## 6b. Never call `.length()` on a storage buffer
