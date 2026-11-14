@@ -19,12 +19,14 @@
 #include "OloEngine/Build/GameBuildPipeline.h"
 #include "OloEngine/Build/GameBuildSettings.h"
 #include "OloEngine/Build/LinuxDesktopLauncher.h"
+#include "OloEngine/Renderer/PipelineManifest.h"
 
 #include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstdlib>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <iterator>
 #include <string>
@@ -76,6 +78,125 @@ namespace
     }
 #endif
 } // namespace
+
+// #1650: a package ships the engine seed's keys even when the build machine
+// never drew on Vulkan, and the machine's own keys beside them when it did.
+TEST(GameBuildPipelineTest, PipelineManifestStagesTheEngineSeedMergedWithTheMachineManifest)
+{
+    const auto root = OloEngine::Tests::TempDir("pso-manifest-merge");
+    PipelineSignature gbuffer;
+    gbuffer.ColorCount = 1;
+    gbuffer.ColorFormats[0] = 97;
+    gbuffer.DepthFormat = 126;
+    PipelineManifest seed;
+    (void)seed.Record("PBR", 0x11, gbuffer, "forward/msaa1/native/oit1");
+    std::ofstream(root / "seed.yaml", std::ios::binary) << seed.NormalizedForSeed().Serialize();
+    const auto destination = root / "package" / "assets" / "PipelineManifest.yaml";
+
+    // No machine manifest: the seed alone ships.
+    auto staged = StagePipelineManifest(root / "seed.yaml", root / "no-machine.yaml", destination);
+    ASSERT_TRUE(staged.Written) << staged.WriteError;
+    EXPECT_TRUE(staged.SeedProblem.empty()) << staged.SeedProblem;
+    EXPECT_TRUE(staged.MachineProblem.empty()) << "an absent machine manifest is normal, not a problem";
+    EXPECT_EQ(staged.Keys, 1u);
+    EXPECT_EQ(staged.SeedKeys, 1u);
+    EXPECT_EQ(staged.MachineOnlyKeys, 0u);
+    auto parsed = PipelineManifest::Parse(ReadTextFile(destination));
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->EntriesFor("PBR", 0x11, "").Num(), 1);
+
+    // With one: the union, and a key in both is one entry.
+    PipelineManifest machine;
+    machine.BeginSession();
+    (void)machine.Record("PBR", 0x11, gbuffer, "deferred/msaa1/native/oit1");
+    (void)machine.Record("Sky", 0x11, gbuffer, "forward/msaa1/native/oit1");
+    std::ofstream(root / "machine.yaml", std::ios::binary) << machine.Serialize();
+    staged = StagePipelineManifest(root / "seed.yaml", root / "machine.yaml", destination);
+    ASSERT_TRUE(staged.Written) << staged.WriteError;
+    EXPECT_EQ(staged.Keys, 2u);
+    EXPECT_EQ(staged.SeedKeys, 1u) << "PBR is in both files: it counts once, as a seed key";
+    EXPECT_EQ(staged.MachineOnlyKeys, 1u) << "Sky";
+    parsed = PipelineManifest::Parse(ReadTextFile(destination));
+    ASSERT_TRUE(parsed.has_value());
+    const auto pbr = parsed->EntriesFor("PBR", 0x11, "");
+    ASSERT_EQ(pbr.Num(), 1);
+    EXPECT_TRUE(pbr[0]->SeenUnder("forward/msaa1/native/oit1"));
+    EXPECT_TRUE(pbr[0]->SeenUnder("deferred/msaa1/native/oit1"));
+    EXPECT_EQ(parsed->EntriesFor("Sky", 0x11, "").Num(), 1);
+}
+
+// The package keeps the bound a saved machine manifest keeps: a machine
+// manifest at its cap plus seed keys it never drew stays at the cap, and the
+// keys dropped are the seed's undrawn ones, never this machine's.
+TEST(GameBuildPipelineTest, PipelineManifestStagingKeepsTheEntryCap)
+{
+    const auto root = OloEngine::Tests::TempDir("pso-manifest-cap");
+    const auto signature = [](const u32 format)
+    {
+        PipelineSignature s;
+        s.ColorCount = 1;
+        s.ColorFormats[0] = format;
+        return s;
+    };
+    PipelineManifest seed;
+    (void)seed.Record("SeedOnly", 0x11, signature(1), "forward/msaa1/native/oit1");
+    std::ofstream(root / "seed.yaml", std::ios::binary) << seed.NormalizedForSeed().Serialize();
+    PipelineManifest machine;
+    machine.BeginSession();
+    for (u32 i = 0; i < PipelineManifest::kDefaultMaxEntries; ++i)
+    {
+        // One key per shader: Record's per-shader lookup is linear.
+        (void)machine.Record(std::format("Machine{}", i), 0x11, signature(1000), "forward/msaa1/native/oit1");
+    }
+    std::ofstream(root / "machine.yaml", std::ios::binary) << machine.Serialize();
+
+    const auto destination = root / "package" / "assets" / "PipelineManifest.yaml";
+    const auto staged = StagePipelineManifest(root / "seed.yaml", root / "machine.yaml", destination);
+    ASSERT_TRUE(staged.Written) << staged.WriteError;
+    EXPECT_EQ(staged.Keys, PipelineManifest::kDefaultMaxEntries);
+    EXPECT_EQ(staged.SeedKeys, 0u) << "the counts describe what was written, after the trim";
+    EXPECT_EQ(staged.MachineOnlyKeys, PipelineManifest::kDefaultMaxEntries);
+    const auto parsed = PipelineManifest::Parse(ReadTextFile(destination));
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_TRUE(parsed->EntriesFor("SeedOnly", 0x11, "").IsEmpty()) << "the never-drawn seed key goes first";
+}
+
+// A broken source must not cost the build, and must not disappear silently:
+// what is left ships, and the problem is attributed to the file it is in
+// (the fixes differ). Nothing at all writes nothing.
+TEST(GameBuildPipelineTest, PipelineManifestStagingAttributesABrokenSourceAndWritesNothingFromNothing)
+{
+    const auto root = OloEngine::Tests::TempDir("pso-manifest-broken");
+    std::ofstream(root / "broken.yaml", std::ios::binary) << "PipelineManifest: [not, a, map]";
+    PipelineSignature target;
+    target.ColorCount = 1;
+    target.ColorFormats[0] = 97;
+    PipelineManifest good;
+    good.BeginSession();
+    (void)good.Record("Sky", 0x11, target, "forward/msaa1/native/oit1");
+    std::ofstream(root / "good.yaml", std::ios::binary) << good.Serialize();
+    const auto destination = root / "package" / "assets" / "PipelineManifest.yaml";
+
+    auto staged = StagePipelineManifest(root / "broken.yaml", root / "good.yaml", destination);
+    ASSERT_TRUE(staged.Written) << staged.WriteError;
+    EXPECT_NE(staged.SeedProblem.find("left out"), std::string::npos) << staged.SeedProblem;
+    EXPECT_TRUE(staged.MachineProblem.empty()) << staged.MachineProblem;
+    EXPECT_EQ(staged.Keys, 1u) << "the machine's keys still ship";
+    EXPECT_EQ(staged.SeedKeys, 0u) << "a seed that was left out contributed nothing";
+    EXPECT_EQ(staged.MachineOnlyKeys, 1u);
+
+    staged = StagePipelineManifest(root / "good.yaml", root / "broken.yaml", destination);
+    ASSERT_TRUE(staged.Written) << staged.WriteError;
+    EXPECT_TRUE(staged.SeedProblem.empty()) << staged.SeedProblem;
+    EXPECT_NE(staged.MachineProblem.find("left out"), std::string::npos) << staged.MachineProblem;
+
+    const auto empty = root / "empty-package" / "assets" / "PipelineManifest.yaml";
+    staged = StagePipelineManifest(root / "none.yaml", root / "none-either.yaml", empty);
+    EXPECT_FALSE(staged.Written);
+    EXPECT_EQ(staged.Keys, 0u);
+    EXPECT_TRUE(staged.SeedProblem.empty() && staged.MachineProblem.empty() && staged.WriteError.empty());
+    EXPECT_FALSE(std::filesystem::exists(empty));
+}
 
 TEST(GameBuildPipelineTest, ManagedAssemblyStagesMatchingSymbols)
 {

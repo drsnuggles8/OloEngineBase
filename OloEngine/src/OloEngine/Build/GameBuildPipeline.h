@@ -46,6 +46,33 @@ namespace OloEngine
         std::string& errorMessage);
 
     /**
+     * @brief Stage the packaged PSO manifest: the engine seed merged with this machine's manifest.
+     *
+     * The checked-in engine seed (issue #1650) holds the keys the engine's own scenes draw; the
+     * machine manifest holds what this machine's editor sessions drew (#1345). A packaged runtime
+     * reads one file, so the two are merged here: the seed's entries ship even when this machine
+     * has never drawn on Vulkan. Either source may be missing. A source that does not parse is
+     * left out and described in its own problem field (the build continues: a missing seed costs
+     * first-launch hitches, not the game); the two are separate because their fixes differ (the
+     * seed is regenerated in the engine repo, the machine file is this machine's record). The
+     * merge is trimmed to PipelineManifest::kDefaultMaxEntries, like a saved machine manifest.
+     */
+    struct PipelineManifestStaging
+    {
+        bool Written = false;       ///< The destination was written (at least one source parsed).
+        sizet Keys = 0;             ///< Keys in the written file.
+        sizet SeedKeys = 0;         ///< Of Keys, those the engine seed holds (0: no seed was read).
+        sizet MachineOnlyKeys = 0;  ///< Of Keys, those only the machine manifest had; SeedKeys + this == Keys.
+        std::string SeedProblem;    ///< Non-empty: the engine seed exists but was left out or lost entries.
+        std::string MachineProblem; ///< Non-empty: the machine manifest exists but was left out or lost entries.
+        std::string WriteError;     ///< Non-empty: there was something to stage and the write failed.
+    };
+    [[nodiscard]] PipelineManifestStaging StagePipelineManifest(
+        const std::filesystem::path& engineSeed,
+        const std::filesystem::path& machineManifest,
+        const std::filesystem::path& destination);
+
+    /**
      * @brief Stage project textures needed by legacy path-based scene components.
      *
      * Runtime scene deserialization still resolves UIImage/Sprite texture paths

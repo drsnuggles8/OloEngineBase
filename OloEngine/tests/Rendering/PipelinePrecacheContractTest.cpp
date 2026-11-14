@@ -32,6 +32,7 @@
 
 #include <gtest/gtest.h>
 
+#include <format>
 #include <functional>
 #include <span>
 #include <string>
@@ -347,6 +348,135 @@ TEST(PipelineManifest, SurvivesARoundTripByteForByte)
     const auto terrain = parsed->EntriesFor("Terrain_PBR", kClassicStages | 0x02 | 0x04, "");
     ASSERT_EQ(terrain.Num(), 1);
     EXPECT_EQ(terrain[0]->Signature.PatchControlPoints, 4u) << "The patch size is part of the key";
+}
+
+// Merge keeps the per-entry configuration bound Record keeps. Before, merging
+// two files (the shipped seed and the machine manifest at start-up, or the
+// two at Build Game staging) appended every tag the other had, so an entry
+// could grow past kMaxConfigurationsPerEntry and stay there.
+TEST(PipelineManifest, MergeKeepsTheConfigurationBoundAndDropsTheOldestTag)
+{
+    const PipelineSignature sig = Signature(1, 97, 126, 1);
+    PipelineManifest a;
+    PipelineManifest b;
+    for (sizet i = 0; i < PipelineManifest::kMaxConfigurationsPerEntry; ++i)
+    {
+        (void)a.Record("PBR", kClassicStages, sig, std::format("a{}", i));
+        (void)b.Record("PBR", kClassicStages, sig, std::format("b{}", i));
+    }
+    a.Merge(b);
+    const auto entries = a.EntriesFor("PBR", kClassicStages, "");
+    ASSERT_EQ(entries.Num(), 1);
+    EXPECT_EQ(entries[0]->Configurations.Num(), static_cast<i32>(PipelineManifest::kMaxConfigurationsPerEntry));
+    EXPECT_FALSE(entries[0]->SeenUnder("a0")) << "the oldest tag goes first";
+    EXPECT_TRUE(entries[0]->SeenUnder(std::format("b{}", PipelineManifest::kMaxConfigurationsPerEntry - 1)));
+}
+
+// A file can hold more tags than the bound: one written before Merge kept it.
+// Parse reads it down to the newest kMaxConfigurationsPerEntry, so neither the
+// start-up merge nor the next save carries the oversized list on.
+TEST(PipelineManifest, ParseKeepsTheConfigurationBoundAndTheNewestTags)
+{
+    constexpr sizet kTags = PipelineManifest::kMaxConfigurationsPerEntry + 4;
+    std::string text = "PipelineManifest:\n  Version: 1\n  Session: 0\n  Entries:\n"
+                       "    - Shader: PBR\n      Stages: 17\n      Color: [97]\n      Depth: 126\n"
+                       "      Samples: 1\n      Patch: 0\n      Configs:\n";
+    for (sizet i = 0; i < kTags; ++i)
+    {
+        text += std::format("        - t{}\n", i);
+    }
+    // A repeated tag is one tag: it must not push a distinct one out.
+    text += std::format("        - t{}\n", kTags - 1);
+    text += "      LastSeen: 0\n";
+    std::string error;
+    const auto parsed = PipelineManifest::Parse(text, &error);
+    ASSERT_TRUE(parsed.has_value()) << error;
+    const auto entries = parsed->EntriesFor("PBR", kClassicStages, "");
+    ASSERT_EQ(entries.Num(), 1);
+    EXPECT_EQ(entries[0]->Configurations.Num(), static_cast<i32>(PipelineManifest::kMaxConfigurationsPerEntry));
+    EXPECT_FALSE(entries[0]->SeenUnder("t3")) << "the oldest tags go first";
+    EXPECT_TRUE(entries[0]->SeenUnder("t4"));
+    EXPECT_TRUE(entries[0]->SeenUnder(std::format("t{}", kTags - 1)));
+}
+
+// #1650: the engine seed is checked in, so its text must be a function of the
+// keys and tags alone: not of the order the draws recorded them in, nor of the
+// session counter of the machine that regenerated it.
+TEST(PipelineManifest, ASeedIsTheSameTextWhateverOrderAndSessionItWasRecordedIn)
+{
+    const auto record = [](PipelineManifest& m, const bool reversed)
+    {
+        struct Key
+        {
+            const char* Shader;
+            PipelineSignature Sig;
+            const char* Tag;
+        };
+        const Key keys[] = { { "PBR", Signature(2, 97, 126, 1), "forward/msaa1/native/oit1" },
+                             { "PBR", Signature(1, 97, 126, 1), "deferred/msaa1/native/oit1" },
+                             { "PBR", Signature(2, 97, 126, 1), "deferred/msaa1/native/oit1" },
+                             { "ShadowDepth", Signature(0, 0, 126, 1), "forward/msaa1/native/oit1" } };
+        for (i32 i = 0; i < 4; ++i)
+        {
+            const Key& k = keys[reversed ? 3 - i : i];
+            (void)m.Record(k.Shader, kClassicStages, k.Sig, k.Tag);
+        }
+    };
+    PipelineManifest forward;
+    forward.BeginSession();
+    record(forward, false);
+    PipelineManifest backward;
+    for (int i = 0; i < 5; ++i)
+    {
+        backward.BeginSession(); // another machine, another session count
+    }
+    record(backward, true);
+
+    ASSERT_NE(forward.Serialize(), backward.Serialize()) << "Sessions and tag order differ before normalizing";
+    const std::string seed = forward.NormalizedForSeed().Serialize();
+    EXPECT_EQ(seed, backward.NormalizedForSeed().Serialize());
+    EXPECT_EQ(seed.find("LastSeen: 1"), std::string::npos) << "No machine session survives into a seed";
+    EXPECT_NE(seed.find("Session: 0"), std::string::npos);
+    const auto parsed = PipelineManifest::Parse(seed);
+    ASSERT_TRUE(parsed.has_value());
+    EXPECT_EQ(parsed->NormalizedForSeed().Serialize(), seed) << "A normalized seed is a fixed point";
+}
+
+// #1650: what the guard test compares. The keys a session drew are the
+// entries stamped with its session; the ones a seed lacks are named by
+// identity AND signature, so a shader the seed knows under another target is
+// still missing.
+TEST(PipelineManifest, TheKeysASessionDrewThatASeedLacksAreNamed)
+{
+    PipelineManifest seed;
+    (void)seed.Record("PBR", kClassicStages, Signature(2, 97, 126, 1), "forward/msaa1/native/oit1");
+    (void)seed.Record("ShadowDepth", kClassicStages, Signature(0, 0, 126, 1), "forward/msaa1/native/oit1");
+
+    PipelineManifest machine = seed;
+    machine.BeginSession();
+    (void)machine.Record("Old", kClassicStages, Signature(1, 97, 0, 1), "forward/msaa1/native/oit1");
+    const u64 session = machine.GetSession() + 1;
+    machine.BeginSession();
+    (void)machine.Record("PBR", kClassicStages, Signature(2, 97, 126, 1), "forward/msaa1/native/oit1");
+    (void)machine.Record("PBR", kClassicStages, Signature(2, 97, 126, 4), "forward/msaa4/native/oit1");
+    (void)machine.Record("Sky", kClassicStages, Signature(1, 97, 126, 1), "forward/msaa1/native/oit1");
+
+    const PipelineManifest drawn = machine.SeenInSession(session);
+    EXPECT_EQ(drawn.GetEntryCount(), 3u) << "The earlier session's 'Old' and the undrawn ShadowDepth are not drawn";
+    const TArray<PipelineManifestEntry> missing = drawn.EntriesMissingFrom(seed);
+    ASSERT_EQ(missing.Num(), 2);
+    EXPECT_EQ(missing[0].Shader.ToView(), "PBR");
+    EXPECT_EQ(missing[0].Signature.Samples, 4u) << "A known shader under a new sample count is still missing";
+    EXPECT_EQ(missing[1].Shader.ToView(), "Sky");
+    EXPECT_NE(PipelineManifest::Describe(missing[0]).find("samples=4"), std::string::npos);
+    EXPECT_NE(PipelineManifest::Describe(missing[0]).find("forward/msaa4/native/oit1"), std::string::npos);
+
+    // The negative control's step: delete one key and it is named.
+    PipelineManifest reduced = seed;
+    EXPECT_TRUE(reduced.Remove("PBR", kClassicStages, Signature(2, 97, 126, 1)));
+    EXPECT_FALSE(reduced.Remove("PBR", kClassicStages, Signature(2, 97, 126, 1))) << "Already gone";
+    EXPECT_EQ(drawn.EntriesMissingFrom(reduced).Num(), 3);
+    EXPECT_TRUE(reduced.EntriesFor("PBR", kClassicStages, "").IsEmpty());
 }
 
 TEST(PipelineManifest, RefusesAMalformedFileButKeepsTheValidEntriesOfAWellFormedOne)

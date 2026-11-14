@@ -149,6 +149,12 @@ namespace OloEngine
         // The manifest, for tests and for the game build's staging step.
         [[nodiscard]] PipelineManifest CopyManifest();
         void SetManifestForTesting(PipelineManifest manifest);
+        // A first session inside a running process (#1650): drop every created
+        // pipeline and request, reset the request counters, replace the
+        // manifest with `manifest` and request every live shader from it, as a
+        // new process would at start-up. Returns the new session, which every
+        // key drawn from now on is stamped with (PipelineManifest::SeenInSession).
+        u64 RestartColdForTesting(PipelineManifest manifest);
 
         static constexpr u32 kDefaultJobsPerFrame = 4;
         static constexpr u32 kDefaultWorkers = 2;
@@ -174,6 +180,9 @@ namespace OloEngine
         void EvaluateReadinessLocked(bool force);
         void ApplySelectedTagsLocked(TArray<FString> tags);
         void RevokeReadyClaimsLocked();
+        // Lock held. The configuration selection of a new session (the empty
+        // tag) and no pending records: Start and RestartColdForTesting.
+        void ResetSelectionLocked();
         [[nodiscard]] bool IsSelectedLocked(std::string_view tag) const;
         [[nodiscard]] bool ClaimsAllowedLocked() const;
         [[nodiscard]] FString JoinSelectedTagsLocked() const;
