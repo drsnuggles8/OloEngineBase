@@ -1173,13 +1173,23 @@ namespace OloEngine
             m_HPB->Bind();
             return;
         }
-        if (!m_InertHPB)
-        {
-            m_InertHPB = StorageBuffer::Create(sizeof(u32), ShaderBindingLayout::SSBO_VSM_HPB);
-            const u32 clean = 0u;
-            m_InertHPB->SetData(&clean, sizeof(clean));
-        }
-        m_InertHPB->Bind();
+        // The stand-in is made with the other inert buffers, on the render
+        // thread (EnsureInertSamplingBindings, from Init when the feature is
+        // off). A caller inside a recording item only binds: an item must not
+        // create a buffer.
+        if (!m_InertHPB && !RenderCommand::IsRecordingParallelItem())
+            EnsureInertHPB();
+        if (m_InertHPB)
+            m_InertHPB->Bind();
+    }
+
+    void VirtualShadowMap::EnsureInertHPB()
+    {
+        if (m_InertHPB)
+            return;
+        m_InertHPB = StorageBuffer::Create(sizeof(u32), ShaderBindingLayout::SSBO_VSM_HPB);
+        const u32 clean = 0u;
+        m_InertHPB->SetData(&clean, sizeof(clean));
     }
 
     void VirtualShadowMap::SubmitDynamicInvalidations(std::span<const ShadowMeshCaster> meshCasters,
@@ -2254,6 +2264,7 @@ namespace OloEngine
         const VSM::PassUBO inertPass{};
         m_InertPassUBO = UniformBuffer::Create(VSM::PassUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW_DRAW);
         m_InertPassUBO->SetData(&inertPass, VSM::PassUBO::GetSize());
+        EnsureInertHPB();
     }
 
     void VirtualShadowMap::BindForSampling()
