@@ -35,8 +35,14 @@ what it held:
 It surfaced as the third. The evidence scene for #1691 has a sun and two fields of cubes that do not
 cast, and it rendered at 46 of 255 where the same scene with the sun's shadows off rendered at 129.
 The log said `ShadowRenderPass::Execute skipped: no shadow casters submitted`, once. With the fix
-removed, all nine cascade cases of the test fail: the deleted caster's shadow is still 69 levels
-darker than the lit ground beside it.
+removed, the deleted-caster case fails on the cascades and on the virtual shadow map, and the
+moved-away case fails on the cascades: the shadow is still 69 levels darker than the lit ground
+beside it.
 
-Virtual shadow maps had the same hole one level up: the page work that retires a departed caster's
-shadow ran only if the pass ran, and the pass did not run on the frame the last caster left.
+Virtual shadow maps had the first half of the hole: the page work that retires a deleted caster's
+shadow ran only if the pass ran, and the pass did not run on the frame the last caster left. A
+caster that only moved away was retired correctly there, because the pass still ran.
+
+The never-had-a-caster case is weaker than it looks. It fails without the fix only when the map
+holds something other than far depth when it starts, which is true in a fresh process and not after
+a test that left the map cleared. Dirty the state a test depends on inside the test.

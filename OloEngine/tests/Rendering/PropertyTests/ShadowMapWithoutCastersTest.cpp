@@ -28,8 +28,9 @@
 //
 // Runs on Forward, Forward+ and Deferred, with the directional shadow on the
 // cascades and on the virtual shadow map's pages, and in the --olo-rhi=vulkan
-// process. The page route had the same hole one level up: the page work that
-// retires a departed caster's shadow ran only if the pass ran.
+// process. The page route had the first half of the hole: the page work that
+// retires a deleted caster's shadow ran only if the pass ran. A caster that
+// only moved away was already handled there, because the pass still ran.
 // Classification: L8 (full pipeline through the real Scene render path). SKIPs
 // cleanly without a GPU context.
 // =============================================================================
@@ -337,6 +338,12 @@ namespace OloEngine::Tests
         ExpectTheShadowHasLeft(name, "the only shadow caster moved outside every cascade");
     }
 
+    // What this case can catch depends on what the map held when it started: in
+    // a process that has drawn no caster that is the texture's initial zeroes,
+    // and the unfixed pass fails it by 67 levels; after a test that left the map
+    // cleared it passes either way. The two cases above dirty the map themselves
+    // and fail without the fix in any order. This one is kept for the contract
+    // it states, which an empty map must meet whatever came before it.
     TEST_P(ShadowMapWithoutCasters, ASceneThatNeverHadACasterIsLitTheSameWithShadowsOnAsOff)
     {
         OLO_ENSURE_GPU_OR_SKIP();
