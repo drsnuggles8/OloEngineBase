@@ -55,5 +55,10 @@ namespace OloEngine
         u64 LastRenderedFrameSerial = 0;
         bool WasPrimary = false;
         bool Active = false;
+        // Wall time of the view's last scene frame, BeginScene to the end of
+        // EndScene: submission, the graph, and for a primary view the frame's
+        // scene extraction and world simulation as well. The per-view half of
+        // "what does a second view cost".
+        f64 LastFrameCpuMs = 0.0;
     };
 } // namespace OloEngine

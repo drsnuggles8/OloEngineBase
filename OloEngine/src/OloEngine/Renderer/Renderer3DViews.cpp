@@ -146,6 +146,13 @@ namespace OloEngine
         // The observer camera is a tool pointed at one view. A new view starts
         // unfrozen; SetCullingCameraFrozen is per view from here on.
         resident.Settings.ObserverCameraEnabled = false;
+        // What a caller set through a Renderer3D setter and no settings field
+        // carries; everything else here is derived from Settings by the
+        // ApplyRendererSettings below.
+        resident.DynamicCullingEnabled = s_Data.DynamicCullingEnabled;
+        resident.DepthAwareClusterCullingEnabled = s_Data.DepthAwareClusterCullingEnabled;
+        resident.HZBOcclusionDepthBias = s_Data.HZBOcclusionDepthBias;
+        resident.EnableSelectionOutline = s_Data.EnableSelectionOutline;
         resident.Pipeline = std::make_unique<RenderPipeline>();
         resident.ForwardPlus = std::make_unique<TiledForwardPlus>();
         resident.Shadow = std::make_unique<ShadowMap>();
@@ -234,6 +241,7 @@ namespace OloEngine
         info.LastRenderedFrameSerial = resident.ViewClock.LastRenderedFrameSerial;
         info.WasPrimary = resident.ViewClock.WasPrimary;
         info.Active = active;
+        info.LastFrameCpuMs = resident.ViewClock.LastFrameCpuMs;
         return info;
     }
 
@@ -401,11 +409,15 @@ namespace OloEngine
         s_Data.ViewClock.LastRenderedFrameSerial = frame.Serial;
         s_Data.ViewClock.WasPrimary = frame.InPrimaryView;
         ++s_Data.ViewClock.FramesRendered;
+        s_Data.ViewClock.FrameBegan = std::chrono::steady_clock::now();
     }
 
     void Renderer3D::EndViewFrame()
     {
         auto& frame = s_Data.PhysicalFrame;
+        if (frame.InScene)
+            s_Data.ViewClock.LastFrameCpuMs =
+                std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - s_Data.ViewClock.FrameBegan).count();
         frame.InScene = false;
         frame.InPrimaryView = false;
         frame.LinkingDraws = false;

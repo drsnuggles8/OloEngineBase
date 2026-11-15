@@ -409,6 +409,10 @@ namespace OloEngine
         // time) advance once, in the first view begun (the frame's PRIMARY
         // view), and every later view draws that frame's world from its own
         // camera. A view renders at most once per physical frame.
+        //
+        // CreateView returns kMainRenderView when it is refused (before Init,
+        // between BeginScene and EndScene, or for a zero size), and says why in
+        // the log: test the result with IsMain().
         [[nodiscard]] static RenderViewId CreateView(const RenderViewDesc& desc);
         // Releases the view's graph, passes, histories and GPU storage. The
         // main view and the active view cannot be destroyed; neither can any
@@ -3074,6 +3078,10 @@ namespace OloEngine
             u64 LastRenderedFrameSerial = 0;
             u64 FramesRendered = 0;
             bool WasPrimary = false;
+            // BeginScene of the frame in progress, and the wall time the last
+            // finished one took (RenderViewInfo::LastFrameCpuMs).
+            std::chrono::steady_clock::time_point FrameBegan{};
+            f64 LastFrameCpuMs = 0.0;
         };
 
         // The decal-visibility probe's two-frame query ring (olo_decal_visibility).

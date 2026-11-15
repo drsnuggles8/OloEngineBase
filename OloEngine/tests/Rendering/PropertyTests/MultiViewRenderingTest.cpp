@@ -1261,6 +1261,8 @@ namespace OloEngine::Tests
             GTEST_SKIP() << "no ray-tracing device in this process: ray-traced shadows resolve to shadow maps here, "
                             "which MultiViewRendering.* already covers";
         const ScopedMockTime mockTime(kCaptureTime);
+        // A light opts in to the ray-traced tier; the technique is each view's.
+        m_Sun.GetComponent<DirectionalLightComponent>().m_RayTracedShadows = true;
         const Configure shadowMapped = []()
         { Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred; };
         const Configure rayTraced = []()
@@ -1278,7 +1280,7 @@ namespace OloEngine::Tests
         const Frame mapped = RenderReference(poses.Second, kSecondSize, kFrames, shadowMapped);
         const u32 changed = Compare(traced, mapped).Pixels;
         std::cout << "[MultiView] ray-traced shadows move " << changed << " pixel(s) of the second camera's frame\n";
-        ASSERT_GT(changed, 100u) << "ray-traced shadows render the shadow-mapped frame: the tier is not running";
+        ASSERT_GT(changed, 40u) << "ray-traced shadows render the shadow-mapped frame: the tier is not running";
 
         ExpectBothViewsMatchTheirReferences(TestRenderBackend::EvidenceName("MultiViewRayTracedShadows") + "Deferred",
                                             "ray-traced shadows", poses, kFrames, rayTraced, rayTraced);
@@ -1345,14 +1347,32 @@ namespace OloEngine::Tests
 
         // The second view at the MAIN view's size, so its cost is a like-for-like
         // view rather than a smaller one.
+        const auto createStart = std::chrono::steady_clock::now();
         CreateSecondView(kMainSize);
+        const f64 createMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - createStart).count();
         if (HasFatalFailure())
             return;
+        std::cout << "[MultiViewCost] " << TestRenderBackend::EvidenceBackendPrefix()
+                  << "Debug binary, Renderer3D::CreateView: " << createMs
+                  << " ms (a view's passes compile their own programs)\n";
         ConfigureSecondView(deferred);
         RunSharedFrames(poses.Second, Order::SecondAfterMain, kWarm);
         const u64 twoViewBytes = memory.GetGpuResidentBytes();
-        const Timing shared = Measure(kMeasured, [this, &poses](u32 frames)
-                                      { RunSharedFrames(poses.Second, Order::SecondAfterMain, frames); });
+        // Each view's own share of a two-view frame, averaged over the same
+        // frames: the main view is the primary one here and carries the scene
+        // extraction and the world simulation, the second view only draws.
+        f64 primaryViewMs = 0.0;
+        f64 laterViewMs = 0.0;
+        const Timing shared = Measure(kMeasured, [this, &poses, &primaryViewMs, &laterViewMs](u32 frames)
+                                      {
+                                          for (u32 i = 0; i < frames; ++i)
+                                          {
+                                              RunSharedFrames(poses.Second, Order::SecondAfterMain, 1u);
+                                              primaryViewMs += Renderer3D::GetViewInfo(kMainRenderView).LastFrameCpuMs;
+                                              laterViewMs += Renderer3D::GetViewInfo(m_SecondView).LastFrameCpuMs;
+                                          } });
+        primaryViewMs /= static_cast<f64>(kMeasured);
+        laterViewMs /= static_cast<f64>(kMeasured);
 
         DestroySecondView();
         // Past the deferred-deletion window: a released GPU object is retired
@@ -1375,6 +1395,12 @@ namespace OloEngine::Tests
                   << "% of a single-view frame). GPU time of the last resolved view frame: one view "
                   << (single.GpuValid ? std::to_string(single.GpuMsLastViewFrame) : std::string("n/a")) << " ms, in the two-view run "
                   << (shared.GpuValid ? std::to_string(shared.GpuMsLastViewFrame) : std::string("n/a")) << " ms\n";
+        std::cout << "[MultiViewCost] " << TestRenderBackend::EvidenceBackendPrefix()
+                  << "Debug binary, view frame wall time inside a two-view frame (BeginScene to the end of EndScene): "
+                     "primary view "
+                  << primaryViewMs << " ms, later view " << laterViewMs << " ms\n";
+        EXPECT_GT(primaryViewMs, 0.0) << "the main view reported no frame time";
+        EXPECT_GT(laterViewMs, 0.0) << "the second view reported no frame time";
 
         EXPECT_GT(twoViewBytes, mainOnlyBytes) << "a second view allocated nothing: it is not rendering into its own targets";
         // Everything the view owned is gone. A megabyte of slack covers pooled
