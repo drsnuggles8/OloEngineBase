@@ -16,6 +16,7 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 | [scene-registry-source-path.md](scene-registry-source-path.md) | Direct scene opens worked, but Build Game could not load a registered scene because its project-relative path was opened from the editor working directory. |
 | [project-optional-paths.md](project-optional-paths.md) | An empty script-module path became the asset directory. |
 | [force-model-vehicles.md](force-model-vehicles.md) | A boat with no thrust still floats and an oscillating aircraft still has finite positions. |
+| [requested-shadow-map-is-written-every-frame.md](requested-shadow-map-is-written-every-frame.md) | A deleted caster's shadow stayed on the ground, and a scene with a sun and no caster rendered at a third of its brightness. |
 | [shadow-receiver-bias-is-texels-of-the-map-sampled.md](shadow-receiver-bias-is-texels-of-the-map-sampled.md) | A VSM-against-CSM floor test compared a shadow the VSM's own bias does not change. |
 | [vulkan-software-driver-ci.md](vulkan-software-driver-ci.md) | A CI job on a driver below the ADR 0010 contract skipped every device-gated test and printed `[  PASSED  ]`. |
 | [assimp-smooth-normals-on-indexed-meshes.md](assimp-smooth-normals-on-indexed-meshes.md) | A flat-grid test of smooth normal generation passed while every shared vertex of a curved glTF kept one face's normal. |

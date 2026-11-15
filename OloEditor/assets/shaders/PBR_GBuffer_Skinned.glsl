@@ -389,6 +389,10 @@ void main()
                                          u_SkinOcularIrisLane, u_SkinOcularResponseLane, u_SkinOcularTintLane);
     }
     vec3 albedo = OLO_MAT_ALBEDO(u_AlbedoMap, albedoUV, u_BaseColorFactor.rgb, bool(u_UseAlbedoMap));
+    // Per-instance tint (issue #1691): the rgb of InstanceData.Color multiplies
+    // the base colour. It is (1, 1, 1) on every draw that authored none, and the
+    // multiply is exact then. Its alpha is not applied (InstanceData.h).
+    albedo *= instances[v_InstanceIndex].Color.rgb;
     vec2 metallicRoughness = OLO_MAT_METALLIC_ROUGHNESS(u_MetallicRoughnessMap, v_TexCoord,
                                                         u_MetallicFactor, u_RoughnessFactor,
                                                         bool(u_UseMetallicRoughnessMap));

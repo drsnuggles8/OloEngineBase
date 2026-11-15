@@ -242,10 +242,13 @@ frame index) hold identical values at the capture frame without new reset plumbi
 
 Sources that read `std::chrono::steady_clock` directly bypass the mock clock and are
 converted to `Time::GetTime()` by this work (wind — which drives foliage sway, snow and
-precipitation dt; fog noise time; auto-exposure adaptation dt). FSR2 deliberately keeps
-real time: its lock decay reads the wall clock, so a `UpscaleTechnique: Temporal` capture is
-not run-twice deterministic and the parser refuses one whose `Tolerance.RepeatRmse` is 0. Every other upscaler
-setting keeps the mock-clock contract.
+precipitation dt; fog noise time; auto-exposure adaptation dt). FSR2 is the exception in a live
+session: its lock decay reads the wall clock, because the locks have to decay on real elapsed time
+and a frozen mock clock would stall them. Under a mocked clock it takes a nominal 1/60 s frame
+instead of either, so the delta is the same on every run and does not follow whatever else the GPU
+is doing. A `UpscaleTechnique: Temporal` capture is still not declared run-twice deterministic: the
+parser refuses one whose `Tolerance.RepeatRmse` is 0. Every other upscaler setting keeps the
+mock-clock contract.
 
 Known GPU-order nondeterminism (documented, avoided by scene design rather than fixed):
 the PBF fluid solver, virtual-geometry software-raster depth ties, Forward+ light-cull

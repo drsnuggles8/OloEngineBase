@@ -285,10 +285,9 @@ namespace OloEngine
 
     } // anonymous namespace
 
-    void CommandBucket::SetViewStateCallbacks(ViewStateReadFn readFn, ViewStateWriteFn writeFn)
+    void CommandBucket::SetViewScopeRunner(ViewScopeRunner runner)
     {
-        s_ViewStateReader = readFn;
-        s_ViewStateWriter = writeFn;
+        s_ViewScopeRunner = runner;
     }
 
     CommandBucketConfig CommandBucket::ValidateConfig(const CommandBucketConfig& config)
@@ -456,6 +455,8 @@ namespace OloEngine
 
     bool CommandBucket::BeginReplay(std::span<const CommandPacket* const> packets)
     {
+        if (s_ReplayEntryHook)
+            s_ReplayEntryHook();
         PublishFramePayloadsForReplay();
         const bool validate = CommandLifecycle::IsValidationEnabled();
         bool intact = true;
@@ -1158,56 +1159,51 @@ namespace OloEngine
 
         Statistics stats;
 
-        // Bind per-bucket view state if set, saving the previous state for restoration
-        BucketViewState savedState;
-        bool restoreState = false;
-        if (view.has_value() && s_ViewStateReader && s_ViewStateWriter)
-        {
-            s_ViewStateReader(savedState);
-            restoreState = true;
-            s_ViewStateWriter(*view);
-        }
-
         // Execute all commands in order from the flat array
-        for (const auto* packet : packets)
+        const auto replay = [&]()
         {
-            if (!packet)
-                continue;
-
-            if (CommandType type = packet->GetCommandType();
-                type == CommandType::DrawMesh ||
-                type == CommandType::DrawMeshInstanced ||
-                type == CommandType::DrawQuad ||
-                type == CommandType::DrawDecal ||
-                type == CommandType::DrawFoliageLayer ||
-                type == CommandType::DrawTerrainPatch ||
-                type == CommandType::DrawVoxelMesh ||
-                type == CommandType::DrawSkybox ||
-                type == CommandType::DrawInfiniteGrid ||
-                type == CommandType::DrawArrays ||
-                type == CommandType::DrawIndexed ||
-                type == CommandType::DrawIndexedInstanced ||
-                type == CommandType::DrawLines)
+            for (const auto* packet : packets)
             {
-                ++stats.DrawCalls;
-            }
-            else if (type != CommandType::Invalid)
-            {
-                ++stats.StateChanges;
-            }
-            else
-            {
-                // No additional handling required.
-            }
+                if (!packet)
+                    continue;
 
-            packet->Execute(rendererAPI);
-        }
+                if (CommandType type = packet->GetCommandType();
+                    type == CommandType::DrawMesh ||
+                    type == CommandType::DrawMeshInstanced ||
+                    type == CommandType::DrawQuad ||
+                    type == CommandType::DrawDecal ||
+                    type == CommandType::DrawFoliageLayer ||
+                    type == CommandType::DrawTerrainPatch ||
+                    type == CommandType::DrawVoxelMesh ||
+                    type == CommandType::DrawSkybox ||
+                    type == CommandType::DrawInfiniteGrid ||
+                    type == CommandType::DrawArrays ||
+                    type == CommandType::DrawIndexed ||
+                    type == CommandType::DrawIndexedInstanced ||
+                    type == CommandType::DrawLines)
+                {
+                    ++stats.DrawCalls;
+                }
+                else if (type != CommandType::Invalid)
+                {
+                    ++stats.StateChanges;
+                }
+                else
+                {
+                    // No additional handling required.
+                }
 
-        // Restore previous view state if we changed it
-        if (restoreState)
-        {
-            s_ViewStateWriter(savedState);
-        }
+                packet->Execute(rendererAPI);
+            }
+        };
+
+        // A per-bucket view replays inside the dispatcher's alternate-view
+        // scope (ADR 0025): the whole view is installed in this recording
+        // context, primary or worker item, and restored when the scope ends.
+        if (view.has_value() && s_ViewScopeRunner)
+            s_ViewScopeRunner(*view, replay);
+        else
+            replay();
 
         return stats;
     }
@@ -1319,67 +1315,60 @@ namespace OloEngine
             return;
         }
 
-        // Bind per-bucket view state if set
-        BucketViewState savedState;
-        bool restoreState = false;
-        if (m_ViewState.has_value() && s_ViewStateReader && s_ViewStateWriter)
+        const auto replay = [&]()
         {
-            s_ViewStateReader(savedState);
-            restoreState = true;
-            s_ViewStateWriter(*m_ViewState);
-        }
-
-        u32 cmdIndex = 0;
-        for (const CommandPacket* packet : packets)
-        {
-            if (!packet)
-                continue;
-
-            if (CommandType type = packet->GetCommandType();
-                type == CommandType::DrawMesh ||
-                type == CommandType::DrawMeshInstanced ||
-                type == CommandType::DrawQuad ||
-                type == CommandType::DrawDecal ||
-                type == CommandType::DrawFoliageLayer ||
-                type == CommandType::DrawTerrainPatch ||
-                type == CommandType::DrawVoxelMesh ||
-                type == CommandType::DrawSkybox ||
-                type == CommandType::DrawInfiniteGrid ||
-                type == CommandType::DrawArrays ||
-                type == CommandType::DrawIndexed ||
-                type == CommandType::DrawIndexedInstanced ||
-                type == CommandType::DrawLines)
+            u32 cmdIndex = 0;
+            for (const CommandPacket* packet : packets)
             {
-                ++m_Stats.DrawCalls;
-            }
-            else if (type != CommandType::Invalid)
-            {
-                ++m_Stats.StateChanges;
-            }
-            else
-            {
-                // No additional handling required.
-            }
+                if (!packet)
+                    continue;
 
-            if (cmdIndex < gpuTimer.GetMaxQueries())
-            {
-                gpuTimer.BeginQuery(cmdIndex);
-                packet->Execute(rendererAPI);
-                gpuTimer.EndQuery(cmdIndex);
-            }
-            else
-            {
-                packet->Execute(rendererAPI);
-            }
+                if (CommandType type = packet->GetCommandType();
+                    type == CommandType::DrawMesh ||
+                    type == CommandType::DrawMeshInstanced ||
+                    type == CommandType::DrawQuad ||
+                    type == CommandType::DrawDecal ||
+                    type == CommandType::DrawFoliageLayer ||
+                    type == CommandType::DrawTerrainPatch ||
+                    type == CommandType::DrawVoxelMesh ||
+                    type == CommandType::DrawSkybox ||
+                    type == CommandType::DrawInfiniteGrid ||
+                    type == CommandType::DrawArrays ||
+                    type == CommandType::DrawIndexed ||
+                    type == CommandType::DrawIndexedInstanced ||
+                    type == CommandType::DrawLines)
+                {
+                    ++m_Stats.DrawCalls;
+                }
+                else if (type != CommandType::Invalid)
+                {
+                    ++m_Stats.StateChanges;
+                }
+                else
+                {
+                    // No additional handling required.
+                }
 
-            ++cmdIndex;
-        }
+                if (cmdIndex < gpuTimer.GetMaxQueries())
+                {
+                    gpuTimer.BeginQuery(cmdIndex);
+                    packet->Execute(rendererAPI);
+                    gpuTimer.EndQuery(cmdIndex);
+                }
+                else
+                {
+                    packet->Execute(rendererAPI);
+                }
 
-        // Restore previous view state if we changed it
-        if (restoreState)
-        {
-            s_ViewStateWriter(savedState);
-        }
+                ++cmdIndex;
+            }
+        };
+
+        // Same alternate-view scope as ReplayPackets.
+        if (m_ViewState.has_value() && s_ViewScopeRunner)
+            s_ViewScopeRunner(*m_ViewState, replay);
+        else
+            replay();
 
         EndReplay(packets);
         gpuTimer.EndFrame();

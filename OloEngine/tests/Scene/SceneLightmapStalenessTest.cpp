@@ -255,6 +255,33 @@ namespace OloEngine::Tests
             << "the key must be a pure function of the state, so restoring it restores the key";
     }
 
+    // An instance's colour multiplies what the bake bounces off it (issue
+    // #1691), so tinting one instance stales the bake. Its alpha is applied
+    // nowhere and does not. A white tint contributes nothing to the key, so a
+    // bake made before the tint existed stays valid for a scene without one.
+    TEST(SceneLightmapStaleness, TintingOneInstanceChangesTheKeyAndItsAlphaDoesNot)
+    {
+        StalenessFixture f = MakeFixture();
+        Entity rocks = MakeInstancedBatch(*f.World, 4);
+        const SceneLightmapSettings settings = f.World->GetLightmapSettings();
+        const u64 original = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
+
+        auto& instances = rocks.GetComponent<InstancedMeshComponent>().Instances;
+        instances[1].Color.a = 0.25f;
+        EXPECT_EQ(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original)
+            << "an instance alpha is not applied by any path, so it must not stale a bake";
+
+        instances[1].Color = glm::vec4(1.0f, 0.2f, 0.2f, 1.0f);
+        const u64 red = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
+        EXPECT_NE(red, original) << "an instance turned red and the bake that bounced it white still reads as current";
+
+        instances[1].Color = glm::vec4(0.2f, 1.0f, 0.2f, 1.0f);
+        EXPECT_NE(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), red);
+
+        instances[1].Color = glm::vec4(1.0f);
+        EXPECT_EQ(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original);
+    }
+
     TEST(SceneLightmapStaleness, AddingOrRemovingAnInstanceChangesTheKey)
     {
         StalenessFixture f = MakeFixture();

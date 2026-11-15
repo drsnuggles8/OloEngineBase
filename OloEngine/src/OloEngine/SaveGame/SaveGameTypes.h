@@ -59,7 +59,8 @@ namespace OloEngine
     // 47: per-coat wetness authoring and state (#1615).
     // 48: NavAgentComponent root-motion locomotion and turn speed (#1559).
     // 49: FoliageLayer::DecorrelatedVariation removed (#1502).
-    static constexpr u32 kSaveGameFormatVersion = 49;
+    // 50: SkinDiffusionSettings settings block after SnowEjecta (#1689).
+    static constexpr u32 kSaveGameFormatVersion = 50;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Compression flags (stored in Header.Flags)

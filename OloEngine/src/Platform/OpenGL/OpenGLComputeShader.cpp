@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLComputeShader.h"
+#include "Platform/OpenGL/OpenGLBlockContract.h"
 #include "Platform/OpenGL/OpenGLDebug.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
@@ -270,6 +271,7 @@ namespace OloEngine
     void OpenGLComputeShader::Bind() const
     {
         glUseProgram(m_RendererID);
+        OpenGLBlockContract::NoteProgramBound(m_RendererID);
 
         // PUBLISH WHETHER THIS PROGRAM READS THE HEAP, and this line is load-
         // bearing rather than bookkeeping. `Shader::SetBoundProgramBindless` is a
@@ -291,6 +293,7 @@ namespace OloEngine
     void OpenGLComputeShader::Unbind() const
     {
         glUseProgram(0);
+        OpenGLBlockContract::NoteProgramBound(0);
 
         // No program is bound, so no program reads the heap. Leaving the flag set
         // would let a bind issued between an Unbind() and the next Bind() take the

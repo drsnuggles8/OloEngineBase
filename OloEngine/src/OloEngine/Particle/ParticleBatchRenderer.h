@@ -59,6 +59,16 @@ namespace OloEngine
         glm::vec2 ViewportSize = { 1280.0f, 720.0f };
     };
 
+    // The previous frame's camera of the view a batch is drawn into: what the
+    // particles' camera motion is measured against in that view's velocity
+    // target. World space and unjittered, with that frame's jitter beside it
+    // in velocity units.
+    struct ParticleCameraHistory
+    {
+        glm::mat4 PrevViewProjection{ 1.0f };
+        glm::vec2 PrevJitterUV{ 0.0f };
+    };
+
     // Instanced particle batch renderer with GPU-side billboarding
     class ParticleBatchRenderer
     {
@@ -66,9 +76,17 @@ namespace OloEngine
         static void Init();
         static void Shutdown();
 
-        // Begin a new batch with camera data for GPU billboarding
-        static void BeginBatch(const EditorCamera& camera);
-        static void BeginBatch(const Camera& camera, const glm::mat4& cameraTransform);
+        // The history of the frame's main view, for a batch drawn into it.
+        // Meaningful inside a render-graph pass of a 3D frame (the particle
+        // pass callback); the dispatcher holds the view the frame installed.
+        [[nodiscard]] static ParticleCameraHistory MainViewHistory();
+
+        // Begin a new batch with camera data for GPU billboarding. `history`
+        // is the previous camera the batch's velocity is measured against;
+        // null means the batch has none and writes no camera motion.
+        static void BeginBatch(const EditorCamera& camera, const ParticleCameraHistory* history = nullptr);
+        static void BeginBatch(const Camera& camera, const glm::mat4& cameraTransform,
+                               const ParticleCameraHistory* history = nullptr);
 
         // Set soft particle parameters (call after BeginBatch, before Submit)
         static void SetSoftParticleParams(const SoftParticleParams& params);

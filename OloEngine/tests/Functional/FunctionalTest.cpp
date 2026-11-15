@@ -101,6 +101,9 @@ namespace OloEngine::Functional
         // sweep and AnimatedSurfaceLODTest failed only in order (#1348). Start
         // every functional test from the camera a fresh renderer has.
         Renderer3D::ResetFrameCamera();
+        // ...and from the scene state one has: every functional test builds its
+        // own world, and object pose history is keyed by entity id.
+        Renderer3D::ResetSceneState();
 
         BuildScene();
     }

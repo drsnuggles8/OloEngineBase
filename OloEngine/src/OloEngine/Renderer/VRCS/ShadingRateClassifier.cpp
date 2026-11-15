@@ -28,7 +28,7 @@ namespace OloEngine
 
         m_Shader = ComputeShader::Create("assets/shaders/compute/VRCSClassify.comp");
         m_ParamsUBO = UniformBuffer::Create(UBOStructures::ShadingRateUBO::GetSize(),
-                                            ShaderBindingLayout::UBO_USER_0);
+                                            ShaderBindingLayout::UBO_USER_0, "ShadingRateParams");
         OLO_CORE_INFO("ShadingRateClassifier: initialized (tile {}x{})", kTileSize, kTileSize);
     }
 

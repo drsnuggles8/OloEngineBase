@@ -26,8 +26,9 @@ namespace OloEngine
     //   early-outs when a draw's renderStateIndex equals the last applied, but
     //   ResetState() at BeginScene already invalidates that cache before any
     //   mid-frame bake runs. InvalidateRenderStateCache() keeps this true for a
-    //   bake reached from anywhere else, and must run BEFORE any re-bind or
-    //   BindUBOIfNeeded thinks nothing changed.
+    //   bake reached from anywhere else, and must run BEFORE any re-bind.
+    //   (Uniform buffers need no such step: the dispatcher asks the backend
+    //   which buffer occupies a binding point, issue #1688.)
     //
     // Runs on every exit path, including an ASSERT_* return inside a test.
     // Deliberately not GLStateGuard — see

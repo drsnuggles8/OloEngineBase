@@ -153,7 +153,8 @@ namespace OloEngine
                                                                    const glm::mat4& worldTransform,
                                                                    const GPUSceneMaterialKey& materialKey,
                                                                    u32 visibilityMask,
-                                                                   const GPUSceneAnimatedSurface& animated)
+                                                                   const GPUSceneAnimatedSurface& animated,
+                                                                   const glm::vec3& tint = glm::vec3(1.0f))
         {
             const GPUSceneGeometryKey geometryKey{
                 .m_VertexBuffer = RHI::HashKey(geometry.m_VertexHandle),
@@ -197,6 +198,7 @@ namespace OloEngine
                     .m_PrevDeformationRevision = animated.m_PrevDeformationRevision,
                     .m_DeformationResetCause = animated.m_ResetCause,
                     .m_DeformedContentRevision = animated.m_DeformedContentRevision,
+                    .m_Tint = tint,
                 });
             return instanceKey;
         }
@@ -204,10 +206,10 @@ namespace OloEngine
 
     void Renderer3D::BeginGPUSceneExtraction(u64 ownerToken)
     {
-        OLO_CORE_ASSERT(!s_Data.GPUSceneExtractionActive,
+        OLO_CORE_ASSERT(!s_Data.Frame.GPUSceneExtractionActive,
                         "Renderer3D::BeginGPUSceneExtraction called twice before EndScene");
-        s_Data.SceneGPU.BeginExtraction(ownerToken, s_Data.RenderOrigin);
-        s_Data.GPUSceneExtractionActive = true;
+        s_Data.SceneGPU.BeginExtraction(ownerToken, s_Data.View.RenderOrigin);
+        s_Data.Frame.GPUSceneExtractionActive = true;
         // The deformed-vertex producer (#1229) rides the same extraction: every
         // animated submission asks it for a stream while staging, and the
         // dispatches it queues are recorded by SkeletalDeformPass once the
@@ -225,16 +227,16 @@ namespace OloEngine
         const GpuPathTracerPass* pathTracer = GetGpuPathTracerPass();
         const bool gatherForPathTracer =
             s_Data.PostProcess.GpuPathTracer.Enabled && pathTracer != nullptr && pathTracer->IsShaderLoaded();
-        s_Data.PathTracerEmissive.BeginFrame(s_Data.RenderOrigin, gatherForPathTracer);
+        s_Data.PathTracerEmissive.BeginFrame(s_Data.View.RenderOrigin, gatherForPathTracer);
         s_Data.PathTracerMaterialTextures.BeginFrame(gatherForPathTracer &&
                                                      s_Data.PostProcess.GpuPathTracer.SampleTextures);
         // The link table is per frame and indices into it are handed to draw
         // packets, so it is cleared here and nowhere else: a stale entry would
         // give this frame's draw last frame's record.
-        s_Data.GPUSceneDrawLinks.Reset();
-        s_Data.GPUSceneDrawLinksResolved = false;
-        s_Data.GPUSceneLinkedDraws = 0;
-        s_Data.GPUSceneUnlinkedDraws = 0;
+        s_Data.Frame.GPUSceneDrawLinks.Reset();
+        s_Data.Frame.GPUSceneDrawLinksResolved = false;
+        s_Data.Frame.GPUSceneLinkedDraws = 0;
+        s_Data.Frame.GPUSceneUnlinkedDraws = 0;
     }
 
     GPUSceneMaterialKey Renderer3D::ResolveGPUSceneMaterialKey(const Material* overrideMaterial, u64 stableEntityId,
@@ -315,14 +317,14 @@ namespace OloEngine
         // The path tracer's gather learns HERE, where the Material is in hand,
         // which keys emit; its QueueSubmesh drops every other key. Before the
         // staged-already return: the note is per frame, the staging may not be.
-        if (s_Data.GPUSceneExtractionActive)
+        if (s_Data.Frame.GPUSceneExtractionActive)
         {
             const glm::vec3 emissive(material.GetEmissiveFactor());
             if (std::max({ emissive.x, emissive.y, emissive.z }) > 0.0f)
                 s_Data.PathTracerEmissive.NoteEmissiveMaterial(key);
         }
 
-        if (!s_Data.GPUSceneExtractionActive ||
+        if (!s_Data.Frame.GPUSceneExtractionActive ||
             key.m_Source == std::to_underlying(GPUSceneMaterialSource::Unresolvable) ||
             s_Data.SceneGPU.IsMaterialStaged(key))
         {
@@ -335,9 +337,10 @@ namespace OloEngine
                                         const Ref<MeshSource>& meshSource, u32 submeshIndex,
                                         const glm::mat4& worldTransform, const GPUSceneMaterialKey& materialKey,
                                         GPUSceneDrawLinkRequest linkRequest,
-                                        const GPUSceneAnimatedSurface& animatedSurface)
+                                        const GPUSceneAnimatedSurface& animatedSurface,
+                                        const glm::vec3& tint)
     {
-        if (!s_Data.GPUSceneExtractionActive)
+        if (!s_Data.Frame.GPUSceneExtractionActive)
         {
             // Not a rejection: nobody is extracting, so there is nothing to
             // count. Every branch BELOW this one is a rejection and reports
@@ -439,7 +442,7 @@ namespace OloEngine
                                          .m_Flags = useDeformed ? GPUSceneGeometryFlagDeformed : 0u,
                                      },
                                      worldTransform, materialKey, GPUSceneInstanceInput{}.m_VisibilityMask,
-                                     resolvedAnimated);
+                                     resolvedAnimated, tint);
         // Queued, not walked: the material record this submesh emits with does
         // not exist until the commit at EndScene, where the table resolves it.
         s_Data.PathTracerEmissive.QueueSubmesh(meshSource, submeshIndex, worldTransform, materialKey);
@@ -453,8 +456,8 @@ namespace OloEngine
 
         // The link is appended AFTER staging succeeded, so an index always
         // names a key the registry was actually asked to commit.
-        const auto link = static_cast<u32>(s_Data.GPUSceneDrawLinks.Num());
-        s_Data.GPUSceneDrawLinks.Add(GPUSceneDrawLink{ .m_InstanceKey = instanceKey });
+        const auto link = static_cast<u32>(s_Data.Frame.GPUSceneDrawLinks.Num());
+        s_Data.Frame.GPUSceneDrawLinks.Add(GPUSceneDrawLink{ .m_InstanceKey = instanceKey });
         return link;
     }
 
@@ -462,9 +465,9 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        s_Data.GPUSceneLinkedDraws = 0;
-        s_Data.GPUSceneUnlinkedDraws = 0;
-        for (GPUSceneDrawLink& link : s_Data.GPUSceneDrawLinks)
+        s_Data.Frame.GPUSceneLinkedDraws = 0;
+        s_Data.Frame.GPUSceneUnlinkedDraws = 0;
+        for (GPUSceneDrawLink& link : s_Data.Frame.GPUSceneDrawLinks)
         {
             link.m_Resolved = false;
             const GPUSceneHandle instance = s_Data.SceneGPU.FindInstance(link.m_InstanceKey);
@@ -475,7 +478,7 @@ namespace OloEngine
                 // draw keeps the data it assembled itself; it is counted so a
                 // path that stops consuming records is visible in the profiler
                 // rather than merely still correct.
-                ++s_Data.GPUSceneUnlinkedDraws;
+                ++s_Data.Frame.GPUSceneUnlinkedDraws;
                 continue;
             }
 
@@ -495,18 +498,18 @@ namespace OloEngine
             link.m_DeformationRevision = record->DeformationRevision;
             link.m_PreviousDeformationRevision = record->PreviousDeformationRevision;
             link.m_DeformationResetCause = record->DeformationResetCause;
-            ++s_Data.GPUSceneLinkedDraws;
+            ++s_Data.Frame.GPUSceneLinkedDraws;
         }
-        s_Data.GPUSceneDrawLinksResolved = true;
+        s_Data.Frame.GPUSceneDrawLinksResolved = true;
     }
 
     const GPUSceneDrawLink* Renderer3D::GetGPUSceneDrawLink(u32 link)
     {
-        if (!s_Data.GPUSceneDrawLinksResolved || link >= static_cast<sizet>(s_Data.GPUSceneDrawLinks.Num()))
+        if (!s_Data.Frame.GPUSceneDrawLinksResolved || link >= static_cast<sizet>(s_Data.Frame.GPUSceneDrawLinks.Num()))
         {
             return nullptr;
         }
-        return &s_Data.GPUSceneDrawLinks[link];
+        return &s_Data.Frame.GPUSceneDrawLinks[link];
     }
 
     bool Renderer3D::BindGPUSceneMaterials()
@@ -521,12 +524,12 @@ namespace OloEngine
 
     u32 Renderer3D::GetGPUSceneLinkedDrawCount()
     {
-        return s_Data.GPUSceneLinkedDraws;
+        return s_Data.Frame.GPUSceneLinkedDraws;
     }
 
     u32 Renderer3D::GetGPUSceneUnlinkedDrawCount()
     {
-        return s_Data.GPUSceneUnlinkedDraws;
+        return s_Data.Frame.GPUSceneUnlinkedDraws;
     }
 
     bool Renderer3D::ExtractGPUSceneVirtualProxy(u64 stableEntityId, u32 partIndex,
@@ -535,7 +538,7 @@ namespace OloEngine
                                                  u32 vertexCount, const glm::mat4& worldTransform,
                                                  const GPUSceneMaterialKey& materialKey, bool castsShadow)
     {
-        if (!s_Data.GPUSceneExtractionActive)
+        if (!s_Data.Frame.GPUSceneExtractionActive)
         {
             // Same rule as ExtractGPUSceneMesh: nobody is extracting, so there
             // is nothing to count. Every rejection BELOW this line is counted.
@@ -599,7 +602,7 @@ namespace OloEngine
 
     void Renderer3D::ExtractGPUSceneLight(const GPUSceneLightKey& key, const GPUSceneLightInput& input)
     {
-        if (!s_Data.GPUSceneExtractionActive)
+        if (!s_Data.Frame.GPUSceneExtractionActive)
         {
             return;
         }
@@ -608,7 +611,7 @@ namespace OloEngine
 
     void Renderer3D::ExtractGPUSceneEnvironment()
     {
-        if (!s_Data.GPUSceneExtractionActive)
+        if (!s_Data.Frame.GPUSceneExtractionActive)
         {
             return;
         }
@@ -619,15 +622,15 @@ namespace OloEngine
         const bool heapEnabled = RHI::DescriptorHeap::Get().IsEnabled();
         const RHI::SamplerDesc cubeSampler{};
         GPUSceneEnvironmentInput input;
-        input.m_Environment = ResolveRecordTexture(s_Data.GlobalEnvironmentMapID, heapEnabled, cubeSampler,
+        input.m_Environment = ResolveRecordTexture(s_Data.Scene.GlobalEnvironmentMapID, heapEnabled, cubeSampler,
                                                    RHI::NullSamplerKind::Cube);
-        input.m_Irradiance = ResolveRecordTexture(s_Data.GlobalIrradianceMapID, heapEnabled, cubeSampler,
+        input.m_Irradiance = ResolveRecordTexture(s_Data.Scene.GlobalIrradianceMapID, heapEnabled, cubeSampler,
                                                   RHI::NullSamplerKind::Cube);
-        input.m_Prefilter = ResolveRecordTexture(s_Data.GlobalPrefilterMapID, heapEnabled, cubeSampler,
+        input.m_Prefilter = ResolveRecordTexture(s_Data.Scene.GlobalPrefilterMapID, heapEnabled, cubeSampler,
                                                  RHI::NullSamplerKind::Cube);
-        input.m_BRDFLut = ResolveRecordTexture(s_Data.GlobalBRDFLutMapID, heapEnabled,
+        input.m_BRDFLut = ResolveRecordTexture(s_Data.Scene.GlobalBRDFLutMapID, heapEnabled,
                                                HeapBinding::MaterialTexture2DSampler(), RHI::NullSamplerKind::Texture2D);
-        input.m_Intensity = s_Data.GlobalIBLIntensity;
+        input.m_Intensity = s_Data.Scene.GlobalIBLIntensity;
 
         // No published environment means no record: the slot is removed (and
         // retired) rather than carrying an all-invalid entry.
@@ -641,7 +644,7 @@ namespace OloEngine
 
     void Renderer3D::ReportUnsupportedGPUScene(GPUSceneUnsupportedCategory category, u32 count)
     {
-        if (s_Data.GPUSceneExtractionActive && count > 0)
+        if (s_Data.Frame.GPUSceneExtractionActive && count > 0)
         {
             s_Data.SceneGPU.ReportUnsupported(category, count);
         }
@@ -649,7 +652,7 @@ namespace OloEngine
 
     void Renderer3D::ReportAnimatedCensusGPUScene(const GPUSceneAnimatedStats& census)
     {
-        if (s_Data.GPUSceneExtractionActive)
+        if (s_Data.Frame.GPUSceneExtractionActive)
         {
             s_Data.SceneGPU.ReportAnimatedCensus(census);
         }
@@ -657,7 +660,7 @@ namespace OloEngine
 
     void Renderer3D::ReportFoliageCensusGPUScene(const GPUSceneFoliageStats& census)
     {
-        if (s_Data.GPUSceneExtractionActive)
+        if (s_Data.Frame.GPUSceneExtractionActive)
         {
             s_Data.SceneGPU.ReportFoliageCensus(census);
         }
@@ -681,15 +684,15 @@ namespace OloEngine
         s_Data.GroomSurfaces.Shutdown();
         s_Data.GroomSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
         s_Data.SceneGPU.Reset();
-        s_Data.GPUSceneExtractionActive = false;
+        s_Data.Frame.GPUSceneExtractionActive = false;
         // A reload or backend switch tombstones every record, so every link
         // this frame produced now names a retired slot. Dropping the table is
         // what stops a resolved link from outliving its record: after this a
         // consumer sees "no link" until the next extraction rebuilds one.
-        s_Data.GPUSceneDrawLinks.Reset();
-        s_Data.GPUSceneDrawLinksResolved = false;
-        s_Data.GPUSceneLinkedDraws = 0;
-        s_Data.GPUSceneUnlinkedDraws = 0;
+        s_Data.Frame.GPUSceneDrawLinks.Reset();
+        s_Data.Frame.GPUSceneDrawLinksResolved = false;
+        s_Data.Frame.GPUSceneLinkedDraws = 0;
+        s_Data.Frame.GPUSceneUnlinkedDraws = 0;
     }
 
     u32 Renderer3D::InvalidateTemporalHistories(
@@ -712,10 +715,10 @@ namespace OloEngine
         OLO_CORE_ASSERT(sequenceSeed < kMaxFrameSequenceSeeds,
                         "ResetFrameSequences: seed {} has no index range of its own (seeds are 0..{})", sequenceSeed,
                         kMaxFrameSequenceSeeds - 1u);
-        s_Data.FrameSequenceSeed = sequenceSeed;
+        s_Data.Clock.FrameSequenceSeed = sequenceSeed;
         // The same 2^20 wrap the per-frame advance applies.
-        s_Data.StochasticFrameIndex = (sequenceSeed * kSequenceSeedStride) & 0xFFFFFu;
-        s_Data.TAAJitterFrameIndex = sequenceSeed;
+        s_Data.Clock.StochasticFrameIndex = (sequenceSeed * kSequenceSeedStride) & 0xFFFFFu;
+        s_Data.Clock.TAAJitterFrameIndex = sequenceSeed;
         // The jitter repeats every eight phases, so the second lap of seeds
         // shifts the whole pattern on the torus: seed k and k+8 start at the
         // same phase and still sample different sub-pixel positions.
@@ -730,28 +733,29 @@ namespace OloEngine
                     result += static_cast<f32>(index % base) * fraction;
                 return result;
             };
-            s_Data.TAAJitterRotation = glm::vec2(radicalInverse(lap, 5u), radicalInverse(lap, 7u));
+            s_Data.Clock.TAAJitterRotation = glm::vec2(radicalInverse(lap, 5u), radicalInverse(lap, 7u));
         }
-        s_Data.TemporalUpscalePhaseIndex = 0;
-        s_Data.CurrJitterUV = glm::vec2(0.0f);
-        s_Data.PrevJitterUV = glm::vec2(0.0f);
+        s_Data.Clock.TemporalUpscalePhaseIndex = 0;
+        s_Data.View.CurrJitterUV = glm::vec2(0.0f);
+        s_Data.View.PrevJitterUV = glm::vec2(0.0f);
         // These two wrap at 1024: sixteen seeds get sixteen phases.
-        s_Data.CloudFrameIndex = (sequenceSeed * 64u) & 0x3FFu;
-        s_Data.FogFrameIndex = (sequenceSeed * 64u) & 0x3FFu;
+        s_Data.Clock.CloudFrameIndex = (sequenceSeed * 64u) & 0x3FFu;
+        s_Data.Clock.FogFrameIndex = (sequenceSeed * 64u) & 0x3FFu;
         // The renderer's clocks restart as Init starts them: accumulators at
         // zero, baselines at the current (mockable) time so the first dt is 0.
-        s_Data.CloudWindOffset = glm::vec2(0.0f);
-        s_Data.CloudTime = 0.0f;
-        s_Data.CloudPrevTimeSeconds = Time::GetTime();
-        s_Data.FogTime = 0.0f;
-        s_Data.FogPrevTimeSeconds = Time::GetTime();
-        s_Data.WindPrevTimeSeconds = Time::GetTime();
-        s_Data.AutoExposurePrevTimeSeconds = Time::GetTime();
+        s_Data.Clock.CloudWindOffset = glm::vec2(0.0f);
+        s_Data.Clock.CloudTime = 0.0f;
+        s_Data.Clock.CloudPrevTimeSeconds = Time::GetTime();
+        s_Data.Clock.FogTime = 0.0f;
+        s_Data.Clock.FogPrevTimeSeconds = Time::GetTime();
+        s_Data.Clock.WindPrevTimeSeconds = Time::GetTime();
+        s_Data.Clock.AutoExposurePrevTimeSeconds = Time::GetTime();
         if (WindSystem::IsInitialized())
             WindSystem::ResetClock();
         // Velocity on the next frame is measured against that frame itself,
         // not against the pose a different pre-roll left behind.
-        s_Data.MotionHistoryResetPending = true;
+        s_Data.View.MotionHistoryResetPending = true;
+        s_Data.Scene.PoseHistoryResetPending = true;
         if (s_Data.Pipeline)
         {
             s_Data.Pipeline->ForEachPass(
@@ -806,20 +810,20 @@ namespace OloEngine
     Renderer3D::FrameSamplingContext Renderer3D::GetFrameSamplingContext()
     {
         FrameSamplingContext context;
-        context.SequenceSeed = s_Data.FrameSequenceSeed;
-        context.StochasticFrameIndex = s_Data.StochasticFrameIndex;
-        context.TAAJitterFrameIndex = s_Data.TAAJitterFrameIndex;
-        context.TemporalUpscalePhaseIndex = s_Data.TemporalUpscalePhaseIndex;
-        context.CloudFrameIndex = s_Data.CloudFrameIndex;
-        context.FogFrameIndex = s_Data.FogFrameIndex;
-        context.CurrJitterUV = s_Data.CurrJitterUV;
-        context.PrevJitterUV = s_Data.PrevJitterUV;
-        context.TAAJitterRotation = s_Data.TAAJitterRotation;
-        context.CloudWindOffset = s_Data.CloudWindOffset;
-        context.CloudTime = s_Data.CloudTime;
-        context.FogTime = s_Data.FogTime;
+        context.SequenceSeed = s_Data.Clock.FrameSequenceSeed;
+        context.StochasticFrameIndex = s_Data.Clock.StochasticFrameIndex;
+        context.TAAJitterFrameIndex = s_Data.Clock.TAAJitterFrameIndex;
+        context.TemporalUpscalePhaseIndex = s_Data.Clock.TemporalUpscalePhaseIndex;
+        context.CloudFrameIndex = s_Data.Clock.CloudFrameIndex;
+        context.FogFrameIndex = s_Data.Clock.FogFrameIndex;
+        context.CurrJitterUV = s_Data.View.CurrJitterUV;
+        context.PrevJitterUV = s_Data.View.PrevJitterUV;
+        context.TAAJitterRotation = s_Data.Clock.TAAJitterRotation;
+        context.CloudWindOffset = s_Data.Clock.CloudWindOffset;
+        context.CloudTime = s_Data.Clock.CloudTime;
+        context.FogTime = s_Data.Clock.FogTime;
         context.WindTime = WindSystem::IsInitialized() ? WindSystem::GetAccumulatedTime() : 0.0f;
-        context.MotionHistoryResetPending = s_Data.MotionHistoryResetPending;
+        context.MotionHistoryResetPending = s_Data.View.MotionHistoryResetPending;
         u64 passState = 0;
         if (s_Data.Pipeline)
         {
@@ -858,31 +862,45 @@ namespace OloEngine
 
     void Renderer3D::ResetFrameCamera()
     {
-        s_Data.ViewProjectionMatrix = glm::mat4(1.0f);
-        s_Data.InverseViewProjectionMatrix = glm::mat4(1.0f);
-        s_Data.ViewMatrix = glm::mat4(1.0f);
-        s_Data.ProjectionMatrix = glm::mat4(1.0f);
-        s_Data.RenderOrigin = glm::vec3(0.0f);
-        s_Data.ViewFrustum = Frustum{};
-        s_Data.ViewPos = glm::vec3(0.0f);
-        s_Data.PreviousViewPos = glm::vec3(0.0f);
-        s_Data.HasPreviousViewPosition = false;
-        s_Data.CameraNearClip = 0.1f;
-        s_Data.CameraFarClip = 1000.0f;
-        s_Data.CullViewMatrix = glm::mat4(1.0f);
-        s_Data.CullProjectionMatrix = glm::mat4(1.0f);
-        s_Data.CullViewProjectionMatrix = glm::mat4(1.0f);
-        s_Data.CullViewPos = glm::vec3(0.0f);
-        s_Data.CullNearClip = 0.1f;
-        s_Data.CullFarClip = 1000.0f;
-        s_Data.CullPrevViewProjectionMatrix = glm::mat4(1.0f);
-        s_Data.CullViewProjectionRelative = glm::mat4(1.0f);
-        // The identity view-projection above is no pose: the next frame is
-        // its own motion history, as on a fresh renderer.
-        s_Data.MotionHistoryResetPending = true;
-        s_Data.CullViewPosRelative = glm::vec3(0.0f);
-        s_Data.CullProjParams = glm::vec2(1.0f, 0.1f);
-        s_Data.LODView = LODViewParams{};
+        // The whole view, by assignment (ADR 0025): a field added to
+        // RendererViewState is reset here without being listed. The default
+        // view has MotionHistoryResetPending set, so the next frame is its own
+        // camera history, as on a fresh renderer.
+        s_Data.View = {};
+        // The view's texture histories were accumulated from the camera that
+        // just went away. Forgetting the projection it was observed with (the
+        // assignment above) would otherwise let them survive a reset that
+        // lands on a different projection.
+        InvalidateTemporalHistories(TemporalHistoryInvalidationCause::CameraCut);
+    }
+
+    void Renderer3D::ResetSceneState()
+    {
+        // What the previous world left in the renderer (ADR 0025): object
+        // pose history, environment identities, the scene's weather and water
+        // publications and the sticky profile slots. The default scene state
+        // has PoseHistoryResetPending set, so the first frame of the next world
+        // measures object motion against itself rather than against whatever
+        // entity happened to hold the same id before.
+        //
+        // Not the view (a scene change is not a camera reset), not the frame
+        // clock (visible content being replaced does not restart sampling
+        // sequences or time), and not the GPU Scene records, which
+        // ResetGPUScene owns because an asset reload needs them dropped
+        // without a scene change.
+        //
+        // RendererSceneState() and not {}: the struct is an aggregate, so {}
+        // is aggregate initialisation and leaves the temporary's padding
+        // unspecified, while () zero-initialises the whole object first. The
+        // scene's settings publications in here are trivially copyable and are
+        // copied padding and all. Nothing in the engine reads padding; the
+        // cross-test state check did, and where the compiler gives it no way
+        // to clear padding (RendererStateCheck::ComparesValueBitsOnly) it
+        // still does. This keeps the reset from adding to that.
+        s_Data.Scene = RendererSceneState();
+        s_Data.SkinProfiles.Reset();
+        s_Data.FoliageLeafProfiles.Reset();
+        InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
     }
 
     const GPUScene& Renderer3D::GetGPUScene()
@@ -923,8 +941,8 @@ namespace OloEngine
         // #1259 acceptance scene.
         const auto& shadows = s_Data.Shadow.GetSettings();
         return RayTracing::HybridProducersWanted(
-            s_Data.GPUSceneExtractionActive, s_Data.SceneRT.IsAvailable(), s_Data.Settings.Path == RenderingPath::Deferred,
-            !s_Data.RayTracedShadowLightRequests.IsEmpty(),
+            s_Data.Frame.GPUSceneExtractionActive, s_Data.SceneRT.IsAvailable(), s_Data.Settings.Path == RenderingPath::Deferred,
+            !s_Data.Frame.RayTracedShadowLightRequests.IsEmpty(),
             shadows.Enabled && shadows.Technique == ShadowTechnique::RayTraced,
             s_Data.PostProcess.RayTracedReflection.Enabled);
     }

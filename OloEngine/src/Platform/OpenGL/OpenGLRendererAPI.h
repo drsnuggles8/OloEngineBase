@@ -181,6 +181,9 @@ namespace OloEngine
         // --- Call-site sweep additions (issue #691) --------------------------
         void BindUniformBuffer(u32 bindingPoint, u32 bufferID);
         void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
+        [[nodiscard]] RHI::ResourceHandle GetUniformBufferOccupant(u32 bindingPoint) const override;
+        [[nodiscard]] bool IsUniformBufferBound(u32 bindingPoint, RHI::ResourceHandle buffer) const override;
+        void DistrustUniformBufferOccupancy() override;
         void BindStorageBuffer(u32 bindingPoint, u32 bufferID);
         void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override;
         void BindShaderProgram(u32 programID);

@@ -811,9 +811,9 @@ namespace OloEngine
         // Per-instance vec4 Color and f32 Custom in FrameDataBuffer::Colors /
         // FrameDataBuffer::Customs. UINT32_MAX leaves InstanceData defaults
         // ((1,1,1,1) tint, 0 free float). Populated by the InstanceData
-        // overload of Renderer3D::DrawMeshInstanced — auto-batching of plain
-        // DrawMeshCommand sources leaves them at UINT32_MAX since
-        // DrawMeshCommand has no per-source color/custom slot.
+        // overload of Renderer3D::DrawMeshInstanced, and by auto-batching when
+        // one of the batched DrawMeshCommand sources carries a color or custom
+        // other than the default (DrawMeshCommand::color / custom).
         u32 colorBufferOffset = UINT32_MAX;
         u32 customBufferOffset = UINT32_MAX;
         u32 gpuSceneRefBufferOffset = UINT32_MAX;

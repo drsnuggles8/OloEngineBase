@@ -254,6 +254,15 @@ namespace OloEngine
         {
             return m_AllocatedSize;
         }
+        // The byte range a shader that reads this buffer is handed: the
+        // constructor's size, or the shadow's when SetData grew it past that
+        // (EnsureShadow), since GetRootDataAddress pushes the whole shadow.
+        // This is what the block contract judges; the allocated size alone
+        // would refuse a block every byte of which is present.
+        [[nodiscard]] u32 GetReadableSize() const
+        {
+            return std::max(m_AllocatedSize, m_Size);
+        }
 
         // Draw-record-time address of this buffer's current contents in the
         // frame arena. 0 on arena overflow (the draw's root writer treats

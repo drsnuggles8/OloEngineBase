@@ -344,6 +344,16 @@ namespace OloEngine
         // structure — has to know whether the vertices moved, not whether a
         // frame elapsed, and only the producer can answer that.
         u32 DeformedContentRevision = 0;
+
+        // rgb = the tint this instance multiplies into its material's base
+        // colour (issue #1691); a is reserved and always 1. The instance, not
+        // the material, owns it: N instances of an InstancedMeshComponent share
+        // one material record and differ only here, and a ray that hits one has
+        // nothing else to tell them apart by. Raster reads the same value from
+        // InstanceData::Color, so a hybrid frame and a raster frame agree on
+        // instanced geometry. (1, 1, 1) on every instance that authored no
+        // tint, and a multiply by it is exact.
+        glm::vec4 Tint{ 1.0f };
     };
 
     struct alignas(16) GPUSceneGeometry
@@ -513,7 +523,7 @@ namespace OloEngine
     // again by reflection in GPUSceneLayoutTest.cpp.
     static_assert(sizeof(GPUSceneTransform) == 48);
     static_assert(alignof(GPUSceneTransform) == 16);
-    static_assert(sizeof(GPUSceneInstance) == 144);
+    static_assert(sizeof(GPUSceneInstance) == 160);
     static_assert(alignof(GPUSceneInstance) == 16);
     static_assert(std::is_standard_layout_v<GPUSceneInstance>);
     static_assert(std::is_trivially_copyable_v<GPUSceneInstance>);
@@ -526,6 +536,7 @@ namespace OloEngine
     static_assert(offsetof(GPUSceneInstance, PreviousDeformationRevision) == 132);
     static_assert(offsetof(GPUSceneInstance, DeformationResetCause) == 136);
     static_assert(offsetof(GPUSceneInstance, DeformedContentRevision) == 140);
+    static_assert(offsetof(GPUSceneInstance, Tint) == 144);
     static_assert(sizeof(GPUSceneGeometry) == 64);
     static_assert(alignof(GPUSceneGeometry) == 16);
     static_assert(std::is_standard_layout_v<GPUSceneGeometry>);
@@ -849,6 +860,9 @@ namespace OloEngine
         // Issue #1229. Advances only when the deformed vertex stream was
         // actually rewritten; see GPUSceneInstance::DeformedContentRevision.
         u32 m_DeformedContentRevision = 0;
+        // Issue #1691: GPUSceneInstance::Tint. White unless the producer has a
+        // per-instance colour, which today is InstancedMeshComponent alone.
+        glm::vec3 m_Tint{ 1.0f };
     };
 
     // What an extraction caller knows about the DEFORMATION of the surface it

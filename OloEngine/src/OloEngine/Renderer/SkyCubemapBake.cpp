@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/SkyCubemapBake.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -56,6 +57,13 @@ namespace OloEngine::SkyBake
             OLO_CORE_ERROR("SkyBake::RenderSkyToCubemap: null argument");
             return false;
         }
+
+        // The bake draws through `cameraUBO` on the frame-published camera
+        // binding. The frame's block goes back on every exit, the failed ones
+        // included: a pass that reads the camera without binding it (the post
+        // passes do) must not find the bake's, which has the same layout and
+        // so passes every contract check (issue #1687).
+        const CommandDispatch::ScopedFrameCameraRestore restoreFrameCamera;
 
         const u32 face = cubemap->GetWidth();
         const auto& mats = GetCaptureMatrices();

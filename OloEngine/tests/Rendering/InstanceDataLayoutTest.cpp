@@ -30,7 +30,9 @@
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 
 #include <cstddef>
+#include <limits>
 #include <string_view>
+#include <vector>
 
 namespace OloEngine::Tests
 {
@@ -120,6 +122,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(imc._MergedCache.InlineDataPtr, nullptr);
         EXPECT_EQ(imc._MergedCache.AssetSize, 0u);
         EXPECT_TRUE(imc._MergedCache.Data.IsEmpty());
+        EXPECT_FALSE(imc._MergedCache.IgnoredAlphaReported);
         imc.InvalidateMergedCache();
         EXPECT_NE(imc._MergedCache.InlineSize, 0u) << "Invalidation should leave the size at a sentinel value distinct from any real inline size";
     }
@@ -166,5 +169,67 @@ namespace OloEngine::Tests
         EXPECT_NE(glsl.find("std430"), std::string_view::npos);
         EXPECT_NE(glsl.find("binding = 15"), std::string_view::npos);
         EXPECT_NE(glsl.find("readonly buffer"), std::string_view::npos);
+    }
+
+    // An instance colour's alpha is not applied (issue #1691), so a producer
+    // has to be able to say how many instances brought one. Opaque within a
+    // tolerance is not reported; anything else is, a non-finite alpha included.
+    TEST(InstanceDataLayout, AnAlphaOtherThanOneIsCountedAsIgnored)
+    {
+        std::vector<InstanceData> instances(6);
+        EXPECT_EQ(CountInstancesWithIgnoredAlpha(instances), 0u) << "the default colour is opaque white";
+
+        instances[1].Color.a = 0.25f;
+        instances[2].Color.a = 0.0f;
+        instances[3].Color.a = 1.5f;
+        instances[4].Color.a = std::numeric_limits<f32>::quiet_NaN();
+        instances[5].Color.a = 1.0f - 1.0e-6f; // float noise around 1 is not an authored alpha
+        EXPECT_EQ(CountInstancesWithIgnoredAlpha(instances), 4u);
+
+        // The colour itself is not what is counted.
+        instances[0].Color = glm::vec4(0.2f, 0.4f, 0.6f, 1.0f);
+        EXPECT_EQ(CountInstancesWithIgnoredAlpha(instances), 4u);
+        EXPECT_EQ(CountInstancesWithIgnoredAlpha({}), 0u);
+    }
+
+    // A draw that cannot apply an instance colour reports it only when one was
+    // authored: white, with any alpha, is not a tint.
+    TEST(InstanceDataLayout, ATintIsAColourWhoseRgbIsNotWhite)
+    {
+        std::vector<InstanceData> instances(4);
+        EXPECT_FALSE(AnyInstanceIsTinted(instances));
+        EXPECT_FALSE(AnyInstanceIsTinted({}));
+
+        instances[2].Color.a = 0.3f;
+        EXPECT_FALSE(AnyInstanceIsTinted(instances)) << "alpha is not part of the tint";
+
+        instances[3].Color.b = 0.5f;
+        EXPECT_TRUE(AnyInstanceIsTinted(instances)) << "one tinted instance at the end of the batch is enough";
+
+        instances[3].Color.b = 1.0f;
+        instances[0].Color.r = std::numeric_limits<f32>::quiet_NaN();
+        EXPECT_TRUE(AnyInstanceIsTinted(instances)) << "a non-finite channel is not white";
+    }
+
+    // The tint a CPU consumer multiplies with (the GPU Scene record, the
+    // lightmap bake) never carries a value a path tracer cannot take.
+    TEST(InstanceDataLayout, TheTintACpuConsumerGetsIsFiniteAndNotNegative)
+    {
+        const glm::vec3 kept = InstanceTint(glm::vec4(0.25f, 0.5f, 2.0f, 0.1f));
+        EXPECT_FLOAT_EQ(kept.r, 0.25f);
+        EXPECT_FLOAT_EQ(kept.g, 0.5f);
+        EXPECT_FLOAT_EQ(kept.b, 2.0f) << "a tint above 1 is a colour, not an error";
+
+        const glm::vec3 clamped = InstanceTint(glm::vec4(-0.5f, 0.5f, 1.0f, 1.0f));
+        EXPECT_FLOAT_EQ(clamped.r, 0.0f);
+        EXPECT_FLOAT_EQ(clamped.g, 0.5f);
+
+        for (const f32 bad : { std::numeric_limits<f32>::quiet_NaN(), std::numeric_limits<f32>::infinity() })
+        {
+            const glm::vec3 white = InstanceTint(glm::vec4(0.2f, bad, 0.2f, 1.0f));
+            EXPECT_FLOAT_EQ(white.r, 1.0f) << "one bad channel makes the whole colour white, as the loaders do";
+            EXPECT_FLOAT_EQ(white.g, 1.0f);
+            EXPECT_FLOAT_EQ(white.b, 1.0f);
+        }
     }
 } // namespace OloEngine::Tests

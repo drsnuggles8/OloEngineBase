@@ -6,6 +6,7 @@
 #if OLO_ENABLE_CSHARP_SCRIPTING
 
 #include "OloEngine/Core/UUID.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/Input.h"
 #include "OloEngine/Core/InputActionManager.h"
@@ -1454,6 +1455,24 @@ namespace OloEngine
         OLO_CORE_ASSERT(entity);
         if (!entity.HasComponent<InstancedMeshComponent>())
             return;
+
+        // The same guard the Lua binding has. A non-finite input, or a zero
+        // scale component, makes the transform singular; inst.Normal is
+        // transpose(inverse(Transform)), so the NaN would go into the instance
+        // buffer. And the colour is no longer inert: its rgb multiplies the
+        // base colour on every shading path (issue #1691).
+        if (!Math::IsFinite(*position) || !Math::IsFinite(*eulerRotation) || !Math::IsFinite(*scale) ||
+            !Math::IsFinite(*color) || !std::isfinite(custom))
+        {
+            OLO_CORE_WARN("[C# InstancedMesh] AddInstance got a non-finite value — ignored");
+            return;
+        }
+        if (std::fpclassify(scale->x) == FP_ZERO || std::fpclassify(scale->y) == FP_ZERO ||
+            std::fpclassify(scale->z) == FP_ZERO)
+        {
+            OLO_CORE_WARN("[C# InstancedMesh] AddInstance got a zero scale component — ignored (the transform would be singular)");
+            return;
+        }
 
         InstanceData inst;
         glm::mat4 t = glm::translate(glm::mat4(1.0f), *position);

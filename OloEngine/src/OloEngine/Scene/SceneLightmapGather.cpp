@@ -117,9 +117,11 @@ namespace OloEngine
                         {
                             continue;
                         }
-                        receivers.Add(LightmapReceiver{ uuid, instance.StableID | sourceNamespace, handle,
-                                                        imc.MeshSource, instance.Transform, overrideMaterial,
-                                                        LightmapReceiverKind::Instance });
+                        LightmapReceiver receiver{ uuid, instance.StableID | sourceNamespace, handle,
+                                                   imc.MeshSource, instance.Transform, overrideMaterial,
+                                                   LightmapReceiverKind::Instance };
+                        receiver.Tint = InstanceTint(instance.Color);
+                        receivers.Add(std::move(receiver));
                     }
                 };
 

@@ -2,6 +2,7 @@
 #include "Platform/Vulkan/VulkanAddressCommands.h"
 #include "Platform/Vulkan/VulkanTrackedAllocation.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
+#include "OloEngine/Renderer/UniformBlockContract.h"
 
 #if OLO_WITH_VULKAN
 
@@ -743,6 +744,34 @@ namespace OloEngine
                         vkBarrier.srcStageMask |= VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT |
                                                   VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
                         vkBarrier.srcAccessMask |= VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+                    }
+                    // BARRIERS IN ONE vkCmdPipelineBarrier2 DO NOT CHAIN. Each is
+                    // judged against the state before the call, but the tracker
+                    // is advanced per barrier (SetLayout below), so when a batch
+                    // names one subresource twice the second entry derives its
+                    // source from the layout the FIRST entry moves it to and
+                    // misses whatever really wrote it last. A depth target that
+                    // was transfer-cleared because its pass drew nothing is the
+                    // case that showed it: the first entry carried the transfer
+                    // widening above, the second named only the attachment
+                    // stages, and sync validation reported WRITE_AFTER_WRITE
+                    // against the clear (a Deferred frame with no geometry).
+                    // Carry the earlier entry's source scope: it can only add
+                    // synchronisation, and only when such a duplicate exists.
+                    for (const VkImageMemoryBarrier2& earlier : imageBarriers)
+                    {
+                        if (earlier.image != image)
+                            continue;
+                        const VkImageSubresourceRange& a = earlier.subresourceRange;
+                        const bool mipsOverlap = a.baseMipLevel < run.baseMipLevel + run.levelCount &&
+                                                 run.baseMipLevel < a.baseMipLevel + a.levelCount;
+                        const bool layersOverlap = a.baseArrayLayer < run.baseArrayLayer + run.layerCount &&
+                                                   run.baseArrayLayer < a.baseArrayLayer + a.layerCount;
+                        if (mipsOverlap && layersOverlap)
+                        {
+                            vkBarrier.srcStageMask |= earlier.srcStageMask;
+                            vkBarrier.srcAccessMask |= earlier.srcAccessMask;
+                        }
                     }
                     // The pure lowering emits the full shader-stage union;
                     // the device knows which stage features are ENABLED
@@ -2744,6 +2773,9 @@ namespace OloEngine
 
                 u64 address = 0;
                 bool occupantAbsent = false;
+                // The occupant exists and was refused by the binding contract:
+                // already reported there, and substituted like an absent one.
+                bool occupantRefused = false;
                 if (pullStream != ~sizet{ 0 })
                 {
                     // A VAO with fewer streams than the shader pulls (a
@@ -2768,7 +2800,30 @@ namespace OloEngine
                 else if (auto* ubo = bindingState.GetUniformBuffer(binding.Binding);
                          ubo != nullptr && binding.BindingKind == VulkanShaderBinding::Kind::UniformBuffer)
                 {
-                    address = ubo->GetRootDataAddress();
+                    // A buffer is published here; whether it is the buffer of
+                    // THIS block is a separate question (ADR 0025 section 5a).
+                    // An occupant of another layout has a perfectly good
+                    // address, and the shader would read its bytes as its own
+                    // fields: the vegetation deformer chased the skeletal
+                    // deformer block past its end as device addresses (#1437).
+                    // Compare what the block declares with what the occupant
+                    // says it is, and hand over the address only when they agree.
+                    if (BindingContract::Enabled())
+                    {
+                        const BindingContract::BlockRequirement required{ .Binding = binding.Binding,
+                                                                          .Size = binding.BlockSize,
+                                                                          .NameHash = binding.BlockNameHash };
+                        const BindingContract::Verdict verdict =
+                            BindingContract::Check(required, ubo->GetReadableSize(), ubo->GetBlockDeclaration());
+                        if (verdict != BindingContract::Verdict::Satisfied)
+                        {
+                            BindingContract::ReportViolation(shaderName, required, binding.Name.ToView(),
+                                                             ubo->GetReadableSize(), ubo->GetBlockName(), verdict);
+                            occupantRefused = true;
+                        }
+                    }
+                    if (!occupantRefused)
+                        address = ubo->GetRootDataAddress();
                 }
                 else if (auto* ssbo = bindingState.GetStorageBuffer(binding.Binding);
                          ssbo != nullptr && isStorage)
@@ -2812,7 +2867,8 @@ namespace OloEngine
                     // matching what this comment always promised.
                     static VulkanWarnOnceSet s_WarnedBindings; // items may fail concurrently (#806)
                     const auto severity = ClassifyMissingVulkanBuffer(shaderName, binding, occupantAbsent);
-                    if (s_WarnedBindings.Insert(MissingVulkanBufferDiagnosticKey(shaderName, binding, severity)))
+                    if (!occupantRefused &&
+                        s_WarnedBindings.Insert(MissingVulkanBufferDiagnosticKey(shaderName, binding, severity)))
                     {
                         // An unfed UBO reads defined zeros — wrong, survivable.
                         // An unfed SSBO is a small block a shader INDEXES, and
@@ -4742,6 +4798,22 @@ namespace OloEngine
     {
         auto& ctx = Ctx();
         ctx.ConditionalRenderSkip = false;
+    }
+
+    RHI::ResourceHandle VulkanRendererAPI::GetUniformBufferOccupant(u32 bindingPoint) const
+    {
+        // The calling recording context's mirror: a worker item's own while
+        // it records, the process-wide one otherwise.
+        const VulkanUniformBuffer* occupant = VulkanBindingState::Get().GetUniformBuffer(bindingPoint);
+        return occupant != nullptr ? occupant->GetRHIHandle() : RHI::ResourceHandle{};
+    }
+
+    bool VulkanRendererAPI::IsUniformBufferBound(u32 bindingPoint, RHI::ResourceHandle buffer) const
+    {
+        // The mirror is the binding: there is no driver state behind it for
+        // anyone to change.
+        const VulkanUniformBuffer* occupant = VulkanBindingState::Get().GetUniformBuffer(bindingPoint);
+        return buffer.IsValid() && occupant != nullptr && occupant->GetRHIHandle() == buffer;
     }
 
     void VulkanRendererAPI::BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer)

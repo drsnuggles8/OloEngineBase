@@ -289,8 +289,8 @@ namespace OloEngine
             OLO_CORE_ERROR("ReflectionProbeBaker: distance-capture FBO or shader unavailable");
             return nullptr;
         }
-        auto cameraUBO = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
-        auto passUBO = UniformBuffer::Create(sizeof(ProbeDistanceCaptureUBO), ShaderBindingLayout::UBO_USER_0);
+        auto cameraUBO = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
+        auto passUBO = UniformBuffer::Create(sizeof(ProbeDistanceCaptureUBO), ShaderBindingLayout::UBO_USER_0, "ProbeDistanceCaptureData");
 
         // Everything below runs in ABSOLUTE world space: the face cameras sit
         // at the world probe position and the caster transforms are absolute

@@ -8,6 +8,7 @@
 #include <type_traits>
 #include <utility>
 #include "OloEngine/Renderer/Buffer.h"
+#include "OloEngine/Renderer/UniformBlockContract.h"
 #include "OloEngine/Core/Ref.h"
 
 namespace OloEngine
@@ -19,6 +20,9 @@ namespace OloEngine
         // CPU-side cache of the buffer data to allow reading
         void* m_LocalData = nullptr;
         u32 m_Size = 0;
+        // Set once by Create, before the buffer is handed out.
+        BindingContract::BlockDeclaration m_BlockDeclaration{};
+        std::string_view m_BlockName{};
 
       public:
         virtual ~UniformBuffer()
@@ -122,6 +126,33 @@ namespace OloEngine
             return result;
         }
 
+        // The GLSL block this buffer was built for (ADR 0025 §5a). Every draw
+        // and dispatch checks a block it reads against its binding point's
+        // occupant; an engine buffer on a binding point that hosts more than
+        // one layout (ShaderBindingLayout::IsMultiLayoutUBOBinding) says which
+        // one it holds, so that a read of another tenant's block is refused.
+        [[nodiscard]] const BindingContract::BlockDeclaration& GetBlockDeclaration() const
+        {
+            return m_BlockDeclaration;
+        }
+        [[nodiscard]] std::string_view GetBlockName() const
+        {
+            return m_BlockName;
+        }
+
         static Ref<UniformBuffer> Create(u32 size, u32 binding);
+        // `blockName` is the GLSL block name the buffer feeds, spelled as the
+        // shader spells it; `aliasName` is a second spelling of the SAME layout
+        // where two shaders name it differently. Both must be string literals
+        // (the buffer keeps the view): UniformBlockContractSourceTest checks
+        // each against the shader sources.
+        static Ref<UniformBuffer> Create(u32 size, u32 binding, std::string_view blockName, std::string_view aliasName = {});
+        // For a per-item or per-view copy of another buffer: it holds the same
+        // block, so it makes the same declaration.
+        void DeclareBlockLike(const UniformBuffer& other)
+        {
+            m_BlockDeclaration = other.m_BlockDeclaration;
+            m_BlockName = other.m_BlockName;
+        }
     };
 } // namespace OloEngine

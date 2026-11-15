@@ -206,7 +206,7 @@ namespace OloEngine::RayTracing
             }
         }
         if (!m_GpuParams)
-            m_GpuParams = UniformBuffer::Create(sizeof(GpuProxyParams), ShaderBindingLayout::UBO_RAY_TRACING);
+            m_GpuParams = UniformBuffer::Create(sizeof(GpuProxyParams), ShaderBindingLayout::UBO_RAY_TRACING, "RayTracingGroomProxyParams");
         return m_GpuParams != nullptr;
     }
 

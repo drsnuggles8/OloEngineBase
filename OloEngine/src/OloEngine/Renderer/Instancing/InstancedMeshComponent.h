@@ -148,6 +148,11 @@ namespace OloEngine
             // thousands of instances — far too much to redo every frame for a
             // value that only changes when the bake is re-resolved.
             u64 LightmapResolveGeneration = 0;
+            // Whether Scene's render loop has already said that this
+            // component's instances carry an alpha the renderer does not apply
+            // (issue #1691). Cleared when a looked-at set has none, so a
+            // component that gains one again is reported again.
+            bool IgnoredAlphaReported = false;
         };
         // Runtime-derived cache — never serialized, and (Skip) never MCP-writable:
         // sub-object addressing would otherwise expose _MergedCache.PlacementHandle as

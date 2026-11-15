@@ -49,6 +49,12 @@ namespace OloEngine
         // key and the bake both resolve through it, so a patched skin shades the
         // bake the way it shades the frame.
         const MaterialOverrideCache* MaterialPatches = nullptr;
+        // What multiplies the resolved material's base colour: an instance's
+        // colour (InstanceData::Color.rgb, issue #1691), already sanitized by
+        // InstanceTint. White for every receiver that is not an instance. The
+        // bake and the bake key both read it, so a tinted instance bounces its
+        // own colour and editing the tint stales the bake.
+        glm::vec3 Tint{ 1.0f };
     };
 
     // The reference owns an external mesh; all other fields are values or borrowed

@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Core/CVar.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -400,9 +401,9 @@ namespace OloEngine
             }
         }
 
-        s_Data.SharedSceneUBOs.Camera = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+        s_Data.SharedSceneUBOs.Camera = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
         constexpr u32 materialBufferSize = ShaderBindingLayout::PBRMaterialUBO::GetSize();
-        s_Data.SharedSceneUBOs.Material = UniformBuffer::Create(materialBufferSize, ShaderBindingLayout::UBO_MATERIAL);
+        s_Data.SharedSceneUBOs.Material = UniformBuffer::Create(materialBufferSize, ShaderBindingLayout::UBO_MATERIAL, "PBRMaterialProperties");
         // Validate the MultiLightUBO fits within the GPU's uniform block size limit.
         // MAX_LIGHTS=256 produces ~20 KB which exceeds the GL spec minimum of 16 KB
         // but is within typical desktop GPU limits (64 KB+).
@@ -460,30 +461,30 @@ namespace OloEngine
         s_Data.TerrainUBO = UniformBuffer::Create(ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);
         s_Data.FoliageUBO = UniformBuffer::Create(ShaderBindingLayout::FoliageUBO::GetSize(), ShaderBindingLayout::UBO_FOLIAGE);
         s_Data.WaterUBO = UniformBuffer::Create(ShaderBindingLayout::WaterUBO::GetSize(), ShaderBindingLayout::UBO_WATER);
-        s_Data.PostProcessGPU.PostProcess = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0);
-        s_Data.PostProcessGPU.MotionBlur = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1);
+        s_Data.PostProcessGPU.PostProcess = UniformBuffer::Create(PostProcessUBOData::GetSize(), ShaderBindingLayout::UBO_USER_0, "PostProcessUBO");
+        s_Data.PostProcessGPU.MotionBlur = UniformBuffer::Create(MotionBlurUBOData::GetSize(), ShaderBindingLayout::UBO_USER_1, "MotionBlurMatrices", "MotionBlurUBO");
         s_Data.PostProcessGPU.SSAO = UniformBuffer::Create(SSAOUBOData::GetSize(), ShaderBindingLayout::UBO_SSAO);
         s_Data.PostProcessGPU.GTAO = UniformBuffer::Create(UBOStructures::GTAOUBO::GetSize(), ShaderBindingLayout::UBO_GTAO);
         s_Data.PostProcessGPU.SSR = UniformBuffer::Create(SSRUBOData::GetSize(), ShaderBindingLayout::UBO_SSR);
         s_Data.PostProcessGPU.SSGI = UniformBuffer::Create(SSGIUBOData::GetSize(), ShaderBindingLayout::UBO_SSGI);
         s_Data.PostProcessGPU.ContactShadow = UniformBuffer::Create(ContactShadowUBOData::GetSize(), ShaderBindingLayout::UBO_CONTACT_SHADOW);
         s_Data.PostProcessGPU.RayTracedShadow = UniformBuffer::Create(
-            UBOStructures::RayTracingShadowUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+            UBOStructures::RayTracingShadowUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING, "RayTracingShadowParams");
         s_Data.PostProcessGPU.RayTracedReflection = UniformBuffer::Create(
-            UBOStructures::RayTracingReflectionUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+            UBOStructures::RayTracingReflectionUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING, "RayTracingReflectionParams");
         s_Data.PostProcessGPU.GpuPathTracer = UniformBuffer::Create(
-            UBOStructures::RayTracingPathTracerUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+            UBOStructures::RayTracingPathTracerUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING, "RayTracingPathTracerParams");
         s_Data.PostProcessGPU.ReSTIRDI = UniformBuffer::Create(
-            UBOStructures::ReSTIRDIUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+            UBOStructures::ReSTIRDIUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING, "ReSTIRDIParams");
         // The SAME binding, refilled per dispatch (#691): UBO_TERRAIN_BRUSH (83)
         // is the last engine binding and UBO_BINDING_LIMIT (84) is the GL 4.6
         // guaranteed floor, so there is no free binding for a fifth ray-tracing
         // block. Its own BUFFER, though, because the two tiers' blocks are
         // different sizes and one shared allocation would have to be the larger.
         s_Data.PostProcessGPU.ReSTIRGI = UniformBuffer::Create(
-            UBOStructures::ReSTIRGIUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING);
+            UBOStructures::ReSTIRGIUBO::GetSize(), ShaderBindingLayout::UBO_RAY_TRACING, "ReSTIRGIParams");
         s_Data.SceneEffectsGPU.Snow = UniformBuffer::Create(SnowUBOData::GetSize(), ShaderBindingLayout::UBO_SNOW);
-        s_Data.SceneEffectsGPU.SSS = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS);
+        s_Data.SceneEffectsGPU.SSS = UniformBuffer::Create(SSSUBOData::GetSize(), ShaderBindingLayout::UBO_SSS, "SSSParams");
         s_Data.SceneEffectsGPU.Fog = UniformBuffer::Create(FogUBOData::GetSize(), ShaderBindingLayout::UBO_FOG);
         s_Data.SceneEffectsGPU.FogVolumes = UniformBuffer::Create(FogVolumesUBOData::GetSize(), ShaderBindingLayout::UBO_FOG_VOLUMES);
         s_Data.SceneEffectsGPU.FogVolumesData = FogVolumesUBOData{};
@@ -514,11 +515,14 @@ namespace OloEngine
         EnvironmentMap::InitializeIBLSystem(m_ShaderLibrary);
         OLO_CORE_INFO("IBL system initialized.");
 
-        s_Data.ViewPos = glm::vec3(0.0f, 0.0f, 3.0f);
+        s_Data.View.ViewPos = glm::vec3(0.0f, 0.0f, 3.0f);
 
-        s_Data.Stats.Reset();
+        s_Data.Frame.Stats.Reset();
 
         s_Data.RGraph = Ref<RenderGraph>::Create();
+        // The camera block is frame-published: the graph puts it back before
+        // every pass, so no pass reads a predecessor's (issue #1687).
+        s_Data.RGraph->SetPassEntryPublication(&CommandDispatch::PublishFrameCamera);
         RenderGraphDebugRuntime::SetActiveGraph(s_Data.RGraph);
 
         // The groom LOD console variables (#1616, #1612), once per process.
@@ -597,11 +601,11 @@ namespace OloEngine
         // RenderPipeline.cpp's SampleMockableDt). Seeded from the CURRENT
         // clock — the mock when one is already installed — so the first
         // frame's dt is 0 rather than a wall-clock-dependent clamp.
-        s_Data.FogFrameIndex = 0;
-        s_Data.FogPrevTimeSeconds = Time::GetTime();
-        s_Data.AutoExposurePrevTimeSeconds = Time::GetTime();
-        s_Data.WindPrevTimeSeconds = Time::GetTime();
-        s_Data.FogTime = 0.0f;
+        s_Data.Clock.FogFrameIndex = 0;
+        s_Data.Clock.FogPrevTimeSeconds = Time::GetTime();
+        s_Data.Clock.AutoExposurePrevTimeSeconds = Time::GetTime();
+        s_Data.Clock.WindPrevTimeSeconds = Time::GetTime();
+        s_Data.Clock.FogTime = 0.0f;
 
         // Initialize Forward+ light culling system
         s_Data.ForwardPlus.Initialize(fbWidth, fbHeight);
@@ -661,11 +665,12 @@ namespace OloEngine
         // each of those passes binds its own before it dispatches).
         //
         // Not here: the camera, material and both bone-matrix blocks. The
-        // dispatcher binds those per draw through its bound-state cache, which
-        // ResetState empties every frame. Re-binding them here as well would
-        // make a stale cache look right, and hide the missing-reset fault
-        // RendererStateMachineNegativeControl injects to prove the harness
-        // catches it.
+        // dispatcher binds those per draw, after asking the backend whether
+        // its buffer is already the binding point's occupant (issue #1688).
+        //
+        // The motion-blur matrices are re-bound here for parity with Init, but
+        // no pass may count on it: binding 8 is pass-scoped and every reader
+        // calls BindMotionMatrices (issue #1687).
         rebind(s_Data.MultiLightBuffer);
         rebind(s_Data.TerrainUBO);
         rebind(s_Data.FoliageUBO);
@@ -692,6 +697,12 @@ namespace OloEngine
         rebind(s_Data.SceneEffectsGPU.DRS);
         rebind(s_Data.UnderwaterFogBuffer);
         rebind(s_Data.LightProbeSHBuffer);
+    }
+
+    void Renderer3D::BindMotionMatrices()
+    {
+        if (s_Data.PostProcessGPU.MotionBlur)
+            s_Data.PostProcessGPU.MotionBlur->Bind();
     }
 
     std::vector<std::string> Renderer3D::DebugLiveGpuOwningStatics()
@@ -729,6 +740,40 @@ namespace OloEngine
         note("RasterMaterialTextures", s_Data.RasterMaterialTextures.HasGPUResources());
 
         return live;
+    }
+
+    Renderer3D::OwnedStateCensus Renderer3D::DebugOwnedStateCensus()
+    {
+        OwnedStateCensus census;
+
+        const auto& view = s_Data.View;
+        census.ViewHistoryFacts += view.HasPreviousViewPosition ? 1u : 0u;
+        census.ViewHistoryFacts += view.HasTemporalProjectionMatrix ? 1u : 0u;
+        census.ViewHistoryFacts += view.MotionHistoryResetPending ? 0u : 1u;
+        census.ViewHistoryFacts += view.OcclusionHZBValid ? 1u : 0u;
+        census.ViewHistoryFacts += Math::BitwiseEqual(view.RenderOrigin, glm::vec3(0.0f)) ? 0u : 1u;
+
+        const auto& scene = s_Data.Scene;
+        census.ScenePoseRecords = static_cast<u32>(scene.PrevEntityTransforms.size() + scene.CurrEntityTransforms.size() +
+                                                   scene.PrevInstanceTransforms.size() + scene.CurrInstanceTransforms.size());
+        census.ScenePublications += scene.GlobalIrradianceMapID.IsValid() ? 1u : 0u;
+        census.ScenePublications += scene.GlobalPrefilterMapID.IsValid() ? 1u : 0u;
+        census.ScenePublications += scene.GlobalBRDFLutMapID.IsValid() ? 1u : 0u;
+        census.ScenePublications += scene.GlobalEnvironmentMapID.IsValid() ? 1u : 0u;
+        census.ScenePublications += scene.Cloudscape.Enabled ? 1u : 0u;
+
+        const auto& frame = s_Data.Frame;
+        census.FrameHandOffs = static_cast<u32>(frame.RayTracedShadowLightRequests.Num() + frame.GroomStrandRequests.Num() +
+                                                frame.GPUSceneDrawLinks.Num() + frame.SelectionOutlineEntityIDs.Num() +
+                                                frame.PendingFluidDraws.Num() + frame.AOProxyBounds.Num());
+        census.FrameHandOffs += frame.PendingParticleRenderCallback ? 1u : 0u;
+        census.FrameHandOffs += frame.PendingUICompositeRenderCallback ? 1u : 0u;
+
+        const auto& clock = s_Data.Clock;
+        census.ClockAtRest = clock.TAAJitterFrameIndex == 0u && clock.TemporalUpscalePhaseIndex == 0u &&
+                             clock.StochasticFrameIndex == 0u && clock.FrameSequenceSeed == 0u &&
+                             clock.CloudFrameIndex == 0u && clock.FogFrameIndex == 0u;
+        return census;
     }
 
     void Renderer3D::Shutdown()
@@ -779,7 +824,6 @@ namespace OloEngine
         OcclusionStateManager::GetInstance().Clear();
         // Release the persistent Hi-Z occlusion pyramid (#431).
         s_Data.OcclusionHZB.Shutdown();
-        s_Data.OcclusionHZBValid = false;
 
         // Release the debug-draw channels + their readback staging (#725) while
         // GL is alive.
@@ -843,20 +887,6 @@ namespace OloEngine
         // Clear any pending GPU resource commands
         GPUResourceQueue::Clear();
 
-        // Reset the mockable per-frame dt trackers + fog temporal state
-        s_Data.FogFrameIndex = 0;
-        s_Data.FogPrevTimeSeconds = 0.0f;
-        s_Data.AutoExposurePrevTimeSeconds = 0.0f;
-        s_Data.WindPrevTimeSeconds = 0.0f;
-        s_Data.FogTime = 0.0f;
-
-        // Reset cloudscape state + wind-advection accumulators (issue #633)
-        s_Data.Cloudscape = {};
-        s_Data.CloudWindOffset = glm::vec2(0.0f);
-        s_Data.CloudTime = 0.0f;
-        s_Data.CloudFrameIndex = 0;
-        s_Data.CloudPrevTimeSeconds = 0.0f;
-
         if (s_Data.RGraph)
         {
             s_Data.RGraph->Shutdown();
@@ -897,7 +927,6 @@ namespace OloEngine
         s_Data.PathTracerMaterialTextures.Shutdown();
         s_Data.RasterMaterialTextures.Shutdown();
         s_Data.SceneGPU.Shutdown();
-        s_Data.GPUSceneExtractionActive = false;
         // The two-phase GPU culler (#431) owns a pool of StorageBuffers / InstanceBuffers.
         // It was created in Init but never released here, so it outlived Shutdown and was
         // destroyed during STATIC destruction at process exit — by which time the Meyer's
@@ -1026,6 +1055,17 @@ namespace OloEngine
         // session that can create it. See docs/agent-rules/lazy-static-release-ownership.md.
         GPUTimerQueryPool::GetInstance().Shutdown();
         RendererProfiler::GetInstance().Shutdown();
+
+        // The owned contexts go back to their defaults by assignment (ADR 0025),
+        // after every GPU object above is gone: a restarted renderer has no
+        // camera, no motion or sampling history, no scene publication and no
+        // pending pass callback from this run. A field added to one of these
+        // structs is covered without being listed here. The lists this replaces
+        // reset the clocks and the cloudscape and left everything else.
+        s_Data.View = {};
+        s_Data.Scene = RendererSceneState(); // () for its padding: see ResetSceneState
+        s_Data.Frame = {};
+        s_Data.Clock = {};
 
         s_Data.CoreInitialized = false;
 

@@ -885,6 +885,41 @@ namespace OloEngine
         }
     }
 
+    static void SerializeSkinDiffusionSettings(YAML::Emitter& out, const SkinDiffusionSettings& sd)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        out << YAML::Key << "SkinDiffusionSettings";
+        out << YAML::BeginMap;
+        out << YAML::Key << "Enabled" << YAML::Value << sd.Enabled;
+        out << YAML::Key << "Quality" << YAML::Value << static_cast<int>(sd.Quality);
+        out << YAML::Key << "DepthRejectionScale" << YAML::Value << sd.DepthRejectionScale;
+        out << YAML::Key << "RadiusScale" << YAML::Value << sd.RadiusScale;
+        out << YAML::EndMap;
+    }
+
+    static void DeserializeSkinDiffusionSettings(const YAML::Node& data, SkinDiffusionSettings& sd)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (auto sdNode = data["SkinDiffusionSettings"]; sdNode)
+        {
+            TrySet(sd.Enabled, sdNode["Enabled"]);
+            TrySetEnum(sd.Quality, sdNode["Quality"]);
+            TrySet(sd.DepthRejectionScale, sdNode["DepthRejectionScale"]);
+            TrySet(sd.RadiusScale, sdNode["RadiusScale"]);
+
+            // Validate: an unknown tier falls back to the default; floats are
+            // sanitized then clamped to the ranges the panel exposes
+            if (!IsValidSkinDiffusionQuality(static_cast<i32>(sd.Quality)))
+            {
+                sd.Quality = SkinDiffusionQuality::Medium;
+            }
+            SanitizeFloat(sd.DepthRejectionScale, 0.1f, 8.0f, 2.0f);
+            SanitizeFloat(sd.RadiusScale, 0.0f, 4.0f, 1.0f);
+        }
+    }
+
     static void SerializePrecipitationSettings(YAML::Emitter& out, const PrecipitationSettings& ps)
     {
         OLO_PROFILE_FUNCTION();
@@ -7627,6 +7662,7 @@ namespace OloEngine
         DeserializeWindSettings(data, scene.GetWindSettings());
         DeserializeSnowAccumulationSettings(data, scene.GetSnowAccumulationSettings());
         DeserializeSnowEjectaSettings(data, scene.GetSnowEjectaSettings());
+        DeserializeSkinDiffusionSettings(data, scene.GetSkinDiffusionSettings());
         DeserializePrecipitationSettings(data, scene.GetPrecipitationSettings());
 
         if (auto ssNode = data["StreamingSettings"]; ssNode && ssNode.IsMap())
@@ -7953,6 +7989,7 @@ namespace OloEngine
         SerializeWindSettings(out, m_Scene->GetWindSettings());
         SerializeSnowAccumulationSettings(out, m_Scene->GetSnowAccumulationSettings());
         SerializeSnowEjectaSettings(out, m_Scene->GetSnowEjectaSettings());
+        SerializeSkinDiffusionSettings(out, m_Scene->GetSkinDiffusionSettings());
         SerializePrecipitationSettings(out, m_Scene->GetPrecipitationSettings());
 
         // Streaming settings

@@ -8,6 +8,7 @@
 // include is direct rather than transitive through RendererAPI.h, which is
 // now GL-free.
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cmath>
@@ -553,6 +554,7 @@ namespace OloEngine
         newScene->m_SnowSettings = other->m_SnowSettings;
         newScene->m_SnowAccumulationSettings = other->m_SnowAccumulationSettings;
         newScene->m_SnowEjectaSettings = other->m_SnowEjectaSettings;
+        newScene->m_SkinDiffusionSettings = other->m_SkinDiffusionSettings;
         newScene->m_PrecipitationSettings = other->m_PrecipitationSettings;
         // Floating-origin config must survive into the Play/Simulate copy (same
         // scene-level-settings contract as WindSettings above — issue #429). The
@@ -1557,15 +1559,17 @@ namespace OloEngine
         FoliageInteractionField::Reset();
         WaterRainRippleSystem::Reset();
         WaterSpraySystem::Reset();
-        // Skin profile slots (issue #1231), reset here for the same reason as
-        // the fields above: the table is sticky across frames by design, so
-        // without this a scene switch carries the previous scene's profiles in
-        // the seven slots the G-Buffer can name and the new scene's run out.
-        // A handle that failed to load is forgotten too, so replacing a missing
-        // .oloskin and reloading recovers without restarting the editor.
-        Renderer3D::GetSkinProfileTable().Reset();
-        // The other tenant of the same G-Buffer slot field (issue #1234).
-        Renderer3D::GetFoliageLeafProfileTable().Reset();
+        // Everything the previous world left in the renderer (ADR 0025), through
+        // the renderer's own scene reset rather than table by table. It covers
+        // the skin profile slots (issue #1231: sticky across frames by design, so
+        // a scene switch would carry the previous scene's profiles in the seven
+        // slots the G-Buffer can name and the new scene's would run out; a handle
+        // that failed to load is forgotten too, so replacing a missing .oloskin
+        // and reloading recovers without restarting the editor), their leaf
+        // tenant (issue #1234), and the object pose history, which is keyed by
+        // entity id and would otherwise hand the new world's entities the old
+        // world's previous transforms for one frame.
+        Renderer3D::ResetSceneState();
 
         // Deterministic run setup (issue #452): reset the fixed-timestep tick
         // counter / accumulator / animation clock and re-seed the gameplay RNG
@@ -2080,10 +2084,8 @@ namespace OloEngine
         FoliageInteractionField::Reset();
         WaterRainRippleSystem::Reset();
         WaterSpraySystem::Reset();
-        // Same skin-profile slot reset as OnRuntimeStart, for the same reason.
-        Renderer3D::GetSkinProfileTable().Reset();
-        // The other tenant of the same G-Buffer slot field (issue #1234).
-        Renderer3D::GetFoliageLeafProfileTable().Reset();
+        // Same renderer scene reset as OnRuntimeStart, for the same reason.
+        Renderer3D::ResetSceneState();
 
         // Seed each particle system's RNG from the fixed preview seed so a
         // Simulate session's emission is decorrelated across systems and
@@ -16321,7 +16323,11 @@ namespace OloEngine
                     cache.InlineDataPtr = inlineDataPtr;
                     cache.PlacementHandle = imc.PlacementAssetHandle;
                     cache.AssetSize = 0;
-                    cache.AssetDataPtr = nullptr;
+                    // The placement's own pointer, not null: an empty placement
+                    // list that still owns storage has a non-null data(), and a
+                    // null here made `assetInputChanged` above true on every
+                    // frame for it.
+                    cache.AssetDataPtr = assetInstances.data();
                 }
                 else
                 {
@@ -16352,6 +16358,44 @@ namespace OloEngine
                     }
                     instData = cache.Data.GetData();
                     totalCount = static_cast<sizet>(cache.Data.Num());
+                }
+
+                // An instance colour tints the base colour with its rgb; its
+                // alpha is not applied (issue #1691, InstanceData.h). Say so
+                // when a component brings one: once per component for as long
+                // as its set keeps one, so a script that rebuilds its instances
+                // every frame writes one line and not one a frame. The set is
+                // looked at when `stableInputsChanged`: on the first frame it
+                // is seen, and whenever it is resized, replaced or invalidated.
+                // An edit in place is the component's own contract
+                // (InvalidateMergedCache), and the same call makes this look
+                // again. The process-wide cap is only a flood guard against
+                // components created without end, and it says when it closes.
+                if (stableInputsChanged)
+                {
+                    const sizet ignoredAlpha = CountInstancesWithIgnoredAlpha({ instData, totalCount });
+                    if (ignoredAlpha == 0)
+                    {
+                        cache.IgnoredAlphaReported = false;
+                    }
+                    else if (!cache.IgnoredAlphaReported)
+                    {
+                        cache.IgnoredAlphaReported = true;
+                        constexpr u32 kMaxReports = 64;
+                        static std::atomic<u32> s_Reports{ 0 };
+                        if (const u32 report = s_Reports.fetch_add(1, std::memory_order_relaxed); report < kMaxReports)
+                        {
+                            const char* name = m_Registry.all_of<TagComponent>(entity)
+                                                   ? m_Registry.get<TagComponent>(entity).Tag.c_str()
+                                                   : "<unnamed>";
+                            OLO_CORE_WARN("InstancedMeshComponent on '{}': {} of {} instances have a colour alpha other "
+                                          "than 1. Instance alpha is not applied; the colour tints the material's base "
+                                          "colour with its RGB only (issue #1691).{}",
+                                          name, ignoredAlpha, totalCount,
+                                          report + 1 == kMaxReports ? " Further reports of this kind are suppressed."
+                                                                    : "");
+                        }
+                    }
                 }
 
                 // Baked lightmap regions, one PER INSTANCE (issue #867). This is
@@ -16453,9 +16497,15 @@ namespace OloEngine
                             // yet. Asking for no link keeps a 20k-instance
                             // scatter scene from staging and resolving 20k links
                             // per frame that nothing can read.
+                            //
+                            // The record carries the instance's tint (issue
+                            // #1691): the draw below reads it from the same
+                            // InstanceData, so a ray and a raster fragment
+                            // shade this instance with one colour.
                             (void)Renderer3D::ExtractGPUSceneMesh(stableEntityId, stableInstanceId, imc.MeshSource,
                                                                   static_cast<u32>(i), instData[k].Transform,
-                                                                  materialKey, GPUSceneDrawLinkRequest::None);
+                                                                  materialKey, GPUSceneDrawLinkRequest::None, {},
+                                                                  InstanceTint(instData[k].Color));
                         }
                         auto submesh = Ref<Mesh>::Create(imc.MeshSource, i);
                         auto* packet = Renderer3D::DrawMeshInstanced(
@@ -17553,7 +17603,10 @@ namespace OloEngine
         // Set particle render callback — executed by ParticleRenderPass during graph execution
         Renderer3D::SetParticleRenderCallback([this, &camera]()
                                               {
-                                                  ParticleBatchRenderer::BeginBatch(camera);
+                                                  // Inside the particle pass: the batch is drawn into the
+                                                  // frame's main view and takes that view's history.
+                                                  const ParticleCameraHistory history = ParticleBatchRenderer::MainViewHistory();
+                                                  ParticleBatchRenderer::BeginBatch(camera, &history);
 
                                                   glm::vec3 camPos = camera.GetPosition();
 
@@ -17628,7 +17681,8 @@ namespace OloEngine
         // Set particle render callback — executed by ParticleRenderPass during graph execution
         Renderer3D::SetParticleRenderCallback([this, &camera, cameraTransform, cameraNearClip, cameraFarClip, cameraPosition]()
                                               {
-                                                  ParticleBatchRenderer::BeginBatch(camera, cameraTransform);
+                                                  const ParticleCameraHistory history = ParticleBatchRenderer::MainViewHistory();
+                                                  ParticleBatchRenderer::BeginBatch(camera, cameraTransform, &history);
                                                   RenderParticleSystems(cameraPosition, cameraNearClip, cameraFarClip);
 
                                                   // Render snow ejecta particles

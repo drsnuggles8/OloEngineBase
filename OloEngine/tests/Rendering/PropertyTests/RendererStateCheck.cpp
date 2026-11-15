@@ -30,6 +30,16 @@ namespace OloEngine::Tests::RendererState
         // verbatim images of the same object, so they differ in a padding byte
         // only if something actually wrote one.
         //
+        // And something does write one, without changing any setting: the
+        // engine assigns these structs from temporaries (a scene reset assigns
+        // the whole scene state, the scene publishes its cloudscape from a
+        // local every frame), and a temporary's padding is whatever was on the
+        // stack. So Capture clears the padding of its own copy (ClearPadding)
+        // and the comparison is of the bits members own. Before that, a branch
+        // that added one such assignment (ADR 0025's scene reset) took a Debug
+        // run of 645 tests from 22 reported leaks to 557, every new one a
+        // padding byte of CloudscapeRenderState.
+        //
         // Byte comparison rather than field-by-field is also the deliberate
         // choice for WHAT this measures. These structs are mostly `f32` and
         // `glm::vec3`, and CLAUDE.md forbids `==` on both; a semantic comparison
@@ -42,6 +52,30 @@ namespace OloEngine::Tests::RendererState
         // than silently mis-measured. If this fires, the settings struct grew a
         // non-trivial member: give it an `operator==` and compare it explicitly
         // instead of adding it to the memcmp path.
+        // Zero the bytes of `value` that no member owns. A compiler builtin, so
+        // it follows the real layout of nested structs. Where the compiler has
+        // none (clang 19 on Linux; clang-cl 23, GCC and MSVC have one) the copy
+        // keeps its padding and the comparison is the plain byte one:
+        // ComparesValueBitsOnly says which.
+        //
+        // Two steps, because a compiler without __has_builtin cannot parse a
+        // use of it even behind `defined(...) &&`.
+#if defined(__has_builtin)
+#if __has_builtin(__builtin_clear_padding)
+#define OLO_TEST_CLEAR_PADDING(pointer) __builtin_clear_padding(pointer)
+#endif
+#endif
+#if !defined(OLO_TEST_CLEAR_PADDING) && defined(_MSC_VER) && !defined(__clang__)
+#define OLO_TEST_CLEAR_PADDING(pointer) __builtin_zero_non_value_bits(pointer)
+#endif
+        template<typename T>
+        void ClearPadding([[maybe_unused]] T& value)
+        {
+#ifdef OLO_TEST_CLEAR_PADDING
+            OLO_TEST_CLEAR_PADDING(&value);
+#endif
+        }
+
         template<typename T>
         [[nodiscard]] bool BytesEqual(const T& a, const T& b)
         {
@@ -66,6 +100,7 @@ namespace OloEngine::Tests::RendererState
     X(WaterWakeShape, "WaterWakeSettings", Renderer3D::GetWaterWakeSettings())                 \
     X(WaterFoamAdvection, "WaterFoamSettings", Renderer3D::GetWaterFoamSettings())             \
     X(SnowEjecta, "SnowEjectaSettings", Renderer3D::GetSnowEjectaSettings())                   \
+    X(SkinDiffusion, "SkinDiffusionSettings", Renderer3D::GetSkinDiffusionSettings())          \
     X(Precipitation, "PrecipitationSettings", Renderer3D::GetPrecipitationSettings())          \
     X(Cloudscape, "CloudscapeRenderState", Renderer3D::GetCloudscapeState())                   \
     X(UnderwaterFog, "UnderwaterFogState", Renderer3D::GetUnderwaterFogState())
@@ -104,6 +139,15 @@ namespace OloEngine::Tests::RendererState
         }
     } // namespace
 
+    bool ComparesValueBitsOnly()
+    {
+#ifdef OLO_TEST_CLEAR_PADDING
+        return true;
+#else
+        return false;
+#endif
+    }
+
     bool Capture(Snapshot& out)
     {
         out = Snapshot{};
@@ -116,13 +160,15 @@ namespace OloEngine::Tests::RendererState
 #define OLO_CAPTURE_STRUCT(member, label, accessor)                            \
     static_assert(std::is_trivially_copyable_v<decltype(out.member)>,          \
                   "RendererState::Snapshot entries are captured with memcpy"); \
-    std::memcpy(&out.member, &(accessor), sizeof(out.member));
+    std::memcpy(&out.member, &(accessor), sizeof(out.member));                 \
+    ClearPadding(out.member);
         OLO_RENDERER_STATE_STRUCT_ENTRIES(OLO_CAPTURE_STRUCT)
 #undef OLO_CAPTURE_STRUCT
 
         static_assert(std::is_trivially_copyable_v<ShadowSettings>,
                       "RendererState::Snapshot entries are captured with memcpy");
         std::memcpy(&out.Shadow, &Renderer3D::GetShadowMap().GetSettings(), sizeof(out.Shadow));
+        ClearPadding(out.Shadow);
 
 #define OLO_CAPTURE_SCALAR(member, label, getter, setter) out.member = (getter);
         OLO_RENDERER_STATE_SCALAR_ENTRIES(OLO_CAPTURE_SCALAR)
@@ -194,12 +240,18 @@ namespace OloEngine::Tests::RendererState
         Renderer3D::GetWaterWakeSettings() = snapshot.WaterWakeShape;
         Renderer3D::GetWaterFoamSettings() = snapshot.WaterFoamAdvection;
         Renderer3D::GetSnowEjectaSettings() = snapshot.SnowEjecta;
+        Renderer3D::GetSkinDiffusionSettings() = snapshot.SkinDiffusion;
         Renderer3D::GetPrecipitationSettings() = snapshot.Precipitation;
         Renderer3D::SetCloudscapeState(snapshot.Cloudscape);
         Renderer3D::SetUnderwaterFogState(snapshot.UnderwaterFog);
         // Only when it moved: SetSettings with a new resolution rebuilds the
         // shadow textures, which no test should pay for when nothing leaked.
-        if (!BytesEqual(Renderer3D::GetShadowMap().GetSettings(), snapshot.Shadow))
+        // The live struct is copied and has its padding cleared the way Capture
+        // cleared the snapshot's, or padding alone would read as "moved".
+        ShadowSettings liveShadow;
+        std::memcpy(&liveShadow, &Renderer3D::GetShadowMap().GetSettings(), sizeof(liveShadow));
+        ClearPadding(liveShadow);
+        if (!BytesEqual(liveShadow, snapshot.Shadow))
             Renderer3D::GetShadowMap().SetSettings(snapshot.Shadow);
 
 #define OLO_RESTORE_SCALAR(member, label, getter, setter) setter(snapshot.member);

@@ -207,12 +207,15 @@ namespace OloEngine
 
     namespace
     {
-        // The renderer-side reset every editor scene swap runs: temporal histories
-        // from the outgoing scene are invalid, and a one-shot frame capture armed
-        // on it must not fire on the incoming scene's first frames (#1504).
+        // The renderer-side reset every editor scene swap runs: what the outgoing
+        // scene left in the renderer is dropped (ADR 0025: object pose history,
+        // environment and weather publications, profile slots, and the temporal
+        // histories, which ResetSceneState invalidates), and a one-shot frame
+        // capture armed on it must not fire on the incoming scene's first frames
+        // (#1504).
         void ResetRendererForSceneSwap()
         {
-            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
+            Renderer3D::ResetSceneState();
             FrameCaptureManager::GetInstance().CancelCapture();
         }
 

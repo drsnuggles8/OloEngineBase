@@ -427,8 +427,17 @@ namespace OloEngine::Testing
         }
         void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override
         {
+            m_UniformOccupants[bindingPoint] = buffer;
             BindUniformBuffer(bindingPoint, Native(buffer, RHI::ResourceKind::Buffer));
         }
+        // The occupancy record a real backend keeps: what the last bind put
+        // at each uniform binding point, whoever asked for it.
+        [[nodiscard]] RHI::ResourceHandle GetUniformBufferOccupant(u32 bindingPoint) const override
+        {
+            const auto found = m_UniformOccupants.find(bindingPoint);
+            return found != m_UniformOccupants.end() ? found->second : RHI::ResourceHandle{};
+        }
+        std::unordered_map<u32, RHI::ResourceHandle> m_UniformOccupants;
         void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) override
         {
             BindStorageBuffer(bindingPoint, Native(buffer, RHI::ResourceKind::Buffer));

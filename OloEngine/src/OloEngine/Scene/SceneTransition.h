@@ -89,6 +89,7 @@ namespace OloEngine::SceneTransition
         WindSettings Wind;
         SnowAccumulationSettings SnowAccumulation;
         SnowEjectaSettings SnowEjecta;
+        SkinDiffusionSettings SkinDiffusion;
         PrecipitationSettings Precipitation;
         FogSettings Fog;
         /// Issue #1601. Mirrors RendererSettings::Path; publishing it is what

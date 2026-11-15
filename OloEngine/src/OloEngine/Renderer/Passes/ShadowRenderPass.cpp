@@ -138,14 +138,14 @@ namespace OloEngine
         // per-item pool.
         m_GroomVsmDepthShader = Shader::Create("assets/shaders/VSM_GroomDepth.glsl");
         m_GroomVsmCrossFadeShader = Shader::Create("assets/shaders/VSM_GroomDepthCrossFade.glsl");
-        m_FamilyViewUBO = UniformBuffer::Create(sizeof(FamilyViewParams), ShaderBindingLayout::UBO_USER_0);
+        m_FamilyViewUBO = UniformBuffer::Create(sizeof(FamilyViewParams), ShaderBindingLayout::UBO_USER_0, "VSMFamilyView");
         m_FamilyVsmShaders.Terrain = Shader::Create("assets/shaders/VSM_Terrain_Depth.glsl");
         m_FamilyVsmShaders.Voxel = Shader::Create("assets/shaders/VSM_Terrain_VoxelDepth.glsl");
         m_FamilyVsmShaders.VoxelQuad = Shader::Create("assets/shaders/VSM_Terrain_VoxelGreedyDepth.glsl");
         m_FamilyVsmShaders.Foliage = Shader::Create("assets/shaders/VSM_Foliage_Depth.glsl");
         m_FamilyVsmShaders.FoliageImpostor = Shader::Create("assets/shaders/VSM_Foliage_Impostor_Depth.glsl");
         m_GroomVsmParamsUBO = UniformBuffer::Create(UBOStructures::GroomShadowParamsUBO::GetSize(),
-                                                    ShaderBindingLayout::UBO_USER_0);
+                                                    ShaderBindingLayout::UBO_USER_0, "GroomShadowParams");
     }
 
     void ShadowRenderPass::Execute(RGCommandContext& context)
@@ -164,19 +164,6 @@ namespace OloEngine
             m_ShadowMap->SetOpaqueCopyWritten(ShadowMap::OpaqueCopy::Atlas, false);
         }
 
-        // Virtual geometry counts as a caster HERE too, not only in the per-cascade skip below.
-        //
-        // This is the outer door: with all five classic caster lists empty, Execute() RETURNS and
-        // the shadow pass does not run at all. Virtual-geometry casters never enter those lists —
-        // they live in VirtualMeshRegistry and are culled on the GPU — so a scene whose only
-        // shadow casters are VirtualMeshComponents produced NO SHADOW MAP WHATSOEVER, and did so
-        // silently (the "no shadow casters submitted" warning below is suppressed precisely
-        // because, as far as this list is concerned, nothing was submitted).
-        //
-        // Nanite shadows have therefore only ever worked by accident: every scene and every test
-        // that exercised them happened to contain a classic MeshComponent — a ground plane —
-        // holding this gate open. Delete the ground from the Nanite stress scene and 24 dragons
-        // stop casting, which is exactly how this surfaced.
         // Root-cause early-out for issue #522: when no light requested shadows this
         // frame the CSM/spot/point matrices are stale (identity), so rendering any
         // caster against them is pure waste (GPU + ×N cascade/face re-submission).
@@ -201,24 +188,24 @@ namespace OloEngine
             CollectGroomCasters();
         }
 
-        // Virtual geometry counts as a caster here too, and since #1323 so do grooms.
-        const bool hasCasters = !m_MeshCasters.IsEmpty() || !m_SkinnedCasters.IsEmpty() ||
-                                !m_TerrainCasters.IsEmpty() || !m_VoxelCasters.IsEmpty() ||
-                                !m_FoliageCasters.IsEmpty() || !m_GroomCasters.IsEmpty() ||
-                                AnyVirtualShadowCaster();
-
-        const bool retireFamilyPages = m_ShadowMap && m_ShadowMap->IsVirtualShadowMapActive() &&
-                                       std::ranges::any_of(m_FamilyCaches, [](const ShadowFamilyCache& cache)
-                                                           { return cache.HasPreviousCasters(); });
-        if (!m_ShadowMap || !m_ShadowMap->IsEnabled() || !shadowsRequested || (!hasCasters && !retireFamilyPages))
+        // A REQUESTED SHADOW MAP IS WRITTEN EVERY FRAME, CASTERS OR NOT.
+        //
+        // The receivers of a light that requested shadows sample its map this
+        // frame whatever this pass does, so "nothing to cast" has to produce a
+        // map that says so: cleared to far depth, which reads as lit. This gate
+        // used to return when every caster list was empty, and the map kept what
+        // it held: the shadow of the caster that had just been deleted, frozen
+        // in place; the previous scene's shadows after a scene change; or, in a
+        // process that had never drawn a caster, the texture's initial zeroes,
+        // under which every receiver of the sun is fully shadowed. It was found
+        // as the last of those (issue #1691's evidence scene has no casters and
+        // rendered at about a third of its brightness), and the log said only
+        // "skipped: no shadow casters submitted", once.
+        //
+        // What is left to skip is the case nobody samples: shadows off, or no
+        // light asking for them this frame (issue #522).
+        if (!m_ShadowMap || !m_ShadowMap->IsEnabled() || !shadowsRequested)
         {
-            // Only warn about the genuinely suspicious case: shadows enabled AND
-            // requested by a light, yet nothing was submitted to cast them.
-            if (!m_WarnedOnce && shadowsRequested && !hasCasters && m_ShadowMap && m_ShadowMap->IsEnabled())
-            {
-                OLO_CORE_WARN("ShadowRenderPass::Execute skipped: no shadow casters submitted");
-                m_WarnedOnce = true;
-            }
             // Clear caster lists for next frame
             m_MeshCasters.Reset();
             m_SkinnedCasters.Reset();
@@ -552,6 +539,7 @@ namespace OloEngine
 
             // Collect the cascades that will render this frame — the region's
             // items, in cascade order — before any of them records.
+            const bool cascadesAreSampled = m_ShadowMap->IsDirectionalShadowRequested();
             m_ActiveViews.Reset();
             for (u32 cascade = 0; cascade < ShadowMap::MAX_CSM_CASCADES; ++cascade)
             {
@@ -582,7 +570,15 @@ namespace OloEngine
                                           !m_FoliageCasters.IsEmpty() ||
                                           !m_VoxelCasters.IsEmpty() ||
                                           AnyVirtualShadowCaster();
-                if (!hasUnbounded)
+                // ...and that skip applies only to cascades nobody samples. When
+                // the directional light requested shadows this frame its
+                // receivers read every cascade, so a cascade with no caster in
+                // it still has to be cleared: skipped, it kept the depth of the
+                // last frame that drew into it, laid out for that frame's
+                // matrices, and a caster that walked out of the near cascade
+                // left its shadow behind on the ground. An empty cascade costs
+                // an attach and a depth clear.
+                if (!hasUnbounded && !cascadesAreSampled)
                 {
                     const bool anyMesh = std::ranges::any_of(m_MeshCasters,
                                                              [&](const ShadowMeshCaster& c)
@@ -949,7 +945,7 @@ namespace OloEngine
             ItemResources resources;
             resources.Camera = UniformBuffer::Create(
                 ShaderBindingLayout::CameraUBO::GetSize(),
-                ShaderBindingLayout::UBO_CAMERA);
+                ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
             resources.Animation = UniformBuffer::Create(
                 ShaderBindingLayout::AnimationUBO::GetSize(),
                 ShaderBindingLayout::UBO_ANIMATION);
@@ -960,7 +956,7 @@ namespace OloEngine
             // resource creation on an item context.
             resources.Groom = UniformBuffer::Create(
                 UBOStructures::GroomShadowParamsUBO::GetSize(),
-                ShaderBindingLayout::UBO_USER_0);
+                ShaderBindingLayout::UBO_USER_0, "GroomShadowParams");
             // Sized HERE, on the render thread: an item may not grow its buffer
             // (StorageBuffer::Resize creates and reclaims GPU memory — amendment
             // (92) rule 7), so the capacity covers the largest batch any item can
@@ -2554,7 +2550,6 @@ namespace OloEngine
     void ShadowRenderPass::OnReset()
     {
         OLO_PROFILE_FUNCTION();
-        m_WarnedOnce = false;
         m_LoggedOnce = false;
         // The per-item pool is GPU resources of the same generation as the
         // framebuffer being rebuilt below; drop it with the framebuffer and let

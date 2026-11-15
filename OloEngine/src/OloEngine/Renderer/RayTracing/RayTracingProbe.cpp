@@ -173,7 +173,7 @@ namespace OloEngine::RayTracing
         if (!m_HitBuffer)
             m_HitBuffer = StorageBuffer::Create(hitBytes, StorageBuffer::kNoBinding, StorageBufferUsage::DynamicCopy);
         if (!m_ParamsUBO)
-            m_ParamsUBO = UniformBuffer::Create(static_cast<u32>(sizeof(GpuParams)), ShaderBindingLayout::UBO_RAY_TRACING);
+            m_ParamsUBO = UniformBuffer::Create(static_cast<u32>(sizeof(GpuParams)), ShaderBindingLayout::UBO_RAY_TRACING, "RayTracingProbeParams");
 
         if (!m_RayBuffer || !m_HitBuffer || !m_ParamsUBO)
         {

@@ -60,6 +60,9 @@ FunctionalTest" is sufficient proof — that harness never exercises
 `Scene::Copy()`. Verify in the actual running editor (Play mode), not just
 the headless suite.
 
+One more joined the list in #1689: `m_SkinDiffusionSettings`. Its copy line is asserted by
+`SaveGameIntegrationTest.SkinDiffusionSettingsSurviveCaptureAndRestore`.
+
 ## Guard
 
 No automated guard exists for this today — `Scene::Copy()`'s completeness

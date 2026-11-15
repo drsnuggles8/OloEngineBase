@@ -13,6 +13,10 @@ Two switches, and they answer different questions.
 | `SkinProfile::EvaluationModel` | Is THIS profile diffused? | The `.oloskin` file — `EvaluationModel: 1` |
 | `SkinDiffusionSettings::Enabled` | Does the PASS run at all? | Post Process panel → **Skin Diffusion** |
 
+`SkinDiffusionSettings` is a scene render setting (#1689): the panel's values are saved in the scene
+file under `SkinDiffusionSettings`, carried into play mode and the save game, and replaced when
+another scene is activated. A scene file without the node loads the defaults.
+
 A profile stays at version 0 until an author moves it, and no renderer setting overrides that. That
 is [ADR 0024](../adr/0024-material-kind-is-not-the-closure-version.md)'s rule: correcting or
 extending a transport must not silently restate every authored head.

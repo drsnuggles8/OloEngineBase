@@ -39,6 +39,11 @@ namespace OloEngine::RenderGraphPlanExecutor
         // debug-tooling use (e.g. `RenderGraphFrameCapture`).
         RenderGraph::PostPassHook PostPassHook;
         RenderGraph* GraphForPostPassHook = nullptr;
+        // The frame owner's publication (RenderGraph::SetPassEntryPublication):
+        // run on the render thread before each pass executes, and once before
+        // a recording group forks, so every item inherits it. Null in headless
+        // plan-shape tests.
+        RenderGraph::PassEntryPublication PassEntryPublication = nullptr;
 
         // ADR 0011 §1.5: when set, each MemoryBarrier command's
         // name-keyed transitions are resolved to handle-keyed RHI::Barriers

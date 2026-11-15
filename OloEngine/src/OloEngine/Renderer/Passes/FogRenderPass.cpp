@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/RenderGraphOutOfBand.h"
 #include "OloEngine/Renderer/Passes/FogRenderPass.h"
 
@@ -202,6 +203,8 @@ namespace OloEngine
         context.Clear();
 
         m_FogShader->Bind();
+
+        Renderer3D::BindMotionMatrices(); // pass-scoped binding 8 (#1687)
 
         // Full-resolution depth (the shader samples at half-res UV).
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID,

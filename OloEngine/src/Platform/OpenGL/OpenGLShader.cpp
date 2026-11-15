@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "Platform/OpenGL/OpenGLShader.h"
+#include "Platform/OpenGL/OpenGLBlockContract.h"
 #include "Platform/OpenGL/OpenGLContext.h"
 #include "Platform/OpenGL/OpenGLDebug.h"
 #include "Platform/OpenGL/OpenGLProgramBinaryCache.h"
@@ -3032,6 +3033,8 @@ namespace OloEngine
 
         glUseProgram(m_RendererID);
 
+        OpenGLBlockContract::NoteProgramBound(m_RendererID);
+
         // Record whether the program now in flight actually reads the descriptor
         // heap. The heap's enabled flag is global; this is per shader, because
         // the bindless route may have declined and fallen back. Without it,
@@ -3052,6 +3055,8 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         glUseProgram(0);
+
+        OpenGLBlockContract::NoteProgramBound(0);
 
         // No program is bound, so no program reads the heap. Bind() publishes
         // this flag and Unbind() has to retract it, or a bind issued between an

@@ -1535,8 +1535,8 @@ namespace OloEngine::Tests::StateMachine
         if (wants("binding-cache-cold.gl") && graph)
         {
             graph->AddPostPassHook(kColdCacheHookKey, [](std::string_view, RenderGraph&)
-                                   { CommandDispatch::InvalidateBindingCaches(); });
-            CommandDispatch::InvalidateBindingCaches();
+                                   { CommandDispatch::ForgetBindingCaches(); });
+            CommandDispatch::ForgetBindingCaches();
             const FrameCapture cold = CaptureFrame();
             graph->RemovePostPassHook(kColdCacheHookKey);
             RenderFrames(1);

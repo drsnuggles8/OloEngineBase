@@ -546,6 +546,8 @@ class VulkanPassSuite : public ::testing::Test
         // camera the last rendered scene left in Renderer3D; an earlier GL test's
         // render origin would shift every origin-relative upload (#1484).
         Renderer3D::ResetFrameCamera();
+        // The same for what the last rendered scene published (ADR 0025).
+        Renderer3D::ResetSceneState();
 
         // The graph's pass bodies route through the RenderCommand statics —
         // the PROCESS-GLOBAL backend must be the Vulkan one for the duration.
@@ -6486,9 +6488,14 @@ TEST_F(VulkanPassSuite, DeferredLightingShadesAKnownGBufferAndBlitsEntityIds)
         glm::vec4 Params0{ 0.0f };
         glm::vec4 Params1{ 0.0f };
     } atmosphereZeros;
-    auto atmosphereUbo = UniformBuffer::Create(sizeof(AtmosphereShadingZeros),
+    // The buffer is the size of the whole block the shader declares, zeros
+    // past the two members above: a shorter one is refused by the uniform
+    // block contract (issue #1330) and logged as an error.
+    std::vector<u8> atmosphereBlock(UBOStructures::AtmosphereShadingUBO::GetSize(), u8{ 0 });
+    std::memcpy(atmosphereBlock.data(), &atmosphereZeros, sizeof(atmosphereZeros));
+    auto atmosphereUbo = UniformBuffer::Create(static_cast<u32>(atmosphereBlock.size()),
                                                ShaderBindingLayout::UBO_ATMOSPHERE_SHADING);
-    atmosphereUbo->SetData(&atmosphereZeros, sizeof(atmosphereZeros));
+    atmosphereUbo->SetData(atmosphereBlock.data(), static_cast<u32>(atmosphereBlock.size()));
 
     // Forward+ params (UBO 25): zeros = fplusActive false (the production
     // "disabled UBO" shape).
@@ -6497,8 +6504,10 @@ TEST_F(VulkanPassSuite, DeferredLightingShadesAKnownGBufferAndBlitsEntityIds)
         glm::uvec4 Params{ 0u };
         glm::vec4 Depth{ 0.0f };
     } fplusZeros;
-    auto fplusUbo = UniformBuffer::Create(sizeof(ForwardPlusZeros), 25);
-    fplusUbo->SetData(&fplusZeros, sizeof(fplusZeros));
+    std::vector<u8> fplusBlock(UBOStructures::ForwardPlusUBO::GetSize(), u8{ 0 });
+    std::memcpy(fplusBlock.data(), &fplusZeros, sizeof(fplusZeros));
+    auto fplusUbo = UniformBuffer::Create(static_cast<u32>(fplusBlock.size()), ShaderBindingLayout::UBO_FORWARD_PLUS);
+    fplusUbo->SetData(fplusBlock.data(), static_cast<u32>(fplusBlock.size()));
 
     // --- the pass + its objects ---------------------------------------------
     // Real single-sample GBuffer: dimensions + the blit SOURCE. Its cleared
@@ -8545,23 +8554,16 @@ TEST_F(VulkanPassSuite, FoliageInstancePullDrawsThreeTintedCards)
     auto cameraUbo = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
     cameraUbo->SetData(&cameraData, ShaderBindingLayout::CameraUBO::GetSize());
 
-    // The foliage fragment's own five-vec4 light block (binding 5): zero
-    // intensity, but a NON-degenerate direction — normalize(-direction) of a
-    // zero vector is NaN and would poison litColor through 0 * NaN.
-    struct FoliageLightBlock
-    {
-        i32 NumLights = 0;
-        i32 Pad0 = 0;
-        i32 Pad1 = 0;
-        i32 Pad2 = 0;
-        glm::vec4 Position{ 0.0f };
-        glm::vec4 Direction{ 0.0f, -1.0f, 0.0f, 0.0f };
-        glm::vec4 ColorIntensity{ 1.0f, 1.0f, 1.0f, 0.0f }; // w = intensity 0
-        glm::vec4 Params{ 0.0f };
-        glm::vec4 Params2{ 0.0f };
-    } lightBlock;
-    auto lightUbo = UniformBuffer::Create(sizeof(FoliageLightBlock), 5);
-    lightUbo->SetData(&lightBlock, sizeof(lightBlock));
+    // The light list the foliage fragment reads (binding 5), with no lights
+    // in it. The whole block the shader declares: the five-vec4 stand-in this
+    // test used to bind is from before the shader read the shared light list,
+    // and a buffer shorter than the block is refused by the uniform block
+    // contract (issue #1330) and logged as an error.
+    auto lightBlock = std::make_unique<ShaderBindingLayout::MultiLightUBO>();
+    std::memset(lightBlock.get(), 0, sizeof(ShaderBindingLayout::MultiLightUBO));
+    lightBlock->MaxLights = static_cast<i32>(ShaderBindingLayout::MultiLightUBO::MAX_LIGHTS);
+    auto lightUbo = UniformBuffer::Create(ShaderBindingLayout::MultiLightUBO::GetSize(), ShaderBindingLayout::UBO_MULTI_LIGHTS);
+    lightUbo->SetData(lightBlock.get(), ShaderBindingLayout::MultiLightUBO::GetSize());
 
     ShaderBindingLayout::FoliageUBO foliageData{};
     foliageData.Time = 0.0f;

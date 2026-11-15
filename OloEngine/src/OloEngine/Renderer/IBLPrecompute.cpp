@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Core/DebugLevers.h"
 #include <format>
 #include <optional>
@@ -44,7 +45,7 @@ namespace OloEngine
         {
             s_IBLCameraUBO = UniformBuffer::Create(
                 ShaderBindingLayout::CameraUBO::GetSize(),
-                ShaderBindingLayout::UBO_CAMERA);
+                ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
         }
 
         // Prepare camera data.
@@ -311,6 +312,10 @@ namespace OloEngine
 
         const glm::mat4 captureProjection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
 
+        // UpdateIBLCameraUBO below displaces the frame's camera block from the
+        // frame-published camera binding; it goes back on every exit (#1687).
+        const CommandDispatch::ScopedFrameCameraRestore restoreFrameCamera;
+
         // Store previous stencil state and disable for IBL rendering
         bool wasStencilTestEnabled = RenderCommand::IsStencilTestEnabled();
         if (wasStencilTestEnabled)
@@ -496,7 +501,7 @@ namespace OloEngine
         // device address — a GPU page fault that escalated to
         // VK_ERROR_DEVICE_LOST (#691). GL only tolerated the dangling bind by
         // accident of its object lifetime rules.
-        Ref<UniformBuffer> paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
+        Ref<UniformBuffer> paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0, "IBLAdvancedParams");
         paramsUBO->SetData(&params, ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize());
         paramsUBO->Bind();
 
@@ -570,8 +575,8 @@ namespace OloEngine
         const i32 sourceResolution = static_cast<i32>(environmentMap->GetWidth());
 
         Ref<UniformBuffer> paramsUBO = usingImportanceShader
-                                           ? UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0)
-                                           : UniformBuffer::Create(ShaderBindingLayout::IBLParametersUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
+                                           ? UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0, "IBLAdvancedParams")
+                                           : UniformBuffer::Create(ShaderBindingLayout::IBLParametersUBO::GetSize(), ShaderBindingLayout::UBO_USER_0, "IBLParameters");
 
         // Generate each roughness mip with its own sample budget.
         const u32 maxMipLevels = 5;
@@ -660,7 +665,7 @@ namespace OloEngine
         // Function-scoped for the same reason as the irradiance bake above:
         // the UBO must outlive the RenderToTexture draw, or on Vulkan the
         // shader reads a NULL device address and faults the GPU.
-        Ref<UniformBuffer> paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0);
+        Ref<UniformBuffer> paramsUBO = UniformBuffer::Create(ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize(), ShaderBindingLayout::UBO_USER_0, "IBLAdvancedParams");
         paramsUBO->SetData(&params, ShaderBindingLayout::IBLAdvancedParamsUBO::GetSize());
         paramsUBO->Bind();
 

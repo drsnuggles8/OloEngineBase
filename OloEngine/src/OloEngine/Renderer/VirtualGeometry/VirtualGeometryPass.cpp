@@ -389,6 +389,14 @@ namespace OloEngine
                 RenderCommand::BindStorageBuffer(ShaderBindingLayout::SSBO_VIRTUAL_INDICES,
                                                  registry.GetIndexBuffer());
             }
+            // VirtualClusterCull.comp declares the virtual shadow map's
+            // dirty-page pyramid for its shadow route. The main view never
+            // reads it, but a declared block needs an occupant: the first
+            // main-view cull of a session ran before any shadow route had
+            // bound one, and Vulkan logged an [error] and substituted the null
+            // block (master too; seen opening VirtualGeometryParallelRecording
+            // in a Vulkan editor).
+            Renderer3D::GetShadowMap().GetVirtualShadowMap().BindHPBForDeclaredReader();
             CommandDispatch::BindSceneResources(); // camera UBO at binding 0
         };
         bindCullResources();
@@ -597,6 +605,7 @@ namespace OloEngine
         const auto drawHardwarePhase = [&](u32 commandSlotBase, u32 argsInstanceBase)
         {
             m_GBufferShader->Bind();
+            Renderer3D::BindMotionMatrices(); // pass-scoped binding 8 (#1687)
             if (debugActive)
             {
                 // Image units 0/1 (separate namespace from the sampler texture units).
@@ -625,6 +634,7 @@ namespace OloEngine
             RenderCommand::RecordParallel(itemCount, [&](u32 itemIndex)
                                           {
                 m_GBufferShader->Bind();
+                Renderer3D::BindMotionMatrices(); // pass-scoped binding 8 (#1687)
                 auto& upload = m_RecordingUploads[itemIndex].DrawInfo;
                 bool meshShaderBound = false;
                 const sizet end = instances.size() * (itemIndex + 1) / itemCount;
@@ -993,6 +1003,7 @@ namespace OloEngine
                 GPUPassTimerPool::GetInstance().BeginSubPass("Resolve");
                 RenderCommand::DisableCulling(); // fullscreen triangle
                 m_ResolveShader->Bind();
+                Renderer3D::BindMotionMatrices(); // pass-scoped binding 8 (#1687)
                 registry.GetSwListBuffer()->Bind();
                 registry.GetVisbufferBuffer()->Bind();
 

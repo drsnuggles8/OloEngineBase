@@ -240,8 +240,10 @@ TEST(QualityTiering, TheGroomDetailBiasConsoleVariableIsAViewOfTheRendererSettin
     RegisterGroomCVars();
     RegisterGroomCVars(); // idempotent: one cvar, not two
 
+    // The whole struct is saved, not the one field under test: the preset
+    // applied below rewrites every tiered setting of the live renderer.
     RendererSettings& settings = Renderer3D::GetRendererSettings();
-    const f32 saved = settings.GroomDetailBias;
+    const RendererSettings saved = settings;
     settings.GroomDetailBias = 1.0f;
 
     const auto found = CVars::Find("olo_groom_detail_bias");
@@ -268,7 +270,7 @@ TEST(QualityTiering, TheGroomDetailBiasConsoleVariableIsAViewOfTheRendererSettin
     }
     EXPECT_FLOAT_EQ(settings.GroomDetailBias, 0.5f) << "a refused write moved the setting";
 
-    settings.GroomDetailBias = saved;
+    settings = saved;
 }
 
 TEST(QualityTiering, TheCrossFadeConsoleVariablesAreViewsOfTheRendererSettings)

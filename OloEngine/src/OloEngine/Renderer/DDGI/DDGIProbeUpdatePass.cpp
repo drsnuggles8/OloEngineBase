@@ -212,13 +212,13 @@ namespace OloEngine
         m_DDGIUBO = UniformBuffer::Create(UBOStructures::DDGIVolumeUBO::GetSize(),
                                           ShaderBindingLayout::UBO_DDGI);
         m_PassDataUBO = UniformBuffer::Create(sizeof(DDGIPassDataUBO),
-                                              ShaderBindingLayout::UBO_USER_0);
+                                              ShaderBindingLayout::UBO_USER_0, "DDGIPassData");
         // Shares UBO_USER_0 with the block above — the slot is pass-local and
         // whichever of the two is about to be read rebinds itself first.
         m_RelocateParamsUBO = UniformBuffer::Create(sizeof(DDGIRelocateParamsUBO),
-                                                    ShaderBindingLayout::UBO_USER_0);
+                                                    ShaderBindingLayout::UBO_USER_0, "DDGIRelocateParams");
         m_CaptureCameraUBO = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(),
-                                                   ShaderBindingLayout::UBO_CAMERA);
+                                                   ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
 
         // The stats header and the per-probe aux records share ONE buffer
         // (SSBO_DDGI_PROBE_AUX, issue #1015); it is sized with the probe grid
@@ -1220,8 +1220,8 @@ namespace OloEngine
             resources.Target = Framebuffer::Create(m_CaptureFB->GetSpecification());
             SetAtlasTextureParams(resources.Target->GetColorAttachmentHandle(0), RHI::Filter::Nearest);
             SetAtlasTextureParams(resources.Target->GetColorAttachmentHandle(1), RHI::Filter::Nearest);
-            resources.Camera = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
-            resources.PassData = UniformBuffer::Create(sizeof(DDGIPassDataUBO), ShaderBindingLayout::UBO_USER_0);
+            resources.Camera = UniformBuffer::Create(UBOStructures::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
+            resources.PassData = UniformBuffer::Create(sizeof(DDGIPassDataUBO), ShaderBindingLayout::UBO_USER_0, "DDGIPassData");
         }
         (void)MeshPrimitives::GetFullscreenTriangle(); // prime the shared lazy builder before workers
     }
@@ -1754,9 +1754,9 @@ namespace OloEngine
                                          MemoryBarrierFlags::ShaderStorage);
 
             // The capture overwrote UBO binding 0 with this pass's own camera
-            // buffer. Invalidate the dispatch bind-cache FIRST so the re-upload
-            // actually rebinds the engine camera UBO (BindUBOIfNeeded would
-            // otherwise think it never left), then restore the real camera for
+            // buffer. Drop the dispatcher's render-state cache, then restore the
+            // real camera (the re-upload rebinds it: the dispatcher asks the
+            // backend who occupies the binding, issue #1688) for
             // the relight stage's CSM cascade selection — it is re-established
             // AGAIN at the end of Execute, after the last Shader::Bind (whose
             // resource-registry side effects can re-bind UBO point 0).

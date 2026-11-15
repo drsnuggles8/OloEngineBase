@@ -257,6 +257,12 @@ namespace OloEngine
             // --- Pass 1: Generate raw SSAO ---
             rawFB->Bind();
             context.SetViewport(0, 0, m_HalfWidth, m_HalfHeight);
+            // This pass opens its own colour mask (a-pass-opens-its-own-colour-
+            // mask.md). It used to inherit it: a predecessor that left colour
+            // writes masked off made both the clear and the draw below write
+            // nothing, and the frame was shaded with whatever the AO buffer
+            // held before. FramePredecessorPoison found it (issue #1330).
+            RenderCommand::SetColorMask(true, true, true, true);
             context.SetClearColor({ 1.0f, 1.0f, 1.0f, 1.0f }); // White = no occlusion
             context.Clear();
             context.SetDepthTest(false);
@@ -302,6 +308,7 @@ namespace OloEngine
             // --- Pass 2: Bilateral blur ---
             blurFB->Bind();
             context.SetViewport(0, 0, m_HalfWidth, m_HalfHeight);
+            RenderCommand::SetColorMask(true, true, true, true);
             context.SetClearColor({ 1.0f, 1.0f, 1.0f, 1.0f });
             context.Clear();
             context.SetDepthTest(false);

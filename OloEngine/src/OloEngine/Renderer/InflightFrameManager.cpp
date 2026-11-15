@@ -51,7 +51,11 @@ namespace OloEngine
         }
 
         // Create new buffer for this frame
-        auto buffer = UniformBuffer::Create(size, 0); // Use binding 0 as default
+        // A named buffer for whatever a caller wants per in-flight frame: it has no
+        // shader and so no block to declare, and it has no caller today. Note that
+        // constructing it claims binding 0 from the camera block; a caller must
+        // give it a binding of its own before this is used.
+        auto buffer = UniformBuffer::Create(size, 0); // OLO_BLOCK_UNDECLARED: generic named buffer, no shader reads it
         u32 bufferIndex = static_cast<u32>(currentFrame.UniformBuffers.Num());
         currentFrame.UniformBuffers.Add(buffer);
         currentFrame.BufferAllocations[name] = bufferIndex;

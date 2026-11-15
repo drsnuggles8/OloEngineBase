@@ -682,6 +682,37 @@ namespace OloEngine
         // "0 unbinds" contract the deleted u32 forms had, now spelled so it
         // cannot be confused with a real object.
         virtual void BindUniformBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) = 0;
+        // The buffer that occupies a uniform binding point in the CALLING
+        // recording context, or the null handle when the backend does not know
+        // (nothing bound, or a buffer bound behind its back). The backend's
+        // occupancy record is the one answer to "is this already bound": it
+        // sees every bind, whoever issued it, where a cache kept by one caller
+        // sees only that caller's (issue #1688). A redundant-bind check asks
+        // this rather than remembering.
+        [[nodiscard]] virtual RHI::ResourceHandle GetUniformBufferOccupant(u32 /*bindingPoint*/) const
+        {
+            return {};
+        }
+        // Whether a bind of `buffer` at `bindingPoint` may be skipped: the
+        // record names it AND the backend vouches for the record. On OpenGL
+        // the record follows the engine's bind calls while the binding itself
+        // is driver state, which a raw GL call (a test, a third-party SDK such
+        // as FSR2) changes without telling anyone. So the OpenGL backend
+        // vouches only for a point bound through the engine since the last
+        // DistrustUniformBufferOccupancy. Vulkan has no state behind the
+        // record and always vouches.
+        [[nodiscard]] virtual bool IsUniformBufferBound(u32 bindingPoint, RHI::ResourceHandle buffer) const
+        {
+            return buffer.IsValid() && GetUniformBufferOccupant(bindingPoint) == buffer;
+        }
+        // Stop vouching for every uniform binding point until it is bound
+        // again. The dispatcher calls this where it drops its own bind caches
+        // for work done around the engine (frame start, an explicit
+        // invalidation), so a bind somebody made behind the record is trusted
+        // no longer than the next of those points.
+        virtual void DistrustUniformBufferOccupancy()
+        {
+        }
         virtual void BindStorageBuffer(u32 bindingPoint, RHI::ResourceHandle buffer) = 0;
         // Per-dispatch CPU data for a COMPUTE read at `bindingPoint` (#1543):
         // copies `size` bytes into memory that lives until the GPU has

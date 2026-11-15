@@ -185,6 +185,10 @@ namespace OloEngine::RenderGraphPlanExecutor
             std::vector<std::string> passNames;
             for (const auto* pass : passes)
                 passNames.push_back(pass->NodeName.ToStdString());
+            // Before the fork: each item starts from a copy of what the
+            // render thread has bound.
+            if (input.PassEntryPublication)
+                input.PassEntryPublication();
             api.RecordParallelOrdered(static_cast<u32>(passes.size()), [&](u32 lane)
                                       {
 #if defined(OLO_DEBUG) || defined(OLO_RELEASE)
@@ -433,6 +437,8 @@ namespace OloEngine::RenderGraphPlanExecutor
                         // Whatever this pass allocates lazily is attributed to it in the
                         // memory report (#1342); an owner scope inside the pass still wins.
                         const RendererMemoryOwnerScope memoryOwner(cmd.NodeName.ToView(), MemoryLifetime::PassOwned);
+                        if (input.PassEntryPublication)
+                            input.PassEntryPublication();
                         executeStart = std::chrono::steady_clock::now();
                         cmd.NodePointer->Execute(input.Context);
                         executeEnd = std::chrono::steady_clock::now();

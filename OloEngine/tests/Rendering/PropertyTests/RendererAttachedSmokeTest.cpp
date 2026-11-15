@@ -170,4 +170,37 @@ namespace OloEngine::Tests
                           << " core GL-state field(s):" << joined;
         }
     }
+
+    // A Deferred frame that draws no geometry. The G-Buffer pass's pending depth
+    // clear is then not folded into a rendering scope's loadOp: it is
+    // materialised as a transfer clear, and the barrier batch that follows named
+    // that depth image twice. The second entry's source scope missed the clear
+    // and Vulkan sync validation reported WRITE_AFTER_WRITE on every frame
+    // (found while working on #1330; the fixture fails a tick that raises a
+    // validation error). On OpenGL this is the same frame without the hazard.
+    class SceneRendersDeferredWithNoGeometry : public RendererAttachedTest
+    {
+      protected:
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+        void BuildScene() override
+        {
+            Entity camera = GetScene().CreateEntity("MainCamera");
+            camera.GetComponent<TransformComponent>().Translation = { 0.0f, 1.0f, 6.0f };
+            camera.AddComponent<CameraComponent>().Primary = true;
+            Entity sun = GetScene().CreateEntity("Sun");
+            sun.AddComponent<DirectionalLightComponent>();
+
+            Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+            Renderer3D::ApplyRendererSettings();
+            EnableRendering(256, 256);
+        }
+    };
+
+    TEST_F(SceneRendersDeferredWithNoGeometry, AnEmptyGBufferFrameRaisesNoValidationError)
+    {
+        RunFrames(3);
+    }
 } // namespace OloEngine::Tests

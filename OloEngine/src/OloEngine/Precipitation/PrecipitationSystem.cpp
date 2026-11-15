@@ -187,7 +187,7 @@ namespace OloEngine
         // Create precipitation UBO at binding 18
         s_Data.m_PrecipitationUBO = UniformBuffer::Create(
             PrecipitationUBOData::GetSize(),
-            ShaderBindingLayout::UBO_PRECIPITATION);
+            ShaderBindingLayout::UBO_PRECIPITATION, "PrecipitationUBO");
 
         if (!s_Data.m_PrecipitationUBO)
         {

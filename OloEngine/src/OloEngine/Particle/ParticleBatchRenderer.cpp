@@ -1,4 +1,6 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Commands/CommandDispatch.h"
+#include "OloEngine/Math/Math.h"
 #include "OloEngine/Renderer/HeapBindingSeam.h"
 #include "ParticleBatchRenderer.h"
 #include "OloEngine/Particle/GPUParticleSystem.h"
@@ -38,11 +40,14 @@ namespace OloEngine
 
         Ref<UniformBuffer> CameraUBO;
 
-        struct CameraData
-        {
-            glm::mat4 ViewProjection;
-        };
-        CameraData CameraBuffer;
+        // The WHOLE camera block the particle shaders declare (`Camera`, the
+        // engine camera layout: they read u_PrevViewProjection and u_JitterUV
+        // for their velocity output). This used to be one mat4 in a 64-byte
+        // buffer under a 384-byte block, so those two members were read past
+        // the end of the buffer: undefined on OpenGL, the neighbouring arena
+        // bytes on Vulkan. Found by the uniform block contract (issue #1330).
+        using CameraData = ShaderBindingLayout::CameraUBO;
+        CameraData CameraBuffer{};
 
         glm::vec3 CameraRight{};
         glm::vec3 CameraUp{};
@@ -155,10 +160,11 @@ namespace OloEngine
         s_Data.ParticleShaderOIT = Shader::Create("assets/shaders/Particle_Billboard_OIT.glsl");
 
         // Camera UBO (binding 0, shared with other renderers)
-        s_Data.CameraUBO = UniformBuffer::Create(sizeof(ParticleBatchData::CameraData), 0);
+        s_Data.CameraUBO = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA,
+                                                 "CameraMatrices", "Camera");
 
         // Particle params UBO (binding 2)
-        s_Data.ParticleParamsUBO = UniformBuffer::Create(sizeof(ParticleBatchData::ParticleParamsData), 2);
+        s_Data.ParticleParamsUBO = UniformBuffer::Create(sizeof(ParticleBatchData::ParticleParamsData), 2, "ParticleParams");
 
         // Mesh particle resources
         s_Data.MeshParticleShader = Shader::Create("assets/shaders/Particle_Mesh.glsl");
@@ -252,12 +258,43 @@ namespace OloEngine
         s_Data.MeshParticleShaderOIT.Reset();
     }
 
-    void ParticleBatchRenderer::BeginBatch(const EditorCamera& camera)
+    namespace
+    {
+        // Fill and upload the particle camera block for `viewProjection`.
+        //
+        // Particles are drawn into a view's velocity target, so their camera
+        // motion has to be measured against the same previous camera as
+        // everything else in it: the caller hands that in as `history`. The
+        // particle matrix itself is not jittered, hence a current jitter of
+        // zero. A batch begun with no history (outside a frame, or for a
+        // camera that is not the frame's) is its own history: no camera motion.
+        //
+        // The caller says which, because only the caller knows. This used to
+        // be guessed from the dispatcher's view being the identity, which is
+        // true before the first 3D frame and never again.
+        void UploadCameraBlock(const glm::mat4& viewProjection, const ParticleCameraHistory* history)
+        {
+            auto& block = s_Data.CameraBuffer;
+            block = {};
+            block.ViewProjection = viewProjection;
+            block.PrevViewProjection = history != nullptr ? history->PrevViewProjection : viewProjection;
+            block.JitterUV = history != nullptr ? glm::vec4(0.0f, 0.0f, history->PrevJitterUV) : glm::vec4(0.0f);
+            s_Data.CameraUBO->SetData(&block, ShaderBindingLayout::CameraUBO::GetSize());
+        }
+    } // namespace
+
+    ParticleCameraHistory ParticleBatchRenderer::MainViewHistory()
+    {
+        const DispatchView& view = CommandDispatch::GetView();
+        return { .PrevViewProjection = view.PrevViewProjectionMatrix,
+                 .PrevJitterUV = glm::vec2(view.JitterUV.z, view.JitterUV.w) };
+    }
+
+    void ParticleBatchRenderer::BeginBatch(const EditorCamera& camera, const ParticleCameraHistory* history)
     {
         OLO_PROFILE_FUNCTION();
 
-        s_Data.CameraBuffer.ViewProjection = camera.GetViewProjection();
-        s_Data.CameraUBO->SetData(&s_Data.CameraBuffer, sizeof(ParticleBatchData::CameraData));
+        UploadCameraBlock(camera.GetViewProjection(), history);
 
         s_Data.CameraRight = camera.GetRightDirection();
         s_Data.CameraUp = camera.GetUpDirection();
@@ -270,12 +307,12 @@ namespace OloEngine
         s_Data.TrailVertexPtr = s_Data.TrailVertexBase.get();
     }
 
-    void ParticleBatchRenderer::BeginBatch(const Camera& camera, const glm::mat4& cameraTransform)
+    void ParticleBatchRenderer::BeginBatch(const Camera& camera, const glm::mat4& cameraTransform,
+                                           const ParticleCameraHistory* history)
     {
         OLO_PROFILE_FUNCTION();
 
-        s_Data.CameraBuffer.ViewProjection = camera.GetProjection() * glm::inverse(cameraTransform);
-        s_Data.CameraUBO->SetData(&s_Data.CameraBuffer, sizeof(ParticleBatchData::CameraData));
+        UploadCameraBlock(camera.GetProjection() * glm::inverse(cameraTransform), history);
 
         // Extract camera right and up from the transform matrix columns
         s_Data.CameraRight = glm::normalize(glm::vec3(cameraTransform[0]));

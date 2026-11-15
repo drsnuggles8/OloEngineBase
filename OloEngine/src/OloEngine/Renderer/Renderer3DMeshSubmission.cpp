@@ -29,6 +29,10 @@
 #include "OloEngine/Task/ParallelFor.h"
 
 #include <algorithm>
+#include <array>
+#include <functional>
+#include <mutex>
+#include <string_view>
 #include <numeric>
 
 #include <atomic>
@@ -455,7 +459,7 @@ namespace OloEngine
         // here: counting a part as proxyless because no extraction was open
         // would report a fault where there is only an idle frame.
         auto& vgDiagnostics = registry.GetMutableSubmissionDiagnostics();
-        const bool stageProxies = s_Data.GPUSceneExtractionActive;
+        const bool stageProxies = s_Data.Frame.GPUSceneExtractionActive;
 
         // One material slot per part. Precedence: an explicit MaterialComponent overrides
         // everything, else the entity's patch of the submesh's imported material (issue
@@ -748,20 +752,20 @@ namespace OloEngine
             OLO_CORE_ERROR("Renderer3D::DrawMesh: ScenePass is null!");
             return nullptr;
         }
-        ++s_Data.Stats.TotalMeshes;
+        ++s_Data.Frame.Stats.TotalMeshes;
 
         if (s_Data.FrustumCullingEnabled && (isStatic || s_Data.DynamicCullingEnabled))
         {
             if (mesh && !IsVisibleInFrustum(mesh, modelMatrix))
             {
-                ++s_Data.Stats.CulledMeshes;
+                ++s_Data.Frame.Stats.CulledMeshes;
                 return nullptr;
             }
         }
 
         // Temporal occlusion culling: skip objects that were occluded last frame,
         // and submit proxy bounding boxes for re-testing.
-        if (s_Data.OcclusionCullingEnabled && s_Data.OcclusionResultsAvailable && entityID >= 0 && mesh)
+        if (s_Data.OcclusionCullingEnabled && s_Data.Frame.OcclusionResultsAvailable && entityID >= 0 && mesh)
         {
             auto& stateMgr = OcclusionStateManager::GetInstance();
             auto& state = stateMgr.GetOrCreate(static_cast<u64>(entityID));
@@ -791,7 +795,7 @@ namespace OloEngine
                         worldBounds.Max = bs.Center + glm::vec3(bs.Radius);
                         OcclusionCuller::GetInstance().QueueBoundingBox(state.QueryIndex, worldBounds);
                     }
-                    ++s_Data.Stats.CulledMeshes;
+                    ++s_Data.Frame.Stats.CulledMeshes;
                     return nullptr;
                 }
 
@@ -808,21 +812,21 @@ namespace OloEngine
 
         // LOD selection.
         Ref<Mesh> meshToUse;
-        // s_Data.LODView is built from the CULLING camera, not the render camera
+        // s_Data.View.LODView is built from the CULLING camera, not the render camera
         // (issue #726): LOD is part of the cut, so a frozen frame must keep the LOD
         // levels it was frozen with. Flying the observer closer would otherwise swap
         // in a finer mesh and the picture would stop being the one the culling
         // camera produced.
-        if (auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.LODView, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
+        if (auto lodResult = SelectLODMesh(mesh, modelMatrix, s_Data.View.LODView, lodGroup, meshToUse); lodResult.SelectedLODIndex >= 0)
         {
-            if (lodResult.SelectedLODIndex >= s_Data.Stats.ObjectsPerLODLevel.Num())
+            if (lodResult.SelectedLODIndex >= s_Data.Frame.Stats.ObjectsPerLODLevel.Num())
             {
-                s_Data.Stats.ObjectsPerLODLevel.SetNumZeroed(static_cast<i64>(lodResult.SelectedLODIndex + 1));
+                s_Data.Frame.Stats.ObjectsPerLODLevel.SetNumZeroed(static_cast<i64>(lodResult.SelectedLODIndex + 1));
             }
-            ++s_Data.Stats.ObjectsPerLODLevel[lodResult.SelectedLODIndex];
+            ++s_Data.Frame.Stats.ObjectsPerLODLevel[lodResult.SelectedLODIndex];
             if (lodResult.Switched)
             {
-                ++s_Data.Stats.LODSwitches;
+                ++s_Data.Frame.Stats.LODSwitches;
             }
         }
 
@@ -1094,7 +1098,8 @@ namespace OloEngine
 
     CommandPacket* Renderer3D::BuildDrawMeshInstancedPacket(const Ref<Mesh>& mesh, std::span<const glm::mat4> transforms,
                                                             const Material& material, bool isStatic, u64 ownerKey,
-                                                            bool& outOverlayRoute)
+                                                            bool& outOverlayRoute,
+                                                            std::span<const InstanceData> authoredInstances)
     {
         outOverlayRoute = false;
         if (!s_Data.Pipeline->FrameCorePasses.Scene)
@@ -1107,7 +1112,7 @@ namespace OloEngine
             OLO_CORE_WARN("Renderer3D::DrawMeshInstanced: No transforms provided");
             return nullptr;
         }
-        s_Data.Stats.TotalMeshes += static_cast<u32>(transforms.size());
+        s_Data.Frame.Stats.TotalMeshes += static_cast<u32>(transforms.size());
 
         // GPU-side frustum cull pre-pass: when the input count is large
         // enough that the CPU sphere loop dominates submission cost, route
@@ -1123,7 +1128,7 @@ namespace OloEngine
             // ForwardOverlayPass submission end-to-end (overlay or not);
             // `outOverlayRoute` stays false here so callers never try to
             // submit its result a second time.
-            return SubmitGPUCulledInstanced(mesh, transforms, material, isStatic, ownerKey);
+            return SubmitGPUCulledInstanced(mesh, transforms, material, isStatic, ownerKey, authoredInstances);
         }
 
         std::span<const glm::mat4> activeTransforms = transforms;
@@ -1146,13 +1151,13 @@ namespace OloEngine
             {
                 const auto& t = transforms[i];
                 BoundingSphere worldSphere = localSphere.Transform(t);
-                if (s_Data.ViewFrustum.IsBoundingSphereVisible(worldSphere))
+                if (s_Data.View.ViewFrustum.IsBoundingSphereVisible(worldSphere))
                 {
                     filteredTransforms.push_back(t);
                     visibleIndices.push_back(static_cast<u32>(i));
                 }
             }
-            s_Data.Stats.CulledMeshes += static_cast<u32>(transforms.size() - filteredTransforms.size());
+            s_Data.Frame.Stats.CulledMeshes += static_cast<u32>(transforms.size() - filteredTransforms.size());
             if (filteredTransforms.empty())
             {
                 return nullptr;
@@ -1297,6 +1302,40 @@ namespace OloEngine
         if (instances.empty())
             return nullptr;
 
+        // The instance colour is applied by the four PBR programs (issue
+        // #1691). A material that brings its own shader is drawn with that
+        // shader, and nothing here can know whether it reads the lane, so a
+        // tinted batch on one says so instead of leaving the author to find the
+        // colour missing. Once per shader, and a white batch scans to its end
+        // only while the material keeps a shader of its own. A shader is
+        // remembered by its name, not its address: a reload or a scene change
+        // frees the object, and the next shader can be handed the same address.
+        const Ref<Shader>& ownShader = material.GetShader();
+        const Shader* const ownShaderPtr = ownShader.Raw();
+        const bool isEnginePbrProgram = ownShaderPtr == s_Data.PBRShader.Raw() || ownShaderPtr == s_Data.PBRSkinnedShader.Raw() ||
+                                        ownShaderPtr == s_Data.PBRGBufferShader.Raw() ||
+                                        ownShaderPtr == s_Data.PBRGBufferSkinnedShader.Raw();
+        if (ownShaderPtr != nullptr && !isEnginePbrProgram && AnyInstanceIsTinted(instances))
+        {
+            constexpr sizet kMaxReportedShaders = 8;
+            static std::mutex s_ReportedMutex;
+            static std::array<sizet, kMaxReportedShaders> s_Reported{};
+            static sizet s_ReportedCount = 0;
+            const sizet nameHash = std::hash<std::string_view>{}(ownShader->GetName());
+            const std::scoped_lock lock(s_ReportedMutex);
+            const auto reportedEnd = s_Reported.begin() + static_cast<std::ptrdiff_t>(s_ReportedCount);
+            if (s_ReportedCount < kMaxReportedShaders && std::find(s_Reported.begin(), reportedEnd, nameHash) == reportedEnd)
+            {
+                s_Reported[s_ReportedCount++] = nameHash;
+                OLO_CORE_WARN("Renderer3D::DrawMeshInstanced: instances with a colour other than white are drawn with the "
+                              "material's own shader '{}'. Only the engine's PBR programs are known to apply an instance "
+                              "colour (albedo *= instances[v_InstanceIndex].Color.rgb); if this shader does not, the "
+                              "colour is not shown (issue #1691). Reported once per shader{}.",
+                              ownShader->GetName(),
+                              s_ReportedCount == kMaxReportedShaders ? "; further shaders are not reported" : "");
+            }
+        }
+
         std::vector<glm::mat4> transforms;
         transforms.reserve(instances.size());
         for (const auto& inst : instances)
@@ -1307,9 +1346,17 @@ namespace OloEngine
         // the Color/Custom/EntityID streams below are patched onto it (see
         // BuildDrawMeshInstancedPacket's comment).
         bool overlayRoute = false;
-        CommandPacket* packet = BuildDrawMeshInstancedPacket(mesh, transforms, material, isStatic, ownerKey, overlayRoute);
+        CommandPacket* packet = BuildDrawMeshInstancedPacket(mesh, transforms, material, isStatic, ownerKey, overlayRoute, instances);
         if (!packet)
             return nullptr; // entirely culled, alloc failure, or the GPU-cull path already fully handled submission
+
+        // A GPU-culled packet draws the survivors the cull compacted, and those
+        // records already carry every authored lane (SubmitGPUCulledInstanced
+        // copied them from `instances`). The streams below are read only by the
+        // CPU-assembled upload, which this packet skips, so writing them would
+        // spend frame memory on values nothing reads (issue #1691).
+        if (packet->GetCommandData<DrawMeshInstancedCommand>()->cullIndirectBufferID.IsValid())
+            return packet;
 
         // Post-cull instance count from the produced packet — the transform-only
         // overload may have filtered out frustum-culled instances. We only
@@ -1340,7 +1387,7 @@ namespace OloEngine
             for (sizet i = 0; i < instances.size() && visibleIndices.size() < visibleCount; ++i)
             {
                 BoundingSphere worldSphere = localSphere.Transform(instances[i].Transform);
-                if (s_Data.ViewFrustum.IsBoundingSphereVisible(worldSphere))
+                if (s_Data.View.ViewFrustum.IsBoundingSphereVisible(worldSphere))
                     visibleIndices.push_back(static_cast<u32>(i));
             }
         }
@@ -1439,9 +1486,11 @@ namespace OloEngine
     CommandPacket* Renderer3D::SubmitGPUCulledInstanced(const Ref<Mesh>& mesh,
                                                         std::span<const glm::mat4> transforms,
                                                         const Material& material, bool isStatic,
-                                                        u64 ownerKey)
+                                                        u64 ownerKey,
+                                                        std::span<const InstanceData> authoredInstances)
     {
         OLO_PROFILE_FUNCTION();
+        ++s_Data.Frame.Stats.GPUCulledInstanceBatches;
 
         // Pre-cull prev-transform history: look up the per-instance prev
         // array from the cache **before** the cull so survivors carry the
@@ -1457,16 +1506,32 @@ namespace OloEngine
             prevTransforms.Append(transforms.data(), static_cast<i64>(transforms.size())); // first frame / size mismatch -> zero velocity
         }
 
-        // Build the InstanceData[] the cull compute reads. Color / Custom /
-        // EntityID stay at their identity defaults — the transform-only
-        // overload doesn't carry that per-instance data. The InstanceData
-        // overload of DrawMeshInstanced overwrites them with the real values
-        // once the GPU-cull path is wired into it as a future follow-up.
+        // Build the InstanceData[] the cull compute reads. The cull compacts
+        // whole records, so whatever a record carries here is what the survivor
+        // is drawn with: an authored instance brings its Color, Custom,
+        // EntityID, StableID and lightmap region (issue #1691; before it this
+        // path dropped all five above the GPU-cull threshold, so a batch of 1024
+        // instances lost its tints, its picking IDs and its baked lightmap
+        // regions that a batch of 1023 kept). The transform-only overload has
+        // none of them and keeps the identity defaults. The GPU Scene link is
+        // not an authored lane and stays unlinked, as on the CPU-cull path.
+        const bool hasAuthoredLanes = authoredInstances.size() == transforms.size();
+        OLO_CORE_ASSERT(authoredInstances.empty() || hasAuthoredLanes,
+                        "SubmitGPUCulledInstanced: authored instances must match the transforms one to one");
         TArray<InstanceData> packed;
         packed.Reserve(transforms.size());
         for (sizet i = 0; i < transforms.size(); ++i)
         {
             InstanceData inst;
+            if (hasAuthoredLanes)
+            {
+                const InstanceData& authored = authoredInstances[i];
+                inst.Color = authored.Color;
+                inst.EntityID = authored.EntityID;
+                inst.Custom = authored.Custom;
+                inst.StableID = authored.StableID;
+                inst.LightmapScaleOffset = authored.LightmapScaleOffset;
+            }
             inst.Transform = transforms[i];
             inst.Normal = glm::transpose(glm::inverse(transforms[i]));
             inst.PrevTransform = prevTransforms[i];
@@ -1660,7 +1725,7 @@ namespace OloEngine
             return nullptr;
         }
 
-        ++s_Data.Stats.TotalMeshes;
+        ++s_Data.Frame.Stats.TotalMeshes;
 
         // For animated meshes, be more conservative with frustum culling
         // since bone transforms can move vertices significantly beyond rest pose bounds.
@@ -1680,9 +1745,9 @@ namespace OloEngine
             // bound because it is a fudge for SKINNING (#1227).
             animatedSphere.Radius += MorphBoundsSlack(mesh, modelMatrix);
 
-            if (!s_Data.ViewFrustum.IsBoundingSphereVisible(animatedSphere))
+            if (!s_Data.View.ViewFrustum.IsBoundingSphereVisible(animatedSphere))
             {
-                ++s_Data.Stats.CulledMeshes;
+                ++s_Data.Frame.Stats.CulledMeshes;
                 return nullptr;
             }
         }
@@ -2134,7 +2199,7 @@ namespace OloEngine
                 // Seed it when the caller already owns authoritative history.
                 if (desc.HasPrevTransform && desc.EntityID >= 0)
                 {
-                    s_Data.PrevEntityTransforms.insert_or_assign(desc.EntityID, desc.PrevTransform);
+                    s_Data.Scene.PrevEntityTransforms.insert_or_assign(desc.EntityID, desc.PrevTransform);
                 }
                 CommandPacket* packet = DrawMesh(desc.Mesh, desc.Transform, desc.MaterialData, desc.IsStatic,
                                                  desc.EntityID, desc.LODGroupPtr);
@@ -2279,14 +2344,14 @@ namespace OloEngine
         {
             totalSubmitted += workerStats[i].Submitted;
             overlaySubmitted += workerStats[i].Context.ForwardOverlaySubmitted;
-            s_Data.Stats.LODSwitches += workerStats[i].Context.LODSwitches;
+            s_Data.Frame.Stats.LODSwitches += workerStats[i].Context.LODSwitches;
             for (sizet j = 0; j < static_cast<sizet>(workerStats[i].Context.ObjectsPerLODLevel.Num()); ++j)
             {
-                if (j >= static_cast<sizet>(s_Data.Stats.ObjectsPerLODLevel.Num()))
+                if (j >= static_cast<sizet>(s_Data.Frame.Stats.ObjectsPerLODLevel.Num()))
                 {
-                    s_Data.Stats.ObjectsPerLODLevel.SetNumZeroed(static_cast<i64>(j + 1));
+                    s_Data.Frame.Stats.ObjectsPerLODLevel.SetNumZeroed(static_cast<i64>(j + 1));
                 }
-                s_Data.Stats.ObjectsPerLODLevel[j] += workerStats[i].Context.ObjectsPerLODLevel[j];
+                s_Data.Frame.Stats.ObjectsPerLODLevel[j] += workerStats[i].Context.ObjectsPerLODLevel[j];
             }
         }
         // The statistic is the worker branch's evidence, so it counts every
@@ -2294,7 +2359,7 @@ namespace OloEngine
         // return value matches the serial branch instead: DrawMesh submits an
         // overlay draw itself and returns nullptr, so that branch does not count
         // it either.
-        s_Data.Stats.ParallelSubmittedMeshes += totalSubmitted + overlaySubmitted;
+        s_Data.Frame.Stats.ParallelSubmittedMeshes += totalSubmitted + overlaySubmitted;
 
         return totalSubmitted;
     }

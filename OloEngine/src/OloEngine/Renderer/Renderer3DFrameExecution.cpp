@@ -21,7 +21,7 @@ namespace OloEngine
 {
     void Renderer3D::SetParticleRenderCallback(RenderCallback callback)
     {
-        s_Data.PendingParticleRenderCallback = std::move(callback);
+        s_Data.Frame.PendingParticleRenderCallback = std::move(callback);
     }
 
     RHI::ResourceHandle Renderer3D::AcquireSoftParticleDepth()
@@ -33,18 +33,18 @@ namespace OloEngine
 
     void Renderer3D::SubmitFluidDraw(const FluidRenderData& draw)
     {
-        s_Data.PendingFluidDraws.Add(draw);
+        s_Data.Frame.PendingFluidDraws.Add(draw);
     }
 
     void Renderer3D::SetUICompositeRenderCallback(RenderCallback callback)
     {
-        s_Data.PendingUICompositeRenderCallback = std::move(callback);
+        s_Data.Frame.PendingUICompositeRenderCallback = std::move(callback);
     }
 
     void Renderer3D::SetSelectionOutlineEntityIDs(std::span<const i32> ids)
     {
-        s_Data.SelectionOutlineEntityIDs.Reset();
-        s_Data.SelectionOutlineEntityIDs.Append(ids.data(), static_cast<i64>(ids.size()));
+        s_Data.Frame.SelectionOutlineEntityIDs.Reset();
+        s_Data.Frame.SelectionOutlineEntityIDs.Append(ids.data(), static_cast<i64>(ids.size()));
     }
 
     void Renderer3D::GenerateOcclusionHZB()
@@ -62,7 +62,7 @@ namespace OloEngine
         // pinned at the same instant, so the occlusion test stays exactly the
         // one the frozen camera made. OcclusionHZBValid deliberately stays true:
         // the pyramid is stale by design here, not missing.
-        if (s_Data.CullingCameraFrozen)
+        if (s_Data.View.CullingCameraFrozen)
             return;
 
         // Any path that fails to regenerate the pyramid must invalidate it:
@@ -71,7 +71,7 @@ namespace OloEngine
         const Ref<SceneRenderPass>& scenePass = s_Data.Pipeline->FrameCorePasses.Scene;
         if (!scenePass)
         {
-            s_Data.OcclusionHZBValid = false;
+            s_Data.View.OcclusionHZBValid = false;
             return;
         }
 
@@ -110,7 +110,7 @@ namespace OloEngine
         const auto& spec = scenePass->GetFramebufferSpecification();
         if (!depthTex.IsValid() || spec.Width == 0 || spec.Height == 0)
         {
-            s_Data.OcclusionHZBValid = false;
+            s_Data.View.OcclusionHZBValid = false;
             return;
         }
 
@@ -120,14 +120,14 @@ namespace OloEngine
         s_Data.OcclusionHZB.Resize(spec.Width, spec.Height);
         if (!s_Data.OcclusionHZB.IsValid())
         {
-            s_Data.OcclusionHZBValid = false;
+            s_Data.View.OcclusionHZBValid = false;
             return;
         }
 
         s_Data.OcclusionHZB.Generate(depthTex);
         RGOutOfBand::Note(RGOutOfBandBoundaries::OcclusionHZB, RGOutOfBandAccess::Write);
         // Valid from here on — next frame's instance cull may sample it.
-        s_Data.OcclusionHZBValid = true;
+        s_Data.View.OcclusionHZBValid = true;
     }
 
     GPUFrustumCuller::HZBOcclusionInputs Renderer3D::BuildCurrentOcclusionHZB(RHI::ResourceHandle depthTexture,
@@ -144,7 +144,7 @@ namespace OloEngine
         // callers already gate their two-phase paths on the freeze; this is the
         // backstop, because the failure it prevents is silent -- the frame still
         // renders, with a cut that is not the frozen one.
-        if (s_Data.CullingCameraFrozen)
+        if (s_Data.View.CullingCameraFrozen)
             return inputs;
 
         // Rebuild the persistent pyramid from THIS frame's partial depth
@@ -162,7 +162,7 @@ namespace OloEngine
         inputs.HZBTexture = s_Data.OcclusionHZB.GetHZBTexture();
         inputs.MipCount = s_Data.OcclusionHZB.GetMipCount();
         // Current-frame pyramid → reproject phase-2 bounds with the CURRENT VP.
-        inputs.PrevViewProjection = s_Data.ViewProjectionMatrix;
+        inputs.PrevViewProjection = s_Data.View.ViewProjectionMatrix;
         inputs.HZBSize = glm::vec2(static_cast<f32>(s_Data.OcclusionHZB.GetHZBWidth()),
                                    static_cast<f32>(s_Data.OcclusionHZB.GetHZBHeight()));
         inputs.HZBUVFactor = s_Data.OcclusionHZB.GetUVFactor();
@@ -178,7 +178,7 @@ namespace OloEngine
         // to the instance cull: the global toggle (which also honours the
         // force-disable-culling debug override), the frame-0 / post-invalidation
         // validity flag, and the generator actually holding a texture.
-        if (!IsHZBOcclusionCullingEnabled() || !s_Data.OcclusionHZBValid || !s_Data.OcclusionHZB.IsValid())
+        if (!IsHZBOcclusionCullingEnabled() || !s_Data.View.OcclusionHZBValid || !s_Data.OcclusionHZB.IsValid())
             return inputs;
 
         RGOutOfBand::Note(RGOutOfBandBoundaries::OcclusionHZB, RGOutOfBandAccess::ReadPreviousFrame);
@@ -189,7 +189,7 @@ namespace OloEngine
         // reads are shifted by THIS frame's render origin, so the previous VP has
         // to be made relative to that same origin or `clip = VP_world *
         // relativePos` is garbage far from the origin (issue #429).
-        inputs.PrevViewProjection = MakeViewProjectionRelative(s_Data.CullPrevViewProjectionMatrix, s_Data.RenderOrigin);
+        inputs.PrevViewProjection = MakeViewProjectionRelative(s_Data.View.CullPrevViewProjectionMatrix, s_Data.View.RenderOrigin);
         inputs.HZBSize = glm::vec2(static_cast<f32>(s_Data.OcclusionHZB.GetHZBWidth()),
                                    static_cast<f32>(s_Data.OcclusionHZB.GetHZBHeight()));
         inputs.HZBUVFactor = s_Data.OcclusionHZB.GetUVFactor();
@@ -228,7 +228,7 @@ namespace OloEngine
         // shared GL/Vulkan path; Vulkan snapshots these writes in command order.
         // Binding stays pass-local because the portable SSBO namespace is full;
         // the raster consumer added by #994 will bind immediately before use.
-        if (s_Data.GPUSceneExtractionActive)
+        if (s_Data.Frame.GPUSceneExtractionActive)
         {
             ExtractGPUSceneEnvironment();
             // Close the deformed-vertex producer's frame BEFORE GPU Scene
@@ -245,8 +245,8 @@ namespace OloEngine
             // call, so a second camera replacing that vector cannot leave a
             // dangling read behind.
             s_Data.GroomSurfaces.Extract(s_Data.SceneGPU,
-                                         std::span<const GroomStrandRequest>(s_Data.GroomStrandRequests.GetData(),
-                                                                             static_cast<sizet>(s_Data.GroomStrandRequests.Num())),
+                                         std::span<const GroomStrandRequest>(s_Data.Frame.GroomStrandRequests.GetData(),
+                                                                             static_cast<sizet>(s_Data.Frame.GroomStrandRequests.Num())),
                                          WantsRayTracingGrooms(), s_Data.Settings.GroomDetailBias);
             if (s_Data.RGraph && s_Data.VegetationSurfaces.GetStats().HistoryReset)
             {
@@ -317,9 +317,9 @@ namespace OloEngine
             // a buffer. Command dispatch resolves nothing itself.
             ResolveGPUSceneDrawLinks();
             RendererProfiler::GetInstance().SetGPUSceneStats(s_Data.SceneGPU.GetLastFrameUpdate().m_Stats);
-            RendererProfiler::GetInstance().SetGPUSceneDrawLinkCounts(s_Data.GPUSceneLinkedDraws,
-                                                                      s_Data.GPUSceneUnlinkedDraws);
-            s_Data.GPUSceneExtractionActive = false;
+            RendererProfiler::GetInstance().SetGPUSceneDrawLinkCounts(s_Data.Frame.GPUSceneLinkedDraws,
+                                                                      s_Data.Frame.GPUSceneUnlinkedDraws);
+            s_Data.Frame.GPUSceneExtractionActive = false;
         }
 
         auto& pipeline = *s_Data.Pipeline;
@@ -443,18 +443,18 @@ namespace OloEngine
         // Store current VP as previous for next frame's motion blur, and the
         // jitter it carried with it, so the velocity writers take out exactly
         // the offset that VP put on every vertex (#1552).
-        s_Data.PrevViewProjectionMatrix = s_Data.ViewProjectionMatrix;
-        s_Data.PrevJitterUV = s_Data.CurrJitterUV;
-        s_Data.PreviousViewPos = s_Data.ViewPos;
-        s_Data.HasPreviousViewPosition = true;
+        s_Data.View.PrevViewProjectionMatrix = s_Data.View.ViewProjectionMatrix;
+        s_Data.View.PrevJitterUV = s_Data.View.CurrJitterUV;
+        s_Data.View.PreviousViewPos = s_Data.View.ViewPos;
+        s_Data.View.HasPreviousViewPosition = true;
         // The culling camera's own history rotates only while unfrozen, so it
         // keeps describing the pyramid GenerateOcclusionHZB() last produced
         // (issue #726). Two matrices because they answer different questions:
         // PrevViewProjectionMatrix is "where was the camera last frame" (motion
         // vectors), CullPrevViewProjectionMatrix is "what VP does the bound
         // depth pyramid correspond to".
-        if (!s_Data.CullingCameraFrozen)
-            s_Data.CullPrevViewProjectionMatrix = s_Data.CullViewProjectionMatrix;
+        if (!s_Data.View.CullingCameraFrozen)
+            s_Data.View.CullPrevViewProjectionMatrix = s_Data.View.CullViewProjectionMatrix;
 
         // Don't return the allocator to the pool - it's managed by FrameResourceManager
         // The allocator will be reset at the start of the next frame when this buffer is reused

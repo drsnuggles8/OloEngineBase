@@ -155,3 +155,39 @@ source file that assembles previous-frame transform truth outside the records, w
 condition. `GPUSceneAntiDuplicationRatchetTest` enforces the list both ways — an unnamed duplicator
 fails, and so does a named file that stopped duplicating — so the list shrinks as paths migrate.
 Adding an entry is the deliberate act; ask first whether the path can take a link instead.
+
+## 8. The instance tint
+
+**A per-instance colour goes on the instance record, and every hit shader multiplies it into the
+base colour.** `GPUSceneInstance::Tint` (offset 144, the record is 160 bytes) holds the rgb an
+instance multiplies into its material's base colour; alpha is reserved and 1. N instances of an
+`InstancedMeshComponent` share one material record and differ only in their colour, so the material
+record cannot carry it and a ray that hits one has nothing else to tell them apart by.
+
+Raster reads the same value from `InstanceData::Color`
+([glsl-shaders-details.md §6a](glsl-shaders-details.md#6a-instancing-is-shader-transparent--dont-write-a-separate-_instanced-variant)).
+The two are filled from one authored value in `Scene.cpp`'s instanced loop: the draw takes the
+`InstanceData` span and `Renderer3D::ExtractGPUSceneMesh` takes `InstanceTint(instance.Color)`. A new
+producer with a per-instance colour has to pass both, or a hybrid frame and a raster frame disagree
+on its geometry. Every other producer leaves the tint at white, and a multiply by white is exact.
+
+`InstanceTint` (`InstanceData.h`) is what every CPU consumer of the colour multiplies with: the rgb
+with each channel clamped to zero from below, and white when a channel is not finite. A path tracer
+handed a negative or NaN albedo does not draw that surface black; every path that touches it is lost.
+
+The readers are `OloRtTraceHit` in `include/RayTracedSurfaceHit.glsl` (the path tracer, ReSTIR GI
+and PT) and the hit shading in `RayTracedReflection.glsl`. Until #1691 the record had no such lane
+and both shaded an instanced mesh with its untinted material.
+
+The CPU reference path tracer meets instanced geometry in one place, the lightmap bake:
+`GatherLightmapReceivers` emits one receiver per instance of a `LightmapStatic`
+`InstancedMeshComponent`, and `ReferenceSceneBuilder::AddLightmapReceivers` traces against that list.
+The receiver carries the tint (`LightmapReceiver::Tint`), the builder multiplies it into the
+reference material's base colour (one material entry per distinct material and tint), and
+`SceneLightmapRuntime::ComputeBakeKey` mixes it when it is not white, so a tinted instance bounces
+its own colour and editing a tint stales the bake. `ReferenceSceneBuilder::AddScene`, the path the
+parity fixtures use, walks `MeshComponent` entities only and has no instance to tint. The first
+version of this change missed the bake: it bounced white off instances that every frame drew red.
+Pinned by `ReferenceSceneBuilderMaps.AnInstanceTintMultipliesTheBaseColourOfItsOwnInstanceOnly`,
+`SceneLightmapGather.InstanceReceiversCarryTheInstancesTint` and
+`SceneLightmapStaleness.TintingOneInstanceChangesTheKeyAndItsAlphaDoesNot`.

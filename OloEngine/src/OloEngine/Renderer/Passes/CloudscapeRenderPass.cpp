@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/CloudscapeRenderPass.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -250,6 +251,8 @@ namespace OloEngine
 
         m_RaymarchShader->Bind();
 
+        Renderer3D::BindMotionMatrices(); // pass-scoped binding 8 (#1687)
+
         // Defensive sampler re-binds for the raymarch's noise field
         // (56/57/58 carry explicit layout(binding) qualifiers in
         // CloudscapeCommon.glsl). UploadExecutionState bound these already;
@@ -299,6 +302,8 @@ namespace OloEngine
         context.Clear();
 
         m_ResolveShader->Bind();
+
+        Renderer3D::BindMotionMatrices(); // pass-scoped binding 8 (#1687)
 
         // This frame's raymarch at unit 0 (layout(binding = 0) in the shader).
         const RHI::ResourceHandle cloudsRawColor = cloudsRawFramebuffer->GetColorAttachmentHandle(0);

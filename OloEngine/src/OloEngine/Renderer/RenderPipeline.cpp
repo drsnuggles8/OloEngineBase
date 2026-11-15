@@ -491,10 +491,10 @@ namespace OloEngine
         // that to fill a list the GTAO gate will discard is the kind of cost that
         // shows up as "the renderer got slower when I ticked a box that did
         // nothing". All three inputs are known at BeginScene.
-        data.AOProxyCollecting = data.PostProcess.SphereProxyAOEnabled &&
-                                 data.PostProcess.GTAOEnabled &&
-                                 data.ActiveGraphAOTechnique == AOTechnique::GTAO;
-        data.AOProxyBounds.Reset();
+        data.Frame.AOProxyCollecting = data.PostProcess.SphereProxyAOEnabled &&
+                                       data.PostProcess.GTAOEnabled &&
+                                       data.ActiveGraphAOTechnique == AOTechnique::GTAO;
+        data.Frame.AOProxyBounds.Reset();
 
         // Process any pending GPU resource creation commands from async loaders.
         GPUResourceQueue::ProcessAll();
@@ -546,19 +546,23 @@ namespace OloEngine
         // submission can look up "previous frame" transforms. In Forward /
         // Forward+ these maps stay empty because those paths never call
         // GetAndRecordPrevTransform.
-        data.PrevEntityTransforms = std::move(data.CurrEntityTransforms);
-        data.CurrEntityTransforms.clear();
-        data.PrevInstanceTransforms = std::move(data.CurrInstanceTransforms);
-        data.CurrInstanceTransforms.clear();
+        data.Scene.PrevEntityTransforms = std::move(data.Scene.CurrEntityTransforms);
+        data.Scene.CurrEntityTransforms.clear();
+        data.Scene.PrevInstanceTransforms = std::move(data.Scene.CurrInstanceTransforms);
+        data.Scene.CurrInstanceTransforms.clear();
         // A frame with no motion history of its own (#1348): every submission
         // finds no previous transform and reports zero object motion, and the
         // GPU Scene commits its instances the same way. The camera half is
         // below, once this frame's jittered view-projection exists.
-        if (data.MotionHistoryResetPending)
+        // The scene's own flag, not the view's (ADR 0025): object poses are
+        // measured once per physical frame whatever camera looks at them, so a
+        // view reset must not drop them and a scene reset must.
+        if (data.Scene.PoseHistoryResetPending)
         {
-            data.PrevEntityTransforms.clear();
-            data.PrevInstanceTransforms.clear();
+            data.Scene.PrevEntityTransforms.clear();
+            data.Scene.PrevInstanceTransforms.clear();
             data.SceneGPU.ForgetMotionHistory();
+            data.Scene.PoseHistoryResetPending = false;
         }
 
         // The water-surface-depth and planar-reflection texture publications are
@@ -569,8 +573,8 @@ namespace OloEngine
         // unconditionally (ToneMap's underwater-fog water-depth slot) would
         // bind a texture name whose owning framebuffer died in an earlier graph
         // resize/rebuild — the #505 stale-texture GL_INVALID_OPERATION.
-        data.WaterSurfaceDepthTextureID = {};
-        data.PlanarReflectionTextureID = {};
+        data.Frame.WaterSurfaceDepthTextureID = {};
+        data.Frame.PlanarReflectionTextureID = {};
 
         // GPU frustum-cull pool reset — slot cursor recycles from 0 each
         // frame. Buffers stay allocated (lifetime = engine, not frame) so
@@ -579,9 +583,9 @@ namespace OloEngine
         // Camera-relative render origin (issue #429). Computed up-front — before
         // the Hi-Z occlusion cull below — because that cull reprojects instance
         // bounds that GPUFrustumCuller::Cull shifts render-relative by this same
-        // origin, so its prev-VP must be made relative to it too. data.ViewPos /
+        // origin, so its prev-VP must be made relative to it too. data.View.ViewPos /
         // data.CameraRelativeEnabled are populated before PrepareFrame runs.
-        data.RenderOrigin = data.CameraRelativeEnabled ? ComputeRenderOrigin(data.ViewPos) : glm::vec3(0.0f);
+        data.View.RenderOrigin = data.CameraRelativeEnabled ? ComputeRenderOrigin(data.View.ViewPos) : glm::vec3(0.0f);
 
         // The GPU readback-stats channel (issue #721): retire whatever the ring
         // has finished, then zero the live block for this frame.
@@ -609,7 +613,7 @@ namespace OloEngine
             // so bounds are reprojected with `PrevViewProjectionMatrix` — which
             // is likewise still last frame's VP until EndScene rotates it. The
             // OcclusionHZBValid guard skips frame 0, where no depth exists yet.
-            if (data.HZBOcclusionCullingEnabled && data.OcclusionHZBValid && data.OcclusionHZB.IsValid())
+            if (data.HZBOcclusionCullingEnabled && data.View.OcclusionHZBValid && data.OcclusionHZB.IsValid())
             {
                 GPUFrustumCuller::HZBOcclusionInputs occ;
                 occ.Enabled = true;
@@ -629,7 +633,7 @@ namespace OloEngine
                 // pyramid stops being regenerated, so its VP is pinned with it;
                 // PrevViewProjectionMatrix keeps tracking the observer because
                 // TAA / motion-blur velocity depends on it doing exactly that.
-                occ.PrevViewProjection = MakeViewProjectionRelative(data.CullPrevViewProjectionMatrix, data.RenderOrigin);
+                occ.PrevViewProjection = MakeViewProjectionRelative(data.View.CullPrevViewProjectionMatrix, data.View.RenderOrigin);
                 occ.HZBSize = glm::vec2(static_cast<f32>(data.OcclusionHZB.GetHZBWidth()),
                                         static_cast<f32>(data.OcclusionHZB.GetHZBHeight()));
                 occ.HZBUVFactor = data.OcclusionHZB.GetUVFactor();
@@ -664,7 +668,7 @@ namespace OloEngine
         // Wrapped to a power of two so it stays exactly representable as the f32
         // the params UBOs carry it in (2^24 is the last integer f32 can count to
         // one at a time; 2^20 leaves headroom and is ~4.8 hours at 60 Hz).
-        data.StochasticFrameIndex = (data.StochasticFrameIndex + 1u) & 0xFFFFFu;
+        data.Clock.StochasticFrameIndex = (data.Clock.StochasticFrameIndex + 1u) & 0xFFFFFu;
 
         // FSR2 (#684): decide ONCE, here, whether the temporal upscaler runs this
         // frame — see Renderer3D.h's TemporalUpscaleActive for why nothing
@@ -689,19 +693,19 @@ namespace OloEngine
         activation.Api = RendererAPI::GetAPI() == RendererAPI::API::Vulkan
                              ? RendererSupport::Backend::Vulkan
                              : RendererSupport::Backend::OpenGL;
-        data.TemporalUpscaleActive = TemporalUpscalePolicy::ShouldRunTemporalUpscale(activation);
+        data.View.TemporalUpscaleActive = TemporalUpscalePolicy::ShouldRunTemporalUpscale(activation);
         // The same decision, classified for whoever has to REPORT it (the MCP
         // renderer-settings readback): requested and resolved are different
         // facts, and the reason is latched here rather than re-derived there.
-        data.UpscaleResolution.Result = TemporalUpscalePolicy::Resolve(activation);
-        data.UpscaleResolution.UpscalerStatus = PostProcessPasses.FSR2 ? PostProcessPasses.FSR2->GetUpscalerStatus()
-                                                                       : TemporalUpscalerStatus::NotConfigured;
-        data.UpscaleResolution.SceneSampleCount = activation.SceneSampleCount;
-        data.UpscaleResolution.Mode = activation.Mode;
-        data.UpscaleResolution.Technique = activation.Technique;
-        data.UpscaleResolution.Path = data.Settings.Path;
-        data.UpscaleResolution.DeferredMSAASampleCount = data.Settings.Deferred.MSAASampleCount;
-        data.UpscaleResolution.Latched = true;
+        data.View.UpscaleResolution.Result = TemporalUpscalePolicy::Resolve(activation);
+        data.View.UpscaleResolution.UpscalerStatus = PostProcessPasses.FSR2 ? PostProcessPasses.FSR2->GetUpscalerStatus()
+                                                                            : TemporalUpscalerStatus::NotConfigured;
+        data.View.UpscaleResolution.SceneSampleCount = activation.SceneSampleCount;
+        data.View.UpscaleResolution.Mode = activation.Mode;
+        data.View.UpscaleResolution.Technique = activation.Technique;
+        data.View.UpscaleResolution.Path = data.Settings.Path;
+        data.View.UpscaleResolution.DeferredMSAASampleCount = data.Settings.Deferred.MSAASampleCount;
+        data.View.UpscaleResolution.Latched = true;
 
         // Say WHY when the user asked for FSR2 and did not get it. Silence here is
         // the worst outcome: the frame still renders, at the render scale they
@@ -711,10 +715,10 @@ namespace OloEngine
         // reports, while a steady state does not spam the log every frame.
         if (const bool temporalRequested = activation.Mode != UpscaleMode::Off &&
                                            activation.Technique == UpscalerTechnique::Temporal;
-            temporalRequested && !data.TemporalUpscaleActive)
+            temporalRequested && !data.View.TemporalUpscaleActive)
         {
             const bool msaaSceneBand = TemporalUpscalePolicy::IsMSAAResolved(activation.SceneSampleCount);
-            const TemporalUpscalerStatus status = data.UpscaleResolution.UpscalerStatus;
+            const TemporalUpscalerStatus status = data.View.UpscaleResolution.UpscalerStatus;
 
             // -1 == "nothing reported yet"; the MSAA case is folded in as a
             // distinct code because it is not a backend status at all.
@@ -736,7 +740,7 @@ namespace OloEngine
 
         // Engine TAA, wanted by the user OR by the scene (#1429). Latched ONCE,
         // here, before the jitter below reads it, for the TemporalUpscaleActive
-        // reason: every later site reads data.EngineTAAWanted, so the jitter, the
+        // reason: every later site reads data.Frame.EngineTAAWanted, so the jitter, the
         // resolved velocity, the TAA pass and the groom's composition decision
         // cannot disagree about whether a resolve runs. The scene's request is
         // consumed, so a frame whose scene did not re-publish it gets exactly the
@@ -747,11 +751,11 @@ namespace OloEngine
         // whole frame with nothing to average it, while the groom — which checks
         // the same readiness — falls back anyway. The user's own tick is left
         // exactly as it always behaved.
-        data.SceneTemporalResolveGrooms = data.PendingSceneTemporalResolveGrooms;
-        data.PendingSceneTemporalResolveGrooms = 0;
+        data.Frame.SceneTemporalResolveGrooms = data.Frame.PendingSceneTemporalResolveGrooms;
+        data.Frame.PendingSceneTemporalResolveGrooms = 0;
         const bool taaPassReady = PostProcessPasses.TAA && PostProcessPasses.TAA->IsReadyForExecution();
-        data.EngineTAAWanted = TemporalUpscalePolicy::WantsEngineTAA(
-            data.PostProcess.TAAEnabled, data.SceneTemporalResolveGrooms > 0u && taaPassReady,
+        data.Frame.EngineTAAWanted = TemporalUpscalePolicy::WantsEngineTAA(
+            data.PostProcess.TAAEnabled, data.Frame.SceneTemporalResolveGrooms > 0u && taaPassReady,
             data.Settings.HonourSceneTemporalResolveRequests);
         {
             // Say so when TAA runs that the user did not tick: it changes the
@@ -762,7 +766,7 @@ namespace OloEngine
             // engine TAA is off, so "TAA is running" would be false — and the
             // latch then reports again when FSR2 stops and engine TAA takes over.
             const bool onSceneBehalf =
-                TemporalUpscalePolicy::ShouldRunEngineTAA(data.EngineTAAWanted, data.TemporalUpscaleActive) &&
+                TemporalUpscalePolicy::ShouldRunEngineTAA(data.Frame.EngineTAAWanted, data.View.TemporalUpscaleActive) &&
                 !data.PostProcess.TAAEnabled;
             if (onSceneBehalf != m_ReportedSceneTemporalResolve)
             {
@@ -770,7 +774,7 @@ namespace OloEngine
                 if (onSceneBehalf)
                     OLO_CORE_INFO("TAA is running on the scene's request: {} groom(s) use stochastic composition, "
                                   "which needs a temporal resolve to draw sub-pixel hair (TAAEnabled itself is off)",
-                                  data.SceneTemporalResolveGrooms);
+                                  data.Frame.SceneTemporalResolveGrooms);
             }
         }
 
@@ -784,7 +788,7 @@ namespace OloEngine
         // the current and previous ViewProjection carry their respective
         // jitters so depth-based reprojection in TAA remains self-consistent
         // without requiring an explicit unjitter uniform.
-        const u8 jitterMode = data.TemporalUpscaleActive ? 2u : (data.EngineTAAWanted ? 1u : 0u);
+        const u8 jitterMode = data.View.TemporalUpscaleActive ? 2u : (data.Frame.EngineTAAWanted ? 1u : 0u);
         if (m_HasJitterMode && jitterMode != m_PreviousJitterMode && data.RGraph)
             data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::JitterReset);
         m_HasJitterMode = true;
@@ -794,9 +798,9 @@ namespace OloEngine
         // previous frame's is rotated with PrevViewProjectionMatrix, at the end
         // of the frame that used it (Renderer3D::ExecuteFrame), so the two
         // always describe the same frame (#1552).
-        data.CurrJitterUV = glm::vec2(0.0f);
-        data.TemporalUpscaleJitterPixels = glm::vec2(0.0f);
-        const glm::mat4 unjitteredProjection = data.ProjectionMatrix;
+        data.View.CurrJitterUV = glm::vec2(0.0f);
+        data.View.TemporalUpscaleJitterPixels = glm::vec2(0.0f);
+        const glm::mat4 unjitteredProjection = data.View.ProjectionMatrix;
 
         // Jitter is needed by EITHER temporal accumulator, and the two disagree on
         // the sequence: engine TAA walks a fixed 8-sample Halton(2,3), while FSR2 derives
@@ -805,7 +809,7 @@ namespace OloEngine
         // display grid). Feeding FSR2 that 8-sample cycle would under-sample exactly the
         // reconstruction it exists to perform, so the branch below picks the
         // upscaler's sequence whenever it owns the frame.
-        if (data.TemporalUpscaleActive && FrameCorePasses.Scene)
+        if (data.View.TemporalUpscaleActive && FrameCorePasses.Scene)
         {
             const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
             const u32 displayW = data.RGraph ? data.RGraph->GetPhysicalWidth() : spec.Width;
@@ -813,7 +817,7 @@ namespace OloEngine
             {
                 const i32 phaseCount = PostProcessPasses.FSR2->GetJitterPhaseCount(spec.Width, displayW);
                 const glm::vec2 jitterPixels =
-                    PostProcessPasses.FSR2->GetJitterOffset(static_cast<i32>(data.TemporalUpscalePhaseIndex), phaseCount);
+                    PostProcessPasses.FSR2->GetJitterOffset(static_cast<i32>(data.Clock.TemporalUpscalePhaseIndex), phaseCount);
 
                 // FSR2 hands back an offset in RENDER-resolution pixels, already
                 // centred on [-0.5, 0.5]. The scene renders into a viewport of
@@ -826,48 +830,48 @@ namespace OloEngine
                 const f32 jitterNdcX = jitterNdc.x;
                 const f32 jitterNdcY = jitterNdc.y;
 
-                if (const bool isOrthographic = glm::abs(data.ProjectionMatrix[3][3] - 1.0f) < 1e-5f; isOrthographic)
+                if (const bool isOrthographic = glm::abs(data.View.ProjectionMatrix[3][3] - 1.0f) < 1e-5f; isOrthographic)
                 {
-                    data.ProjectionMatrix[3][0] += jitterNdcX;
-                    data.ProjectionMatrix[3][1] += jitterNdcY;
+                    data.View.ProjectionMatrix[3][0] += jitterNdcX;
+                    data.View.ProjectionMatrix[3][1] += jitterNdcY;
                 }
                 else
                 {
-                    data.ProjectionMatrix[2][0] += jitterNdcX;
-                    data.ProjectionMatrix[2][1] += jitterNdcY;
+                    data.View.ProjectionMatrix[2][0] += jitterNdcX;
+                    data.View.ProjectionMatrix[2][1] += jitterNdcY;
                 }
-                data.ViewProjectionMatrix = data.ProjectionMatrix * data.ViewMatrix;
+                data.View.ViewProjectionMatrix = data.View.ProjectionMatrix * data.View.ViewMatrix;
 
-                data.CurrJitterUV = TemporalUpscalePolicy::ProjectionJitterVelocityOffset(
-                    RHI::AdjustProjectionForBackend(unjitteredProjection), RHI::AdjustProjectionForBackend(data.ProjectionMatrix));
+                data.View.CurrJitterUV = TemporalUpscalePolicy::ProjectionJitterVelocityOffset(
+                    RHI::AdjustProjectionForBackend(unjitteredProjection), RHI::AdjustProjectionForBackend(data.View.ProjectionMatrix));
                 // NOT jitterPixels — see UpscalerJitterFromProjectionJitter. The
                 // projection was given +jitter, so the image carries -jitter, and
                 // that is what FSR2 has to be told or it never converges.
-                data.TemporalUpscaleJitterPixels =
+                data.View.TemporalUpscaleJitterPixels =
                     TemporalUpscalePolicy::UpscalerJitterFromProjectionJitter(jitterPixels);
-                data.TemporalUpscalePhaseIndex =
-                    (data.TemporalUpscalePhaseIndex + 1u) % static_cast<u32>(std::max(1, phaseCount));
+                data.Clock.TemporalUpscalePhaseIndex =
+                    (data.Clock.TemporalUpscalePhaseIndex + 1u) % static_cast<u32>(std::max(1, phaseCount));
             }
             // The engine TAA index is parked while FSR2 owns the jitter, so a
             // switch back to TAA restarts its sequence from a known phase rather
             // than from wherever it happened to stop.
-            data.TAAJitterFrameIndex = 0;
+            data.Clock.TAAJitterFrameIndex = 0;
         }
-        else if (data.EngineTAAWanted && FrameCorePasses.Scene)
+        else if (data.Frame.EngineTAAWanted && FrameCorePasses.Scene)
         {
-            data.TemporalUpscalePhaseIndex = 0;
+            data.Clock.TemporalUpscalePhaseIndex = 0;
             const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
             if (spec.Width > 0 && spec.Height > 0)
             {
                 // 1-based Halton index; Halton(0) is undefined. Loop modulo
                 // kHaltonSequenceLength keeps the pattern short and stable.
-                const u32 idx = (data.TAAJitterFrameIndex % kHaltonSequenceLength) + 1;
+                const u32 idx = (data.Clock.TAAJitterFrameIndex % kHaltonSequenceLength) + 1;
                 // Halton samples land in [0, 1]; remap to [-0.5, 0.5] so the
                 // jitter is centred around the unperturbed pixel.
                 // TAAJitterRotation is the run seed's toroidal shift (#1348),
                 // zero for seeds 0..7; fract(h + 0) == h for these samples.
-                const f32 jx = glm::fract(HaltonSample(idx, 2) + data.TAAJitterRotation.x) - 0.5f;
-                const f32 jy = glm::fract(HaltonSample(idx, 3) + data.TAAJitterRotation.y) - 0.5f;
+                const f32 jx = glm::fract(HaltonSample(idx, 2) + data.Clock.TAAJitterRotation.x) - 0.5f;
+                const f32 jy = glm::fract(HaltonSample(idx, 3) + data.Clock.TAAJitterRotation.y) - 0.5f;
 
                 // Convert pixel offset to NDC — 2 NDC units span the screen,
                 // so one pixel in NDC = 2 / resolution.
@@ -885,31 +889,31 @@ namespace OloEngine
                 // x_ndc = P[0][0]*x + P[2][0]*z + P[3][0]. Instead, add the
                 // jitter to the translation row so every fragment gets the
                 // same sub-pixel shift independent of depth.
-                if (const bool isOrthographic = glm::abs(data.ProjectionMatrix[3][3] - 1.0f) < 1e-5f; isOrthographic)
+                if (const bool isOrthographic = glm::abs(data.View.ProjectionMatrix[3][3] - 1.0f) < 1e-5f; isOrthographic)
                 {
-                    data.ProjectionMatrix[3][0] += jitterNdcX;
-                    data.ProjectionMatrix[3][1] += jitterNdcY;
+                    data.View.ProjectionMatrix[3][0] += jitterNdcX;
+                    data.View.ProjectionMatrix[3][1] += jitterNdcY;
                 }
                 else
                 {
-                    data.ProjectionMatrix[2][0] += jitterNdcX;
-                    data.ProjectionMatrix[2][1] += jitterNdcY;
+                    data.View.ProjectionMatrix[2][0] += jitterNdcX;
+                    data.View.ProjectionMatrix[2][1] += jitterNdcY;
                 }
-                data.ViewProjectionMatrix = data.ProjectionMatrix * data.ViewMatrix;
+                data.View.ViewProjectionMatrix = data.View.ProjectionMatrix * data.View.ViewMatrix;
 
                 // The offset this jitter puts on every vertex, in velocity
                 // units and the uploaded convention: what every velocity
                 // writer subtracts (#1552).
-                data.CurrJitterUV = TemporalUpscalePolicy::ProjectionJitterVelocityOffset(
-                    RHI::AdjustProjectionForBackend(unjitteredProjection), RHI::AdjustProjectionForBackend(data.ProjectionMatrix));
+                data.View.CurrJitterUV = TemporalUpscalePolicy::ProjectionJitterVelocityOffset(
+                    RHI::AdjustProjectionForBackend(unjitteredProjection), RHI::AdjustProjectionForBackend(data.View.ProjectionMatrix));
 
-                data.TAAJitterFrameIndex = (data.TAAJitterFrameIndex + 1) % kHaltonSequenceLength;
+                data.Clock.TAAJitterFrameIndex = (data.Clock.TAAJitterFrameIndex + 1) % kHaltonSequenceLength;
             }
         }
         else
         {
-            data.TAAJitterFrameIndex = 0;
-            data.TemporalUpscalePhaseIndex = 0;
+            data.Clock.TAAJitterFrameIndex = 0;
+            data.Clock.TemporalUpscalePhaseIndex = 0;
         }
 
         // Re-mirror the culling camera's projection AFTER the jitter (issue
@@ -921,49 +925,53 @@ namespace OloEngine
         // and exactly the kind that turns up later as an unexplained golden
         // delta. The view matrix and the camera position are untouched by
         // jitter, so only these two need it.
-        if (!data.CullingCameraFrozen)
+        if (!data.View.CullingCameraFrozen)
         {
-            data.CullProjectionMatrix = data.ProjectionMatrix;
-            data.CullViewProjectionMatrix = data.ViewProjectionMatrix;
+            data.View.CullProjectionMatrix = data.View.ProjectionMatrix;
+            data.View.CullViewProjectionMatrix = data.View.ViewProjectionMatrix;
         }
 
-        // Camera-relative rendering (issue #429): data.RenderOrigin was snapped
+        // Camera-relative rendering (issue #429): data.View.RenderOrigin was snapped
         // to a coarse grid above (hoisted so the Hi-Z occlusion cull could use
         // it). Every world position / matrix is uploaded to the GPU relative to
         // it so the GPU works near 0 far from the world origin. Within the first
         // grid cell the origin is exactly (0,0,0), so all of the arithmetic below
         // is a byte-identical no-op — existing near-origin scenes are unaffected.
-        const glm::vec3 renderOrigin = data.RenderOrigin;
-        const glm::mat4 relativeView = MakeViewRelative(data.ViewMatrix, renderOrigin);
+        const glm::vec3 renderOrigin = data.View.RenderOrigin;
+        const glm::mat4 relativeView = MakeViewRelative(data.View.ViewMatrix, renderOrigin);
         const glm::mat4 relativeViewProjection =
-            MakeViewProjectionRelative(data.ProjectionMatrix, data.ViewMatrix, renderOrigin);
+            MakeViewProjectionRelative(data.View.ProjectionMatrix, data.View.ViewMatrix, renderOrigin);
         // The camera half of a frame with no motion history (#1348): last
         // frame IS this frame, jitter included, so camera velocity is zero.
-        if (data.MotionHistoryResetPending)
+        if (data.View.MotionHistoryResetPending)
         {
-            data.PrevViewProjectionMatrix = data.ViewProjectionMatrix;
-            data.PrevJitterUV = data.CurrJitterUV;
-            data.MotionHistoryResetPending = false;
+            data.View.PrevViewProjectionMatrix = data.View.ViewProjectionMatrix;
+            data.View.PrevJitterUV = data.View.CurrJitterUV;
+            data.View.MotionHistoryResetPending = false;
         }
-        const glm::mat4 relativePrevViewProjection = MakeViewProjectionRelative(data.PrevViewProjectionMatrix, renderOrigin);
+        const glm::mat4 relativePrevViewProjection = MakeViewProjectionRelative(data.View.PrevViewProjectionMatrix, renderOrigin);
 
-        // CommandDispatch keeps the *world* camera matrices — depth sort keys and
-        // the planar-reflection mirror derivation read them and must stay in
-        // world space; the camera-UBO packing there re-derives the relative
-        // matrices from these plus the render origin (set below).
-        CommandDispatch::SetViewProjectionMatrix(data.ViewProjectionMatrix);
-        CommandDispatch::SetViewMatrix(data.ViewMatrix);
-        CommandDispatch::SetProjectionMatrix(data.ProjectionMatrix);
-        // Mirror the previous-frame view-projection into CommandDispatch so
-        // dispatch paths that upload the shared CameraUBO themselves
-        // (Terrain / Voxel / Decal) can fill
+        // The frame's recording view, set whole (ADR 0025). CommandDispatch keeps
+        // the *world* camera matrices — depth sort keys and the planar-reflection
+        // mirror derivation read them and must stay in world space; the
+        // camera-UBO packing there re-derives the relative matrices from these
+        // plus the render origin. The previous view-projection and the two
+        // jitters ride with it so the dispatch paths that upload the shared
+        // CameraUBO themselves (Terrain / Voxel / Decal) fill
         // `CameraUBO::PrevViewProjection` with the true history instead of
-        // aliasing the current VP — the latter wipes the matrix any other
-        // consumer (TAA velocity reconstruction, motion blur) reads this
-        // frame.
-        CommandDispatch::SetPrevViewProjectionMatrix(data.PrevViewProjectionMatrix);
-        CommandDispatch::SetJitterUV(glm::vec4(data.CurrJitterUV, data.PrevJitterUV));
-        CommandDispatch::SetRenderOrigin(renderOrigin);
+        // aliasing the current VP, which would wipe the matrix every other
+        // consumer (TAA velocity reconstruction, motion blur) reads this frame.
+        {
+            DispatchView recordingView;
+            recordingView.ViewMatrix = data.View.ViewMatrix;
+            recordingView.ProjectionMatrix = data.View.ProjectionMatrix;
+            recordingView.ViewProjectionMatrix = data.View.ViewProjectionMatrix;
+            recordingView.PrevViewProjectionMatrix = data.View.PrevViewProjectionMatrix;
+            recordingView.JitterUV = glm::vec4(data.View.CurrJitterUV, data.View.PrevJitterUV);
+            recordingView.ViewPosition = data.View.ViewPos;
+            recordingView.RenderOrigin = renderOrigin;
+            CommandDispatch::SetView(recordingView);
+        }
 
         // Depth-reconstruction consumers (decals, motion blur, fog, underwater)
         // invert the *world* view-projection. Because the depth was written by
@@ -974,30 +982,30 @@ namespace OloEngine
         // (a world-anchored *pattern* that also reads the relative camera UBO
         // position — e.g. volumetric fog — adds u_RenderOrigin to that position
         // only). See docs/agent-rules/camera-relative-rendering.md.
-        data.InverseViewProjectionMatrix = glm::inverse(data.ViewProjectionMatrix);
+        data.View.InverseViewProjectionMatrix = glm::inverse(data.View.ViewProjectionMatrix);
         // Frustum culling stays in world space: submitted transforms and mesh
         // bounds are world-space, so cull against the world view-projection.
-        data.ViewFrustum.Update(data.CullViewProjectionMatrix);
+        data.View.ViewFrustum.Update(data.View.CullViewProjectionMatrix);
 
         // Render-origin-relative culling camera (issue #726). The GPU culls read
         // instance transforms that GPUFrustumCuller / VirtualMeshRegistry have
-        // already shifted by data.RenderOrigin, so the culling VP has to be made
+        // already shifted by data.View.RenderOrigin, so the culling VP has to be made
         // relative to the SAME origin. Note the origin keeps following the
         // RENDER camera even while the culling camera is frozen: the origin
         // exists for f32 precision in the frame that is actually being drawn,
         // and shifting both sides by it leaves the cull result unchanged.
-        data.CullViewProjectionRelative = MakeViewProjectionRelative(data.CullViewProjectionMatrix, renderOrigin);
-        data.CullViewPosRelative = MakePositionRelative(data.CullViewPos, renderOrigin);
-        data.CullProjParams = glm::vec2(
-            std::abs(data.CullProjectionMatrix[1][1]),
+        data.View.CullViewProjectionRelative = MakeViewProjectionRelative(data.View.CullViewProjectionMatrix, renderOrigin);
+        data.View.CullViewPosRelative = MakePositionRelative(data.View.CullViewPos, renderOrigin);
+        data.View.CullProjParams = glm::vec2(
+            std::abs(data.View.CullProjectionMatrix[1][1]),
             // Near plane recovered from the GL-form perspective projection,
             // n = P[3][2] / (P[2][2] - 1), matching VirtualClusterCull.comp's
             // NearPlane(). Guarded so a degenerate/orthographic projection
             // cannot hand the shader a zero or negative denominator.
             [&data]
             {
-                const f32 denom = data.CullProjectionMatrix[2][2] - 1.0f;
-                const f32 nearPlane = (std::abs(denom) > 1e-6f) ? (data.CullProjectionMatrix[3][2] / denom) : data.CullNearClip;
+                const f32 denom = data.View.CullProjectionMatrix[2][2] - 1.0f;
+                const f32 nearPlane = (std::abs(denom) > 1e-6f) ? (data.View.CullProjectionMatrix[3][2] / denom) : data.View.CullNearClip;
                 return (std::isfinite(nearPlane) && nearPlane > 0.0f) ? nearPlane : 1e-4f;
             }());
 
@@ -1021,31 +1029,31 @@ namespace OloEngine
         // "distance" the estimate is a function of; the 90-degree fallback keeps it
         // finite and conservative rather than pretending otherwise.
         {
-            const bool cullIsOrthographic = std::abs(data.CullProjectionMatrix[3][3] - 1.0f) < 1e-5f;
-            const f32 cotHalfFovY = data.CullProjParams.x;
-            data.LODView.ViewPosition = data.CullViewPos;
-            data.LODView.TanHalfFovY = (!cullIsOrthographic && std::isfinite(cotHalfFovY) && cotHalfFovY > 1e-6f)
-                                           ? (1.0f / cotHalfFovY)
-                                           : 1.0f;
+            const bool cullIsOrthographic = std::abs(data.View.CullProjectionMatrix[3][3] - 1.0f) < 1e-5f;
+            const f32 cotHalfFovY = data.View.CullProjParams.x;
+            data.View.LODView.ViewPosition = data.View.CullViewPos;
+            data.View.LODView.TanHalfFovY = (!cullIsOrthographic && std::isfinite(cotHalfFovY) && cotHalfFovY > 1e-6f)
+                                                ? (1.0f / cotHalfFovY)
+                                                : 1.0f;
             // Render height, not physical: the scene is rasterised at the DRS-scaled
             // size, so that is where a pixel of error is actually a pixel.
             const u32 renderHeight = data.RGraph ? data.RGraph->GetRenderHeight() : 0u;
-            data.LODView.ScreenHeight = (renderHeight > 0u) ? renderHeight : 1080u;
-            data.LODView.PixelErrorThreshold = data.Settings.LODPixelErrorThreshold;
+            data.View.LODView.ScreenHeight = (renderHeight > 0u) ? renderHeight : 1080u;
+            data.View.LODView.PixelErrorThreshold = data.Settings.LODPixelErrorThreshold;
         }
 
-        data.Stats.Reset();
-        data.CommandCounter = 0;
+        data.Frame.Stats.Reset();
+        data.Frame.CommandCounter = 0;
 
         // Advance occlusion culling frame (reads back previous frame's query results).
         if (data.OcclusionCullingEnabled)
         {
-            data.OcclusionResultsAvailable = OcclusionQueryPool::GetInstance().BeginFrame();
+            data.Frame.OcclusionResultsAvailable = OcclusionQueryPool::GetInstance().BeginFrame();
             OcclusionStateManager::GetInstance().BeginFrame();
         }
         else
         {
-            data.OcclusionResultsAvailable = false;
+            data.Frame.OcclusionResultsAvailable = false;
         }
 
         {
@@ -1061,11 +1069,11 @@ namespace OloEngine
             ShaderBindingLayout::CameraUBO cameraData;
             cameraData.ViewProjection = RHI::AdjustProjectionForBackend(relativeViewProjection);
             cameraData.View = relativeView;
-            cameraData.Projection = RHI::AdjustProjectionForBackend(data.ProjectionMatrix);
-            cameraData.Position = MakePositionRelative(data.ViewPos, renderOrigin);
+            cameraData.Projection = RHI::AdjustProjectionForBackend(data.View.ProjectionMatrix);
+            cameraData.Position = MakePositionRelative(data.View.ViewPos, renderOrigin);
             cameraData.Pad0 = 0.0f;
             // Previous-frame view-projection is maintained in
-            // `data.PrevViewProjectionMatrix`. Forward PBR shaders consume
+            // `data.View.PrevViewProjectionMatrix`. Forward PBR shaders consume
             // this through the CameraMatrices UBO (binding 0) to emit screen-
             // space velocity into scene FB RT3 — mirroring what the deferred
             // G-Buffer PBR shader does through u_PrevViewProjection. It is made
@@ -1074,7 +1082,7 @@ namespace OloEngine
             cameraData.PrevViewProjection = RHI::AdjustProjectionForBackend(relativePrevViewProjection);
             // The jitter each of those two carries, for the velocity writers to
             // take out (#1552): static content then writes zero.
-            cameraData.JitterUV = glm::vec4(data.CurrJitterUV, data.PrevJitterUV);
+            cameraData.JitterUV = glm::vec4(data.View.CurrJitterUV, data.View.PrevJitterUV);
             // The render origin itself, so pattern shaders can rebuild an
             // absolute world position (triplanar tiling, procedural noise, etc.).
             cameraData.RenderOrigin = renderOrigin;
@@ -1082,7 +1090,7 @@ namespace OloEngine
             // their own z remap / near-far extraction / inverse — identical to
             // Projection on GL, row-flip-only on Vulkan.
             cameraData.ProjectionForReconstruction =
-                RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
+                RHI::AdjustProjectionForShaderReconstruction(data.View.ProjectionMatrix);
             // The forward screen-space AO lane (issue #1452) starts every frame
             // NOT live. This upload runs before CommandDispatch::ResetState, so
             // reading the dispatcher here would publish the PREVIOUS frame's
@@ -1114,8 +1122,6 @@ namespace OloEngine
             data.SharedSceneUBOs.Camera->Bind();
         }
 
-        CommandDispatch::SetViewPosition(data.ViewPos);
-
         const auto resetRenderStreamBucket = [](CommandBufferRenderPass* node)
         {
             if (node)
@@ -1133,13 +1139,13 @@ namespace OloEngine
             data.Shadow.GetAtlasRawHandle());
 
         // Initialize parallel scene context with immutable frame data.
-        data.ParallelContext.ViewMatrix = data.ViewMatrix;
-        data.ParallelContext.ProjectionMatrix = data.ProjectionMatrix;
-        data.ParallelContext.ViewProjectionMatrix = data.ViewProjectionMatrix;
-        data.ParallelContext.ViewPosition = data.ViewPos;
-        data.ParallelContext.CullViewPosition = data.CullViewPos;
-        data.ParallelContext.LODView = data.LODView;
-        data.ParallelContext.ViewFrustum = data.ViewFrustum;
+        data.ParallelContext.ViewMatrix = data.View.ViewMatrix;
+        data.ParallelContext.ProjectionMatrix = data.View.ProjectionMatrix;
+        data.ParallelContext.ViewProjectionMatrix = data.View.ViewProjectionMatrix;
+        data.ParallelContext.ViewPosition = data.View.ViewPos;
+        data.ParallelContext.CullViewPosition = data.View.CullViewPos;
+        data.ParallelContext.LODView = data.View.LODView;
+        data.ParallelContext.ViewFrustum = data.View.ViewFrustum;
         data.ParallelContext.FrustumCullingEnabled = data.FrustumCullingEnabled;
         data.ParallelContext.DynamicCullingEnabled = data.DynamicCullingEnabled;
 
@@ -1158,7 +1164,7 @@ namespace OloEngine
         data.ParallelContext.SkyboxShader = data.SkyboxShader;
         data.ParallelContext.QuadShader = data.QuadShader;
 
-        data.ParallelSubmissionActive = false;
+        data.Frame.ParallelSubmissionActive = false;
     }
 
     void Renderer3D::RenderPipeline::ConfigurePassesForFrame(Renderer3DData& data)
@@ -1182,7 +1188,7 @@ namespace OloEngine
 
         if (SceneCompositePasses.Particle)
         {
-            SceneCompositePasses.Particle->SetRenderCallback(std::move(data.PendingParticleRenderCallback));
+            SceneCompositePasses.Particle->SetRenderCallback(std::move(data.Frame.PendingParticleRenderCallback));
         }
 
         if (RenderStreamPasses.FluidIntermediates)
@@ -1190,8 +1196,8 @@ namespace OloEngine
             // Must happen before the declaration config is captured: the composite's
             // Setup and the FluidRefraction declaration both key off
             // HasPendingDraws() (issue #630).
-            RenderStreamPasses.FluidIntermediates->SetFrameDraws(std::move(data.PendingFluidDraws));
-            data.PendingFluidDraws.Reset();
+            RenderStreamPasses.FluidIntermediates->SetFrameDraws(std::move(data.Frame.PendingFluidDraws));
+            data.Frame.PendingFluidDraws.Reset();
         }
 
         // The AO PRODUCERS must be handed the same technique the consumers are
@@ -1206,12 +1212,12 @@ namespace OloEngine
         aoProducerSettings.ActiveAOTechnique = data.ActiveGraphAOTechnique;
         // GTAO animates its noise only when a TAA resolve will average it, so it
         // must see the resolve a scene requested too (#1429), not just the box.
-        aoProducerSettings.TAAEnabled = data.EngineTAAWanted;
+        aoProducerSettings.TAAEnabled = data.Frame.EngineTAAWanted;
 
         if (SceneCompositePasses.SSAO)
         {
             SceneCompositePasses.SSAO->SetSettings(aoProducerSettings);
-            SceneCompositePasses.SSAO->SetViewMatrix(data.ViewMatrix);
+            SceneCompositePasses.SSAO->SetViewMatrix(data.View.ViewMatrix);
             // SSAOPass resolves its setup-selected depth/normal handles at
             // execution time; only technique settings and UBO contents vary here.
 
@@ -1220,16 +1226,16 @@ namespace OloEngine
             // against `uv*2-1 / depth*2-1` inputs (and extracts rows 2/3
             // coefficients, which the row flip leaves untouched).
             data.PostProcessGPU.SSAOData.Projection =
-                RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
+                RHI::AdjustProjectionForShaderReconstruction(data.View.ProjectionMatrix);
             data.PostProcessGPU.SSAOData.InverseProjection =
-                RHI::AdjustedInverseForShaderReconstruction(data.ProjectionMatrix);
+                RHI::AdjustedInverseForShaderReconstruction(data.View.ProjectionMatrix);
             data.PostProcessGPU.SSAOData.DebugView = data.PostProcess.SSAODebugView ? 1 : 0;
         }
         if (SceneCompositePasses.GTAO)
         {
             SceneCompositePasses.GTAO->SetSettings(aoProducerSettings);
-            SceneCompositePasses.GTAO->SetProjectionMatrix(data.ProjectionMatrix);
-            SceneCompositePasses.GTAO->SetViewMatrix(data.ViewMatrix);
+            SceneCompositePasses.GTAO->SetProjectionMatrix(data.View.ProjectionMatrix);
+            SceneCompositePasses.GTAO->SetViewMatrix(data.View.ViewMatrix);
             // GTAOPass likewise keeps its canonical graph handles in setup-owned
             // state; this hook only updates dynamic technique parameters.
 
@@ -1274,13 +1280,13 @@ namespace OloEngine
 
             proxyPass.SetEnabled(proxyEnabled);
             proxyPass.SetSettings(data.PostProcess);
-            proxyPass.SetProjectionMatrix(data.ProjectionMatrix);
-            proxyPass.SetViewMatrix(data.ViewMatrix, Renderer3D::GetRenderOrigin());
-            proxyPass.SetViewPosition(data.ViewPos);
+            proxyPass.SetProjectionMatrix(data.View.ProjectionMatrix);
+            proxyPass.SetViewMatrix(data.View.ViewMatrix, Renderer3D::GetRenderOrigin());
+            proxyPass.SetViewPosition(data.View.ViewPos);
 
-            proxyPass.SetProxySourceBounds(proxyEnabled ? std::span<const BoundingBox>(data.AOProxyBounds.GetData(), static_cast<sizet>(data.AOProxyBounds.Num()))
+            proxyPass.SetProxySourceBounds(proxyEnabled ? std::span<const BoundingBox>(data.Frame.AOProxyBounds.GetData(), static_cast<sizet>(data.Frame.AOProxyBounds.Num()))
                                                         : std::span<const BoundingBox>{});
-            data.AOProxyCollecting = false;
+            data.Frame.AOProxyCollecting = false;
         }
 
         // Hybrid ray-traced shadows (issue #1056). Configured HERE for the same
@@ -1350,9 +1356,9 @@ namespace OloEngine
             rtShadowPass.SetEnabled(deferred && techniqueRequested);
             rtShadowPass.SetSettings(shadowSettings.RayTraced);
             rtShadowPass.SetShadowMap(&Renderer3D::GetShadowMap());
-            rtShadowPass.SetCameraMatrices(data.ViewMatrix, data.ProjectionMatrix,
+            rtShadowPass.SetCameraMatrices(data.View.ViewMatrix, data.View.ProjectionMatrix,
                                            Renderer3D::GetRenderOrigin());
-            rtShadowPass.SetFrameIndex(data.StochasticFrameIndex);
+            rtShadowPass.SetFrameIndex(data.Clock.StochasticFrameIndex);
             rtShadowPass.SetLightRequests(Renderer3D::GetRayTracedShadowLightRequests());
         }
         if (PostProcessPasses.SkinDiffusion)
@@ -1368,7 +1374,7 @@ namespace OloEngine
             // custom or orthographic projection reaches the pass as what it
             // actually is -- the diffusion radius is a projected length, and a
             // field of view is only one way to produce one.
-            const glm::mat4& projection = data.ProjectionMatrix;
+            const glm::mat4& projection = data.View.ProjectionMatrix;
             const f32 projectionScaleY = std::isfinite(projection[1][1]) ? std::abs(projection[1][1]) : 1.0f;
             // P[2][2] / P[3][2], the same depth-linearisation pair GTAO uses,
             // rather than near/far: it is what the camera's actual projection
@@ -1422,7 +1428,7 @@ namespace OloEngine
             const bool aoToAmbient = aoApplication == ScreenSpaceAOApplication::AmbientTermInLighting && !aoDebugView;
             if (SceneCompositePasses.DeferredLighting)
             {
-                const glm::mat4 aoProjection = RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
+                const glm::mat4 aoProjection = RHI::AdjustProjectionForShaderReconstruction(data.View.ProjectionMatrix);
                 SceneCompositePasses.DeferredLighting->SetScreenSpaceAO(aoToAmbient, aoStrength, aoProjection[2][2],
                                                                         aoProjection[3][2]);
             }
@@ -1456,7 +1462,7 @@ namespace OloEngine
         // index rather than leave the pass sampling into a void. See
         // docs/agent-rules/stochastic-sampling-and-temporal-resolve.md §3.
         const auto stochasticFrameIndexFor = [&data](const bool passHasAccumulator)
-        { return static_cast<f32>(passHasAccumulator ? data.StochasticFrameIndex : 0u); };
+        { return static_cast<f32>(passHasAccumulator ? data.Clock.StochasticFrameIndex : 0u); };
 
         // Wire SSGIPass (screen-space global illumination) before SSR in the
         // dynamic post chain. Deferred-only: when the path is forward / forward+
@@ -1490,11 +1496,11 @@ namespace OloEngine
             pt.SetMaterialTextureTable(&data.PathTracerMaterialTextures);
             pt.SetEnvironment(data.PostProcess.GpuPathTracer.UniformEnvironmentRadiance,
                               data.PostProcess.GpuPathTracer.EnvironmentCubeIntensity,
-                              data.GlobalPrefilterMapID.IsValid());
-            pt.SetCameraMatrices(data.ViewMatrix,
-                                 data.HasTemporalProjectionMatrix ? data.TemporalProjectionMatrix : data.ProjectionMatrix,
+                              data.Scene.GlobalPrefilterMapID.IsValid());
+            pt.SetCameraMatrices(data.View.ViewMatrix,
+                                 data.View.HasTemporalProjectionMatrix ? data.View.TemporalProjectionMatrix : data.View.ProjectionMatrix,
                                  Renderer3D::GetRenderOrigin());
-            pt.SetFrameIndex(data.StochasticFrameIndex);
+            pt.SetFrameIndex(data.Clock.StochasticFrameIndex);
             pt.SetSceneEpoch(ReSTIRPTSceneEpoch);
             pt.ResolveAvailabilityForFrame(data.Settings.Path == RenderingPath::Deferred, data.Fog.Enabled);
         }
@@ -1531,7 +1537,7 @@ namespace OloEngine
             // the shader agree about whether the scene has a sky.
             giPass.SetEnvironment(data.PostProcess.GpuPathTracer.UniformEnvironmentRadiance,
                                   data.PostProcess.GpuPathTracer.EnvironmentCubeIntensity,
-                                  data.GlobalPrefilterMapID.IsValid());
+                                  data.Scene.GlobalPrefilterMapID.IsValid());
             // Whether the probe ladder is switched on at all - the DDGI tail,
             // and half of the hand-off this tier must not break. THE SAME SWITCH
             // the deferred shader's `enableProbes` reads, so the cache is read at
@@ -1557,9 +1563,9 @@ namespace OloEngine
             // by a sub-pixel every frame inside a term that divides by the
             // distance to a vertex which can be centimetres away.
             const glm::mat4& giProjection =
-                data.HasTemporalProjectionMatrix ? data.TemporalProjectionMatrix : data.ProjectionMatrix;
-            giPass.SetCameraMatrices(data.ViewMatrix, giProjection, Renderer3D::GetRenderOrigin());
-            giPass.SetFrameIndex(data.StochasticFrameIndex);
+                data.View.HasTemporalProjectionMatrix ? data.View.TemporalProjectionMatrix : data.View.ProjectionMatrix;
+            giPass.SetCameraMatrices(data.View.ViewMatrix, giProjection, Renderer3D::GetRenderOrigin());
+            giPass.SetFrameIndex(data.Clock.StochasticFrameIndex);
             giPass.ResolveAvailabilityForFrame();
         }
 
@@ -1622,11 +1628,11 @@ namespace OloEngine
             {
                 auto& ssgi = data.PostProcessGPU.SSGIData;
                 // A8 seam, shader-reconstruction flavour (uv/depth marcher).
-                ssgi.Projection = RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
-                ssgi.InverseProjection = RHI::AdjustedInverseForShaderReconstruction(data.ProjectionMatrix);
-                ssgi.View = data.ViewMatrix;
+                ssgi.Projection = RHI::AdjustProjectionForShaderReconstruction(data.View.ProjectionMatrix);
+                ssgi.InverseProjection = RHI::AdjustedInverseForShaderReconstruction(data.View.ProjectionMatrix);
+                ssgi.View = data.View.ViewMatrix;
                 {
-                    glm::mat4 inverseRelativeView = glm::inverse(data.ViewMatrix);
+                    glm::mat4 inverseRelativeView = glm::inverse(data.View.ViewMatrix);
                     inverseRelativeView[3] -= glm::vec4(Renderer3D::GetRenderOrigin(), 0.0f);
                     ssgi.InverseRelativeView = inverseRelativeView;
                 }
@@ -1718,9 +1724,9 @@ namespace OloEngine
             rtReflectionPass.SetSettings(rtReflectionSettings);
             rtReflectionPass.SetEnabled(ptOwnership.RTReflection && deferredPath &&
                                         rtReflectionPass.IsReadyForExecution());
-            rtReflectionPass.SetCameraMatrices(data.ViewMatrix, data.ProjectionMatrix,
+            rtReflectionPass.SetCameraMatrices(data.View.ViewMatrix, data.View.ProjectionMatrix,
                                                Renderer3D::GetRenderOrigin());
-            rtReflectionPass.SetFrameIndex(data.StochasticFrameIndex);
+            rtReflectionPass.SetFrameIndex(data.Clock.StochasticFrameIndex);
 
             // PrimaryDirectionalLightDir is the light's TRAVEL direction (it
             // points away from the sun), and the shader wants the direction
@@ -1761,19 +1767,19 @@ namespace OloEngine
             restirPass.SetEmissiveTable(&data.PathTracerEmissive);
             restirPass.SetMaterialTextureTable(&data.PathTracerMaterialTextures);
             // The UNJITTERED projection, like the path tracer's: TAA's sub-pixel
-            // jitter is baked into data.ProjectionMatrix, and the reservoir
+            // jitter is baked into data.View.ProjectionMatrix, and the reservoir
             // reprojection compares surfaces rather than resolving them, so a
             // jittered matrix would move every reconstructed shading point by a
             // sub-pixel every frame and make the #976 depth test noisier for no
             // benefit.
             const glm::mat4& restirProjection =
-                data.HasTemporalProjectionMatrix ? data.TemporalProjectionMatrix : data.ProjectionMatrix;
-            restirPass.SetCameraMatrices(data.ViewMatrix, restirProjection, Renderer3D::GetRenderOrigin());
+                data.View.HasTemporalProjectionMatrix ? data.View.TemporalProjectionMatrix : data.View.ProjectionMatrix;
+            restirPass.SetCameraMatrices(data.View.ViewMatrix, restirProjection, Renderer3D::GetRenderOrigin());
             // The engine-wide stochastic counter, advanced once per frame
             // regardless of which passes are enabled — the same one the blue-noise
             // consumers use. A FIXED value makes a run reproducible, which is what
             // the oracle comparison needs.
-            restirPass.SetFrameIndex(data.StochasticFrameIndex);
+            restirPass.SetFrameIndex(data.Clock.StochasticFrameIndex);
             // The verdict and the counters, every frame, whether or not the graph
             // goes on to declare a target: a culled pass never executes, and a
             // tier that only reported from Execute would report nothing on
@@ -1794,11 +1800,11 @@ namespace OloEngine
             pathTracerPass.SetEmissiveTable(&data.PathTracerEmissive);
             pathTracerPass.SetMaterialTextureTable(&data.PathTracerMaterialTextures);
             // The UNJITTERED projection. TAA's sub-pixel jitter is baked into
-            // data.ProjectionMatrix; to a tracer that restarts on any camera
+            // data.View.ProjectionMatrix; to a tracer that restarts on any camera
             // change it would read as a camera that never holds still.
             const glm::mat4& unjitteredProjection =
-                data.HasTemporalProjectionMatrix ? data.TemporalProjectionMatrix : data.ProjectionMatrix;
-            pathTracerPass.SetCameraMatrices(data.ViewMatrix, unjitteredProjection, Renderer3D::GetRenderOrigin());
+                data.View.HasTemporalProjectionMatrix ? data.View.TemporalProjectionMatrix : data.View.ProjectionMatrix;
+            pathTracerPass.SetCameraMatrices(data.View.ViewMatrix, unjitteredProjection, Renderer3D::GetRenderOrigin());
 
             // A camera move or an integral-changing setting restarts the
             // accumulation THROUGH THE REGISTRY, scoped to this effect: TAA,
@@ -1832,9 +1838,9 @@ namespace OloEngine
             {
                 auto& ssr = data.PostProcessGPU.SSRData;
                 // A8 seam, shader-reconstruction flavour (uv/depth marcher).
-                ssr.Projection = RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
-                ssr.InverseProjection = RHI::AdjustedInverseForShaderReconstruction(data.ProjectionMatrix);
-                ssr.View = data.ViewMatrix;
+                ssr.Projection = RHI::AdjustProjectionForShaderReconstruction(data.View.ProjectionMatrix);
+                ssr.InverseProjection = RHI::AdjustedInverseForShaderReconstruction(data.View.ProjectionMatrix);
+                ssr.View = data.View.ViewMatrix;
                 ssr.RayParams = glm::vec4(static_cast<f32>(std::clamp(data.PostProcess.SSRMaxSteps, 1, kSSRMaxSteps)),
                                           std::max(0.1f, data.PostProcess.SSRMaxDistance),
                                           std::max(0.001f, data.PostProcess.SSRThickness),
@@ -1937,10 +1943,10 @@ namespace OloEngine
         {
             const bool forwardPath = data.Settings.Path != RenderingPath::Deferred;
             SceneCompositePasses.PlanarReflection->SetReflectionState(
-                data.PlanarReflectionPlane,
-                data.PlanarReflectionEnabled && forwardPath,
-                data.PlanarReflectionIntensity,
-                data.PlanarReflectionDistortion);
+                data.Frame.PlanarReflectionPlane,
+                data.Frame.PlanarReflectionEnabled && forwardPath,
+                data.Frame.PlanarReflectionIntensity,
+                data.Frame.PlanarReflectionDistortion);
 
             if (RenderStreamPasses.Water)
                 RenderStreamPasses.Water->SetPlanarReflectionUBO(SceneCompositePasses.PlanarReflection->GetReflectionUBO());
@@ -1977,9 +1983,9 @@ namespace OloEngine
             {
                 auto& cs = data.PostProcessGPU.ContactShadowData;
                 // A8 seam, shader-reconstruction flavour (uv/depth marcher).
-                cs.Projection = RHI::AdjustProjectionForShaderReconstruction(data.ProjectionMatrix);
-                cs.InverseProjection = RHI::AdjustedInverseForShaderReconstruction(data.ProjectionMatrix);
-                cs.View = data.ViewMatrix;
+                cs.Projection = RHI::AdjustProjectionForShaderReconstruction(data.View.ProjectionMatrix);
+                cs.InverseProjection = RHI::AdjustedInverseForShaderReconstruction(data.View.ProjectionMatrix);
+                cs.View = data.View.ViewMatrix;
 
                 // World-space direction TOWARD the light (= -lightTravelDir). Mark
                 // HasDirectionalLight=0 when the scene has no usable sun so the
@@ -1987,10 +1993,10 @@ namespace OloEngine
                 // meaningless default direction.
                 glm::vec3 towardLight(0.0f, 1.0f, 0.0f);
                 f32 hasLight = 0.0f;
-                if (const f32 dirLen2 = glm::dot(data.PrimaryDirectionalLightDir, data.PrimaryDirectionalLightDir);
+                if (const f32 dirLen2 = glm::dot(data.Scene.PrimaryDirectionalLightDir, data.Scene.PrimaryDirectionalLightDir);
                     std::isfinite(dirLen2) && dirLen2 > 1e-8f)
                 {
-                    towardLight = glm::normalize(-data.PrimaryDirectionalLightDir);
+                    towardLight = glm::normalize(-data.Scene.PrimaryDirectionalLightDir);
                     hasLight = 1.0f;
                 }
                 cs.LightDirection = glm::vec4(towardLight, hasLight);
@@ -2057,20 +2063,20 @@ namespace OloEngine
             // describes the pre-upscale frame. The user's TAAEnabled setting is
             // left untouched so it comes back when the technique changes.
             PostProcessPasses.TAA->SetEnabled(
-                TemporalUpscalePolicy::ShouldRunEngineTAA(data.EngineTAAWanted, data.TemporalUpscaleActive));
+                TemporalUpscalePolicy::ShouldRunEngineTAA(data.Frame.EngineTAAWanted, data.View.TemporalUpscaleActive));
             PostProcessPasses.TAA->SetSettings(data.PostProcess);
         }
 
         if (PostProcessPasses.Cloudscape)
         {
-            PostProcessPasses.Cloudscape->SetEnabled(data.Cloudscape.Enabled);
+            PostProcessPasses.Cloudscape->SetEnabled(data.Scene.Cloudscape.Enabled);
             // Full 288-byte camera UBO so the cloud shaders' u_CameraPosition /
             // u_RenderOrigin reads stay in-bounds even if an earlier stage left
             // a smaller ViewProjection-only camera UBO bound at slot 0 (same
             // rationale as the FogRenderPass camera re-bind below).
             PostProcessPasses.Cloudscape->SetCameraUBO(data.SharedSceneUBOs.Camera);
 
-            if (data.Cloudscape.Enabled)
+            if (data.Scene.Cloudscape.Enabled)
             {
                 // Fill this frame's CloudscapeUBO snapshot. EndScene runs this
                 // hook FIRST (Renderer3DFrameExecution.cpp), then
@@ -2079,12 +2085,12 @@ namespace OloEngine
                 // outside the graph. The wind accumulators are advanced there
                 // too, so this snapshot carries the previous advance — a
                 // one-frame lag that is identical for every consumer.
-                const auto& cloud = data.Cloudscape;
+                const auto& cloud = data.Scene.Cloudscape;
                 UBOStructures::CloudscapeUBO cloudUBO;
                 const f32 layerThickness = std::max(cloud.LayerTop - cloud.LayerBottom, 1.0f);
                 cloudUBO.Layer = glm::vec4(cloud.LayerBottom, cloud.LayerTop, 1.0f / layerThickness, cloud.Density);
                 cloudUBO.Field = glm::vec4(cloud.Coverage, cloud.TypeBlend, cloud.Erosion, cloud.CloudWetness);
-                cloudUBO.Wind = glm::vec4(data.CloudWindOffset, cloud.WindAnimationScale, data.CloudTime);
+                cloudUBO.Wind = glm::vec4(data.Clock.CloudWindOffset, cloud.WindAnimationScale, data.Clock.CloudTime);
                 cloudUBO.Map = glm::vec4(1.0f / std::max(cloud.WeatherMapExtentMeters, 1.0f),
                                          static_cast<f32>(cloud.MaxSteps),
                                          static_cast<f32>(cloud.LightSteps),
@@ -2096,7 +2102,7 @@ namespace OloEngine
                 // the registry's validity before this frame's populate, which
                 // a resize may still invalidate later in EndScene.
                 cloudUBO.Misc = glm::vec4(LookUpHistory(data.RGraph.get(), kCloudsHistoryKey).Valid ? cloud.TemporalBlend : 0.0f,
-                                          static_cast<f32>(data.CloudFrameIndex),
+                                          static_cast<f32>(data.Clock.CloudFrameIndex),
                                           cloud.ShadowStrength,
                                           1.0f);
                 cloudUBO.SunDirection = glm::vec4(cloud.SunDirection, cloud.NightBlend);
@@ -2162,29 +2168,29 @@ namespace OloEngine
             ae.HighPercentile = pp.AutoExposureHighPercentile;
             // Mockable dt (issue #974) — deterministic auto-exposure
             // convergence captures. See SampleMockableDt.
-            ae.DeltaTime = SampleMockableDt(data.AutoExposurePrevTimeSeconds, 0.1f);
+            ae.DeltaTime = SampleMockableDt(data.Clock.AutoExposurePrevTimeSeconds, 0.1f);
             PostProcessPasses.ToneMap->SetAutoExposure(ae);
         }
 
         // The two upscalers are mutually exclusive: whichever one is NOT running
         // must be disabled, or both declare a display-res output into the same
         // slot and the PostProcessColor alias below picks one arbitrarily.
-        // data.TemporalUpscaleActive is the single decision both read (#684).
+        // data.View.TemporalUpscaleActive is the single decision both read (#684).
         if (PostProcessPasses.EASU)
         {
-            PostProcessPasses.EASU->SetEnabled(data.PostProcess.Upscale != UpscaleMode::Off && !data.TemporalUpscaleActive);
+            PostProcessPasses.EASU->SetEnabled(data.PostProcess.Upscale != UpscaleMode::Off && !data.View.TemporalUpscaleActive);
             PostProcessPasses.EASU->SetSettings(data.PostProcess);
             PostProcessPasses.EASU->SetRenderScale(UpscaleModeToRenderScale(data.PostProcess.Upscale));
         }
 
         if (PostProcessPasses.FSR2)
         {
-            PostProcessPasses.FSR2->SetEnabled(data.TemporalUpscaleActive);
+            PostProcessPasses.FSR2->SetEnabled(data.View.TemporalUpscaleActive);
             PostProcessPasses.FSR2->SetSettings(data.PostProcess);
             PostProcessPasses.FSR2->SetRenderScale(UpscaleModeToRenderScale(data.PostProcess.Upscale));
             // The jitter is handed over rather than recomputed — see
             // FSR2RenderPass::SetJitterPixels.
-            PostProcessPasses.FSR2->SetJitterPixels(data.TemporalUpscaleJitterPixels);
+            PostProcessPasses.FSR2->SetJitterPixels(data.View.TemporalUpscaleJitterPixels);
             // Vertical FOV comes back out of the projection matrix rather than
             // from a stored camera field, because the projection is what the
             // frame was actually rendered with — an editor camera, a runtime
@@ -2194,12 +2200,12 @@ namespace OloEngine
             // An orthographic projection has no FOV; FSR2 only uses this for its
             // depth reconstruction, so hand it the perspective default rather
             // than a divide by an ortho P[1][1] that means something else.
-            const f32 projYScale = data.ProjectionMatrix[1][1];
-            const bool isOrthoProjection = glm::abs(data.ProjectionMatrix[3][3] - 1.0f) < 1e-5f;
+            const f32 projYScale = data.View.ProjectionMatrix[1][1];
+            const bool isOrthoProjection = glm::abs(data.View.ProjectionMatrix[3][3] - 1.0f) < 1e-5f;
             const f32 verticalFov = (!isOrthoProjection && std::isfinite(projYScale) && glm::abs(projYScale) > 1e-6f)
                                         ? 2.0f * std::atan(1.0f / glm::abs(projYScale))
                                         : glm::radians(45.0f);
-            PostProcessPasses.FSR2->SetCameraParams(data.CameraNearClip, data.CameraFarClip, verticalFov);
+            PostProcessPasses.FSR2->SetCameraParams(data.View.CameraNearClip, data.View.CameraFarClip, verticalFov);
 
             // FSR2 reads the frame delta as a wall-clock hint for how fast its
             // temporal locks decay, so it must be REAL elapsed time and not a
@@ -2208,11 +2214,24 @@ namespace OloEngine
             // must not stall lock decay; benchmark manifests keep Upscale off
             // instead, enforced by the capture entry points). Clamped so a
             // breakpoint or a stalled frame does not expire every lock.
+            //
+            // Under a mocked clock (Time::SetMockTime: a test or a deterministic
+            // capture) the delta is a nominal frame instead. The caller has
+            // pinned every other clock, and the wall clock was the one input
+            // left that differed from run to run and with whatever else the GPU
+            // was doing: with a game using two thirds of the GPU beside it,
+            // DogPlayEvidenceTest's temporally upscaled cell measured a repeat
+            // of an unchanged coat as 3,400 changed pixels and failed, on master
+            // and on every branch. A nominal frame keeps the property this block
+            // exists for, the locks still decay, and makes them decay the same
+            // way every time.
+            constexpr f32 kMockedClockFrameSeconds = 1.0f / 60.0f;
             static auto s_LastTemporalUpscaleTime = std::chrono::steady_clock::now();
             const auto temporalNow = std::chrono::steady_clock::now();
-            const f32 temporalDt = std::clamp(
+            const f32 wallClockDt = std::clamp(
                 std::chrono::duration<f32>(temporalNow - s_LastTemporalUpscaleTime).count(), 0.0f, 0.1f);
             s_LastTemporalUpscaleTime = temporalNow;
+            const f32 temporalDt = Time::HasMockTime() ? kMockedClockFrameSeconds : wallClockDt;
             PostProcessPasses.FSR2->SetDeltaTimeSeconds(temporalDt);
         }
 
@@ -2235,7 +2254,7 @@ namespace OloEngine
             // implies the late pass; only an explicit CAS request does (#684).
             PostProcessPasses.Upscaler->SetEnabled(
                 TemporalUpscalePolicy::ShouldRunLateSharpen(data.PostProcess.CASEnabled, data.PostProcess.Upscale,
-                                                            data.TemporalUpscaleActive));
+                                                            data.View.TemporalUpscaleActive));
             PostProcessPasses.Upscaler->SetSettings(data.PostProcess);
         }
 
@@ -2253,16 +2272,16 @@ namespace OloEngine
 
         if (PostProcessPasses.SelectionOutline)
         {
-            PostProcessPasses.SelectionOutline->SetSelectedEntityIDs({ data.SelectionOutlineEntityIDs.GetData(), static_cast<sizet>(data.SelectionOutlineEntityIDs.Num()) });
+            PostProcessPasses.SelectionOutline->SetSelectedEntityIDs({ data.Frame.SelectionOutlineEntityIDs.GetData(), static_cast<sizet>(data.Frame.SelectionOutlineEntityIDs.Num()) });
             const bool selectionOutlineEnabled = data.EnableSelectionOutline &&
-                                                 !data.SelectionOutlineEntityIDs.IsEmpty() &&
+                                                 !data.Frame.SelectionOutlineEntityIDs.IsEmpty() &&
                                                  PostProcessPasses.SelectionOutline->IsReadyForExecution();
             PostProcessPasses.SelectionOutline->SetEnabled(selectionOutlineEnabled);
         }
 
         if (PostProcessPasses.UIComposite)
         {
-            PostProcessPasses.UIComposite->SetRenderCallback(std::move(data.PendingUICompositeRenderCallback));
+            PostProcessPasses.UIComposite->SetRenderCallback(std::move(data.Frame.PendingUICompositeRenderCallback));
         }
 
         // Colour-vision deficiency adaptation (issue #458). Driven by the
@@ -2385,7 +2404,7 @@ namespace OloEngine
             if (RenderStreamPasses.Groom)
             {
                 GroomFrameState groomFrame;
-                groomFrame.FrameIndex = data.StochasticFrameIndex;
+                groomFrame.FrameIndex = data.Clock.StochasticFrameIndex;
                 //
                 // EngineTAAWanted, not TAAEnabled: a scene holding a stochastic
                 // groom asks for the resolve itself (#1429). And the TAA pass
@@ -2393,8 +2412,8 @@ namespace OloEngine
                 // is ready, so a TAA shader that failed to compile is no resolve
                 // at all, and claiming one would ship the noise rule 6 refuses.
                 groomFrame.TemporalResolveActive =
-                    data.TemporalUpscaleActive ||
-                    (TemporalUpscalePolicy::ShouldRunEngineTAA(data.EngineTAAWanted, data.TemporalUpscaleActive) &&
+                    data.View.TemporalUpscaleActive ||
+                    (TemporalUpscalePolicy::ShouldRunEngineTAA(data.Frame.EngineTAAWanted, data.View.TemporalUpscaleActive) &&
                      PostProcessPasses.TAA && PostProcessPasses.TAA->IsReadyForExecution());
                 groomFrame.OITTargetsAvailable = oitEnabled;
                 RenderStreamPasses.Groom->SetFrameState(groomFrame);
@@ -2490,8 +2509,8 @@ namespace OloEngine
             // trip stops being the identity the comment above relies on — which
             // is why this pays for one extra 4x4 inverse per frame rather than
             // reusing PrepareFrame's GL-convention one. Identity on GL.
-            const glm::mat4 debugVP = RHI::AdjustProjectionForBackend(data.ViewProjectionMatrix);
-            const glm::mat4 debugCullVP = RHI::AdjustProjectionForBackend(data.CullViewProjectionMatrix);
+            const glm::mat4 debugVP = RHI::AdjustProjectionForBackend(data.View.ViewProjectionMatrix);
+            const glm::mat4 debugCullVP = RHI::AdjustProjectionForBackend(data.View.CullViewProjectionMatrix);
             RenderStreamPasses.ShaderDebugDraw->SetCameraState(debugVP, glm::inverse(debugCullVP));
         }
 
@@ -2500,9 +2519,9 @@ namespace OloEngine
         // the frozen cut is a renderer-level fact, so the runtime and any
         // headless capture get the same picture the editor does. One push, so
         // the channel cannot overflow from this consumer.
-        if (data.CullingCameraFrozen && data.Settings.ObserverCameraDrawFrustum)
+        if (data.View.CullingCameraFrozen && data.Settings.ObserverCameraDrawFrustum)
         {
-            Renderer3D::DrawFrustumWireframe(data.CullViewProjectionMatrix);
+            Renderer3D::DrawFrustumWireframe(data.View.CullViewProjectionMatrix);
         }
         ShaderDebugDraw::BeginFrame();
 
@@ -2526,8 +2545,8 @@ namespace OloEngine
             // Deband dither: half an 8-bit LSB at the tonemap output breaks
             // FP16/R8/8-bit quantization interference on smooth gradients.
             gpu.DitherAmplitude = 0.5f / 255.0f;
-            gpu.CameraNear = data.CameraNearClip;
-            gpu.CameraFar = data.CameraFarClip;
+            gpu.CameraNear = data.View.CameraNearClip;
+            gpu.CameraFar = data.View.CameraFarClip;
             if (FrameCorePasses.Scene)
             {
                 const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
@@ -2588,24 +2607,24 @@ namespace OloEngine
             // Derive sun direction from the scene's primary directional light
             // Guard against zero-length direction to prevent NaN from normalize
             glm::vec3 sunDir(0.0f, -1.0f, 0.0f);
-            if (const f32 dirLen2 = glm::dot(data.PrimaryDirectionalLightDir, data.PrimaryDirectionalLightDir); std::isfinite(dirLen2) && dirLen2 > 1e-8f)
+            if (const f32 dirLen2 = glm::dot(data.Scene.PrimaryDirectionalLightDir, data.Scene.PrimaryDirectionalLightDir); std::isfinite(dirLen2) && dirLen2 > 1e-8f)
             {
-                sunDir = glm::normalize(data.PrimaryDirectionalLightDir);
+                sunDir = glm::normalize(data.Scene.PrimaryDirectionalLightDir);
             }
             // Pack fog frame index into SunDirection.w (bare uniforms fail SPIR-V)
             // Wrap at 1024 to stay well within float32 integer-exact range
-            gpu.SunDirection = glm::vec4(sunDir, static_cast<f32>(data.FogFrameIndex));
-            data.FogFrameIndex = (data.FogFrameIndex + 1u) & 0x3FFu;
+            gpu.SunDirection = glm::vec4(sunDir, static_cast<f32>(data.Clock.FogFrameIndex));
+            data.Clock.FogFrameIndex = (data.Clock.FogFrameIndex + 1u) & 0x3FFu;
             gpu.Flags = glm::vec4(1.0f, static_cast<f32>(std::to_underlying(fog.Mode)),
                                   fog.EnableScattering ? 1.0f : 0.0f,
                                   fog.EnableVolumetric ? 1.0f : 0.0f);
 
             // Accumulate time for noise animation. Mockable dt (issue #974) —
             // a fog golden holds still / steps exactly with a mocked clock.
-            data.FogTime += SampleMockableDt(data.FogPrevTimeSeconds, 0.1f);
+            data.Clock.FogTime += SampleMockableDt(data.Clock.FogPrevTimeSeconds, 0.1f);
 
             const f32 effectiveNoiseIntensity = fog.EnableNoise ? fog.NoiseIntensity : 0.0f;
-            gpu.NoiseParams = glm::vec4(fog.NoiseScale, fog.NoiseSpeed, effectiveNoiseIntensity, data.FogTime);
+            gpu.NoiseParams = glm::vec4(fog.NoiseScale, fog.NoiseSpeed, effectiveNoiseIntensity, data.Clock.FogTime);
             gpu.VolumetricParams = glm::vec4(static_cast<f32>(fog.VolumetricSamples), fog.AbsorptionCoefficient,
                                              fog.LightShaftIntensity, fog.EnableLightShafts ? 1.0f : 0.0f);
             data.SceneEffectsGPU.Fog->SetData(&gpu, FogUBOData::GetSize());
@@ -2670,14 +2689,14 @@ namespace OloEngine
             // sway plus the snow / ejecta / precipitation updates below which
             // all ride this dt, freezes or steps exactly with a mocked clock.
             // See SampleMockableDt.
-            const f32 dt = SampleMockableDt(data.WindPrevTimeSeconds, 0.1f);
+            const f32 dt = SampleMockableDt(data.Clock.WindPrevTimeSeconds, 0.1f);
 
-            WindSystem::Update(data.Wind, data.ViewPos, Timestep(data.WindPaused ? 0.0f : dt));
+            WindSystem::Update(data.Wind, data.View.ViewPos, Timestep(data.WindPaused ? 0.0f : dt));
             WindSystem::BindWindTexture();
 
             // Publish disabled state too, so receivers and depth casters stop
             // sampling the previous frame's accumulated displacement.
-            SnowAccumulationSystem::Update(data.SnowAccumulation, data.ViewPos, Timestep(dt));
+            SnowAccumulationSystem::Update(data.SnowAccumulation, data.View.ViewPos, Timestep(dt));
             if (data.SnowAccumulation.Enabled)
             {
                 SnowAccumulationSystem::BindSnowDepthTexture();
@@ -2705,14 +2724,14 @@ namespace OloEngine
             // test can advance the field by an exact number of seconds. A
             // wall-clock dt would decay the field by however long the previous
             // frame happened to take, making every wake golden flaky.
-            const f32 wakeDt = SampleMockableDt(data.WaterDisturbancePrevTimeSeconds, 0.25f);
+            const f32 wakeDt = SampleMockableDt(data.Clock.WaterDisturbancePrevTimeSeconds, 0.25f);
             // The same dispatch also advects the open-ocean foam channel
             // (issue #1034 §2.2) — same window, same lattice, same dt. It is
             // fed as a second settings block rather than folded into the first
             // because the two features gate independently, and the pass runs
             // when EITHER is on.
-            WaterDisturbanceSystem::Update(data.WaterDisturbance, data.WaterFoamAdvection,
-                                           glm::vec2(data.ViewPos.x, data.ViewPos.z),
+            WaterDisturbanceSystem::Update(data.Scene.WaterDisturbance, data.Scene.WaterFoamAdvection,
+                                           glm::vec2(data.View.ViewPos.x, data.View.ViewPos.z),
                                            Timestep(wakeDt));
 
             // Crest spray particles (issue #1034, §2.3). Driven from the same
@@ -2721,7 +2740,7 @@ namespace OloEngine
             // Called unconditionally: Update() drains particles already in
             // the air when spray is switched off, rather than deleting them
             // mid-arc.
-            WaterSpraySystem::Update(data.ViewPos, Timestep(wakeDt));
+            WaterSpraySystem::Update(data.View.ViewPos, Timestep(wakeDt));
 
             // Boat / actor wake SHAPE (issue #968). No dispatch and no dt: the
             // records are plain CPU state that BoatWakeSystem rebuilt during the
@@ -2729,7 +2748,7 @@ namespace OloEngine
             // scene settings before CommandDispatch packs them into WaterUBO.
             // Forwarded unconditionally, including the disabled default, for the
             // same reason the disturbance settings are.
-            WaterWakeSystem::SetSettings(data.WaterWakeShape);
+            WaterWakeSystem::SetSettings(data.Scene.WaterWakeShape);
 
             // Update snow ejecta particle simulation
             if (data.SnowEjecta.Enabled)
@@ -2743,7 +2762,7 @@ namespace OloEngine
                 f32 windXZLen = glm::length(windXZ);
                 glm::vec3 windDir = (windXZLen > 1e-6f) ? (windXZ / windXZLen) : glm::vec3(1.0f, 0.0f, 0.0f);
                 f32 windSpeed = data.Wind.Speed;
-                PrecipitationSystem::Update(data.Precipitation, data.ViewPos, windDir, windSpeed, Timestep(dt));
+                PrecipitationSystem::Update(data.Precipitation, data.View.ViewPos, windDir, windSpeed, Timestep(dt));
 
                 // Rain-impact ripples (issue #1034, §7.3) — the SKY half of the
                 // gate. The water half was published by the scene; the two meet
@@ -2772,7 +2791,7 @@ namespace OloEngine
                 {
                     glm::vec2 windDirScreen = glm::vec2(windDir.x, -windDir.z);
                     ScreenSpacePrecipitation::Update(data.Precipitation, PrecipitationSystem::GetCurrentIntensity(), windDirScreen, windSpeed, dt);
-                    PrecipitationSystem::UpdateScreenEffectsUBO(data.Precipitation, windDirScreen, data.FogTime);
+                    PrecipitationSystem::UpdateScreenEffectsUBO(data.Precipitation, windDirScreen, data.Clock.FogTime);
                 }
             }
         }
@@ -2787,15 +2806,15 @@ namespace OloEngine
         // Whether the cloud NOISE FIELD is actually usable this frame. The
         // volumetric shadow generator marches the same volumes the raymarch
         // does, so it has to fail safe on the same condition — and that
-        // condition is NOT `data.Cloudscape.Enabled`, which stays true down the
+        // condition is NOT `data.Scene.Cloudscape.Enabled`, which stays true down the
         // generation-failed path below.
         bool cloudFieldReady = false;
-        if (PostProcessPasses.Cloudscape && data.Cloudscape.Enabled)
+        if (PostProcessPasses.Cloudscape && data.Scene.Cloudscape.Enabled)
         {
             if (CloudNoise::EnsureGenerated())
             {
                 cloudFieldReady = true;
-                const auto& cloudState = data.Cloudscape;
+                const auto& cloudState = data.Scene.Cloudscape;
 
                 // Advance the wind-advection accumulators (shared by the
                 // raymarch and the cloud-shadow compute so both sample the
@@ -2803,18 +2822,18 @@ namespace OloEngine
                 // SampleMockableDt): Time::SetMockTime freezes the cloud field
                 // for deterministic golden captures
                 // (AtmosphereVisualEvidenceTest).
-                const f32 cloudDt = SampleMockableDt(data.CloudPrevTimeSeconds, 0.1f);
+                const f32 cloudDt = SampleMockableDt(data.Clock.CloudPrevTimeSeconds, 0.1f);
                 const glm::vec2 cloudWindXZ(data.Wind.Direction.x, data.Wind.Direction.z);
                 if (const f32 cloudWindLen = glm::length(cloudWindXZ); cloudWindLen > 1e-6f)
                 {
-                    data.CloudWindOffset += (cloudWindXZ / cloudWindLen) *
-                                            (data.Wind.Speed * cloudState.WindAnimationScale * cloudDt);
+                    data.Clock.CloudWindOffset += (cloudWindXZ / cloudWindLen) *
+                                                  (data.Wind.Speed * cloudState.WindAnimationScale * cloudDt);
                 }
-                data.CloudTime += cloudDt;
+                data.Clock.CloudTime += cloudDt;
                 // Wrap at 1024 to stay well within float32 integer-exact
                 // range (the raymarch reads Misc.y as f32 — same rationale
                 // as the fog frame index above).
-                data.CloudFrameIndex = (data.CloudFrameIndex + 1u) & 0x3FFu;
+                data.Clock.CloudFrameIndex = (data.Clock.CloudFrameIndex + 1u) & 0x3FFu;
 
                 // Weather map: scene-authored override or the procedural default.
                 const RHI::ResourceHandle weatherMapID = cloudState.WeatherMapTextureID.IsValid()
@@ -2855,12 +2874,12 @@ namespace OloEngine
 
                 if (cloudState.CastShadows)
                 {
-                    // data.ViewPos IS the absolute world camera position (the
+                    // data.View.ViewPos IS the absolute world camera position (the
                     // render origin is derived FROM it in PrepareFrame and
                     // only the camera-UBO copy is made relative), so hand it
                     // to the shadow map directly — the cloud field lives in
                     // absolute world space (issue #429).
-                    CloudShadowMap::Update(cloudState, data.ViewPos);
+                    CloudShadowMap::Update(cloudState, data.View.ViewPos);
                     // Publish for the PBR mesh dispatch bind at
                     // TEX_CLOUD_SHADOW (62); CommandDispatch::ResetState()
                     // zeroed it in PrepareFrame (same lifecycle as the snow
@@ -2888,13 +2907,13 @@ namespace OloEngine
             // is the sun's TRAVEL direction), so the cascade is fitted toward
             // the light: the negated travel direction.
             glm::vec3 fogTowardLight(0.0f, 1.0f, 0.0f);
-            if (const f32 dirLen2 = glm::dot(data.PrimaryDirectionalLightDir, data.PrimaryDirectionalLightDir);
+            if (const f32 dirLen2 = glm::dot(data.Scene.PrimaryDirectionalLightDir, data.Scene.PrimaryDirectionalLightDir);
                 std::isfinite(dirLen2) && dirLen2 > 1e-8f)
             {
-                fogTowardLight = -glm::normalize(data.PrimaryDirectionalLightDir);
+                fogTowardLight = -glm::normalize(data.Scene.PrimaryDirectionalLightDir);
             }
-            VolumetricShadowMap::PrepareFrame(data.Cloudscape, data.Fog, data.SceneEffectsGPU.FogVolumesData,
-                                              data.ViewPos, Renderer3D::GetRenderOrigin(), fogTowardLight,
+            VolumetricShadowMap::PrepareFrame(data.Scene.Cloudscape, data.Fog, data.SceneEffectsGPU.FogVolumesData,
+                                              data.View.ViewPos, Renderer3D::GetRenderOrigin(), fogTowardLight,
                                               cloudFieldReady);
         }
 
@@ -2906,7 +2925,7 @@ namespace OloEngine
         if (AtmosphereShadingUBO)
         {
             UBOStructures::AtmosphereShadingUBO atmosphere{};
-            atmosphere.Params0.x = data.Cloudscape.SurfaceWetness;
+            atmosphere.Params0.x = data.Scene.Cloudscape.SurfaceWetness;
 
             // Volumetric shadow cascades (issue #723). Uploaded even when both
             // are disabled: the per-cascade enable lane is what the sampler and
@@ -2925,8 +2944,8 @@ namespace OloEngine
                 atmosphere.VsmParams[cascade] = glm::vec4(state.Enabled ? 1.0f : 0.0f, state.Strength,
                                                           state.StepLength, 0.0f);
             }
-            const bool cloudShadowActive = data.Cloudscape.Enabled &&
-                                           data.Cloudscape.CastShadows &&
+            const bool cloudShadowActive = data.Scene.Cloudscape.Enabled &&
+                                           data.Scene.Cloudscape.CastShadows &&
                                            CloudShadowMap::IsReady();
             if (cloudShadowActive)
             {
@@ -2939,7 +2958,7 @@ namespace OloEngine
                 const glm::vec2 shadowCenter = CloudShadowMap::GetCenter() -
                                                glm::vec2(renderOrigin.x, renderOrigin.z);
                 const f32 shadowWorldSize = CloudShadowMap::GetWorldSize();
-                atmosphere.Params0.y = data.Cloudscape.ShadowStrength;
+                atmosphere.Params0.y = data.Scene.Cloudscape.ShadowStrength;
                 atmosphere.Params0.z = 1.0f;
                 atmosphere.Params1 = glm::vec4(shadowCenter, shadowWorldSize,
                                                shadowWorldSize > 0.0f ? 1.0f / shadowWorldSize : 0.0f);
@@ -2964,8 +2983,8 @@ namespace OloEngine
         // AND the deferred lighting pass, which reconstructs world-space position from G-Buffer depth
         // AND TAA for camera-only velocity reprojection in Forward / Forward+
         // AND the cloudscape raymarch/resolve ray reconstruction).
-        if (data.PostProcess.MotionBlurEnabled || data.EngineTAAWanted || data.Fog.Enabled ||
-            data.Cloudscape.Enabled || data.Settings.Path == RenderingPath::Deferred)
+        if (data.PostProcess.MotionBlurEnabled || data.Frame.EngineTAAWanted || data.Fog.Enabled ||
+            data.Scene.Cloudscape.Enabled || data.Settings.Path == RenderingPath::Deferred)
         {
             auto& mb = data.PostProcessGPU.MotionBlurData;
             // A8 projection seam, SHADER-RECONSTRUCTION flavour: every consumer
@@ -2974,21 +2993,22 @@ namespace OloEngine
             // rays), so on Vulkan the inverse is recomputed from the ROW-flipped
             // forward matrix — never the rasterizer (z-remapped) one, and never
             // by flipping an existing inverse. Identity on GL (bit-identical to
-            // data.InverseViewProjectionMatrix there).
-            mb.InverseViewProjection = RHI::AdjustedInverseForShaderReconstruction(data.ViewProjectionMatrix);
-            mb.PrevViewProjection = RHI::AdjustProjectionForShaderReconstruction(data.PrevViewProjectionMatrix);
+            // data.View.InverseViewProjectionMatrix there).
+            mb.InverseViewProjection = RHI::AdjustedInverseForShaderReconstruction(data.View.ViewProjectionMatrix);
+            mb.PrevViewProjection = RHI::AdjustProjectionForShaderReconstruction(data.View.PrevViewProjectionMatrix);
             // Their jitters, which TAA's and motion blur's camera-velocity
             // reconstruction takes out as the velocity writers do (#1552). The
             // reconstruction flavour agrees with the uploaded one on .xy.
-            mb.JitterUV = glm::vec4(data.CurrJitterUV, data.PrevJitterUV);
+            mb.JitterUV = glm::vec4(data.View.CurrJitterUV, data.View.PrevJitterUV);
             data.PostProcessGPU.MotionBlur->SetData(&mb, MotionBlurUBOData::GetSize());
-            // Re-establish the base-8 binding every upload: of this UBO's
-            // consumers only MotionBlurRenderPass binds it itself — the
-            // G-Buffer, deferred-lighting, fog, and TAA shaders read binding 8
-            // relying on the glBindBufferBase from the buffer's constructor,
-            // so anything else that creates a UBO on slot 8 (and then dies)
-            // leaves them reading an unbound buffer: zero matrices, broken
-            // world-position reconstruction, silently wrong deferred frames.
+            // Bound here as well, but no reader may count on it: binding 8 is
+            // pass-scoped (it has another tenant, the Gaussian-splat sort
+            // block), and every pass whose shader declares these matrices
+            // calls Renderer3D::BindMotionMatrices before it draws; the scene
+            // buckets get it from CommandDispatch::BindSceneResources (#1687).
+            // A reader that skips that reads whatever ran before it: zero
+            // matrices, broken world-position reconstruction, silently wrong
+            // deferred frames.
             data.PostProcessGPU.MotionBlur->Bind();
         }
     }
@@ -3055,9 +3075,9 @@ namespace OloEngine
         config.ShadowCSMRaw = data.Shadow.GetCSMRawHandle();
         config.ShadowAtlasRaw = data.Shadow.GetAtlasRawHandle();
 
-        config.IrradianceMap = data.GlobalIrradianceMapID;
-        config.PrefilterMap = data.GlobalPrefilterMapID;
-        config.BRDFLut = data.GlobalBRDFLutMapID;
+        config.IrradianceMap = data.Scene.GlobalIrradianceMapID;
+        config.PrefilterMap = data.Scene.GlobalPrefilterMapID;
+        config.BRDFLut = data.Scene.GlobalBRDFLutMapID;
         config.VolumetricShadowVolume = VolumetricShadowMap::GetTextureHandle();
 
         const auto& post = data.PostProcess;
@@ -3065,22 +3085,22 @@ namespace OloEngine
         config.GTAOEnabled = post.GTAOEnabled;
         config.SSGIHalfResolution = post.SSGIHalfResolution;
         config.Upscale = post.Upscale;
-        config.TemporalUpscaleActive = data.TemporalUpscaleActive;
+        config.TemporalUpscaleActive = data.View.TemporalUpscaleActive;
         config.DOFEnabled = post.DOFEnabled;
         config.MotionBlurEnabled = post.MotionBlurEnabled;
-        config.EngineTAA = TemporalUpscalePolicy::ShouldRunEngineTAA(data.EngineTAAWanted, data.TemporalUpscaleActive);
-        config.CloudscapeEnabled = data.Cloudscape.Enabled;
+        config.EngineTAA = TemporalUpscalePolicy::ShouldRunEngineTAA(data.Frame.EngineTAAWanted, data.View.TemporalUpscaleActive);
+        config.CloudscapeEnabled = data.Scene.Cloudscape.Enabled;
         config.PrecipitationScreenEffects = PrecipitationScreenEffectsEnabled(data);
         config.FogEnabled = data.Fog.Enabled;
         config.ChromaticAberrationEnabled = post.ChromaticAberrationEnabled;
         config.ColorGradingEnabled = post.ColorGradingEnabled;
-        config.LateSharpen = TemporalUpscalePolicy::ShouldRunLateSharpen(post.CASEnabled, post.Upscale, data.TemporalUpscaleActive);
+        config.LateSharpen = TemporalUpscalePolicy::ShouldRunLateSharpen(post.CASEnabled, post.Upscale, data.View.TemporalUpscaleActive);
         config.VignetteEnabled = post.VignetteEnabled;
         config.FXAAEnabled = post.FXAAEnabled;
         config.SkinDiffusionEnabled = SkinDiffusionRunsThisFrame(data.SkinDiffusion, data.Settings.Path, post.MaterialDebug,
                                                                  static_cast<i32>(data.Settings.Deferred.DebugChannel),
                                                                  post.LightingDebugTap);
-        config.SelectionOutlineActive = data.EnableSelectionOutline && !data.SelectionOutlineEntityIDs.IsEmpty();
+        config.SelectionOutlineActive = data.EnableSelectionOutline && !data.Frame.SelectionOutlineEntityIDs.IsEmpty();
         config.OverdrawDebugView = post.OverdrawDebugView;
         config.ColorBlind = Accessibility::Get().ColorBlind;
 

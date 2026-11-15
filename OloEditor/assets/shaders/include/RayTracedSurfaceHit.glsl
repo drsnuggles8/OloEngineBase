@@ -397,8 +397,11 @@ bool OloRtTraceClosestGeometry(vec3 origin, vec3 direction, float tMax, out OloR
 
     // The material's factors, then its maps where they are reachable: the raster
     // conventions (albedo rgb, metallic = blue, roughness = green, emissive rgb,
-    // normal xy), level 0, the CPU reference's definitions.
-    vec3 albedo = material.BaseColorFactor.rgb;
+    // normal xy), level 0, the CPU reference's definitions. The instance's tint
+    // multiplies the base colour exactly as InstanceData.Color does in raster
+    // (issue #1691): N instances share this material record and differ only in
+    // their own.
+    vec3 albedo = material.BaseColorFactor.rgb * instance.Tint.rgb;
     float metallic = material.MetallicFactor;
     float roughness = material.RoughnessFactor;
     vec3 emissive = material.EmissiveFactor.rgb;

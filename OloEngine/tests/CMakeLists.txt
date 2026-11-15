@@ -472,6 +472,8 @@ add_executable(OloEngine-Tests
 		Rendering/CommandLifecycleTest.cpp
 		Rendering/CommandLifecycleCheck.cpp
 		Rendering/CommandDispatchRecordingTest.cpp
+		Rendering/UniformBlockContractSourceTest.cpp
+		Rendering/UniformBlockContractTest.cpp
 		Rendering/RenderGraphParallelRecordingTest.cpp
 		Rendering/RenderGraphOutOfBandTest.cpp
 		Rendering/RenderGraphOutOfBandScheduleTest.cpp
@@ -675,6 +677,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/AutoMeshLODVisualEvidenceTest.cpp
 		Rendering/PropertyTests/OcclusionCullDeferredVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredInstancedShadingEvidenceTest.cpp
+		Rendering/PropertyTests/InstanceColourEvidenceTest.cpp
+		Rendering/PropertyTests/ShadowMapWithoutCastersTest.cpp
 		Rendering/PropertyTests/OceanFFTGpuContractTest.cpp
 		Rendering/PropertyTests/OceanCascadeTest.cpp
 		Rendering/PropertyTests/OceanCascadeVisualEvidenceTest.cpp
@@ -1029,6 +1033,7 @@ add_executable(OloEngine-Tests
 		Rendering/VirtualMeshRegistryRejectionTest.cpp
 		Rendering/VirtualGeometrySceneCoverageTest.cpp
 		Rendering/PropertyTests/RendererAttachedSmokeTest.cpp
+		Rendering/PropertyTests/RendererOwnershipTest.cpp
 		Rendering/PropertyTests/SceneRenderEvidenceTest.cpp
 		Rendering/PropertyTests/LightmapVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ClothVisualEvidenceTest.cpp

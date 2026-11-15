@@ -349,7 +349,7 @@ namespace OloEngine::RayTracing
         if (!m_Shader || !m_Shader->IsValid())
             return false;
         if (!m_Params)
-            m_Params = UniformBuffer::Create(sizeof(DeformParams), ShaderBindingLayout::UBO_RAY_TRACING);
+            m_Params = UniformBuffer::Create(sizeof(DeformParams), ShaderBindingLayout::UBO_RAY_TRACING, "RayTracingVegetationParams");
         if (!m_Wind)
             m_Wind = UniformBuffer::Create(sizeof(ShaderBindingLayout::FoliageUBO), ShaderBindingLayout::UBO_FOLIAGE);
         return m_Params && m_Wind;

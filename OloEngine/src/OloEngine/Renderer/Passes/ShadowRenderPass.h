@@ -650,7 +650,6 @@ namespace OloEngine
         // becomes ready.
         bool m_WarnedGroomVsmProgram = false;
 
-        bool m_WarnedOnce = false;
         bool m_LoggedOnce = false;
     };
     // Owns only audited pointer-based containers/Refs; no address-relative members.

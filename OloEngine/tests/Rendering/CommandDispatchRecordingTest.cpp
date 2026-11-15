@@ -1,9 +1,15 @@
 // OLO_TEST_LAYER: plumbing
 #include "OloEnginePCH.h"
 #include "MockRendererAPI.h"
+#include "OloEngine/Math/Math.h"
+#include "RenderingTestUtils.h"
+#include "OloEngine/Renderer/Commands/CommandAllocator.h"
+#include "OloEngine/Renderer/Commands/CommandBucket.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/FrontendRecordingContext.h"
+#include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
 
+#include <glm/gtc/matrix_transform.hpp>
 #include <gtest/gtest.h>
 #include <array>
 #include <barrier>
@@ -20,10 +26,27 @@ class CommandDispatchRecording : public ::testing::Test
     void SetUp() override
     {
         CommandDispatch::Initialize();
+        // These tests replay through MockRendererAPI, some of them on worker
+        // threads. With the whole suite in one process a renderer-attached
+        // test has usually run first and left the dispatcher holding the real
+        // camera and material buffers, and a view scope uploads the camera:
+        // SetData and a bind on a GL buffer from a thread with no context.
+        // Drop the references for the test. Renderer3D publishes them again
+        // at its next BeginScene (ReclaimSharedRenderState, issue #1074).
+        CommandDispatch::SetUBOReferences(nullptr, nullptr, nullptr, nullptr, nullptr, nullptr);
         auto& profiler = RendererProfiler::GetInstance();
         profiler.Initialize();
         profiler.BeginFrame();
         profiler.SetRecordInstancedDraws(true);
+    }
+
+    // The calling recording context's view with another position. A view is
+    // replaced whole; the dispatcher has no field-wise setters.
+    static void SetViewPosition(const glm::vec3& position)
+    {
+        DispatchView view = CommandDispatch::GetView();
+        view.ViewPosition = position;
+        CommandDispatch::SetView(view);
     }
 
     void TearDown() override
@@ -47,7 +70,7 @@ class CommandDispatchRecording : public ::testing::Test
 
 TEST_F(CommandDispatchRecording, RecordingContextsIsolateCachesViewsAndProfilerWritesAcrossRealThreads)
 {
-    CommandDispatch::SetViewPosition(glm::vec3(99.0f));
+    SetViewPosition(glm::vec3(99.0f));
     auto& profiler = RendererProfiler::GetInstance();
     constexpr u32 itemCount = 8;
     std::array<FrontendRecordingContext, itemCount> items;
@@ -61,7 +84,7 @@ TEST_F(CommandDispatchRecording, RecordingContextsIsolateCachesViewsAndProfilerW
         threads.emplace_back([&, item]
                              {
             const ScopedFrontendRecordingContext scope(items[item]);
-            CommandDispatch::SetViewPosition(glm::vec3(static_cast<f32>(item)));
+            SetViewPosition(glm::vec3(static_cast<f32>(item)));
             start.arrive_and_wait();
             EXPECT_NEAR(CommandDispatch::GetViewPosition().x, static_cast<f32>(item), 0.001f);
             DrawIndexedCommand draw{};
@@ -172,4 +195,236 @@ TEST(CommandDispatchProfilerStorage, CounterHistoryKeepsChronologicalOrderAfterW
     counter.GetHistoryInOrder(history);
     ASSERT_EQ(history.Num(), 1);
     EXPECT_FLOAT_EQ(history[0], 42.0f);
+}
+
+// -----------------------------------------------------------------------------
+// The recording view (ADR 0025, issue #1330)
+// -----------------------------------------------------------------------------
+namespace
+{
+    // A main view whose every field differs from the default and from each
+    // other, so a field an alternate view failed to replace or restore shows.
+    [[nodiscard]] DispatchView MakeDistinctMainView()
+    {
+        DispatchView view;
+        view.ViewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 3.0f));
+        view.ProjectionMatrix = glm::perspective(0.9f, 1.5f, 0.1f, 500.0f);
+        view.ViewProjectionMatrix = view.ProjectionMatrix * view.ViewMatrix;
+        view.PrevViewProjectionMatrix = view.ProjectionMatrix * glm::translate(glm::mat4(1.0f), glm::vec3(1.5f, 2.0f, 3.0f));
+        view.JitterUV = glm::vec4(0.125f, -0.25f, 0.375f, -0.5f);
+        view.ViewPosition = glm::vec3(-1.0f, -2.0f, -3.0f);
+        view.RenderOrigin = glm::vec3(1024.0f, 0.0f, -2048.0f);
+        view.MainViewLanes = true;
+        return view;
+    }
+
+    [[nodiscard]] bool SameView(const DispatchView& a, const DispatchView& b)
+    {
+        return Math::BitwiseEqual(a.ViewMatrix, b.ViewMatrix) && Math::BitwiseEqual(a.ProjectionMatrix, b.ProjectionMatrix) &&
+               Math::BitwiseEqual(a.ViewProjectionMatrix, b.ViewProjectionMatrix) &&
+               Math::BitwiseEqual(a.PrevViewProjectionMatrix, b.PrevViewProjectionMatrix) &&
+               Math::BitwiseEqual(a.JitterUV, b.JitterUV) && Math::BitwiseEqual(a.ViewPosition, b.ViewPosition) &&
+               Math::BitwiseEqual(a.RenderOrigin, b.RenderOrigin) && a.MainViewLanes == b.MainViewLanes;
+    }
+
+    struct ReplayAborted
+    {
+    };
+} // namespace
+
+// The planar reflection used to swap four of the dispatcher's seven camera
+// fields by hand, so its camera block carried the main view's previous
+// view-projection and jitter, and restored them with straight-line code a
+// throwing packet skipped. An alternate view is installed whole and restored
+// by scope.
+TEST_F(CommandDispatchRecording, AlternateViewIsWholeAndRestoredOnEveryExit)
+{
+    const DispatchView main = MakeDistinctMainView();
+    CommandDispatch::SetView(main);
+
+    const glm::mat4 mirrorView = glm::scale(glm::mat4(1.0f), glm::vec3(1.0f, -1.0f, 1.0f));
+    const glm::mat4 mirrorProjection = glm::perspective(0.7f, 1.0f, 0.5f, 100.0f);
+    const glm::mat4 mirrorViewProjection = mirrorProjection * mirrorView;
+    const glm::vec3 mirrorPosition(4.0f, -5.0f, 6.0f);
+    const DispatchView alternate =
+        CommandDispatch::MakeAlternateView(mirrorView, mirrorProjection, mirrorViewProjection, mirrorPosition);
+
+    // What an alternate view is: the given camera, the frame's render origin,
+    // no history of its own, no claim on the main view's screen-space lanes.
+    EXPECT_TRUE(Math::BitwiseEqual(alternate.PrevViewProjectionMatrix, mirrorViewProjection))
+        << "an alternate view inherited the main view's previous view-projection";
+    EXPECT_TRUE(Math::BitwiseEqual(alternate.JitterUV, glm::vec4(main.JitterUV.x, main.JitterUV.y, main.JitterUV.x, main.JitterUV.y)))
+        << "an alternate view inherited the main view's previous jitter";
+    EXPECT_TRUE(Math::BitwiseEqual(alternate.RenderOrigin, main.RenderOrigin)) << "one render origin per frame";
+    EXPECT_FALSE(alternate.MainViewLanes);
+
+    {
+        const CommandDispatch::ScopedAlternateView scope(alternate);
+        EXPECT_TRUE(SameView(CommandDispatch::GetView(), alternate));
+        EXPECT_TRUE(Math::BitwiseEqual(CommandDispatch::GetViewPosition(), mirrorPosition));
+    }
+    EXPECT_TRUE(SameView(CommandDispatch::GetView(), main)) << "leaving the scope did not restore the whole main view";
+
+    try
+    {
+        const CommandDispatch::ScopedAlternateView scope(alternate);
+        throw ReplayAborted{};
+    }
+    catch (const ReplayAborted&)
+    {
+    }
+    EXPECT_TRUE(SameView(CommandDispatch::GetView(), main)) << "an aborted replay left the alternate view installed";
+}
+
+// Serial and worker replay read one context type. An item prepared inside an
+// alternate-view scope draws from that view, whole; what an item does to its
+// own view never reaches the primary or another item.
+TEST_F(CommandDispatchRecording, SerialAndWorkerReplayReadTheSameView)
+{
+    const DispatchView main = MakeDistinctMainView();
+    CommandDispatch::SetView(main);
+    const glm::mat4 mirrorViewProjection = glm::perspective(0.7f, 1.0f, 0.5f, 100.0f);
+    const DispatchView alternate =
+        CommandDispatch::MakeAlternateView(glm::mat4(1.0f), mirrorViewProjection, mirrorViewProjection, glm::vec3(7.0f));
+
+    constexpr u32 itemCount = 4;
+    std::array<FrontendRecordingContext, itemCount> items;
+    std::array<bool, itemCount> sawAlternate{};
+    {
+        const CommandDispatch::ScopedAlternateView scope(alternate);
+        // The serial replay's answer, on the primary.
+        EXPECT_TRUE(SameView(CommandDispatch::GetView(), alternate));
+        // The fork: prepared on the caller before any worker starts.
+        for (auto& item : items)
+            item.Prepare(1);
+        std::vector<std::jthread> threads;
+        for (u32 item = 0; item < itemCount; ++item)
+        {
+            threads.emplace_back([&, item]
+                                 {
+                const ScopedFrontendRecordingContext recording(items[item]);
+                sawAlternate[item] = SameView(CommandDispatch::GetView(), alternate);
+                // An item-local override (a bucket's view state) stays in the item.
+                DispatchView local = alternate;
+                local.ViewPosition = glm::vec3(static_cast<f32>(item) + 100.0f);
+                const CommandDispatch::ScopedAlternateView override(local); });
+        }
+        threads.clear();
+        for (auto& item : items)
+            item.Publish();
+        EXPECT_TRUE(SameView(CommandDispatch::GetView(), alternate)) << "an item's view override reached the primary";
+    }
+    for (u32 item = 0; item < itemCount; ++item)
+        EXPECT_TRUE(sawAlternate[item]) << "item " << item << " did not draw from the view the fork was made under";
+    EXPECT_TRUE(SameView(CommandDispatch::GetView(), main));
+}
+
+// A bucket's view override (CommandBucket::SetViewState) used to patch four
+// camera fields through a read/write callback pair and never upload the camera
+// block. It has no production caller yet (it is the seam a second view would
+// replay through), so this is what holds it to the same scope the planar
+// reflection uses: a packet replayed under the override sees the whole
+// alternate view, and the primary's view is back afterwards.
+TEST_F(CommandDispatchRecording, ABucketViewOverrideReplaysInsideTheAlternateViewScope)
+{
+    const DispatchView main = MakeDistinctMainView();
+    CommandDispatch::SetView(main);
+
+    static DispatchView s_SeenByThePacket;
+    s_SeenByThePacket = {};
+    CommandAllocator allocator;
+    CommandBucket bucket;
+    CommandPacket* packet = allocator.CreateCommandPacket(MakeSyntheticViewportCommand(0, 0, 4, 4));
+    ASSERT_NE(packet, nullptr);
+    packet->SetDispatchFunction([](const void*, RendererAPI&)
+                                { s_SeenByThePacket = CommandDispatch::GetView(); });
+    bucket.SubmitPacket(packet);
+
+    BucketViewState override;
+    override.ViewMatrix = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, -9.0f, 0.0f));
+    override.ProjectionMatrix = glm::perspective(0.6f, 2.0f, 1.0f, 50.0f);
+    override.ViewProjectionMatrix = override.ProjectionMatrix * override.ViewMatrix;
+    override.ViewPosition = glm::vec3(0.0f, 9.0f, 0.0f);
+    bucket.SetViewState(override);
+    bucket.SortCommands();
+    MockRendererAPI api;
+    bucket.Execute(api);
+
+    EXPECT_TRUE(Math::BitwiseEqual(s_SeenByThePacket.ViewMatrix, override.ViewMatrix));
+    EXPECT_TRUE(Math::BitwiseEqual(s_SeenByThePacket.ViewProjectionMatrix, override.ViewProjectionMatrix));
+    EXPECT_TRUE(Math::BitwiseEqual(s_SeenByThePacket.ViewPosition, override.ViewPosition));
+    EXPECT_TRUE(Math::BitwiseEqual(s_SeenByThePacket.PrevViewProjectionMatrix, override.ViewProjectionMatrix))
+        << "the override drew with the main view's previous view-projection";
+    EXPECT_TRUE(Math::BitwiseEqual(s_SeenByThePacket.RenderOrigin, main.RenderOrigin));
+    EXPECT_FALSE(s_SeenByThePacket.MainViewLanes);
+    EXPECT_TRUE(SameView(CommandDispatch::GetView(), main)) << "the bucket's replay left its view override installed";
+}
+
+// The dispatcher's redundant-bind caches describe one replay. Between two
+// replays a pass binds programs, vertex arrays and textures through the API
+// (a compute dispatch, a fullscreen draw, a resolve), and the caches hear of
+// none of it. They used to live until some pass remembered to invalidate
+// them. DeferredGPUOcclusionPass did not: it dispatched the phase-2 cull and
+// replayed its recovered instances, and whenever the scene pass had ended on
+// the same G-Buffer program the draw kept the cull's COMPUTE program bound.
+// Which program the scene pass ends on follows the sort order, so the frame
+// was wrong in one test order and right in every other.
+TEST_F(CommandDispatchRecording, AReplayDoesNotTrustWhatWasBoundBeforeIt)
+{
+    CommandAllocator allocator;
+    CommandBucket bucket;
+    DrawIndexedCommand draw{};
+    draw.header.type = CommandType::DrawIndexed;
+    draw.vertexArrayID = RHI::ResourceHandle{ 100u, 1u };
+    draw.indexCount = 3;
+    const CommandPacket* packet = bucket.Submit(draw, {}, &allocator);
+    ASSERT_NE(packet, nullptr);
+    ASSERT_NE(bucket.Submit(draw, {}, &allocator), nullptr);
+    bucket.SortCommands();
+
+    MockRendererAPI api;
+    bucket.Execute(api);
+    // Inside one replay the cache still does its job: two draws, one bind.
+    ASSERT_EQ(api.CountCalls("DrawBoundIndexed"), 2u);
+    ASSERT_EQ(api.CountCalls("BindVertexArrayRaw"), 1u);
+
+    // What DeferredLightingPass does after its fullscreen draw, and what a
+    // compute dispatch does to the program: through the API, around the
+    // dispatcher.
+    api.BindVertexArrayRaw(RHI::NullResource);
+    ASSERT_EQ(api.CountCalls("BindVertexArrayRaw"), 2u);
+
+    // A pass replaying its own packet list: the occlusion passes' phase 2.
+    const std::array<const CommandPacket*, 1> packets{ packet };
+    (void)CommandBucket::RecordPackets(api, packets);
+    EXPECT_EQ(api.CountCalls("BindVertexArrayRaw"), 3u)
+        << "a replay skipped its vertex array bind on the word of the replay before it";
+
+    // ...and a bucket replaying whole.
+    api.BindVertexArrayRaw(RHI::NullResource);
+    bucket.Execute(api);
+    EXPECT_EQ(api.CountCalls("BindVertexArrayRaw"), 5u)
+        << "a bucket replay skipped its vertex array bind on the word of the replay before it";
+}
+
+// CommandDispatch::Shutdown used to drop five buffer references and leave the
+// rest: a dispatcher shut down for a device teardown came back with the
+// previous device's camera, counters and pass flags.
+TEST_F(CommandDispatchRecording, DispatcherShutdownLeavesNoRecordingState)
+{
+    CommandDispatch::SetView(MakeDistinctMainView());
+    CommandDispatch::GetStatistics().DrawCalls = 12;
+    CommandDispatch::SetDepthPrepassActive(true);
+
+    CommandDispatch::Shutdown();
+
+    EXPECT_TRUE(SameView(CommandDispatch::GetView(), DispatchView{})) << "Shutdown left the previous camera in the primary context";
+    EXPECT_EQ(CommandDispatch::GetStatistics().DrawCalls, 0u);
+    EXPECT_FALSE(CommandDispatch::HasUBOReferences());
+    EXPECT_FALSE(CommandDispatch::IsDepthPrepassActive());
+
+    // The dispatch table and the queue's callbacks are device-independent and
+    // survive; Initialize re-arms the rest, as Renderer3D's reclaim does.
+    EXPECT_NE(CommandDispatch::GetDispatchFunction(CommandType::DrawMesh), nullptr);
+    CommandDispatch::Initialize();
 }

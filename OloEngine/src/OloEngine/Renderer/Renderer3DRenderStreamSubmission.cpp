@@ -25,14 +25,14 @@ namespace OloEngine
         // Prepare frame data buffer for parallel submission
         FrameDataBufferManager::Get().PrepareForParallelSubmission();
 
-        s_Data.ParallelSubmissionActive = true;
+        s_Data.Frame.ParallelSubmissionActive = true;
     }
 
     void Renderer3D::EndParallelSubmission()
     {
         OLO_PROFILE_FUNCTION();
 
-        if (!s_Data.ParallelSubmissionActive)
+        if (!s_Data.Frame.ParallelSubmissionActive)
         {
             OLO_CORE_WARN("Renderer3D::EndParallelSubmission: Not in parallel submission mode!");
             return;
@@ -45,7 +45,7 @@ namespace OloEngine
         if (!geometryNode)
         {
             OLO_CORE_ERROR("Renderer3D::EndParallelSubmission: Geometry render stream is unavailable!");
-            s_Data.ParallelSubmissionActive = false;
+            s_Data.Frame.ParallelSubmissionActive = false;
             return;
         }
 
@@ -56,7 +56,7 @@ namespace OloEngine
         // Must be done after both MergeScratchBuffers() and MergeThreadLocalCommands()
         geometryNode->GetCommandBucket().RemapBoneOffsets(FrameDataBufferManager::Get());
 
-        s_Data.ParallelSubmissionActive = false;
+        s_Data.Frame.ParallelSubmissionActive = false;
     }
 
     WorkerSubmitContext Renderer3D::GetWorkerContext(u32 workerIndex)
@@ -94,7 +94,7 @@ namespace OloEngine
 
     bool Renderer3D::IsParallelSubmissionActive()
     {
-        return s_Data.ParallelSubmissionActive;
+        return s_Data.Frame.ParallelSubmissionActive;
     }
 
     void Renderer3D::SubmitRenderStreamPacket(RenderStreamType stream, CommandPacket* packet)

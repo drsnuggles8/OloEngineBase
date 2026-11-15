@@ -153,11 +153,10 @@ namespace OloEngine
         }
         logArm(1, "mirror replay running");
 
-        // Snapshot the real camera (CommandDispatch holds it from BeginScene; the
-        // scene pass never mutates it). Restored before we return.
+        // The real camera (CommandDispatch holds it from BeginScene; the scene
+        // pass never mutates it). Copied: the mirror view replaces it below.
         const glm::mat4 realView = CommandDispatch::GetViewMatrix();
         const glm::mat4 realProj = CommandDispatch::GetProjectionMatrix();
-        const glm::mat4 realVP = CommandDispatch::GetViewProjectionMatrix();
         const glm::vec3 realPos = CommandDispatch::GetViewPosition();
 
         const glm::vec4 plane = PlanarReflection::NormalizePlane(m_ReflectionPlane);
@@ -192,62 +191,51 @@ namespace OloEngine
         // ::Capture() is a long run of glGet* calls that stall the pipeline.
         const GLStateSnapshot& entryState = guard.EntryState();
 
-        // Swap the shared camera to the mirror camera. The mesh path rebinds the
-        // shared CameraUBO buffer (uploaded here); terrain/voxel paths re-derive
-        // from the CommandDispatch matrices — set both so every draw type in the
-        // bucket sees the mirror camera and the oblique near-clip.
-        CommandDispatch::SetViewMatrix(m.MirrorView);
-        CommandDispatch::SetProjectionMatrix(m.ObliqueProjection);
-        CommandDispatch::SetViewProjectionMatrix(m.ViewProjection);
-        CommandDispatch::SetViewPosition(m.MirrorCameraPosition);
-        // The main view's screen-space AO buffer means nothing from the mirror
-        // camera (issue #1452), so the replay's shaders see it as not live.
-        CommandDispatch::SuspendForwardScreenSpaceAO(true);
-        CommandDispatch::UploadCameraUBO();
-        CommandDispatch::InvalidateRenderStateCache();
+        // Replay from the mirror camera as an alternate view (ADR 0025). The
+        // scope installs the whole view — the mesh path rebinds the shared
+        // CameraUBO buffer it uploads, terrain/voxel paths re-derive from the
+        // dispatcher's matrices, so every draw type in the bucket sees the
+        // mirror camera and the oblique near-clip — and on exit puts the real
+        // camera back, re-uploads its block and re-binds the main view's
+        // screen-space AO inputs, which mean nothing from the mirror camera
+        // (issue #1452) and are published as "not live" while it is active.
+        // The mirror has no history of its own, so its camera block no longer
+        // carries the main view's previous view-projection.
+        {
+            const CommandDispatch::ScopedAlternateView mirrorView(
+                CommandDispatch::MakeAlternateView(m.MirrorView, m.ObliqueProjection, m.ViewProjection, m.MirrorCameraPosition));
 
-        m_ReflectionFB->Bind();
-        RenderCommand::SetViewport(0, 0, m_Width, m_Height);
-        rendererAPI.SetDepthTest(true);
-        rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
-        rendererAPI.SetDepthMask(true);
-        rendererAPI.SetBlendState(false);
-        rendererAPI.SetCullFace(RHI::CullMode::Back);
-        rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
-        m_ReflectionFB->ClearAllAttachments({ 0.0f, 0.0f, 0.0f, 1.0f }, -1);
+            m_ReflectionFB->Bind();
+            RenderCommand::SetViewport(0, 0, m_Width, m_Height);
+            rendererAPI.SetDepthTest(true);
+            rendererAPI.SetDepthFunc(RHI::CompareOp::Less);
+            rendererAPI.SetDepthMask(true);
+            rendererAPI.SetBlendState(false);
+            rendererAPI.SetCullFace(RHI::CullMode::Back);
+            rendererAPI.SetPolygonMode(RHI::PolygonMode::Fill);
+            m_ReflectionFB->ClearAllAttachments({ 0.0f, 0.0f, 0.0f, 1.0f }, -1);
 
-        // A reflection reverses handedness, so the geometry's front faces now wind
-        // clockwise — declare CW the front winding for the replay so back-face
-        // culling still removes the correct triangles.
-        RenderCommand::SetFrontFace(RHI::FrontFace::Clockwise);
+            // A reflection reverses handedness, so the geometry's front faces now wind
+            // clockwise — declare CW the front winding for the replay so back-face
+            // culling still removes the correct triangles.
+            RenderCommand::SetFrontFace(RHI::FrontFace::Clockwise);
 
-        // Re-establish shared scene resources the scene pass left bound (camera
-        // UBO binding, shadow maps, IBL) and replay the already-batched opaque
-        // bucket (skybox + meshes + terrain + voxels) into the mirror target.
-        CommandDispatch::BindSceneResources();
-        RGOutOfBand::Note(RGOutOfBandBoundaries::SceneOpaqueCommandBucket, RGOutOfBandAccess::Read);
-        m_ScenePass->GetCommandBucket().ExecuteParallel(rendererAPI);
+            // Re-establish shared scene resources the scene pass left bound (camera
+            // UBO binding, shadow maps, IBL) and replay the already-batched opaque
+            // bucket (skybox + meshes + terrain + voxels) into the mirror target.
+            CommandDispatch::BindSceneResources();
+            RGOutOfBand::Note(RGOutOfBandBoundaries::SceneOpaqueCommandBucket, RGOutOfBandAccess::Read);
+            m_ScenePass->GetCommandBucket().ExecuteParallel(rendererAPI);
 
-        RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise);
-        m_ReflectionFB->Unbind();
+            RenderCommand::SetFrontFace(RHI::FrontFace::CounterClockwise);
+            m_ReflectionFB->Unbind();
 
-        // Put back everything the mirror replay reconfigured (depth test/func/mask,
-        // blend, cull, polygon mode) so the guard's exit snapshot matches its entry
-        // one. InvalidateRenderStateCache below re-syncs the cached RendererAPI
-        // state with the GL state this just rolled back.
-        entryState.ApplyCore();
-
-        // Restore the real camera for every downstream pass this frame.
-        CommandDispatch::SetViewMatrix(realView);
-        CommandDispatch::SetProjectionMatrix(realProj);
-        CommandDispatch::SetViewProjectionMatrix(realVP);
-        CommandDispatch::SetViewPosition(realPos);
-        CommandDispatch::SuspendForwardScreenSpaceAO(false);
-        // Mirror replay bound white AO/depth fallbacks. Restoring the camera
-        // does not restore those texture bindings or descriptor-heap offsets.
-        CommandDispatch::BindForwardScreenSpaceAO();
-        CommandDispatch::UploadCameraUBO();
-        CommandDispatch::InvalidateRenderStateCache();
+            // Put back everything the mirror replay reconfigured (depth test/func/mask,
+            // blend, cull, polygon mode) so the guard's exit snapshot matches its entry
+            // one. InvalidateRenderStateCache below re-syncs the cached RendererAPI
+            // state with the GL state this just rolled back.
+            entryState.ApplyCore();
+        } // mirrorView: the real camera is back for every downstream pass this frame
 
         Renderer3D::SetPlanarReflectionTextureID(m_ReflectionFB->GetColorAttachmentHandle(0));
         if (m_ReflectionUBO)

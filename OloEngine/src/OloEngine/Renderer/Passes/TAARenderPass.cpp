@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/Passes/TAARenderPass.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -189,6 +190,8 @@ namespace OloEngine
         context.Clear();
 
         m_TAAShader->Bind();
+
+        Renderer3D::BindMotionMatrices(); // pass-scoped binding 8 (#1687)
 
         context.BindTextureOrHeapOffset(0, inputColorTextureID, RHI::HeapSlotLifetime::FrameTransient);
         m_TAAShader->SetInt("u_Current", 0);

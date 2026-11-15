@@ -786,6 +786,17 @@ namespace OloEngine
         // foliage clip-level cull (#1580). Null when VSM is not initialised.
         [[nodiscard]] RHI::ResourceHandle GetHPBHandle() const;
 
+        // Give SSBO_VSM_HPB an occupant for a program that DECLARES the
+        // pyramid and is about to run outside the VSM route, where nothing has
+        // bound it: the virtual-geometry cluster cull's main view and its
+        // classic cascade views. The pyramid itself when there is one (the
+        // same buffer the VSM route binds, so nothing later is displaced), a
+        // one-word stand-in when VSM never initialised. Such a program must
+        // not read it there; it only must not find the binding empty, which
+        // Vulkan reports as an error and answers with the null block (#1052).
+        // Callable from a recording item: it binds and creates nothing there.
+        void BindHPBForDeclaredReader();
+
         // Finds this frame's movers and submits their swept bounds. MUST be called
         // BEFORE UpdatePages(), which is what consumes the invalidations — running
         // it after would allocate and clear the pages first and leave the mover's
@@ -1091,8 +1102,10 @@ namespace OloEngine
         // vsmShadowFactor returns early on VSM_ENABLED == 0 — but "cannot" should
         // rest on a bound buffer, not on the null block happening to read zeros.
         void EnsureInertSamplingBindings();
+        void EnsureInertHPB();
         Ref<StorageBuffer> m_InertPageTable;
         Ref<StorageBuffer> m_InertLocalLights;
+        Ref<StorageBuffer> m_InertHPB; // BindHPBForDeclaredReader, VSM off
         Ref<UniformBuffer> m_InertGlobalsUBO;
         Ref<UniformBuffer> m_InertPassUBO;
 

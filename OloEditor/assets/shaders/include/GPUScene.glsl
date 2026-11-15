@@ -27,10 +27,10 @@ struct GPUSceneInstance
     uint Flags;
     uint Generation;
     uint MaterialGeneration;
-    // Issue #1228 — mirrors GPUSceneInstance's tail in GPUSceneTypes.h, which
-    // static_asserts the 144-byte size this completes. The pad is a real member
-    // on both sides rather than implicit padding, so neither compiler has to
-    // agree with the other about something it was not told.
+    // Issue #1228 — mirrors GPUSceneInstance's deformation lanes in
+    // GPUSceneTypes.h, which static_asserts every offset here. There is no
+    // implicit padding on either side, so neither compiler has to agree with the
+    // other about something it was not told.
     //
     // Continuity is (DeformationRevision == PreviousDeformationRevision + 1) in
     // uint wraparound arithmetic; equal values mean the deformation history was
@@ -42,6 +42,10 @@ struct GPUSceneInstance
     // Issue #1229: how many times the deformed vertex stream was rewritten.
     // Was DeformationPad0, so the layout is unchanged.
     uint DeformedContentRevision;
+    // Issue #1691: rgb = the tint this instance multiplies into its material's
+    // base colour, a = reserved (1). Offset 144; the record is 160 bytes. A ray
+    // hit reads it here; raster reads the same value from InstanceData.Color.
+    vec4 Tint;
 };
 
 struct GPUSceneGeometry

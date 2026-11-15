@@ -13,6 +13,32 @@ namespace OloEngine
     class InstanceBuffer;
     class ShaderResourceRegistry;
 
+    // The view one recording context draws from (ADR 0025): the camera, its
+    // previous frame, and the render origin. A value, set and swapped whole, so
+    // the dispatcher never holds half of one camera.
+    struct DispatchView
+    {
+        // World space. The camera block's packing derives the render-relative
+        // copies from these plus RenderOrigin.
+        glm::mat4 ViewMatrix = glm::mat4(1.0f);
+        glm::mat4 ProjectionMatrix = glm::mat4(1.0f);
+        glm::mat4 ViewProjectionMatrix = glm::mat4(1.0f);
+        // The same camera one frame ago, for the velocity writers. A view with
+        // no history sets it to ViewProjectionMatrix.
+        glm::mat4 PrevViewProjectionMatrix = glm::mat4(1.0f);
+        // The TAA jitter the two view-projections carry (#1552): xy this
+        // frame's, zw the previous frame's, in velocity units.
+        glm::vec4 JitterUV = glm::vec4(0.0f);
+        glm::vec3 ViewPosition = glm::vec3(0.0f);
+        // Camera-relative render origin for this frame (issue #429).
+        glm::vec3 RenderOrigin = glm::vec3(0.0f);
+        // Whether this is the view the frame's screen-space buffers were made
+        // for. The forward shaders' AO lane and the lighting tap (issues #1452,
+        // #1526) are measured in the main view's screen space; another camera
+        // uploads them as "not live" and binds the white placeholders.
+        bool MainViewLanes = true;
+    };
+
     class CommandDispatch
     {
       public:
@@ -60,6 +86,20 @@ namespace OloEngine
         // (found during issue #1404).
         static void InvalidateBindingCaches();
 
+        // What the command queue calls at the start of every replay
+        // (CommandBucket::BeginReplay): the same reset, in the calling
+        // recording context. The caches therefore describe one replay, and a
+        // pass that replays twice with other work in between needs no call of
+        // its own. InvalidateBindingCaches stays for the code that dispatches
+        // without a replay (a pass executing packets itself, a direct draw).
+        static void BeginReplay();
+
+        // The same reset, unconditionally: it ignores the
+        // FaultSkipDispatchBindingReset negative control. For the harness arm
+        // that must really forget the caches while the fault is injected
+        // (binding-cache-cold); engine code calls InvalidateBindingCaches.
+        static void ForgetBindingCaches();
+
         // Apply a command's PODRenderState (skipped when the index matches the
         // last one applied -- InvalidateRenderStateCache() is how a pass that
         // touched state behind the queue's back forces a re-apply).
@@ -72,7 +112,6 @@ namespace OloEngine
         // through a dispatch function the production path does not use is
         // verifying the setup, not the draw.
         static void ApplyPODRenderState(u16 renderStateIndex, RendererAPI& api);
-        static void InvalidateUBOCache(u32 bindingPoint);
 
         // Clear any cached texture-slot binding that points at this OpenGL texture ID.
         // Must be called when a Texture2D is destroyed so that a future call to
@@ -123,24 +162,57 @@ namespace OloEngine
         // ScreenParams. Set by WaterRenderPass before its bucket runs (issue
         // #1486: the field used to come from a viewport nothing ever set).
         static void SetWaterTargetSize(u32 width, u32 height);
-        static void SetViewProjectionMatrix(const glm::mat4& vp);
-        static void SetViewMatrix(const glm::mat4& view);
-        static void SetProjectionMatrix(const glm::mat4& projection);
-        // @brief Mirror the previous-frame view-projection from Renderer3D
-        // so dispatch paths that drive the shared CameraUBO themselves
-        // (terrain / voxel / decal) can fill CameraUBO::PrevViewProjection
-        // without aliasing the current-frame VP.
-        static void SetPrevViewProjectionMatrix(const glm::mat4& prevVP);
-        // @brief The TAA jitter offsets those two matrices carry (#1552): xy
-        // this frame's, zw the previous frame's, in velocity units -- what the
-        // shared CameraUBO re-upload hands the velocity writers to subtract.
-        static void SetJitterUV(const glm::vec4& jitterUV);
-        static void SetViewPosition(const glm::vec3& viewPos);
-        // @brief Camera-relative render origin for this frame (issue #429). The
-        // stored view / view-projection / position above remain *world*-space
-        // (sort keys and the planar-reflection mirror need them); the camera-UBO
-        // packing here derives the relative matrices from those plus this origin
-        // so the shared, terrain, voxel and mirror uploads all agree.
+        // The recording view, whole (ADR 0025). The frame sets the primary
+        // context's once; inside a recording item these address the item's own.
+        static void SetView(const DispatchView& view);
+        [[nodiscard]] static const DispatchView& GetView();
+        // A view for a replay from another camera: the given camera, the
+        // frame's render origin, no motion history of its own, and no claim on
+        // the main view's screen-space lanes.
+        [[nodiscard]] static DispatchView MakeAlternateView(const glm::mat4& view, const glm::mat4& projection,
+                                                            const glm::mat4& viewProjection, const glm::vec3& position);
+        // Draw from another view for the lifetime of this object. Installs the
+        // whole view in the calling recording context, uploads its camera
+        // block, and on every exit path puts the previous view back, re-uploads
+        // its camera block and re-binds the main view's screen-space inputs.
+        // The planar reflection and a bucket's view override both replay
+        // through this; a fork inside it hands the alternate view to every item.
+        class ScopedAlternateView
+        {
+          public:
+            explicit ScopedAlternateView(const DispatchView& view);
+            ~ScopedAlternateView();
+            ScopedAlternateView(const ScopedAlternateView&) = delete;
+            ScopedAlternateView& operator=(const ScopedAlternateView&) = delete;
+            ScopedAlternateView(ScopedAlternateView&&) = delete;
+            ScopedAlternateView& operator=(ScopedAlternateView&&) = delete;
+
+          private:
+            DispatchView m_Previous;
+        };
+
+        // For a tenant that draws through a camera buffer of its own on the
+        // frame-published camera binding (a bake). The frame's camera block is
+        // uploaded and bound again when the scope ends, on every exit: a bake
+        // that fails half way must not leave its buffer, or nothing at all,
+        // where the post passes read the camera without binding it (#1687).
+        // Declare it before the tenant's own camera buffer is created, which
+        // claims the binding point at construction.
+        class ScopedFrameCameraRestore
+        {
+          public:
+            ScopedFrameCameraRestore() = default;
+            ~ScopedFrameCameraRestore();
+            ScopedFrameCameraRestore(const ScopedFrameCameraRestore&) = delete;
+            ScopedFrameCameraRestore& operator=(const ScopedFrameCameraRestore&) = delete;
+            ScopedFrameCameraRestore(ScopedFrameCameraRestore&&) = delete;
+            ScopedFrameCameraRestore& operator=(ScopedFrameCameraRestore&&) = delete;
+        };
+
+        // No field-wise setters: a view is replaced whole (SetView, or a
+        // ScopedAlternateView), so the dispatcher never holds half of one
+        // camera (ADR 0025 V2).
+
         // The GPU Scene material table shares slot 17 with the instance cull's
         // draw-indirect buffer (issue #994). Anything that binds its own buffer
         // there must call this, or the next draw that reads a canonical
@@ -153,7 +225,11 @@ namespace OloEngine
         // the result. Reset once per frame by ResetState().
         [[nodiscard]] static u32 GetGPUSceneConsumedDrawCount();
         [[nodiscard]] static u32 GetGPUSceneFallbackDrawCount();
-        static void SetRenderOrigin(const glm::vec3& origin);
+        // @brief Camera-relative render origin for this frame (issue #429). The
+        // stored view / view-projection / position remain *world*-space (sort
+        // keys and the planar-reflection mirror need them); the camera-UBO
+        // packing derives the relative matrices from those plus this origin so
+        // the shared, terrain, voxel and mirror uploads all agree.
         static const glm::vec3& GetRenderOrigin();
 
         // Push the current CommandDispatch camera matrices (the Set* values above)
@@ -163,6 +239,21 @@ namespace OloEngine
         // planar reflection) can swap the camera, replay the bucket, and restore.
         static void UploadCameraUBO();
         static void UploadCameraUBO(RendererAPI& api);
+
+        // Put the frame's camera block back on the frame-published camera
+        // binding if another buffer occupies it. The render graph runs this
+        // before every pass (RenderGraph::SetPassEntryPublication): eleven
+        // tenants create a buffer of the SAME layout on that binding (shadow
+        // items, the particle batch, the bakes), so the block contract cannot
+        // tell a predecessor's from the frame's, and several passes read the
+        // camera without binding it (the groom and fluid passes among them).
+        // The contents are not uploaded again: they are the frame's already.
+        // A tenant that draws camera readers of its own afterwards, inside the
+        // same pass, still restores (ScopedFrameCameraRestore).
+        static void PublishFrameCamera();
+        // How many pass entries this frame found another buffer there. Reset
+        // once per frame by ResetState().
+        [[nodiscard]] static u32 GetFrameCameraRepublishCount();
 
         // Shadow texture binding — set per-frame from Renderer3D/Scene.
         // The *Raw ids are the comparison-OFF views of the CSM array / shadow
@@ -193,10 +284,6 @@ namespace OloEngine
         // it (the prepass) reads the white placeholder with x = 0.
         static void SetForwardScreenSpaceAO(const glm::vec4& params, RHI::ResourceHandle aoTexture,
                                             RHI::ResourceHandle depthTexture);
-        // A replay from another camera (the planar mirror) must not read the
-        // main view's AO buffer: while suspended the camera lane uploads as
-        // "not live" and the samplers get the white placeholder.
-        static void SuspendForwardScreenSpaceAO(bool suspend);
         // The lighting tap the main view's colour passes read from the camera
         // lane (issue #1526, LightingTap). Set once per frame by the pipeline;
         // a suspended (mirrored) replay uploads 0 like the AO lane.

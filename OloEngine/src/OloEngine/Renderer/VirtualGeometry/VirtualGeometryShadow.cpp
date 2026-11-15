@@ -113,6 +113,13 @@ namespace OloEngine::VirtualGeometryShadow
         {
             registry.GetVertexBuffer()->Bind();
         }
+        // The cull declares the virtual shadow map's dirty-page pyramid for
+        // the VSM route (RenderVirtualShadowLevels binds it with the working
+        // set). A classic cascade view never reads it, but the declared block
+        // needs an occupant, and this is the first cluster cull a session
+        // dispatches: without it Vulkan logged an [error] and substituted the
+        // null block on the first frame of a virtual-geometry scene.
+        Renderer3D::GetShadowMap().GetVirtualShadowMap().BindHPBForDeclaredReader();
 
         // Ortho pixels-per-world-unit from the light VP rows.
         f32 const orthoErrorScale = OrthoErrorScale(lightVPRel, shadowResolution);
@@ -193,7 +200,7 @@ namespace OloEngine::VirtualGeometryShadow
         // Owned by the view rather than created in PrepareViews because only this
         // route uses them, and PrepareViews is shared with the classic cascades.
         if (!resources.VsmCamera)
-            resources.VsmCamera = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA);
+            resources.VsmCamera = UniformBuffer::Create(ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA, "CameraMatrices", "Camera");
         if (!resources.VsmPass)
             resources.VsmPass = UniformBuffer::Create(VSM::PassUBO::GetSize(), ShaderBindingLayout::UBO_VIRTUAL_SHADOW_DRAW);
         return resources.VsmCamera && resources.VsmPass;

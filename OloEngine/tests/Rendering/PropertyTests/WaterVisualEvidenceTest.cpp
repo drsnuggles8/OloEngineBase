@@ -48,6 +48,7 @@
 #include "RendererAttachedTest.h"
 #include "AttachmentFeedbackEvidence.h"
 #include "RenderPropertyTest.h"
+#include "TestRenderBackend.h"
 
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
@@ -549,5 +550,78 @@ namespace OloEngine::Tests
         EXPECT_EQ(count("vec2 screenUV = gl_FragCoord.xy / vec2(textureSize(u_SceneDepth, 0));"), 1u);
         EXPECT_EQ(count("u_ScreenParams.zw"), 0u) << "screen UVs must not come from a uniform that can be stale";
 #endif
+    }
+
+    // Water with no environment map reflects none: the handler clears the
+    // environment unit rather than use what is there. It used to clear only
+    // when the dispatcher's texture cache said the unit held something. That
+    // cache describes one replay (issue #1330), and the skybox is drawn by
+    // another, so its cubemap stayed on the unit and a sea with image lighting
+    // off reflected the sky it was told it did not have.
+    //
+    // Two frames with image lighting off, one drawing the skybox and one not,
+    // from a grazing pose where the reflection is strongest. Screen-space
+    // reflection is off for both: it reflects the sky's PIXELS, which is not
+    // what this is about. The water below the horizon must be the same.
+    TEST_F(WaterVisualEvidenceTest, WaterWithoutAnEnvironmentMapDoesNotReflectTheSkyboxCubemap)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+
+        Entity sky = GetScene().FindEntityByName("Skybox");
+        Entity ocean = GetScene().FindEntityByName("Ocean");
+        ASSERT_TRUE(sky && ocean);
+        ocean.GetComponent<WaterComponent>().m_SSREnabled = false;
+        sky.GetComponent<EnvironmentMapComponent>().m_EnableIBL = false;
+
+        const std::string backend = TestRenderBackend::EvidenceBackendPrefix();
+        const auto capture = [&](const bool drawSkybox, const char* name, std::vector<u8>& pixels)
+        {
+            sky.GetComponent<EnvironmentMapComponent>().m_EnableSkybox = drawSkybox;
+            Capture(TestRenderBackend::EvidenceName(name) + "Forward", { 0.0f, 3.0f, 40.0f }, 0.0f, 0.10f, pixels, false);
+        };
+        std::vector<u8> withoutSkybox;
+        std::vector<u8> withSkybox;
+        capture(false, "EnvironmentUnitNoSkybox", withoutSkybox);
+        ASSERT_FALSE(HasFatalFailure());
+        capture(true, "EnvironmentUnitSkyboxDrawn", withSkybox);
+        ASSERT_FALSE(HasFatalFailure());
+
+        const auto changedRows = [&](const u32 firstRow, const u32 lastRow)
+        {
+            sizet changed = 0;
+            for (u32 y = firstRow; y < lastRow; ++y)
+                for (u32 x = 0; x < kWidth; ++x)
+                {
+                    const sizet at = (static_cast<sizet>(y) * kWidth + x) * 4u;
+                    for (sizet channel = 0; channel < 3u; ++channel)
+                        if (std::abs(static_cast<i32>(withSkybox[at + channel]) - static_cast<i32>(withoutSkybox[at + channel])) > 2)
+                        {
+                            ++changed;
+                            break;
+                        }
+                }
+            return changed;
+        };
+        // Row 0 is the top of the frame. The sky fills the top quarter in this
+        // pose, so the skybox arm is not vacuous; the bottom third is water.
+        const sizet skyChanged = changedRows(0u, kHeight / 4u);
+        const sizet waterChanged = changedRows(kHeight * 2u / 3u, kHeight);
+        std::cout << "[water-environment-unit] " << backend << ": drawing the skybox changed " << skyChanged
+                  << " sky pixels and " << waterChanged << " water pixels\n";
+        EXPECT_GT(skyChanged, static_cast<sizet>(kWidth) * (kHeight / 4u) / 2u)
+            << "the skybox is not in the frame: the arm proves nothing";
+        EXPECT_EQ(waterChanged, 0u) << "water with no environment map changed when the skybox was drawn: it reflects the cubemap "
+                                    << "the skybox left on the environment unit";
     }
 } // namespace OloEngine::Tests

@@ -749,6 +749,48 @@ class VulkanParallelRecordingDevice : public ::testing::Test
     VkFence m_Fence = VK_NULL_HANDLE;
 };
 
+// Device teardown, the binding half (issue #1330). Which buffer occupies a
+// uniform binding point is kept in a process static that outlives any one
+// device (VulkanBindingState). A buffer leaves that record when it is
+// destroyed, so a device that goes away with its buffers leaves the record
+// naming nothing: the next device's first draw cannot be handed the address of
+// a buffer that died with the last one.
+TEST_F(VulkanParallelRecordingDevice, TheNextDeviceFindsNoUniformOccupantLeftByTheLastOne)
+{
+    {
+        ScopedVulkanRenderCommandSelection renderCommandSelection;
+        const auto& api = renderCommandSelection.Get();
+        {
+            const Ref<UniformBuffer> camera = UniformBuffer::Create(
+                ShaderBindingLayout::CameraUBO::GetSize(), ShaderBindingLayout::UBO_CAMERA, "CameraMatrices");
+            const Ref<UniformBuffer> material =
+                UniformBuffer::Create(ShaderBindingLayout::PBRMaterialUBO::GetSize(), ShaderBindingLayout::UBO_MATERIAL);
+            camera->Bind();
+            material->Bind();
+            ASSERT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA), camera->GetRHIHandle())
+                << "a bind did not reach the occupancy record, so nothing below is tested";
+            ASSERT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_MATERIAL), material->GetRHIHandle());
+        }
+        EXPECT_FALSE(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_CAMERA).IsValid())
+            << "a destroyed buffer is still named as the occupant of the camera binding";
+        EXPECT_FALSE(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_MATERIAL).IsValid());
+    }
+
+    // This device goes away and another comes up, as between two device tests.
+    TearDown();
+    SetUp();
+    if (IsSkipped() || !m_Device)
+        return;
+
+    ScopedVulkanRenderCommandSelection renderCommandSelection;
+    const auto& api = renderCommandSelection.Get();
+    for (u32 binding = 0; binding < ShaderBindingLayout::MIN_GUARANTEED_BUFFER_BINDINGS; ++binding)
+    {
+        EXPECT_FALSE(api.GetUniformBufferOccupant(binding).IsValid())
+            << "the new device starts with an occupant on uniform binding " << binding;
+    }
+}
+
 TEST_F(VulkanParallelRecordingDevice, WorkerShaderBindPublishesMaterialHeapSelection)
 {
     std::string fragment = kFragmentSrc;

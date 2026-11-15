@@ -32,10 +32,10 @@ arbitrary and scene-dependent, and why siblings drawn in the same pass (e.g.
 `ShadowDepth` static vs `ShadowDepthSkinned`) differ: only the pass's **last**
 drawn program is still bound at the next pass's clear.
 
-This engine's stateless command dispatch makes the pattern systematic: the
-`CommandDispatch` shader-bind cache deliberately leaves programs bound across
-pass boundaries to skip redundant `glUseProgram` calls, so *every* frame's
-pass sequence hands a stale program to the next pass's clear.
+This engine's stateless command dispatch makes the pattern systematic: a
+replay ends with its last program still bound (nothing unbinds it, and the
+next replay binds its own), so *every* frame's pass sequence hands a stale
+program to the next pass's clear.
 
 ## The fix (in place since this doc was written)
 

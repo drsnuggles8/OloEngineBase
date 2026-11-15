@@ -5,6 +5,7 @@
 #include "OloEngine/Scene/SceneLightmapGather.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Renderer/Instancing/InstanceData.h"
 #include "OloEngine/Renderer/LightCommon.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/MeshSource.h"
@@ -14,6 +15,7 @@
 #include "OloEngine/Scene/Scene.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <limits>
 #include <tuple>
@@ -135,9 +137,16 @@ namespace OloEngine::PathTracing
 
     ReferenceSceneBuilder::~ReferenceSceneBuilder() = default;
 
-    u32 ReferenceSceneBuilder::ResolveMaterialIndex(const Material& material)
+    u32 ReferenceSceneBuilder::ResolveMaterialIndex(const Material& material, const glm::vec3& tint)
     {
-        if (const auto it = m_MaterialCache.find(&material); it != m_MaterialCache.end())
+        // Sanitized here as well as by the gather: AddMeshEntity is public, and
+        // a negative or non-finite albedo does not trace as a dark surface, it
+        // poisons every path that touches it.
+        const glm::vec3 safeTint = InstanceTint(glm::vec4(tint, 1.0f));
+        const MaterialCacheKey key{ &material,
+                                    { std::bit_cast<u32>(safeTint.r), std::bit_cast<u32>(safeTint.g),
+                                      std::bit_cast<u32>(safeTint.b) } };
+        if (const auto it = m_MaterialCache.find(key); it != m_MaterialCache.end())
         {
             return it->second;
         }
@@ -145,7 +154,10 @@ namespace OloEngine::PathTracing
         // Stored directly as ReferenceMaterial; LambertianDiffuseOnly keeps
         // its default until Build() stamps the Build-time option onto it.
         ReferenceMaterial pending;
-        pending.BaseColor = glm::vec3(material.GetBaseColorFactor());
+        // The instance tint multiplies the base colour factor, as
+        // `albedo *= instances[v_InstanceIndex].Color.rgb` does in the PBR
+        // programs (issue #1691); an albedo map still multiplies on top.
+        pending.BaseColor = glm::vec3(material.GetBaseColorFactor()) * safeTint;
         pending.Metallic = material.GetMetallicFactor();
         pending.Roughness = material.GetRoughnessFactor();
         // The PBR shaders emit `u_EmissiveFactor.rgb` (times the emissive map,
@@ -184,7 +196,7 @@ namespace OloEngine::PathTracing
         // m_MaterialCache for the builder's whole life, so this adds no
         // lifetime requirement that was not there before.
         m_MaterialSources.Add(&material);
-        m_MaterialCache.emplace(&material, index);
+        m_MaterialCache.emplace(key, index);
         return index;
     }
 
@@ -211,7 +223,7 @@ namespace OloEngine::PathTracing
 
     bool ReferenceSceneBuilder::AddMeshEntity(const Ref<MeshSource>& meshSource, const glm::mat4& worldTransform,
                                               const Material* overrideMaterial,
-                                              const MaterialOverrideCache* materialPatches)
+                                              const MaterialOverrideCache* materialPatches, const glm::vec3& tint)
     {
         if (m_Consumed)
         {
@@ -280,7 +292,7 @@ namespace OloEngine::PathTracing
             // material (#1533) -> imported-per-submesh -> default.
             const Material& material = ResolveSubmeshMaterial(overrideMaterial, materialPatches, meshSource.get(),
                                                               static_cast<u32>(submeshIndex), *m_DefaultMaterial);
-            const u32 materialIndex = ResolveMaterialIndex(material);
+            const u32 materialIndex = ResolveMaterialIndex(material, tint);
 
             if (shareable)
             {
@@ -609,7 +621,8 @@ namespace OloEngine::PathTracing
         // (UUID, SubKey), which is what the builder's own UUID sort exists for.
         for (const OloEngine::LightmapReceiver& receiver : receivers)
         {
-            AddMeshEntity(receiver.Mesh, receiver.WorldTransform, receiver.OverrideMaterial, receiver.MaterialPatches);
+            AddMeshEntity(receiver.Mesh, receiver.WorldTransform, receiver.OverrideMaterial, receiver.MaterialPatches,
+                          receiver.Tint);
         }
 
         AddSceneLights(scene);
@@ -687,6 +700,10 @@ namespace OloEngine::PathTracing
         }
         m_Consumed = true;
 
+        // One provider call per distinct Material, as its contract says: a
+        // material that several instance tints turned into several entries
+        // still decodes its textures once.
+        std::map<const Material*, ReferenceMaterialMaps> providedMaps;
         for (sizet i = 0; i < m_Materials.Num(); ++i)
         {
             ReferenceMaterial& material = *m_Materials[i];
@@ -703,7 +720,11 @@ namespace OloEngine::PathTracing
             // ReferenceSceneBuildOptions::MaterialMapProvider for why.
             if (options.MaterialMapProvider && i < m_MaterialSources.Num() && m_MaterialSources[i] != nullptr)
             {
-                const ReferenceMaterialMaps maps = options.MaterialMapProvider(*m_MaterialSources[i]);
+                const Material* const source = m_MaterialSources[i];
+                auto provided = providedMaps.find(source);
+                if (provided == providedMaps.end())
+                    provided = providedMaps.emplace(source, options.MaterialMapProvider(*source)).first;
+                const ReferenceMaterialMaps& maps = provided->second;
                 material.AlbedoMap = maps.Albedo;
                 material.MetallicRoughnessMap = maps.MetallicRoughness;
                 material.NormalMap = maps.Normal;

@@ -64,3 +64,52 @@ binds **zero-filled** stand-in tenants at both slots, then compares the dispatch
 against a cache nothing displaced. A zero block reads `TaskCount == 0`, and the shader returns on
 its first line. So a regression writes nothing and fails the comparison instead of losing the
 device. Pick the stand-in's contents so the shader's own guard turns a regression into a no-op.
+
+## The check that enforces it (issue #1330)
+
+Every draw and dispatch now compares each uniform block the program reads with the binding point's
+occupant: its size, and its declared GLSL block name ([ADR 0025 §5a](../adr/0025-renderer-state-has-four-owners.md)).
+A read of another tenant's buffer is refused, logged as `[BindingContract]` with the program, the
+binding and both blocks, and the shader is given a zero block for that program's draws (the occupant
+is back for the next program). These rules come with it:
+
+- **A buffer on a multi-layout binding declares its block.** Pass the GLSL block name to
+  `UniformBuffer::Create(size, binding, "BlockName")`. The multi-layout bindings are
+  `ShaderBindingLayout::IsMultiLayoutUBOBinding` (0, 2, 7, 8, 14, 18, 30, 65).
+  `UniformBlockContractSourceTest` fails on a creation site that does not, on a name no shader
+  declares at that binding, and when a shader adds a second layout to a binding the table does not
+  list.
+- **Size the buffer for the whole block the shader declares, not for the members you write.** The
+  particle renderer uploaded one `mat4` into a 64-byte buffer under a 384-byte camera block; the
+  shader read its previous view-projection and jitter past the end. The contract found it on its
+  first run.
+- **A new pass that reads a pass-scoped binding** (`IsPassScopedUBOBinding`: 7, 8, 14, 18, 30, 65) is
+  covered by `FramePredecessorPoison`, which leaves another layout there after every render-graph
+  pass and requires an unchanged frame and no refusal. Add the feature to that test's scene if the
+  pass does not run in it.
+- **A shader that declares `MotionBlurMatrices` / `MotionBlurUBO` (binding 8) needs
+  `Renderer3D::BindMotionMatrices()` after its `Bind()`.** The matrices are uploaded once per frame
+  but nothing publishes them for the frame: the Gaussian-splat sort block is another tenant of 8
+  (#1687). A scene-bucket draw gets the bind from `CommandDispatch::BindSceneResources`.
+- **The camera block (binding 0) is the frame's at every pass entry, and a tenant that draws
+  camera readers after its own puts it back.** The camera is frame-published: some passes read it
+  without binding it. Other tenants have the same layout, so no contract check can refuse them. The
+  render graph binds the frame's block again before every pass (`CommandDispatch::PublishFrameCamera`),
+  so a pass may leave its own camera buffer there when it ends. Inside a pass the rule is still
+  yours: declare a `CommandDispatch::ScopedFrameCameraRestore` before a bake's camera buffer is
+  created, as the sky bakes and `IBLPrecompute` do. It restores on every exit, the failed ones
+  included.
+- **Do not cache "which buffer is bound".** Ask `RendererAPI::GetUniformBufferOccupant`. A cache
+  kept by one caller sees only that caller's binds (#1688).
+- **To skip a bind, ask `RendererAPI::IsUniformBufferBound`, not the occupant.** On OpenGL the
+  record follows the engine's bind calls and a raw `glBindBufferBase` (a test, FSR2) goes around
+  it, so the backend vouches only for a point bound through the engine since the dispatcher last
+  dropped its caches.
+- **A pass that replays packets needs no cache invalidation before the replay.** The dispatcher's
+  redundant-bind caches (program, vertex array, textures, render state) are dropped at every
+  replay entry. `CommandDispatch::InvalidateBindingCaches` is for code that dispatches without a
+  replay.
+
+`OLO_BINDING_CONTRACT=0` turns the check off for an A/B. On OpenGL the block names come from the
+linked program, where SPIRV-Cross renames a later stage's copy `Name_1`: do not name a block with a
+`_<digits>` suffix.

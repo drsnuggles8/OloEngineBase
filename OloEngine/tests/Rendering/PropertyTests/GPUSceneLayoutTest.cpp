@@ -31,7 +31,7 @@ namespace OloEngine::Tests
         // Every GPU-scene record's member table. A member added, renamed,
         // reordered or resized on either side fails the reflection check:
         // the C++ side through offsetof, the GLSL side through SPIRV-Cross.
-        constexpr std::array<MemberPin, 14> kInstancePins{ {
+        constexpr std::array<MemberPin, 15> kInstancePins{ {
             { "CurrentTransform", offsetof(GPUSceneInstance, CurrentTransform) },
             { "PreviousTransform", offsetof(GPUSceneInstance, PreviousTransform) },
             { "GeometryIndex", offsetof(GPUSceneInstance, GeometryIndex) },
@@ -46,6 +46,7 @@ namespace OloEngine::Tests
             { "PreviousDeformationRevision", offsetof(GPUSceneInstance, PreviousDeformationRevision) },
             { "DeformationResetCause", offsetof(GPUSceneInstance, DeformationResetCause) },
             { "DeformedContentRevision", offsetof(GPUSceneInstance, DeformedContentRevision) },
+            { "Tint", offsetof(GPUSceneInstance, Tint) },
         } };
         constexpr std::array<MemberPin, 14> kGeometryPins{ {
             { "VertexBufferIndex", offsetof(GPUSceneGeometry, VertexBufferIndex) },

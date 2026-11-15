@@ -182,6 +182,23 @@ namespace OloEngine
         ar << s.GroundY << s.CollisionBounce << s.CollisionFriction;
     }
 
+    static void SerializeSkinDiffusionSettings(FArchive& ar, SkinDiffusionSettings& s)
+    {
+        OLO_PROFILE_FUNCTION();
+        ar << s.Enabled << s.Quality << s.DepthRejectionScale << s.RadiusScale;
+        if (ar.IsLoading())
+        {
+            // Untrusted input: an unknown tier and a non-finite or wild float
+            // fall back to the default or clamp, as in the scene YAML loader.
+            if (!IsValidSkinDiffusionQuality(static_cast<i32>(s.Quality)))
+            {
+                s.Quality = SkinDiffusionQuality::Medium;
+            }
+            s.DepthRejectionScale = std::isfinite(s.DepthRejectionScale) ? std::clamp(s.DepthRejectionScale, 0.1f, 8.0f) : 2.0f;
+            s.RadiusScale = std::isfinite(s.RadiusScale) ? std::clamp(s.RadiusScale, 0.0f, 4.0f) : 1.0f;
+        }
+    }
+
     static void SerializePrecipitationSettings(FArchive& ar, PrecipitationSettings& s)
     {
         OLO_PROFILE_FUNCTION();
@@ -311,6 +328,8 @@ namespace OloEngine
                            { SerializeSnowAccumulationSettings(ar, scene.m_SnowAccumulationSettings); });
         WriteSettingsBlock(writer, [&scene](FArchive& ar)
                            { SerializeSnowEjectaSettings(ar, scene.m_SnowEjectaSettings); });
+        WriteSettingsBlock(writer, [&scene](FArchive& ar)
+                           { SerializeSkinDiffusionSettings(ar, scene.m_SkinDiffusionSettings); });
         WriteSettingsBlock(writer, [&scene](FArchive& ar)
                            { SerializePrecipitationSettings(ar, scene.m_PrecipitationSettings); });
         WriteSettingsBlock(writer, [&scene](FArchive& ar)
@@ -587,6 +606,7 @@ namespace OloEngine
         WindSettings wind = scene.m_WindSettings;
         SnowAccumulationSettings snowAccum = scene.m_SnowAccumulationSettings;
         SnowEjectaSettings snowEjecta = scene.m_SnowEjectaSettings;
+        SkinDiffusionSettings skinDiffusion = scene.m_SkinDiffusionSettings;
         PrecipitationSettings precipitation = scene.m_PrecipitationSettings;
         StreamingSettings streaming = scene.m_StreamingSettings;
 
@@ -603,6 +623,8 @@ namespace OloEngine
                               { SerializeSnowAccumulationSettings(ar, snowAccum); }) &&
             ReadSettingsBlock(reader, "SnowEjecta", [&](FArchive& ar)
                               { SerializeSnowEjectaSettings(ar, snowEjecta); }) &&
+            ReadSettingsBlock(reader, "SkinDiffusion", [&](FArchive& ar)
+                              { SerializeSkinDiffusionSettings(ar, skinDiffusion); }) &&
             ReadSettingsBlock(reader, "Precipitation", [&](FArchive& ar)
                               { SerializePrecipitationSettings(ar, precipitation); }) &&
             ReadSettingsBlock(reader, "Streaming", [&](FArchive& ar)
@@ -651,6 +673,7 @@ namespace OloEngine
         scene.m_WindSettings = std::move(wind);
         scene.m_SnowAccumulationSettings = std::move(snowAccum);
         scene.m_SnowEjectaSettings = std::move(snowEjecta);
+        scene.m_SkinDiffusionSettings = std::move(skinDiffusion);
         scene.m_PrecipitationSettings = std::move(precipitation);
         scene.m_StreamingSettings = std::move(streaming);
 

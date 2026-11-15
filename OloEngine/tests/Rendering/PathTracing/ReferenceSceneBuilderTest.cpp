@@ -51,6 +51,7 @@
 #include "OloEngine/Scene/Scene.h"
 
 #include <gtest/gtest.h>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <algorithm>
 #include <cmath>
@@ -725,6 +726,54 @@ namespace OloEngine::Tests
         EXPECT_NEAR(resolved.BaseColor.r, 1.0f, 1e-5f);
         EXPECT_NEAR(resolved.BaseColor.g, 0.0f, 1e-5f);
         EXPECT_NEAR(resolved.BaseColor.b, 0.0f, 1e-5f);
+    }
+
+    // An instance's colour multiplies the base colour the bake bounces off
+    // that instance (issue #1691): AddLightmapReceivers hands each instance
+    // receiver's tint to AddMeshEntity. Three cubes of ONE material side by
+    // side, the outer two with the same tint.
+    TEST(ReferenceSceneBuilderMaps, AnInstanceTintMultipliesTheBaseColourOfItsOwnInstanceOnly)
+    {
+        Ref<Material> material = Material::CreatePBR("Wall", glm::vec3(0.8f, 0.5f, 0.25f), 0.0f, 0.8f);
+        Ref<Mesh> cube = MeshPrimitives::CreateCube();
+        const glm::vec3 tint(0.5f, 1.0f, 0.1f);
+
+        u32 providerCalls = 0;
+        ReferenceSceneBuildOptions options;
+        options.MaterialMapProvider = [&providerCalls](const Material&) -> ReferenceMaterialMaps
+        {
+            ++providerCalls;
+            return {};
+        };
+
+        ReferenceSceneBuilder builder;
+        const auto at = [](f32 x)
+        { return glm::translate(glm::mat4(1.0f), glm::vec3(x, 0.0f, 0.0f)); };
+        ASSERT_TRUE(builder.AddMeshEntity(cube->GetMeshSource(), at(-4.0f), material.Raw(), nullptr, tint));
+        ASSERT_TRUE(builder.AddMeshEntity(cube->GetMeshSource(), at(0.0f), material.Raw()));
+        ASSERT_TRUE(builder.AddMeshEntity(cube->GetMeshSource(), at(4.0f), material.Raw(), nullptr, tint));
+        const ReferenceScene built = builder.Build(options);
+
+        EXPECT_EQ(built.GetMaterials().size(), 2u) << "one entry per (material, tint); equal tints share one";
+        EXPECT_EQ(providerCalls, 1u) << "one Material, so one provider call, however many tints it is drawn with";
+
+        const auto baseColourUnder = [&built](f32 x)
+        {
+            SurfaceInteraction hit;
+            EXPECT_TRUE(built.Intersect(Ray(glm::vec3(x, 5.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f)), hit));
+            return built.ResolveMaterial(hit).BaseColor;
+        };
+        for (const f32 x : { -4.0f, 4.0f })
+        {
+            const glm::vec3 tinted = baseColourUnder(x);
+            EXPECT_NEAR(tinted.r, 0.8f * 0.5f, 1e-5f) << "cube at x=" << x;
+            EXPECT_NEAR(tinted.g, 0.5f * 1.0f, 1e-5f) << "cube at x=" << x;
+            EXPECT_NEAR(tinted.b, 0.25f * 0.1f, 1e-5f) << "cube at x=" << x;
+        }
+        const glm::vec3 plain = baseColourUnder(0.0f);
+        EXPECT_NEAR(plain.r, 0.8f, 1e-5f) << "the untinted cube of the same material took its neighbour's tint";
+        EXPECT_NEAR(plain.g, 0.5f, 1e-5f);
+        EXPECT_NEAR(plain.b, 0.25f, 1e-5f);
     }
 
     TEST(ReferenceSceneBuilderMaps, AlphaMaskAndNormalScaleAreMirroredFromTheMaterial)

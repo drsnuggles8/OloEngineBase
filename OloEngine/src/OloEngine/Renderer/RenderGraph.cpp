@@ -3814,6 +3814,7 @@ namespace OloEngine
             .BatchEventHook = m_BatchEventHook,
             .PostPassHook = composedPostPassHook,
             .GraphForPostPassHook = this,
+            .PassEntryPublication = m_PassEntryPublication,
             .GraphForBarrierResolution = this,
             .OutOfBandLedger = &m_OutOfBandLedger,
         });

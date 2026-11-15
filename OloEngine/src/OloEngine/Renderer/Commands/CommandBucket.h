@@ -118,11 +118,13 @@ namespace OloEngine
         glm::vec3 ViewPosition = glm::vec3(0.0f);
     };
 
-    // Callback type for reading/writing view state without depending on CommandDispatch.
-    // ReadFn fills a BucketViewState from the current global state.
-    // WriteFn applies a BucketViewState to the global state.
-    using ViewStateReadFn = void (*)(BucketViewState& out);
-    using ViewStateWriteFn = void (*)(const BucketViewState& in);
+    // Runs `replay` with `view` installed as the calling recording context's
+    // view, and restores the previous view on every exit path. Installed by
+    // CommandDispatch (ScopedAlternateView), so the queue does not depend on it.
+    // One scope rather than a read/write pair: a pair restores only the fields
+    // BucketViewState names and never uploads the camera block, so the mesh
+    // draws under a bucket override kept reading the main camera.
+    using ViewScopeRunner = void (*)(const BucketViewState& view, const std::function<void()>& replay);
 
     // Configuration for command bucket processing
     struct CommandBucketConfig
@@ -478,9 +480,9 @@ namespace OloEngine
             return m_ViewState;
         }
 
-        // Register callbacks so Execute() can save/bind/restore view state
-        // without a compile-time dependency on CommandDispatch.
-        static void SetViewStateCallbacks(ViewStateReadFn readFn, ViewStateWriteFn writeFn);
+        // Register the scope a replay with a view override runs inside, without
+        // a compile-time dependency on CommandDispatch.
+        static void SetViewScopeRunner(ViewScopeRunner runner);
         // Returns the required instance capacity, or zero for a primary-only
         // packet. Installed by CommandDispatch to keep the queue independent
         // of renderer services and diagnostic-query state.
@@ -492,6 +494,19 @@ namespace OloEngine
         [[nodiscard]] static ParallelReplayClassifier GetParallelReplayClassifier()
         {
             return s_ParallelReplayClassifier;
+        }
+        // Runs at the start of every replay (BeginReplay), on the calling
+        // thread and before any worker starts. Installed by CommandDispatch,
+        // which drops its redundant-bind caches there: what a pass bound
+        // around the dispatcher since the last replay is not in them.
+        using ReplayEntryHook = void (*)();
+        static void SetReplayEntryHook(ReplayEntryHook hook)
+        {
+            s_ReplayEntryHook = hook;
+        }
+        [[nodiscard]] static ReplayEntryHook GetReplayEntryHook()
+        {
+            return s_ReplayEntryHook;
         }
 
       private:
@@ -515,9 +530,9 @@ namespace OloEngine
 
         [[nodiscard]] static Statistics ReplayPackets(RendererAPI& rendererAPI, std::span<const CommandPacket* const> packets,
                                                       const std::optional<BucketViewState>& view);
-        static inline ViewStateReadFn s_ViewStateReader = nullptr;
-        static inline ViewStateWriteFn s_ViewStateWriter = nullptr;
+        static inline ViewScopeRunner s_ViewScopeRunner = nullptr;
         static inline ParallelReplayClassifier s_ParallelReplayClassifier = nullptr;
+        static inline ReplayEntryHook s_ReplayEntryHook = nullptr;
         // Transform buffer for instanced rendering
         class InstancedTransformBuffer
         {

@@ -107,6 +107,13 @@ namespace OloEngine
         // in-place hot reload being the easy way) made every element but [0]
         // sample an unrelated slot.
         u32 ArrayCount = 1;
+        // For a uniform block: its declared size in bytes and the identity of
+        // its GLSL block name, from the same reflection as everything above.
+        // The root-data writer checks the binding point's occupant against
+        // these before it hands the shader that buffer's address (ADR 0025
+        // section 5a). Zero for every other kind.
+        u32 BlockSize = 0;
+        u32 BlockNameHash = 0;
         FString Name;
     };
 
@@ -119,6 +126,8 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::ImageDim)> &&
                                       TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::Stages)> &&
                                       TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::ArrayCount)> &&
+                                      TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::BlockSize)> &&
+                                      TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::BlockNameHash)> &&
                                       TIsTriviallyRelocatable_V<decltype(VulkanShaderBinding::Name)>;
     };
 

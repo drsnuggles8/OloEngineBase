@@ -43,4 +43,16 @@ namespace OloEngine
         OLO_CORE_ASSERT(false, "Unknown RendererAPI!");
         return nullptr;
     }
+
+    Ref<UniformBuffer> UniformBuffer::Create(u32 size, u32 binding, std::string_view blockName, std::string_view aliasName)
+    {
+        Ref<UniformBuffer> buffer = Create(size, binding);
+        if (buffer)
+        {
+            buffer->m_BlockDeclaration = { .NameHash = BindingContract::HashBlockName(blockName),
+                                           .AliasHash = BindingContract::HashBlockName(aliasName) };
+            buffer->m_BlockName = blockName;
+        }
+        return buffer;
+    }
 } // namespace OloEngine
