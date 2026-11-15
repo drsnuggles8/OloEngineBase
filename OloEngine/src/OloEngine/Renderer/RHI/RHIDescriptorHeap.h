@@ -550,6 +550,18 @@ namespace OloEngine::RHI
         // index. While held, a reset is remembered instead of performed and the
         // views minted so far stay live; releasing the hold performs one reset
         // for all of them. Holds do not nest.
+        //
+        // What a hold costs: every graph of the frame allocates from the ONE
+        // sub-ring, so the frame's views share its FrameTransientRingSlots
+        // between them. An allocation that finds it full under a hold falls
+        // back like any other overflow, is counted apart
+        // (Stats::TransientOverflowsHeld) and is reported once per heap
+        // session, because it is the views-per-frame limit being reached.
+        //
+        // A heap with a single sub-ring has no ring to advance and executes
+        // nothing behind the CPU, so a hold defers nothing there: each graph's
+        // reset is performed as it is asked for, and every view of the frame
+        // has the whole ring.
         void HoldFrameTransientReset(bool hold);
 
         // Push dirty slots to the GPU-visible table. Cheap and idempotent when
@@ -614,6 +626,9 @@ namespace OloEngine::RHI
             u64 ViewsCreated = 0;
             u64 StaleOffsetRejections = 0; ///< OffsetOf on a dead/foreign view
             u64 TransientOverflows = 0;    ///< ring exhausted; caller fell back
+            /// The overflows above that happened while several graphs shared
+            /// one sub-ring (HoldFrameTransientReset).
+            u64 TransientOverflowsHeld = 0;
             u64 PersistentOverflows = 0;
             u64 DescriptorFailures = 0; ///< backend could not realise a view
             u64 SlotsPoisoned = 0;
@@ -719,10 +734,11 @@ namespace OloEngine::RHI
         u32 m_TransientCapacity = 0u;
         TArray<u32> m_PersistentFreeList;
         u32 m_TransientCursor = 0u;
-        u32 m_TransientFrames = 1u; ///< sub-rings (frames in flight)
-        bool m_FrameResetHeld = false;    ///< see HoldFrameTransientReset
-        bool m_FrameResetPending = false; ///< a reset was asked for while held
-        u32 m_TransientFrame = 0u;  ///< the sub-ring this frame allocates from
+        u32 m_TransientFrames = 1u;          ///< sub-rings (frames in flight)
+        bool m_FrameResetHeld = false;       ///< see HoldFrameTransientReset
+        bool m_FrameResetPending = false;    ///< a reset was asked for while held
+        bool m_HeldOverflowReported = false; ///< one report per heap session
+        u32 m_TransientFrame = 0u;           ///< the sub-ring this frame allocates from
 
         // Sampler heap: value-deduplicated, refcounted. `SamplerDesc` has a
         // defaulted `operator==` and is a small trivially-comparable value, so

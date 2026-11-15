@@ -422,7 +422,7 @@ namespace OloEngine
         [[nodiscard]] static RenderViewId GetActiveView();
         // Live views, the main view included.
         [[nodiscard]] static u32 GetViewCount();
-        [[nodiscard]] static std::vector<RenderViewInfo> GetViewInfos();
+        [[nodiscard]] static TArray<RenderViewInfo> GetViewInfos();
         [[nodiscard]] static RenderViewInfo GetViewInfo(RenderViewId view);
         // What a view keeps from one frame to the next, by identity: its
         // texture histories, its occlusion pyramid and its shadow maps. Read
@@ -441,7 +441,7 @@ namespace OloEngine
         struct ViewRetainedState
         {
             bool Alive = false;
-            std::vector<ViewRetainedHistory> Histories;
+            TArray<ViewRetainedHistory> Histories;
             bool OcclusionPyramidValid = false;
             u64 OcclusionPyramidIdentity = 0;
             u64 ShadowCascadeIdentity = 0;
@@ -503,8 +503,22 @@ namespace OloEngine
             u64 SceneExtractions = 0;
             u64 WorldSimulationSteps = 0;
             u64 StochasticIndexSteps = 0;
+            // The scene's own once-per-frame steps, reported by the scene
+            // (CountSceneAdvance): its animation clock, and one per foliage
+            // system whose placement and residency it advanced.
+            u64 SceneClockSteps = 0;
+            u64 FoliageWorldSteps = 0;
         };
         [[nodiscard]] static SceneAdvanceCounters GetSceneAdvanceCounters();
+        // A step of the world the SCENE performs during its render traversal,
+        // counted beside the renderer's own so one place says how often the
+        // world advanced.
+        enum class SceneAdvanceStep : u8
+        {
+            SceneClock,
+            FoliageWorld,
+        };
+        static void CountSceneAdvance(SceneAdvanceStep step);
 
         // GPU-scene extraction is owned by the scene/view traversal and
         // committed once before render-graph configuration in EndScene().
@@ -619,6 +633,14 @@ namespace OloEngine
         static u32 InvalidateTemporalHistories(
             TemporalHistoryInvalidationCause cause,
             std::optional<TemporalHistoryEffect> effect = std::nullopt);
+        // The same explicit reset for a change in what the WORLD draws that no
+        // history can reproject across: a streaming tier switched, foliage was
+        // regenerated, a coat changed representation. It happened to every
+        // view that draws the world, so it reaches every view's histories (and,
+        // unscoped, every view's temporal upscaler), whichever view was active
+        // when the world noticed (ADR 0026). A camera's own discontinuity goes
+        // through InvalidateTemporalHistories with that view active.
+        static u32 InvalidateWorldTemporalHistories(std::optional<TemporalHistoryEffect> effect = std::nullopt);
         // Restart every per-frame sampling sequence at the values a freshly
         // initialised renderer starts from, and drop EVERY temporal history,
         // each of which was accumulated on the old sequence. That is the
@@ -2717,9 +2739,9 @@ namespace OloEngine
         // view-owned object. No-op when `view` is already active.
         static void ActivateView(RenderViewId view);
         // Create / release the GPU objects of the ACTIVE view's resident state:
-        // its graph, passes, Hi-Z, shadow maps and light grid. CreateView and
-        // DestroyView use them. The main view's are created by Init and
-        // released by Shutdown, in the order those always had.
+        // its graph, passes, Hi-Z, shadow maps and light grid. The only
+        // bring-up and teardown of them: Init and CreateView call the first,
+        // Shutdown and DestroyView the second.
         static void InitializeActiveViewGPU(u32 width, u32 height);
         static void ReleaseActiveViewGPU();
         // Run `fn` once with each live view active, the active one last, and
@@ -3084,6 +3106,28 @@ namespace OloEngine
             f64 LastFrameCpuMs = 0.0;
         };
 
+        // What ONE view last reported about its own graph (ADR 0026). A latch
+        // every view shared would flip each time two views of different
+        // configuration alternated: the log line it guards would repeat every
+        // frame, and outside Dist the compiled-hazard validation behind the
+        // build-stats latch would run every view frame instead of once per
+        // change. Reset is assignment (Shutdown).
+        struct RendererViewReported
+        {
+            RenderGraph::FrameBuildStats BuildStats{};
+            bool HasBuildStats = false;
+            // The temporal-upscale fallback reason last logged; -1: none yet.
+            i32 UpscaleFallbackReason = -1;
+            // The ambient-occlusion output state last traced; -1: none yet.
+            i32 GraphAOTechnique = -1;
+            i32 RequestedAOTechnique = -1;
+            bool SSAOEnabled = false;
+            bool GTAOEnabled = false;
+            bool SSAOReady = false;
+            bool GTAOReady = false;
+            bool AOHandleValid = false;
+        };
+
         // The decal-visibility probe's two-frame query ring (olo_decal_visibility).
         // Per view: a ring two views shared would answer one view with the
         // other's occlusion result.
@@ -3120,6 +3164,7 @@ namespace OloEngine
 
             RendererViewState View;
             RendererViewClock ViewClock;
+            RendererViewReported Reported;
 
             // Renderer settings (path selection, culling toggles, etc.) and the
             // post-process stack. A view created later starts with a copy.
@@ -3225,7 +3270,7 @@ namespace OloEngine
         struct RendererViewSlot
         {
             RenderViewId Id{};
-            std::string DebugName;
+            FString DebugName;
             RendererViewResident Parked;
         };
 
@@ -3235,6 +3280,11 @@ namespace OloEngine
             ~Renderer3DData();
 
             // Every live view, the main view first. See RendererViewResident.
+            // A std::vector on purpose: TArray relocates its elements bitwise,
+            // and a slot holds a whole RendererViewResident (passes, a light
+            // grid, shadow maps, settings), whose relocatability nothing
+            // derives member by member. std::vector move-constructs, which the
+            // resident defines.
             std::vector<RendererViewSlot> Views;
             RenderViewId ActiveView{};
             u64 NextViewId = 1;

@@ -806,6 +806,22 @@ namespace OloEngine
         return invalidated;
     }
 
+    u32 Renderer3D::InvalidateWorldTemporalHistories(std::optional<TemporalHistoryEffect> effect)
+    {
+        u32 invalidated = 0;
+        ForEachViewResident([&invalidated, effect](RendererViewResident& view)
+                            {
+                                // The upscaler's private history, as the
+                                // unscoped Manual reset above drops it.
+                                if (!effect && view.Pipeline)
+                                    if (auto fsr2 = view.Pipeline->PostProcessPasses.FSR2)
+                                        fsr2->RequestHistoryReset();
+                                if (view.RGraph)
+                                    invalidated += view.RGraph->InvalidateTemporalHistories(
+                                        TemporalHistoryInvalidationCause::Manual, effect); });
+        return invalidated;
+    }
+
     static_assert(Renderer3D::kSequenceSeedStride == kFrameSequenceSeedStride);
 
     void Renderer3D::ResetFrameSequences(u32 sequenceSeed)

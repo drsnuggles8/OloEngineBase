@@ -276,27 +276,17 @@ namespace OloEngine
                 // live dolly through the IntegratedRenderer meadow) threw the
                 // whole raster history away with it.
                 // ReSTIR PT's path records bounce off the same stand-ins (#1348).
-                ForEachViewResident([](RendererViewResident& view)
-                                    {
-                                        if (!view.RGraph)
-                                            return;
-                                        for (const TemporalHistoryEffect effect :
-                                             { TemporalHistoryEffect::RayTracedShadow, TemporalHistoryEffect::ReSTIRDI,
-                                               TemporalHistoryEffect::ReSTIRGI, TemporalHistoryEffect::ReSTIRPT })
-                                            view.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual, effect); });
+                for (const TemporalHistoryEffect effect :
+                     { TemporalHistoryEffect::RayTracedShadow, TemporalHistoryEffect::ReSTIRDI,
+                       TemporalHistoryEffect::ReSTIRGI, TemporalHistoryEffect::ReSTIRPT })
+                    InvalidateWorldTemporalHistories(effect);
             }
             if (s_Data.GroomSurfaces.GetStats().StreamingInvalidations != 0)
             {
                 // A shape/time-resolution switch cannot be reprojected from
                 // raster velocity. Reset the histories that consume hybrid RT.
-                ForEachViewResident([](RendererViewResident& view)
-                                    {
-                                        if (!view.RGraph)
-                                            return;
-                                        view.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
-                                                                                 TemporalHistoryEffect::RayTracedShadow);
-                                        view.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
-                                                                                 TemporalHistoryEffect::TAA); });
+                InvalidateWorldTemporalHistories(TemporalHistoryEffect::RayTracedShadow);
+                InvalidateWorldTemporalHistories(TemporalHistoryEffect::TAA);
             }
             const GPUSceneFrameUpdate& frameUpdate = s_Data.SceneGPU.EndExtraction();
             s_Data.SceneGPU.Upload();
@@ -410,15 +400,16 @@ namespace OloEngine
         bool buildStatsChanged = false;
         {
             const auto& buildStats = s_Data.RGraph->GetLastBuildStats();
-            static RenderGraph::FrameBuildStats s_LastBuildStats{};
-            static bool s_HasLastBuildStats = false;
+            // This VIEW's last stats (RendererViewReported): two views of
+            // different configuration would otherwise change them every frame.
+            auto& reported = s_Data.Reported;
 
-            buildStatsChanged = !s_HasLastBuildStats ||
-                                buildStats.PassesVisited != s_LastBuildStats.PassesVisited ||
-                                buildStats.DeclaredReads != s_LastBuildStats.DeclaredReads ||
-                                buildStats.DeclaredWrites != s_LastBuildStats.DeclaredWrites ||
-                                buildStats.DerivedEdges != s_LastBuildStats.DerivedEdges ||
-                                buildStats.OrderSensitiveResults != s_LastBuildStats.OrderSensitiveResults;
+            buildStatsChanged = !reported.HasBuildStats ||
+                                buildStats.PassesVisited != reported.BuildStats.PassesVisited ||
+                                buildStats.DeclaredReads != reported.BuildStats.DeclaredReads ||
+                                buildStats.DeclaredWrites != reported.BuildStats.DeclaredWrites ||
+                                buildStats.DerivedEdges != reported.BuildStats.DerivedEdges ||
+                                buildStats.OrderSensitiveResults != reported.BuildStats.OrderSensitiveResults;
 
             if (buildStatsChanged)
             {
@@ -431,8 +422,8 @@ namespace OloEngine
                                    buildStats.DerivedEdges,
                                    buildStats.OrderSensitiveResults);
                 }
-                s_LastBuildStats = buildStats;
-                s_HasLastBuildStats = true;
+                reported.BuildStats = buildStats;
+                reported.HasBuildStats = true;
             }
         }
 

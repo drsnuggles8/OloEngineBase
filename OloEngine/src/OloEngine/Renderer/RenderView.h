@@ -1,9 +1,10 @@
 #pragma once
 
+#include "OloEngine/Containers/String.h"
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Templates/UnrealTypeTraits.h"
 
 #include <compare>
-#include <string>
 
 namespace OloEngine
 {
@@ -36,14 +37,14 @@ namespace OloEngine
     {
         u32 Width = 0;
         u32 Height = 0;
-        std::string DebugName;
+        FString DebugName;
     };
 
     // What the renderer knows about one view, for diagnostics and tests.
     struct RenderViewInfo
     {
         RenderViewId Id{};
-        std::string DebugName;
+        FString DebugName;
         // Display size of the view's render graph.
         u32 Width = 0;
         u32 Height = 0;
@@ -60,5 +61,21 @@ namespace OloEngine
         // scene extraction and world simulation as well. The per-view half of
         // "what does a second view cost".
         f64 LastFrameCpuMs = 0.0;
+    };
+
+    // Scalars and one owned string; derived from the members so a field that
+    // cannot be relocated re-closes the gate (engine-owned-containers.md).
+    template<>
+    struct TIsTriviallyRelocatable<RenderViewInfo>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable<decltype(RenderViewInfo::Id)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderViewInfo::DebugName)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderViewInfo::Width)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderViewInfo::Height)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderViewInfo::FramesRendered)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderViewInfo::LastRenderedFrameSerial)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderViewInfo::WasPrimary)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderViewInfo::Active)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(RenderViewInfo::LastFrameCpuMs)>::Value;
     };
 } // namespace OloEngine

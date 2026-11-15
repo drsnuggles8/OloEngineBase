@@ -57,14 +57,6 @@ namespace OloEngine
         void Execute(RGCommandContext& context) override;
 
         // Wired at renderer init. Both are borrowed, never owned.
-        // Whether this view's graph does the frame's scene work (ADR 0026):
-        // surfaces are deformed once per physical frame, by the frame's primary
-        // view. Set by the pipeline each view frame.
-        void SetAdvancesScene(bool advances) noexcept
-        {
-            m_AdvancesScene = advances;
-        }
-
         void SetDeformedSurfaceCache(RayTracing::DeformedSurfaceCache* cache) noexcept
         {
             m_Cache = cache;
@@ -72,6 +64,14 @@ namespace OloEngine
         void SetRayTracingScene(RayTracing::RayTracingScene* scene) noexcept
         {
             m_Scene = scene;
+        }
+
+        // Whether this view's graph does the frame's scene work (ADR 0026):
+        // surfaces are deformed once per physical frame, by the frame's primary
+        // view. Set by the pipeline each view frame.
+        void SetAdvancesScene(bool advances) noexcept
+        {
+            m_AdvancesScene = advances;
         }
 
         // TRUE whenever both sources are attached — deliberately NOT "is ray

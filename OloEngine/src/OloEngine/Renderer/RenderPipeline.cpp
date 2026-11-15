@@ -761,8 +761,7 @@ namespace OloEngine
             // distinct code because it is not a backend status at all.
             constexpr i32 kMsaaReason = -2;
             const i32 reason = msaaSceneBand ? kMsaaReason : static_cast<i32>(status);
-            static i32 s_LastReportedFallbackReason = -1;
-            if (reason != s_LastReportedFallbackReason)
+            if (reason != data.Reported.UpscaleFallbackReason)
             {
                 if (msaaSceneBand)
                     OLO_CORE_WARN("FSR2 requested but the scene band is MSAA-resolved ({} samples) — MSAA is not "
@@ -771,7 +770,7 @@ namespace OloEngine
                 else
                     OLO_CORE_INFO("FSR2 requested but temporal upscaling is {} — falling back to the FSR1 spatial upscaler",
                                   ToString(status));
-                s_LastReportedFallbackReason = reason;
+                data.Reported.UpscaleFallbackReason = reason;
             }
         }
 
@@ -3972,13 +3971,8 @@ namespace OloEngine
                 board.Scene.ForwardAODepth = graph.AllocateTransientTextureHandle(ResourceNames::ForwardAODepth, aoDepthDesc);
             }
 
-            static i32 s_PrevAOTechnique = -1;
-            static bool s_PrevSSAOEnabled = false;
-            static bool s_PrevGTAOEnabled = false;
-            static bool s_PrevSSAOReady = false;
-            static bool s_PrevGTAOReady = false;
-            static bool s_PrevAOHandleValid = false;
-            static i32 s_PrevRequestedTechnique = -1;
+            // This view's last traced state (RendererViewReported).
+            auto& reported = data.Reported;
             // The GRAPH's technique is the one that decides whether an AO
             // pass exists to write AOBuffer; the requested one is logged beside
             // it because a disagreement between the two is exactly the state
@@ -3986,13 +3980,13 @@ namespace OloEngine
             const i32 activeTechnique = std::to_underlying(config.GraphAOTechnique);
             const i32 requestedTechnique = std::to_underlying(data.PostProcess.ActiveAOTechnique);
             const bool aoHandleValid = board.AO.AOBuffer.IsValid();
-            if (activeTechnique != s_PrevAOTechnique ||
-                requestedTechnique != s_PrevRequestedTechnique ||
-                config.SSAOEnabled != s_PrevSSAOEnabled ||
-                config.GTAOEnabled != s_PrevGTAOEnabled ||
-                ssaoReady != s_PrevSSAOReady ||
-                gtaoReady != s_PrevGTAOReady ||
-                aoHandleValid != s_PrevAOHandleValid)
+            if (activeTechnique != reported.GraphAOTechnique ||
+                requestedTechnique != reported.RequestedAOTechnique ||
+                config.SSAOEnabled != reported.SSAOEnabled ||
+                config.GTAOEnabled != reported.GTAOEnabled ||
+                ssaoReady != reported.SSAOReady ||
+                gtaoReady != reported.GTAOReady ||
+                aoHandleValid != reported.AOHandleValid)
             {
                 if (Levers::RenderGraphDiagnostics())
                 {
@@ -4005,13 +3999,13 @@ namespace OloEngine
                                    gtaoReady,
                                    aoHandleValid);
                 }
-                s_PrevAOTechnique = activeTechnique;
-                s_PrevRequestedTechnique = requestedTechnique;
-                s_PrevSSAOEnabled = config.SSAOEnabled;
-                s_PrevGTAOEnabled = config.GTAOEnabled;
-                s_PrevSSAOReady = ssaoReady;
-                s_PrevGTAOReady = gtaoReady;
-                s_PrevAOHandleValid = aoHandleValid;
+                reported.GraphAOTechnique = activeTechnique;
+                reported.RequestedAOTechnique = requestedTechnique;
+                reported.SSAOEnabled = config.SSAOEnabled;
+                reported.GTAOEnabled = config.GTAOEnabled;
+                reported.SSAOReady = ssaoReady;
+                reported.GTAOReady = gtaoReady;
+                reported.AOHandleValid = aoHandleValid;
             }
         }
 

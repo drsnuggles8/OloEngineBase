@@ -482,6 +482,67 @@ namespace OloEngine::Tests
         EXPECT_TRUE(heap.IsLive(nextFrame)) << "releasing a hold nobody reset under still reset the frame";
     }
 
+    // What the hold costs, and the limit it implies: the graphs of a held frame
+    // share one sub-ring, so a frame carries as many transient views as the
+    // sub-ring holds, whatever the number of scene views. Running out falls
+    // back like any overflow and is counted apart, so a frame that renders too
+    // many views is told from a ring that is too small for one.
+    TEST_F(HeapFixture, AnOverflowUnderAHoldIsCountedAsTheFramesViewLimit)
+    {
+        SetUpHeap(/*persistent*/ 8u, /*transient*/ 2u, /*poison*/ true, /*frames*/ 2u);
+        auto& heap = RHI::DescriptorHeap::Get();
+        const RHI::ResourceHandle resource = MakeResource(47u);
+
+        // The control: one graph per frame overflows the ordinary way.
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        EXPECT_FALSE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        EXPECT_EQ(heap.GetStats().TransientOverflows, 1u);
+        EXPECT_EQ(heap.GetStats().TransientOverflowsHeld, 0u);
+        heap.ResetFrameTransients();
+
+        // Two graphs of one held frame, one view each fits; a third does not.
+        heap.HoldFrameTransientReset(true);
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        heap.ResetFrameTransients();
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        heap.ResetFrameTransients();
+        EXPECT_FALSE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid())
+            << "a third graph's view found room in a two-slot sub-ring two graphs already filled";
+        EXPECT_EQ(heap.GetStats().TransientOverflows, 2u);
+        EXPECT_EQ(heap.GetStats().TransientOverflowsHeld, 1u);
+        heap.HoldFrameTransientReset(false);
+
+        // The frame after it has the whole sub-ring again.
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+    }
+
+    // A heap with one sub-ring has no ring to advance: a hold defers nothing,
+    // each graph's reset is performed when it is asked for, and every graph of
+    // the frame has the whole ring. Deferring there would only make the frame's
+    // views share its slots.
+    TEST_F(HeapFixture, AHoldOnASingleSubRingDefersNothing)
+    {
+        SetUpHeap(/*persistent*/ 8u, /*transient*/ 2u, /*poison*/ true, /*frames*/ 1u);
+        auto& heap = RHI::DescriptorHeap::Get();
+        const RHI::ResourceHandle resource = MakeResource(48u);
+
+        heap.HoldFrameTransientReset(true);
+        const RHI::ViewHandle firstA = heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient);
+        const RHI::ViewHandle firstB = heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient);
+        ASSERT_TRUE(firstA.IsValid() && firstB.IsValid());
+        heap.ResetFrameTransients(); // the first view's graph has executed
+        EXPECT_FALSE(heap.IsLive(firstA)) << "a single-ring heap deferred a reset it has no reason to hold";
+        // The second graph of the frame has both slots, not none.
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        EXPECT_EQ(heap.GetStats().TransientOverflows, 0u);
+        heap.ResetFrameTransients();
+        heap.HoldFrameTransientReset(false);
+        EXPECT_EQ(heap.GetStats().TransientOverflowsHeld, 0u);
+    }
+
     TEST_F(HeapFixture, FrameResetAfterShutdownDoesNotAccessRetiredSubRings)
     {
         SetUpHeap(8u, 4u, true, 2u);

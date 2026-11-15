@@ -10839,10 +10839,9 @@ namespace OloEngine
                     crossFadePartner->GpuRootInputs.HasHistory = false;
                     crossFadePartner->SimulationPrevDisplacements = crossFadePartner->SimulationDisplacements;
                 }
-                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
-                                                        TemporalHistoryEffect::TAA);
-                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
-                                                        TemporalHistoryEffect::RayTracedShadow);
+                // The coat changed for every view that draws it (ADR 0026).
+                Renderer3D::InvalidateWorldTemporalHistories(TemporalHistoryEffect::TAA);
+                Renderer3D::InvalidateWorldTemporalHistories(TemporalHistoryEffect::RayTracedShadow);
             }
             if (advanceLodState)
             {
@@ -13882,24 +13881,39 @@ namespace OloEngine
                                                      terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale))
                         foliage.m_NeedsRebuild = true;
 
-                    if (foliage.m_NeedsRebuild && terrain.m_TerrainData)
+                    // Which plants exist and which of them hold streamed detail
+                    // is the world's, so it is decided once per physical frame,
+                    // by the frame's primary view and from that view's camera
+                    // (ADR 0026). A later view of the frame draws the set the
+                    // primary view left: publishing a rebuild in it would show
+                    // two views of one frame two different meadows, and
+                    // re-anchoring residency on its camera would evict what the
+                    // primary view just loaded, every frame, in both
+                    // directions. The limit this states: detail residency
+                    // follows the primary view's camera; a later view looking
+                    // elsewhere sees the stand-ins that camera left there.
+                    if (Renderer3D::IsPrimaryViewFrame())
                     {
-                        foliage.m_Renderer->RequestRebuild(
-                            foliage.m_Layers,
-                            *terrain.m_TerrainData,
-                            terrain.m_Material.get(),
-                            terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
-                        foliage.m_NeedsRebuild = false;
-                    }
+                        Renderer3D::CountSceneAdvance(Renderer3D::SceneAdvanceStep::FoliageWorld);
+                        if (foliage.m_NeedsRebuild && terrain.m_TerrainData)
+                        {
+                            foliage.m_Renderer->RequestRebuild(
+                                foliage.m_Layers,
+                                *terrain.m_TerrainData,
+                                terrain.m_Material.get(),
+                                terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                            foliage.m_NeedsRebuild = false;
+                        }
 
-                    foliage.m_Renderer->AdvanceRebuild();
+                        foliage.m_Renderer->AdvanceRebuild();
 
-                    if (foliage.m_Renderer->UpdateStreamingResidency(foliage.m_Layers, cameraPosition))
-                    {
-                        Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
-                        // Reconcile representation census/bounds without clearing
-                        // the registry that owns canonical plant IDs.
-                        foliage.m_Renderer->RefreshStreamingRepresentations(foliage.m_Layers);
+                        if (foliage.m_Renderer->UpdateStreamingResidency(foliage.m_Layers, cameraPosition))
+                        {
+                            Renderer3D::InvalidateWorldTemporalHistories();
+                            // Reconcile representation census/bounds without clearing
+                            // the registry that owns canonical plant IDs.
+                            foliage.m_Renderer->RefreshStreamingRepresentations(foliage.m_Layers);
+                        }
                     }
 
                     // Publish this system's representation census (issue #1230).
@@ -13950,6 +13964,7 @@ namespace OloEngine
             const bool advancesWorld = Renderer3D::IsPrimaryViewFrame() || m_AnimationClockWall < 0.0f;
             if (advancesWorld)
             {
+                Renderer3D::CountSceneAdvance(Renderer3D::SceneAdvanceStep::SceneClock);
                 const f32 wallNow = Time::GetTime();
                 if (m_AnimationClockWall < 0.0f)
                 {

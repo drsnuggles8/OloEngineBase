@@ -701,9 +701,15 @@ namespace OloEngine
         for (const RenderViewId view : others)
         {
             ActivateView(view);
-            fn();
+            // A refused activation (a scene is in progress) leaves the caller's
+            // view resident. Running `fn` then would apply it to that view once
+            // per refused view and to the intended one never; ActivateView has
+            // already said why.
+            if (s_Data.ActiveView == view)
+                fn();
         }
         ActivateView(active);
-        fn();
+        if (s_Data.ActiveView == active)
+            fn();
     }
 } // namespace OloEngine

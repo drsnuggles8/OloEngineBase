@@ -71,6 +71,9 @@ namespace OloEngine
         OcclusionStateManager::SetActiveView(view.Value);
     }
 
+    // The GPU objects one view owns, for the main view (Renderer3D::Init) and
+    // for every other one (CreateView). The only bring-up of them: an object
+    // added here exists in every view.
     void Renderer3D::InitializeActiveViewGPU(u32 width, u32 height)
     {
         s_Data.RGraph = Ref<RenderGraph>::Create();
@@ -79,18 +82,27 @@ namespace OloEngine
         s_Data.RGraph->SetPassEntryPublication(&CommandDispatch::PublishFrameCamera);
         // Every history this graph acquires is this view's and no other's.
         s_Data.RGraph->BindTemporalHistoriesToView(s_Data.ActiveView.Value);
+        // The graph did not exist when this view was activated, and it is the
+        // one the debug runtime inspects while the view is active.
+        RenderGraphDebugRuntime::SetActiveGraph(s_Data.RGraph);
 
+        // Persistent Hi-Z occlusion pyramid (#431). Loads the HZB compute
+        // shader now (the context is live); the pyramid texture is sized lazily
+        // on the first GenerateOcclusionHZB() call from the scene dimensions.
         s_Data.OcclusionHZB.Initialize();
         s_Data.OcclusionHZB.SetReduceMode(HZBGenerator::ReduceMode::Max);
 
-        // The same order Init uses for the main view: the passes first (they
-        // take the address of this view's shadow map), then the maps, then the
-        // light grid.
+        // The passes first (they take the address of this view's shadow map),
+        // then the maps, then the light grid. With a 0x0 size (a headless Init
+        // before the first resize) SetupRenderGraph creates no pass and
+        // OnWindowResize runs it again.
         SetupRenderGraph(width, height);
         s_Data.Shadow->Init();
         s_Data.ForwardPlus->Initialize(width, height);
     }
 
+    // The reverse, for the main view (Renderer3D::Shutdown) and for every
+    // other one (DestroyView).
     void Renderer3D::ReleaseActiveViewGPU()
     {
         if (s_Data.DecalVisibilityQueriesInitialized)
@@ -139,7 +151,8 @@ namespace OloEngine
 
         RendererViewSlot slot;
         slot.Id = view;
-        slot.DebugName = desc.DebugName.empty() ? ("View " + std::to_string(view.Value)) : desc.DebugName;
+        slot.DebugName = desc.DebugName.IsEmpty() ? FString::Printf("View %llu", static_cast<unsigned long long>(view.Value))
+                                                  : desc.DebugName;
         RendererViewResident& resident = slot.Parked;
         resident.Settings = s_Data.Settings;
         resident.PostProcess = s_Data.PostProcess;
@@ -170,8 +183,9 @@ namespace OloEngine
             ResetActiveViewSequences(s_Data.Clock.FrameSequenceSeed);
         }
 
+        const RendererViewSlot* created = FindViewSlot(view);
         OLO_CORE_INFO("Renderer3D: created view {} '{}' at {}x{}", view.Value,
-                      FindViewSlot(view) ? FindViewSlot(view)->DebugName : std::string{}, desc.Width, desc.Height);
+                      created ? created->DebugName.ToView() : std::string_view{}, desc.Width, desc.Height);
         return view;
     }
 
@@ -261,7 +275,7 @@ namespace OloEngine
             for (const TemporalHistorySnapshot& history : registry.Snapshot())
             {
                 const Ref<Texture2D> texture = registry.GetTexture(history.Token);
-                state.Histories.push_back(ViewRetainedHistory{
+                state.Histories.Add(ViewRetainedHistory{
                     .Key = history.Key,
                     .Age = history.Age,
                     .Valid = history.Valid,
@@ -281,12 +295,12 @@ namespace OloEngine
         return state;
     }
 
-    std::vector<RenderViewInfo> Renderer3D::GetViewInfos()
+    TArray<RenderViewInfo> Renderer3D::GetViewInfos()
     {
-        std::vector<RenderViewInfo> infos;
-        infos.reserve(s_Data.Views.size());
+        TArray<RenderViewInfo> infos;
+        infos.Reserve(static_cast<i32>(s_Data.Views.size()));
         for (const RendererViewSlot& slot : s_Data.Views)
-            infos.push_back(GetViewInfo(slot.Id));
+            infos.Add(GetViewInfo(slot.Id));
         return infos;
     }
 
@@ -347,7 +361,9 @@ namespace OloEngine
         // has executed. On a backend whose commands run behind the CPU the
         // descriptors of the frame's first view must still be there when its
         // commands execute, after the last view was recorded: the ring advances
-        // once, when the bracket closes.
+        // once, when the bracket closes. The frame's views share that one
+        // sub-ring's slots, which is the limit on views per frame the heap
+        // reports when it is reached; a single-ring heap (OpenGL) holds nothing.
         RHI::DescriptorHeap::Get().HoldFrameTransientReset(true);
     }
 
@@ -388,6 +404,20 @@ namespace OloEngine
     Renderer3D::SceneAdvanceCounters Renderer3D::GetSceneAdvanceCounters()
     {
         return s_Data.PhysicalFrame.Counters;
+    }
+
+    void Renderer3D::CountSceneAdvance(SceneAdvanceStep step)
+    {
+        auto& counters = s_Data.PhysicalFrame.Counters;
+        switch (step)
+        {
+            case SceneAdvanceStep::SceneClock:
+                ++counters.SceneClockSteps;
+                break;
+            case SceneAdvanceStep::FoliageWorld:
+                ++counters.FoliageWorldSteps;
+                break;
+        }
     }
 
     void Renderer3D::BeginViewFrame()
