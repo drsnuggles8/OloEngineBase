@@ -89,7 +89,11 @@ void main()
     std::string BakeNameProbePack(const std::filesystem::path& packPath)
     {
         const auto shaderPath = TempFile("PackNameProbe.glsl");
-        std::ofstream(shaderPath, std::ios::binary | std::ios::trunc) << kNameProbeSource;
+        {
+            std::ofstream out(shaderPath, std::ios::binary | std::ios::trunc);
+            out << kNameProbeSource;
+            EXPECT_TRUE(out.good()) << "could not write the probe shader " << shaderPath.string();
+        }
         const std::string filepath = shaderPath.generic_string();
         EXPECT_TRUE(ShaderPack::CreateFromFilepaths({ filepath }, packPath));
         return filepath;
@@ -146,8 +150,37 @@ TEST_F(ShaderPackServedOnOpenGL, APackServedShaderIsRegisteredUnderItsFileStem)
     // The one-shader path: ShaderLibrary::Load(filepath).
     ShaderLibrary single;
     single.LoadShaderPack(packPath);
+    ASSERT_TRUE(single.PrepareParallel({ filepath }).m_IsPackLoaded[0])
+        << "Load(filepath) must be served from the pack too, or a source compile passes this half";
     const Ref<Shader> shader = single.Load(filepath);
     ASSERT_TRUE(shader);
     EXPECT_EQ(shader->GetName(), "PackNameProbe");
     EXPECT_TRUE(single.Exists("PackNameProbe"));
+}
+
+// Every backend and the pack name a shader through this one rule (#1693).
+TEST(ShaderLibraryNames, NameFromFilePathIsTheFileNameWithoutItsExtension)
+{
+    EXPECT_EQ(Shader::NameFromFilePath("assets/shaders/PBR_MultiLight.glsl"), "PBR_MultiLight");
+    EXPECT_EQ(Shader::NameFromFilePath("C:\\Project\\assets\\shaders\\Sky.glsl"), "Sky");
+    EXPECT_EQ(Shader::NameFromFilePath("Bare.glsl"), "Bare");
+    EXPECT_EQ(Shader::NameFromFilePath("NoExtension"), "NoExtension");
+    EXPECT_EQ(Shader::NameFromFilePath("dir.v2/NoExtension"), "NoExtension") << "a dot in a directory is not an extension";
+    EXPECT_EQ(Shader::NameFromFilePath("assets/Water.lod1.glsl"), "Water.lod1");
+    EXPECT_EQ(Shader::NameFromFilePath("assets/.glsl"), ".glsl") << "a leading dot begins the name";
+}
+
+// A lookup that misses never adds an entry: the miss used to insert a null
+// Ref that HasPendingShaders() dereferenced on the next frame.
+TEST(ShaderLibraryNames, AMissedLookupLeavesTheLibraryUnchanged)
+{
+    ShaderLibrary lib;
+    const Ref<Shader> shader = lib.Get("NoSuchShader");
+    EXPECT_EQ(shader, ShaderLibrary::GetFallbackShader()) << "a miss hands back the fallback shader";
+    EXPECT_FALSE(lib.Exists("NoSuchShader"));
+    EXPECT_TRUE(lib.GetAllShaderNames().empty());
+    EXPECT_FALSE(lib.HasPendingShaders());
+
+    lib.Add("Null", nullptr);
+    EXPECT_FALSE(lib.Exists("Null")) << "a null shader is never registered";
 }

@@ -20,6 +20,19 @@ namespace OloEngine
 
     void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
     {
+        // Every pass reads the library entries without a null check, so a null
+        // is never stored.
+        if (!shader)
+        {
+            OLO_CORE_ERROR("[ShaderLibrary] Refusing to register a null shader as '{}'", name);
+            return;
+        }
+        // Two files with the same name (the stem: Shader::NameFromFilePath)
+        // cannot share a library. With asserts compiled out the later one
+        // replaces the earlier; say so rather than swap programs silently.
+        if (Exists(name))
+            OLO_CORE_ERROR("[ShaderLibrary] Shader '{}' is already registered; '{}' replaces it", name,
+                           shader->GetFilePath());
         OLO_CORE_ASSERT(!Exists(name), "Shader '{}' already exists!", name);
         m_Shaders[name] = shader;
 
@@ -159,7 +172,7 @@ namespace OloEngine
                 continue;
             }
 
-            const std::string name = std::filesystem::path(batch.m_FilePaths[i].ToStdString()).stem().string();
+            const std::string name = Shader::NameFromFilePath(batch.m_FilePaths[i].ToView());
             OLO_CORE_ERROR("[ShaderLibrary] '{}' failed CPU preparation — registering the fallback shader", name);
             if (auto fallback = GetFallbackShader(); fallback && !Exists(name))
             {
@@ -177,8 +190,14 @@ namespace OloEngine
 
     Ref<Shader> ShaderLibrary::Get(const std::string& name)
     {
-        OLO_CORE_ASSERT(Exists(name), "Shader '{}' not found!", name);
-        return m_Shaders[name];
+        // find(), never operator[]: a miss used to insert a null Ref that the
+        // next frame's HasPendingShaders() dereferenced, a crash far from the
+        // lookup that caused it (#1693). A miss is an error, and the caller
+        // gets the magenta fallback, as a shader that failed to compile does.
+        if (const auto it = m_Shaders.find(name); it != m_Shaders.end())
+            return it->second;
+        OLO_CORE_ERROR("[ShaderLibrary] Shader '{}' not found: returning the fallback shader", name);
+        return GetFallbackShader();
     }
 
     void ShaderLibrary::ReloadShaders()
@@ -530,11 +549,11 @@ void main()
 
         PackEntryCPUData data;
         // A pack keys its entries by file path; the shader is named by the
-        // file's stem, as one compiled from source is. Naming it by the path
+        // file's stem, by the same rule as one compiled from source. Naming it by the path
         // registered it under a key the renderers never ask for: their Get()
         // missed, inserted a null Ref, and the editor crashed on its first
         // frame whenever a pack was present (#1693).
-        data.m_Name = std::filesystem::path(filepath).stem().string();
+        data.m_Name = Shader::NameFromFilePath(filepath);
         data.m_FilePath = filepath;
         for (const auto& stage : entry->Stages)
         {

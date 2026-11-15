@@ -157,6 +157,15 @@ namespace OloEngine
         return !BindlessPrograms().empty();
     }
 
+    std::string Shader::NameFromFilePath(const std::string_view filepath)
+    {
+        const sizet slash = filepath.find_last_of("/\\");
+        const std::string_view file = slash == std::string_view::npos ? filepath : filepath.substr(slash + 1);
+        // A dot at the start of the file name begins the name, not an extension.
+        const sizet dot = file.rfind('.');
+        return std::string(dot == std::string_view::npos || dot == 0 ? file : file.substr(0, dot));
+    }
+
     Ref<Shader> Shader::Create(const std::string& filepath)
     {
         switch (Renderer::GetAPI())
