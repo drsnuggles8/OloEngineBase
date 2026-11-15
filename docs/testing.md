@@ -1091,7 +1091,8 @@ or an unimplemented-stub hit. Readback goes through `RenderCommand::ReadTextureI
 files carry the backend (`<Feature>_Vulkan_<Path>.png`). GL-only tests refuse in that process with
 the reason, and so do the device-level Vulkan suites, which build their own device and run in the
 default process as before. An unfiltered `--olo-rhi=vulkan` run is supported (#1693): it runs every
-suite that overrides `RunsInVulkanProcess()` and every CPU test, and skips the rest with that reason.
+suite that overrides `RunsInVulkanProcess()` and every CPU test that does not assume the OpenGL API,
+and skips the rest with that reason.
 A test that leaves the API selector or the RenderCommand facade off the process's backend fails by
 name (`RendererBackendCheck`; [agent-rules/testing-architecture.md](agent-rules/testing-architecture.md)
 rule 23). The nightly lavapipe job runs a selection of the ported suites (`OloEngine/tests/vulkan_scene_filter.txt`) with `--olo-require-vulkan` and a gate that fails the job if any selected
