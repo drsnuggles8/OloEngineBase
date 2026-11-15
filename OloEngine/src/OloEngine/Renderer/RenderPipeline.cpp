@@ -1206,6 +1206,17 @@ namespace OloEngine
 
     void Renderer3D::RenderPipeline::ConfigurePassesForFrame(Renderer3DData& data)
     {
+        // The scene's own passes run in the frame's primary view only (ADR
+        // 0026): each view's pipeline has one of each, and they write the one
+        // deformed-vertex cache and the one acceleration-structure scene.
+        {
+            const bool advancesScene = Renderer3D::IsPrimaryViewFrame();
+            if (FrameCorePasses.SkeletalDeform)
+                FrameCorePasses.SkeletalDeform->SetAdvancesScene(advancesScene);
+            if (FrameCorePasses.RayTracingScene)
+                FrameCorePasses.RayTracingScene->SetAdvancesScene(advancesScene);
+        }
+
         // The production pass layer no longer needs per-frame blackboard
         // handle setter plumbing for canonical scene/post resources.
         // Setup() selects and stores the relevant graph handles on each pass,

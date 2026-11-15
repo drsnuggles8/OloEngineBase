@@ -45,7 +45,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         static_cast<void>(context);
-        if (m_Cache == nullptr || m_Scene == nullptr)
+        if (m_Cache == nullptr || m_Scene == nullptr || !m_AdvancesScene)
         {
             return;
         }

@@ -742,6 +742,19 @@ namespace OloEngine
         note("PathTracerEmissive", s_Data.PathTracerEmissive.HasGPUResources());
         note("PathTracerMaterialTextures", s_Data.PathTracerMaterialTextures.HasGPUResources());
         note("RasterMaterialTextures", s_Data.RasterMaterialTextures.HasGPUResources());
+        // Scene views (ADR 0026). Shutdown destroys every view but the main
+        // one, whose state is the s_Data members above, and the slot of the
+        // active view must own nothing: a GPU object left in a parked copy is
+        // released by nothing.
+        note("ExtraSceneViews", s_Data.Views.size() > 1);
+        for (const RendererViewSlot& slot : s_Data.Views)
+        {
+            if (slot.Id != s_Data.ActiveView)
+                continue;
+            note("ActiveViewParkedState", slot.Parked.RGraph != nullptr || slot.Parked.Pipeline != nullptr ||
+                                              slot.Parked.ForwardPlus != nullptr || slot.Parked.Shadow != nullptr ||
+                                              slot.Parked.OcclusionHZB.HoldsAnyResource());
+        }
 
         return live;
     }

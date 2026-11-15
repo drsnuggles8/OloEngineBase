@@ -266,12 +266,21 @@ namespace OloEngine
         // PASS having a shader, not on the device query: a shader that failed
         // to compile, or OLO_VULKAN_NO_RAY_TRACING=1 on a capable device, would
         // otherwise build a table every frame that nothing reads.
+        //
+        // Any view's wish, not only this one's (ADR 0026): the frame is
+        // extracted once, by its primary view, and a later view that traces
+        // paths reads the tables this extraction fills.
         const GpuPathTracerPass* pathTracer = GetGpuPathTracerPass();
-        const bool gatherForPathTracer =
-            s_Data.PostProcess.GpuPathTracer.Enabled && pathTracer != nullptr && pathTracer->IsShaderLoaded();
+        bool anyViewTracesPaths = false;
+        bool anyViewSamplesTextures = false;
+        ForEachViewResident([&anyViewTracesPaths, &anyViewSamplesTextures](const RendererViewResident& view)
+                            {
+                                const auto& tracer = view.PostProcess.GpuPathTracer;
+                                anyViewTracesPaths = anyViewTracesPaths || tracer.Enabled;
+                                anyViewSamplesTextures = anyViewSamplesTextures || (tracer.Enabled && tracer.SampleTextures); });
+        const bool gatherForPathTracer = anyViewTracesPaths && pathTracer != nullptr && pathTracer->IsShaderLoaded();
         s_Data.PathTracerEmissive.BeginFrame(s_Data.View.RenderOrigin, gatherForPathTracer);
-        s_Data.PathTracerMaterialTextures.BeginFrame(gatherForPathTracer &&
-                                                     s_Data.PostProcess.GpuPathTracer.SampleTextures);
+        s_Data.PathTracerMaterialTextures.BeginFrame(gatherForPathTracer && anyViewSamplesTextures);
     }
 
     GPUSceneMaterialKey Renderer3D::ResolveGPUSceneMaterialKey(const Material* overrideMaterial, u64 stableEntityId,
@@ -1039,12 +1048,24 @@ namespace OloEngine
         // ray-traced shadows built vegetation and groom proxies on a
         // raster-shadowed Deferred frame that no ray read: 24-58 ms of CPU in the
         // #1259 acceptance scene.
-        const auto& shadows = s_Data.Shadow->GetSettings();
-        return RayTracing::HybridProducersWanted(
-            s_Data.Frame.GPUSceneExtractionActive, s_Data.SceneRT.IsAvailable(), s_Data.Settings.Path == RenderingPath::Deferred,
-            !s_Data.Frame.RayTracedShadowLightRequests.IsEmpty(),
-            shadows.Enabled && shadows.Technique == ShadowTechnique::RayTraced,
-            s_Data.PostProcess.RayTracedReflection.Enabled);
+        //
+        // Asked of every view (ADR 0026): the proxies are built once per frame,
+        // while its primary view extracts, and a later view of the frame whose
+        // settings ask for a hybrid consumer traces what was built then.
+        bool wanted = false;
+        ForEachViewResident([&wanted](const RendererViewResident& view)
+                            {
+                                if (!view.Shadow)
+                                    return;
+                                const auto& shadows = view.Shadow->GetSettings();
+                                wanted = wanted ||
+                                         RayTracing::HybridProducersWanted(
+                                             s_Data.Frame.GPUSceneExtractionActive, s_Data.SceneRT.IsAvailable(),
+                                             view.Settings.Path == RenderingPath::Deferred,
+                                             !s_Data.Frame.RayTracedShadowLightRequests.IsEmpty(),
+                                             shadows.Enabled && shadows.Technique == ShadowTechnique::RayTraced,
+                                             view.PostProcess.RayTracedReflection.Enabled); });
+        return wanted;
     }
 
     RayTracing::GroomSurfaceCache& Renderer3D::GetGroomSurfaceCache()

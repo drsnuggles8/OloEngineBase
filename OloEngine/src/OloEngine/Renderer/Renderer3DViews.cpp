@@ -53,6 +53,11 @@ namespace OloEngine
         const RendererViewState sharedCameraHistory = shareCameraHistory ? resident.View : RendererViewState{};
         current->Parked = std::move(resident);
         resident = std::move(target->Parked);
+        // The slot of the view that is now active owns nothing: emptied by
+        // assignment, so a member whose move leaves its source holding a GPU
+        // object cannot keep one alive there (a parked copy of the Hi-Z
+        // generator's references once survived Shutdown that way).
+        target->Parked = RendererViewResident{};
         if (shareCameraHistory)
             resident.View = sharedCameraHistory;
         s_Data.ActiveView = view;
@@ -230,6 +235,42 @@ namespace OloEngine
         info.WasPrimary = resident.ViewClock.WasPrimary;
         info.Active = active;
         return info;
+    }
+
+    Renderer3D::ViewRetainedState Renderer3D::GetViewRetainedState(RenderViewId view)
+    {
+        ViewRetainedState state;
+        const RendererViewSlot* slot = FindViewSlot(view);
+        if (!slot)
+            return state;
+
+        const RendererViewResident& resident =
+            view == s_Data.ActiveView ? static_cast<const RendererViewResident&>(s_Data) : slot->Parked;
+        state.Alive = true;
+        if (resident.RGraph)
+        {
+            const TemporalHistoryRegistry& registry = resident.RGraph->GetTemporalHistoryRegistry();
+            for (const TemporalHistorySnapshot& history : registry.Snapshot())
+            {
+                const Ref<Texture2D> texture = registry.GetTexture(history.Token);
+                state.Histories.push_back(ViewRetainedHistory{
+                    .Key = history.Key,
+                    .Age = history.Age,
+                    .Valid = history.Valid,
+                    .LineageCause = history.LineageCause,
+                    .TextureIdentity = texture ? RHI::HashKey(texture->GetRHIHandle()) : 0u,
+                });
+            }
+        }
+        state.OcclusionPyramidValid = resident.View.OcclusionHZBValid && resident.OcclusionHZB.IsValid();
+        state.OcclusionPyramidIdentity =
+            resident.OcclusionHZB.IsValid() ? RHI::HashKey(resident.OcclusionHZB.GetHZBTexture()) : 0u;
+        if (resident.Shadow)
+        {
+            state.ShadowCascadeIdentity = RHI::HashKey(resident.Shadow->GetCSMHandle());
+            state.ShadowAtlasIdentity = RHI::HashKey(resident.Shadow->GetAtlasHandle());
+        }
+        return state;
     }
 
     std::vector<RenderViewInfo> Renderer3D::GetViewInfos()

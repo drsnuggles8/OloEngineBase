@@ -420,6 +420,30 @@ namespace OloEngine
         [[nodiscard]] static u32 GetViewCount();
         [[nodiscard]] static std::vector<RenderViewInfo> GetViewInfos();
         [[nodiscard]] static RenderViewInfo GetViewInfo(RenderViewId view);
+        // What a view keeps from one frame to the next, by identity: its
+        // texture histories, its occlusion pyramid and its shadow maps. Read
+        // where the view's state is, without activating it, so asking about
+        // one view cannot disturb another. A test or a diagnostic compares two
+        // of these to say what an operation on ANOTHER view left alone.
+        struct ViewRetainedHistory
+        {
+            TemporalHistoryKey Key{};
+            u32 Age = 0;
+            bool Valid = false;
+            TemporalHistoryInvalidationCause LineageCause = TemporalHistoryInvalidationCause::None;
+            // RHI::HashKey of the history texture; 0 for a lineage with none.
+            u64 TextureIdentity = 0;
+        };
+        struct ViewRetainedState
+        {
+            bool Alive = false;
+            std::vector<ViewRetainedHistory> Histories;
+            bool OcclusionPyramidValid = false;
+            u64 OcclusionPyramidIdentity = 0;
+            u64 ShadowCascadeIdentity = 0;
+            u64 ShadowAtlasIdentity = 0;
+        };
+        [[nodiscard]] static ViewRetainedState GetViewRetainedState(RenderViewId view);
 
         // Makes `view` the active view for the scope and puts the previous one
         // back on exit. Not between BeginScene and EndScene. Scopes nest.

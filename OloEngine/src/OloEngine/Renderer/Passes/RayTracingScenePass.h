@@ -53,6 +53,15 @@ namespace OloEngine
         void Execute(RGCommandContext& context) override;
 
         // Wired at renderer init. Both are borrowed, never owned.
+        // Whether this view's graph does the frame's scene work (ADR 0026). The
+        // acceleration structures are the scene's: they are built once per
+        // physical frame, by the frame's primary view, and every later view of
+        // the frame traces that build. Set by the pipeline each view frame.
+        void SetAdvancesScene(bool advances) noexcept
+        {
+            m_AdvancesScene = advances;
+        }
+
         void SetRayTracingScene(RayTracing::RayTracingScene* scene) noexcept
         {
             m_Scene = scene;
@@ -96,5 +105,6 @@ namespace OloEngine
         // Scratch: this frame's unwritten skinned streams (#1354).
         TArray<u64> m_UntrustedDeformedOutputs;
         RayTracing::RayTracingProbe* m_Probe = nullptr;
+        bool m_AdvancesScene = true;
     };
 } // namespace OloEngine
