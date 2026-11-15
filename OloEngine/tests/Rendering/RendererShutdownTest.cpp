@@ -116,6 +116,8 @@ namespace OloEngine::Tests
         const std::filesystem::path s_StartCwd = std::filesystem::current_path();
 
         constexpr const char* kLifecycleSource = "OloEngine/src/OloEngine/Renderer/Renderer3DLifecycle.cpp";
+        // Where a scene view's own GPU objects are brought up and released (ADR 0026).
+        constexpr const char* kViewsSource = "OloEngine/src/OloEngine/Renderer/Renderer3DViews.cpp";
 
         struct TeardownSite
         {
@@ -381,6 +383,22 @@ namespace OloEngine::Tests
         ASSERT_FALSE(shutdownBody.empty())
             << "Renderer3D::Shutdown() not found — did it move? This test must be repointed.";
 
+        // A view's own objects (its graph, its decal-visibility queries) have ONE
+        // teardown, ReleaseActiveViewGPU, which Shutdown calls for the main view and
+        // DestroyView for every other one (ADR 0026). A release there is a release by
+        // Shutdown for exactly as long as Shutdown makes the call, so the call is
+        // followed, and required.
+        ASSERT_NE(shutdownBody.find("ReleaseActiveViewGPU();"), std::string::npos)
+            << "Renderer3D::Shutdown() no longer calls ReleaseActiveViewGPU(): the main view's objects are "
+               "released nowhere this test can see. Repoint it at wherever they go now.";
+        const std::string viewTeardownBody = StripLineComments(
+            ExtractFunctionBody(ReadFile(RepoFile(kViewsSource)), "void Renderer3D::ReleaseActiveViewGPU()"));
+        ASSERT_FALSE(viewTeardownBody.empty())
+            << "Renderer3D::ReleaseActiveViewGPU() not found in Renderer3DViews.cpp — did it move?";
+        const std::string teardown = shutdownBody + "\n" + viewTeardownBody;
+        // Every scene view but the main one is released whole, one DestroyView each.
+        const bool destroysExtraViews = shutdownBody.find("DestroyView(view);") != std::string::npos;
+
         // Every member named in a note("Name", s_Data.Member != nullptr) line.
         const std::regex noteRe(R"RX(note\(\s*"([A-Za-z0-9_]+)"\s*,\s*s_Data\.([A-Za-z0-9_]+))RX");
         std::vector<std::string> members;
@@ -402,7 +420,8 @@ namespace OloEngine::Tests
                 "(s_Data\\." + member + "(\\.Reset\\(\\)|->Shutdown\\(\\)|\\.Shutdown\\(\\))|" +
                 "RenderCommand::DeleteQueries\\(s_Data\\." + member + "\\))";
             const std::regex releaseRe(pattern);
-            if (!std::regex_search(shutdownBody, releaseRe))
+            const bool releasedByDestroyView = member == "Views" && destroysExtraViews;
+            if (!releasedByDestroyView && !std::regex_search(teardown, releaseRe))
             {
                 notReleased.push_back(member);
             }
@@ -421,7 +440,8 @@ namespace OloEngine::Tests
                "segfaults the binary on the way out, AFTER every test result has printed, so the run still\n"
                "reads as a clean pass and only the exit code (139) disagrees. That is exactly how\n"
                "Ref<GPUFrustumCuller> hid.\n\n"
-               "Add `s_Data.<Member>.Reset();` to Renderer3D::Shutdown() in Renderer3DLifecycle.cpp.";
+               "Add `s_Data.<Member>.Reset();` to Renderer3D::Shutdown() in Renderer3DLifecycle.cpp, or, for an\n"
+               "object a scene view owns, to Renderer3D::ReleaseActiveViewGPU() in Renderer3DViews.cpp.";
     }
 
     // A facility whose release lives ONLY in Renderer3D::Shutdown() is never released in a session
