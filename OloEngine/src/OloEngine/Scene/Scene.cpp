@@ -6558,6 +6558,11 @@ namespace OloEngine
         {
             if (m_Is3DModeEnabled)
             {
+                // Any additional view asked for this frame (ADR 0026). Ahead of
+                // the callback below, which is the main view's: a view rendered
+                // first must not take it.
+                const AdditionalViewFrame additionalViews(*this);
+
                 // Set up the UICompositePass callback before the render graph executes.
                 // The callback runs during UICompositePass::Execute(), after the
                 // post-processed scene has been blitted as background.
@@ -6760,6 +6765,7 @@ namespace OloEngine
         {
             if (m_Is3DModeEnabled)
             {
+                const AdditionalViewFrame additionalViews(*this);
                 RenderScene3D(camera);
             }
             else
@@ -6996,6 +7002,10 @@ namespace OloEngine
 
             if (m_Is3DModeEnabled)
             {
+                // Any additional view asked for this frame (ADR 0026), ahead of
+                // the main view's own callback below.
+                const AdditionalViewFrame additionalViews(*this);
+
                 // Set up the UICompositePass callback for editor overlays.
                 // Renders text and UI into the UICompositePass FBO so the editor
                 // viewport (which reads UICompositePass output) shows them.
@@ -12268,9 +12278,13 @@ namespace OloEngine
         const auto& streaming = m_StreamingSettings;
         const bool representationStreaming = IsRepresentationStreamingEnabled(streaming);
         auto& representationBudget = RepresentationStreaming::Get();
-        representationBudget.BeginFrame(Renderer3D::GetStochasticFrameIndex(),
-                                        StreamingBudgetMegabytesToBytes(streaming.RepresentationResidentMegabytes),
-                                        StreamingBudgetMegabytesToBytes(streaming.RepresentationUploadMegabytesPerFrame));
+        // One upload budget per physical frame (ADR 0026): every view of the
+        // frame admits against the budget its primary view opened. Opening it
+        // again per view would double what a frame may upload.
+        if (Renderer3D::IsPrimaryViewFrame())
+            representationBudget.BeginFrame(Renderer3D::GetStochasticFrameIndex(),
+                                            StreamingBudgetMegabytesToBytes(streaming.RepresentationResidentMegabytes),
+                                            StreamingBudgetMegabytesToBytes(streaming.RepresentationUploadMegabytesPerFrame));
         representationBudget.SetStagingBudget(StreamingBudgetMegabytesToBytes(streaming.RepresentationStagingMegabytes));
         // Refresh on each admission: a release earlier in this same frame is
         // still physical backing until the backend's deletion queue retires it.
@@ -13926,20 +13940,32 @@ namespace OloEngine
             // The delta is clamped because a stop/start, an asset load or a stalled
             // editor frame would otherwise hand the surface the whole gap at once
             // and jump the wave phase visibly.
-            const f32 wallNow = Time::GetTime();
-            if (m_AnimationClockWall < 0.0f)
+            //
+            // The clock steps once per physical frame, in its primary view (ADR
+            // 0026). A later view of the frame draws the same instant and
+            // measures velocity against the same previous one: stepping again
+            // would hand it this frame's time as its "previous" and zero the
+            // wind, water and foliage motion it writes. A scene whose first
+            // render is not a primary view still has to seed the clock.
+            const bool advancesWorld = Renderer3D::IsPrimaryViewFrame() || m_AnimationClockWall < 0.0f;
+            if (advancesWorld)
             {
-                m_AnimationClock = wallNow;
+                const f32 wallNow = Time::GetTime();
+                if (m_AnimationClockWall < 0.0f)
+                {
+                    m_AnimationClock = wallNow;
+                }
+                else if (!m_IsPaused)
+                {
+                    m_AnimationClock += std::clamp(wallNow - m_AnimationClockWall, 0.0f, 0.1f);
+                }
+                m_AnimationClockWall = wallNow;
+                m_FramePrevAnimationTime = (m_LastAnimationTime < 0.0f) ? m_AnimationClock : m_LastAnimationTime;
+                m_LastAnimationTime = m_AnimationClock;
             }
-            else if (!m_IsPaused)
-            {
-                m_AnimationClock += std::clamp(wallNow - m_AnimationClockWall, 0.0f, 0.1f);
-            }
-            m_AnimationClockWall = wallNow;
 
             const f32 animationTime = m_AnimationClock;
-            const f32 prevAnimationTime = (m_LastAnimationTime < 0.0f) ? animationTime : m_LastAnimationTime;
-            m_LastAnimationTime = animationTime;
+            const f32 prevAnimationTime = m_FramePrevAnimationTime;
 
             // ── Foliage interaction field (issue #1238) ──
             //
@@ -13979,8 +14005,11 @@ namespace OloEngine
                     influence.TrailSpacing = source.m_TrailSpacing;
                     influences.Add(influence);
                 }
-                FoliageInteractionField::Update(std::span<const FoliageInteractionSource>(influences.GetData(), static_cast<sizet>(influences.Num())),
-                                                animationTime - prevAnimationTime);
+                // Once per physical frame, like the clock it rides: the field
+                // is a simulation, and a second view must not step its springs.
+                if (advancesWorld)
+                    FoliageInteractionField::Update(std::span<const FoliageInteractionSource>(influences.GetData(), static_cast<sizet>(influences.Num())),
+                                                    animationTime - prevAnimationTime);
             }
             {
                 auto terrainShader = Renderer3D::GetTerrainPBRShader();
@@ -17631,37 +17660,43 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Extract camera parameters from primary SceneCamera (base Camera lacks near/far)
+        f32 cameraNearClip = 0.1f;
+        f32 cameraFarClip = 1000.0f;
+        for (const auto camView = m_Registry.view<CameraComponent>(); const auto entity : camView)
+        {
+            if (const auto& cam = camView.get<CameraComponent>(entity); cam.Primary)
+            {
+                if (cam.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
+                {
+                    cameraNearClip = cam.Camera.GetOrthographicNearClip();
+                    cameraFarClip = cam.Camera.GetOrthographicFarClip();
+                }
+                else
+                {
+                    cameraNearClip = cam.Camera.GetPerspectiveNearClip();
+                    cameraFarClip = cam.Camera.GetPerspectiveFarClip();
+                }
+                break;
+            }
+        }
+        RenderScene3DFromCamera(camera, cameraTransform, cameraNearClip, cameraFarClip);
+    }
+
+    void Scene::RenderScene3DFromCamera(Camera const& camera, const glm::mat4& cameraTransform, const f32 cameraNearClip,
+                                        const f32 cameraFarClip)
+    {
+        OLO_PROFILE_FUNCTION();
+
         Renderer3D::SetWindPaused(m_IsPaused);
         // Before BeginScene: that is where the frame's jitter is decided (#1429).
         Renderer3D::RequestSceneTemporalResolve(CountGroomsNeedingTemporalResolve());
         Renderer3D::BeginScene(camera, cameraTransform);
         Renderer3D::BeginGPUSceneExtraction(static_cast<u64>(m_GPUSceneOwnerToken));
 
-        // Extract camera parameters from primary SceneCamera (base Camera lacks near/far)
         glm::vec3 cameraPosition = glm::vec3(cameraTransform[3]);
         glm::mat4 viewMatrix = glm::inverse(cameraTransform);
-        f32 cameraNearClip = 0.1f;
-        f32 cameraFarClip = 1000.0f;
-        {
-            for (const auto camView = m_Registry.view<CameraComponent>(); const auto entity : camView)
-            {
-                if (const auto& cam = camView.get<CameraComponent>(entity); cam.Primary)
-                {
-                    if (cam.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
-                    {
-                        cameraNearClip = cam.Camera.GetOrthographicNearClip();
-                        cameraFarClip = cam.Camera.GetOrthographicFarClip();
-                    }
-                    else
-                    {
-                        cameraNearClip = cam.Camera.GetPerspectiveNearClip();
-                        cameraFarClip = cam.Camera.GetPerspectiveFarClip();
-                    }
-                    break;
-                }
-            }
-            Renderer3D::SetCameraClipPlanes(cameraNearClip, cameraFarClip);
-        }
+        Renderer3D::SetCameraClipPlanes(cameraNearClip, cameraFarClip);
 
         // Time-of-day drive (issue #633): ephemeris → directional light before
         // the sky bake + light gather (see the editor-path overload above).
@@ -17698,6 +17733,71 @@ namespace OloEngine
 
         Renderer3D::EndScene();
         Renderer3D::SetWindPaused(false);
+    }
+
+    void Scene::RequestAdditionalView(const SceneViewRequest& request)
+    {
+        if (request.View.IsMain())
+        {
+            OLO_CORE_ERROR("Scene::RequestAdditionalView: the main view is the scene's own camera, not an additional view");
+            return;
+        }
+        for (SceneViewRequest& pending : m_AdditionalViewRequests)
+        {
+            if (pending.View == request.View)
+            {
+                pending = request;
+                return;
+            }
+        }
+        m_AdditionalViewRequests.Add(request);
+    }
+
+    void Scene::RenderAdditionalView3D(const SceneViewRequest& request)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!Renderer3D::IsViewAlive(request.View))
+        {
+            // Said every time: a view that was destroyed while a request for
+            // it was pending renders nothing, and nothing else would say why.
+            OLO_CORE_ERROR("Scene: additional view {} was requested but is not alive; it renders nothing this frame",
+                           request.View.Value);
+            return;
+        }
+        const Renderer3D::ScopedView scope(request.View);
+        const Camera camera(request.Projection);
+        RenderScene3DFromCamera(camera, request.CameraTransform, request.NearClip, request.FarClip);
+    }
+
+    Scene::AdditionalViewFrame::AdditionalViewFrame(Scene& scene)
+        : m_Scene(scene)
+    {
+        if (scene.m_AdditionalViewRequests.IsEmpty())
+            return;
+
+        // Taken: a request made while these render belongs to the next frame.
+        m_Requests = std::move(scene.m_AdditionalViewRequests);
+        scene.m_AdditionalViewRequests.Reset();
+        Renderer3D::BeginFrame();
+        for (const SceneViewRequest& request : m_Requests)
+        {
+            if (request.BeforeMainView)
+                scene.RenderAdditionalView3D(request);
+        }
+    }
+
+    Scene::AdditionalViewFrame::~AdditionalViewFrame()
+    {
+        if (m_Requests.IsEmpty())
+            return;
+
+        for (const SceneViewRequest& request : m_Requests)
+        {
+            if (!request.BeforeMainView)
+                m_Scene.RenderAdditionalView3D(request);
+        }
+        Renderer3D::EndFrame();
     }
 
     void Scene::RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip)

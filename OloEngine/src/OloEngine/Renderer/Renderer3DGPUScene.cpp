@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 
 #include "OloEngine/Renderer/HeapBindingSeam.h"
@@ -144,6 +145,19 @@ namespace OloEngine
             u32 m_Flags = 0;
         };
 
+        // The one spelling of a geometry key: the extraction that stages a
+        // record and a later view of the frame that only names it (ADR 0026)
+        // must agree on it, or the link resolves to nothing.
+        [[nodiscard]] GPUSceneGeometryKey MakeGeometryKey(RHI::ResourceHandle vertexHandle,
+                                                          RHI::ResourceHandle indexHandle, u32 subRange)
+        {
+            return GPUSceneGeometryKey{
+                .m_VertexBuffer = RHI::HashKey(vertexHandle),
+                .m_IndexBuffer = RHI::HashKey(indexHandle),
+                .m_SubmeshIndex = subRange,
+            };
+        }
+
         // Stages one geometry + one instance record and hands back the instance
         // key, which is the only thing a caller needs afterwards (to append a
         // draw link, or to do nothing at all).
@@ -156,11 +170,8 @@ namespace OloEngine
                                                                    const GPUSceneAnimatedSurface& animated,
                                                                    const glm::vec3& tint = glm::vec3(1.0f))
         {
-            const GPUSceneGeometryKey geometryKey{
-                .m_VertexBuffer = RHI::HashKey(geometry.m_VertexHandle),
-                .m_IndexBuffer = RHI::HashKey(geometry.m_IndexHandle),
-                .m_SubmeshIndex = geometry.m_SubRange,
-            };
+            const GPUSceneGeometryKey geometryKey =
+                MakeGeometryKey(geometry.m_VertexHandle, geometry.m_IndexHandle, geometry.m_SubRange);
             scene.ExtractGeometry(geometryKey,
                                   GPUSceneGeometryInput{
                                       .m_VertexBuffer = geometry.m_VertexHandle,
@@ -208,6 +219,37 @@ namespace OloEngine
     {
         OLO_CORE_ASSERT(!s_Data.Frame.GPUSceneExtractionActive,
                         "Renderer3D::BeginGPUSceneExtraction called twice before EndScene");
+        // The link table is per view frame and indices into it are handed to
+        // draw packets, so it is cleared here and nowhere else: a stale entry
+        // would give this frame's draw another frame's, or another view's,
+        // record.
+        s_Data.Frame.GPUSceneDrawLinks.Reset();
+        s_Data.Frame.GPUSceneDrawLinksResolved = false;
+        s_Data.Frame.GPUSceneLinkedDraws = 0;
+        s_Data.Frame.GPUSceneUnlinkedDraws = 0;
+
+        // The scene is extracted once per physical frame (ADR 0026). A later
+        // view of the frame stages nothing: the records, the deformed streams,
+        // the vegetation and groom proxies and the path tracer's tables are
+        // the frame's, already committed, and a second extraction would rotate
+        // every instance's previous transform onto this frame's. It links its
+        // draws to the committed records instead (ExtractGPUSceneMesh).
+        auto& frame = s_Data.PhysicalFrame;
+        if (frame.SceneExtracted && !Levers::FaultAdvanceWorldEveryView())
+        {
+            frame.LinkingDraws = frame.SceneOwnerToken == ownerToken;
+            if (!frame.LinkingDraws && !frame.ReportedForeignScene)
+            {
+                frame.ReportedForeignScene = true;
+                OLO_CORE_ERROR("Renderer3D: a second scene (token {}) rendered a view in the physical frame scene {} "
+                               "extracted. Its draws are not linked to GPU Scene records and ray-traced effects in "
+                               "that view trace the first scene; render one scene per BeginFrame / EndFrame bracket.",
+                               ownerToken, frame.SceneOwnerToken);
+            }
+            return;
+        }
+        frame.SceneOwnerToken = ownerToken;
+
         s_Data.SceneGPU.BeginExtraction(ownerToken, s_Data.View.RenderOrigin);
         s_Data.Frame.GPUSceneExtractionActive = true;
         // The deformed-vertex producer (#1229) rides the same extraction: every
@@ -230,13 +272,6 @@ namespace OloEngine
         s_Data.PathTracerEmissive.BeginFrame(s_Data.View.RenderOrigin, gatherForPathTracer);
         s_Data.PathTracerMaterialTextures.BeginFrame(gatherForPathTracer &&
                                                      s_Data.PostProcess.GpuPathTracer.SampleTextures);
-        // The link table is per frame and indices into it are handed to draw
-        // packets, so it is cleared here and nowhere else: a stale entry would
-        // give this frame's draw last frame's record.
-        s_Data.Frame.GPUSceneDrawLinks.Reset();
-        s_Data.Frame.GPUSceneDrawLinksResolved = false;
-        s_Data.Frame.GPUSceneLinkedDraws = 0;
-        s_Data.Frame.GPUSceneUnlinkedDraws = 0;
     }
 
     GPUSceneMaterialKey Renderer3D::ResolveGPUSceneMaterialKey(const Material* overrideMaterial, u64 stableEntityId,
@@ -342,6 +377,39 @@ namespace OloEngine
     {
         if (!s_Data.Frame.GPUSceneExtractionActive)
         {
+            // A later view of a physical frame (ADR 0026): the record this
+            // submesh would stage was committed by the frame's extraction, so
+            // name it by the same key and let EndScene resolve the link. A key
+            // the extraction never staged (a mesh only this view submits, a
+            // surface refused there) resolves to nothing and the draw keeps
+            // the data it assembled itself, counted as unlinked.
+            if (s_Data.PhysicalFrame.LinkingDraws && linkRequest != GPUSceneDrawLinkRequest::None && meshSource &&
+                submeshIndex < static_cast<u32>(meshSource->GetSubmeshes().Num()))
+            {
+                const Ref<VertexBuffer>& restVertices = meshSource->GetVertexBuffer();
+                const Ref<IndexBuffer>& indices = meshSource->GetIndexBuffer();
+                if (restVertices && indices && restVertices->GetRHIHandle().IsValid() &&
+                    indices->GetRHIHandle().IsValid())
+                {
+                    RHI::ResourceHandle vertexHandle = restVertices->GetRHIHandle();
+                    if (animatedSurface.m_IsAnimated)
+                    {
+                        const RayTracing::DeformedSurfaceBinding deformed = s_Data.DeformedSurfaces.FindResident(
+                            RayTracing::DeformedSurfaceKey{ .EntityId = stableEntityId,
+                                                            .RestVertexBuffer = RHI::HashKey(vertexHandle) });
+                        if (deformed.IsValid())
+                            vertexHandle = deformed.Handle;
+                    }
+                    const auto link = static_cast<u32>(s_Data.Frame.GPUSceneDrawLinks.Num());
+                    s_Data.Frame.GPUSceneDrawLinks.Add(GPUSceneDrawLink{
+                        .m_InstanceKey = GPUSceneInstanceKey{
+                            .m_EntityId = stableEntityId,
+                            .m_Geometry = MakeGeometryKey(vertexHandle, indices->GetRHIHandle(), submeshIndex),
+                            .m_InstanceId = stableInstanceId,
+                        } });
+                    return link;
+                }
+            }
             // Not a rejection: nobody is extracting, so there is nothing to
             // count. Every branch BELOW this one is a rejection and reports
             // itself (issue #1065) — a caller that offers geometry the records
@@ -671,8 +739,12 @@ namespace OloEngine
         InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneReset);
         // PT suffix pools live outside the texture-history registry. Retired
         // scene slots must not become valid again merely by reusing their IDs.
-        if (s_Data.Pipeline)
-            ++s_Data.Pipeline->ReSTIRPTSceneEpoch;
+        // In every view: the scene whose slots were retired is the one each of
+        // them draws.
+        ForEachViewResident([](RendererViewResident& view)
+                            {
+                                if (view.Pipeline)
+                                    ++view.Pipeline->ReSTIRPTSceneEpoch; });
         s_Data.VegetationSurfaces.Shutdown();
         s_Data.VegetationSurfaces.SetEnabled(s_Data.SceneRT.IsAvailable());
         s_Data.SceneRT.SetVegetationReady(false);
@@ -704,7 +776,25 @@ namespace OloEngine
         if (cause == TemporalHistoryInvalidationCause::Manual && !effect && s_Data.Pipeline)
             if (auto fsr2 = s_Data.Pipeline->PostProcessPasses.FSR2)
                 fsr2->RequestHistoryReset();
-        return s_Data.RGraph ? s_Data.RGraph->InvalidateTemporalHistories(cause, effect) : 0u;
+
+        // Whose histories a cause reaches (ADR 0026). What happened to the
+        // WORLD (it was replaced, a record in it changed, the sampling
+        // sequences every view shares restarted, the device changed) happened
+        // to every view that draws it. Everything else is about one camera or
+        // one view's configuration and reaches the active view only.
+        const bool everyView = cause == TemporalHistoryInvalidationCause::SceneReset ||
+                               cause == TemporalHistoryInvalidationCause::SceneMutated ||
+                               cause == TemporalHistoryInvalidationCause::SamplingSequenceReset ||
+                               cause == TemporalHistoryInvalidationCause::BackendChanged;
+        if (!everyView)
+            return s_Data.RGraph ? s_Data.RGraph->InvalidateTemporalHistories(cause, effect) : 0u;
+
+        u32 invalidated = 0;
+        ForEachViewResident([&invalidated, cause, effect](RendererViewResident& view)
+                            {
+                                if (view.RGraph)
+                                    invalidated += view.RGraph->InvalidateTemporalHistories(cause, effect); });
+        return invalidated;
     }
 
     static_assert(Renderer3D::kSequenceSeedStride == kFrameSequenceSeedStride);
@@ -718,7 +808,6 @@ namespace OloEngine
         s_Data.Clock.FrameSequenceSeed = sequenceSeed;
         // The same 2^20 wrap the per-frame advance applies.
         s_Data.Clock.StochasticFrameIndex = (sequenceSeed * kSequenceSeedStride) & 0xFFFFFu;
-        s_Data.Clock.TAAJitterFrameIndex = sequenceSeed;
         // The jitter repeats every eight phases, so the second lap of seeds
         // shifts the whole pattern on the torus: seed k and k+8 start at the
         // same phase and still sample different sub-pixel positions.
@@ -735,12 +824,6 @@ namespace OloEngine
             };
             s_Data.Clock.TAAJitterRotation = glm::vec2(radicalInverse(lap, 5u), radicalInverse(lap, 7u));
         }
-        s_Data.Clock.TemporalUpscalePhaseIndex = 0;
-        s_Data.View.CurrJitterUV = glm::vec2(0.0f);
-        s_Data.View.PrevJitterUV = glm::vec2(0.0f);
-        // These two wrap at 1024: sixteen seeds get sixteen phases.
-        s_Data.Clock.CloudFrameIndex = (sequenceSeed * 64u) & 0x3FFu;
-        s_Data.Clock.FogFrameIndex = (sequenceSeed * 64u) & 0x3FFu;
         // The renderer's clocks restart as Init starts them: accumulators at
         // zero, baselines at the current (mockable) time so the first dt is 0.
         s_Data.Clock.CloudWindOffset = glm::vec2(0.0f);
@@ -749,13 +832,34 @@ namespace OloEngine
         s_Data.Clock.FogTime = 0.0f;
         s_Data.Clock.FogPrevTimeSeconds = Time::GetTime();
         s_Data.Clock.WindPrevTimeSeconds = Time::GetTime();
-        s_Data.Clock.AutoExposurePrevTimeSeconds = Time::GetTime();
         if (WindSystem::IsInitialized())
             WindSystem::ResetClock();
         // Velocity on the next frame is measured against that frame itself,
         // not against the pose a different pre-roll left behind.
-        s_Data.View.MotionHistoryResetPending = true;
         s_Data.Scene.PoseHistoryResetPending = true;
+        // Every view's own sequences, with that view active: a pass's
+        // ResetFrameSequence may read the renderer through its accessors.
+        ForEachView([sequenceSeed]()
+                    { ResetActiveViewSequences(sequenceSeed); });
+        // Every history of every view, not only those that declare the jitter:
+        // a ReSTIR reservoir or a path-traced sum is as much a product of the
+        // old sequence as TAA's colour is.
+        InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SamplingSequenceReset);
+    }
+
+    void Renderer3D::ResetActiveViewSequences(u32 sequenceSeed)
+    {
+        s_Data.ViewClock.TAAJitterFrameIndex = sequenceSeed;
+        s_Data.ViewClock.TemporalUpscalePhaseIndex = 0;
+        s_Data.View.CurrJitterUV = glm::vec2(0.0f);
+        s_Data.View.PrevJitterUV = glm::vec2(0.0f);
+        // These two wrap at 1024: sixteen seeds get sixteen phases.
+        s_Data.ViewClock.CloudFrameIndex = (sequenceSeed * 64u) & 0x3FFu;
+        s_Data.ViewClock.FogFrameIndex = (sequenceSeed * 64u) & 0x3FFu;
+        s_Data.ViewClock.AutoExposurePrevTimeSeconds = Time::GetTime();
+        // Camera velocity on the view's next frame is measured against that
+        // frame itself.
+        s_Data.View.MotionHistoryResetPending = true;
         if (s_Data.Pipeline)
         {
             s_Data.Pipeline->ForEachPass(
@@ -767,10 +871,6 @@ namespace OloEngine
                         mutablePass->ResetFrameSequence(sequenceSeed);
                 });
         }
-        // Every history, not only those that declare the jitter: a ReSTIR
-        // reservoir or a path-traced sum is as much a product of the old
-        // sequence as TAA's colour is.
-        InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SamplingSequenceReset);
     }
 
     u64 Renderer3D::FrameSamplingContext::Fingerprint() const
@@ -812,10 +912,10 @@ namespace OloEngine
         FrameSamplingContext context;
         context.SequenceSeed = s_Data.Clock.FrameSequenceSeed;
         context.StochasticFrameIndex = s_Data.Clock.StochasticFrameIndex;
-        context.TAAJitterFrameIndex = s_Data.Clock.TAAJitterFrameIndex;
-        context.TemporalUpscalePhaseIndex = s_Data.Clock.TemporalUpscalePhaseIndex;
-        context.CloudFrameIndex = s_Data.Clock.CloudFrameIndex;
-        context.FogFrameIndex = s_Data.Clock.FogFrameIndex;
+        context.TAAJitterFrameIndex = s_Data.ViewClock.TAAJitterFrameIndex;
+        context.TemporalUpscalePhaseIndex = s_Data.ViewClock.TemporalUpscalePhaseIndex;
+        context.CloudFrameIndex = s_Data.ViewClock.CloudFrameIndex;
+        context.FogFrameIndex = s_Data.ViewClock.FogFrameIndex;
         context.CurrJitterUV = s_Data.View.CurrJitterUV;
         context.PrevJitterUV = s_Data.View.PrevJitterUV;
         context.TAAJitterRotation = s_Data.Clock.TAAJitterRotation;
@@ -939,7 +1039,7 @@ namespace OloEngine
         // ray-traced shadows built vegetation and groom proxies on a
         // raster-shadowed Deferred frame that no ray read: 24-58 ms of CPU in the
         // #1259 acceptance scene.
-        const auto& shadows = s_Data.Shadow.GetSettings();
+        const auto& shadows = s_Data.Shadow->GetSettings();
         return RayTracing::HybridProducersWanted(
             s_Data.Frame.GPUSceneExtractionActive, s_Data.SceneRT.IsAvailable(), s_Data.Settings.Path == RenderingPath::Deferred,
             !s_Data.Frame.RayTracedShadowLightRequests.IsEmpty(),

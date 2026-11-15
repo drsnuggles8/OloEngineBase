@@ -10,6 +10,7 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+#include "OloEngine/Renderer/RenderView.h"
 #include "OloEngine/Core/FrameTimeTail.h"
 #include "OloEngine/Scene/AnimalScheduler.h"
 #include "OloEngine/Scene/BoneAttachment.h"
@@ -667,6 +668,35 @@ namespace OloEngine
             return m_LastAnimationTime;
         }
 
+        /// One more view of this scene for its NEXT rendered 3D frame (ADR
+        /// 0026, issue #1352): the scene renders it into `View`, a view made
+        /// with Renderer3D::CreateView, in the same physical frame as its main
+        /// view. The world is advanced once for the frame, by whichever view
+        /// renders first; the other draws the same world from its own camera
+        /// with its own histories, exposure and occlusion pyramid.
+        ///
+        /// A request is for one frame, like every per-frame publication to the
+        /// renderer: ask again each frame the view should render. A view asked
+        /// for twice in one frame renders once, with the last request.
+        struct SceneViewRequest
+        {
+            RenderViewId View{};
+            /// The camera's world transform (the inverse of its view matrix).
+            glm::mat4 CameraTransform{ 1.0f };
+            glm::mat4 Projection{ 1.0f };
+            f32 NearClip = 0.1f;
+            f32 FarClip = 1000.0f;
+            /// Render it ahead of the main view, which makes it the frame's
+            /// primary view: the one whose camera anchors the frame's render
+            /// origin and the camera-following simulation windows.
+            bool BeforeMainView = false;
+        };
+        void RequestAdditionalView(const SceneViewRequest& request);
+        [[nodiscard]] u32 GetPendingAdditionalViewCount() const
+        {
+            return static_cast<u32>(m_AdditionalViewRequests.Num());
+        }
+
         // Viewport grid settings (editor only)
         void SetGridVisible(bool visible)
         {
@@ -1273,6 +1303,29 @@ namespace OloEngine
         void RenderScene(EditorCamera const& camera);
         void RenderScene3D(EditorCamera const& camera);
         void RenderScene3D(Camera const& camera, const glm::mat4& cameraTransform);
+        // The runtime overload above with the clip planes handed in: it reads
+        // them off the primary CameraComponent, an additional view brings its own.
+        void RenderScene3DFromCamera(Camera const& camera, const glm::mat4& cameraTransform, f32 cameraNearClip,
+                                     f32 cameraFarClip);
+        void RenderAdditionalView3D(const SceneViewRequest& request);
+        // Brackets one 3D frame of this scene. With no additional view
+        // requested it does nothing at all. With some, it opens the renderer's
+        // physical frame, renders the views asked for ahead of the main view,
+        // and on destruction renders the rest and closes the frame.
+        class AdditionalViewFrame
+        {
+          public:
+            explicit AdditionalViewFrame(Scene& scene);
+            ~AdditionalViewFrame();
+            AdditionalViewFrame(const AdditionalViewFrame&) = delete;
+            AdditionalViewFrame& operator=(const AdditionalViewFrame&) = delete;
+            AdditionalViewFrame(AdditionalViewFrame&&) = delete;
+            AdditionalViewFrame& operator=(AdditionalViewFrame&&) = delete;
+
+          private:
+            Scene& m_Scene;
+            TArray<SceneViewRequest> m_Requests;
+        };
         void ProcessScene3DSharedLogic(const glm::mat4& viewMatrix, const glm::mat4& projectionMatrix,
                                        const glm::vec3& cameraPosition,
                                        f32 cameraNearClip, f32 cameraFarClip);
@@ -1502,6 +1555,11 @@ namespace OloEngine
         bool m_ShowCameraFrustums = true;  // Per-CameraComponent frustum gizmo visibility
         f32 m_GridSpacing = 1.0f;          // Viewport grid spacing
         f32 m_LastAnimationTime = -1.0f;   // Tracks previous-frame animation time for wind/water/foliage velocity reprojection
+        // The previous animation time every view of the current physical frame
+        // uses (ADR 0026): latched by the frame's primary view, so a second view
+        // does not read the first view's "now" as its "previous".
+        f32 m_FramePrevAnimationTime = -1.0f;
+        TArray<SceneViewRequest> m_AdditionalViewRequests; // see RequestAdditionalView
         // Animation clock for water/foliage/wind. NOT the wall clock: it stops
         // while the scene is paused. See ProcessScene3DSharedLogic.
         f32 m_AnimationClock = 0.0f;

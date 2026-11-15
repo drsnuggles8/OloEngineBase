@@ -56,6 +56,7 @@
 #include "OloEngine/Renderer/LightCulling/TiledForwardPlus.h"
 #include "OloEngine/Renderer/ReflectionProbeArray.h"
 #include "OloEngine/Renderer/RenderingPath.h"
+#include "OloEngine/Renderer/RenderView.h"
 #include "OloEngine/Renderer/TerrainVTBindings.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
 #include "OloEngine/Renderer/Texture3D.h"
@@ -387,6 +388,95 @@ namespace OloEngine
         static void BeginScene(const EditorCamera& camera);
         static void BeginScene(const Camera& camera, const glm::mat4& transform);
         static void EndScene();
+
+        // --- Scene views and the physical frame (ADR 0026, issue #1352) ----
+        //
+        // A VIEW is a camera with its own render graph, pass pipeline, texture
+        // histories, Hi-Z pyramid, light grid, shadow maps, exposure and
+        // settings. Exactly one view is ACTIVE at a time and every Renderer3D
+        // call acts on it: BeginScene / EndScene render it, the settings
+        // accessors configure it, OnWindowResize sizes it and
+        // ResolveFrameGraphFramebuffer reads its targets. The main view
+        // (kMainRenderView) is active unless a ScopedView says otherwise, so a
+        // caller that never creates a view sees no difference.
+        //
+        // A PHYSICAL FRAME is one step of the world. BeginScene outside a
+        // BeginFrame / EndFrame bracket is a frame of its own, as it always
+        // was. Inside a bracket every BeginScene / EndScene pair renders one
+        // view of the SAME frame: the scene's pose history, its GPU Scene
+        // records and acceleration structures, the stochastic frame index and
+        // the world simulation (wind, snow, wake, precipitation, cloud and fog
+        // time) advance once, in the first view begun (the frame's PRIMARY
+        // view), and every later view draws that frame's world from its own
+        // camera. A view renders at most once per physical frame.
+        [[nodiscard]] static RenderViewId CreateView(const RenderViewDesc& desc);
+        // Releases the view's graph, passes, histories and GPU storage. The
+        // main view and the active view cannot be destroyed; neither can any
+        // view between BeginScene and EndScene. No other view is touched.
+        static void DestroyView(RenderViewId view);
+        [[nodiscard]] static bool IsViewAlive(RenderViewId view);
+        [[nodiscard]] static RenderViewId GetActiveView();
+        // Live views, the main view included.
+        [[nodiscard]] static u32 GetViewCount();
+        [[nodiscard]] static std::vector<RenderViewInfo> GetViewInfos();
+        [[nodiscard]] static RenderViewInfo GetViewInfo(RenderViewId view);
+
+        // Makes `view` the active view for the scope and puts the previous one
+        // back on exit. Not between BeginScene and EndScene. Scopes nest.
+        class ScopedView
+        {
+          public:
+            explicit ScopedView(RenderViewId view);
+            ~ScopedView();
+            ScopedView(const ScopedView&) = delete;
+            ScopedView& operator=(const ScopedView&) = delete;
+            ScopedView(ScopedView&&) = delete;
+            ScopedView& operator=(ScopedView&&) = delete;
+
+          private:
+            RenderViewId m_Previous{};
+            bool m_Switched = false;
+        };
+
+        // The explicit physical-frame bracket. Brackets do not nest.
+        static void BeginFrame();
+        static void EndFrame();
+        class ScopedFrame
+        {
+          public:
+            ScopedFrame()
+            {
+                BeginFrame();
+            }
+            ~ScopedFrame()
+            {
+                EndFrame();
+            }
+            ScopedFrame(const ScopedFrame&) = delete;
+            ScopedFrame& operator=(const ScopedFrame&) = delete;
+            ScopedFrame(ScopedFrame&&) = delete;
+            ScopedFrame& operator=(ScopedFrame&&) = delete;
+        };
+        // True from BeginFrame to EndFrame.
+        [[nodiscard]] static bool IsFrameOpen();
+        // Counts physical frames since Init; 0 before the first one.
+        [[nodiscard]] static u64 GetPhysicalFrameSerial();
+        // Between BeginScene and EndScene: whether the view being rendered is
+        // its physical frame's primary view. A pass or a scene traversal asks
+        // this before it advances anything the world owns.
+        [[nodiscard]] static bool IsPrimaryViewFrame();
+        // How often the once-per-frame scene steps have run since Init. With
+        // any number of views a physical frame adds exactly one to each.
+        struct SceneAdvanceCounters
+        {
+            u64 PhysicalFrames = 0;
+            u64 ViewFrames = 0;
+            u64 PoseHistoryRotations = 0;
+            u64 SceneExtractions = 0;
+            u64 WorldSimulationSteps = 0;
+            u64 StochasticIndexSteps = 0;
+        };
+        [[nodiscard]] static SceneAdvanceCounters GetSceneAdvanceCounters();
 
         // GPU-scene extraction is owned by the scene/view traversal and
         // committed once before render-graph configuration in EndScene().
@@ -1392,7 +1482,7 @@ namespace OloEngine
         // Forward+ light culling control
         static TiledForwardPlus& GetForwardPlus()
         {
-            return s_Data.ForwardPlus;
+            return *s_Data.ForwardPlus;
         }
         // Distance-impostor reflection probe arrays (issue #705)
         static ReflectionProbeArray& GetReflectionProbes()
@@ -1401,7 +1491,7 @@ namespace OloEngine
         }
         static bool IsForwardPlusActive()
         {
-            return s_Data.ForwardPlus.IsActive();
+            return s_Data.ForwardPlus->IsActive();
         }
         static Ref<VertexArray> GetFullscreenQuadVAO()
         {
@@ -1581,7 +1671,7 @@ namespace OloEngine
 
         static ShadowMap& GetShadowMap()
         {
-            return s_Data.Shadow;
+            return *s_Data.Shadow;
         }
 
         static void AddMeshShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, u32 baseIndex, const glm::mat4& transform,
@@ -2591,6 +2681,43 @@ namespace OloEngine
         // camera UBO from these fields.
         static void RefreshCullingCamera();
 
+        // --- Views and the physical frame (ADR 0026) -----------------------
+        struct RendererViewSlot;
+        [[nodiscard]] static RendererViewSlot* FindViewSlot(RenderViewId view);
+        // Park the active view's resident state in its slot and bring `view`'s
+        // into s_Data, then re-point everything outside s_Data that names a
+        // view-owned object. No-op when `view` is already active.
+        static void ActivateView(RenderViewId view);
+        // Create / release the GPU objects of the ACTIVE view's resident state:
+        // its graph, passes, Hi-Z, shadow maps and light grid. CreateView and
+        // DestroyView use them. The main view's are created by Init and
+        // released by Shutdown, in the order those always had.
+        static void InitializeActiveViewGPU(u32 width, u32 height);
+        static void ReleaseActiveViewGPU();
+        // Run `fn` once with each live view active, the active one last, and
+        // leave the active view as it was. For a reset that reaches every view.
+        template<typename TFunc>
+        static void ForEachView(TFunc&& fn);
+        // The top of every BeginScene and the tail of EndScene: open the
+        // physical frame if none is, decide whether this view is its primary,
+        // and close a frame a lone BeginScene opened.
+        static void BeginViewFrame();
+        static void EndViewFrame();
+        static void OpenPhysicalFrame(bool isExplicit);
+        static void ClosePhysicalFrame();
+        // The per-view half of ResetFrameSequences, on the active view.
+        static void ResetActiveViewSequences(u32 sequenceSeed);
+        struct RendererViewResident;
+        // Visit every live view's state where it is, the active view's in
+        // s_Data and the others' in their slots, without activating anything.
+        // For work that touches only a view's own objects (its histories, its
+        // settings); anything that goes through a Renderer3D accessor needs
+        // ForEachView instead.
+        template<typename TFunc>
+        static void ForEachViewResident(TFunc&& fn);
+        // Whether any live view's settings select the deferred path.
+        [[nodiscard]] static bool AnyViewRendersDeferred();
+
         [[nodiscard]] static GPUDrivenOcclusionPass* GetGPUOcclusionPass();
         // Deferred two-phase occlusion (#486). Exposes the deferred phase-2 pass
         // for submission-side routing; mirrors GetGPUOcclusionPass for the
@@ -2600,8 +2727,8 @@ namespace OloEngine
       private:
         // One camera and everything measured against it (ADR 0025). Reset is
         // assignment: `s_Data.View = {}` in Shutdown and ResetFrameCamera, so a
-        // field added here cannot be missed by a reset list. Two scene views
-        // (#1352) are two of these.
+        // field added here cannot be missed by a reset list. Each scene view
+        // (ADR 0026) has one, inside its RendererViewResident.
         struct RendererViewState
         {
             // True once OcclusionHZB has been generated at least once — guards
@@ -2838,27 +2965,27 @@ namespace OloEngine
             TArray64<FluidRenderData> PendingFluidDraws; // #630, drained by ConfigurePassesForFrame
         };
 
-        // The renderer's frame clock (ADR 0025): sampling-sequence indices and
-        // the time accumulators with their baselines. Advanced once per physical
-        // frame, restarted by ResetFrameSequences, reset in Shutdown. A scene
-        // change does not restart it.
+        // The renderer's frame clock (ADR 0025): the sampling-sequence indices
+        // and time accumulators the WORLD owns, with their baselines. Advanced
+        // once per physical frame, by the frame's primary view; restarted by
+        // ResetFrameSequences, reset in Shutdown. A scene change does not
+        // restart it. The sequences that pace one view's own accumulation (its
+        // jitter, its cloud and fog reprojection, its exposure) are in
+        // RendererViewClock.
         struct RendererFrameClock
         {
             glm::vec2 CloudWindOffset{ 0.0f, 0.0f };
             f32 CloudTime = 0.0f;
-            u32 CloudFrameIndex = 0;
             // Previous Time::GetTime() sample for the cloud dt (mockable via
             // Time::SetMockTime, unlike a steady_clock time point — the
             // determinism hook the visual-evidence goldens rely on).
             f32 CloudPrevTimeSeconds = 0.0f;
-            u32 FogFrameIndex = 0;
             // Previous Time::GetTime() samples for the mockable per-frame dt
             // idiom (RenderPipeline.cpp's SampleMockableDt, issue #974) —
             // members rather than function-local statics so
             // Renderer3DLifecycle's Init/Shutdown reset them and a renderer
             // re-init in one process cannot leak a stale sample.
             f32 FogPrevTimeSeconds = 0.0f;
-            f32 AutoExposurePrevTimeSeconds = 0.0f;
             f32 WindPrevTimeSeconds = 0.0f;
             f32 FogTime = 0.0f;
             // Previous Time::GetTime() sample for the wake field's dt — the same
@@ -2866,6 +2993,29 @@ namespace OloEngine
             // Time::SetMockTime freezes the decay for deterministic golden
             // captures instead of decaying by however long the last frame took.
             f32 WaterDisturbancePrevTimeSeconds = 0.0f;
+            // Engine-wide counter for the shared blue-noise sampler (issue
+            // #706), advanced once per frame in RenderPipeline regardless of
+            // which passes are enabled — see the comment at the increment for
+            // why it must NOT be conditional the way the two indices above are.
+            // Wrapped to 2^20 so it stays exactly representable in the f32 the
+            // SSR / SSGI params blocks carry it in.
+            u32 StochasticFrameIndex = 0;
+            // The run ResetFrameSequences last started (#1348); 0 for a fresh
+            // renderer. Reported by GetFrameSamplingContext only.
+            u32 FrameSequenceSeed = 0;
+            // The seed's toroidal shift of the TAA Halton jitter (#1348): zero
+            // for seeds 0..7, so seed 0 stays the fresh renderer.
+            glm::vec2 TAAJitterRotation{ 0.0f };
+        };
+
+        // The sequences that pace ONE view's own temporal accumulation (ADR
+        // 0026). Each advances once per frame the view renders, so a view
+        // rendered beside another steps exactly as it does alone. Not part of
+        // RendererViewState: a camera reset (ResetFrameCamera) leaves them, as
+        // it always left the frame clock they came from. ResetFrameSequences
+        // restarts them on every view.
+        struct RendererViewClock
+        {
             // TAA projection jitter state (Halton(2,3) sub-pixel sequence).
             // `RenderPipeline::PrepareFrame(...)` samples the next Halton pair
             // when EngineTAAWanted (the user OR a scene request, #1429) and
@@ -2883,25 +3033,180 @@ namespace OloEngine
             // writes zero. Without a jitter both stay at zero.
             u32 TAAJitterFrameIndex = 0;
             u32 TemporalUpscalePhaseIndex = 0;
-            // Engine-wide counter for the shared blue-noise sampler (issue
-            // #706), advanced once per frame in RenderPipeline regardless of
-            // which passes are enabled — see the comment at the increment for
-            // why it must NOT be conditional the way the two indices above are.
-            // Wrapped to 2^20 so it stays exactly representable in the f32 the
-            // SSR / SSGI params blocks carry it in.
-            u32 StochasticFrameIndex = 0;
-            // The run ResetFrameSequences last started (#1348); 0 for a fresh
-            // renderer. Reported by GetFrameSamplingContext only.
-            u32 FrameSequenceSeed = 0;
-            // The seed's toroidal shift of the TAA Halton jitter (#1348): zero
-            // for seeds 0..7, so seed 0 stays the fresh renderer.
-            glm::vec2 TAAJitterRotation{ 0.0f };
+            // The cloudscape's and the froxel fog's reprojection phases. The
+            // TIME those effects animate with is the world's (RendererFrameClock).
+            u32 CloudFrameIndex = 0;
+            u32 FogFrameIndex = 0;
+            // Previous Time::GetTime() sample for this view's eye-adaptation
+            // step (RenderPipeline.cpp's SampleMockableDt): a view adapts by the
+            // time since IT last rendered, whatever rendered in between.
+            f32 AutoExposurePrevTimeSeconds = 0.0f;
+            // Wall-clock baseline of the temporal upscaler's frame delta, which
+            // paces how fast its locks decay; unset until the view's first frame.
+            std::chrono::steady_clock::time_point TemporalUpscalePrevTime{};
+            bool HasTemporalUpscalePrevTime = false;
+            // The physical frame this view last rendered in (0: never), whether
+            // it was that frame's primary view, and how many it has rendered.
+            u64 LastRenderedFrameSerial = 0;
+            u64 FramesRendered = 0;
+            bool WasPrimary = false;
         };
 
-        struct Renderer3DData
+        // The decal-visibility probe's two-frame query ring (olo_decal_visibility).
+        // Per view: a ring two views shared would answer one view with the
+        // other's occlusion result.
+        struct DecalVisibilityFrame
+        {
+            i32 EntityID = -1;
+            bool Submitted = false;
+            bool DrawIssued = false;
+            bool ReceiverQueryIssued = false;
+            bool QueryIssued = false;
+        };
+
+        // Everything ONE scene view owns (ADR 0026). The active view's copy IS
+        // the base sub-object of s_Data, so `s_Data.View`, `s_Data.RGraph`,
+        // `s_Data.Settings` and the rest name the active view's state and no
+        // reader changes when a second view exists. Every other view's copy is
+        // parked in its slot. Activating a view moves this whole struct out and
+        // the target's in, so a member added here belongs to a view without
+        // being named anywhere else. Whatever is NOT here is shared by every
+        // view: device objects, the scene, the frame's hand-offs and the frame
+        // clock.
+        //
+        // Move-only. The members that cannot move (the light grid and the
+        // shadow maps hold pointers into themselves) are held by pointer, which
+        // also keeps their addresses stable for the passes that hold them.
+        struct RendererViewResident
+        {
+            RendererViewResident();
+            ~RendererViewResident();
+            RendererViewResident(RendererViewResident&&) noexcept;
+            RendererViewResident& operator=(RendererViewResident&&) noexcept;
+            RendererViewResident(const RendererViewResident&) = delete;
+            RendererViewResident& operator=(const RendererViewResident&) = delete;
+
+            RendererViewState View;
+            RendererViewClock ViewClock;
+
+            // Renderer settings (path selection, culling toggles, etc.) and the
+            // post-process stack. A view created later starts with a copy.
+            RendererSettings Settings;
+            PostProcessSettings PostProcess;
+
+            // The view's frame graph, with its TemporalHistoryRegistry bound to
+            // the view's id, and every pass object of its pipeline.
+            Ref<RenderGraph> RGraph;
+            std::unique_ptr<RenderPipeline> Pipeline;
+            // RenderingPath the current RenderGraph topology was built for.
+            // Compared against Settings.Path in ApplyRendererSettings to
+            // detect a mode switch and trigger ConfigureRenderGraph.
+            // Initialised to a sentinel so the first ConfigureRenderGraph
+            // in SetupRenderGraph always runs.
+            RenderingPath ActiveGraphPath = static_cast<RenderingPath>(0xFF);
+            AOTechnique ActiveGraphAOTechnique = static_cast<AOTechnique>(0xFF); // sentinel: never configured
+
+            // Persistent Hi-Z occlusion pyramid (#431). A max-reduction depth
+            // pyramid regenerated at the end of every EndScene from this frame's
+            // scene depth and RETAINED across frames, so the GPU instance cull —
+            // dispatched at submission time, before this frame's depth exists —
+            // can additionally reject instances hidden behind last frame's
+            // depth. It holds the depth THIS view rendered; View.OcclusionHZBValid
+            // and View.CullPrevViewProjectionMatrix describe it.
+            HZBGenerator OcclusionHZB;
+            // Master toggle for the HZB occlusion path. Off by default: it
+            // trades a one-frame-latent, conservative occlusion test for the
+            // possibility of transient disocclusion popping on fast camera cuts
+            // (the two-pass refinement that removes the popping is a documented
+            // follow-up). Mirrors RendererSettings::HZBOcclusionCullingEnabled.
+            bool HZBOcclusionCullingEnabled = false;
+            // Device-Z slack subtracted before an instance is rejected as
+            // occluded. Larger = more conservative (fewer false culls).
+            f32 HZBOcclusionDepthBias = 0.0f;
+
+            // What ApplyRendererSettings derives from Settings.
+            bool FrustumCullingEnabled = true;
+            bool DynamicCullingEnabled = true;
+            bool DepthPrepassEnabled = false;
+            bool DepthAwareClusterCullingEnabled = true;
+            bool OcclusionCullingEnabled = false;
+            // Editor-only features gated behind opt-in flags
+            bool EnableSelectionOutline = false;
+
+            // Forward+ light culling: the light grid is sized by this view's
+            // resolution and filled from its camera.
+            std::unique_ptr<TiledForwardPlus> ForwardPlus;
+
+            // Shadow mapping. The cascades are fitted to this view's frustum,
+            // and the virtual shadow map marks its pages from this view's depth
+            // one frame ahead of the shadow pass that renders them.
+            std::unique_ptr<ShadowMap> Shadow;
+
+            i32 DecalVisibilityTarget = -1;
+            u32 DecalVisibilityWriteBuffer = 0;
+            bool DecalVisibilityQueriesInitialized = false;
+            std::array<RHI::ResourceHandle, 2> DecalReceiverIntersectionQueries{};
+            std::array<RHI::ResourceHandle, 2> DecalVisibilityQueries{};
+            std::array<DecalVisibilityFrame, 2> DecalVisibilityFrames{};
+            DecalVisibilityObservation LastDecalVisibilityObservation{};
+            i32 LastDecalVisibilityEntity = -1;
+        };
+
+        // One step of the world (ADR 0026). Opened by BeginFrame, or by a
+        // BeginScene that finds none open; every BeginScene inside it renders
+        // one view of the same frame.
+        struct RendererPhysicalFrame
+        {
+            // Counts frames since Init. 0: none has been opened yet.
+            u64 Serial = 0;
+            bool Open = false;
+            // Opened by BeginFrame rather than by a lone BeginScene, which
+            // closes its own frame in EndScene.
+            bool Explicit = false;
+            // Between BeginScene and EndScene.
+            bool InScene = false;
+            // Whether that scene is the frame's first view.
+            bool InPrimaryView = false;
+            u32 ViewsBegun = 0;
+            // The camera-relative origin every view of this frame renders
+            // about: the primary view's. The GPU Scene records and the
+            // acceleration structures are encoded against one origin a frame.
+            glm::vec3 RenderOrigin = glm::vec3(0.0f);
+            // The frame's GPU Scene records have been committed, so a later
+            // view links its draws to them instead of extracting again.
+            bool SceneExtracted = false;
+            // A view of this frame is linking draws to the committed records.
+            bool LinkingDraws = false;
+            // The scene that extracted, and whether another scene's view in the
+            // same frame has been reported (once per renderer run).
+            u64 SceneOwnerToken = 0;
+            bool ReportedForeignScene = false;
+            // FrameResourceManager::BeginFrame ran for this frame, so its
+            // EndFrame is owed when the frame closes.
+            bool FrameResourcesBegun = false;
+            SceneAdvanceCounters Counters;
+        };
+
+        // One view's slot. `Parked` holds the view's state while another view
+        // is active. While this view is the active one its state is in s_Data
+        // and `Parked` is moved-from: it owns no object and is not read.
+        struct RendererViewSlot
+        {
+            RenderViewId Id{};
+            std::string DebugName;
+            RendererViewResident Parked;
+        };
+
+        struct Renderer3DData : RendererViewResident
         {
             Renderer3DData();
             ~Renderer3DData();
+
+            // Every live view, the main view first. See RendererViewResident.
+            std::vector<RendererViewSlot> Views;
+            RenderViewId ActiveView{};
+            u64 NextViewId = 1;
+            RendererPhysicalFrame PhysicalFrame;
 
             Ref<Mesh> CubeMesh;
             Ref<Mesh> SphereMesh; // Unit-radius icosphere for DrawSphere / joint markers
@@ -2987,23 +3292,6 @@ namespace OloEngine
             // loop wins on launch overhead.
             u32 GPUCullThreshold = 1024;
 
-            // Persistent Hi-Z occlusion pyramid (#431). A max-reduction depth
-            // pyramid regenerated at the end of every EndScene from this frame's
-            // scene depth and RETAINED across frames, so the GPU instance cull —
-            // dispatched at submission time, before this frame's depth exists —
-            // can additionally reject instances hidden behind last frame's
-            // depth. Value-owned (lifetime = engine); Initialize()/Shutdown()
-            // bracket the GL context in Renderer3D::Init / Shutdown.
-            HZBGenerator OcclusionHZB;
-            // Master toggle for the HZB occlusion path. Off by default: it
-            // trades a one-frame-latent, conservative occlusion test for the
-            // possibility of transient disocclusion popping on fast camera cuts
-            // (the two-pass refinement that removes the popping is a documented
-            // follow-up). Mirrors RendererSettings::HZBOcclusionCullingEnabled.
-            bool HZBOcclusionCullingEnabled = false;
-            // Device-Z slack subtracted before an instance is rejected as
-            // occluded. Larger = more conservative (fewer false culls).
-            f32 HZBOcclusionDepthBias = 0.0f;
             PostProcessGPUState PostProcessGPU;
             Ref<UniformBuffer> TerrainUBO;
             Ref<UniformBuffer> FoliageUBO;
@@ -3031,17 +3319,8 @@ namespace OloEngine
             // the renderer reverts to exact pre-#429 world-space behaviour.
             bool CameraRelativeEnabled = true;
 
-            bool FrustumCullingEnabled = true;
-            bool DynamicCullingEnabled = true;
-            bool DepthPrepassEnabled = false;
-            bool DepthAwareClusterCullingEnabled = true;
-            bool OcclusionCullingEnabled = false;
-
             // Global resource registry for scene-wide resources like environment maps, shadows, etc.
             ShaderResourceRegistry GlobalResourceRegistry;
-
-            Ref<RenderGraph> RGraph;
-            std::unique_ptr<RenderPipeline> Pipeline;
 
             // True once Init() has allocated the renderer's one-shot singletons
             // (FrameDataBufferManager, FrameResourceManager, command dispatch, …).
@@ -3055,8 +3334,7 @@ namespace OloEngine
             // initialized" assert. Reset in Shutdown().
             bool CoreInitialized = false;
 
-            // Shadow mapping
-            ShadowMap Shadow;
+            // Shadow mapping (the maps themselves are per view: RendererViewResident)
             Ref<Shader> ShadowDepthShader;
             Ref<Shader> ShadowDepthSkinnedShader;
 
@@ -3112,25 +3390,8 @@ namespace OloEngine
             Ref<Mesh> DecalCubeMesh;
             Ref<Texture2D> WhiteTexture; // 1x1 fallback for untextured decals
 
-            struct DecalVisibilityFrame
-            {
-                i32 EntityID = -1;
-                bool Submitted = false;
-                bool DrawIssued = false;
-                bool ReceiverQueryIssued = false;
-                bool QueryIssued = false;
-            };
-            i32 DecalVisibilityTarget = -1;
-            u32 DecalVisibilityWriteBuffer = 0;
-            bool DecalVisibilityQueriesInitialized = false;
-            std::array<RHI::ResourceHandle, 2> DecalReceiverIntersectionQueries{};
-            std::array<RHI::ResourceHandle, 2> DecalVisibilityQueries{};
-            std::array<DecalVisibilityFrame, 2> DecalVisibilityFrames{};
-            DecalVisibilityObservation LastDecalVisibilityObservation{};
-            i32 LastDecalVisibilityEntity = -1;
-
-            // Post-processing
-            PostProcessSettings PostProcess;
+            // The scene's render settings: one world, whatever looks at it.
+            // (The post-process stack is per view: RendererViewResident.)
             SnowSettings Snow;
             // Skin scattering (issue #1241). A sibling of Snow rather than a
             // member of it: the two share a UBO BINDING and nothing else — snow
@@ -3154,14 +3415,8 @@ namespace OloEngine
             // Parallel submission state
             ParallelSceneContext ParallelContext;
 
-            // Forward+ light culling
-            TiledForwardPlus ForwardPlus;
-
             // Distance-impostor reflection probe arrays (issue #705)
             ReflectionProbeArray ReflectionProbes;
-
-            // Global renderer settings (path selection, culling toggles, etc.)
-            RendererSettings Settings;
 
             // Driver-advertised MSAA sample-count caps, queried once in
             // Renderer3D::Init. Zero until queried. ApplyRendererSettings
@@ -3171,21 +3426,10 @@ namespace OloEngine
             u32 MaxMSAASamplesColor = 0;
             u32 MaxMSAASamplesDepth = 0;
 
-            // RenderingPath the current RenderGraph topology was built for.
-            // Compared against Settings.Path in ApplyRendererSettings to
-            // detect a mode switch and trigger ConfigureRenderGraph.
-            // Initialised to a sentinel so the first ConfigureRenderGraph
-            // in SetupRenderGraph always runs.
-            RenderingPath ActiveGraphPath = static_cast<RenderingPath>(0xFF);
-            AOTechnique ActiveGraphAOTechnique = static_cast<AOTechnique>(0xFF); // sentinel: never configured
-
-            // Editor-only features gated behind opt-in flags
-            bool EnableSelectionOutline = false;
-
-            // The owned contexts (ADR 0025). Everything above and below this
-            // block is a device object, a scene or view GPU resource with its
-            // own Shutdown, or configuration.
-            RendererViewState View;
+            // The owned contexts every view shares (ADR 0025). The view's own
+            // is the RendererViewResident base. Everything above this block is
+            // a device object, a scene GPU resource with its own Shutdown, or
+            // configuration.
             RendererSceneState Scene;
             RendererFrameState Frame;
             RendererFrameClock Clock;

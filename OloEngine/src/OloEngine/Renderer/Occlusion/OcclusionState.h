@@ -39,7 +39,11 @@ namespace OloEngine
     class OcclusionStateManager
     {
       public:
+        // The manager of the ACTIVE scene view (ADR 0026); see
+        // OcclusionQueryPool::SetActiveView.
         static OcclusionStateManager& GetInstance();
+        static void SetActiveView(u64 view);
+        static void ReleaseView(u64 view);
 
         /// @brief Reset all state. Called on scene change.
         void Clear();

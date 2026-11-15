@@ -542,6 +542,15 @@ namespace OloEngine::RHI
         // transient descriptors named stop being owned by the passes that used
         // them.
         void ResetFrameTransients();
+        // Several render graphs can execute in one frame of the backend: one
+        // per scene view of a bracketed physical frame (ADR 0026). Each calls
+        // ResetFrameTransients when it has executed, and the ring has one
+        // sub-ring per frame IN FLIGHT, so advancing it once per graph would
+        // hand the next frame a sub-ring the previous frame's commands still
+        // index. While held, a reset is remembered instead of performed and the
+        // views minted so far stay live; releasing the hold performs one reset
+        // for all of them. Holds do not nest.
+        void HoldFrameTransientReset(bool hold);
 
         // Push dirty slots to the GPU-visible table. Cheap and idempotent when
         // nothing changed, so calling it once per frame before execution is the
@@ -711,6 +720,8 @@ namespace OloEngine::RHI
         TArray<u32> m_PersistentFreeList;
         u32 m_TransientCursor = 0u;
         u32 m_TransientFrames = 1u; ///< sub-rings (frames in flight)
+        bool m_FrameResetHeld = false;    ///< see HoldFrameTransientReset
+        bool m_FrameResetPending = false; ///< a reset was asked for while held
         u32 m_TransientFrame = 0u;  ///< the sub-ring this frame allocates from
 
         // Sampler heap: value-deduplicated, refcounted. `SamplerDesc` has a

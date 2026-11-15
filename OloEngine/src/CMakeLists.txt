@@ -767,6 +767,8 @@
 		"OloEngine/Renderer/Renderer3DFrameSetup.cpp"
 		"OloEngine/Renderer/Renderer3DRenderStreamSubmission.cpp"
 		"OloEngine/Renderer/Renderer3DState.cpp"
+		"OloEngine/Renderer/Renderer3DViews.cpp"
+		"OloEngine/Renderer/RenderView.h"
 		"OloEngine/Renderer/Renderer2D.cpp"
 		"OloEngine/Renderer/Renderer2D.h"
 		"OloEngine/Renderer/Renderer3DDrawHelpers.h"

@@ -275,6 +275,19 @@ namespace OloEngine
     class TemporalHistoryRegistry
     {
       public:
+        // Make this registry one scene view's (ADR 0026): every key it is
+        // handed afterwards is stored and looked up under `view`, whatever
+        // view the caller wrote, so a history acquired by one view's render
+        // graph cannot be found under another view's key. A pass keeps writing
+        // View = 0, meaning "the view I render for". Bind once, before the
+        // first acquire; Clear() keeps the binding. An unbound registry keys
+        // histories exactly as given.
+        void BindToView(u64 view);
+        [[nodiscard]] std::optional<u64> GetBoundView() const
+        {
+            return m_BoundView;
+        }
+
         [[nodiscard]] TemporalHistoryAcquireResult Acquire(
             const TemporalHistoryKey& key,
             const TemporalHistoryDescriptor& descriptor,
@@ -344,7 +357,10 @@ namespace OloEngine
 
         [[nodiscard]] Entry* Resolve(TemporalHistoryToken token);
         [[nodiscard]] const Entry* Resolve(TemporalHistoryToken token) const;
+        // `key` under the bound view, or `key` itself while unbound.
+        [[nodiscard]] TemporalHistoryKey BoundKey(const TemporalHistoryKey& key) const;
 
+        std::optional<u64> m_BoundView;
         std::unordered_map<TemporalHistoryKey, u32, TemporalHistoryKeyHash> m_Indices;
         std::unordered_map<std::string, TemporalHistoryKey> m_DebugNameOwners;
         TArray<Entry> m_Entries;

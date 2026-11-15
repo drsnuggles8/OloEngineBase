@@ -649,10 +649,61 @@ namespace OloEngine
         };
     } // namespace Renderer3DDetail
 
+    // Out of line because RenderPipeline is incomplete in Renderer3D.h. A
+    // default-constructed resident owns nothing: the main view's objects are
+    // made by Renderer3DData below and every other view's by CreateView, so a
+    // parked slot that is empty (its view is the active one) holds no pass, no
+    // light grid and no shadow map of its own.
+    inline Renderer3D::RendererViewResident::RendererViewResident() = default;
+    inline Renderer3D::RendererViewResident::~RendererViewResident() = default;
+    inline Renderer3D::RendererViewResident::RendererViewResident(RendererViewResident&&) noexcept = default;
+    inline auto Renderer3D::RendererViewResident::operator=(RendererViewResident&&) noexcept
+        -> RendererViewResident& = default;
+
     inline Renderer3D::Renderer3DData::Renderer3DData()
-        : Pipeline(std::make_unique<RenderPipeline>())
     {
+        // The main view: resident in s_Data from the start, and its slot is
+        // the first and never removed.
+        Pipeline = std::make_unique<RenderPipeline>();
+        ForwardPlus = std::make_unique<TiledForwardPlus>();
+        Shadow = std::make_unique<ShadowMap>();
+        Views.emplace_back();
+        Views.back().Id = kMainRenderView;
+        Views.back().DebugName = "Main";
     }
 
     inline Renderer3D::Renderer3DData::~Renderer3DData() = default;
+
+    template<typename TFunc>
+    void Renderer3D::ForEachViewResident(TFunc&& fn)
+    {
+        for (RendererViewSlot& slot : s_Data.Views)
+        {
+            if (slot.Id == s_Data.ActiveView)
+                fn(static_cast<RendererViewResident&>(s_Data));
+            else
+                fn(slot.Parked);
+        }
+    }
+
+    template<typename TFunc>
+    void Renderer3D::ForEachView(TFunc&& fn)
+    {
+        // Ids, not slots: activation moves state between s_Data and the slots.
+        // `fn` must not create or destroy a view.
+        const RenderViewId active = s_Data.ActiveView;
+        TArray<RenderViewId> others;
+        for (const RendererViewSlot& slot : s_Data.Views)
+        {
+            if (slot.Id != active)
+                others.Add(slot.Id);
+        }
+        for (const RenderViewId view : others)
+        {
+            ActivateView(view);
+            fn();
+        }
+        ActivateView(active);
+        fn();
+    }
 } // namespace OloEngine

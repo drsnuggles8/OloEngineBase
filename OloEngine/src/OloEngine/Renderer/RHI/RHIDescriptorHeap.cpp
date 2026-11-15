@@ -184,6 +184,8 @@ namespace OloEngine::RHI
         }
 
         m_TransientCursor = 0u;
+        m_FrameResetHeld = false;
+        m_FrameResetPending = false;
         m_TransientFrame = 0u;
         m_SamplerSlots.Reset();
         m_ViewsByResource.clear();
@@ -253,6 +255,8 @@ namespace OloEngine::RHI
         m_ViewsByResource.clear();
         m_PersistentViewCache.clear();
         m_TransientCursor = 0u;
+        m_FrameResetHeld = false;
+        m_FrameResetPending = false;
         m_TransientFrame = 0u;
         m_DirtyFirst = 0u;
         m_DirtyLast = 0u;
@@ -634,6 +638,25 @@ namespace OloEngine::RHI
     // Frame boundary and publication
     // -------------------------------------------------------------------------
 
+    void DescriptorHeap::HoldFrameTransientReset(bool hold)
+    {
+        bool performPending = false;
+        {
+            const std::lock_guard lock(m_Mutex);
+            if (hold == m_FrameResetHeld)
+            {
+                return;
+            }
+            m_FrameResetHeld = hold;
+            performPending = !hold && m_FrameResetPending;
+            m_FrameResetPending = false;
+        }
+        if (performPending)
+        {
+            ResetFrameTransients();
+        }
+    }
+
     void DescriptorHeap::ResetFrameTransients()
     {
         const std::lock_guard lock(m_Mutex);
@@ -641,6 +664,11 @@ namespace OloEngine::RHI
         // its heap. Shutdown retains the configured capacities but clears slots.
         if (!m_Initialized)
         {
+            return;
+        }
+        if (m_FrameResetHeld)
+        {
+            m_FrameResetPending = true;
             return;
         }
 

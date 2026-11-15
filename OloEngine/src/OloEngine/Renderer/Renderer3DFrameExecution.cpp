@@ -223,6 +223,20 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
         OLO_PERF_SCOPE_AUTO("Renderer3D::EndScene");
 
+        // Closes this view's frame on every exit, and the physical frame with
+        // it when a lone BeginScene opened one (ADR 0026).
+        struct ViewFrameCloser
+        {
+            ViewFrameCloser() = default;
+            ViewFrameCloser(const ViewFrameCloser&) = delete;
+            ViewFrameCloser& operator=(const ViewFrameCloser&) = delete;
+            ~ViewFrameCloser()
+            {
+                Renderer3D::EndViewFrame();
+            }
+        };
+        const ViewFrameCloser closeViewFrame;
+
         // Commit exactly once per scene/view frame, before pass configuration
         // can expose the buffers to consumers. StorageBuffer::SetData is the
         // shared GL/Vulkan path; Vulkan snapshots these writes in command order.
@@ -248,7 +262,7 @@ namespace OloEngine
                                          std::span<const GroomStrandRequest>(s_Data.Frame.GroomStrandRequests.GetData(),
                                                                              static_cast<sizet>(s_Data.Frame.GroomStrandRequests.Num())),
                                          WantsRayTracingGrooms(), s_Data.Settings.GroomDetailBias);
-            if (s_Data.RGraph && s_Data.VegetationSurfaces.GetStats().HistoryReset)
+            if (s_Data.VegetationSurfaces.GetStats().HistoryReset)
             {
                 // A change of the TRACED vegetation (plants entering or leaving
                 // the scene, a tier or time-resolution switch, a lost wind
@@ -262,24 +276,36 @@ namespace OloEngine
                 // live dolly through the IntegratedRenderer meadow) threw the
                 // whole raster history away with it.
                 // ReSTIR PT's path records bounce off the same stand-ins (#1348).
-                for (const TemporalHistoryEffect effect : { TemporalHistoryEffect::RayTracedShadow, TemporalHistoryEffect::ReSTIRDI,
-                                                            TemporalHistoryEffect::ReSTIRGI, TemporalHistoryEffect::ReSTIRPT })
-                    s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual, effect);
+                ForEachViewResident([](RendererViewResident& view)
+                                    {
+                                        if (!view.RGraph)
+                                            return;
+                                        for (const TemporalHistoryEffect effect :
+                                             { TemporalHistoryEffect::RayTracedShadow, TemporalHistoryEffect::ReSTIRDI,
+                                               TemporalHistoryEffect::ReSTIRGI, TemporalHistoryEffect::ReSTIRPT })
+                                            view.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual, effect); });
             }
-            if (s_Data.RGraph && s_Data.GroomSurfaces.GetStats().StreamingInvalidations != 0)
+            if (s_Data.GroomSurfaces.GetStats().StreamingInvalidations != 0)
             {
                 // A shape/time-resolution switch cannot be reprojected from
                 // raster velocity. Reset the histories that consume hybrid RT.
-                s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
-                                                           TemporalHistoryEffect::RayTracedShadow);
-                s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
-                                                           TemporalHistoryEffect::TAA);
+                ForEachViewResident([](RendererViewResident& view)
+                                    {
+                                        if (!view.RGraph)
+                                            return;
+                                        view.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
+                                                                                 TemporalHistoryEffect::RayTracedShadow);
+                                        view.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
+                                                                                 TemporalHistoryEffect::TAA); });
             }
             const GPUSceneFrameUpdate& frameUpdate = s_Data.SceneGPU.EndExtraction();
             s_Data.SceneGPU.Upload();
+            // The deferred path's material table. Kept while ANY view shades
+            // deferred (ADR 0026): a later view of this frame may be the one
+            // that reads it, and it refreshes it itself below.
             if (s_Data.Settings.Path == RenderingPath::Deferred)
                 s_Data.RasterMaterialTextures.Update(s_Data.SceneGPU);
-            else
+            else if (!AnyViewRendersDeferred())
                 s_Data.RasterMaterialTextures.Shutdown();
             // The path tracer's tables (#1055), committed right after the
             // records they resolve against and before any pass can read them:
@@ -301,15 +327,19 @@ namespace OloEngine
             // integrand: a map that resolves a frame late changes what every
             // hit shades with, and a table whose upload failed turns a term off,
             // neither with a dirty range of its own.
-            if (s_Data.RGraph &&
-                (!frameUpdate.m_InstanceDirtyRanges.IsEmpty() || !frameUpdate.m_GeometryDirtyRanges.IsEmpty() ||
-                 !frameUpdate.m_MaterialDirtyRanges.IsEmpty() || !frameUpdate.m_LightDirtyRanges.IsEmpty() ||
-                 !frameUpdate.m_EnvironmentDirtyRanges.IsEmpty() || s_Data.PathTracerMaterialTextures.ChangedThisFrame() ||
-                 s_Data.PathTracerEmissive.ChangedThisFrame()))
+            // The scene is every view's: each view's histories take the
+            // invalidation, not only those of the view that extracted.
+            if (!frameUpdate.m_InstanceDirtyRanges.IsEmpty() || !frameUpdate.m_GeometryDirtyRanges.IsEmpty() ||
+                !frameUpdate.m_MaterialDirtyRanges.IsEmpty() || !frameUpdate.m_LightDirtyRanges.IsEmpty() ||
+                !frameUpdate.m_EnvironmentDirtyRanges.IsEmpty() || s_Data.PathTracerMaterialTextures.ChangedThisFrame() ||
+                s_Data.PathTracerEmissive.ChangedThisFrame())
             {
-                s_Data.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneMutated);
-                if (s_Data.Pipeline)
-                    ++s_Data.Pipeline->ReSTIRPTSceneEpoch;
+                ForEachViewResident([](RendererViewResident& view)
+                                    {
+                                        if (view.RGraph)
+                                            view.RGraph->InvalidateTemporalHistories(TemporalHistoryInvalidationCause::SceneMutated);
+                                        if (view.Pipeline)
+                                            ++view.Pipeline->ReSTIRPTSceneEpoch; });
             }
             // The commit-to-consumer step (issue #994): slots and generations
             // are final here, so every draw link staged during submission is
@@ -320,6 +350,21 @@ namespace OloEngine
             RendererProfiler::GetInstance().SetGPUSceneDrawLinkCounts(s_Data.Frame.GPUSceneLinkedDraws,
                                                                       s_Data.Frame.GPUSceneUnlinkedDraws);
             s_Data.Frame.GPUSceneExtractionActive = false;
+            s_Data.PhysicalFrame.SceneExtracted = true;
+            ++s_Data.PhysicalFrame.Counters.SceneExtractions;
+        }
+        else if (s_Data.PhysicalFrame.LinkingDraws)
+        {
+            // A later view of a frame whose scene is already committed (ADR
+            // 0026): nothing is extracted, deformed, rebuilt or retired a
+            // second time. What it does is resolve the links its draws staged
+            // against the committed records, and bring the deferred path's
+            // material table up to them if this is the view that reads it.
+            if (s_Data.Settings.Path == RenderingPath::Deferred)
+                s_Data.RasterMaterialTextures.Update(s_Data.SceneGPU);
+            ResolveGPUSceneDrawLinks();
+            RendererProfiler::GetInstance().SetGPUSceneDrawLinkCounts(s_Data.Frame.GPUSceneLinkedDraws,
+                                                                      s_Data.Frame.GPUSceneUnlinkedDraws);
         }
 
         auto& pipeline = *s_Data.Pipeline;
@@ -484,8 +529,14 @@ namespace OloEngine
 
         RendererProfiler::GetInstance().EndFrame();
 
-        // End frame for double-buffered resources (inserts GPU fence)
-        FrameResourceManager::Get().EndFrame();
+        // End frame for double-buffered resources (inserts GPU fence). Once
+        // per physical frame: a bracketed frame ends them in EndFrame, after
+        // its last view (ADR 0026).
+        if (!s_Data.PhysicalFrame.Explicit && s_Data.PhysicalFrame.FrameResourcesBegun)
+        {
+            FrameResourceManager::Get().EndFrame();
+            s_Data.PhysicalFrame.FrameResourcesBegun = false;
+        }
 
         // Check every out-of-band access this frame made against what the
         // compiled graph declared (#1331). Logged once per distinct result and

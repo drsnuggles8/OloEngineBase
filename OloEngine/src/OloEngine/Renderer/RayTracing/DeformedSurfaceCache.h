@@ -276,6 +276,13 @@ namespace OloEngine::RayTracing
                                                      const Ref<MeshSource>& meshSource,
                                                      std::span<const glm::mat4> palette, u64 morphStateHash);
 
+        // The stream a surface already has, without asking for anything: no
+        // dispatch is queued, no counter moves and the surface is not marked
+        // as offered. For a later view of a physical frame (ADR 0026), which
+        // names the record the frame's extraction committed and must not
+        // deform the surface a second time. Invalid when the surface has none.
+        [[nodiscard]] DeformedSurfaceBinding FindResident(const DeformedSurfaceKey& key) const;
+
         // The pose hash Acquire compares against. Exposed because it is the
         // testable half of the skip decision.
         [[nodiscard]] static u64 HashPalette(std::span<const glm::mat4> palette);

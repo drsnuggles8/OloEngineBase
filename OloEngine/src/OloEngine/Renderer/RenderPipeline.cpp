@@ -469,7 +469,7 @@ namespace OloEngine
 
         // Any shadow array a groom asked to grow (#1533), before this frame
         // reads a single shadow handle below.
-        data.Shadow.ApplyPendingOpaqueLayers();
+        data.Shadow->ApplyPendingOpaqueLayers();
 
         // Open the profiler bracket before any per-frame work so the wall
         // bracket covers the whole render section, including the fence wait
@@ -513,11 +513,24 @@ namespace OloEngine
 
         // Begin new frame for double-buffered resources. May block on the
         // frame fence when the GPU is behind — that wait IS the gpuWait metric.
-        FrameResourceManager::Get().BeginFrame();
+        //
+        // Once per PHYSICAL frame (ADR 0026): the allocators and the deferred
+        // deletions it cycles belong to the frame the backend executes, and a
+        // later view of the same frame keeps allocating from the same set. A
+        // cycle per view would have the third view of a frame wait on the
+        // fence of the first, which a backend that submits at the end of the
+        // frame has not issued yet.
+        const bool primaryView = Renderer3D::IsPrimaryViewFrame();
+        const bool firstViewOfFrame = data.PhysicalFrame.InPrimaryView;
+        if (firstViewOfFrame)
+        {
+            FrameResourceManager::Get().BeginFrame();
+            data.PhysicalFrame.FrameResourcesBegun = true;
+        }
 
         // Virtualized geometry (#629): reset this frame's instance submissions.
         VirtualMeshRegistry::Get().BeginFrame();
-        profiler.AddGPUWaitTime(FrameResourceManager::Get().GetLastBeginFrameWaitMs());
+        profiler.AddGPUWaitTime(firstViewOfFrame ? FrameResourceManager::Get().GetLastBeginFrameWaitMs() : 0.0);
 
         // Advance the always-on GPU frame/pass timers: resolve a completed
         // earlier frame's timestamps (non-blocking) and stamp this frame's
@@ -546,10 +559,19 @@ namespace OloEngine
         // submission can look up "previous frame" transforms. In Forward /
         // Forward+ these maps stay empty because those paths never call
         // GetAndRecordPrevTransform.
-        data.Scene.PrevEntityTransforms = std::move(data.Scene.CurrEntityTransforms);
-        data.Scene.CurrEntityTransforms.clear();
-        data.Scene.PrevInstanceTransforms = std::move(data.Scene.CurrInstanceTransforms);
-        data.Scene.CurrInstanceTransforms.clear();
+        //
+        // Once per physical frame, by its primary view (ADR 0026): a later
+        // view of the same frame draws the same poses, and rotating again
+        // would make its "previous" the pose this frame already recorded,
+        // which is zero object motion for everything the first view submitted.
+        if (primaryView)
+        {
+            data.Scene.PrevEntityTransforms = std::move(data.Scene.CurrEntityTransforms);
+            data.Scene.CurrEntityTransforms.clear();
+            data.Scene.PrevInstanceTransforms = std::move(data.Scene.CurrInstanceTransforms);
+            data.Scene.CurrInstanceTransforms.clear();
+            ++data.PhysicalFrame.Counters.PoseHistoryRotations;
+        }
         // A frame with no motion history of its own (#1348): every submission
         // finds no previous transform and reports zero object motion, and the
         // GPU Scene commits its instances the same way. The camera half is
@@ -557,7 +579,7 @@ namespace OloEngine
         // The scene's own flag, not the view's (ADR 0025): object poses are
         // measured once per physical frame whatever camera looks at them, so a
         // view reset must not drop them and a scene reset must.
-        if (data.Scene.PoseHistoryResetPending)
+        if (primaryView && data.Scene.PoseHistoryResetPending)
         {
             data.Scene.PrevEntityTransforms.clear();
             data.Scene.PrevInstanceTransforms.clear();
@@ -585,7 +607,15 @@ namespace OloEngine
         // bounds that GPUFrustumCuller::Cull shifts render-relative by this same
         // origin, so its prev-VP must be made relative to it too. data.View.ViewPos /
         // data.CameraRelativeEnabled are populated before PrepareFrame runs.
-        data.View.RenderOrigin = data.CameraRelativeEnabled ? ComputeRenderOrigin(data.View.ViewPos) : glm::vec3(0.0f);
+        //
+        // One origin per physical frame, the primary view's (ADR 0026). The GPU
+        // Scene records and the acceleration structures are encoded against
+        // the origin of the frame that extracted them, and every view of the
+        // frame reads those records, so every view renders about that origin.
+        if (primaryView)
+            data.PhysicalFrame.RenderOrigin =
+                data.CameraRelativeEnabled ? ComputeRenderOrigin(data.View.ViewPos) : glm::vec3(0.0f);
+        data.View.RenderOrigin = data.PhysicalFrame.RenderOrigin;
 
         // The GPU readback-stats channel (issue #721): retire whatever the ring
         // has finished, then zero the live block for this frame.
@@ -668,7 +698,14 @@ namespace OloEngine
         // Wrapped to a power of two so it stays exactly representable as the f32
         // the params UBOs carry it in (2^24 is the last integer f32 can count to
         // one at a time; 2^20 leaves headroom and is ~4.8 hours at 60 Hz).
-        data.Clock.StochasticFrameIndex = (data.Clock.StochasticFrameIndex + 1u) & 0xFFFFFu;
+        //
+        // The world's clock: one step per physical frame, taken by its primary
+        // view, so every view of a frame samples the same index (ADR 0026).
+        if (primaryView)
+        {
+            data.Clock.StochasticFrameIndex = (data.Clock.StochasticFrameIndex + 1u) & 0xFFFFFu;
+            ++data.PhysicalFrame.Counters.StochasticIndexSteps;
+        }
 
         // FSR2 (#684): decide ONCE, here, whether the temporal upscaler runs this
         // frame — see Renderer3D.h's TemporalUpscaleActive for why nothing
@@ -817,7 +854,7 @@ namespace OloEngine
             {
                 const i32 phaseCount = PostProcessPasses.FSR2->GetJitterPhaseCount(spec.Width, displayW);
                 const glm::vec2 jitterPixels =
-                    PostProcessPasses.FSR2->GetJitterOffset(static_cast<i32>(data.Clock.TemporalUpscalePhaseIndex), phaseCount);
+                    PostProcessPasses.FSR2->GetJitterOffset(static_cast<i32>(data.ViewClock.TemporalUpscalePhaseIndex), phaseCount);
 
                 // FSR2 hands back an offset in RENDER-resolution pixels, already
                 // centred on [-0.5, 0.5]. The scene renders into a viewport of
@@ -849,23 +886,23 @@ namespace OloEngine
                 // that is what FSR2 has to be told or it never converges.
                 data.View.TemporalUpscaleJitterPixels =
                     TemporalUpscalePolicy::UpscalerJitterFromProjectionJitter(jitterPixels);
-                data.Clock.TemporalUpscalePhaseIndex =
-                    (data.Clock.TemporalUpscalePhaseIndex + 1u) % static_cast<u32>(std::max(1, phaseCount));
+                data.ViewClock.TemporalUpscalePhaseIndex =
+                    (data.ViewClock.TemporalUpscalePhaseIndex + 1u) % static_cast<u32>(std::max(1, phaseCount));
             }
             // The engine TAA index is parked while FSR2 owns the jitter, so a
             // switch back to TAA restarts its sequence from a known phase rather
             // than from wherever it happened to stop.
-            data.Clock.TAAJitterFrameIndex = 0;
+            data.ViewClock.TAAJitterFrameIndex = 0;
         }
         else if (data.Frame.EngineTAAWanted && FrameCorePasses.Scene)
         {
-            data.Clock.TemporalUpscalePhaseIndex = 0;
+            data.ViewClock.TemporalUpscalePhaseIndex = 0;
             const auto& spec = FrameCorePasses.Scene->GetFramebufferSpecification();
             if (spec.Width > 0 && spec.Height > 0)
             {
                 // 1-based Halton index; Halton(0) is undefined. Loop modulo
                 // kHaltonSequenceLength keeps the pattern short and stable.
-                const u32 idx = (data.Clock.TAAJitterFrameIndex % kHaltonSequenceLength) + 1;
+                const u32 idx = (data.ViewClock.TAAJitterFrameIndex % kHaltonSequenceLength) + 1;
                 // Halton samples land in [0, 1]; remap to [-0.5, 0.5] so the
                 // jitter is centred around the unperturbed pixel.
                 // TAAJitterRotation is the run seed's toroidal shift (#1348),
@@ -907,13 +944,13 @@ namespace OloEngine
                 data.View.CurrJitterUV = TemporalUpscalePolicy::ProjectionJitterVelocityOffset(
                     RHI::AdjustProjectionForBackend(unjitteredProjection), RHI::AdjustProjectionForBackend(data.View.ProjectionMatrix));
 
-                data.Clock.TAAJitterFrameIndex = (data.Clock.TAAJitterFrameIndex + 1) % kHaltonSequenceLength;
+                data.ViewClock.TAAJitterFrameIndex = (data.ViewClock.TAAJitterFrameIndex + 1) % kHaltonSequenceLength;
             }
         }
         else
         {
-            data.Clock.TAAJitterFrameIndex = 0;
-            data.Clock.TemporalUpscalePhaseIndex = 0;
+            data.ViewClock.TAAJitterFrameIndex = 0;
+            data.ViewClock.TemporalUpscalePhaseIndex = 0;
         }
 
         // Re-mirror the culling camera's projection AFTER the jitter (issue
@@ -1133,10 +1170,10 @@ namespace OloEngine
 
         // Set shadow texture IDs AFTER ResetState() so they aren't zeroed out.
         CommandDispatch::SetShadowTextures(
-            data.Shadow.GetCSMHandle(),
-            data.Shadow.GetAtlasHandle(),
-            data.Shadow.GetCSMRawHandle(),
-            data.Shadow.GetAtlasRawHandle());
+            data.Shadow->GetCSMHandle(),
+            data.Shadow->GetAtlasHandle(),
+            data.Shadow->GetCSMRawHandle(),
+            data.Shadow->GetAtlasRawHandle());
 
         // Initialize parallel scene context with immutable frame data.
         data.ParallelContext.ViewMatrix = data.View.ViewMatrix;
@@ -2102,7 +2139,7 @@ namespace OloEngine
                 // the registry's validity before this frame's populate, which
                 // a resize may still invalidate later in EndScene.
                 cloudUBO.Misc = glm::vec4(LookUpHistory(data.RGraph.get(), kCloudsHistoryKey).Valid ? cloud.TemporalBlend : 0.0f,
-                                          static_cast<f32>(data.Clock.CloudFrameIndex),
+                                          static_cast<f32>(data.ViewClock.CloudFrameIndex),
                                           cloud.ShadowStrength,
                                           1.0f);
                 cloudUBO.SunDirection = glm::vec4(cloud.SunDirection, cloud.NightBlend);
@@ -2168,7 +2205,7 @@ namespace OloEngine
             ae.HighPercentile = pp.AutoExposureHighPercentile;
             // Mockable dt (issue #974) — deterministic auto-exposure
             // convergence captures. See SampleMockableDt.
-            ae.DeltaTime = SampleMockableDt(data.Clock.AutoExposurePrevTimeSeconds, 0.1f);
+            ae.DeltaTime = SampleMockableDt(data.ViewClock.AutoExposurePrevTimeSeconds, 0.1f);
             PostProcessPasses.ToneMap->SetAutoExposure(ae);
         }
 
@@ -2226,11 +2263,17 @@ namespace OloEngine
             // exists for, the locks still decay, and makes them decay the same
             // way every time.
             constexpr f32 kMockedClockFrameSeconds = 1.0f / 60.0f;
-            static auto s_LastTemporalUpscaleTime = std::chrono::steady_clock::now();
+            //
+            // The view's own baseline (ADR 0026): a view's locks decay by the
+            // time since IT last rendered. One baseline for every view gave
+            // the second view of a frame a delta of zero.
             const auto temporalNow = std::chrono::steady_clock::now();
+            if (!data.ViewClock.HasTemporalUpscalePrevTime)
+                data.ViewClock.TemporalUpscalePrevTime = temporalNow;
             const f32 wallClockDt = std::clamp(
-                std::chrono::duration<f32>(temporalNow - s_LastTemporalUpscaleTime).count(), 0.0f, 0.1f);
-            s_LastTemporalUpscaleTime = temporalNow;
+                std::chrono::duration<f32>(temporalNow - data.ViewClock.TemporalUpscalePrevTime).count(), 0.0f, 0.1f);
+            data.ViewClock.TemporalUpscalePrevTime = temporalNow;
+            data.ViewClock.HasTemporalUpscalePrevTime = true;
             const f32 temporalDt = Time::HasMockTime() ? kMockedClockFrameSeconds : wallClockDt;
             PostProcessPasses.FSR2->SetDeltaTimeSeconds(temporalDt);
         }
@@ -2475,6 +2518,13 @@ namespace OloEngine
     void Renderer3D::RenderPipeline::UploadExecutionState(Renderer3DData& data)
     {
         auto& profiler = RendererProfiler::GetInstance();
+        // The world advances once per physical frame, in its primary view (ADR
+        // 0026): the time accumulators and every simulation below step there,
+        // anchored at that view's camera. A later view of the frame uploads and
+        // binds what the primary view left, and steps nothing.
+        const bool primaryView = Renderer3D::IsPrimaryViewFrame();
+        if (primaryView)
+            ++data.PhysicalFrame.Counters.WorldSimulationSteps;
         if (FrameCorePasses.Scene)
         {
             const auto& commandBucket = FrameCorePasses.Scene->GetCommandBucket();
@@ -2613,15 +2663,16 @@ namespace OloEngine
             }
             // Pack fog frame index into SunDirection.w (bare uniforms fail SPIR-V)
             // Wrap at 1024 to stay well within float32 integer-exact range
-            gpu.SunDirection = glm::vec4(sunDir, static_cast<f32>(data.Clock.FogFrameIndex));
-            data.Clock.FogFrameIndex = (data.Clock.FogFrameIndex + 1u) & 0x3FFu;
+            gpu.SunDirection = glm::vec4(sunDir, static_cast<f32>(data.ViewClock.FogFrameIndex));
+            data.ViewClock.FogFrameIndex = (data.ViewClock.FogFrameIndex + 1u) & 0x3FFu;
             gpu.Flags = glm::vec4(1.0f, static_cast<f32>(std::to_underlying(fog.Mode)),
                                   fog.EnableScattering ? 1.0f : 0.0f,
                                   fog.EnableVolumetric ? 1.0f : 0.0f);
 
             // Accumulate time for noise animation. Mockable dt (issue #974) —
             // a fog golden holds still / steps exactly with a mocked clock.
-            data.Clock.FogTime += SampleMockableDt(data.Clock.FogPrevTimeSeconds, 0.1f);
+            if (primaryView)
+                data.Clock.FogTime += SampleMockableDt(data.Clock.FogPrevTimeSeconds, 0.1f);
 
             const f32 effectiveNoiseIntensity = fog.EnableNoise ? fog.NoiseIntensity : 0.0f;
             gpu.NoiseParams = glm::vec4(fog.NoiseScale, fog.NoiseSpeed, effectiveNoiseIntensity, data.Clock.FogTime);
@@ -2689,14 +2740,16 @@ namespace OloEngine
             // sway plus the snow / ejecta / precipitation updates below which
             // all ride this dt, freezes or steps exactly with a mocked clock.
             // See SampleMockableDt.
-            const f32 dt = SampleMockableDt(data.Clock.WindPrevTimeSeconds, 0.1f);
+            const f32 dt = primaryView ? SampleMockableDt(data.Clock.WindPrevTimeSeconds, 0.1f) : 0.0f;
 
-            WindSystem::Update(data.Wind, data.View.ViewPos, Timestep(data.WindPaused ? 0.0f : dt));
+            if (primaryView)
+                WindSystem::Update(data.Wind, data.View.ViewPos, Timestep(data.WindPaused ? 0.0f : dt));
             WindSystem::BindWindTexture();
 
             // Publish disabled state too, so receivers and depth casters stop
             // sampling the previous frame's accumulated displacement.
-            SnowAccumulationSystem::Update(data.SnowAccumulation, data.View.ViewPos, Timestep(dt));
+            if (primaryView)
+                SnowAccumulationSystem::Update(data.SnowAccumulation, data.View.ViewPos, Timestep(dt));
             if (data.SnowAccumulation.Enabled)
             {
                 SnowAccumulationSystem::BindSnowDepthTexture();
@@ -2724,15 +2777,17 @@ namespace OloEngine
             // test can advance the field by an exact number of seconds. A
             // wall-clock dt would decay the field by however long the previous
             // frame happened to take, making every wake golden flaky.
-            const f32 wakeDt = SampleMockableDt(data.Clock.WaterDisturbancePrevTimeSeconds, 0.25f);
+            const f32 wakeDt =
+                primaryView ? SampleMockableDt(data.Clock.WaterDisturbancePrevTimeSeconds, 0.25f) : 0.0f;
             // The same dispatch also advects the open-ocean foam channel
             // (issue #1034 §2.2) — same window, same lattice, same dt. It is
             // fed as a second settings block rather than folded into the first
             // because the two features gate independently, and the pass runs
             // when EITHER is on.
-            WaterDisturbanceSystem::Update(data.Scene.WaterDisturbance, data.Scene.WaterFoamAdvection,
-                                           glm::vec2(data.View.ViewPos.x, data.View.ViewPos.z),
-                                           Timestep(wakeDt));
+            if (primaryView)
+                WaterDisturbanceSystem::Update(data.Scene.WaterDisturbance, data.Scene.WaterFoamAdvection,
+                                               glm::vec2(data.View.ViewPos.x, data.View.ViewPos.z),
+                                               Timestep(wakeDt));
 
             // Crest spray particles (issue #1034, §2.3). Driven from the same
             // block, on the same mockable dt as the field above, so a golden
@@ -2740,7 +2795,8 @@ namespace OloEngine
             // Called unconditionally: Update() drains particles already in
             // the air when spray is switched off, rather than deleting them
             // mid-arc.
-            WaterSpraySystem::Update(data.View.ViewPos, Timestep(wakeDt));
+            if (primaryView)
+                WaterSpraySystem::Update(data.View.ViewPos, Timestep(wakeDt));
 
             // Boat / actor wake SHAPE (issue #968). No dispatch and no dt: the
             // records are plain CPU state that BoatWakeSystem rebuilt during the
@@ -2751,7 +2807,7 @@ namespace OloEngine
             WaterWakeSystem::SetSettings(data.Scene.WaterWakeShape);
 
             // Update snow ejecta particle simulation
-            if (data.SnowEjecta.Enabled)
+            if (primaryView && data.SnowEjecta.Enabled)
             {
                 SnowEjectaSystem::Update(data.SnowEjecta, Timestep(dt));
             }
@@ -2762,7 +2818,8 @@ namespace OloEngine
                 f32 windXZLen = glm::length(windXZ);
                 glm::vec3 windDir = (windXZLen > 1e-6f) ? (windXZ / windXZLen) : glm::vec3(1.0f, 0.0f, 0.0f);
                 f32 windSpeed = data.Wind.Speed;
-                PrecipitationSystem::Update(data.Precipitation, data.View.ViewPos, windDir, windSpeed, Timestep(dt));
+                if (primaryView)
+                    PrecipitationSystem::Update(data.Precipitation, data.View.ViewPos, windDir, windSpeed, Timestep(dt));
 
                 // Rain-impact ripples (issue #1034, §7.3) — the SKY half of the
                 // gate. The water half was published by the scene; the two meet
@@ -2790,7 +2847,8 @@ namespace OloEngine
                 if (data.Precipitation.Enabled)
                 {
                     glm::vec2 windDirScreen = glm::vec2(windDir.x, -windDir.z);
-                    ScreenSpacePrecipitation::Update(data.Precipitation, PrecipitationSystem::GetCurrentIntensity(), windDirScreen, windSpeed, dt);
+                    if (primaryView)
+                        ScreenSpacePrecipitation::Update(data.Precipitation, PrecipitationSystem::GetCurrentIntensity(), windDirScreen, windSpeed, dt);
                     PrecipitationSystem::UpdateScreenEffectsUBO(data.Precipitation, windDirScreen, data.Clock.FogTime);
                 }
             }
@@ -2822,18 +2880,21 @@ namespace OloEngine
                 // SampleMockableDt): Time::SetMockTime freezes the cloud field
                 // for deterministic golden captures
                 // (AtmosphereVisualEvidenceTest).
-                const f32 cloudDt = SampleMockableDt(data.Clock.CloudPrevTimeSeconds, 0.1f);
-                const glm::vec2 cloudWindXZ(data.Wind.Direction.x, data.Wind.Direction.z);
-                if (const f32 cloudWindLen = glm::length(cloudWindXZ); cloudWindLen > 1e-6f)
+                if (primaryView)
                 {
-                    data.Clock.CloudWindOffset += (cloudWindXZ / cloudWindLen) *
-                                                  (data.Wind.Speed * cloudState.WindAnimationScale * cloudDt);
+                    const f32 cloudDt = SampleMockableDt(data.Clock.CloudPrevTimeSeconds, 0.1f);
+                    const glm::vec2 cloudWindXZ(data.Wind.Direction.x, data.Wind.Direction.z);
+                    if (const f32 cloudWindLen = glm::length(cloudWindXZ); cloudWindLen > 1e-6f)
+                    {
+                        data.Clock.CloudWindOffset += (cloudWindXZ / cloudWindLen) *
+                                                      (data.Wind.Speed * cloudState.WindAnimationScale * cloudDt);
+                    }
+                    data.Clock.CloudTime += cloudDt;
                 }
-                data.Clock.CloudTime += cloudDt;
                 // Wrap at 1024 to stay well within float32 integer-exact
                 // range (the raymarch reads Misc.y as f32 — same rationale
                 // as the fog frame index above).
-                data.Clock.CloudFrameIndex = (data.Clock.CloudFrameIndex + 1u) & 0x3FFu;
+                data.ViewClock.CloudFrameIndex = (data.ViewClock.CloudFrameIndex + 1u) & 0x3FFu;
 
                 // Weather map: scene-authored override or the procedural default.
                 const RHI::ResourceHandle weatherMapID = cloudState.WeatherMapTextureID.IsValid()
@@ -3068,12 +3129,12 @@ namespace OloEngine
         // only the built one has a pass registered to write AOBuffer.
         config.GraphAOTechnique = data.ActiveGraphAOTechnique;
 
-        config.ShadowResolution = data.Shadow.GetResolution();
-        config.ShadowAtlasResolution = data.Shadow.GetAtlasResolution();
-        config.ShadowCSM = data.Shadow.GetCSMHandle();
-        config.ShadowAtlas = data.Shadow.GetAtlasHandle();
-        config.ShadowCSMRaw = data.Shadow.GetCSMRawHandle();
-        config.ShadowAtlasRaw = data.Shadow.GetAtlasRawHandle();
+        config.ShadowResolution = data.Shadow->GetResolution();
+        config.ShadowAtlasResolution = data.Shadow->GetAtlasResolution();
+        config.ShadowCSM = data.Shadow->GetCSMHandle();
+        config.ShadowAtlas = data.Shadow->GetAtlasHandle();
+        config.ShadowCSMRaw = data.Shadow->GetCSMRawHandle();
+        config.ShadowAtlasRaw = data.Shadow->GetAtlasRawHandle();
 
         config.IrradianceMap = data.Scene.GlobalIrradianceMapID;
         config.PrefilterMap = data.Scene.GlobalPrefilterMapID;
@@ -3969,8 +4030,8 @@ namespace OloEngine
 
             // The native ids are the diagnostics currency and follow the
             // identities above, which is what the configuration keys on.
-            const u32 csmID = data.Shadow.GetCSMRendererID();
-            const u32 atlasID = data.Shadow.GetAtlasRendererID();
+            const u32 csmID = data.Shadow->GetCSMRendererID();
+            const u32 atlasID = data.Shadow->GetAtlasRendererID();
             // Both currencies: the identity is what every consumer reads
             // through ResolveTextureHandle, the native id is what the
             // diagnostics and the capture endpoints read.
@@ -6058,7 +6119,7 @@ namespace OloEngine
         FrameCorePasses.Shadow = Ref<ShadowRenderPass>::Create();
         FrameCorePasses.Shadow->SetName("ShadowPass");
         FrameCorePasses.Shadow->Init(shadowPassSpec);
-        FrameCorePasses.Shadow->SetShadowMap(&data.Shadow);
+        FrameCorePasses.Shadow->SetShadowMap(data.Shadow.get());
 
         // Virtual Shadow Map page marking (#702). Registered late in the graph
         // (see RegisterSceneAndLightingNodes) because it needs the finished scene
@@ -6067,7 +6128,7 @@ namespace OloEngine
         FrameCorePasses.VirtualShadowMapMark = Ref<VirtualShadowMapMarkPass>::Create();
         FrameCorePasses.VirtualShadowMapMark->SetName("VirtualShadowMapMarkPass");
         FrameCorePasses.VirtualShadowMapMark->Init(shadowPassSpec);
-        FrameCorePasses.VirtualShadowMapMark->SetShadowMap(&data.Shadow);
+        FrameCorePasses.VirtualShadowMapMark->SetShadowMap(data.Shadow.get());
 
         // Acceleration-structure build (#978). Owns no framebuffer and reads
         // no graph resource — it consumes the GPU Scene directly and produces
