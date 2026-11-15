@@ -1664,7 +1664,10 @@ namespace OloEngine::Tests
             ASSERT_GT(plants.Pixels, 5000u) << "the " << name << " camera sees too few plants: the bounded comparison below would hold vacuously";
         }
 
-        constexpr Tolerance kCullOrderNoise{ .Pixels = 32u, .MaxDelta = 4u };
+        // Several times the measured floor: the software rasteriser CI runs
+        // schedules the cull's invocations differently from this GPU. The
+        // pixel count is the bound that tells noise from a leak.
+        constexpr Tolerance kCullOrderNoise{ .Pixels = 32u, .MaxDelta = 16u };
         ExpectBothViewsMatchTheirReferences(TestRenderBackend::EvidenceName("MultiViewFoliage") + "Deferred",
                                             "foliage", poses, kSettleFrames, temporal, temporal, kCullOrderNoise);
         if (HasFatalFailure())
