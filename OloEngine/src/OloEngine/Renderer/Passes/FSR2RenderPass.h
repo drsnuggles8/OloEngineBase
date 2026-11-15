@@ -50,6 +50,14 @@ namespace OloEngine
         void SetupFramebuffer(u32 width, u32 height) override;
         void ResizeFramebuffer(u32 width, u32 height) override;
         void OnReset() override;
+        // Renderer3D::ResetFrameSequences drops every temporal history, and
+        // this pass's is not in the history registry: the upscaler accumulates
+        // inside its own context. Without this the frames after a restart
+        // started from the previous run's accumulated image.
+        void ResetFrameSequence([[maybe_unused]] u32 sequenceSeed) override
+        {
+            m_ResetHistoryRequested = true;
+        }
 
         void SetEnabled(bool enabled) noexcept
         {

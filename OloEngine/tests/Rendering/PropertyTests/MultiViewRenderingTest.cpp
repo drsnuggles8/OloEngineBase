@@ -1381,4 +1381,49 @@ namespace OloEngine::Tests
         // per-frame buffers that grew while two views rendered.
         EXPECT_LT(leftBehindMiB, 1.0) << "destroying the second view left " << leftBehindMiB << " MiB of its storage alive";
     }
+
+    // -------------------------------------------------------------------------
+    // Found on the way: a sequence restart left the temporal upscaler's history.
+    // -------------------------------------------------------------------------
+    class SequenceRestart : public MultiViewFixture
+    {
+    };
+
+    // Renderer3D::ResetFrameSequences drops every temporal history, so the
+    // frames after it are the frames a fresh renderer renders. The temporal
+    // upscaler keeps its history inside its own context, outside the registry,
+    // and was not told: the second run of the same frames started from the
+    // first run's accumulated image. One view; nothing here needs a second.
+    TEST_F(SequenceRestart, ATemporallyUpscaledRunIsTheSameAfterEveryRestart)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (TestRenderBackend::IsVulkanProcess() || !TemporalUpscalerUsable())
+            GTEST_SKIP() << "no temporal upscaler in this process";
+        const ScopedMockTime mockTime(kCaptureTime);
+        // The mover walks, so the upscaler's history holds an image the next
+        // run's first frames do not.
+        MoveMoverEachFrame();
+        SizeMainView(kMainSize);
+        SetMainCamera(kPosePairs[0].Main);
+        ConfigureActiveView([]()
+                            {
+                                Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+                                Renderer3D::GetPostProcessSettings().Upscale = UpscaleMode::Quality;
+                                Renderer3D::GetPostProcessSettings().Technique = UpscalerTechnique::Temporal; });
+        SettleConfiguration([this]()
+                            { RunFrames(1); });
+
+        constexpr u32 kFrames = 2u; // early: the history still dominates the frame
+        RestartSequences();
+        RunMainFrames(kFrames);
+        const Frame first = ReadMainView();
+        RunMainFrames(10u); // let the history accumulate the mover further along
+        RestartSequences();
+        RunMainFrames(kFrames);
+        const Frame second = ReadMainView();
+
+        WriteEvidence(TestRenderBackend::EvidenceName("SequenceRestart") + "TemporalUpscale_FirstRun", first);
+        WriteEvidence(TestRenderBackend::EvidenceName("SequenceRestart") + "TemporalUpscale_SecondRun", second);
+        ExpectSameFrame(first, second, "temporally upscaled frame " + std::to_string(kFrames) + " after a second restart");
+    }
 } // namespace OloEngine::Tests
