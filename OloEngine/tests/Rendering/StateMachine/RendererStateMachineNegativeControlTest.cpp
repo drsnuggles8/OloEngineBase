@@ -167,6 +167,29 @@ namespace OloEngine::Tests::StateMachine
             Coverage::RecordComparison("missing-binding-reset");
     }
 
+    // One camera history for every scene view (#1352). Activating a view
+    // leaves RendererViewState in place, so the main view finds the second
+    // view's projection and previous view-projection where its own should be:
+    // its camera velocity is the jump between two cameras, and the projection
+    // it observes changes every frame, which drops its temporal histories
+    // every frame. SSR accumulates, so its output and everything downstream
+    // of it are no longer what the main view renders alone.
+    TEST_F(RendererStateMachineNegativeControl, SharedViewCameraHistoryIsCaught)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const Trace trace = ParseOrDie("olo-state-machine-trace 1\n"
+                                       "initial path=deferred size=320x180 msaa=1 upscale=off features=ssr blended=0 buffering=2 pose=0\n"
+                                       "op feature bloom on\n");
+        const auto failed =
+            RunControl(trace, &Levers::FaultShareViewCameraHistory, &Levers::SetFaultShareViewCameraHistory,
+                       { "isolated-vs-shared-view" });
+        EXPECT_TRUE(failed.contains("isolated-vs-shared-view"))
+            << "a main view sharing its camera history with a second view rendered what it renders alone: "
+               "isolated-vs-shared-view is blind to the coupling it exists to catch";
+        if (failed.contains("isolated-vs-shared-view"))
+            Coverage::RecordComparison("shared-view-camera-history");
+    }
+
     // Alias-lifetime error. Every transient's planned lifetime ends one pass
     // early, so a backing still to be read is handed to the next transient of
     // the same descriptor. Deferred with a long post chain gives the planner
