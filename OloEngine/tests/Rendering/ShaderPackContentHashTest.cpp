@@ -160,6 +160,34 @@ TEST(ShaderPackContentHashTest, APackIsNeverServedOffOpenGL)
                                              "OpenGLShader from the pack";
 }
 
+// A stage that fails to compile keeps the stages that compiled in the
+// shader's SPIR-V maps (CompileOrGetVulkanBinaries records each success before
+// it reports the failure), and the OpenGL tier never runs. The bake used to
+// check only that the Vulkan map was non-empty, so it wrote a partial entry
+// under the full source's hash: a pack hit would then link a program with a
+// stage missing. An entry needs one non-empty blob per stage in both tiers.
+TEST(ShaderPackContentHashTest, AShaderWithAStageThatFailsToCompileIsLeftOutOfThePack)
+{
+    const auto dir = OloEngine::Tests::TempDir("shaderpack-partial");
+    const auto goodPath = dir / "WholeProbe.glsl";
+    const auto brokenPath = dir / "BrokenFragmentProbe.glsl";
+    WriteFile(goodPath, kMinimalShaderSource);
+    std::string broken(kMinimalShaderSource);
+    const auto fragmentBody = broken.find("o_Color = vec4(1.0, 0.0, 1.0, 1.0);");
+    ASSERT_NE(fragmentBody, std::string::npos);
+    broken.replace(fragmentBody, 0, "this is not glsl; ");
+    WriteFile(brokenPath, broken);
+
+    const auto packPath = dir / "Test.osp";
+    ASSERT_TRUE(ShaderPack::CreateFromFilepaths({ goodPath.generic_string(), brokenPath.generic_string() }, packPath));
+
+    const ShaderPack pack(packPath);
+    ASSERT_TRUE(pack.IsLoaded());
+    EXPECT_TRUE(pack.Contains(goodPath.generic_string())) << "control: the whole shader is packed";
+    EXPECT_FALSE(pack.Contains(brokenPath.generic_string()))
+        << "a shader whose fragment stage failed to compile was packed with only the stages that compiled";
+}
+
 TEST(ShaderPackContentHashTest, CollectShaderFilepathsSkipsIncludeAndTestsDirectories)
 {
     const auto root = OloEngine::Tests::TempDir("shaderpack-collect");

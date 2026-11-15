@@ -388,9 +388,26 @@ namespace OloEngine
             }
 
             const auto* glShader = static_cast<const OpenGLShader*>(shader.get());
-            if (glShader->GetVulkanSPIRV().empty())
+            // One non-empty blob per preprocessed stage, in both tiers. A stage
+            // that fails to compile leaves the stages that compiled in the
+            // Vulkan map (and the OpenGL tier never runs); a bindless shader
+            // keeps no SPIR-V at all. Either written here would sit under the
+            // full source's hash, and a pack hit would link a program with a
+            // stage missing.
+            const auto sources = glShader->GetOriginalSourceCode();
+            const auto holdsEveryStage = [&sources](const auto& spirv)
             {
-                OLO_CORE_WARN("[ShaderPack] Skipping '{}' (no compiled SPIR-V)", filepaths[i].ToView());
+                return spirv.size() == sources.size() &&
+                       std::ranges::all_of(sources, [&spirv](const auto& stage)
+                                           {
+                                               const auto it = spirv.find(stage.first);
+                                               return it != spirv.end() && !it->second.IsEmpty(); });
+            };
+            if (sources.empty() || !holdsEveryStage(glShader->GetVulkanSPIRV()) || !holdsEveryStage(glShader->GetOpenGLSPIRV()))
+            {
+                OLO_CORE_WARN("[ShaderPack] Skipping '{}' (no SPIR-V for every stage: a stage failed to compile, "
+                              "or the shader takes the bindless GLSL route)",
+                              filepaths[i].ToView());
                 continue;
             }
 
@@ -400,8 +417,7 @@ namespace OloEngine
             // of the same file OpenGLShader::PrepareBatch just read to produce
             // this SPIR-V, so a file that changed between the two reads
             // would pack SPIR-V from read #1 under a hash from read #2.
-            const std::string contentHash =
-                OpenGLShader::ComputeContentHashFromSources(glShader->GetOriginalSourceCode());
+            const std::string contentHash = OpenGLShader::ComputeContentHashFromSources(sources);
             if (contentHash.empty())
             {
                 OLO_CORE_WARN("[ShaderPack] Skipping '{}' (couldn't recompute its content hash)", filepaths[i].ToView());
