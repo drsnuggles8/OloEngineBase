@@ -1,5 +1,6 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/ComputeShader.h"
+#include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/GPUResourceQueue.h"
 #include "OloEngine/Core/FileSystem.h"
@@ -87,14 +88,10 @@ namespace OloEngine
 
         SourceLoadResult result;
 
-        // Derive the shader name from the filename (strip directory + extension),
-        // matching the naming used by OpenGLComputeShader(filepath). The same
+        // The shader name, by the rule every shader is named with. The
         // last-separator position is reused below for the #include search directory.
         const auto lastSlash = filepath.find_last_of("/\\");
-        const auto lastDot = filepath.rfind('.');
-        const auto nameStart = (lastSlash == std::string::npos) ? 0 : (lastSlash + 1);
-        const auto count = (lastDot == std::string::npos) ? (filepath.size() - nameStart) : (lastDot - nameStart);
-        result.Name = filepath.substr(nameStart, count);
+        result.Name = Shader::NameFromFilePath(filepath);
 
         const std::string rawSource = FileSystem::ReadFileText(filepath);
         if (rawSource.empty())

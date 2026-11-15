@@ -33,12 +33,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        // Extract name from filepath
-        auto lastSlash = filepath.find_last_of("/\\");
-        const auto lastDot = filepath.rfind('.');
-        lastSlash = lastSlash == std::string::npos ? 0 : (lastSlash + 1);
-        const auto count = lastDot == std::string::npos ? (filepath.size() - lastSlash) : (lastDot - lastSlash);
-        m_Name = filepath.substr(lastSlash, count);
+        m_Name = Shader::NameFromFilePath(filepath);
 
         // Reloadable by name like every other file-backed shader (issue #607) —
         // registered before the compile so a compute shader that fails to build

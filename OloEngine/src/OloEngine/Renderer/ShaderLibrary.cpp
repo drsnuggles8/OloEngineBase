@@ -44,6 +44,11 @@ namespace OloEngine
 
     void ShaderLibrary::Add(const Ref<Shader>& shader)
     {
+        if (!shader)
+        {
+            OLO_CORE_ERROR("[ShaderLibrary] Refusing to register a null shader");
+            return;
+        }
         const auto name = shader->GetName();
         Add(name, shader);
     }
@@ -188,16 +193,19 @@ namespace OloEngine
         return FinalizeParallel(PrepareParallel(filepaths));
     }
 
-    Ref<Shader> ShaderLibrary::Get(const std::string& name)
+    Ref<Shader> ShaderLibrary::Get(const std::string& name) const
     {
         // find(), never operator[]: a miss used to insert a null Ref that the
         // next frame's HasPendingShaders() dereferenced, a crash far from the
-        // lookup that caused it (#1693). A miss is an error, and the caller
-        // gets the magenta fallback, as a shader that failed to compile does.
+        // lookup that caused it (#1693). A miss still returns null, which is
+        // what the callers that can do without a shader test for (the terrain
+        // shadow caster, the occlusion proxy, the impostor bake). It is logged
+        // once per name: some of those callers look up every frame.
         if (const auto it = m_Shaders.find(name); it != m_Shaders.end())
             return it->second;
-        OLO_CORE_ERROR("[ShaderLibrary] Shader '{}' not found: returning the fallback shader", name);
-        return GetFallbackShader();
+        if (m_ReportedMisses.insert(name).second)
+            OLO_CORE_ERROR("[ShaderLibrary] Shader '{}' is not in this library", name);
+        return nullptr;
     }
 
     void ShaderLibrary::ReloadShaders()

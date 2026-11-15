@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/ShaderPack.h"
@@ -82,7 +83,9 @@ namespace OloEngine
         // above instead when a UI needs to stay responsive during the load.
         TArray<Ref<Shader>> LoadParallel(const std::vector<std::string>& filepaths);
 
-        Ref<Shader> Get(const std::string& name);
+        // Null when `name` is not registered (logged once per name); the
+        // library is never changed by a lookup.
+        [[nodiscard]] Ref<Shader> Get(const std::string& name) const;
 
         void ReloadShaders();
 
@@ -147,6 +150,9 @@ namespace OloEngine
         [[nodiscard]] static Ref<Shader> CreateShaderFromPackEntry(PackEntryCPUData entry);
 
         std::unordered_map<std::string, Ref<Shader>> m_Shaders;
+        // Names a Get() has already reported missing, so a per-frame lookup
+        // logs once instead of every frame.
+        mutable std::unordered_set<std::string> m_ReportedMisses;
         std::unique_ptr<ShaderPack> m_ShaderPack;
 
         static Ref<Shader> s_FallbackShader;

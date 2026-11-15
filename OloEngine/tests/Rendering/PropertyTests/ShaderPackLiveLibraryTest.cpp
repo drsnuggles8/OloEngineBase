@@ -170,13 +170,15 @@ TEST(ShaderLibraryNames, NameFromFilePathIsTheFileNameWithoutItsExtension)
     EXPECT_EQ(Shader::NameFromFilePath("assets/.glsl"), ".glsl") << "a leading dot begins the name";
 }
 
-// A lookup that misses never adds an entry: the miss used to insert a null
-// Ref that HasPendingShaders() dereferenced on the next frame.
+// A lookup that misses returns null and never adds an entry: the miss used to
+// insert a null Ref that HasPendingShaders() dereferenced on the next frame.
+// Null, not the fallback shader: the callers that can do without a shader
+// (terrain shadow casters, the occlusion proxy, the impostor bake) test for it.
 TEST(ShaderLibraryNames, AMissedLookupLeavesTheLibraryUnchanged)
 {
     ShaderLibrary lib;
     const Ref<Shader> shader = lib.Get("NoSuchShader");
-    EXPECT_EQ(shader, ShaderLibrary::GetFallbackShader()) << "a miss hands back the fallback shader";
+    EXPECT_EQ(shader, nullptr) << "a miss returns null, which the optional-shader callers test for";
     EXPECT_FALSE(lib.Exists("NoSuchShader"));
     EXPECT_TRUE(lib.GetAllShaderNames().empty());
     EXPECT_FALSE(lib.HasPendingShaders());
