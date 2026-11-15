@@ -803,6 +803,8 @@
 		"OloEngine/Renderer/LightProbeVolumeAsset.h"
 		"OloEngine/Renderer/LightProbeBaker.h"
 		"OloEngine/Renderer/LightProbeBaker.cpp"
+		"OloEngine/Renderer/ProbeSceneCapture.h"
+		"OloEngine/Renderer/ProbeSceneCapture.cpp"
 		"OloEngine/Renderer/ReflectionProbeBaker.h"
 		"OloEngine/Renderer/ReflectionProbeBaker.cpp"
 		"OloEngine/Renderer/ReflectionProbeDistanceField.h"

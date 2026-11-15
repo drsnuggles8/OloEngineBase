@@ -1,0 +1,204 @@
+#include "OloEnginePCH.h"
+#include "OloEngine/Renderer/ProbeSceneCapture.h"
+
+#include "OloEngine/Core/Log.h"
+#include "OloEngine/Debug/Instrumentor.h"
+#include "OloEngine/Renderer/Camera/Camera.h"
+#include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
+#include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/RenderCommand.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/ResourceHandle.h"
+#include "OloEngine/Scene/Scene.h"
+
+#include <glm/gtc/matrix_transform.hpp>
+
+#include <algorithm>
+#include <array>
+
+namespace OloEngine
+{
+    namespace
+    {
+        constexpr std::array<glm::vec3, ProbeSceneCapture::kFaceCount> kFaceTargets{
+            glm::vec3{ 1.0f, 0.0f, 0.0f },
+            glm::vec3{ -1.0f, 0.0f, 0.0f },
+            glm::vec3{ 0.0f, 1.0f, 0.0f },
+            glm::vec3{ 0.0f, -1.0f, 0.0f },
+            glm::vec3{ 0.0f, 0.0f, 1.0f },
+            glm::vec3{ 0.0f, 0.0f, -1.0f },
+        };
+
+        constexpr std::array<glm::vec3, ProbeSceneCapture::kFaceCount> kFaceUps{
+            glm::vec3{ 0.0f, -1.0f, 0.0f },
+            glm::vec3{ 0.0f, -1.0f, 0.0f },
+            glm::vec3{ 0.0f, 0.0f, 1.0f },
+            glm::vec3{ 0.0f, 0.0f, -1.0f },
+            glm::vec3{ 0.0f, -1.0f, 0.0f },
+            glm::vec3{ 0.0f, -1.0f, 0.0f },
+        };
+
+        // A lighting tap (#1526) is a debug view of the MAIN view; the capture
+        // renders through the main camera path, so without this a bake taken
+        // while one is selected stores that one term as the environment.
+        struct ScopedNoLightingTap
+        {
+            LightingTap Saved = Renderer3D::GetPostProcessSettings().LightingDebugTap;
+            ScopedNoLightingTap()
+            {
+                Renderer3D::GetPostProcessSettings().LightingDebugTap = LightingTap::None;
+            }
+            ~ScopedNoLightingTap()
+            {
+                Renderer3D::GetPostProcessSettings().LightingDebugTap = Saved;
+            }
+            ScopedNoLightingTap(const ScopedNoLightingTap&) = delete;
+            ScopedNoLightingTap& operator=(const ScopedNoLightingTap&) = delete;
+        };
+
+        // Clears the sink pointer on every exit, so a throw inside
+        // RenderScene3D cannot leave Renderer3D pointing at a dead array.
+        struct AuxSinkGuard
+        {
+            AuxSinkGuard() = default;
+            ~AuxSinkGuard()
+            {
+                Renderer3D::SetAuxCasterSink(nullptr);
+            }
+            AuxSinkGuard(const AuxSinkGuard&) = delete;
+            AuxSinkGuard& operator=(const AuxSinkGuard&) = delete;
+        };
+    } // namespace
+
+    glm::vec3 ProbeSceneCapture::FaceTarget(u32 face)
+    {
+        return kFaceTargets[face % kFaceCount];
+    }
+
+    glm::vec3 ProbeSceneCapture::FaceUp(u32 face)
+    {
+        return kFaceUps[face % kFaceCount];
+    }
+
+    glm::mat4 ProbeSceneCapture::FaceTransform(const glm::vec3& position, u32 face)
+    {
+        return glm::inverse(glm::lookAt(position, position + FaceTarget(face), FaceUp(face)));
+    }
+
+    bool ProbeSceneCapture::CaptureFaces(Ref<Scene>& scene, const glm::vec3& position, u32 resolution,
+                                         TArray<DDGIMeshCaster>* casterSink, const FaceSink& onFace)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!scene || !onFace)
+        {
+            OLO_CORE_ERROR("ProbeSceneCapture::CaptureFaces: {}", !scene ? "scene is null" : "no face sink");
+            return false;
+        }
+
+        // 0 is undefined to the device and a huge value is an allocation
+        // failure. The bounds are the reflection probe component's.
+        u32 const clampedResolution = std::clamp(resolution, 16u, 2048u);
+        if (clampedResolution != resolution)
+        {
+            OLO_CORE_WARN("ProbeSceneCapture::CaptureFaces: resolution {} clamped to {}", resolution, clampedResolution);
+        }
+
+        // Allocated BEFORE any render state changes below: the only realistic
+        // throw here (bad_alloc at a high resolution) must not strand the live
+        // view at the probe's size and scale.
+        sizet const faceBytes = static_cast<sizet>(clampedResolution) * clampedResolution * 4u * sizeof(f32);
+        TArray<f32> pixelBuffer(faceBytes / sizeof(f32));
+
+        // A capture renders through the MAIN view, whichever view its caller
+        // had active (ADR 0026, section 6): the main view's per-view
+        // accumulations (DDGI cascades, the virtual shadow map's page cache)
+        // are the converged ones, and it is the main view's size that is put
+        // back.
+        const Renderer3D::ScopedView mainView(kMainRenderView);
+
+        // The live render size, to restore. In the editor the SceneColor target
+        // exists (the viewport has been rendering). On a first capture before
+        // any frame has rendered it does not: the warm-up render below creates
+        // it, there is no prior size to restore, and the caller re-asserts its
+        // own after the capture.
+        u32 savedWidth = 0;
+        u32 savedHeight = 0;
+        if (auto const preCaptureSceneFb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor))
+        {
+            savedWidth = preCaptureSceneFb->GetSpecification().Width;
+            savedHeight = preCaptureSceneFb->GetSpecification().Height;
+        }
+
+        // Render scale 1 for the capture. With dynamic resolution active the
+        // scene is rendered into a floor(width * scale) sub-viewport of the
+        // target, and the FULL physical texture is read back: a scale below 1
+        // would capture the scene in one corner surrounded by unrendered texels.
+        f32 const savedRenderScale = Renderer3D::GetRenderScale();
+        Renderer3D::SetRenderScale(1.0f);
+
+        bool captured = false;
+        {
+            const ScopedNoLightingTap noLightingTap;
+
+            // Square targets, so the 90 degree field of view per face covers
+            // the whole image.
+            Renderer3D::OnWindowResize(clampedResolution, clampedResolution);
+
+            // Six 90 degree faces cover the sphere with no overlap. The far
+            // plane is generous; the near plane is small enough to capture
+            // nearby walls when the probe sits inside a room.
+            Camera const captureCamera(glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 1000.0f));
+
+            // Prime the graph at the new size: the first render after a resize
+            // comes back black (the graph needs a frame to settle into the
+            // reallocated targets).
+            //
+            // The warm-up render doubles as the caster-collection pass: mesh
+            // submission is registry-driven, not frustum-culled on the CPU, so
+            // ONE render enumerates every opaque caster whichever face the
+            // camera looks along.
+            {
+                const AuxSinkGuard sinkGuard;
+                Renderer3D::SetAuxCasterSink(casterSink);
+                scene->RenderScene3D(captureCamera, FaceTransform(position, 0u));
+            }
+
+            // Resolved once: the target is stable across six same-size renders.
+            if (auto const sceneFb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor); !sceneFb)
+            {
+                OLO_CORE_ERROR("ProbeSceneCapture: SceneColor framebuffer unavailable after the graph resize");
+            }
+            else
+            {
+                // The handle stays valid across an in-place recreate (#691).
+                RHI::ResourceHandle const colorAttachment = sceneFb->GetColorAttachmentHandle(0);
+                captured = true;
+                for (u32 face = 0; face < kFaceCount; ++face)
+                {
+                    scene->RenderScene3D(captureCamera, FaceTransform(position, face));
+
+                    // The face's lit HDR radiance, read from the texture
+                    // directly (no framebuffer-bound restriction).
+                    bool const readOk = RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RGBA32Float,
+                                                                        faceBytes, pixelBuffer.GetData());
+                    if (!onFace(face, readOk, std::span<const f32>(pixelBuffer.GetData(), static_cast<sizet>(pixelBuffer.Num()))))
+                    {
+                        captured = false;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Scale always; size only when one was snapshotted. Both on every
+        // non-throwing exit, capture success or failure.
+        Renderer3D::SetRenderScale(savedRenderScale);
+        if (savedWidth != 0 && savedHeight != 0)
+        {
+            Renderer3D::OnWindowResize(savedWidth, savedHeight);
+        }
+
+        return captured;
+    }
+} // namespace OloEngine

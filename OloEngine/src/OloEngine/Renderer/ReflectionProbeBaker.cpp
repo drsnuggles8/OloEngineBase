@@ -8,6 +8,7 @@
 #include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/ProbeSceneCapture.h"
 #include "OloEngine/Renderer/ReflectionProbeDistanceField.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -54,31 +55,6 @@ namespace OloEngine
         return bestIndex;
     }
 
-    namespace
-    {
-        // Cubemap face look directions and up vectors. Order matches
-        // GL_TEXTURE_CUBE_MAP_POSITIVE_X .. NEGATIVE_Z and the bindings used in
-        // IBLPrecompute::RenderToCubemap, so prefilter / irradiance generation
-        // see the same orientation as our captured faces.
-        constexpr glm::vec3 s_FaceTargets[6] = {
-            { 1.0f, 0.0f, 0.0f },
-            { -1.0f, 0.0f, 0.0f },
-            { 0.0f, 1.0f, 0.0f },
-            { 0.0f, -1.0f, 0.0f },
-            { 0.0f, 0.0f, 1.0f },
-            { 0.0f, 0.0f, -1.0f },
-        };
-
-        constexpr glm::vec3 s_FaceUps[6] = {
-            { 0.0f, -1.0f, 0.0f },
-            { 0.0f, -1.0f, 0.0f },
-            { 0.0f, 0.0f, 1.0f },
-            { 0.0f, 0.0f, -1.0f },
-            { 0.0f, -1.0f, 0.0f },
-            { 0.0f, -1.0f, 0.0f },
-        };
-    } // namespace
-
     Ref<TextureCubemap> ReflectionProbeBaker::CaptureSceneCubemap(Ref<Scene>& scene,
                                                                   const glm::vec3& position,
                                                                   u32 resolution,
@@ -107,155 +83,28 @@ namespace OloEngine
             return nullptr;
         }
 
-        // The scene is rendered through the full Renderer3D render graph so the
-        // probe captures the same lighting / skybox / emissive surfaces as the
-        // live view. The graph writes into its OWN targets — never an
-        // externally-bound framebuffer — so we resize the graph to the probe
-        // resolution, render each face, and read back the graph's HDR SceneColor
-        // (the MRT-root scene-pass output: linear radiance BEFORE tone mapping
-        // and post/TAA, which is exactly what the IBL convolution wants).
-        //
-        // The previous approach bound a local capture FBO and read it back; that
-        // FBO was never a render target (RenderScene3D targets the graph), so the
-        // bake captured only the cleared (black) FBO — every probe baked black.
-
-        // Allocate the readback buffer up front — 4 floats per pixel. The
-        // destination cubemap face is RGBA32F; SceneColor RT0 is read back as
-        // RGBA float regardless of its own internal format. Doing this BEFORE we
-        // mutate any global render state (size / scale below) keeps the only
-        // realistic throw here (bad_alloc at high resolution) from stranding the
-        // live view at the probe's size/scale.
-        sizet const faceBytes = static_cast<sizet>(clampedResolution) * clampedResolution * 4u * sizeof(f32);
-        TArray<f32> pixelBuffer(faceBytes / sizeof(f32));
-
-        // Snapshot the live render size so we can restore it afterwards. In the
-        // editor the SceneColor target already exists (the viewport has been
-        // rendering), so this captures the viewport size. On a first bake before
-        // any frame has rendered (e.g. tests that bake before their first
-        // RunEditorFrames) the target isn't allocated yet — that's fine: the
-        // warm-up render below creates it, there's simply no prior size to
-        // restore, and the caller re-asserts its own size after the bake.
-        u32 savedWidth = 0;
-        u32 savedHeight = 0;
-        if (auto const preBakeSceneFb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor))
-        {
-            savedWidth = preBakeSceneFb->GetSpecification().Width;
-            savedHeight = preBakeSceneFb->GetSpecification().Height;
-        }
-
-        // Force render scale to 1.0 for the capture. With Dynamic Resolution
-        // Scaling active the scene is rendered into a floor(width*scale)
-        // sub-viewport of the target, but we read back the FULL physical
-        // texture — so a scale < 1.0 would capture the scene in one corner
-        // surrounded by un-rendered pixels and bake a corrupt environment.
-        // Restore the user's scale afterward.
-        f32 const savedRenderScale = Renderer3D::GetRenderScale();
-        Renderer3D::SetRenderScale(1.0f);
-
-        // A lighting tap (#1526) is a debug view of the MAIN view; the probe
-        // renders through the main camera path, so without this a bake taken
-        // while one is selected stores that one term as the environment.
-        // Scoped, so every exit restores it.
-        struct ScopedNoLightingTap
-        {
-            LightingTap Saved = Renderer3D::GetPostProcessSettings().LightingDebugTap;
-            ScopedNoLightingTap()
+        // The scene's lit HDR radiance, face by face, through the main view's
+        // render graph (ProbeSceneCapture), so the probe captures the same
+        // lighting, sky and emissive surfaces as the live view.
+        TArray<f32> faceTexels;
+        bool const captured = ProbeSceneCapture::CaptureFaces(
+            scene, position, clampedResolution, casterSink,
+            [&cubemap, &faceTexels](u32 face, bool readOk, std::span<const f32> rgba)
             {
-                Renderer3D::GetPostProcessSettings().LightingDebugTap = LightingTap::None;
-            }
-            ~ScopedNoLightingTap()
-            {
-                Renderer3D::GetPostProcessSettings().LightingDebugTap = Saved;
-            }
-            ScopedNoLightingTap(const ScopedNoLightingTap&) = delete;
-            ScopedNoLightingTap& operator=(const ScopedNoLightingTap&) = delete;
-        } const noLightingTap;
-
-        // Square render targets so the 90° FOV per face covers the whole image.
-        Renderer3D::OnWindowResize(clampedResolution, clampedResolution);
-
-        // 90° FOV per face — 6 faces cover the full sphere with no overlap.
-        // Far plane is generous; near plane small enough to capture nearby
-        // walls when the probe sits inside an enclosed room.
-        Camera const captureCamera(glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 1000.0f));
-
-        // Prime the render graph at the new size before capturing: the first
-        // render(s) after a graph resize come back black (the graph needs a
-        // frame to settle into the reallocated targets). Without this every
-        // captured face is black even though RenderScene3D works fine at the
-        // unchanged live-view size.
-        //
-        // The warm-up render doubles as the caster-collection pass for the
-        // distance capture: the scene's mesh submission is registry-driven
-        // (not frustum-culled on the CPU), so ONE render enumerates every
-        // opaque caster regardless of which face the camera looks at. The
-        // guard clears the sink pointer on every exit so a throw inside
-        // RenderScene3D can never leave Renderer3D pointing at a dead vector.
-        {
-            struct AuxSinkGuard
-            {
-                ~AuxSinkGuard()
-                {
-                    Renderer3D::SetAuxCasterSink(nullptr);
-                }
-            } sinkGuard;
-            Renderer3D::SetAuxCasterSink(casterSink);
-
-            glm::mat4 const warmView = glm::inverse(glm::lookAt(position, position + s_FaceTargets[0], s_FaceUps[0]));
-            scene->RenderScene3D(captureCamera, warmView);
-        }
-
-        // Resolve the (now resized) capture target once. It is stable across all
-        // six same-size face renders — RenderScene3D does not reallocate it at a
-        // constant size — so there's no need to re-resolve per face.
-        auto const sceneFb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
-        bool const captureOk = (sceneFb != nullptr);
-        if (!sceneFb)
-        {
-            OLO_CORE_ERROR("ReflectionProbeBaker: SceneColor framebuffer unavailable after graph resize");
-        }
-        else
-        {
-            // Hoisted outside the face loop, as the native id was: SceneColor's
-            // attachment is not recreated between faces, and the handle stays
-            // valid across an in-place recreate (issue #691).
-            RHI::ResourceHandle const colorAttachment = sceneFb->GetColorAttachmentHandle(0);
-            for (u32 face = 0; face < 6; ++face)
-            {
-                glm::mat4 const view = glm::lookAt(position, position + s_FaceTargets[face], s_FaceUps[face]);
-                glm::mat4 const transform = glm::inverse(view);
-
-                scene->RenderScene3D(captureCamera, transform);
-
-                // Read back this face's lit HDR radiance from the graph's
-                // SceneColor RT0. The readback reads the texture directly
-                // (no FBO-bound restriction) and lets the driver pick its path.
-                if (!RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RGBA32Float,
-                                                     faceBytes, pixelBuffer.GetData()))
+                if (!readOk)
                 {
                     OLO_CORE_WARN("ReflectionProbeBaker: cubemap face readback failed");
                 }
-
-                // Upload into the cubemap face. SetFaceData triggers
-                // glGenerateTextureMipmap on every call; redundant on faces
-                // 0-4 but harmless and keeps the API surface small. Bake is an
-                // editor-time interactive action so the cost is acceptable.
-                cubemap->SetFaceData(face, pixelBuffer.GetData(), static_cast<u32>(faceBytes));
-            }
-        }
-
-        // Restore the live-view render scale and size (the bake forced scale to
-        // 1.0 and squashed the graph down to the probe resolution above). Always
-        // restore the scale; restore the size only if we snapshotted one (a
-        // first bake before any render has no prior size — the caller re-asserts
-        // it). Both run on every non-throwing exit, capture success or failure.
-        Renderer3D::SetRenderScale(savedRenderScale);
-        if (savedWidth != 0 && savedHeight != 0)
-        {
-            Renderer3D::OnWindowResize(savedWidth, savedHeight);
-        }
-
-        if (!captureOk)
+                // TextureCubemap::SetFaceData takes a mutable pointer. It
+                // regenerates the mip chain on every call; redundant on faces
+                // 0-4 but harmless, and a bake is an editor-time interactive
+                // action.
+                faceTexels.SetNum(rgba.size(), EAllowShrinking::No);
+                std::copy(rgba.begin(), rgba.end(), faceTexels.GetData());
+                cubemap->SetFaceData(face, faceTexels.GetData(), static_cast<u32>(rgba.size_bytes()));
+                return true;
+            });
+        if (!captured)
         {
             return nullptr;
         }
@@ -333,7 +182,8 @@ namespace OloEngine
             fbo->ClearAttachment(0, glm::vec4(kProbeDistanceFar, 0.0f, 0.0f, 0.0f));
             RenderCommand::ClearDepthOnly();
 
-            glm::mat4 const view = glm::lookAt(position, position + s_FaceTargets[face], s_FaceUps[face]);
+            glm::mat4 const view = glm::lookAt(position, position + ProbeSceneCapture::FaceTarget(face),
+                                               ProbeSceneCapture::FaceUp(face));
             UBOStructures::CameraUBO camera{};
             // A8 seam, CAPTURE flavour (#691): these faces are read
             // back with ReadTextureImage and pushed into cube faces by

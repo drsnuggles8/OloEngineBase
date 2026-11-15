@@ -2385,6 +2385,7 @@ namespace OloEngine
         friend class SceneHierarchyPanel;
         friend class LightProbeBaker;
         friend class ReflectionProbeBaker;
+        friend class ProbeSceneCapture;
         friend class SaveGameSerializer;
     };
 } // namespace OloEngine
