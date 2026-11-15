@@ -25,6 +25,8 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "ScopedRendererApi.h"
+
 #include "OloEngine/Renderer/PipelineManifest.h"
 #include "OloEngine/Renderer/PipelineReadiness.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
@@ -99,19 +101,9 @@ namespace
         return alreadyThere;
     }
 
-    // Restores the process-wide API selection (these tests run inside the GL
-    // suite binary).
-    struct ScopedVulkanApiSelection
-    {
-        ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-        }
-        ~ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-        }
-    };
+    // Restores the API it found, which is Vulkan in the --olo-rhi=vulkan process
+    // (ScopedRendererApi.h, #1693).
+    using OloEngine::Tests::ScopedVulkanApiSelection;
 
     class VulkanShaderPipeline : public ::testing::Test
     {

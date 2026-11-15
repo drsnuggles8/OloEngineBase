@@ -74,6 +74,10 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include <volk.h>
 #include <GLFW/glfw3.h>
 
+// After glad: VulkanTestSupport.h includes GLFW, which must not pull in gl.h first.
+#include "ScopedRendererApi.h"
+#include "VulkanTestSupport.h"
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -85,51 +89,14 @@ namespace
 {
     using namespace OloEngine;
 
-    // RAII flip of the process-wide API selector around factory calls —
-    // restores OpenGL so later suite tests see the default untouched (the
-    // VulkanRenderGraphExecutionTest pattern).
-    struct ScopedVulkanApiSelection
-    {
-        ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-        }
-        ~ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-        }
-    };
+    // Restores the API it found, which is Vulkan in the --olo-rhi=vulkan process
+    // (ScopedRendererApi.h, #1693).
+    using OloEngine::Tests::ScopedVulkanApiSelection;
 
     // The shared RGBA16F contract uses the public RenderCommand readback
-    // facade, so this one resource-factory tenant must temporarily recreate
-    // that process-global facade for Vulkan as well as selecting Vulkan for
-    // resource factories. Put the initialized GL facade back for later tests.
-    struct ScopedVulkanRenderCommand
-    {
-        ScopedVulkanRenderCommand()
-            : PreviousDescriptorHeapEnabled(RHI::DescriptorHeap::Get().IsEnabled()),
-              HadOpenGlContext(glfwGetCurrentContext() != nullptr)
-        {
-            if (HadOpenGlContext)
-                RenderCommand::ShutdownGpuResources();
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-            RenderCommand::RecreateForSelectedBackend();
-        }
-
-        ~ScopedVulkanRenderCommand()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-            RenderCommand::RecreateForSelectedBackend();
-            if (HadOpenGlContext)
-            {
-                RenderCommand::Init();
-                RHI::DescriptorHeap::Get().SetEnabled(PreviousDescriptorHeapEnabled);
-            }
-        }
-
-        bool PreviousDescriptorHeapEnabled;
-        bool HadOpenGlContext;
-    };
+    // facade, so this one resource-factory tenant swaps that process-global
+    // facade for Vulkan too, and puts back the backend it found.
+    using ScopedVulkanRenderCommand = OloEngine::Tests::ScopedVulkanRenderCommandSelection;
 } // namespace
 
 class VulkanResourceFactory : public ::testing::Test

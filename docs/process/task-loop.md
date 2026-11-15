@@ -158,7 +158,8 @@ A cell is evidenced in one of two ways, fixed by the cell:
   An unrun cell is then a row with no test and no measurement.
 - **Live-only**: no test can produce it, so the proof is a measurement plus a log check from a real
   editor session. **A Vulkan cell is artefact-backed when its scene suite runs in the
-  `OloEngine-Tests --olo-rhi=vulkan` process** (a windowless `VulkanContext`; the suites are
+  `OloEngine-Tests --olo-rhi=vulkan` process** (a windowless `VulkanContext`; the ported suites
+  override `RunsInVulkanProcess()`, and CI's lavapipe job runs the ones in
   `OloEngine/tests/vulkan_scene_filter.txt`), and live-only otherwise, with the reason the suite
   is not ported. The present, the ImGui overlay and window behaviour stay live-only
   ([testing-architecture.md](../agent-rules/testing-architecture.md) rule 13).

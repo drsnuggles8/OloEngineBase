@@ -1090,7 +1090,11 @@ swapchain) and runs each fixture tick as one frame of it; a tick fails on a Vulk
 or an unimplemented-stub hit. Readback goes through `RenderCommand::ReadTextureImage` and evidence
 files carry the backend (`<Feature>_Vulkan_<Path>.png`). GL-only tests refuse in that process with
 the reason, and so do the device-level Vulkan suites, which build their own device and run in the
-default process as before. The nightly lavapipe job runs the ported suites (`OloEngine/tests/vulkan_scene_filter.txt`) with `--olo-require-vulkan` and a gate that fails the job if any selected
+default process as before. An unfiltered `--olo-rhi=vulkan` run is supported (#1693): it runs every
+suite that overrides `RunsInVulkanProcess()` and every CPU test, and skips the rest with that reason.
+A test that leaves the API selector or the RenderCommand facade off the process's backend fails by
+name (`RendererBackendCheck`; [agent-rules/testing-architecture.md](agent-rules/testing-architecture.md)
+rule 23). The nightly lavapipe job runs a selection of the ported suites (`OloEngine/tests/vulkan_scene_filter.txt`) with `--olo-require-vulkan` and a gate that fails the job if any selected
 case did not execute. It runs the groom scene-shadow cases one per process, because on lavapipe a
 Forward → Forward+ → Deferred history in one process breaks the next Forward frame's sun light (#1666). Rules: [agent-rules/testing-architecture.md](agent-rules/testing-architecture.md)
 rule 13.

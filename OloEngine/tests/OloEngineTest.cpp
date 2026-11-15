@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Support/RendererSupport.h"
 #include "Rendering/PropertyTests/GLErrorStateCheck.h"
+#include "Rendering/PropertyTests/RendererBackendCheck.h"
 #include "Rendering/PropertyTests/RendererStateCheck.h"
 #include "Rendering/CommandLifecycleCheck.h"
 #include "Rendering/PropertyTests/TestFailureCapture.h"
@@ -275,6 +276,13 @@ int main(int argc, char** argv)
     // error check above can blame a later test for its teardown, and before the
     // memory listener records the test's end.
     OloEngine::Tests::ProjectIsolation::RegisterListener();
+    // Fail any test that leaves the renderer backend off the one this process
+    // runs: the API selector, the RenderCommand facade's type and, under
+    // --olo-rhi=vulkan, the facade object the windowless context records
+    // through (issue #1693). Recorded here, after SelectFromOptions chose the
+    // backend. Registered after every listener that tears anything down, so
+    // its OnTestEnd runs first and the selector is back before they run.
+    OloEngine::Tests::RendererBackendCheck::RegisterListener();
     // Say, at the END of the run and below gtest's own summary, whether this
     // run exercised the Vulkan backend or only skipped it (issue #1300).
     // The banner lands BELOW gtest's own summary because gtest prints that

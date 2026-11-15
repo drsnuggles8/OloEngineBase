@@ -63,6 +63,7 @@ TEST(VulkanCompressedTextureUpload, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTexture.h"
 
+#include "ScopedRendererApi.h"
 #include "VulkanTestSupport.h"
 
 #include <volk.h>
@@ -80,17 +81,9 @@ namespace
 {
     using namespace OloEngine;
 
-    struct ScopedVulkanApiSelection
-    {
-        ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-        }
-        ~ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-        }
-    };
+    // Restores the API it found, which is Vulkan in the --olo-rhi=vulkan process
+    // (ScopedRendererApi.h, #1693).
+    using OloEngine::Tests::ScopedVulkanApiSelection;
 
     // A fullscreen triangle that reads ONE mip level: u_Lod.x is the level.
     constexpr const char* kVertexSrc = R"(

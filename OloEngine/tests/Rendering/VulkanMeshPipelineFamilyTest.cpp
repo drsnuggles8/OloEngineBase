@@ -254,6 +254,8 @@ TEST(VulkanMeshPipelineFamily, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "ScopedRendererApi.h"
+
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
@@ -425,17 +427,9 @@ namespace
         return alreadyThere;
     }
 
-    struct ScopedVulkanApiSelection
-    {
-        ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-        }
-        ~ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-        }
-    };
+    // Restores the API it found, which is Vulkan in the --olo-rhi=vulkan process
+    // (ScopedRendererApi.h, #1693).
+    using OloEngine::Tests::ScopedVulkanApiSelection;
 
     class VulkanMeshPipelineFamily : public ::testing::Test
     {

@@ -14,6 +14,10 @@ paths:
   catalogue under `docs/test-catalogue.*.md` is generated and git-ignored; never hand-edit it.
 - **A new test file needs an entry in `OloEngine/tests/CMakeLists.txt`**, which lists every source;
   an unlisted file is never built and its filter matches nothing.
+- **A test ends on the backend its process runs.** Select an API with `ScopedRendererApi`, swap the
+  facade with `ScopedVulkanRenderCommandSelection`; a suite that brings up its own Vulkan instance or
+  device skips in the `--olo-rhi=vulkan` process. The `RendererBackendCheck` listener fails a leak
+  ([testing-architecture.md](../../docs/agent-rules/testing-architecture.md) rule 23).
 - **A test that builds a texture needs the GPU gate**, even when the load fails. Run a new test
   alone before pushing.
 - Size tests like their neighbours. Scratch checks are not committed.

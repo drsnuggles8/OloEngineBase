@@ -75,6 +75,7 @@ TEST(VulkanDrawPath, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanTexture.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
+#include "ScopedRendererApi.h"
 #include "VulkanTestSupport.h"
 #include "TestTempDir.h"
 
@@ -95,17 +96,9 @@ namespace
     using namespace OloEngine;
     using OloEngine::Tests::ScopedVulkanRenderCommandSelection;
 
-    struct ScopedVulkanApiSelection
-    {
-        ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-        }
-        ~ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-        }
-    };
+    // Restores the API it found, which is Vulkan in the --olo-rhi=vulkan process
+    // (ScopedRendererApi.h, #1693).
+    using OloEngine::Tests::ScopedVulkanApiSelection;
 
     class ScopedOloEditorWorkingDirectory
     {
