@@ -477,6 +477,18 @@ namespace OloEngine::Tests
             m_FrameIndex = 0;
         }
 
+        // The configuration this binary was built in, for a reported timing.
+        [[nodiscard]] static const char* BuildConfigurationName()
+        {
+#if defined(OLO_DEBUG)
+            return "Debug";
+#elif defined(OLO_RELEASE)
+            return "Release";
+#else
+            return "Dist";
+#endif
+        }
+
         [[nodiscard]] Scene::SceneViewRequest SecondViewRequest(const Pose& pose, Order order) const
         {
             Scene::SceneViewRequest request;
@@ -1699,7 +1711,8 @@ namespace OloEngine::Tests
 
         // Wall time of `frames` physical frames, and the GPU time of the last
         // view frame the timer pool resolved. Reported, never asserted: this is
-        // a Debug binary on a shared machine.
+        // possibly a Debug binary, on a shared machine. Every line names the
+        // configuration it was measured in.
         template<typename TRun>
         [[nodiscard]] static Timing Measure(u32 frames, TRun&& run)
         {
@@ -1749,7 +1762,7 @@ namespace OloEngine::Tests
         if (HasFatalFailure())
             return;
         std::cout << "[MultiViewCost] " << TestRenderBackend::EvidenceBackendPrefix()
-                  << "Debug binary, Renderer3D::CreateView: " << createMs
+                  << BuildConfigurationName() << " binary, Renderer3D::CreateView: " << createMs
                   << " ms (a view's passes compile their own programs)\n";
         ConfigureSecondView(deferred);
         RunSharedFrames(poses.Second, Order::SecondAfterMain, kWarm);
@@ -1792,7 +1805,8 @@ namespace OloEngine::Tests
                   << secondViewMiB << " MiB), after destroying it " << static_cast<f64>(afterDestroyBytes) / kMiB
                   << " MiB (" << leftBehindMiB << " MiB left behind)\n";
         std::cout << "[MultiViewCost] " << TestRenderBackend::EvidenceBackendPrefix()
-                  << "Debug binary, scene tick wall time per physical frame: one view " << single.CpuMsPerFrame
+                  << BuildConfigurationName() << " binary, scene tick wall time per physical frame: one view "
+                  << single.CpuMsPerFrame
                   << " ms, two views " << shared.CpuMsPerFrame << " ms (second view +"
                   << shared.CpuMsPerFrame - single.CpuMsPerFrame << " ms, "
                   << (single.CpuMsPerFrame > 0.0 ? 100.0 * (shared.CpuMsPerFrame - single.CpuMsPerFrame) / single.CpuMsPerFrame : 0.0)
@@ -1800,7 +1814,8 @@ namespace OloEngine::Tests
                   << (single.GpuValid ? std::to_string(single.GpuMsLastViewFrame) : std::string("n/a")) << " ms, in the two-view run "
                   << (shared.GpuValid ? std::to_string(shared.GpuMsLastViewFrame) : std::string("n/a")) << " ms\n";
         std::cout << "[MultiViewCost] " << TestRenderBackend::EvidenceBackendPrefix()
-                  << "Debug binary, view frame wall time inside a two-view frame (BeginScene to the end of EndScene): "
+                  << BuildConfigurationName()
+                  << " binary, view frame wall time inside a two-view frame (BeginScene to the end of EndScene): "
                      "primary view "
                   << primaryViewMs << " ms, later view " << laterViewMs << " ms\n";
         EXPECT_GT(primaryViewMs, 0.0) << "the main view reported no frame time";

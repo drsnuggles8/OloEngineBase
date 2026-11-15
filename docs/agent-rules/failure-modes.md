@@ -44,6 +44,8 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 | [visual-quality-criteria.md](visual-quality-criteria.md) | Three correct presence measurements marked "convincing geometry" met on a frame a human called 1998. |
 | [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) | Settings reset on Play, and headless tests never call `Scene::Copy()`. |
 | [renderer-state-machine-harness.md](renderer-state-machine-harness.md) | Four renderer bugs each lived in a sequence of valid operations. |
+| [renderer-views-and-the-physical-frame.md](renderer-views-and-the-physical-frame.md) | A parked copy of a view's Hi-Z generator outlived shutdown; only the Vulkan process's exit code said so. |
+| [renderer-views-and-the-physical-frame.md](renderer-views-and-the-physical-frame.md#a-bake-that-read-its-own-clear-colour) | A probe bake comes back black or invalid in a lit scene: it read a framebuffer it bound, and the scene renders into the graph's targets. |
 | [world-anchored-renderer-state-in-tests.md](world-anchored-renderer-state-in-tests.md) | A visual golden passes in file order and fails in a shard. |
 | [ab-diff-peak-is-not-a-location.md](ab-diff-peak-is-not-a-location.md) | An A/B visual assertion read backwards in one test ordering, from frames that were identical to the byte. |
 | [oit-blend-state-and-identity-lanes.md](oit-blend-state-and-identity-lanes.md) | A transparent decal drew and its fragments survived while the composite was unchanged. |

@@ -99,6 +99,11 @@ The uniform-buffer half of this cache was the one part with a second, better rec
 and it is gone (#1688). Texture units and render state have no such record to ask, so the cache and
 its invalidation calls stay.
 
-Per-view storage for a second view (a Hi-Z pyramid, exposure state and `ParallelSceneContext` per
-view, and a non-zero view key in the history registry) is not a remainder of this issue. It is what
-#1352 builds on the contract, and ADR 0025 §4 lists it.
+Per-view storage for a second view (a Hi-Z pyramid, exposure state and a non-zero view key in the
+history registry) was not a remainder of this issue. #1352 built it on the contract:
+[ADR 0026](../adr/0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md). Three rows
+of the table above read differently since. The render graph, the history registry, the pass pipeline
+and `HZBGenerator OcclusionHZB` are each **per view** (members of `RendererViewResident`), and so are
+the renderer and post-process settings; `ParallelSceneContext` stays one shared per-view-frame
+snapshot, rebuilt in `PrepareFrame` for the view being rendered. `s_LastTemporalUpscaleTime` is gone:
+the baseline is the view's (`RendererViewClock::TemporalUpscalePrevTime`).

@@ -99,10 +99,20 @@ consumes it in this change.
 | V5 | Serial and worker replay read the same context type. A worker item's context is a copy of the primary's view, prepared before the fork, with its own uploads and empty caches; nothing an item needs is created inside it | `CommandBucket::Execute` / `ExecuteParallel`, `VulkanRendererAPI::RecordParallelOrdered` |
 | V6 | A binding point's occupant is checked, not assumed (§5a) | every draw and dispatch on both backends |
 
-What #1352 still has to build is everything that makes the second view exist: a second
-`RendererViewState`, a view key other than zero in the history registry, per-view Hi-Z storage and
-exposure, and the split of `BeginScene` into a per-frame and a per-view half. None of that is a
-lifetime question any more.
+#1352 built the second view on these six, and
+[ADR 0026](0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md) records how: a
+view owns a whole render stack (`RendererViewResident`: its `RendererViewState`, its own sequences,
+its settings, its render graph with a history registry keyed by the view, its pass pipeline, its
+Hi-Z pyramid, light grid and shadow maps), the active view's copy is the base sub-object of `s_Data`,
+and a physical frame bracket (`Renderer3D::BeginFrame` / `EndFrame`) separates what the world advances
+once from what each view advances. V3's bucket view override was not the route taken: a second view
+does not replay the first view's buckets from another camera, it submits and renders through a
+pipeline of its own, which is what keeps every pass's private history per view.
+
+The table above still holds, with one reading changed: "the view" in V1 is the **active** view's
+resident state, and the frame clock (§2) now holds only what the world owns. The sequences that
+pace one view's accumulation (jitter, upscale phase, cloud and fog reprojection, the exposure time
+baseline) moved to `RendererViewClock`.
 
 ## 5. Shutdown and re-arming
 

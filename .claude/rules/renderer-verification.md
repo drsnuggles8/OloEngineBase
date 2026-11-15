@@ -30,6 +30,9 @@ the screen shows, do all three:
 Verify every path the change reaches: `{OpenGL, Vulkan} x {Forward, Forward+, Deferred}`, plus MSAA,
 upscale and resolution where reachable (task-loop §2a). A new G-Buffer lane is wired on every path.
 
+New renderer state is a view's or the world's, and the world advances once per physical frame:
+[renderer-views-and-the-physical-frame.md](../../docs/agent-rules/renderer-views-and-the-physical-frame.md).
+
 Do not report a rendering change done on unit tests alone. If you cannot inspect a frame, say so.
 If you reach for an `olo_*` tool that does not exist, add a one-line bullet to the open MCP tracker
 (#607) rather than working around it silently.
