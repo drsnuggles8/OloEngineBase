@@ -529,7 +529,12 @@ void main()
         }
 
         PackEntryCPUData data;
-        data.m_Name = entry->Name;
+        // A pack keys its entries by file path; the shader is named by the
+        // file's stem, as one compiled from source is. Naming it by the path
+        // registered it under a key the renderers never ask for: their Get()
+        // missed, inserted a null Ref, and the editor crashed on its first
+        // frame whenever a pack was present (#1693).
+        data.m_Name = std::filesystem::path(filepath).stem().string();
         data.m_FilePath = filepath;
         for (const auto& stage : entry->Stages)
         {

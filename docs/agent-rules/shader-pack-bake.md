@@ -106,6 +106,15 @@ compiles from source. Before that, a packaged runtime that staged the pack and r
 `--rhi vulkan` editor after anyone baked one) created GL programs in a process with no GL context.
 `ShaderPackContentHashTest.APackIsNeverServedOffOpenGL` pins it.
 
+**A pack-served shader is named by its file stem, never by the pack's key** (#1693). The pack keys
+entries by file path; `TryReadPackEntry` used to hand that path to `CreateFromPackData` as the
+shader's name, so `Add(shader)` registered `assets/shaders/PBR_MultiLight.glsl` where the renderers
+`Get("PBR_MultiLight")`. With asserts compiled out, that `Get` inserts a null `Ref`, and the OpenGL
+editor crashed on its first frame (`ShaderLibrary::HasPendingShaders`) whenever a pack was present.
+The pack tests stopped at `PrepareParallel`, before a name is registered;
+`ShaderPackServedOnOpenGL.APackServedShaderIsRegisteredUnderItsFileStem` finalizes and looks the
+shader up by name.
+
 `GameBuildPipeline::CopyEngineResources` stages the pack via the free function
 `StageShaderPack` (mirrors `StageRuntimeDependencyLibraries` /
 `StageLooseRuntimeTextures` — a small filesystem seam kept testable without a
