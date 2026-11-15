@@ -10,8 +10,9 @@
 // than what's on disk right now would be silently, permanently wrong.
 //
 // Entirely GL-free: ShaderPack::CreateFromFilepaths uses only the CPU-side
-// prepare path (Shader::PrepareBatch — read, preprocess, shaderc,
-// SPIRV-Cross), and ShaderLibrary::PrepareParallel's pack lookup makes no GL
+// prepare path (OpenGLShader::PrepareBatch — read, preprocess, shaderc,
+// SPIRV-Cross, whichever backend the process selected, so this file passes
+// in the --olo-rhi=vulkan process too: #1693), and ShaderLibrary::PrepareParallel's pack lookup makes no GL
 // call either (materializing the GL program is deferred to
 // FinalizeParallel(), which this test never calls). Runs on headless CI.
 //
@@ -22,6 +23,7 @@
 
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
+#include "ScopedRendererApi.h"
 
 #include "OloEngine/Renderer/ShaderPack.h"
 #include "OloEngine/Renderer/ShaderLibrary.h"
@@ -80,6 +82,10 @@ TEST(ShaderPackContentHashTest, ComputeContentHashIsStableAndSensitiveToContent)
 
 TEST(ShaderPackContentHashTest, MatchingHashIsServedFromThePack)
 {
+    // The pack is served only on OpenGL (ShaderLibrary::TryReadPackEntry), and
+    // the CPU-compile fallback is OpenGL's two-phase prepare: both are what
+    // this test pins, in either test process.
+    const OloEngine::Tests::ScopedRendererApi openGL(RendererAPI::API::OpenGL);
     const auto dir = OloEngine::Tests::TempDir("shaderpack-hash-hit");
     const auto shaderPath = dir / "HitProbe.glsl";
     WriteFile(shaderPath, kMinimalShaderSource);
@@ -99,6 +105,10 @@ TEST(ShaderPackContentHashTest, MatchingHashIsServedFromThePack)
 
 TEST(ShaderPackContentHashTest, MutatedSourceMissesAndFallsBackToCompile)
 {
+    // The pack is served only on OpenGL (ShaderLibrary::TryReadPackEntry), and
+    // the CPU-compile fallback is OpenGL's two-phase prepare: both are what
+    // this test pins, in either test process.
+    const OloEngine::Tests::ScopedRendererApi openGL(RendererAPI::API::OpenGL);
     const auto dir = OloEngine::Tests::TempDir("shaderpack-hash-miss");
     const auto shaderPath = dir / "MissProbe.glsl";
     WriteFile(shaderPath, kMinimalShaderSource);
@@ -118,6 +128,36 @@ TEST(ShaderPackContentHashTest, MutatedSourceMissesAndFallsBackToCompile)
     EXPECT_FALSE(batch.m_IsPackLoaded[0]) << "a mutated source must miss the now-stale pack entry";
     ASSERT_EQ(batch.m_Prepared.Num(), 1u);
     EXPECT_NE(batch.m_Prepared[0], nullptr) << "a miss must still fall back to a CPU compile, not drop the shader";
+}
+
+// A pack entry becomes a shader only through OpenGLShader::CreateFromPackData.
+// Served off OpenGL it created GL programs in a process with no GL context: a
+// packaged runtime that staged ShaderPack.osp and ran on Vulkan (#1693).
+TEST(ShaderPackContentHashTest, APackIsNeverServedOffOpenGL)
+{
+    const auto dir = OloEngine::Tests::TempDir("shaderpack-hash-vulkan");
+    const auto shaderPath = dir / "VulkanProbe.glsl";
+    WriteFile(shaderPath, kMinimalShaderSource);
+    const std::string filepathStr = shaderPath.generic_string();
+
+    const auto packPath = dir / "Test.osp";
+    ASSERT_TRUE(ShaderPack::CreateFromFilepaths({ filepathStr }, packPath));
+
+    ShaderLibrary lib;
+    lib.LoadShaderPack(packPath);
+    ASSERT_TRUE(lib.HasShaderPack());
+
+    {
+        const OloEngine::Tests::ScopedRendererApi openGL(RendererAPI::API::OpenGL);
+        auto batch = lib.PrepareParallel({ filepathStr });
+        ASSERT_EQ(batch.m_IsPackLoaded.Num(), 1u);
+        ASSERT_TRUE(batch.m_IsPackLoaded[0]) << "control: the same pack and source hit on OpenGL";
+    }
+    const OloEngine::Tests::ScopedRendererApi vulkan(RendererAPI::API::Vulkan);
+    auto batch = lib.PrepareParallel({ filepathStr });
+    ASSERT_EQ(batch.m_IsPackLoaded.Num(), 1u);
+    EXPECT_FALSE(batch.m_IsPackLoaded[0]) << "a Vulkan library must compile from source, never build an "
+                                             "OpenGLShader from the pack";
 }
 
 TEST(ShaderPackContentHashTest, CollectShaderFilepathsSkipsIncludeAndTestsDirectories)
@@ -165,7 +205,9 @@ TEST(ShaderPackContentHashTest, PrepareBatchProducesADestructibleShaderWithNoGLC
     const std::string filepathStr = shaderPath.generic_string();
 
     const FString filepath(filepathStr);
-    auto prepared = Shader::PrepareBatch(std::span{ &filepath, sizet{ 1 } }, nullptr);
+    // The bake's own entry point (ShaderPack::AppendCpuPrepared), not the
+    // backend-dispatching Shader::PrepareBatch, which on Vulkan prepares nothing.
+    auto prepared = OpenGLShader::PrepareBatch(std::span{ &filepath, sizet{ 1 } }, nullptr);
     ASSERT_EQ(prepared.Num(), 1u);
     ASSERT_NE(prepared[0], nullptr);
     // `prepared` destructs here — the crash, when present, happened after

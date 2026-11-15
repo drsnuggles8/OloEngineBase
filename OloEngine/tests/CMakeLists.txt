@@ -1070,6 +1070,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/GLErrorStateCheckTest.cpp
 		Rendering/PropertyTests/RendererStateCheckTest.cpp
 		Rendering/PropertyTests/RendererBackendCheckTest.cpp
+		# #1693: the editor's Build Shader Pack on a live renderer, in both processes.
+		Rendering/PropertyTests/ShaderPackLiveLibraryTest.cpp
 		Rendering/PropertyTests/ModelLoadDeterminismTest.cpp
 		Rendering/PropertyTests/DrawIndexedRawOffsetTest.cpp
 		Rendering/PropertyTests/TextureSaveRoundTripTest.cpp

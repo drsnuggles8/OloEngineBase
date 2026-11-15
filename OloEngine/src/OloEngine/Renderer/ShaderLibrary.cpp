@@ -7,6 +7,8 @@
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
+#include <mutex>
+
 namespace OloEngine
 {
     Ref<Shader> ShaderLibrary::s_FallbackShader = nullptr;
@@ -476,6 +478,21 @@ void main()
     {
         if (!m_ShaderPack || !m_ShaderPack->IsLoaded())
         {
+            return std::nullopt;
+        }
+
+        // A pack entry becomes a shader only through
+        // OpenGLShader::CreateFromPackData (CreateShaderFromPackEntry): there is
+        // no Vulkan pack loader. Served on Vulkan, it created GL programs in a
+        // process with no GL context — a packaged runtime that staged the pack
+        // and ran on Vulkan, or a Vulkan editor after anyone baked one (#1693).
+        // Off OpenGL every shader compiles from source, and the log says so once.
+        if (Renderer::GetAPI() != RendererAPI::API::OpenGL)
+        {
+            static std::once_flag s_ToldOnce;
+            std::call_once(s_ToldOnce, []
+                           { OLO_CORE_INFO("[ShaderLibrary] A shader pack is loaded, but packs are served only on "
+                                           "OpenGL (no Vulkan pack loader): compiling every shader from source"); });
             return std::nullopt;
         }
 
