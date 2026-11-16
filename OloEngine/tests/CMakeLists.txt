@@ -1058,6 +1058,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/AnimationClockThrottleTest.cpp
 		# Simulate mode draws the editor overlay (tilemaps, text, UI) Edit mode draws.
 		Rendering/PropertyTests/EditorOverlayInSimulateTest.cpp
+		Rendering/PropertyTests/StagedReadbackDeferredTest.cpp
 		Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
 		Rendering/PropertyTests/GLAttachmentBlendOpinionTest.cpp

@@ -5789,6 +5789,12 @@ namespace OloEngine
         // whose submission has already fence-waited — the fence signal makes
         // device writes available, host-coherent memory makes them visible,
         // so the read is a plain memcpy off the persistent mapping.
+        //
+        // THE CALLER HOLDS THAT FENCE; this function does not wait and cannot
+        // tell. A read made without one returns whichever copy last landed,
+        // and on a new buffer the contents of its memory (#1697). A deferred
+        // statistic goes through StagedBufferReadback::StageDeferred /
+        // ReadCompleted, which fences each copy and polls before it reads.
         if (auto* raw = VulkanRawBufferRegistry::Get().Lookup(buffer); raw != nullptr)
         {
             if (raw->Mapped == nullptr || offsetBytes + sizeBytes > raw->Size)
