@@ -334,6 +334,23 @@ namespace OloEngine::Tests
             m_SettingsSnapshotted = false;
         }
 
+        // THE CAMERA THIS TEST LEFT IN THE RENDERER GOES WITH IT. The render and
+        // culling camera, the render origin and the LOD view are process-wide
+        // and stay as the last frame set them. Code that runs with no scene
+        // frame round it reads them: the production frustum culler culls
+        // against the last scene's camera, the groom pass shifts strands by its
+        // render origin, animated-surface LOD picks a level by its distance.
+        // Each of those failed a later test only in order (#1484, #1348), and
+        // each was repaired where it showed, in the consumer's set-up. The third
+        // was a Vulkan device test that drew nothing after a weather scene
+        // whose camera looked away from the world origin (#1699). So the
+        // producer cleans up: a renderer-attached test ends with the camera a
+        // fresh renderer has.
+        if (m_Scene)
+        {
+            Renderer3D::ResetFrameCamera();
+        }
+
         // Stopping physics is conditional on whether the test enabled it.
         // For the minimal smoke tests we don't enable physics, so just
         // drop the Scene ref.
