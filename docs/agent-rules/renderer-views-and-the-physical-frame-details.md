@@ -78,3 +78,18 @@ The history is keyed by `Scene::m_GroomFrameSerial`, which `BeginGroomFrame` adv
 entry point: a coat's first deformation under a serial decides and rotates, a later one reuses. The
 solver is told about a discontinuity by the first deformation only; told again by a later view it
 would re-seed the particles the first view had just stepped.
+
+## A bake under an upscaler filled a corner of each face
+
+`ProbeSceneCapture::CaptureFaces` set render scale 1 for its faces and read the `SceneColor` target
+back as `resolution` x `resolution` texels. With an upscale preset on, the pipeline sizes the scene
+band itself, every frame, to `floor(size * UpscaleModeToRenderScale(preset))`, whatever
+`Renderer3D::SetRenderScale` says. A 128-texel face was an 85-texel target, read into the start of
+a 128 x 128 buffer; the rest of the buffer was whatever the previous face left. A reflection probe
+baked in the editor with FSR on reflected a small, sheared copy of the room.
+
+No test baked under an upscaler. `ProbeBakeVisualEvidenceTest.DeferredUpscaledShowsBothBakesTheRightWayUp`
+does, and its first picture showed it: the metal sphere's lower band read (11.7, 42.0, 13.5) where
+the other four configurations read (64.7, 180.7, 66.2). The capture now turns the preset off for
+its duration (`ScopedCaptureSettings`) and fails, with the two sizes in the message, when the target
+it is about to read is not the size of a face.

@@ -39,22 +39,34 @@ namespace OloEngine
             glm::vec3{ 0.0f, -1.0f, 0.0f },
         };
 
-        // A lighting tap (#1526) is a debug view of the MAIN view; the capture
-        // renders through the main camera path, so without this a bake taken
-        // while one is selected stores that one term as the environment.
-        struct ScopedNoLightingTap
+        // The two settings of the main view a capture cannot render under, off
+        // for its duration and back on every exit.
+        //
+        // * A lighting tap (#1526) is a debug view of the MAIN view; the capture
+        //   renders through the main camera path, so a bake taken while one is
+        //   selected stored that one term as the environment.
+        // * An upscale preset renders the scene band BELOW the view's size: the
+        //   pipeline resizes the SceneColor target to floor(size * scale) every
+        //   frame, whatever Renderer3D::SetRenderScale says. The capture reads
+        //   that target back as a full face, so a bake taken with an upscaler
+        //   on read a smaller image into the start of each face and left the
+        //   rest of it whatever the buffer held (#1352).
+        struct ScopedCaptureSettings
         {
-            LightingTap Saved = Renderer3D::GetPostProcessSettings().LightingDebugTap;
-            ScopedNoLightingTap()
+            LightingTap SavedTap = Renderer3D::GetPostProcessSettings().LightingDebugTap;
+            UpscaleMode SavedUpscale = Renderer3D::GetPostProcessSettings().Upscale;
+            ScopedCaptureSettings()
             {
                 Renderer3D::GetPostProcessSettings().LightingDebugTap = LightingTap::None;
+                Renderer3D::GetPostProcessSettings().Upscale = UpscaleMode::Off;
             }
-            ~ScopedNoLightingTap()
+            ~ScopedCaptureSettings()
             {
-                Renderer3D::GetPostProcessSettings().LightingDebugTap = Saved;
+                Renderer3D::GetPostProcessSettings().LightingDebugTap = SavedTap;
+                Renderer3D::GetPostProcessSettings().Upscale = SavedUpscale;
             }
-            ScopedNoLightingTap(const ScopedNoLightingTap&) = delete;
-            ScopedNoLightingTap& operator=(const ScopedNoLightingTap&) = delete;
+            ScopedCaptureSettings(const ScopedCaptureSettings&) = delete;
+            ScopedCaptureSettings& operator=(const ScopedCaptureSettings&) = delete;
         };
 
         // Clears the sink pointer on every exit, so a throw inside
@@ -93,18 +105,22 @@ namespace OloEngine
             ScopedMainViewSize(const ScopedMainViewSize&) = delete;
             ScopedMainViewSize& operator=(const ScopedMainViewSize&) = delete;
         };
-
-        // Turn a face's rows over in place. `rowFloats` floats per row.
-        void ReverseRows(f32* texels, sizet rowFloats, u32 rows)
-        {
-            for (u32 top = 0, bottom = rows - 1u; top < bottom; ++top, --bottom)
-            {
-                std::swap_ranges(texels + static_cast<sizet>(top) * rowFloats,
-                                 texels + (static_cast<sizet>(top) + 1u) * rowFloats,
-                                 texels + static_cast<sizet>(bottom) * rowFloats);
-            }
-        }
     } // namespace
+
+    void ProbeSceneCapture::NormalizeFaceRows(std::span<f32> rgba, u32 resolution, bool rowsAreBottomUp)
+    {
+        const sizet rowFloats = static_cast<sizet>(resolution) * 4u;
+        if (rowsAreBottomUp || resolution < 2u || rgba.size() != rowFloats * resolution)
+        {
+            return;
+        }
+        f32* const texels = rgba.data();
+        for (u32 top = 0, bottom = resolution - 1u; top < bottom; ++top, --bottom)
+        {
+            std::swap_ranges(texels + static_cast<sizet>(top) * rowFloats, texels + (static_cast<sizet>(top) + 1u) * rowFloats,
+                             texels + static_cast<sizet>(bottom) * rowFloats);
+        }
+    }
 
     glm::vec3 ProbeSceneCapture::FaceTarget(u32 face)
     {
@@ -170,11 +186,11 @@ namespace OloEngine
         // harmonics projection that maps a row to a direction), so a top-down
         // readback handed over as it came stored every side face upside down:
         // light from above and below swapped in whatever was baked on Vulkan.
-        bool const turnRowsOver = !RHI::RenderTargetRowsAreBottomUp();
+        bool const rowsAreBottomUp = RHI::RenderTargetRowsAreBottomUp();
 
         bool captured = false;
         {
-            const ScopedNoLightingTap noLightingTap;
+            const ScopedCaptureSettings captureSettings;
 
             // Square targets, so the 90 degree field of view per face covers
             // the whole image.
@@ -204,6 +220,16 @@ namespace OloEngine
             {
                 OLO_CORE_ERROR("ProbeSceneCapture: SceneColor framebuffer unavailable after the graph resize");
             }
+            else if (sceneFb->GetSpecification().Width != clampedResolution || sceneFb->GetSpecification().Height != clampedResolution)
+            {
+                // A face is read back as clampedResolution squared texels. A
+                // target of any other size fills only part of it, and the rest
+                // would be baked as it lies: refuse instead.
+                OLO_CORE_ERROR("ProbeSceneCapture: the SceneColor target is {} x {}, not the {} x {} a face is read as; "
+                               "something renders the main view's scene band at another size",
+                               sceneFb->GetSpecification().Width, sceneFb->GetSpecification().Height, clampedResolution,
+                               clampedResolution);
+            }
             else
             {
                 // The handle stays valid across an in-place recreate (#691).
@@ -217,9 +243,10 @@ namespace OloEngine
                     // directly (no framebuffer-bound restriction).
                     bool const readOk = RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RGBA32Float,
                                                                         faceBytes, pixelBuffer.GetData());
-                    if (readOk && turnRowsOver)
+                    if (readOk)
                     {
-                        ReverseRows(pixelBuffer.GetData(), static_cast<sizet>(clampedResolution) * 4u, clampedResolution);
+                        NormalizeFaceRows(std::span<f32>(pixelBuffer.GetData(), static_cast<sizet>(pixelBuffer.Num())),
+                                          clampedResolution, rowsAreBottomUp);
                     }
                     if (!onFace(face, readOk, std::span<const f32>(pixelBuffer.GetData(), static_cast<sizet>(pixelBuffer.Num()))))
                     {

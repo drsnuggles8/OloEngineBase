@@ -64,8 +64,11 @@ The stories behind the rules are in
     It renders through the main view and reads the graph's `SceneColor` back. `Scene::RenderScene3D`
     never writes into a framebuffer you bound, and a test that calls a baker must look at what it
     returned. Faces arrive with their rows bottom-up on both backends; code that reads a render
-    target back itself asks `RHI::RenderTargetRowsAreBottomUp`.
-    [Story](renderer-views-and-the-physical-frame-details.md#a-bake-that-read-its-own-clear-colour).
+    target back itself asks `RHI::RenderTargetRowsAreBottomUp`. A capture turns off every setting
+    of the view that sizes the target it reads (the upscale preset, not only the render scale) and
+    refuses a target that is not the size it reads.
+    [Story](renderer-views-and-the-physical-frame-details.md#a-bake-that-read-its-own-clear-colour),
+    [story](renderer-views-and-the-physical-frame-details.md#a-bake-under-an-upscaler-filled-a-corner-of-each-face).
 14. **Scene-side history that a per-view publish advances is advanced on its first publish of the
     frame.** `Scene::ProcessScene3DSharedLogic` and everything under it (the groom publish) run once
     per view. State that turns "this frame" into "last frame" there is keyed by a per-frame serial

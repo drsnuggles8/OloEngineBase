@@ -49,6 +49,15 @@ namespace OloEngine
         // remaining faces.
         using FaceSink = std::function<bool(u32 face, bool readOk, std::span<const f32> rgba)>;
 
+        // Puts one face's rows into the order FaceSink promises, in place.
+        // `rgba` is `resolution` rows of `resolution` RGBA texels as read back;
+        // `rowsAreBottomUp` is how the target they were read from stores its
+        // rows (RHI::RenderTargetRowsAreBottomUp()). Bottom-up input is left as
+        // it is, top-down input has its rows reversed, and the texels within a
+        // row never move. A span that is not `resolution` x `resolution` RGBA
+        // is left untouched.
+        static void NormalizeFaceRows(std::span<f32> rgba, u32 resolution, bool rowsAreBottomUp);
+
         // Renders the six faces through the MAIN view (ADR 0026, section 6) at
         // render scale 1 with no lighting tap, hands each to `onFace`, and puts
         // the main view's size, scale and tap back on every exit. `casterSink`, when given,
