@@ -6691,6 +6691,31 @@ namespace OloEngine
         }
     }
 
+    void Scene::QueueEditorOverlay(EditorCamera const& camera)
+    {
+        // The UI composite pass draws this into its own target, which is what
+        // the editor viewport shows.
+        Renderer3D::SetUICompositeRenderCallback([this, &camera]()
+                                                 {
+                                                     Renderer2D::BeginScene(camera);
+
+                                                     // Tilemaps are 2D content but authors edit them in whichever
+                                                     // mode the viewport is in, so they draw here too — otherwise a
+                                                     // map painted in 2D mode vanishes the moment the editor is
+                                                     // switched to 3D.
+                                                     RenderTilemaps(camera.GetViewProjection());
+
+                                                     for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
+                                                     {
+                                                         const auto& text = view.get<TextComponent>(entity);
+                                                         DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
+                                                     }
+
+                                                     Renderer2D::EndScene();
+
+                                                     RenderUIOverlay(); });
+    }
+
     void Scene::OnUpdateSimulation(const Timestep ts, EditorCamera const& camera)
     {
         PerformanceProfiler* perfProfiler = nullptr;
@@ -6763,9 +6788,17 @@ namespace OloEngine
         // Render based on mode
         if (m_RenderingEnabled)
         {
+            // The editor camera's view-projection, for the UI's world anchors
+            // (nameplates); OnUpdateEditor caches the same one.
+            m_CameraViewProjection = camera.GetViewProjection();
+
             if (m_Is3DModeEnabled)
             {
                 const AdditionalViewFrame additionalViews(*this);
+                // Simulate draws what Edit draws over the frame. It used to
+                // queue nothing, so a scene's text, tilemaps and UI vanished
+                // from the viewport for as long as Simulate ran.
+                QueueEditorOverlay(camera);
                 RenderScene3D(camera);
             }
             else
@@ -7006,29 +7039,7 @@ namespace OloEngine
                 // the main view's own callback below.
                 const AdditionalViewFrame additionalViews(*this);
 
-                // Set up the UICompositePass callback for editor overlays.
-                // Renders text and UI into the UICompositePass FBO so the editor
-                // viewport (which reads UICompositePass output) shows them.
-                Renderer3D::SetUICompositeRenderCallback([this, &camera]()
-                                                         {
-                                                             Renderer2D::BeginScene(camera);
-
-                                                             // Tilemaps are 2D content but authors edit them in whichever
-                                                             // mode the viewport is in, so they draw here too — otherwise a
-                                                             // map painted in 2D mode vanishes the moment the editor is
-                                                             // switched to 3D.
-                                                             RenderTilemaps(camera.GetViewProjection());
-
-                                                             for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
-                                                             {
-                                                                 const auto& text = view.get<TextComponent>(entity);
-                                                                 DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
-                                                             }
-
-                                                             Renderer2D::EndScene();
-
-                                                             RenderUIOverlay(); });
-
+                QueueEditorOverlay(camera);
                 RenderScene3D(camera);
             }
             else

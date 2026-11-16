@@ -1054,6 +1054,8 @@ add_executable(OloEngine-Tests
 		# infra as McpHeadlessAttachTest.cpp above.
 		Rendering/PropertyTests/McpPerfSettleTest.cpp
 		Rendering/PropertyTests/AnimationClockThrottleTest.cpp
+		# Simulate mode draws the editor overlay (tilemaps, text, UI) Edit mode draws.
+		Rendering/PropertyTests/EditorOverlayInSimulateTest.cpp
 		Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
 		Rendering/PropertyTests/GLAttachmentBlendOpinionTest.cpp

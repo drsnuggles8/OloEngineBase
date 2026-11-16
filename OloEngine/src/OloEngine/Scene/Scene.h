@@ -1336,6 +1336,13 @@ namespace OloEngine
         void ApplyReflectionProbeOverride(const glm::vec3& cameraPosition);
         void RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip);
         void RenderUIOverlay();
+        // Hand the 3D frame about to be rendered through an editor camera what
+        // is laid over it: tilemaps, world text and the UI overlay, drawn by
+        // the UI composite pass. Called by BOTH editor-camera entry points
+        // (OnUpdateEditor and OnUpdateSimulation) ahead of RenderScene3D; a
+        // frame rendered without it shows none of the three. `camera` must
+        // outlive the frame.
+        void QueueEditorOverlay(EditorCamera const& camera);
         // Submit every TilemapComponent's visible chunks into the batch that is
         // already open (issue #646). Called from all three 2D draw sites — the
         // editor camera, the 2D-only runtime frame and the 3D UI-composite
