@@ -24,6 +24,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 ## Testing and verification
 
 - [testing-architecture.md](testing-architecture.md): which renderer layer or Functional axis a new test belongs to, and the registration contract.
+- [vulkan-test-process-drops-work-outside-a-frame.md](vulkan-test-process-drops-work-outside-a-frame.md): in the Vulkan test process issue every draw and bake inside `RunInFrame`, `BuildScene` included; a dropped call leaves its target unwritten and the fixture fails the test.
 - [../testing.md](../testing.md): why we test what we test; value heuristic, anti-patterns, retirement criteria.
 - [vulkan-software-driver-ci.md](vulkan-software-driver-ci.md): check a software Vulkan driver against the ADR 0010 extension contract.
 - [lavapipe-ray-query-suites.md](lavapipe-ray-query-suites.md): the L7 ray-query suites run nightly on lavapipe behind a gate that fails when any case did not execute.
@@ -183,6 +184,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md): wrap every new clear site in `GLClearProgramGuard`, unbind and restore.
 - [render-pass-published-state.md](render-pass-published-state.md): a pass that publishes engine-global bindings runs last and is not wrapped in `GLStateGuard(Restore)`.
 - [out-of-graph-draws-set-their-own-state.md](out-of-graph-draws-set-their-own-state.md): a bake or capture outside the render graph sets its culling, depth test and blend, and hands back the state it found.
+- [a-lookup-table-is-read-at-its-texel-centres.md](a-lookup-table-is-read-at-its-texel-centres.md): clamp a table's coordinate to its first and last texel centres before the read, and read the BRDF table through `oloEnvBRDF`.
 - [render-graph-attachment-feedback.md](render-graph-attachment-feedback.md): validate the original accesses against physical attachment identities, and give writable attached depth a snapshot.
 - [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md): `WriteNewVersion` renames a physical resource; use the poison and disable levers to find stale reads.
 - [render-pipeline-caches.md](render-pipeline-caches.md): process-wide render caches invalidate on every topology reset, not only on a fingerprint change.

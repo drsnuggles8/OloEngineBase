@@ -27,6 +27,7 @@
 
 #include "RendererAttachedTest.h"
 #include "RenderPropertyTest.h"
+#include "TestRenderBackend.h"
 
 #include "OloEngine/Renderer/Impostor/ImpostorBaker.h"
 #include "OloEngine/Renderer/Mesh.h"
@@ -90,6 +91,13 @@ namespace OloEngine::Tests
     class ImpostorBakeEvidenceTest : public RendererAttachedTest
     {
       protected:
+        // Runs in the --olo-rhi=vulkan process too: the bake goes through
+        // RenderCommand and the atlas is read back by Texture2D::GetData.
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
         void BuildScene() override
         {
             // The bake only needs a live GL context + the Impostor_Bake shader,
@@ -109,9 +117,25 @@ namespace OloEngine::Tests
 
         constexpr u32 N = 8;
         constexpr u32 kAtlasRes = 512; // 64px tiles — cheap, still clearly view-dependent
-        ImpostorAtlas atlas = ImpostorBaker::Bake(
-            cone, /*albedoTexture=*/nullptr, glm::vec3(0.25f, 0.55f, 0.15f),
-            N, kAtlasRes, /*hemi=*/true, /*alphaCutoff=*/0.5f);
+        ImpostorAtlas atlas;
+        const auto bake = [&atlas, &cone]()
+        {
+            atlas = ImpostorBaker::Bake(cone, /*albedoTexture=*/nullptr, glm::vec3(0.25f, 0.55f, 0.15f), N, kAtlasRes,
+                                        /*hemi=*/true, /*alphaCutoff=*/0.5f);
+        };
+        // On OpenGL the bake stays OUTSIDE a frame on purpose: RunInFrame puts
+        // the context back to the state it started in, and whatever this bake
+        // leaves must reach the suites after it, which is how the cull switch
+        // it once left on was found (#1352). Vulkan drops work recorded outside
+        // the frame bracket, so there it has to be in one.
+        if (TestRenderBackend::IsVulkanProcess())
+        {
+            RunInFrame(bake);
+        }
+        else
+        {
+            bake();
+        }
 
         // Release the bake's claim on the shared impostor VRAM budget (issue
         // #718) on every exit path, including an ASSERT_* return below —
@@ -196,32 +220,38 @@ namespace OloEngine::Tests
         Ref<Mesh> cone = MeshPrimitives::CreateCone(1.0f, 2.0f, 24);
         ASSERT_TRUE(cone);
 
-        const bool before = RenderCommand::IsCullingEnabled();
         for (const bool culling : { false, true })
         {
-            if (culling)
-            {
-                RenderCommand::EnableCulling();
-            }
-            else
-            {
-                RenderCommand::DisableCulling();
-            }
-            ImpostorAtlas atlas = ImpostorBaker::Bake(cone, /*albedoTexture=*/nullptr, glm::vec3(0.25f, 0.55f, 0.15f), 4, 128,
-                                                      /*hemi=*/true, /*alphaCutoff=*/0.5f);
-            const bool valid = atlas.IsValid();
-            ImpostorBaker::Free(atlas);
-            const bool after = RenderCommand::IsCullingEnabled();
+            bool valid = false;
+            bool after = !culling;
+            // The switch is read inside the frame the bake ran in, before the
+            // fixture puts the context back.
+            RunInFrame([&cone, &valid, &after, culling]()
+                       {
+                           const bool before = RenderCommand::IsCullingEnabled();
+                           if (culling)
+                           {
+                               RenderCommand::EnableCulling();
+                           }
+                           else
+                           {
+                               RenderCommand::DisableCulling();
+                           }
+                           ImpostorAtlas atlas = ImpostorBaker::Bake(cone, /*albedoTexture=*/nullptr, glm::vec3(0.25f, 0.55f, 0.15f), 4,
+                                                                     128, /*hemi=*/true, /*alphaCutoff=*/0.5f);
+                           valid = atlas.IsValid();
+                           ImpostorBaker::Free(atlas);
+                           after = RenderCommand::IsCullingEnabled();
+                           if (before)
+                           {
+                               RenderCommand::EnableCulling();
+                           }
+                           else
+                           {
+                               RenderCommand::DisableCulling();
+                           } });
             EXPECT_TRUE(valid);
             EXPECT_EQ(after, culling) << "called with culling " << (culling ? "on" : "off");
-        }
-        if (before)
-        {
-            RenderCommand::EnableCulling();
-        }
-        else
-        {
-            RenderCommand::DisableCulling();
         }
     }
 

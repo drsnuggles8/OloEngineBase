@@ -29,7 +29,7 @@
 
 #include <gtest/gtest.h>
 
-#include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "TestRenderBackend.h"
 #include "OloEngine/Renderer/ProceduralSky.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
@@ -43,6 +43,7 @@
 #include <glm/glm.hpp>
 
 #include <cstring>
+#include <functional>
 #include <iostream>
 
 namespace OloEngine::Tests
@@ -50,10 +51,28 @@ namespace OloEngine::Tests
     // Reuses RendererAttachedTest only for its one-time Renderer::Init (which
     // loads ProceduralSky.glsl into the shader library). We don't need the
     // per-test scene, so BuildScene is a no-op.
+    //
+    // The suite runs in the --olo-rhi=vulkan process too: the bakes go through
+    // RenderCommand and the results are read back by the textures' own
+    // GetFaceData / GetData. Each bake is issued inside RunInFrame, because
+    // work recorded outside the Vulkan frame bracket is dropped.
     class ProceduralSkyBakeTest : public RendererAttachedTest
     {
       protected:
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
         void BuildScene() override {}
+
+        Ref<EnvironmentMap> Generate(const PreethamParameters& params, u32 resolution)
+        {
+            Ref<EnvironmentMap> envMap;
+            RunInFrame([&envMap, &params, resolution]()
+                       { envMap = ProceduralSky::Generate(params, resolution); });
+            return envMap;
+        }
     };
 
     TEST_F(ProceduralSkyBakeTest, GeneratesNonBlackEnvironmentMapWithIBL)
@@ -65,7 +84,7 @@ namespace OloEngine::Tests
         params.ShowSunDisk = true;
 
         // Small cubemap keeps the bake + IBL convolution fast in CI.
-        auto envMap = ProceduralSky::Generate(params, 64);
+        auto envMap = Generate(params, 64);
 
         ASSERT_TRUE(envMap) << "ProceduralSky::Generate returned null — shader "
                                "missing or bake failed.";
@@ -129,8 +148,8 @@ namespace OloEngine::Tests
         PreethamParameters hazy = clear;
         hazy.Turbidity = 8.0f;
 
-        auto clearMap = ProceduralSky::Generate(clear, 64);
-        auto hazyMap = ProceduralSky::Generate(hazy, 64);
+        auto clearMap = Generate(clear, 64);
+        auto hazyMap = Generate(hazy, 64);
         ASSERT_TRUE(clearMap && clearMap->GetEnvironmentMap());
         ASSERT_TRUE(hazyMap && hazyMap->GetEnvironmentMap());
 
@@ -159,13 +178,17 @@ namespace OloEngine::Tests
         // Reproduce deterministically: bake a known-good sky, leak a GL error,
         // then read it back. The readback must drain the stale error and still
         // return the real (non-black) radiance.
+        if (TestRenderBackend::IsVulkanProcess())
+        {
+            GTEST_SKIP() << "GL-only by nature: the fault is a pending glGetError() value, which Vulkan does not have";
+        }
         PreethamParameters params;
         params.SunDirection = glm::normalize(glm::vec3(0.3f, 0.7f, 0.4f));
         params.Turbidity = 3.0f;
         params.Exposure = 0.05f;
         params.ShowSunDisk = true;
 
-        auto envMap = ProceduralSky::Generate(params, 64);
+        auto envMap = Generate(params, 64);
         ASSERT_TRUE(envMap && envMap->GetEnvironmentMap()) << "sky bake failed";
 
         // Leak a pending GL error, simulating an unrelated earlier operation.
@@ -210,10 +233,50 @@ namespace OloEngine::Tests
         };
         const auto sum = [](const glm::vec3& v)
         { return v.r + v.g + v.b; };
-        const auto bake = [&](const char* label) -> Baked
+        // The caller's state is set inside the frame the bake is issued in, and
+        // what the case changed is put back before that frame ends: the next
+        // case, and the next suite, start from the state this test found.
+        const auto bake = [&](const char* label, const std::function<void()>& callerState) -> Baked
         {
             Baked out;
-            auto envMap = ProceduralSky::Generate(params, 64);
+            Ref<EnvironmentMap> envMap;
+            RunInFrame([&envMap, &params, &callerState]()
+                       {
+                           const bool culling = RenderCommand::IsCullingEnabled();
+                           const bool depthTest = RenderCommand::IsDepthTestEnabled();
+                           const bool blend = RenderCommand::IsBlendEnabled();
+                           RenderCommand::DisableCulling();
+                           RenderCommand::SetDepthTest(false);
+                           RenderCommand::SetBlendState(false);
+                           callerState();
+
+                           envMap = ProceduralSky::Generate(params, 64);
+
+                           RenderCommand::BackCull();
+                           if (culling)
+                           {
+                               RenderCommand::EnableCulling();
+                           }
+                           else
+                           {
+                               RenderCommand::DisableCulling();
+                           }
+                           RenderCommand::SetDepthMask(true);
+                           RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+                           RenderCommand::SetDepthTest(depthTest);
+                           // The blend func cannot be asked for, and the two
+                           // backends start with different ones: OpenGL's
+                           // Init sets (SrcAlpha, OneMinusSrcAlpha), Vulkan's
+                           // recorded state starts at (One, Zero).
+                           if (TestRenderBackend::IsVulkanProcess())
+                           {
+                               RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::Zero);
+                           }
+                           else
+                           {
+                               RenderCommand::SetBlendFunc(RHI::BlendFactor::SrcAlpha, RHI::BlendFactor::OneMinusSrcAlpha);
+                           }
+                           RenderCommand::SetBlendState(blend); });
             if (!envMap || !envMap->GetEnvironmentMap() || !envMap->GetIrradianceMap() || !envMap->GetPrefilterMap() || !envMap->GetBRDFLutMap())
             {
                 ADD_FAILURE() << label << ": the bake produced no complete environment";
@@ -233,19 +296,13 @@ namespace OloEngine::Tests
                     out.BrdfLut += static_cast<f64>(value);
                 }
             }
-            std::cout << "[ProceduralSkyBake] " << label << ": sky " << out.Sky << ", irradiance " << out.Irradiance << ", prefilter "
-                      << out.Prefilter << ", BRDF table sum " << out.BrdfLut << "\n";
+            std::cout << "[ProceduralSkyBake] " << (TestRenderBackend::IsVulkanProcess() ? "Vulkan" : "GL") << ", " << label << ": sky "
+                      << out.Sky << ", irradiance " << out.Irradiance << ", prefilter " << out.Prefilter << ", BRDF table sum "
+                      << out.BrdfLut << "\n";
             return out;
         };
 
-        // Whatever the cases leave is put back: the next suite inherits the
-        // context.
-        GLStateGuard restore("ProceduralSkyBake.CallerState", GLStateGuard::Policy::RestoreQuiet);
-
-        RenderCommand::DisableCulling();
-        RenderCommand::SetDepthTest(false);
-        RenderCommand::SetBlendState(false);
-        const Baked plain = bake("culling off, depth test off, blend off");
+        const Baked plain = bake("culling off, depth test off, blend off", []() {});
         ASSERT_GT(plain.Sky, 0.0f);
         ASSERT_GT(plain.Irradiance, 0.0f);
         ASSERT_GT(plain.Prefilter, 0.0f);
@@ -259,25 +316,30 @@ namespace OloEngine::Tests
             EXPECT_NEAR(other.BrdfLut, plain.BrdfLut, plain.BrdfLut * 1e-4) << label << ": the BRDF table";
         };
 
-        RenderCommand::EnableCulling();
-        RenderCommand::BackCull();
-        expectSame(bake("back-face culling"), "back-face culling");
-        RenderCommand::FrontCull();
-        expectSame(bake("front-face culling"), "front-face culling");
-        RenderCommand::BackCull();
-        RenderCommand::DisableCulling();
-
-        RenderCommand::SetDepthTest(true);
-        RenderCommand::SetDepthMask(false);
-        expectSame(bake("depth test on, depth write off"), "depth test on, depth write off");
-        RenderCommand::SetDepthMask(true);
-        RenderCommand::SetDepthFunc(RHI::CompareOp::Greater);
-        expectSame(bake("depth test on, func greater"), "depth test on, func greater");
-        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
-        RenderCommand::SetDepthTest(false);
-
-        RenderCommand::SetBlendState(true);
-        RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One);
-        expectSame(bake("additive blend"), "additive blend");
+        expectSame(bake("back-face culling", []()
+                        {
+                            RenderCommand::EnableCulling();
+                            RenderCommand::BackCull(); }),
+                   "back-face culling");
+        expectSame(bake("front-face culling", []()
+                        {
+                            RenderCommand::EnableCulling();
+                            RenderCommand::FrontCull(); }),
+                   "front-face culling");
+        expectSame(bake("depth test on, depth write off", []()
+                        {
+                            RenderCommand::SetDepthTest(true);
+                            RenderCommand::SetDepthMask(false); }),
+                   "depth test on, depth write off");
+        expectSame(bake("depth test on, func greater", []()
+                        {
+                            RenderCommand::SetDepthTest(true);
+                            RenderCommand::SetDepthFunc(RHI::CompareOp::Greater); }),
+                   "depth test on, func greater");
+        expectSame(bake("additive blend", []()
+                        {
+                            RenderCommand::SetBlendState(true);
+                            RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One); }),
+                   "additive blend");
     }
 } // namespace OloEngine::Tests

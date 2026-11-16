@@ -13,11 +13,17 @@ frame and is not the subject here.
    (`Renderer/CaptureStateGuard.h`): culling off, depth test off, blend off.
 2. **Hand back the state you found, not a default.** `RenderCommand::IsCullingEnabled()`,
    `IsDepthTestEnabled()` and `IsBlendEnabled()` answer on both backends. `CaptureStateGuard`
-   restores the cull switch it was constructed under.
+   restores the cull switch it was constructed under. `IsBlendEnabled()` answers for the global
+   flag `SetBlendState` writes, never for one attachment's opinion: on OpenGL
+   `glIsEnabled(GL_BLEND)` reports "some draw buffer is on", so the backend reads draw buffer 0
+   by index, or its own record while a per-attachment opinion stands
+   (`GLAttachmentBlendOpinion.TheGlobalFlagIsReportedUnderAnOpinionAndAfterARawFlip`).
 3. **Test the draw under more than one caller state** and compare the results:
    `ProceduralSkyBakeTest.TheBakeIsTheSameUnderWhateverStateItIsCalledWith` bakes under back-face
    and front-face culling, a depth test with no write, a `Greater` depth func and additive
-   blending, and expects the same four textures each time.
+   blending, and expects the same four textures each time, on OpenGL and in the Vulkan test
+   process. Set the caller's state and issue the draw inside one `RunInFrame`: Vulkan drops work
+   recorded outside a frame, and on OpenGL the fixture puts the context back when the frame ends.
 4. **In a test process a leaked switch lasts until the process ends.** `RendererAttachedTest`
    puts every frame back to the state it started in, so the state one test leaves is the state
    every later frame starts with. When a GPU test's number depends on what ran before it, print
@@ -50,7 +56,9 @@ Measured on a 64-texel Preetham sky (sum of the SH DC term's three channels):
 | depth test on, func `Greater` | 0 | 0 | 0 | 0 |
 
 The skybox cube's faces do not all wind the same way seen from inside, so either cull mode drops
-some of them, and the irradiance convolution of a half-drawn cube is drawn half again.
+some of them, and the irradiance convolution of a half-drawn cube is drawn half again. Vulkan had
+the same fault with the two cull modes exchanged (back-face culling 2.176 / 1.415 / 2.170 and an
+empty BRDF table, front-face 1.977 / 1.253 / 1.971).
 
 A live editor did not show it because a frame there starts in the state the previous frame ended
 in, which is the same every frame. The test process showed it because its frames are restored to

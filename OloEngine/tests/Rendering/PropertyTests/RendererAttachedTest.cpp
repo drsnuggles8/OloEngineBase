@@ -270,11 +270,35 @@ namespace OloEngine::Tests
         m_Scene->SetRenderingEnabled(false);
         m_RenderingEnabled = false;
 
+        m_CallsDroppedAtSetUp = TestRenderBackend::CallsDroppedOutsideAFrame();
+        m_CallsDroppedArmed = true;
+
         BuildScene();
     }
 
     void RendererAttachedTest::TearDown()
     {
+        // GPU WORK ISSUED OUTSIDE A FRAME IS A FAILURE IN THE VULKAN PROCESS.
+        // The backend drops a draw, clear, dispatch or blit that arrives while
+        // no frame is recording, and says so once per process. Whatever that
+        // call was to write keeps the contents of its memory: zero while the
+        // allocation is fresh, another test's texture once the allocator hands
+        // a freed block back. A fixture that baked a black sky in BuildScene
+        // passed for as long as nothing before it had baked a real one, and
+        // then drew its coat under that one (#1352). The fix is always the
+        // same: issue the work inside RunInFrame.
+        if (m_CallsDroppedArmed)
+        {
+            m_CallsDroppedArmed = false;
+            const u64 dropped = TestRenderBackend::CallsDroppedOutsideAFrame() - m_CallsDroppedAtSetUp;
+            if (dropped != 0u)
+            {
+                ADD_FAILURE() << dropped << " GPU call(s) were issued outside a frame in BuildScene or the test body and "
+                                            "dropped by the Vulkan backend; what they were to write is unwritten. Issue "
+                                            "the work inside RunInFrame.";
+            }
+        }
+
         // Restore the renderer configuration the test started with.
         if (m_SettingsSnapshotted)
         {
