@@ -69,6 +69,7 @@ TEST(VulkanRenderGraphExecution, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanTransientResources.h"
 
 #include "RenderingTestUtils.h"
+#include "ScopedRendererApi.h"
 #include "VulkanTestSupport.h"
 
 #include <volk.h>
@@ -87,22 +88,12 @@ namespace
     using OloEngine::Tests::ScopedVulkanRenderCommandSelection;
 
     // RAII flip of the process-wide API selector around the factory calls —
-    // Texture2D::Create / StorageBuffer::Create switch on it. Restores
-    // OpenGL so later suite tests see the default untouched. Deliberately
-    // does NOT touch RenderCommand's process-wide backend (swapping it
-    // mid-suite would destroy an initialized GL backend under later GPU
-    // tests) — everything here injects a local VulkanRendererAPI instead.
-    struct ScopedVulkanApiSelection
-    {
-        ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-        }
-        ~ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-        }
-    };
+    // Texture2D::Create / StorageBuffer::Create switch on it. Restores the API
+    // it found (ScopedRendererApi.h, #1693). Deliberately does NOT touch
+    // RenderCommand's process-wide backend (swapping it mid-suite would
+    // destroy an initialized GL backend under later GPU tests) — everything
+    // here injects a local VulkanRendererAPI instead.
+    using OloEngine::Tests::ScopedVulkanApiSelection;
 
     class ScopedNoApiGlfwWindow
     {

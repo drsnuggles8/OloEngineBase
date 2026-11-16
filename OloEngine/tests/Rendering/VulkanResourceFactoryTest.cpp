@@ -74,6 +74,10 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include <volk.h>
 #include <GLFW/glfw3.h>
 
+// After glad: VulkanTestSupport.h includes GLFW, which must not pull in gl.h first.
+#include "ScopedRendererApi.h"
+#include "VulkanTestSupport.h"
+
 #include <algorithm>
 #include <array>
 #include <cstring>
@@ -85,51 +89,14 @@ namespace
 {
     using namespace OloEngine;
 
-    // RAII flip of the process-wide API selector around factory calls —
-    // restores OpenGL so later suite tests see the default untouched (the
-    // VulkanRenderGraphExecutionTest pattern).
-    struct ScopedVulkanApiSelection
-    {
-        ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-        }
-        ~ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-        }
-    };
+    // Restores the API it found, which is Vulkan in the --olo-rhi=vulkan process
+    // (ScopedRendererApi.h, #1693).
+    using OloEngine::Tests::ScopedVulkanApiSelection;
 
     // The shared RGBA16F contract uses the public RenderCommand readback
-    // facade, so this one resource-factory tenant must temporarily recreate
-    // that process-global facade for Vulkan as well as selecting Vulkan for
-    // resource factories. Put the initialized GL facade back for later tests.
-    struct ScopedVulkanRenderCommand
-    {
-        ScopedVulkanRenderCommand()
-            : PreviousDescriptorHeapEnabled(RHI::DescriptorHeap::Get().IsEnabled()),
-              HadOpenGlContext(glfwGetCurrentContext() != nullptr)
-        {
-            if (HadOpenGlContext)
-                RenderCommand::ShutdownGpuResources();
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-            RenderCommand::RecreateForSelectedBackend();
-        }
-
-        ~ScopedVulkanRenderCommand()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-            RenderCommand::RecreateForSelectedBackend();
-            if (HadOpenGlContext)
-            {
-                RenderCommand::Init();
-                RHI::DescriptorHeap::Get().SetEnabled(PreviousDescriptorHeapEnabled);
-            }
-        }
-
-        bool PreviousDescriptorHeapEnabled;
-        bool HadOpenGlContext;
-    };
+    // facade, so this one resource-factory tenant swaps that process-global
+    // facade for Vulkan too, and puts back the backend it found.
+    using ScopedVulkanRenderCommand = OloEngine::Tests::ScopedVulkanRenderCommandSelection;
 } // namespace
 
 class VulkanResourceFactory : public ::testing::Test
@@ -137,52 +104,11 @@ class VulkanResourceFactory : public ::testing::Test
   protected:
     void SetUp() override
     {
-        if (volkInitialize() != VK_SUCCESS)
-            GTEST_SKIP() << "No Vulkan loader on this machine.";
-
-        // Bare-probe capability ladder (see VulkanRenderGraphExecutionTest
-        // for why the probe precedes VulkanDevice construction).
-        {
-            VkApplicationInfo appInfo{};
-            appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-            appInfo.pApplicationName = "OloEngine-Tests";
-            appInfo.apiVersion = VulkanCapabilities::kMinApiVersion;
-            VkInstanceCreateInfo instanceInfo{};
-            instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-            instanceInfo.pApplicationInfo = &appInfo;
-            VkInstance probe = VK_NULL_HANDLE;
-            if (vkCreateInstance(&instanceInfo, nullptr, &probe) != VK_SUCCESS)
-                GTEST_SKIP() << "vkCreateInstance failed (driver below Vulkan 1.4?).";
-            volkLoadInstance(probe);
-
-            u32 deviceCount = 0;
-            if (vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr) != VK_SUCCESS)
-            {
-                vkDestroyInstance(probe, nullptr);
-                GTEST_SKIP() << "vkEnumeratePhysicalDevices (count) failed on this machine.";
-            }
-            std::vector<VkPhysicalDevice> devices(deviceCount);
-            if (deviceCount > 0)
-            {
-                const VkResult listResult = vkEnumeratePhysicalDevices(probe, &deviceCount, devices.data());
-                if (listResult == VK_SUCCESS || listResult == VK_INCOMPLETE)
-                    devices.resize(deviceCount);
-                else
-                {
-                    vkDestroyInstance(probe, nullptr);
-                    GTEST_SKIP() << "vkEnumeratePhysicalDevices (list) failed on this machine.";
-                }
-            }
-            const bool anySatisfies = std::ranges::any_of(
-                devices,
-                [](VkPhysicalDevice device)
-                { return VulkanCapabilities::Evaluate(device).Satisfied; });
-            vkDestroyInstance(probe, nullptr);
-            if (!anySatisfies)
-                GTEST_SKIP() << "No device satisfies the ADR 0010 capability contract here.";
-            if (volkInitialize() != VK_SUCCESS)
-                GTEST_SKIP() << "Vulkan loader re-initialisation failed.";
-        }
+        // The shared gate (testing-architecture rule 16): the bare-probe ladder,
+        // --olo-gl-backend=none, --olo-require-vulkan, the coverage banner, and a
+        // skip in the --olo-rhi=vulkan process, whose windowless context owns the
+        // device this fixture would build a second of (#1693).
+        OLO_VULKAN_DEVICE_OR_SKIP();
 
         m_Device = std::make_unique<VulkanDevice>();
         try

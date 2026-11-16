@@ -252,6 +252,39 @@ The harder problem: vertex/fragment/etc. stages compile under `shaderc_target_en
 
 **Compute-dispatch texture/sampler bindings are inherently pass-local — don't require cross-shader type agreement.** Unlike a graphics material's texture set (which can persist bound across many draws), a compute dispatch explicitly (re)binds every texture it reads immediately before `glDispatchCompute`, matching the `TEX_USER_0/1/2` "engine rebinds between passes" rationale already documented in `ShaderBindingLayout.h`. `ShaderCrossConsistencyTest::SamplerBindingsHaveConsistentType` therefore skips every compute-stage sampler entirely (not just `TEX_USER_*`) — two different `.comp` files, or a `.comp` and a `.glsl`, legitimately declare the same low binding slot (0–9) with completely different sampler types (`sampler2D` vs `sampler3D`) with zero risk, since they're never simultaneously bound. `ShaderReflectionBindingTest`'s *name*-pattern check for those same low slots (`TEX_DIFFUSE`/`TEX_NORMAL`/etc. in `ShaderBindingLayout.h`) still applies to compute shaders — it's additive `||` name matching in the same style as every other documented pass-local reuse in that function, so a compute shader's texture name still needs a registered pattern (or exact-name entry) on whichever slot it reuses; only the *cross-shader type consistency* requirement is compute-exempt.
 
+### 6.8 A test ends on the backend its process runs (issue #1693)
+
+**Rule:** a test leaves `RendererAPI::GetAPI()` and the RenderCommand facade as its process started
+them. The binary runs as two processes, so "as it started" is OpenGL in the default one and Vulkan
+under `--olo-rhi=vulkan`. It is never a constant. `ScopedRendererApi` and `ScopedVulkanApiSelection`
+(`Rendering/ScopedRendererApi.h`) move the selector and give back what they found;
+`ScopedVulkanRenderCommandSelection` (`VulkanTestSupport.h`) does the same for the facade, and does
+nothing (and fails the test) in the Vulkan process, where the facade belongs to the windowless context.
+
+**The guard.** `RendererBackendCheck` (`Rendering/PropertyTests/`) records the process's backend in
+`main`, after `TestRenderBackend::SelectFromOptions`, and checks it after every test and suite. It
+fails the test that left the selector, the facade's type or (Vulkan process) the facade's identity
+changed, whether the test passed or skipped, and restores what it can, so one leak fails one test.
+It is not behind a strict flag, unlike `RendererStateCheck`: this leak switches off a process's
+worth of tests rather than shifting one measurement. `TestRenderBackend::EnsureWindowlessContext`
+never caches a refusal it reached with the selector off Vulkan.
+
+**Who skips in the Vulkan process.** Its windowless `VulkanContext` owns the device, the facade and
+volk's process-global entry points from the first scene test to the end of the run. A suite that
+builds its own `VulkanDevice` goes through `OLO_VULKAN_DEVICE_OR_SKIP()`, which refuses there. One
+that only creates a bare probe instance (`VulkanBringUp`, `ShaderCompileBudget`) uses
+`OLO_SKIP_IN_THE_VULKAN_PROCESS()`. Both say why in the skip reason. Without the skip, whether
+`volkFinalize` or `volkLoadInstance` pulled the entry points out from under the live device would
+depend on test order.
+
+**The failure that taught it.** Nine device-test scopes restored the constant `OpenGL`. In the GL
+process that was the value they found; in the Vulkan process the first one to run left the selector
+on OpenGL, `GraphicsContext::CreateWindowless` returned null, the cached refusal skipped every later
+scene test, and an unfiltered `OloEngine-Tests --olo-rhi=vulkan` printed ~9,980 passed in six
+minutes with no scene rendered. CI only ever ran the filtered launch, which selected none of the
+leaking suites. The filter (`vulkan_scene_filter.txt`) is now only CI's lavapipe selection; an
+unfiltered Vulkan run is supported and runs every ported suite.
+
 ---
 
 ## 7. Relevant files

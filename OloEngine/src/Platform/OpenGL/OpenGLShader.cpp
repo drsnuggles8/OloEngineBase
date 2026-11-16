@@ -715,12 +715,7 @@ namespace OloEngine
 
         const auto shaderSources = PreProcess(source);
 
-        // Extract shader name from filepath first
-        auto lastSlash = GetFilePath().find_last_of("/\\");
-        const auto lastDot = GetFilePath().rfind('.');
-        lastSlash = lastSlash == std::string::npos ? 0 : (lastSlash + 1);
-        const auto count = lastDot == std::string::npos ? (GetFilePath().size() - lastSlash) : (lastDot - lastSlash);
-        m_Name = GetFilePath().substr(lastSlash, count);
+        m_Name = Shader::NameFromFilePath(GetFilePath());
 
         // Make this shader reloadable BY NAME regardless of who owns it — a
         // ShaderLibrary or a render pass member (issue #607). Registered before

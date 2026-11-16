@@ -70,6 +70,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "../Groom/GroomBindingFixture.h"
 #include "../Groom/GroomStrandFixture.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
+#include "ScopedRendererApi.h"
 #include "VulkanTestSupport.h"
 #include "PropertyTests/PerfBaselineGate.h"
 #include "../TestOptions.h"
@@ -192,17 +193,9 @@ namespace
 {
     using namespace OloEngine;
 
-    struct ScopedVulkanApiSelection
-    {
-        ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-        }
-        ~ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-        }
-    };
+    // Restores the API it found, which is Vulkan in the --olo-rhi=vulkan process
+    // (ScopedRendererApi.h, #1693).
+    using OloEngine::Tests::ScopedVulkanApiSelection;
 
     // Walk up from the test binary's cwd until OloEditor/ is found, then
     // enter it — shader paths are relative to it (the pilot fixture's rule).
@@ -638,9 +631,10 @@ class VulkanPassSuite : public ::testing::Test
                "device-teardown object-leak reports land here too)";
         m_Device.reset();
 
-        // Restore the process-global backend to the pre-test default (the
-        // static-init OpenGL instance's shape): selection back to GL first,
-        // then recreate against it — the amendment (34) fixture discipline.
+        // Restore the process-global backend to the one the test found (the
+        // OpenGL process's, since the gate keeps this fixture out of the
+        // --olo-rhi=vulkan one): selection back first, then recreate against
+        // it — the amendment (34) fixture discipline.
         m_Selection.reset();
         RenderCommand::RecreateForSelectedBackend();
         // The recreated GL object is a FRESH instance whose caps were never

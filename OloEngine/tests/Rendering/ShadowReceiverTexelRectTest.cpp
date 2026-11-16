@@ -20,6 +20,7 @@
 // Pure CPU math: no GL or Vulkan context.
 
 #include "OloEnginePCH.h"
+#include "ScopedRendererApi.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -36,21 +37,7 @@ using namespace OloEngine; // NOLINT(google-build-using-namespace) — test file
 
 namespace
 {
-    struct ScopedRendererApi
-    {
-        explicit ScopedRendererApi(RendererAPI::API api)
-            : m_Previous(RendererAPI::GetAPI())
-        {
-            RendererAPI::SetAPI(api);
-        }
-        ~ScopedRendererApi()
-        {
-            RendererAPI::SetAPI(m_Previous);
-        }
-        ScopedRendererApi(const ScopedRendererApi&) = delete;
-        ScopedRendererApi& operator=(const ScopedRendererApi&) = delete;
-        RendererAPI::API m_Previous;
-    };
+    using OloEngine::Tests::ScopedRendererApi;
 
     struct TexelRect
     {

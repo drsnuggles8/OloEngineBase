@@ -22,6 +22,7 @@
 // =============================================================================
 
 #include "OloEnginePCH.h"
+#include "ScopedRendererApi.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Core/DebugLevers.h"
@@ -612,14 +613,8 @@ TEST(RenderGraphAttachmentFeedback, AResolveViewNamesTheSeparateSingleSampleBack
 
 TEST(RenderGraphAttachmentFeedback, ShaderDepthSamplingWhileWritingTheFramebufferRequiresASnapshotOnBothBackends)
 {
-    struct RestoreAPI
-    {
-        RendererAPI::API Previous = RendererAPI::GetAPI();
-        ~RestoreAPI()
-        {
-            RendererAPI::SetAPI(Previous);
-        }
-    } const restore;
+    // Each iteration selects its backend; the scope gives back the one found.
+    const OloEngine::Tests::ScopedRendererApi restore(RendererAPI::GetAPI());
     // This is a declaration policy test, with no GPU/backend recreation. The
     // current Vulkan target binds writable depth/stencil; neither backend gets
     // an implicit exemption merely because a pass disables depth writes.

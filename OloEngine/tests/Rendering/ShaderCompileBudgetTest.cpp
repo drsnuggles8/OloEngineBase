@@ -40,6 +40,7 @@ TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudge
 #else
 
 #include "MemoryCeiling.h"
+#include "VulkanTestSupport.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
 #include <shaderc/shaderc.hpp>
@@ -445,6 +446,10 @@ namespace
 
 TEST(ShaderCompileBudget, EveryComputeShaderBuildsOnTheRadvNullDeviceWithinBudget)
 {
+    // Its own instance, device and volkLoadInstance would replace the entry
+    // points the --olo-rhi=vulkan process's live device runs on.
+    OLO_SKIP_IN_THE_VULKAN_PROCESS();
+
     NullDevice null;
     BringUpNullDevice(null);
     if (null.Device == VK_NULL_HANDLE)

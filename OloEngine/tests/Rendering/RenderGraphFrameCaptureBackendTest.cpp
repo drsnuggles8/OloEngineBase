@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "ScopedRendererApi.h"
 #include <gtest/gtest.h>
 
 #include "OloEngine/Renderer/Debug/RenderGraphFrameCapture.h"
@@ -19,19 +20,7 @@ namespace
 {
     using namespace OloEngine;
 
-    struct ScopedRendererApi
-    {
-        explicit ScopedRendererApi(RendererAPI::API api)
-            : m_Previous(RendererAPI::GetAPI())
-        {
-            RendererAPI::SetAPI(api);
-        }
-        ~ScopedRendererApi()
-        {
-            RendererAPI::SetAPI(m_Previous);
-        }
-        RendererAPI::API m_Previous;
-    };
+    using OloEngine::Tests::ScopedRendererApi;
 } // namespace
 
 TEST(RenderGraphFrameCaptureBackend, HookIsRefusedOffOpenGL)

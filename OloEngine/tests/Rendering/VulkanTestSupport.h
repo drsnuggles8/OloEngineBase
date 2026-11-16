@@ -6,6 +6,7 @@
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "VulkanCoverageReport.h"
+#include "PropertyTests/TestRenderBackend.h"
 #include "../TestOptions.h"
 
 #include <gtest/gtest.h>
@@ -142,19 +143,41 @@ namespace OloEngine::Tests
                            "No device satisfies the ADR 0010 capability contract here — the gate would refuse --rhi=vulkan.");
     }
 
+    // Why a suite that brings up its own Vulkan instance or device does not
+    // run in the --olo-rhi=vulkan process (#1556, #1693). That process's
+    // windowless VulkanContext owns the device, the RenderCommand facade and
+    // volk's process-global entry points from the first scene test to the
+    // end of the run. A second device, a facade swap, or the probe's
+    // volkFinalize/volkLoadInstance would pull them out from under it, and
+    // whether one did would depend on test order. These suites run in the
+    // OpenGL process, where nothing else owns a Vulkan device.
+    inline constexpr const char* kVulkanProcessOwnsTheDeviceReason =
+        "This process runs --olo-rhi=vulkan: its windowless VulkanContext owns the Vulkan device, the RenderCommand "
+        "facade and volk's entry points, and this suite brings up its own instance or device. Run it in the OpenGL "
+        "process.";
+
     // The gate for the device-level suites, which each build their own
     // VulkanDevice and swap the RenderCommand facade for one test. In the
-    // --olo-rhi=vulkan process the process-wide windowless VulkanContext owns
-    // the device and the facade, so those suites refuse there (and FAIL under
-    // --olo-require-vulkan: a filter that selects them in that process is
-    // wrong). They run in the OpenGL process, as before.
+    // --olo-rhi=vulkan process they refuse with the reason above (and FAIL
+    // under --olo-require-vulkan, which CI pairs with a filter that selects
+    // none of them). They run in the OpenGL process, as before.
     [[nodiscard]] inline VulkanDeviceTestGateResult ProbeVulkanDeviceTestGate()
     {
-        if (OloEngine::Tests::Options().Rhi == OloEngine::Tests::TestRhi::Vulkan)
-            return { false, "This process runs --olo-rhi=vulkan: its windowless VulkanContext owns the device, and a "
-                            "device-level Vulkan suite builds its own. Run it in the OpenGL process." };
+        if (TestRenderBackend::IsVulkanProcess())
+            return { false, kVulkanProcessOwnsTheDeviceReason };
         return ProbeVulkanDeviceAvailability();
     }
+
+    // For a Vulkan suite that is not a device tenant but still touches volk's
+    // process-global state (a bare capability-probe instance). Not a device
+    // gate: it neither marks the test device-gated nor fails under
+    // --olo-require-vulkan. First statement of the fixture's SetUp.
+#define OLO_SKIP_IN_THE_VULKAN_PROCESS()                                           \
+    do                                                                             \
+    {                                                                              \
+        if (::OloEngine::Tests::TestRenderBackend::IsVulkanProcess())              \
+            GTEST_SKIP() << ::OloEngine::Tests::kVulkanProcessOwnsTheDeviceReason; \
+    } while (false)
 
     // The one gate every device-backed Vulkan test goes through (issue #1300).
     //
@@ -209,16 +232,36 @@ namespace OloEngine::Tests
     }
 
     // Temporarily installs the real process-wide Vulkan RenderCommand facade,
-    // then restores the initialized OpenGL facade used by the shared GPU-test
-    // process. Keep this sequence centralized: restoring only RendererAPI's
-    // selector leaves later tests dispatching through the wrong backend.
+    // then puts back a fresh OpenGL facade (the OpenGL process's backend,
+    // re-initialized when a GL context was current) and the API selector it
+    // found. The facade is rebuilt for the process's backend, not for the
+    // selector found: inside a ScopedVulkanApiSelection the selector was
+    // already Vulkan, and rebuilding from it would leave a Vulkan facade
+    // behind the outer scope's OpenGL. Keep this sequence centralized:
+    // restoring only RendererAPI's selector leaves later tests dispatching
+    // through the wrong backend.
+    //
+    // OpenGL process only. In the --olo-rhi=vulkan process the facade belongs
+    // to the windowless VulkanContext, and recreating it would destroy the
+    // object that context records through; there the scope does nothing and
+    // fails the test. The device gate keeps every current user out of that
+    // process, so the failure only fires for a new caller that skipped it.
     class ScopedVulkanRenderCommandSelection
     {
       public:
         ScopedVulkanRenderCommandSelection()
-            : m_PreviousDescriptorHeapEnabled(RHI::DescriptorHeap::Get().IsEnabled()),
-              m_HadOpenGlContext(glfwGetCurrentContext() != nullptr)
+            : m_PreviousApi(RendererAPI::GetAPI()),
+              m_PreviousDescriptorHeapEnabled(RHI::DescriptorHeap::Get().IsEnabled()),
+              m_HadOpenGlContext(glfwGetCurrentContext() != nullptr),
+              m_Swapped(!TestRenderBackend::IsVulkanProcess())
         {
+            if (!m_Swapped)
+            {
+                ADD_FAILURE() << "ScopedVulkanRenderCommandSelection in the --olo-rhi=vulkan process: it would replace "
+                                 "the RenderCommand facade the windowless VulkanContext records through. Gate the "
+                                 "test with OLO_VULKAN_DEVICE_OR_SKIP().";
+                return;
+            }
             if (m_HadOpenGlContext)
                 RenderCommand::ShutdownGpuResources();
             RendererAPI::SetAPI(RendererAPI::API::Vulkan);
@@ -227,6 +270,8 @@ namespace OloEngine::Tests
 
         ~ScopedVulkanRenderCommandSelection()
         {
+            if (!m_Swapped)
+                return;
             RendererAPI::SetAPI(RendererAPI::API::OpenGL);
             RenderCommand::RecreateForSelectedBackend();
             if (m_HadOpenGlContext)
@@ -234,6 +279,7 @@ namespace OloEngine::Tests
                 RenderCommand::Init();
                 RHI::DescriptorHeap::Get().SetEnabled(m_PreviousDescriptorHeapEnabled);
             }
+            RendererAPI::SetAPI(m_PreviousApi);
         }
 
         ScopedVulkanRenderCommandSelection(const ScopedVulkanRenderCommandSelection&) = delete;
@@ -245,7 +291,9 @@ namespace OloEngine::Tests
         }
 
       private:
+        RendererAPI::API m_PreviousApi;
         bool m_PreviousDescriptorHeapEnabled;
         bool m_HadOpenGlContext;
+        bool m_Swapped;
     };
 } // namespace OloEngine::Tests

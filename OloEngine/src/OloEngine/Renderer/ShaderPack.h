@@ -89,13 +89,18 @@ namespace OloEngine
 
         // Build a shader pack from all compiled shaders in the given libraries.
         // Both Renderer2D and Renderer3D shader libraries are included. Requires
-        // every shader to already be GL-linked (IsReady()) — this is the
-        // editor's "Build Shader Pack" menu command, run inside a live context.
+        // every shader to be ready (IsReady()) — this is the editor's "Build
+        // Shader Pack" menu command, run inside a live context. An OpenGL
+        // shader is packed from its in-memory SPIR-V. A shader the live backend
+        // compiled without OpenGL SPIR-V (a VulkanShader, in an editor started
+        // with --rhi=vulkan) is baked again from its file on the CPU path
+        // below, so the pack holds both blobs on either backend (#1693).
         static bool CreateFromLibraries(ShaderLibrary& lib2D, ShaderLibrary& lib3D, const std::filesystem::path& outputPath);
 
         // Build a shader pack directly from a list of shader filepaths, using
-        // ONLY the CPU-side prepare path (Shader::PrepareBatch: read, preprocess,
-        // shaderc, SPIRV-Cross) — no GL context is created, touched, or required
+        // ONLY the CPU-side prepare path (OpenGLShader::PrepareBatch: read,
+        // preprocess, shaderc, SPIRV-Cross), whichever backend the process
+        // selected — no GL context is created, touched, or required
         // (issue #908's invalidation-contract spike: verified PrepareBatch never
         // calls into GL). This is the headless CI producer; `filepaths` must be
         // the SAME strings the runtime will later call ShaderLibrary::Load()
@@ -147,6 +152,14 @@ namespace OloEngine
         };
         friend struct TIsTriviallyRelocatable<PackShaderInfo>;
         static bool WritePackFile(const TArray<PackShaderInfo>& shaders, const std::filesystem::path& outputPath);
+
+        // The CPU bake shared by both producers: prepares `filepaths` and
+        // appends one entry per shader that compiled. The prepared shaders are
+        // APPENDED to `keepAlive`; the appended entries point into their
+        // SPIR-V, so it must outlive WritePackFile, across every call that
+        // shares it.
+        static void AppendCpuPrepared(const TArray<FString>& filepaths, TArray<Ref<Shader>>& keepAlive,
+                                      TArray<PackShaderInfo>& shaders);
 
         bool m_Loaded = false;
         std::filesystem::path m_Path;

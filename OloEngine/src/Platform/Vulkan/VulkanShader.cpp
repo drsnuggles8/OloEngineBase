@@ -270,8 +270,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        const std::filesystem::path path(filepath);
-        m_Name = path.stem().string();
+        m_Name = Shader::NameFromFilePath(filepath);
 
         // Reloadable by name, like OpenGLShader (issue #607). Before this a
         // Vulkan session's olo_shader_reload could reach only library shaders,
