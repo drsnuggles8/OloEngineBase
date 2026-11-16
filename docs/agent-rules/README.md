@@ -72,6 +72,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [concurrent-cmake-configure.md](concurrent-cmake-configure.md): one configure at a time per build tree; the error blames your CMakeLists.txt instead.
 - [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md): a .lib cannot exceed 4 GiB, and `LNK1248` under-reports the overshoot.
 - [vcpkg-dependency-management.md](vcpkg-dependency-management.md): read before adding, bumping or removing a dependency; the CRT triplet mismatch is heap corruption.
+- [two-copies-of-a-header-on-the-include-path.md](two-copies-of-a-header-on-the-include-path.md): include stb as `<stb_image/...>`, never by the bare name, which is vcpkg's older copy.
 - [configure-time-variable-visibility.md](configure-time-variable-visibility.md): a CMake variable must be set before the `add_subdirectory()` that reads it.
 - [asset-import-usd-alembic.md](asset-import-usd-alembic.md): the importer registry seam, and vendoring OpenUSD / Alembic / MaterialX statically.
 - [openusd-build-and-link.md](openusd-build-and-link.md): OpenUSD builds against vcpkg's oneTBB, and a File API guard fails any link with a second one.

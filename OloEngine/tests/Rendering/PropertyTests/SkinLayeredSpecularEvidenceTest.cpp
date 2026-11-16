@@ -81,7 +81,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 
-#include <stb_image_write.h>
+#include <stb_image/stb_image_write.h>
 
 #include <algorithm>
 #include <cmath>

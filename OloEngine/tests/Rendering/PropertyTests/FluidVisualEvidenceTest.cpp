@@ -41,7 +41,7 @@
 #include "OloEngine/Scene/Scene.h"
 
 #include <gtest/gtest.h>
-#include <stb_image_write.h>
+#include <stb_image/stb_image_write.h>
 
 #include <algorithm>
 #include <cmath>

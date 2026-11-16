@@ -192,6 +192,7 @@ The same fact is written in more than one place with nothing enforcing agreement
 | `ShaderBindingLayout.h` <-> `include/BindlessHeap.glsl` | `HEAP_IMAGE_SLOT_BASE` is derived in C++ and a literal in GLSL, so adding any `TEX_*` slot is also a shader edit (#702). |
 | [ssbo-binding-cap-is-80-on-mesa.md](ssbo-binding-cap-is-80-on-mesa.md) | The SSBO ceiling lived in prose copied from the UBO namespace while the driver's real 80 was mirrored nowhere. |
 | [groom-coat-colour.md](groom-coat-colour.md) | The UV convention a groom source writes root UVs in against the one the engine samples textures in, pinned by `TheRootUVsAreTheSkinsUnderThem`. |
+| [two-copies-of-a-header-on-the-include-path.md](two-copies-of-a-header-on-the-include-path.md) | Six tests included the bare `<stb_image_write.h>`, vcpkg's older copy; after a pin bump made the stride a `ptrdiff_t` they passed four bytes of an eight-byte argument and 26 tests died in the PNG writer. |
 | [vcpkg-dependency-management.md](vcpkg-dependency-management.md) rule 21 | `-ffp-contract=off` reached the engine but not the vcpkg ports, so the AMD box alone FMA-fused meshoptimizer and reordered one Samoyed submesh under a shipped groom binding (#1674). |
 
 ## 3. It silently drops something

@@ -84,6 +84,21 @@ repos:
       pass_filenames: false
       files: '(OloEngine/src/.*\.(h|hpp|inl)|scripts/check_header_profiling_include\.py)$'
 
+    - id: stb-include-path
+      name: stb is included through the pinned path
+      description: >-
+        Fails if a source file outside vendor/ includes an stb header by its bare name
+        (<stb_image_write.h>). That is the older copy vcpkg installs for assimp, while
+        the implementation that links is the pinned one staged as
+        <stb_image/stb_image_write.h>; when a pin bump changed stbi_write_png's stride
+        from int to ptrdiff_t, six test files that used the bare name crashed 26 tests
+        in the PNG writer. See
+        docs/agent-rules/two-copies-of-a-header-on-the-include-path.md.
+      entry: python scripts/check_stb_include_path.py
+      language: system
+      pass_filenames: false
+      files: '(.*\.(c|cc|cpp|h|hpp|inl)|scripts/check_stb_include_path\.py)$'
+
     - id: docs-consistency
       name: documentation links, anchors, index and contract-doc names resolve
       description: >-
