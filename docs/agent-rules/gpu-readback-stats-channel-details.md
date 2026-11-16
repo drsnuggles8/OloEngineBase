@@ -374,6 +374,12 @@ holds four copies; with all four unread, `StageDeferred` refuses the new one.
 `ReadCompleted` polls with `ClientWaitFence(fence, 0)`, not `IsFenceSignaled`: on OpenGL the
 second only asks, and a fence issued in a frame that ends without a swap never signals (rule 7).
 
+A Vulkan fence signals only if the submit that follows it attaches the staged signal
+(`VulkanGpuFence::DrainPendingSubmitOps`). The frame loop does; the device tests that bring up
+their own device submitted with a bare `vkQueueSubmit` and did not, so there no fenced copy ever
+finished and `VulkanPassSuite.VirtualShadowMapRunsAFullFrameOnVulkan` read all-zero counters. A
+test frame is submitted with `SubmitWithStagedFenceOps` from `VulkanTestSupport.h`.
+
 `GPUFluidSolver`'s body-impulse harvest still stages in the step and reads before the next one.
 It is simulation feedback, so whether it should wait or run late is its own decision (#1702).
 
