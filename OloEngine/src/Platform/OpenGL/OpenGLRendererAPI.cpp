@@ -716,6 +716,24 @@ namespace OloEngine
     {
         return m_StencilTestEnabled;
     }
+
+    // Asked of the context, not of the members above: a state guard restores
+    // with raw GL calls (GLStateSnapshot::ApplyCore), which the members never
+    // see, and the caller of these wants what the next draw will run under.
+    bool OpenGLRendererAPI::IsCullingEnabled() const
+    {
+        return glIsEnabled(GL_CULL_FACE) == GL_TRUE;
+    }
+
+    bool OpenGLRendererAPI::IsDepthTestEnabled() const
+    {
+        return glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
+    }
+
+    bool OpenGLRendererAPI::IsBlendEnabled() const
+    {
+        return glIsEnabled(GL_BLEND) == GL_TRUE;
+    }
     void OpenGLRendererAPI::SetStencilFunc(RHI::CompareOp func, i32 ref, u32 mask)
     {
         OLO_PROFILE_FUNCTION();

@@ -423,6 +423,9 @@ namespace OloEngine
         void EnableStencilTest() override;
         void DisableStencilTest() override;
         bool IsStencilTestEnabled() const override;
+        [[nodiscard]] bool IsCullingEnabled() const override;
+        [[nodiscard]] bool IsDepthTestEnabled() const override;
+        [[nodiscard]] bool IsBlendEnabled() const override;
         void SetStencilFunc(RHI::CompareOp func, i32 ref, u32 mask) override;
         void SetStencilOp(RHI::StencilOp sfail, RHI::StencilOp dpfail, RHI::StencilOp dppass) override;
         void SetStencilMask(u32 mask) override;

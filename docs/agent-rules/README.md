@@ -182,6 +182,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [screen-space-denoiser-chain.md](screen-space-denoiser-chain.md): a filter that runs at half resolution is guided by a guide buffer at its own resolution.
 - [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md): wrap every new clear site in `GLClearProgramGuard`, unbind and restore.
 - [render-pass-published-state.md](render-pass-published-state.md): a pass that publishes engine-global bindings runs last and is not wrapped in `GLStateGuard(Restore)`.
+- [out-of-graph-draws-set-their-own-state.md](out-of-graph-draws-set-their-own-state.md): a bake or capture outside the render graph sets its culling, depth test and blend, and hands back the state it found.
 - [render-graph-attachment-feedback.md](render-graph-attachment-feedback.md): validate the original accesses against physical attachment identities, and give writable attached depth a snapshot.
 - [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md): `WriteNewVersion` renames a physical resource; use the poison and disable levers to find stale reads.
 - [render-pipeline-caches.md](render-pipeline-caches.md): process-wide render caches invalidate on every topology reset, not only on a fingerprint change.

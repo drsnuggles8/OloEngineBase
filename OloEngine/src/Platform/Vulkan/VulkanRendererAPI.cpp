@@ -1751,6 +1751,23 @@ namespace OloEngine
         auto& ctx = Ctx();
         return ctx.State.StencilTest;
     }
+    bool VulkanRendererAPI::IsCullingEnabled() const
+    {
+        auto& ctx = Ctx();
+        return ctx.State.Culling;
+    }
+    bool VulkanRendererAPI::IsDepthTestEnabled() const
+    {
+        auto& ctx = Ctx();
+        return ctx.State.DepthTest;
+    }
+    bool VulkanRendererAPI::IsBlendEnabled() const
+    {
+        // The global flag SetBlendState writes; a per-attachment opinion is a
+        // separate statement and is not what a caller restoring the flag wants.
+        auto& ctx = Ctx();
+        return ctx.State.Blend;
+    }
     void VulkanRendererAPI::SetStencilFunc(const RHI::CompareOp func, const i32 ref, const u32 mask)
     {
         auto& ctx = Ctx();

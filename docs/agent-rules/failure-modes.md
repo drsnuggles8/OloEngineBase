@@ -322,6 +322,7 @@ The logic is right, but when it runs or how long it lives is wrong.
 | [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | Touch a priority-ordered LRU in reverse (§5), and fill coarse-to-fine with one dispatch per level with barriers (§3a). |
 | [async-fault-in-under-a-residency-cache.md](async-fault-in-under-a-residency-cache.md) | Allocating the slot before the asynchronous read completes evicts a resident entry to hold nothing. |
 | [render-pass-published-state.md](render-pass-published-state.md) | Publish last, restore deliberately. |
+| [out-of-graph-draws-set-their-own-state.md](out-of-graph-draws-set-their-own-state.md) | A coat lost its sky light after an unrelated 17 ms test: an impostor bake left back-face culling on and the sky bake drew half its cube under it. |
 | [render-graph-out-of-band-work.md](render-graph-out-of-band-work.md) | Edges that existed only as registration order, `DependsOnPass` strings or `NeverCull` made the occlusion pyramid read correct only because of `AddNode` order. |
 | [vulkan-descriptor-heap-rebind-after-execute-commands.md](vulkan-descriptor-heap-rebind-after-execute-commands.md) | A primary's heap binding is undefined after `vkCmdExecuteCommands`. |
 | [transparent-draw-order.md](transparent-draw-order.md) | An inverted depth in the least significant field ordered blended draws only within one shader+material bucket and composited the rest by shader ID then material ID. |

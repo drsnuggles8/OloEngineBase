@@ -233,6 +233,14 @@ namespace OloEngine
         virtual void EnableStencilTest() = 0;
         virtual void DisableStencilTest() = 0;
         virtual bool IsStencilTestEnabled() const = 0;
+        /// Whether face culling, the depth test and blending are on. For a draw
+        /// made OUTSIDE the render graph (a sky, IBL or impostor bake) that sets
+        /// the state it draws with and puts its caller's back: see
+        /// ScopedFullCoverDrawState. A pass in the graph sets its state and
+        /// does not ask.
+        [[nodiscard]] virtual bool IsCullingEnabled() const = 0;
+        [[nodiscard]] virtual bool IsDepthTestEnabled() const = 0;
+        [[nodiscard]] virtual bool IsBlendEnabled() const = 0;
         virtual void SetStencilFunc(RHI::CompareOp func, i32 ref, u32 mask) = 0;
         virtual void SetStencilOp(RHI::StencilOp sfail, RHI::StencilOp dpfail, RHI::StencilOp dppass) = 0;
         virtual void SetStencilMask(u32 mask) = 0;

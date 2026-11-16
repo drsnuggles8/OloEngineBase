@@ -29,15 +29,21 @@
 
 #include <gtest/gtest.h>
 
+#include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/ProceduralSky.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/IBLPrecompute.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/SphericalHarmonics.h"
+#include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "Platform/OpenGL/OpenGLUtilities.h"
 
 #include <glad/gl.h>
 #include <glm/glm.hpp>
+
+#include <cstring>
+#include <iostream>
 
 namespace OloEngine::Tests
 {
@@ -179,5 +185,99 @@ namespace OloEngine::Tests
             << "a leaked GL error was misattributed to the cubemap readback — "
                "OpenGLTextureCubemap::GetFaceData must drain stale errors before "
                "its own glGetError() check";
+    }
+
+    // The bake draws a cube from the inside, three more through the IBL
+    // convolution and a fullscreen triangle for the BRDF table, all outside the
+    // render graph. None of them may draw with the fixed-function state its
+    // caller happened to leave: a capture that ended with back-face culling on
+    // took the sky's light off every coat drawn afterwards (#1352).
+    TEST_F(ProceduralSkyBakeTest, TheBakeIsTheSameUnderWhateverStateItIsCalledWith)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        PreethamParameters params;
+        params.SunDirection = glm::normalize(glm::vec3(0.3f, 0.7f, 0.4f));
+        params.Turbidity = 3.0f;
+        params.Exposure = 0.05f;
+        params.ShowSunDisk = true;
+
+        struct Baked
+        {
+            f32 Sky = 0.0f;
+            f32 Irradiance = 0.0f;
+            f32 Prefilter = 0.0f;
+            f64 BrdfLut = 0.0;
+        };
+        const auto sum = [](const glm::vec3& v)
+        { return v.r + v.g + v.b; };
+        const auto bake = [&](const char* label) -> Baked
+        {
+            Baked out;
+            auto envMap = ProceduralSky::Generate(params, 64);
+            if (!envMap || !envMap->GetEnvironmentMap() || !envMap->GetIrradianceMap() || !envMap->GetPrefilterMap() || !envMap->GetBRDFLutMap())
+            {
+                ADD_FAILURE() << label << ": the bake produced no complete environment";
+                return out;
+            }
+            out.Sky = sum(IBLPrecompute::ProjectCubemapToSH(envMap->GetEnvironmentMap()).Coefficients[0]);
+            out.Irradiance = sum(IBLPrecompute::ProjectCubemapToSH(envMap->GetIrradianceMap()).Coefficients[0]);
+            out.Prefilter = sum(IBLPrecompute::ProjectCubemapToSH(envMap->GetPrefilterMap()).Coefficients[0]);
+            TArray64<u8> lut;
+            if (envMap->GetBRDFLutMap()->GetData(lut))
+            {
+                const sizet floats = static_cast<sizet>(lut.Num()) / sizeof(f32);
+                for (sizet i = 0; i < floats; ++i)
+                {
+                    f32 value = 0.0f;
+                    std::memcpy(&value, lut.GetData() + i * sizeof(f32), sizeof(f32));
+                    out.BrdfLut += static_cast<f64>(value);
+                }
+            }
+            std::cout << "[ProceduralSkyBake] " << label << ": sky " << out.Sky << ", irradiance " << out.Irradiance << ", prefilter "
+                      << out.Prefilter << ", BRDF table sum " << out.BrdfLut << "\n";
+            return out;
+        };
+
+        // Whatever the cases leave is put back: the next suite inherits the
+        // context.
+        GLStateGuard restore("ProceduralSkyBake.CallerState", GLStateGuard::Policy::RestoreQuiet);
+
+        RenderCommand::DisableCulling();
+        RenderCommand::SetDepthTest(false);
+        RenderCommand::SetBlendState(false);
+        const Baked plain = bake("culling off, depth test off, blend off");
+        ASSERT_GT(plain.Sky, 0.0f);
+        ASSERT_GT(plain.Irradiance, 0.0f);
+        ASSERT_GT(plain.Prefilter, 0.0f);
+        ASSERT_GT(plain.BrdfLut, 0.0);
+
+        const auto expectSame = [&plain](const Baked& other, const char* label)
+        {
+            EXPECT_NEAR(other.Sky, plain.Sky, plain.Sky * 1e-4f) << label << ": the sky cube";
+            EXPECT_NEAR(other.Irradiance, plain.Irradiance, plain.Irradiance * 1e-4f) << label << ": the irradiance cube";
+            EXPECT_NEAR(other.Prefilter, plain.Prefilter, plain.Prefilter * 1e-4f) << label << ": the prefiltered cube";
+            EXPECT_NEAR(other.BrdfLut, plain.BrdfLut, plain.BrdfLut * 1e-4) << label << ": the BRDF table";
+        };
+
+        RenderCommand::EnableCulling();
+        RenderCommand::BackCull();
+        expectSame(bake("back-face culling"), "back-face culling");
+        RenderCommand::FrontCull();
+        expectSame(bake("front-face culling"), "front-face culling");
+        RenderCommand::BackCull();
+        RenderCommand::DisableCulling();
+
+        RenderCommand::SetDepthTest(true);
+        RenderCommand::SetDepthMask(false);
+        expectSame(bake("depth test on, depth write off"), "depth test on, depth write off");
+        RenderCommand::SetDepthMask(true);
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Greater);
+        expectSame(bake("depth test on, func greater"), "depth test on, func greater");
+        RenderCommand::SetDepthFunc(RHI::CompareOp::Less);
+        RenderCommand::SetDepthTest(false);
+
+        RenderCommand::SetBlendState(true);
+        RenderCommand::SetBlendFunc(RHI::BlendFactor::One, RHI::BlendFactor::One);
+        expectSame(bake("additive blend"), "additive blend");
     }
 } // namespace OloEngine::Tests

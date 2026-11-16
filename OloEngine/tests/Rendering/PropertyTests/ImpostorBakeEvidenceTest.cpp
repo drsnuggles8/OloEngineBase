@@ -35,6 +35,7 @@
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Scene/Components.h"
@@ -181,6 +182,46 @@ namespace OloEngine::Tests
         {
             WriteAtlasPng("Impostor_cone_albedo.png", albedo, size);
             WriteAtlasPng("Impostor_cone_normaldepth.png", normalDepth, size);
+        }
+    }
+
+    // The bake draws with culling off and hands its caller back the cull state it
+    // was called under. It used to end with culling ON whatever it had found,
+    // and in a test process (where every frame is put back to the state it
+    // started in) that held for every suite afterwards: the sky bake drew half
+    // a sky under it and a coat lost its sky light (#1352).
+    TEST_F(ImpostorBakeEvidenceTest, TheBakeLeavesTheCullStateItWasCalledUnder)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        Ref<Mesh> cone = MeshPrimitives::CreateCone(1.0f, 2.0f, 24);
+        ASSERT_TRUE(cone);
+
+        const bool before = RenderCommand::IsCullingEnabled();
+        for (const bool culling : { false, true })
+        {
+            if (culling)
+            {
+                RenderCommand::EnableCulling();
+            }
+            else
+            {
+                RenderCommand::DisableCulling();
+            }
+            ImpostorAtlas atlas = ImpostorBaker::Bake(cone, /*albedoTexture=*/nullptr, glm::vec3(0.25f, 0.55f, 0.15f), 4, 128,
+                                                      /*hemi=*/true, /*alphaCutoff=*/0.5f);
+            const bool valid = atlas.IsValid();
+            ImpostorBaker::Free(atlas);
+            const bool after = RenderCommand::IsCullingEnabled();
+            EXPECT_TRUE(valid);
+            EXPECT_EQ(after, culling) << "called with culling " << (culling ? "on" : "off");
+        }
+        if (before)
+        {
+            RenderCommand::EnableCulling();
+        }
+        else
+        {
+            RenderCommand::DisableCulling();
         }
     }
 

@@ -4,6 +4,7 @@
 #include <format>
 #include <optional>
 #include "OloEngine/Renderer/IBLPrecompute.h"
+#include "OloEngine/Renderer/CaptureStateGuard.h"
 #include "OloEngine/Renderer/EnvironmentMap.h" // For IBLConfiguration
 #include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -320,6 +321,9 @@ namespace OloEngine
         bool wasStencilTestEnabled = RenderCommand::IsStencilTestEnabled();
         if (wasStencilTestEnabled)
             RenderCommand::DisableStencilTest();
+        // The cube is drawn from the inside under the convolution's own
+        // culling, depth and blend state, never the caller's.
+        const ScopedFullCoverDrawState drawState;
 
         shader->Bind();
 
@@ -381,6 +385,9 @@ namespace OloEngine
         bool wasStencilTestEnabled = RenderCommand::IsStencilTestEnabled();
         if (wasStencilTestEnabled)
             RenderCommand::DisableStencilTest();
+        // One fullscreen triangle: front-face culling took the whole table
+        // away. Its own state, never the caller's.
+        const ScopedFullCoverDrawState drawState;
 
         // Bind framebuffer and set viewport
         framebuffer->Bind();
