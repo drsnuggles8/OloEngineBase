@@ -146,7 +146,7 @@ agree with what the bound program declares:
 |---|---|---|
 | identity | the buffer object that occupies the binding point in this recording context | the occupancy record: `VulkanBindingState`, and `OpenGLBlockContract`, which is the same record for OpenGL |
 | byte range | the buffer's size | must cover the block's size, from SPIR-V reflection on Vulkan and from the linked program on OpenGL |
-| layout | the GLSL block name passed to `UniformBuffer::Create` | must equal the block's name when the buffer declares one |
+| layout | the GLSL block name passed to `UniformBuffer::Create` | must equal the block's name when the buffer declares one. The block's name is from SPIR-V reflection on both backends; a GL driver is asked only for a program built from GLSL text, because a program linked from SPIR-V has no names to report |
 | producer and lifetime intent | that block name, and the binding point's policy in `ShaderBindingLayout` | named in the refusal |
 
 The policy has three values. Most binding points host **one layout**; the byte range is the whole

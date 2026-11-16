@@ -71,6 +71,10 @@ namespace OloEngine::OpenGLBlockContract
             u64 Generation = 1;
 
             std::unordered_map<u32, ProgramRecord> Programs;
+            // What each program's SPIR-V says its blocks are called
+            // (DeclareProgramBlocks). Not a cache: Shutdown keeps it, and it
+            // goes when the program name is retired or declared again.
+            std::unordered_map<u32, TArray<DeclaredBlock>> Declared;
             u32 BoundProgram = 0;
 
             u32 ValidatedProgram = 0;
@@ -114,10 +118,34 @@ namespace OloEngine::OpenGLBlockContract
             return name;
         }
 
-        // The program's active uniform blocks, read from the linked program
-        // once. Introspection rather than SPIR-V reflection because it is the
-        // one source every GL program has: compute programs and the bindless
-        // variants are built without SPIR-V.
+        // The name the program's SPIR-V gives the block at `binding`. Two
+        // stages may declare one binding under two names (`Camera` and
+        // `CameraMatrices`), and the driver then reports two blocks there, so
+        // the size picks between them where it can.
+        std::string_view DeclaredBlockName(const State& state, u32 program, u32 binding, u32 size)
+        {
+            const auto found = state.Declared.find(program);
+            if (found == state.Declared.end())
+                return {};
+            const DeclaredBlock* sameBinding = nullptr;
+            for (const DeclaredBlock& block : found->second)
+            {
+                if (block.Binding != binding)
+                    continue;
+                if (block.Size == size)
+                    return block.Name.ToView();
+                if (sameBinding == nullptr)
+                    sameBinding = &block;
+            }
+            return sameBinding != nullptr ? sameBinding->Name.ToView() : std::string_view{};
+        }
+
+        // The program's active uniform blocks, read once. Which blocks are
+        // active, where and how large comes from the linked program, the one
+        // source every GL program has. A block's name comes from the program's
+        // SPIR-V where it was built from SPIR-V, because such a program has no
+        // names for a driver to report; compute programs and the bindless
+        // variants are built from GLSL text and the driver names their blocks.
         const ProgramRecord& FindOrBuildProgram(State& state, u32 program)
         {
             if (const auto it = state.Programs.find(program); it != state.Programs.end())
@@ -147,11 +175,23 @@ namespace OloEngine::OpenGLBlockContract
                                          static_cast<GLsizei>(name.size()), &nameLength, name.data());
                 if (values[0] < 0 || static_cast<sizet>(values[0]) >= state.Occupants.size())
                     continue;
+                const auto binding = static_cast<u32>(values[0]);
+                const auto size = static_cast<u32>(std::max(values[1], 0));
+                std::string_view blockName = DeclaredBlockName(state, program, binding, size);
+                if (blockName.empty())
+                    blockName = CanonicalBlockName(std::string_view(name.data(), static_cast<sizet>(std::max(nameLength, 0))));
                 ProgramBlock block;
-                block.Name = FString(CanonicalBlockName(std::string_view(name.data(), static_cast<sizet>(std::max(nameLength, 0)))));
-                block.Required = { .Binding = static_cast<u32>(values[0]),
-                                   .Size = static_cast<u32>(std::max(values[1], 0)),
-                                   .NameHash = BindingContract::HashBlockName(block.Name.ToView()) };
+                block.Name = FString(blockName);
+                block.Required = { .Binding = binding, .Size = size, .NameHash = BindingContract::HashBlockName(blockName) };
+                if (blockName.empty())
+                {
+                    // Neither source names it, so its layout cannot be
+                    // compared with the occupant's (BindingContract::Check
+                    // judges it on its byte range). Said once per program.
+                    OLO_CORE_ERROR("[BindingContract] '{}' reads a uniform block at binding {} ({} B) that neither its SPIR-V nor "
+                                   "the driver names. Its reads are checked for size only, not for layout.",
+                                   record.Name.ToView(), binding, size);
+                }
                 record.Blocks.Add(std::move(block));
             }
             return state.Programs.emplace(program, std::move(record)).first->second;
@@ -178,12 +218,47 @@ namespace OloEngine::OpenGLBlockContract
         {
             auto& state = Get();
             state.Programs.erase(program);
+            state.Declared.erase(program);
             // GL reissues program names: the next program with this id is
             // another program and must be walked.
             if (state.ValidatedProgram == program)
                 state.ValidatedProgram = 0;
         }
     } // namespace
+
+    void DeclareProgramBlocks(u32 program, std::span<const DeclaredBlock> blocks)
+    {
+        auto& state = Get();
+        if (blocks.empty())
+        {
+            state.Declared.erase(program);
+        }
+        else
+        {
+            TArray<DeclaredBlock>& declared = state.Declared[program];
+            declared.Reset();
+            declared.Reserve(static_cast<i32>(blocks.size()));
+            for (const DeclaredBlock& block : blocks)
+                declared.Add(block);
+        }
+        // Whatever was read from this program name before was read without
+        // these names, or from the program that had the name earlier.
+        state.Programs.erase(program);
+        if (state.ValidatedProgram == program)
+            state.ValidatedProgram = 0;
+        // Programs are declared before buffers in some start-up orders;
+        // installing twice is harmless.
+        BindingContract::SetProgramRetiredHandler(&RetireProgram);
+    }
+
+    std::span<const DeclaredBlock> DeclaredBlocks(u32 program)
+    {
+        const auto& state = Get();
+        const auto found = state.Declared.find(program);
+        if (found == state.Declared.end())
+            return {};
+        return { found->second.GetData(), static_cast<sizet>(found->second.Num()) };
+    }
 
     void RegisterBuffer(u32 glName, const UniformBuffer* buffer, u32 allocatedSize)
     {

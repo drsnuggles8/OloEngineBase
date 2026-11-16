@@ -53,10 +53,14 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
+#include "Platform/OpenGL/OpenGLBlockContract.h"
 
 #include <glad/gl.h>
 
+#include <algorithm>
 #include <array>
+#include <span>
+#include <vector>
 
 namespace OloEngine::Tests
 {
@@ -467,6 +471,83 @@ namespace OloEngine::Tests
                 << "the prefilter was refused its own block";
             EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_USER_0), prefilterBlock->GetRHIHandle())
                 << "after another program's refusal the prefilter did not find its own block on the binding point";
+            target->Unbind(); });
+    }
+
+    // Whose word a block's name is. A GL program linked from SPIR-V carries no
+    // names for a driver to report (ARB_gl_spirv): NVIDIA reports the SPIR-V
+    // debug names anyway and Mesa reports an empty string. While the check
+    // asked the driver, every block read on Mesa was "another layout", every
+    // block was replaced by zeros and every frame on the AMD box was black;
+    // on NVIDIA nothing showed. The name is what the shader's own SPIR-V
+    // declares, on every driver, and this holds it on a driver that would
+    // have answered: the declaration is changed under a program whose driver
+    // name stays what it was, and the verdict follows the declaration.
+    TEST_F(RendererOwnership, ABlocksNameIsWhatTheShadersSpirvDeclaresNotWhatTheDriverReports)
+    {
+        if (TestRenderBackend::IsVulkanProcess())
+            GTEST_SKIP() << "Vulkan takes block names from SPIR-V reflection and has no driver to ask";
+        RenderMovingFrames(1);
+        RunInFrame([]
+                   {
+            const Ref<Shader> toneMap = Shader::Create("assets/shaders/PostProcess_ToneMap.glsl");
+            ASSERT_TRUE(toneMap);
+            const u32 program = toneMap->GetRendererID();
+
+            // What building the program declared for it: the tone mapper's
+            // block at UBO_USER_0, by the name its source gives it.
+            const std::span<const OpenGLBlockContract::DeclaredBlock> declared = OpenGLBlockContract::DeclaredBlocks(program);
+            ASSERT_FALSE(declared.empty()) << "building a program from SPIR-V declared none of its blocks to the binding contract";
+            std::vector<OpenGLBlockContract::DeclaredBlock> own(declared.begin(), declared.end());
+            const auto postProcess = std::ranges::find_if(
+                own, [](const OpenGLBlockContract::DeclaredBlock& block) { return block.Binding == ShaderBindingLayout::UBO_USER_0; });
+            ASSERT_NE(postProcess, own.end()) << "the tone mapper's block at UBO_USER_0 was not declared";
+            ASSERT_EQ(postProcess->Name.ToView(), "PostProcessUBO");
+
+            constexpr u32 kBlockBytes = 4096;
+            const std::array<u8, kBlockBytes> zeros{};
+            Ref<UniformBuffer> block = UniformBuffer::Create(kBlockBytes, ShaderBindingLayout::UBO_USER_0, "PostProcessUBO");
+            block->SetData(zeros.data(), kBlockBytes);
+            // As in the test above: the tone mapper declares the auto-exposure
+            // state, and nothing here publishes it.
+            const std::array<f32, 4> manualExposure{};
+            Ref<StorageBuffer> exposureState = StorageBuffer::Create(
+                static_cast<u32>(sizeof(manualExposure)), ShaderBindingLayout::SSBO_AUTO_EXPOSURE_STATE);
+            exposureState->SetData(manualExposure.data(), static_cast<u32>(sizeof(manualExposure)));
+
+            FramebufferSpecification spec;
+            spec.Width = 32;
+            spec.Height = 32;
+            spec.Attachments = { FramebufferTextureFormat::RGBA32F, FramebufferTextureFormat::Depth };
+            Ref<Framebuffer> target = Framebuffer::Create(spec);
+            ASSERT_TRUE(target);
+            Ref<Mesh> cube = MeshPrimitives::CreateSkyboxCube();
+            ASSERT_TRUE(cube);
+            target->Bind();
+            RenderCommand::SetViewport(0, 0, 32, 32);
+            CommandDispatch::BindSceneResources();
+            block->Bind();
+            const auto vao = cube->GetVertexArray();
+            vao->Bind();
+
+            const u64 refusedBefore = BindingContract::ViolationCount();
+            toneMap->Bind();
+            RenderCommand::DrawIndexed(vao);
+            ASSERT_EQ(BindingContract::ViolationCount() - refusedBefore, 0u) << "the tone mapper was refused its own block";
+
+            // The same program, the same driver, another declared name.
+            std::vector<OpenGLBlockContract::DeclaredBlock> renamed = own;
+            renamed[static_cast<sizet>(postProcess - own.begin())].Name = FString("IBLParameters");
+            OpenGLBlockContract::DeclareProgramBlocks(program, renamed);
+            block->Bind();
+            RenderCommand::DrawIndexed(vao);
+            EXPECT_EQ(BindingContract::ViolationCount() - refusedBefore, 1u)
+                << "the verdict did not follow the declared name: the check is asking the driver what the block is called";
+
+            OpenGLBlockContract::DeclareProgramBlocks(program, own);
+            block->Bind();
+            RenderCommand::DrawIndexed(vao);
+            EXPECT_EQ(BindingContract::ViolationCount() - refusedBefore, 1u) << "the block was refused under its own declared name";
             target->Unbind(); });
     }
 

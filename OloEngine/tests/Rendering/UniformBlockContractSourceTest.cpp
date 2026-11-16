@@ -229,10 +229,11 @@ namespace OloEngine::Tests
             }
             if (found != blocks.end())
             {
-                // The OpenGL backend recovers a block name from the driver by
-                // stripping the `_<digits>` suffix SPIRV-Cross adds to a later
-                // stage's copy of a block (OpenGLBlockContract.cpp). That is
-                // exact only while no block is really named that way.
+                // For a program built from GLSL text the OpenGL backend
+                // recovers a block name from the driver by stripping the
+                // `_<digits>` suffix SPIRV-Cross adds to a later stage's copy
+                // of a block (OpenGLBlockContract.cpp). That is exact only
+                // while no block is really named that way.
                 for (const std::string& name : found->second)
                 {
                     const sizet underscore = name.find_last_of('_');

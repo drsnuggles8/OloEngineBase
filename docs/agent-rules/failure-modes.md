@@ -71,6 +71,7 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 | [glsl-shaders.md](glsl-shaders.md) §1a | A new `#extension` was green on every PR check and red on the next nightly. |
 | [glsl-shaders.md](glsl-shaders.md) §1 | A padding lane called `_padding0` in a shared UBO block fails SPIR-V as a Vulkan-only error that every OpenGL test is blind to. |
 | [amd-mesa-shader-compile-blowup.md](amd-mesa-shader-compile-blowup.md) | A shader compiled in a second on NVIDIA and llvmpipe. |
+| [shared-uniform-binding-bind-before-dispatch.md](shared-uniform-binding-bind-before-dispatch.md#the-check-that-enforces-it-issue-1330) | Every frame black on the AMD box and green on NVIDIA: a check compared against a name only one driver reports for a SPIR-V program. |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | A corrupt drive mode clamped to a different valid mode, and the car still drove. |
 | [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md) | "Load the scene, does it crash?" passes because the trigger is resolution, not loading. |
 | [notes-editor-and-assets.md](notes-editor-and-assets.md) | An extension already in `s_ExtensionMap` routes the file to the OLD importer. |

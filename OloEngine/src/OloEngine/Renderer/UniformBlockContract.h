@@ -71,7 +71,11 @@ namespace OloEngine::BindingContract
         WrongLayout,
     };
 
-    // An occupant that declares no block is judged on its byte range alone.
+    // An occupant that declares no block is judged on its byte range alone,
+    // and so is a block the program cannot name (`NameHash` 0): with one side
+    // of the comparison missing there is no layout to disagree about, and a
+    // refusal would zero every block such a program reads. The backend that
+    // found no name reports it (OpenGLBlockContract::FindOrBuildProgram).
     // Which buffers must declare is a rule about the engine's sources, not
     // about a draw: every UniformBuffer::Create in the engine and the editor on
     // a binding point that hosts several layouts
@@ -83,7 +87,7 @@ namespace OloEngine::BindingContract
     {
         if (occupantSize < required.Size)
             return Verdict::Undersized;
-        if (!occupant.IsDeclared())
+        if (!occupant.IsDeclared() || required.NameHash == 0u)
             return Verdict::Satisfied;
         return occupant.Names(required.NameHash) ? Verdict::Satisfied : Verdict::WrongLayout;
     }
