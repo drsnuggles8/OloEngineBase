@@ -416,8 +416,11 @@ namespace OloEngine
         [[nodiscard]] static RenderViewId CreateView(const RenderViewDesc& desc);
         // Releases the view's graph, passes, histories and GPU storage. The
         // main view and the active view cannot be destroyed; neither can any
-        // view between BeginScene and EndScene. No other view is touched.
+        // view between BeginScene and EndScene, nor a view an open ScopedView
+        // will make active again when it closes. No other view is touched.
+        // CanDestroyView answers without destroying, logging or asserting.
         static void DestroyView(RenderViewId view);
+        [[nodiscard]] static bool CanDestroyView(RenderViewId view);
         [[nodiscard]] static bool IsViewAlive(RenderViewId view);
         [[nodiscard]] static RenderViewId GetActiveView();
         // Live views, the main view included.
@@ -450,7 +453,8 @@ namespace OloEngine
         [[nodiscard]] static ViewRetainedState GetViewRetainedState(RenderViewId view);
 
         // Makes `view` the active view for the scope and puts the previous one
-        // back on exit. Not between BeginScene and EndScene. Scopes nest.
+        // back on exit. Not between BeginScene and EndScene. Scopes nest, and
+        // the view a scope will return to cannot be destroyed while it is open.
         class ScopedView
         {
           public:
@@ -3271,6 +3275,9 @@ namespace OloEngine
         {
             RenderViewId Id{};
             FString DebugName;
+            // Open ScopedViews that will make this view active again when they
+            // close. DestroyView refuses the view while there is one.
+            u32 ScopesReturningHere = 0;
             RendererViewResident Parked;
         };
 

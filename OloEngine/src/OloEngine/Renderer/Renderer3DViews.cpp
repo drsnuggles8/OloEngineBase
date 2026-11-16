@@ -192,12 +192,15 @@ namespace OloEngine
     void Renderer3D::DestroyView(RenderViewId view)
     {
         OLO_PROFILE_FUNCTION();
-        if (view.IsMain() || view == s_Data.ActiveView || s_Data.PhysicalFrame.InScene || FindViewSlot(view) == nullptr)
+        if (!CanDestroyView(view))
         {
-            OLO_CORE_ERROR("Renderer3D::DestroyView refused for view {}: main={}, active={}, in scene={}, alive={}",
+            const RendererViewSlot* slot = FindViewSlot(view);
+            OLO_CORE_ERROR("Renderer3D::DestroyView refused for view {}: main={}, active={}, in scene={}, alive={}, "
+                           "open scopes returning to it={}",
                            view.Value, view.IsMain(), view == s_Data.ActiveView, s_Data.PhysicalFrame.InScene,
-                           FindViewSlot(view) != nullptr);
-            OLO_CORE_ASSERT(false, "Renderer3D::DestroyView: the main view, the active view, a view mid-scene and a dead view cannot be destroyed");
+                           slot != nullptr, slot ? slot->ScopesReturningHere : 0u);
+            OLO_CORE_ASSERT(false, "Renderer3D::DestroyView: the main view, the active view, a view mid-scene, a view an "
+                                   "open ScopedView returns to and a dead view cannot be destroyed");
             return;
         }
 
@@ -210,6 +213,16 @@ namespace OloEngine
         std::erase_if(s_Data.Views, [view](const RendererViewSlot& slot)
                       { return slot.Id == view; });
         OLO_CORE_INFO("Renderer3D: destroyed view {}", view.Value);
+    }
+
+    bool Renderer3D::CanDestroyView(RenderViewId view)
+    {
+        const RendererViewSlot* slot = FindViewSlot(view);
+        // A view an open ScopedView returns to is as live as the active one:
+        // with it gone the scope's exit has nothing to activate, and the view
+        // it was holding stays active under a caller that believes otherwise.
+        return slot != nullptr && !view.IsMain() && view != s_Data.ActiveView && !s_Data.PhysicalFrame.InScene &&
+               slot->ScopesReturningHere == 0u;
     }
 
     bool Renderer3D::AnyViewRendersDeferred()
@@ -311,13 +324,22 @@ namespace OloEngine
         {
             ActivateView(view);
             m_Switched = s_Data.ActiveView == view;
+            if (m_Switched)
+            {
+                // Holds the view this scope returns to (see CanDestroyView).
+                if (RendererViewSlot* previous = FindViewSlot(m_Previous))
+                    ++previous->ScopesReturningHere;
+            }
         }
     }
 
     Renderer3D::ScopedView::~ScopedView()
     {
-        if (m_Switched)
-            ActivateView(m_Previous);
+        if (!m_Switched)
+            return;
+        if (RendererViewSlot* previous = FindViewSlot(m_Previous); previous && previous->ScopesReturningHere > 0u)
+            --previous->ScopesReturningHere;
+        ActivateView(m_Previous);
     }
 
     // ---------------------------------------------------------------------

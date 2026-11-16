@@ -883,6 +883,43 @@ namespace OloEngine::Tests
     {
     };
 
+    // A ScopedView puts the previous view back when it closes, so that view
+    // has to be there. With scopes nested for A then B, A is not the active
+    // view and DestroyView once took it: B's scope then had nothing to
+    // activate and left B active under a caller that had asked for A.
+    TEST_F(MultiViewLifetime, AViewAnOpenScopeReturnsToCannotBeDestroyed)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        CreateSecondView();
+        if (HasFatalFailure())
+            return;
+        const RenderViewId third =
+            Renderer3D::CreateView(RenderViewDesc{ .Width = 64u, .Height = 64u, .DebugName = "MultiViewTestThird" });
+        ASSERT_FALSE(third.IsMain()) << "Renderer3D::CreateView refused";
+
+        EXPECT_TRUE(Renderer3D::CanDestroyView(m_SecondView));
+        {
+            const Renderer3D::ScopedView outer(m_SecondView);
+            EXPECT_FALSE(Renderer3D::CanDestroyView(m_SecondView)) << "the active view";
+            {
+                const Renderer3D::ScopedView inner(third);
+                EXPECT_EQ(Renderer3D::GetActiveView(), third);
+                EXPECT_FALSE(Renderer3D::CanDestroyView(m_SecondView))
+                    << "the inner scope returns to this view when it closes";
+                EXPECT_FALSE(Renderer3D::CanDestroyView(third)) << "the active view";
+            }
+            EXPECT_EQ(Renderer3D::GetActiveView(), m_SecondView) << "the inner scope did not put its view back";
+            EXPECT_TRUE(Renderer3D::CanDestroyView(third)) << "nothing returns to the third view any more";
+        }
+        EXPECT_EQ(Renderer3D::GetActiveView(), kMainRenderView);
+        EXPECT_TRUE(Renderer3D::CanDestroyView(m_SecondView)) << "the hold outlived its scope";
+        EXPECT_FALSE(Renderer3D::CanDestroyView(kMainRenderView));
+
+        Renderer3D::DestroyView(third);
+        EXPECT_FALSE(Renderer3D::IsViewAlive(third));
+        EXPECT_FALSE(Renderer3D::CanDestroyView(third)) << "a dead view";
+    }
+
     TEST_F(MultiViewLifetime, ResizingCuttingOrDestroyingOneViewLeavesTheOtherIntact)
     {
         OLO_ENSURE_GPU_OR_SKIP();
