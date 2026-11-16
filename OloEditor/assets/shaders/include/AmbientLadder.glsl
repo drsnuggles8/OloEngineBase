@@ -118,7 +118,7 @@ vec3 oloAmbientSpecular(vec3 N, vec3 V, vec3 albedo, float metallic, float rough
 {
     vec3 F0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
     vec3 F = fresnelSchlickRoughness(max(dot(N, V), 0.0), F0, roughness);
-    vec2 envBRDF = texture(brdfLut, vec2(max(dot(N, V), 0.0), roughness)).rg;
+    vec2 envBRDF = oloEnvBRDF(brdfLut, max(dot(N, V), 0.0), roughness);
     return prefilteredColor * (F * envBRDF.x + envBRDF.y);
 }
 

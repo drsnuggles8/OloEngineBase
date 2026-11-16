@@ -347,6 +347,24 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * Pow5(SATURATE(1.0 - cosTheta));
 }
 
+// The split-sum pair (A, B) from the integrated LUT. EVERY read of the LUT goes
+// through this.
+//
+// The LUT is addressed by (NdotV, roughness), both on [0, 1], and its sampler
+// REPEATS (a Texture2D's default on both backends). At a coordinate within half
+// a texel of either end a bilinear tap therefore reads the OPPOSITE edge: a
+// surface seen head-on (NdotV = 1) blended in the grazing column, whose bias
+// term is near 1, and a fully rough surface (roughness = 1) the mirror row. A
+// rough wall under an environment showed a disc of nearly unattenuated
+// environment colour, a few degrees across, wherever it faced the camera
+// (#1352). Clamping to the texel centres keeps every tap inside the table,
+// whatever the sampler does.
+vec2 oloEnvBRDF(sampler2D brdfLut, float NdotV, float roughness)
+{
+    vec2 halfTexel = 0.5 / vec2(textureSize(brdfLut, 0));
+    return texture(brdfLut, clamp(vec2(NdotV, roughness), halfTexel, vec2(1.0) - halfTexel)).rg;
+}
+
 // (A spherical-Gaussian Fresnel approximation lived here. It was never wired up,
 //  and now that Schlick uses the Pow5 multiply chain it would be slower — its
 //  exp2 costs more than five MULs — so it was removed rather than kept as dead
@@ -2469,7 +2487,7 @@ vec3 calculateIBL(vec3 N, vec3 V, vec3 albedo, float metallic, float roughness,
     // Specular IBL
     vec3 R = reflect(-V, N);
     vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
-    vec2 envBRDF = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
+    vec2 envBRDF = oloEnvBRDF(brdfLUT, max(dot(N, V), 0.0), roughness);
     vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
 
     return kD * diffuse + specular;
@@ -2497,7 +2515,7 @@ OloSurfaceLighting calculateIBLPrefilteredSplit(vec3 N, vec3 V, vec3 albedo, flo
     vec3 diffuse = irradiance * albedo;
 
     // Specular from the caller-resolved prefiltered radiance
-    vec2 envBRDF = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
+    vec2 envBRDF = oloEnvBRDF(brdfLUT, max(dot(N, V), 0.0), roughness);
     vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
 
     return OloSurfaceLighting(kD * diffuse, specular);
@@ -2637,7 +2655,7 @@ vec3 calculateCombinedAmbient(vec3 probeIrradiance, vec3 N, vec3 V, vec3 albedo,
     // Specular from IBL prefilter
     vec3 R = reflect(-V, N);
     vec3 prefilteredColor = textureLod(prefilterMap, R, roughness * MAX_REFLECTION_LOD).rgb;
-    vec2 envBRDF = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
+    vec2 envBRDF = oloEnvBRDF(brdfLUT, max(dot(N, V), 0.0), roughness);
     vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
 
     return kD * diffuse + specular;
@@ -2663,7 +2681,7 @@ OloSurfaceLighting calculateCombinedAmbientPrefilteredSplit(vec3 probeIrradiance
     vec3 diffuse = probeIrradiance * albedo;
 
     // Specular from the caller-resolved prefiltered radiance
-    vec2 envBRDF = texture(brdfLUT, vec2(max(dot(N, V), 0.0), roughness)).rg;
+    vec2 envBRDF = oloEnvBRDF(brdfLUT, max(dot(N, V), 0.0), roughness);
     vec3 specular = prefilteredColor * (F * envBRDF.x + envBRDF.y);
 
     return OloSurfaceLighting(kD * diffuse, specular);

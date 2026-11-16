@@ -22,3 +22,5 @@ backends. The full rules are [docs/agent-rules/glsl-shaders.md](../../docs/agent
   `opengl4.5` environment false-fails `gl_InstanceIndex`).
 - The engine's include expander ignores `#ifdef`, so a guarded `#include` is always included.
 - A shader change is a rendering change: see `renderer-verification.md` in this directory.
+- A table read by a parameter on [0, 1] is clamped to its texel centres first; the BRDF table is read through
+  `oloEnvBRDF` ([guide](../../docs/agent-rules/a-lookup-table-is-read-at-its-texel-centres.md)).
