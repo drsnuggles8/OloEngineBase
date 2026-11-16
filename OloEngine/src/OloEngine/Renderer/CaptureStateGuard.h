@@ -95,6 +95,12 @@ namespace OloEngine
     // Before this the bakes drew under whatever the previous draw of the
     // process had left, and were right only because that was culling off
     // (#1352). The caller's three switches go back on every exit.
+    //
+    // Blend is the GLOBAL flag. A per-attachment opinion
+    // (RenderCommand::SetBlendStateForAttachment) outranks it by contract, so
+    // this cannot turn blending off under a pass that holds one for the
+    // target's attachment. Passes withdraw theirs before they return, and no
+    // bake runs inside one.
     struct ScopedFullCoverDrawState
     {
         bool m_PrevCulling;
