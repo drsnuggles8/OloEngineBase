@@ -31,7 +31,10 @@
 #include "RendererAttachedTest.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/LightProbeBaker.h"
+#include "OloEngine/Renderer/ReflectionProbeBaker.h"
+#include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -43,6 +46,7 @@
 #include <gtest/gtest.h>
 #include <glm/glm.hpp>
 
+#include <cstring>
 #include <iostream>
 
 namespace OloEngine::Tests
@@ -216,5 +220,63 @@ namespace OloEngine::Tests
         const RenderViewInfo after = Renderer3D::GetViewInfo(kMainRenderView);
         EXPECT_EQ(after.Width, kResized) << "the bake did not put the live view's configured size back";
         EXPECT_EQ(after.Height, kResized);
+    }
+
+    // The reflection baker uploads the same capture into a cube map, face by
+    // face, and a cube map is sampled the same way on both backends: the stored
+    // faces have to be the same texels. The +Z face looks along the floor, sky
+    // in one half and sunlit floor in the other; which half is which must not
+    // depend on the backend the probe was baked on.
+    TEST_F(LightProbeRasterBakeTest, AReflectionCaptureStoresTheFloorInTheSameRowsOnBothBackends)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        Time::SetMockTime(kCaptureTime);
+        struct ClearMockTime
+        {
+            ~ClearMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } const clearMockTime;
+
+        RunFrames(3);
+        Ref<Scene> scene = GetSceneRef();
+        // A component of the test's own: the bake reads its resolution and
+        // stores its result on it, and nothing in the scene selects it.
+        ReflectionProbeComponent probe;
+        probe.m_Resolution = kProbeResolution;
+        bool baked = false;
+        RunInFrame([&scene, &probe, &baked]()
+                   { baked = ReflectionProbeBaker::BakeProbe(scene, kProbePosition, probe); });
+        ASSERT_TRUE(baked) << "ReflectionProbeBaker::BakeProbe failed";
+        ASSERT_TRUE(probe.m_BakedEnvironment);
+        const Ref<TextureCubemap>& capture = probe.m_BakedEnvironment->GetEnvironmentMap();
+        ASSERT_TRUE(capture);
+
+        constexpr u32 kPositiveZ = 4u;
+        TArray64<u8> bytes;
+        ASSERT_TRUE(capture->GetFaceData(kPositiveZ, bytes));
+        const sizet rowFloats = static_cast<sizet>(kProbeResolution) * 4u;
+        ASSERT_EQ(static_cast<sizet>(bytes.Num()), rowFloats * kProbeResolution * sizeof(f32)) << "not an RGBA32F face";
+        const auto meanGreen = [&bytes, rowFloats](u32 firstRow, u32 rowCount)
+        {
+            f64 sum = 0.0;
+            for (u32 row = firstRow; row < firstRow + rowCount; ++row)
+            {
+                for (u32 x = 0; x < kProbeResolution; ++x)
+                {
+                    f32 green = 0.0f;
+                    std::memcpy(&green, bytes.GetData() + (static_cast<sizet>(row) * rowFloats + x * 4u + 1u) * sizeof(f32),
+                                sizeof(f32));
+                    sum += static_cast<f64>(green);
+                }
+            }
+            return sum / static_cast<f64>(rowCount * kProbeResolution);
+        };
+        const f64 firstRows = meanGreen(0u, kProbeResolution / 4u);
+        const f64 lastRows = meanGreen(kProbeResolution - kProbeResolution / 4u, kProbeResolution / 4u);
+        std::cout << "[LightProbeRasterBake] reflection +Z face, mean green: first rows " << firstRows << ", last rows "
+                  << lastRows << "\n";
+        EXPECT_GT(lastRows, firstRows * 2.0) << "the sunlit floor is not in the face's last rows";
     }
 } // namespace OloEngine::Tests
