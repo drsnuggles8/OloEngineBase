@@ -34,11 +34,19 @@ fails the version check outright rather than being half-read.
 ## The headless producer — no GL context
 
 `ShaderPack::CreateFromFilepaths` (and the shared `WritePackFile` writer it
-factors out of `CreateFromLibraries`) uses only `Shader::PrepareBatch` — read,
+factors out of `CreateFromLibraries`) uses only `OpenGLShader::PrepareBatch` — read,
 preprocess, shaderc, SPIRV-Cross — the CPU-only half of shader compilation.
 No GL context is created, touched, or required anywhere in this path, which is
 what lets the bake run on an ordinary hosted CI runner instead of needing the
 self-hosted GPU box `gpu-conformance-amd.yml` uses.
+
+**The bake calls `OpenGLShader::PrepareBatch` directly, never the backend-dispatching
+`Shader::PrepareBatch`** (#1693). A pack stores both the Vulkan-tier and the OpenGL SPIR-V, and only
+OpenGL's prepare path produces both; `Shader::PrepareBatch` on Vulkan prepares nothing (its
+`FinalizeBatch` creates a `VulkanShader`), so a Vulkan process baked an empty pack. For the same
+reason the editor's **Build Shader Pack** (`CreateFromLibraries`) packs an `OpenGLShader` from
+memory and bakes any other library shader (a `VulkanShader`, in a `--rhi vulkan` editor) from its
+file on the CPU path. It used to `static_cast` every library shader to `OpenGLShader`.
 
 The producer enumerates `Renderer2D::GetShaderFilepaths()` +
 `Renderer3D::GetShaderFilepaths()` — the SAME arrays `Renderer2D::Init()` /
@@ -90,6 +98,22 @@ wrong one -- which is why this was an acceptable trade rather than a blocker.
 `m_ShaderLibrary.LoadShaderPack("assets/ShaderPack.osp")` when that file
 exists, before their normal shader-load calls — a missing file is silently a
 no-op (every `Load()` falls back to compiling from source, same as always).
+
+**A pack is served only on OpenGL** (#1693). An entry becomes a shader through
+`OpenGLShader::CreateFromPackData`, and there is no Vulkan pack loader, so
+`ShaderLibrary::TryReadPackEntry` returns nothing off OpenGL and logs once that every shader
+compiles from source. Before that, a packaged runtime that staged the pack and ran on Vulkan (or a
+`--rhi vulkan` editor after anyone baked one) created GL programs in a process with no GL context.
+`ShaderPackContentHashTest.APackIsNeverServedOffOpenGL` pins it.
+
+**A pack-served shader is named by its file stem, never by the pack's key** (#1693). The pack keys
+entries by file path; `TryReadPackEntry` used to hand that path to `CreateFromPackData` as the
+shader's name, so `Add(shader)` registered `assets/shaders/PBR_MultiLight.glsl` where the renderers
+`Get("PBR_MultiLight")`. With asserts compiled out, that `Get` inserts a null `Ref`, and the OpenGL
+editor crashed on its first frame (`ShaderLibrary::HasPendingShaders`) whenever a pack was present.
+The pack tests stopped at `PrepareParallel`, before a name is registered;
+`ShaderPackServedOnOpenGL.APackServedShaderIsRegisteredUnderItsFileStem` finalizes and looks the
+shader up by name.
 
 `GameBuildPipeline::CopyEngineResources` stages the pack via the free function
 `StageShaderPack` (mirrors `StageRuntimeDependencyLibraries` /

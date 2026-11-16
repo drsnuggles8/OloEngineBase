@@ -279,8 +279,13 @@ namespace OloEngine
     bool ShaderPack::CreateFromLibraries(ShaderLibrary& lib2D, ShaderLibrary& lib3D, const std::filesystem::path& outputPath)
     {
         TArray<PackShaderInfo> shaders;
+        // A library shader the live backend compiled without OpenGL SPIR-V:
+        // a VulkanShader in an editor started with --rhi=vulkan. Reading one
+        // as an OpenGLShader read a different object's memory as SPIR-V maps
+        // (#1693); each is baked again from its file instead.
+        TArray<FString> notOpenGL;
 
-        auto collectShaders = [&shaders](ShaderLibrary& lib)
+        auto collectShaders = [&shaders, &notOpenGL](ShaderLibrary& lib)
         {
             for (const auto& name : lib.GetAllShaderNames())
             {
@@ -291,7 +296,12 @@ namespace OloEngine
                     continue;
                 }
 
-                const auto* glShader = static_cast<OpenGLShader*>(shader.get());
+                const auto* glShader = dynamic_cast<const OpenGLShader*>(shader.get());
+                if (glShader == nullptr)
+                {
+                    notOpenGL.Emplace(shader->GetFilePath());
+                    continue;
+                }
 
                 // Hashed from the shader's OWN preprocessed source
                 // (GetOriginalSourceCode) — the exact text that produced the
@@ -319,6 +329,15 @@ namespace OloEngine
         collectShaders(lib2D);
         collectShaders(lib3D);
 
+        TArray<Ref<Shader>> keepAlive;
+        if (!notOpenGL.IsEmpty())
+        {
+            OLO_CORE_INFO("[ShaderPack] {} shader(s) were compiled by a backend that keeps no OpenGL SPIR-V; baking "
+                          "them from source on the CPU so the pack holds both blobs",
+                          notOpenGL.Num());
+            AppendCpuPrepared(notOpenGL, keepAlive, shaders);
+        }
+
         return WritePackFile(shaders, outputPath);
     }
 
@@ -333,53 +352,83 @@ namespace OloEngine
             return false;
         }
 
-        // CPU-only: read, preprocess, shaderc, SPIRV-Cross. No GL call anywhere
-        // in this call chain — see Shader::PrepareBatch / OpenGLShader::PrepareCPU.
         TArray<FString> ownedPaths;
         ownedPaths.Reserve(static_cast<i32>(filepaths.size()));
         for (const auto& path : filepaths)
         {
             ownedPaths.Emplace(path);
         }
-        TArray<Ref<Shader>> prepared = Shader::PrepareBatch(std::span{ ownedPaths.GetData(), static_cast<sizet>(ownedPaths.Num()) }, nullptr);
-
         TArray<PackShaderInfo> shaders;
-        shaders.Reserve(static_cast<i32>(filepaths.size()));
+        TArray<Ref<Shader>> keepAlive;
+        AppendCpuPrepared(ownedPaths, keepAlive, shaders);
+        return WritePackFile(shaders, outputPath);
+    }
 
-        for (sizet i = 0; i < filepaths.size(); ++i)
+    void ShaderPack::AppendCpuPrepared(const TArray<FString>& filepaths, TArray<Ref<Shader>>& keepAlive,
+                                       TArray<PackShaderInfo>& shaders)
+    {
+        // CPU-only: read, preprocess, shaderc, SPIRV-Cross. No GL call anywhere
+        // in this call chain — see OpenGLShader::PrepareCPU. Called directly,
+        // not through Shader::PrepareBatch: that one dispatches on the selected
+        // backend, and on Vulkan it leaves every entry null for FinalizeBatch to
+        // create a VulkanShader, which carries no OpenGL SPIR-V. A pack holds
+        // both blobs whichever backend bakes it, so a Vulkan process skipped
+        // every shader and wrote an empty pack (#1693).
+        TArray<Ref<Shader>> prepared =
+            OpenGLShader::PrepareBatch(std::span{ filepaths.GetData(), static_cast<sizet>(filepaths.Num()) }, nullptr);
+
+        shaders.Reserve(shaders.Num() + filepaths.Num());
+        for (i32 i = 0; i < filepaths.Num(); ++i)
         {
-            Ref<Shader> shader = (i < static_cast<sizet>(prepared.Num())) ? prepared[i] : nullptr;
+            const Ref<Shader> shader = (i < prepared.Num()) ? prepared[i] : nullptr;
             if (!shader)
             {
-                OLO_CORE_WARN("[ShaderPack] Skipping '{}' (CPU prepare failed)", filepaths[i]);
+                OLO_CORE_WARN("[ShaderPack] Skipping '{}' (CPU prepare failed)", filepaths[i].ToView());
                 continue;
             }
 
-            auto* glShader = static_cast<OpenGLShader*>(shader.get());
-            if (glShader->GetVulkanSPIRV().empty())
+            const auto* glShader = static_cast<const OpenGLShader*>(shader.get());
+            // One non-empty blob per preprocessed stage, in both tiers. A stage
+            // that fails to compile leaves the stages that compiled in the
+            // Vulkan map (and the OpenGL tier never runs); a bindless shader
+            // keeps no SPIR-V at all. Either written here would sit under the
+            // full source's hash, and a pack hit would link a program with a
+            // stage missing.
+            const auto sources = glShader->GetOriginalSourceCode();
+            const auto holdsEveryStage = [&sources](const auto& spirv)
             {
-                OLO_CORE_WARN("[ShaderPack] Skipping '{}' (no compiled SPIR-V)", filepaths[i]);
+                return spirv.size() == sources.size() &&
+                       std::ranges::all_of(sources, [&spirv](const auto& stage)
+                                           {
+                                               const auto it = spirv.find(stage.first);
+                                               return it != spirv.end() && !it->second.IsEmpty(); });
+            };
+            if (sources.empty() || !holdsEveryStage(glShader->GetVulkanSPIRV()) || !holdsEveryStage(glShader->GetOpenGLSPIRV()))
+            {
+                OLO_CORE_WARN("[ShaderPack] Skipping '{}' (no SPIR-V for every stage: a stage failed to compile, "
+                              "or the shader takes the bindless GLSL route)",
+                              filepaths[i].ToView());
                 continue;
             }
 
             // Hashed from the shader's OWN preprocessed source, not a second
             // re-read of the file — same reasoning as CreateFromLibraries
             // above: a re-read here would be a second, independent disk read
-            // of the same file Shader::PrepareBatch just read to produce
+            // of the same file OpenGLShader::PrepareBatch just read to produce
             // this SPIR-V, so a file that changed between the two reads
             // would pack SPIR-V from read #1 under a hash from read #2.
-            const std::string contentHash =
-                OpenGLShader::ComputeContentHashFromSources(glShader->GetOriginalSourceCode());
+            const std::string contentHash = OpenGLShader::ComputeContentHashFromSources(sources);
             if (contentHash.empty())
             {
-                OLO_CORE_WARN("[ShaderPack] Skipping '{}' (couldn't recompute its content hash)", filepaths[i]);
+                OLO_CORE_WARN("[ShaderPack] Skipping '{}' (couldn't recompute its content hash)", filepaths[i].ToView());
                 continue;
             }
 
             shaders.Add(PackShaderInfo{ filepaths[i], contentHash, &glShader->GetVulkanSPIRV(), &glShader->GetOpenGLSPIRV() });
         }
-
-        return WritePackFile(shaders, outputPath);
+        // Appended, never assigned: an earlier call's entries point into the
+        // shaders already held here.
+        keepAlive.Append(std::move(prepared));
     }
 
     std::vector<std::string> ShaderPack::CollectShaderFilepaths(const std::filesystem::path& shadersRoot)

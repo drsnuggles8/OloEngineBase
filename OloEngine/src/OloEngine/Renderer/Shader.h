@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 #include <atomic>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -197,6 +198,13 @@ namespace OloEngine
 
         static Ref<Shader> Create(const std::string& filepath);
         static Ref<Shader> Create(const std::string& name, const std::string& vertexSrc, const std::string& fragmentSrc);
+
+        // The name a shader loaded from `filepath` is registered and looked up
+        // by: the file name without its extension, splitting on '/' and '\\'
+        // on every platform. Every backend and the shader pack name a shader
+        // through this one rule; a pack that named its shaders differently
+        // registered them under keys the renderers never asked for (#1693).
+        [[nodiscard]] static std::string NameFromFilePath(std::string_view filepath);
 
         // --- Batch loading with cross-shader CPU parallelism (issue #907) ---
         //

@@ -3,6 +3,7 @@
 #if OLO_WITH_VULKAN
 
 #include "Platform/Vulkan/VulkanComputeShader.h"
+#include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/UniformBlockContract.h"
 
 #include "Platform/Vulkan/VulkanAftermath.h"
@@ -71,7 +72,7 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        m_Name = std::filesystem::path(filepath).stem().string();
+        m_Name = Shader::NameFromFilePath(filepath);
 
         // Reloadable by name, like OpenGLComputeShader (issue #607).
         ShaderRegistry::Get().RegisterComputeShader(GetName(), this);

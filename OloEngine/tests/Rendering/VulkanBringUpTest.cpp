@@ -29,6 +29,7 @@ TEST(VulkanBringUp, SkipsWhenNotCompiledIn)
 
 #include "Platform/Vulkan/VulkanCapabilities.h"
 #include "../TestOptions.h"
+#include "VulkanTestSupport.h"
 
 #include <volk.h>
 
@@ -47,6 +48,10 @@ namespace
       protected:
         void SetUp() override
         {
+            // Its own instance and volkLoadInstance would replace the entry
+            // points the --olo-rhi=vulkan process's live device runs on.
+            OLO_SKIP_IN_THE_VULKAN_PROCESS();
+
             // `--olo-gl-backend=none` is the suite's "this run tests no GPU" contract
             // (#1015), and a Vulkan device is a GPU: the sanitizer jobs pass the flag
             // on the self-hosted box so a run there means what the hosted run means.

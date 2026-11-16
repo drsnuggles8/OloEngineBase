@@ -27,6 +27,7 @@ Philosophy, value heuristic and the per-layer reference live in [../testing.md](
 20. **Run tests from `OloEditor/` when possible** (what `ctest` uses). ctest runs mesh-cache and `OLO_HEAVY_TESTS` cases one per process, the rest one suite per process. [Details](testing-architecture-details.md#how-ctest-slices-the-binary-three-passes-one-process-each)
 21. **Rebase goldens or perf baselines only after a deliberate visual change or hardware move.** [Details](testing-architecture-details.md#5-running-tests-locally)
 22. **A build step that runs the test binary captures its stderr and re-prints it behind a prefix.** Under the VS generator MSBuild fails the step on any `ERROR: ...` line, and Tracy prints one when `SymInitialize` fails on a hosted runner. [Details](testing-architecture-details.md#the-discovery-run-must-not-pass-stderr-to-msbuild)
+23. **A test ends on the backend its process runs.** Change the API selector with `ScopedRendererApi` (`OloEngine/tests/Rendering/ScopedRendererApi.h`) and the facade with `ScopedVulkanRenderCommandSelection`. Both give back what they found, never the constant OpenGL; the `RendererBackendCheck` listener fails a test that leaves either changed, in both processes. A suite that brings up its own Vulkan instance or device skips in the `--olo-rhi=vulkan` process, through `OLO_VULKAN_DEVICE_OR_SKIP()` or `OLO_SKIP_IN_THE_VULKAN_PROCESS()`. [Details](testing-architecture-details.md#68-a-test-ends-on-the-backend-its-process-runs-issue-1693)
 
 ## Commands and checks
 

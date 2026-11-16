@@ -70,6 +70,7 @@ TEST(VulkanTextureInPlaceReload, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanShader.h"
 #include "Platform/Vulkan/VulkanTexture.h"
 
+#include "ScopedRendererApi.h"
 #include "VulkanTestSupport.h"
 #include "TestTempDir.h"
 
@@ -87,17 +88,9 @@ namespace
 {
     using namespace OloEngine;
 
-    struct ScopedVulkanApiSelection
-    {
-        ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-        }
-        ~ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-        }
-    };
+    // Restores the API it found, which is Vulkan in the --olo-rhi=vulkan process
+    // (ScopedRendererApi.h, #1693).
+    using OloEngine::Tests::ScopedVulkanApiSelection;
 
     // Solid fills sidestep every orientation question — the assertions only
     // need the colour to differ before and after the reload. Written with 3

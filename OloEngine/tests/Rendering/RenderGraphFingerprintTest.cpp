@@ -7,6 +7,8 @@
 #include "OloEngine/Renderer/Commands/CommandAllocator.h"
 #include "OloEngine/Renderer/Commands/RenderCommand.h"
 #include "OloEngine/Renderer/FrameGraphDeclarationConfig.h"
+#include "OloEngine/Renderer/OITBlendState.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Passes/BloomRenderPass.h"
 #include "OloEngine/Renderer/Passes/DecalRenderPass.h"
 #include "OloEngine/Renderer/Passes/DepthVelocityUpscalePass.h"
@@ -327,8 +329,6 @@ namespace OloEngine::Tests
                   d.Precipitation.Enabled = true;
                   d.Precipitation.ScreenStreaksEnabled = true;
               } },
-            { "OITEnabled", [](Access::Data& d)
-              { d.Settings.OITEnabled = !d.Settings.OITEnabled; } },
             { "Path", [](Access::Data& d)
               { d.Settings.Path = RenderingPath::Forward; } },
             { "ActiveGraphAOTechnique", [](Access::Data& d)
@@ -347,6 +347,26 @@ namespace OloEngine::Tests
                                              "gates a declaration on it. Capture it into FrameGraphDeclarationConfig, or the graph "
                                              "won't repopulate when it changes and the effect silently no-ops.";
         }
+    }
+
+    // OIT is captured as the frame's RESOLVED answer, the request AND the
+    // facade's SupportsWeightedBlendedOIT(), so the toggle moves the key
+    // exactly when this backend can run OIT. A Vulkan facade with no device
+    // yet (the --olo-rhi=vulkan process before its first scene test) or a
+    // device without the blendable accumulator cannot, and there toggling the
+    // request must leave the key alone, or the graph would rebuild for a pass
+    // it will not declare (#1693).
+    TEST(RenderGraphFingerprint, TheOITRequestMovesTheKeyExactlyWhenTheBackendCanRunIt)
+    {
+        const bool backendRunsOIT = WeightedBlendedOITIsActive(true, RenderCommand::GetRendererAPI());
+        const auto [before, after] = Access::KeyAcross(
+            [](Access::Data& d)
+            { d.Settings.OITEnabled = !d.Settings.OITEnabled; });
+        if (backendRunsOIT)
+            EXPECT_NE(before, after) << "OIT can run on this backend, so its request gates a declaration and must "
+                                        "move the key.";
+        else
+            EXPECT_EQ(before, after) << "OIT cannot run on this backend; its request gates nothing here.";
     }
 
     // #1333, U1: the post chain is sized from the graph's DISPLAY size, the lit

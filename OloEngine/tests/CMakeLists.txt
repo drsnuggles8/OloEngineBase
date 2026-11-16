@@ -1070,8 +1070,14 @@ add_executable(OloEngine-Tests
 		# GL-context pollution to its source. Registered from OloEngineTest.cpp.
 		Rendering/PropertyTests/GLErrorStateCheck.cpp
 		Rendering/PropertyTests/RendererStateCheck.cpp
+		# Cross-test backend guard (issue #1693): fails a test that leaves the
+		# API selector or the RenderCommand facade off the process's backend.
+		Rendering/PropertyTests/RendererBackendCheck.cpp
 		Rendering/PropertyTests/GLErrorStateCheckTest.cpp
 		Rendering/PropertyTests/RendererStateCheckTest.cpp
+		Rendering/PropertyTests/RendererBackendCheckTest.cpp
+		# #1693: the editor's Build Shader Pack on a live renderer, in both processes.
+		Rendering/PropertyTests/ShaderPackLiveLibraryTest.cpp
 		Rendering/PropertyTests/ModelLoadDeterminismTest.cpp
 		Rendering/PropertyTests/DrawIndexedRawOffsetTest.cpp
 		Rendering/PropertyTests/TextureSaveRoundTripTest.cpp

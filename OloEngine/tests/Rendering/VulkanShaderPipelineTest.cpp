@@ -25,6 +25,9 @@ TEST(VulkanShaderPipeline, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "ScopedRendererApi.h"
+#include "VulkanTestSupport.h"
+
 #include "OloEngine/Renderer/PipelineManifest.h"
 #include "OloEngine/Renderer/PipelineReadiness.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
@@ -99,80 +102,20 @@ namespace
         return alreadyThere;
     }
 
-    // Restores the process-wide API selection (these tests run inside the GL
-    // suite binary).
-    struct ScopedVulkanApiSelection
-    {
-        ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-        }
-        ~ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-        }
-    };
+    // Restores the API it found, which is Vulkan in the --olo-rhi=vulkan process
+    // (ScopedRendererApi.h, #1693).
+    using OloEngine::Tests::ScopedVulkanApiSelection;
 
     class VulkanShaderPipeline : public ::testing::Test
     {
       protected:
         void SetUp() override
         {
-            if (volkInitialize() != VK_SUCCESS)
-            {
-                GTEST_SKIP() << "No Vulkan loader on this machine.";
-            }
-
-            // Bare probe instance first — constructing VulkanDevice on a
-            // driverless machine SEH-faults under ASan (the execution test's
-            // ladder, same order).
-            VkApplicationInfo appInfo{};
-            appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-            appInfo.apiVersion = VulkanCapabilities::kMinApiVersion;
-            VkInstanceCreateInfo instanceInfo{};
-            instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-            instanceInfo.pApplicationInfo = &appInfo;
-            VkInstance probe = VK_NULL_HANDLE;
-            if (vkCreateInstance(&instanceInfo, nullptr, &probe) != VK_SUCCESS)
-            {
-                GTEST_SKIP() << "vkCreateInstance failed (no Vulkan 1.4 runtime).";
-            }
-            volkLoadInstance(probe);
-
-            // Both results checked + the VK_INCOMPLETE resize (the exec-test
-            // ladder): trailing VK_NULL_HANDLE entries must never reach
-            // VulkanCapabilities::Evaluate.
-            u32 deviceCount = 0;
-            if (vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr) != VK_SUCCESS)
-            {
-                vkDestroyInstance(probe, nullptr);
-                GTEST_SKIP() << "vkEnumeratePhysicalDevices (count) failed on this machine.";
-            }
-            std::vector<VkPhysicalDevice> devices(deviceCount);
-            if (deviceCount > 0)
-            {
-                const VkResult listResult = vkEnumeratePhysicalDevices(probe, &deviceCount, devices.data());
-                if (listResult == VK_SUCCESS || listResult == VK_INCOMPLETE)
-                {
-                    devices.resize(deviceCount);
-                }
-                else
-                {
-                    vkDestroyInstance(probe, nullptr);
-                    GTEST_SKIP() << "vkEnumeratePhysicalDevices (list) failed on this machine.";
-                }
-            }
-            const bool anySatisfying = std::ranges::any_of(devices, [](VkPhysicalDevice d)
-                                                           { return VulkanCapabilities::Evaluate(d).Satisfied; });
-            vkDestroyInstance(probe, nullptr);
-            if (!anySatisfying)
-            {
-                GTEST_SKIP() << "No device satisfies the ADR 0010 capability contract.";
-            }
-            if (volkInitialize() != VK_SUCCESS)
-            {
-                GTEST_SKIP() << "volk re-init failed.";
-            }
+            // The shared gate (testing-architecture rule 16): the bare-probe ladder,
+            // --olo-gl-backend=none, --olo-require-vulkan, the coverage banner, and a
+            // skip in the --olo-rhi=vulkan process, whose windowless context owns the
+            // device this fixture would build a second of (#1693).
+            OLO_VULKAN_DEVICE_OR_SKIP();
 
             if (!ChangeToOloEditorDir())
             {

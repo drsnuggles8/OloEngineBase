@@ -254,6 +254,9 @@ TEST(VulkanMeshPipelineFamily, SkipsWhenNotCompiledIn)
 
 #else
 
+#include "ScopedRendererApi.h"
+#include "VulkanTestSupport.h"
+
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
@@ -425,76 +428,20 @@ namespace
         return alreadyThere;
     }
 
-    struct ScopedVulkanApiSelection
-    {
-        ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::Vulkan);
-        }
-        ~ScopedVulkanApiSelection()
-        {
-            RendererAPI::SetAPI(RendererAPI::API::OpenGL);
-        }
-    };
+    // Restores the API it found, which is Vulkan in the --olo-rhi=vulkan process
+    // (ScopedRendererApi.h, #1693).
+    using OloEngine::Tests::ScopedVulkanApiSelection;
 
     class VulkanMeshPipelineFamily : public ::testing::Test
     {
       protected:
         void SetUp() override
         {
-            if (volkInitialize() != VK_SUCCESS)
-            {
-                GTEST_SKIP() << "No Vulkan loader on this machine.";
-            }
-
-            // Bare probe instance first — constructing VulkanDevice on a
-            // driverless machine SEH-faults under ASan (the shared ladder).
-            VkApplicationInfo appInfo{};
-            appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-            appInfo.apiVersion = VulkanCapabilities::kMinApiVersion;
-            VkInstanceCreateInfo instanceInfo{};
-            instanceInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-            instanceInfo.pApplicationInfo = &appInfo;
-            VkInstance probe = VK_NULL_HANDLE;
-            if (vkCreateInstance(&instanceInfo, nullptr, &probe) != VK_SUCCESS)
-            {
-                GTEST_SKIP() << "vkCreateInstance failed (no Vulkan 1.4 runtime).";
-            }
-            volkLoadInstance(probe);
-
-            u32 deviceCount = 0;
-            if (vkEnumeratePhysicalDevices(probe, &deviceCount, nullptr) != VK_SUCCESS)
-            {
-                vkDestroyInstance(probe, nullptr);
-                GTEST_SKIP() << "vkEnumeratePhysicalDevices (count) failed on this machine.";
-            }
-            std::vector<VkPhysicalDevice> devices(deviceCount);
-            if (deviceCount > 0)
-            {
-                const VkResult listResult = vkEnumeratePhysicalDevices(probe, &deviceCount, devices.data());
-                if (listResult == VK_SUCCESS || listResult == VK_INCOMPLETE)
-                {
-                    devices.resize(deviceCount);
-                }
-                else
-                {
-                    vkDestroyInstance(probe, nullptr);
-                    GTEST_SKIP() << "vkEnumeratePhysicalDevices (list) failed on this machine.";
-                }
-            }
-            const bool anySatisfying = std::ranges::any_of(devices, [](VkPhysicalDevice d)
-                                                           { return VulkanCapabilities::Evaluate(d).Satisfied; });
-            vkDestroyInstance(probe, nullptr);
-            if (!anySatisfying)
-            {
-                GTEST_SKIP() << "No device satisfies the ADR 0010 capability contract "
-                                "(VK_EXT_descriptor_heap et al.) — the gate would refuse --rhi=vulkan here, "
-                                "so no pipeline for the mesh family can be created on this machine.";
-            }
-            if (volkInitialize() != VK_SUCCESS)
-            {
-                GTEST_SKIP() << "volk re-init failed.";
-            }
+            // The shared gate (testing-architecture rule 16): the bare-probe ladder,
+            // --olo-gl-backend=none, --olo-require-vulkan, the coverage banner, and a
+            // skip in the --olo-rhi=vulkan process, whose windowless context owns the
+            // device this fixture would build a second of (#1693).
+            OLO_VULKAN_DEVICE_OR_SKIP();
 
             if (!ChangeToOloEditorDir())
             {

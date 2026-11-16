@@ -59,6 +59,20 @@ namespace OloEngine::Tests::TestRenderBackend
 
     const Admission& EnsureWindowlessContext()
     {
+        // The selector is SelectFromOptions' Vulkan for the whole run; finding
+        // anything else here means an earlier test left it changed (#1693).
+        // That verdict is about the earlier test, not this process's device,
+        // so it is never cached: caching it once turned one leak into a skip
+        // of every later scene test. RendererBackendCheck fails the leaking
+        // test by name and restores the selector at its end.
+        if (RendererAPI::GetAPI() != RendererAPI::API::Vulkan)
+        {
+            static Admission leaked;
+            leaked = Admission{};
+            leaked.Reason = "RendererAPI::GetAPI() is not Vulkan at a scene test in the --olo-rhi=vulkan process: an "
+                            "earlier test left the API selector changed (the [ RENDERER BACKEND ] lines name it)";
+            return leaked;
+        }
         if (s_Admission)
             return *s_Admission;
 

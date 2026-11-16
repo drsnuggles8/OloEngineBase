@@ -7,6 +7,8 @@
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "Platform/OpenGL/OpenGLShader.h"
 
+#include <mutex>
+
 namespace OloEngine
 {
     Ref<Shader> ShaderLibrary::s_FallbackShader = nullptr;
@@ -18,6 +20,19 @@ namespace OloEngine
 
     void ShaderLibrary::Add(const std::string& name, const Ref<Shader>& shader)
     {
+        // Every pass reads the library entries without a null check, so a null
+        // is never stored.
+        if (!shader)
+        {
+            OLO_CORE_ERROR("[ShaderLibrary] Refusing to register a null shader as '{}'", name);
+            return;
+        }
+        // Two files with the same name (the stem: Shader::NameFromFilePath)
+        // cannot share a library. With asserts compiled out the later one
+        // replaces the earlier; say so rather than swap programs silently.
+        if (Exists(name))
+            OLO_CORE_ERROR("[ShaderLibrary] Shader '{}' is already registered; '{}' replaces it", name,
+                           shader->GetFilePath());
         OLO_CORE_ASSERT(!Exists(name), "Shader '{}' already exists!", name);
         m_Shaders[name] = shader;
 
@@ -29,6 +44,11 @@ namespace OloEngine
 
     void ShaderLibrary::Add(const Ref<Shader>& shader)
     {
+        if (!shader)
+        {
+            OLO_CORE_ERROR("[ShaderLibrary] Refusing to register a null shader");
+            return;
+        }
         const auto name = shader->GetName();
         Add(name, shader);
     }
@@ -157,7 +177,7 @@ namespace OloEngine
                 continue;
             }
 
-            const std::string name = std::filesystem::path(batch.m_FilePaths[i].ToStdString()).stem().string();
+            const std::string name = Shader::NameFromFilePath(batch.m_FilePaths[i].ToView());
             OLO_CORE_ERROR("[ShaderLibrary] '{}' failed CPU preparation — registering the fallback shader", name);
             if (auto fallback = GetFallbackShader(); fallback && !Exists(name))
             {
@@ -173,10 +193,19 @@ namespace OloEngine
         return FinalizeParallel(PrepareParallel(filepaths));
     }
 
-    Ref<Shader> ShaderLibrary::Get(const std::string& name)
+    Ref<Shader> ShaderLibrary::Get(const std::string& name) const
     {
-        OLO_CORE_ASSERT(Exists(name), "Shader '{}' not found!", name);
-        return m_Shaders[name];
+        // find(), never operator[]: a miss used to insert a null Ref that the
+        // next frame's HasPendingShaders() dereferenced, a crash far from the
+        // lookup that caused it (#1693). A miss still returns null, which is
+        // what the callers that can do without a shader test for (the terrain
+        // shadow caster, the occlusion proxy, the impostor bake). It is logged
+        // once per name: some of those callers look up every frame.
+        if (const auto it = m_Shaders.find(name); it != m_Shaders.end())
+            return it->second;
+        if (m_ReportedMisses.insert(name).second)
+            OLO_CORE_ERROR("[ShaderLibrary] Shader '{}' is not in this library", name);
+        return nullptr;
     }
 
     void ShaderLibrary::ReloadShaders()
@@ -479,6 +508,21 @@ void main()
             return std::nullopt;
         }
 
+        // A pack entry becomes a shader only through
+        // OpenGLShader::CreateFromPackData (CreateShaderFromPackEntry): there is
+        // no Vulkan pack loader. Served on Vulkan, it created GL programs in a
+        // process with no GL context — a packaged runtime that staged the pack
+        // and ran on Vulkan, or a Vulkan editor after anyone baked one (#1693).
+        // Off OpenGL every shader compiles from source, and the log says so once.
+        if (Renderer::GetAPI() != RendererAPI::API::OpenGL)
+        {
+            static std::once_flag s_ToldOnce;
+            std::call_once(s_ToldOnce, []
+                           { OLO_CORE_INFO("[ShaderLibrary] A shader pack is loaded, but packs are served only on "
+                                           "OpenGL (no Vulkan pack loader): compiling every shader from source"); });
+            return std::nullopt;
+        }
+
         if (!m_ShaderPack->Contains(filepath))
         {
             return std::nullopt;
@@ -512,7 +556,12 @@ void main()
         }
 
         PackEntryCPUData data;
-        data.m_Name = entry->Name;
+        // A pack keys its entries by file path; the shader is named by the
+        // file's stem, by the same rule as one compiled from source. Naming it by the path
+        // registered it under a key the renderers never ask for: their Get()
+        // missed, inserted a null Ref, and the editor crashed on its first
+        // frame whenever a pack was present (#1693).
+        data.m_Name = Shader::NameFromFilePath(filepath);
         data.m_FilePath = filepath;
         for (const auto& stage : entry->Stages)
         {
