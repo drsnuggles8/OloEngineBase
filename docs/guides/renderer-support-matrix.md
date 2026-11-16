@@ -106,7 +106,9 @@ A second scene view (`Renderer3D::CreateView`, `Scene::RequestAdditionalView`) r
 physical frame as the main view with its own render graph, histories, exposure, occlusion pyramid,
 light grid and shadow maps ([ADR 0026](../adr/0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md)).
 `Supported` here means each view renders the frame a single-view renderer renders from that camera,
-texel for texel, in both orders. Cost: [multi-view-cost-1352.md](../analysis/multi-view-cost-1352.md).
+texel for texel, in both orders. The foliage row is the one exception and says so: it is compared
+within the noise a single view has by itself (#1695). Cost:
+[multi-view-cost-1352.md](../analysis/multi-view-cost-1352.md).
 
 | Two views in one frame | Outcome | Source and test evidence |
 |---|---|---|
@@ -119,6 +121,7 @@ texel for texel, in both orders. Cost: [multi-view-cost-1352.md](../analysis/mul
 | Foliage (card grass with wind, density LOD and distance fade) in both views, OpenGL and Vulkan | Supported | `MultiViewRenderingTest.cpp::EachViewDrawsTheMeadowASingleViewDrawsFromItsCamera`: placement is published once per frame, culling, thinning and fading are per view. Compared within the noise one view has by itself: GPU-culled foliage under TAA does not reproduce its own frame to the texel (#1695). |
 | Foliage streamed mesh detail seen from a later view | Approximate | Residency is decided once per frame from the primary view's camera; a later view looking elsewhere draws the stand-ins that camera left there. |
 | A world content change (streaming tier switch, foliage regeneration) | Supported | `MultiViewRenderingTest.cpp::AWorldInvalidationReachesEveryViewAndAViewsOwnOnlyItself`: `Renderer3D::InvalidateWorldTemporalHistories` drops every view's histories. |
+| A bound, simulated coat (groom) in both views | Supported | `GroomSimulationVisualEvidenceTest.cpp::ASecondViewOfTheFrameLeavesTheCoatTheMainViewDraws` (OpenGL): the binding's history and the simulation's displacement pair advance on the coat's first publish of the frame, so every view draws the same coat with the same previous frame. |
 | Planar reflection in both views | Supported | `MultiViewRenderingTest.cpp::EachViewReflectsFromItsOwnCamera`: each view mirrors its own camera. |
 | Ray-traced effects in both views, Vulkan with a ray-tracing device | Supported | `MultiViewRenderingTest.cpp::BothViewsTraceTheFramesAccelerationStructure`: one acceleration-structure build per frame, traced by every view. |
 | Views whose cameras need different camera-relative origins | Approximate | Every view of a frame renders about the primary view's origin; a view far from it has the float precision of that distance. |

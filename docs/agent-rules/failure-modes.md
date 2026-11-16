@@ -45,7 +45,8 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 | [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) | Settings reset on Play, and headless tests never call `Scene::Copy()`. |
 | [renderer-state-machine-harness.md](renderer-state-machine-harness.md) | Four renderer bugs each lived in a sequence of valid operations. |
 | [renderer-views-and-the-physical-frame.md](renderer-views-and-the-physical-frame.md) | A parked copy of a view's Hi-Z generator outlived shutdown; only the Vulkan process's exit code said so. |
-| [renderer-views-and-the-physical-frame.md](renderer-views-and-the-physical-frame.md#a-bake-that-read-its-own-clear-colour) | A probe bake comes back black or invalid in a lit scene: it read a framebuffer it bound, and the scene renders into the graph's targets. |
+| [renderer-views-and-the-physical-frame.md](renderer-views-and-the-physical-frame-details.md#a-bake-that-read-its-own-clear-colour) | A probe bake comes back black or invalid in a lit scene: it read a framebuffer it bound, and the scene renders into the graph's targets. |
+| [renderer-views-and-the-physical-frame.md](renderer-views-and-the-physical-frame-details.md#a-coat-with-no-motion-behind-it-in-the-later-view) | A coat (or any scene-side history) has no motion behind it in the second view of a frame: the publish runs per view and advanced the history each time. |
 | [world-anchored-renderer-state-in-tests.md](world-anchored-renderer-state-in-tests.md) | A visual golden passes in file order and fails in a shard. |
 | [ab-diff-peak-is-not-a-location.md](ab-diff-peak-is-not-a-location.md) | An A/B visual assertion read backwards in one test ordering, from frames that were identical to the byte. |
 | [oit-blend-state-and-identity-lanes.md](oit-blend-state-and-identity-lanes.md) | A transparent decal drew and its fragments survived while the composite was unchanged. |

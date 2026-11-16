@@ -27,10 +27,10 @@ Four arguments cover almost everything. Each row names the one that applies.
 |---|---|---|
 | Primitive meshes, shader programs, the buffer objects behind fixed bindings, placeholders, GPU cull pool, MSAA caps | `Renderer3DData` direct members | Device. Created in `Init`, released in `Shutdown` in a fixed order; `RendererShutdownTest` checks every GPU-owning member has a release site |
 | `GPUScene`, `RayTracingScene`, the three deform caches, material tables, `RayTracingProbe` | `Renderer3DData` direct members | Scene-owned GPU objects with their own `Shutdown`; `ResetGPUScene` drops the records on an asset reload. Not assigned, because the release order between them is the point (ADR 0025 §3) |
-| Render graph, `TemporalHistoryRegistry`, the pass pipeline | `s_Data.RGraph`, `s_Data.Pipeline` | View-owned objects with their own teardown (`Pipeline->Reset()`, `RGraph->Shutdown()`); histories are keyed by view and invalidated by `ResetFrameCamera` and `ResetSceneState` |
-| `HZBGenerator OcclusionHZB` | `Renderer3DData` direct member | Device object; its validity flag is in `RendererViewState`, so a view reset or a restart cannot use a stale pyramid |
+| Render graph, `TemporalHistoryRegistry`, the pass pipeline | `RendererViewResident::RGraph`, `::Pipeline` (the active view's are `s_Data.RGraph`, `s_Data.Pipeline`) | View-owned, one set per view since #1352, with their own teardown (`Pipeline->Reset()`, `RGraph->Shutdown()`) in `ReleaseActiveViewGPU`; histories are keyed by view and invalidated by `ResetFrameCamera` and `ResetSceneState` |
+| `HZBGenerator OcclusionHZB` | `RendererViewResident` member | View-owned since #1352: one pyramid per view, created in `InitializeActiveViewGPU` and released in `ReleaseActiveViewGPU`. Its validity flag is in `RendererViewState`, so a view reset or a restart cannot use a stale pyramid |
 | `ParallelSceneContext` | `Renderer3DData::ParallelContext` | A per-frame snapshot of the view rebuilt in `PrepareFrame` before submission workers start, read-only while they run. Its shader references are device objects, dropped in `Shutdown` |
-| Renderer settings, post-process settings, MSAA caps, graph topology keys | `Settings`, `PostProcess`, `ActiveGraphPath` and friends | Application configuration: it must survive a restart, a scene change and a view reset, and `RendererStateCheck` restores it between tests. The eight scene render settings among them (post-process, snow, wind, snow accumulation, snow ejecta, skin diffusion, precipitation, fog) and the rendering path are the scene's: `SceneTransition::ApplySceneRenderSettings` overwrites all of them on every activation, which is their reset (#1689) |
+| Renderer settings, post-process settings, graph topology keys | `RendererViewResident::Settings`, `::PostProcess`, `::ActiveGraphPath` and friends | A view's configuration since #1352 (a new view copies the active view's): it must survive a restart, a scene change and a view reset, and `RendererStateCheck` restores the main view's between tests. The MSAA caps stay a device fact on `Renderer3DData` |
 | `CommandDispatch` dispatch table, bucket replay classifier and view-scope runner, packet dispatch resolver | `CommandDispatch.cpp`, `CommandBucket.h`, `CommandPacket.cpp` | Device. Function pointers set by `Initialize`, identical on every call, read-only during replay |
 | `CommandDispatch` pass flags (`CommandDispatchFrameData`) | `CommandDispatch.cpp` | Frame reset, and frozen for a recording region: every setter asserts it is not called from an item. Assigned whole by `Shutdown` |
 | `FrameDataBufferManager`, `FrameResourceManager`, packet allocators | `Commands/` | Frame reset (`Reset` and `BeginFrame` each frame); brought up and shut down by `Renderer3D` only |
@@ -42,7 +42,7 @@ Four arguments cover almost everything. Each row names the one that applies.
 | `AssetPreviewRenderer`, `IBLPrecompute`, sky bakes: private shaders, meshes, framebuffers and buffers | `Renderer/Preview`, `IBLPrecompute.cpp`, the sky sources | Device objects with an owner teardown. They draw outside `BeginScene`/`EndScene` or behind `CaptureStateGuard`; what they leave in the dispatcher's texture and render-state caches is covered by Frame reset. Each bake re-uploads the frame's camera block before it returns, so its own camera buffer does not stay on the frame-published camera binding (#1687) |
 | Shadow placeholders, `MeshPrimitives`, GPU timer pools, profiler, readback stats, debug-draw channels | lazily created statics | Device, each released by the narrowest unconditional teardown ([lazy-static-release-ownership.md](../agent-rules/lazy-static-release-ownership.md)); `Renderer3D::ReclaimSharedRenderState` re-arms the two a device test shuts down |
 | Instance upload scratch (`thread_local` vector in `DrawMeshInstanced`) | `CommandDispatch.cpp` | Recording: one per recording thread, cleared and refilled by each draw before it is read. It holds capacity, never a value a later draw sees |
-| `s_LastTemporalUpscaleTime` | `RenderPipeline.cpp` | A raw wall-clock sample for FSR2 lock decay. A restart or a second view reads one stale sample, which the 0.1 s clamp bounds. Not read under a mocked clock, where the delta is a nominal 1/60 s |
+| `RendererViewClock::TemporalUpscalePrevTime` (was the file static `s_LastTemporalUpscaleTime`) | `Renderer3D.h` | View-owned since #1352: a raw wall-clock sample for FSR2 lock decay, one per view, restarted with the view's sequences. Not read under a mocked clock, where the delta is a nominal 1/60 s |
 | Warn-once sets and flags, change-detection statics for logs, `CommandLifecycle` violation counters | submission and pipeline sources | Diagnostic |
 | `InflightFrameManager::GetFrameUniformBuffer` | `InflightFrameManager.cpp` | No caller. Its buffer is the one `OLO_BLOCK_UNDECLARED` exemption from the block declaration rule and is marked where it is created |
 
@@ -101,9 +101,9 @@ its invalidation calls stay.
 
 Per-view storage for a second view (a Hi-Z pyramid, exposure state and a non-zero view key in the
 history registry) was not a remainder of this issue. #1352 built it on the contract:
-[ADR 0026](../adr/0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md). Three rows
-of the table above read differently since. The render graph, the history registry, the pass pipeline
-and `HZBGenerator OcclusionHZB` are each **per view** (members of `RendererViewResident`), and so are
-the renderer and post-process settings; `ParallelSceneContext` stays one shared per-view-frame
-snapshot, rebuilt in `PrepareFrame` for the view being rendered. `s_LastTemporalUpscaleTime` is gone:
-the baseline is the view's (`RendererViewClock::TemporalUpscalePrevTime`).
+[ADR 0026](../adr/0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md). The table above
+states ownership as that change left it: the render graph, the history registry, the pass pipeline,
+`HZBGenerator OcclusionHZB` and the renderer and post-process settings are each **per view**
+(members of `RendererViewResident`); `ParallelSceneContext` stays one shared per-view-frame
+snapshot, rebuilt in `PrepareFrame` for the view being rendered; and the temporal upscaler's time
+baseline is the view's.
