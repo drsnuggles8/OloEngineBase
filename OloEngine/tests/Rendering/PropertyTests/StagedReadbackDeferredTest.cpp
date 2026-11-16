@@ -137,7 +137,7 @@ namespace OloEngine::Tests
         {
             bool staged = false;
             Frame([this, i, &received, &staged, &readInTheFrameThatStaged]()
-                       {
+                  {
                            Poll(received);
                            staged = m_Readback.StageDeferred(MakeSource(i), 0, kBytes);
                            if (i == 0u)
@@ -164,7 +164,7 @@ namespace OloEngine::Tests
         for (u32 frame = 0; frame < 16u && received.size() < kCopies; ++frame)
         {
             Frame([this, &received]()
-                       { Poll(received); });
+                  { Poll(received); });
         }
 
         ASSERT_EQ(received.size(), static_cast<sizet>(kCopies)) << "not every staged copy was handed out";
@@ -177,7 +177,7 @@ namespace OloEngine::Tests
 
         // And nothing more: a copy is handed out once.
         Frame([this, &received]()
-                   { Poll(received); });
+              { Poll(received); });
         EXPECT_EQ(received.size(), static_cast<sizet>(kCopies));
     }
 
@@ -191,10 +191,10 @@ namespace OloEngine::Tests
         for (u32 i = 0; i < kSlots; ++i)
         {
             Frame([this, i, &accepted]()
-                       { accepted += m_Readback.StageDeferred(MakeSource(i), 0, kBytes) ? 1u : 0u; });
+                  { accepted += m_Readback.StageDeferred(MakeSource(i), 0, kBytes) ? 1u : 0u; });
         }
         Frame([this, &overflowAccepted]()
-                   { overflowAccepted = m_Readback.StageDeferred(MakeSource(StagedBufferReadback::kRingSlots), 0, kBytes); });
+              { overflowAccepted = m_Readback.StageDeferred(MakeSource(StagedBufferReadback::kRingSlots), 0, kBytes); });
         ASSERT_EQ(accepted, kSlots);
         EXPECT_FALSE(overflowAccepted) << "a copy was staged over one that had not been read";
         EXPECT_EQ(m_Readback.GetDeferredCopiesOutstanding(), kSlots);
@@ -203,7 +203,7 @@ namespace OloEngine::Tests
         for (u32 frame = 0; frame < 16u && received.size() < kSlots; ++frame)
         {
             Frame([this, &received]()
-                       { Poll(received); });
+                  { Poll(received); });
         }
         ASSERT_EQ(received.size(), static_cast<sizet>(kSlots));
         for (u32 i = 0; i < kSlots; ++i)
@@ -214,7 +214,7 @@ namespace OloEngine::Tests
         // A slot that has been read is free again.
         bool stagedAfterDrain = false;
         Frame([this, &stagedAfterDrain]()
-                   { stagedAfterDrain = m_Readback.StageDeferred(MakeSource(99u), 0, kBytes); });
+              { stagedAfterDrain = m_Readback.StageDeferred(MakeSource(99u), 0, kBytes); });
         EXPECT_TRUE(stagedAfterDrain);
     }
 } // namespace OloEngine::Tests
