@@ -1028,10 +1028,15 @@ namespace OloEngine::Tests
         const std::vector<u8> unsimulated = mainViewAfterTheSwing(SecondView::None);
         SetSimulationEnabled(true);
         const std::vector<u8> alone = mainViewAfterTheSwing(SecondView::None);
+        // CountDifferingPixels answers 0 for two buffers of different sizes, so
+        // every comparison here that expects 0 checks the sizes first: a failed
+        // or resized readback must not read as "identical".
+        ASSERT_FALSE(alone.empty()) << "no main-view frame was read back";
+        ASSERT_EQ(unsimulated.size(), alone.size()) << "the unsimulated capture is not the size of the simulated one";
         ASSERT_GT(CountDifferingPixels(alone, unsimulated), 2000u)
             << "the simulated coat is not visible in the runtime frame: this measures nothing";
         const std::vector<u8> aloneAgain = mainViewAfterTheSwing(SecondView::None);
-        ASSERT_FALSE(alone.empty());
+        ASSERT_EQ(aloneAgain.size(), alone.size()) << "the repeated main-view capture changed size";
         ASSERT_EQ(CountDifferingPixels(aloneAgain, alone), 0u)
             << "two runs of the main view alone differ: the comparison below cannot be exact";
 
@@ -1045,6 +1050,8 @@ namespace OloEngine::Tests
         const std::vector<u8> asThePrimaryView = mainViewAfterTheSwing(SecondView::AfterMain);
         Renderer3D::DestroyView(second);
 
+        ASSERT_EQ(asTheLaterView.size(), alone.size()) << "the main view's capture changed size beside a second view";
+        ASSERT_EQ(asThePrimaryView.size(), alone.size()) << "the main view's capture changed size beside a second view";
         const u32 laterDiffers = CountDifferingPixels(asTheLaterView, alone);
         const u32 primaryDiffers = CountDifferingPixels(asThePrimaryView, alone);
         std::printf("[groom-sim] two views: the main view differs from the main view alone by %u px as the frame's "
