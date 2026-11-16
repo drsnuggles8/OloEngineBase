@@ -78,6 +78,7 @@
 #include "OloEngine/Renderer/MeshPrimitives.h"
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/Passes/GroomRenderPass.h"
+#include "OloEngine/Renderer/RenderView.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 #include "OloEngine/Scene/Components.h"
@@ -945,6 +946,112 @@ namespace OloEngine::Tests
         RunFrames(1, 1.0f / 60.0f);
         EXPECT_EQ(PassStats().GroomsSimulated, 0u);
         EXPECT_EQ(PassStats().GuidesSimulated, 0u);
+    }
+
+    // -------------------------------------------------------------------------
+    // A second view of the frame (issue #1352, ADR 0026)
+    // -------------------------------------------------------------------------
+
+    // The coat is the world's: its binding history and its simulation advance
+    // once per physical frame, and every view of that frame draws the same coat
+    // with the same previous frame behind it. The publish runs once per view, so
+    // a history that advanced per publish gave a later view a coat whose
+    // previous frame was the frame itself -- no motion, in that view only --
+    // which its temporal resolve then accumulated differently (a review finding
+    // on #1352).
+    //
+    // The main view of a two-view frame is compared with the main view alone,
+    // after the same swing, with the second view rendered ahead of it (the main
+    // view is then the LATER view) and after it. Two runs of the main view alone
+    // come first: they are the control that says the comparison can be exact.
+    TEST_F(GroomSimulationVisualEvidenceTest, ASecondViewOfTheFrameLeavesTheCoatTheMainViewDraws)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        // What reads the coat's previous frame: without a temporal resolve and
+        // motion blur the motion vectors reach no pixel of the frame, and a coat
+        // with the wrong history draws the same picture as one with the right.
+        auto& post = Renderer3D::GetPostProcessSettings();
+        post.TAAEnabled = true;
+        post.MotionBlurEnabled = true;
+        post.MotionBlurStrength = 1.0f;
+        Renderer3D::ApplyRendererSettings();
+        // The runtime camera stands sixty units back for the editor captures'
+        // sake (BuildScene); from there the coat is a few pixels. Up close, where
+        // those captures stand.
+        m_RuntimeCamera.GetComponent<TransformComponent>().Translation = glm::vec3(0.0f, 0.9f, 4.6f);
+
+        constexpr u32 kFrames = 24u;
+        constexpr f32 kDt = 1.0f / 60.0f;
+        enum class SecondView : u8
+        {
+            None,
+            BeforeMain,
+            AfterMain
+        };
+        RenderViewId second{};
+        // Closer than the main camera and from the side: a view that would
+        // choose its own tier and guide budget if the coat let it.
+        const glm::mat4 secondCamera =
+            glm::inverse(glm::lookAt(glm::vec3(2.2f, 1.1f, 1.4f), glm::vec3(0.0f, 0.9f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f)));
+
+        const auto mainViewAfterTheSwing = [&](SecondView mode)
+        {
+            ResetMotion();
+            Renderer3D::ResetFrameSequences();
+            for (u32 frame = 0; frame < kFrames; ++frame)
+            {
+                SetBodyPose(35.0f * std::sin(static_cast<f32>(frame) * kDt * 6.2831853f));
+                if (mode != SecondView::None)
+                {
+                    Scene::SceneViewRequest request;
+                    request.View = second;
+                    request.CameraTransform = secondCamera;
+                    request.Projection = glm::perspective(glm::radians(50.0f), 1.0f, 0.05f, 200.0f);
+                    request.NearClip = 0.05f;
+                    request.FarClip = 200.0f;
+                    request.BeforeMainView = mode == SecondView::BeforeMain;
+                    GetScene().RequestAdditionalView(request);
+                }
+                RunFrames(1, kDt);
+            }
+            std::vector<u8> pixels;
+            u32 width = 0;
+            u32 height = 0;
+            EXPECT_TRUE(ReadbackComposite(pixels, width, height)) << "no main-view frame to read back";
+            return pixels;
+        };
+
+        // The control for the measure itself: the frame has to SHOW the coat's
+        // simulated motion, or two coats with different histories compare equal.
+        SetSimulationEnabled(false);
+        const std::vector<u8> unsimulated = mainViewAfterTheSwing(SecondView::None);
+        SetSimulationEnabled(true);
+        const std::vector<u8> alone = mainViewAfterTheSwing(SecondView::None);
+        ASSERT_GT(CountDifferingPixels(alone, unsimulated), 2000u)
+            << "the simulated coat is not visible in the runtime frame: this measures nothing";
+        const std::vector<u8> aloneAgain = mainViewAfterTheSwing(SecondView::None);
+        ASSERT_FALSE(alone.empty());
+        ASSERT_EQ(CountDifferingPixels(aloneAgain, alone), 0u)
+            << "two runs of the main view alone differ: the comparison below cannot be exact";
+
+        RenderViewDesc desc;
+        desc.Width = 512u;
+        desc.Height = 512u;
+        desc.DebugName = "GroomSecondView";
+        second = Renderer3D::CreateView(desc);
+        ASSERT_FALSE(second.IsMain()) << "Renderer3D::CreateView refused";
+        const std::vector<u8> asTheLaterView = mainViewAfterTheSwing(SecondView::BeforeMain);
+        const std::vector<u8> asThePrimaryView = mainViewAfterTheSwing(SecondView::AfterMain);
+        Renderer3D::DestroyView(second);
+
+        const u32 laterDiffers = CountDifferingPixels(asTheLaterView, alone);
+        const u32 primaryDiffers = CountDifferingPixels(asThePrimaryView, alone);
+        std::printf("[groom-sim] two views: the main view differs from the main view alone by %u px as the frame's "
+                    "later view, %u px as its primary view\n",
+                    laterDiffers, primaryDiffers);
+        EXPECT_EQ(laterDiffers, 0u) << "rendered after another view, the main view drew a different coat";
+        EXPECT_EQ(primaryDiffers, 0u) << "a view rendered after the main one changed the coat the main view draws";
     }
 
     // #1257: the real Scene producer supplies bound-surface, palette and full

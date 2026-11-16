@@ -1752,6 +1752,15 @@ namespace OloEngine
             /// a teleport emit zero motion rather than the teleport itself.
             glm::mat4 m_PrevSurfaceToGroom{ 1.0f };
 
+            /// What the coat's FIRST deformation of a frame decided and read,
+            /// kept for every later one of the same frame (ADR 0026): the
+            /// function runs once per view, and by the time a second view
+            /// re-enters it the members above already describe THIS frame.
+            /// m_HistoryFrame is the Scene::m_GroomFrameSerial they belong to.
+            u64 m_HistoryFrame = ~0ull;
+            GroomHistoryResetCause m_FrameCause = GroomHistoryResetCause::None;
+            glm::mat4 m_FramePrevSurfaceToGroom{ 1.0f };
+
             /// The binding's centre at bind time and the same roots on the
             /// body's surface (BoundGroomPlacementOffset), cached on the binding
             /// handle and the surface generation they were averaged from: a
@@ -1856,6 +1865,9 @@ namespace OloEngine
             /// from any matrix, exactly as #1249 found for the binding.
             TArray<glm::vec3> m_Displacements;
             TArray<glm::vec3> m_PrevDisplacements;
+            /// The Scene::m_GroomFrameSerial the pair was last rotated in: once
+            /// per frame, on the coat's first step of it (SimulateGroomGuides).
+            u64 m_RotatedFrame = ~0ull;
 
             /// EVERY SLOT'S displacement, as published to the strand build
             /// (issue #1509): the simulated guides' own, and for each slot the
@@ -2131,6 +2143,13 @@ namespace OloEngine
         /// pause/resume half of the issue's criterion 1.
         f32 m_GroomSimulationDeltaSeconds = 0.0f;
 
+        /// Counts the frame entry points (BeginGroomFrame). A coat's per-entity
+        /// history -- the binding's previous matrix and continuity verdict, the
+        /// simulation's displacement pair -- advances on the coat's FIRST
+        /// publish under a given value and is reused by every later one: the
+        /// publish runs once per view, the history once per frame (ADR 0026).
+        u64 m_GroomFrameSerial = 0;
+
         /// Whether this frame's first groom publish is still to come.
         ///
         /// The representation LOD's hysteresis and the cross-fade window
@@ -2184,6 +2203,7 @@ namespace OloEngine
         {
             m_GroomSimulationDeltaSeconds = 0.0f;
             m_GroomLodFrameArmed = true;
+            ++m_GroomFrameSerial;
         }
 
         /// Fill in `request`'s binding half: resolve the body, check the binding

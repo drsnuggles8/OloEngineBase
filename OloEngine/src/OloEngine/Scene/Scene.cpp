@@ -11409,22 +11409,28 @@ namespace OloEngine
         // The previous frame's displacements are moved aside BEFORE the new ones
         // are written, so the pair the renderer reads is genuinely two
         // consecutive frames of the same coat.
-        // ALWAYS ROTATED, on every frame that reaches here.
+        // ROTATED ONCE PER FRAME, on the coat's first step of it, whether or not
+        // time passed.
         //
-        // This was gated on "time actually passed" to stop a second camera
-        // rotating the pair twice, and that was the wrong fix for the wrong
-        // problem. The second-camera case is already handled by zeroing the
-        // groom clock at the end of PublishGroomStrandRequests, and the gate
-        // introduced a worse bug at the other end: on a PAUSED frame the
-        // particles do not move, so `current` is unchanged, and keeping a `prev`
-        // from two frames ago made a frozen coat emit the motion of the last
-        // frame it moved -- a TAA smear on a coat that is standing still, which
-        // is exactly the failure the history contract exists to prevent.
-        //
-        // Rotating unconditionally makes a held frame emit prev == current, i.e.
-        // EXACTLY zero motion, which is the same rule
+        // "Whether or not time passed" is the paused frame. This was once gated
+        // on the groom clock, and on a PAUSED frame the particles do not move,
+        // so `current` is unchanged and keeping a `prev` from two frames ago
+        // made a frozen coat emit the motion of the last frame it moved -- a TAA
+        // smear on a coat that is standing still. Rotating on a held frame makes
+        // it emit prev == current, EXACTLY zero motion, the rule
         // GroomStrandVertex::PrevPosition is written under.
-        std::swap(state.m_PrevDisplacements, state.m_Displacements);
+        //
+        // "Once per frame" is the second view (ADR 0026). This function runs once
+        // per view, and the zeroed groom clock already makes a later one hold the
+        // particles and recompute the same displacements. Rotating again there
+        // put this frame's displacements in `prev` too, so every view after the
+        // frame's first drew a coat with no simulated motion behind it, and its
+        // temporal resolve accumulated a different image from the same coat.
+        if (state.m_RotatedFrame != m_GroomFrameSerial)
+        {
+            state.m_RotatedFrame = m_GroomFrameSerial;
+            std::swap(state.m_PrevDisplacements, state.m_Displacements);
+        }
 
         // A BUDGET STEP STARTS FROM THE DRAPE (issue #1509). When only the guide
         // set changed, each new guide's particles start where the coat was last
@@ -12065,6 +12071,27 @@ namespace OloEngine
             cause = GroomHistoryResetCause::Teleport;
         }
 
+        // THE VERDICT AND THE PREVIOUS MATRIX ARE THE FRAME'S, NOT THE PUBLISH'S
+        // (ADR 0026). This function runs once per view. The coat's first
+        // deformation of a frame decides whether last frame is comparable and
+        // reads last frame's matrix. By the time a later view re-enters, the
+        // state the ladder above tests already describes THIS frame: it answers
+        // "continuous" for a coat the first view has just reset, and
+        // m_PrevSurfaceToGroom is this frame's matrix. A later view therefore
+        // takes what the first one decided and read, and draws the same coat
+        // with the same previous frame behind it.
+        const bool firstDeformationOfFrame = state.m_HistoryFrame != m_GroomFrameSerial;
+        if (firstDeformationOfFrame)
+        {
+            state.m_HistoryFrame = m_GroomFrameSerial;
+            state.m_FrameCause = cause;
+            state.m_FramePrevSurfaceToGroom = state.m_PrevSurfaceToGroom;
+        }
+        else
+        {
+            cause = state.m_FrameCause;
+        }
+
         const bool hasHistory = cause == GroomHistoryResetCause::None;
 
         // ── Deform, but only the strands that will be drawn ─────────────────
@@ -12176,7 +12203,8 @@ namespace OloEngine
         // frame's when there is no history is not a fallback that matters --
         // HasHistory false makes the evaluation write prev == current and never
         // read either matrix for a previous position.
-        inputs.PrevSurfaceToGroom = hasHistory ? state.m_PrevSurfaceToGroom : inputs.SurfaceToGroom;
+        // The matrix the frame's first deformation read (see the verdict above).
+        inputs.PrevSurfaceToGroom = hasHistory ? state.m_FramePrevSurfaceToGroom : inputs.SurfaceToGroom;
         inputs.HasHistory = hasHistory;
 
         request.GpuRootFrames = gpuRootFrames;
@@ -12225,7 +12253,12 @@ namespace OloEngine
             OLO_PERF_SCOPE_AUTO("Groom::Simulate");
             SimulateGroomGuides(groomEntity, groom, *bindingAsset, coat, view, inputs.Skinning,
                                 inputs.SurfaceToGroom, targetEntity.GetUUID(), surface->GetGeneration(),
-                                std::span{ state.m_Transforms.GetData(), static_cast<sizet>(state.m_Transforms.Num()) }, cause, request);
+                                std::span{ state.m_Transforms.GetData(), static_cast<sizet>(state.m_Transforms.Num()) },
+                                // The solver hears of a discontinuity ONCE, from
+                                // the frame's first deformation. Told again by a
+                                // later view it would re-seed the particles the
+                                // first view had just stepped.
+                                firstDeformationOfFrame ? cause : GroomHistoryResetCause::None, request);
         }
 
         // The binding preview is drawn HERE, not in the gizmo loop, and the
