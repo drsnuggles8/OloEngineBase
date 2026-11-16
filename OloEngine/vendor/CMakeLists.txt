@@ -336,7 +336,7 @@ glad_add_library(glad STATIC REPRODUCIBLE API gl:core=4.6 LOCATION ${CMAKE_CURRE
 
 FetchContent_Declare(stb_image
 	GIT_REPOSITORY https://github.com/nothings/stb.git
-	GIT_TAG 4e9b368bfc071e97206ea5c6adba68dd0cbf8897  # master @ 2026-06-05
+	GIT_TAG 9600522de53973336fa033a289858a4354cbb04c  # master @ 2026-06-05
 	GIT_SHALLOW FALSE)
 FetchContent_MakeAvailable(stb_image)
 add_library(stb_image INTERFACE)
