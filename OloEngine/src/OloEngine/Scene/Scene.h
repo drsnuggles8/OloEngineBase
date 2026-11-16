@@ -1343,6 +1343,16 @@ namespace OloEngine
         // frame rendered without it shows none of the three. `camera` must
         // outlive the frame.
         void QueueEditorOverlay(EditorCamera const& camera);
+        // Submit every world sprite, circle or text into the 2D batch that is
+        // open, farthest from the camera first and ties by UUID, so overlapping
+        // ones stack the same way in Edit, Simulate and Play (#1700). Every
+        // site that draws them calls these; `viewMatrix` is that site's camera.
+        void DrawWorldSprites(const glm::mat4& viewMatrix);
+        void DrawWorldCircles(const glm::mat4& viewMatrix);
+        void DrawWorldText(const glm::mat4& viewMatrix);
+        struct WorldSpace2DEntry;
+        template<typename Component>
+        TArray<WorldSpace2DEntry> CollectBackToFront(const glm::mat4& viewMatrix);
         // Submit every TilemapComponent's visible chunks into the batch that is
         // already open (issue #646). Called from all three 2D draw sites — the
         // editor camera, the 2D-only runtime frame and the 3D UI-composite

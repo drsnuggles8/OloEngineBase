@@ -6573,23 +6573,11 @@ namespace OloEngine
 
                                                              RenderTilemaps(mainCamera->GetProjection() * glm::inverse(cameraTransform));
 
-                                                             for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
-                                                             {
-                                                                 const auto& sprite = group.get<SpriteRendererComponent>(entity);
-                                                                 Renderer2D::DrawSprite(GetWorldTransform(entity), sprite, static_cast<int>(std::to_underlying(entity)));
-                                                             }
+                                                             DrawWorldSprites(glm::inverse(cameraTransform));
 
-                                                             for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
-                                                             {
-                                                                 const auto& circle = view.get<CircleRendererComponent>(entity);
-                                                                 Renderer2D::DrawCircle(GetWorldTransform(entity), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
-                                                             }
+                                                             DrawWorldCircles(glm::inverse(cameraTransform));
 
-                                                             for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
-                                                             {
-                                                                 const auto& text = view.get<TextComponent>(entity);
-                                                                 DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
-                                                             }
+                                                             DrawWorldText(glm::inverse(cameraTransform));
 
                                                              Renderer2D::EndScene();
 
@@ -6615,23 +6603,11 @@ namespace OloEngine
 
                 RenderTilemaps(mainCamera->GetProjection() * glm::inverse(cameraTransform));
 
-                for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
-                {
-                    const auto& sprite = group.get<SpriteRendererComponent>(entity);
-                    Renderer2D::DrawSprite(GetWorldTransform(entity), sprite, static_cast<int>(std::to_underlying(entity)));
-                }
+                DrawWorldSprites(glm::inverse(cameraTransform));
 
-                for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
-                {
-                    const auto& circle = view.get<CircleRendererComponent>(entity);
-                    Renderer2D::DrawCircle(GetWorldTransform(entity), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
-                }
+                DrawWorldCircles(glm::inverse(cameraTransform));
 
-                for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
-                {
-                    const auto& text = view.get<TextComponent>(entity);
-                    DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
-                }
+                DrawWorldText(glm::inverse(cameraTransform));
 
                 // 2D particles (3D particles are rendered by ParticleRenderPass)
                 for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
@@ -6691,6 +6667,86 @@ namespace OloEngine
         }
     }
 
+    // WORLD-SPACE 2D PRIMITIVES ARE DRAWN IN THE CAMERA'S ORDER.
+    //
+    // Sprites, circles and world text are drawn with the depth test off (the UI
+    // composite pass) or all at one depth, so the order of the draws IS which
+    // one ends up on top. It used to be the order the registry yields entities
+    // in, which is not a property of the scene: the copy Simulate and Play run
+    // on yields them in another order, and two overlapping texts, sprites or
+    // circles swapped places when the mode changed (#1700).
+    //
+    // The order is the camera's: farthest first, so the one nearest the camera
+    // is drawn last and lies on top, as blended geometry is drawn. Entities at
+    // the same depth (a flat page of them) go by UUID, which a scene copy
+    // keeps.
+    struct Scene::WorldSpace2DEntry
+    {
+        f32 ViewDepth = 0.0f; // view space looks down -Z: more negative is farther
+        u64 Id = 0;
+        entt::entity Entity = entt::null;
+        glm::mat4 World{ 1.0f };
+    };
+
+    template<typename Component>
+    TArray<Scene::WorldSpace2DEntry> Scene::CollectBackToFront(const glm::mat4& viewMatrix)
+    {
+        TArray<WorldSpace2DEntry> entries;
+        for (const auto view = m_Registry.view<TransformComponent, Component>(); const auto entity : view)
+        {
+            WorldSpace2DEntry entry;
+            entry.Entity = entity;
+            entry.World = GetWorldTransform(entity);
+            const f32 depth = (viewMatrix * entry.World[3]).z;
+            entry.ViewDepth = std::isfinite(depth) ? depth : 0.0f;
+            if (const auto* id = m_Registry.try_get<IDComponent>(entity))
+            {
+                entry.Id = static_cast<u64>(id->ID);
+            }
+            entries.Add(entry);
+        }
+        std::sort(entries.begin(), entries.end(), [](const WorldSpace2DEntry& a, const WorldSpace2DEntry& b)
+                  {
+                      if (a.ViewDepth < b.ViewDepth)
+                      {
+                          return true;
+                      }
+                      if (b.ViewDepth < a.ViewDepth)
+                      {
+                          return false;
+                      }
+                      return a.Id < b.Id; });
+        return entries;
+    }
+
+    void Scene::DrawWorldSprites(const glm::mat4& viewMatrix)
+    {
+        for (const WorldSpace2DEntry& entry : CollectBackToFront<SpriteRendererComponent>(viewMatrix))
+        {
+            Renderer2D::DrawSprite(entry.World, m_Registry.get<SpriteRendererComponent>(entry.Entity),
+                                   static_cast<int>(std::to_underlying(entry.Entity)));
+        }
+    }
+
+    void Scene::DrawWorldCircles(const glm::mat4& viewMatrix)
+    {
+        for (const WorldSpace2DEntry& entry : CollectBackToFront<CircleRendererComponent>(viewMatrix))
+        {
+            const auto& circle = m_Registry.get<CircleRendererComponent>(entry.Entity);
+            Renderer2D::DrawCircle(entry.World, circle.Color, circle.Thickness, circle.Fade,
+                                   static_cast<int>(std::to_underlying(entry.Entity)));
+        }
+    }
+
+    void Scene::DrawWorldText(const glm::mat4& viewMatrix)
+    {
+        for (const WorldSpace2DEntry& entry : CollectBackToFront<TextComponent>(viewMatrix))
+        {
+            DrawTextWithShadow(m_Registry.get<TextComponent>(entry.Entity), entry.World,
+                               static_cast<int>(std::to_underlying(entry.Entity)));
+        }
+    }
+
     void Scene::QueueEditorOverlay(EditorCamera const& camera)
     {
         // The UI composite pass draws this into its own target, which is what
@@ -6705,11 +6761,7 @@ namespace OloEngine
                                                      // switched to 3D.
                                                      RenderTilemaps(camera.GetViewProjection());
 
-                                                     for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
-                                                     {
-                                                         const auto& text = view.get<TextComponent>(entity);
-                                                         DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
-                                                     }
+                                                     DrawWorldText(camera.GetViewMatrix());
 
                                                      Renderer2D::EndScene();
 
@@ -8777,31 +8829,17 @@ namespace OloEngine
 
         // Draw sprites
         {
-            for (const auto view = m_Registry.view<TransformComponent, SpriteRendererComponent>(); const auto entity : view)
-            {
-                const auto& sprite = view.get<SpriteRendererComponent>(entity);
-
-                Renderer2D::DrawSprite(GetWorldTransform(entity), sprite, static_cast<int>(std::to_underlying(entity)));
-            }
+            DrawWorldSprites(camera.GetViewMatrix());
         }
 
         // Draw circles
         {
-            for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
-            {
-                const auto& circle = view.get<CircleRendererComponent>(entity);
-
-                Renderer2D::DrawCircle(GetWorldTransform(entity), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
-            }
+            DrawWorldCircles(camera.GetViewMatrix());
         }
 
         // Draw text
         {
-            for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
-            {
-                const auto& text = view.get<TextComponent>(entity);
-                DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
-            }
+            DrawWorldText(camera.GetViewMatrix());
         }
 
         // Draw particles

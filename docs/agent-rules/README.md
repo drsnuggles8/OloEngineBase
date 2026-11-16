@@ -243,6 +243,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 ## Scene, ECS and serialization
 
 - [scene-registry-source-path.md](scene-registry-source-path.md): resolve scene registry paths against the active project before reading or writing source files.
+- [draw-order-is-the-scenes-not-the-registrys.md](draw-order-is-the-scenes-not-the-registrys.md): draw depth-untested 2D primitives farthest first with ties by UUID, never in registry order, which a scene copy changes.
 - [project-optional-paths.md](project-optional-paths.md): preserve empty optional project paths before resolving them against the asset directory.
 - [component-serializer-codegen.md](component-serializer-codegen.md): when a component round-trips for free, when to annotate a field, and every generated touch-point's exclusion set.
 - [scene-binary-sidecar.md](scene-binary-sidecar.md): the `.scenebin` fast path is generated and hybrid-covered.
