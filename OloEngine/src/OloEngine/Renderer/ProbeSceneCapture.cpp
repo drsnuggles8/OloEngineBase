@@ -6,6 +6,7 @@
 #include "OloEngine/Renderer/Camera/Camera.h"
 #include "OloEngine/Renderer/DDGI/DDGIProbeUpdatePass.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/RHI/RHIProjectionSeam.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -68,6 +69,41 @@ namespace OloEngine
             AuxSinkGuard(const AuxSinkGuard&) = delete;
             AuxSinkGuard& operator=(const AuxSinkGuard&) = delete;
         };
+
+        // The main view's size and render scale, put back on EVERY exit: a
+        // throw out of RenderScene3D or the face sink must not strand the live
+        // view at the probe's size and scale 1.
+        //
+        // The size is the view's configured one, not a target's: on a first
+        // capture before any frame has rendered the SceneColor target does not
+        // exist yet, and a size read from it was zero, so nothing was put back.
+        struct ScopedMainViewSize
+        {
+            RenderViewInfo Saved = Renderer3D::GetViewInfo(kMainRenderView);
+            f32 SavedRenderScale = Renderer3D::GetRenderScale();
+            ScopedMainViewSize() = default;
+            ~ScopedMainViewSize()
+            {
+                Renderer3D::SetRenderScale(SavedRenderScale);
+                if (Saved.Width != 0 && Saved.Height != 0)
+                {
+                    Renderer3D::OnWindowResize(Saved.Width, Saved.Height);
+                }
+            }
+            ScopedMainViewSize(const ScopedMainViewSize&) = delete;
+            ScopedMainViewSize& operator=(const ScopedMainViewSize&) = delete;
+        };
+
+        // Turn a face's rows over in place. `rowFloats` floats per row.
+        void ReverseRows(f32* texels, sizet rowFloats, u32 rows)
+        {
+            for (u32 top = 0, bottom = rows - 1u; top < bottom; ++top, --bottom)
+            {
+                std::swap_ranges(texels + static_cast<sizet>(top) * rowFloats,
+                                 texels + (static_cast<sizet>(top) + 1u) * rowFloats,
+                                 texels + static_cast<sizet>(bottom) * rowFloats);
+            }
+        }
     } // namespace
 
     glm::vec3 ProbeSceneCapture::FaceTarget(u32 face)
@@ -117,25 +153,24 @@ namespace OloEngine
         // back.
         const Renderer3D::ScopedView mainView(kMainRenderView);
 
-        // The live render size, to restore. In the editor the SceneColor target
-        // exists (the viewport has been rendering). On a first capture before
-        // any frame has rendered it does not: the warm-up render below creates
-        // it, there is no prior size to restore, and the caller re-asserts its
-        // own after the capture.
-        u32 savedWidth = 0;
-        u32 savedHeight = 0;
-        if (auto const preCaptureSceneFb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor))
-        {
-            savedWidth = preCaptureSceneFb->GetSpecification().Width;
-            savedHeight = preCaptureSceneFb->GetSpecification().Height;
-        }
+        // The live size and render scale, restored when this leaves scope
+        // (declared after `mainView`, so while the main view is still active).
+        const ScopedMainViewSize restoreMainViewSize;
 
         // Render scale 1 for the capture. With dynamic resolution active the
         // scene is rendered into a floor(width * scale) sub-viewport of the
         // target, and the FULL physical texture is read back: a scale below 1
         // would capture the scene in one corner surrounded by unrendered texels.
-        f32 const savedRenderScale = Renderer3D::GetRenderScale();
         Renderer3D::SetRenderScale(1.0f);
+
+        // Every off-screen target stores its rows bottom-up on OpenGL and
+        // top-down on Vulkan (RHI::RenderTargetRowsAreBottomUp). The face
+        // orientations are chosen for the bottom-up order, and both bakers
+        // consume the texels by position (a cube map face upload, a spherical
+        // harmonics projection that maps a row to a direction), so a top-down
+        // readback handed over as it came stored every side face upside down:
+        // light from above and below swapped in whatever was baked on Vulkan.
+        bool const turnRowsOver = !RHI::RenderTargetRowsAreBottomUp();
 
         bool captured = false;
         {
@@ -182,6 +217,10 @@ namespace OloEngine
                     // directly (no framebuffer-bound restriction).
                     bool const readOk = RenderCommand::ReadTextureImage(colorAttachment, 0, RHI::Format::RGBA32Float,
                                                                         faceBytes, pixelBuffer.GetData());
+                    if (readOk && turnRowsOver)
+                    {
+                        ReverseRows(pixelBuffer.GetData(), static_cast<sizet>(clampedResolution) * 4u, clampedResolution);
+                    }
                     if (!onFace(face, readOk, std::span<const f32>(pixelBuffer.GetData(), static_cast<sizet>(pixelBuffer.Num()))))
                     {
                         captured = false;
@@ -189,14 +228,6 @@ namespace OloEngine
                     }
                 }
             }
-        }
-
-        // Scale always; size only when one was snapshotted. Both on every
-        // non-throwing exit, capture success or failure.
-        Renderer3D::SetRenderScale(savedRenderScale);
-        if (savedWidth != 0 && savedHeight != 0)
-        {
-            Renderer3D::OnWindowResize(savedWidth, savedHeight);
         }
 
         return captured;

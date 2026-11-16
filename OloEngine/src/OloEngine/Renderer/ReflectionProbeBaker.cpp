@@ -93,7 +93,12 @@ namespace OloEngine
             {
                 if (!readOk)
                 {
-                    OLO_CORE_WARN("ReflectionProbeBaker: cubemap face readback failed");
+                    // `rgba` is unspecified after a failed readback (it can
+                    // hold the previous face). Abandon the bake: uploading it
+                    // would install a wrong environment and mark the probe
+                    // baked.
+                    OLO_CORE_ERROR("ReflectionProbeBaker: cubemap face {} readback failed; abandoning the bake", face);
+                    return false;
                 }
                 // TextureCubemap::SetFaceData takes a mutable pointer. It
                 // regenerates the mip chain on every call; redundant on faces

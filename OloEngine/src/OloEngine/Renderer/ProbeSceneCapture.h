@@ -41,14 +41,17 @@ namespace OloEngine
         // along `face`.
         [[nodiscard]] static glm::mat4 FaceTransform(const glm::vec3& position, u32 face);
 
-        // One face: `resolution` x `resolution` RGBA32F texels in readback row
-        // order. `readOk` false means the readback failed and `rgba` is
-        // unspecified. Return false to abandon the remaining faces.
+        // One face: `resolution` x `resolution` RGBA32F texels, rows BOTTOM-UP
+        // on every backend (the OpenGL readback order the face orientations
+        // above are chosen for; a Vulkan target stores its rows top-down and
+        // the capture turns them over). `readOk` false means the readback
+        // failed and `rgba` is unspecified. Return false to abandon the
+        // remaining faces.
         using FaceSink = std::function<bool(u32 face, bool readOk, std::span<const f32> rgba)>;
 
         // Renders the six faces through the MAIN view (ADR 0026, section 6) at
         // render scale 1 with no lighting tap, hands each to `onFace`, and puts
-        // the main view's size, scale and tap back. `casterSink`, when given,
+        // the main view's size, scale and tap back on every exit. `casterSink`, when given,
         // collects the scene's opaque mesh casters during the warm-up render
         // (Renderer3D::SetAuxCasterSink). Returns false when the scene is null,
         // the graph produced no SceneColor target, or `onFace` abandoned.

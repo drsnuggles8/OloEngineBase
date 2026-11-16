@@ -15,16 +15,22 @@
 // looked at its result. Found while pinning the bakers to the main view
 // (issue #1352); both bakers now share ProbeSceneCapture.
 //
+// It also holds the bake's vertical sense. A render target stores its rows
+// bottom-up on OpenGL and top-down on Vulkan, and the projection maps a row to
+// a direction: handed a top-down face as it was read back, it stored every side
+// face upside down, so a probe over a sunlit floor under a dark sky came back
+// lit from above. The same test runs in the Vulkan test process.
+//
 // Classification: L8 (the real Scene render path, six faces, readback). SKIPs
-// cleanly without a GPU context. OpenGL process only, like every bake test:
-// the bake's GL state is put back with GLStateGuard.
+// cleanly without a GPU context. The bake runs inside RunInFrame, which gives
+// it a scene tick's hygiene on either backend.
 // =============================================================================
 
 #include "OloEnginePCH.h"
 
 #include "RendererAttachedTest.h"
 
-#include "OloEngine/Renderer/Debug/GLStateGuard.h"
+#include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/LightProbeBaker.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -52,6 +58,11 @@ namespace OloEngine::Tests
     class LightProbeRasterBakeTest : public RendererAttachedTest
     {
       protected:
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
         void BuildScene() override
         {
             EnableRendering(kViewSize, kViewSize);
@@ -125,10 +136,8 @@ namespace OloEngine::Tests
         Ref<Scene> scene = GetSceneRef();
         bool valid = false;
         SHCoefficients sh;
-        {
-            GLStateGuard guard("LightProbeRasterBake", GLStateGuard::Policy::Restore);
-            sh = LightProbeBaker::BakeProbeAtPosition(scene, kProbePosition, kProbeResolution, &valid);
-        }
+        RunInFrame([&scene, &valid, &sh]()
+                   { sh = LightProbeBaker::BakeProbeAtPosition(scene, kProbePosition, kProbeResolution, &valid); });
         ASSERT_TRUE(valid) << "the bake reported the probe invalid: it read back no light";
 
         const glm::vec3 towardsRed = SHBasis::EvaluateIrradiance(sh, glm::vec3(1.0f, 0.0f, 0.0f));
@@ -148,10 +157,64 @@ namespace OloEngine::Tests
         EXPECT_GT(towardsRed.r, towardsBlue.r * 1.5f) << "red light does not come from the red wall's side";
         EXPECT_GT(towardsBlue.b, towardsRed.b * 1.5f) << "blue light does not come from the blue wall's side";
 
+        // And the right way up: the sunlit floor is below the probe and nothing
+        // but sky is above it. A face stored with its rows turned over puts the
+        // floor in the upper half of every side face and swaps these.
+        const glm::vec3 fromBelow = SHBasis::EvaluateIrradiance(sh, glm::vec3(0.0f, -1.0f, 0.0f));
+        const glm::vec3 fromAbove = SHBasis::EvaluateIrradiance(sh, glm::vec3(0.0f, 1.0f, 0.0f));
+        std::cout << "[LightProbeRasterBake] from below (" << fromBelow.r << ", " << fromBelow.g << ", " << fromBelow.b
+                  << "), from above (" << fromAbove.r << ", " << fromAbove.g << ", " << fromAbove.b << ")\n";
+        // Measured 4.1 to 1 the right way up and 1.7 to 1 with the side faces
+        // turned over (the floor and sky faces themselves are only mirrored by
+        // it, so the swap is partial); both backends agree to six digits.
+        EXPECT_GT(fromBelow.g, fromAbove.g * 3.0f) << "the lit floor is not below the probe: the faces are upside down";
+
         // The bake renders through the main view at the probe's size and puts
         // the live size back.
         const RenderViewInfo after = Renderer3D::GetViewInfo(kMainRenderView);
         EXPECT_EQ(after.Width, before.Width) << "the bake left the live view at the probe's size";
         EXPECT_EQ(after.Height, before.Height);
+    }
+
+    // The size a bake puts back is the view's configured one. It was once read
+    // from the SceneColor target, and a view does not always have one: not on
+    // the first capture of a session, and not between a rendering-path switch
+    // and the next frame, when the graph has yet to be compiled again. With no
+    // target there was no size to put back and the live view stayed at the
+    // probe's 32 x 32.
+    TEST_F(LightProbeRasterBakeTest, ABakeWhileTheViewHasNoTargetLeavesTheViewItsSize)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        Time::SetMockTime(kCaptureTime);
+        struct ClearMockTime
+        {
+            ~ClearMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } const clearMockTime;
+
+        constexpr u32 kResized = 160u;
+        RunFrames(2);
+        ResizeRenderTarget(kResized, kResized);
+        // The other path: the graph is not compiled for it until a frame renders.
+        auto& settings = Renderer3D::GetRendererSettings();
+        settings.Path = settings.Path == RenderingPath::Deferred ? RenderingPath::Forward : RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
+        ASSERT_EQ(Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor), nullptr)
+            << "the view still has a SceneColor target after a path switch: this is no longer the case the test "
+               "is for, and it needs another way to reach a view with no target";
+        const RenderViewInfo before = Renderer3D::GetViewInfo(kMainRenderView);
+        ASSERT_EQ(before.Width, kResized);
+
+        Ref<Scene> scene = GetSceneRef();
+        bool valid = false;
+        RunInFrame([&scene, &valid]()
+                   { (void)LightProbeBaker::BakeProbeAtPosition(scene, kProbePosition, kProbeResolution, &valid); });
+        EXPECT_TRUE(valid);
+
+        const RenderViewInfo after = Renderer3D::GetViewInfo(kMainRenderView);
+        EXPECT_EQ(after.Width, kResized) << "the bake did not put the live view's configured size back";
+        EXPECT_EQ(after.Height, kResized);
     }
 } // namespace OloEngine::Tests
