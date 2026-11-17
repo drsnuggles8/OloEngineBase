@@ -26,6 +26,7 @@ have, and before verifying any self-shadowing feature.
 18. **Keep the volumetric shadow volume free of a temporal term.** If jitter is ever added, make it a function of the cell, not the frame index. [Details](volumetric-cloud-debugging-details.md#residual-knowledge)
 19. **Keep the artistic single-scatter albedo (~0.5) on the sun term.** In-scatter integrates to several times the sun intensity over a kilometre-scale medium. [Details](volumetric-cloud-debugging-details.md#residual-knowledge)
 20. **Classify cloud depth conservatively: use the minimum of the 2x2 full-resolution depth footprint, and treat sky as exactly `1.0`.** Clamp coordinates for odd-sized viewports; a broad epsilon like `0.9999` misclassified terrain (ridge depth `0.999904` with a 1000 m far plane). Pin both in an `R32F` shader-unit contract, since RGBA8 cannot represent far depths. [Details](volumetric-cloud-debugging-details.md#a-different-signature-cloud-puffs-in-front-of-terrain)
+21. **Compare the same sky on OpenGL and Vulkan, at the same seconds after the scene opens, before tuning coverage or noise on either.** A difference between backends is a sampler or binding fault, not the weather: the Vulkan volume ignored `Texture3DSpecification::Repeat` and clamped the tiling noise, so a Clear sky drew a few smooth streaks. A matrix that compares each backend's render paths with each other never compares the backends. [Details](volumetric-cloud-debugging-details.md#a-difference-between-backends-is-a-sampler-fault-not-the-weather)
 
 ---
 
