@@ -64,6 +64,6 @@ minimal:
   - "UvNormalSeam: generated glTF; two material slots share edge positions with distinct UVs and normals"
 limits:
   - "The invalid-influence glTF intentionally violates the glTF weight contract; its purpose is importer sanitisation."
-  - "Morph-only glTF reaches morph targets through AnimatedModel; the handle-addressed MeshImporterRegistry static route does not preserve morphs without bones. The tests exercise both routes without claiming parity."
-  - "AnimatedModel retains AnimatedMorphCube's 0.02-unit mesh coordinates; the visual fixture applies its authored 100x node presentation scale on the scene entity. This does not prove animated node-transform import."
+  - "Morph-only glTF reaches morph targets through AnimatedModel on both routes: the handle-addressed MeshImporterRegistry re-routes a file with morph targets and no bones to it, as it does a rigged one."
+  - "AnimatedModel bakes a boneless mesh's node transform into its vertices and morph deltas, so AnimatedMorphCube arrives at its authored 100x node scale. A SKINNED mesh's node is still left to its skeleton."
   - "The imported assets exercise source and .omesh cache. Asset-pack, scene-submission, AOV and Vulkan claims require separate execution evidence."

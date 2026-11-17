@@ -829,9 +829,11 @@ namespace OloEngine
         // Record that the SOURCE FILE was rigged so the .omesh header carries
         // FlagSourceRigged and the next, warm load routes here again without re-parsing
         // the source (issue #1272). Asked of the combined data rather than of a flag so a
-        // file that reached this importer but has no actual skinning -- an unrigged mesh
-        // dragged in through the animated path -- is recorded honestly as static.
-        combined->SetSourceIsRigged(combined->HasBoneInfluences());
+        // file that reached this importer but has nothing only it can import -- an
+        // unrigged, unmorphed mesh dragged in through the animated path -- is recorded
+        // honestly as static. Morph targets count: Model drops them exactly as it drops
+        // bones, so a morph-only file has to come back here on its warm load too.
+        combined->SetSourceIsRigged(combined->HasBoneInfluences() || combined->HasMorphTargets());
 
         OLO_CORE_INFO("AnimatedModel::CreateCombinedMeshSource: Combined {} meshes into {} vertices, "
                       "{} indices, {} submeshes (rigged={}, morphTargets={})",
@@ -900,7 +902,7 @@ namespace OloEngine
         for (u32 i = 0; i < node->mNumMeshes; ++i)
         {
             const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-            auto meshSource = ProcessMesh(mesh, scene);
+            auto meshSource = ProcessMesh(mesh, scene, globalTransform);
             if (meshSource)
             {
                 m_Meshes.Add(meshSource);
@@ -962,9 +964,50 @@ namespace OloEngine
         }
     }
 
-    Ref<MeshSource> AnimatedModel::ProcessMesh(const aiMesh* mesh, [[maybe_unused]] const aiScene* scene)
+    Ref<MeshSource> AnimatedModel::ProcessMesh(const aiMesh* mesh, [[maybe_unused]] const aiScene* scene,
+                                               const glm::mat4& nodeTransform)
     {
         OLO_PROFILE_FUNCTION();
+
+        // A mesh with no bones has no skeleton to carry its node's transform, and this
+        // importer does not run aiProcess_PreTransformVertices (that would discard the
+        // bones and morph targets it exists to read). Without this a morph-only mesh on
+        // a moved, turned or scaled node arrived at the origin in its own local size,
+        // which the static importer never did to the same file.
+        bool bakeNode = false;
+        if (mesh->mNumBones == 0)
+        {
+            const glm::mat4 identity(1.0f);
+            for (int c = 0; c < 4; ++c)
+            {
+                for (int r = 0; r < 4; ++r)
+                {
+                    bakeNode = bakeNode || std::abs(nodeTransform[c][r] - identity[c][r]) > 1.0e-6f;
+                }
+            }
+        }
+        const glm::mat3 nodeLinear(nodeTransform);
+        const f32 nodeDeterminant = glm::determinant(nodeLinear);
+        if (bakeNode && (!std::isfinite(nodeDeterminant) || std::abs(nodeDeterminant) < 1.0e-12f))
+        {
+            OLO_CORE_WARN("AnimatedModel::ProcessMesh: mesh '{}' sits on a node with a degenerate transform; "
+                          "importing it in its own local space",
+                          mesh->mName.C_Str());
+            bakeNode = false;
+        }
+        const glm::mat3 nodeNormal = bakeNode ? glm::transpose(glm::inverse(nodeLinear)) : glm::mat3(1.0f);
+        const auto bakePosition = [&](const glm::vec3& p)
+        {
+            return bakeNode ? glm::vec3(nodeTransform * glm::vec4(p, 1.0f)) : p;
+        };
+        const auto bakeNormal = [&](const glm::vec3& n)
+        {
+            if (!bakeNode)
+                return n;
+            const glm::vec3 turned = nodeNormal * n;
+            const f32 length = glm::length(turned);
+            return length > 1.0e-12f ? turned / length : n;
+        };
 
         TArray<Vertex> vertices; // Use regular Vertex instead of specialized vertex types
         TArray<u32> indices;
@@ -984,18 +1027,18 @@ namespace OloEngine
             Vertex vertex;
 
             // Position
-            vertex.Position = glm::vec3(
+            vertex.Position = bakePosition(glm::vec3(
                 mesh->mVertices[i].x,
                 mesh->mVertices[i].y,
-                mesh->mVertices[i].z);
+                mesh->mVertices[i].z));
 
             // Normal
             if (mesh->HasNormals())
             {
-                vertex.Normal = glm::vec3(
+                vertex.Normal = bakeNormal(glm::vec3(
                     mesh->mNormals[i].x,
                     mesh->mNormals[i].y,
-                    mesh->mNormals[i].z);
+                    mesh->mNormals[i].z));
             }
             else
             {
@@ -1034,6 +1077,17 @@ namespace OloEngine
             OLO_CORE_ERROR("AnimatedModel::ProcessMesh: mesh '{}' has {} non-triangle face(s) out of {} — "
                            "skipped; the import should have removed them",
                            mesh->mName.C_Str(), skippedFaces, mesh->mNumFaces);
+        }
+
+        // A node that mirrors (negative determinant) turns every baked triangle to face
+        // the other way while its baked normal still points out. Swap two corners to turn
+        // it back, as aiProcess_PreTransformVertices does on the static route.
+        if (bakeNode && nodeDeterminant < 0.0f)
+        {
+            for (i32 i = 0; i + 2 < indices.Num(); i += 3)
+            {
+                std::swap(indices[i + 1], indices[i + 2]);
+            }
         }
 
         // Store sizes before moving data to avoid use-after-move issues
@@ -1132,6 +1186,22 @@ namespace OloEngine
                             animMesh->mTangents[v].x - mesh->mTangents[v].x,
                             animMesh->mTangents[v].y - mesh->mTangents[v].y,
                             animMesh->mTangents[v].z - mesh->mTangents[v].z);
+                    }
+
+                    if (bakeNode)
+                    {
+                        // A delta is a difference of two points, so it takes the
+                        // transform's linear part and not its translation. The
+                        // normal's delta is the difference of the two baked
+                        // normals, which a matrix applied to the delta alone is
+                        // not once the node scales unevenly.
+                        delta.DeltaPosition = nodeLinear * delta.DeltaPosition;
+                        if (animMesh->mNormals && mesh->mNormals)
+                        {
+                            const glm::vec3 base(mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z);
+                            delta.DeltaNormal = bakeNormal(base + delta.DeltaNormal) - bakeNormal(base);
+                        }
+                        delta.DeltaTangent = nodeLinear * delta.DeltaTangent;
                     }
 
                     target.Vertices[v] = delta;

@@ -1028,7 +1028,11 @@ namespace OloEngine
         for (u32 i = 0; i < scene->mNumMeshes; ++i)
         {
             const aiMesh* rawMesh = scene->mMeshes[i];
-            m_SourceIsRigged = m_SourceIsRigged || rawMesh->mNumBones > 0;
+            // Bones, or morph targets: either is data only AnimatedModel imports, and
+            // aiProcess_PreTransformVertices discards both. A file with morph targets and
+            // no skeleton (a sail, a flag, a face sculpt) used to come through here and
+            // reach its MeshComponent as a mesh that could not be deformed.
+            m_SourceIsRigged = m_SourceIsRigged || rawMesh->mNumBones > 0 || rawMesh->mNumAnimMeshes > 0;
             if ((rawMesh->mPrimitiveTypes & (aiPrimitiveType_LINE | aiPrimitiveType_POINT)) != 0)
             {
                 ++lineOrPointMeshes;

@@ -130,7 +130,10 @@ namespace OloEngine
         // carries; called once at the end of LoadModel's cache and import paths.
         void AttachOneMeshMaterialTable();
         void ProcessNode(const aiNode* node, const aiScene* scene, const glm::mat4& parentTransform);
-        Ref<MeshSource> ProcessMesh(const aiMesh* mesh, const aiScene* scene);
+        // `nodeTransform` is the mesh node's global transform. A mesh with bones leaves
+        // it to its skeleton; one without has nothing else to carry it, so it is baked
+        // into the vertices and the morph deltas.
+        Ref<MeshSource> ProcessMesh(const aiMesh* mesh, const aiScene* scene, const glm::mat4& nodeTransform);
 
         // Material and texture loading
         // `semanticIndex` >= 0 probes EXACTLY that semantic index instead of

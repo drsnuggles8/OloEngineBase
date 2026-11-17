@@ -52,8 +52,8 @@ namespace OloEngine
                 // deliberately exclude aiProcess_FlipUVs, because Assimp's glTF2 reader
                 // already flips V). Say so rather than silently importing with the opposite
                 // UV origin from the one that was asked for.
-                OLO_CORE_WARN("AssimpMeshImporter: '{}' is rigged and routes to AnimatedModel, which does "
-                              "not support FlipUV — importing with the format's default UV origin",
+                OLO_CORE_WARN("AssimpMeshImporter: '{}' has bones or morph targets and routes to AnimatedModel, "
+                              "which does not support FlipUV — importing with the format's default UV origin",
                               path.string());
             }
 
@@ -63,9 +63,9 @@ namespace OloEngine
                 return animated;
             }
 
-            OLO_CORE_ERROR("AssimpMeshImporter: '{}' has bones but the animated import failed ({}). "
-                           "Falling back to the STATIC import — the mesh will load with NO bone "
-                           "influences and will render in its bind pose.",
+            OLO_CORE_ERROR("AssimpMeshImporter: '{}' has bones or morph targets but the animated import "
+                           "failed ({}). Falling back to the STATIC import — the mesh will load with NO "
+                           "bone influences and NO morph targets, and will render undeformed.",
                            path.string(), animated.Error);
             return std::nullopt;
         }
