@@ -188,6 +188,7 @@ add_executable(OloEngine-Tests
 		EngineSubsystemSmokeTest.cpp
 		AppLaunchSmokeTest.cpp
 		GpuGateSwitchTest.cpp
+		VendoredStbIncludeTest.cpp
 		FunctionalTestFixtureCoverageTest.cpp
 		PreCommitToolingSmokeTest.cpp
 		PrefabOverrideTest.cpp
