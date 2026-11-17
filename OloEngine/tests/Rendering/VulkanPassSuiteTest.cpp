@@ -808,12 +808,8 @@ class VulkanPassSuite : public ::testing::Test
 
         ASSERT_EQ(vkEndCommandBuffer(m_Cmd), VK_SUCCESS);
 
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &m_Cmd;
         ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
-        ASSERT_EQ(vkQueueSubmit(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+        ASSERT_EQ(OloEngine::Tests::SubmitWithStagedFenceOps(m_Device->GetQueue(), m_Cmd, m_Fence), VK_SUCCESS);
         queryCompletion->SubmittedFence = m_Fence;
         if (beforeFenceWait)
         {

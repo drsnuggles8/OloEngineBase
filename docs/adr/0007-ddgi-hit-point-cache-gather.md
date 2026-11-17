@@ -363,10 +363,12 @@ One active volume at a time (the existing engine-wide contract) is kept.
   (CSM + culled local lights + prev-frame probe sample)`. At 2048 probes ×
   256 texels ≈ 0.5 M texels ≈ half an SSGI pass with simpler shading;
   classification skips dead probes and the relight budget bounds worst cases.
-- Capture correctness must NOT be modeled on `LightProbeBaker`'s
-  bind-local-FBO-then-readback pattern — the engine research flagged it as
-  probably capturing black (the bug `ReflectionProbeBaker` fixed in 82f181e4
-  but `LightProbeBaker` never got). The DDGI capture pass rasterizes with its
+- Capture correctness must NOT be modeled on a bind-local-FBO-then-readback
+  pattern: `Scene::RenderScene3D` renders into the render graph's targets, so
+  the bound framebuffer holds the clear colour. `ReflectionProbeBaker` fixed
+  that in 82f181e4; `LightProbeBaker` carried it (every raster probe baked
+  black and invalid) until both moved onto `ProbeSceneCapture`, pinned by
+  `LightProbeRasterBakeTest`. The DDGI capture pass rasterizes with its
   own dedicated mini-G-buffer pass (ShadowRenderPass blueprint), not through
   `Scene::RenderScene3D`.
 - The forward path's probe sampling is currently dead code

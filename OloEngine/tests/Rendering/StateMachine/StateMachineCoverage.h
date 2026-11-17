@@ -13,7 +13,7 @@
 //   [ STATE MACHINE ] renderer state-machine coverage (#1349)
 //     executed      cached-vs-rebuild.gl        312 comparisons, 40 at distribution level
 //     SKIPPED       alias-vs-noalias.gl         no GL 4.6 context
-//     prerequisite  isolated-vs-shared-view     blocked by #1352
+//     prerequisite  a-pair-waiting-on-an-issue  blocked by #4242
 //     live-only     sequences.vulkan            PR body: live editor A/B
 //
 // A Required row whose owning test RAN but recorded no execution is printed as

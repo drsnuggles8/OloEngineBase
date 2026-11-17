@@ -484,4 +484,98 @@ namespace OloEngine::Tests
         EXPECT_EQ(registry.Snapshot()[0].LineageCause, TemporalHistoryInvalidationCause::FeatureToggled);
         EXPECT_EQ(registry.Snapshot()[0].Age, 1u);
     }
+
+    // -------------------------------------------------------------------------
+    // One registry per scene view (issue #1352, ADR 0026)
+    // -------------------------------------------------------------------------
+
+    namespace
+    {
+        // A key as a pass writes it: no view, meaning "the view I render for".
+        TemporalHistoryKey MakeViewlessKey()
+        {
+            TemporalHistoryKey key = MakeKey();
+            key.View = 0u;
+            return key;
+        }
+    } // namespace
+
+    // A bound registry stores and finds every history under its view, whatever
+    // view the caller wrote: a pass writes 0, meaning "the view I render for".
+    TEST(TemporalHistoryRegistryViewBinding, ABoundRegistryKeysEveryHistoryByItsView)
+    {
+        TemporalHistoryRegistry registry;
+        registry.BindToView(7u);
+        ASSERT_TRUE(registry.GetBoundView().has_value());
+        EXPECT_EQ(*registry.GetBoundView(), 7u);
+
+        const TemporalHistoryKey written = MakeViewlessKey();
+        ASSERT_EQ(written.View, 0u);
+        const auto acquired = registry.Acquire(written, MakeDescriptor(), kAllViewDependencies, "ViewSeven.SSGI");
+        ASSERT_TRUE(acquired.Token.IsValid());
+
+        const auto snapshot = registry.Snapshot();
+        ASSERT_EQ(snapshot.Num(), 1);
+        EXPECT_EQ(snapshot[0].Key.View, 7u) << "the history was stored under the view the caller wrote, not the registry's";
+
+        // Found by the key as written, and by the key naming the view outright.
+        EXPECT_EQ(registry.Find(written), acquired.Token);
+        TemporalHistoryKey named = written;
+        named.View = 7u;
+        EXPECT_EQ(registry.Find(named), acquired.Token);
+
+        // Acquiring again is the same history, not a second one.
+        const auto again = registry.Acquire(named, MakeDescriptor(), kAllViewDependencies, "ViewSeven.SSGI");
+        EXPECT_FALSE(again.Created);
+        EXPECT_EQ(again.Token, acquired.Token);
+        EXPECT_EQ(registry.Snapshot().Num(), 1);
+
+        registry.Clear();
+        EXPECT_EQ(registry.Snapshot().Num(), 0);
+        ASSERT_TRUE(registry.GetBoundView().has_value()) << "Clear dropped the binding along with the histories";
+        EXPECT_EQ(*registry.GetBoundView(), 7u);
+    }
+
+    // Two views' registries hold the same effect, resolution and plane as two
+    // histories, each under its own view and each with its own lineage.
+    TEST(TemporalHistoryRegistryViewBinding, TwoViewsHoldTheSameHistoryIndependently)
+    {
+        TemporalHistoryRegistry mainView;
+        TemporalHistoryRegistry secondView;
+        mainView.BindToView(0u);
+        secondView.BindToView(3u);
+        const TemporalHistoryKey key = MakeViewlessKey();
+        const auto inMain = mainView.Acquire(key, MakeDescriptor(), kAllViewDependencies, "SSGI");
+        const auto inSecond = secondView.Acquire(key, MakeDescriptor(320, 180), kAllViewDependencies, "SSGI");
+        ASSERT_TRUE(inMain.Token.IsValid());
+        ASSERT_TRUE(inSecond.Token.IsValid());
+        EXPECT_EQ(mainView.Snapshot()[0].Key.View, 0u);
+        EXPECT_EQ(secondView.Snapshot()[0].Key.View, 3u);
+        EXPECT_NE(mainView.Snapshot()[0].Key, secondView.Snapshot()[0].Key);
+
+        // A camera cut in one view reaches that view's history and no other's.
+        const u32 mainGeneration = mainView.Find(key).Generation;
+        EXPECT_EQ(secondView.Invalidate(TemporalHistoryInvalidationCause::CameraCut), 1u);
+        EXPECT_NE(secondView.Find(key).Generation, inSecond.Token.Generation);
+        EXPECT_EQ(mainView.Find(key).Generation, mainGeneration);
+        EXPECT_TRUE(mainView.IsCurrent(inMain.Token));
+    }
+
+    // An unbound registry keys histories exactly as given: the view-keyed
+    // registry the renderer had before it had views, still usable on its own.
+    TEST(TemporalHistoryRegistryViewBinding, AnUnboundRegistryKeepsTheViewItIsGiven)
+    {
+        TemporalHistoryRegistry registry;
+        EXPECT_FALSE(registry.GetBoundView().has_value());
+        TemporalHistoryKey viewOne = MakeViewlessKey();
+        viewOne.View = 1u;
+        TemporalHistoryKey viewTwo = MakeViewlessKey();
+        viewTwo.View = 2u;
+        const auto one = registry.Acquire(viewOne, MakeDescriptor(), kAllViewDependencies, "One");
+        const auto two = registry.Acquire(viewTwo, MakeDescriptor(), kAllViewDependencies, "Two");
+        EXPECT_TRUE(one.Created);
+        EXPECT_TRUE(two.Created);
+        EXPECT_NE(one.Token, two.Token);
+        EXPECT_FALSE(registry.Find(MakeViewlessKey()).IsValid()) << "a view-0 key found another view's history";
+    }
 } // namespace OloEngine::Tests

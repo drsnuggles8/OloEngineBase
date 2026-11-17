@@ -66,12 +66,21 @@ namespace OloEngine
             m_Scene = scene;
         }
 
+        // Whether this view's graph does the frame's scene work (ADR 0026):
+        // surfaces are deformed once per physical frame, by the frame's primary
+        // view. Set by the pipeline each view frame.
+        void SetAdvancesScene(bool advances) noexcept
+        {
+            m_AdvancesScene = advances;
+        }
+
         // TRUE whenever both sources are attached — deliberately NOT "is ray
         // tracing available", and not "is there work". See the class comment.
         [[nodiscard]] bool IsEnabled() const noexcept override;
 
       private:
         RayTracing::DeformedSurfaceCache* m_Cache = nullptr;
+        bool m_AdvancesScene = true;
         RayTracing::RayTracingScene* m_Scene = nullptr;
     };
 } // namespace OloEngine

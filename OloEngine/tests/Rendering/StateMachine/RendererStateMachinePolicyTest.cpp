@@ -392,14 +392,14 @@ namespace OloEngine::Tests::StateMachine
         rows[0] = { "alias-vs-noalias.gl", Coverage::RowOutcome::Executed, 12u, 3u, 2u, {} };
         rows[1] = { "batch-vs-nobatch.gl", Coverage::RowOutcome::Skipped, 0u, 0u, 0u, "no GL 4.6 context" };
         rows[2] = { "serial-vs-parallel.gl", Coverage::RowOutcome::NotExercised, 0u, 0u, 0u, {} };
-        rows[3] = { "isolated-vs-shared-view", Coverage::RowOutcome::Prerequisite, 0u, 0u, 0u, "blocked by #1352" };
+        rows[3] = { "a-pair-waiting-on-an-issue", Coverage::RowOutcome::Prerequisite, 0u, 0u, 0u, "blocked by #4242" };
         const std::string banner = Coverage::FormatBanner(rows);
         EXPECT_NE(banner.find("[ STATE MACHINE ]"), std::string::npos);
         EXPECT_NE(banner.find("12 comparison(s), 3 at distribution level, 2 vacuous"), std::string::npos) << banner;
         EXPECT_NE(banner.find("SKIPPED"), std::string::npos) << banner;
         EXPECT_NE(banner.find("no GL 4.6 context"), std::string::npos) << banner;
         EXPECT_NE(banner.find("NOT EXERCISED"), std::string::npos) << banner;
-        EXPECT_NE(banner.find("blocked by #1352"), std::string::npos) << banner;
+        EXPECT_NE(banner.find("blocked by #4242"), std::string::npos) << banner;
         EXPECT_NE(banner.find("1 executed, 1 skipped, 1 not exercised"), std::string::npos) << banner;
     }
 

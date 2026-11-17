@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/RHI/RHIResourceRegistry.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderResourceRegistry.h"
+#include "Platform/OpenGL/OpenGLBlockContract.h"
 #include <glm/glm.hpp>
 #include <atomic>
 #include <filesystem>
@@ -405,6 +406,12 @@ namespace OloEngine
         // `IsDeferredCapable()`; see the base class declaration for the
         // marker set and rationale.
         bool m_IsDeferredCapable = false;
+
+        // The uniform blocks this shader's SPIR-V declares, collected by
+        // Reflect() and handed to the binding contract with every program
+        // FinalizeProgram registers. The contract cannot get a block's name
+        // from a program linked from SPIR-V (OpenGLBlockContract.h).
+        TArray<OpenGLBlockContract::DeclaredBlock> m_ReflectedUniformBlocks;
 
         // Shader stage IDs kept alive until link completes (then detached/deleted)
         TArray<u32> m_PendingShaderIDs;

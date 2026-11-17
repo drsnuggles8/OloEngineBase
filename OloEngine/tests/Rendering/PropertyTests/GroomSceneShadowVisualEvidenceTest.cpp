@@ -298,9 +298,17 @@ namespace OloEngine::Tests
             // coat takes like its body since #1618 and which no shadow removes;
             // a black sky puts body and coat on the IBL rung at zero irradiance.
             {
-                m_BlackSky = MakeUniformSkyCubemap(glm::vec3(0.0f));
+                Entity blackSky = scene.CreateEntity("BlackSky");
+                // Inside a frame: the Vulkan process drops work recorded outside
+                // one, and the IBL convolution of this cube map is such work.
+                RunInFrame([this, blackSky]() mutable
+                           {
+                               m_BlackSky = MakeUniformSkyCubemap(glm::vec3(0.0f));
+                               if (m_BlackSky)
+                               {
+                                   SetUniformSkyEnvironment(blackSky, m_BlackSky);
+                               } });
                 ASSERT_TRUE(m_BlackSky);
-                SetUniformSkyEnvironment(scene.CreateEntity("BlackSky"), m_BlackSky);
             }
 
             // A PALE ground, because it is the surface the coat's shadow has to

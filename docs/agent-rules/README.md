@@ -24,6 +24,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 ## Testing and verification
 
 - [testing-architecture.md](testing-architecture.md): which renderer layer or Functional axis a new test belongs to, and the registration contract.
+- [vulkan-test-process-drops-work-outside-a-frame.md](vulkan-test-process-drops-work-outside-a-frame.md): in the Vulkan test process issue every draw and bake inside `RunInFrame`, `BuildScene` included; a dropped call leaves its target unwritten and the fixture fails the test.
 - [../testing.md](../testing.md): why we test what we test; value heuristic, anti-patterns, retirement criteria.
 - [vulkan-software-driver-ci.md](vulkan-software-driver-ci.md): check a software Vulkan driver against the ADR 0010 extension contract.
 - [lavapipe-ray-query-suites.md](lavapipe-ray-query-suites.md): the L7 ray-query suites run nightly on lavapipe behind a gate that fails when any case did not execute.
@@ -52,6 +53,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [renderer-state-machine-harness.md](renderer-state-machine-harness.md): a new renderer cache, lever or execution mode joins the state-machine manifest as an operation or an equivalence pair.
 - [foliage-regeneration-is-async-once-workers-start.md](foliage-regeneration-is-async-once-workers-start.md): after `m_NeedsRebuild`, let `RunFrames` / `RunEditorFrames` finish the regeneration or wait on `IsRebuilding()`.
 - [cross-test-renderer-state.md](cross-test-renderer-state.md): never shut down a process-wide singleton you did not start, and leave the renderer configuration as you found it.
+- [renderer-views-and-the-physical-frame.md](renderer-views-and-the-physical-frame.md): new renderer state belongs to a view or to the world, and world state advances only in the frame's primary view.
 - [test-runtime-camera-defaults-to-orthographic.md](test-runtime-camera-defaults-to-orthographic.md): give a fixture's `CameraComponent` a projection; the default is orthographic and culls a subject a few units away.
 - [world-anchored-renderer-state-in-tests.md](world-anchored-renderer-state-in-tests.md): a fixture that builds a `Scene` per test must also reset the process-static renderer state scene load resets.
 - [fixture-assets-outlive-the-case.md](fixture-assets-outlive-the-case.md): a renderer test case removes the memory-only assets it added, and the files it imported, in `TearDown`.
@@ -70,6 +72,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [concurrent-cmake-configure.md](concurrent-cmake-configure.md): one configure at a time per build tree; the error blames your CMakeLists.txt instead.
 - [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md): a .lib cannot exceed 4 GiB, and `LNK1248` under-reports the overshoot.
 - [vcpkg-dependency-management.md](vcpkg-dependency-management.md): read before adding, bumping or removing a dependency; the CRT triplet mismatch is heap corruption.
+- [two-copies-of-a-header-on-the-include-path.md](two-copies-of-a-header-on-the-include-path.md): include stb as `<stb_image/...>`, never by the bare name, which is vcpkg's older copy.
 - [configure-time-variable-visibility.md](configure-time-variable-visibility.md): a CMake variable must be set before the `add_subdirectory()` that reads it.
 - [asset-import-usd-alembic.md](asset-import-usd-alembic.md): the importer registry seam, and vendoring OpenUSD / Alembic / MaterialX statically.
 - [openusd-build-and-link.md](openusd-build-and-link.md): OpenUSD builds against vcpkg's oneTBB, and a File API guard fails any link with a second one.
@@ -181,6 +184,8 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [screen-space-denoiser-chain.md](screen-space-denoiser-chain.md): a filter that runs at half resolution is guided by a guide buffer at its own resolution.
 - [gl-clear-program-revalidation.md](gl-clear-program-revalidation.md): wrap every new clear site in `GLClearProgramGuard`, unbind and restore.
 - [render-pass-published-state.md](render-pass-published-state.md): a pass that publishes engine-global bindings runs last and is not wrapped in `GLStateGuard(Restore)`.
+- [out-of-graph-draws-set-their-own-state.md](out-of-graph-draws-set-their-own-state.md): a bake or capture outside the render graph sets its culling, depth test and blend, and hands back the state it found.
+- [a-lookup-table-is-read-at-its-texel-centres.md](a-lookup-table-is-read-at-its-texel-centres.md): clamp a table's coordinate to its first and last texel centres before the read, and read the BRDF table through `oloEnvBRDF`.
 - [render-graph-attachment-feedback.md](render-graph-attachment-feedback.md): validate the original accesses against physical attachment identities, and give writable attached depth a snapshot.
 - [render-graph-transient-aliasing.md](render-graph-transient-aliasing.md): `WriteNewVersion` renames a physical resource; use the poison and disable levers to find stale reads.
 - [render-pipeline-caches.md](render-pipeline-caches.md): process-wide render caches invalidate on every topology reset, not only on a fingerprint change.
@@ -239,6 +244,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 ## Scene, ECS and serialization
 
 - [scene-registry-source-path.md](scene-registry-source-path.md): resolve scene registry paths against the active project before reading or writing source files.
+- [draw-order-is-the-scenes-not-the-registrys.md](draw-order-is-the-scenes-not-the-registrys.md): draw depth-untested 2D primitives farthest first with ties by UUID, never in registry order, which a scene copy changes.
 - [project-optional-paths.md](project-optional-paths.md): preserve empty optional project paths before resolving them against the asset directory.
 - [component-serializer-codegen.md](component-serializer-codegen.md): when a component round-trips for free, when to annotate a field, and every generated touch-point's exclusion set.
 - [scene-binary-sidecar.md](scene-binary-sidecar.md): the `.scenebin` fast path is generated and hybrid-covered.

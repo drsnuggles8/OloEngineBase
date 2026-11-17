@@ -263,6 +263,7 @@ add_executable(OloEngine-Tests
 		Rendering/RendererSettingsBootstrapTest.cpp
 		Rendering/ReflectionProbeSelectionTest.cpp
 		Rendering/ReflectionProbeDistanceFieldTest.cpp
+		Rendering/ProbeSceneCaptureRowsTest.cpp
 		Rendering/PlanarReflectionMathTest.cpp
 		Rendering/EditorCameraPoseTest.cpp
 		Rendering/CameraRelativeTest.cpp
@@ -678,6 +679,9 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/OcclusionCullDeferredVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DeferredInstancedShadingEvidenceTest.cpp
 		Rendering/PropertyTests/InstanceColourEvidenceTest.cpp
+		Rendering/PropertyTests/MultiViewRenderingTest.cpp
+		Rendering/PropertyTests/LightProbeRasterBakeTest.cpp
+		Rendering/PropertyTests/ProbeBakeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowMapWithoutCastersTest.cpp
 		Rendering/PropertyTests/OceanFFTGpuContractTest.cpp
 		Rendering/PropertyTests/OceanCascadeTest.cpp
@@ -1052,6 +1056,10 @@ add_executable(OloEngine-Tests
 		# infra as McpHeadlessAttachTest.cpp above.
 		Rendering/PropertyTests/McpPerfSettleTest.cpp
 		Rendering/PropertyTests/AnimationClockThrottleTest.cpp
+		# Simulate mode draws the editor overlay (tilemaps, text, UI) Edit mode draws.
+		Rendering/PropertyTests/EditorOverlayInSimulateTest.cpp
+		Rendering/PropertyTests/WorldTextOrderTest.cpp
+		Rendering/PropertyTests/StagedReadbackDeferredTest.cpp
 		Rendering/PropertyTests/VideoOverlayVisualEvidenceTest.cpp
 		Rendering/PropertyTests/AutoExposureEvidenceTest.cpp
 		Rendering/PropertyTests/GLAttachmentBlendOpinionTest.cpp

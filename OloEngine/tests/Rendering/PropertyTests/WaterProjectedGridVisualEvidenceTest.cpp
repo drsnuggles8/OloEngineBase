@@ -47,8 +47,8 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Utils/PlatformUtils.h" // Time::SetMockTime
 
-#include <stb_image.h>
-#include <stb_image_write.h>
+#include <stb_image/stb_image.h>
+#include <stb_image/stb_image_write.h>
 
 #include <glm/glm.hpp>
 

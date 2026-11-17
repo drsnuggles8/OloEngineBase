@@ -1751,6 +1751,23 @@ namespace OloEngine
         auto& ctx = Ctx();
         return ctx.State.StencilTest;
     }
+    bool VulkanRendererAPI::IsCullingEnabled() const
+    {
+        auto& ctx = Ctx();
+        return ctx.State.Culling;
+    }
+    bool VulkanRendererAPI::IsDepthTestEnabled() const
+    {
+        auto& ctx = Ctx();
+        return ctx.State.DepthTest;
+    }
+    bool VulkanRendererAPI::IsBlendEnabled() const
+    {
+        // The global flag SetBlendState writes; a per-attachment opinion is a
+        // separate statement and is not what a caller restoring the flag wants.
+        auto& ctx = Ctx();
+        return ctx.State.Blend;
+    }
     void VulkanRendererAPI::SetStencilFunc(const RHI::CompareOp func, const i32 ref, const u32 mask)
     {
         auto& ctx = Ctx();
@@ -5772,6 +5789,12 @@ namespace OloEngine
         // whose submission has already fence-waited — the fence signal makes
         // device writes available, host-coherent memory makes them visible,
         // so the read is a plain memcpy off the persistent mapping.
+        //
+        // THE CALLER HOLDS THAT FENCE; this function does not wait and cannot
+        // tell. A read made without one returns whichever copy last landed,
+        // and on a new buffer the contents of its memory (#1697). A deferred
+        // statistic goes through StagedBufferReadback::StageDeferred /
+        // ReadCompleted, which fences each copy and polls before it reads.
         if (auto* raw = VulkanRawBufferRegistry::Get().Lookup(buffer); raw != nullptr)
         {
             if (raw->Mapped == nullptr || offsetBytes + sizeBytes > raw->Size)

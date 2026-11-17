@@ -667,6 +667,12 @@ namespace OloEngine
         {
             return m_TemporalHistoryRegistry;
         }
+        // This graph renders one scene view (ADR 0026): its histories are keyed
+        // by that view. See TemporalHistoryRegistry::BindToView.
+        void BindTemporalHistoriesToView(u64 view)
+        {
+            m_TemporalHistoryRegistry.BindToView(view);
+        }
 
         // Memory report (issue #1342), all format estimates. The transient plan's LOGICAL
         // bytes (every allocating entry at its own size) against the PHYSICAL bytes of its

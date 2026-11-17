@@ -1879,10 +1879,11 @@ entity_utils.set_translation(id, vec3.new(ProbeState.fav and 1 or 0, ProbeState.
                 // still settling in both arms) and a little spill from strands
                 // rooted under the hand that reach past its footprint.
                 EXPECT_GT(parted.Inside, std::max(500u, 2u * noise.Inside + 300u)) << "the coat did not part under the hand";
-                // The temporal upscaler keeps a reconstruction history that
-                // ResetFrameSequences does not replay, so its repeat drifts by
-                // tens of thousands of pixels over the frame and the allowance
-                // scales with that drift rather than with the footprint.
+                // The temporally upscaled cell's repeat drifts by tens of
+                // thousands of pixels over the frame in some runs and by a few
+                // hundred in others (#1692), so its allowance scales with that
+                // drift rather than with the footprint. It is not the
+                // upscaler's history: ResetFrameSequences drops that too.
                 const f64 drift = cell.Upscaled ? 1.5 : 1.25;
                 EXPECT_LE(static_cast<f64>(parted.Outside), drift * noise.Outside + (cell.Upscaled ? 1.0 : 0.5) * parted.Inside)
                     << "the coat changed away from the hand";

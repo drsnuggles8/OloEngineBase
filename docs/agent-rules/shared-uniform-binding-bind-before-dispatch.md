@@ -110,6 +110,27 @@ is back for the next program). These rules come with it:
   replay entry. `CommandDispatch::InvalidateBindingCaches` is for code that dispatches without a
   replay.
 
-`OLO_BINDING_CONTRACT=0` turns the check off for an A/B. On OpenGL the block names come from the
-linked program, where SPIRV-Cross renames a later stage's copy `Name_1`: do not name a block with a
-`_<digits>` suffix.
+`OLO_BINDING_CONTRACT=0` turns the check off for an A/B.
+
+- **Never ask a GL driver what something in a SPIR-V program is called.** A program linked from
+  SPIR-V has no names (ARB_gl_spirv). NVIDIA reports the SPIR-V debug names anyway; Mesa reports an
+  empty string. On OpenGL a block's name comes from the shader's SPIR-V reflection
+  (`OpenGLBlockContract::DeclareProgramBlocks`, called by `OpenGLShader::FinalizeProgram`); its
+  binding and size come from the linked program, which every driver reports. Only a program with
+  no reflection takes its names from the driver: compute programs and the bindless raw-route
+  variants, which are built from the shader's own GLSL text and declare nothing. The SPIRV-Cross
+  text route (`OLO_GL_GLSL_ROUTE`, old AMD drivers) is reflected like the SPIR-V route; its driver
+  names would carry SPIRV-Cross's `Name_1` for a later stage's copy, so do not name a block with a
+  `_<digits>` suffix.
+- **Two names at one binding are two readers.** Where two stages declare one binding under two
+  names of the same size, the occupant is held to both, in whatever order the stages were reflected.
+- **A block nothing can name is checked for size only, and says so.** One `[BindingContract]` error
+  names the program and the binding, on OpenGL when the program is first walked and on Vulkan when
+  the shader is reflected. It is not refused: a refusal on a missing name zeroes every block the
+  program reads.
+
+When the check first shipped it took the names from `glGetProgramResourceName`. Every block read on
+Mesa was "another layout", every block was replaced by zeros, and the AMD nightly rendered black in
+532 tests while every NVIDIA and lavapipe run was green (2026-11-16, fixed in #1698). A check that
+compares against a driver's answer needs one run on each vendor before it merges:
+`gh workflow run gpu-conformance-amd.yml --ref <branch>`.

@@ -26,8 +26,11 @@
 #               stb_image is an image DECODER fed untrusted files — silently
 #               reverting two years of fixes there is not a build-system decision.
 #               (vcpkg installs its own stb as an assimp dependency, but flat as
-#               <stb_image.h>; we include <stb_image/stb_image.h>, so the two do
-#               not collide.)
+#               <stb_image.h>; we include <stb_image/stb_image.h>. The two collide
+#               the moment a file includes the bare name: it compiles against
+#               the older declarations and links the pinned implementation. The
+#               pre-commit hook stb-include-path refuses a bare include; see
+#               docs/agent-rules/two-copies-of-a-header-on-the-include-path.md.)
 #   imgui       We compile a hand-picked backend set with
 #               IMGUI_IMPL_OPENGL_LOADER_GLAD=1, which the port does not offer.
 #   imguizmo    The port takes a hard dependency on the imgui PORT. With imgui

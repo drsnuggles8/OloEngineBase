@@ -253,9 +253,15 @@ namespace OloEngine::Tests::StateMachine
                  Placement::DeviceGL, RowStatus::Required, "RendererStateMachineEvidence.TemporalBeautyMatchesInDistribution",
                  "The stochastic half of the split: same distribution, not the same texels." },
         PairRow{ "isolated-vs-shared-view", "a view rendered alone", "the same view rendered beside a second view",
-                 "none yet", Criterion::ExactTexels, Placement::DeviceGL, RowStatus::Prerequisite, "#1352",
-                 "Needs two real scene views with isolated histories, culling and exposure. The ownership contract "
-                 "it builds on is ADR 0025 (#1330); the second view itself is #1352. No partial substitute is counted." },
+                 "Renderer3D::CreateView + Scene::RequestAdditionalView for one frame, after and before the main view",
+                 Criterion::ExactTexels, Placement::DeviceGL, RowStatus::Required,
+                 "RendererStateMachineEvidence.GeneratedSequencesHoldEveryPair",
+                 "Issue #1352 (ADR 0026): a second scene view of another size and pose, created with the main view's "
+                 "settings, renders in the main view's physical frame. Rendered after it, the main view is the "
+                 "frame's primary view; rendered before it, the main view only links its draws to the records the "
+                 "second view's frame committed. Either way every main-view target is the one it renders alone. "
+                 "The second view against ITS single-view reference, with distinct sizes, paths, sample counts, "
+                 "temporal modes and exposure, is MultiViewRendering.* (both backends)." },
         PairRow{ "predecessor-poison.gl", "a frame as rendered",
                  "the same frame with another block layout left on every pass-scoped uniform binding after every pass",
                  "a render-graph post-pass hook that binds declared poison buffers", Criterion::ExactTexels,
@@ -352,6 +358,10 @@ namespace OloEngine::Tests::StateMachine
                             Placement::DeviceGL,
                             "AllPaths/FramePredecessorPoison.AnotherLayoutOnAFramePublishedBindingIsRefusedBeforeAnyShaderReadsIt/"
                             "Deferred" },
+        NegativeControlRow{ "shared-view-camera-history",
+                            "every scene view reads and writes one camera history, as a renderer without views does",
+                            "Levers::FaultShareViewCameraHistory", "isolated-vs-shared-view", Placement::DeviceGL,
+                            "RendererStateMachineNegativeControl.SharedViewCameraHistoryIsCaught" },
         NegativeControlRow{ "draw-order.cpu", "a batcher that groups blended draws on a partial key",
                             "test-local key", "batch-order.cpu", Placement::CpuEverywhere,
                             "RendererStateMachineDrawOrder.PartialKeyBatchingIsCaught" },

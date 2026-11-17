@@ -737,7 +737,7 @@ namespace OloEngine
         EnableHZBOcclusionCulling(settings.HZBOcclusionCullingEnabled);
 
         // Sync Forward+ settings
-        auto& fplus = s_Data.ForwardPlus;
+        auto& fplus = *s_Data.ForwardPlus;
         switch (settings.Path)
         {
             case RenderingPath::Forward:

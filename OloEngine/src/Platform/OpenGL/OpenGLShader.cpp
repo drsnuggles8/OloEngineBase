@@ -1019,6 +1019,7 @@ namespace OloEngine
         ShaderRegistry::Get().RegisterShader(GetName(), this);
 
         // Run reflection on Vulkan SPIR-V (extracts UBO/texture bindings)
+        m_ReflectedUniformBlocks.Reset();
         for (auto&& [stage, data] : m_VulkanSPIRV)
         {
             Reflect(stage, data);
@@ -1921,6 +1922,7 @@ namespace OloEngine
         if (anyStageFailed)
             return false;
 
+        m_ReflectedUniformBlocks.Reset();
         for (auto&& [stage, data] : shaderData)
         {
             Reflect(stage, data);
@@ -2139,6 +2141,21 @@ namespace OloEngine
         // program inheriting a retired bindless program id cannot be told it reads
         // the heap (issue #691).
         Shader::RegisterProgramMaterialOffsets(m_RendererID, m_IsBindlessVariant && m_ReadsMaterialHeapOffsets);
+
+        // What this program's uniform blocks are called, for the binding
+        // contract. Unconditionally, like the two above: GL reissues program
+        // names, and a program must not inherit the names of the program that
+        // had its id before.
+        //
+        // A raw-route program declares none, whatever this shader has
+        // reflected. That route compiles no SPIR-V, so the list is from an
+        // earlier build of the file (a reload onto the raw route after an
+        // edit), and its names would be believed before the driver's, which
+        // has this program's real ones from its GLSL text.
+        const std::span<const OpenGLBlockContract::DeclaredBlock> reflectedBlocks(
+            m_ReflectedUniformBlocks.GetData(), static_cast<sizet>(m_ReflectedUniformBlocks.Num()));
+        OpenGLBlockContract::DeclareProgramBlocks(
+            m_RendererID, m_IsBindlessVariant ? std::span<const OpenGLBlockContract::DeclaredBlock>{} : reflectedBlocks);
 
         // Name the program for GPU debuggers (RenderDoc/NSight) and register it
         // in the CPU-side label registry so the GL debug callback can resolve
@@ -2864,6 +2881,17 @@ namespace OloEngine
             OLO_CORE_TRACE("    Size = {0}", bufferSize);
             OLO_CORE_TRACE("    Binding = {0}", binding);
             OLO_CORE_TRACE("    Members = {0}", memberCount);
+
+            // For the binding contract (FinalizeProgram). A block two stages
+            // declare is one block; the same binding under another name or
+            // size is a second one, and the contract tells them apart by size.
+            const std::string_view blockName = resource.name;
+            const auto blockSize = static_cast<u32>(bufferSize);
+            const bool known = m_ReflectedUniformBlocks.ContainsByPredicate(
+                [&](const OpenGLBlockContract::DeclaredBlock& block)
+                { return block.Binding == binding && block.Size == blockSize && block.Name.ToView() == blockName; });
+            if (!known && !blockName.empty())
+                m_ReflectedUniformBlocks.Add({ .Binding = binding, .Size = blockSize, .Name = FString(blockName) });
         }
     }
 

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Renderer/Commands/CommandDispatch.h"
 #include "OloEngine/Renderer/SkyCubemapBake.h"
+#include "OloEngine/Renderer/CaptureStateGuard.h"
 
 #include "OloEngine/Renderer/Framebuffer.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
@@ -71,6 +72,9 @@ namespace OloEngine::SkyBake
         const bool wasStencilEnabled = RenderCommand::IsStencilTestEnabled();
         if (wasStencilEnabled)
             RenderCommand::DisableStencilTest();
+        // The cube is drawn from the inside under the bake's own culling, depth
+        // and blend state, never the caller's (see the guard's header).
+        const ScopedFullCoverDrawState drawState;
 
         shader->Bind();
         skyUBO->Bind();

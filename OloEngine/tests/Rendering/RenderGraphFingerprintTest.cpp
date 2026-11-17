@@ -654,11 +654,11 @@ namespace OloEngine::Tests
             { "CurrJitterUV", [](Access::Data& d)
               { d.View.CurrJitterUV = glm::vec2(0.25f, -0.125f); } },
             { "TAAJitterFrameIndex", [](Access::Data& d)
-              { d.Clock.TAAJitterFrameIndex += 7u; } },
+              { d.ViewClock.TAAJitterFrameIndex += 7u; } },
             { "StochasticFrameIndex", [](Access::Data& d)
               { d.Clock.StochasticFrameIndex += 7u; } },
             { "CloudFrameIndex", [](Access::Data& d)
-              { d.Clock.CloudFrameIndex += 7u; } },
+              { d.ViewClock.CloudFrameIndex += 7u; } },
             { "BloomThreshold", [](Access::Data& d)
               { d.PostProcess.BloomThreshold += 0.5f; } },
             { "Exposure", [](Access::Data& d)

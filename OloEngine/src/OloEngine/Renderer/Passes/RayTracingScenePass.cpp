@@ -65,6 +65,14 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
         static_cast<void>(context);
+        // A later view of a physical frame (ADR 0026): the frame's structures
+        // are built, and a second Update would advance the scene's frame
+        // counter and its compaction handshake a second time. The probe's ring
+        // counts frames too, so it is not polled again either.
+        if (!m_AdvancesScene)
+        {
+            return;
+        }
         // FIRST, and before every early return below: the probe's ring retires
         // on a frame count, and Result::Latency is measured in it. Polling only
         // on frames that also dispatched would report a two-frame-old answer as

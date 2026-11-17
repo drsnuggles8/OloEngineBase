@@ -716,6 +716,35 @@ namespace OloEngine
     {
         return m_StencilTestEnabled;
     }
+
+    // Asked of the context, not of the members above: a state guard restores
+    // with raw GL calls (GLStateSnapshot::ApplyCore), which the members never
+    // see, and the caller of these wants what the next draw will run under.
+    bool OpenGLRendererAPI::IsCullingEnabled() const
+    {
+        return glIsEnabled(GL_CULL_FACE) == GL_TRUE;
+    }
+
+    bool OpenGLRendererAPI::IsDepthTestEnabled() const
+    {
+        return glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
+    }
+
+    // The GLOBAL flag, the one SetBlendState writes and a caller puts back with
+    // it. GL has no query for that. While no per-attachment opinion stands,
+    // every draw buffer is on the global value and index 0 answers, a raw
+    // restore by a state guard included. While one stands, the mirror is the
+    // only record of the global. Never glIsEnabled(GL_BLEND): it answers "some
+    // index is on" (see the m_BlendEnabled declaration), so one attachment's
+    // opinion would be handed back to every draw buffer.
+    bool OpenGLRendererAPI::IsBlendEnabled() const
+    {
+        if (m_AnyAttachmentBlendOpinion)
+        {
+            return m_BlendEnabled;
+        }
+        return glIsEnabledi(GL_BLEND, 0) == GL_TRUE;
+    }
     void OpenGLRendererAPI::SetStencilFunc(RHI::CompareOp func, i32 ref, u32 mask)
     {
         OLO_PROFILE_FUNCTION();

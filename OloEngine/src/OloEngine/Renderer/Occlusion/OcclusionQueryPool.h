@@ -17,7 +17,14 @@ namespace OloEngine
     class OcclusionQueryPool
     {
       public:
+        // The pool of the ACTIVE scene view (ADR 0026): Renderer3D selects it
+        // when it activates a view, on the render thread, outside any scene.
         static OcclusionQueryPool& GetInstance();
+        // View 0 is the main view, whose pool always exists. Another view's is
+        // created the first time it is selected and lives until ReleaseView,
+        // which deletes its queries (call it while the device is alive).
+        static void SetActiveView(u64 view);
+        static void ReleaseView(u64 view);
 
         /// @brief Allocate query objects. Call once after GL context is valid.
         void Initialize(u32 maxQueries = 1024);

@@ -4,6 +4,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Renderer/Camera/Camera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/ProbeSceneCapture.h"
 #include "OloEngine/Renderer/RenderCommand.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/PathTracing/PathTracer.h"
@@ -20,25 +21,6 @@
 
 namespace OloEngine
 {
-    // Cubemap face directions: +X, -X, +Y, -Y, +Z, -Z
-    static const glm::vec3 s_CubemapTargets[6] = {
-        { 1.0f, 0.0f, 0.0f },
-        { -1.0f, 0.0f, 0.0f },
-        { 0.0f, 1.0f, 0.0f },
-        { 0.0f, -1.0f, 0.0f },
-        { 0.0f, 0.0f, 1.0f },
-        { 0.0f, 0.0f, -1.0f }
-    };
-
-    static const glm::vec3 s_CubemapUps[6] = {
-        { 0.0f, -1.0f, 0.0f },
-        { 0.0f, -1.0f, 0.0f },
-        { 0.0f, 0.0f, 1.0f },
-        { 0.0f, 0.0f, -1.0f },
-        { 0.0f, -1.0f, 0.0f },
-        { 0.0f, -1.0f, 0.0f }
-    };
-
     bool LightProbeBaker::RenderCubemapAtPosition(
         Ref<Scene>& scene,
         const glm::vec3& position,
@@ -47,63 +29,43 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
-        auto const totalPixels = static_cast<size_t>(resolution) * resolution * 6;
-        outPixels.SetNum(totalPixels, EAllowShrinking::No);
-
-        FramebufferSpecification spec;
-        spec.Width = resolution;
-        spec.Height = resolution;
-        spec.Attachments = { FramebufferTextureFormat::RGBA16F, FramebufferTextureFormat::Depth };
-        auto fbo = Framebuffer::Create(spec);
-
-        Camera const captureCamera(glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 1000.0f));
-
-        // Temporary buffer for RGBA16F readback (4 floats per pixel)
-        TArray<f32> rgbaBuffer(static_cast<size_t>(resolution) * resolution * 4);
-
-        for (u32 face = 0; face < 6; ++face)
+        // ProbeSceneCapture clamps the resolution; the SH projection must walk
+        // the faces at the size they were captured at.
+        if (resolution < 16u || resolution > 2048u)
         {
-            glm::mat4 const view = glm::lookAt(position, position + s_CubemapTargets[face], s_CubemapUps[face]);
-            glm::mat4 const transform = glm::inverse(view);
-
-            fbo->Bind();
-            RenderCommand::SetViewport(0, 0, resolution, resolution);
-            fbo->ClearAllAttachments(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-
-            // Render the full scene from this cubemap face's perspective
-            scene->RenderScene3D(captureCamera, transform);
-
-            // Read back RGBA16F pixel data from the color attachment, by
-            // identity rather than driver name (issue #691).
-            RHI::ResourceHandle const colorAttachment = fbo->GetColorAttachmentHandle(0);
-            const bool readOk = RenderCommand::ReadTextureImage(
-                colorAttachment, 0, RHI::Format::RGBA32Float,
-                rgbaBuffer.Num() * sizeof(f32), rgbaBuffer.GetData());
-
-            fbo->Unbind();
-
-            if (!readOk)
-            {
-                // Fail the whole bake rather than folding an unspecified buffer
-                // into the SH projection: these coefficients are PERSISTED into
-                // LightProbeVolumeAsset, so a rare readback failure would write
-                // bad lighting to disk that no later run would recompute.
-                OLO_CORE_ERROR("LightProbeBaker: cubemap face {} readback failed; abandoning this probe", face);
-                return false;
-            }
-
-            // Convert RGBA to RGB and store
-            auto const faceOffset = static_cast<size_t>(face) * resolution * resolution;
-            for (size_t i = 0; i < static_cast<size_t>(resolution) * resolution; ++i)
-            {
-                outPixels[faceOffset + i] = glm::vec3(
-                    rgbaBuffer[i * 4 + 0],
-                    rgbaBuffer[i * 4 + 1],
-                    rgbaBuffer[i * 4 + 2]);
-            }
+            OLO_CORE_ERROR("LightProbeBaker: cubemap resolution {} is outside [16, 2048]", resolution);
+            return false;
         }
 
-        return true;
+        auto const facePixels = static_cast<sizet>(resolution) * resolution;
+        outPixels.SetNum(facePixels * ProbeSceneCapture::kFaceCount, EAllowShrinking::No);
+
+        // The scene's lit HDR radiance, face by face, through the main view's
+        // render graph. This function once bound a framebuffer of its own and
+        // read THAT back: the scene renders into the graph's targets, never
+        // into a bound framebuffer, so every probe read the clear colour and
+        // BakeProbeAtPosition reported every probe invalid.
+        return ProbeSceneCapture::CaptureFaces(
+            scene, position, resolution, nullptr,
+            [&outPixels, facePixels](u32 face, bool readOk, std::span<const f32> rgba)
+            {
+                if (!readOk || rgba.size() < facePixels * 4u)
+                {
+                    // Fail the whole bake rather than folding an unspecified
+                    // buffer into the SH projection: these coefficients are
+                    // PERSISTED into LightProbeVolumeAsset, so a rare readback
+                    // failure would write bad lighting to disk that no later
+                    // run would recompute.
+                    OLO_CORE_ERROR("LightProbeBaker: cubemap face {} readback failed; abandoning this probe", face);
+                    return false;
+                }
+                auto const faceOffset = static_cast<sizet>(face) * facePixels;
+                for (sizet i = 0; i < facePixels; ++i)
+                {
+                    outPixels[faceOffset + i] = glm::vec3(rgba[i * 4 + 0], rgba[i * 4 + 1], rgba[i * 4 + 2]);
+                }
+                return true;
+            });
     }
 
     SHCoefficients LightProbeBaker::ProjectToSH(

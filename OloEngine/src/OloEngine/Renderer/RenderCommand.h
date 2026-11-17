@@ -169,6 +169,21 @@ namespace OloEngine
             return s_RendererAPI->IsStencilTestEnabled();
         }
 
+        [[nodiscard]] static bool IsCullingEnabled()
+        {
+            return s_RendererAPI->IsCullingEnabled();
+        }
+
+        [[nodiscard]] static bool IsDepthTestEnabled()
+        {
+            return s_RendererAPI->IsDepthTestEnabled();
+        }
+
+        [[nodiscard]] static bool IsBlendEnabled()
+        {
+            return s_RendererAPI->IsBlendEnabled();
+        }
+
         static void SetStencilFunc(RHI::CompareOp func, i32 ref, u32 mask)
         {
             s_RendererAPI->SetStencilFunc(func, ref, mask);

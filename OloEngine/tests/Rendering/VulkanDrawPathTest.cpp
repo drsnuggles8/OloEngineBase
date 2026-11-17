@@ -264,12 +264,8 @@ class VulkanDrawPath : public ::testing::Test
 
         ASSERT_EQ(vkEndCommandBuffer(m_Cmd), VK_SUCCESS);
 
-        VkSubmitInfo submit{};
-        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-        submit.commandBufferCount = 1;
-        submit.pCommandBuffers = &m_Cmd;
         ASSERT_EQ(vkResetFences(m_Device->GetDevice(), 1, &m_Fence), VK_SUCCESS);
-        ASSERT_EQ(vkQueueSubmit(m_Device->GetQueue(), 1, &submit, m_Fence), VK_SUCCESS);
+        ASSERT_EQ(OloEngine::Tests::SubmitWithStagedFenceOps(m_Device->GetQueue(), m_Cmd, m_Fence), VK_SUCCESS);
         queryCompletion->SubmittedFence = m_Fence;
         ASSERT_EQ(vkWaitForFences(m_Device->GetDevice(), 1, &m_Fence, VK_TRUE, UINT64_MAX), VK_SUCCESS);
         queryCompletion->Completed = true;
@@ -917,6 +913,10 @@ void main()
     ASSERT_EQ(drawShader->GetCompilationStatus(), ShaderCompilationStatus::Ready);
 
     auto& api = renderCommandSelection.Get();
+    // The culler culls against the renderer's culling camera and render
+    // origin; this test has no scene frame to set them and must not inherit
+    // another test's camera (#1699).
+    Renderer3D::ResetFrameCamera();
     auto culler = Ref<GPUFrustumCuller>::Create();
     culler->BeginFrame();
     GpuDrivenRootDataLayout rootLayout{};
@@ -2094,6 +2094,15 @@ TEST_F(VulkanDrawPath, GBufferGpuSelectsTexturesInSingleIndirectDraw)
     VulkanFrameArena::Get().BeginFrame(0);
     ASSERT_TRUE(VulkanDescriptorHeapBackend::InstallOntoEngineHeap());
     ASSERT_TRUE(HeapBinding::ShaderHeapIndexingSupported());
+
+    // The production culler culls against the renderer's culling camera and
+    // shifts every instance by its render origin, not by the camera block
+    // bound below, and this test has no scene frame to set either: its quads
+    // sit at the world origin under an identity view-projection. State that,
+    // instead of inheriting the camera of whichever scene test ran before. A
+    // weather scene's camera culled both quads and the merged draw drew
+    // nothing (#1699).
+    Renderer3D::ResetFrameCamera();
 
     constexpr u32 kSize = 96u;
     FramebufferSpecification spec;

@@ -54,9 +54,14 @@ namespace OloEngine::Tests::StateMachine
         // The stage outputs a capture reads, each at its own pinned pass. Only
         // colour formats: an integer or depth target cannot be read back as
         // RGBA float without a GL error.
-        constexpr std::array<std::string_view, 18> kTrackedTargets{
+        constexpr std::array<std::string_view, 19> kTrackedTargets{
             ResourceNames::SceneColorTexture,
             ResourceNames::SceneViewNormals,
+            // The motion vectors (#1352): the one lane a wrong camera or object
+            // history reaches in a frame with no temporal effect switched on.
+            // Without it a main view handed another view's previous
+            // view-projection compared equal to itself on every other target.
+            ResourceNames::Velocity,
             ResourceNames::GBufferAlbedo,
             ResourceNames::GBufferNormal,
             ResourceNames::GBufferEmissive,
@@ -917,8 +922,46 @@ namespace OloEngine::Tests::StateMachine
         }
     }
 
+    bool RendererStateMachineFixture::EnsureSecondView(Size size)
+    {
+        if (m_SecondView.IsMain() || !Renderer3D::IsViewAlive(m_SecondView))
+        {
+            m_SecondView = Renderer3D::CreateView(
+                RenderViewDesc{ .Width = size.Width, .Height = size.Height, .DebugName = "StateMachineSecondView" });
+            if (m_SecondView.IsMain())
+                return false;
+            m_SecondViewSize = size;
+        }
+
+        // The main view's configuration as it is NOW: the trace has moved it
+        // since the view was created.
+        const RendererSettings renderer = Renderer3D::GetRendererSettings();
+        const PostProcessSettings post = Renderer3D::GetPostProcessSettings();
+        const ShadowSettings shadows = Renderer3D::GetShadowMap().GetSettings();
+        const Renderer3D::ScopedView scope(m_SecondView);
+        if (size.Width != m_SecondViewSize.Width || size.Height != m_SecondViewSize.Height)
+        {
+            Renderer3D::OnWindowResize(size.Width, size.Height);
+            m_SecondViewSize = size;
+        }
+        Renderer3D::GetRendererSettings() = renderer;
+        Renderer3D::GetPostProcessSettings() = post;
+        Renderer3D::GetShadowMap().SetSettings(shadows);
+        Renderer3D::ApplyRendererSettings();
+        return true;
+    }
+
+    void RendererStateMachineFixture::DestroySecondView()
+    {
+        if (!m_SecondView.IsMain() && Renderer3D::IsViewAlive(m_SecondView))
+            Renderer3D::DestroyView(m_SecondView);
+        m_SecondView = kMainRenderView;
+    }
+
     void RendererStateMachineFixture::TearDown()
     {
+        // Before anything is restored: the restore below is the main view's.
+        DestroySecondView();
         if (m_LeversSaved)
         {
             Levers::SetVerifyDeclarationCache(m_SavedVerify);
@@ -1344,7 +1387,7 @@ namespace OloEngine::Tests::StateMachine
         // trace fresh-vs-sequence, the minimiser's commonest predicate) skips
         // the control captures entirely: twelve rendered frames and every
         // target read back twice, for nothing.
-        static constexpr std::array<std::string_view, 12> kOwnedPairs{
+        static constexpr std::array<std::string_view, 13> kOwnedPairs{
             "cached-vs-rebuild.gl",
             "cached-vs-rebuild.plan",
             "alias-vs-noalias.gl",
@@ -1354,6 +1397,7 @@ namespace OloEngine::Tests::StateMachine
             "schedule-reversed.gl",
             "poison-vs-stale.gl",
             "out-of-band-ledger",
+            "isolated-vs-shared-view",
             "harness.round-trip",
             "harness.capture",
             "resolve-failures",
@@ -1566,6 +1610,73 @@ namespace OloEngine::Tests::StateMachine
             }
             RenderFrames(1);
             judge("poison-vs-stale.gl", stale.Width == 0u ? control : stale, poisoned, controls);
+        }
+
+        // --- a view rendered alone vs beside a second view (#1352) -------------
+        // A second scene view of another size and pose, with the main view's
+        // settings, renders in the main view's physical frame: once after it
+        // (the main view is the frame's primary view and advances the world)
+        // and once before it (the second view does, and the main view links
+        // its draws to the records that frame already committed). Every
+        // main-view target must be the one the main view renders alone. The
+        // second view outlives the checkpoint (EnsureSecondView), so every
+        // other pair and every later operation of the trace runs with a
+        // parked view alive beside the main one.
+        if (wants("isolated-vs-shared-view"))
+        {
+            const Size secondSize = kSizes[(m_Config.SizeIndex + 1u) % kSizes.size()];
+            if (!EnsureSecondView(secondSize))
+            {
+                fail("isolated-vs-shared-view", "Renderer3D::CreateView refused a second view");
+            }
+            else
+            {
+                const RenderViewId secondView = m_SecondView;
+                EditorCamera secondCamera(55.0f, static_cast<f32>(secondSize.Width) / static_cast<f32>(secondSize.Height),
+                                          0.05f, 400.0f);
+                secondCamera.SetViewportSize(static_cast<f32>(secondSize.Width), static_cast<f32>(secondSize.Height));
+                const Pose& secondPose = kPoses[(m_Config.Pose + 1u) % kPoseCount];
+                secondCamera.SetPose(secondPose.Position, secondPose.Yaw, secondPose.Pitch);
+                const auto requestSecondView = [this, secondView, &secondCamera](bool beforeMainView)
+                {
+                    Scene::SceneViewRequest request;
+                    request.View = secondView;
+                    request.CameraTransform = glm::inverse(secondCamera.GetViewMatrix());
+                    request.Projection = secondCamera.GetProjection();
+                    request.NearClip = 0.05f;
+                    request.FarClip = 400.0f;
+                    request.BeforeMainView = beforeMainView;
+                    GetScene().RequestAdditionalView(request);
+                };
+                // Past the frames in which the view takes up a new size or
+                // configuration, so the two captures are of a second view in
+                // steady state.
+                for (u32 i = 0; i < 2u; ++i)
+                {
+                    requestSecondView(false);
+                    RenderFrames(1);
+                }
+                const u64 framesBefore = Renderer3D::GetViewInfo(secondView).FramesRendered;
+                requestSecondView(false);
+                const FrameCapture mainFirst = CaptureFrame();
+                requestSecondView(true);
+                const FrameCapture secondFirst = CaptureFrame();
+                // The premise: the second view rendered in both captured
+                // frames. Without it the pair compares the main view with itself.
+                const bool rendered = Renderer3D::GetViewInfo(secondView).FramesRendered == framesBefore + 2u;
+                RenderFrames(1);
+                if (!rendered)
+                {
+                    fail("isolated-vs-shared-view",
+                         "the second view did not render in the captured frames: the comparison would be of the main "
+                         "view with itself");
+                }
+                else
+                {
+                    judge("isolated-vs-shared-view", control, mainFirst, controls);
+                    judge("isolated-vs-shared-view", control, secondFirst, controls);
+                }
+            }
         }
 
         // --- the levers put back reproduce the frame ---------------------------

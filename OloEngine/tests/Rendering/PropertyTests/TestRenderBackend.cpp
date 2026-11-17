@@ -176,6 +176,18 @@ namespace OloEngine::Tests::TestRenderBackend
         return result;
     }
 
+    u64 CallsDroppedOutsideAFrame()
+    {
+#if OLO_WITH_VULKAN
+        if (IsVulkanProcess() && s_WindowlessContext)
+        {
+            const auto& api = static_cast<const VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
+            return api.GetStubHitCount(VulkanRendererAPI::StubKind::OutsideRecording);
+        }
+#endif
+        return 0u;
+    }
+
     void Shutdown()
     {
         s_WindowlessContext.reset();

@@ -915,7 +915,7 @@ void main()
         vec4 coatProbe = oloSampleReflectionProbes(v_WorldPos, N, R, coatRoughness * MAX_REFLECTION_LOD,
                                                    -(u_View * vec4(v_WorldPos, 1.0)).z);
         coatPrefiltered = mix(coatPrefiltered, coatProbe.rgb, coatProbe.a);
-        vec2 coatEnvBRDF = texture(u_BRDFLutMap, vec2(max(dot(N, V), 0.0), coatRoughness)).rg;
+        vec2 coatEnvBRDF = oloEnvBRDF(u_BRDFLutMap, max(dot(N, V), 0.0), coatRoughness);
         ambient = oloSkinOralApplyCoatAmbient(ambient, skinOralLane, coatEnvBRDF, coatPrefiltered * u_IBLIntensity);
     }
 

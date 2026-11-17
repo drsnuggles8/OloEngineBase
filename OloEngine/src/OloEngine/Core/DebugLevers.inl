@@ -126,6 +126,16 @@ OLO_LEVER_EXACT(FaultStaleDeclarationKey, "OLO_FAULT_STALE_DECLARATION_KEY",
                 "FAULT (#1349 negative control): leave every pass's own declaration inputs (PassStates: enables, "
                 "readiness, bucket gates) out of the render-graph declaration key, so a pass that starts or stops "
                 "declaring work keeps the cached graph. Re-creates the #1315 class of bad cache invalidation.")
+OLO_LEVER_EXACT(FaultShareViewCameraHistory, "OLO_FAULT_SHARE_VIEW_CAMERA_HISTORY",
+                "FAULT (#1352 negative control): activating a scene view leaves RendererViewState where it is, so "
+                "every view reads and writes one camera history (previous view-projection, jitter, the observed "
+                "projection, the Hi-Z pyramid's validity) as the renderer did before it had views. Re-creates the "
+                "coupling isolated-vs-shared-view exists to catch.")
+OLO_LEVER_EXACT(FaultAdvanceWorldEveryView, "OLO_FAULT_ADVANCE_WORLD_EVERY_VIEW",
+                "FAULT (#1352 negative control): every view of a physical frame advances the world as its primary "
+                "view does: object poses rotate to 'previous', the GPU Scene is extracted and the stochastic index "
+                "and the simulation clocks step once per VIEW. Re-creates the frame coupling of a renderer whose "
+                "every BeginScene was a frame.")
 OLO_LEVER_EXACT(FaultSkipDispatchBindingReset, "OLO_FAULT_SKIP_DISPATCH_BINDING_RESET",
                 "FAULT (#1349 negative control): keep CommandDispatch's bound-texture, material and render-state "
                 "caches across the frame-start ResetState(), every pass-entry InvalidateBindingCaches() and every "

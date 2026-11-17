@@ -184,6 +184,9 @@ namespace OloEngine::RHI
         }
 
         m_TransientCursor = 0u;
+        m_FrameResetHeld = false;
+        m_FrameResetPending = false;
+        m_HeldOverflowReported = false;
         m_TransientFrame = 0u;
         m_SamplerSlots.Reset();
         m_ViewsByResource.clear();
@@ -253,6 +256,9 @@ namespace OloEngine::RHI
         m_ViewsByResource.clear();
         m_PersistentViewCache.clear();
         m_TransientCursor = 0u;
+        m_FrameResetHeld = false;
+        m_FrameResetPending = false;
+        m_HeldOverflowReported = false;
         m_TransientFrame = 0u;
         m_DirtyFirst = 0u;
         m_DirtyLast = 0u;
@@ -392,6 +398,22 @@ namespace OloEngine::RHI
                 // seeing, because the alternative design (grow the ring) would
                 // silently reintroduce mid-frame offset rewriting.
                 ++m_Stats.TransientOverflows;
+                if (m_FrameResetHeld && m_TransientFrames > 1u)
+                {
+                    // Not the ordinary sizing overflow: this frame's graphs
+                    // share the sub-ring (HoldFrameTransientReset), so it is
+                    // the number of views a frame can carry that ran out.
+                    ++m_Stats.TransientOverflowsHeld;
+                    if (!m_HeldOverflowReported)
+                    {
+                        m_HeldOverflowReported = true;
+                        OLO_CORE_ERROR("[RHI] Descriptor heap transient ring exhausted ({} slots) while one frame's "
+                                       "render graphs share it: the frame renders more scene views than the ring "
+                                       "holds transient views for. The views past the limit bind the slot-based "
+                                       "way. Reported once per heap session; Stats::TransientOverflowsHeld counts.",
+                                       m_TransientCapacity);
+                    }
+                }
                 return {};
             }
             index = m_PersistentCapacity + m_TransientFrame * m_TransientCapacity + m_TransientCursor;
@@ -634,6 +656,25 @@ namespace OloEngine::RHI
     // Frame boundary and publication
     // -------------------------------------------------------------------------
 
+    void DescriptorHeap::HoldFrameTransientReset(bool hold)
+    {
+        bool performPending = false;
+        {
+            const std::lock_guard lock(m_Mutex);
+            if (hold == m_FrameResetHeld)
+            {
+                return;
+            }
+            m_FrameResetHeld = hold;
+            performPending = !hold && m_FrameResetPending;
+            m_FrameResetPending = false;
+        }
+        if (performPending)
+        {
+            ResetFrameTransients();
+        }
+    }
+
     void DescriptorHeap::ResetFrameTransients()
     {
         const std::lock_guard lock(m_Mutex);
@@ -641,6 +682,14 @@ namespace OloEngine::RHI
         // its heap. Shutdown retains the configured capacities but clears slots.
         if (!m_Initialized)
         {
+            return;
+        }
+        // A hold defers the reset only where there is a ring to advance. With
+        // one sub-ring nothing runs behind the CPU, and deferring would make
+        // every graph of the frame share one ring's slots for no reason.
+        if (m_FrameResetHeld && m_TransientFrames > 1u)
+        {
+            m_FrameResetPending = true;
             return;
         }
 
@@ -1063,6 +1112,7 @@ namespace OloEngine::RHI
         const std::lock_guard lock(m_Mutex);
         m_Stats.StaleOffsetRejections = 0u;
         m_Stats.TransientOverflows = 0u;
+        m_Stats.TransientOverflowsHeld = 0u;
         m_Stats.PersistentOverflows = 0u;
         m_Stats.DescriptorFailures = 0u;
         m_Stats.SlotsPoisoned = 0u;

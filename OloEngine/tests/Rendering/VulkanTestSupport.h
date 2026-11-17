@@ -4,6 +4,7 @@
 #include "OloEngine/Renderer/RendererAPI.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "Platform/Vulkan/VulkanCapabilities.h"
+#include "Platform/Vulkan/VulkanGpuFence.h"
 #include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "VulkanCoverageReport.h"
 #include "PropertyTests/TestRenderBackend.h"
@@ -20,6 +21,38 @@
 
 namespace OloEngine::Tests
 {
+    // The submit of a test frame recorded through VulkanRendererAPI.
+    //
+    // A fence made inside the frame (RenderCommand::CreateFence, and so every
+    // fenced readback and the per-frame resource fence) is a timeline
+    // semaphore whose signal is STAGED and rides on the next submit: every
+    // submit site owes VulkanGpuFence::DrainPendingSubmitOps a call. A harness
+    // that submitted with a bare vkQueueSubmit left those fences unsignalled
+    // for good, so anything that waits for its own copy to finish (the virtual
+    // shadow map's statistics, #1697) never saw it finish in a device test,
+    // while the same code worked in the real frame loop.
+    [[nodiscard]] inline VkResult SubmitWithStagedFenceOps(VkQueue queue, VkCommandBuffer commandBuffer,
+                                                           VkFence fence)
+    {
+        std::vector<VkSemaphoreSubmitInfo> waits;
+        std::vector<VkSemaphoreSubmitInfo> signals;
+        VulkanGpuFence::DrainPendingSubmitOps(waits, signals);
+
+        VkCommandBufferSubmitInfo commandBufferInfo{};
+        commandBufferInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
+        commandBufferInfo.commandBuffer = commandBuffer;
+
+        VkSubmitInfo2 submit{};
+        submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
+        submit.waitSemaphoreInfoCount = static_cast<u32>(waits.size());
+        submit.pWaitSemaphoreInfos = waits.data();
+        submit.commandBufferInfoCount = 1;
+        submit.pCommandBufferInfos = &commandBufferInfo;
+        submit.signalSemaphoreInfoCount = static_cast<u32>(signals.size());
+        submit.pSignalSemaphoreInfos = signals.data();
+        return vkQueueSubmit2(queue, 1, &submit, fence);
+    }
+
     struct VulkanDeviceTestGateResult
     {
         bool Available = false;
