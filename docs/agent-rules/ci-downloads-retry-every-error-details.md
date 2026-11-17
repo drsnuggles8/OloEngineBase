@@ -106,9 +106,11 @@ is test input, not a tool, and the step checks only that the file is not empty.
   value is that value (`--header '--retry-all-errors'` sets no flag), also attached to a short
   option (`-oarchive.tar.gz`) or after `=`. Of two opposite flags the later is in force
   (`--retry-all-errors --no-retry-all-errors` is off). Each `-o` serves one URL, so a second URL
-  without one is a transfer through stdout, and so is `-o -`. A redirection and its target are
-  not arguments. The list of value-taking options is from `curl --help all` of 8.12 and 8.22;
-  an option of a later curl is read as a flag, which can add a finding and cannot hide one.
+  without one is a transfer through stdout, and so is `-o -`. `--` ends the options, and
+  `--next` starts a new operation with the options reset, judged on its own. An unquoted
+  redirection and its target are not arguments; a quoted `>` is (`--write-out '>status'`). The
+  list of value-taking options is from `curl --help all` of 8.12 and 8.22; an option of a later
+  curl is read as a flag, which can add a finding and cannot hide one.
 - `Invoke-WebRequest` or `iwr` with `-OutFile` is refused.
 - A finding in a literal block (`run: |`) reports the command's own line; in a folded or one-line
   script it reports the `run:` line.

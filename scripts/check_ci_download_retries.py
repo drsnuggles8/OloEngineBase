@@ -121,6 +121,7 @@ class _Reader:
         s, n = self.s, len(self.s)
         current: Command | None = None
         word: str | None = None
+        target_follows = False  # the next word is a redirection's target, not an argument
 
         def add(text: str) -> None:
             nonlocal current, word
@@ -129,14 +130,18 @@ class _Reader:
             word = text if word is None else word + text
 
         def end_word() -> None:
-            nonlocal word
+            nonlocal word, target_follows
             if word is not None and current is not None:
-                current.words.append(word)
+                if target_follows:
+                    target_follows = False
+                else:
+                    current.words.append(word)
             word = None
 
         def end_command() -> None:
-            nonlocal current
+            nonlocal current, target_follows
             end_word()
+            target_follows = False
             if current is not None and current.words:
                 current.end = self.line
                 self.commands.append(current)
@@ -213,7 +218,8 @@ class _Reader:
                 j = s.find("\n", self.i)
                 self.i = n if j < 0 else j
             elif s.startswith("<<<", self.i):  # a here-string supplies one word
-                add("<<<")
+                end_word()
+                target_follows = True
                 self.i += 3
             elif c == "<" and nxt == "<":
                 match = re.match(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1", s[self.i :])
@@ -223,6 +229,16 @@ class _Reader:
                 else:
                     add(c)
                     self.i += 1
+            elif c in "<>":
+                if word is not None and word.isdigit():
+                    word = None  # the descriptor of `2>`
+                end_word()
+                self.i += 1
+                while self.i < n and s[self.i] in ">|":
+                    self.i += 1
+                if self.i < n and s[self.i] == "&":  # `>&2`: the descriptor is the target
+                    self.i += 1
+                target_follows = True
             elif c in " \t":
                 end_word()
                 self.i += 1
@@ -275,26 +291,24 @@ def executable(words: list[str]) -> tuple[str, list[str]]:
     return "", []
 
 
-REDIRECTION_RE = re.compile(r"(?:\d*|[&*])(?:>>?|<<<|<)(.*)", re.S)
-
-
-def without_redirections(words: list[str]) -> list[str]:
-    """The words a program receives: `2>/dev/null`, `> file` and `< file` go to the shell."""
-    kept = []
-    skip = False
-    for word in words:
-        if skip:
-            skip = False
-            continue
-        match = REDIRECTION_RE.fullmatch(word)
-        if match:
-            skip = not match.group(1)  # the target is the next word
-            continue
-        kept.append(word)
-    return kept
-
-
 def curl_findings(args: list[str]) -> list[str]:
+    """Every operation of a curl command: `--next` starts one with the options reset."""
+    found: list[str] = []
+    operation: list[str] = []
+    for position, arg in enumerate(args):
+        if arg == "--":  # the rest are URLs of this operation
+            operation.extend(args[position:])
+            break
+        if arg in ("--next", "-:"):
+            found.extend(operation_findings(operation))
+            operation = []
+        else:
+            operation.append(arg)
+    found.extend(operation_findings(operation))
+    return found
+
+
+def operation_findings(args: list[str]) -> list[str]:
     """Reads the arguments in order, as curl does: a later option replaces an earlier one."""
     fail = all_errors = remote_name_all = False
     retry = ""  # the last --retry value
@@ -325,10 +339,15 @@ def curl_findings(args: list[str]) -> list[str]:
             urls += 1
 
     index = 0
+    options_ended = False
     while index < len(args):
         arg = args[index]
         index += 1
-        if arg.startswith("--") and len(arg) > 2:
+        if options_ended:
+            urls += 1
+        elif arg == "--":
+            options_ended = True
+        elif arg.startswith("--") and len(arg) > 2:
             name, equals, attached = arg[2:].partition("=")
             if name in LONG_WITH_VALUE:
                 if equals:  # --output=file, curl 8.16 and later
@@ -338,7 +357,7 @@ def curl_findings(args: list[str]) -> list[str]:
                     index += 1
             else:
                 option(name, "")
-        elif arg.startswith("-") and len(arg) > 1 and arg != "--":
+        elif arg.startswith("-") and len(arg) > 1:
             for position, letter in enumerate(arg[1:], start=1):
                 if letter in SHORT_WITH_VALUE:
                     attached = arg[position + 1 :]  # -oarchive.tar.gz
@@ -370,7 +389,7 @@ def curl_findings(args: list[str]) -> list[str]:
 
 def command_findings(words: list[str]) -> list[str]:
     """What is wrong with one command, judged on its own arguments."""
-    program, args = executable(without_redirections(words))
+    program, args = executable(words)
     if program in ("curl", "curl.exe"):
         return curl_findings(args)
     if program in ("invoke-webrequest", "iwr") and any(arg.lower().startswith("-outf") for arg in args):
@@ -462,6 +481,11 @@ SCRIPTS_MUST_FAIL = [
     ('curl -L -oarchive.tar.gz "$url"', NO_ALL_ERRORS),
     # each -o serves one URL: the second transfer here goes to stdout
     ('curl --retry 3 --retry-all-errors -o a "$a" "$b" > b', STDOUT_RETRY),
+    # --next starts an operation with the options reset: the second transfer has no destination
+    ('curl --retry 3 --retry-all-errors --remote-name-all "$a" --next --retry 3 --retry-all-errors "$b" > b', STDOUT_RETRY),
+    ('curl --retry 3 --retry-all-errors -o a "$a" --next -o b "$b"', NO_ALL_ERRORS),
+    # a quoted `>` is an argument, here the value of --write-out
+    ("curl --retry 3 --write-out '>status' -o archive \"$url\"", NO_ALL_ERRORS),
     # a here-string is one word and hides nothing after it
     ('cat <<<EOF\ncurl -L -o f "$url"', NO_ALL_ERRORS),
     ("if ($true) { C:\\Windows\\System32\\curl.exe --fail --output f $url }", NO_ALL_ERRORS),
@@ -481,6 +505,10 @@ SCRIPTS_MUST_PASS = [
     'curl --retry 3 --retry-all-errors --output=archive "$url"',
     'curl -L --retry 3 --retry-all-errors -oarchive.tar.gz "$url"',
     'curl --retry 3 --retry-all-errors -o a "$a" -o b "$b"',
+    'curl --retry 3 --retry-all-errors -o a "$a" --next --retry 3 --retry-all-errors -o b "$b"',
+    "curl --retry 3 --retry-all-errors --write-out '>status' -o archive \"$url\"",
+    # `--` ends the options and is not a URL
+    'curl --retry 3 --retry-all-errors -o archive -- "$url"',
     # a redirection is not a second transfer
     'curl -fL --retry 3 --retry-all-errors -o f "$url" 2>/dev/null',
     'curl -fL --retry 3 --retry-all-errors -o f "$url" > /dev/null 2>&1',
