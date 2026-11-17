@@ -102,6 +102,13 @@ is test input, not a tool, and the step checks only that the file is not empty.
 - A `curl` command without `-o` is refused when it has `-f` (a download through stdout: write
   it to a file first) or `--retry-all-errors` (the retry would repeat bytes). With neither it is
   not judged: `curl -sSL "$page" | grep` is not a download the step acts on.
+- curl's arguments are read in order, as curl reads them. The word after an option that takes a
+  value is that value (`--header '--retry-all-errors'` sets no flag), also attached to a short
+  option (`-oarchive.tar.gz`) or after `=`. Of two opposite flags the later is in force
+  (`--retry-all-errors --no-retry-all-errors` is off). Each `-o` serves one URL, so a second URL
+  without one is a transfer through stdout, and so is `-o -`. A redirection and its target are
+  not arguments. The list of value-taking options is from `curl --help all` of 8.12 and 8.22;
+  an option of a later curl is read as a flag, which can add a finding and cannot hide one.
 - `Invoke-WebRequest` or `iwr` with `-OutFile` is refused.
 - A finding in a literal block (`run: |`) reports the command's own line; in a folded or one-line
   script it reports the `run:` line.

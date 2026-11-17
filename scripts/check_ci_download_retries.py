@@ -71,8 +71,33 @@ ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.S)
 # After a backslash these are escaped; before anything else the backslash is a
 # character of the word (a Windows path in a PowerShell script).
 ESCAPABLE = " \t\"'\\;|&(){}#$`<>"
-# curl's short options that take a value: what follows one in a cluster is the value.
-SHORT_WITH_VALUE = set("oHdubcemwxXTrCEKFyYzAtQP")
+# curl's options that take a value, from `curl --help all` of 8.12 and 8.22: the word
+# after one is its value, not an option and not a URL, and what follows a short one
+# in a cluster is its value. An option missing here (a later curl's) is read as a
+# flag, and its value then counts as a URL: that can add a finding, never hide one.
+SHORT_WITH_VALUE = set("ACDEFHKPQTUXYbcdehmortuwxyz")
+LONG_WITH_VALUE = frozenset(
+    """
+    abstract-unix-socket alt-svc aws-sigv4 cacert capath cert cert-type ciphers config
+    connect-timeout connect-to continue-at cookie cookie-jar create-file-mode crlfile curves data
+    data-ascii data-binary data-raw data-urlencode delegation dns-interface dns-ipv4-addr
+    dns-ipv6-addr dns-servers doh-url dump-header ech egd-file engine etag-compare etag-save
+    expect100-timeout form form-string ftp-account ftp-alternative-to-user ftp-method ftp-port
+    ftp-ssl-ccc-mode happy-eyeballs-timeout-ms haproxy-clientip header help hostpubmd5 hostpubsha256
+    hsts interface ip-tos ipfs-gateway json keepalive-cnt keepalive-time key key-type knownhosts krb
+    libcurl limit-rate local-port login-options mail-auth mail-from mail-rcpt max-filesize
+    max-redirs max-time netrc-file noproxy oauth2-bearer output output-dir parallel-max
+    parallel-max-host pass pinnedpubkey preproxy proto proto-default proto-redir proxy proxy-cacert
+    proxy-capath proxy-cert proxy-cert-type proxy-ciphers proxy-crlfile proxy-header proxy-key
+    proxy-key-type proxy-pass proxy-pinnedpubkey proxy-service-name proxy-tls13-ciphers
+    proxy-tlsauthtype proxy-tlspassword proxy-tlsuser proxy-user proxy1.0 pubkey quote random-file
+    range rate referer request request-target resolve retry retry-delay retry-max-time sasl-authzid
+    service-name sigalgs socks4 socks4a socks5 socks5-gssapi-service socks5-hostname speed-limit
+    speed-time ssl-sessions stderr telnet-option tftp-blksize time-cond tls-max tls13-ciphers
+    tlsauthtype tlspassword tlsuser trace trace-ascii trace-config unix-socket upload-file
+    upload-flags url url-query user user-agent variable vlan-priority write-out
+    """.split()
+)
 
 
 @dataclass
@@ -187,7 +212,10 @@ class _Reader:
             elif c == "#" and word is None:  # a comment starts a word, never ends one
                 j = s.find("\n", self.i)
                 self.i = n if j < 0 else j
-            elif c == "<" and nxt == "<" and s[self.i + 2 : self.i + 3] != "<":
+            elif s.startswith("<<<", self.i):  # a here-string supplies one word
+                add("<<<")
+                self.i += 3
+            elif c == "<" and nxt == "<":
                 match = re.match(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1", s[self.i :])
                 if match:
                     self.heredocs.append(match.group(2))
@@ -247,57 +275,102 @@ def executable(words: list[str]) -> tuple[str, list[str]]:
     return "", []
 
 
+REDIRECTION_RE = re.compile(r"(?:\d*|[&*])(?:>>?|<<<|<)(.*)", re.S)
+
+
+def without_redirections(words: list[str]) -> list[str]:
+    """The words a program receives: `2>/dev/null`, `> file` and `< file` go to the shell."""
+    kept = []
+    skip = False
+    for word in words:
+        if skip:
+            skip = False
+            continue
+        match = REDIRECTION_RE.fullmatch(word)
+        if match:
+            skip = not match.group(1)  # the target is the next word
+            continue
+        kept.append(word)
+    return kept
+
+
 def curl_findings(args: list[str]) -> list[str]:
-    fail = to_file = all_errors = False
-    counts: list[str] = []
+    """Reads the arguments in order, as curl does: a later option replaces an earlier one."""
+    fail = all_errors = remote_name_all = False
+    retry = ""  # the last --retry value
+    files = stdouts = urls = 0  # -o destinations, `-o -`, and transfers
+
+    def option(name: str, value: str) -> None:
+        nonlocal fail, all_errors, remote_name_all, retry, files, stdouts, urls
+        if name in ("f", "fail", "fail-with-body"):
+            fail = True
+        elif name == "no-fail":
+            fail = False
+        elif name == "retry-all-errors":
+            all_errors = True
+        elif name == "no-retry-all-errors":
+            all_errors = False
+        elif name == "retry":
+            retry = value
+        elif name in ("o", "output"):
+            if value == "-":
+                stdouts += 1
+            else:
+                files += 1
+        elif name in ("O", "remote-name"):
+            files += 1
+        elif name == "remote-name-all":
+            remote_name_all = True
+        elif name == "url":
+            urls += 1
+
     index = 0
     while index < len(args):
         arg = args[index]
-        value = args[index + 1] if index + 1 < len(args) else ""
-        if arg in ("--fail", "--fail-with-body"):
-            fail = True
-        elif arg == "--retry-all-errors":
-            all_errors = True
-        elif arg == "--retry":
-            counts.append(value)
-            index += 1
-        elif arg.startswith("--retry="):
-            counts.append(arg.split("=", 1)[1])
-        elif arg == "--output":
-            to_file = to_file or value != "-"
-            index += 1
-        elif arg.startswith("--output=") or arg in ("--remote-name", "--remote-name-all"):
-            to_file = True
-        elif re.fullmatch(r"-[A-Za-z0-9#]+", arg):
-            for position, letter in enumerate(arg[1:], start=1):
-                if letter == "f":
-                    fail = True
-                elif letter == "O":
-                    to_file = True
-                elif letter == "o":
-                    attached = arg[position + 1 :]
-                    to_file = to_file or (attached or value) != "-"
-                if letter in SHORT_WITH_VALUE:
-                    if not arg[position + 1 :]:
-                        index += 1  # the value is the next word
-                    break
         index += 1
+        if arg.startswith("--") and len(arg) > 2:
+            name, equals, attached = arg[2:].partition("=")
+            if name in LONG_WITH_VALUE:
+                if equals:  # --output=file, curl 8.16 and later
+                    option(name, attached)
+                else:
+                    option(name, args[index] if index < len(args) else "")
+                    index += 1
+            else:
+                option(name, "")
+        elif arg.startswith("-") and len(arg) > 1 and arg != "--":
+            for position, letter in enumerate(arg[1:], start=1):
+                if letter in SHORT_WITH_VALUE:
+                    attached = arg[position + 1 :]  # -oarchive.tar.gz
+                    if attached:
+                        option(letter, attached)
+                    else:
+                        option(letter, args[index] if index < len(args) else "")
+                        index += 1
+                    break
+                option(letter, "")
+        else:
+            urls += 1
 
-    if not to_file:
-        if all_errors:
-            return [STDOUT_RETRY]
-        return [STDOUT_FAIL] if fail else []
-    if not all_errors:
-        return [NO_ALL_ERRORS]
+    # Each -o serves one URL, in order. A transfer without one goes to stdout.
+    to_stdout = stdouts > 0 or (not remote_name_all and urls > files + stdouts)
+    to_file = files > 0 or (remote_name_all and urls > 0)
+    found = []
+    if to_stdout and all_errors:
+        found.append(STDOUT_RETRY)
+    elif to_stdout and fail:
+        found.append(STDOUT_FAIL)
+    if to_file and not all_errors:
+        found.append(NO_ALL_ERRORS)
     # curl keeps the last --retry it is given: `--retry 3 --retry 0` retries nothing.
-    if not counts or (counts[-1].isdigit() and int(counts[-1]) == 0):
-        return [NO_COUNT]
-    return []
+    elif to_file and (not retry or (retry.isdigit() and int(retry) == 0)):
+        found.append(NO_COUNT)
+    return found
 
 
 def command_findings(words: list[str]) -> list[str]:
     """What is wrong with one command, judged on its own arguments."""
-    program, args = executable(words)
+    program, args = executable(without_redirections(words))
     if program in ("curl", "curl.exe"):
         return curl_findings(args)
     if program in ("invoke-webrequest", "iwr") and any(arg.lower().startswith("-outf") for arg in args):
@@ -378,6 +451,19 @@ SCRIPTS_MUST_FAIL = [
     ('curl -fsSL "$url" | sudo tee /etc/key > /dev/null', STDOUT_FAIL),
     ('key="$(curl -fsSL "$url")"', STDOUT_FAIL),
     ("sudo /usr/bin/curl -fL -o file https://example.invalid/file", NO_ALL_ERRORS),
+    # an option's value is not an option
+    ("curl --retry 3 --header '--retry-all-errors' -o f \"$url\"", NO_ALL_ERRORS),
+    # the later of two opposite flags is the one in force
+    ('curl -L -o f --retry 3 --retry-all-errors --no-retry-all-errors "$url"', NO_ALL_ERRORS),
+    # `-` as a destination is stdout, in either spelling
+    ('curl --retry 3 --retry-all-errors --output=- "$url" > archive', STDOUT_RETRY),
+    ('curl --retry 3 --retry-all-errors -o - "$url" > archive', STDOUT_RETRY),
+    # a value attached to -o may hold any character
+    ('curl -L -oarchive.tar.gz "$url"', NO_ALL_ERRORS),
+    # each -o serves one URL: the second transfer here goes to stdout
+    ('curl --retry 3 --retry-all-errors -o a "$a" "$b" > b', STDOUT_RETRY),
+    # a here-string is one word and hides nothing after it
+    ('cat <<<EOF\ncurl -L -o f "$url"', NO_ALL_ERRORS),
     ("if ($true) { C:\\Windows\\System32\\curl.exe --fail --output f $url }", NO_ALL_ERRORS),
 ]
 SCRIPTS_MUST_PASS = [
@@ -390,6 +476,18 @@ SCRIPTS_MUST_PASS = [
     'curl -fL --retry "$RETRIES" --retry-all-errors -o "$file" "$url"',
     'curl -fL --retry 3 --retry-all-errors -o a "$a"; curl -fL --retry 3 --retry-all-errors -o b "$b"',
     'curl -fsSLo "$file" --retry 3 --retry-all-errors "$url"',
+    "curl --retry 3 --header 'X-A: --no-retry-all-errors' --retry-all-errors -o f \"$url\"",
+    'curl -L -o f --retry 3 --no-retry-all-errors --retry-all-errors "$url"',
+    'curl --retry 3 --retry-all-errors --output=archive "$url"',
+    'curl -L --retry 3 --retry-all-errors -oarchive.tar.gz "$url"',
+    'curl --retry 3 --retry-all-errors -o a "$a" -o b "$b"',
+    # a redirection is not a second transfer
+    'curl -fL --retry 3 --retry-all-errors -o f "$url" 2>/dev/null',
+    'curl -fL --retry 3 --retry-all-errors -o f "$url" > /dev/null 2>&1',
+    'curl -fL --retry 3 --retry-all-errors -o f "$url" 2>&1 | tee log',
+    "curl.exe --fail --retry 3 --retry-all-errors --output f $url 2>$null",
+    'curl --retry 3 --retry-all-errors --remote-name-all "$a" "$b"',
+    'curl -fL --retry 3 --retry-all-errors --max-time 120 -H "Accept: */*" -o f "$url"',
     # a quoted `;` or `#` stays in its word
     'curl -fL -o "a;b" --retry 3 --retry-all-errors "$url"',
     "curl -fL --retry 3 --retry-all-errors -o f https://example.invalid/page#part",
