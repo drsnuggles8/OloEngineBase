@@ -18,8 +18,8 @@ from mixed sources.
 | `van.glb` | [Car Kit](https://kenney.nl/assets/car-kit) | Car — all-wheel drive |
 | `boat-row-large.glb` | [Pirate Kit](https://kenney.nl/assets/pirate-kit) | Boat — runs straight |
 | `ship-small.glb` | [Pirate Kit](https://kenney.nl/assets/pirate-kit) | Boat — circles under rudder |
-| `ship-small-hull.glb` | derived from `ship-small.glb` | Drift's boat — hull + flags |
-| `ship-small-sail.glb` | derived from `ship-small.glb` | Drift's boat — the rig, on its own entity |
+| `ship-small-hull.glb` | derived from `ship-small.glb` | Boat hull + flags — `Benchmark/OceanCoast.olo` and renderer evidence fixtures |
+| `ship-small-sail.glb` | derived from `ship-small.glb` | The rig, on its own entity — the same scene and fixtures |
 | `craft_speederA.glb` | [Space Kit](https://kenney.nl/assets/space-kit) | Aircraft |
 
 Only the individual models the scene uses were vendored, not the whole kits.
@@ -46,7 +46,10 @@ python scripts/split-glb-nodes.py \
 `ship-small.glb`, not new art. CC0 permits it without condition; this section is
 here so the pair can be regenerated rather than reverse-engineered.
 
-The reason for the split is that Drift's sail has to move. `Model` flattens the
+The pair was made for Drift, whose sail has to move, and Drift sailed it until the generated
+`Models/DriftBoat` replaced it; `Benchmark/OceanCoast.olo` and the renderer evidence tests
+(`MeshVisibilityEvidenceTest`, `ModelComponentGPUSceneEvidenceTest`) still load it, so it stays.
+`Model` flattens the
 imported node graph and draws every submesh with the entity's one transform, so
 a part of a `ModelComponent` cannot be posed independently — the rig had to
 become its own entity, which meant its own file.
@@ -62,9 +65,9 @@ the split is a straight subset of the same glTF:
   are baked into the vertices by `aiProcess_PreTransformVertices`, so without it
   a Y rotation on the sail entity would swing the sail around the BOAT instead of
   around its own mast. With it, the entity's Y rotation is the yard angle, and
-  `Drift.olo` places the entity at the translation that was baked out
-  (`[0, 3.13852, -0.6333724]`, in the hull mesh's own space) so the split is
-  invisible.
+  the scene that draws the pair (`Benchmark/OceanCoast.olo` today) places the entity at the
+  translation that was baked out (`[0, 3.13852, -0.6333724]`, in the hull mesh's own space) so
+  the split is invisible.
 
 Both keep the shared external `Textures/colormap-pirate.png` reference, so the
 pair costs one extra 12 KB file and no extra texture memory. Geometry, UVs and

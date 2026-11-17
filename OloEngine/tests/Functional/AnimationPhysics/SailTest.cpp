@@ -817,8 +817,9 @@ TEST_F(SailTest, SailComponentSurvivesASceneYamlRoundTrip)
 // third of it looks like an independent knob.
 //
 // The failure they exist to catch is not a crash. It is somebody lowering the
-// sail area because 260 m^2 looks absurd for a 5 m boat (it is; the hull's drag
-// is equally unphysical, and the pair was tuned together), or restoring
+// sail area because 260 m^2 looks absurd for a 7.5 m boat (it is, and the sail
+// that is drawn is 12.6 m^2; the hull's drag is equally unphysical, and the pair
+// was tuned together), or restoring
 // BuoyancyComponent's LinearDrag to 0.8 because it reads as a bobbing damper
 // and not as the surge damper it also is. Either one leaves every test above
 // green and turns Drift into a boat that cannot cross its own bay.
@@ -866,8 +867,9 @@ class DriftSailingTest : public SailTest
         rb.m_LinearDrag = 0.0f;
         rb.m_AngularDrag = 0.0f;
 
-        boat.AddComponent<BoxCollider3DComponent>().m_HalfExtents =
-            Tests::DriftBoat::kColliderHalfExtents;
+        auto& collider = boat.AddComponent<BoxCollider3DComponent>();
+        collider.m_HalfExtents = Tests::DriftBoat::kColliderHalfExtents;
+        collider.m_Offset = Tests::DriftBoat::kColliderOffset;
         Tests::ApplyDriftBuoyancy(boat.AddComponent<BuoyancyComponent>());
         Tests::ApplyDriftHull(boat.AddComponent<BoatComponent>());
         Tests::ApplyDriftRig(boat.AddComponent<SailComponent>());
@@ -965,9 +967,10 @@ class DriftSailingTest : public SailTest
 // Thresholds are RATIOS between the legs rather than three absolute numbers,
 // because what has to hold is that the wind is what decides the boat's speed.
 //
-// Measured on the shipped tuning at the time of writing: 0.63 / 2.6 / 9.6 m/s for
-// Clear / Overcast / Storm. The gates sit well clear of those — this guards
-// against the tuning being gutted, and is not a golden.
+// Measured on the shipped tuning at the time of writing: 0.63 / 2.59 / 9.62 m/s for
+// Clear / Overcast / Storm (0.63 / 2.59 / 9.56 on the hull before the generated
+// one, whose body was re-derived to sail the same). The gates sit well clear of
+// those — this guards against the tuning being gutted, and is not a golden.
 TEST_F(DriftSailingTest, EveryWeatherStateIsSailableAndTheyDiffer)
 {
     SpawnFlatWater();
@@ -1019,7 +1022,7 @@ TEST_F(DriftSailingTest, TheWorkingBreezeIsWorthSailing)
 // which means lying over further in a gale than in a breeze.
 //
 // This pair is what the buoyancy probe's beam is pinned by. At a half-beam of 1.0
-// (narrower than the drawn hull actually is) a rig big enough to move her rolled
+// (narrower than the hull then drawn actually was) a rig big enough to move her rolled
 // her clean over: measured upY = -1.0, floating inverted, drive zero — which shows
 // up on the SPEED tests as "the rig is far too weak" rather than as a capsize.
 // Hence the explicit upright assertion: a magnitude-only heel check passes happily

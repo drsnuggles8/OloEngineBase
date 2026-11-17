@@ -155,13 +155,18 @@ PrecipitationSettings:
 # addition #880 needed is the terrain generator's radial island falloff — see the
 # LAYOUT section.
 #
-# The scene explicitly disables ambient occlusion: the sail and deck are thin,
-# two-sided geometry, so GTAO's depth-only horizon search would self-occlude
-# them. CSM shadows remain enabled with receiver normal bias below.
+# The scene explicitly disables ambient occlusion. It was switched off for the
+# previous boat, whose sail and deck were thin two-sided geometry that GTAO's
+# depth-only horizon search self-occluded. The boat that replaced it is closed
+# geometry and carries its own traced occlusion in its maps; with GTAO switched
+# on over it 5.7% of the pixels in a close quarter view move by more than 8/255,
+# which is not worth a full-screen pass. CSM shadows remain enabled with
+# receiver normal bias below.
 #
 # HOW TO SAIL IT
-#   W / S            throttle ahead / astern      (gamepad: right / left trigger)
 #   A / D            rudder to port / starboard    (gamepad: left stick X)
+#   Q / E            more / less sail              (gamepad: d-pad up / down)
+#   W / S            the sweep, ahead / astern     (gamepad: right / left trigger)
 #   C (hold)         look astern                   (gamepad: right stick click)
 #
 # The bindings are action NAMES resolved through <project>/Config/InputActions.yaml
@@ -721,6 +726,15 @@ Entities:
       FoamHeightStart: 0.16
       FoamBrightness: 1.1
       FoamFadeDistance: 0.35
+      # Shoreline foam is drawn wherever ANYTHING lies within 1.5 m under the
+      # surface, and the falloff with depth is this power. The boat's hull is
+      # such a thing: at the default 3 the whole of her underwater body shows
+      # through the sea as a white cloud, which reads as a rendering fault. At 10
+      # it is a narrow band along her waterline. Measured on Ridgeback's shore
+      # and on Atoll's, the same change moves fewer pixels than two captures at
+      # one setting differ by. It is this scene's setting and the clamp's
+      # ceiling; #1703 is about the shader not counting a hull as a shore.
+      ShorelineFoamPower: 10
       # Persistent boat-driven wake (issue #967). ON here, and this is the only
       # scene that turns it on: a feature no scene enables has zero coverage in
       # practice, however green its tests are — the terrain tessellation path
@@ -2378,36 +2392,54 @@ Entities:
           Enabled: true
 
   # ── The boat ──────────────────────────────────────────────────────────────
+  # A Nordic clinker boat with one square sail on a braced yard, generated from
+  # nothing by Assets/Models/DriftBoat/build_drift_boat.py. Read that folder's
+  # README.md for the model's contract with this scene.
+  #
+  # EVERY NUMBER BELOW THAT DESCRIBES THE HULL COMES OUT OF THAT SCRIPT: it floats
+  # the drawn hull at this body's mass, measures it, and writes the component
+  # values into the "physics" block of DriftBoat.rig.json.
+  # DriftBoatDelivery.TheSceneIsBuiltFromTheGeneratedRig fails if this scene and
+  # that file disagree, so after regenerating the boat this block is re-stamped
+  # rather than re-tuned.
+  #
   # SINCE #899 THIS IS A SAILING BOAT. The wind drives it (SailComponent below);
-  # the propeller is an auxiliary for getting off a lee shore and out of a flat
-  # calm, and its MaxThrust was cut by an order of magnitude to say so. Read the
-  # sail block before re-tuning anything here — hull drag and sail area are one
-  # ratio, not two independent numbers.
+  # BoatComponent's thrust is an auxiliary for getting off a lee shore and out
+  # of a flat calm, and on this boat it is a SWEEP, not an engine: the steering
+  # oar sculled over the quarter. Read the sail block before re-tuning anything
+  # here — hull drag and sail area are one ratio, not two independent numbers.
   #
-  # THE HULL NUMBERS. Derived rather than guessed, so they can be re-derived
-  # after a change instead of being poked at:
+  # THE HULL NUMBERS, and how each is derived:
   #
-  #   * The probe box (2.7 x 0.9 x 5 m = 12.15 m^3) displaces 12150 kg fully
-  #     submerged, so the 2600 kg hull floats at about a fifth of that — the
-  #     origin sits a little ABOVE the waterline, which is the state every
-  #     offset below assumes. The propeller (y = -0.55) and the keel
-  #     (y = -0.45, taken from ProbeExtents.y by BoatSystem) are both under it.
-  #     #899 widened that box and flattened it by the same factor, so the
-  #     displacement — and the waterline — are unchanged; see the note on
-  #     ProbeExtents below for why the beam had to grow.
+  #   * MASS 2600 kg is the game's number and the hull was drawn to carry it:
+  #     at that displacement she floats 0.65 m deep with 0.62 m of freeboard
+  #     amidships. The model's y = 0 IS that waterline and its z = 0 is the
+  #     centre of buoyancy. This entity's origin is neither: the probe box
+  #     below is centred on it and floats it 0.058 m above the water, so the
+  #     hull mesh hangs that far below it.
+  #   * THE COLLIDER (2 x 1.28 x 6 m) is the hull as a box: her waterline
+  #     beam and length, keel to gunwale, offset down to where the hull is. It
+  #     is what touches bottom when she grounds, and BoatWakeSystem sizes the
+  #     wake and the flattened footprint from it. Jolt takes the body's CENTRE
+  #     OF MASS and inertia from this box, so the centre of mass is the middle
+  #     of the hull, 2 cm from her waterline, and 0.076 m below this origin.
+  #     Every offset below (thrust point, centre of effort, probes) is measured
+  #     from the ORIGIN; the forces act there and turn her about that centre.
+  #   * THE PROBE BOX is BuoyancyComponent's submerged-hull model; see the note
+  #     on ProbeExtents.
   #   * Forward damping is NOT ForwardDrag alone. BuoyancyComponent's own
   #     LinearDrag damps the same velocity, scaled by the submerged fraction, so
-  #     the effective coefficient is roughly
-  #         ForwardDrag * hullImmersion + LinearDrag * submergedFraction.
-  #     Both halves were cut for #899 (0.7 -> 0.12 and 0.8 -> 0.35), because a
-  #     hull tuned to be held back by 22 kN of propeller cannot be moved by a
-  #     sail: the wind can only ever supply a few kN, and it supplies them as a
-  #     force that FALLS as the boat speeds up. The boat now carries its way
-  #     between puffs, which is also what a sailing boat does.
+  #     the effective coefficient is
+  #         ForwardDrag * hullImmersion + LinearDrag * submergedFraction
+  #       = 0.12 * 1 + 0.355 * 0.2107 = 0.195 per second.
+  #     That sum is the hull's half of the #899 ratio and it is the same number
+  #     the previous hull had: a hull held back any harder cannot be moved by a
+  #     sail, because the wind can only ever supply a few kN and supplies them
+  #     as a force that FALLS as the boat speeds up.
   #   * Steady turn rate at full rudder is MaxRudderTorque / (YawDrag * mass) =
-  #     5400 / (2.2 * 2600) = 0.94 rad/s, before DriftBoatController trims the
-  #     rudder command back at speed. The rudder is unchanged by #899: it is the
-  #     only control that still works with no wind at all.
+  #     7480 / (3.05 * 2600) = 0.94 rad/s, before DriftBoatController trims
+  #     the rudder command back at speed. The rudder is the only control that
+  #     still works with no wind at all.
   #
   # LinearDrag / AngularDrag on the rigidbody are ZERO on purpose. Buoyancy and
   # the hull model own all the damping; a second global damper on top of them
@@ -2416,7 +2448,10 @@ Entities:
     TagComponent:
       Tag: Boat
     TransformComponent:
-      Translation: [0, 0, -250]
+      # Authored AT HER FLOATING HEIGHT: Y is how far this origin rides above
+      # the sea, so the scene before Play shows her on her waterline and the
+      # first physics tick has nothing to settle.
+      Translation: [0, 0.058, -250]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
     Rigidbody3DComponent:
@@ -2426,44 +2461,66 @@ Entities:
       AngularDrag: 0
       DisableGravity: false
     BoxCollider3DComponent:
-      HalfExtents: [1, 0.4, 2.5]
+      HalfExtents: [1, 0.64, 3]
+      # Down to the hull: the box's middle is the middle of the drawn hull, not
+      # this origin. See THE COLLIDER above.
+      Offset: [0, -0.076, 0]
     BuoyancyComponent:
       Enabled: true
-      # WIDER THAN THE COLLIDER, AND NARROWER IN HEIGHT, ON PURPOSE (#899).
-      # This box is the submerged-hull model, and its BEAM is what sets the
-      # righting moment that a loaded sail has to be fought back by. At a
-      # half-beam of 1.0 it was narrower than the drawn hull actually is
-      # (the model is 4.8 wide, x 0.57 = 2.74 m, so 1.37), and a rig big
-      # enough to move the boat rolled her clean over — measured, upside down
-      # and floating. 1.35 is the hull's real beam; the height came down from
-      # 0.6 to 0.45 to keep the displaced volume, and so the waterline, where
-      # it was. Stiffer, not more buoyant.
-      ProbeExtents: [1.35, 0.45, 2.5]
+      # THE SUBMERGED-HULL MODEL. BuoyancySystem floats this box on its eight
+      # corners, each bottom corner carrying a share of the box's volume in
+      # proportion to its depth over SubmergenceRamp. Three things follow:
+      #
+      #   * X (1.3) is the hull's real half-beam, and it is what sets the
+      #     righting moment a loaded sail is fought back by. Narrower than the
+      #     drawn hull and a rig big enough to move her rolls her clean over
+      #     (#899 measured exactly that, upside down and floating).
+      #   * Z (3.004) is half her waterline length.
+      #   * Y (0.395) is NOT a height anyone measured. A box carrying this mass
+      #     floats with its bottom corners
+      #         d = mass * ramp / (4 * density * X * Y * Z) = 0.337 m
+      #     under the sea. Rolled a little, those corners right her with
+      #     weight * X^2 / d per radian, less weight times the height of the
+      #     centre of mass above them, so a taller box is a stiffer one. Y is
+      #     solved so that stiffness, divided by the height the sail's force
+      #     acts at above the centre of mass (CentreOfEffortY, below), is the
+      #     62 kN per radian the game was tuned at: she lies over as far in a
+      #     given wind as she always has.
+      #
+      # The origin therefore floats Y - d = 0.058 m above the water (the hull mesh
+      # hangs that far down), and BoatSystem takes the keel's depth from Y.
+      ProbeExtents: [1.3, 0.395, 3.004]
       FluidDensity: 1000
       BuoyancyScale: 1
       # Vertical bobbing damper — but it damps SURGE too (BuoyancySystem applies
-      # it to the whole velocity vector, scaled by the submerged fraction), and
-      # at 0.8 it was the single biggest thing standing between the wind and the
-      # boat. Halved for #899. Still low enough that the hull rides the swell.
-      LinearDrag: 0.35
+      # it to the whole velocity vector, scaled by the submerged fraction). The
+      # product of the two is what the hull feels, and 0.355 is the value that
+      # keeps that product where #899 tuned it for this box's wet fraction.
+      LinearDrag: 0.355
       # Rocking damper. This is the knob that decides whether the swell reads as
-      # a boat working in a seaway or as a bath toy; 1.2 keeps the roll alive
-      # without letting it build.
-      AngularDrag: 2.2
+      # a boat working in a seaway or as a bath toy. Set so a roll dies at the
+      # rate it did before: the box's roll inertia went up with the collider.
+      AngularDrag: 2.72
       SubmergenceRamp: 0.8
-    # The AUXILIARY. Everything here still works exactly as it did; it is just
-    # no longer the way you get anywhere. 900 N against the reduced damping is
-    # about 2 m/s — enough to claw off a lee shore or ghost out of a flat calm
-    # (the Clear leg's 2 m/s wind only makes about 0.7 m/s under sail), and
+    # The AUXILIARY: the sweep. 900 N against the hull's damping is about
+    # 1.8 m/s — enough to claw off a lee shore or ghost out of a flat calm (the
+    # Clear leg's 2 m/s wind only makes about 0.6 m/s under sail), and
     # deliberately slower than the same boat under sail in any real breeze. That
     # ordering is the whole point and is pinned by
     # SailTest's DriftSailingTest.TheEngineIsSlowerThanTheSail.
     BoatComponent:
       Enabled: true
       MaxThrust: 900
-      ThrustOffsetZ: -2.2
-      ThrustOffsetY: -0.55
-      MaxRudderTorque: 5400
+      # The thrust point is the foot of the rudder blade, at its station.
+      # BoatSystem also asks whether THIS point is under water before it lets
+      # the rudder bite, which for a steering oar is exactly the right question:
+      # she steers until the blade is out of the water.
+      ThrustOffsetZ: -2.55
+      ThrustOffsetY: -0.78
+      # With YawDrag below, sets the turn rate and the time the helm takes to
+      # answer. Both were scaled by the same factor as the box's yaw inertia,
+      # so a longer hull steers exactly as the shorter one did.
+      MaxRudderTorque: 7480
       # Full rudder authority only from 7 m/s up. Below that the rudder is soft,
       # which is what stops the boat pivoting on the spot in the harbour and
       # gives the low-speed handling a distinct character from the high-speed.
@@ -2472,19 +2529,22 @@ Entities:
       # turn instead of sliding broadside. Dropping this toward the forward value
       # is how you would author a hovercraft.
       LateralDrag: 3.5
-      # Cut from 0.7 for #899 — see the effective-damping note above. LATERAL
-      # drag is deliberately untouched and now towers over it: that ratio IS the
-      # keel, and on a sailing boat the keel is what converts the sail's side
-      # force into forward travel instead of letting the boat slide off downwind.
+      # See the effective-damping note above. LATERAL drag towers over it: that
+      # ratio IS the keel, and on a sailing boat the keel is what converts the
+      # sail's side force into forward travel instead of letting the boat slide
+      # off downwind.
       ForwardDrag: 0.12
-      YawDrag: 2.2
+      YawDrag: 3.05
+      # The depth over which the hull's drag and the rudder's bite ramp in. Kept
+      # at the same share of the box's resting immersion as before, so the hull
+      # grips fully at rest and lets go as a wave lifts her.
       ImmersionDepth: 0.3
       ThrottleInput: 0
       SteerInput: 0
     # ── The rig ───────────────────────────────────────────────────────────
-    # THIS is the propulsion now. SailSystem reads the scene WindSettings at
-    # the centre of effort, subtracts the hull's own velocity to get apparent
-    # wind, braces the yard to the angle that makes the most forward drive, and
+    # THIS is the propulsion. SailSystem reads the scene WindSettings at the
+    # centre of effort, subtracts the hull's own velocity to get apparent wind,
+    # braces the yard to the angle that makes the most forward drive, and
     # applies a flat-plate force NORMAL to the sail at the point below.
     #
     # Three of these numbers decide how the game plays:
@@ -2496,20 +2556,35 @@ Entities:
     #     (14) are three genuinely different boats. 45 deg is a square rigger's
     #     brace and puts the no-go zone at about 55-60 deg either side of the
     #     wind: there is no sailing upwind, only tacking. Raise it and the boat
-    #     points higher AND goes faster; both, together, always.
+    #     points higher AND goes faster; both, together, always. On the drawn
+    #     boat 45 deg is also where the yard comes up against the lee shrouds,
+    #     which are led aft for exactly that reason.
     #   SailArea is a GAME number and so is the hull's ForwardDrag above — what
-    #     was tuned is the RATIO of the two. A 5 m hull massing 2600 kg is
-    #     already not naval architecture; asking for an honest 25 m^2 of canvas
-    #     on top of it would have given a boat that took four minutes to cross
-    #     the bay. Change one of the pair and re-measure, never just one.
-    #   CentreOfEffort is NOT cosmetic. Its HEIGHT (2.64 m, the middle of the
-    #     drawn sail once the hull mesh's 0.57 scale and -0.5 offset are
-    #     applied) is the whole heel: the side force acts there, above the centre
-    #     of mass, and buoyancy fights it back. That replaces the roll
-    #     DriftBoatController used to fake off yaw rate. Its Z (-0.36 m, the mast
-    #     line) is 0.36 m AFT of the centre of mass, which gives free weather
-    #     helm — a loaded sail nudges the bow up into the wind, which is why the
-    #     boat now feels like it wants something.
+    #     was tuned is the RATIO of the two. The sail that is drawn is 12.6 m^2;
+    #     an honest 12.6 m^2 on a hull this heavily damped would take four minutes
+    #     to cross the bay. Change one of the pair and re-measure, never just one.
+    #   CentreOfEffort is NOT cosmetic, and it is NOT the middle of the drawn
+    #     sail. Its HEIGHT (1.85 m above the origin, 1.93 above the centre of
+    #     mass) is the whole heel: the side force acts there and buoyancy fights
+    #     it back. The drawn sail's centre is 2.82 m up, but SailArea is twenty
+    #     times the canvas that is drawn, and at that height its force laid her
+    #     over 1.7 times as far as the game was tuned for. Stiffening the box
+    #     hides that only at small angles: the side force that lifts the
+    #     windward bilge clear is weight * half-beam / this height and nothing
+    #     else, and with the true height she spent 1.6 times as long past ten
+    #     degrees in the storm (37% of a beam reach against 23%, six runs each).
+    #     So the height is 1.48 half-beams, as it was on the hull before her,
+    #     which keeps that force at 17.2 kN. It is still the cheapest lever
+    #     if she ever lies over too far.
+    #     Its Z (-0.5 m, abaft the centre of mass) is the weather helm — a
+    #     loaded sail nudges the bow up into the wind, and a gust rounds her up
+    #     instead of bearing her away. It is NOT the drawn sail's station (-0.2 m).
+    #     BoatSystem resists leeway AT the centre of mass; a real hull under way
+    #     resists it forward of that, and what turns a boat is the distance
+    #     between the two. So Z is set to give the yaw acceleration per newton
+    #     of side force the game was tuned with (lever / yaw inertia), which on
+    #     this hull is the drawn sail over a centre of lateral resistance
+    #     0.3 m (5% of the waterline) forward of the centre of mass.
     SailComponent:
       Enabled: true
       SailArea: 260
@@ -2519,13 +2594,8 @@ Entities:
       # A yard takes a few seconds to come round. Fast enough that a tack is not
       # a wait, slow enough that it reads as being hauled rather than snapped.
       TrimRateDeg: 28
-      # 2.0, not the 2.64 that is the middle of the DRAWN sail. SailArea is the
-      # whole rig's area, so this has to be the whole rig's centre of effort —
-      # and the sails a low-poly mesh does not show (headsail, staysail) all sit
-      # lower than the one it does. Height is the heel, so this is also the
-      # cheapest lever if she ever lies over too far.
-      CentreOfEffortY: 2.0
-      CentreOfEffortZ: -0.36
+      CentreOfEffortY: 1.85
+      CentreOfEffortZ: -0.5
       AutoTrim: true
       TrimInput: 0
       SailSetInput: 1
@@ -2542,64 +2612,261 @@ Entities:
         - 879000000000021
 
   # ── Hull mesh ─────────────────────────────────────────────────────────────
-  # A CHILD of the physics root, which used to be load-bearing for a reason that
-  # no longer applies: DriftBoatController rolled this entity to fake heel,
-  # because BoatSystem applies hull drag at the centre of mass and so the body
-  # could not heel at all. Since #899 the SAIL heels the body for real (its force
-  # is applied above the centre of mass), the script fake is gone, and this
-  # entity is once again just the hull mesh. It stays a child because the visual
-  # waterline offset below belongs to the mesh and not to the collider.
+  # The hull, decks, mast, standing rigging and deck gear: one mesh on one
+  # material (DriftBoatHull), at true scale. The model's y = 0 is its waterline,
+  # and the Translation below is how far the body's origin floats above the
+  # sea, so in Play the two waterlines meet.
   #
-  # The model is the SAIL-LESS half of the original ship-small.glb. See the sail
-  # entity below and KenneyVehicles/LICENSE.md for how the pair was made.
+  # A MeshComponent, not a ModelComponent, because that is the path that has
+  # levels of detail. The three levels are the generator's own (it rebuilds the
+  # boat with fewer stations and drops what is too small to see, on the SAME
+  # texture atlas), not a simplifier's: past 90 m the standing rigging is drawn
+  # thicker on purpose, because a line under a pixel wide shimmers. Shadows are
+  # always cast by level 0. In Play the chase camera is 9-14 m away and this is
+  # always level 0; the far levels are for anything that looks at her from
+  # across the water.
   - Entity: 879000000000021
     TagComponent:
       Tag: Boat Hull
     TransformComponent:
-      # This offset is a VISUAL waterline, and it is worth more than it looks.
-      # At -0.78 a good chunk of hull sat below the surface and came through the
-      # refraction as a stippled brown slick trailing the boat, which reads as a
-      # rendering fault rather than as a submerged hull. Raising it to -0.5 puts
-      # the mesh's own waterline near the real one and the artifact goes away.
-      Translation: [0, -0.5, 0]
+      Translation: [0, -0.058, 0]
       Rotation: [0, 0, 0]
-      Scale: [0.57, 0.57, 0.57]
-    ModelComponent:
-      FilePath: Assets/Models/KenneyVehicles/ship-small-hull.glb
-      Visible: true
+      Scale: [1, 1, 1]
+    MeshComponent:
+      MeshSourceHandle: 18313841716185698139
+    LODGroupComponent:
+      Enabled: true
+      Bias: 1
+      Levels:
+        - MeshHandle: 18313841716185698154
+          MaxDistance: 30
+          TriangleCount: 30860
+        - MeshHandle: 18313841716185698155
+          MaxDistance: 90
+          TriangleCount: 8961
+        - MeshHandle: 18313841716185698156
+          MaxDistance: 100000
+          TriangleCount: 2270
     RelationshipComponent:
       ParentHandle: 879000000000020
       Children:
         - 879000000000022
+        - 879000000000023
+        - 879000000000041
+        - 879000000000042
+        - 879000000000043
+        - 879000000000044
 
   # ── The sail ──────────────────────────────────────────────────────────────
-  # The entity that exists so the sail can point somewhere (#899). It is a child
-  # of the HULL MESH, not of the physics root, and both halves of that matter:
-  #
-  #   * being under the hull mesh means it inherits the 0.57 model scale and the
-  #     -0.5 visual waterline, so the translation below is in the ship model's
-  #     OWN coordinates and is exactly where the sail node sat inside the
-  #     original single .glb. The split is invisible;
-  #   * ship-small-sail.glb was re-origined onto the mast when it was extracted,
-  #     so this entity's Y ROTATION IS THE YARD ANGLE. DriftBoatController copies
-  #     SailComponent::yardAngle onto it every tick and the sail braces round the
-  #     mast. Without the re-origin the same rotation would swing the sail around
-  #     the boat instead of around its own mast.
+  # The yard and the sail, on their own entity so they can point somewhere
+  # (#899). DriftBoatSail.gltf is origined ON THE MAST AXIS, so this entity's
+  # Y ROTATION IS THE YARD ANGLE: DriftBoatController copies
+  # SailComponent::yardAngle onto it every tick and the sail braces round the
+  # mast. The translation is the mast's position in the hull.
   #
   # Rotation is authored at zero — the yard squared, which is the trim for a dead
   # run — so the first frame before any script tick looks correct.
+  #
+  # THE CLOTH IS ALIVE. The sail's files carry 10 morph targets (Slack, Hard, Aback, Furled,
+  # three phases of a luffing wave and three of a finer ripple), and
+  # DriftBoatController blends them every tick from what the wind is doing to
+  # her: how hard it presses, on which face, how much of her is set. The
+  # MorphTargetComponent below is what lets the engine deform the mesh; its
+  # weights are the script's, so it is authored empty and what is drawn before
+  # Play is the sail full of a moderate breeze. The two "Furled" markers are where
+  # the clews are with the sail gathered right up to the yard, so the sheets can
+  # follow the clews as she is shortened.
   - Entity: 879000000000022
     TagComponent:
       Tag: Boat Sail
     TransformComponent:
-      Translation: [0, 3.13852, -0.6333724]
+      Translation: [0, 0, -0.5]
       Rotation: [0, 0, 0]
       Scale: [1, 1, 1]
-    ModelComponent:
-      FilePath: Assets/Models/KenneyVehicles/ship-small-sail.glb
-      Visible: true
+    MeshComponent:
+      MeshSourceHandle: 18313841716185698149
+    LODGroupComponent:
+      Enabled: true
+      Bias: 1
+      Levels:
+        - MeshHandle: 18313841716185698157
+          MaxDistance: 30
+          TriangleCount: 15492
+        - MeshHandle: 18313841716185698158
+          MaxDistance: 90
+          TriangleCount: 2766
+        - MeshHandle: 18313841716185698159
+          MaxDistance: 100000
+          TriangleCount: 360
+    MorphTargetComponent:
+      Weights: {}
     RelationshipComponent:
       ParentHandle: 879000000000021
+      Children:
+        - 879000000000045
+        - 879000000000046
+        - 879000000000047
+        - 879000000000048
+        - 879000000000049
+        - 879000000000050
+
+  # ── The rudder ────────────────────────────────────────────────────────────
+  # A side rudder on the starboard quarter (-X: this engine's starboard for a
+  # +Z bow). Its file is origined on the shaft at the gunwale, so the entity
+  # carries two rotations with different owners:
+  #
+  #   * Z is the CANT (16.6 deg), authored here: it lays the shaft along the
+  #     hull's side, foot tucked in toward the keel;
+  #   * Y is the HELM, written every tick by DriftBoatController (up to
+  #     28 deg). The engine applies Y before Z, so the blade turns about its
+  #     own canted shaft rather than about the vertical.
+  - Entity: 879000000000023
+    TagComponent:
+      Tag: Boat Rudder
+    TransformComponent:
+      Translation: [-0.724, 0.917, -2.55]
+      Rotation: [0, 0, 0.28938]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      MeshSourceHandle: 18313841716185698147
+    LODGroupComponent:
+      Enabled: true
+      Bias: 1
+      Levels:
+        - MeshHandle: 18313841716185698160
+          MaxDistance: 30
+          TriangleCount: 646
+        - MeshHandle: 18313841716185698161
+          MaxDistance: 100000
+          TriangleCount: 170
+    RelationshipComponent:
+      ParentHandle: 879000000000021
+      Children: []
+
+  # ── Sheets and braces ─────────────────────────────────────────────────────
+  # The running rigging that follows the yard. Each is DriftBoatLine.gltf — one
+  # metre of rope along its own +Z — placed at its LEAD on the gunwale, and
+  # DriftBoatController aims and stretches it every tick to the marker entity
+  # under the sail that is its far end (a clew for a sheet, a yard arm for a
+  # brace). So each Translation here is a lead, and Rotation / Scale are only
+  # the pose for the yard squared, which is what the scene shows before Play.
+  - Entity: 879000000000041
+    TagComponent:
+      Tag: Boat Sheet Port
+    TransformComponent:
+      Translation: [0.698, 0.874, -2.35]
+      Rotation: [-0.17165, 0.68628, 0]
+      Scale: [1, 1, 2.5819]
+    MeshComponent:
+      MeshSourceHandle: 18313841716185698143
+    RelationshipComponent:
+      ParentHandle: 879000000000021
+      Children: []
+
+  - Entity: 879000000000042
+    TagComponent:
+      Tag: Boat Sheet Starboard
+    TransformComponent:
+      Translation: [-0.698, 0.874, -2.35]
+      Rotation: [-0.17165, -0.68628, 0]
+      Scale: [1, 1, 2.5819]
+    MeshComponent:
+      MeshSourceHandle: 18313841716185698143
+    RelationshipComponent:
+      ParentHandle: 879000000000021
+      Children: []
+
+  - Entity: 879000000000043
+    TagComponent:
+      Tag: Boat Brace Port
+    TransformComponent:
+      Translation: [0.374, 1.055, -2.95]
+      Rotation: [-0.78528, 0.65811, 0]
+      Scale: [1, 1, 4.5684]
+    MeshComponent:
+      MeshSourceHandle: 18313841716185698143
+    RelationshipComponent:
+      ParentHandle: 879000000000021
+      Children: []
+
+  - Entity: 879000000000044
+    TagComponent:
+      Tag: Boat Brace Starboard
+    TransformComponent:
+      Translation: [-0.374, 1.055, -2.95]
+      Rotation: [-0.78528, -0.65811, 0]
+      Scale: [1, 1, 4.5684]
+    MeshComponent:
+      MeshSourceHandle: 18313841716185698143
+    RelationshipComponent:
+      ParentHandle: 879000000000021
+      Children: []
+
+  # The far ends: bare transforms riding on the sail, in the sail's own frame.
+  - Entity: 879000000000045
+    TagComponent:
+      Tag: Boat Clew Port
+    TransformComponent:
+      Translation: [2.31, 1.315, 0.118]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      ParentHandle: 879000000000022
+      Children: []
+
+  - Entity: 879000000000046
+    TagComponent:
+      Tag: Boat Clew Starboard
+    TransformComponent:
+      Translation: [-2.31, 1.315, 0.118]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      ParentHandle: 879000000000022
+      Children: []
+
+  - Entity: 879000000000047
+    TagComponent:
+      Tag: Boat Yardarm Port
+    TransformComponent:
+      Translation: [2.35, 4.285, 0.106]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      ParentHandle: 879000000000022
+      Children: []
+
+  - Entity: 879000000000048
+    TagComponent:
+      Tag: Boat Yardarm Starboard
+    TransformComponent:
+      Translation: [-2.35, 4.285, 0.106]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      ParentHandle: 879000000000022
+      Children: []
+
+  - Entity: 879000000000049
+    TagComponent:
+      Tag: Boat Clew Port Furled
+    TransformComponent:
+      Translation: [2.161, 4.031, 0.118]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      ParentHandle: 879000000000022
+      Children: []
+
+  - Entity: 879000000000050
+    TagComponent:
+      Tag: Boat Clew Starboard Furled
+    TransformComponent:
+      Translation: [-2.161, 4.031, 0.118]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    RelationshipComponent:
+      ParentHandle: 879000000000022
       Children: []
 
   # ── Discovery loop HUD (issue #881) ─────────────────────────────────────
