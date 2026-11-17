@@ -2144,12 +2144,18 @@ namespace OloEngine
 
         // What this program's uniform blocks are called, for the binding
         // contract. Unconditionally, like the two above: GL reissues program
-        // names, and a program built from GLSL text alone (no reflection, an
-        // empty list) must not inherit the names of the program that had its
-        // id before.
+        // names, and a program must not inherit the names of the program that
+        // had its id before.
+        //
+        // A raw-route program declares none, whatever this shader has
+        // reflected. That route compiles no SPIR-V, so the list is from an
+        // earlier build of the file (a reload onto the raw route after an
+        // edit), and its names would be believed before the driver's, which
+        // has this program's real ones from its GLSL text.
+        const std::span<const OpenGLBlockContract::DeclaredBlock> reflectedBlocks(
+            m_ReflectedUniformBlocks.GetData(), static_cast<sizet>(m_ReflectedUniformBlocks.Num()));
         OpenGLBlockContract::DeclareProgramBlocks(
-            m_RendererID, std::span<const OpenGLBlockContract::DeclaredBlock>(m_ReflectedUniformBlocks.GetData(),
-                                                                              static_cast<sizet>(m_ReflectedUniformBlocks.Num())));
+            m_RendererID, m_IsBindlessVariant ? std::span<const OpenGLBlockContract::DeclaredBlock>{} : reflectedBlocks);
 
         // Name the program for GPU debuggers (RenderDoc/NSight) and register it
         // in the CPU-side label registry so the GL debug callback can resolve

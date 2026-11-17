@@ -64,6 +64,30 @@
 
 namespace OloEngine::Tests
 {
+    namespace
+    {
+        // A test's own render target, unbound however the body leaves: an
+        // ASSERT that returns early must not hand the next test a bound
+        // framebuffer.
+        class BoundTarget
+        {
+          public:
+            explicit BoundTarget(Ref<Framebuffer> target) : m_Target(std::move(target))
+            {
+                m_Target->Bind();
+            }
+            ~BoundTarget()
+            {
+                m_Target->Unbind();
+            }
+            BoundTarget(const BoundTarget&) = delete;
+            BoundTarget& operator=(const BoundTarget&) = delete;
+
+          private:
+            Ref<Framebuffer> m_Target;
+        };
+    } // namespace
+
     class RendererOwnership : public RendererAttachedTest
     {
       protected:
@@ -452,7 +476,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(target);
             Ref<Mesh> cube = MeshPrimitives::CreateSkyboxCube();
             ASSERT_TRUE(cube);
-            target->Bind();
+            const BoundTarget bound(target);
             RenderCommand::SetViewport(0, 0, 32, 32);
             CommandDispatch::BindSceneResources();
             prefilterBlock->Bind();
@@ -470,8 +494,7 @@ namespace OloEngine::Tests
             EXPECT_EQ(BindingContract::ViolationCount() - refusedBefore, 1u)
                 << "the prefilter was refused its own block";
             EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_USER_0), prefilterBlock->GetRHIHandle())
-                << "after another program's refusal the prefilter did not find its own block on the binding point";
-            target->Unbind(); });
+                << "after another program's refusal the prefilter did not find its own block on the binding point"; });
     }
 
     // Whose word a block's name is. A GL program linked from SPIR-V carries no
@@ -523,7 +546,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(target);
             Ref<Mesh> cube = MeshPrimitives::CreateSkyboxCube();
             ASSERT_TRUE(cube);
-            target->Bind();
+            const BoundTarget bound(target);
             RenderCommand::SetViewport(0, 0, 32, 32);
             CommandDispatch::BindSceneResources();
             block->Bind();
@@ -548,7 +571,43 @@ namespace OloEngine::Tests
             block->Bind();
             RenderCommand::DrawIndexed(vao);
             EXPECT_EQ(BindingContract::ViolationCount() - refusedBefore, 1u) << "the block was refused under its own declared name";
-            target->Unbind(); });
+
+            // Two stages that call one binding by two names. Their blocks are
+            // the same size, so nothing says which of the program's blocks is
+            // which, and the occupant has to be both: it is the first and not
+            // the second, and that is one refusal in whichever order the
+            // stages were reflected. A check that took the first name it found
+            // accepted this read in one order and refused it in the other.
+            OpenGLBlockContract::DeclaredBlock second = own[static_cast<sizet>(postProcess - own.begin())];
+            second.Name = FString("IBLParameters");
+            for (const bool ownNameFirst : { true, false })
+            {
+                std::vector<OpenGLBlockContract::DeclaredBlock> twoNames = own;
+                if (ownNameFirst)
+                    twoNames.push_back(second);
+                else
+                    twoNames.insert(twoNames.begin(), second);
+                OpenGLBlockContract::DeclareProgramBlocks(program, twoNames);
+                const u64 refusedBeforeTwo = BindingContract::ViolationCount();
+                block->Bind();
+                RenderCommand::DrawIndexed(vao);
+                EXPECT_EQ(BindingContract::ViolationCount() - refusedBeforeTwo, 1u)
+                    << "two names at one binding, the occupant's own name " << (ownNameFirst ? "first" : "second")
+                    << ": the occupant was not held to both";
+            }
+
+            // Declaring a program's own declaration again is a copy, not a
+            // read of freed storage: the span is into what the call replaces.
+            OpenGLBlockContract::DeclareProgramBlocks(program, own);
+            OpenGLBlockContract::DeclareProgramBlocks(program, OpenGLBlockContract::DeclaredBlocks(program));
+            const std::span<const OpenGLBlockContract::DeclaredBlock> again = OpenGLBlockContract::DeclaredBlocks(program);
+            ASSERT_EQ(again.size(), own.size());
+            for (sizet i = 0; i < own.size(); ++i)
+                EXPECT_EQ(again[i].Name.ToView(), own[i].Name.ToView());
+            const u64 refusedBeforeOwn = BindingContract::ViolationCount();
+            block->Bind();
+            RenderCommand::DrawIndexed(vao);
+            EXPECT_EQ(BindingContract::ViolationCount() - refusedBeforeOwn, 0u) << "the block was refused under its own declared name"; });
     }
 
     // The alternate-camera seam with a real draw, on both backends. A replay

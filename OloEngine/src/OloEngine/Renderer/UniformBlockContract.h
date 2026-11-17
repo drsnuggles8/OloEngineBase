@@ -75,7 +75,8 @@ namespace OloEngine::BindingContract
     // and so is a block the program cannot name (`NameHash` 0): with one side
     // of the comparison missing there is no layout to disagree about, and a
     // refusal would zero every block such a program reads. The backend that
-    // found no name reports it (OpenGLBlockContract::FindOrBuildProgram).
+    // found no name reports it: OpenGLBlockContract::FindOrBuildProgram, and
+    // the Vulkan shaders where they reflect the block.
     // Which buffers must declare is a rule about the engine's sources, not
     // about a draw: every UniformBuffer::Create in the engine and the editor on
     // a binding point that hosts several layouts

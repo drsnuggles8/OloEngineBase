@@ -687,6 +687,15 @@ namespace OloEngine
             {
                 blockSize = static_cast<u32>(compiler.get_declared_struct_size(compiler.get_type(resource.base_type_id)));
                 blockNameHash = BindingContract::HashBlockName(resource.name);
+                if (blockNameHash == 0u)
+                {
+                    // BindingContract::Check judges such a block on its byte
+                    // range alone. Not silently: SPIR-V compiled without debug
+                    // names would switch the layout check off for every block.
+                    OLO_CORE_ERROR("[BindingContract] '{}' reads a uniform block at binding {} ({} B) that its SPIR-V does not "
+                                   "name. Its reads are checked for size only, not for layout.",
+                                   GetName(), binding, blockSize);
+                }
             }
             m_Bindings.Add(VulkanShaderBinding{ .Set = set,
                                                 .Binding = binding,

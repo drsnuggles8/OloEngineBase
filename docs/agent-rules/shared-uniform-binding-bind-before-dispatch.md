@@ -116,12 +116,18 @@ is back for the next program). These rules come with it:
   SPIR-V has no names (ARB_gl_spirv). NVIDIA reports the SPIR-V debug names anyway; Mesa reports an
   empty string. On OpenGL a block's name comes from the shader's SPIR-V reflection
   (`OpenGLBlockContract::DeclareProgramBlocks`, called by `OpenGLShader::FinalizeProgram`); its
-  binding and size come from the linked program, which every driver reports. Only a program built
-  from GLSL text (compute, the bindless variants) takes its names from the driver, where SPIRV-Cross
-  renames a later stage's copy `Name_1`: do not name a block with a `_<digits>` suffix.
+  binding and size come from the linked program, which every driver reports. Only a program with
+  no reflection takes its names from the driver: compute programs and the bindless raw-route
+  variants, which are built from the shader's own GLSL text and declare nothing. The SPIRV-Cross
+  text route (`OLO_GL_GLSL_ROUTE`, old AMD drivers) is reflected like the SPIR-V route; its driver
+  names would carry SPIRV-Cross's `Name_1` for a later stage's copy, so do not name a block with a
+  `_<digits>` suffix.
+- **Two names at one binding are two readers.** Where two stages declare one binding under two
+  names of the same size, the occupant is held to both, in whatever order the stages were reflected.
 - **A block nothing can name is checked for size only, and says so.** One `[BindingContract]` error
-  per program names the binding. It is not refused: a refusal on a missing name zeroes every block
-  the program reads.
+  names the program and the binding, on OpenGL when the program is first walked and on Vulkan when
+  the shader is reflected. It is not refused: a refusal on a missing name zeroes every block the
+  program reads.
 
 When the check first shipped it took the names from `glGetProgramResourceName`. Every block read on
 Mesa was "another layout", every block was replaced by zeros, and the AMD nightly rendered black in

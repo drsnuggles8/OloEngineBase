@@ -60,6 +60,8 @@ namespace OloEngine
         // The blocks of `program`, from SPIR-V reflection. Called whenever a
         // program is finalised, with an empty span when it was built from no
         // SPIR-V, and replaces what was declared for that program name before.
+        // Two declarations of one binding and size under two names are two
+        // readers of that point, and the occupant is held to both.
         //
         // This is where the check gets a block's NAME. The driver cannot be
         // asked: a program linked from SPIR-V carries no names (ARB_gl_spirv),
