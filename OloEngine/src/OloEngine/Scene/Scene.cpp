@@ -15523,6 +15523,10 @@ namespace OloEngine
                         return fallback;
                     return std::clamp(v, lo, hi);
                 };
+                // The tile whose surface is nearest the eye: the one the fog is taken from.
+                const WaterComponent* fogWater = nullptr;
+                glm::mat4 fogWaterModel(1.0f);
+                bool fogWaterDrawsFFT = false;
                 auto waterView = m_Registry.view<TransformComponent, WaterComponent>();
                 for (auto entity : waterView)
                 {
@@ -15539,12 +15543,15 @@ namespace OloEngine
                     // gap = surfaceY - cameraY, so gap > 0 is submerged and a
                     // small negative gap means the eye is just above the flat
                     // surface but a crest can still wash over it. The ToneMap fog
-                    // now reads the per-pixel water-surface depth, so it fogs only
-                    // the genuinely-underwater pixels (it no longer mistakes the
-                    // seafloor behind the surface for the surface) — which is why
-                    // we can safely activate near/above the waterline. Well above
-                    // the water (gap < -kWaveReach) stays the water shader's own
-                    // refraction/depth tint. Nearest surface (smallest |gap|) wins.
+                    // reads the per-pixel water-surface depth and fogs only water
+                    // on the EYE'S side of that surface: the underside of a crest
+                    // over the eye, and everything once the eye itself is under
+                    // (UnderwaterFog::SurfacePixelFogShare). A surface seen from
+                    // above keeps the water shader's own reflection and depth
+                    // tint, which is why activating above the waterline is safe:
+                    // a camera low over the sea and one well above it (gap <
+                    // -waveReach, flag off) see the same sea. Nearest surface
+                    // (smallest |gap|) wins.
                     // How far above the FLAT plane a crest can actually reach.
                     //
                     // This was a hard-coded 2 m, which is not "generous" for an
@@ -15591,6 +15598,9 @@ namespace OloEngine
                     {
                         bestSurfaceDist = absGap;
                         underwater.Active = true;
+                        fogWater = &water;
+                        fogWaterModel = transform.GetTransform();
+                        fogWaterDrawsFFT = fftActive;
                         // Sanitize each colour component before clamping — glm::clamp
                         // passes NaN through, so a bad component would propagate into
                         // the fog UBO and break the tone-map pass. Replace non-finite
@@ -15664,11 +15674,51 @@ namespace OloEngine
                 if (UnderwaterCaustics::GodRaySunScreenUV(viewProjection, sunDir, sunScreenUV))
                     sunInFront = 1.0f;
 
+                // How far the eye is under the surface DRAWN above it, waves included,
+                // for the full-screen lens effects. The still plane is the wrong
+                // reference on a sea with any height to it: an eye in a trough is below
+                // the plane and in the air, and one inside a crest is the reverse.
+                // Sampled on the tile that won the fog above: the fog colour, the
+                // refraction and this depth then all describe one body of water.
+                f32 eyeDepth = 0.0f;
+                if (underwater.Active)
+                {
+                    eyeDepth = underwater.WaterSurfaceY - cameraPosition.y;
+                    if (std::optional<WaterProbe::Volume> volume = fogWater ? WaterProbe::MakeVolume(fogWaterModel, *fogWater) : std::nullopt)
+                    {
+                        // The probe is how PHYSICS sees the tile. Three places it can
+                        // differ from what is on screen, and here the screen decides:
+                        //  * the shader draws the FFT sea only once its textures exist
+                        //    (fftActive above) and Gerstner waves until then;
+                        //  * an FFT sea drawn with no CPU proxy to sample has no height
+                        //    to offer, and the still plane stands;
+                        //  * the wake shapes every drawn tile alike, whether or not
+                        //    buoyancy rides it: one set of tunables, the largest
+                        //    wake-enabled tile's, published above for this frame.
+                        const bool hasProxy = volume->m_OceanField != nullptr;
+                        if (!fogWaterDrawsFFT)
+                            volume->m_OceanField = nullptr;
+                        const WaterWakeSettings& drawnWake = Renderer3D::GetWaterWakeSettings();
+                        volume->m_WakeAffectsPhysics = drawnWake.m_Enabled;
+                        volume->m_WakeHeightScale = drawnWake.m_Enabled ? drawnWake.m_HeightScale : 0.0f;
+                        volume->m_WakeFlattenStrength = drawnWake.m_FlattenStrength;
+                        if (!fogWaterDrawsFFT || hasProxy)
+                        {
+                            const f32 surfaceY = WaterProbe::SampleSurfaceY(
+                                *volume, glm::vec2(cameraPosition.x, cameraPosition.z), animationTime);
+                            if (std::isfinite(surfaceY))
+                                eyeDepth = surfaceY - cameraPosition.y;
+                        }
+                    }
+                    if (!std::isfinite(eyeDepth))
+                        eyeDepth = 0.0f;
+                }
+
                 UnderwaterFogUBOData uwData{};
                 uwData.ColorAndDensity = glm::vec4(underwater.FogColor, underwater.Density);
                 // Flags.z carries the animation clock for the refraction wobble +
                 // caustic scroll (mirrors the water surface's own wave time).
-                uwData.Flags = glm::vec4(underwater.Active ? 1.0f : 0.0f, underwater.WaterSurfaceY, animationTime, 0.0f);
+                uwData.Flags = glm::vec4(underwater.Active ? 1.0f : 0.0f, underwater.WaterSurfaceY, animationTime, eyeDepth);
                 uwData.CameraPos = glm::vec4(cameraPosition, 0.0f);
                 uwData.RefractionParams = refractionParams;
                 uwData.CausticParams = causticParams;

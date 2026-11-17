@@ -36,32 +36,20 @@ namespace OloEngine::WaterProbe
         }
     } // namespace
 
-    std::vector<Volume> CollectEnabledVolumes(Scene* scene)
+    std::optional<Volume> MakeVolume(const glm::mat4& model, const WaterComponent& wc)
     {
-        std::vector<Volume> waters;
-        if (!scene)
-            return waters;
-
-        auto waterView = scene->GetAllEntitiesWith<TransformComponent, WaterComponent>();
-        for (auto e : waterView)
+        Volume w;
         {
-            Entity waterEntity{ e, scene };
-            const auto& wc = waterEntity.GetComponent<WaterComponent>();
-            if (!wc.m_Enabled)
-                continue;
-
-            const glm::mat4 model = waterEntity.GetComponent<TransformComponent>().GetTransform();
             // The water grid is a horizontal XZ plane at local y = 0; its world
             // height is the y of the tile origin (same assumption as the
             // underwater-fog footprint test).
             const glm::vec4 originWorld = model * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
             if (!std::isfinite(originWorld.y))
-                continue;
+                return std::nullopt;
 
             const f32 safeSizeX = std::isfinite(wc.m_WorldSizeX) ? wc.m_WorldSizeX : 0.1f;
             const f32 safeSizeZ = std::isfinite(wc.m_WorldSizeZ) ? wc.m_WorldSizeZ : 0.1f;
 
-            Volume w;
             w.m_Params = MakeParams(wc, originWorld.y);
             w.m_InvModel = glm::inverse(model);
             w.m_HalfX = std::clamp(safeSizeX, 0.1f, 10000.0f) * 0.5f;
@@ -96,8 +84,26 @@ namespace OloEngine::WaterProbe
             w.m_WakeFlattenStrength = std::isfinite(wc.m_WakeShapeFlattenStrength)
                                           ? std::clamp(wc.m_WakeShapeFlattenStrength, 0.0f, 1.0f)
                                           : 0.9f;
+        }
+        return w;
+    }
 
-            waters.push_back(w);
+    std::vector<Volume> CollectEnabledVolumes(Scene* scene)
+    {
+        std::vector<Volume> waters;
+        if (!scene)
+            return waters;
+
+        auto waterView = scene->GetAllEntitiesWith<TransformComponent, WaterComponent>();
+        for (auto e : waterView)
+        {
+            Entity waterEntity{ e, scene };
+            const auto& wc = waterEntity.GetComponent<WaterComponent>();
+            if (!wc.m_Enabled)
+                continue;
+
+            if (const std::optional<Volume> w = MakeVolume(waterEntity.GetComponent<TransformComponent>().GetTransform(), wc))
+                waters.push_back(*w);
         }
         return waters;
     }

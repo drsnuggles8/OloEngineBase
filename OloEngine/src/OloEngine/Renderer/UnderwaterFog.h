@@ -71,5 +71,46 @@ namespace OloEngine
             return camUnder ? glm::length(crossPoint - camPos)    // cam under, frag above
                             : glm::length(worldPos - crossPoint); // cam above, frag under
         }
+
+        // Whether the eye itself is in the water, for the fog: 0 in the air, 1 from
+        // kEyeInWaterRamp under the surface drawn above it. `eyeDepth` is that
+        // surface's height minus the eye's, waves included.
+        //
+        // This is NOT UnderwaterCaustics::EyeSubmersion, the lens weight. The wobble
+        // is a look and eases in over a quarter metre. The fog is the water in front
+        // of the eye, and an eye a hand's breadth under has all of it: eased like
+        // the lens, a camera at the waterline saw two thirds of the way through the
+        // sea to its bed (Water_Waterline.png holds that frame, from 8 cm under a
+        // crest). The ramp is the width of a lens, so the crossing takes a few
+        // frames and not one.
+        // MUST match the GLSL `underwaterEyeInWater` in PostProcess_ToneMap.glsl.
+        inline constexpr f32 kEyeInWaterRamp = 0.05f;
+        [[nodiscard]] inline f32 EyeInWater(f32 eyeDepth) noexcept
+        {
+            if (!std::isfinite(eyeDepth))
+                return 0.0f;
+            return std::clamp(eyeDepth / kEyeInWaterRamp, 0.0f, 1.0f);
+        }
+
+        // How much of the underwater shading (caustics and fog) a pixel takes, given
+        // the height of the water surface in front of it: the one the water pass
+        // drew at that pixel, or the still plane where it drew none.
+        //
+        // A surface BELOW the eye is seen from above: the water shader has already
+        // put its reflection and its own depth tint there, and fog laid over that
+        // replaces the whole sea with one flat colour (which is what every camera
+        // inside the flag's reach of the surface used to show). So an eye in the air
+        // leaves such a pixel alone. An eye in the water has water between it and
+        // everything and fogs it: `eyeInWater` is EyeInWater (above) of the eye's
+        // depth.
+        // A surface ABOVE the eye is a crest's underside, with water on this side of
+        // it, and is always fogged.
+        // MUST match the GLSL `underwaterSurfacePixelFogShare` in PostProcess_ToneMap.glsl.
+        [[nodiscard]] inline f32 SurfacePixelFogShare(f32 cameraY, f32 surfaceY, f32 eyeInWater) noexcept
+        {
+            if (!std::isfinite(eyeInWater))
+                eyeInWater = 0.0f;
+            return cameraY >= surfaceY ? std::clamp(eyeInWater, 0.0f, 1.0f) : 1.0f;
+        }
     } // namespace UnderwaterFog
 } // namespace OloEngine

@@ -123,7 +123,7 @@ layout(std140, binding = 7) uniform PostProcessUBO
 layout(std140, binding = 37) uniform UnderwaterFogBlock
 {
     vec4 u_UnderwaterColorAndDensity; // rgb = fog colour, a = per-metre density
-    vec4 u_UnderwaterFlags;           // x = active (>0.5), y = waterSurfaceY, z = time, w = pad
+    vec4 u_UnderwaterFlags;           // x = active (>0.5), y = waterSurfaceY, z = time, w = eye depth under the drawn surface
     vec4 u_UnderwaterCameraPos;       // xyz = camera world position, w = pad
     vec4 u_UnderwaterRefraction;      // x = strength (UV units, 0 = off), y = scale, z = speed, w = chromatic
     vec4 u_UnderwaterCaustics;        // x = intensity (0 = off), y = scale, z = speed, w = maxDepth
@@ -134,6 +134,15 @@ layout(std140, binding = 37) uniform UnderwaterFogBlock
     vec4 u_UnderwaterGodRayShape;     // x = dappleFloor, y = sunFalloff, zw = pad
     mat4 u_UnderwaterInvViewProj;     // NDC -> world reconstruction
 };
+
+// How much of the full-screen lens (wobble + god rays) an eye sees: none until it
+// is under the surface drawn above it, all of it a quarter metre down, eased
+// between so a camera bobbing at the waterline does not pop.
+// MUST match UnderwaterCaustics::EyeSubmersion (UnderwaterCaustics.h).
+float underwaterEyeSubmersion(float eyeDepth)
+{
+    return clamp(eyeDepth / 0.25, 0.0, 1.0);
+}
 
 // Animated screen-space UV offset for the submerged refraction wobble.
 // MUST match UnderwaterCaustics::RefractionOffset (UnderwaterCaustics.h).
@@ -272,16 +281,45 @@ float underwaterSegmentLength(vec3 camPos, vec3 worldPos, float waterY)
     return camUnder ? length(crossPoint - camPos) : length(worldPos - crossPoint);
 }
 
+// Whether the eye itself is in the water, for the fog: 0 in the air, 1 from five
+// centimetres under the surface drawn above it. This is NOT the lens weight
+// above. The wobble is a look and eases in over a quarter metre; the fog is the
+// water in front of the eye, and an eye a hand's breadth under has all of it:
+// eased like the lens, a camera at the waterline saw two thirds of the way
+// through the sea to its bed. The five centimetres are the width of a lens, so
+// the crossing takes a few frames and not one.
+// MUST match UnderwaterFog::EyeInWater (UnderwaterFog.h).
+float underwaterEyeInWater(float eyeDepth)
+{
+    return clamp(eyeDepth / 0.05, 0.0, 1.0);
+}
+
+// How much of the underwater shading a pixel takes, given the height of the
+// water surface in front of it: the one the water pass drew there, or the still
+// plane where it drew none. A surface BELOW the eye is seen from above: the water
+// shader has already put its reflection and its own depth tint there, and fog
+// laid over that replaces the whole sea with one flat colour. So an eye in the
+// air leaves such a pixel alone; an eye in the water (eyeInWater, above) has
+// water between it and everything, and fogs it. A surface ABOVE the eye is a
+// crest's underside, with water on this side of it, and is always fogged.
+// MUST match UnderwaterFog::SurfacePixelFogShare (UnderwaterFog.h).
+float underwaterSurfacePixelFogShare(float cameraY, float surfaceY, float eyeInWater)
+{
+    return (cameraY >= surfaceY) ? clamp(eyeInWater, 0.0, 1.0) : 1.0;
+}
+
 // Underwater shading for this pixel: adds animated caustics to the submerged
 // surface radiance (§7.1) and then applies Beer-Lambert absorption over the
 // underwater segment of the view ray (§7.2). The fog blend mirrors UnderwaterFog
 // (UnderwaterFog.h) and the caustic math mirrors UnderwaterCaustics
 // (UnderwaterCaustics.h); both are pinned by the WaterRendering tests.
-vec3 applyUnderwaterFog(vec3 color, vec2 uv)
+// eyeInWater is underwaterEyeInWater of the eye's depth (see main).
+vec3 applyUnderwaterFog(vec3 color, vec2 uv, float eyeInWater)
 {
     if (u_UnderwaterFlags.x < 0.5)
         return color;
 
+    vec3 drawn = color;
     float depth = texture(u_DepthTexture, uv).r;
     // Reconstruct the world position of the opaque geometry (or far plane) at
     // this pixel; the segment between the camera and it that lies underwater is
@@ -303,6 +341,7 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv)
         vec4 sH = u_UnderwaterInvViewProj * sNdc;
         surfaceY = (sH.xyz / sH.w).y;
     }
+    float share = underwaterSurfacePixelFogShare(u_UnderwaterCameraPos.y, surfaceY, eyeInWater);
 
     // Caustics (§7.1): animated light projected onto submerged geometry. Added to
     // the surface radiance BEFORE the Beer-Lambert absorption below, so distant
@@ -328,7 +367,10 @@ vec3 applyUnderwaterFog(vec3 color, vec2 uv)
     float density = clamp(u_UnderwaterColorAndDensity.a, 0.0, 10.0);
     float transmittance = exp(-density * underwaterDist);
     vec3 fogColor = u_UnderwaterColorAndDensity.rgb;
-    return color * transmittance + fogColor * (1.0 - transmittance);
+    vec3 fogged = color * transmittance + fogColor * (1.0 - transmittance);
+    // Blended at the end, not returned early: the derivatives above want uniform
+    // control flow.
+    return mix(drawn, fogged, share);
 }
 
 vec3 reinhardToneMapping(vec3 color)
@@ -365,11 +407,24 @@ void main()
     // is bit-for-bit unchanged. The depth/world reconstruction in
     // applyUnderwaterFog still uses the TRUE pixel UV (v_TexCoord) so fog distance
     // and caustic projection stay geometrically correct.
+    //
+    // "Below the surface" is NOT the underwater flag. The scene raises that flag
+    // from a wave's reach ABOVE the still surface (two metres, more on an FFT
+    // sea) so the per-pixel fog in applyUnderwaterFog can follow a crest across
+    // the lens. The wobble and the shafts are full-screen: gated on the flag
+    // alone they bent the whole frame, with coloured edges, for any camera that
+    // was merely low over the water. They take the eye's own depth instead,
+    // under the surface DRAWN above it (the scene samples the waves at the
+    // camera, so an eye in a trough is in the air and one in a crest is not).
+    float eyeSubmersion = (u_UnderwaterFlags.x >= 0.5)
+        ? underwaterEyeSubmersion(u_UnderwaterFlags.w)
+        : 0.0;
+
     vec3 hdrColor;
-    if (u_UnderwaterFlags.x >= 0.5 && u_UnderwaterRefraction.x > 0.0)
+    if (eyeSubmersion > 0.0 && u_UnderwaterRefraction.x > 0.0)
     {
         vec2 off = underwaterRefractionOffset(v_TexCoord, u_UnderwaterFlags.z,
-                                              u_UnderwaterRefraction.x,
+                                              u_UnderwaterRefraction.x * eyeSubmersion,
                                               u_UnderwaterRefraction.y,
                                               u_UnderwaterRefraction.z);
         vec2 baseUV = clamp(v_TexCoord + off, 0.0, 1.0);
@@ -394,20 +449,21 @@ void main()
     // Underwater absorption + caustics — applied in linear HDR radiance before
     // exposure so the in-scatter colour is exposed/tonemapped with the rest of
     // the scene.
-    hdrColor = applyUnderwaterFog(hdrColor, v_TexCoord);
+    hdrColor = applyUnderwaterFog(hdrColor, v_TexCoord, underwaterEyeInWater(u_UnderwaterFlags.w));
 
     // Volumetric light shafts (§3.3): additive sunlight streaming down through the
-    // surface. Gated on being submerged (Flags.x), god rays enabled (intensity),
-    // the sun being on screen / in front (GodRaySun.w) and above the horizon
-    // (CausticColor.w = sun-overhead factor). Added on top of the fogged image —
-    // the shafts are in-scatter toward the eye, not absorbed by the same fog.
-    if (u_UnderwaterFlags.x >= 0.5 && u_UnderwaterGodRay.x > 0.0
+    // surface. Gated on the eye being submerged (eyeSubmersion above, not the
+    // flag), god rays enabled (intensity), the sun being on screen / in front
+    // (GodRaySun.w) and above the horizon (CausticColor.w = sun-overhead factor).
+    // Added on top of the fogged image — the shafts are in-scatter toward the
+    // eye, not absorbed by the same fog.
+    if (eyeSubmersion > 0.0 && u_UnderwaterGodRay.x > 0.0
         && u_UnderwaterGodRaySun.w > 0.5 && u_UnderwaterCausticColor.w > 0.0)
     {
         int samples = clamp(int(u_UnderwaterGodRaySun.x), 1, 256);
         vec3 shafts = underwaterGodRays(v_TexCoord, u_UnderwaterGodRaySun.yz, samples,
                                         u_UnderwaterGodRay.y, u_UnderwaterGodRay.z, u_UnderwaterGodRay.w);
-        hdrColor += shafts * u_UnderwaterGodRay.x * u_UnderwaterCausticColor.w * u_UnderwaterGodRayColor.rgb;
+        hdrColor += shafts * (u_UnderwaterGodRay.x * eyeSubmersion) * u_UnderwaterCausticColor.w * u_UnderwaterGodRayColor.rgb;
     }
 
     // Apply exposure. Auto-exposure (when enabled) writes a positive metered

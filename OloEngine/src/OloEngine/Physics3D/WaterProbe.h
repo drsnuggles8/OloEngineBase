@@ -6,11 +6,13 @@
 
 #include <glm/glm.hpp>
 
+#include <optional>
 #include <vector>
 
 namespace OloEngine
 {
     class Scene;
+    struct WaterComponent;
 
     namespace Ocean
     {
@@ -73,6 +75,10 @@ namespace OloEngine::WaterProbe
         f32 m_WakeHeightScale = 0.0f;     ///< 0 when the wake is disabled on this tile
         f32 m_WakeFlattenStrength = 0.9f; ///< WaterComponent::m_WakeShapeFlattenStrength
     };
+
+    /// One WaterComponent tile resolved to world space, or nothing when its transform
+    /// is not finite. For a caller that has already chosen the tile.
+    [[nodiscard("the resolved tile must be used")]] std::optional<Volume> MakeVolume(const glm::mat4& model, const WaterComponent& water);
 
     /// Every enabled WaterComponent tile in the scene, resolved to world space.
     /// Typically 0 or 1 entries; an empty result means "no water here".

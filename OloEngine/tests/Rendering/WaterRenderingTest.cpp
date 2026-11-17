@@ -14,6 +14,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <cmath>
+#include <limits>
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
@@ -865,6 +866,33 @@ namespace
     }
 } // namespace
 
+// The full-screen lens (wobble + god rays) is weighted by how far the eye is under
+// the surface drawn above it. CPU mirror of underwaterEyeSubmersion.
+TEST(WaterRendering, EyeSubmersionIsZeroInAirAndFullAQuarterMetreDown)
+{
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(-1.0f), 0.0f) << "an eye a metre over the water saw the lens";
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(-0.001f), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(0.0f), 0.0f);
+    EXPECT_NEAR(UnderwaterCaustics::EyeSubmersion(0.125f), 0.5f, 1.0e-6f) << "the ramp is not linear over its quarter metre";
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(UnderwaterCaustics::kEyeSubmersionRamp), 1.0f);
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(40.0f), 1.0f);
+
+    f32 previous = 0.0f;
+    for (i32 i = 0; i <= 50; ++i)
+    {
+        const f32 weight = UnderwaterCaustics::EyeSubmersion(-0.1f + 0.01f * static_cast<f32>(i));
+        EXPECT_GE(weight, previous) << "the lens weakened as the eye went deeper";
+        previous = weight;
+    }
+}
+
+TEST(WaterRendering, EyeSubmersionSurvivesGarbageDepth)
+{
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(std::numeric_limits<f32>::quiet_NaN()), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(std::numeric_limits<f32>::infinity()), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(-std::numeric_limits<f32>::infinity()), 0.0f);
+}
+
 TEST(WaterRendering, RefractionOffsetDisabledWhenStrengthZeroOrNegative)
 {
     const glm::vec2 off0 = UnderwaterCaustics::RefractionOffset({ 0.3f, 0.7f }, 5.0f, 0.0f, 18.0f, 1.2f);
@@ -1191,6 +1219,70 @@ TEST(WaterRendering, UnderwaterSegment_RespectsNonZeroSurfacePlane)
     const glm::vec3 cam(0.0f, 5.0f, 0.0f);   // at the raised surface
     const glm::vec3 frag(0.0f, -5.0f, 0.0f); // 10 m below the surface
     EXPECT_NEAR(UnderwaterFog::UnderwaterSegmentLength(cam, frag, surfaceY), 10.0f, 1e-4f);
+}
+
+// The fog is only for water on the EYE'S side of the surface in front of a pixel
+// (the drawn one, or the still plane where none was drawn). CPU mirror of
+// underwaterSurfacePixelFogShare.
+TEST(WaterRendering, SurfacePixelFog_AnEyeInTheAirLeavesTheSeaBelowItAsDrawn)
+{
+    // One metre over the sea, looking at it: the water shader shaded that pixel.
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, 0.0f), 0.0f) << "the fog was laid over the sea seen from above";
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(0.05f, -0.3f, 0.0f), 0.0f) << "a trough below a low eye is still seen from above";
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(0.0f, 0.0f, 0.0f), 0.0f);
+}
+
+TEST(WaterRendering, SurfacePixelFog_ACrestOverTheEyeIsFoggedWhereverTheEyeIs)
+{
+    // The underside of a crest: there is water between the eye and that surface.
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(0.5f, 1.2f, 0.0f), 1.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(-3.0f, 0.0f, 1.0f), 1.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(-3.0f, 0.0f, 0.0f), 1.0f) << "the share must not wait for the lens weight under a crest";
+}
+
+TEST(WaterRendering, SurfacePixelFog_ASubmergedEyeFogsTheSurfaceBelowItTooAndEasesIn)
+{
+    // An eye inside a crest, above the trough ahead of it: its lens is in the water.
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(0.4f, -0.2f, 1.0f), 1.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(0.4f, -0.2f, 0.5f), 0.5f) << "the fog must come in with the lens, not pop";
+
+    f32 previous = 0.0f;
+    for (i32 i = 0; i <= 40; ++i)
+    {
+        const f32 share = UnderwaterFog::SurfacePixelFogShare(0.4f, -0.2f, UnderwaterFog::EyeInWater(-0.05f + 0.005f * static_cast<f32>(i)));
+        EXPECT_GE(share, previous) << "the fog thinned as the eye went under";
+        previous = share;
+    }
+    EXPECT_FLOAT_EQ(previous, 1.0f);
+}
+
+// The fog is the water in front of the eye, not a look: it does not wait for the
+// lens. CPU mirror of underwaterEyeInWater.
+TEST(WaterRendering, EyeInWater_AnEyeAHandsBreadthUnderHasAllOfTheFog)
+{
+    EXPECT_FLOAT_EQ(UnderwaterFog::EyeInWater(-1.0f), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::EyeInWater(0.0f), 0.0f) << "an eye at the surface is not under it";
+
+    // Water_Waterline.png's eye: 8 cm under a crest, where the lens is a third in.
+    EXPECT_FLOAT_EQ(UnderwaterFog::EyeInWater(0.08f), 1.0f) << "the sea went transparent for an eye just under its surface";
+    EXPECT_LT(UnderwaterCaustics::EyeSubmersion(0.08f), 0.5f) << "the lens weight is the slower of the two, or this pins nothing";
+    EXPECT_FLOAT_EQ(UnderwaterFog::EyeInWater(3.0f), 1.0f);
+
+    // The crossing itself is a ramp, not a step, and never thins on the way down.
+    EXPECT_GT(UnderwaterFog::EyeInWater(0.5f * UnderwaterFog::kEyeInWaterRamp), 0.0f);
+    EXPECT_LT(UnderwaterFog::EyeInWater(0.5f * UnderwaterFog::kEyeInWaterRamp), 1.0f);
+    EXPECT_GE(UnderwaterFog::EyeInWater(0.04f), UnderwaterFog::EyeInWater(0.02f));
+
+    EXPECT_FLOAT_EQ(UnderwaterFog::EyeInWater(std::numeric_limits<f32>::quiet_NaN()), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::EyeInWater(std::numeric_limits<f32>::infinity()), 0.0f);
+}
+
+TEST(WaterRendering, SurfacePixelFog_SurvivesGarbageWeights)
+{
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, std::numeric_limits<f32>::quiet_NaN()), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, std::numeric_limits<f32>::infinity()), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, 7.0f), 1.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, -7.0f), 0.0f);
 }
 
 TEST(WaterRendering, WaterFace_CameraAbove_KeepsTopsDiscardsUndersides)

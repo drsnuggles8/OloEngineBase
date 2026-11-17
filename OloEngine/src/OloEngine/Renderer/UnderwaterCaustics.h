@@ -42,6 +42,21 @@ namespace OloEngine
             return glm::vec2(ox, oy) * s;
         }
 
+        // How much of the full-screen underwater lens (the refraction wobble and the
+        // god rays) an eye sees: none until it is under the surface drawn above it,
+        // all of it a quarter metre down, eased between so a camera bobbing at the
+        // waterline does not pop. `eyeDepth` is that surface's height minus the
+        // eye's, waves included; the underwater FLAG is raised from a wave's reach
+        // above the still plane and is not this.
+        // MUST match `underwaterEyeSubmersion` in PostProcess_ToneMap.glsl.
+        inline constexpr f32 kEyeSubmersionRamp = 0.25f;
+        [[nodiscard]] inline f32 EyeSubmersion(f32 eyeDepth) noexcept
+        {
+            if (!std::isfinite(eyeDepth))
+                return 0.0f;
+            return std::clamp(eyeDepth / kEyeSubmersionRamp, 0.0f, 1.0f);
+        }
+
         // One octave of the caustic web: a thin wavy ridge that's bright along the
         // zero-contour of a pair of drifting sines, sharpened with a cube so the
         // line stays narrow. MUST match `underwaterCausticOctave` in the shader.
