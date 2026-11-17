@@ -42,8 +42,8 @@ delay between them, before the step fails.
 | `setup-llvm-linux` (LLVM, 2 GB) | `--retry 3` | `--retry-all-errors` added |
 | `setup-llvm-windows` (LLVM) | no retry | `--retry 3 --retry-delay 5 --retry-all-errors` |
 | `video-ffmpeg.yml` (decode fixture) | `--retry 3` | `--retry-all-errors` added |
-| `cross-vendor.yml` (Mesa llvmpipe) | `Invoke-WebRequest` | `curl.exe` with the same flags, exit code checked |
-| `vulkan-software.yml` (Mesa lavapipe) | `Invoke-WebRequest` | `curl.exe` with the same flags, exit code checked |
+| `cross-vendor.yml` (Mesa llvmpipe) | `Invoke-WebRequest` | `curl.exe` with the same flags, exit code and SHA-256 checked |
+| `vulkan-software.yml` (Mesa lavapipe) | `Invoke-WebRequest` | `curl.exe` with the same flags, exit code and SHA-256 checked |
 
 The Mesa step of `vulkan-software.yml` runs after a build of two to four hours, so one dropped
 connection there costs the whole job. `Invoke-WebRequest -MaximumRetryCount` was not an
@@ -51,6 +51,29 @@ alternative: it answers HTTP status codes, not a connection that drops.
 
 `setup-llvm-apt` fetches its signing key with `wget` inside its own four-attempt loop and is left
 as it is.
+
+## What is pinned by checksum
+
+A download that is a tool the job then runs is held to a SHA-256 written next to its version, and
+the step fails on a mismatch before anything is unpacked:
+
+| Download | Where the checksum is | Checked with |
+|---|---|---|
+| LLVM for Linux | the `sha256` input of `setup-llvm-linux` | `sha256sum -c` |
+| LLVM for Windows | the `sha256` input of `setup-llvm-windows` | `Get-FileHash` |
+| Mesa 24.3.4 (`cross-vendor.yml`) | `$sha256` in the download step, beside the URL | `Get-FileHash` |
+| Mesa `MESA_VERSION` (`vulkan-software.yml`) | `MESA_SHA256` in the workflow's `env`, beside the version | `Get-FileHash` |
+
+The two Mesa archives were pinned by release tag only until PR #1706. Their checksums are of the
+archives as downloaded on 2026-11-17; for 26.2.0 it equals the `digest` GitHub's release API
+reports for the asset, and 24.3.4 predates that field. The same lines accept both archives locally
+and refuse one checked against the other's checksum.
+
+A version bump changes two values. The asset's digest is in
+`gh api repos/pal1000/mesa-dist-win/releases/tags/<version>` under `assets[].digest`.
+
+Not pinned: the decode fixture of `video-ffmpeg.yml`, a sample video from a third-party host. It
+is test input, not a tool, and the step checks only that the file is not empty.
 
 ## What the hook reads
 
@@ -63,7 +86,9 @@ as it is.
   are joined. Each command needs its own flags: a compliant download does not vouch for the one
   after it on the same line.
 - A `curl` command with `-f` / `--fail` needs `--retry-all-errors` and a `--retry` count above
-  zero. One without `-f` is not judged.
+  zero. The count judged is the last one of the command, because that is the one curl uses:
+  with `--retry 3 --retry 0 --retry-all-errors` curl made one request against the resetting
+  server and exited 56. A command without `-f` is not judged.
 - A finding in a literal block (`run: |`) reports the command's own line; in a folded or one-line
   script it reports the `run:` line.
 

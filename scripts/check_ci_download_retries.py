@@ -14,7 +14,8 @@ uses curl.exe.
 Two rules, for every `run:` script in a tracked YAML file under .github/:
 
   * a curl command that fails on an HTTP error (-f / --fail) carries
-    `--retry <n>` with n above zero and `--retry-all-errors`;
+    `--retry <n>` with n above zero and `--retry-all-errors` (the last
+    `--retry` of the command is the one curl uses);
   * no `Invoke-WebRequest ... -OutFile`.
 
 A curl command without -f is not a download whose failure the step acts on, and is
@@ -51,7 +52,7 @@ SEPARATOR_RE = re.compile(r";|&&|\|\||\|")
 CONTINUES = ("\\", "`")
 
 NO_ALL_ERRORS = "curl download without --retry-all-errors; --retry alone does not repeat a connection reset"
-NO_COUNT = "curl download with --retry-all-errors and no --retry count above zero; the flag alone enables no retry"
+NO_COUNT = "curl download with --retry-all-errors whose last --retry count is missing or zero; the flag alone enables no retry"
 IWR = "Invoke-WebRequest -OutFile does not retry a dropped connection; use curl.exe with --retry <n> --retry-all-errors"
 
 
@@ -84,8 +85,12 @@ def command_findings(command: str) -> list[str]:
     if curl and FAIL_RE.search(command[curl.start():]):
         if "--retry-all-errors" not in command:
             found.append(NO_ALL_ERRORS)
-        elif not any(int(count) > 0 for count in RETRY_COUNT_RE.findall(command)):
-            found.append(NO_COUNT)
+        else:
+            # curl keeps the last --retry it is given: `--retry 3 --retry 0`
+            # retries nothing.
+            counts = RETRY_COUNT_RE.findall(command)
+            if not counts or int(counts[-1]) == 0:
+                found.append(NO_COUNT)
     if IWR_RE.search(command):
         found.append(IWR)
     return found
@@ -146,6 +151,8 @@ SCRIPTS_MUST_FAIL = [
     # the flag enables nothing without a count, or with a count of zero
     'curl -fL --retry-all-errors -o "$file" "$url"',
     'curl -fL --retry 0 --retry-all-errors -o "$file" "$url"',
+    # curl keeps the last count it is given
+    'curl -fL --retry 3 --retry 0 --retry-all-errors -o "$file" "$url"',
     # the first command's flags do not vouch for the second
     'curl -fL --retry 3 --retry-all-errors -o a "$a"; curl -fL --retry 3 -o b "$b"',
     'curl -fL --retry 3 --retry-all-errors -o a "$a" && curl -fL -o b "$b"',
@@ -155,6 +162,7 @@ SCRIPTS_MUST_PASS = [
     "curl -fSL --retry 3 --retry-all-errors --max-time 120 \\\n  -o sample.mp4 https://example.invalid/sample.mp4",
     "curl.exe --fail --retry 3 --retry-all-errors --output mesa3d.7z $url",
     "curl.exe --fail --retry=5 --retry-all-errors --output mesa3d.7z $url",
+    'curl -fL --retry 0 --retry 3 --retry-all-errors -o "$file" "$url"',
     'curl -fL --retry 3 --retry-all-errors -o a "$a"; curl -fL --retry 3 --retry-all-errors -o b "$b"',
     "# curl -fL -o file https://example.invalid/file",
     "if curl -sSL --max-time 30 https://example.invalid/ | grep -qi reflection; then",

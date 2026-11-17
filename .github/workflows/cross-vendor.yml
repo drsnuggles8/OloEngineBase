@@ -112,11 +112,17 @@ jobs:
           # Last verified: 2026-04-20. Bump when a newer release gates OpenGL 4.6
           # feature support we rely on (compute shaders, DSA, etc.).
           $url = 'https://github.com/pal1000/mesa-dist-win/releases/download/24.3.4/mesa3d-24.3.4-release-msvc.7z'
+          # SHA256 of that archive. Bump it with the version in the URL.
+          $sha256 = '7ebc711ad1896ac88ab21e142f1017f8ff035f0f342bdb72fbb5e2eb881ba363'
           # curl.exe with every error retried, not Invoke-WebRequest, which
           # gives up on the first dropped connection. This step runs after the
           # build, so a failed download costs the whole job.
           curl.exe --fail --silent --show-error --location --retry 3 --retry-delay 5 --retry-all-errors --output mesa3d.7z $url
           if ($LASTEXITCODE -ne 0) { throw "Mesa download failed: $url" }
+          # The checksum is the pin. A release tag is only a URL, and a replaced
+          # asset would change the driver these tests run on with nothing saying so.
+          $got = (Get-FileHash mesa3d.7z -Algorithm SHA256).Hash.ToLower()
+          if ($got -ne $sha256) { throw "Mesa archive SHA256 mismatch: expected $sha256, got $got" }
           7z x mesa3d.7z -omesa3d -y | Out-Null
           # Drop the llvmpipe opengl32.dll next to the test binary so it
           # gets picked up over the system-provided driver.

@@ -113,6 +113,9 @@ env:
   # See the header: 26.2.0 is the FIRST Mesa release whose lavapipe satisfies
   # ADR 0010. Bump forward freely; never back.
   MESA_VERSION: '26.2.0'
+  # SHA256 of mesa3d-<MESA_VERSION>-release-msvc.7z, lowercase hex. Bump it with
+  # the version: the download step refuses an archive that does not match.
+  MESA_SHA256: 'dcb2719ef346dab5b609fcb193a5f13cfc4b0502e3f4de1ad43d349477402f47'
   # The scene suite the --olo-rhi=vulkan step runs and its gate requires
   # (#1556) is OloEngine/tests/vulkan_scene_filter.txt, which the
   # OloEngine-Tests_VulkanScene ctest entry reads too: the renderer-attached smoke cases (less the GL-state one, which
@@ -214,6 +217,11 @@ jobs:
           # build of two hours or more, so a failed download costs all of it.
           curl.exe --fail --silent --show-error --location --retry 3 --retry-delay 5 --retry-all-errors --output mesa3d.7z $url
           if ($LASTEXITCODE -ne 0) { throw "Mesa download failed: $url" }
+          $sha256 = '${{env.MESA_SHA256}}'
+          # The checksum is the pin. A release tag is only a URL, and a replaced
+          # asset would change the driver these tests run on with nothing saying so.
+          $got = (Get-FileHash mesa3d.7z -Algorithm SHA256).Hash.ToLower()
+          if ($got -ne $sha256) { throw "Mesa archive SHA256 mismatch: expected $sha256, got $got" }
           7z x mesa3d.7z -omesa3d -y | Out-Null
 
           # The Vulkan half: the loader is pointed at the ICD manifest in place
