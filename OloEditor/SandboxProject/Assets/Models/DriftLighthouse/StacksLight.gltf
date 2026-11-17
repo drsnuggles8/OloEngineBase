@@ -3,9 +3,6 @@
 		"generator":"Khronos glTF Blender I/O v5.3.43",
 		"version":"2.0"
 	},
-	"extensionsUsed":[
-		"KHR_materials_transmission"
-	],
 	"scene":0,
 	"scenes":[
 		{
@@ -122,21 +119,16 @@
 		},
 		{
 			"doubleSided":true,
-			"extensions":{
-				"KHR_materials_transmission":{
-					"transmissionFactor":1
-				}
-			},
-			"name":"Lantern crown glass",
+			"name":"Crown glass bevels",
 			"pbrMetallicRoughness":{
 				"baseColorFactor":[
-					0.9399999976158142,
-					0.984000027179718,
-					0.9700000286102295,
+					0.2199999988079071,
+					0.3700000047683716,
+					0.3499999940395355,
 					1
 				],
 				"metallicFactor":0,
-				"roughnessFactor":0.054999999701976776
+				"roughnessFactor":0.14000000059604645
 			}
 		}
 	],
@@ -413,7 +405,7 @@
 		{
 			"bufferView":20,
 			"componentType":5126,
-			"count":5835,
+			"count":8080,
 			"max":[
 				1.7998387813568115,
 				24.1200008392334,
@@ -429,25 +421,25 @@
 		{
 			"bufferView":21,
 			"componentType":5126,
-			"count":5835,
+			"count":8080,
 			"type":"VEC3"
 		},
 		{
 			"bufferView":22,
 			"componentType":5126,
-			"count":5835,
+			"count":8080,
 			"type":"VEC2"
 		},
 		{
 			"bufferView":23,
 			"componentType":5126,
-			"count":5835,
+			"count":8080,
 			"type":"VEC4"
 		},
 		{
 			"bufferView":24,
 			"componentType":5123,
-			"count":8052,
+			"count":11580,
 			"type":"SCALAR"
 		},
 		{
@@ -533,7 +525,7 @@
 		{
 			"bufferView":35,
 			"componentType":5126,
-			"count":48,
+			"count":220,
 			"max":[
 				1.75,
 				21.299999237060547,
@@ -549,25 +541,25 @@
 		{
 			"bufferView":36,
 			"componentType":5126,
-			"count":48,
+			"count":220,
 			"type":"VEC3"
 		},
 		{
 			"bufferView":37,
 			"componentType":5126,
-			"count":48,
+			"count":220,
 			"type":"VEC2"
 		},
 		{
 			"bufferView":38,
 			"componentType":5126,
-			"count":48,
+			"count":220,
 			"type":"VEC4"
 		},
 		{
 			"bufferView":39,
 			"componentType":5123,
-			"count":72,
+			"count":288,
 			"type":"SCALAR"
 		}
 	],
@@ -694,122 +686,122 @@
 		},
 		{
 			"buffer":0,
-			"byteLength":70020,
+			"byteLength":96960,
 			"byteOffset":1571808,
 			"target":34962
 		},
 		{
 			"buffer":0,
-			"byteLength":70020,
-			"byteOffset":1641828,
+			"byteLength":96960,
+			"byteOffset":1668768,
 			"target":34962
 		},
 		{
 			"buffer":0,
-			"byteLength":46680,
-			"byteOffset":1711848,
+			"byteLength":64640,
+			"byteOffset":1765728,
 			"target":34962
 		},
 		{
 			"buffer":0,
-			"byteLength":93360,
-			"byteOffset":1758528,
+			"byteLength":129280,
+			"byteOffset":1830368,
 			"target":34962
 		},
 		{
 			"buffer":0,
-			"byteLength":16104,
-			"byteOffset":1851888,
+			"byteLength":23160,
+			"byteOffset":1959648,
 			"target":34963
 		},
 		{
 			"buffer":0,
 			"byteLength":13800,
-			"byteOffset":1867992,
+			"byteOffset":1982808,
 			"target":34962
 		},
 		{
 			"buffer":0,
 			"byteLength":13800,
-			"byteOffset":1881792,
+			"byteOffset":1996608,
 			"target":34962
 		},
 		{
 			"buffer":0,
 			"byteLength":9200,
-			"byteOffset":1895592,
+			"byteOffset":2010408,
 			"target":34962
 		},
 		{
 			"buffer":0,
 			"byteLength":18400,
-			"byteOffset":1904792,
+			"byteOffset":2019608,
 			"target":34962
 		},
 		{
 			"buffer":0,
 			"byteLength":2592,
-			"byteOffset":1923192,
+			"byteOffset":2038008,
 			"target":34963
 		},
 		{
 			"buffer":0,
 			"byteLength":50868,
-			"byteOffset":1925784,
+			"byteOffset":2040600,
 			"target":34962
 		},
 		{
 			"buffer":0,
 			"byteLength":50868,
-			"byteOffset":1976652,
+			"byteOffset":2091468,
 			"target":34962
 		},
 		{
 			"buffer":0,
 			"byteLength":33912,
-			"byteOffset":2027520,
+			"byteOffset":2142336,
 			"target":34962
 		},
 		{
 			"buffer":0,
 			"byteLength":67824,
-			"byteOffset":2061432,
+			"byteOffset":2176248,
 			"target":34962
 		},
 		{
 			"buffer":0,
 			"byteLength":14064,
-			"byteOffset":2129256,
+			"byteOffset":2244072,
 			"target":34963
 		},
 		{
 			"buffer":0,
-			"byteLength":576,
-			"byteOffset":2143320,
+			"byteLength":2640,
+			"byteOffset":2258136,
+			"target":34962
+		},
+		{
+			"buffer":0,
+			"byteLength":2640,
+			"byteOffset":2260776,
+			"target":34962
+		},
+		{
+			"buffer":0,
+			"byteLength":1760,
+			"byteOffset":2263416,
+			"target":34962
+		},
+		{
+			"buffer":0,
+			"byteLength":3520,
+			"byteOffset":2265176,
 			"target":34962
 		},
 		{
 			"buffer":0,
 			"byteLength":576,
-			"byteOffset":2143896,
-			"target":34962
-		},
-		{
-			"buffer":0,
-			"byteLength":384,
-			"byteOffset":2144472,
-			"target":34962
-		},
-		{
-			"buffer":0,
-			"byteLength":768,
-			"byteOffset":2144856,
-			"target":34962
-		},
-		{
-			"buffer":0,
-			"byteLength":144,
-			"byteOffset":2145624,
+			"byteOffset":2268696,
 			"target":34963
 		}
 	],
@@ -821,7 +813,7 @@
 	],
 	"buffers":[
 		{
-			"byteLength":2145768,
+			"byteLength":2269272,
 			"uri":"StacksLight.bin"
 		}
 	]

@@ -10,8 +10,10 @@ the tower as they would along an internal spiral.
 The foundation and tower share a continuous cylindrical UV chart. Dark granite
 gives way to limewashed ashlar above the door sill. Staggered joints are deeper
 on exposed stone, salt collects near the plinth, and iron runoff starts at the
-gallery. Its copper lantern has twelve glazed bays, storm braces, a standing-seam
-hood and a capped ventilator. A luminous optic and a warm point light share a
+gallery. Twelve crown-glass bays sit between the storm braces, below a
+standing-seam copper hood and a capped ventilator. Only the bevelled edges of
+the glass are drawn, leaving a clear view of the optic through the bronze
+retaining hoops. A luminous optic and a warm point light share a
 scene entity inside the lantern. Dusk uses Drift's own atmosphere.
 
 ## Rebuild
@@ -40,6 +42,6 @@ of yaw. The bottom tread meets the shelf near (−417.74, 28.7, −469.71).
 When moving the tower, place the optic 20.30 m directly above its origin. This
 gives the renderer the light's world position. One glTF unit is one metre, Y is
 up and the tower origin is the upper landing. The finial rises 24.12 m above
-it and the footing extends 14 m below it. The imported mesh has 20,492
+it and the footing extends 14 m below it. The imported mesh has 21,740
 triangles across eight material primitives.
 The scene adds a sphere for the luminous optic.

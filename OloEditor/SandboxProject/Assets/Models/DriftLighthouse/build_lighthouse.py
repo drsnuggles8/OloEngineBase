@@ -116,10 +116,7 @@ copper = material("Weathered copper", (0.105, 0.255, 0.201), 0.57, 0.51)
 brass = material("Oiled bronze", (0.42, 0.236, 0.075), 0.33, 0.75)
 door = material("Tarred oak", (0.075, 0.044, 0.023), 0.72)
 pane = material("Bottle glass in shadow", (0.037, 0.099, 0.113), 0.16, 0.25)
-glazing = material("Lantern crown glass", (0.94, 0.984, 0.97), 0.055)
-glazing.node_tree.nodes["Principled BSDF"].inputs[
-    "Transmission Weight"
-].default_value = 1
+glazing = material("Crown glass bevels", (0.22, 0.37, 0.35), 0.14)
 
 
 def mesh(name, verts, faces, mat, uvs=None, smooth=False):
@@ -143,7 +140,7 @@ def polar(radius, angle, z):
     return (radius * math.cos(angle), radius * math.sin(angle), z)
 
 
-def revolve(name, rings, mat, sides=72, smooth=False, openings=()):
+def revolve(name, rings, mat, sides=72, smooth=False, openings=(), caps=True):
     verts = [polar(r, TAU * i / sides, z) for z, r in rings for i in range(sides)]
     faces, uvs = [], []
     for row, ((bottom, _), (top, _)) in enumerate(zip(rings, rings[1:])):
@@ -169,7 +166,8 @@ def revolve(name, rings, mat, sides=72, smooth=False, openings=()):
                     ]
                 ]
             )
-    for row, indices in [(0, range(sides - 1, -1, -1)), (len(rings) - 1, range(sides))]:
+    ends = [(0, range(sides - 1, -1, -1)), (len(rings) - 1, range(sides))]
+    for row, indices in ends if caps else ():
         faces.append([row * sides + i for i in indices])
         uvs.append(
             [
@@ -228,13 +226,20 @@ def stair_tread(angle, index):
     top = 0.10 - index * 0.175
     verts = []
     for lateral in np.linspace(-0.84, 0.84, 15):
-        wear = math.exp(-((lateral - 0.04 * math.sin(index)) / 0.43) ** 2)
+        wear = math.exp(-(((lateral - 0.04 * math.sin(index)) / 0.43) ** 2))
         profile = [
-            (-0.20, -0.24), (0.20, -0.24),
-            (0.20, -0.035 - 0.022 * wear), (0.191 - 0.012 * wear, -0.012 - 0.021 * wear),
-            (0.170 - 0.018 * wear, -0.018 * wear), (-0.11, -0.003 * wear), (-0.20, 0.0),
+            (-0.20, -0.24),
+            (0.20, -0.24),
+            (0.20, -0.035 - 0.022 * wear),
+            (0.191 - 0.012 * wear, -0.012 - 0.021 * wear),
+            (0.170 - 0.018 * wear, -0.018 * wear),
+            (-0.11, -0.003 * wear),
+            (-0.20, 0.0),
         ]
-        verts.extend(frame(angle, radius + depth, lateral, top + height) for depth, height in profile)
+        verts.extend(
+            frame(angle, radius + depth, lateral, top + height)
+            for depth, height in profile
+        )
     n = len(profile)
     faces = [tuple(range(n)), tuple(range(len(verts) - 1, len(verts) - n - 1, -1))]
     for start in range(0, len(verts) - n, n):
@@ -452,15 +457,25 @@ def lantern():
     for i in range(12):
         a = TAU * i / 12
         b = TAU * (i + 1) / 12
+        # Represent the polished bevels of a clear sheet. Its colourless flat
+        # centre has an unobstructed sightline to the optic on every render path.
+        corners = [
+            Vector(polar(1.75, a, 19.19)),
+            Vector(polar(1.75, b, 19.19)),
+            Vector(polar(1.75, b, 21.30)),
+            Vector(polar(1.75, a, 21.30)),
+        ]
+        middle = sum(corners, Vector()) * 0.25
+        bevels = []
+        for point in corners:
+            inner = point.lerp(middle, 0.042)
+            inner.x *= 0.993
+            inner.y *= 0.993
+            bevels.append(inner)
         mesh(
-            "Crown glass",
-            [
-                polar(1.75, a, 19.19),
-                polar(1.75, b, 19.19),
-                polar(1.75, b, 21.30),
-                polar(1.75, a, 21.30),
-            ],
-            [(0, 1, 2, 3)],
+            "Glazing bevel",
+            corners + bevels,
+            [(edge, (edge + 1) % 4, (edge + 1) % 4 + 4, edge + 4) for edge in range(4)],
             glazing,
         )
         bar(
@@ -491,7 +506,20 @@ def lantern():
         (20.77, 0.55),
         (20.94, 0.49),
     ]:
-        revolve("Lens retaining ring", [(z - 0.022, r), (z + 0.022, r)], brass, 48)
+        inner = r - 0.026
+        revolve(
+            "Lens retaining ring",
+            [
+                (z - 0.022, inner),
+                (z - 0.022, r),
+                (z + 0.022, r),
+                (z + 0.022, inner),
+                (z - 0.022, inner),
+            ],
+            brass,
+            48,
+            caps=False,
+        )
     for i in range(6):
         a = TAU * i / 6
         bar("Optic tie rod", polar(0.52, a, 19.61), polar(0.52, a, 20.94), 0.023, brass)
