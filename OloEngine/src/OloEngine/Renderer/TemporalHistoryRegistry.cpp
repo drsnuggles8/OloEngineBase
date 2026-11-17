@@ -17,13 +17,35 @@ namespace OloEngine
         return seed;
     }
 
+    void TemporalHistoryRegistry::BindToView(u64 view)
+    {
+        OLO_CORE_ASSERT(m_Entries.IsEmpty(), "TemporalHistoryRegistry::BindToView: bind before the first history is acquired");
+        m_BoundView = view;
+    }
+
+    TemporalHistoryKey TemporalHistoryRegistry::BoundKey(const TemporalHistoryKey& key) const
+    {
+        if (!m_BoundView)
+            return key;
+        // A pass names a history by effect, resolution and plane and leaves the
+        // view at 0; a key that names ANOTHER view is a caller reaching into a
+        // view it does not render for.
+        OLO_CORE_ASSERT(key.View == 0 || key.View == *m_BoundView,
+                        "TemporalHistoryRegistry: a key for view {} was presented to the registry of view {}", key.View,
+                        *m_BoundView);
+        TemporalHistoryKey bound = key;
+        bound.View = *m_BoundView;
+        return bound;
+    }
+
     TemporalHistoryAcquireResult TemporalHistoryRegistry::Acquire(
-        const TemporalHistoryKey& key,
+        const TemporalHistoryKey& requestedKey,
         const TemporalHistoryDescriptor& descriptor,
         TemporalHistoryDependency dependencies,
         std::string debugName)
     {
         OLO_CORE_ASSERT(descriptor.IsUsable(), "Temporal history descriptors must have usable dimensions and format");
+        const TemporalHistoryKey key = BoundKey(requestedKey);
 
         if (!debugName.empty())
         {
@@ -125,7 +147,7 @@ namespace OloEngine
 
     TemporalHistoryToken TemporalHistoryRegistry::Find(const TemporalHistoryKey& key) const
     {
-        const auto it = m_Indices.find(key);
+        const auto it = m_Indices.find(BoundKey(key));
         if (it == m_Indices.end())
             return {};
         return { it->second, m_Entries[it->second].Generation };
@@ -271,7 +293,7 @@ namespace OloEngine
 
     bool TemporalHistoryRegistry::Release(const TemporalHistoryKey& key, TemporalHistoryInvalidationCause cause)
     {
-        const auto it = m_Indices.find(key);
+        const auto it = m_Indices.find(BoundKey(key));
         if (it == m_Indices.end())
             return false;
         Entry& entry = m_Entries[it->second];

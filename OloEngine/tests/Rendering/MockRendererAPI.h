@@ -227,11 +227,25 @@ namespace OloEngine::Testing
         }
         void EnableCulling() override
         {
+            m_CullingEnabled = true;
             Record("EnableCulling");
         }
         void DisableCulling() override
         {
+            m_CullingEnabled = false;
             Record("DisableCulling");
+        }
+        [[nodiscard]] bool IsCullingEnabled() const override
+        {
+            return m_CullingEnabled;
+        }
+        [[nodiscard]] bool IsDepthTestEnabled() const override
+        {
+            return m_DepthTestEnabled;
+        }
+        [[nodiscard]] bool IsBlendEnabled() const override
+        {
+            return m_BlendEnabled;
         }
         void FrontCull() override
         {
@@ -253,6 +267,7 @@ namespace OloEngine::Testing
         }
         void SetDepthTest(bool value) override
         {
+            m_DepthTestEnabled = value;
             RecordedCall c{ "SetDepthTest" };
             c.ParamBool_0 = value;
             m_Calls.push_back(c);
@@ -263,6 +278,7 @@ namespace OloEngine::Testing
         }
         void SetBlendState(bool value) override
         {
+            m_BlendEnabled = value;
             RecordedCall c{ "SetBlendState" };
             c.ParamBool_0 = value;
             m_Calls.push_back(c);
@@ -1404,6 +1420,9 @@ namespace OloEngine::Testing
         RayTracing::Capabilities m_RayTracingCapabilities{};
         Viewport m_Viewport{ 0, 0, 1920, 1080 };
         bool m_StencilEnabled = false;
+        bool m_CullingEnabled = false;
+        bool m_DepthTestEnabled = false;
+        bool m_BlendEnabled = false;
     };
 
 } // namespace OloEngine::Testing

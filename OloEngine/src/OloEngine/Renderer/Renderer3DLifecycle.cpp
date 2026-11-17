@@ -41,6 +41,7 @@
 #include "OloEngine/Renderer/Commands/DrawKey.h"
 #include "OloEngine/Renderer/Commands/FrameDataBuffer.h"
 #include "OloEngine/Renderer/Commands/FrameResourceManager.h"
+#include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/GPUResourceQueue.h"
 #include "OloEngine/Renderer/Material.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
@@ -451,11 +452,6 @@ namespace OloEngine
         // first cull dispatch so a stripped-down embedded build that doesn't
         // ship the compute shaders can still drive the CPU path.
         s_Data.GPUFrustumCuller = Ref<GPUFrustumCuller>::Create();
-        // Persistent Hi-Z occlusion pyramid (#431). Loads the HZB compute
-        // shader now (GL context is live); the pyramid texture is sized lazily
-        // on the first GenerateOcclusionHZB() call from the scene dimensions.
-        s_Data.OcclusionHZB.Initialize();
-        s_Data.OcclusionHZB.SetReduceMode(HZBGenerator::ReduceMode::Max);
         s_Data.BoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION);
         s_Data.PrevBoneMatricesUBO = UniformBuffer::Create(ShaderBindingLayout::AnimationUBO::GetSize(), ShaderBindingLayout::UBO_ANIMATION_PREV);
         s_Data.TerrainUBO = UniformBuffer::Create(ShaderBindingLayout::TerrainUBO::GetSize(), ShaderBindingLayout::UBO_TERRAIN);
@@ -519,12 +515,6 @@ namespace OloEngine
 
         s_Data.Frame.Stats.Reset();
 
-        s_Data.RGraph = Ref<RenderGraph>::Create();
-        // The camera block is frame-published: the graph puts it back before
-        // every pass, so no pass reads a predecessor's (issue #1687).
-        s_Data.RGraph->SetPassEntryPublication(&CommandDispatch::PublishFrameCamera);
-        RenderGraphDebugRuntime::SetActiveGraph(s_Data.RGraph);
-
         // The groom LOD console variables (#1616, #1612), once per process.
         RegisterGroomCVars();
 
@@ -565,10 +555,11 @@ namespace OloEngine
         // the real size is applied later via Renderer3D::OnWindowResize.
         const u32 fbWidth = window ? window->GetFramebufferWidth() : 1280u;
         const u32 fbHeight = window ? window->GetFramebufferHeight() : 720u;
-        SetupRenderGraph(fbWidth, fbHeight);
-
-        // Initialize shadow mapping
-        s_Data.Shadow.Init();
+        // The main view's graph, passes, Hi-Z pyramid, shadow maps and light
+        // grid, brought up by the function that brings up every other view's
+        // (ADR 0026): a view-owned object added there exists in every view,
+        // and one added only here would exist in the main view alone.
+        InitializeActiveViewGPU(fbWidth, fbHeight);
 
         ParticleBatchRenderer::Init();
 
@@ -601,14 +592,11 @@ namespace OloEngine
         // RenderPipeline.cpp's SampleMockableDt). Seeded from the CURRENT
         // clock — the mock when one is already installed — so the first
         // frame's dt is 0 rather than a wall-clock-dependent clamp.
-        s_Data.Clock.FogFrameIndex = 0;
+        s_Data.ViewClock.FogFrameIndex = 0;
         s_Data.Clock.FogPrevTimeSeconds = Time::GetTime();
-        s_Data.Clock.AutoExposurePrevTimeSeconds = Time::GetTime();
+        s_Data.ViewClock.AutoExposurePrevTimeSeconds = Time::GetTime();
         s_Data.Clock.WindPrevTimeSeconds = Time::GetTime();
         s_Data.Clock.FogTime = 0.0f;
-
-        // Initialize Forward+ light culling system
-        s_Data.ForwardPlus.Initialize(fbWidth, fbHeight);
 
         // Distance-impostor reflection probe arrays (issue #705)
         s_Data.ReflectionProbes.Init();
@@ -646,7 +634,7 @@ namespace OloEngine
             s_Data.BoneMatricesUBO,
             s_Data.ModelInstanceBuffer,
             s_Data.PrevBoneMatricesUBO,
-            &s_Data.ForwardPlus);
+            s_Data.ForwardPlus.get());
     }
 
     void Renderer3D::RebindPersistentBuffers()
@@ -738,6 +726,19 @@ namespace OloEngine
         note("PathTracerEmissive", s_Data.PathTracerEmissive.HasGPUResources());
         note("PathTracerMaterialTextures", s_Data.PathTracerMaterialTextures.HasGPUResources());
         note("RasterMaterialTextures", s_Data.RasterMaterialTextures.HasGPUResources());
+        // Scene views (ADR 0026). Shutdown destroys every view but the main
+        // one, whose state is the s_Data members above, and the slot of the
+        // active view must own nothing: a GPU object left in a parked copy is
+        // released by nothing.
+        note("ExtraSceneViews", s_Data.Views.size() > 1);
+        for (const RendererViewSlot& slot : s_Data.Views)
+        {
+            if (slot.Id != s_Data.ActiveView)
+                continue;
+            note("ActiveViewParkedState", slot.Parked.RGraph != nullptr || slot.Parked.Pipeline != nullptr ||
+                                              slot.Parked.ForwardPlus != nullptr || slot.Parked.Shadow != nullptr ||
+                                              slot.Parked.OcclusionHZB.HoldsAnyResource());
+        }
 
         return live;
     }
@@ -770,9 +771,10 @@ namespace OloEngine
         census.FrameHandOffs += frame.PendingUICompositeRenderCallback ? 1u : 0u;
 
         const auto& clock = s_Data.Clock;
-        census.ClockAtRest = clock.TAAJitterFrameIndex == 0u && clock.TemporalUpscalePhaseIndex == 0u &&
+        const auto& viewClock = s_Data.ViewClock;
+        census.ClockAtRest = viewClock.TAAJitterFrameIndex == 0u && viewClock.TemporalUpscalePhaseIndex == 0u &&
                              clock.StochasticFrameIndex == 0u && clock.FrameSequenceSeed == 0u &&
-                             clock.CloudFrameIndex == 0u && clock.FogFrameIndex == 0u;
+                             viewClock.CloudFrameIndex == 0u && viewClock.FogFrameIndex == 0u;
         return census;
     }
 
@@ -783,6 +785,31 @@ namespace OloEngine
 
         // Flush any shaders still compiling asynchronously
         m_ShaderLibrary.FlushPendingShaders();
+
+        // Every view but the main one goes first, each through the teardown
+        // DestroyView uses, while the device and every shared object its
+        // passes reach are alive (ADR 0026). What follows is the main view's
+        // and the renderer's own. A frame left open by whatever is shutting
+        // the renderer down is closed, so no view is refused as "mid-scene".
+        if (s_Data.PhysicalFrame.Open)
+        {
+            if (s_Data.PhysicalFrame.FrameResourcesBegun)
+                FrameResourceManager::Get().EndFrame();
+            s_Data.PhysicalFrame.Open = false;
+            s_Data.PhysicalFrame.InScene = false;
+        }
+        RHI::DescriptorHeap::Get().HoldFrameTransientReset(false);
+        ActivateView(kMainRenderView);
+        {
+            TArray<RenderViewId> others;
+            for (const RendererViewSlot& slot : s_Data.Views)
+            {
+                if (!slot.Id.IsMain())
+                    others.Add(slot.Id);
+            }
+            for (const RenderViewId view : others)
+                DestroyView(view);
+        }
 
         ParticleBatchRenderer::Shutdown();
 
@@ -805,25 +832,10 @@ namespace OloEngine
         // would be handed a source whose buffers died with the previous one.
         MeshPrimitives::ReleaseSharedSources();
 
-        if (s_Data.DecalVisibilityQueriesInitialized)
-        {
-            RenderCommand::DeleteQueries(s_Data.DecalReceiverIntersectionQueries);
-            s_Data.DecalReceiverIntersectionQueries = {};
-            RenderCommand::DeleteQueries(s_Data.DecalVisibilityQueries);
-            s_Data.DecalVisibilityQueries = {};
-            s_Data.DecalVisibilityFrames = {};
-            s_Data.DecalVisibilityQueriesInitialized = false;
-            s_Data.DecalVisibilityTarget = -1;
-            s_Data.LastDecalVisibilityEntity = -1;
-            s_Data.LastDecalVisibilityObservation = {};
-        }
-
         // Shutdown occlusion culling systems
         OcclusionCuller::GetInstance().Shutdown();
         OcclusionQueryPool::GetInstance().Shutdown();
         OcclusionStateManager::GetInstance().Clear();
-        // Release the persistent Hi-Z occlusion pyramid (#431).
-        s_Data.OcclusionHZB.Shutdown();
 
         // Release the debug-draw channels + their readback staging (#725) while
         // GL is alive.
@@ -872,32 +884,23 @@ namespace OloEngine
         WaterShoreDepthSystem::Shutdown();
         WaterSpraySystem::Shutdown();
 
-        // Shutdown Forward+ system
-        s_Data.ForwardPlus.Shutdown();
-
         // Shutdown the reflection-probe arrays (issue #705)
         s_Data.ReflectionProbes.Shutdown();
-
-        // Shutdown shadow mapping
-        s_Data.Shadow.Shutdown();
-        // Release the static placeholder shadow textures lazy-initialised on
-        // first bind-when-real-shadow-absent. Idempotent.
-        ShadowMap::ShutdownPlaceholders();
 
         // Clear any pending GPU resource commands
         GPUResourceQueue::Clear();
 
-        if (s_Data.RGraph)
-        {
-            s_Data.RGraph->Shutdown();
-        }
-
+        // The main view's own GPU objects (its decal-visibility queries, Hi-Z
+        // pyramid, light grid, shadow maps, graph and passes), through the
+        // teardown every other view took above. The passes go while the
+        // graphics context and the RendererAPI are alive: their destructors
+        // release textures and framebuffers.
+        ReleaseActiveViewGPU();
         RenderGraphDebugRuntime::SetActiveGraph(nullptr);
-
-        // Release all render passes now while the GL context and RendererAPI are still alive.
-        // Their destructors call RenderCommand::DeleteTexture() which needs s_RendererAPI.
-        s_Data.Pipeline->Reset();
-        s_Data.RGraph.Reset();
+        // Release the static placeholder shadow textures lazy-initialised on
+        // first bind-when-real-shadow-absent, after the last shadow map that
+        // could bind one. Idempotent.
+        ShadowMap::ShutdownPlaceholders();
 
         // Release UBOs explicitly while the GL context is still alive
         s_Data.SharedSceneUBOs.Reset();
@@ -1063,9 +1066,13 @@ namespace OloEngine
         // structs is covered without being listed here. The lists this replaces
         // reset the clocks and the cloudscape and left everything else.
         s_Data.View = {};
+        s_Data.ViewClock = {};
+        s_Data.Reported = {};
         s_Data.Scene = RendererSceneState(); // () for its padding: see ResetSceneState
         s_Data.Frame = {};
         s_Data.Clock = {};
+        s_Data.PhysicalFrame = {};
+        s_Data.NextViewId = 1;
 
         s_Data.CoreInitialized = false;
 
@@ -1146,7 +1153,7 @@ namespace OloEngine
             }
 
             SetupRenderGraph(width, height);
-            s_Data.ForwardPlus.Initialize(width, height);
+            s_Data.ForwardPlus->Initialize(width, height);
             return; // Initialize already configured for width x height
         }
 
@@ -1160,6 +1167,6 @@ namespace OloEngine
         }
 
         // Resize Forward+ light grid
-        s_Data.ForwardPlus.Resize(width, height);
+        s_Data.ForwardPlus->Resize(width, height);
     }
 } // namespace OloEngine

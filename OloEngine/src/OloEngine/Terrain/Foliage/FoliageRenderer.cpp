@@ -2566,8 +2566,9 @@ namespace OloEngine
         {
             m_WindHistory.Reset();
             // Instance motion has no previous placement/size endpoint. Break
-            // raster and upscaler history exactly when new pixels can appear.
-            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
+            // raster and upscaler history exactly when new pixels can appear,
+            // in every view that draws these plants (ADR 0026).
+            Renderer3D::InvalidateWorldTemporalHistories();
         }
         m_ReflectionSplit.Valid = false;
         m_MainViewCulled = false;
@@ -2742,7 +2743,7 @@ namespace OloEngine
         if (visibleChanged)
         {
             m_WindHistory.Reset();
-            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
+            Renderer3D::InvalidateWorldTemporalHistories();
         }
         std::swap(publishedCanonical->Registry, m_Canonical->Registry);
         auto retiredCanonical = std::move(m_Canonical);
@@ -2754,7 +2755,7 @@ namespace OloEngine
     void FoliageRenderer::ClearInstances()
     {
         if (GetTotalInstanceCount() != 0u)
-            Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
+            Renderer3D::InvalidateWorldTemporalHistories();
         CancelRebuild();
         FenceIdentityReaders();
         if (m_StreamingEnabled)

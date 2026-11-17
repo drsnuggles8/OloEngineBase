@@ -94,8 +94,19 @@ namespace OloEngine::Tests
 
         [[nodiscard]] u32 CountDifferingPixels(const std::vector<u8>& frame, const std::vector<u8>& baseline)
         {
-            if (frame.size() != baseline.size() || frame.empty())
+            // Two frames of different sizes are not "0 pixels apart": one of the
+            // captures failed or changed size, and every caller that expects a
+            // small count would pass on it. Say so.
+            if (frame.size() != baseline.size())
+            {
+                ADD_FAILURE() << "CountDifferingPixels: the frames are " << frame.size() << " and " << baseline.size()
+                              << " bytes; a capture failed or changed size, and the count below means nothing";
                 return 0;
+            }
+            if (frame.empty())
+            {
+                return 0;
+            }
             u32 differing = 0;
             for (sizet i = 0; i + 3 < frame.size(); i += 4)
             {

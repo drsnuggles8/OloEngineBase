@@ -3,12 +3,14 @@
 
 #include "RenderPropertyTest.h"
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 #include "Rendering/ShaderHarness.h"
 
 #include "OloEngine/Renderer/ComputeShader.h"
 #include "OloEngine/Renderer/RHI/RHIDescriptorHeap.h"
 #include "OloEngine/Renderer/Shader.h"
 #include "OloEngine/Renderer/ShaderSourceScan.h"
+#include "Platform/OpenGL/OpenGLBlockContract.h"
 #include "Platform/OpenGL/OpenGLComputeShader.h"
 #include "Platform/OpenGL/OpenGLDescriptorHeap.h"
 #include "Platform/OpenGL/OpenGLShader.h"
@@ -581,6 +583,54 @@ namespace OloEngine::Tests
         EXPECT_TRUE(offRoute.empty()) << "These programs opt in to the bindless route and were NOT built on it "
                                          "by this driver — OloEngine.log has the driver's reason:"
                                       << offRoute;
+    }
+
+    // Whose word a raw-route program's block names are. The binding contract
+    // believes what a program's SPIR-V declares before it asks the driver,
+    // because a program linked from SPIR-V has no names to report. A raw-route
+    // program is the other case: it is built from GLSL text, the driver has its
+    // real names, and no SPIR-V is compiled for it. A shader reloaded onto the
+    // raw route still holds the reflection of its earlier, slotted build, and
+    // finalising the new program with that list would name its blocks after a
+    // file that may since have been edited.
+    TEST(BindlessRawRoute, AProgramReloadedOntoTheRawRouteDeclaresNoBlockNamesFromItsEarlierSpirv)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        if (TestRenderBackend::IsVulkanProcess())
+            GTEST_SKIP() << "the raw route is an OpenGL program route";
+
+        OpenGLDescriptorHeapBackend backend;
+        HeapRestore restore;
+        backend.Initialize(kDescriptorHeapSlots);
+        if (!backend.IsBindlessSupported())
+        {
+            GTEST_SKIP() << "GL_ARB_bindless_texture unavailable — the raw route is never taken on this device.";
+        }
+        RHI::HeapDesc desc;
+        desc.ResourceSlotCapacity = kDescriptorHeapPersistentSlots;
+        desc.SamplerSlotCapacity = kDescriptorHeapSamplerSlots;
+        desc.FrameTransientRingSlots = kDescriptorHeapTransientSlots;
+        RHI::DescriptorHeap::Get().Initialize(desc, &backend);
+
+        // Slotted first: built from SPIR-V, which declares its blocks.
+        RHI::DescriptorHeap::Get().SetEnabled(false);
+        Ref<Shader> shader = Shader::Create("assets/shaders/PBR_MultiLight.glsl");
+        ASSERT_TRUE(shader);
+        shader->EnsureLinked();
+        ASSERT_TRUE(shader->IsReady());
+        ASSERT_FALSE(Shader::IsProgramBindless(shader->GetRendererID())) << "built on the raw route with the heap off";
+        ASSERT_FALSE(OpenGLBlockContract::DeclaredBlocks(shader->GetRendererID()).empty())
+            << "a program built from SPIR-V declared none of its blocks, so the reload below has nothing to drop";
+
+        // The same shader object, onto the raw route.
+        RHI::DescriptorHeap::Get().SetEnabled(true);
+        ASSERT_TRUE(shader->Reload());
+        shader->EnsureLinked();
+        ASSERT_TRUE(shader->IsReady());
+        ASSERT_TRUE(Shader::IsProgramBindless(shader->GetRendererID()))
+            << "the reload did not take the raw route, so this tests nothing";
+        EXPECT_TRUE(OpenGLBlockContract::DeclaredBlocks(shader->GetRendererID()).empty())
+            << "a raw-route program was declared with the block names of the SPIR-V build it replaced";
     }
 
     // The engine's own heap install poisons a released slot in every build. It

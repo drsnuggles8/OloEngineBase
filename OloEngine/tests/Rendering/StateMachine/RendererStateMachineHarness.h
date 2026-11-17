@@ -30,6 +30,7 @@
 
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
+#include "OloEngine/Renderer/RenderView.h"
 #include "OloEngine/Scene/Entity.h"
 
 #include <functional>
@@ -239,7 +240,16 @@ namespace OloEngine::Tests::StateMachine
         // failure that needs another pair's lever flips first can still recur.
         [[nodiscard]] bool TraceStillFails(const Trace& trace, const std::string& pairId, bool narrow);
 
+        // The second scene view of the isolated-vs-shared-view pair (#1352):
+        // created the first time the pair runs and kept for the test, because
+        // a view's passes compile their own programs. Brought to the main
+        // view's settings and to `size` at every use.
+        [[nodiscard]] bool EnsureSecondView(Size size);
+        void DestroySecondView();
+
         ModelConfig m_Config{};
+        RenderViewId m_SecondView{};
+        Size m_SecondViewSize{};
         Ref<Scene> m_OtherScene;
         Ref<Model> m_FieldModel;
         std::string m_FieldModelPath;

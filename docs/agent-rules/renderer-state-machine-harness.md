@@ -25,6 +25,7 @@ pair of executions that must agree renders the same state both ways:
 | parallel vs serial submission | `SerialMeshSubmission` | `DrawMeshParallel` and `DrawMesh` disagree |
 | warm vs cold binding caches | `InvalidateBindingCaches` before the frame and after every pass | a pass relied on a binding nobody reset |
 | sequence vs fresh | canonical reset + direct configure | the frame depends on its history |
+| alone vs beside a second view | `Scene::RequestAdditionalView` for one frame, after and before the main view | a view read or advanced another view's state, or the world advanced per view (#1352) |
 | before vs after a reload | shader / scene reload | a reload is not an identity |
 
 Every pair also proves its lever acted (the pool grew, nothing batched, no worker-submitted mesh)
@@ -104,6 +105,7 @@ Three fault levers re-create known defect classes (`DebugLevers.inl`, *Fault inj
 | `FaultStaleDeclarationKey`: pass inputs left out of the key | cached-vs-rebuild (stale detection) and sequence-vs-fresh |
 | `FaultSkipDispatchBindingReset`: binding caches survive the frame | warm-vs-cold binding caches |
 | `FaultShortenTransientLifetimes`: lifetimes end a pass early | alias vs no alias; on the CPU, an independent lifetime model |
+| `FaultShareViewCameraHistory`: every scene view reads and writes one camera history | alone vs beside a second view |
 
 **A skipped reset breaks every frame alike, so sequence-vs-fresh cannot see it.** That is why the
 cold-binding pair exists: it compares against an execution where the reset genuinely happened.
@@ -135,7 +137,10 @@ Three engine defects, each behind a green suite, each fixed in its own commit:
 - **Vulkan.** `RendererAttachedTest` holds a GL context only (testing-architecture.md §9–10). The
   Vulkan rows are live-only; parallel graph recording is Vulkan-only and its pass-level half is
   `VulkanParallelRecordingDevice.*`.
-- **Two real views.** Isolated-vs-shared view is a Prerequisite row owned by #1352.
+- **The second view's own frame.** The `isolated-vs-shared-view` pair holds the MAIN view to what it
+  renders alone while a second view of another size and pose renders beside it, in both orders. The
+  second view against its own single-view reference, with distinct paths, sample counts, temporal
+  modes, exposure and lifetimes, is `MultiViewRendering.*`, which also runs on Vulkan.
 - **A new process.** The canonical reset is not a process restart. Singletons the renderer never
   resets (the stochastic frame index, compiled programs, GPU-scene slot allocators) carry over. A
   minimisation that reports "did not fail again from the canonical reset" means exactly this:

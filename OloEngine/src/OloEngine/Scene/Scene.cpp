@@ -6558,6 +6558,11 @@ namespace OloEngine
         {
             if (m_Is3DModeEnabled)
             {
+                // Any additional view asked for this frame (ADR 0026). Ahead of
+                // the callback below, which is the main view's: a view rendered
+                // first must not take it.
+                const AdditionalViewFrame additionalViews(*this);
+
                 // Set up the UICompositePass callback before the render graph executes.
                 // The callback runs during UICompositePass::Execute(), after the
                 // post-processed scene has been blitted as background.
@@ -6568,23 +6573,11 @@ namespace OloEngine
 
                                                              RenderTilemaps(mainCamera->GetProjection() * glm::inverse(cameraTransform));
 
-                                                             for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
-                                                             {
-                                                                 const auto& sprite = group.get<SpriteRendererComponent>(entity);
-                                                                 Renderer2D::DrawSprite(GetWorldTransform(entity), sprite, static_cast<int>(std::to_underlying(entity)));
-                                                             }
+                                                             DrawWorldSprites(glm::inverse(cameraTransform));
 
-                                                             for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
-                                                             {
-                                                                 const auto& circle = view.get<CircleRendererComponent>(entity);
-                                                                 Renderer2D::DrawCircle(GetWorldTransform(entity), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
-                                                             }
+                                                             DrawWorldCircles(glm::inverse(cameraTransform));
 
-                                                             for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
-                                                             {
-                                                                 const auto& text = view.get<TextComponent>(entity);
-                                                                 DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
-                                                             }
+                                                             DrawWorldText(glm::inverse(cameraTransform));
 
                                                              Renderer2D::EndScene();
 
@@ -6610,23 +6603,11 @@ namespace OloEngine
 
                 RenderTilemaps(mainCamera->GetProjection() * glm::inverse(cameraTransform));
 
-                for (const auto group = m_Registry.group<TransformComponent>(entt::get<SpriteRendererComponent>); const auto entity : group)
-                {
-                    const auto& sprite = group.get<SpriteRendererComponent>(entity);
-                    Renderer2D::DrawSprite(GetWorldTransform(entity), sprite, static_cast<int>(std::to_underlying(entity)));
-                }
+                DrawWorldSprites(glm::inverse(cameraTransform));
 
-                for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
-                {
-                    const auto& circle = view.get<CircleRendererComponent>(entity);
-                    Renderer2D::DrawCircle(GetWorldTransform(entity), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
-                }
+                DrawWorldCircles(glm::inverse(cameraTransform));
 
-                for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
-                {
-                    const auto& text = view.get<TextComponent>(entity);
-                    DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
-                }
+                DrawWorldText(glm::inverse(cameraTransform));
 
                 // 2D particles (3D particles are rendered by ParticleRenderPass)
                 for (auto view = m_Registry.view<ParticleSystemComponent>(); auto entity : view)
@@ -6684,6 +6665,107 @@ namespace OloEngine
             PropagateWorldTransforms();
             restorePoses.Reset();
         }
+    }
+
+    // WORLD-SPACE 2D PRIMITIVES ARE DRAWN IN THE CAMERA'S ORDER.
+    //
+    // Sprites, circles and world text are drawn with the depth test off (the UI
+    // composite pass) or all at one depth, so the order of the draws IS which
+    // one ends up on top. It used to be the order the registry yields entities
+    // in, which is not a property of the scene: the copy Simulate and Play run
+    // on yields them in another order, and two overlapping texts, sprites or
+    // circles swapped places when the mode changed (#1700).
+    //
+    // The order is the camera's: farthest first, so the one nearest the camera
+    // is drawn last and lies on top, as blended geometry is drawn. Entities at
+    // the same depth (a flat page of them) go by UUID, which a scene copy
+    // keeps.
+    struct Scene::WorldSpace2DEntry
+    {
+        f32 ViewDepth = 0.0f; // view space looks down -Z: more negative is farther
+        u64 Id = 0;
+        entt::entity Entity = entt::null;
+        glm::mat4 World{ 1.0f };
+    };
+
+    template<typename Component>
+    TArray<Scene::WorldSpace2DEntry> Scene::CollectBackToFront(const glm::mat4& viewMatrix)
+    {
+        TArray<WorldSpace2DEntry> entries;
+        for (const auto view = m_Registry.view<TransformComponent, Component>(); const auto entity : view)
+        {
+            WorldSpace2DEntry entry;
+            entry.Entity = entity;
+            entry.World = GetWorldTransform(entity);
+            const f32 depth = (viewMatrix * entry.World[3]).z;
+            entry.ViewDepth = std::isfinite(depth) ? depth : 0.0f;
+            if (const auto* id = m_Registry.try_get<IDComponent>(entity))
+            {
+                entry.Id = static_cast<u64>(id->ID);
+            }
+            entries.Add(entry);
+        }
+        std::sort(entries.begin(), entries.end(), [](const WorldSpace2DEntry& a, const WorldSpace2DEntry& b)
+                  {
+                      if (a.ViewDepth < b.ViewDepth)
+                      {
+                          return true;
+                      }
+                      if (b.ViewDepth < a.ViewDepth)
+                      {
+                          return false;
+                      }
+                      return a.Id < b.Id; });
+        return entries;
+    }
+
+    void Scene::DrawWorldSprites(const glm::mat4& viewMatrix)
+    {
+        for (const WorldSpace2DEntry& entry : CollectBackToFront<SpriteRendererComponent>(viewMatrix))
+        {
+            Renderer2D::DrawSprite(entry.World, m_Registry.get<SpriteRendererComponent>(entry.Entity),
+                                   static_cast<int>(std::to_underlying(entry.Entity)));
+        }
+    }
+
+    void Scene::DrawWorldCircles(const glm::mat4& viewMatrix)
+    {
+        for (const WorldSpace2DEntry& entry : CollectBackToFront<CircleRendererComponent>(viewMatrix))
+        {
+            const auto& circle = m_Registry.get<CircleRendererComponent>(entry.Entity);
+            Renderer2D::DrawCircle(entry.World, circle.Color, circle.Thickness, circle.Fade,
+                                   static_cast<int>(std::to_underlying(entry.Entity)));
+        }
+    }
+
+    void Scene::DrawWorldText(const glm::mat4& viewMatrix)
+    {
+        for (const WorldSpace2DEntry& entry : CollectBackToFront<TextComponent>(viewMatrix))
+        {
+            DrawTextWithShadow(m_Registry.get<TextComponent>(entry.Entity), entry.World,
+                               static_cast<int>(std::to_underlying(entry.Entity)));
+        }
+    }
+
+    void Scene::QueueEditorOverlay(EditorCamera const& camera)
+    {
+        // The UI composite pass draws this into its own target, which is what
+        // the editor viewport shows.
+        Renderer3D::SetUICompositeRenderCallback([this, &camera]()
+                                                 {
+                                                     Renderer2D::BeginScene(camera);
+
+                                                     // Tilemaps are 2D content but authors edit them in whichever
+                                                     // mode the viewport is in, so they draw here too — otherwise a
+                                                     // map painted in 2D mode vanishes the moment the editor is
+                                                     // switched to 3D.
+                                                     RenderTilemaps(camera.GetViewProjection());
+
+                                                     DrawWorldText(camera.GetViewMatrix());
+
+                                                     Renderer2D::EndScene();
+
+                                                     RenderUIOverlay(); });
     }
 
     void Scene::OnUpdateSimulation(const Timestep ts, EditorCamera const& camera)
@@ -6758,8 +6840,17 @@ namespace OloEngine
         // Render based on mode
         if (m_RenderingEnabled)
         {
+            // The editor camera's view-projection, for the UI's world anchors
+            // (nameplates); OnUpdateEditor caches the same one.
+            m_CameraViewProjection = camera.GetViewProjection();
+
             if (m_Is3DModeEnabled)
             {
+                const AdditionalViewFrame additionalViews(*this);
+                // Simulate draws what Edit draws over the frame. It used to
+                // queue nothing, so a scene's text, tilemaps and UI vanished
+                // from the viewport for as long as Simulate ran.
+                QueueEditorOverlay(camera);
                 RenderScene3D(camera);
             }
             else
@@ -6996,29 +7087,11 @@ namespace OloEngine
 
             if (m_Is3DModeEnabled)
             {
-                // Set up the UICompositePass callback for editor overlays.
-                // Renders text and UI into the UICompositePass FBO so the editor
-                // viewport (which reads UICompositePass output) shows them.
-                Renderer3D::SetUICompositeRenderCallback([this, &camera]()
-                                                         {
-                                                             Renderer2D::BeginScene(camera);
+                // Any additional view asked for this frame (ADR 0026), ahead of
+                // the main view's own callback below.
+                const AdditionalViewFrame additionalViews(*this);
 
-                                                             // Tilemaps are 2D content but authors edit them in whichever
-                                                             // mode the viewport is in, so they draw here too — otherwise a
-                                                             // map painted in 2D mode vanishes the moment the editor is
-                                                             // switched to 3D.
-                                                             RenderTilemaps(camera.GetViewProjection());
-
-                                                             for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
-                                                             {
-                                                                 const auto& text = view.get<TextComponent>(entity);
-                                                                 DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
-                                                             }
-
-                                                             Renderer2D::EndScene();
-
-                                                             RenderUIOverlay(); });
-
+                QueueEditorOverlay(camera);
                 RenderScene3D(camera);
             }
             else
@@ -8756,31 +8829,17 @@ namespace OloEngine
 
         // Draw sprites
         {
-            for (const auto view = m_Registry.view<TransformComponent, SpriteRendererComponent>(); const auto entity : view)
-            {
-                const auto& sprite = view.get<SpriteRendererComponent>(entity);
-
-                Renderer2D::DrawSprite(GetWorldTransform(entity), sprite, static_cast<int>(std::to_underlying(entity)));
-            }
+            DrawWorldSprites(camera.GetViewMatrix());
         }
 
         // Draw circles
         {
-            for (const auto view = m_Registry.view<TransformComponent, CircleRendererComponent>(); const auto entity : view)
-            {
-                const auto& circle = view.get<CircleRendererComponent>(entity);
-
-                Renderer2D::DrawCircle(GetWorldTransform(entity), circle.Color, circle.Thickness, circle.Fade, static_cast<int>(std::to_underlying(entity)));
-            }
+            DrawWorldCircles(camera.GetViewMatrix());
         }
 
         // Draw text
         {
-            for (const auto view = m_Registry.view<TransformComponent, TextComponent>(); const auto entity : view)
-            {
-                const auto& text = view.get<TextComponent>(entity);
-                DrawTextWithShadow(text, GetWorldTransform(entity), static_cast<int>(std::to_underlying(entity)));
-            }
+            DrawWorldText(camera.GetViewMatrix());
         }
 
         // Draw particles
@@ -10829,10 +10888,9 @@ namespace OloEngine
                     crossFadePartner->GpuRootInputs.HasHistory = false;
                     crossFadePartner->SimulationPrevDisplacements = crossFadePartner->SimulationDisplacements;
                 }
-                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
-                                                        TemporalHistoryEffect::TAA);
-                Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual,
-                                                        TemporalHistoryEffect::RayTracedShadow);
+                // The coat changed for every view that draws it (ADR 0026).
+                Renderer3D::InvalidateWorldTemporalHistories(TemporalHistoryEffect::TAA);
+                Renderer3D::InvalidateWorldTemporalHistories(TemporalHistoryEffect::RayTracedShadow);
             }
             if (advanceLodState)
             {
@@ -11389,22 +11447,28 @@ namespace OloEngine
         // The previous frame's displacements are moved aside BEFORE the new ones
         // are written, so the pair the renderer reads is genuinely two
         // consecutive frames of the same coat.
-        // ALWAYS ROTATED, on every frame that reaches here.
+        // ROTATED ONCE PER FRAME, on the coat's first step of it, whether or not
+        // time passed.
         //
-        // This was gated on "time actually passed" to stop a second camera
-        // rotating the pair twice, and that was the wrong fix for the wrong
-        // problem. The second-camera case is already handled by zeroing the
-        // groom clock at the end of PublishGroomStrandRequests, and the gate
-        // introduced a worse bug at the other end: on a PAUSED frame the
-        // particles do not move, so `current` is unchanged, and keeping a `prev`
-        // from two frames ago made a frozen coat emit the motion of the last
-        // frame it moved -- a TAA smear on a coat that is standing still, which
-        // is exactly the failure the history contract exists to prevent.
-        //
-        // Rotating unconditionally makes a held frame emit prev == current, i.e.
-        // EXACTLY zero motion, which is the same rule
+        // "Whether or not time passed" is the paused frame. This was once gated
+        // on the groom clock, and on a PAUSED frame the particles do not move,
+        // so `current` is unchanged and keeping a `prev` from two frames ago
+        // made a frozen coat emit the motion of the last frame it moved -- a TAA
+        // smear on a coat that is standing still. Rotating on a held frame makes
+        // it emit prev == current, EXACTLY zero motion, the rule
         // GroomStrandVertex::PrevPosition is written under.
-        std::swap(state.m_PrevDisplacements, state.m_Displacements);
+        //
+        // "Once per frame" is the second view (ADR 0026). This function runs once
+        // per view, and the zeroed groom clock already makes a later one hold the
+        // particles and recompute the same displacements. Rotating again there
+        // put this frame's displacements in `prev` too, so every view after the
+        // frame's first drew a coat with no simulated motion behind it, and its
+        // temporal resolve accumulated a different image from the same coat.
+        if (state.m_RotatedFrame != m_GroomFrameSerial)
+        {
+            state.m_RotatedFrame = m_GroomFrameSerial;
+            std::swap(state.m_PrevDisplacements, state.m_Displacements);
+        }
 
         // A BUDGET STEP STARTS FROM THE DRAPE (issue #1509). When only the guide
         // set changed, each new guide's particles start where the coat was last
@@ -12045,6 +12109,27 @@ namespace OloEngine
             cause = GroomHistoryResetCause::Teleport;
         }
 
+        // THE VERDICT AND THE PREVIOUS MATRIX ARE THE FRAME'S, NOT THE PUBLISH'S
+        // (ADR 0026). This function runs once per view. The coat's first
+        // deformation of a frame decides whether last frame is comparable and
+        // reads last frame's matrix. By the time a later view re-enters, the
+        // state the ladder above tests already describes THIS frame: it answers
+        // "continuous" for a coat the first view has just reset, and
+        // m_PrevSurfaceToGroom is this frame's matrix. A later view therefore
+        // takes what the first one decided and read, and draws the same coat
+        // with the same previous frame behind it.
+        const bool firstDeformationOfFrame = state.m_HistoryFrame != m_GroomFrameSerial;
+        if (firstDeformationOfFrame)
+        {
+            state.m_HistoryFrame = m_GroomFrameSerial;
+            state.m_FrameCause = cause;
+            state.m_FramePrevSurfaceToGroom = state.m_PrevSurfaceToGroom;
+        }
+        else
+        {
+            cause = state.m_FrameCause;
+        }
+
         const bool hasHistory = cause == GroomHistoryResetCause::None;
 
         // ── Deform, but only the strands that will be drawn ─────────────────
@@ -12156,7 +12241,8 @@ namespace OloEngine
         // frame's when there is no history is not a fallback that matters --
         // HasHistory false makes the evaluation write prev == current and never
         // read either matrix for a previous position.
-        inputs.PrevSurfaceToGroom = hasHistory ? state.m_PrevSurfaceToGroom : inputs.SurfaceToGroom;
+        // The matrix the frame's first deformation read (see the verdict above).
+        inputs.PrevSurfaceToGroom = hasHistory ? state.m_FramePrevSurfaceToGroom : inputs.SurfaceToGroom;
         inputs.HasHistory = hasHistory;
 
         request.GpuRootFrames = gpuRootFrames;
@@ -12205,7 +12291,12 @@ namespace OloEngine
             OLO_PERF_SCOPE_AUTO("Groom::Simulate");
             SimulateGroomGuides(groomEntity, groom, *bindingAsset, coat, view, inputs.Skinning,
                                 inputs.SurfaceToGroom, targetEntity.GetUUID(), surface->GetGeneration(),
-                                std::span{ state.m_Transforms.GetData(), static_cast<sizet>(state.m_Transforms.Num()) }, cause, request);
+                                std::span{ state.m_Transforms.GetData(), static_cast<sizet>(state.m_Transforms.Num()) },
+                                // The solver hears of a discontinuity ONCE, from
+                                // the frame's first deformation. Told again by a
+                                // later view it would re-seed the particles the
+                                // first view had just stepped.
+                                firstDeformationOfFrame ? cause : GroomHistoryResetCause::None, request);
         }
 
         // The binding preview is drawn HERE, not in the gizmo loop, and the
@@ -12268,9 +12359,13 @@ namespace OloEngine
         const auto& streaming = m_StreamingSettings;
         const bool representationStreaming = IsRepresentationStreamingEnabled(streaming);
         auto& representationBudget = RepresentationStreaming::Get();
-        representationBudget.BeginFrame(Renderer3D::GetStochasticFrameIndex(),
-                                        StreamingBudgetMegabytesToBytes(streaming.RepresentationResidentMegabytes),
-                                        StreamingBudgetMegabytesToBytes(streaming.RepresentationUploadMegabytesPerFrame));
+        // One upload budget per physical frame (ADR 0026): every view of the
+        // frame admits against the budget its primary view opened. Opening it
+        // again per view would double what a frame may upload.
+        if (Renderer3D::IsPrimaryViewFrame())
+            representationBudget.BeginFrame(Renderer3D::GetStochasticFrameIndex(),
+                                            StreamingBudgetMegabytesToBytes(streaming.RepresentationResidentMegabytes),
+                                            StreamingBudgetMegabytesToBytes(streaming.RepresentationUploadMegabytesPerFrame));
         representationBudget.SetStagingBudget(StreamingBudgetMegabytesToBytes(streaming.RepresentationStagingMegabytes));
         // Refresh on each admission: a release earlier in this same frame is
         // still physical backing until the backend's deletion queue retires it.
@@ -13868,24 +13963,39 @@ namespace OloEngine
                                                      terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale))
                         foliage.m_NeedsRebuild = true;
 
-                    if (foliage.m_NeedsRebuild && terrain.m_TerrainData)
+                    // Which plants exist and which of them hold streamed detail
+                    // is the world's, so it is decided once per physical frame,
+                    // by the frame's primary view and from that view's camera
+                    // (ADR 0026). A later view of the frame draws the set the
+                    // primary view left: publishing a rebuild in it would show
+                    // two views of one frame two different meadows, and
+                    // re-anchoring residency on its camera would evict what the
+                    // primary view just loaded, every frame, in both
+                    // directions. The limit this states: detail residency
+                    // follows the primary view's camera; a later view looking
+                    // elsewhere sees the stand-ins that camera left there.
+                    if (Renderer3D::IsPrimaryViewFrame())
                     {
-                        foliage.m_Renderer->RequestRebuild(
-                            foliage.m_Layers,
-                            *terrain.m_TerrainData,
-                            terrain.m_Material.get(),
-                            terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
-                        foliage.m_NeedsRebuild = false;
-                    }
+                        Renderer3D::CountSceneAdvance(Renderer3D::SceneAdvanceStep::FoliageWorld);
+                        if (foliage.m_NeedsRebuild && terrain.m_TerrainData)
+                        {
+                            foliage.m_Renderer->RequestRebuild(
+                                foliage.m_Layers,
+                                *terrain.m_TerrainData,
+                                terrain.m_Material.get(),
+                                terrain.m_WorldSizeX, terrain.m_WorldSizeZ, terrain.m_HeightScale);
+                            foliage.m_NeedsRebuild = false;
+                        }
 
-                    foliage.m_Renderer->AdvanceRebuild();
+                        foliage.m_Renderer->AdvanceRebuild();
 
-                    if (foliage.m_Renderer->UpdateStreamingResidency(foliage.m_Layers, cameraPosition))
-                    {
-                        Renderer3D::InvalidateTemporalHistories(TemporalHistoryInvalidationCause::Manual);
-                        // Reconcile representation census/bounds without clearing
-                        // the registry that owns canonical plant IDs.
-                        foliage.m_Renderer->RefreshStreamingRepresentations(foliage.m_Layers);
+                        if (foliage.m_Renderer->UpdateStreamingResidency(foliage.m_Layers, cameraPosition))
+                        {
+                            Renderer3D::InvalidateWorldTemporalHistories();
+                            // Reconcile representation census/bounds without clearing
+                            // the registry that owns canonical plant IDs.
+                            foliage.m_Renderer->RefreshStreamingRepresentations(foliage.m_Layers);
+                        }
                     }
 
                     // Publish this system's representation census (issue #1230).
@@ -13926,20 +14036,33 @@ namespace OloEngine
             // The delta is clamped because a stop/start, an asset load or a stalled
             // editor frame would otherwise hand the surface the whole gap at once
             // and jump the wave phase visibly.
-            const f32 wallNow = Time::GetTime();
-            if (m_AnimationClockWall < 0.0f)
+            //
+            // The clock steps once per physical frame, in its primary view (ADR
+            // 0026). A later view of the frame draws the same instant and
+            // measures velocity against the same previous one: stepping again
+            // would hand it this frame's time as its "previous" and zero the
+            // wind, water and foliage motion it writes. A scene whose first
+            // render is not a primary view still has to seed the clock.
+            const bool advancesWorld = Renderer3D::IsPrimaryViewFrame() || m_AnimationClockWall < 0.0f;
+            if (advancesWorld)
             {
-                m_AnimationClock = wallNow;
+                Renderer3D::CountSceneAdvance(Renderer3D::SceneAdvanceStep::SceneClock);
+                const f32 wallNow = Time::GetTime();
+                if (m_AnimationClockWall < 0.0f)
+                {
+                    m_AnimationClock = wallNow;
+                }
+                else if (!m_IsPaused)
+                {
+                    m_AnimationClock += std::clamp(wallNow - m_AnimationClockWall, 0.0f, 0.1f);
+                }
+                m_AnimationClockWall = wallNow;
+                m_FramePrevAnimationTime = (m_LastAnimationTime < 0.0f) ? m_AnimationClock : m_LastAnimationTime;
+                m_LastAnimationTime = m_AnimationClock;
             }
-            else if (!m_IsPaused)
-            {
-                m_AnimationClock += std::clamp(wallNow - m_AnimationClockWall, 0.0f, 0.1f);
-            }
-            m_AnimationClockWall = wallNow;
 
             const f32 animationTime = m_AnimationClock;
-            const f32 prevAnimationTime = (m_LastAnimationTime < 0.0f) ? animationTime : m_LastAnimationTime;
-            m_LastAnimationTime = animationTime;
+            const f32 prevAnimationTime = m_FramePrevAnimationTime;
 
             // ── Foliage interaction field (issue #1238) ──
             //
@@ -13979,8 +14102,11 @@ namespace OloEngine
                     influence.TrailSpacing = source.m_TrailSpacing;
                     influences.Add(influence);
                 }
-                FoliageInteractionField::Update(std::span<const FoliageInteractionSource>(influences.GetData(), static_cast<sizet>(influences.Num())),
-                                                animationTime - prevAnimationTime);
+                // Once per physical frame, like the clock it rides: the field
+                // is a simulation, and a second view must not step its springs.
+                if (advancesWorld)
+                    FoliageInteractionField::Update(std::span<const FoliageInteractionSource>(influences.GetData(), static_cast<sizet>(influences.Num())),
+                                                    animationTime - prevAnimationTime);
             }
             {
                 auto terrainShader = Renderer3D::GetTerrainPBRShader();
@@ -17684,37 +17810,43 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        // Extract camera parameters from primary SceneCamera (base Camera lacks near/far)
+        f32 cameraNearClip = 0.1f;
+        f32 cameraFarClip = 1000.0f;
+        for (const auto camView = m_Registry.view<CameraComponent>(); const auto entity : camView)
+        {
+            if (const auto& cam = camView.get<CameraComponent>(entity); cam.Primary)
+            {
+                if (cam.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
+                {
+                    cameraNearClip = cam.Camera.GetOrthographicNearClip();
+                    cameraFarClip = cam.Camera.GetOrthographicFarClip();
+                }
+                else
+                {
+                    cameraNearClip = cam.Camera.GetPerspectiveNearClip();
+                    cameraFarClip = cam.Camera.GetPerspectiveFarClip();
+                }
+                break;
+            }
+        }
+        RenderScene3DFromCamera(camera, cameraTransform, cameraNearClip, cameraFarClip);
+    }
+
+    void Scene::RenderScene3DFromCamera(Camera const& camera, const glm::mat4& cameraTransform, const f32 cameraNearClip,
+                                        const f32 cameraFarClip)
+    {
+        OLO_PROFILE_FUNCTION();
+
         Renderer3D::SetWindPaused(m_IsPaused);
         // Before BeginScene: that is where the frame's jitter is decided (#1429).
         Renderer3D::RequestSceneTemporalResolve(CountGroomsNeedingTemporalResolve());
         Renderer3D::BeginScene(camera, cameraTransform);
         Renderer3D::BeginGPUSceneExtraction(static_cast<u64>(m_GPUSceneOwnerToken));
 
-        // Extract camera parameters from primary SceneCamera (base Camera lacks near/far)
         glm::vec3 cameraPosition = glm::vec3(cameraTransform[3]);
         glm::mat4 viewMatrix = glm::inverse(cameraTransform);
-        f32 cameraNearClip = 0.1f;
-        f32 cameraFarClip = 1000.0f;
-        {
-            for (const auto camView = m_Registry.view<CameraComponent>(); const auto entity : camView)
-            {
-                if (const auto& cam = camView.get<CameraComponent>(entity); cam.Primary)
-                {
-                    if (cam.Camera.GetProjectionType() == SceneCamera::ProjectionType::Orthographic)
-                    {
-                        cameraNearClip = cam.Camera.GetOrthographicNearClip();
-                        cameraFarClip = cam.Camera.GetOrthographicFarClip();
-                    }
-                    else
-                    {
-                        cameraNearClip = cam.Camera.GetPerspectiveNearClip();
-                        cameraFarClip = cam.Camera.GetPerspectiveFarClip();
-                    }
-                    break;
-                }
-            }
-            Renderer3D::SetCameraClipPlanes(cameraNearClip, cameraFarClip);
-        }
+        Renderer3D::SetCameraClipPlanes(cameraNearClip, cameraFarClip);
 
         // Time-of-day drive (issue #633): ephemeris → directional light before
         // the sky bake + light gather (see the editor-path overload above).
@@ -17751,6 +17883,71 @@ namespace OloEngine
 
         Renderer3D::EndScene();
         Renderer3D::SetWindPaused(false);
+    }
+
+    void Scene::RequestAdditionalView(const SceneViewRequest& request)
+    {
+        if (request.View.IsMain())
+        {
+            OLO_CORE_ERROR("Scene::RequestAdditionalView: the main view is the scene's own camera, not an additional view");
+            return;
+        }
+        for (SceneViewRequest& pending : m_AdditionalViewRequests)
+        {
+            if (pending.View == request.View)
+            {
+                pending = request;
+                return;
+            }
+        }
+        m_AdditionalViewRequests.Add(request);
+    }
+
+    void Scene::RenderAdditionalView3D(const SceneViewRequest& request)
+    {
+        OLO_PROFILE_FUNCTION();
+
+        if (!Renderer3D::IsViewAlive(request.View))
+        {
+            // Said every time: a view that was destroyed while a request for
+            // it was pending renders nothing, and nothing else would say why.
+            OLO_CORE_ERROR("Scene: additional view {} was requested but is not alive; it renders nothing this frame",
+                           request.View.Value);
+            return;
+        }
+        const Renderer3D::ScopedView scope(request.View);
+        const Camera camera(request.Projection);
+        RenderScene3DFromCamera(camera, request.CameraTransform, request.NearClip, request.FarClip);
+    }
+
+    Scene::AdditionalViewFrame::AdditionalViewFrame(Scene& scene)
+        : m_Scene(scene)
+    {
+        if (scene.m_AdditionalViewRequests.IsEmpty())
+            return;
+
+        // Taken: a request made while these render belongs to the next frame.
+        m_Requests = std::move(scene.m_AdditionalViewRequests);
+        scene.m_AdditionalViewRequests.Reset();
+        Renderer3D::BeginFrame();
+        for (const SceneViewRequest& request : m_Requests)
+        {
+            if (request.BeforeMainView)
+                scene.RenderAdditionalView3D(request);
+        }
+    }
+
+    Scene::AdditionalViewFrame::~AdditionalViewFrame()
+    {
+        if (m_Requests.IsEmpty())
+            return;
+
+        for (const SceneViewRequest& request : m_Requests)
+        {
+            if (!request.BeforeMainView)
+                m_Scene.RenderAdditionalView3D(request);
+        }
+        Renderer3D::EndFrame();
     }
 
     void Scene::RenderParticleSystems(const glm::vec3& camPos, f32 nearClip, f32 farClip)

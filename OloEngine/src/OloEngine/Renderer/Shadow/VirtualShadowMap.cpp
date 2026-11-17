@@ -2127,13 +2127,18 @@ namespace OloEngine
 
         // Stage this frame's counters HERE, not at the next UpdatePages(). Both
         // give the CPU a read that never touches the SSBO, but staging at the
-        // end of the frame that wrote them keeps the value ONE frame old the way
-        // it always was — staging at the start of the next frame would have made
-        // it two, which is a behaviour change a fixed-frame-count test can see
+        // end of the frame that wrote them keeps the value as young as it can
+        // be: staging at the start of the next frame would add a frame, which a
+        // fixed-frame-count test can see
         // (VulkanPassSuite.VirtualShadowMapRunsAFullFrameOnVulkan does).
+        //
+        // The fenced, deferred pair: ReadbackStatistics() takes this copy only
+        // once it has run, and takes the copies in order (#1697). A false
+        // return means the reader is four frames behind and this frame's
+        // counters are the ones not reported.
         if (const auto& stats = m_StatsBuffers[m_StatsWriteIndex])
         {
-            m_StatsReadback.Stage(stats->GetRHIHandle(), 0, sizeof(VSM::Statistics));
+            (void)m_StatsReadback.StageDeferred(stats->GetRHIHandle(), 0, sizeof(VSM::Statistics));
         }
 
         m_PrevOrigins = m_CurrOrigins;
@@ -2332,10 +2337,14 @@ namespace OloEngine
 
     void VirtualShadowMap::ReadbackStatistics()
     {
-        // One frame stale, never a pipeline stall: EndFrame() staged a copy of
-        // the counters after the previous frame's kernels, and this reads that
-        // copy. Acceptance criterion #2 needs PagesDrawn observable every frame,
-        // so this is not gated behind a debug flag.
+        // At least one frame stale, never a pipeline stall, never bytes no copy
+        // wrote: EndFrame() staged a fenced copy of the counters after each
+        // frame's kernels, and this takes the oldest one that has finished. One
+        // copy per call, in order, so every frame's counters are reported once
+        // even when the GPU runs a frame or two behind the CPU; with frames in
+        // flight the value is that much older. Acceptance criterion #2 needs
+        // PagesDrawn observable every frame, so this is not gated behind a
+        // debug flag.
         //
         // Reading the SSBO directly would be correct and would also migrate it
         // VIDEO -> HOST — and these buffers are atomicAdd targets in every
@@ -2344,7 +2353,7 @@ namespace OloEngine
         // fenced with ShaderStorage, which orders SHADER reads, and a buffer
         // copy is a buffer-update client that needs its own class.
         VSM::Statistics readback{};
-        if (m_StatsReadback.Read(&readback, sizeof(VSM::Statistics)))
+        if (m_StatsReadback.ReadCompleted(&readback, sizeof(VSM::Statistics)))
         {
             m_Statistics = readback;
             m_HasStatistics = true;

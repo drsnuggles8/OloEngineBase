@@ -53,13 +53,41 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
+#include "Platform/OpenGL/OpenGLBlockContract.h"
 
 #include <glad/gl.h>
 
+#include <algorithm>
 #include <array>
+#include <span>
+#include <vector>
 
 namespace OloEngine::Tests
 {
+    namespace
+    {
+        // A test's own render target, unbound however the body leaves: an
+        // ASSERT that returns early must not hand the next test a bound
+        // framebuffer.
+        class BoundTarget
+        {
+          public:
+            explicit BoundTarget(Ref<Framebuffer> target) : m_Target(std::move(target))
+            {
+                m_Target->Bind();
+            }
+            ~BoundTarget()
+            {
+                m_Target->Unbind();
+            }
+            BoundTarget(const BoundTarget&) = delete;
+            BoundTarget& operator=(const BoundTarget&) = delete;
+
+          private:
+            Ref<Framebuffer> m_Target;
+        };
+    } // namespace
+
     class RendererOwnership : public RendererAttachedTest
     {
       protected:
@@ -448,7 +476,7 @@ namespace OloEngine::Tests
             ASSERT_TRUE(target);
             Ref<Mesh> cube = MeshPrimitives::CreateSkyboxCube();
             ASSERT_TRUE(cube);
-            target->Bind();
+            const BoundTarget bound(target);
             RenderCommand::SetViewport(0, 0, 32, 32);
             CommandDispatch::BindSceneResources();
             prefilterBlock->Bind();
@@ -466,8 +494,120 @@ namespace OloEngine::Tests
             EXPECT_EQ(BindingContract::ViolationCount() - refusedBefore, 1u)
                 << "the prefilter was refused its own block";
             EXPECT_EQ(api.GetUniformBufferOccupant(ShaderBindingLayout::UBO_USER_0), prefilterBlock->GetRHIHandle())
-                << "after another program's refusal the prefilter did not find its own block on the binding point";
-            target->Unbind(); });
+                << "after another program's refusal the prefilter did not find its own block on the binding point"; });
+    }
+
+    // Whose word a block's name is. A GL program linked from SPIR-V carries no
+    // names for a driver to report (ARB_gl_spirv): NVIDIA reports the SPIR-V
+    // debug names anyway and Mesa reports an empty string. While the check
+    // asked the driver, every block read on Mesa was "another layout", every
+    // block was replaced by zeros and every frame on the AMD box was black;
+    // on NVIDIA nothing showed. The name is what the shader's own SPIR-V
+    // declares, on every driver, and this holds it on a driver that would
+    // have answered: the declaration is changed under a program whose driver
+    // name stays what it was, and the verdict follows the declaration.
+    TEST_F(RendererOwnership, ABlocksNameIsWhatTheShadersSpirvDeclaresNotWhatTheDriverReports)
+    {
+        if (TestRenderBackend::IsVulkanProcess())
+            GTEST_SKIP() << "Vulkan takes block names from SPIR-V reflection and has no driver to ask";
+        RenderMovingFrames(1);
+        RunInFrame([]
+                   {
+            const Ref<Shader> toneMap = Shader::Create("assets/shaders/PostProcess_ToneMap.glsl");
+            ASSERT_TRUE(toneMap);
+            const u32 program = toneMap->GetRendererID();
+
+            // What building the program declared for it: the tone mapper's
+            // block at UBO_USER_0, by the name its source gives it.
+            const std::span<const OpenGLBlockContract::DeclaredBlock> declared = OpenGLBlockContract::DeclaredBlocks(program);
+            ASSERT_FALSE(declared.empty()) << "building a program from SPIR-V declared none of its blocks to the binding contract";
+            std::vector<OpenGLBlockContract::DeclaredBlock> own(declared.begin(), declared.end());
+            const auto postProcess = std::ranges::find_if(
+                own, [](const OpenGLBlockContract::DeclaredBlock& block) { return block.Binding == ShaderBindingLayout::UBO_USER_0; });
+            ASSERT_NE(postProcess, own.end()) << "the tone mapper's block at UBO_USER_0 was not declared";
+            ASSERT_EQ(postProcess->Name.ToView(), "PostProcessUBO");
+
+            constexpr u32 kBlockBytes = 4096;
+            const std::array<u8, kBlockBytes> zeros{};
+            Ref<UniformBuffer> block = UniformBuffer::Create(kBlockBytes, ShaderBindingLayout::UBO_USER_0, "PostProcessUBO");
+            block->SetData(zeros.data(), kBlockBytes);
+            // As in the test above: the tone mapper declares the auto-exposure
+            // state, and nothing here publishes it.
+            const std::array<f32, 4> manualExposure{};
+            Ref<StorageBuffer> exposureState = StorageBuffer::Create(
+                static_cast<u32>(sizeof(manualExposure)), ShaderBindingLayout::SSBO_AUTO_EXPOSURE_STATE);
+            exposureState->SetData(manualExposure.data(), static_cast<u32>(sizeof(manualExposure)));
+
+            FramebufferSpecification spec;
+            spec.Width = 32;
+            spec.Height = 32;
+            spec.Attachments = { FramebufferTextureFormat::RGBA32F, FramebufferTextureFormat::Depth };
+            Ref<Framebuffer> target = Framebuffer::Create(spec);
+            ASSERT_TRUE(target);
+            Ref<Mesh> cube = MeshPrimitives::CreateSkyboxCube();
+            ASSERT_TRUE(cube);
+            const BoundTarget bound(target);
+            RenderCommand::SetViewport(0, 0, 32, 32);
+            CommandDispatch::BindSceneResources();
+            block->Bind();
+            const auto vao = cube->GetVertexArray();
+            vao->Bind();
+
+            const u64 refusedBefore = BindingContract::ViolationCount();
+            toneMap->Bind();
+            RenderCommand::DrawIndexed(vao);
+            ASSERT_EQ(BindingContract::ViolationCount() - refusedBefore, 0u) << "the tone mapper was refused its own block";
+
+            // The same program, the same driver, another declared name.
+            std::vector<OpenGLBlockContract::DeclaredBlock> renamed = own;
+            renamed[static_cast<sizet>(postProcess - own.begin())].Name = FString("IBLParameters");
+            OpenGLBlockContract::DeclareProgramBlocks(program, renamed);
+            block->Bind();
+            RenderCommand::DrawIndexed(vao);
+            EXPECT_EQ(BindingContract::ViolationCount() - refusedBefore, 1u)
+                << "the verdict did not follow the declared name: the check is asking the driver what the block is called";
+
+            OpenGLBlockContract::DeclareProgramBlocks(program, own);
+            block->Bind();
+            RenderCommand::DrawIndexed(vao);
+            EXPECT_EQ(BindingContract::ViolationCount() - refusedBefore, 1u) << "the block was refused under its own declared name";
+
+            // Two stages that call one binding by two names. Their blocks are
+            // the same size, so nothing says which of the program's blocks is
+            // which, and the occupant has to be both: it is the first and not
+            // the second, and that is one refusal in whichever order the
+            // stages were reflected. A check that took the first name it found
+            // accepted this read in one order and refused it in the other.
+            OpenGLBlockContract::DeclaredBlock second = own[static_cast<sizet>(postProcess - own.begin())];
+            second.Name = FString("IBLParameters");
+            for (const bool ownNameFirst : { true, false })
+            {
+                std::vector<OpenGLBlockContract::DeclaredBlock> twoNames = own;
+                if (ownNameFirst)
+                    twoNames.push_back(second);
+                else
+                    twoNames.insert(twoNames.begin(), second);
+                OpenGLBlockContract::DeclareProgramBlocks(program, twoNames);
+                const u64 refusedBeforeTwo = BindingContract::ViolationCount();
+                block->Bind();
+                RenderCommand::DrawIndexed(vao);
+                EXPECT_EQ(BindingContract::ViolationCount() - refusedBeforeTwo, 1u)
+                    << "two names at one binding, the occupant's own name " << (ownNameFirst ? "first" : "second")
+                    << ": the occupant was not held to both";
+            }
+
+            // Declaring a program's own declaration again is a copy, not a
+            // read of freed storage: the span is into what the call replaces.
+            OpenGLBlockContract::DeclareProgramBlocks(program, own);
+            OpenGLBlockContract::DeclareProgramBlocks(program, OpenGLBlockContract::DeclaredBlocks(program));
+            const std::span<const OpenGLBlockContract::DeclaredBlock> again = OpenGLBlockContract::DeclaredBlocks(program);
+            ASSERT_EQ(again.size(), own.size());
+            for (sizet i = 0; i < own.size(); ++i)
+                EXPECT_EQ(again[i].Name.ToView(), own[i].Name.ToView());
+            const u64 refusedBeforeOwn = BindingContract::ViolationCount();
+            block->Bind();
+            RenderCommand::DrawIndexed(vao);
+            EXPECT_EQ(BindingContract::ViolationCount() - refusedBeforeOwn, 0u) << "the block was refused under its own declared name"; });
     }
 
     // The alternate-camera seam with a real draw, on both backends. A replay

@@ -3,10 +3,54 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // One manager per scene view (ADR 0026): the states are keyed by
+        // object and hold what THAT view's queries last answered.
+        struct ViewManagers
+        {
+            std::unordered_map<u64, OcclusionStateManager*> Extra;
+            OcclusionStateManager* Active = nullptr; // null: the main view's
+        };
+
+        ViewManagers& Managers()
+        {
+            static ViewManagers managers;
+            return managers;
+        }
+    } // namespace
+
     OcclusionStateManager& OcclusionStateManager::GetInstance()
     {
-        static OcclusionStateManager instance;
-        return instance;
+        static OcclusionStateManager mainView;
+        OcclusionStateManager* active = Managers().Active;
+        return active ? *active : mainView;
+    }
+
+    void OcclusionStateManager::SetActiveView(u64 view)
+    {
+        ViewManagers& managers = Managers();
+        if (view == 0)
+        {
+            managers.Active = nullptr;
+            return;
+        }
+        OcclusionStateManager*& manager = managers.Extra[view];
+        if (!manager)
+            manager = new OcclusionStateManager();
+        managers.Active = manager;
+    }
+
+    void OcclusionStateManager::ReleaseView(u64 view)
+    {
+        ViewManagers& managers = Managers();
+        const auto it = managers.Extra.find(view);
+        if (it == managers.Extra.end())
+            return;
+        if (managers.Active == it->second)
+            managers.Active = nullptr;
+        delete it->second;
+        managers.Extra.erase(it);
     }
 
     void OcclusionStateManager::Clear()

@@ -1,7 +1,11 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
+#include "OloEngine/Containers/String.h"
 #include "OloEngine/Core/Base.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
+
+#include <span>
 
 namespace OloEngine
 {
@@ -44,6 +48,31 @@ namespace OloEngine
         // glUseProgram(program) just ran.
         void NoteProgramBound(u32 program);
 
+        // One uniform block a program was built to read, as the SPIR-V it was
+        // built from declares it.
+        struct DeclaredBlock
+        {
+            u32 Binding = 0;
+            u32 Size = 0;
+            FString Name;
+        };
+
+        // The blocks of `program`, from SPIR-V reflection. Called whenever a
+        // program is finalised, with an empty span when it was built from no
+        // SPIR-V, and replaces what was declared for that program name before.
+        // Two declarations of one binding and size under two names are two
+        // readers of that point, and the occupant is held to both.
+        //
+        // This is where the check gets a block's NAME. The driver cannot be
+        // asked: a program linked from SPIR-V carries no names (ARB_gl_spirv),
+        // and while NVIDIA reports the SPIR-V debug names anyway, Mesa reports
+        // an empty string. Size and binding still come from the linked
+        // program, which every driver reports.
+        void DeclareProgramBlocks(u32 program, std::span<const DeclaredBlock> blocks);
+        // What was declared for `program`, empty when nothing was. Valid until
+        // the next DeclareProgramBlocks or the program's retirement.
+        [[nodiscard]] std::span<const DeclaredBlock> DeclaredBlocks(u32 program);
+
         // Called at the top of every draw and dispatch entry point. Two integer
         // compares when neither the program nor any binding point changed
         // since the last call; otherwise one pass over the program's active
@@ -59,4 +88,14 @@ namespace OloEngine
         // Release the zero block while the context is alive.
         void Shutdown();
     } // namespace OpenGLBlockContract
+
+    // Member by member, so adding a member that does not survive a bitwise
+    // move closes the gate again (engine-owned-containers.md).
+    template<>
+    struct TIsTriviallyRelocatable<OpenGLBlockContract::DeclaredBlock>
+    {
+        static constexpr bool Value = TIsTriviallyRelocatable_V<decltype(OpenGLBlockContract::DeclaredBlock::Binding)> &&
+                                      TIsTriviallyRelocatable_V<decltype(OpenGLBlockContract::DeclaredBlock::Size)> &&
+                                      TIsTriviallyRelocatable_V<decltype(OpenGLBlockContract::DeclaredBlock::Name)>;
+    };
 } // namespace OloEngine

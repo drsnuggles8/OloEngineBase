@@ -44,6 +44,9 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 | [visual-quality-criteria.md](visual-quality-criteria.md) | Three correct presence measurements marked "convincing geometry" met on a frame a human called 1998. |
 | [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md) | Settings reset on Play, and headless tests never call `Scene::Copy()`. |
 | [renderer-state-machine-harness.md](renderer-state-machine-harness.md) | Four renderer bugs each lived in a sequence of valid operations. |
+| [renderer-views-and-the-physical-frame.md](renderer-views-and-the-physical-frame.md) | A parked copy of a view's Hi-Z generator outlived shutdown; only the Vulkan process's exit code said so. |
+| [renderer-views-and-the-physical-frame.md](renderer-views-and-the-physical-frame-details.md#a-bake-that-read-its-own-clear-colour) | A probe bake comes back black or invalid in a lit scene: it read a framebuffer it bound, and the scene renders into the graph's targets. |
+| [renderer-views-and-the-physical-frame.md](renderer-views-and-the-physical-frame-details.md#a-coat-with-no-motion-behind-it-in-the-later-view) | A coat (or any scene-side history) has no motion behind it in the second view of a frame: the publish runs per view and advanced the history each time. |
 | [world-anchored-renderer-state-in-tests.md](world-anchored-renderer-state-in-tests.md) | A visual golden passes in file order and fails in a shard. |
 | [ab-diff-peak-is-not-a-location.md](ab-diff-peak-is-not-a-location.md) | An A/B visual assertion read backwards in one test ordering, from frames that were identical to the byte. |
 | [oit-blend-state-and-identity-lanes.md](oit-blend-state-and-identity-lanes.md) | A transparent decal drew and its fragments survived while the composite was unchanged. |
@@ -68,6 +71,7 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 | [glsl-shaders.md](glsl-shaders.md) §1a | A new `#extension` was green on every PR check and red on the next nightly. |
 | [glsl-shaders.md](glsl-shaders.md) §1 | A padding lane called `_padding0` in a shared UBO block fails SPIR-V as a Vulkan-only error that every OpenGL test is blind to. |
 | [amd-mesa-shader-compile-blowup.md](amd-mesa-shader-compile-blowup.md) | A shader compiled in a second on NVIDIA and llvmpipe. |
+| [shared-uniform-binding-bind-before-dispatch.md](shared-uniform-binding-bind-before-dispatch.md#the-check-that-enforces-it-issue-1330) | Every frame black on the AMD box and green on NVIDIA: a check compared against a name only one driver reports for a SPIR-V program. |
 | [component-serializer-codegen.md](component-serializer-codegen.md) | A corrupt drive mode clamped to a different valid mode, and the car still drove. |
 | [asset-degradation-and-constructor-preconditions.md](asset-degradation-and-constructor-preconditions.md) | "Load the scene, does it crash?" passes because the trigger is resolution, not loading. |
 | [notes-editor-and-assets.md](notes-editor-and-assets.md) | An extension already in `s_ExtensionMap` routes the file to the OLD importer. |
@@ -193,6 +197,7 @@ The same fact is written in more than one place with nothing enforcing agreement
 | `ShaderBindingLayout.h` <-> `include/BindlessHeap.glsl` | `HEAP_IMAGE_SLOT_BASE` is derived in C++ and a literal in GLSL, so adding any `TEX_*` slot is also a shader edit (#702). |
 | [ssbo-binding-cap-is-80-on-mesa.md](ssbo-binding-cap-is-80-on-mesa.md) | The SSBO ceiling lived in prose copied from the UBO namespace while the driver's real 80 was mirrored nowhere. |
 | [groom-coat-colour.md](groom-coat-colour.md) | The UV convention a groom source writes root UVs in against the one the engine samples textures in, pinned by `TheRootUVsAreTheSkinsUnderThem`. |
+| [two-copies-of-a-header-on-the-include-path.md](two-copies-of-a-header-on-the-include-path.md) | Six tests included the bare `<stb_image_write.h>`, vcpkg's older copy; after a pin bump made the stride a `ptrdiff_t` they passed four bytes of an eight-byte argument and 26 tests died in the PNG writer. |
 | [vcpkg-dependency-management.md](vcpkg-dependency-management.md) rule 21 | `-ffp-contract=off` reached the engine but not the vcpkg ports, so the AMD box alone FMA-fused meshoptimizer and reordered one Samoyed submesh under a shipped groom binding (#1674). |
 
 ## 3. It silently drops something
@@ -323,6 +328,10 @@ The logic is right, but when it runs or how long it lives is wrong.
 | [terrain-virtual-texturing.md](terrain-virtual-texturing.md) | Touch a priority-ordered LRU in reverse (§5), and fill coarse-to-fine with one dispatch per level with barriers (§3a). |
 | [async-fault-in-under-a-residency-cache.md](async-fault-in-under-a-residency-cache.md) | Allocating the slot before the asynchronous read completes evicts a resident entry to hold nothing. |
 | [render-pass-published-state.md](render-pass-published-state.md) | Publish last, restore deliberately. |
+| [out-of-graph-draws-set-their-own-state.md](out-of-graph-draws-set-their-own-state.md) | A coat lost its sky light after an unrelated 17 ms test: an impostor bake left back-face culling on and the sky bake drew half its cube under it. |
+| [vulkan-test-process-drops-work-outside-a-frame.md](vulkan-test-process-drops-work-outside-a-frame.md) | A Vulkan scene test passes alone and fails after an unrelated suite: its fixture baked an environment outside a frame, the bake was dropped, and the unwritten cubes held a freed texture. |
+| [draw-order-is-the-scenes-not-the-registrys.md](draw-order-is-the-scenes-not-the-registrys.md) | Two overlapping texts or sprites swap which is on top when the editor goes from Edit to Simulate or Play: they were drawn in registry order, and the copy those modes run on iterates the other way. |
+| [a-lookup-table-is-read-at-its-texel-centres.md](a-lookup-table-is-read-at-its-texel-centres.md) | A faint bright disc on a rough wall where it faces the camera, under an environment: the BRDF table's sampler repeats and a tap at `NdotV = 1` read the grazing column. |
 | [render-graph-out-of-band-work.md](render-graph-out-of-band-work.md) | Edges that existed only as registration order, `DependsOnPass` strings or `NeverCull` made the occlusion pyramid read correct only because of `AddNode` order. |
 | [vulkan-descriptor-heap-rebind-after-execute-commands.md](vulkan-descriptor-heap-rebind-after-execute-commands.md) | A primary's heap binding is undefined after `vkCmdExecuteCommands`. |
 | [transparent-draw-order.md](transparent-draw-order.md) | An inverted depth in the least significant field ordered blended draws only within one shader+material bucket and composited the rest by shader ID then material ID. |

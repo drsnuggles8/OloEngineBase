@@ -858,7 +858,7 @@ vec3 ComputeDeferredLitSplit(
                                                    -(u_View * vec4(worldPos, 1.0)).z);
         coatPrefiltered = mix(coatPrefiltered, coatProbe.rgb, coatProbe.a);
 #endif
-        vec2 coatEnvBRDF = texture(u_BRDFLutMap, vec2(max(dot(N, V), 0.0), coatRoughness)).rg;
+        vec2 coatEnvBRDF = oloEnvBRDF(u_BRDFLutMap, max(dot(N, V), 0.0), coatRoughness);
         ambient = oloSkinOralApplyCoatAmbient(ambient, skinOralLane, coatEnvBRDF, coatPrefiltered * iblIntensity);
     }
 
@@ -880,13 +880,13 @@ vec3 ComputeDeferredLitSplit(
         float weightNdotV = max(dot(N, V), 0.0);
         vec3 weightF0 = mix(vec3(DEFAULT_DIELECTRIC_F0), albedo, metallic);
         vec3 weightF = fresnelSchlickRoughness(weightNdotV, weightF0, roughness);
-        vec2 weightEnvBRDF = enableIBL ? texture(u_BRDFLutMap, vec2(weightNdotV, roughness)).rg
+        vec2 weightEnvBRDF = enableIBL ? oloEnvBRDF(u_BRDFLutMap, weightNdotV, roughness)
                                        : oloEnvBRDFApprox(weightNdotV, roughness);
         ambientWeight.Specular = weightF * weightEnvBRDF.x + weightEnvBRDF.y;
         if (skinOralLane.x > 0.0)
         {
             float coatRoughness = oloSkinOralCoatAmbientRoughness(skinOralLane);
-            vec2 coatEnvBRDF = enableIBL ? texture(u_BRDFLutMap, vec2(weightNdotV, coatRoughness)).rg
+            vec2 coatEnvBRDF = enableIBL ? oloEnvBRDF(u_BRDFLutMap, weightNdotV, coatRoughness)
                                          : oloEnvBRDFApprox(weightNdotV, coatRoughness);
             ambientWeight = oloSkinOralApplyCoatAmbient(ambientWeight, skinOralLane, coatEnvBRDF, vec3(1.0));
         }

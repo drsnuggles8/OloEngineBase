@@ -2207,6 +2207,12 @@ namespace OloEngine
         s_FrameData.AtlasRawShadowTexture = atlasRawTexture;
     }
 
+    void CommandDispatch::SetForwardPlus(TiledForwardPlus* forwardPlus)
+    {
+        OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");
+        s_FrameData.ForwardPlus = forwardPlus;
+    }
+
     void CommandDispatch::SetSnowDepthTexture(RHI::ResourceHandle texture)
     {
         OLO_CORE_ASSERT(!s_RecordingData, "Frame state is frozen during recording");

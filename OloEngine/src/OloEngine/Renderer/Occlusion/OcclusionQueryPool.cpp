@@ -5,10 +5,57 @@
 
 namespace OloEngine
 {
+    namespace
+    {
+        // One pool per scene view (ADR 0026). The pool is a two-frame ring:
+        // a frame reads what the previous one issued. Two views sharing one
+        // would each read the other's visibility. Raw pointers because the
+        // destructor is private; ReleaseView is the only owner.
+        struct ViewPools
+        {
+            std::unordered_map<u64, OcclusionQueryPool*> Extra;
+            OcclusionQueryPool* Active = nullptr; // null: the main view's
+        };
+
+        ViewPools& Pools()
+        {
+            static ViewPools pools;
+            return pools;
+        }
+    } // namespace
+
     OcclusionQueryPool& OcclusionQueryPool::GetInstance()
     {
-        static OcclusionQueryPool instance;
-        return instance;
+        static OcclusionQueryPool mainView;
+        OcclusionQueryPool* active = Pools().Active;
+        return active ? *active : mainView;
+    }
+
+    void OcclusionQueryPool::SetActiveView(u64 view)
+    {
+        ViewPools& pools = Pools();
+        if (view == 0)
+        {
+            pools.Active = nullptr;
+            return;
+        }
+        OcclusionQueryPool*& pool = pools.Extra[view];
+        if (!pool)
+            pool = new OcclusionQueryPool();
+        pools.Active = pool;
+    }
+
+    void OcclusionQueryPool::ReleaseView(u64 view)
+    {
+        ViewPools& pools = Pools();
+        const auto it = pools.Extra.find(view);
+        if (it == pools.Extra.end())
+            return;
+        if (pools.Active == it->second)
+            pools.Active = nullptr;
+        it->second->Shutdown();
+        delete it->second;
+        pools.Extra.erase(it);
     }
 
     OcclusionQueryPool::~OcclusionQueryPool()

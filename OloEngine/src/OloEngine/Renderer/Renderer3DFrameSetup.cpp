@@ -77,6 +77,7 @@ namespace OloEngine
     void Renderer3D::BeginScene(const PerspectiveCamera& camera)
     {
         OLO_PROFILE_FUNCTION();
+        BeginViewFrame();
         ReclaimSharedRenderState();
         AdvanceDecalVisibilityFrame();
         // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
@@ -109,6 +110,7 @@ namespace OloEngine
     void Renderer3D::BeginScene(const EditorCamera& camera)
     {
         OLO_PROFILE_FUNCTION();
+        BeginViewFrame();
         ReclaimSharedRenderState();
         AdvanceDecalVisibilityFrame();
         // Ray-traced shadow candidates are per-frame (issue #1056). Cleared
@@ -141,6 +143,7 @@ namespace OloEngine
     void Renderer3D::BeginScene(const Camera& camera, const glm::mat4& transform)
     {
         OLO_PROFILE_FUNCTION();
+        BeginViewFrame();
         ReclaimSharedRenderState();
         AdvanceDecalVisibilityFrame();
         // Ray-traced shadow candidates are per-frame (issue #1056). Cleared

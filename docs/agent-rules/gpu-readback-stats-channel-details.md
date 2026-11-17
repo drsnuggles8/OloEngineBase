@@ -351,3 +351,37 @@ budget" over its own short run, which is exactly the gap a stale-touched-bit bug
 *read* off the critical path, check whether its *write-back* was doing double duty — cleaning up
 transient state as a side effect of publishing persistent state. Splitting the read from the write
 without re-deriving that side effect separately drops it.
+
+## 13. A staged copy read a frame later was read before it had run
+
+`VirtualShadowMap::EndFrame` staged the frame's page counters with `StagedBufferReadback::Stage`
+and `ReadbackStatistics` read them on the next frame with `Read`. On OpenGL that read waits for the
+copy. On Vulkan it is a `memcpy` off the mapped staging buffer, and nothing tied it to the copy:
+with frames in flight the previous frame's submission had not necessarily executed.
+
+On a Release binary in the Vulkan test process,
+`VirtualShadowMapVisualEvidenceTest.StaticSceneSettlesToRedrawingAlmostNoPages` read
+`drawn=0` on the one frame that drew all 1,090 pages, because two copies finished between two
+reads and the first was never seen. Once it read `0xFF9D9D9D` pages: a new staging buffer, before
+any copy had landed. Debug was slow enough per frame that the GPU had always caught up (#1697).
+
+The fenced pair keeps the rule the comment had promised, "never a pipeline stall", and gives up
+"exactly one frame old": a value is at least one frame old and older when the GPU is behind. What
+it adds is order. `ReadCompleted` hands out the oldest finished copy, one per call, so a reader
+that polls once a frame sees every frame's value and a one-frame event is not skipped. The ring
+holds four copies; with all four unread, `StageDeferred` refuses the new one.
+
+`ReadCompleted` polls with `ClientWaitFence(fence, 0)`, not `IsFenceSignaled`: on OpenGL the
+second only asks, and a fence issued in a frame that ends without a swap never signals (rule 7).
+
+A Vulkan fence signals only if the submit that follows it attaches the staged signal
+(`VulkanGpuFence::DrainPendingSubmitOps`). The frame loop does; the device tests that bring up
+their own device submitted with a bare `vkQueueSubmit` and did not, so there no fenced copy ever
+finished and `VulkanPassSuite.VirtualShadowMapRunsAFullFrameOnVulkan` read all-zero counters. A
+test frame is submitted with `SubmitWithStagedFenceOps` from `VulkanTestSupport.h`.
+
+`GPUFluidSolver`'s body-impulse harvest still stages in the step and reads before the next one.
+It is simulation feedback, so whether it should wait or run late is its own decision (#1702).
+
+Pinned by `StagedReadbackDeferredTest` in both test processes. In the Vulkan process a read in the
+frame that staged the copy must be refused, which is the fault in its deterministic form.

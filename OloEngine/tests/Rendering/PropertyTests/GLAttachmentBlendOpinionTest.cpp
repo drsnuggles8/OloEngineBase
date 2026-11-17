@@ -134,4 +134,46 @@ namespace OloEngine::Tests
             api.ResetBlendStateForAttachment(attachment);
         api.SetBlendState(false);
     }
+
+    // RenderCommand::IsBlendEnabled is what an out-of-graph draw saves and puts
+    // back with SetBlendState (ScopedFullCoverDrawState), so it has to answer
+    // for the GLOBAL flag. Two ways to get that wrong on GL: ask the driver
+    // with the un-indexed query, which reports one attachment's opinion as the
+    // global, or trust the backend's mirror, which a raw glEnable never
+    // reaches (GLStateGuard restores that way after every test frame).
+    TEST_F(GLAttachmentBlendOpinion, TheGlobalFlagIsReportedUnderAnOpinionAndAfterARawFlip)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        RendererAPI& api = RenderCommand::GetRendererAPI();
+        for (u32 attachment = 0; attachment < MAX_MASKED_COLOR_ATTACHMENTS; ++attachment)
+            api.ResetBlendStateForAttachment(attachment);
+
+        // One attachment's ENABLE over a global disable, on a buffer other
+        // than 0 and on buffer 0 itself.
+        api.SetBlendState(false);
+        api.SetBlendStateForAttachment(1, true);
+        EXPECT_FALSE(RenderCommand::IsBlendEnabled())
+            << "attachment 1's opinion was reported as the global flag; a caller restoring it would turn blending "
+               "on for every draw buffer";
+        api.ResetBlendStateForAttachment(1);
+        api.SetBlendStateForAttachment(0, true);
+        EXPECT_FALSE(RenderCommand::IsBlendEnabled()) << "attachment 0's opinion was reported as the global flag";
+        api.ResetBlendStateForAttachment(0);
+
+        // One attachment's DISABLE under a global enable.
+        api.SetBlendState(true);
+        api.SetBlendStateForAttachment(0, false);
+        EXPECT_TRUE(RenderCommand::IsBlendEnabled()) << "attachment 0's opinion hid a global enable";
+        api.ResetBlendStateForAttachment(0);
+
+        // No opinion standing, and the flag flipped behind the backend's back.
+        api.SetBlendState(false);
+        ::glEnable(GL_BLEND);
+        EXPECT_TRUE(RenderCommand::IsBlendEnabled()) << "a raw glEnable(GL_BLEND) was not seen: the answer came from the mirror";
+        ::glDisable(GL_BLEND);
+        EXPECT_FALSE(RenderCommand::IsBlendEnabled()) << "a raw glDisable(GL_BLEND) was not seen";
+
+        api.SetBlendState(false);
+    }
 } // namespace OloEngine::Tests

@@ -257,6 +257,11 @@ namespace OloEngine::Tests
             PrecipitationSettings Precipitation{};
         };
         ProcessWideSettings m_SavedSettings{};
+
+        // TestRenderBackend::CallsDroppedOutsideAFrame() when SetUp reached
+        // BuildScene; TearDown fails the test if it has grown (see there).
+        u64 m_CallsDroppedAtSetUp = 0;
+        bool m_CallsDroppedArmed = false;
         bool m_SettingsSnapshotted = false;
     };
 } // namespace OloEngine::Tests

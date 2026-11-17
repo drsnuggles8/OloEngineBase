@@ -274,6 +274,24 @@ namespace OloEngine::RayTracing
         return hash;
     }
 
+    DeformedSurfaceBinding DeformedSurfaceCache::FindResident(const DeformedSurfaceKey& key) const
+    {
+        DeformedSurfaceBinding binding{};
+        if (!m_Enabled)
+        {
+            return binding;
+        }
+        const auto it = m_Surfaces.find(key);
+        if (it == m_Surfaces.end() || it->second.Output == nullptr)
+        {
+            return binding;
+        }
+        binding.Handle = it->second.Output->GetRHIHandle();
+        binding.DeviceAddress = it->second.DeviceAddress;
+        binding.ContentRevision = it->second.ContentRevision;
+        return binding;
+    }
+
     DeformedSurfaceBinding DeformedSurfaceCache::Acquire(const DeformedSurfaceKey& key, bool isAnimated,
                                                          const Ref<MeshSource>& meshSource,
                                                          std::span<const glm::mat4> palette, u64 morphStateHash)

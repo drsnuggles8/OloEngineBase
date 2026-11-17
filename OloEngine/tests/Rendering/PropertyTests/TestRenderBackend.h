@@ -76,6 +76,13 @@ namespace OloEngine::Tests::TestRenderBackend
     // Elsewhere: inline.
     [[nodiscard]] FrameResult RunFrame(const std::function<void()>& tick);
 
+    // GPU calls the Vulkan backend has dropped because no frame was recording
+    // (a draw, a clear, a dispatch, a blit, a barrier), counted since the
+    // process started. Always 0 outside the Vulkan process, where such a call
+    // runs at once. RendererAttachedTest fails a test that adds to it: the
+    // call's target is left as its memory was, and the test goes on to read it.
+    [[nodiscard]] u64 CallsDroppedOutsideAFrame();
+
     // Destroys the windowless context. main() calls it after
     // Renderer::Shutdown, which leaves the context to finish the teardown
     // (VulkanContext::RequestMemoryTrackerShutdown).

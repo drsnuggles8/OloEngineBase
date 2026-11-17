@@ -74,6 +74,20 @@ namespace OloEngine::Tests
         EXPECT_EQ(Check(kVegetation, 95, BlockDeclaration{}), Verdict::Undersized);
     }
 
+    TEST(UniformBlockContract, ABlockTheProgramCannotNameIsJudgedOnItsByteRangeAlone)
+    {
+        // The other side of the comparison missing. A program that cannot say
+        // what its block is called has no layout to hold the occupant to, and
+        // refusing it would zero every block it reads: on a driver that names
+        // no block of a SPIR-V program, that was every draw of every frame.
+        const BlockRequirement unnamed{ .Binding = ShaderBindingLayout::UBO_RAY_TRACING, .Size = 96, .NameHash = HashBlockName("") };
+        ASSERT_EQ(unnamed.NameHash, 0u);
+        EXPECT_EQ(Check(unnamed, 96, Declares("RayTracingSkeletalParams")), Verdict::Satisfied);
+        EXPECT_EQ(Check(unnamed, 96, BlockDeclaration{}), Verdict::Satisfied);
+        // Its byte range still counts.
+        EXPECT_EQ(Check(unnamed, 48, Declares("RayTracingSkeletalParams")), Verdict::Undersized);
+    }
+
     TEST(UniformBlockContract, ALargerBufferOfTheRightLayoutAndAnAliasAreAccepted)
     {
         // A buffer may be larger than the block (a shared buffer two shaders

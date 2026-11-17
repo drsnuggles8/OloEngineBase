@@ -221,6 +221,10 @@ namespace OloEngine
         m_RHIHandle.Sync(RHI::ResourceKind::ShaderProgram, m_RendererID, RHI::Backend::OpenGL);
         // Same registration as the graphics route — see OpenGLShader::FinalizeProgram.
         Shader::RegisterProgramBindless(m_RendererID, m_IsBindlessVariant);
+        // A compute program is built from GLSL text and the driver names its
+        // blocks. Said, not assumed: GL reissues program names, and this one
+        // must not answer with what was declared for the program before it.
+        OpenGLBlockContract::DeclareProgramBlocks(m_RendererID, {});
         glAttachShader(m_RendererID, shader);
         glLinkProgram(m_RendererID);
 

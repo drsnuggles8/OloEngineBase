@@ -49,6 +49,15 @@ namespace OloEngine
 
         HZBGenerator() = default;
         ~HZBGenerator() = default;
+        // Move-only. A copy would be a second owner of the pyramid, the shader
+        // and the parameter block, and the source of a move must end up owning
+        // none of them: a scene view's generator travels with the view's state
+        // when the view is parked (ADR 0026), and a copy left behind there kept
+        // the pyramid alive past Renderer3D::Shutdown.
+        HZBGenerator(HZBGenerator&&) noexcept = default;
+        HZBGenerator& operator=(HZBGenerator&&) noexcept = default;
+        HZBGenerator(const HZBGenerator&) = delete;
+        HZBGenerator& operator=(const HZBGenerator&) = delete;
 
         void Initialize();
         void Shutdown();
@@ -79,6 +88,13 @@ namespace OloEngine
         }
 
         [[nodiscard]] bool IsValid() const;
+        // Whether this generator holds any GPU object at all: the pyramid, the
+        // compute shader or the parameter block. False after Shutdown and for a
+        // moved-from generator.
+        [[nodiscard]] bool HoldsAnyResource() const
+        {
+            return m_HZBShader != nullptr || m_ParamsUBO != nullptr || m_HZBTexture != nullptr;
+        }
 
         // Access the HZB texture (for binding by GTAO / SSR).
         [[nodiscard]] RHI::ResourceHandle GetHZBTexture() const;

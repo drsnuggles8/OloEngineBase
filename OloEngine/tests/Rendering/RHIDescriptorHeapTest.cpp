@@ -423,6 +423,126 @@ namespace OloEngine::Tests
         EXPECT_NE(frame3.Generation, frame1.Generation);
     }
 
+    // Issue #1352, ADR 0026. One frame of the backend can execute several
+    // render graphs, one per scene view, and each asks for a frame reset when
+    // it has executed. The ring has one sub-ring per frame IN FLIGHT: advancing
+    // it per graph would hand the next frame the sub-ring this frame's first
+    // view still indexes. Held, a reset is remembered: the views of the frame
+    // stay live and keep their slots, later views allocate after them in the
+    // same sub-ring, and releasing the hold performs exactly one reset.
+    TEST_F(HeapFixture, AHeldFrameResetKeepsTheFramesViewsAndAdvancesTheRingOnce)
+    {
+        SetUpHeap(/*persistent*/ 8u, /*transient*/ 4u, /*poison*/ true, /*frames*/ 2u);
+        auto& heap = RHI::DescriptorHeap::Get();
+        const RHI::ResourceHandle resource = MakeResource(46u);
+
+        // The control: unheld, the second "graph" of a frame takes the OTHER
+        // sub-ring and the first one's view is already stale.
+        const RHI::ViewHandle unheldFirst = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                                            RHI::HeapSlotLifetime::FrameTransient);
+        heap.ResetFrameTransients();
+        const RHI::ViewHandle unheldSecond = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                                             RHI::HeapSlotLifetime::FrameTransient);
+        ASSERT_TRUE(unheldFirst.IsValid() && unheldSecond.IsValid());
+        EXPECT_FALSE(heap.IsLive(unheldFirst));
+        const u32 subRingSlots = 4u;
+        EXPECT_NE(unheldFirst.Index / subRingSlots, unheldSecond.Index / subRingSlots)
+            << "without a hold each reset advances the ring: the control this test's claim is measured against";
+        heap.ResetFrameTransients();
+
+        // One bracketed frame, two views.
+        heap.HoldFrameTransientReset(true);
+        const RHI::ViewHandle firstView = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                                          RHI::HeapSlotLifetime::FrameTransient);
+        ASSERT_TRUE(firstView.IsValid());
+        heap.ResetFrameTransients(); // the first view's graph has executed
+        EXPECT_TRUE(heap.IsLive(firstView)) << "a held reset retired a view the frame's commands still index";
+        const RHI::ViewHandle secondView = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                                           RHI::HeapSlotLifetime::FrameTransient);
+        ASSERT_TRUE(secondView.IsValid());
+        EXPECT_NE(secondView.Index, firstView.Index) << "the second view was handed the first view's slot";
+        EXPECT_EQ(secondView.Index / subRingSlots, firstView.Index / subRingSlots)
+            << "the second view of a frame allocates in the frame's own sub-ring";
+        heap.ResetFrameTransients(); // the second view's graph has executed
+        EXPECT_TRUE(heap.IsLive(firstView));
+        EXPECT_TRUE(heap.IsLive(secondView));
+
+        heap.HoldFrameTransientReset(false); // the frame closes: one reset for both
+        EXPECT_FALSE(heap.IsLive(firstView));
+        EXPECT_FALSE(heap.IsLive(secondView));
+        const RHI::ViewHandle nextFrame = heap.CreateView(resource, RHI::ViewDesc{}, RHI::SamplerDesc{},
+                                                          RHI::HeapSlotLifetime::FrameTransient);
+        ASSERT_TRUE(nextFrame.IsValid());
+        EXPECT_NE(nextFrame.Index / subRingSlots, firstView.Index / subRingSlots)
+            << "the ring advanced by one sub-ring for the whole frame, not by two";
+
+        // A hold with no reset asked for performs none when it is released.
+        heap.HoldFrameTransientReset(true);
+        heap.HoldFrameTransientReset(false);
+        EXPECT_TRUE(heap.IsLive(nextFrame)) << "releasing a hold nobody reset under still reset the frame";
+    }
+
+    // What the hold costs, and the limit it implies: the graphs of a held frame
+    // share one sub-ring, so a frame carries as many transient views as the
+    // sub-ring holds, whatever the number of scene views. Running out falls
+    // back like any overflow and is counted apart, so a frame that renders too
+    // many views is told from a ring that is too small for one.
+    TEST_F(HeapFixture, AnOverflowUnderAHoldIsCountedAsTheFramesViewLimit)
+    {
+        SetUpHeap(/*persistent*/ 8u, /*transient*/ 2u, /*poison*/ true, /*frames*/ 2u);
+        auto& heap = RHI::DescriptorHeap::Get();
+        const RHI::ResourceHandle resource = MakeResource(47u);
+
+        // The control: one graph per frame overflows the ordinary way.
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        EXPECT_FALSE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        EXPECT_EQ(heap.GetStats().TransientOverflows, 1u);
+        EXPECT_EQ(heap.GetStats().TransientOverflowsHeld, 0u);
+        heap.ResetFrameTransients();
+
+        // Two graphs of one held frame, one view each fits; a third does not.
+        heap.HoldFrameTransientReset(true);
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        heap.ResetFrameTransients();
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        heap.ResetFrameTransients();
+        EXPECT_FALSE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid())
+            << "a third graph's view found room in a two-slot sub-ring two graphs already filled";
+        EXPECT_EQ(heap.GetStats().TransientOverflows, 2u);
+        EXPECT_EQ(heap.GetStats().TransientOverflowsHeld, 1u);
+        heap.HoldFrameTransientReset(false);
+
+        // The frame after it has the whole sub-ring again.
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+    }
+
+    // A heap with one sub-ring has no ring to advance: a hold defers nothing,
+    // each graph's reset is performed when it is asked for, and every graph of
+    // the frame has the whole ring. Deferring there would only make the frame's
+    // views share its slots.
+    TEST_F(HeapFixture, AHoldOnASingleSubRingDefersNothing)
+    {
+        SetUpHeap(/*persistent*/ 8u, /*transient*/ 2u, /*poison*/ true, /*frames*/ 1u);
+        auto& heap = RHI::DescriptorHeap::Get();
+        const RHI::ResourceHandle resource = MakeResource(48u);
+
+        heap.HoldFrameTransientReset(true);
+        const RHI::ViewHandle firstA = heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient);
+        const RHI::ViewHandle firstB = heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient);
+        ASSERT_TRUE(firstA.IsValid() && firstB.IsValid());
+        heap.ResetFrameTransients(); // the first view's graph has executed
+        EXPECT_FALSE(heap.IsLive(firstA)) << "a single-ring heap deferred a reset it has no reason to hold";
+        // The second graph of the frame has both slots, not none.
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        EXPECT_TRUE(heap.CreateView(resource, {}, {}, RHI::HeapSlotLifetime::FrameTransient).IsValid());
+        EXPECT_EQ(heap.GetStats().TransientOverflows, 0u);
+        heap.ResetFrameTransients();
+        heap.HoldFrameTransientReset(false);
+        EXPECT_EQ(heap.GetStats().TransientOverflowsHeld, 0u);
+    }
+
     TEST_F(HeapFixture, FrameResetAfterShutdownDoesNotAccessRetiredSubRings)
     {
         SetUpHeap(8u, 4u, true, 2u);

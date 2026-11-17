@@ -99,10 +99,20 @@ consumes it in this change.
 | V5 | Serial and worker replay read the same context type. A worker item's context is a copy of the primary's view, prepared before the fork, with its own uploads and empty caches; nothing an item needs is created inside it | `CommandBucket::Execute` / `ExecuteParallel`, `VulkanRendererAPI::RecordParallelOrdered` |
 | V6 | A binding point's occupant is checked, not assumed (§5a) | every draw and dispatch on both backends |
 
-What #1352 still has to build is everything that makes the second view exist: a second
-`RendererViewState`, a view key other than zero in the history registry, per-view Hi-Z storage and
-exposure, and the split of `BeginScene` into a per-frame and a per-view half. None of that is a
-lifetime question any more.
+#1352 built the second view on these six, and
+[ADR 0026](0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md) records how: a
+view owns a whole render stack (`RendererViewResident`: its `RendererViewState`, its own sequences,
+its settings, its render graph with a history registry keyed by the view, its pass pipeline, its
+Hi-Z pyramid, light grid and shadow maps), the active view's copy is the base sub-object of `s_Data`,
+and a physical frame bracket (`Renderer3D::BeginFrame` / `EndFrame`) separates what the world advances
+once from what each view advances. V3's bucket view override was not the route taken: a second view
+does not replay the first view's buckets from another camera, it submits and renders through a
+pipeline of its own, which is what keeps every pass's private history per view.
+
+The table above still holds, with one reading changed: "the view" in V1 is the **active** view's
+resident state, and the frame clock (§2) now holds only what the world owns. The sequences that
+pace one view's accumulation (jitter, upscale phase, cloud and fog reprojection, the exposure time
+baseline) moved to `RendererViewClock`.
 
 ## 5. Shutdown and re-arming
 
@@ -136,7 +146,7 @@ agree with what the bound program declares:
 |---|---|---|
 | identity | the buffer object that occupies the binding point in this recording context | the occupancy record: `VulkanBindingState`, and `OpenGLBlockContract`, which is the same record for OpenGL |
 | byte range | the buffer's size | must cover the block's size, from SPIR-V reflection on Vulkan and from the linked program on OpenGL |
-| layout | the GLSL block name passed to `UniformBuffer::Create` | must equal the block's name when the buffer declares one |
+| layout | the GLSL block name passed to `UniformBuffer::Create` | must equal the block's name when the buffer declares one. The block's name is from SPIR-V reflection on both backends; a GL driver is asked only for a program with no reflection (compute, the bindless raw-route variants), because a program linked from SPIR-V has no names to report. A block neither can name is checked for size and reported |
 | producer and lifetime intent | that block name, and the binding point's policy in `ShaderBindingLayout` | named in the refusal |
 
 The policy has three values. Most binding points host **one layout**; the byte range is the whole

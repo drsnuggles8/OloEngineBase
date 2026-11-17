@@ -285,6 +285,27 @@ minutes with no scene rendered. CI only ever ran the filtered launch, which sele
 leaking suites. The filter (`vulkan_scene_filter.txt`) is now only CI's lavapipe selection; an
 unfiltered Vulkan run is supported and runs every ported suite.
 
+### 6.9 The last scene's camera stays in the renderer (issue #1699)
+
+`VulkanDrawPath.GBufferGpuSelectsTexturesInSingleIndirectDraw` passed alone and in the full sweep,
+and failed after `DriftWeatherVisualEvidenceTest` or `CloudSelfShadowVisualEvidenceTest` in one
+process: its merged indirect draw drew nothing. The test binds an identity camera block and puts
+two quads at the world origin. `GPUFrustumCuller::Cull` does not read that block. It culls against
+`Renderer3D::GetCullViewProjectionRelative()` and shifts instances by
+`Renderer3D::GetRenderOrigin()`, and with no scene frame round the test those were the previous
+scene's. Most scenes look at the world origin, so the quads survived. A sky scene looks away from
+it.
+
+It was the third failure of this kind. A Vulkan pass-suite tenant inherited a render origin of
+(-1024, 0, 0) and its strands left the screen (#1484), and animated-surface LOD picked the same
+level at 3 m and 400 m after a sweep (#1348). Each was repaired in the consumer's set-up
+(`VulkanPassSuite::SetUp`, `FunctionalTest::SetUp`), which leaves the next consumer to find it
+again. The fixture that leaves the camera now takes it away: `RendererAttachedTest::TearDown` calls
+`Renderer3D::ResetFrameCamera()`.
+
+A test that drives a pass, a culler or a baker without a scene still calls it itself: the scene
+before it may not have been a renderer-attached one.
+
 ---
 
 ## 7. Relevant files
@@ -347,7 +368,8 @@ Why two processes and not a parameterised fixture:
   makes a **windowless** `VulkanContext` (`GraphicsContext::CreateWindowless`: the same bracket,
   against a context-owned offscreen target, no GLFW window or swapchain), and the fixture runs each
   `RunFrames` / `RunEditorFrames` tick as one frame of it. GPU work a test issues outside a tick goes
-  through `RunInFrame`.
+  through `RunInFrame`, in `BuildScene` as well: the fixture fails a test for which the backend
+  dropped a call ([vulkan-test-process-drops-work-outside-a-frame.md](vulkan-test-process-drops-work-outside-a-frame.md)).
 - **The tick's hygiene is the Vulkan one there.** A frame that raises a validation error (Debug) or
   hits a `VulkanRendererAPI` unimplemented stub fails the test, as a GL error does in the GL process.
 - **Readback is backend-neutral.** `ReadbackComposite` and the handle overloads of `ReadbackRgba8`,

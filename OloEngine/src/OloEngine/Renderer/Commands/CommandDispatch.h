@@ -264,6 +264,11 @@ namespace OloEngine
                                       RHI::ResourceHandle csmRawTexture = {},
                                       RHI::ResourceHandle atlasRawTexture = {});
 
+        // The light grid of the view the dispatcher draws for (ADR 0026): each
+        // scene view owns one, and Renderer3D re-points this when it activates
+        // a view. SetUBOReferences publishes the first.
+        static void SetForwardPlus(TiledForwardPlus* forwardPlus);
+
         // Snow accumulation depth texture — set per-frame
         static void SetSnowDepthTexture(RHI::ResourceHandle texture);
 

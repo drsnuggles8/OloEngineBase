@@ -300,6 +300,13 @@ namespace OloEngine
                 {
                     blockSize = static_cast<u32>(reflector.get_declared_struct_size(reflector.get_type(resource.base_type_id)));
                     blockNameHash = BindingContract::HashBlockName(resource.name);
+                    if (blockNameHash == 0u)
+                    {
+                        // As in VulkanShader::ReflectStage: size only, and said.
+                        OLO_CORE_ERROR("[BindingContract] '{}' reads a uniform block at binding {} ({} B) that its SPIR-V does "
+                                       "not name. Its reads are checked for size only, not for layout.",
+                                       GetName(), reflector.get_decoration(resource.id, spv::DecorationBinding), blockSize);
+                    }
                 }
                 newBindings.Add(VulkanShaderBinding{ .Set = reflector.get_decoration(resource.id, spv::DecorationDescriptorSet),
                                                      .Binding = reflector.get_decoration(resource.id, spv::DecorationBinding),

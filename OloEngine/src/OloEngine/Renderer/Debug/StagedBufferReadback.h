@@ -4,6 +4,8 @@
 #include "OloEngine/Renderer/MemoryBarrierFlags.h"
 #include "OloEngine/Renderer/RHI/RHITypes.h"
 
+#include <array>
+
 namespace OloEngine
 {
     // A GPU -> CPU read that never touches the SOURCE buffer from the CPU.
@@ -18,20 +20,31 @@ namespace OloEngine
     // for the same reason — see docs/agent-rules/gpu-readback-stats-channel.md.
     //
     // So the read goes through a small DeviceToHost staging buffer that the GPU
-    // copies into. Two usage shapes, and the difference is only WHEN you call
-    // Read():
+    // copies into. Two usage shapes with two pairs of calls, and which pair is
+    // right depends on whether the reader may WAIT:
     //
-    //   * Stage() this frame, Read() a LATER frame — the read never waits on
-    //     anything, at the cost of the value being a frame or more old. Right
-    //     for a per-frame counter or an overflow flag.
-    //   * Stage() then Read() immediately — still blocks on the copy, which is
-    //     the point when a human or a test asked for the CURRENT value. The
-    //     source buffer still never migrates.
+    //   * StageDeferred() this frame, ReadCompleted() a LATER frame: a statistic.
+    //     The read never waits and never returns bytes no copy wrote. A copy is
+    //     fenced when it is issued and handed out once its fence has signalled,
+    //     so a value is at least one frame old and can be older when the GPU is
+    //     behind. Copies are handed out one per call in the order they were
+    //     staged, so a reader that polls once a frame sees EVERY frame's value,
+    //     late, and a one-frame event is not skipped. Right for a per-frame
+    //     counter or an overflow flag.
+    //   * Stage() then Read() immediately: a human or a test asked for the
+    //     CURRENT value, outside a frame. Still blocks on the copy, which is the
+    //     point. The source buffer still never migrates.
     //
-    // Not a fenced ring: there is no IsFenceSignaled here, so `Stage` overwrites
-    // whatever the previous Stage left un-read. Consumers that need "skip rather
-    // than block when the GPU is behind" want GPUReadbackStats or
-    // TerrainGPUPicker's ring instead.
+    // DO NOT Stage() inside one frame and Read() in the next. On OpenGL that
+    // read waits for the copy, so it is exact and can stall. On Vulkan nothing
+    // ties it to the copy having run: with frames in flight the previous
+    // frame's submission has not necessarily executed, so the read returned the
+    // copy before it, or on a new staging buffer whatever its memory held
+    // (#1697: the virtual shadow map's page counters skipped the one frame that
+    // drew every page, and once read 0xFF9D9D9D as a page count).
+    // GPUFluidSolver's body-impulse harvest still has that shape. It is
+    // simulation feedback, not a statistic, so "late and never waits" is not
+    // obviously its rule (#1702).
     class StagedBufferReadback
     {
       public:
@@ -71,6 +84,24 @@ namespace OloEngine
             return m_Staged;
         }
 
+        // ---- the deferred shape: fenced, never waits ------------------------
+        static constexpr u32 kRingSlots = 4;
+
+        // Issue the copy into a free ring slot and fence it. `barriers` as for
+        // Stage(). False, copying nothing, when every slot holds a copy that
+        // has not been read yet: the reader is kRingSlots copies behind, and
+        // this frame's value is the one that is dropped.
+        bool StageDeferred(RHI::ResourceHandle source, u64 srcOffsetBytes, u64 sizeBytes,
+                           MemoryBarrierFlags barriers = MemoryBarrierFlags::ShaderStorage);
+
+        // Copy out the OLDEST deferred copy, if its fence has signalled. False
+        // when no copy has finished (the first frames, or a GPU that is
+        // behind), so the caller keeps its previous value. Never waits.
+        [[nodiscard]] bool ReadCompleted(void* dest, u64 sizeBytes);
+
+        // Deferred copies issued and not read yet, finished or not.
+        [[nodiscard]] u32 GetDeferredCopiesOutstanding() const;
+
         // Drop the staging buffer.
         //
         // CALL THIS FROM YOUR OWNER'S Shutdown()/DestroyResources(), not just at
@@ -88,5 +119,19 @@ namespace OloEngine
         RHI::ResourceHandle m_Staging = RHI::NullResource;
         u64 m_Capacity = 0;
         bool m_Staged = false;
+
+        struct RingSlot
+        {
+            RHI::ResourceHandle Buffer = RHI::NullResource;
+            u64 Capacity = 0;
+            u64 Bytes = 0;
+            u64 Fence = 0;
+            u64 Serial = 0; // order of issue; the lowest outstanding one is read first
+            bool Outstanding = false;
+        };
+        void ReleaseRing();
+
+        std::array<RingSlot, kRingSlots> m_Ring{};
+        u64 m_NextSerial = 1;
     };
 } // namespace OloEngine

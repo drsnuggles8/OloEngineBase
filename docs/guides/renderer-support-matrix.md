@@ -100,6 +100,42 @@ Vulkan mesh-shader hardware route does not call `gl_CullPrimitiveEXT` or the
 shared `VirtualRasterCoverage.glsl` helpers (#1049); that optimization is not
 a separate supported rendering family.
 
+## Scene views
+
+A second scene view (`Renderer3D::CreateView`, `Scene::RequestAdditionalView`) renders in the same
+physical frame as the main view with its own render graph, histories, exposure, occlusion pyramid,
+light grid and shadow maps ([ADR 0026](../adr/0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md)).
+`Supported` here means each view renders the frame a single-view renderer renders from that camera,
+texel for texel, in both orders. The foliage row is the one exception and says so: it is compared
+within the noise a single view has by itself (#1695). Cost:
+[multi-view-cost-1352.md](../analysis/multi-view-cost-1352.md).
+
+| Two views in one frame | Outcome | Source and test evidence |
+|---|---|---|
+| OpenGL and Vulkan × Forward, Forward+, Deferred, different sizes and poses | Supported | `MultiViewRenderingTest.cpp::EachOfTwoViewsRendersWhatASingleViewRendersFromItsCamera` runs in both test processes. |
+| One view temporally resolved and spatially upscaled, the other native | Supported | `MultiViewRenderingTest.cpp::ATemporallyResolvedViewAndANativeViewKeepTheirOwnHistories`: jitter indices and histories are per view. |
+| A different rendering path and sample count per view | Supported | `MultiViewRenderingTest.cpp::PathAndSampleCountDifferPerView` (Deferred 4x beside Forward+, and Forward beside Deferred 4x). |
+| Eye adaptation per view | Supported | `MultiViewRenderingTest.cpp::EachViewAdaptsItsExposureToWhatItSees`: each view steps by the time since it last rendered. |
+| Resize, camera cut or destruction of one view | Supported | `MultiViewRenderingTest.cpp::ResizingCuttingOrDestroyingOneViewLeavesTheOtherIntact` (the second view is the one changed) and `MultiViewRenderingTest.cpp::ResizingOrCuttingTheMainViewLeavesTheSecondIntact` (the main view is): the other view's histories, pyramid and shadow maps keep their identities and ages. |
+| An object moving between frames, motion blur in both views | Supported | `MultiViewRenderingTest.cpp::AMovingObjectBlursTheSameInBothViews`: object poses rotate to "previous" once per physical frame. |
+| Foliage (card grass with wind, density LOD and distance fade) in both views, OpenGL and Vulkan | Supported | `MultiViewRenderingTest.cpp::EachViewDrawsTheMeadowASingleViewDrawsFromItsCamera`: placement is published once per frame, culling, thinning and fading are per view. Compared within the noise one view has by itself: GPU-culled foliage under TAA does not reproduce its own frame to the texel (#1695). |
+| Foliage streamed mesh detail seen from a later view | Approximate | Residency is decided once per frame from the primary view's camera; a later view looking elsewhere draws the stand-ins that camera left there. |
+| A world content change (streaming tier switch, foliage regeneration) | Supported | `MultiViewRenderingTest.cpp::AWorldInvalidationReachesEveryViewAndAViewsOwnOnlyItself`: `Renderer3D::InvalidateWorldTemporalHistories` drops every view's histories. |
+| A bound, simulated coat (groom) in both views | Supported | `GroomSimulationVisualEvidenceTest.cpp::ASecondViewOfTheFrameLeavesTheCoatTheMainViewDraws` (OpenGL): the binding's history and the simulation's displacement pair advance on the coat's first publish of the frame, so every view draws the same coat with the same previous frame. |
+| Planar reflection in both views | Supported | `MultiViewRenderingTest.cpp::EachViewReflectsFromItsOwnCamera`: each view mirrors its own camera. |
+| Ray-traced effects in both views, Vulkan with a ray-tracing device | Supported | `MultiViewRenderingTest.cpp::BothViewsTraceTheFramesAccelerationStructure`: one acceleration-structure build per frame, traced by every view. |
+| Views whose cameras need different camera-relative origins | Approximate | Every view of a frame renders about the primary view's origin; a view far from it has the float precision of that distance. |
+| Camera-following simulation (wind field, snow clipmap, wake and foam lattice, spray, precipitation) seen from a later view | Approximate | Centred on and stepped by the frame's primary view; a later view sees those fields where its frustum overlaps them. |
+| More views in one Vulkan frame than the transient descriptor ring holds views for (1024 transient views per frame, shared) | Approximate | The views past the limit bind the slot-based way; the heap counts them (`Stats::TransientOverflowsHeld`) and reports once per session. `RHIDescriptorHeapTest.cpp::AnOverflowUnderAHoldIsCountedAsTheFramesViewLimit`. OpenGL has no such limit. |
+| Two `BeginScene` calls without `Renderer3D::BeginFrame` | Unsupported as one frame | Each is a physical frame: the world advances twice, as before views existed. |
+| Views of two scenes in one bracket | Unsupported | The second scene's view is refused its GPU Scene draw links and the renderer says so once. |
+| An editor viewport rendered through a second view | Unsupported | Nothing in the editor creates a view. |
+| A reflection or light probe bake through a view other than the main one | Unsupported | The bakers activate the main view whichever view their caller had active (`MultiViewRenderingTest.cpp::ABakeStartedUnderAnotherViewRendersThroughTheMainView`, OpenGL): a view made for a bake would capture unconverged per-view accumulations (DDGI cascades, the virtual shadow cache). |
+
+Asset thumbnails (`AssetPreviewRenderer`) and the sky and IBL cubemap bakes are not scene views: they
+draw with their own shaders and framebuffers and never go through `Renderer3D`'s views, so a second
+view changes nothing for them.
+
 ## Contract boundaries
 
 - A raster scene-shadow request for groom returns `Supported`; a capable

@@ -99,6 +99,7 @@ The three workflow skills live in [`.claude/skills/`](../.claude/skills/) and ar
 ## analysis/ — quality & code-health reports
 
 - [analysis/renderer-ownership-remainder-1330.md](analysis/renderer-ownership-remainder-1330.md) — every process-wide object left in the 3D renderer's submission and replay path after #1330, with the reason it does not break ADR 0025 or the child issue that owns it.
+- [analysis/multi-view-cost-1352.md](analysis/multi-view-cost-1352.md) — what a second scene view costs in memory, creation time and frame time, what the views of a frame share, and the single-view frame cost before and after #1352.
 - [analysis/dead-code.md](analysis/dead-code.md) — dead-code analysis (LOC reduction).
 - [analysis/perf-stress-findings-2026-07.md](analysis/perf-stress-findings-2026-07.md) — perf stress-scene battery findings (2026-07-03).
 - [analysis/sonarqube-rules.md](analysis/sonarqube-rules.md) — SonarCloud rule tuning suggestions & high-volume-rule decisions.
@@ -157,6 +158,7 @@ The three workflow skills live in [`.claude/skills/`](../.claude/skills/) and ar
 - [adr/0024-material-kind-is-not-the-closure-version.md](adr/0024-material-kind-is-not-the-closure-version.md) — a material carries three independent selectors (what the surface IS, which version of the closure evaluates it, and which version of the skin transport its profile was authored against); none is derived from another, and the G-Buffer headroom that separation costs.
 - [adr/0024-skinned-virtual-geometry-stays-on-the-hardware-rasterizer.md](adr/0024-skinned-virtual-geometry-stays-on-the-hardware-rasterizer.md) — skinned virtual-geometry clusters never go to the software rasterizer; they stay on the hardware route.
 - [adr/0025-renderer-state-has-four-owners.md](adr/0025-renderer-state-has-four-owners.md) — renderer state belongs to one of four owners (device, scene, view, recording); each owner's state is one struct and reset is assignment.
+- [adr/0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md](adr/0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md) — a scene view owns a whole render stack that is swapped into the renderer when the view is active; a physical frame advances the world once, in its primary view, however many views render in it.
 
 ## bug-investigations/ — postmortems & deep-dives
 
