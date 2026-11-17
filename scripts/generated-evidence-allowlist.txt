@@ -18,6 +18,7 @@ OloEditor/assets/tests/imported-corpus/corpus.yaml  ImportedCorpusFixtures
 # --- Curated documentation assets --------------------------------------------------------------
 docs/images/benchmarks/*.jpg                        hero frames shown in docs/guides/renderer-benchmarks.md
 docs/images/dog/*                                   #1533 showcase review composites and their manifest
+docs/images/drift-boat/*.jpg                        before/after composites shown in docs/guides/drift-boat.md
 docs/images/vegetation/*.jpg                        #1398 comparison images (tools/vegetation-import/preview.py)
 docs/reviews/dog-breeds-1558/**                     approval galleries linked from docs/guides/dog-breeds.md
 docs/validation/foliage-hierarchical-wind-1236.json linked from docs/guides/foliage-hierarchical-wind.md

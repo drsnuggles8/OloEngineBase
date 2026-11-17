@@ -336,3 +336,42 @@ Two properties make this safe and are worth knowing before touching it:
 
 The test binary does not start the scheduler (an `Application` does), so a test that wants the
 parallel path starts workers in its suite fixture.
+
+## 16. A body's origin is not its centre of mass
+
+Two faults that hid each other, found when Drift's generated boat needed its collider below
+its entity (the buoyancy box floats the entity above the waterline; the hull is below it).
+
+- **A lone collider's `m_Offset` moved nothing in the simulation.** `JoltShapes::CreateShapeForEntity`
+  returned an entity's only shape as it was and applied offsets only when building a compound of two
+  or more. The inspector, the debug draw, the navmesh bake and `DiscoverySystem` all read the
+  offset, so the editor showed a box where the physics had none. Drift's six island triggers are
+  authored with `Offset: [210, 24, 210]` and sat at their islands' corners in Jolt. A lone shape
+  with an offset is now a `RotatedTranslatedShape`. The offset is multiplied by the entity's scale,
+  as the extents are, in the lone and the compound case alike: the navmesh, `DiscoverySystem` and
+  `StructuralGraph` put it through the entity's matrix, and an unscaled offset on a scaled entity
+  put the simulated collider where none of them said it was. The editor's collider gizmo draws the
+  same thing (offset turned and scaled with the entity, extents through
+  `JoltShapes::ApplyScaleTo*`); it used to add the raw offset to the translation.
+- **The transform sync wrote the centre of mass over the entity's origin.** `JoltBody::GetPosition`
+  returned `GetCenterOfMassPosition` while `SetPosition` set the body's origin, so the pair were
+  not inverses. With every shape centred on its body nobody could tell. With an offset shape the
+  entity would have jumped by the offset on the first step. `GetPosition` now returns the origin
+  and `GetCenterOfMassPosition` is its own call.
+
+What follows for a system that pushes a body around:
+
+- place a point with `body->GetPosition() + rotation * localOffset` and hand it to
+  `AddForce(force, point)`: Jolt turns the body about its real centre of mass;
+- a hand-computed lever or point velocity (`linearVelocity + cross(angularVelocity, point - c)`)
+  takes `c` from `GetCenterOfMassPosition()`. `AircraftSystem`'s landing-gear damper and
+  `FluidSystem`'s body proxy do;
+- a collider offset moves the centre of mass with it. Offsets authored on components (thrust point,
+  centre of effort, buoyancy probes) stay measured from the entity's origin;
+- a body's shape may now be a `RotatedTranslatedShape` around its primitive. Code that switches on
+  `GetShape()->GetSubType()` looks inside it first, as `FluidSystem::BuildProxy` does, or a sphere
+  with an offset is treated as its bounding box.
+
+`ColliderOffsetKeepsEntityOriginTest` pins it: a weightless body with an offset collider stays
+where it was authored, one that spins carries its origin round its centre of mass, and one on an
+entity scaled by two carries it round twice as far.

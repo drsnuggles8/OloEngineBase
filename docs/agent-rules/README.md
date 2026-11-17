@@ -70,6 +70,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [concurrent-cmake-configure.md](concurrent-cmake-configure.md): one configure at a time per build tree; the error blames your CMakeLists.txt instead.
 - [static-archive-4gib-ceiling.md](static-archive-4gib-ceiling.md): a .lib cannot exceed 4 GiB, and `LNK1248` under-reports the overshoot.
 - [vcpkg-dependency-management.md](vcpkg-dependency-management.md): read before adding, bumping or removing a dependency; the CRT triplet mismatch is heap corruption.
+- [one-copy-of-a-vendored-header.md](one-copy-of-a-vendored-header.md): include stb as `<stb_image/...>`; a bare `<stb_image_write.h>` compiles against another dependency's older copy and calls the engine's with the wrong argument width.
 - [configure-time-variable-visibility.md](configure-time-variable-visibility.md): a CMake variable must be set before the `add_subdirectory()` that reads it.
 - [asset-import-usd-alembic.md](asset-import-usd-alembic.md): the importer registry seam, and vendoring OpenUSD / Alembic / MaterialX statically.
 - [openusd-build-and-link.md](openusd-build-and-link.md): OpenUSD builds against vcpkg's oneTBB, and a File API guard fails any link with a second one.
@@ -229,7 +230,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [geometry-lod-measure-the-unreachable-cost.md](geometry-lod-measure-the-unreachable-cost.md): count the invocations paid upstream of a shader-stage cull.
 - [cpu-gpu-surface-parity.md](cpu-gpu-surface-parity.md): the shared thing between a shader and gameplay sampling must be an analytic record, in one agreed space.
 - [skeletal-deformation-shared-output.md](skeletal-deformation-shared-output.md): deform a skinned vertex in one shared include that every pass calls.
-- [morph-and-lod-in-the-animated-surface.md](morph-and-lod-in-the-animated-surface.md): apply morph deltas to the rest surface before skinning.
+- [morph-and-lod-in-the-animated-surface.md](morph-and-lod-in-the-animated-surface.md): apply morph deltas to the rest surface before skinning; a morph-only file imports through `AnimatedModel` and its targets are named by index.
 - [per-draw-material-stamp-rides-the-copy.md](per-draw-material-stamp-rides-the-copy.md): a value stamped onto a per-draw `Material` copy must be in the hand-written copy constructor and `operator=`.
 - [persistent-world-space-fields.md](persistent-world-space-fields.md): a multiplicative decay is unrepresentable in a normalized-integer texture below a rate threshold.
 - [compute-in-place-vs-ping-pong.md](compute-in-place-vs-ping-pong.md): a compute pass may update a field in place only while every invocation reads its own texel.

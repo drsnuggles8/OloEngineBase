@@ -77,6 +77,9 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 | [notes-editor-and-assets.md](notes-editor-and-assets.md) | A zoom-scaled pin hit radius and a screen-space context-menu position both survived in three hand-rolled canvases because nothing tests viewport maths. |
 | [notes-core-and-threading.md](notes-core-and-threading.md) | `constinit` on a `std::vector` is a hard compile error in any Debug build here, breaking the whole tree far from the code that reads it. |
 | [notes-editor-and-assets.md](notes-editor-and-assets.md) | When two serializers cover one type, a field only round-trips if you tested the one you did NOT write, as with `MaterialAsset`'s YAML loading typed maps into the generic map. |
+| [one-copy-of-a-vendored-header.md](one-copy-of-a-vendored-header.md) | An evidence test dies with an access violation inside `stbi_write_png`, in one build and not another, with a correct buffer. |
+| [notes-gameplay-physics-nav.md](notes-gameplay-physics-nav.md) | A collider with an offset draws in the right place in the editor and collides somewhere else, or the entity jumps by the offset on the first physics step. |
+| [notes-editor-and-assets.md](notes-editor-and-assets.md) | A packaged game shows a model fully textured on the machine that built it, while every texture was read from the project's source folder and none from the pack. |
 | [asset-pack-round-trips-through-the-builder.md](asset-pack-round-trips-through-the-builder.md) | The packed-path test passed through the serializers while every pack the builder wrote named the wrong bytes. |
 | [alpha-cutout-mip-chains.md](alpha-cutout-mip-chains.md) | A box mip chain keeps a cutout's coverage at cutoff 0.5 and loses it at every other cutoff. |
 | [vulkan-block-compressed-upload.md](vulkan-block-compressed-upload.md) | Every cooked texture was null on Vulkan and the scene still rendered. |
@@ -146,6 +149,7 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 | [skeletal-deformation-shared-output.md](skeletal-deformation-shared-output.md) §3 | A guard added to the one reader with no callers left the live path reading the previous-pose palette raw. |
 | [skeletal-deformation-shared-output.md](skeletal-deformation-shared-output.md) | The three shadow-path skinning copies lost the bone-ID bounds test and zero-weight guard, collapsing an unweighted vertex onto the origin in shadows only. |
 | [morph-and-lod-in-the-animated-surface.md](morph-and-lod-in-the-animated-surface.md) | A morphing face ghosted under TAA because a moved surface has no expressible velocity. |
+| [morph-and-lod-in-the-animated-surface.md](morph-and-lod-in-the-animated-surface.md) | A script sets morph weights, the component holds them, and the mesh does not move: the file had no skeleton, or the weights name the targets as the file does. |
 | [per-draw-material-stamp-rides-the-copy.md](per-draw-material-stamp-rides-the-copy.md) | The expression-driven pore band was inert on every path because `Material`'s hand-written copy constructor dropped the field, and the only test hand-stamped the component's material. |
 | [creature-eye-region.md](creature-eye-region.md) | Every eye test passed while the showcase dog's eyes sat in bald domes inside craters with reversed blink signs. |
 | [groom-coat-colour.md](groom-coat-colour.md) | The golden's coat read its colour map upside down for its whole life. |
