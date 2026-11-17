@@ -29,8 +29,14 @@ connection, on its first two requests:
 | Windows `curl.exe` 8.22 | `--retry 3 --retry-delay 1 --retry-all-errors` | 3 | 0 | 4,194,304 bytes |
 
 The complete file on the third request also shows that curl truncates the `-o` file before a
-retry. On a pipe there is nothing to truncate, which is why the flag is kept off transfers written
-to stdout.
+retry. On stdout there is nothing it can truncate. The same transfer written as
+`curl --retry 3 --retry-all-errors "$url" > file`, where the shell opened the file, exited 0 and
+left 4,492,768 bytes for the 4,194,304-byte body: the two partial bodies, then the whole one. A
+pipe or a `$(...)` receives the same stream. So the flag is kept off every transfer without `-o`,
+and a download that has to be retried is written with `-o`.
+
+curl uses the last `--retry` of a command: with `--retry 3 --retry 0 --retry-all-errors` it made
+one request against the same server and exited 56.
 
 A genuine failure now costs the retries: a 404 under `-f` is retried too, three times with the
 delay between them, before the step fails.
@@ -82,16 +88,28 @@ is test input, not a tool, and the step checks only that the file is not empty.
 
 - A folded scalar (`run: >`, used in `asan.yml`) is one line. Flags on its second source line
   count, and `curl` alone on its first line does not hide the rest.
-- A script is split into commands at `;`, `&&`, `||` and `|`, after `\` and backtick continuations
-  are joined. Each command needs its own flags: a compliant download does not vouch for the one
-  after it on the same line.
-- A `curl` command with `-f` / `--fail` needs `--retry-all-errors` and a `--retry` count above
-  zero. The count judged is the last one of the command, because that is the one curl uses:
-  with `--retry 3 --retry 0 --retry-all-errors` curl made one request against the resetting
-  server and exited 56. A command without `-f` is not judged.
+- A script is split into commands the way a shell splits it: at `;`, `&&`, `||`, `|`, a newline
+  and the brackets of a subshell or a PowerShell block, after `\` and backtick continuations are
+  joined. Quotes hold a `;` or a `#` in its word, a `# comment` is not an argument, and a
+  `$(...)` is a command of its own, inside double quotes too. Each command needs its own flags:
+  a compliant download does not vouch for the one after it on the same line.
+- A command is a download when its program is `curl` or `curl.exe`, after `sudo`, `if`, a
+  `VAR=value` prefix or a PowerShell `$x =`, and with or without a directory in front. A `curl`
+  inside another command's argument (`echo 'curl ...'`) is text.
+- A `curl` command that writes a file (`-o`, `--output`, `-O`, also inside a cluster such as
+  `-fsSLo`) needs `--retry-all-errors` and a `--retry` count above zero, with or without `-f`.
+  The count judged is the last one of the command.
+- A `curl` command without `-o` is refused when it has `-f` (a download through stdout: write
+  it to a file first) or `--retry-all-errors` (the retry would repeat bytes). With neither it is
+  not judged: `curl -sSL "$page" | grep` is not a download the step acts on.
+- `Invoke-WebRequest` or `iwr` with `-OutFile` is refused.
 - A finding in a literal block (`run: |`) reports the command's own line; in a folded or one-line
   script it reports the `run:` line.
 
-It runs its own must-fail and must-pass cases before it reads the repository, and fails if one of
-them stops behaving, so a change to its patterns cannot switch it off in silence. It needs PyYAML,
-which `pre-commit` installs, and exits 1 with that message when the import fails.
+What it does not read: the body of a here-document, so a script fed to `bash <<EOF` is not
+judged. A `--retry` count that is a variable is taken as given.
+
+It runs its own cases before it reads the repository: must-fail scripts with the one message
+each must produce, must-pass scripts, and YAML documents with the lines to report. It fails if one
+of them stops behaving, so a change to the reader cannot switch a rule off in silence. It needs
+PyYAML, which `pre-commit` installs, and exits 1 with that message when the import fails.

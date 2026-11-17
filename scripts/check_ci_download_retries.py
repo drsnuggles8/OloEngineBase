@@ -7,26 +7,36 @@ it is how a large download from a release CDN fails. A step that says `--retry 3
 therefore fails on the first reset with its three retries unused. --retry-all-errors
 makes --retry cover it, and does nothing without a --retry count above zero.
 
+A retry restarts the transfer. With -o curl truncates the file first; on stdout (a
+pipe, a `>` redirection, a `$(...)`) the bytes already written are written again.
+
 Invoke-WebRequest gives up on the first dropped connection, and its
 -MaximumRetryCount answers HTTP status codes only. A file download in PowerShell
 uses curl.exe.
 
-Two rules, for every `run:` script in a tracked YAML file under .github/:
+The rules, for every command of every `run:` script in a tracked YAML file under
+.github/:
 
-  * a curl command that fails on an HTTP error (-f / --fail) carries
-    `--retry <n>` with n above zero and `--retry-all-errors` (the last
-    `--retry` of the command is the one curl uses);
+  * a curl command that writes a file (-o / -O) carries `--retry <n>` with n above
+    zero and `--retry-all-errors`. The count is the last --retry of the command,
+    which is the one curl uses;
+  * a curl command with -f / --fail and no -o is a download written to stdout,
+    which cannot be retried safely: it goes to a file first;
+  * `--retry-all-errors` is not used on a curl command without -o;
   * no `Invoke-WebRequest ... -OutFile`.
 
-A curl command without -f is not a download whose failure the step acts on, and is
-left alone (--retry-all-errors must not be used on a transfer piped to stdout: a
-retry would repeat the bytes already written).
+A curl command with neither -f nor -o (a page piped to grep) is left alone.
 
 The scripts are read through a YAML parser, so a folded scalar (`run: >`) is judged
-as the one line the shell receives. Each command of a script is judged on its own
-arguments: a compliant download does not vouch for the one after it on the same line.
+as the one line the shell receives. A script is split into commands the way a shell
+splits it: quotes hold a `;` or a `#` together, a comment is not an argument, and a
+word that says `curl` inside another command's argument is not a download. Each
+command is judged on its own arguments.
 
-Opt out on the command's own line with:
+Not read: the body of a here-document. A --retry count that is not a literal number
+(a variable) is taken as given.
+
+Opt out with a comment on one of the command's own lines:
 
     # OLO_DOWNLOAD_NO_RETRY_OK: <reason>
 """
@@ -36,6 +46,7 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
+from dataclasses import dataclass, field
 
 try:
     import yaml
@@ -44,69 +55,265 @@ except ImportError:  # no silent pass: a hook that cannot read YAML checks nothi
     sys.exit(1)
 
 OPT_OUT = "OLO_DOWNLOAD_NO_RETRY_OK:"
-CURL_RE = re.compile(r"(?<![\w./-])curl(?:\.exe)?\s")
-FAIL_RE = re.compile(r"\s(?:--fail(?:-with-body)?\b|-[A-Za-z]*f[A-Za-z]*\b)")
-RETRY_COUNT_RE = re.compile(r"\s--retry(?:\s+|=)(\d+)\b")
-IWR_RE = re.compile(r"\b(?:Invoke-WebRequest|iwr)\b.*\s-OutFile\b", re.IGNORECASE)
-SEPARATOR_RE = re.compile(r";|&&|\|\||\|")
-CONTINUES = ("\\", "`")
 
 NO_ALL_ERRORS = "curl download without --retry-all-errors; --retry alone does not repeat a connection reset"
 NO_COUNT = "curl download with --retry-all-errors whose last --retry count is missing or zero; the flag alone enables no retry"
+STDOUT_FAIL = (
+    "curl -f download written to stdout cannot be retried safely; "
+    "download to a file with -o, --retry <n> and --retry-all-errors"
+)
+STDOUT_RETRY = "--retry-all-errors on a curl transfer written to stdout: a retry writes the bytes again; use -o"
 IWR = "Invoke-WebRequest -OutFile does not retry a dropped connection; use curl.exe with --retry <n> --retry-all-errors"
 
+# Words a shell reads before the command itself.
+PREFIX_WORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "time", "exec", "command", "sudo", "env", "try"}
+ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.S)
+# After a backslash these are escaped; before anything else the backslash is a
+# character of the word (a Windows path in a PowerShell script).
+ESCAPABLE = " \t\"'\\;|&(){}#$`<>"
+# curl's short options that take a value: what follows one in a cluster is the value.
+SHORT_WITH_VALUE = set("oHdubcemwxXTrCEKFyYzAtQP")
 
-def logical_lines(script: str) -> list[tuple[int, str]]:
-    """Each non-comment line of a script, joined with its continuation lines.
 
-    Returns (index of the first source line, text).
-    """
-    lines = script.split("\n")
-    joined = []
+@dataclass
+class Command:
+    start: int  # index of the script line its first word is on
+    end: int = 0
+    words: list[str] = field(default_factory=list)
+
+
+class _Reader:
+    """Splits a script into commands, as far as a download check needs a shell."""
+
+    def __init__(self, script: str) -> None:
+        self.s = script
+        self.i = 0
+        self.line = 0
+        self.commands: list[Command] = []
+        self.heredocs: list[str] = []
+
+    def read(self, closer: str = "") -> None:
+        s, n = self.s, len(self.s)
+        current: Command | None = None
+        word: str | None = None
+
+        def add(text: str) -> None:
+            nonlocal current, word
+            if current is None:
+                current = Command(self.line)
+            word = text if word is None else word + text
+
+        def end_word() -> None:
+            nonlocal word
+            if word is not None and current is not None:
+                current.words.append(word)
+            word = None
+
+        def end_command() -> None:
+            nonlocal current
+            end_word()
+            if current is not None and current.words:
+                current.end = self.line
+                self.commands.append(current)
+            current = None
+
+        while self.i < n:
+            c = s[self.i]
+            nxt = s[self.i + 1] if self.i + 1 < n else ""
+            if c == "\\":
+                if nxt == "\n":  # a continued line
+                    self.i += 2
+                    self.line += 1
+                elif nxt and nxt in ESCAPABLE:
+                    add(nxt)
+                    self.i += 2
+                else:
+                    add(c)
+                    self.i += 1
+            elif c == "`":
+                j = self.i + 1
+                while j < n and s[j] in " \t":
+                    j += 1
+                if j < n and s[j] == "\n":  # PowerShell's continued line
+                    self.i = j + 1
+                    self.line += 1
+                else:  # a command substitution, or an escape this check does not need
+                    end_command()
+                    self.i += 1
+            elif c == "'":
+                j = s.find("'", self.i + 1)
+                j = n if j < 0 else j
+                add(s[self.i + 1 : j])
+                self.line += s.count("\n", self.i, j)
+                self.i = j + 1
+            elif c == '"':
+                self.i += 1
+                add("")
+                while self.i < n and s[self.i] != '"':
+                    d = s[self.i]
+                    e = s[self.i + 1] if self.i + 1 < n else ""
+                    if d == "\\" and e == "\n":
+                        self.line += 1
+                        self.i += 2
+                    elif d == "\\" and e and e in '"\\$`':
+                        add(e)
+                        self.i += 2
+                    elif d == "$" and e == "(":  # still a command, inside the quotes
+                        self.i += 2
+                        self.read(")")
+                        add("$()")
+                    else:
+                        if d == "\n":
+                            self.line += 1
+                        add(d)
+                        self.i += 1
+                self.i += 1
+            elif c == "$" and nxt == "(":
+                self.i += 2
+                self.read(")")
+                add("$()")
+            elif c == "$" and nxt == "{":  # ${name} and ${{ expression }} are part of a word
+                depth, j = 0, self.i + 1
+                while j < n:
+                    if s[j] == "{":
+                        depth += 1
+                    elif s[j] == "}":
+                        depth -= 1
+                        if depth == 0:
+                            break
+                    j += 1
+                add(s[self.i : j + 1])
+                self.i = j + 1
+            elif c == "#" and word is None:  # a comment starts a word, never ends one
+                j = s.find("\n", self.i)
+                self.i = n if j < 0 else j
+            elif c == "<" and nxt == "<" and s[self.i + 2 : self.i + 3] != "<":
+                match = re.match(r"<<-?[ \t]*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1", s[self.i :])
+                if match:
+                    self.heredocs.append(match.group(2))
+                    self.i += match.end()
+                else:
+                    add(c)
+                    self.i += 1
+            elif c in " \t":
+                end_word()
+                self.i += 1
+            elif c == "\n":
+                end_command()
+                self.line += 1
+                self.i += 1
+                for delimiter in self.heredocs:  # the bodies follow the line that opened them
+                    while self.i < n:
+                        j = s.find("\n", self.i)
+                        j = n if j < 0 else j
+                        body_line = s[self.i : j].strip()
+                        self.i = min(j + 1, n)
+                        self.line += 1
+                        if body_line == delimiter:
+                            break
+                self.heredocs = []
+            elif c == ")" and closer == ")":
+                end_command()
+                self.i += 1
+                return
+            elif c in ";|&(){}":
+                end_command()
+                self.i += 1
+            else:
+                add(c)
+                self.i += 1
+        end_command()
+
+
+def split_commands(script: str) -> list[Command]:
+    reader = _Reader(script)
+    reader.read()
+    return reader.commands
+
+
+def executable(words: list[str]) -> tuple[str, list[str]]:
+    """The command's program, lower-cased without its directory, and its arguments."""
     index = 0
-    while index < len(lines):
-        start = index
-        text = lines[index].rstrip()
-        if text.lstrip().startswith("#"):
+    while index < len(words):
+        word = words[index]
+        if word in PREFIX_WORDS or ASSIGNMENT_RE.fullmatch(word):
             index += 1
-            continue
-        while text.endswith(CONTINUES) and index + 1 < len(lines):
+        elif word.startswith("-") and index > 0 and words[index - 1] in ("sudo", "env"):
             index += 1
-            text = text[:-1] + " " + lines[index].strip()
-        joined.append((start, text))
-        index += 1
-    return joined
-
-
-def command_findings(command: str) -> list[str]:
-    """What is wrong with one command, judged on its own arguments."""
-    found = []
-    curl = CURL_RE.search(command)
-    if curl and FAIL_RE.search(command[curl.start():]):
-        if "--retry-all-errors" not in command:
-            found.append(NO_ALL_ERRORS)
+        elif word.startswith("$") and index + 1 < len(words) and words[index + 1] == "=":
+            index += 2  # PowerShell: $result = command ...
         else:
-            # curl keeps the last --retry it is given: `--retry 3 --retry 0`
-            # retries nothing.
-            counts = RETRY_COUNT_RE.findall(command)
-            if not counts or int(counts[-1]) == 0:
-                found.append(NO_COUNT)
-    if IWR_RE.search(command):
-        found.append(IWR)
-    return found
+            return re.split(r"[\\/]", word)[-1].lower(), words[index + 1 :]
+    return "", []
+
+
+def curl_findings(args: list[str]) -> list[str]:
+    fail = to_file = all_errors = False
+    counts: list[str] = []
+    index = 0
+    while index < len(args):
+        arg = args[index]
+        value = args[index + 1] if index + 1 < len(args) else ""
+        if arg in ("--fail", "--fail-with-body"):
+            fail = True
+        elif arg == "--retry-all-errors":
+            all_errors = True
+        elif arg == "--retry":
+            counts.append(value)
+            index += 1
+        elif arg.startswith("--retry="):
+            counts.append(arg.split("=", 1)[1])
+        elif arg == "--output":
+            to_file = to_file or value != "-"
+            index += 1
+        elif arg.startswith("--output=") or arg in ("--remote-name", "--remote-name-all"):
+            to_file = True
+        elif re.fullmatch(r"-[A-Za-z0-9#]+", arg):
+            for position, letter in enumerate(arg[1:], start=1):
+                if letter == "f":
+                    fail = True
+                elif letter == "O":
+                    to_file = True
+                elif letter == "o":
+                    attached = arg[position + 1 :]
+                    to_file = to_file or (attached or value) != "-"
+                if letter in SHORT_WITH_VALUE:
+                    if not arg[position + 1 :]:
+                        index += 1  # the value is the next word
+                    break
+        index += 1
+
+    if not to_file:
+        if all_errors:
+            return [STDOUT_RETRY]
+        return [STDOUT_FAIL] if fail else []
+    if not all_errors:
+        return [NO_ALL_ERRORS]
+    # curl keeps the last --retry it is given: `--retry 3 --retry 0` retries nothing.
+    if not counts or (counts[-1].isdigit() and int(counts[-1]) == 0):
+        return [NO_COUNT]
+    return []
+
+
+def command_findings(words: list[str]) -> list[str]:
+    """What is wrong with one command, judged on its own arguments."""
+    program, args = executable(words)
+    if program in ("curl", "curl.exe"):
+        return curl_findings(args)
+    if program in ("invoke-webrequest", "iwr") and any(arg.lower().startswith("-outf") for arg in args):
+        return [IWR]
+    return []
 
 
 def script_findings(script: str) -> list[tuple[int, str]]:
     """(index of the script line, message) for every non-compliant command."""
+    opted_out = {index for index, line in enumerate(script.split("\n")) if OPT_OUT in line}
     found = []
-    for start, line in logical_lines(script):
-        if OPT_OUT in line:
+    for command in split_commands(script):
+        if any(line in opted_out for line in range(command.start, command.end + 1)):
             continue
-        # A quoted separator splits a command in two; that can only add a
-        # finding, never hide one, and the opt-out above answers it.
-        for command in SEPARATOR_RE.split(line):
-            for message in command_findings(" " + command + " "):
-                found.append((start, message))
+        for message in command_findings(command.words):
+            found.append((command.start, message))
     return found
 
 
@@ -141,33 +348,60 @@ def file_findings(text: str) -> list[tuple[int, str]]:
     return found
 
 
-# What the rules must catch and must leave alone. Checked on every run, so a change
-# to the patterns that stops them matching fails here, not in silence.
+# What the rules must catch and must leave alone, each with the one message expected.
+# Checked on every run, so a change that stops a rule matching fails here, not in
+# silence.
 SCRIPTS_MUST_FAIL = [
-    'curl -fL --retry 3 --retry-delay 5 -o "${work}/${tarball}" "$url"',
-    "curl.exe --fail --silent --show-error --location --output $archive $url",
-    "curl -fSL --retry 3 --max-time 120 \\\n  -o sample.mp4 https://example.invalid/sample.mp4",
-    "Invoke-WebRequest -Uri $url -OutFile mesa3d.7z",
+    ('curl -fL --retry 3 --retry-delay 5 -o "${work}/${tarball}" "$url"', NO_ALL_ERRORS),
+    ("curl.exe --fail --silent --show-error --location --output $archive $url", NO_ALL_ERRORS),
+    ("curl -fSL --retry 3 --max-time 120 \\\n  -o sample.mp4 https://example.invalid/sample.mp4", NO_ALL_ERRORS),
+    ("Invoke-WebRequest -Uri $url -OutFile mesa3d.7z", IWR),
+    ("$response = Invoke-WebRequest -Uri $url -OutFile mesa3d.7z", IWR),
     # the flag enables nothing without a count, or with a count of zero
-    'curl -fL --retry-all-errors -o "$file" "$url"',
-    'curl -fL --retry 0 --retry-all-errors -o "$file" "$url"',
+    ('curl -fL --retry-all-errors -o "$file" "$url"', NO_COUNT),
+    ('curl -fL --retry 0 --retry-all-errors -o "$file" "$url"', NO_COUNT),
     # curl keeps the last count it is given
-    'curl -fL --retry 3 --retry 0 --retry-all-errors -o "$file" "$url"',
+    ('curl -fL --retry 3 --retry 0 --retry-all-errors -o "$file" "$url"', NO_COUNT),
     # the first command's flags do not vouch for the second
-    'curl -fL --retry 3 --retry-all-errors -o a "$a"; curl -fL --retry 3 -o b "$b"',
-    'curl -fL --retry 3 --retry-all-errors -o a "$a" && curl -fL -o b "$b"',
+    ('curl -fL --retry 3 --retry-all-errors -o a "$a"; curl -fL --retry 3 -o b "$b"', NO_ALL_ERRORS),
+    ('curl -fL --retry 3 --retry-all-errors -o a "$a" && curl -fL -o b "$b"', NO_ALL_ERRORS),
+    # a flag in a comment is not an argument
+    ('curl -fL --retry 3 -o file "$url" # --retry-all-errors', NO_ALL_ERRORS),
+    # a quoted `;` does not end the command
+    ('curl "https://example.invalid/a;b" -fL -o file', NO_ALL_ERRORS),
+    # a file download is judged with or without -f
+    ('curl -L -o file "$url"', NO_ALL_ERRORS),
+    ('curl -LO "$url"', NO_ALL_ERRORS),
+    # stdout cannot be retried: a redirection, a pipe, a substitution
+    ('curl -fL --retry 3 --retry-all-errors "$url" > archive', STDOUT_RETRY),
+    ('curl -sL --retry 3 --retry-all-errors "$url" | tar -xz', STDOUT_RETRY),
+    ('curl -fsSL "$url" | sudo tee /etc/key > /dev/null', STDOUT_FAIL),
+    ('key="$(curl -fsSL "$url")"', STDOUT_FAIL),
+    ("sudo /usr/bin/curl -fL -o file https://example.invalid/file", NO_ALL_ERRORS),
+    ("if ($true) { C:\\Windows\\System32\\curl.exe --fail --output f $url }", NO_ALL_ERRORS),
 ]
 SCRIPTS_MUST_PASS = [
     'curl -fL --retry 3 --retry-delay 5 --retry-all-errors -o "${work}/${tarball}" "$url"',
     "curl -fSL --retry 3 --retry-all-errors --max-time 120 \\\n  -o sample.mp4 https://example.invalid/sample.mp4",
     "curl.exe --fail --retry 3 --retry-all-errors --output mesa3d.7z $url",
     "curl.exe --fail --retry=5 --retry-all-errors --output mesa3d.7z $url",
+    "curl.exe --fail --retry 3 `\n  --retry-all-errors --output mesa3d.7z $url",
     'curl -fL --retry 0 --retry 3 --retry-all-errors -o "$file" "$url"',
+    'curl -fL --retry "$RETRIES" --retry-all-errors -o "$file" "$url"',
     'curl -fL --retry 3 --retry-all-errors -o a "$a"; curl -fL --retry 3 --retry-all-errors -o b "$b"',
+    'curl -fsSLo "$file" --retry 3 --retry-all-errors "$url"',
+    # a quoted `;` or `#` stays in its word
+    'curl -fL -o "a;b" --retry 3 --retry-all-errors "$url"',
+    "curl -fL --retry 3 --retry-all-errors -o f https://example.invalid/page#part",
+    # text that says curl is not a download
     "# curl -fL -o file https://example.invalid/file",
-    "if curl -sSL --max-time 30 https://example.invalid/ | grep -qi reflection; then",
+    "echo 'curl -fL -o file \"$url\"'",
+    'echo "run: curl -fL -o file $url"',
     "for tool in autoconf automake pkg-config curl zip unzip tar; do",
     "sudo dnf install -y autoconf libtool pkgconf-pkg-config curl zip unzip tar",
+    "python - <<'EOF'\nprint('curl -fL -o file url')\nEOF\necho done",
+    # neither -f nor -o: not a download the step acts on
+    "if curl -sSL --max-time 30 https://example.invalid/ 2>/dev/null | grep -qi reflection; then",
     "curl -fL -o file https://example.invalid/file # OLO_DOWNLOAD_NO_RETRY_OK: fixture",
 ]
 # (document, the 1-based lines that must be reported)
@@ -182,21 +416,25 @@ FILES = [
     # a commented-out step is not a step, and `run` is found at any depth
     ("steps:\n  # - run: curl -fL -o f https://example.invalid/f\n  - name: none\n", []),
     ("jobs:\n  a:\n    steps:\n      - name: x\n        run: |\n          Invoke-WebRequest -Uri $u -OutFile m.7z\n", [6]),
+    # the line of a command that follows a here-document
+    ("steps:\n  - run: |\n      cat <<EOF\n      curl -fL -o in-the-body url\n      EOF\n      curl -fL -o f url\n", [6]),
 ]
 
 
 def self_check() -> list[str]:
     problems = []
-    for script in SCRIPTS_MUST_FAIL:
-        if not script_findings(script):
-            problems.append(f"self-check: not caught: {script!r}")
+    for script, expected in SCRIPTS_MUST_FAIL:
+        got = [message for _, message in script_findings(script)]
+        if got != [expected]:
+            problems.append(f"self-check: expected {expected!r}, got {got}: {script!r}")
     for script in SCRIPTS_MUST_PASS:
-        if script_findings(script):
-            problems.append(f"self-check: wrongly caught: {script!r}")
-    for document, expected in FILES:
-        got = [line for line, _ in file_findings(document)]
-        if got != expected:
-            problems.append(f"self-check: lines {got}, expected {expected}: {document!r}")
+        got = [message for _, message in script_findings(script)]
+        if got:
+            problems.append(f"self-check: wrongly caught ({got}): {script!r}")
+    for document, expected_lines in FILES:
+        lines = [line for line, _ in file_findings(document)]
+        if lines != expected_lines:
+            problems.append(f"self-check: lines {lines}, expected {expected_lines}: {document!r}")
     return problems
 
 
