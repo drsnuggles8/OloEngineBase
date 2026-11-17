@@ -1750,6 +1750,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/TerrainStreamingSculptCollisionTest.cpp
 		Functional/AnimationPhysics/ClothSimulationTest.cpp
 		Functional/AnimationPhysics/ClothSkeletonAttachTest.cpp
+		Functional/AnimationPhysics/ColliderOffsetKeepsEntityOriginTest.cpp
 		Functional/AnimationPhysics/PhysicsJoint3DTest.cpp
 		Functional/AnimationPhysics/PhysicsJointCollideConnectedTest.cpp
 		Functional/AnimationPhysics/VehicleTest.cpp

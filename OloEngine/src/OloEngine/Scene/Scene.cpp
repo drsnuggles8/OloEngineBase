@@ -17576,9 +17576,11 @@ namespace OloEngine
             for (auto entity : boxView)
             {
                 const auto& [tc, boxCollider] = boxView.get<TransformComponent, BoxCollider3DComponent>(entity);
-                glm::vec3 position = tc.Translation + boxCollider.m_Offset;
+                // Where JoltShapes puts it: the offset and the extents scale with the
+                // entity, and the offset turns with it.
                 glm::quat rotation = tc.GetRotation();
-                Renderer3D::DrawBoxColliderGizmo(position, boxCollider.m_HalfExtents, rotation);
+                glm::vec3 position = tc.Translation + rotation * (boxCollider.m_Offset * tc.Scale);
+                Renderer3D::DrawBoxColliderGizmo(position, JoltShapes::ApplyScaleToBoxExtents(boxCollider.m_HalfExtents, tc.Scale), rotation);
             }
 
             // Sphere colliders
@@ -17586,8 +17588,8 @@ namespace OloEngine
             for (auto entity : sphereView)
             {
                 const auto& [tc, sphereCollider] = sphereView.get<TransformComponent, SphereCollider3DComponent>(entity);
-                glm::vec3 position = tc.Translation + sphereCollider.m_Offset;
-                Renderer3D::DrawSphereColliderGizmo(position, sphereCollider.m_Radius);
+                glm::vec3 position = tc.Translation + tc.GetRotation() * (sphereCollider.m_Offset * tc.Scale);
+                Renderer3D::DrawSphereColliderGizmo(position, JoltShapes::ApplyScaleToSphereRadius(sphereCollider.m_Radius, tc.Scale));
             }
 
             // Capsule colliders
@@ -17595,9 +17597,10 @@ namespace OloEngine
             for (auto entity : capsuleView)
             {
                 const auto& [tc, capsuleCollider] = capsuleView.get<TransformComponent, CapsuleCollider3DComponent>(entity);
-                glm::vec3 position = tc.Translation + capsuleCollider.m_Offset;
                 glm::quat rotation = tc.GetRotation();
-                Renderer3D::DrawCapsuleColliderGizmo(position, capsuleCollider.m_Radius, capsuleCollider.m_HalfHeight, rotation);
+                glm::vec3 position = tc.Translation + rotation * (capsuleCollider.m_Offset * tc.Scale);
+                const auto [radius, halfHeight] = JoltShapes::ApplyScaleToCapsule(capsuleCollider.m_Radius, capsuleCollider.m_HalfHeight, tc.Scale);
+                Renderer3D::DrawCapsuleColliderGizmo(position, radius, halfHeight, rotation);
             }
         }
 

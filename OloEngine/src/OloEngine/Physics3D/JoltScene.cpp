@@ -1435,8 +1435,9 @@ namespace OloEngine
         // the world or dynamic bodies would fall through the shifted-away floor),
         // and ragdoll bone bodies (which are realised as ordinary Rigidbody3D
         // components, so they live in m_Bodies). BodyInterface::GetPosition and
-        // SetPosition both address the body's ORIGIN (unlike JoltBody::GetPosition,
-        // which returns the center of mass), so a plain delta shift is exact.
+        // SetPosition both address the body's ORIGIN (as JoltBody::GetPosition
+        // does; the centre of mass is GetCenterOfMassPosition), so a plain delta
+        // shift is exact.
         // DontActivate keeps sleeping bodies asleep and leaves velocity untouched.
         for (auto& [id, body] : m_Bodies)
         {
