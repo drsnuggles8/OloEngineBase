@@ -1652,6 +1652,40 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
 
+  # Stacks Light stands on the outer western stack. Its stair is turned onto
+  # the rock shelf at (-417.74, 28.68, -469.71), just below the final tread.
+  - Entity: 878550100000001
+    TagComponent:
+      Tag: Stacks Light
+    TransformComponent:
+      Translation: [-419, 29.9, -465]
+      Rotation: [0, 0.2617994, 0]
+      Scale: [1, 1, 1]
+    ModelComponent:
+      FilePath: Assets/Models/DriftLighthouse/StacksLight.gltf
+      Visible: true
+  # Point lights submit their local position to the renderer. This second root
+  # places both the luminous glass and its light at the gallery in world space.
+  - Entity: 878550100000002
+    TagComponent:
+      Tag: Stacks Light - optic
+    TransformComponent:
+      Translation: [-419, 50.20, -465]
+      Rotation: [0, 0, 0]
+      Scale: [0.63, 0.68, 0.63]
+    MeshComponent:
+      Primitive: 2
+    MaterialComponent:
+      AlbedoColor: [1, 0.82, 0.48]
+      Metallic: 0
+      Roughness: 0.2
+      Emissive: [14, 8, 3.3, 1]
+    PointLightComponent:
+      Color: [1, 0.72, 0.38]
+      Intensity: 18
+      Range: 9
+      CastShadows: false
+
   # ── Island - Stacks ───────────────────────────────────────────────────────
   # Nearly pure ridged noise on a small tile: a cluster of sheer dark stacks, the
   # tallest of the six at ~98 m out of the smallest footprint. Bare rock — nothing
