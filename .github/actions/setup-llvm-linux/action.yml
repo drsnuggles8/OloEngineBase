@@ -112,7 +112,12 @@ runs:
         trap 'rm -rf "$work"' EXIT
 
         echo "downloading ${url} (~2 GB) ..."
-        curl -fL --retry 3 --retry-delay 5 -o "${work}/${tarball}" "$url"
+        # --retry-all-errors is what makes --retry cover this download. Alone,
+        # --retry repeats only a timeout or an HTTP 408/429/5xx; a connection
+        # reset in the middle of the body (curl 56) is not on that list, and
+        # that is how a 2 GB transfer from a release CDN fails. Two sanitizer
+        # builds on one branch died here in one day with the retries unused.
+        curl -fL --retry 3 --retry-delay 5 --retry-all-errors -o "${work}/${tarball}" "$url"
         # The checksum IS the pin. Without it the "pin" is only a URL, and a
         # replaced asset would swap a sanitizer gate's compiler silently.
         echo "${OLO_LLVM_SHA256}  ${work}/${tarball}" | sha256sum -c -

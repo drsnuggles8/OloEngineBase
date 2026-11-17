@@ -289,6 +289,7 @@ The check passes for a correct implementation and for a broken one, so measure t
 | [pch-masked-missing-includes.md](pch-masked-missing-includes.md) | A green Windows build says nothing about a header's self-containment. |
 | [ci-cache-that-looks-alive.md](ci-cache-that-looks-alive.md) | A cache fails by being slow, not by looking wrong: every save in the repo was refused for six days and every run stayed green. |
 | [actions-cache-budget.md](actions-cache-budget.md) | The Windows sccache entry had not existed for weeks. |
+| [ci-downloads-retry-every-error.md](ci-downloads-retry-every-error.md) | A download step had `curl --retry 3` and failed on the first connection reset, twice in one day: `--retry` does not cover that error. |
 | [ci-lfs-bandwidth.md](ci-lfs-bandwidth.md) | The monthly Git LFS bandwidth was gone in twelve days, and no job had failed or warned. |
 | [testing-architecture.md](testing-architecture.md) | A build step that runs the test binary must capture its stderr and re-print it behind a prefix: MSBuild read Tracy's `ERROR: SymInitialize FAILED` start-up line as a compiler error and failed a test listing that had succeeded. |
 | [sccache-cap-vs-object-set.md](sccache-cap-vs-object-set.md) | A healthy restore still hit 32%, and `--show-stats` printed the same size line for a cache 20% over its cap and one with spare room. |

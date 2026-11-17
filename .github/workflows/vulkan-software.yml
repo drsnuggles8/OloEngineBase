@@ -209,7 +209,11 @@ jobs:
         shell: pwsh
         run: |
           $url = "https://github.com/pal1000/mesa-dist-win/releases/download/${{env.MESA_VERSION}}/mesa3d-${{env.MESA_VERSION}}-release-msvc.7z"
-          Invoke-WebRequest -Uri $url -OutFile mesa3d.7z
+          # curl.exe with every error retried, not Invoke-WebRequest, which
+          # gives up on the first dropped connection. This step runs after a
+          # build of two hours or more, so a failed download costs all of it.
+          curl.exe --fail --silent --show-error --location --retry 3 --retry-delay 5 --retry-all-errors --output mesa3d.7z $url
+          if ($LASTEXITCODE -ne 0) { throw "Mesa download failed: $url" }
           7z x mesa3d.7z -omesa3d -y | Out-Null
 
           # The Vulkan half: the loader is pointed at the ICD manifest in place

@@ -268,12 +268,14 @@ jobs:
           key: ffmpeg-${{ runner.os }}-${{ hashFiles('scripts/build-ffmpeg.sh', 'cmake/ffmpeg.cmake') }}
 
       # Fetch a small H.264 MP4 so the FFmpeg decode path runs end-to-end. -f fails on HTTP
-      # errors and --retry rides out transient flakes; the existence check surfaces a genuine
-      # download failure instead of silently letting the decode test SKIP.
+      # errors and --retry with --retry-all-errors repeats a failed transfer, a connection
+      # reset included (--retry alone repeats only a timeout or an HTTP 408/429/5xx); the
+      # existence check surfaces a genuine download failure instead of silently letting the
+      # decode test SKIP.
       - name: Fetch decode fixture
         shell: bash
         run: |
-          curl -fSL --retry 3 --retry-delay 5 --max-time 120 \
+          curl -fSL --retry 3 --retry-delay 5 --retry-all-errors --max-time 120 \
             -o "${GITHUB_WORKSPACE}/sample.mp4" https://download.samplelib.com/mp4/sample-5s.mp4
           test -s "${GITHUB_WORKSPACE}/sample.mp4"
 
