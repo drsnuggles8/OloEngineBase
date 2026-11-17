@@ -664,6 +664,35 @@ namespace OloEngine
             return false;
         }
 
+        // Continue loads the authored scene before applying the save. The save
+        // carries geometry identities and gameplay flags, while the model and
+        // primitive resources belong to that loaded scene. Retain matching
+        // resources before destroying the old registry.
+        auto models = staging->GetAllEntitiesWith<IDComponent, ModelComponent>();
+        for (auto [handle, id, model] : models.each())
+        {
+            if (const auto original = scene.TryGetEntityWithUUID(id.ID); original && original->HasComponent<ModelComponent>())
+            {
+                const auto& source = original->GetComponent<ModelComponent>();
+                if (!model.m_FilePath.empty() && model.m_FilePath == source.m_FilePath)
+                {
+                    model.m_Model = source.m_Model;
+                }
+            }
+        }
+        auto meshes = staging->GetAllEntitiesWith<IDComponent, MeshComponent>();
+        for (auto [handle, id, mesh] : meshes.each())
+        {
+            if (const auto original = scene.TryGetEntityWithUUID(id.ID); original && original->HasComponent<MeshComponent>())
+            {
+                const auto& source = original->GetComponent<MeshComponent>();
+                if (mesh.m_Primitive != MeshPrimitive::None && mesh.m_Primitive == source.m_Primitive)
+                {
+                    mesh.m_MeshSource = source.m_MeshSource;
+                }
+            }
+        }
+
         // --- All parsing succeeded — commit to real scene ---
 
         // Apply settings

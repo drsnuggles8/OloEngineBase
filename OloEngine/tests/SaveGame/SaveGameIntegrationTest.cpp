@@ -2,6 +2,7 @@
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
 
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/SaveGame/SaveGameFile.h"
 #include "OloEngine/SaveGame/SaveGameSerializer.h"
 #include "OloEngine/SaveGame/SaveGameTypes.h"
@@ -52,6 +53,36 @@ TEST_F(SaveGameIntegrationTest, CaptureAndRestoreEmptyScene)
 
     Ref<Scene> newScene = Ref<Scene>::Create();
     EXPECT_TRUE(SaveGameSerializer::RestoreSceneState(*newScene, data));
+}
+
+TEST_F(SaveGameIntegrationTest, ContinueRetainsTheLoadedGeometryForMatchingAuthoredEntities)
+{
+    auto tower = m_Scene->CreateEntity("Tower");
+    const UUID towerID = tower.GetUUID();
+    const auto model = Ref<Model>::Create();
+    auto& savedModel = tower.AddComponent<ModelComponent>(model, "Assets/Models/Tower.gltf");
+    savedModel.m_Visible = false;
+    auto bulb = m_Scene->CreateEntity("Optic");
+    const UUID bulbID = bulb.GetUUID();
+    const auto sphere = Ref<MeshSource>::Create();
+    auto& savedMesh = bulb.AddComponent<MeshComponent>(sphere);
+    savedMesh.m_Primitive = MeshPrimitive::Sphere;
+
+    const auto payload = SaveGameSerializer::CaptureSceneState(*m_Scene);
+    savedModel.m_Visible = true;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    const auto restoredTower = m_Scene->GetEntityByUUID(towerID);
+    EXPECT_EQ(restoredTower.GetComponent<ModelComponent>().m_Model, model);
+    EXPECT_FALSE(restoredTower.GetComponent<ModelComponent>().m_Visible);
+    EXPECT_EQ(m_Scene->GetEntityByUUID(bulbID).GetComponent<MeshComponent>().m_MeshSource, sphere);
+
+    // A different asset can occupy the same authored UUID in a later scene.
+    // Its loaded geometry must not be attached to the saved identity.
+    m_Scene->GetEntityByUUID(towerID).GetComponent<ModelComponent>().m_FilePath = "Assets/Models/Other.gltf";
+    m_Scene->GetEntityByUUID(bulbID).GetComponent<MeshComponent>().m_Primitive = MeshPrimitive::Cube;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    EXPECT_NE(m_Scene->GetEntityByUUID(towerID).GetComponent<ModelComponent>().m_Model, model);
+    EXPECT_NE(m_Scene->GetEntityByUUID(bulbID).GetComponent<MeshComponent>().m_MeshSource, sphere);
 }
 
 TEST_F(SaveGameIntegrationTest, CaptureAndRestoreWithEntities)
