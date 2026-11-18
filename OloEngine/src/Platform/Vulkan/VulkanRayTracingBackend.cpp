@@ -1106,12 +1106,13 @@ namespace OloEngine::RayTracing
         // unseen; it took the structure landing in the last 4 KiB of a block.
         // With the TLAS storage in a dedicated allocation, so that nothing
         // follows it, the update faulted in every run and a full build into the
-        // same storage ran clean for thousands of frames, on one queue as on two.
-        // The call matched the size query in flags, geometry and primitive
-        // count, and master's Drift scene refitted seven to thirteen instances
-        // without it, so what in that instance set triggers the over-read is
-        // not known. A TLAS build is cheap at these counts and is what the
-        // vendors recommend over a refit in any case.
+        // same storage ran clean for thousands of frames. The update also
+        // faulted with async compute off, so it is not a reader on the other
+        // queue. The call matched the size query in flags, geometry and
+        // primitive count, and master's Drift scene refitted six to thirteen
+        // instances without a fault, so what in that instance set triggers the
+        // over-read is not known. A TLAS build is cheap at these counts and is
+        // what the vendors recommend over a refit in any case.
         // docs/agent-rules/vulkan-tlas-is-rebuilt-not-refitted.md has the runs.
         build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
         build.geometryCount = 1;
