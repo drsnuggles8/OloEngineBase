@@ -52,7 +52,9 @@ runs:
         $dest    = Join-Path $env:RUNNER_TEMP 'llvm-pinned'
 
         Write-Host "downloading $url"
-        curl.exe --fail --silent --show-error --location --output $archive $url
+        # Retried on every error: see setup-llvm-linux, where the same release
+        # CDN reset the connection in the middle of the body.
+        curl.exe --fail --silent --show-error --location --retry 3 --retry-delay 5 --retry-all-errors --output $archive $url
         if ($LASTEXITCODE -ne 0) { Write-Host "::error::download failed: $url"; exit 1 }
 
         $got = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()

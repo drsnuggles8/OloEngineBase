@@ -127,6 +127,20 @@ repos:
       pass_filenames: false
       always_run: true
 
+    - id: ci-download-retries
+      name: a CI download retries every error
+      description: >-
+        Fails if a workflow or action downloads a file with curl and no
+        --retry <n> --retry-all-errors, or with Invoke-WebRequest -OutFile. curl's --retry alone
+        does not repeat a connection reset in the middle of a body, which is how a
+        large download from a release CDN fails; two sanitizer builds died on it in
+        one day with their three retries unused. Runs its own negative-control
+        fixtures first. See docs/agent-rules/ci-downloads-retry-every-error.md.
+      entry: python scripts/check_ci_download_retries.py
+      language: system
+      pass_filenames: false
+      files: '(\.github/.*\.ya?ml|scripts/check_ci_download_retries\.py)$'
+
     - id: generated-evidence
       name: generated verification output is not committed
       description: >-
