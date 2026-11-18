@@ -90,11 +90,10 @@ def publish_package(staged, destination, names):
             "Leave it in place until the publisher exits; see README.md for recovery."
         ) from error
 
-    replaced = []
+    changed = []
     remove_recovery = True
     try:
         existing, added = [], []
-        changed = []
         for name in names:
             old = destination / name
             if old.is_symlink() or (old.exists() and not old.is_file()):
@@ -120,11 +119,18 @@ def publish_package(staged, destination, names):
         os.replace(plan, recovery / "transaction.plan")
         for name in changed:
             os.replace(recovery / (name + ".pending"), destination / name)
-            replaced.append(name)
     except BaseException as publish_error:
         remove_recovery = False
         errors = []
-        for name in reversed(replaced):
+        # os.replace can finish just before Python receives an interrupt.
+        # The consumed .pending file records the rename without a second
+        # bookkeeping operation. Preparation errors never install the plan.
+        published = (
+            reversed(changed) if (recovery / "transaction.plan").exists() else ()
+        )
+        for name in published:
+            if (recovery / (name + ".pending")).exists():
+                continue
             try:
                 backup = recovery / (name + ".previous")
                 if backup.exists():

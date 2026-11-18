@@ -54,7 +54,9 @@ no `transaction.plan`, no unfinished replacement needs rollback. Otherwise, copy
 listed under `existing` from its `.previous` backup to its original name, then
 remove only the live files listed under `added`. For an interrupted build into
 an empty directory, `existing` is empty. Once the original state is restored,
-move the recovery folder outside the project and retry the rebuild.
+move the recovery folder outside the project and retry the rebuild. From the
+repository root, `python -m unittest discover -s "$model" -p test_lighthouse_package.py`
+exercises interrupted publication and rollback without launching Blender.
 
 Keep the glTF, binary buffer and its 27 referenced PNGs
 together for delivery. Reopen or reimport the model and textures before comparing
