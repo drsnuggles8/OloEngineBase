@@ -10,11 +10,23 @@ name: Video (FFmpeg backend)
 
 on:
   workflow_dispatch:
+    inputs:
+      # The windows leg takes about four hours and the linux leg well under one, so a
+      # dispatch that debugs one leg should not wait on the other. The schedule has no
+      # inputs, so it always runs both.
+      legs:
+        description: 'Which legs to run'
+        type: choice
+        options: [both, linux, windows]
+        default: both
   schedule:
     - cron: '0 6 * * 1' # weekly, Monday 06:00 UTC
 
+# The event is part of the key so a dispatch (one leg, say, to debug it) never
+# cancels the scheduled run on the same ref. A cancelled scheduled run reads as
+# neutral to the red-streak job, so that week's result would never be alerted.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
@@ -34,9 +46,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { name: windows, runner: windows-2025, os: Windows }
-          - { name: linux,   runner: ubuntu-24.04,    os: Linux }
+        # `inputs.legs` is empty on a scheduled run, which selects both legs.
+        include: ${{ fromJSON(
+          inputs.legs == 'linux' && '[{"name":"linux","runner":"ubuntu-24.04","os":"Linux"}]'
+          || inputs.legs == 'windows' && '[{"name":"windows","runner":"windows-2025","os":"Windows"}]'
+          || '[{"name":"windows","runner":"windows-2025","os":"Windows"},{"name":"linux","runner":"ubuntu-24.04","os":"Linux"}]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -44,72 +58,59 @@ jobs:
           # the GITHUB_TOKEN in .git/config for later steps/dependencies to read.
           persist-credentials: false
 
-      - name: Install Python 3.10
+      - name: Install Python 3.10 (Windows)
         id: py
+        if: matrix.os == 'Windows'
         uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: '3.10'
-      - name: Python deps (OloHeaderTool)
+      - name: Python deps (OloHeaderTool) (Windows)
+        if: matrix.os == 'Windows'
         run: |
           # jinja2 pinned for githubactions:S8544 (lock resolved versions); bump deliberately.
           python -m pip install jinja2==3.1.6
 
-      - name: Setup Vulkan SDK
+      - name: Setup Vulkan SDK (Windows)
+        if: matrix.os == 'Windows'
         uses: ./.github/actions/setup-vulkan
 
       # FFmpeg's from-source build needs nasm on both platforms (gmake/make + a bash
       # are already present: Strawberry Perl + Git-bash on windows-2025; make + bash
-      # on ubuntu). The Linux engine build also needs the usual GL/X/shader dev libs.
+      # on ubuntu).
       - name: Install nasm (Windows)
         if: matrix.os == 'Windows'
         run: choco install nasm -y --no-progress
 
-      # The hosted image ships ~14 GB free, which asan.yml records as enough to hit
-      # "No space left on device" during the OloEngine-Tests link. This leg is heavier
-      # than those: on top of the engine + test suite it unpacks a vcpkg tree AND, on a
-      # cache miss, a full FFmpeg source checkout and build. Reclaim ~20 GB of
-      # preinstalled toolchains this job never uses. `|| true` keeps a missing path from
-      # failing the job; the df lines bracket it for diagnostics.
-      - name: Free disk space (Linux)
+      # The Linux leg takes its whole toolchain from the action every other Linux job
+      # uses: disk reclaim, Python + jinja2, the pinned shader toolchain, the apt dev
+      # libraries and the pinned LLVM 23.1.0. It used to keep a private copy of all of
+      # that, which fell two layers behind (no Vulkan loader, then a shader toolchain
+      # below the floor) and stopped this leg at configure on every weekly run from
+      # 2026-09-14 to 2026-11-16 (#1711).
+      #
+      # vulkan-sdk 'false': the floor input already supplies shaderc and SPIRV-Cross as a
+      # matched pair; the LunarG SDK would only add a second spirv_cross/ include tree
+      # ahead of the libraries the build links (#1009). The asan.yml hosted jobs build
+      # OloEngine-Tests with the same two inputs.
+      - name: Setup Linux build environment
+        id: linux
+        if: matrix.os == 'Linux'
+        uses: ./.github/actions/setup-linux-build
+        with:
+          cache-name: video-ffmpeg
+          vulkan-sdk: 'false'
+          shader-toolchain-floor: 'true'
+
+      # The one package this leg needs beyond setup-linux-build: no other Linux job builds
+      # FFmpeg (they all configure -DOLO_VIDEO_FFMPEG=OFF), so nasm is not in the shared
+      # apt list, and the action has no extra-packages input on purpose ("a per-job list
+      # is how one job quietly acquires a dependency the others do not have"). The
+      # Microsoft source was already dropped by the action's own apt step.
+      - name: Install nasm (Linux)
         if: matrix.os == 'Linux'
         run: |
-          df -h /
-          sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup /usr/share/dotnet /opt/hostedtoolcache/CodeQL /usr/local/share/boost 2>/dev/null || true
-          sudo docker image prune --all --force 2>/dev/null || true
-          df -h /
-
-      # The engine needs a C++23 STANDARD LIBRARY, not just a C++23 compiler:
-      # Core/Reflection/MemberList.h uses std::forward_like, which ubuntu-24.04's default
-      # GCC/libstdc++ does not provide ("error: 'forward_like' is not a member of 'std'").
-      # Every other Linux job in this repo pins clang-23 from apt.llvm.org for the same
-      # reason — see asan.yml and steam-stub.yml. Without this, fixing the OOM below only
-      # moves the failure (issue #796, root cause 2).
-      - name: Add LLVM apt repository (Linux)
-        if: matrix.os == 'Linux'
-        uses: ./.github/actions/setup-llvm-apt
-
-      - name: Install Linux deps
-        if: matrix.os == 'Linux'
-        run: |
-          # The ubuntu runner image ships Microsoft apt repos (azure-cli, prod) that
-          # periodically return 403 Forbidden; we never use them (Clang comes from
-          # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
-          # Drop any Microsoft source so a Microsoft-side outage can't break our update.
-          #
-          # libvulkan-dev: the Vulkan SDK step supplies the headers and nests its loader
-          # where find_package(Vulkan) does not look, so configure stops at "Could NOT
-          # find Vulkan (missing: Vulkan_LIBRARY)". The distribution's loader is the one
-          # setup-linux-build installs for every other hosted Linux job.
-          sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
-          sudo apt-get update
-          sudo apt-get install -y \
-            nasm \
-            clang-23 lld-23 \
-            libvulkan-dev \
-            libgl-dev libglu1-mesa-dev \
-            libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
-            libwayland-dev wayland-protocols libxkbcommon-dev \
-            glslang-dev libshaderc-dev libspirv-cross-c-shared-dev spirv-tools
+          sudo apt-get install -y nasm || { sudo apt-get update && sudo apt-get install -y nasm; }
+          nasm -v
 
       # Cache the built FFmpeg so only the first (or post-bump) run pays the build cost.
       - name: Restore FFmpeg build
@@ -138,8 +139,10 @@ jobs:
           # multi-config (build type comes from --config at build time) and MSVC is
           # already the right compiler there.
           #
-          # -DCMAKE_{C,CXX}_COMPILER=clang-23/clang++-23: see the LLVM apt step above —
-          #   the default GCC/libstdc++ lacks std::forward_like.
+          # -DCMAKE_{C,CXX}_COMPILER, Python_EXECUTABLE and the extra arguments (the
+          #   pinned shaderc / SPIRV-Cross roots) all come from setup-linux-build. The
+          #   compiler is its pinned clang 23: the default GCC/libstdc++ lacks
+          #   std::forward_like.
           # -DCMAKE_BUILD_TYPE=Release: Unix Makefiles is SINGLE-config, so the build
           #   type must be set here. The build step's `--config Release` was silently
           #   ignored on this leg, which is why the job's stated Release build was a
@@ -154,22 +157,26 @@ jobs:
           #   the codegen is irrelevant; Windows.yml, asan.yml, fuzz.yml and
           #   flaky-repro-281.yml all drop LTO for the same reason.
           TOOLCHAIN_ARGS=()
+          PYTHON_EXE="${{ steps.py.outputs.python-path }}"
           if [ "${{ matrix.os }}" = "Linux" ]; then
+            PYTHON_EXE="${{ steps.linux.outputs.python-exe }}"
             TOOLCHAIN_ARGS=(
-              -DCMAKE_C_COMPILER=clang-23
-              -DCMAKE_CXX_COMPILER=clang++-23
+              -DCMAKE_C_COMPILER="${{ steps.linux.outputs.cc }}"
+              -DCMAKE_CXX_COMPILER="${{ steps.linux.outputs.cxx }}"
               -DCMAKE_BUILD_TYPE=Release
               -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
               -DOLO_ENABLE_LTO=OFF
             )
           fi
 
+          # extra-cmake-args is unquoted on purpose: it holds several -D arguments.
           cmake -S . -B build -DOLO_VIDEO_FFMPEG=ON \
             -DOLO_FFMPEG_CACHE_DIR="${OLO_FFMPEG_CACHE_DIR}" \
             -DOLO_WITH_USD=OFF -DOLO_WITH_ALEMBIC=OFF -DOLO_WITH_MATERIALX=OFF \
             "${TOOLCHAIN_ARGS[@]}" \
             ${{ steps.vcpkg.outputs.toolchain-args }} \
-            -DPython_EXECUTABLE="${{ steps.py.outputs.python-path }}"
+            ${{ steps.linux.outputs.extra-cmake-args }} \
+            -DPython_EXECUTABLE="${PYTHON_EXE}"
 
       # The other half of setup-vcpkg's restore/save split (#1009). `if: always()`
       # is the whole point: the combined actions/cache action saves in a POST-JOB
@@ -190,8 +197,9 @@ jobs:
           path: ${{ steps.vcpkg.outputs.cache-path }}
 
       # Both legs build Release, matching the main Windows.yml CI (BUILD_TYPE: Release).
-      # The shader libs (shaderc / spirv-cross-{core,glsl}) come from the headless Vulkan
-      # SDK installed above, which ships only release (/MD) import libs — no debug (…d.lib)
+      # On Windows the shader libs (shaderc / spirv-cross-{core,glsl}) come from the
+      # headless Vulkan SDK installed above (on Linux, from setup-linux-build's pinned
+      # OLO_SHADERC_ROOT / OLO_SPIRV_CROSS_ROOT), and it ships only release (/MD) import libs — no debug (…d.lib)
       # variants. A Debug (/MDd) build of OloEngine-Tests then links release spirv-cross
       # objects and dies with LNK2038 (_ITERATOR_DEBUG_LEVEL 0 vs 2 / MD_DynamicRelease vs
       # MDd_DynamicDebug) → LNK1319. Release keeps the CRT consistent. The FFmpeg decode
@@ -294,3 +302,50 @@ jobs:
           BIN=$(find build/OloEngine/tests -type f \( -name OloEngine-Tests -o -name OloEngine-Tests.exe \) | head -1)
           test -n "$BIN" || { echo "OloEngine-Tests binary not found under build/OloEngine/tests"; exit 1; }
           "$BIN" --olo-video="${GITHUB_WORKSPACE}/sample.mp4" --gtest_filter='VideoDecoder*:VideoPlayer*:VideoTexture*:VideoFrameInfo*:VideoDecoderFixture*'
+
+  # -------------------------------------------------------------------------
+  # Make a red weekly run visible without anyone opening the Actions tab. The
+  # linux leg was red on every weekly run from June to 2026-11-16 before anyone
+  # noticed (#1711). The same action as the AMD nightly's alert
+  # (.github/actions/red-streak-alert, #1473): one issue labelled
+  # ci-nightly-red, retitled and commented on each further red run, closed by
+  # the first green scheduled run.
+  #
+  # Threshold 1: this is a weekly, so a threshold of 2 would leave a regression
+  # unreported for a fortnight. A run is red when either leg is red.
+  #
+  # A workflow_dispatch runs it with --dry-run: it prints what it would do and
+  # writes nothing, so the mechanism can be exercised from a branch. A dispatch
+  # that ran one leg is judged on that leg only.
+  # -------------------------------------------------------------------------
+  red-streak:
+    name: Red-streak alert
+    needs: build
+    if: always() && github.repository == 'drsnuggles8/OloEngineBase'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            scripts/nightly_red_streak.py
+            .github/actions/red-streak-alert
+          sparse-checkout-cone-mode: false
+
+      # The build job sets no timeout-minutes, so it has GitHub's default of 360.
+      # A dispatch that ran one leg is judged on that leg; an empty line is skipped.
+      - name: Open, update or close the red-streak issue
+        uses: ./.github/actions/red-streak-alert
+        with:
+          workflow: video-ffmpeg.yml
+          jobs: |
+            ${{ inputs.legs != 'linux' && 'windows' || '' }}
+            ${{ inputs.legs != 'windows' && 'linux' || '' }}
+          result: ${{ needs.build.result }}
+          timeout-minutes: 360
+          threshold: 1
