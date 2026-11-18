@@ -3,7 +3,9 @@
 
 #include "OloEngine/Core/UUID.h"
 
+#include <algorithm>
 #include <cerrno>
+#include <ranges>
 #include <format>
 #include <fstream>
 #include <system_error>
@@ -15,6 +17,31 @@
 
 namespace OloEngine
 {
+    bool FileSystem::SameSourcePath(std::string_view saved, std::string_view authored)
+    {
+        if (saved == authored)
+            return true;
+        if (saved.empty() || authored.empty())
+            return false;
+
+        // A current-directory component changes the spelling, not the asset.
+        // Keep ".." literal: cancelling it across a symlink can select a
+        // different file. Restore only compares identities; it does no I/O.
+        try
+        {
+            const std::filesystem::path left(saved), right(authored);
+            const auto meaningful = std::views::filter([](const std::filesystem::path& component)
+                                                       { return component != "."; });
+            return std::ranges::equal(left | meaningful, right | meaningful);
+        }
+        catch (const std::system_error&)
+        {
+            // A save string that cannot be represented in the native path
+            // encoding cannot establish a match.
+            return false;
+        }
+    }
+
     namespace
     {
         // The reason a just-failed stream open reported, or a fallback when the

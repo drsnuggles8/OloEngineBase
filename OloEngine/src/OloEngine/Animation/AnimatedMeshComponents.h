@@ -280,6 +280,21 @@ namespace OloEngine
         glm::quat m_RootMotionRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
         bool m_HasRootMotion = false;
 
+        // A checkpoint loaded before autoplay owns this actor's first pose.
+        // A duplicate entity can copy the state but has a different UUID.
+        OLO_SERIALIZE(Skip)
+        u64 m_RestoredPlaybackOwner = 0;
+
+        void StartRuntimePlayback(UUID owner)
+        {
+            if (m_CurrentClip && m_RestoredPlaybackOwner != static_cast<u64>(owner))
+            {
+                m_IsPlaying = true;
+                m_CurrentTime = 0.0f;
+            }
+            m_RestoredPlaybackOwner = 0;
+        }
+
         AnimationStateComponent() = default;
         explicit AnimationStateComponent(const Ref<AnimationClip>& clip, float timeSeconds = 0.0f)
             : m_CurrentClip(clip), m_CurrentTime(timeSeconds) {}

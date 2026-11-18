@@ -38,6 +38,9 @@ namespace OloEngine
     class FileSystem
     {
       public:
+        // Compare source spellings without filesystem access. Ignore "." while
+        // preserving "..", whose meaning may depend on a symlink.
+        [[nodiscard]] static bool SameSourcePath(std::string_view saved, std::string_view authored);
         static Buffer ReadFileBinary(const std::filesystem::path& filepath);
         static std::string ReadFileText(const std::filesystem::path& filepath);
 

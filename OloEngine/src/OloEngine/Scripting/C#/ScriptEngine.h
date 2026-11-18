@@ -213,6 +213,7 @@ namespace OloEngine
         static bool ReloadAssembly();
 
         static void OnRuntimeStart(Scene* scene);
+        static void RebindStartupInstance(UUID owner, const Ref<ScriptInstance>& instance);
         static void OnRuntimeStop();
 
         static bool EntityClassExists(const std::string& fullClassName);

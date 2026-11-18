@@ -1,4 +1,5 @@
 #include "OloEnginePCH.h"
+#include "OloEngine/Templates/UnrealTemplate.h"
 
 #include <bit>
 #include "Scene.h"
@@ -35,6 +36,7 @@
 #include "OloEngine/Tilemap/Tileset.h"
 #include "OloEngine/Asset/VolumeAsset.h"
 #include "OloEngine/Core/Application.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Core/PerformanceProfiler.h"
 #include "OloEngine/Debug/DiagnosticsEventLog.h"
 #include "OloEngine/Renderer/Renderer2D.h"
@@ -1216,6 +1218,17 @@ namespace OloEngine
         }
     }
 
+    static void CreateLuaScriptInstance(Entity entity)
+    {
+        const auto& file = entity.GetComponent<LuaScriptComponent>().ScriptFile;
+        if (file.empty())
+            return;
+        // Shipped games and the editor mount a project. Headless harnesses
+        // without one supply an absolute path.
+        const std::string path = Project::GetActive() ? Project::GetAssetFileSystemPath(file).string() : file;
+        LuaScriptEngine::OnCreateEntity(entity, path);
+    }
+
     void Scene::FireSpawnScriptLifecycle(Entity entity)
     {
         // Edit mode / Simulate has no script runtime bound, so there is nothing
@@ -1228,20 +1241,7 @@ namespace OloEngine
             ScriptEngine::OnCreateEntity(entity);
 
         if (entity.HasComponent<LuaScriptComponent>())
-        {
-            if (auto const& luaComp = entity.GetComponent<LuaScriptComponent>(); !luaComp.ScriptFile.empty())
-            {
-                // ScriptFile is project-relative when a project is mounted (the
-                // editor / OloRuntime path, matching OnRuntimeStart) and an
-                // absolute path when it isn't (headless harnesses, which set it
-                // directly). Project::GetAssetFileSystemPath asserts without an
-                // active project, so resolve only when there is one.
-                const std::string scriptPath = Project::GetActive()
-                                                   ? Project::GetAssetFileSystemPath(luaComp.ScriptFile).string()
-                                                   : luaComp.ScriptFile;
-                LuaScriptEngine::OnCreateEntity(entity, scriptPath);
-            }
-        }
+            CreateLuaScriptInstance(entity);
     }
 
     void Scene::FireSpawnScriptLifecycleRecursive(Entity entity)
@@ -1503,6 +1503,68 @@ namespace OloEngine
         }
     }
 
+    // Each entry lives on its callback's stack. A synchronous load starts the
+    // restored registry before returning to the caller, so the same binding
+    // must not enter OnCreate again while its first call is still active.
+    struct StartupScriptCall
+    {
+        UUID Owner;
+        std::string Source;
+        bool Lua;
+        StartupScriptCall* Previous;
+        bool Superseded = false;
+        Ref<ScriptInstance> ManagedInstance;
+
+        bool Matches(const StartupScriptCall& other) const
+        {
+            if (Owner != other.Owner || Lua != other.Lua)
+                return false;
+            return Lua ? FileSystem::SameSourcePath(Source, other.Source) : Source == other.Source;
+        }
+    };
+
+    template<typename Script, typename Callback>
+    static bool StartScripts(Scene& scene, StartupScriptCall*& active, std::string Script::* source, Callback create)
+    {
+        TArray<UUID> ids;
+        for (const auto entity : scene.GetAllEntitiesWith<Script>())
+            ids.Add(Entity{ entity, &scene }.GetUUID());
+        for (const UUID id : ids)
+        {
+            const auto entity = scene.TryGetEntityWithUUID(id);
+            if (!entity || !entity->HasComponent<Script>())
+                continue;
+            StartupScriptCall call{ id, entity->GetComponent<Script>().*source, std::is_same_v<Script, LuaScriptComponent>, active, false, nullptr };
+            auto* parent = active;
+            while (parent && !parent->Matches(call))
+                parent = parent->Previous;
+            if (parent)
+                continue;
+
+            TGuardValue<StartupScriptCall*> current(active, &call);
+            create(*entity);
+            if (call.Superseded)
+                return false; // The nested startup has already processed the replacement registry.
+        }
+        return true;
+    }
+
+    bool Scene::StopStartupForCheckpoint()
+    {
+        if (!m_IsRunning || !m_ActiveStartupScript)
+            return false;
+        for (auto* call = m_ActiveStartupScript; call; call = call->Previous)
+        {
+            call->Superseded = true;
+            if (!call->Lua && !call->ManagedInstance)
+                call->ManagedInstance = ScriptEngine::GetEntityScriptInstance(call->Owner);
+        }
+        // Release dialogue UI, physics bodies and script instances while the
+        // registry they own is still installed. Restore starts them afresh.
+        OnRuntimeStop();
+        return true;
+    }
+
     void Scene::OnRuntimeStart()
     {
         m_IsRunning = true;
@@ -1690,57 +1752,18 @@ namespace OloEngine
             }
         }
 
-        // Scripting
+        ScriptEngine::OnRuntimeStart(this);
+        LuaScriptEngine::OnRuntimeStart(this);
+        for (auto* call = m_ActiveStartupScript; call; call = call->Previous)
         {
-            ScriptEngine::OnRuntimeStart(this);
-            // Instantiate all script entities
-            for (const auto scriptView = m_Registry.view<ScriptComponent>(); const auto e : scriptView)
-            {
-                Entity entity = { e, this };
-                ScriptEngine::OnCreateEntity(entity);
-            }
+            if (call->ManagedInstance)
+                ScriptEngine::RebindStartupInstance(call->Owner, call->ManagedInstance);
         }
-
-        // Lua scripting
-        {
-            LuaScriptEngine::OnRuntimeStart(this);
-            for (const auto luaView = m_Registry.view<LuaScriptComponent>(); const auto e : luaView)
-            {
-                Entity entity = { e, this };
-                auto const& luaComp = entity.GetComponent<LuaScriptComponent>();
-                if (!luaComp.ScriptFile.empty())
-                {
-                    // ScriptFile is project-relative when a project is mounted
-                    // (the editor, and OloRuntime since it began mounting an
-                    // in-memory game project) and an absolute path when it
-                    // isn't (headless harnesses, which set it directly).
-                    // GetAssetFileSystemPath asserts without an active project,
-                    // so resolve only when there is one — same rule as the
-                    // deferred-spawn path in FireSpawnScriptLifecycle.
-                    const std::string scriptPath = Project::GetActive()
-                                                       ? Project::GetAssetFileSystemPath(luaComp.ScriptFile).string()
-                                                       : luaComp.ScriptFile;
-                    LuaScriptEngine::OnCreateEntity(entity, scriptPath);
-                }
-            }
-        }
-
-        // Fresh scenes autoplay from frame zero. Continue already has the saved poses.
-        if (!m_ResumeSavedAnimationOnStart)
-        {
-            auto animView = m_Registry.view<AnimationStateComponent>();
-            for (auto e : animView)
-            {
-                auto& animState = animView.get<AnimationStateComponent>(e);
-                if (animState.m_CurrentClip)
-                {
-                    animState.m_IsPlaying = true;
-                    animState.m_CurrentTime = 0.0f;
-                }
-            }
-        }
-
-        m_ResumeSavedAnimationOnStart = false;
+        if (!StartScripts(*this, m_ActiveStartupScript, &ScriptComponent::ClassName, ScriptEngine::OnCreateEntity) ||
+            !StartScripts(*this, m_ActiveStartupScript, &LuaScriptComponent::ScriptFile, CreateLuaScriptInstance))
+            return;
+        for (auto [entity, id, animation] : m_Registry.view<IDComponent, AnimationStateComponent>().each())
+            animation.StartRuntimePlayback(id.ID);
 
         // Scene streaming initialization
         if (m_StreamingSettings.Enabled)
@@ -1879,6 +1902,7 @@ namespace OloEngine
 
     void Scene::OnRuntimeStop()
     {
+        TGuardValue<bool> stopping(m_BlockCheckpointLoad, true);
         OLO_PROFILE_SECTION_LEAVE(m_SessionProfileSection);
         m_SessionProfileSection = 0;
         // Leaving Play is the same discontinuity as entering it, seen from the

@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "LuaScriptEngine.h"
 #include "LuaScriptGlue.h"
+#include "OloEngine/Core/FileSystem.h"
 
 #include "OloEngine/Networking/RPC/RpcRegistry.h"
 #include "OloEngine/Scene/Scene.h"
@@ -12,6 +13,7 @@
 #include "lstate.h"
 #include "setjmp.h"
 
+#include <optional>
 #include <unordered_map>
 
 namespace OloEngine
@@ -159,6 +161,10 @@ namespace OloEngine
 
         auto& lua = *s_LuaData.LuaState;
         auto entityID = static_cast<u64>(entity.GetUUID());
+        auto* scene = entity.GetScene();
+        const auto source = entity.HasComponent<LuaScriptComponent>()
+                                ? std::optional(entity.GetComponent<LuaScriptComponent>().ScriptFile)
+                                : std::nullopt;
 
         // Load the script file — it should return a table
         sol::load_result loadResult = lua.load_file(scriptFile);
@@ -205,7 +211,12 @@ namespace OloEngine
             }
         }
 
-        s_LuaData.EntityScriptInstances[entityID] = scriptTable;
+        // OnCreate may replace this registry with a checkpoint. The nested
+        // startup owns a changed binding, and a removed actor has no instance.
+        const auto restored = scene->TryGetEntityWithUUID(UUID(entityID));
+        if (restored && (!source || (restored->HasComponent<LuaScriptComponent>() &&
+                                     FileSystem::SameSourcePath(restored->GetComponent<LuaScriptComponent>().ScriptFile, *source))))
+            s_LuaData.EntityScriptInstances[entityID] = scriptTable;
     }
 
     void LuaScriptEngine::OnUpdateEntity(Entity entity, f32 ts)

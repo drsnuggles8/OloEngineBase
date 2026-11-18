@@ -10,6 +10,7 @@
 #include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Cinematic/CinematicComponent.h"
 #include "OloEngine/Core/Hash.h"
+#include "OloEngine/Core/FileSystem.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
@@ -26,15 +27,13 @@
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
 #include "OloEngine/Serialization/Archive.h"
 #include "OloEngine/Serialization/ArchiveExtensions.h"
+#include "OloEngine/Templates/UnrealTemplate.h"
 
 #include <box2d/box2d.h>
 #include <algorithm>
 #include <cmath>
-#include <filesystem>
 #include <optional>
-#include <ranges>
 #include <string_view>
-#include <system_error>
 
 namespace OloEngine
 {
@@ -468,31 +467,6 @@ namespace OloEngine
         std::vector<u8> Data;
     };
 
-    static bool SameMeshImportPath(std::string_view saved, std::string_view authored)
-    {
-        if (saved == authored)
-            return true;
-        if (saved.empty() || authored.empty())
-            return false;
-
-        // A current-directory component changes the spelling, not the asset.
-        // Keep ".." literal: cancelling it across a symlink can select a
-        // different file. Restore only compares identities; it does no I/O.
-        try
-        {
-            const std::filesystem::path left(saved), right(authored);
-            const auto meaningful = std::views::filter([](const std::filesystem::path& component)
-                                                       { return component != "."; });
-            return std::ranges::equal(left | meaningful, right | meaningful);
-        }
-        catch (const std::system_error&)
-        {
-            // A save string that cannot be represented in the native path
-            // encoding cannot establish a match.
-            return false;
-        }
-    }
-
     static std::string_view MeshImportPath(Entity entity)
     {
         return entity.HasComponent<AnimationStateComponent>() ? std::string_view(entity.GetComponent<AnimationStateComponent>().m_SourceFilePath) : std::string_view{};
@@ -515,12 +489,12 @@ namespace OloEngine
             saved.HasComponent<MeshComponent>() != authored.HasComponent<MeshComponent>())
             return false;
         if (saved.HasComponent<ModelComponent>() &&
-            !SameMeshImportPath(saved.GetComponent<ModelComponent>().m_FilePath, authored.GetComponent<ModelComponent>().m_FilePath))
+            !FileSystem::SameSourcePath(saved.GetComponent<ModelComponent>().m_FilePath, authored.GetComponent<ModelComponent>().m_FilePath))
             return false;
         if (saved.HasComponent<MeshComponent>() &&
             saved.GetComponent<MeshComponent>().m_Primitive != authored.GetComponent<MeshComponent>().m_Primitive)
             return false;
-        return SameMeshImportPath(MeshImportPath(saved), MeshImportPath(authored)) || IsLegacyBindPose(saved, authored);
+        return FileSystem::SameSourcePath(MeshImportPath(saved), MeshImportPath(authored)) || IsLegacyBindPose(saved, authored);
     }
 
     static bool DeserializeEntitiesInto(Scene& staging, const Scene& authoredScene, FMemoryReader& reader,
@@ -717,6 +691,11 @@ namespace OloEngine
     {
         OLO_PROFILE_FUNCTION();
 
+        if (scene.m_BlockCheckpointLoad)
+        {
+            OLO_CORE_WARN("[SaveGameSerializer] Cannot load a checkpoint during teardown or another checkpoint commit");
+            return false;
+        }
         if (data.empty())
         {
             return false;
@@ -814,7 +793,7 @@ namespace OloEngine
             if (const auto original = scene.TryGetEntityWithUUID(id.ID); original && original->HasComponent<ModelComponent>())
             {
                 const auto& source = original->GetComponent<ModelComponent>();
-                if (!model.m_FilePath.empty() && SameMeshImportPath(model.m_FilePath, source.m_FilePath))
+                if (!model.m_FilePath.empty() && FileSystem::SameSourcePath(model.m_FilePath, source.m_FilePath))
                 {
                     model.m_Model = source.m_Model;
                 }
@@ -836,7 +815,7 @@ namespace OloEngine
                 Entity saved{ handle, staging.get() };
                 const auto savedPath = MeshImportPath(saved);
                 const bool legacyBindPose = IsLegacyBindPose(saved, *original);
-                if (!legacyBindPose && !SameMeshImportPath(savedPath, MeshImportPath(*original)))
+                if (!legacyBindPose && !FileSystem::SameSourcePath(savedPath, MeshImportPath(*original)))
                 {
                     continue;
                 }
@@ -853,6 +832,9 @@ namespace OloEngine
         }
 
         // --- All parsing succeeded — commit to real scene ---
+
+        TGuardValue<bool> committing(scene.m_BlockCheckpointLoad, true);
+        const bool restart = scene.StopStartupForCheckpoint();
 
         // Apply settings
         scene.m_PostProcessSettings = std::move(postProcess);
@@ -908,21 +890,33 @@ namespace OloEngine
         // at the staging Scene, but those are temporaries local to that call and
         // are not cached.  Callers must NOT hold Entity objects across a
         // RestoreSceneState call — the swap invalidates them.
+        if (!scene.IsRunning())
+        {
+            for (auto [entity, id, animation] : staging->m_Registry.view<IDComponent, AnimationStateComponent>().each())
+                animation.m_RestoredPlaybackOwner = static_cast<u64>(id.ID);
+        }
         std::swap(scene.m_Registry, staging->m_Registry);
-        scene.m_ResumeSavedAnimationOnStart = !scene.IsRunning();
         std::swap(scene.m_EntityMap, staging->m_EntityMap);
 
         // Apply deferred ISaveable restores now that entities live in the committed scene
+        bool restored = true;
         for (auto& entry : deferredSaveables)
         {
             if (!RestoreSaveableData(entry.EntityID, entry.ClassName, entry.Data))
             {
                 OLO_CORE_ERROR("[SaveGameSerializer] ISaveable restore failed for entity {} post-commit", static_cast<u64>(entry.EntityID));
-                return false;
+                restored = false;
+                break;
             }
         }
 
-        return true;
+        if (restart)
+        {
+            // The replacement registry is live. Its startup callbacks may load the next checkpoint.
+            TGuardValue<bool> committed(scene.m_BlockCheckpointLoad, false);
+            scene.OnRuntimeStart();
+        }
+        return restored;
     }
 
 #undef SAVE_COMPONENT

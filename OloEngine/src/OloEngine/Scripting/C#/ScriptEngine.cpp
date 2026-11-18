@@ -435,6 +435,14 @@ namespace OloEngine
         return s_Data->EntityClasses.contains(fullClassName);
     }
 
+    void ScriptEngine::RebindStartupInstance(UUID owner, const Ref<ScriptInstance>& instance)
+    {
+        const auto entity = s_Data->SceneContext->TryGetEntityWithUUID(owner);
+        if (entity && entity->HasComponent<ScriptComponent>() &&
+            GetEntityClass(entity->GetComponent<ScriptComponent>().ClassName) == instance->GetScriptClass())
+            s_Data->EntityInstances[owner] = instance;
+    }
+
     void ScriptEngine::OnCreateEntity(Entity entity)
     {
         const auto& sc = entity.GetComponent<ScriptComponent>();
@@ -812,6 +820,7 @@ namespace OloEngine
     {
         return false;
     }
+    void ScriptEngine::RebindStartupInstance(UUID, const Ref<ScriptInstance>&) {}
     void ScriptEngine::OnCreateEntity(Entity) {}
     void ScriptEngine::OnUpdateEntity(Entity, Timestep) {}
     Scene* ScriptEngine::GetSceneContext()

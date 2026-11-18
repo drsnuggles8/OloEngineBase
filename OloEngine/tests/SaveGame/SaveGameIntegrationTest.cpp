@@ -295,6 +295,46 @@ TEST_F(SaveGameIntegrationTest, ContinueRestoresALegacyBindPoseRigWithoutAddingP
     EXPECT_FLOAT_EQ(pose->m_FinalBoneMatrices[0][3].x, 0.0f);
 }
 
+TEST_F(SaveGameIntegrationTest, StartupAutoplaysNewActorsAndResumesOnlyTheSavedPlaybackOnce)
+{
+    using namespace OloEngine::Functional::Fixtures;
+    auto actor = m_Scene->CreateEntity("Paused before saving");
+    const UUID actorID = actor.GetUUID();
+    const std::array clips{ MakeTranslationClip(1.0f) };
+    ModelImporter::PopulateAnimatedEntityFromParts(actor, Ref<MeshSource>::Create(), MakeSingleBoneSkeleton(), clips, nullptr, "Fox.gltf");
+    actor.GetComponent<AnimationStateComponent>().m_CurrentTime = 0.5f;
+    const auto checkpoint = SaveGameSerializer::CaptureSceneState(*m_Scene);
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, checkpoint));
+
+    auto restored = m_Scene->GetEntityByUUID(actorID);
+    auto duplicate = m_Scene->CreateEntity("Added after Continue");
+    duplicate.AddComponent<AnimationStateComponent>(restored.GetComponent<AnimationStateComponent>());
+    auto& saved = restored.GetComponent<AnimationStateComponent>();
+    auto& fresh = duplicate.GetComponent<AnimationStateComponent>();
+    fresh.StartRuntimePlayback(duplicate.GetUUID());
+    EXPECT_TRUE(fresh.m_IsPlaying);
+    EXPECT_FLOAT_EQ(fresh.m_CurrentTime, 0.0f);
+    saved.StartRuntimePlayback(actorID);
+    EXPECT_FALSE(saved.m_IsPlaying);
+    EXPECT_FLOAT_EQ(saved.m_CurrentTime, 0.5f);
+
+    saved.StartRuntimePlayback(actorID);
+    EXPECT_TRUE(saved.m_IsPlaying);
+    EXPECT_FLOAT_EQ(saved.m_CurrentTime, 0.0f);
+
+    // Loading during ordinary play preserves the checkpoint immediately.
+    // A subsequent fresh start on that scene must still autoplay.
+    m_Scene->SetRunning(true);
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, checkpoint));
+    m_Scene->SetRunning(false);
+    auto& inGame = m_Scene->GetEntityByUUID(actorID).GetComponent<AnimationStateComponent>();
+    EXPECT_FALSE(inGame.m_IsPlaying);
+    EXPECT_FLOAT_EQ(inGame.m_CurrentTime, 0.5f);
+    inGame.StartRuntimePlayback(actorID);
+    EXPECT_TRUE(inGame.m_IsPlaying);
+    EXPECT_FLOAT_EQ(inGame.m_CurrentTime, 0.0f);
+}
+
 TEST_F(SaveGameIntegrationTest, CaptureAndRestoreWithEntities)
 {
     // Create entities with various components

@@ -79,6 +79,15 @@ incoming scene and leave the outgoing scene running, just like a deserialize fai
 save slot is stored beside the scene request and cleared with it so it cannot leak into a
 later ordinary transition.
 
+Lua and C# can also call `SaveGame.Load(slot)` synchronously from `OnCreate`.
+The call validates the checkpoint, stops the runtime while its original registry is
+still available, installs the checkpoint, and starts the restored scripts before
+returning. An actor whose callback is already on the stack keeps its instance if
+its UUID and script binding still match. A replacement class or file receives its
+own instance, even while the original caller finishes its callback.
+Reacquire entity and component references after the call. Restored animations keep
+their saved clocks and pause flags. New actors follow normal autoplay.
+
 ## 5. `OnRuntimeStart` must clear the pending request
 
 A request that survives into the scene it caused is an infinite bounce: tick 0 of the new

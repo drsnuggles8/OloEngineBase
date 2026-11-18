@@ -91,6 +91,7 @@ namespace OloEngine
             if (resetPlaybackState)
             {
                 anim.m_State = AnimationStateComponent::State::Idle;
+                anim.m_RestoredPlaybackOwner = 0;
                 anim.m_CurrentClipIndex = 0;
                 anim.m_CurrentTime = 0.0f;
                 anim.m_IsPlaying = false;
