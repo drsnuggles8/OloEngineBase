@@ -10322,7 +10322,7 @@ namespace OloEngine
             }
             const auto addLocal = [this, &groomViewFrustum, &groomLocalShadowLights](entt::entity e, f32 range)
             {
-                const glm::vec3 center = glm::vec3(GetWorldTransform(e)[3]);
+                const glm::vec3 center = GetLocalLightWorldPose(e).Position;
                 if (std::isfinite(range) && range > 0.0f && groomViewFrustum.IsSphereVisible(center, range))
                     groomLocalShadowLights.Add({ center, range });
             };
@@ -10334,6 +10334,12 @@ namespace OloEngine
             for (const auto e : m_Registry.view<SpotLightComponent>())
             {
                 if (const auto& light = m_Registry.get<SpotLightComponent>(e); light.m_CastShadows)
+                    addLocal(e, light.m_Range);
+            }
+            // Sphere area lights cast through the same atlas, as point casters.
+            for (const auto e : m_Registry.view<SphereAreaLightComponent>())
+            {
+                if (const auto& light = m_Registry.get<SphereAreaLightComponent>(e); light.m_CastShadows)
                     addLocal(e, light.m_Range);
             }
         }
