@@ -1296,8 +1296,8 @@ TEST(WaterRendering, DrawnSurface_AFlatTileIsTheProbesSample)
 
 TEST(WaterRendering, DrawnSurface_ATiltedTileKeepsItsPlaneUnderTheWaves)
 {
-    // A wave-free tile turned 45 degrees about Z has its surface at Y = 1 where X = 1,
-    // and its origin at Y = 0. An eye at (1, 0.5, 0) is half a metre under it. The
+    // A wave-free tile turned 45 degrees about Z has its surface at Y = 1 where X = 1
+    // (TilePlaneYAt, above), and its origin at Y = 0. An eye at (1, 0.5, 0) is half a metre under it. The
     // probe, which measures from the origin, answers 0 there; taken whole (0 - 0.5)
     // that reads as an eye half a metre in the AIR, and the lens switches off under water.
     const f32 planeAtEye = 1.0f;
@@ -1310,6 +1310,47 @@ TEST(WaterRendering, DrawnSurface_ATiltedTileKeepsItsPlaneUnderTheWaves)
     // Waves ride on the plane.
     EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(planeAtEye, originY, 0.3f), 1.3f);
     EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(planeAtEye, originY, -0.2f), 0.8f);
+}
+
+TEST(WaterRendering, TilePlane_ALevelTileIsAtItsOriginsHeightEverywhere)
+{
+    // Moved, scaled and turned about the vertical: still level, still one height.
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(30.0f, 2.0f, -250.0f));
+    model = glm::rotate(model, glm::radians(37.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    model = glm::scale(model, glm::vec3(400.0f, 1.0f, 150.0f));
+    for (const glm::vec2 at : { glm::vec2(30.0f, -250.0f), glm::vec2(-80.0f, 12.0f), glm::vec2(1000.0f, 1000.0f) })
+    {
+        EXPECT_FLOAT_EQ(UnderwaterFog::TilePlaneYAt(model, at.x, at.y, -99.0f), 2.0f) << at.x << ", " << at.y;
+    }
+}
+
+TEST(WaterRendering, TilePlane_ATiltedTileIsMeasuredOnTheVerticalThroughTheEye)
+{
+    // Turned 45 degrees about Z, the plane is y = x. An eye at (1, 0.9, 0) has the
+    // surface a tenth of a metre above it. The foot of the perpendicular from the eye
+    // onto the plane is at y = 0.95, which halves that depth and with it the lens.
+    const glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    const glm::vec3 eye(1.0f, 0.9f, 0.0f);
+    const f32 plane = UnderwaterFog::TilePlaneYAt(model, eye.x, eye.z, -99.0f);
+    EXPECT_NEAR(plane, 1.0f, 1e-5f);
+
+    const glm::vec4 local = glm::inverse(model) * glm::vec4(eye, 1.0f);
+    const f32 foot = (model * glm::vec4(local.x, 0.0f, local.z, 1.0f)).y;
+    EXPECT_NEAR(foot, 0.95f, 1e-5f) << "the control: the perpendicular's foot is a different point";
+
+    // And the depth the lens is given, through the same two steps the scene takes.
+    const f32 depth = UnderwaterFog::DrawnSurfaceY(plane, model[3].y, /*probeSurfaceY=*/model[3].y) - eye.y;
+    EXPECT_NEAR(depth, 0.1f, 1e-5f);
+}
+
+TEST(WaterRendering, TilePlane_ATileOnEdgeHasNoHeightAndTakesTheFallback)
+{
+    const glm::mat4 onEdge = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    EXPECT_FLOAT_EQ(UnderwaterFog::TilePlaneYAt(onEdge, 1.0f, 0.0f, 7.5f), 7.5f);
+    glm::mat4 broken(1.0f);
+    broken[0] = glm::vec4(std::numeric_limits<f32>::quiet_NaN());
+    EXPECT_FLOAT_EQ(UnderwaterFog::TilePlaneYAt(broken, 1.0f, 0.0f, 7.5f), 7.5f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::TilePlaneYAt(glm::mat4(0.0f), 1.0f, 0.0f, 7.5f), 7.5f);
 }
 
 TEST(WaterRendering, DrawnSurface_AProbeWithNoAnswerLeavesTheStillPlane)

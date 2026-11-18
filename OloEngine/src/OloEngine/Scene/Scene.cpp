@@ -328,8 +328,11 @@ namespace OloEngine
         const f32 halfZ = std::clamp(safeSizeZ, 0.1f, 10000.0f) * 0.5f;
         if (localCam.x < -halfX || localCam.x > halfX || localCam.z < -halfZ || localCam.z > halfZ)
             return false;
-        const glm::vec4 surfaceWorld = modelMat * glm::vec4(localCam.x, 0.0f, localCam.z, 1.0f);
-        outGap = surfaceWorld.y - cameraPos.y;
+        // The plane's height on the vertical through the camera. The foot of the
+        // perpendicular, which this used to be, is the same point for a level tile and
+        // the wrong one for a tilted tile; it stays as the answer for a tile on edge.
+        const glm::vec4 foot = modelMat * glm::vec4(localCam.x, 0.0f, localCam.z, 1.0f);
+        outGap = UnderwaterFog::TilePlaneYAt(modelMat, cameraPos.x, cameraPos.z, foot.y) - cameraPos.y;
         return true;
     }
 

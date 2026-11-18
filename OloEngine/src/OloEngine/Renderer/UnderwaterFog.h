@@ -113,6 +113,28 @@ namespace OloEngine
             return cameraY >= surfaceY ? std::clamp(eyeInWater, 0.0f, 1.0f) : 1.0f;
         }
 
+        // The height of a water tile's plane (its local y = 0) on the VERTICAL line
+        // through a world position: where the surface is over, or under, an eye there.
+        //
+        // Not the foot of the perpendicular from the eye onto the plane, which is what
+        // transforming the eye into the tile's space and zeroing its y gives. The two
+        // are one point for a level tile, however it is moved, scaled or turned about
+        // the vertical. For a tile tilted 45 degrees they are not: an eye at (1, 0.9)
+        // has the surface 0.1 above it and the perpendicular's foot only 0.05 above.
+        // `fallbackY` answers for a tile standing on edge, which has no height there.
+        [[nodiscard]] inline f32 TilePlaneYAt(const glm::mat4& model, f32 worldX, f32 worldZ, f32 fallbackY) noexcept
+        {
+            const glm::vec3 origin(model[3]);
+            // The plane is spanned by the tile's X and Z axes, so their cross product is
+            // its normal whatever scale or shear the matrix carries.
+            const glm::vec3 normal = glm::cross(glm::vec3(model[2]), glm::vec3(model[0]));
+            const f32 lengthSquared = glm::dot(normal, normal);
+            if (!std::isfinite(lengthSquared) || !(normal.y * normal.y > 1e-8f * lengthSquared))
+                return fallbackY;
+            const f32 y = origin.y - (normal.x * (worldX - origin.x) + normal.z * (worldZ - origin.z)) / normal.y;
+            return std::isfinite(y) ? y : fallbackY;
+        }
+
         // The height of the surface DRAWN over the eye: the tile's own plane at the
         // eye, plus what the waves add there.
         //
