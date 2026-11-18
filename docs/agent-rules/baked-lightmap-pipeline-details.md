@@ -157,7 +157,8 @@ reference-path-tracer.md §2, now load-bearing in an asset pipeline.
   irradiance *E*, which `oloNormalizedIrradiance` converts to *E/π* once; the IBL irradiance cube
   already stores *E/π*. See [lighting-signal-contract.md](lighting-signal-contract.md).
 - **The bake key hashes what the bake CONSUMES, not what looks equivalent.** Lights are hashed
-  per type in `ReferenceSceneBuilder::AddScene`'s exact consumption terms: point/spot positions
+  per type in `ReferenceSceneBuilder::AddScene`'s exact consumption terms (directional, point, spot and sphere area, the last missing until
+  the #1707 branch): positions
   and spot directions are the light's world pose from `Scene::GetLocalLightWorldPose`, the
   values the raster collection packs (#1707; before it, both read the raw parent-local
   `Translation`, so a parented light lit the bake from the wrong place). Moving a light's parent

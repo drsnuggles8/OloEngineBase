@@ -454,6 +454,24 @@ namespace OloEngine
                              hasher.Mix(l.m_OuterCutoff);
                              hasher.Mix(l.m_Attenuation);
                          });
+        // Sphere area lights too: ReferenceSceneBuilder::AddScene bakes them,
+        // so a bake keyed without them stayed "fresh" after one was added,
+        // moved or recoloured.
+        hashLightsOfType(scene.GetAllEntitiesWith<IDComponent, TransformComponent, SphereAreaLightComponent>(),
+                         [&](auto& view, const KeyedEntity& keyed)
+                         {
+                             const auto& l = view.template get<SphereAreaLightComponent>(keyed.Handle);
+                             // The builder's own rejection: no light, no radius.
+                             if (!(l.m_Intensity > 0.0f) || !(l.m_Radius > 0.0f))
+                                 return;
+                             hasher.Mix(4u);
+                             hasher.Mix(keyed.Uuid);
+                             hasher.Mix(scene.GetLocalLightWorldPose(keyed.Handle).Position);
+                             hasher.Mix(l.m_Color);
+                             hasher.Mix(l.m_Intensity);
+                             hasher.Mix(l.m_Range);
+                             hasher.Mix(l.m_Radius);
+                         });
 
         return hasher.Value;
     }
