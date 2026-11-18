@@ -932,6 +932,10 @@ jobs:
           STREAK_JOB: ${{ inputs.red_streak_job || 'Linux / AMD Navi 10 (radeonsi, hardware)' }}
           STREAK_TIMEOUT: ${{ inputs.job_timeout_minutes || 150 }}
           STREAK_THRESHOLD: ${{ inputs.red_streak_threshold || 2 }}
+        # `shell: bash` runs with pipefail. Without it the step ran under the default
+        # `bash -e`, whose status is the tee's, so a script that exited 1 (an API error,
+        # or --job no longer matching the job's name) left the alert step green.
+        shell: bash
         run: |
           python3 scripts/nightly_red_streak.py \
             --workflow "$STREAK_WORKFLOW" \
