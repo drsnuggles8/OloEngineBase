@@ -25,6 +25,7 @@
 #include "OloEngine/Serialization/ArchiveExtensions.h"
 
 #include <box2d/box2d.h>
+#include <string_view>
 
 namespace OloEngine
 {
@@ -573,6 +574,14 @@ namespace OloEngine
         return !reader.IsError();
     }
 
+    // Morph-only imports also record the source file in AnimationStateComponent,
+    // even though the mesh has neither an asset handle nor a skeleton or clips.
+    static std::string_view MeshImportPath(const entt::registry& registry, entt::entity entity)
+    {
+        const auto* animation = registry.try_get<AnimationStateComponent>(entity);
+        return animation ? std::string_view(animation->m_SourceFilePath) : std::string_view{};
+    }
+
     bool SaveGameSerializer::RestoreSceneState(Scene& scene, const std::vector<u8>& data)
     {
         OLO_PROFILE_FUNCTION();
@@ -686,11 +695,23 @@ namespace OloEngine
             if (const auto original = scene.TryGetEntityWithUUID(id.ID); original && original->HasComponent<MeshComponent>())
             {
                 const auto& source = original->GetComponent<MeshComponent>();
-                // A v50 mesh record stores its primitive and flags. For None,
-                // the scene's MeshSourceHandle supplies the asset binding.
-                // An unregistered transient mesh has no such identity.
-                const bool hasAssetHandle = source.m_MeshSource && static_cast<u64>(source.m_MeshSource->GetHandle()) != 0;
-                if (mesh.m_Primitive == source.m_Primitive && (mesh.m_Primitive != MeshPrimitive::None || hasAssetHandle))
+                if (!source.m_MeshSource || mesh.m_Primitive != source.m_Primitive)
+                {
+                    continue;
+                }
+
+                // A saved source file is explicit identity. Never let a currently
+                // registered mesh override a different (or removed) import path.
+                const auto savedPath = MeshImportPath(staging->m_Registry, handle);
+                if (savedPath != MeshImportPath(scene.m_Registry, *original))
+                {
+                    continue;
+                }
+
+                // V50 has no separate MeshSourceHandle field. Without an import
+                // path, the scene supplies its registered mesh or matching primitive.
+                const bool hasAssetHandle = static_cast<u64>(source.m_MeshSource->GetHandle()) != 0;
+                if (!savedPath.empty() || hasAssetHandle || mesh.m_Primitive != MeshPrimitive::None)
                 {
                     mesh.m_MeshSource = source.m_MeshSource;
                 }

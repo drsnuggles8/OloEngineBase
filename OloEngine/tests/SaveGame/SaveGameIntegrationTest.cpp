@@ -3,18 +3,34 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include "OloEngine/SaveGame/SaveGameFile.h"
 #include "OloEngine/SaveGame/SaveGameSerializer.h"
 #include "OloEngine/SaveGame/SaveGameTypes.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Serialization/Archive.h"
 
 #include <filesystem>
 
 using namespace OloEngine;
+
+namespace
+{
+    // The scene loader sets the resource handle when resolving MeshSourceHandle.
+    // This test needs the identity and reference, without allocating a GPU mesh.
+    struct BoundMeshSource final : MeshSource
+    {
+        explicit BoundMeshSource(AssetHandle handle)
+        {
+            SetHandle(handle);
+        }
+    };
+} // namespace
 
 class SaveGameIntegrationTest : public ::testing::Test
 {
@@ -87,15 +103,6 @@ TEST_F(SaveGameIntegrationTest, ContinueRetainsTheLoadedGeometryForMatchingAutho
 
 TEST_F(SaveGameIntegrationTest, ContinuePreservesTheAuthoredMeshSourceHandle)
 {
-    // The scene loader sets the resource handle when resolving MeshSourceHandle.
-    // This test needs the identity and reference, without allocating a GPU mesh.
-    struct BoundMeshSource final : MeshSource
-    {
-        explicit BoundMeshSource(AssetHandle handle)
-        {
-            SetHandle(handle);
-        }
-    };
     auto hull = m_Scene->CreateEntity("Boat Hull");
     const UUID hullID = hull.GetUUID();
     const Ref<MeshSource> authored = Ref<BoundMeshSource>::Create(AssetHandle(1234));
@@ -117,6 +124,36 @@ TEST_F(SaveGameIntegrationTest, ContinuePreservesTheAuthoredMeshSourceHandle)
     const auto& differentBinding = m_Scene->GetEntityByUUID(hullID).GetComponent<MeshComponent>();
     EXPECT_EQ(differentBinding.m_Primitive, MeshPrimitive::None);
     EXPECT_NE(differentBinding.m_MeshSource, authored);
+}
+
+TEST_F(SaveGameIntegrationTest, ContinueRetainsTheMeshOfAMatchingMorphImport)
+{
+    auto face = m_Scene->CreateEntity("Face");
+    const UUID faceID = face.GetUUID();
+    auto source = Ref<MeshSource>::Create();
+    auto targets = Ref<MorphTargetSet>::Create();
+    ASSERT_TRUE(targets->AddTarget(MorphTarget("Smile", 3)));
+    source->SetMorphTargets(targets);
+    const auto imported = ModelImporter::PopulateAnimatedEntityFromParts(face, source, nullptr, {}, nullptr, "Assets/Models/Face.gltf");
+    ASSERT_TRUE(imported.IsAnimated);
+    ASSERT_FALSE(face.HasComponent<SkeletonComponent>());
+    ASSERT_EQ(static_cast<u64>(source->GetHandle()), 0u);
+    face.GetComponent<MorphTargetComponent>().Weights["Smile"] = 0.75f;
+    const auto payload = SaveGameSerializer::CaptureSceneState(*m_Scene);
+
+    face.GetComponent<MorphTargetComponent>().Weights["Smile"] = 0.1f;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    auto restored = m_Scene->GetEntityByUUID(faceID);
+    const auto& restoredSource = restored.GetComponent<MeshComponent>().m_MeshSource;
+    ASSERT_EQ(restoredSource, source);
+    EXPECT_EQ(restoredSource->GetMorphTargets(), targets);
+    EXPECT_FLOAT_EQ(restored.GetComponent<MorphTargetComponent>().Weights.at("Smile"), 0.75f);
+
+    const Ref<MeshSource> other = Ref<BoundMeshSource>::Create(AssetHandle(4321));
+    restored.GetComponent<MeshComponent>().m_MeshSource = other;
+    restored.GetComponent<AnimationStateComponent>().m_SourceFilePath = "Assets/Models/Different.gltf";
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    EXPECT_FALSE(m_Scene->GetEntityByUUID(faceID).GetComponent<MeshComponent>().m_MeshSource);
 }
 
 TEST_F(SaveGameIntegrationTest, CaptureAndRestoreWithEntities)
