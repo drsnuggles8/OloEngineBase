@@ -106,12 +106,15 @@ is test input, not a tool, and the step checks only that the file is not empty.
 - curl's arguments are read in order, as curl reads them. The word after an option that takes a
   value is that value (`--header '--retry-all-errors'` sets no flag), also attached to a short
   option (`-oarchive.tar.gz`) or after `=`. Of two opposite flags the later is in force
-  (`--retry-all-errors --no-retry-all-errors` is off). Each `-o` serves one URL, so a second URL
-  without one is a transfer through stdout, and so is `-o -`. `--expand-output` is `--output`.
+  (`--retry-all-errors --no-retry-all-errors` is off). Destinations pair with URLs in order:
+  each `-o` or `-O` serves one URL, `-o -` is stdout, and a URL beyond them goes to stdout, or
+  under `--remote-name-all` to a file unless `--no-remote-name` marked it. `--expand-output` is
+  `--output`.
   `--` ends the options. `--next`, or `:` in a cluster of short options (`-s:`), starts a new
   operation with the options reset, judged on its own; as the value of another option
   (`--header --next`) or after `--` it is text, as it is to curl. An unquoted redirection and its
-  target are not arguments; a quoted `>` is (`--write-out '>status'`). The list of value-taking
+  target are not arguments, bash's `&>log` and PowerShell's `*>log` included; a quoted `>` is
+  (`--write-out '>status'`). The list of value-taking
   options is from `curl --help all` of 8.12 and 8.22; an option of a later curl is read as a
   flag, which can add a finding and cannot hide one.
 - `Invoke-WebRequest` or `iwr` with `-OutFile` is refused.
@@ -127,7 +130,9 @@ What it does not read, because the text of the step does not hold it:
 - a curl config file (`-K`, `--config`, `.curlrc`);
 - a shell function or alias that wraps curl, and a program outside the six above that runs it.
 
-A download written one of these ways is not judged at all, so it is written plainly instead.
+A download in a here-document, in a quoted script or behind a function is not judged at all. One
+whose options arrive through a variable or a config file is judged on the options the step shows.
+Either way the download and its retry options are written plainly in the step.
 
 It runs its own cases before it reads the repository: must-fail scripts with the one message
 each must produce, must-pass scripts, and YAML documents with the lines to report. It fails if one

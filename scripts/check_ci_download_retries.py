@@ -235,9 +235,12 @@ class _Reader:
                 else:
                     add(c)
                     self.i += 1
+            elif c == "&" and nxt == ">":  # bash's `&>file`: a redirection, not the `&` that ends a command
+                end_word()
+                self.i += 1
             elif c in "<>":
-                if word is not None and word.isdigit():
-                    word = None  # the descriptor of `2>`
+                if word is not None and (word.isdigit() or word == "*"):
+                    word = None  # the descriptor of `2>`, or PowerShell's `*>`
                 end_word()
                 self.i += 1
                 while self.i < n and s[self.i] in ">|":
@@ -316,8 +319,8 @@ class _Operation:
     all_errors: bool = False
     remote_name_all: bool = False
     retry: str = ""  # the last --retry value
-    files: int = 0  # -o / -O destinations
-    stdouts: int = 0  # `-o -`
+    slots: list[bool] = field(default_factory=list)  # one per -o / -O, in order: False is `-o -`
+    not_remote: set[int] = field(default_factory=set)  # URLs --no-remote-name took out of --remote-name-all
     urls: int = 0  # transfers
 
     def option(self, name: str, value: str) -> None:
@@ -336,12 +339,11 @@ class _Operation:
         elif name == "retry":
             self.retry = value
         elif name in ("o", "output"):
-            if value == "-":
-                self.stdouts += 1
-            else:
-                self.files += 1
+            self.slots.append(value != "-")
         elif name in ("O", "remote-name"):
-            self.files += 1
+            self.slots.append(True)
+        elif name == "no-remote-name":  # marks the first URL without a destination; a later -o still serves it
+            self.not_remote.add(len(self.slots))
         elif name == "remote-name-all":
             self.remote_name_all = True
         elif name == "no-remote-name-all":
@@ -350,9 +352,18 @@ class _Operation:
             self.urls += 1
 
     def findings(self) -> list[str]:
-        # Each -o serves one URL, in order. A transfer without one goes to stdout.
-        to_stdout = self.stdouts > 0 or (not self.remote_name_all and self.urls > self.files + self.stdouts)
-        to_file = self.files > 0 or (self.remote_name_all and self.urls > 0)
+        # curl pairs destinations with URLs in order. A URL beyond them is named after
+        # its remote file under --remote-name-all, unless --no-remote-name marked it,
+        # and goes to stdout otherwise. True is a file.
+        if self.urls:
+            destinations = [
+                self.slots[i] if i < len(self.slots) else (self.remote_name_all and i not in self.not_remote)
+                for i in range(self.urls)
+            ]
+        else:  # the URLs are not in the text (xargs): every destination given counts
+            destinations = self.slots + ([True] if self.remote_name_all else [])
+        to_file = any(destinations)
+        to_stdout = not all(destinations)
         found = []
         if to_stdout and self.all_errors:
             found.append(STDOUT_RETRY)
@@ -523,6 +534,13 @@ SCRIPTS_MUST_FAIL = [
     ('curl --retry 3 --retry-all-errors -o a --header --next "$a" "$b" > b', STDOUT_RETRY),
     # and after `--` it is a URL
     ('curl --retry 3 --retry-all-errors -o a -- "$a" --next > b', STDOUT_RETRY),
+    # `&>log` is a redirection, not the `&` that ends a command
+    ('curl -L &>download.log -o archive "$url"', NO_ALL_ERRORS),
+    # and a lone `&` still ends one
+    ('curl -fL --retry 3 --retry-all-errors -o a "$a" & curl -fL -o b "$b"', NO_ALL_ERRORS),
+    # --no-remote-name takes one URL out of --remote-name-all: the first without a destination
+    ('curl --retry 3 --retry-all-errors --remote-name-all --no-remote-name "$url" > archive', STDOUT_RETRY),
+    ('curl --retry 3 --retry-all-errors --remote-name-all "$a" --no-remote-name "$b" > a', STDOUT_RETRY),
     # --remote-name-all can be switched off again
     ('curl --retry 3 --retry-all-errors --remote-name-all --no-remote-name-all "$url" > archive', STDOUT_RETRY),
     # --expand-output is --output
@@ -560,6 +578,14 @@ SCRIPTS_MUST_PASS = [
     'curl --retry 3 --retry-all-errors --expand-output "{{name}}.tar.gz" "$url"',
     'timeout 300 curl -fL --retry 3 --retry-all-errors -o f "$url"',
     "timeout 300 make test-curl",
+    'curl -L --retry 3 --retry-all-errors &>download.log -o archive "$url"',
+    'curl -L --retry 3 --retry-all-errors -o archive "$url" &>> download.log',
+    "curl.exe --fail --retry 3 --retry-all-errors --output f $url *> log.txt",
+    # a destination given after --no-remote-name still serves the URL, and -O before it already did
+    'curl --retry 3 --retry-all-errors --no-remote-name -o archive "$url"',
+    'curl --retry 3 --retry-all-errors -O --no-remote-name "$url"',
+    # an unused `-o -` is not a transfer
+    'curl --retry 3 --retry-all-errors -o archive -o - "$url"',
     # `--` ends the options and is not a URL
     'curl --retry 3 --retry-all-errors -o archive -- "$url"',
     # a redirection is not a second transfer
