@@ -1,47 +1,67 @@
 # Stacks Light
 
-A rock light for Drift. Two descending points in the oxide-red daymark echo the
-split basalt stacks. A narrow red band directly below the gallery stays visible
-on a grazing approach. On the keeper's side, eight treads descend from the
-boarded door across a masonry arch to the rock. A shallow hollow runs down the
-middle of their nosings where boots have worn the stone. The stair windows rise around
-the tower as they would along an internal spiral.
+A rock lighthouse on the western approach to Stacks in Drift. Its forked oxide-red
+daymark echoes the split basalt stacks. The keeper enters through a boarded oak
+door beneath a leaded fanlight. A copper conductor drains the gallery, and the
+worn granite stair crosses a masonry arch to the rock.
 
-The foundation and tower share a continuous cylindrical UV chart. Dark granite
-gives way to limewashed ashlar above the door sill. Staggered joints are deeper
-on exposed stone, salt collects near the plinth, and iron runoff starts at the
-gallery. Twelve crown-glass bays sit between the storm braces, below a
-standing-seam copper hood and a capped ventilator. Only the bevelled edges of
-the glass are drawn, leaving a clear view of the optic through the bronze
-retaining hoops. A luminous optic and a warm point light share a
-scene entity inside the lantern. Dusk uses Drift's own atmosphere.
+## Surface construction
+
+The tower carries the outline of the daymark in its mesh. Limewash, red paint
+and exposed foundation share tangent-space relief from the same 3 m masonry
+scan. At 2,048 texels per tile the wall has about 683 texels per vertical metre.
+Successive lifts shift horizontally at a mortar bed. Separate finishes shape
+paint loss on split faces, salt on the plinth, and runoff beneath the gallery
+knees. The foundation courses have individual chipped edges and recessed mortar.
+
+Wood grain follows the individual door planks. Tread roughness changes across
+the walking line, and enamel letters stand proud of the bronze-rimmed station
+plate. The twelve copper roof panels have UVs measured along their sloping
+surface. Four panel patterns place verdigris against the folded seams and lower
+hem. Inside the lantern, open bronze hoops and narrow glass prisms surround
+the luminous core. The gallery floor has raised cast lozenges.
+
+The glTF contains 82,887 triangles in 18 material primitives. The 27 shared
+textures comprise eight 2048², thirteen 1024² and six 512² images. The packed
+data maps store occlusion, roughness and metallic in R, G and B. The engine
+generates tangents from the exported normals and UVs. The scene adds the
+emissive sphere and point light.
 
 ## Rebuild
 
-From the repository root, using Blender 5.3.0 (build `02f0899d78e3`):
+Use Blender 5.3.0 (build `02f0899d78e3`). From the repository root:
 
 ```powershell
 $model = 'OloEditor/SandboxProject/Assets/Models/DriftLighthouse'
 blender -b --factory-startup --python-exit-code 1 --python "$model/build_lighthouse.py" -- "$model"
 ```
 
-Use the full path to the installed Blender executable if it is outside PATH.
-The script uses Blender's bundled NumPy and a fixed seed (5501). It writes
-`StacksLight.gltf`, `StacksLight.bin`, and two 2048 × 2048 RGB maps,
-`StacksMasonry.png` (sRGB base colour) and `StacksMasonryNormal.png` (linear
-tangent-space normals). Keep the four files together. After regeneration,
-reopen the project or reimport the textures and mesh before judging a frame.
-The generator, geometry and textures are original to this repository. No
-external models, textures or reference images were used.
+`build_lighthouse.py` makes the geometry. Its sibling `lighthouse_surfaces.py`
+bakes the material finishes with Blender's bundled NumPy and the images in
+`SurfaceSources.zip`. A rebuild works offline. To compare a clean generation,
+pass a different output directory after `--`; the generator reads its inputs
+beside the script. Keep the glTF, binary buffer and its 27 referenced PNGs
+together for delivery. Reopen or reimport the model and textures before comparing
+frames.
+
+## Scan credits
+
+The architecture, optic, UV charts and finish recipes were authored for Drift.
+The archive contains the original diffuse, OpenGL normal and packed material
+JPEGs from four [CC0 Poly Haven scans](https://polyhaven.com/license).
+
+| Source | Artist | Resolution used |
+| --- | --- | --- |
+| [Sandstone Blocks 05](https://polyhaven.com/a/sandstone_blocks_05) | Rob Tuytel | 2048² |
+| [Granite Tile](https://polyhaven.com/a/granite_tile) | Charlotte Baglioni | 1024² |
+| [Weathered Brown Planks](https://polyhaven.com/a/weathered_brown_planks) | Dimitrios Savva (photography), Rico Cilliers (processing) | 2048² |
+| [Rusty Metal 03](https://polyhaven.com/a/rusty_metal_03) | Amal Kumar | 1024² |
 
 ## Placement
 
 `Stacks Light` and `Stacks Light - optic` are two roots in `Scenes/Drift.olo`.
-The tower is at **(−419, 29.9, −465)** on the outer western stack, with 15°
-of yaw. The bottom tread meets the shelf near (−417.74, 28.7, −469.71).
-When moving the tower, place the optic 20.30 m directly above its origin. This
-gives the renderer the light's world position. One glTF unit is one metre, Y is
-up and the tower origin is the upper landing. The finial rises 24.12 m above
-it and the footing extends 14 m below it. The imported mesh has 21,740
-triangles across eight material primitives.
-The scene adds a sphere for the luminous optic.
+The tower stands at **(−419, 29.9, −465)** on the western shelf, with **15°**
+of yaw. The bottom tread meets the rock near (−417.74, 28.7, −469.71).
+The optic sits 20.30 m above the tower origin. When moving the tower, update
+the optic's world position as well. One glTF unit is one metre, Y is up, the
+finial rises 24.12 m above the entry landing and the pier extends 14 m below it.
