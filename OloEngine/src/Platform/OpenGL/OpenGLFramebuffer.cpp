@@ -394,29 +394,23 @@ namespace OloEngine
                     restoreStencilWriteMask = true;
                 }
             }
-            // The depth clear honours glDepthMask; a pass that left depth
-            // writes off would drop it and keep last frame's depth (#1710).
-            GLboolean depthWrites = GL_TRUE;
-            glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrites);
-            if (depthWrites != GL_TRUE)
             {
-                glDepthMask(GL_TRUE);
+                // The depth clear honours glDepthMask; a pass that left depth
+                // writes off would drop it and keep last frame's depth (#1710).
+                Utils::GLClearDepthMaskGuard depthMaskGuard;
+                glClearDepth(1.0);
+                glClear(clearBits);
             }
 
-            glClearDepth(1.0);
-            glClear(clearBits);
-
-            if (depthWrites != GL_TRUE)
-            {
-                glDepthMask(GL_FALSE);
-            }
             if (restoreStencilWriteMask)
             {
                 glStencilMask(static_cast<GLuint>(previousStencilWriteMask));
             }
         }
 
-        // Clear each color attachment based on its type
+        // Clear each color attachment based on its type. The per-buffer clears
+        // honour the colour masks an earlier draw left (#1417), so open them.
+        Utils::GLClearColorMaskGuard colorMaskGuard;
         for (sizet i = 0; i < m_ColorAttachmentSpecifications.Num(); ++i)
         {
             auto const& spec = m_ColorAttachmentSpecifications[i];

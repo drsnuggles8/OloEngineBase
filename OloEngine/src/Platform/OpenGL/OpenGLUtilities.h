@@ -5,6 +5,9 @@
 
 #include <glad/gl.h>
 
+#include <algorithm>
+#include <array>
+
 namespace OloEngine::Utils
 {
     // ---------------------------------------------------------------------
@@ -116,6 +119,77 @@ namespace OloEngine::Utils
 
       private:
         GLint m_PreviousProgram = 0;
+    };
+
+    // A clear honours the write masks (#1417, #1710): a depth clear issued while
+    // an earlier pass left glDepthMask off, or a colour clear of a draw buffer
+    // an earlier draw masked, silently does nothing and the target keeps its
+    // old contents. These guards open the mask for one clear and put back the
+    // LIVE value they found (read with glGet, like the stencil write mask the
+    // clear paths already read), so a raw glDepthMask elsewhere cannot hide it.
+    class GLClearDepthMaskGuard
+    {
+      public:
+        GLClearDepthMaskGuard() noexcept
+        {
+            glGetBooleanv(GL_DEPTH_WRITEMASK, &m_PreviousMask);
+            if (m_PreviousMask != GL_TRUE)
+                glDepthMask(GL_TRUE);
+        }
+        ~GLClearDepthMaskGuard()
+        {
+            if (m_PreviousMask != GL_TRUE)
+                glDepthMask(GL_FALSE);
+        }
+        GLClearDepthMaskGuard(const GLClearDepthMaskGuard&) = delete;
+        GLClearDepthMaskGuard& operator=(const GLClearDepthMaskGuard&) = delete;
+        GLClearDepthMaskGuard(GLClearDepthMaskGuard&&) = delete;
+        GLClearDepthMaskGuard& operator=(GLClearDepthMaskGuard&&) = delete;
+
+      private:
+        GLboolean m_PreviousMask = GL_TRUE;
+    };
+
+    // The colour half, per draw buffer, for a clear that does not go through
+    // OpenGLRendererAPI's tracked masks (OpenGLFramebuffer::ClearAllAttachments).
+    class GLClearColorMaskGuard
+    {
+      public:
+        static constexpr GLuint kMaxBuffers = 8;
+
+        GLClearColorMaskGuard() noexcept
+        {
+            GLint maxDrawBuffers = 0;
+            glGetIntegerv(GL_MAX_DRAW_BUFFERS, &maxDrawBuffers);
+            m_Count = std::min(static_cast<GLuint>(std::max(maxDrawBuffers, 0)), kMaxBuffers);
+            for (GLuint i = 0; i < m_Count; ++i)
+            {
+                glGetBooleani_v(GL_COLOR_WRITEMASK, i, m_Previous[i].data());
+                if (m_Previous[i][0] != GL_TRUE || m_Previous[i][1] != GL_TRUE || m_Previous[i][2] != GL_TRUE ||
+                    m_Previous[i][3] != GL_TRUE)
+                {
+                    m_AnyNarrowed = true;
+                }
+            }
+            if (m_AnyNarrowed)
+                glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+        }
+        ~GLClearColorMaskGuard()
+        {
+            if (!m_AnyNarrowed)
+                return;
+            for (GLuint i = 0; i < m_Count; ++i)
+                glColorMaski(i, m_Previous[i][0], m_Previous[i][1], m_Previous[i][2], m_Previous[i][3]);
+        }
+        GLClearColorMaskGuard(const GLClearColorMaskGuard&) = delete;
+        GLClearColorMaskGuard& operator=(const GLClearColorMaskGuard&) = delete;
+        GLClearColorMaskGuard(GLClearColorMaskGuard&&) = delete;
+        GLClearColorMaskGuard& operator=(GLClearColorMaskGuard&&) = delete;
+
+      private:
+        std::array<std::array<GLboolean, 4>, kMaxBuffers> m_Previous{};
+        GLuint m_Count = 0;
+        bool m_AnyNarrowed = false;
     };
 
     // Unbinds `program` from GL_CURRENT_PROGRAM if it is currently bound. Call

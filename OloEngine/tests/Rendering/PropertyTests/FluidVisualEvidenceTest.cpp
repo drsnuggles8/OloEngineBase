@@ -358,6 +358,17 @@ namespace OloEngine::Tests
         Ref<Framebuffer> fb = Framebuffer::Create(spec);
         ASSERT_TRUE(fb);
 
+        // The cases below switch the depth test on for Clear(); give the next
+        // test in the process the state this one found.
+        struct RestoreDepthTest
+        {
+            bool WasOn = glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
+            ~RestoreDepthTest()
+            {
+                RenderCommand::SetDepthTest(WasOn);
+            }
+        } restoreDepthTest;
+
         const auto readDepth = [&fb]
         {
             f32 texel = -1.0f;
@@ -384,7 +395,8 @@ namespace OloEngine::Tests
         };
 
         expectClearLands("RenderCommand::ClearFramebufferDepth",
-                         [&] { RenderCommand::ClearFramebufferDepth(fb->GetRHIHandle(), 1.0f); });
+                         [&]
+                         { RenderCommand::ClearFramebufferDepth(fb->GetRHIHandle(), 1.0f); });
         expectClearLands("Framebuffer::ClearAllAttachments",
                          [&]
                          {
@@ -399,6 +411,13 @@ namespace OloEngine::Tests
                              fb->Bind();
                              RenderCommand::SetDepthTest(true);
                              RenderCommand::Clear();
+                             fb->Unbind();
+                         });
+        expectClearLands("RenderCommand::ClearColorAndDepth",
+                         [&]
+                         {
+                             fb->Bind();
+                             RenderCommand::ClearColorAndDepth();
                              fb->Unbind();
                          });
         expectClearLands("RenderCommand::ClearDepthOnly",

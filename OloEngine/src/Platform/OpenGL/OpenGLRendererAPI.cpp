@@ -12,6 +12,7 @@
 
 #include <glad/gl.h>
 
+#include <optional>
 #include <string_view>
 
 namespace OloEngine
@@ -289,15 +290,18 @@ namespace OloEngine
         }
 
         const bool restoreColorMasks = LiftAttachmentColorMasksForClear();
-        const bool restoreDepthMask = (clearFlags & GL_DEPTH_BUFFER_BIT) != 0 && LiftDepthMaskForClear();
 
         // A program left bound by the previous pass would be revalidated
         // against this framebuffer by the driver during the clear (NVIDIA
         // id 131218 vertex-shader recompile) — unbind it for the clear.
         Utils::GLClearProgramGuard programGuard;
-        glClear(clearFlags);
+        {
+            std::optional<Utils::GLClearDepthMaskGuard> depthMaskGuard;
+            if ((clearFlags & GL_DEPTH_BUFFER_BIT) != 0)
+                depthMaskGuard.emplace();
+            glClear(clearFlags);
+        }
 
-        RestoreDepthMaskAfterClear(restoreDepthMask);
         if (restoreColorMasks)
         {
             RestoreAttachmentColorMasks();
@@ -314,32 +318,31 @@ namespace OloEngine
         OLO_PROFILE_FUNCTION();
 
         // Depth writes must be on for the clear, otherwise glClear silently no-ops.
-        const bool restoreDepthMask = LiftDepthMaskForClear();
+        Utils::GLClearDepthMaskGuard depthMaskGuard;
 
         // See Clear(): don't let a stale bound program get revalidated here.
         Utils::GLClearProgramGuard programGuard;
         glClear(GL_DEPTH_BUFFER_BIT);
-
-        RestoreDepthMaskAfterClear(restoreDepthMask);
     }
 
     void OpenGLRendererAPI::ClearColorAndDepth()
     {
         OLO_PROFILE_FUNCTION();
 
-        // Depth writes must be on for the clear, otherwise glClear silently no-ops.
-        const bool restoreDepthMask = LiftDepthMaskForClear();
         const bool restoreColorMasks = LiftAttachmentColorMasksForClear();
+        {
+            // Depth writes must be on for the clear, otherwise glClear silently no-ops.
+            Utils::GLClearDepthMaskGuard depthMaskGuard;
 
-        // See Clear(): don't let a stale bound program get revalidated here.
-        Utils::GLClearProgramGuard programGuard;
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            // See Clear(): don't let a stale bound program get revalidated here.
+            Utils::GLClearProgramGuard programGuard;
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        }
 
         if (restoreColorMasks)
         {
             RestoreAttachmentColorMasks();
         }
-        RestoreDepthMaskAfterClear(restoreDepthMask);
     }
 
     Viewport OpenGLRendererAPI::GetViewport() const
@@ -1103,26 +1106,6 @@ namespace OloEngine
         // never-cleared sky region there reads as occluded geometry.
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         return true;
-    }
-
-    bool OpenGLRendererAPI::LiftDepthMaskForClear()
-    {
-        GLboolean depthWrites = GL_TRUE;
-        glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrites);
-        if (depthWrites == GL_TRUE)
-        {
-            return false;
-        }
-        glDepthMask(GL_TRUE);
-        return true;
-    }
-
-    void OpenGLRendererAPI::RestoreDepthMaskAfterClear(bool lifted)
-    {
-        if (lifted)
-        {
-            glDepthMask(GL_FALSE);
-        }
     }
 
     void OpenGLRendererAPI::RestoreAttachmentColorMasks()
@@ -1906,9 +1889,8 @@ namespace OloEngine
         // it has left depth writes off; the clear dropped, the target kept its
         // creation value of 0, every splat fragment failed GL_LESS against it,
         // and the pool rendered nothing with no error anywhere.
-        const bool restoreDepthMask = LiftDepthMaskForClear();
+        Utils::GLClearDepthMaskGuard depthMaskGuard;
         glClearNamedFramebufferfv(framebufferID, GL_DEPTH, 0, &depth);
-        RestoreDepthMaskAfterClear(restoreDepthMask);
     }
 
     void OpenGLRendererAPI::BlitFramebuffer(RHI::ResourceHandle srcFramebuffer, RHI::ResourceHandle dstFramebuffer,
