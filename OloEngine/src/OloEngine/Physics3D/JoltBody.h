@@ -82,9 +82,12 @@ namespace OloEngine
         void SetTrigger(bool isTrigger);
         bool IsTrigger() const;
 
-        // Transform
+        // Transform. The position is the body's ORIGIN: the entity's Translation, and
+        // what SetPosition writes. The centre of mass is a different point as soon as a
+        // collider has an offset or the shape is a hull or a compound.
         glm::vec3 GetPosition() const;
         void SetPosition(const glm::vec3& position);
+        glm::vec3 GetCenterOfMassPosition() const;
 
         glm::quat GetRotation() const;
         void SetRotation(const glm::quat& rotation);
@@ -147,7 +150,8 @@ namespace OloEngine
         EActorAxis GetLockedAxes() const;
 
         // Shape management. A caller that needs a concrete shape type checks
-        // GetShape()->GetSubType(), as FluidSystem and BoatWakeSystem do.
+        // GetShape()->GetSubType(), as FluidSystem does. A lone collider with an
+        // offset arrives as a RotatedTranslatedShape around its primitive.
         void SetShape(JPH::RefConst<JPH::Shape> shape);
         JPH::RefConst<JPH::Shape> GetShape() const;
 

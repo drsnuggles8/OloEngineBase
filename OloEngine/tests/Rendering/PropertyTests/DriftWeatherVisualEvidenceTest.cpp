@@ -462,7 +462,7 @@ namespace OloEngine::Tests
                          { 90.0f, 78.0f, 90.0f }, { 0.4f, 0.39f, 0.35f });
 
             // Foreground: a boat-shaped stand-in — hull, mast and a sail. Not
-            // the real Kenney hull (loading a model here would make this test
+            // Drift's real boat (loading a model here would make this test
             // depend on the asset pipeline for no gain), but three primitives
             // rather than one, because the hero capture below needs a
             // SILHOUETTE. A lone cube gives the sea a scale reference and

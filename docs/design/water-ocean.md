@@ -811,6 +811,23 @@ When the camera goes below the water surface:
   (`applyUnderwaterFog`). The math is mirrored on the CPU in
   [`UnderwaterFog.h`](../../OloEngine/src/OloEngine/Renderer/UnderwaterFog.h) and
   pinned by `UnderwaterFogMathTest` / `WaterRenderingTest`.
+
+  **Which eye gets what.** The scene raises the underwater flag from a wave's
+  reach ABOVE the still surface (2 m, more on an FFT sea), so the flag alone does
+  not mean the eye is in the water. The fog is for water on the eye's side of the
+  surface in front of a pixel (the one the water pass drew there, or the still
+  plane where it drew none): the underside of a crest over the eye, and
+  everything once the eye itself is under
+  (`UnderwaterFog::SurfacePixelFogShare`). A surface seen from above keeps the
+  water shader's own reflection and depth tint; fogging it replaced the whole sea
+  with the fog colour for any camera lower than the reach. The full-screen
+  effects below (wobble, god rays) take the eye's depth under the drawn surface
+  (`UnderwaterCaustics::EyeSubmersion`), eased in over a quarter metre. The fog
+  does not wait for them: it is the water in front of the eye, whole from five
+  centimetres under (`UnderwaterFog::EyeInWater`). Eased like the lens, an eye
+  just under a crest saw two thirds of the way through the sea to its bed.
+  `UnderwaterCausticsVisualTest.AnEyeAboveTheSurface*` hold both from 1 m up, and
+  the `Waterline` golden of `WaterVisualEvidenceTest` holds the eye 8 cm under.
 - ✅ **Apply chromatic distortion to simulate light refraction — shipped
   (`feature/underwater-caustics-refraction`).** When submerged, the tone-map pass
   wobbles the scene-colour sample UV with two phase-shifted trig layers scrolled

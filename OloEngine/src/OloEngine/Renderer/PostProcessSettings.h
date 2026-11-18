@@ -1951,9 +1951,11 @@ namespace OloEngine
     {
         // vec4(FogColor.rgb, Density)
         glm::vec4 ColorAndDensity = glm::vec4(0.05f, 0.15f, 0.25f, 0.08f);
-        // vec4(Active, WaterSurfaceY, Time, pad). Active is a float for
+        // vec4(Active, WaterSurfaceY, Time, EyeDepth). Active is a float for
         // straightforward branch-free GLSL evaluation; tested as > 0.5. Time
         // drives the refraction wobble + caustic animation (§7.1/§7.2).
+        // EyeDepth is how far the camera is under the surface drawn above it,
+        // waves included (negative in air): it weights the full-screen lens.
         glm::vec4 Flags = glm::vec4(0.0f);
         // vec4(CameraPos.xyz, pad) — ray origin for the underwater-segment test.
         glm::vec4 CameraPos = glm::vec4(0.0f);

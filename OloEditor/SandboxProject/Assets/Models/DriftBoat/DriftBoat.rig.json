@@ -1,0 +1,378 @@
+{
+  "units": "metres; +Y up, bow +Z, port +X; y = 0 is the waterline at the stated mass, z = 0 the centre of buoyancy",
+  "hull": {
+    "massKg": 2600.0,
+    "waterDensity": 1000.0,
+    "displacedVolume": 2.6,
+    "lengthOverall": 7.49,
+    "lengthHull": 7.2,
+    "lengthWaterline": 6.008,
+    "waterlineAft": -3.014,
+    "waterlineFore": 2.994,
+    "beam": 2.6,
+    "beamWaterline": 2.01,
+    "draftToRabbet": 0.523,
+    "draft": 0.653,
+    "freeboardAmidships": 0.617,
+    "centreOfBuoyancyY": -0.198,
+    "waterplaneArea": 8.36,
+    "waterplaneInertia": 1.93,
+    "sternZ": -3.538,
+    "bowZ": 3.662,
+    "stemHeadBow": [
+      0.0,
+      2.137,
+      3.728
+    ],
+    "stemHeadStern": [
+      0.0,
+      1.837,
+      -3.59
+    ]
+  },
+  "deck": {
+    "mainY": 0.3,
+    "aftY": 0.62,
+    "foreY": 0.7
+  },
+  "mast": {
+    "x": 0.0,
+    "z": -0.5,
+    "truckY": 5.25,
+    "houndsY": 4.91
+  },
+  "sail": {
+    "origin": [
+      0.0,
+      0.0,
+      -0.5
+    ],
+    "area": 12.573,
+    "projectedArea": 13.023,
+    "centreOfArea": [
+      0.0,
+      2.802,
+      -0.199
+    ],
+    "yardY": 4.32,
+    "yardLength": 4.7,
+    "yardArmPort": [
+      2.35,
+      4.285,
+      0.106
+    ],
+    "yardArmStarboard": [
+      -2.35,
+      4.285,
+      0.106
+    ],
+    "clewPort": [
+      2.31,
+      1.315,
+      0.118
+    ],
+    "clewStarboard": [
+      -2.31,
+      1.315,
+      0.118
+    ],
+    "morphTargets": [
+      "Slack",
+      "Hard",
+      "Aback",
+      "Furled",
+      "Luff0",
+      "Luff120",
+      "Luff240",
+      "Ripple0",
+      "Ripple120",
+      "Ripple240"
+    ],
+    "clewPortFurled": [
+      2.161,
+      4.031,
+      0.118
+    ],
+    "clewStarboardFurled": [
+      -2.161,
+      4.031,
+      0.118
+    ]
+  },
+  "rudder": {
+    "pivot": [
+      -0.724,
+      0.917,
+      -2.55
+    ],
+    "cantDeg": 16.58,
+    "maxAngleDeg": 28.0,
+    "bladeBottomY": -0.72
+  },
+  "lines": {
+    "sheetLeadPort": [
+      0.698,
+      0.874,
+      -2.35
+    ],
+    "sheetLeadStarboard": [
+      -0.698,
+      0.874,
+      -2.35
+    ],
+    "braceLeadPort": [
+      0.374,
+      1.055,
+      -2.95
+    ],
+    "braceLeadStarboard": [
+      -0.374,
+      1.055,
+      -2.95
+    ]
+  },
+  "files": {
+    "hull": [
+      {
+        "file": "DriftBoat.gltf",
+        "triangles": 30860,
+        "vertices": 29337,
+        "bounds_min": [
+          -1.3267,
+          -0.6532,
+          -3.6711
+        ],
+        "bounds_max": [
+          1.3267,
+          5.295,
+          3.8193
+        ]
+      },
+      {
+        "file": "DriftBoat_LOD1.gltf",
+        "triangles": 8961,
+        "vertices": 9773,
+        "bounds_min": [
+          -1.3269,
+          -0.6529,
+          -3.6711
+        ],
+        "bounds_max": [
+          1.3269,
+          5.25,
+          3.8192
+        ]
+      },
+      {
+        "file": "DriftBoat_LOD2.gltf",
+        "triangles": 2270,
+        "vertices": 2671,
+        "bounds_min": [
+          -1.2959,
+          -0.6513,
+          -3.6704
+        ],
+        "bounds_max": [
+          1.2959,
+          5.25,
+          3.8184
+        ]
+      }
+    ],
+    "sail": [
+      {
+        "file": "DriftBoatSail.gltf",
+        "triangles": 15492,
+        "vertices": 8928,
+        "bounds_min": [
+          -2.3507,
+          1.3072,
+          -0.0813
+        ],
+        "bounds_max": [
+          2.3507,
+          4.3813,
+          0.4981
+        ],
+        "morphTargets": 10
+      },
+      {
+        "file": "DriftBoatSail_LOD1.gltf",
+        "triangles": 2766,
+        "vertices": 1715,
+        "bounds_min": [
+          -2.3506,
+          1.3124,
+          -0.0835
+        ],
+        "bounds_max": [
+          2.3506,
+          4.3804,
+          0.4749
+        ],
+        "morphTargets": 10
+      },
+      {
+        "file": "DriftBoatSail_LOD2.gltf",
+        "triangles": 360,
+        "vertices": 264,
+        "bounds_min": [
+          -2.3504,
+          1.315,
+          0.0584
+        ],
+        "bounds_max": [
+          2.3504,
+          4.37,
+          0.4715
+        ],
+        "morphTargets": 10
+      }
+    ],
+    "rudder": [
+      {
+        "file": "DriftBoatRudder.gltf",
+        "triangles": 646,
+        "vertices": 506,
+        "bounds_min": [
+          -0.0648,
+          -1.7075,
+          -0.3045
+        ],
+        "bounds_max": [
+          0.9147,
+          0.36,
+          0.055
+        ]
+      },
+      {
+        "file": "DriftBoatRudder_LOD1.gltf",
+        "triangles": 170,
+        "vertices": 183,
+        "bounds_min": [
+          -0.0646,
+          -1.7075,
+          -0.3044
+        ],
+        "bounds_max": [
+          0.9149,
+          0.36,
+          0.055
+        ]
+      }
+    ],
+    "line": [
+      {
+        "file": "DriftBoatLine.gltf",
+        "triangles": 108,
+        "vertices": 91,
+        "bounds_min": [
+          -0.0078,
+          -0.009,
+          0.0
+        ],
+        "bounds_max": [
+          0.0078,
+          0.009,
+          1.0
+        ]
+      }
+    ]
+  },
+  "levelsOfDetail": {
+    "distances": [
+      30.0,
+      90.0
+    ],
+    "hull": [
+      {
+        "level": 1,
+        "fromMetres": 30.0,
+        "pixelMetres": 0.0341,
+        "side": 0.988,
+        "end": 0.973,
+        "above": 0.997
+      },
+      {
+        "level": 2,
+        "fromMetres": 90.0,
+        "pixelMetres": 0.1022,
+        "side": 0.953,
+        "end": 0.954,
+        "above": 0.97
+      }
+    ],
+    "sail": [
+      {
+        "level": 1,
+        "fromMetres": 30.0,
+        "pixelMetres": 0.0341,
+        "side": 0.988,
+        "end": 0.999,
+        "above": 0.987
+      },
+      {
+        "level": 2,
+        "fromMetres": 90.0,
+        "pixelMetres": 0.1022,
+        "side": 0.936,
+        "end": 0.985,
+        "above": 0.952
+      }
+    ],
+    "rudder": [
+      {
+        "level": 1,
+        "fromMetres": 30.0,
+        "pixelMetres": 0.0341,
+        "side": 0.989,
+        "end": 0.925,
+        "above": 0.987
+      }
+    ]
+  },
+  "textures": {
+    "hull": {
+      "size": 4096,
+      "texelsPerMetre": 337.2
+    },
+    "sail": {
+      "size": 2048,
+      "texelsPerMetre": 308.0
+    }
+  },
+  "physics": {
+    "mass": 2600.0,
+    "colliderHalfExtents": [
+      1.0,
+      0.64,
+      3.0
+    ],
+    "colliderOffsetY": -0.076,
+    "probeExtents": [
+      1.3,
+      0.395,
+      3.004
+    ],
+    "submergenceRamp": 0.8,
+    "restingImmersion": 0.3371,
+    "restingWetFraction": 0.2107,
+    "originAboveWaterline": 0.058,
+    "centreOfMassAboveWaterline": -0.018,
+    "hullMeshOffsetY": -0.058,
+    "buoyancyLinearDrag": 0.355,
+    "buoyancyAngularDrag": 2.72,
+    "immersionDepth": 0.3,
+    "yawDrag": 3.05,
+    "maxRudderTorque": 7480.0,
+    "thrustOffsetY": -0.78,
+    "thrustOffsetZ": -2.55,
+    "centreOfEffortY": 1.85,
+    "centreOfEffortZ": -0.5,
+    "heelLever": 1.926,
+    "drawnSailAboveCentreOfMass": 2.82,
+    "knockdownForce": 17216.0,
+    "lateralResistanceLead": 0.299,
+    "rollStiffness": 119730.0
+  }
+}

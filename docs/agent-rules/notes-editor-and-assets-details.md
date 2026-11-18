@@ -507,3 +507,59 @@ cooking the same texture counts as success.
 The pack builder had the same gap one level down: an asset that loaded but whose
 `SerializeToAssetPack` failed got a zero-byte index entry and the build reported success. It now
 fails and names the asset. `AssetSerializerFailedWriteTest` and `AtomicFileWriteTest` pin both.
+
+## A model with levels of detail is a `MeshComponent`, one mesh per file
+
+`ModelComponent { FilePath }` draws a file's meshes with the entity's one transform and has no
+level-of-detail path at all. The engine's levels of detail are on `MeshComponent` (a `MeshSource`
+by registry handle) with a `LODGroupComponent`, and Drift's boat is the first shipped scene to
+author one by hand rather than let the importer generate it. What that path requires, read off
+`LOD.cpp`, `Scene.cpp` and `SceneSerializer.cpp` and then exercised by the boat:
+
+- **A level is a `Mesh` asset, which is ONE submesh.** On disk it is a `.olomesh`: two lines of YAML,
+  `MeshSource: <handle of a .gltf>` and `SubmeshIndex`. The group is handed to every submesh the
+  entity draws, so a multi-material source would have each of its submeshes replaced by the same
+  level. One mesh and one material per file is the shape that works; a boat with a hull material
+  and a rig material is two entities, which it had to be anyway because the rig moves.
+- **Level 0 must be listed**, as a `.olomesh` naming the same glTF the `MeshComponent` draws. The
+  deserializer drops a level whose handle is 0 and sorts by `MaxDistance`.
+- **The chosen level is shaded with level 0's material**, never the level's own imported one. Every
+  level therefore has to land on the same texels. A generic simplifier does not promise that; a
+  generator that rebuilds the model coarser and reuses each part's chart does.
+- **Selection is by distance** from the camera to the base mesh's bounding-sphere centre against
+  `MaxDistance` (scaled by `Bias`), a hard switch with no fade. Past the last threshold the last
+  level keeps drawing. Shadows, the DDGI caster and the GPU-scene record always use level 0.
+- **Handles come from the registry.** A new `.gltf` gets one when the editor next scans the project
+  (or from `olo_asset_import`); read it back with `olo_assets_list` and write it into the `.olomesh`,
+  which is then registered the same way. Nothing pins a handle offline.
+- **A pack carries the levels only because they are registered assets.** No scene walk collects
+  them. `DriftBoatDeliveryPack.TheBoatAndEveryLevelOfDetailSurvivePackaging` packs the scene and
+  loads every level cold; before it, nothing rendered or loaded an authored `.olomesh` group.
+
+The editor keeps a regenerated mesh or texture in memory until it is reloaded: after rewriting the
+files of a registered asset, `olo_asset_reimport` each handle (or restart the editor). A frame that
+mixes the new mesh with the old texture is smeared, not obviously stale.
+
+## A packaged game on the build machine reads model textures from the source tree
+
+`ImportedMaterialCodec`'s `RealizeTexture` resolves a packed material's texture from its recorded
+source path first (an absolute path into the project that cooked it) and from the pack's handle only
+when no file is there. The order is deliberate: the path carries the colour space the material slot
+asked for, which the asset manager would otherwise guess from the file name (issue #629).
+
+So a packaged game run on the machine that built it loads every model texture loose from the
+project, and its log shows it: `Loading texture from path: <project>\Assets/Models/...`. That run
+says nothing about the textures in the pack.
+
+To test the pack, rename the model's folder in the project, run the game, and rename it back:
+
+```
+mv Assets/Models/DriftBoat Assets/Models/DriftBoat.__away
+GameBuilds/MyGame/MyGame.exe            # and again with --rhi=vulkan
+mv Assets/Models/DriftBoat.__away Assets/Models/DriftBoat
+```
+
+With the folder away the log has no `Loading texture from path` line for the model and no
+`ImportedMaterialCodec: could not resolve texture` warning, and the model is textured. The Drift
+boat was checked this way on OpenGL and Vulkan; with the folder in place the same run passed
+without reading one texture from the pack.

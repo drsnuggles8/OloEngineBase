@@ -5,6 +5,7 @@
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Renderer/AssimpSmoothNormals.h"
 #include "OloEngine/Renderer/AssimpTriangleIndices.h"
+#include "OloEngine/Renderer/EmbeddedModelTexture.h"
 #include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
@@ -601,6 +602,7 @@ namespace OloEngine
         m_Animations.Reset();
         m_BoneInfoMap.clear();
         m_LoadedTextures.clear();
+        m_SourceFile = path;
         m_HasMeshNodeTransform = false;
         m_MeshLoadedFromCache = false;
         m_MeshNodeGlobalTransform = glm::mat4(1.0f);
@@ -655,7 +657,7 @@ namespace OloEngine
                                 {
                                     if (materialIndices[i] < matScene->mNumMaterials)
                                     {
-                                        m_Materials[i] = ProcessMaterial(matScene->mMaterials[materialIndices[i]]);
+                                        m_Materials[i] = ProcessMaterial(matScene->mMaterials[materialIndices[i]], matScene);
                                     }
                                 }
                             }
@@ -829,9 +831,11 @@ namespace OloEngine
         // Record that the SOURCE FILE was rigged so the .omesh header carries
         // FlagSourceRigged and the next, warm load routes here again without re-parsing
         // the source (issue #1272). Asked of the combined data rather than of a flag so a
-        // file that reached this importer but has no actual skinning -- an unrigged mesh
-        // dragged in through the animated path -- is recorded honestly as static.
-        combined->SetSourceIsRigged(combined->HasBoneInfluences());
+        // file that reached this importer but has nothing only it can import -- an
+        // unrigged, unmorphed mesh dragged in through the animated path -- is recorded
+        // honestly as static. Morph targets count: Model drops them exactly as it drops
+        // bones, so a morph-only file has to come back here on its warm load too.
+        combined->SetSourceIsRigged(combined->HasBoneInfluences() || combined->HasMorphTargets());
 
         OLO_CORE_INFO("AnimatedModel::CreateCombinedMeshSource: Combined {} meshes into {} vertices, "
                       "{} indices, {} submeshes (rigged={}, morphTargets={})",
@@ -900,7 +904,7 @@ namespace OloEngine
         for (u32 i = 0; i < node->mNumMeshes; ++i)
         {
             const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-            auto meshSource = ProcessMesh(mesh, scene);
+            auto meshSource = ProcessMesh(mesh, scene, globalTransform);
             if (meshSource)
             {
                 m_Meshes.Add(meshSource);
@@ -934,7 +938,7 @@ namespace OloEngine
                 Material material;
                 if (mesh->mMaterialIndex >= 0 && mesh->mMaterialIndex < scene->mNumMaterials)
                 {
-                    material = ProcessMaterial(scene->mMaterials[mesh->mMaterialIndex]);
+                    material = ProcessMaterial(scene->mMaterials[mesh->mMaterialIndex], scene);
                 }
                 else
                 {
@@ -962,9 +966,50 @@ namespace OloEngine
         }
     }
 
-    Ref<MeshSource> AnimatedModel::ProcessMesh(const aiMesh* mesh, [[maybe_unused]] const aiScene* scene)
+    Ref<MeshSource> AnimatedModel::ProcessMesh(const aiMesh* mesh, [[maybe_unused]] const aiScene* scene,
+                                               const glm::mat4& nodeTransform)
     {
         OLO_PROFILE_FUNCTION();
+
+        // A mesh with no bones has no skeleton to carry its node's transform, and this
+        // importer does not run aiProcess_PreTransformVertices (that would discard the
+        // bones and morph targets it exists to read). Without this a morph-only mesh on
+        // a moved, turned or scaled node arrived at the origin in its own local size,
+        // which the static importer never did to the same file.
+        bool bakeNode = false;
+        if (mesh->mNumBones == 0)
+        {
+            const glm::mat4 identity(1.0f);
+            for (int c = 0; c < 4; ++c)
+            {
+                for (int r = 0; r < 4; ++r)
+                {
+                    bakeNode = bakeNode || std::abs(nodeTransform[c][r] - identity[c][r]) > 1.0e-6f;
+                }
+            }
+        }
+        const glm::mat3 nodeLinear(nodeTransform);
+        const f32 nodeDeterminant = glm::determinant(nodeLinear);
+        if (bakeNode && (!std::isfinite(nodeDeterminant) || std::abs(nodeDeterminant) < 1.0e-12f))
+        {
+            OLO_CORE_WARN("AnimatedModel::ProcessMesh: mesh '{}' sits on a node with a degenerate transform; "
+                          "importing it in its own local space",
+                          mesh->mName.C_Str());
+            bakeNode = false;
+        }
+        const glm::mat3 nodeNormal = bakeNode ? glm::transpose(glm::inverse(nodeLinear)) : glm::mat3(1.0f);
+        const auto bakePosition = [&](const glm::vec3& p)
+        {
+            return bakeNode ? glm::vec3(nodeTransform * glm::vec4(p, 1.0f)) : p;
+        };
+        const auto bakeNormal = [&](const glm::vec3& n)
+        {
+            if (!bakeNode)
+                return n;
+            const glm::vec3 turned = nodeNormal * n;
+            const f32 length = glm::length(turned);
+            return length > 1.0e-12f ? turned / length : n;
+        };
 
         TArray<Vertex> vertices; // Use regular Vertex instead of specialized vertex types
         TArray<u32> indices;
@@ -984,18 +1029,18 @@ namespace OloEngine
             Vertex vertex;
 
             // Position
-            vertex.Position = glm::vec3(
+            vertex.Position = bakePosition(glm::vec3(
                 mesh->mVertices[i].x,
                 mesh->mVertices[i].y,
-                mesh->mVertices[i].z);
+                mesh->mVertices[i].z));
 
             // Normal
             if (mesh->HasNormals())
             {
-                vertex.Normal = glm::vec3(
+                vertex.Normal = bakeNormal(glm::vec3(
                     mesh->mNormals[i].x,
                     mesh->mNormals[i].y,
-                    mesh->mNormals[i].z);
+                    mesh->mNormals[i].z));
             }
             else
             {
@@ -1034,6 +1079,17 @@ namespace OloEngine
             OLO_CORE_ERROR("AnimatedModel::ProcessMesh: mesh '{}' has {} non-triangle face(s) out of {} — "
                            "skipped; the import should have removed them",
                            mesh->mName.C_Str(), skippedFaces, mesh->mNumFaces);
+        }
+
+        // A node that mirrors (negative determinant) turns every baked triangle to face
+        // the other way while its baked normal still points out. Swap two corners to turn
+        // it back, as aiProcess_PreTransformVertices does on the static route.
+        if (bakeNode && nodeDeterminant < 0.0f)
+        {
+            for (i32 i = 0; i + 2 < indices.Num(); i += 3)
+            {
+                std::swap(indices[i + 1], indices[i + 2]);
+            }
         }
 
         // Store sizes before moving data to avoid use-after-move issues
@@ -1132,6 +1188,22 @@ namespace OloEngine
                             animMesh->mTangents[v].x - mesh->mTangents[v].x,
                             animMesh->mTangents[v].y - mesh->mTangents[v].y,
                             animMesh->mTangents[v].z - mesh->mTangents[v].z);
+                    }
+
+                    if (bakeNode)
+                    {
+                        // A delta is a difference of two points, so it takes the
+                        // transform's linear part and not its translation. The
+                        // normal's delta is the difference of the two baked
+                        // normals, which a matrix applied to the delta alone is
+                        // not once the node scales unevenly.
+                        delta.DeltaPosition = nodeLinear * delta.DeltaPosition;
+                        if (animMesh->mNormals && mesh->mNormals)
+                        {
+                            const glm::vec3 base(mesh->mNormals[v].x, mesh->mNormals[v].y, mesh->mNormals[v].z);
+                            delta.DeltaNormal = bakeNormal(base + delta.DeltaNormal) - bakeNormal(base);
+                        }
+                        delta.DeltaTangent = nodeLinear * delta.DeltaTangent;
                     }
 
                     target.Vertices[v] = delta;
@@ -1726,7 +1798,8 @@ namespace OloEngine
         return glm::mix(keys[keyIndex].Scale, keys[keyIndex + 1].Scale, static_cast<f32>(t));
     }
 
-    TArray<Ref<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, i32 semanticIndex)
+    TArray<Ref<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, const aiScene* scene,
+                                                               i32 semanticIndex)
     {
         TArray<Ref<Texture2D>> textures;
 
@@ -1780,6 +1853,36 @@ namespace OloEngine
                 continue;
 
             std::string filename = str.C_Str();
+
+            // A texture inside the file itself: Assimp names it "*N" (an index
+            // into aiScene::mTextures) or by the embedded texture's own file
+            // name, and GetEmbeddedTexture answers for both. Before the path
+            // checks, because "*0" is not a path; a name that is not embedded
+            // falls through to the on-disk loader below. The loader is Model's,
+            // so a static and an animated import of one file cook the same copy.
+            if (scene != nullptr)
+            {
+                if (const aiTexture* embedded = scene->GetEmbeddedTexture(str.C_Str()))
+                {
+                    const std::string embeddedKey = std::string{ "embedded|" } + filename + std::string(srgbSuffix);
+                    if (const auto found = m_LoadedTextures.find(embeddedKey); found != m_LoadedTextures.end())
+                    {
+                        textures.Add(found->second);
+                        continue;
+                    }
+                    const Ref<Texture2D> texture = LoadEmbeddedModelTexture(embedded, m_SourceFile, filename, srgb);
+                    if (texture && texture->IsLoaded())
+                    {
+                        m_LoadedTextures[embeddedKey] = texture;
+                        textures.Add(texture);
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Failed to decode embedded texture '{}'", filename);
+                    }
+                    continue;
+                }
+            }
 
             // Validate texture path before any load attempt — reject absolute
             // paths and parent-traversal ("..") to prevent directory escape.
@@ -2038,7 +2141,7 @@ namespace OloEngine
         return textures;
     }
 
-    Material AnimatedModel::ProcessMaterial(const aiMaterial* mat)
+    Material AnimatedModel::ProcessMaterial(const aiMaterial* mat, const aiScene* scene)
     {
         // Get material name
         aiString name;
@@ -2110,23 +2213,23 @@ namespace OloEngine
         ImportGltfPhysicalMaterial(mat, material);
 
         // Load PBR textures
-        auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
+        auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE, scene);
         if (albedoMaps.IsEmpty())
         {
             // Try base color for newer PBR/glTF materials
-            albedoMaps = LoadMaterialTextures(mat, aiTextureType_BASE_COLOR);
+            albedoMaps = LoadMaterialTextures(mat, aiTextureType_BASE_COLOR, scene);
         }
         if (!albedoMaps.IsEmpty())
         {
             material.SetAlbedoMap(albedoMaps[0]);
         }
 
-        if (auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS); !metallicRoughnessMaps.IsEmpty())
+        if (auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS, scene); !metallicRoughnessMaps.IsEmpty())
         {
             material.SetMetallicRoughnessMap(metallicRoughnessMaps[0]);
         }
 
-        if (auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS); !normalMaps.IsEmpty())
+        if (auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS, scene); !normalMaps.IsEmpty())
         {
             material.SetNormalMap(normalMaps[0]);
         }
@@ -2135,17 +2238,17 @@ namespace OloEngine
         // aiTextureType_LIGHTMAP, not AMBIENT_OCCLUSION, so without the second
         // lookup every glTF occlusion map was dropped here while the static
         // Model route (which already falls back the same way) kept it.
-        auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
+        auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION, scene);
         if (aoMaps.IsEmpty())
         {
-            aoMaps = LoadMaterialTextures(mat, aiTextureType_LIGHTMAP);
+            aoMaps = LoadMaterialTextures(mat, aiTextureType_LIGHTMAP, scene);
         }
         if (!aoMaps.IsEmpty())
         {
             material.SetAOMap(aoMaps[0]);
         }
 
-        if (auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE); !emissiveMaps.IsEmpty())
+        if (auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE, scene); !emissiveMaps.IsEmpty())
         {
             material.SetEmissiveMap(emissiveMaps[0]);
         }
@@ -2161,7 +2264,7 @@ namespace OloEngine
         // This closes the gap GltfPhysicalMaterial.cpp used to only COUNT:
         // before #1242 a thickness texture raised ThicknessMapsIgnored and was
         // dropped, so an authored ear arrived uniformly thick.
-        if (auto thicknessMaps = LoadMaterialTextures(mat, aiTextureType_TRANSMISSION, /*semanticIndex=*/1);
+        if (auto thicknessMaps = LoadMaterialTextures(mat, aiTextureType_TRANSMISSION, scene, /*semanticIndex=*/1);
             !thicknessMaps.IsEmpty())
         {
             material.SetThicknessMap(thicknessMaps[0]);

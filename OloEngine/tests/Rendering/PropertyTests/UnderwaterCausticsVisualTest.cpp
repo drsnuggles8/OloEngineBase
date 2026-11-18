@@ -371,6 +371,115 @@ namespace OloEngine::Tests
                              << "). See UnderwaterFx_Refraction_On/Off.png";
     }
 
+    // The wobble and the shafts are the look of an eye that is UNDER the surface.
+    // The scene raises the underwater flag from a wave's reach above it (two
+    // metres), so the per-pixel fog can follow a crest across the lens; a
+    // full-screen effect gated on that flag alone bends the whole frame for any
+    // camera that is merely low over the sea. Found sailing close to Drift's boat:
+    // every frame taken from under two metres came out wavy with coloured edges.
+    //
+    // Same two A/B toggles as the submerged cases, from one metre ABOVE the water:
+    // neither may move a pixel.
+    TEST_F(UnderwaterCausticsVisualTest, AnEyeAboveTheSurfaceSeesNoUnderwaterLens)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ScopedMockTime scopedMockTime(kCaptureTime);
+
+        Sun().m_Direction = glm::vec3(0.0f, -1.0f, 0.0f); // overhead, as the god-ray cases have it
+        Water().m_CausticsIntensity = 0.0f;
+
+        // Above the surface, looking across at the pillar where it breaks it and
+        // tilted up enough to put the sun's vanishing point in front of the eye.
+        const glm::vec3 eye(0.0f, 1.0f, 14.0f);
+        constexpr f32 yaw = 0.0f;
+        constexpr f32 pitch = -0.35f;
+
+        Water().m_UnderwaterRefractionStrength = 0.03f;
+        Water().m_UnderwaterChromaticStrength = 0.5f;
+        Water().m_GodRayIntensity = 1.6f;
+        Water().m_GodRayDecay = 0.95f;
+        Water().m_GodRayDensity = 1.0f;
+        Water().m_GodRayWeight = 1.0f;
+        Water().m_GodRaySamples = 48u;
+        std::vector<u8> on;
+        Capture("AboveSurface_LensOn", eye, yaw, pitch, on);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        Water().m_UnderwaterRefractionStrength = 0.0f;
+        Water().m_GodRayIntensity = 0.0f;
+        std::vector<u8> off;
+        Capture("AboveSurface_LensOff", eye, yaw, pitch, off);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        const BandStats whole = LumaBandStats(off, 0u, kWidth, 0u, kHeight);
+        EXPECT_GT(whole.Mean, 4.0) << "Above-water frame rendered (near-)black";
+
+        const f64 rmse = BandRmse(on, off, 0u, kWidth, 0u, kHeight);
+        EXPECT_LT(rmse, 0.25) << "The underwater wobble or shafts reached a camera 1 m above the surface (RMSE "
+                              << rmse << "). See UnderwaterFx_AboveSurface_LensOn/Off.png";
+    }
+
+    // The fog is the third thing the underwater flag switches on, and unlike the
+    // wobble it is per pixel: it fogs the length of each view ray that lies under
+    // the surface. For an eye in the air looking DOWN at the sea that is every ray
+    // through the surface, all the way to the seabed, so the fog replaced the
+    // water shader's own reflection and depth tint with its one colour: the sea
+    // went flat from horizon to hull the moment a camera came inside the flag's
+    // reach (two metres), and came back when it left. Found taking low frames of
+    // Drift's boat.
+    //
+    // From one metre above the surface, a fog nobody could miss (dense, magenta)
+    // and no fog at all must be the same frame; from under it they must not be.
+    TEST_F(UnderwaterCausticsVisualTest, AnEyeAboveTheSurfaceSeesTheSeaAsTheWaterPassDrewIt)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ScopedMockTime scopedMockTime(kCaptureTime);
+
+        Water().m_CausticsIntensity = 0.0f;
+        Water().m_UnderwaterRefractionStrength = 0.0f;
+        Water().m_UnderwaterFogColor = glm::vec3(1.0f, 0.0f, 1.0f);
+
+        // Looking across the open sea and a little down, the pillar in view.
+        const glm::vec3 above(0.0f, 1.0f, 14.0f);
+        const glm::vec3 below(0.0f, -3.5f, 14.0f);
+        constexpr f32 yaw = 0.0f;
+        constexpr f32 pitch = 0.12f;
+
+        Water().m_UnderwaterFogDensity = 0.5f;
+        std::vector<u8> aboveFogged;
+        Capture("AboveSurface_FogOn", above, yaw, pitch, aboveFogged);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        std::vector<u8> belowFogged;
+        Capture("BelowSurface_FogOn", below, yaw, pitch, belowFogged);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        Water().m_UnderwaterFogDensity = 0.0f;
+        std::vector<u8> aboveClear;
+        Capture("AboveSurface_FogOff", above, yaw, pitch, aboveClear);
+        if (::testing::Test::HasFatalFailure())
+            return;
+        std::vector<u8> belowClear;
+        Capture("BelowSurface_FogOff", below, yaw, pitch, belowClear);
+        if (::testing::Test::HasFatalFailure())
+            return;
+
+        const BandStats whole = LumaBandStats(aboveClear, 0u, kWidth, 0u, kHeight);
+        EXPECT_GT(whole.Mean, 4.0) << "Above-water frame rendered (near-)black";
+
+        const f64 fromAbove = BandRmse(aboveFogged, aboveClear, 0u, kWidth, 0u, kHeight);
+        EXPECT_LT(fromAbove, 1.0) << "The underwater fog was laid over the sea seen from 1 m above it (RMSE " << fromAbove
+                                  << "). See UnderwaterFx_AboveSurface_FogOn/Off.png";
+
+        // The control: the same toggle is the whole look of a submerged frame.
+        const f64 fromBelow = BandRmse(belowFogged, belowClear, 0u, kWidth, 0u, kHeight);
+        EXPECT_GT(fromBelow, 20.0) << "The fog no longer reaches a submerged eye (RMSE " << fromBelow
+                                   << "). See UnderwaterFx_BelowSurface_FogOn/Off.png";
+    }
+
     // God rays (§3.3) are an ADDITIVE screen-space radial blur toward the sun's
     // on-screen position: looking up toward the surface with the sun overhead, the
     // ON frame must be brighter than the same frame with intensity 0. Sun forced

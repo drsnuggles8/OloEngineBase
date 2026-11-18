@@ -301,6 +301,7 @@ namespace OloEngine::RayTracing
         TopologyChanged,     ///< An instance's BLAS identity changed — a refit cannot express that.
         RenderOriginRebased, ///< Camera-relative origin moved; every transform changed at once.
         Update,              ///< Not a rebuild: an ordinary transform-only refit.
+        InPlaceRebuild,      ///< A refit was asked for and a full build into the same storage was recorded (the Vulkan backend never refits a TLAS).
         Count
     };
 
@@ -320,6 +321,8 @@ namespace OloEngine::RayTracing
                 return "RenderOriginRebased";
             case TlasBuildReason::Update:
                 return "Update";
+            case TlasBuildReason::InPlaceRebuild:
+                return "InPlaceRebuild";
             case TlasBuildReason::Count:
                 break;
         }

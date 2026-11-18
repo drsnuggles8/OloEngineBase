@@ -50,6 +50,7 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/StorageBuffer.h"
 #include "OloEngine/Renderer/Texture.h"
 #include "OloEngine/Renderer/Texture2DArray.h"
+#include "OloEngine/Renderer/Texture3D.h"
 #include "OloEngine/Renderer/TextureCubemap.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
 #include "OloEngine/Renderer/VertexArray.h"
@@ -65,6 +66,7 @@ TEST(VulkanResourceFactory, SkipsWhenNotCompiledIn)
 #include "Platform/Vulkan/VulkanResourceHeap.h"
 #include "Platform/Vulkan/VulkanTexture.h" // GetHostImageCopyUploadCount (#809)
 #include "Platform/Vulkan/VulkanTexture2DArray.h"
+#include "Platform/Vulkan/VulkanTexture3D.h"
 #include "Platform/Vulkan/VulkanTextureCubemap.h"
 #include "Platform/Vulkan/VulkanTransientResources.h"
 #include "OloEngine/Renderer/Instancing/InstanceBuffer.h"
@@ -984,6 +986,48 @@ TEST_F(VulkanResourceFactory, ArrayMipGenerationLeavesTheTrackedLayoutAloneWhenT
     EXPECT_EQ(VulkanImageInfoRegistry::Get().Lookup(image)->InitialLayout,
               m_Device->GetSampledImageLayout())
         << "a successful mip chain does advance it";
+}
+
+// A volume's wrap mode is the caller's, on both backends. The Vulkan volume
+// registered clamp-to-edge whatever it was asked for, so the cloud raymarch,
+// which tiles a 128-texel noise volume over kilometres of sky, read a smeared
+// edge texel everywhere past the first tile: a clear sky drew a few smooth
+// streaks where OpenGL drew a field of cumulus. BindTexture derives the
+// sampler from this registry entry for every bind that states no sampler.
+TEST_F(VulkanResourceFactory, AVolumeAskedToRepeatRegistersARepeatingSampler)
+{
+    ScopedVulkanApiSelection vulkanApi;
+
+    Texture3DSpecification spec;
+    spec.Width = 4;
+    spec.Height = 4;
+    spec.Depth = 4;
+    spec.Format = Texture3DFormat::RGBA8;
+
+    spec.Repeat = true;
+    auto tiling = Texture3D::Create(spec);
+    ASSERT_NE(tiling, nullptr);
+    const VkImage tilingImage = static_cast<VulkanTexture3D*>(tiling.get())->GetVkImage();
+    ASSERT_NE(tilingImage, VK_NULL_HANDLE);
+    const auto* tilingInfo = VulkanImageInfoRegistry::Get().Lookup(tilingImage);
+    ASSERT_NE(tilingInfo, nullptr);
+    EXPECT_EQ(tilingInfo->ViewType, VK_IMAGE_VIEW_TYPE_3D);
+    EXPECT_EQ(tilingInfo->AddressMode, VK_SAMPLER_ADDRESS_MODE_REPEAT)
+        << "a volume created with Repeat = true must sample as a tiling volume";
+
+    // The other half: the flag is read, not ignored in the other direction.
+    // The froxel, groom and shadow volumes rely on the clamp.
+    spec.Repeat = false;
+    auto clamped = Texture3D::Create(spec);
+    ASSERT_NE(clamped, nullptr);
+    const VkImage clampedImage = static_cast<VulkanTexture3D*>(clamped.get())->GetVkImage();
+    ASSERT_NE(clampedImage, VK_NULL_HANDLE);
+    const auto* clampedInfo = VulkanImageInfoRegistry::Get().Lookup(clampedImage);
+    ASSERT_NE(clampedInfo, nullptr);
+    EXPECT_EQ(clampedInfo->AddressMode, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE)
+        << "a volume created with Repeat = false must clamp";
+
+    EXPECT_EQ(VulkanDevice::GetValidationErrorCount(), 0u);
 }
 
 TEST_F(VulkanResourceFactory, CubemapMipGenerationLeavesTheTrackedLayoutAloneWhenTheSubmitFails)

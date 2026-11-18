@@ -283,3 +283,36 @@ The decisive probe was a same-view `CloudsRaw` capture plus four exact
 `SceneDepth` texels under one affected half-resolution pixel. Pin both cases
 in an `R32F` shader-unit contract: RGBA8 cannot represent the far-depth values
 that distinguish valid geometry from the clear sentinel.
+
+## A difference between backends is a sampler fault, not the weather
+
+Compare the same sky on both backends before changing coverage, density or
+noise on either. The cloud field has no backend-specific code: the noise is
+baked by one compute shader, the weather map is a CPU hash, and the raymarch is
+one GLSL file. If OpenGL and Vulkan draw different clouds, an input reaches the
+shader differently, and the inputs are three textures and one UBO.
+
+Found on the Drift boat branch. Vulkan frames of a Clear sky had a few smooth,
+lens-shaped streaks where OpenGL had a field of small cumulus, and an Overcast
+deck had the same large shapes on both with the eroded edges missing on Vulkan.
+Smooth and streaked is what a clamped tiling texture looks like: every sample
+past the first tile reads the edge texel, stretched along the axis it left by.
+`VulkanTexture3D` registered every volume as clamp-to-edge under a comment
+saying the engine's volumes all clamp, and never read
+`Texture3DSpecification::Repeat`; `CloudNoise` sets it, and
+`OpenGLTexture3D` honours it. `VulkanResourceFactory.
+AVolumeAskedToRepeatRegistersARepeatingSampler` pins the flag.
+
+Two things kept it hidden through a full verification pass:
+
+- **The matrix compared each backend with itself.** Forward against Forward+
+  against Deferred on OpenGL, then the same on Vulkan, each row within a
+  noise floor. Nothing put an OpenGL frame beside a Vulkan frame until the
+  composite for the PR did.
+- **Clouds move.** The layer drifts with the wind from the moment the scene
+  opens, so two captures at different times differ anyway. The comparison that
+  settled it opened the scene, set the weather with `immediate: true`, waited a
+  fixed four seconds and captured one fixed sky camera, on each backend. The
+  measure was pixels whose darkest channel is more than 20 above their row's
+  median: 27808 on OpenGL against 8032 on Vulkan before the fix, 27826 against
+  27651 after.

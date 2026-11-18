@@ -115,10 +115,12 @@ namespace OloEngine::Tests
     }
 
     // Mirrors the hull, buoyancy and rig blocks on Drift.olo's Boat entity
-    // (issue #899). Same one-definition rule, and the same caveat, as the
-    // weather table above: nothing enforces the pairing with the scene, so the
-    // rationale for each number stays in the scene's own comments and this file
-    // carries only the values.
+    // (issue #899). Same one-definition rule as the weather table above, but
+    // WITHOUT its caveat: DriftBoatDelivery.TheSceneIsBuiltFromTheGeneratedRig
+    // reads the scene file and fails if a value here has drifted from it. The
+    // hull's numbers are derived (Assets/Models/DriftBoat/DriftBoat.rig.json,
+    // "physics"); the rationale for each stays in the scene's own comments and
+    // this file carries only the values.
     //
     // What it is FOR: the three numbers that decide whether Drift is playable
     // under sail - the hull's ForwardDrag, BuoyancyComponent's LinearDrag and
@@ -130,17 +132,19 @@ namespace OloEngine::Tests
     namespace DriftBoat
     {
         inline constexpr f32 kMass = 2600.0f;
-        inline constexpr glm::vec3 kColliderHalfExtents{ 1.0f, 0.4f, 2.5f };
+        inline constexpr glm::vec3 kColliderHalfExtents{ 1.0f, 0.64f, 3.0f };
+        // The collider sits on the drawn hull, below the body's origin.
+        inline constexpr glm::vec3 kColliderOffset{ 0.0f, -0.076f, 0.0f };
     } // namespace DriftBoat
 
     inline void ApplyDriftBuoyancy(BuoyancyComponent& b)
     {
         b.m_Enabled = true;
-        b.m_ProbeExtents = glm::vec3(1.35f, 0.45f, 2.5f);
+        b.m_ProbeExtents = glm::vec3(1.3f, 0.395f, 3.004f);
         b.m_FluidDensity = 1000.0f;
         b.m_BuoyancyScale = 1.0f;
-        b.m_LinearDrag = 0.35f;
-        b.m_AngularDrag = 2.2f;
+        b.m_LinearDrag = 0.355f;
+        b.m_AngularDrag = 2.72f;
         b.m_SubmergenceRamp = 0.8f;
     }
 
@@ -148,13 +152,13 @@ namespace OloEngine::Tests
     {
         c.m_Enabled = true;
         c.m_MaxThrust = 900.0f;
-        c.m_ThrustOffsetZ = -2.2f;
-        c.m_ThrustOffsetY = -0.55f;
-        c.m_MaxRudderTorque = 5400.0f;
+        c.m_ThrustOffsetZ = -2.55f;
+        c.m_ThrustOffsetY = -0.78f;
+        c.m_MaxRudderTorque = 7480.0f;
         c.m_RudderAuthoritySpeed = 7.0f;
         c.m_LateralDrag = 3.5f;
         c.m_ForwardDrag = 0.12f;
-        c.m_YawDrag = 2.2f;
+        c.m_YawDrag = 3.05f;
         c.m_ImmersionDepth = 0.3f;
         c.m_ThrottleInput = 0.0f;
         c.m_SteerInput = 0.0f;
@@ -168,8 +172,8 @@ namespace OloEngine::Tests
         s.m_MaxNormalCoefficient = 1.5f;
         s.m_MaxYardAngleDeg = 45.0f;
         s.m_TrimRateDeg = 28.0f;
-        s.m_CentreOfEffortY = 2.0f;
-        s.m_CentreOfEffortZ = -0.36f;
+        s.m_CentreOfEffortY = 1.85f;
+        s.m_CentreOfEffortZ = -0.5f;
         s.m_AutoTrim = true;
         s.m_TrimInput = 0.0f;
         s.m_SailSetInput = 1.0f;

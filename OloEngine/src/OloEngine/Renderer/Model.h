@@ -149,13 +149,13 @@ namespace OloEngine
         // Each mesh becomes a submesh in the combined MeshSource
         [[nodiscard]] Ref<MeshSource> CreateCombinedMeshSource() const;
 
-        // Did the source file contain bones (issue #1272)?
+        // Did the source file contain bones (issue #1272) or morph targets?
         //
-        // Model does not IMPORT bones -- it never has, and teaching it to would give the
+        // Model does not IMPORT either -- it never has, and teaching it to would give the
         // engine two importers that must agree about what a mesh is. It only OBSERVES the
         // one bit that says another importer should have handled this file, both on a cold
-        // Assimp import (aiMesh::mNumBones) and on a warm .omesh load (the cached
-        // FlagSourceRigged). AssimpMeshImporter uses it to re-route to AnimatedModel.
+        // Assimp import (aiMesh::mNumBones, mNumAnimMeshes) and on a warm .omesh load (the
+        // cached FlagSourceRigged). AssimpMeshImporter uses it to re-route to AnimatedModel.
         [[nodiscard]] bool IsSourceRigged() const
         {
             return m_SourceIsRigged;
@@ -214,7 +214,7 @@ namespace OloEngine
         std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
         std::optional<TextureOverride> m_TextureOverride;
         bool m_FlipUV = false;
-        bool m_SourceIsRigged = false; // Source had bones; see IsSourceRigged() (issue #1272)
+        bool m_SourceIsRigged = false; // Source had bones or morph targets; see IsSourceRigged() (issue #1272)
 
         BoundingBox m_BoundingBox;
         BoundingSphere m_BoundingSphere;

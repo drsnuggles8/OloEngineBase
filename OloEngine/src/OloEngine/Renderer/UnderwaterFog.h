@@ -71,5 +71,85 @@ namespace OloEngine
             return camUnder ? glm::length(crossPoint - camPos)    // cam under, frag above
                             : glm::length(worldPos - crossPoint); // cam above, frag under
         }
+
+        // Whether the eye itself is in the water, for the fog: 0 in the air, 1 from
+        // kEyeInWaterRamp under the surface drawn above it. `eyeDepth` is that
+        // surface's height minus the eye's, waves included.
+        //
+        // This is NOT UnderwaterCaustics::EyeSubmersion, the lens weight. The wobble
+        // is a look and eases in over a quarter metre. The fog is the water in front
+        // of the eye, and an eye a hand's breadth under has all of it: eased like
+        // the lens, a camera at the waterline saw two thirds of the way through the
+        // sea to its bed (Water_Waterline.png holds that frame, from 8 cm under a
+        // crest). The ramp is the width of a lens, so the crossing takes a few
+        // frames and not one.
+        // MUST match the GLSL `underwaterEyeInWater` in PostProcess_ToneMap.glsl.
+        inline constexpr f32 kEyeInWaterRamp = 0.05f;
+        [[nodiscard]] inline f32 EyeInWater(f32 eyeDepth) noexcept
+        {
+            if (!std::isfinite(eyeDepth))
+                return 0.0f;
+            return std::clamp(eyeDepth / kEyeInWaterRamp, 0.0f, 1.0f);
+        }
+
+        // How much of the underwater shading (caustics and fog) a pixel takes, given
+        // the height of the water surface in front of it: the one the water pass
+        // drew at that pixel, or the still plane where it drew none.
+        //
+        // A surface BELOW the eye is seen from above: the water shader has already
+        // put its reflection and its own depth tint there, and fog laid over that
+        // replaces the whole sea with one flat colour (which is what every camera
+        // inside the flag's reach of the surface used to show). So an eye in the air
+        // leaves such a pixel alone. An eye in the water has water between it and
+        // everything and fogs it: `eyeInWater` is EyeInWater (above) of the eye's
+        // depth.
+        // A surface ABOVE the eye is a crest's underside, with water on this side of
+        // it, and is always fogged.
+        // MUST match the GLSL `underwaterSurfacePixelFogShare` in PostProcess_ToneMap.glsl.
+        [[nodiscard]] inline f32 SurfacePixelFogShare(f32 cameraY, f32 surfaceY, f32 eyeInWater) noexcept
+        {
+            if (!std::isfinite(eyeInWater))
+                eyeInWater = 0.0f;
+            return cameraY >= surfaceY ? std::clamp(eyeInWater, 0.0f, 1.0f) : 1.0f;
+        }
+
+        // The height of a water tile's plane (its local y = 0) on the VERTICAL line
+        // through a world position: where the surface is over, or under, an eye there.
+        //
+        // Not the foot of the perpendicular from the eye onto the plane, which is what
+        // transforming the eye into the tile's space and zeroing its y gives. The two
+        // are one point for a level tile, however it is moved, scaled or turned about
+        // the vertical. For a tile tilted 45 degrees they are not: an eye at (1, 0.9)
+        // has the surface 0.1 above it and the perpendicular's foot only 0.05 above.
+        // `fallbackY` answers for a tile standing on edge, which has no height there.
+        [[nodiscard]] inline f32 TilePlaneYAt(const glm::mat4& model, f32 worldX, f32 worldZ, f32 fallbackY) noexcept
+        {
+            const glm::vec3 origin(model[3]);
+            // The plane is spanned by the tile's X and Z axes, so their cross product is
+            // its normal whatever scale or shear the matrix carries.
+            const glm::vec3 normal = glm::cross(glm::vec3(model[2]), glm::vec3(model[0]));
+            const f32 lengthSquared = glm::dot(normal, normal);
+            if (!std::isfinite(lengthSquared) || !(normal.y * normal.y > 1e-8f * lengthSquared))
+                return fallbackY;
+            const f32 y = origin.y - (normal.x * (worldX - origin.x) + normal.z * (worldZ - origin.z)) / normal.y;
+            return std::isfinite(y) ? y : fallbackY;
+        }
+
+        // The height of the surface DRAWN over the eye: the tile's own plane at the
+        // eye, plus what the waves add there.
+        //
+        // Two sources, because neither has the whole answer. The plane comes from the
+        // tile's transform, which a raised or tilted tile moves; the waves come from
+        // the water probe, which is how physics sees the tile and which measures from
+        // the height of the tile's ORIGIN (`probeRestY`). Taking the probe's sample
+        // whole put a tilted tile's surface at its origin's height wherever the eye
+        // was, so an eye under the raised side read as in the air. A flat tile's plane
+        // is its origin's height, and for it this is the probe's sample unchanged.
+        // A sample that is not finite adds nothing: the still plane stands.
+        [[nodiscard]] inline f32 DrawnSurfaceY(f32 planeYAtEye, f32 probeRestY, f32 probeSurfaceY) noexcept
+        {
+            const f32 waves = probeSurfaceY - probeRestY;
+            return std::isfinite(waves) ? planeYAtEye + waves : planeYAtEye;
+        }
     } // namespace UnderwaterFog
 } // namespace OloEngine
