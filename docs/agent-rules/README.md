@@ -153,6 +153,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [vulkan-parallel-pass-audit.md](vulkan-parallel-pass-audit.md): prepare resources and freeze shared inputs before a pass records in parallel.
 - [vulkan-async-compute-queue.md](vulkan-async-compute-queue.md): a resource crossing between the graphics and async compute queues needs a matched release/acquire ownership pair, not just a semaphore.
 - [vulkan-ray-tracing-acceleration-structures.md](vulkan-ray-tracing-acceleration-structures.md): a BLAS is per geometry and opacity is per instance.
+- [vulkan-tlas-is-rebuilt-not-refitted.md](vulkan-tlas-is-rebuilt-not-refitted.md): record a TLAS as a full build, never an in-place update, and test an over-read with a dedicated allocation.
 - [deformed-surfaces-in-acceleration-structures.md](deformed-surfaces-in-acceleration-structures.md): animated surfaces need a producer that writes the pose to a buffer before a BLAS can hold it.
 - [vulkan-extension-adoption-claims.md](vulkan-extension-adoption-claims.md): check an extension's claims against the pinned SDK's `validusage.json` and `vk.xml` before building on them.
 - [vulkan-descriptor-heap-rebind-after-execute-commands.md](vulkan-descriptor-heap-rebind-after-execute-commands.md): bind the descriptor heaps from a recording's first command and again right after every `vkCmdExecuteCommands`.
