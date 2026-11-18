@@ -389,10 +389,10 @@ namespace OloEngine
         // Lights: hash EXACTLY what the bake consumes, per type, in the order
         // ReferenceSceneBuilder::AddScene gathers them. Two deliberate parity
         // choices, both mirrored from the builder:
-        //  - positions are the RAW TransformComponent::Translation (the value
-        //    the raster light collection packs — NOT the parent-composed world
-        //    transform), so re-parenting a light under a moved parent neither
-        //    stales nor un-stales a bake the light never changed in;
+        //  - positions and spot directions are the light's WORLD pose
+        //    (Scene::GetLocalLightWorldPose, the values the raster light
+        //    collection packs, #1707), so moving a light's parent stales the
+        //    bake the light moved in;
         //  - a light the builder rejects (`!(intensity > 0)` — zero, negative
         //    or NaN) contributes nothing to the bake, so it contributes
         //    nothing to the key either.
@@ -430,7 +430,7 @@ namespace OloEngine
                                  return;
                              hasher.Mix(2u);
                              hasher.Mix(keyed.Uuid);
-                             hasher.Mix(view.template get<TransformComponent>(keyed.Handle).Translation);
+                             hasher.Mix(scene.GetLocalLightWorldPose(keyed.Handle).Position);
                              hasher.Mix(l.m_Color);
                              hasher.Mix(l.m_Intensity);
                              hasher.Mix(l.m_Range);
@@ -442,10 +442,11 @@ namespace OloEngine
                              const auto& l = view.template get<SpotLightComponent>(keyed.Handle);
                              if (!(l.m_Intensity > 0.0f))
                                  return;
+                             const Scene::LocalLightWorldPose pose = scene.GetLocalLightWorldPose(keyed.Handle);
                              hasher.Mix(3u);
                              hasher.Mix(keyed.Uuid);
-                             hasher.Mix(view.template get<TransformComponent>(keyed.Handle).Translation);
-                             hasher.Mix(l.m_Direction);
+                             hasher.Mix(pose.Position);
+                             hasher.Mix(pose.ToWorldDirection(l.m_Direction));
                              hasher.Mix(l.m_Color);
                              hasher.Mix(l.m_Intensity);
                              hasher.Mix(l.m_Range);

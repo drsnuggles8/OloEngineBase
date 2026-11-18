@@ -1132,6 +1132,33 @@ namespace OloEngine
         // are only forward-declared here (full definitions live in Components.h).
         [[nodiscard("Store this!")]] glm::mat4 GetWorldTransform(entt::entity entity) const;
 
+        // Where a local light (point, spot, sphere area) sits in the world
+        // (issue #1707). Position is the light entity's composed world
+        // translation, so a light parented under a moved entity shines where
+        // its bulb mesh is drawn. ParentRotation is the rotation of the frame
+        // the light's TransformComponent lives in (its parent's world frame,
+        // bone included): a SpotLightComponent::m_Direction is authored in that
+        // frame, exactly as Translation is, and the light entity's OWN rotation
+        // stays unused, as it always was. A root light answers its raw
+        // Translation and an identity rotation, bit-for-bit what it packed
+        // before. Every consumer that places a local light — the renderer's
+        // light collection, the light gizmos, the path-tracing reference and
+        // the lightmap staleness key — reads it here, so they cannot disagree.
+        struct LocalLightWorldPose
+        {
+            glm::vec3 Position{ 0.0f };
+            glm::quat ParentRotation{ 1.0f, 0.0f, 0.0f, 0.0f };
+
+            // An authored spot direction carried into the world frame. Not
+            // normalised: the packing keeps the authored length
+            // (SanitizeSpotLightDirection), and a rotation preserves it.
+            [[nodiscard]] glm::vec3 ToWorldDirection(const glm::vec3& authoredDirection) const
+            {
+                return ParentRotation * authoredDirection;
+            }
+        };
+        [[nodiscard("Store this!")]] LocalLightWorldPose GetLocalLightWorldPose(entt::entity entity) const;
+
         // How the BoneAttachmentComponent on `entity` resolves right now (issue
         // #1533): Attached plus the bone index, or the reason the entity composes
         // parent-relative instead. nullopt when the entity carries no attachment.

@@ -77,6 +77,7 @@
 #include "OloEngine/Scene/Entity.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/quaternion.hpp>
 
 #include <array>
 #include <functional>
@@ -213,13 +214,14 @@ namespace OloEngine::PathTracing
         // directional direction) are skipped with a warning — a single NaN
         // here would silently poison every traced texel.
         //
-        // `position` is the light entity's TransformComponent::Translation —
-        // the value Scene.cpp packs (NOT the hierarchy-composed world
-        // position; the raster light collection reads the raw translation, so
-        // the reference must too).
+        // `position` is the light's WORLD position and `frameRotation` the
+        // rotation of the frame its spot direction is authored in — both from
+        // Scene::GetLocalLightWorldPose, the values Scene.cpp packs (#1707).
+        // A root light passes its raw Translation and the identity.
         void AddDirectionalLight(const DirectionalLightComponent& light);
         void AddPointLight(const PointLightComponent& light, const glm::vec3& position);
-        void AddSpotLight(const SpotLightComponent& light, const glm::vec3& position);
+        void AddSpotLight(const SpotLightComponent& light, const glm::vec3& position,
+                          const glm::quat& frameRotation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
         void AddSphereAreaLight(const SphereAreaLightComponent& light, const glm::vec3& position);
 
         // Convenience: walk a live Scene. Every entity carrying a

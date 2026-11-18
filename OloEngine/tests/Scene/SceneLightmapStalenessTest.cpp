@@ -120,14 +120,14 @@ namespace OloEngine::Tests
         const SceneLightmapSettings settings = f.World->GetLightmapSettings();
         const u64 original = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
 
-        // The bake consumes the light's RAW TransformComponent::Translation
-        // (ReferenceSceneBuilder parity — not the parent-composed world
-        // position), so that exact value is what the key must track.
+        // The bake consumes the light's world position (ReferenceSceneBuilder
+        // parity, Scene::GetLocalLightWorldPose); for this root light that is
+        // its Translation, bit for bit.
         auto& transform = f.Light.GetComponent<TransformComponent>();
         const glm::vec3 originalPos = transform.Translation;
         transform.Translation = originalPos + glm::vec3(0.0f, 1.0f, 0.0f);
         EXPECT_NE(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original)
-            << "the bake integrated this light from its raw Translation; moving it must stale the bake";
+            << "the bake integrated this light from its position; moving it must stale the bake";
 
         transform.Translation = originalPos;
         EXPECT_EQ(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original);

@@ -158,10 +158,11 @@ reference-path-tracer.md §2, now load-bearing in an asset pipeline.
   already stores *E/π*. See [lighting-signal-contract.md](lighting-signal-contract.md).
 - **The bake key hashes what the bake CONSUMES, not what looks equivalent.** Lights are hashed
   per type in `ReferenceSceneBuilder::AddScene`'s exact consumption terms: point/spot positions
-  are the raw `TransformComponent::Translation` (the builder never composes the parent chain —
-  hashing the composed `transform[3]` false-stales on re-parenting and misses nothing the bake
-  sees), and a light the builder rejects (`!(intensity > 0)`) is invisible to the key too.
-  `SceneLightmapStalenessTest` pins both directions.
+  and spot directions are the light's world pose from `Scene::GetLocalLightWorldPose`, the
+  values the raster collection packs (#1707; before it, both read the raw parent-local
+  `Translation`, so a parented light lit the bake from the wrong place). Moving a light's parent
+  stales the bake; a light the builder rejects (`!(intensity > 0)`) is invisible to the key.
+  `SceneLightmapStalenessTest` and `LocalLightWorldPoseTest` pin both directions.
 - **`Resolve()` is throttled and memoized**: the O(scene) recheck (UV2 scan + key hash) runs
   every `kResolveRecheckIntervalFrames`, a mesh whose unwrap failed once is memoized until
   `Invalidate()` (xatlas is 100ms+ per mesh — retrying per recheck is a recurring hitch), and the

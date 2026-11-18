@@ -466,7 +466,8 @@ namespace OloEngine::PathTracing
         m_Lights.Add(refLight);
     }
 
-    void ReferenceSceneBuilder::AddSpotLight(const SpotLightComponent& light, const glm::vec3& position)
+    void ReferenceSceneBuilder::AddSpotLight(const SpotLightComponent& light, const glm::vec3& position,
+                                             const glm::quat& frameRotation)
     {
         if (m_Consumed)
         {
@@ -501,7 +502,7 @@ namespace OloEngine::PathTracing
         // Sanitized by the SAME function Scene.cpp's packing uses
         // (Renderer/LightCommon.h), and passed UNnormalized like the UBO —
         // CalculateSpotIntensity normalizes, same as the shader.
-        refLight.Direction = SanitizeSpotLightDirection(light.m_Direction);
+        refLight.Direction = SanitizeSpotLightDirection(frameRotation * light.m_Direction);
         // Cone params as COSINES, inner then outer, falloff 1 — the x/y/z the
         // UBO carries. The UBO's w is the light-type tag (2 = spot), which
         // ReferenceLight expresses through Type instead; its w is the
@@ -639,17 +640,16 @@ namespace OloEngine::PathTracing
         // ---- lights ---------------------------------------------------------
         //
         // Gathered per type in the order Scene.cpp fills the MultiLight UBO
-        // (directional, point, spot), each type sorted by UUID. The positions
-        // handed over are the raw TransformComponent::Translation — the value
-        // the raster light collection packs; it does NOT compose the parent
-        // hierarchy, so neither does the reference (light-model parity beats
-        // "correctness" here, by the §4 rule).
+        // (directional, point, spot), each type sorted by UUID. The poses
+        // handed over come from Scene::GetLocalLightWorldPose — the world
+        // position and parent-frame rotation the raster light collection packs
+        // (#1707), so the reference stays in parity with it.
         {
             // One shape shared by all three per-type loops: view over
             // (TransformComponent, LightComponent), UUID-sort, add in sorted
-            // order. The translation handed to `addOne` is the raw
-            // TransformComponent::Translation (see the note above); the
-            // directional callback ignores it, mirroring Scene.cpp's packing.
+            // order. The pose handed to `addOne` is the light's world pose
+            // (see the note above); the directional callback ignores it,
+            // mirroring Scene.cpp's packing.
             const auto addLightsOfType = [&]<typename LightComponent>(std::type_identity<LightComponent>,
                                                                       auto&& addOne)
             {
@@ -663,24 +663,24 @@ namespace OloEngine::PathTracing
                 for (const GatheredEntity& gathered : lights)
                 {
                     addOne(view.template get<LightComponent>(gathered.Handle),
-                           view.template get<TransformComponent>(gathered.Handle).Translation);
+                           scene.GetLocalLightWorldPose(gathered.Handle));
                 }
             };
 
             // Type order is part of the packing contract: directional, then
             // point, then spot — the order Scene.cpp fills the MultiLight UBO.
             addLightsOfType(std::type_identity<DirectionalLightComponent>{},
-                            [this](const DirectionalLightComponent& light, const glm::vec3&)
+                            [this](const DirectionalLightComponent& light, const Scene::LocalLightWorldPose&)
                             { AddDirectionalLight(light); });
             addLightsOfType(std::type_identity<PointLightComponent>{},
-                            [this](const PointLightComponent& light, const glm::vec3& position)
-                            { AddPointLight(light, position); });
+                            [this](const PointLightComponent& light, const Scene::LocalLightWorldPose& pose)
+                            { AddPointLight(light, pose.Position); });
             addLightsOfType(std::type_identity<SpotLightComponent>{},
-                            [this](const SpotLightComponent& light, const glm::vec3& position)
-                            { AddSpotLight(light, position); });
+                            [this](const SpotLightComponent& light, const Scene::LocalLightWorldPose& pose)
+                            { AddSpotLight(light, pose.Position, pose.ParentRotation); });
             addLightsOfType(std::type_identity<SphereAreaLightComponent>{},
-                            [this](const SphereAreaLightComponent& light, const glm::vec3& position)
-                            { AddSphereAreaLight(light, position); });
+                            [this](const SphereAreaLightComponent& light, const Scene::LocalLightWorldPose& pose)
+                            { AddSphereAreaLight(light, pose.Position); });
         }
     }
 
