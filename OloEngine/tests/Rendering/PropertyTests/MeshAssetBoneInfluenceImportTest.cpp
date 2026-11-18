@@ -563,6 +563,14 @@ namespace OloEngine::Tests
             EXPECT_TRUE(albedo->IsLoaded());
             EXPECT_EQ(albedo->GetWidth(), 4u);
             EXPECT_EQ(albedo->GetHeight(), 4u);
+
+            // The second pass is only the warm one if this pass left an animated cache that
+            // says to come back this way; without it the loop would run the cold route twice
+            // and pass, having never rebuilt a material from the cache.
+            ASSERT_TRUE(MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix))
+                << "the " << pass << " import left no valid animated cache";
+            ASSERT_TRUE(MeshCache::IsCachedSourceRigged(path, AnimatedModel::kCachePrefix))
+                << "the " << pass << " import's cache does not route the next load to the animated importer";
         }
         MakeColdImport(path);
     }
