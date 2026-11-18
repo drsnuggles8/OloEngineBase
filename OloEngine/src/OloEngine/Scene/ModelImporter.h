@@ -17,6 +17,7 @@ namespace OloEngine
     class MeshSource;
     class Skeleton;
     class AnimationClip;
+    struct AnimationStateComponent;
     class Material;
 
     /**
@@ -122,6 +123,9 @@ namespace OloEngine
          * @return @c true if a mesh was assigned, @c false if the model was empty.
          */
         static bool PopulateStaticEntity(Entity entity, const Ref<Model>& model);
+
+        /// Resolve the persisted selection against the clips in the loaded source.
+        static void BindAnimationClips(AnimationStateComponent& state, std::span<const Ref<AnimationClip>> clips);
 
         /// Process-wide automatic-LOD policy applied by every import path.
         [[nodiscard]] static AutoLODImportConfig& GetAutoLODConfig();

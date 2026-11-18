@@ -1725,7 +1725,8 @@ namespace OloEngine
             }
         }
 
-        // Start animations
+        // Fresh scenes autoplay from frame zero. Continue already has the saved poses.
+        if (!m_ResumeSavedAnimationOnStart)
         {
             auto animView = m_Registry.view<AnimationStateComponent>();
             for (auto e : animView)
@@ -1738,6 +1739,8 @@ namespace OloEngine
                 }
             }
         }
+
+        m_ResumeSavedAnimationOnStart = false;
 
         // Scene streaming initialization
         if (m_StreamingSettings.Enabled)

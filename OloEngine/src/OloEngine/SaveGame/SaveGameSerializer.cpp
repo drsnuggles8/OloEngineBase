@@ -4,6 +4,8 @@
 #include "OloEngine/AI/AIComponents.h"
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
 #include "OloEngine/Animation/AnimationGraphComponent.h"
+#include "OloEngine/Animation/AnimationClip.h"
+#include "OloEngine/Animation/AnimationSystem.h"
 #include "OloEngine/Animation/IKTargetComponent.h"
 #include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
 #include "OloEngine/Cinematic/CinematicComponent.h"
@@ -18,6 +20,7 @@
 #include "OloEngine/SaveGame/SaveGameComponentSerializer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Scene/Streaming/StreamingVolumeComponent.h"
@@ -25,7 +28,13 @@
 #include "OloEngine/Serialization/ArchiveExtensions.h"
 
 #include <box2d/box2d.h>
+#include <algorithm>
+#include <cmath>
+#include <filesystem>
+#include <optional>
+#include <ranges>
 #include <string_view>
+#include <system_error>
 
 namespace OloEngine
 {
@@ -459,7 +468,62 @@ namespace OloEngine
         std::vector<u8> Data;
     };
 
-    static bool DeserializeEntitiesInto(Scene& staging, FMemoryReader& reader,
+    static bool SameMeshImportPath(std::string_view saved, std::string_view authored)
+    {
+        if (saved == authored)
+            return true;
+        if (saved.empty() || authored.empty())
+            return false;
+
+        // A current-directory component changes the spelling, not the asset.
+        // Keep ".." literal: cancelling it across a symlink can select a
+        // different file. Restore only compares identities; it does no I/O.
+        try
+        {
+            const std::filesystem::path left(saved), right(authored);
+            const auto meaningful = std::views::filter([](const std::filesystem::path& component)
+                                                       { return component != "."; });
+            return std::ranges::equal(left | meaningful, right | meaningful);
+        }
+        catch (const std::system_error&)
+        {
+            // A save string that cannot be represented in the native path
+            // encoding cannot establish a match.
+            return false;
+        }
+    }
+
+    static std::string_view MeshImportPath(Entity entity)
+    {
+        return entity.HasComponent<AnimationStateComponent>() ? std::string_view(entity.GetComponent<AnimationStateComponent>().m_SourceFilePath) : std::string_view{};
+    }
+
+    // A bind-pose-only import made before #1715 has no saved source path.
+    // Its UUID and the authored clipless rig are its surviving identity.
+    static bool IsLegacyBindPose(Entity saved, Entity authored)
+    {
+        return !saved.HasComponent<AnimationStateComponent>() &&
+               saved.HasComponent<SkeletonComponent>() && authored.HasComponent<SkeletonComponent>() &&
+               authored.GetComponent<SkeletonComponent>().m_Skeleton &&
+               (!authored.HasComponent<AnimationStateComponent>() ||
+                authored.GetComponent<AnimationStateComponent>().m_AvailableClips.empty());
+    }
+
+    static bool SameMaterialOwner(Entity saved, Entity authored)
+    {
+        if (saved.HasComponent<ModelComponent>() != authored.HasComponent<ModelComponent>() ||
+            saved.HasComponent<MeshComponent>() != authored.HasComponent<MeshComponent>())
+            return false;
+        if (saved.HasComponent<ModelComponent>() &&
+            !SameMeshImportPath(saved.GetComponent<ModelComponent>().m_FilePath, authored.GetComponent<ModelComponent>().m_FilePath))
+            return false;
+        if (saved.HasComponent<MeshComponent>() &&
+            saved.GetComponent<MeshComponent>().m_Primitive != authored.GetComponent<MeshComponent>().m_Primitive)
+            return false;
+        return SameMeshImportPath(MeshImportPath(saved), MeshImportPath(authored)) || IsLegacyBindPose(saved, authored);
+    }
+
+    static bool DeserializeEntitiesInto(Scene& staging, const Scene& authoredScene, FMemoryReader& reader,
                                         std::vector<DeferredSaveableEntry>& outDeferredSaveables)
     {
         OLO_PROFILE_FUNCTION();
@@ -492,6 +556,8 @@ namespace OloEngine
             Entity entity = staging.CreateEntityWithUUID(uuid, "");
 
             bool loadFailed = false;
+            std::optional<std::vector<u8>> materialData;
+            constexpr u32 materialType = Hash::GenerateFNVHash("MaterialComponent");
 
             // Read component blocks until end-of-entity sentinel (typeHash == 0)
             while (true)
@@ -534,6 +600,17 @@ namespace OloEngine
                     return false;
                 }
 
+                // V50 saves material factors. Read them over the authored maps,
+                // shader and alpha settings after this entity's source identity
+                // is known, independent of the order of its component blocks.
+                if (typeHash == materialType)
+                {
+                    if (materialData)
+                        return false;
+                    materialData.emplace(std::move(compData));
+                    continue;
+                }
+
                 // Match typeHash to component and deserialize
                 bool matched = false;
 
@@ -564,6 +641,15 @@ namespace OloEngine
                 // Unknown component types are silently skipped (forward compatible)
             }
 
+            if (materialData)
+            {
+                if (const auto authored = authoredScene.TryGetEntityWithUUID(uuid);
+                    authored && authored->HasComponent<MaterialComponent>() && SameMaterialOwner(entity, *authored))
+                    entity.AddComponent<MaterialComponent>(authored->GetComponent<MaterialComponent>());
+                [[maybe_unused]] bool matched = false;
+                LOAD_COMPONENT(MaterialComponent, entity, materialType, *materialData)
+            }
+
             if (loadFailed)
             {
                 OLO_CORE_ERROR("[SaveGameSerializer] Component deserialization failed for entity {} (UUID {})", i, static_cast<u64>(uuid));
@@ -574,12 +660,57 @@ namespace OloEngine
         return !reader.IsError();
     }
 
-    // Morph-only imports also record the source file in AnimationStateComponent,
-    // even though the mesh has neither an asset handle nor a skeleton or clips.
-    static std::string_view MeshImportPath(const entt::registry& registry, entt::entity entity)
+    static f32 RestoredClipTime(const AnimationStateComponent& state)
     {
-        const auto* animation = registry.try_get<AnimationStateComponent>(entity);
-        return animation ? std::string_view(animation->m_SourceFilePath) : std::string_view{};
+        const f32 duration = state.m_CurrentClip ? state.m_CurrentClip->Duration : 0.0f;
+        if (!std::isfinite(state.m_CurrentTime) || !std::isfinite(duration) || duration <= 0.0f)
+            return 0.0f;
+        if (!state.m_Loop)
+            return std::clamp(state.m_CurrentTime, 0.0f, duration);
+        const f32 time = std::fmod(state.m_CurrentTime, duration);
+        return time < 0.0f ? time + duration : time;
+    }
+
+    static void RestoreImportedPose(Entity saved, Entity authored)
+    {
+        AnimationStateComponent sample;
+        if (saved.HasComponent<AnimationStateComponent>() && authored.HasComponent<AnimationStateComponent>())
+        {
+            auto& state = saved.GetComponent<AnimationStateComponent>();
+            ModelImporter::BindAnimationClips(state, authored.GetComponent<AnimationStateComponent>().m_AvailableClips);
+            // ApplyClipRequest sets the selected index to the destination as
+            // soon as a blend starts. V50 omits the outgoing clip identity.
+            if (state.m_Blending)
+            {
+                state.m_CurrentTime = state.m_NextTime;
+                state.m_Loop = state.m_NextLoop;
+            }
+            state.m_Blending = false;
+            state.m_BlendTime = state.m_BlendFactor = state.m_NextTime = 0.0f;
+            state.m_CurrentTime = RestoredClipTime(state);
+            if (!std::isfinite(state.m_BlendDuration) || state.m_BlendDuration < 0.001f)
+                state.m_BlendDuration = 0.001f;
+
+            // Evaluate the first frame even when paused. Keep queued requests
+            // and root-motion deltas out of this zero-time pose evaluation.
+            sample.m_CurrentClip = state.m_CurrentClip;
+            sample.m_CurrentTime = state.m_CurrentTime;
+            sample.m_Loop = state.m_Loop;
+            sample.m_RootMotion = state.m_RootMotion;
+        }
+        if (!saved.HasComponent<SkeletonComponent>() || !authored.HasComponent<SkeletonComponent>())
+            return;
+        const auto& source = authored.GetComponent<SkeletonComponent>().m_Skeleton;
+        if (!source)
+            return;
+
+        // Each actor owns its mutable pose and velocity history. Never carry
+        // the old registry's bone-entity lookup cache into the staged scene.
+        auto skeleton = Ref<Skeleton>::Create();
+        static_cast<SkeletonData&>(*skeleton) = static_cast<const SkeletonData&>(*source);
+        Animation::AnimationSystem::Update(sample, *skeleton, 0.0f);
+        skeleton->ResetBoneHistory();
+        saved.GetComponent<SkeletonComponent>().SetSkeleton(skeleton);
     }
 
     bool SaveGameSerializer::RestoreSceneState(Scene& scene, const std::vector<u8>& data)
@@ -660,7 +791,7 @@ namespace OloEngine
         staging->m_ViewportHeight = scene.m_ViewportHeight;
 
         std::vector<DeferredSaveableEntry> deferredSaveables;
-        if (!DeserializeEntitiesInto(*staging, reader, deferredSaveables))
+        if (!DeserializeEntitiesInto(*staging, scene, reader, deferredSaveables))
         {
             OLO_CORE_ERROR("[SaveGameSerializer] Entity deserialization failed, scene is unchanged");
             return false;
@@ -683,7 +814,7 @@ namespace OloEngine
             if (const auto original = scene.TryGetEntityWithUUID(id.ID); original && original->HasComponent<ModelComponent>())
             {
                 const auto& source = original->GetComponent<ModelComponent>();
-                if (!model.m_FilePath.empty() && model.m_FilePath == source.m_FilePath)
+                if (!model.m_FilePath.empty() && SameMeshImportPath(model.m_FilePath, source.m_FilePath))
                 {
                     model.m_Model = source.m_Model;
                 }
@@ -702,8 +833,10 @@ namespace OloEngine
 
                 // A saved source file is explicit identity. Never let a currently
                 // registered mesh override a different (or removed) import path.
-                const auto savedPath = MeshImportPath(staging->m_Registry, handle);
-                if (savedPath != MeshImportPath(scene.m_Registry, *original))
+                Entity saved{ handle, staging.get() };
+                const auto savedPath = MeshImportPath(saved);
+                const bool legacyBindPose = IsLegacyBindPose(saved, *original);
+                if (!legacyBindPose && !SameMeshImportPath(savedPath, MeshImportPath(*original)))
                 {
                     continue;
                 }
@@ -711,9 +844,10 @@ namespace OloEngine
                 // V50 has no separate MeshSourceHandle field. Without an import
                 // path, the scene supplies its registered mesh or matching primitive.
                 const bool hasAssetHandle = static_cast<u64>(source.m_MeshSource->GetHandle()) != 0;
-                if (!savedPath.empty() || hasAssetHandle || mesh.m_Primitive != MeshPrimitive::None)
+                if (legacyBindPose || !savedPath.empty() || hasAssetHandle || mesh.m_Primitive != MeshPrimitive::None)
                 {
                     mesh.m_MeshSource = source.m_MeshSource;
+                    RestoreImportedPose(saved, *original);
                 }
             }
         }
@@ -775,6 +909,7 @@ namespace OloEngine
         // are not cached.  Callers must NOT hold Entity objects across a
         // RestoreSceneState call — the swap invalidates them.
         std::swap(scene.m_Registry, staging->m_Registry);
+        scene.m_ResumeSavedAnimationOnStart = !scene.IsRunning();
         std::swap(scene.m_EntityMap, staging->m_EntityMap);
 
         // Apply deferred ISaveable restores now that entities live in the committed scene
