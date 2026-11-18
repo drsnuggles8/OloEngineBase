@@ -289,60 +289,6 @@ namespace OloEngine::Tests
         EXPECT_TRUE(MeshCache::IsCachedSourceRigged(path, AnimatedModel::kCachePrefix));
     }
 
-    // The animated route has to bring a file's EMBEDDED textures with it. AnimatedModel
-    // read "*0" as a file name beside the model and found nothing, which stayed out of
-    // sight while only rigged files went that way (the rigged fixtures all name external
-    // images) and became a regression for every morph-only file the moment those were
-    // routed there: a sail or a flag that embedded its map kept its targets and lost its
-    // colour. One triangle, one morph target, one 4x4 PNG as a data URI.
-    TEST(MeshAssetBoneInfluenceImport, AMorphOnlyFileKeepsItsEmbeddedTextureColdAndWarm)
-    {
-        OLO_ENSURE_GPU_OR_SKIP();
-
-        const std::filesystem::path path = Tests::TempFile("morph_only_embedded_texture.gltf");
-        {
-            std::ofstream out(path, std::ios::binary | std::ios::trunc);
-            ASSERT_TRUE(out.good()) << path.string();
-            out
-                << R"gltf({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0,"name":"Flag"}],"meshes":[{"n)gltf"
-                << R"gltf(ame":"Flag","primitives":[{"attributes":{"POSITION":0,"TEXCOORD_0":1},"indices":3,"material":0,"targets":[{"PO)gltf"
-                << R"gltf(SITION":2}]}],"weights":[0.0],"extras":{"targetNames":["Lift"]}}],"materials":[{"name":"FlagCloth","pbrMetalli)gltf"
-                << R"gltf(cRoughness":{"baseColorTexture":{"index":0},"metallicFactor":0.0}}],"textures":[{"source":0}],"images":[{"uri")gltf"
-                << R"gltf(:"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAGklEQVR4nGM4oSEnZ3MCQjLAWSc05BhwygAAx0)gltf"
-                << R"gltf(MRgeQ5GPwAAAAASUVORK5CYII=","name":"FlagColour"}],"buffers":[{"byteLength":104,"uri":"data:application/octet-s)gltf"
-                << R"gltf(tream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAA/A)gltf"
-                << R"gltf(AAAAAAAAAAAAAA/AAAAAAAAAAAAAAA/AAABAAIAAAA="}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36,"targ)gltf"
-                << R"gltf(et":34962},{"buffer":0,"byteOffset":36,"byteLength":24,"target":34962},{"buffer":0,"byteOffset":60,"byteLength)gltf"
-                << R"gltf(":36},{"buffer":0,"byteOffset":96,"byteLength":6,"target":34963}],"accessors":[{"bufferView":0,"componentType")gltf"
-                << R"gltf(:5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5126,"count":3,"typ)gltf"
-                << R"gltf(e":"VEC2"},{"bufferView":2,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0.5],"max":[0,0,0.5]},{"buf)gltf"
-                << R"gltf(ferView":3,"componentType":5123,"count":3,"type":"SCALAR"}]})gltf";
-        }
-
-        MakeColdImport(path);
-
-        for (const char* pass : { "cold", "warm" })
-        {
-            SCOPED_TRACE(pass);
-            MeshImportResult const result = MeshImporterRegistry::Get().Import(path);
-            ASSERT_TRUE(result.Succeeded()) << result.Error;
-            ASSERT_TRUE(result.Source);
-
-            const MeshSource& source = *result.Source;
-            ASSERT_TRUE(source.HasMorphTargets()) << "the file did not take the animated route";
-            EXPECT_EQ(source.GetMorphTargets()->GetTargetCount(), 1u);
-            ASSERT_TRUE(MaterialsAddressEverySubmesh(source));
-
-            const Ref<Material>& material = source.GetImportedMaterials()[source.GetSubmeshes()[0].m_MaterialIndex];
-            const Ref<Texture2D> albedo = material->GetAlbedoMap();
-            ASSERT_TRUE(albedo) << "the embedded base-colour texture was not loaded: the material has no albedo map";
-            EXPECT_TRUE(albedo->IsLoaded());
-            EXPECT_EQ(albedo->GetWidth(), 4u);
-            EXPECT_EQ(albedo->GetHeight(), 4u);
-        }
-        MakeColdImport(path);
-    }
-
     // ── #1278's new expectation: influences must survive the auto-LOD chain ─────────────
     TEST(MeshAssetBoneInfluenceImport, ARiggedAssetKeepsItsInfluencesThroughAutoLOD)
     {
@@ -562,6 +508,63 @@ namespace OloEngine::Tests
             << "a STALE cache still answers the routing question. A mesh re-exported without its rig "
                "would keep being handed to AnimatedModel because a cache entry that no longer matches "
                "the file says it has bones.";
+    }
+
+    // The animated route has to bring a file's EMBEDDED textures with it. AnimatedModel
+    // read "*0" as a file name beside the model and found nothing, which stayed out of
+    // sight while only rigged files went that way (the rigged fixtures all name external
+    // images) and became a regression for every morph-only file the moment those were
+    // routed there: a sail or a flag that embedded its map kept its targets and lost its
+    // colour. One triangle, one morph target, one 4x4 PNG as a data URI.
+    TEST_F(MeshAssetBoneInfluenceProjectTest, AMorphOnlyFileKeepsItsEmbeddedTextureColdAndWarm)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // In the fixture's project, because the cook writes the texture into the active
+        // project's cache: with none mounted that is the repository's own assets folder,
+        // and the test would leave a file outside its temp directory.
+        const std::filesystem::path path = m_TempDir / "Assets" / "morph_only_embedded_texture.gltf";
+        {
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            ASSERT_TRUE(out.good()) << path.string();
+            out
+                << R"gltf({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0,"name":"Flag"}],"meshes":[{"n)gltf"
+                << R"gltf(ame":"Flag","primitives":[{"attributes":{"POSITION":0,"TEXCOORD_0":1},"indices":3,"material":0,"targets":[{"PO)gltf"
+                << R"gltf(SITION":2}]}],"weights":[0.0],"extras":{"targetNames":["Lift"]}}],"materials":[{"name":"FlagCloth","pbrMetalli)gltf"
+                << R"gltf(cRoughness":{"baseColorTexture":{"index":0},"metallicFactor":0.0}}],"textures":[{"source":0}],"images":[{"uri")gltf"
+                << R"gltf(:"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAGklEQVR4nGM4oSEnZ3MCQjLAWSc05BhwygAAx0)gltf"
+                << R"gltf(MRgeQ5GPwAAAAASUVORK5CYII=","name":"FlagColour"}],"buffers":[{"byteLength":104,"uri":"data:application/octet-s)gltf"
+                << R"gltf(tream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAA/A)gltf"
+                << R"gltf(AAAAAAAAAAAAAA/AAAAAAAAAAAAAAA/AAABAAIAAAA="}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36,"targ)gltf"
+                << R"gltf(et":34962},{"buffer":0,"byteOffset":36,"byteLength":24,"target":34962},{"buffer":0,"byteOffset":60,"byteLength)gltf"
+                << R"gltf(":36},{"buffer":0,"byteOffset":96,"byteLength":6,"target":34963}],"accessors":[{"bufferView":0,"componentType")gltf"
+                << R"gltf(:5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5126,"count":3,"typ)gltf"
+                << R"gltf(e":"VEC2"},{"bufferView":2,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0.5],"max":[0,0,0.5]},{"buf)gltf"
+                << R"gltf(ferView":3,"componentType":5123,"count":3,"type":"SCALAR"}]})gltf";
+        }
+
+        MakeColdImport(path);
+
+        for (const char* pass : { "cold", "warm" })
+        {
+            SCOPED_TRACE(pass);
+            MeshImportResult const result = MeshImporterRegistry::Get().Import(path);
+            ASSERT_TRUE(result.Succeeded()) << result.Error;
+            ASSERT_TRUE(result.Source);
+
+            const MeshSource& source = *result.Source;
+            ASSERT_TRUE(source.HasMorphTargets()) << "the file did not take the animated route";
+            EXPECT_EQ(source.GetMorphTargets()->GetTargetCount(), 1u);
+            ASSERT_TRUE(MaterialsAddressEverySubmesh(source));
+
+            const Ref<Material>& material = source.GetImportedMaterials()[source.GetSubmeshes()[0].m_MaterialIndex];
+            const Ref<Texture2D> albedo = material->GetAlbedoMap();
+            ASSERT_TRUE(albedo) << "the embedded base-colour texture was not loaded: the material has no albedo map";
+            EXPECT_TRUE(albedo->IsLoaded());
+            EXPECT_EQ(albedo->GetWidth(), 4u);
+            EXPECT_EQ(albedo->GetHeight(), 4u);
+        }
+        MakeColdImport(path);
     }
 
     // A morph-only mesh takes its node's transform through the animated importer, as the

@@ -128,7 +128,7 @@ Three things had to be true before it moved.
   is loaded by one function for both importers, `LoadEmbeddedModelTexture`. `AnimatedModel` used
   to read `"*0"` as a file name beside the model and find nothing, which no fixture showed while
   only rigged files took that route, and which became a regression for every morph-only file
-  once those did. `MeshAssetBoneInfluenceImport.AMorphOnlyFileKeepsItsEmbeddedTextureColdAndWarm`
+  once those did. `MeshAssetBoneInfluenceProjectTest.AMorphOnlyFileKeepsItsEmbeddedTextureColdAndWarm`
   imports a morph-only glTF with a data-URI image and fails on the cold load with the lookup
   removed.
 - **The node.** `AnimatedModel` reads vertices in the mesh's own space and leaves a skinned mesh's
