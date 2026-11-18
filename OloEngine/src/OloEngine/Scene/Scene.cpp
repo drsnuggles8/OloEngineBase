@@ -52,6 +52,7 @@
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Renderer/UnderwaterCaustics.h"
+#include "OloEngine/Renderer/UnderwaterFog.h"
 #include "OloEngine/Renderer/EnvironmentMap.h"
 #include "OloEngine/Renderer/ReflectionProbeBaker.h"
 #include "OloEngine/Atmosphere/Ephemeris.h"
@@ -15832,8 +15833,11 @@ namespace OloEngine
                         {
                             const f32 surfaceY = WaterProbe::SampleSurfaceY(
                                 *volume, glm::vec2(cameraPosition.x, cameraPosition.z), animationTime);
-                            if (std::isfinite(surfaceY))
-                                eyeDepth = surfaceY - cameraPosition.y;
+                            // The probe measures waves from the height of the tile's
+                            // origin; the plane over the eye is the fog's own answer
+                            // above, which a tilted tile moves.
+                            eyeDepth = UnderwaterFog::DrawnSurfaceY(underwater.WaterSurfaceY, fogWaterModel[3].y, surfaceY) -
+                                       cameraPosition.y;
                         }
                     }
                     if (!std::isfinite(eyeDepth))

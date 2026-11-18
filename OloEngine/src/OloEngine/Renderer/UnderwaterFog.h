@@ -112,5 +112,22 @@ namespace OloEngine
                 eyeInWater = 0.0f;
             return cameraY >= surfaceY ? std::clamp(eyeInWater, 0.0f, 1.0f) : 1.0f;
         }
+
+        // The height of the surface DRAWN over the eye: the tile's own plane at the
+        // eye, plus what the waves add there.
+        //
+        // Two sources, because neither has the whole answer. The plane comes from the
+        // tile's transform, which a raised or tilted tile moves; the waves come from
+        // the water probe, which is how physics sees the tile and which measures from
+        // the height of the tile's ORIGIN (`probeRestY`). Taking the probe's sample
+        // whole put a tilted tile's surface at its origin's height wherever the eye
+        // was, so an eye under the raised side read as in the air. A flat tile's plane
+        // is its origin's height, and for it this is the probe's sample unchanged.
+        // A sample that is not finite adds nothing: the still plane stands.
+        [[nodiscard]] inline f32 DrawnSurfaceY(f32 planeYAtEye, f32 probeRestY, f32 probeSurfaceY) noexcept
+        {
+            const f32 waves = probeSurfaceY - probeRestY;
+            return std::isfinite(waves) ? planeYAtEye + waves : planeYAtEye;
+        }
     } // namespace UnderwaterFog
 } // namespace OloEngine

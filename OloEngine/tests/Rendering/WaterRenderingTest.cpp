@@ -1285,6 +1285,42 @@ TEST(WaterRendering, SurfacePixelFog_SurvivesGarbageWeights)
     EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, -7.0f), 0.0f);
 }
 
+TEST(WaterRendering, DrawnSurface_AFlatTileIsTheProbesSample)
+{
+    // A flat tile's plane is the height of its origin, wherever the eye is: the
+    // probe's sample, waves and all, is the surface.
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(2.0f, 2.0f, 2.4f), 2.4f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(2.0f, 2.0f, 1.7f), 1.7f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(0.0f, 0.0f, 0.0f), 0.0f);
+}
+
+TEST(WaterRendering, DrawnSurface_ATiltedTileKeepsItsPlaneUnderTheWaves)
+{
+    // A wave-free tile turned 45 degrees about Z has its surface at Y = 1 where X = 1,
+    // and its origin at Y = 0. An eye at (1, 0.5, 0) is half a metre under it. The
+    // probe, which measures from the origin, answers 0 there; taken whole (0 - 0.5)
+    // that reads as an eye half a metre in the AIR, and the lens switches off under water.
+    const f32 planeAtEye = 1.0f;
+    const f32 originY = 0.0f;
+    const f32 cameraY = 0.5f;
+    const f32 drawn = UnderwaterFog::DrawnSurfaceY(planeAtEye, originY, /*probeSurfaceY=*/0.0f);
+    EXPECT_FLOAT_EQ(drawn, 1.0f);
+    EXPECT_GT(UnderwaterFog::EyeInWater(drawn - cameraY), 0.99f) << "the eye is under the tilted surface";
+
+    // Waves ride on the plane.
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(planeAtEye, originY, 0.3f), 1.3f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(planeAtEye, originY, -0.2f), 0.8f);
+}
+
+TEST(WaterRendering, DrawnSurface_AProbeWithNoAnswerLeavesTheStillPlane)
+{
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 inf = std::numeric_limits<f32>::infinity();
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(1.5f, 0.0f, nan), 1.5f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(1.5f, 0.0f, inf), 1.5f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(1.5f, nan, 0.2f), 1.5f);
+}
+
 TEST(WaterRendering, WaterFace_CameraAbove_KeepsTopsDiscardsUndersides)
 {
     // Camera above the water: every surface fragment is below the eye, so the
