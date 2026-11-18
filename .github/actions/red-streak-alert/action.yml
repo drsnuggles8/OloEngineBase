@@ -1,0 +1,69 @@
+name: 'Red-streak alert'
+description: >
+  Open, update or close the one `ci-nightly-red` issue that tracks a scheduled
+  workflow's red streak, through scripts/nightly_red_streak.py (#1473). A failed
+  scheduled run notifies nobody who is not already watching the Actions tab: the AMD
+  nightly was red for 20 nights (#1473) and the video-ffmpeg weekly's linux leg for
+  every week from June to November 2026 (#1711) before anyone noticed.
+
+  Call it from a separate HOSTED job that `needs:` the job(s) it judges, with
+  `if: always()`, `issues: write` and `actions: read`, after a checkout that includes
+  scripts/nightly_red_streak.py and this action. Keeping it in its own job keeps
+  `issues: write` away from a self-hosted runner.
+
+  On any event other than `schedule` it runs with --dry-run: it prints what it would do
+  and writes nothing, so a dispatch from a branch exercises the mechanism.
+
+inputs:
+  workflow:
+    description: 'Workflow file name whose scheduled runs form the streak, e.g. video-ffmpeg.yml.'
+    required: true
+  jobs:
+    description: >
+      Display names of the job(s) a run is judged by, one per line. A run is red when
+      any of them is red and green only when all of them are green.
+    required: true
+  result:
+    description: "needs.<job>.result of the job this alert follows; quoted in the issue."
+    required: true
+  timeout-minutes:
+    description: "The judged jobs' timeout-minutes: a cancelled job that ran this long timed out."
+    required: true
+  threshold:
+    description: 'Red scheduled runs in a row before the issue opens. A weekly passes 1.'
+    required: false
+    default: '2'
+  github-token:
+    description: 'Token for gh: actions read, issues write.'
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Open, update or close the red-streak issue
+      # `shell: bash` runs with pipefail, so a script that exits 1 fails the step
+      # through the tee. Under the default `bash -e` the status was the tee's, and the
+      # alert stopped alerting without a sign.
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs['github-token'] }}
+        OLO_STREAK_WORKFLOW: ${{ inputs.workflow }}
+        OLO_STREAK_JOBS: ${{ inputs.jobs }}
+        OLO_STREAK_RESULT: ${{ inputs.result }}
+        OLO_STREAK_TIMEOUT: ${{ inputs['timeout-minutes'] }}
+        OLO_STREAK_THRESHOLD: ${{ inputs.threshold }}
+        OLO_STREAK_DRY_RUN: ${{ github.event_name != 'schedule' && '--dry-run' || '' }}
+      run: |
+        job_args=()
+        while IFS= read -r name; do
+          if [ -n "$name" ]; then job_args+=(--job "$name"); fi
+        done <<< "$OLO_STREAK_JOBS"
+        python3 scripts/nightly_red_streak.py \
+          --workflow "$OLO_STREAK_WORKFLOW" \
+          "${job_args[@]}" \
+          --timeout-minutes "$OLO_STREAK_TIMEOUT" \
+          --threshold "$OLO_STREAK_THRESHOLD" \
+          --result "$OLO_STREAK_RESULT" \
+          --run-id "$GITHUB_RUN_ID" \
+          $OLO_STREAK_DRY_RUN | tee -a "$GITHUB_STEP_SUMMARY"

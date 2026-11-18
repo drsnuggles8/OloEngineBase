@@ -22,8 +22,11 @@ on:
   schedule:
     - cron: '0 6 * * 1' # weekly, Monday 06:00 UTC
 
+# The event is part of the key so a dispatch (one leg, say, to debug it) never
+# cancels the scheduled run on the same ref. A cancelled scheduled run reads as
+# neutral to the red-streak job, so that week's result would never be alerted.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
@@ -194,8 +197,9 @@ jobs:
           path: ${{ steps.vcpkg.outputs.cache-path }}
 
       # Both legs build Release, matching the main Windows.yml CI (BUILD_TYPE: Release).
-      # The shader libs (shaderc / spirv-cross-{core,glsl}) come from the headless Vulkan
-      # SDK installed above, which ships only release (/MD) import libs — no debug (…d.lib)
+      # On Windows the shader libs (shaderc / spirv-cross-{core,glsl}) come from the
+      # headless Vulkan SDK installed above (on Linux, from setup-linux-build's pinned
+      # OLO_SHADERC_ROOT / OLO_SPIRV_CROSS_ROOT), and it ships only release (/MD) import libs — no debug (…d.lib)
       # variants. A Debug (/MDd) build of OloEngine-Tests then links release spirv-cross
       # objects and dies with LNK2038 (_ITERATOR_DEBUG_LEVEL 0 vs 2 / MD_DynamicRelease vs
       # MDd_DynamicDebug) → LNK1319. Release keeps the CRT consistent. The FFmpeg decode
@@ -301,9 +305,9 @@ jobs:
 
   # -------------------------------------------------------------------------
   # Make a red weekly run visible without anyone opening the Actions tab. The
-  # linux leg was red on every weekly run from 2026-08-24 to 2026-11-16 before
-  # anyone noticed (#1711). The same script and the same shape as the AMD
-  # nightly's alert (gpu-conformance-amd.yml, #1473): one issue labelled
+  # linux leg was red on every weekly run from June to 2026-11-16 before anyone
+  # noticed (#1711). The same action as the AMD nightly's alert
+  # (.github/actions/red-streak-alert, #1473): one issue labelled
   # ci-nightly-red, retitled and commented on each further red run, closed by
   # the first green scheduled run.
   #
@@ -328,30 +332,20 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: scripts/nightly_red_streak.py
+          sparse-checkout: |
+            scripts/nightly_red_streak.py
+            .github/actions/red-streak-alert
           sparse-checkout-cone-mode: false
 
+      # The build job sets no timeout-minutes, so it has GitHub's default of 360.
+      # A dispatch that ran one leg is judged on that leg; an empty line is skipped.
       - name: Open, update or close the red-streak issue
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RESULT: ${{ needs.build.result }}
-          LEGS: ${{ inputs.legs || 'both' }}
-          DRY_RUN: ${{ github.event_name != 'schedule' && '--dry-run' || '' }}
-        # The build job sets no timeout-minutes, so it has GitHub's default of 360.
-        # `shell: bash` runs with pipefail, so a failing script fails the step through
-        # the tee (the default `bash -e` would report tee's status).
-        shell: bash
-        run: |
-          case "$LEGS" in
-            linux)   JOBS=(--job linux) ;;
-            windows) JOBS=(--job windows) ;;
-            *)       JOBS=(--job windows --job linux) ;;
-          esac
-          python3 scripts/nightly_red_streak.py \
-            --workflow video-ffmpeg.yml \
-            "${JOBS[@]}" \
-            --timeout-minutes 360 \
-            --threshold 1 \
-            --result "$RESULT" \
-            --run-id "$GITHUB_RUN_ID" \
-            $DRY_RUN | tee -a "$GITHUB_STEP_SUMMARY"
+        uses: ./.github/actions/red-streak-alert
+        with:
+          workflow: video-ffmpeg.yml
+          jobs: |
+            ${{ inputs.legs != 'linux' && 'windows' || '' }}
+            ${{ inputs.legs != 'windows' && 'linux' || '' }}
+          result: ${{ needs.build.result }}
+          timeout-minutes: 360
+          threshold: 1

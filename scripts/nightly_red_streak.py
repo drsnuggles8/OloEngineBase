@@ -66,7 +66,7 @@ blocked_by: []
 blocks: []
 ```
 
-Opened by scripts/nightly_red_streak.py (issue #1473). Stability 8: the nightly's coverage is off
+Opened by scripts/nightly_red_streak.py (issue #1473). Stability 8: the workflow's coverage is off
 while it is red. Confidence 0.5: the cause is unknown until someone reads the failing step.
 <!-- olo-score:end -->"""
 
@@ -83,16 +83,18 @@ def gh_json(*args: str):
 
 
 def scheduled_runs(repo: str, workflow: str) -> list[dict]:
-    """Newest first. One page of 60 is two months of nightlies, far past any threshold."""
+    """Newest first. One page of 60 is two months of a nightly or over a year of a weekly,
+    far past any threshold."""
     data = gh_json("api", f"repos/{repo}/actions/workflows/{workflow}/runs?event=schedule&per_page=60")
     return data.get("workflow_runs", [])
 
 
-def hardware_job(repo: str, run_id: int, job_name: str) -> dict | None:
-    """None only when the run has no such job. An API error raises: guessing from the run's
-    own conclusion would let this alert job's result decide the night."""
-    jobs = gh_json("api", f"repos/{repo}/actions/runs/{run_id}/jobs")
-    return next((job for job in jobs.get("jobs", []) if job.get("name") == job_name), None)
+def run_jobs(repo: str, run_id: int, job_names: list[str]) -> dict[str, dict | None]:
+    """Each named job's record in one run, None for a name the run has no job for. One API
+    read per run, however many names. An API error raises: guessing from the run's own
+    conclusion would let this alert job's result decide the night."""
+    jobs = gh_json("api", f"repos/{repo}/actions/runs/{run_id}/jobs").get("jobs", [])
+    return {name: next((job for job in jobs if job.get("name") == name), None) for name in job_names}
 
 
 def minutes_ran(job: dict) -> float:
@@ -164,12 +166,12 @@ def job_verdict(run: dict, job: dict | None, timeout_minutes: float) -> str:
 def streak(repo: str, runs: list[dict], this_run_id: int, job_names: list[str],
            timeout_minutes: float) -> tuple[list[dict], dict | None]:
     """The unbroken run of red nights ending with this (red) run, and the last green one."""
-    red: list[dict] = [{"id": this_run_id, "created_at": "tonight", "html_url": None}]
+    red: list[dict] = [{"id": this_run_id, "created_at": "this run", "html_url": None}]
     for run in runs:
         if run["id"] == this_run_id or run.get("status") != "completed":
             continue
-        night = combine([job_verdict(run, hardware_job(repo, run["id"], name), timeout_minutes)
-                         for name in job_names])
+        night = combine([job_verdict(run, job, timeout_minutes)
+                         for job in run_jobs(repo, run["id"], job_names).values()])
         if night == "red":
             red.append(run)
         elif night == "green":
@@ -196,7 +198,7 @@ def main(argv: list[str]) -> int:
     parser.add_argument("--job", required=True, action="append",
                         help="display name of a job a night is judged by; repeat it for several")
     parser.add_argument("--result", required=True,
-                        help="this run's result for the job(s) (needs.<job>.result, which folds a matrix's legs together)")
+                        help="this run's needs.<job>.result, quoted in the issue; the verdict reads each job's record")
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--timeout-minutes", type=float, required=True,
                         help="that job's timeout-minutes: a cancelled job that ran this long timed out")
@@ -207,22 +209,17 @@ def main(argv: list[str]) -> int:
         parser.error("--repo or GITHUB_REPOSITORY is required")
 
     # The jobs have finished by the time this runs (`needs:`), so their records are final.
-    tonight_jobs: dict[str, dict] = {}
-    for name in args.job:
-        job = hardware_job(args.repo, args.run_id, name)
+    # Each is judged by its own record: needs.<job>.result folds a matrix's legs into one
+    # word and cannot say which leg ran into its timeout.
+    tonight_jobs = run_jobs(args.repo, args.run_id, args.job)
+    for name, job in tonight_jobs.items():
         if job is None:
             # This run certainly has the jobs the workflow names, so a miss means --job no
             # longer matches a display name: every night would be misjudged. Say so.
             print(f"::error::no job named {name!r} in run {args.run_id} -- update --job in the workflow")
             return 1
-        tonight_jobs[name] = job
-    if len(tonight_jobs) == 1:
-        tonight_verdict = verdict(args.result, next(iter(tonight_jobs.values())), args.timeout_minutes)
-    else:
-        # needs.<job>.result folds a matrix's legs into one word and cannot say which leg
-        # ran into its timeout, so each leg is judged by its own record.
-        tonight_verdict = combine([verdict(job.get("conclusion"), job, args.timeout_minutes)
-                                   for job in tonight_jobs.values()])
+    tonight_verdict = combine([verdict(job.get("conclusion"), job, args.timeout_minutes)
+                               for job in tonight_jobs.values()])
     if tonight_verdict == "neutral":
         print(f"this run's result is {args.result!r}: neither red nor green, nothing to do")
         return 0
@@ -243,15 +240,15 @@ def main(argv: list[str]) -> int:
 
     red, last_green = streak(args.repo, scheduled_runs(args.repo, args.workflow), args.run_id, args.job,
                              args.timeout_minutes)
-    since = last_green["created_at"] if last_green else "before the oldest run listed (60 nights)"
-    print(f"{args.workflow}: this run {args.result}; {len(red)} consecutive red scheduled night(s); "
+    since = last_green["created_at"] if last_green else "before the oldest of the 60 scheduled runs listed"
+    print(f"{args.workflow}: this run {args.result}; {len(red)} red scheduled run(s) in a row; "
           f"last green scheduled run: {since}")
 
     if issue is None and len(red) < args.threshold:
         print(f"streak {len(red)} < threshold {args.threshold} and no open issue: nothing to do")
         return 0
 
-    title = f"CI: {args.workflow} scheduled run has been red {len(red)} nights in a row"
+    title = f"CI: {args.workflow} has been red on {len(red)} scheduled runs in a row"
     tonight = f"{run_url(args.repo, args.run_id)} ({args.result}): {failed_jobs_summary(tonight_jobs)}"
     if issue is not None:
         # Below the threshold too: an issue left open by a failed close must not go stale.
@@ -259,7 +256,7 @@ def main(argv: list[str]) -> int:
         if not args.dry_run:
             gh("issue", "edit", str(issue["number"]), "--repo", args.repo, "--title", title)
             gh("issue", "comment", str(issue["number"]), "--repo", args.repo,
-               "--body", f"Still red, night {len(red)}: {tonight}")
+               "--body", f"Still red, scheduled run {len(red)} in a row: {tonight}")
         return 0
 
     rows = "\n".join(
@@ -267,11 +264,11 @@ def main(argv: list[str]) -> int:
         for run in red[:30]
     )
     body = (
-        f"The scheduled run of `{args.workflow}` has been red {len(red)} nights in a row "
+        f"`{args.workflow}` has been red on {len(red)} scheduled runs in a row "
         f"(last green scheduled run: {since}).\n\n"
-        f"Tonight: {tonight}\n\nThe streak, newest first:\n{rows}\n\n"
+        f"This run: {tonight}\n\nThe streak, newest first:\n{rows}\n\n"
         "This issue is maintained by `scripts/nightly_red_streak.py` (#1473): it is retitled and "
-        "commented each red night, and closed by the first green scheduled run.\n\n"
+        "commented on each red scheduled run, and closed by the first green one.\n\n"
         f"{SCORE_BLOCK}\n"
     )
     print(f"{prefix} open an issue: '{title}'")
