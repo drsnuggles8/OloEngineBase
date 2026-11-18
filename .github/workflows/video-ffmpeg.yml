@@ -95,11 +95,17 @@ jobs:
           # periodically return 403 Forbidden; we never use them (Clang comes from
           # apt.llvm.org), and `apt-get update` fails hard on any single repo error.
           # Drop any Microsoft source so a Microsoft-side outage can't break our update.
+          #
+          # libvulkan-dev: the Vulkan SDK step supplies the headers and nests its loader
+          # where find_package(Vulkan) does not look, so configure stops at "Could NOT
+          # find Vulkan (missing: Vulkan_LIBRARY)". The distribution's loader is the one
+          # setup-linux-build installs for every other hosted Linux job.
           sudo grep -rlZ packages.microsoft.com /etc/apt/sources.list.d/ 2>/dev/null | sudo xargs -0 -r rm -f || true
           sudo apt-get update
           sudo apt-get install -y \
             nasm \
             clang-23 lld-23 \
+            libvulkan-dev \
             libgl-dev libglu1-mesa-dev \
             libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxext-dev \
             libwayland-dev wayland-protocols libxkbcommon-dev \
