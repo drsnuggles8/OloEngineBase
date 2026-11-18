@@ -9,18 +9,22 @@ the owner's notifications.
 
 Run by the `red-streak` job of .github/workflows/gpu-conformance-amd.yml, after the
 hardware job, on a hosted runner: the self-hosted job keeps its read-only token.
+The `red-streak` job of .github/workflows/video-ffmpeg.yml runs it too (#1711), judging
+a weekly run by its two matrix legs.
 
     python3 scripts/nightly_red_streak.py --workflow gpu-conformance-amd.yml \\
-        --job "<hardware job name>" --timeout-minutes <its timeout> \\
+        --job "<hardware job name>" [--job "<another>"] --timeout-minutes <its timeout> \\
         --result <needs.X.result> --run-id <this run> [--threshold 2] [--dry-run]
 
-A night is judged by the HARDWARE job's conclusion, never the run's: the run's includes
+A night is judged by the named jobs' conclusions, never the run's: the run's includes
 this alert job, so a night where only the alert failed would otherwise count as red.
 `success` is green, `skipped` is neither, and `cancelled` is red only when the job ran
-to its `timeout-minutes` (see verdict()). Everything else is red. A neutral night
-neither breaks nor extends a streak: the streak counts consecutive OBSERVED nights,
-and the usual neutral night is a run the concurrency group cancelled because a
-dispatch arrived, which says nothing about whether the nightly still fails.
+to its `timeout-minutes` (see verdict()). Everything else is red. With several jobs a
+night is red when any of them is red and green only when all of them are green (see
+combine()). A neutral night neither breaks nor extends a streak: the streak counts
+consecutive OBSERVED nights, and the usual neutral night is a run the concurrency
+group cancelled because a dispatch arrived, which says nothing about whether the
+nightly still fails.
 
 What it does, with the streak counted over SCHEDULED runs, newest first, this run
 included:
@@ -107,6 +111,14 @@ def failed_steps(job: dict | None) -> str:
     return ", ".join(names) or "no failed step recorded (runner lost, timed out or cancelled mid-job)"
 
 
+def failed_jobs_summary(jobs: dict[str, dict]) -> str:
+    """One job: its failed steps, as before. Several: each job that did not succeed, by name."""
+    if len(jobs) == 1:
+        return failed_steps(next(iter(jobs.values())))
+    parts = [f"{name}: {failed_steps(job)}" for name, job in jobs.items() if job.get("conclusion") != "success"]
+    return "; ".join(parts) or "every job succeeded"
+
+
 def verdict(conclusion: str | None, job: dict | None, timeout_minutes: float) -> str:
     """green / red / neutral for one night.
 
@@ -126,22 +138,38 @@ def verdict(conclusion: str | None, job: dict | None, timeout_minutes: float) ->
     return "red"
 
 
-def streak(repo: str, runs: list[dict], this_run_id: int, job_name: str, timeout_minutes: float) -> tuple[list[dict], dict | None]:
+def combine(verdicts: list[str]) -> str:
+    """One night judged by several jobs: red if any is red, green only if all are green.
+
+    A neutral job beside a green one leaves the night neutral: a leg the concurrency
+    group cancelled has not shown that the night is green.
+    """
+    if "red" in verdicts:
+        return "red"
+    if verdicts and all(v == "green" for v in verdicts):
+        return "green"
+    return "neutral"
+
+
+def job_verdict(run: dict, job: dict | None, timeout_minutes: float) -> str:
+    """One job of a past run. With no such job in the run (a startup failure, or a renamed
+    job) a failed run is still red, but a successful one proves nothing about the job (it
+    may hold only this alert job), so it is never read as green."""
+    if job is not None:
+        return verdict(job.get("conclusion"), job, timeout_minutes)
+    night = verdict(run.get("conclusion"), None, timeout_minutes)
+    return "neutral" if night == "green" else night
+
+
+def streak(repo: str, runs: list[dict], this_run_id: int, job_names: list[str],
+           timeout_minutes: float) -> tuple[list[dict], dict | None]:
     """The unbroken run of red nights ending with this (red) run, and the last green one."""
     red: list[dict] = [{"id": this_run_id, "created_at": "tonight", "html_url": None}]
     for run in runs:
         if run["id"] == this_run_id or run.get("status") != "completed":
             continue
-        job = hardware_job(repo, run["id"], job_name)
-        if job is not None:
-            night = verdict(job.get("conclusion"), job, timeout_minutes)
-        else:
-            # No hardware job in the run: a startup failure, or a renamed job. A failed
-            # run is still red, but a successful one proves nothing about the hardware
-            # (it may hold only this alert job), so it is never read as green.
-            night = verdict(run.get("conclusion"), None, timeout_minutes)
-            if night == "green":
-                night = "neutral"
+        night = combine([job_verdict(run, hardware_job(repo, run["id"], name), timeout_minutes)
+                         for name in job_names])
         if night == "red":
             red.append(run)
         elif night == "green":
@@ -165,8 +193,10 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--repo", default=os.environ.get("GITHUB_REPOSITORY", ""))
     parser.add_argument("--workflow", required=True, help="workflow file name, e.g. gpu-conformance-amd.yml")
-    parser.add_argument("--job", required=True, help="display name of the job a night is judged by")
-    parser.add_argument("--result", required=True, help="this run's result for that job (needs.<job>.result)")
+    parser.add_argument("--job", required=True, action="append",
+                        help="display name of a job a night is judged by; repeat it for several")
+    parser.add_argument("--result", required=True,
+                        help="this run's result for the job(s) (needs.<job>.result, which folds a matrix's legs together)")
     parser.add_argument("--run-id", type=int, required=True)
     parser.add_argument("--timeout-minutes", type=float, required=True,
                         help="that job's timeout-minutes: a cancelled job that ran this long timed out")
@@ -176,14 +206,23 @@ def main(argv: list[str]) -> int:
     if not args.repo:
         parser.error("--repo or GITHUB_REPOSITORY is required")
 
-    # The job has finished by the time this runs (`needs:`), so its record is final.
-    tonight_job = hardware_job(args.repo, args.run_id, args.job)
-    if tonight_job is None:
-        # This run certainly has the job the workflow names, so a miss means --job no
-        # longer matches its display name: every night would be misjudged. Say so.
-        print(f"::error::no job named {args.job!r} in run {args.run_id} -- update --job in the workflow")
-        return 1
-    tonight_verdict = verdict(args.result, tonight_job, args.timeout_minutes)
+    # The jobs have finished by the time this runs (`needs:`), so their records are final.
+    tonight_jobs: dict[str, dict] = {}
+    for name in args.job:
+        job = hardware_job(args.repo, args.run_id, name)
+        if job is None:
+            # This run certainly has the jobs the workflow names, so a miss means --job no
+            # longer matches a display name: every night would be misjudged. Say so.
+            print(f"::error::no job named {name!r} in run {args.run_id} -- update --job in the workflow")
+            return 1
+        tonight_jobs[name] = job
+    if len(tonight_jobs) == 1:
+        tonight_verdict = verdict(args.result, next(iter(tonight_jobs.values())), args.timeout_minutes)
+    else:
+        # needs.<job>.result folds a matrix's legs into one word and cannot say which leg
+        # ran into its timeout, so each leg is judged by its own record.
+        tonight_verdict = combine([verdict(job.get("conclusion"), job, args.timeout_minutes)
+                                   for job in tonight_jobs.values()])
     if tonight_verdict == "neutral":
         print(f"this run's result is {args.result!r}: neither red nor green, nothing to do")
         return 0
@@ -213,7 +252,7 @@ def main(argv: list[str]) -> int:
         return 0
 
     title = f"CI: {args.workflow} scheduled run has been red {len(red)} nights in a row"
-    tonight = f"{run_url(args.repo, args.run_id)} ({args.result}): {failed_steps(tonight_job)}"
+    tonight = f"{run_url(args.repo, args.run_id)} ({args.result}): {failed_jobs_summary(tonight_jobs)}"
     if issue is not None:
         # Below the threshold too: an issue left open by a failed close must not go stale.
         print(f"{prefix} retitle #{issue['number']} to '{title}' and comment tonight's run")
