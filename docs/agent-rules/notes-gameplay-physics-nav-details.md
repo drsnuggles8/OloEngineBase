@@ -362,7 +362,10 @@ its entity (the buoyancy box floats the entity above the waterline; the hull is 
 What follows for a system that pushes a body around:
 
 - place a point with `body->GetPosition() + rotation * localOffset` and hand it to
-  `AddForce(force, point)`: Jolt turns the body about its real centre of mass;
+  `AddForce(force, point)`: Jolt turns the body about its real centre of mass. `localOffset` is
+  in metres in the body's frame, as `SailComponent`'s centre of effort and `BoatComponent`'s
+  thrust point are. An offset authored in the entity's local units, a collider's `m_Offset`
+  for one, is multiplied by the entity's scale first, as `JoltShapes` does;
 - a hand-computed lever or point velocity (`linearVelocity + cross(angularVelocity, point - c)`)
   takes `c` from `GetCenterOfMassPosition()`. `AircraftSystem`'s landing-gear damper and
   `FluidSystem`'s body proxy do;

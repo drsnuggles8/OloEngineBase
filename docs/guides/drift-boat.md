@@ -111,9 +111,10 @@ Measured on the old and new bodies, by the sailing tests and in the editor:
    cooked asset pack.
 4. Look at it in the engine. A running editor keeps the old textures until the assets are
    reimported (`olo_asset_reimport`) or the editor is restarted.
-5. To check a packaged game, rename `Assets/Models/DriftBoat` away while it runs
-   ([notes-editor-and-assets.md](../agent-rules/notes-editor-and-assets.md) rule 23): with the
-   folder in place the game reads the textures from the project, not from the pack.
+5. To check a packaged game, rename `Assets/Models/DriftBoat` away before starting it and put it
+   back after it exits ([notes-editor-and-assets.md](../agent-rules/notes-editor-and-assets.md)
+   rule 23): with the folder in place the game reads the textures from the project, not from the
+   pack, and a game already running has them in memory.
 
 The Kenney pair stays in `Assets/Models/KenneyVehicles` for `OceanCoast.olo` and the test fixtures
 that load it.
