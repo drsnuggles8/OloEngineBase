@@ -85,6 +85,40 @@ TEST_F(SaveGameIntegrationTest, ContinueRetainsTheLoadedGeometryForMatchingAutho
     EXPECT_NE(m_Scene->GetEntityByUUID(bulbID).GetComponent<MeshComponent>().m_MeshSource, sphere);
 }
 
+TEST_F(SaveGameIntegrationTest, ContinuePreservesTheAuthoredMeshSourceHandle)
+{
+    // The scene loader sets the resource handle when resolving MeshSourceHandle.
+    // This test needs the identity and reference, without allocating a GPU mesh.
+    struct BoundMeshSource final : MeshSource
+    {
+        explicit BoundMeshSource(AssetHandle handle)
+        {
+            SetHandle(handle);
+        }
+    };
+    auto hull = m_Scene->CreateEntity("Boat Hull");
+    const UUID hullID = hull.GetUUID();
+    const Ref<MeshSource> authored = Ref<BoundMeshSource>::Create(AssetHandle(1234));
+    hull.AddComponent<MeshComponent>(authored).m_LightmapStatic = true;
+    auto transient = m_Scene->CreateEntity("Unregistered scratch mesh");
+    const UUID transientID = transient.GetUUID();
+    transient.AddComponent<MeshComponent>(Ref<MeshSource>::Create());
+
+    const auto payload = SaveGameSerializer::CaptureSceneState(*m_Scene);
+    hull.GetComponent<MeshComponent>().m_LightmapStatic = false;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    const auto& restored = m_Scene->GetEntityByUUID(hullID).GetComponent<MeshComponent>();
+    EXPECT_EQ(restored.m_MeshSource, authored);
+    EXPECT_TRUE(restored.m_LightmapStatic);
+    EXPECT_FALSE(m_Scene->GetEntityByUUID(transientID).GetComponent<MeshComponent>().m_MeshSource);
+
+    m_Scene->GetEntityByUUID(hullID).GetComponent<MeshComponent>().m_Primitive = MeshPrimitive::Cube;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    const auto& differentBinding = m_Scene->GetEntityByUUID(hullID).GetComponent<MeshComponent>();
+    EXPECT_EQ(differentBinding.m_Primitive, MeshPrimitive::None);
+    EXPECT_NE(differentBinding.m_MeshSource, authored);
+}
+
 TEST_F(SaveGameIntegrationTest, CaptureAndRestoreWithEntities)
 {
     // Create entities with various components

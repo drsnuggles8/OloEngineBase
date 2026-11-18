@@ -686,7 +686,11 @@ namespace OloEngine
             if (const auto original = scene.TryGetEntityWithUUID(id.ID); original && original->HasComponent<MeshComponent>())
             {
                 const auto& source = original->GetComponent<MeshComponent>();
-                if (mesh.m_Primitive != MeshPrimitive::None && mesh.m_Primitive == source.m_Primitive)
+                // A v50 mesh record stores its primitive and flags. For None,
+                // the scene's MeshSourceHandle supplies the asset binding.
+                // An unregistered transient mesh has no such identity.
+                const bool hasAssetHandle = source.m_MeshSource && static_cast<u64>(source.m_MeshSource->GetHandle()) != 0;
+                if (mesh.m_Primitive == source.m_Primitive && (mesh.m_Primitive != MeshPrimitive::None || hasAssetHandle))
                 {
                     mesh.m_MeshSource = source.m_MeshSource;
                 }
