@@ -188,10 +188,10 @@ namespace OloEngine::Tests
         Entity m_Fluid;
     };
 
-    // The pool's on/off contract runs in both processes, the default one and
-    // --olo-rhi=vulkan (#1710). The other cases above stay GL-only: they read
-    // GL state or call GL directly.
-    class FluidPoolEvidenceTest : public FluidVisualEvidenceTest
+    // The pool's on/off contract runs on every render path, in both processes,
+    // the default one and --olo-rhi=vulkan (#1710). The other cases above stay
+    // GL-only: they read GL state or call GL directly.
+    class FluidPoolEvidenceTest : public FluidVisualEvidenceTest, public ::testing::WithParamInterface<RenderingPath>
     {
       protected:
         [[nodiscard]] bool RunsInVulkanProcess() const override
@@ -295,9 +295,12 @@ namespace OloEngine::Tests
         }
     }
 
-    TEST_F(FluidPoolEvidenceTest, PoolRendersFromMultipleAnglesAndChangesTheFrame)
+    TEST_P(FluidPoolEvidenceTest, PoolRendersFromMultipleAnglesAndChangesTheFrame)
     {
         OLO_ENSURE_GPU_OR_SKIP();
+        Renderer3D::GetRendererSettings().Path = GetParam();
+        Renderer3D::ApplyRendererSettings();
+        const std::string cell = std::string(ToToken(GetParam())) + "_";
 
         // Let the prefilled pool seed, settle a little, and submit draws.
         RunFrames(30);
@@ -307,7 +310,7 @@ namespace OloEngine::Tests
         for (sizet i = 0; i < std::size(kPoses); ++i)
         {
             ASSERT_TRUE(Capture(kPoses[i], withFluid[i])) << kPoses[i].Name;
-            WritePng(TestRenderBackend::EvidenceName("Fluid") + kPoses[i].Name, withFluid[i], kWidth, kHeight);
+            WritePng(TestRenderBackend::EvidenceName("Fluid") + cell + kPoses[i].Name, withFluid[i], kWidth, kHeight);
 
             const f64 mean = MeanChannel(withFluid[i]);
             EXPECT_GT(mean, 5.0) << "capture " << kPoses[i].Name << " is black — nothing rendered";
@@ -321,7 +324,7 @@ namespace OloEngine::Tests
         {
             std::vector<u8> control;
             ASSERT_TRUE(Capture(kPoses[i], control)) << kPoses[i].Name;
-            WritePng(TestRenderBackend::EvidenceName("FluidOff") + kPoses[i].Name, control, kWidth, kHeight);
+            WritePng(TestRenderBackend::EvidenceName("FluidOff") + cell + kPoses[i].Name, control, kWidth, kHeight);
 
             // The fluid must actually change the image. The pool covers a
             // large fraction of every pose, so even a subtle shading pass
@@ -332,12 +335,17 @@ namespace OloEngine::Tests
             // the farthest pose measures ~0.6 — 0.3 splits them with margin
             // on both sides without depending on pool coverage per pose.
             const f64 diff = MeanAbsDiff(withFluid[i], control);
-            std::cout << "[fluid-pool] " << kPoses[i].Name << ": mean |fluid - no fluid| = " << diff << '\n';
+            std::cout << "[fluid-pool] " << cell << kPoses[i].Name << ": mean |fluid - no fluid| = " << diff << '\n';
             EXPECT_GT(diff, 0.3)
                 << "pose " << kPoses[i].Name
                 << ": with-fluid and no-fluid frames are near-identical — the composite drew nothing";
         }
     }
+
+    INSTANTIATE_TEST_SUITE_P(AllPaths, FluidPoolEvidenceTest,
+                             ::testing::Values(RenderingPath::Forward, RenderingPath::ForwardPlus, RenderingPath::Deferred),
+                             [](const ::testing::TestParamInfo<RenderingPath>& info)
+                             { return std::string(ToToken(info.param)); });
 
     // #1710: the pool above rendered NOTHING on OpenGL. FluidIntermediatesPass
     // clears its splat depth to 1.0 through ClearFramebufferDepth, a DSA depth
