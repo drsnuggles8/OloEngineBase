@@ -1,6 +1,6 @@
 # Morph deltas go on the rest surface, and a surface that moved gets no velocity
 
-Five rules, from issue #1227. They extend
+Six rules, five from issue #1227. They extend
 [skeletal-deformation-shared-output.md](skeletal-deformation-shared-output.md), which owns the bone
 half of the same surface — read that first.
 
@@ -32,6 +32,15 @@ half of the same surface — read that first.
    `MeshOptimization::CopyDeformationStreams`.** Bone influences and morph deltas are per-vertex
    arrays parallel to `m_Vertices`; a derived mesh that drops them or carries them without the remap
    is silently wrong.
+
+6. **A mesh file with morph targets and no skeleton imports through `AnimatedModel`, and a script
+   addresses its targets as `MorphTarget_<index>`.** The static importer drops morph targets the way
+   it drops bones, so `Model` records either as "the source needs the animated importer"
+   (`IsSourceRigged`, `OMeshFormat::FlagSourceRigged`) and `AssimpMeshImporter` re-routes.
+   `AnimatedModel` bakes a boneless mesh's node transform into its vertices and morph deltas. The
+   entity is a plain `MeshComponent` plus a `MorphTargetComponent`; give every authored level of
+   detail the same targets. After changing what that flag means, bump `OMeshFormat::CurrentVersion`.
+   [Details](#a-morph-only-file-and-the-cache-that-hid-it)
 
 ## Why morph motion cannot become a velocity here
 
@@ -102,6 +111,48 @@ replaced by a new one at the same address. The key is the `MorphTargetSet` the c
 strong `Ref` to, plus the vertex count — the `Ref` is what makes the address non-recyclable while the
 cache lives. A stale cache is in range for the new mesh, so reusing it writes the old mesh's rest
 positions into the new mesh's vertices: silent, and wrong.
+
+## A morph-only file and the cache that hid it
+
+Drift's sail is one mesh with ten morph targets and no bones, blended by a script from the wind.
+Three things had to be true before it moved.
+
+- **The import.** `Model` runs `aiProcess_PreTransformVertices`, which rebuilds every mesh without
+  its anim meshes, so the sail arrived as a mesh nothing could deform and its
+  `MorphTargetComponent` counted every weight as an unknown target (164 808 of them in a few
+  minutes, on `olo_skeletal_deformation_stats`). `Model` now treats `aiMesh::mNumAnimMeshes > 0`
+  like `mNumBones > 0`, and `AnimatedModel` records a morph-carrying result as needing the animated
+  route on the warm load too. `MeshAssetBoneInfluenceImport.AMorphOnlyFileKeepsItsMorphTargetsColdAndWarm`
+  pins both loads; with the routing removed it fails on the cold one.
+- **The textures.** A texture the file carries inside itself (`"*0"`, a data URI, a GLB chunk)
+  is loaded by one function for both importers, `LoadEmbeddedModelTexture`. `AnimatedModel` used
+  to read `"*0"` as a file name beside the model and find nothing, which no fixture showed while
+  only rigged files took that route, and which became a regression for every morph-only file
+  once those did. `MeshAssetBoneInfluenceProjectTest.AMorphOnlyFileKeepsItsEmbeddedTextureColdAndWarm`
+  imports a morph-only glTF with a data-URI image and fails on the cold load with the lookup
+  removed.
+- **The node.** `AnimatedModel` reads vertices in the mesh's own space and leaves a skinned mesh's
+  node to its skeleton. A mesh with no bones has no skeleton, so once morph-only files were routed
+  here, one on a moved or scaled node would have arrived at the origin in its local size, which
+  the static importer (`aiProcess_PreTransformVertices`) never did to the same file. `ProcessMesh`
+  now bakes the node's global transform into a boneless mesh: positions by the matrix, deltas by
+  its linear part, normals by its inverse transpose, and two corners of every triangle swapped
+  when the node mirrors, or the mesh would face away from its own normals.
+  `MeshAssetBoneInfluenceProjectTest.AMorphOnlyMeshOnAMovedAndScaledNodeIsImportedWhereTheNodePutsIt`
+  imports from a scaled node and from a mirrored one. A fixture that had scaled its entity to make
+  up for the missing bake (the imported corpus's morph cube, on a node scaled by 100) loses that
+  scale: look for one when a morph-only asset arrives the wrong size after this change.
+  A test that wants the STATIC route must import a file with no morph targets as well as no
+  bones: `StaticMeshCoincidentCornerImportTest` had used a morph sphere for it.
+- **The names.** `AnimatedModel::ProcessMesh` names a target `MorphTarget_<i>` to match the clip
+  channels it builds, whatever the file calls it. The file's own names (`extras.targetNames`) are
+  for people. A script therefore lists the names in file order and derives the engine's name from
+  the position; `DriftBoatDelivery` compares that list with the generator's.
+- **The cache.** The first live run still showed a rigid sail. An editor built before the change
+  was running while the files were regenerated; its file watcher re-imported them down the static
+  path and wrote a cache entry stamped with the new file's time and no flag. The new build read
+  that entry as current. Nothing a developer is likely to repeat, but a v16 static cache of any
+  morph-only file on any machine has the same shape, so the format went to v17.
 
 ## Related
 

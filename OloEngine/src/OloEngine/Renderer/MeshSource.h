@@ -663,7 +663,7 @@ namespace OloEngine
 
         bool m_Built = false;
         bool m_PreOptimized = false;
-        bool m_SourceIsRigged = false; // Source file contained bones (see IsSourceRigged)
+        bool m_SourceIsRigged = false; // Source file contained bones or morph targets (see IsSourceRigged)
         u64 m_Generation = 0;
     };
 } // namespace OloEngine

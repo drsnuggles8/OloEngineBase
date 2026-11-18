@@ -187,6 +187,16 @@ namespace OloEngine
             return glm::vec3(0.0f);
 
         auto& bodyInterface = GetBodyInterface();
+        JPH::RVec3 position = bodyInterface.GetPosition(m_BodyID);
+        return JoltUtils::FromJoltRVec3(position);
+    }
+
+    glm::vec3 JoltBody::GetCenterOfMassPosition() const
+    {
+        if (m_BodyID.IsInvalid())
+            return glm::vec3(0.0f);
+
+        auto& bodyInterface = GetBodyInterface();
         JPH::RVec3 position = bodyInterface.GetCenterOfMassPosition(m_BodyID);
         return JoltUtils::FromJoltRVec3(position);
     }
@@ -674,7 +684,7 @@ namespace OloEngine
         if (m_BodyID.IsInvalid() || !IsDynamic())
             return;
 
-        glm::vec3 bodyPosition = GetPosition();
+        glm::vec3 bodyPosition = GetCenterOfMassPosition();
         glm::vec3 direction = bodyPosition - origin;
         f32 distance = glm::length(direction);
 

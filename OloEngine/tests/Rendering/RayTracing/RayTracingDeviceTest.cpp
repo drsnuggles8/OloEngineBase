@@ -675,6 +675,85 @@ namespace OloEngine::Tests
         EXPECT_NE(m_Backend->GetTlasDeviceAddress(), 0u);
     }
 
+    TEST_F(RayTracingDevice, ARefitRequestIsRecordedAsAFullBuildIntoTheSameStorage)
+    {
+        // The Vulkan backend never updates a TLAS in place. An in-place update
+        // read past the end of the structure's storage with Drift's eight
+        // instances (a device fault one page after it, silent wherever the next
+        // page happened to be mapped), and a full build into the same storage
+        // does not: docs/agent-rules/vulkan-tlas-is-rebuilt-not-refitted.md.
+        // What a caller is told is part of the contract, because the scene's
+        // counters report it: a refit that was not one must not be counted as one.
+        ScopedVulkanRenderCommandSelection vulkanBackend;
+        m_Backend = RT::CreateVulkanRayTracingBackend();
+        ASSERT_NE(m_Backend, nullptr);
+        ASSERT_TRUE(m_Backend->GetCapabilities().Supported);
+
+        std::array<Vertex, 3> vertices{};
+        for (sizet i = 0; i < 3; ++i)
+        {
+            vertices[i].Position = kTrianglePositions[i];
+            vertices[i].TexCoord = kTriangleUVs[i];
+        }
+        const std::array<u32, 3> indices{ 0u, 1u, 2u };
+        auto vertexBuffer = VertexBuffer::Create(vertices.data(), static_cast<u32>(sizeof(vertices)));
+        auto indexBuffer = IndexBuffer::Create(const_cast<u32*>(indices.data()), 3u);
+        ASSERT_TRUE(vertexBuffer && indexBuffer);
+
+        const RT::GeometryKey key{ 0u, 1u };
+        RT::BlasBuildRequest build{};
+        build.Key = key;
+        build.Class = RT::GeometryClass::Static;
+        build.VertexAddress = vertexBuffer->GetDeviceAddress();
+        build.IndexAddress = indexBuffer->GetDeviceAddress();
+        build.VertexStride = static_cast<u32>(sizeof(Vertex));
+        build.VertexCount = 3;
+        build.IndexCount = 3;
+
+        // Eight instances of one geometry, as Drift's boat had: enough that
+        // the structure is more than a single node.
+        std::array<RT::InstanceRecord, 8> instances{};
+        for (sizet i = 0; i < instances.size(); ++i)
+        {
+            instances[i].Geometry = key;
+            instances[i].Mask = RT::kInstanceMaskAll;
+            instances[i].ForceOpaque = true;
+            instances[i].CustomIndex = static_cast<u32>(i);
+            instances[i].Transform[0].w = static_cast<f32>(i) * 3.0f;
+        }
+
+        const std::array<RT::BlasBuildRequest, 1> builds{ build };
+        RT::TlasBuildReason first = RT::TlasBuildReason::Count;
+        RecordAndSubmit(
+            [&]
+            {
+                EXPECT_EQ(m_Backend->RecordBlasBuilds(builds), 1u);
+                first = m_Backend->RecordTlasBuild(instances, RT::TlasBuildReason::FirstBuild);
+                m_Backend->RecordBuildToReadBarrier();
+            });
+        EXPECT_EQ(first, RT::TlasBuildReason::FirstBuild);
+        const u64 builtAt = m_Backend->GetTlasDeviceAddress();
+        ASSERT_NE(builtAt, 0u);
+
+        // The frame after: nothing changed but the transforms, which is the
+        // request a scene makes for every steady frame.
+        for (auto& instance : instances)
+        {
+            instance.Transform[1].w += 0.25f;
+        }
+        RT::TlasBuildReason second = RT::TlasBuildReason::Count;
+        RecordAndSubmit(
+            [&]
+            {
+                static_cast<void>(m_Backend->RecordBlasBuilds({}));
+                second = m_Backend->RecordTlasBuild(instances, RT::TlasBuildReason::Update);
+                m_Backend->RecordBuildToReadBarrier();
+            });
+        EXPECT_EQ(second, RT::TlasBuildReason::InPlaceRebuild)
+            << "the backend reported " << RT::ToString(second) << " for a refit request";
+        EXPECT_EQ(m_Backend->GetTlasDeviceAddress(), builtAt) << "an unchanged instance count keeps its storage";
+    }
+
     TEST_F(RayTracingDevice, RoutineSceneMutationNeverIdlesTheDevice)
     {
         // "No routine scene update calls vkDeviceWaitIdle." Asserted the only

@@ -29,6 +29,10 @@
 //   * The asset-pack round trip (what a shipped build reads) keeps every triangle.
 //   * A glTF LINES primitive, which Triangulate does not touch, is dropped from the
 //     static import rather than spliced into a neighbouring triangle list.
+//   * The issue's own file, the sphere WITH its morph target, still arrives whole. A
+//     file with morph targets and no bones is handed on to AnimatedModel now (the static
+//     importer would discard the targets), so the static-route tests above import the
+//     same sphere without the target: that is the file the static route still owns.
 //
 // Model::LoadModel builds GPU buffers, so these need a GL context and SKIP without one,
 // like their neighbour MeshAssetBoneInfluenceImportTest.
@@ -72,7 +76,8 @@ namespace OloEngine::Tests
     namespace
     {
         // The generator from the issue (make_morph_sphere.py), ported: a 64x48 UV sphere
-        // with POSITION/NORMAL/TANGENT/TEXCOORD_0 and one POSITION morph target.
+        // with POSITION/NORMAL/TANGENT/TEXCOORD_0 and, when asked for, one POSITION morph
+        // target.
         constexpr u32 kSegments = 64;
         constexpr u32 kRings = 48;
         constexpr u32 kTriangleCount = kSegments * kRings * 2;
@@ -210,8 +215,15 @@ namespace OloEngine::Tests
             return out;
         }
 
+        enum class MorphTarget
+        {
+            None, // a static mesh: MeshImporterRegistry returns Model's import
+            Smile // the issue's file: MeshImporterRegistry hands it on to AnimatedModel
+        };
+
         // Writes <dir>/MorphSphere.gltf + .bin (+ PoreNormal.png) and returns the .gltf path.
-        std::filesystem::path WriteMorphSphere(const std::filesystem::path& dir, SphereVariant variant)
+        std::filesystem::path WriteMorphSphere(const std::filesystem::path& dir, SphereVariant variant,
+                                               MorphTarget morphTarget = MorphTarget::None)
         {
             const SphereGeometry g = BuildSphere();
             const std::vector<f32>& positions = g.Positions;
@@ -271,12 +283,15 @@ namespace OloEngine::Tests
                 R"({{"bufferView":3,"componentType":5126,"count":{},"type":"VEC2"}},)"
                 R"({{"bufferView":4,"componentType":5126,"count":{},"type":"VEC3","min":[0,-0.1,0],"max":[0,0,0.2]}},)"
                 R"({{"bufferView":5,"componentType":{},"count":{},"type":"SCALAR"}}],)"
-                R"("meshes":[{{"name":"MorphSphere","weights":[0.0],"extras":{{"targetNames":["Smile"]}},)"
+                R"("meshes":[{{"name":"MorphSphere",{})"
                 R"("primitives":[{{"attributes":{{"POSITION":0,"NORMAL":1,"TANGENT":2,"TEXCOORD_0":3}},)"
-                R"("indices":5,{}"targets":[{{"POSITION":4}}]}}]}}],)"
+                R"("indices":5{}{}}}]}}],)"
                 R"("nodes":[{{"mesh":0,"name":"MorphSphere"}}],"scenes":[{{"nodes":[0]}}],"scene":0{}}})",
                 buffer.size(), viewsJson, vertexCount, vertexCount, vertexCount, vertexCount, vertexCount,
-                indexComponentType, indices.size(), variant.WithMaterial ? R"("material":0,)" : "",
+                indexComponentType, indices.size(),
+                morphTarget == MorphTarget::Smile ? R"("weights":[0.0],"extras":{"targetNames":["Smile"]},)" : "",
+                variant.WithMaterial ? R"(,"material":0)" : "",
+                morphTarget == MorphTarget::Smile ? R"(,"targets":[{"POSITION":4}])" : "",
                 variant.WithMaterial
                     ? R"(,"images":[{"uri":"PoreNormal.png"}],"textures":[{"source":0}],)"
                       R"("materials":[{"name":"Skin","pbrMetallicRoughness":{"baseColorFactor":[0.66,0.49,0.42,1.0],)"
@@ -521,6 +536,23 @@ namespace OloEngine::Tests
         ASSERT_TRUE(result.Succeeded()) << result.Error;
         ASSERT_TRUE(result.Source);
         EXPECT_FALSE(result.Source->IsSourceRigged()) << "no bones in the file — this must be the STATIC route";
+        EXPECT_TRUE(IsTheSourceSphere(*result.Source));
+    }
+
+    // The file the issue was filed with. Its morph target sends it past the static
+    // importer to AnimatedModel, and it must come out of the registry whole either way.
+    TEST_P(StaticMeshCoincidentCornerImportTest, TheSphereWithItsMorphTargetKeepsEveryTriangle)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const std::filesystem::path path = WriteMorphSphere(AssetsDir(), GetParam(), MorphTarget::Smile);
+        MakeColdImport(path);
+
+        MeshImportResult const result = MeshImporterRegistry::Get().Import(path);
+        ASSERT_TRUE(result.Succeeded()) << result.Error;
+        ASSERT_TRUE(result.Source);
+        EXPECT_TRUE(result.Source->IsSourceRigged()) << "a morph target and no bones: this must be the ANIMATED route";
+        EXPECT_TRUE(result.Source->HasMorphTargets()) << "the import dropped the morph target";
         EXPECT_TRUE(IsTheSourceSphere(*result.Source));
     }
 

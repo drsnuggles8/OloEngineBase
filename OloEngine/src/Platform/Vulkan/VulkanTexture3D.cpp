@@ -100,9 +100,13 @@ namespace OloEngine
         registryInfo.MipLevels = 1;
         registryInfo.ArrayLayers = 1;
         registryInfo.ViewType = VK_IMAGE_VIEW_TYPE_3D;
-        // §4f sampler table: 3D volumes are caller-supplied on GL; the
-        // engine's volumes (froxel fog, noise) all clamp.
-        registryInfo.AddressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        // §4f sampler table: a 3D volume's wrap is the caller's, as on GL
+        // (OpenGLTexture3D sets GL_REPEAT or GL_CLAMP_TO_EDGE from the same
+        // flag). The froxel, groom and shadow volumes clamp; the cloud noise
+        // repeats, and a raymarch that tiles it over kilometres reads one
+        // smeared edge texel everywhere past the first tile if this clamps.
+        registryInfo.AddressMode =
+            spec.Repeat ? VK_SAMPLER_ADDRESS_MODE_REPEAT : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
         VulkanImageInfoRegistry::Get().Register(m_Image, registryInfo);
 
         m_RHIHandle.Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(m_Image), RHI::Backend::Vulkan);

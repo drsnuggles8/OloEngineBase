@@ -21,6 +21,7 @@
 
 #include <Jolt/Physics/Collision/Shape/BoxShape.h>
 #include <Jolt/Physics/Collision/Shape/CapsuleShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/SphereShape.h>
 
 #include <glm/glm.hpp>
@@ -122,7 +123,7 @@ namespace OloEngine
         [[nodiscard]] FluidBodyProxy BuildProxy(const Ref<JoltBody>& body)
         {
             FluidBodyProxy proxy{};
-            const glm::vec3 com = body->GetPosition(); // centre of mass
+            const glm::vec3 com = body->GetCenterOfMassPosition();
             const glm::quat rot = body->GetRotation();
             // Only dynamic bodies may be asked for mass/velocities: Jolt's
             // Body::GetMotionProperties() asserts !IsStatic() in Debug (and the
@@ -134,26 +135,34 @@ namespace OloEngine
             FluidBodyProxyShape shapeType = FluidBodyProxyShape::Box;
             glm::vec3 halfExtents(0.5f);
 
-            if (JPH::RefConst<JPH::Shape> shape = body->GetShape())
+            if (JPH::RefConst<JPH::Shape> held = body->GetShape())
             {
+                // A lone collider with an offset is its primitive inside a translation
+                // (JoltShapes::PlaceLoneShape). The body's centre of mass is that
+                // primitive's centre, so the proxy is the primitive, placed there.
+                const JPH::Shape* shape = held.GetPtr();
+                if (shape->GetSubType() == JPH::EShapeSubType::RotatedTranslated)
+                {
+                    shape = static_cast<const JPH::RotatedTranslatedShape*>(shape)->GetInnerShape();
+                }
                 switch (shape->GetSubType())
                 {
                     case JPH::EShapeSubType::Sphere:
                     {
                         shapeType = FluidBodyProxyShape::Sphere;
-                        halfExtents = glm::vec3(static_cast<const JPH::SphereShape*>(shape.GetPtr())->GetRadius(), 0.0f, 0.0f);
+                        halfExtents = glm::vec3(static_cast<const JPH::SphereShape*>(shape)->GetRadius(), 0.0f, 0.0f);
                         break;
                     }
                     case JPH::EShapeSubType::Capsule:
                     {
-                        const auto* capsule = static_cast<const JPH::CapsuleShape*>(shape.GetPtr());
+                        const auto* capsule = static_cast<const JPH::CapsuleShape*>(shape);
                         shapeType = FluidBodyProxyShape::Capsule;
                         halfExtents = glm::vec3(capsule->GetRadius(), capsule->GetHalfHeightOfCylinder(), 0.0f);
                         break;
                     }
                     case JPH::EShapeSubType::Box:
                     {
-                        const JPH::Vec3 he = static_cast<const JPH::BoxShape*>(shape.GetPtr())->GetHalfExtent();
+                        const JPH::Vec3 he = static_cast<const JPH::BoxShape*>(shape)->GetHalfExtent();
                         halfExtents = glm::vec3(he.GetX(), he.GetY(), he.GetZ());
                         break;
                     }
@@ -241,7 +250,7 @@ namespace OloEngine
                 c.Body = hit.m_HitBody;
                 c.Id = hit.m_HitEntity;
                 c.Dynamic = hit.m_HitBody->IsDynamic();
-                const glm::vec3 d = hit.m_HitBody->GetPosition() - center;
+                const glm::vec3 d = hit.m_HitBody->GetCenterOfMassPosition() - center;
                 c.Dist2 = glm::dot(d, d);
                 candidates.push_back(c);
             }

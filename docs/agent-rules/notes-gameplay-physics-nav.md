@@ -28,6 +28,7 @@ Accumulated gotchas from dialogue/quest, inventory, Jolt joints and ragdolls, De
 22. **A navmesh bake skips geometry that moves and reads the terrain GPU-free.** Nav agents, animated or skinned bodies, character controllers and non-static bodies (and their children) are left out; a single-tile terrain's heights come from `Scene::CpuTerrainHeights`. [Details](notes-gameplay-physics-nav-details.md#13-navmesh-bake-no-moving-geometry-and-it-builds-its-own-ground-issue-1559)
 23. **A nav agent on root motion is turned by navigation and moved by its clip.** `m_UseRootMotion` keeps it out of the crowd; `Navigation` runs `.After("RootMotionApply")`. [Details](notes-gameplay-physics-nav-details.md#14-steering-on-root-motion-issue-1559)
 24. **Create every Box2D world through `Physics2D::UseEngineTaskSystem` (`Scene/Physics2DTasks.h`), so Box2D runs on the engine scheduler.** [Details](notes-gameplay-physics-nav-details.md#15-box2d-runs-on-the-engine-scheduler)
+25. **A body's position is its entity's origin; ask for the centre of mass by name.** `JoltBody::GetPosition` and `SetPosition` address the origin, `GetCenterOfMassPosition` the centre of mass, and the two differ as soon as a collider has an offset. Place a force with `origin + rotation * localOffset`, the offset in metres (scale an entity-local one first); take a lever or a point velocity from the centre of mass. [Details](notes-gameplay-physics-nav-details.md#16-a-bodys-origin-is-not-its-centre-of-mass)
 
 ---
 

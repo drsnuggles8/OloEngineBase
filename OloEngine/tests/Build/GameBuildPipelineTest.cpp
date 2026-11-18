@@ -59,6 +59,27 @@ namespace
         output.write(reinterpret_cast<const char*>(signature.data()), static_cast<std::streamsize>(signature.size()));
     }
 
+    // A binary glTF holding only its JSON chunk: the 12-byte header (magic,
+    // version 2, total length) and one chunk (length, type "JSON", the text
+    // padded with spaces to a multiple of four), all little-endian.
+    void WriteGlb(const std::filesystem::path& path, std::string json)
+    {
+        json.resize((json.size() + 3u) & ~sizet{ 3 }, ' ');
+        const auto word = [](std::ofstream& out, u32 value)
+        {
+            const std::array<char, 4> bytes{ static_cast<char>(value & 0xffu), static_cast<char>((value >> 8) & 0xffu),
+                                             static_cast<char>((value >> 16) & 0xffu), static_cast<char>((value >> 24) & 0xffu) };
+            out.write(bytes.data(), 4);
+        };
+        std::ofstream output(path, std::ios::binary);
+        word(output, 0x46546C67u); // "glTF"
+        word(output, 2u);
+        word(output, static_cast<u32>(12u + 8u + json.size()));
+        word(output, static_cast<u32>(json.size()));
+        word(output, 0x4E4F534Au); // "JSON"
+        output.write(json.data(), static_cast<std::streamsize>(json.size()));
+    }
+
 #ifdef OLO_PLATFORM_LINUX
     std::string ShellQuote(const std::filesystem::path& path)
     {
@@ -524,6 +545,15 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
         << R"("images":[{"uri":"rock_albedo.png"}]})";
     std::ofstream(project / "Assets/Models/Rock/rock data.bin") << "bytes";
     WritePngSignature(project / "Assets/Models/Rock/rock_albedo.png");
+    // A binary glTF keeps its mesh inside the file but may still name its
+    // images outside it: every kit model under Models/KenneyVehicles does.
+    fs::create_directories(project / "Assets/Models/Kit/Textures");
+    WriteGlb(project / "Assets/Models/Kit/ship.glb",
+             R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":4}],"images":[{"uri":"Textures/colormap.png"}]})");
+    WritePngSignature(project / "Assets/Models/Kit/Textures/colormap.png");
+    // Not a glTF at all, whatever it is called: named by a scene, staged, and
+    // read for nothing.
+    std::ofstream(project / "Assets/Models/Kit/broken.glb", std::ios::binary) << "glTF";
     std::ofstream(project / "Assets/Models/Unused/unused.obj") << "v 0 0 0\n";
     fs::create_directories(project / "Assets/Audio");
     std::ofstream(project / "Assets/Audio/Wind.ogg") << "ogg";
@@ -558,6 +588,12 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
                             "        - AlbedoPath: ../outside/texture.png\n"
                             "    SpriteRendererComponent:\n"
                             "      TexturePath: Resources/Icons/marker.png\n"
+                            "  - Entity: 5\n"
+                            "    ModelComponent:\n"
+                            "      FilePath: Assets/Models/Kit/ship.glb\n"
+                            "  - Entity: 6\n"
+                            "    ModelComponent:\n"
+                            "      FilePath: Assets/Models/Kit/broken.glb\n"
                             "  - Entity: 4\n"
                             "    MaterialA: Assets/Shared/Tex.png\n"
                             "    MaterialB: assets/shared/tex.png\n"
@@ -583,6 +619,9 @@ TEST(GameBuildPipelineTest, SceneReferencedContentStagesEveryFileAScenePathOpens
         fs::path{ "Assets/Models/Rock/rock.gltf" },
         fs::path{ "Assets/Models/Rock/rock data.bin" },
         fs::path{ "Assets/Models/Rock/rock_albedo.png" },
+        fs::path{ "Assets/Models/Kit/ship.glb" },
+        fs::path{ "Assets/Models/Kit/Textures/colormap.png" }, // named in the .glb's JSON chunk
+        fs::path{ "Assets/Models/Kit/broken.glb" },
         fs::path{ "Assets/Skies/Day/left.png" },
         fs::path{ "Assets/Skies/Day/right.png" },
         fs::path{ "assets/textures/leaf_normal.png" },

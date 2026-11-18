@@ -195,6 +195,12 @@ namespace OloEngine
         static ShapeType GetShapeType(const JPH::Shape* shape);
         static const char* GetShapeTypeName(const JPH::Shape* shape);
 
+        // How an entity's scale reaches a primitive collider. Public so that whatever
+        // draws a collider (the editor gizmo) sizes it exactly as the simulation does.
+        static glm::vec3 ApplyScaleToBoxExtents(const glm::vec3& halfExtents, const glm::vec3& scale);
+        static f32 ApplyScaleToSphereRadius(f32 radius, const glm::vec3& scale);
+        static std::pair<f32, f32> ApplyScaleToCapsule(f32 radius, f32 halfHeight, const glm::vec3& scale);
+
         // Delete constructors and assignment operators to prevent instantiation
         JoltShapes() = delete;
         ~JoltShapes() = delete;
@@ -233,11 +239,6 @@ namespace OloEngine
         static bool ValidateSphereDimensions(f32 radius);
         static bool ValidateCapsuleDimensions(f32 radius, f32 halfHeight);
         static bool ValidateMeshAsset(AssetHandle meshAsset);
-
-        // Scaling helpers
-        static glm::vec3 ApplyScaleToBoxExtents(const glm::vec3& halfExtents, const glm::vec3& scale);
-        static f32 ApplyScaleToSphereRadius(f32 radius, const glm::vec3& scale);
-        static std::pair<f32, f32> ApplyScaleToCapsule(f32 radius, f32 halfHeight, const glm::vec3& scale);
 
       private:
         static std::atomic<bool> s_Initialized;

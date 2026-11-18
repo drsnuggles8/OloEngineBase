@@ -55,9 +55,12 @@
 #include "OloEngine/Serialization/MeshBinaryFormat.h"
 #include "OloEngine/Serialization/MeshBinarySerializer.h"
 
+#include "OloEngine/Animation/MorphTargets/MorphTarget.h"
+
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 
 #ifndef OLO_TEST_EDITOR_ROOT
@@ -244,6 +247,46 @@ namespace OloEngine::Tests
                                                  "future load of it through the animated importer and cost it "
                                                  "its cooked cluster DAG";
         EXPECT_TRUE(MaterialsAddressEverySubmesh(source));
+    }
+
+    // ── Morph targets are the same routing question as bones ────────────────────────────
+    // Model drops them exactly as it drops bones (aiProcess_PreTransformVertices rebuilds
+    // every mesh without its anim meshes), so a file with morph targets and no skeleton -- a
+    // sail, a flag -- reached its MeshComponent as a mesh nothing could deform. Cold and
+    // warm are asked separately for the reason the rigged tests give: the warm route is
+    // decided from a cache header, and the header has to say "come back here".
+    TEST(MeshAssetBoneInfluenceImport, AMorphOnlyFileKeepsItsMorphTargetsColdAndWarm)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        const std::filesystem::path path = std::filesystem::path{ OLO_TEST_EDITOR_ROOT } /
+                                           "SandboxProject/Assets/Models/DriftBoat/DriftBoatSail_LOD2.gltf";
+        ASSERT_TRUE(std::filesystem::exists(path)) << "the Drift boat's sail is missing: " << path.string();
+
+        MakeColdImport(path);
+
+        for (const char* pass : { "cold", "warm" })
+        {
+            SCOPED_TRACE(pass);
+            MeshImportResult const result = MeshImporterRegistry::Get().Import(path);
+            ASSERT_TRUE(result.Succeeded()) << result.Error;
+            ASSERT_TRUE(result.Source);
+
+            const MeshSource& source = *result.Source;
+            EXPECT_FALSE(source.HasBoneInfluences()) << "the sail has no skeleton";
+            ASSERT_TRUE(source.HasMorphTargets())
+                << "the file's morph targets did not survive the import: the mesh cannot be deformed";
+            const Ref<MorphTargetSet>& targets = source.GetMorphTargets();
+            EXPECT_EQ(targets->GetTargetCount(), 10u);
+            EXPECT_EQ(targets->CheckCompatibility(static_cast<u32>(source.GetVertices().Num())),
+                      MorphTargetSet::ECompatibility::Compatible)
+                << "the targets do not span the vertices that were imported with them";
+            EXPECT_TRUE(source.IsSourceRigged())
+                << "the cache header does not say this file needs the animated importer, so the next, "
+                   "warm load takes the static path and drops the targets";
+            EXPECT_TRUE(MaterialsAddressEverySubmesh(source));
+        }
+        EXPECT_TRUE(MeshCache::IsCachedSourceRigged(path, AnimatedModel::kCachePrefix));
     }
 
     // ── #1278's new expectation: influences must survive the auto-LOD chain ─────────────
@@ -465,5 +508,165 @@ namespace OloEngine::Tests
             << "a STALE cache still answers the routing question. A mesh re-exported without its rig "
                "would keep being handed to AnimatedModel because a cache entry that no longer matches "
                "the file says it has bones.";
+    }
+
+    // The animated route has to bring a file's EMBEDDED textures with it. AnimatedModel
+    // read "*0" as a file name beside the model and found nothing, which stayed out of
+    // sight while only rigged files went that way (the rigged fixtures all name external
+    // images) and became a regression for every morph-only file the moment those were
+    // routed there: a sail or a flag that embedded its map kept its targets and lost its
+    // colour. One triangle, one morph target, one 4x4 PNG as a data URI.
+    TEST_F(MeshAssetBoneInfluenceProjectTest, AMorphOnlyFileKeepsItsEmbeddedTextureColdAndWarm)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // In the fixture's project, because the cook writes the texture into the active
+        // project's cache: with none mounted that is the repository's own assets folder,
+        // and the test would leave a file outside its temp directory.
+        const std::filesystem::path path = m_TempDir / "Assets" / "morph_only_embedded_texture.gltf";
+        {
+            std::ofstream out(path, std::ios::binary | std::ios::trunc);
+            ASSERT_TRUE(out.good()) << path.string();
+            out
+                << R"gltf({"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"mesh":0,"name":"Flag"}],"meshes":[{"n)gltf"
+                << R"gltf(ame":"Flag","primitives":[{"attributes":{"POSITION":0,"TEXCOORD_0":1},"indices":3,"material":0,"targets":[{"PO)gltf"
+                << R"gltf(SITION":2}]}],"weights":[0.0],"extras":{"targetNames":["Lift"]}}],"materials":[{"name":"FlagCloth","pbrMetalli)gltf"
+                << R"gltf(cRoughness":{"baseColorTexture":{"index":0},"metallicFactor":0.0}}],"textures":[{"source":0}],"images":[{"uri")gltf"
+                << R"gltf(:"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAIAAAAmkwkpAAAAGklEQVR4nGM4oSEnZ3MCQjLAWSc05BhwygAAx0)gltf"
+                << R"gltf(MRgeQ5GPwAAAAASUVORK5CYII=","name":"FlagColour"}],"buffers":[{"byteLength":104,"uri":"data:application/octet-s)gltf"
+                << R"gltf(tream;base64,AAAAAAAAAAAAAAAAAACAPwAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAIA/AAAAAAAAAAAAAAA/A)gltf"
+                << R"gltf(AAAAAAAAAAAAAA/AAAAAAAAAAAAAAA/AAABAAIAAAA="}],"bufferViews":[{"buffer":0,"byteOffset":0,"byteLength":36,"targ)gltf"
+                << R"gltf(et":34962},{"buffer":0,"byteOffset":36,"byteLength":24,"target":34962},{"buffer":0,"byteOffset":60,"byteLength)gltf"
+                << R"gltf(":36},{"buffer":0,"byteOffset":96,"byteLength":6,"target":34963}],"accessors":[{"bufferView":0,"componentType")gltf"
+                << R"gltf(:5126,"count":3,"type":"VEC3","min":[0,0,0],"max":[1,1,0]},{"bufferView":1,"componentType":5126,"count":3,"typ)gltf"
+                << R"gltf(e":"VEC2"},{"bufferView":2,"componentType":5126,"count":3,"type":"VEC3","min":[0,0,0.5],"max":[0,0,0.5]},{"buf)gltf"
+                << R"gltf(ferView":3,"componentType":5123,"count":3,"type":"SCALAR"}]})gltf";
+        }
+
+        MakeColdImport(path);
+
+        for (const char* pass : { "cold", "warm" })
+        {
+            SCOPED_TRACE(pass);
+            MeshImportResult const result = MeshImporterRegistry::Get().Import(path);
+            ASSERT_TRUE(result.Succeeded()) << result.Error;
+            ASSERT_TRUE(result.Source);
+
+            const MeshSource& source = *result.Source;
+            ASSERT_TRUE(source.HasMorphTargets()) << "the file did not take the animated route";
+            EXPECT_EQ(source.GetMorphTargets()->GetTargetCount(), 1u);
+            ASSERT_TRUE(MaterialsAddressEverySubmesh(source));
+
+            const Ref<Material>& material = source.GetImportedMaterials()[source.GetSubmeshes()[0].m_MaterialIndex];
+            const Ref<Texture2D> albedo = material->GetAlbedoMap();
+            ASSERT_TRUE(albedo) << "the embedded base-colour texture was not loaded: the material has no albedo map";
+            EXPECT_TRUE(albedo->IsLoaded());
+            EXPECT_EQ(albedo->GetWidth(), 4u);
+            EXPECT_EQ(albedo->GetHeight(), 4u);
+
+            // The second pass is only the warm one if this pass left an animated cache that
+            // says to come back this way; without it the loop would run the cold route twice
+            // and pass, having never rebuilt a material from the cache.
+            ASSERT_TRUE(MeshCache::IsMeshCacheValid(path, AnimatedModel::kCachePrefix))
+                << "the " << pass << " import left no valid animated cache";
+            ASSERT_TRUE(MeshCache::IsCachedSourceRigged(path, AnimatedModel::kCachePrefix))
+                << "the " << pass << " import's cache does not route the next load to the animated importer";
+        }
+        MakeColdImport(path);
+    }
+
+    // A morph-only mesh takes its node's transform through the animated importer, as the
+    // static importer (aiProcess_PreTransformVertices) always gave it. AnimatedModel reads
+    // vertices in the mesh's own space and leaves a skinned mesh's node to its skeleton; a
+    // mesh with no bones has no skeleton, so before this a morph-only mesh on a moved or
+    // scaled node arrived at the origin in its local size once it was routed here.
+    TEST_F(MeshAssetBoneInfluenceProjectTest, AMorphOnlyMeshOnAMovedAndScaledNodeIsImportedWhereTheNodePutsIt)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        // One triangle in the XY plane with one morph target that lifts it a metre along Z,
+        // on a node moved ten metres along X and scaled by two. The second pass mirrors the
+        // node in X as well: the triangle must still face the way its normal points.
+        for (const f32 scaleX : { 2.0f, -2.0f })
+        {
+            SCOPED_TRACE(scaleX > 0.0f ? "scaled node" : "mirrored node");
+            const std::string stem = scaleX > 0.0f ? "morph_on_a_node" : "morph_on_a_mirrored_node";
+            const std::filesystem::path source = m_TempDir / "Assets" / (stem + ".gltf");
+            {
+                const f32 positions[9] = { 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+                const f32 normals[9] = { 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f };
+                const f32 deltas[9] = { 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 1.0f };
+                const u16 indices[4] = { 0, 1, 2, 0 }; // the fourth pads the view to four bytes
+                std::ofstream bin(m_TempDir / "Assets" / (stem + ".bin"), std::ios::binary);
+                bin.write(reinterpret_cast<const char*>(positions), sizeof(positions));
+                bin.write(reinterpret_cast<const char*>(normals), sizeof(normals));
+                bin.write(reinterpret_cast<const char*>(deltas), sizeof(deltas));
+                bin.write(reinterpret_cast<const char*>(indices), sizeof(indices));
+                ASSERT_TRUE(bin.good());
+
+                std::ofstream gltf(source);
+                gltf << R"({
+  "asset": { "version": "2.0" },
+  "scene": 0,
+  "scenes": [ { "nodes": [ 0 ] } ],
+  "nodes": [ { "mesh": 0, "translation": [ 10.0, 0.0, 0.0 ], "scale": [ )"
+                     << scaleX << R"(, 2.0, 2.0 ] } ],
+  "meshes": [ { "primitives": [ { "attributes": { "POSITION": 0, "NORMAL": 1 }, "indices": 3,
+                                 "targets": [ { "POSITION": 2 } ] } ], "weights": [ 0.0 ] } ],
+  "buffers": [ { "uri": ")"
+                     << stem << R"(.bin", "byteLength": 116 } ],
+  "bufferViews": [
+    { "buffer": 0, "byteOffset": 0, "byteLength": 36, "target": 34962 },
+    { "buffer": 0, "byteOffset": 36, "byteLength": 36, "target": 34962 },
+    { "buffer": 0, "byteOffset": 72, "byteLength": 36, "target": 34962 },
+    { "buffer": 0, "byteOffset": 108, "byteLength": 6, "target": 34963 } ],
+  "accessors": [
+    { "bufferView": 0, "componentType": 5126, "count": 3, "type": "VEC3", "min": [ 0.0, 0.0, 0.0 ], "max": [ 1.0, 1.0, 0.0 ] },
+    { "bufferView": 1, "componentType": 5126, "count": 3, "type": "VEC3" },
+    { "bufferView": 2, "componentType": 5126, "count": 3, "type": "VEC3", "min": [ 0.0, 0.0, 1.0 ], "max": [ 0.0, 0.0, 1.0 ] },
+    { "bufferView": 3, "componentType": 5123, "count": 3, "type": "SCALAR" } ]
+})" << '\n';
+                ASSERT_TRUE(gltf.good());
+            }
+
+            MakeColdImport(source);
+            MeshImportResult const result = MeshImporterRegistry::Get().Import(source);
+            ASSERT_TRUE(result.Succeeded()) << result.Error;
+            ASSERT_TRUE(result.Source);
+            const MeshSource& imported = *result.Source;
+            ASSERT_TRUE(imported.HasMorphTargets()) << "the morph target did not survive: this is not the animated import";
+            ASSERT_EQ(imported.GetVertices().Num(), 3);
+            ASSERT_EQ(imported.GetIndices().Num(), 3);
+
+            glm::vec3 lo(std::numeric_limits<f32>::max());
+            glm::vec3 hi(std::numeric_limits<f32>::lowest());
+            for (const Vertex& vertex : imported.GetVertices())
+            {
+                lo = glm::min(lo, vertex.Position);
+                hi = glm::max(hi, vertex.Position);
+            }
+            EXPECT_NEAR(std::min(std::abs(lo.x - 10.0f), std::abs(hi.x - 10.0f)), 0.0f, 1.0e-4f)
+                << "the mesh was imported at the origin, without its node's translation";
+            EXPECT_NEAR(hi.x - lo.x, 2.0f, 1.0e-4f) << "the mesh was imported without its node's scale";
+            EXPECT_NEAR(scaleX > 0.0f ? hi.x : lo.x, 10.0f + scaleX, 1.0e-4f);
+            EXPECT_NEAR(hi.y, 2.0f, 1.0e-4f);
+
+            // The triangle faces where its normals point, mirrored or not.
+            const auto& vertices = imported.GetVertices();
+            const auto& indices = imported.GetIndices();
+            const glm::vec3 face = glm::cross(vertices[static_cast<i32>(indices[1])].Position - vertices[static_cast<i32>(indices[0])].Position,
+                                              vertices[static_cast<i32>(indices[2])].Position - vertices[static_cast<i32>(indices[0])].Position);
+            EXPECT_GT(glm::dot(face, vertices[0].Normal), 0.0f)
+                << "the node mirrors the mesh and the triangle was not turned back: it faces away from its own normal";
+            EXPECT_NEAR(vertices[0].Normal.z, 1.0f, 1.0e-4f);
+
+            const auto& target = imported.GetMorphTargets()->Targets[0];
+            ASSERT_EQ(target.Vertices.size(), 3u);
+            for (const MorphTargetVertex& delta : target.Vertices)
+            {
+                EXPECT_NEAR(delta.DeltaPosition.x, 0.0f, 1.0e-4f) << "a delta took the node's translation: it is a difference, not a point";
+                EXPECT_NEAR(delta.DeltaPosition.z, 2.0f, 1.0e-4f) << "the morph delta was not scaled with the mesh it moves";
+            }
+        }
     }
 } // namespace OloEngine::Tests

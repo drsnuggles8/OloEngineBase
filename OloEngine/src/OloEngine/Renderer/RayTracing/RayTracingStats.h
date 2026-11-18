@@ -29,8 +29,8 @@ namespace OloEngine::RayTracing
         u32 BlasRefits = 0;       ///< Update-mode builds (deformed geometry).
         u32 BlasCompactions = 0;  ///< Compaction copies recorded this frame.
         u32 BlasRetired = 0;      ///< BLASes handed to deferred reclaim.
-        u32 TlasBuilds = 0;       ///< Full TLAS rebuilds (0 or 1 in practice).
-        u32 TlasUpdates = 0;      ///< TLAS refits (0 or 1 in practice).
+        u32 TlasBuilds = 0;       ///< Full TLAS builds, an in-place rebuild included (0 or 1 in practice).
+        u32 TlasUpdates = 0;      ///< TLAS refits (0 or 1 in practice; always 0 on the Vulkan backend, which rebuilds).
         u32 InstancesTraced = 0;  ///< Instances written into the TLAS build.
         u32 InstancesSkipped = 0; ///< Live GPU Scene instances that could not be traced.
         /// Skinned-surface builds held back because the deformation producer

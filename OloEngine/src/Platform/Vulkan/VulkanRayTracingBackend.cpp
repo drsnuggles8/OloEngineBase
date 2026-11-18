@@ -233,11 +233,9 @@ namespace OloEngine::RayTracing
         std::array<DeviceBuffer, kFramesInFlight> m_TlasInstances;
         VkDeviceAddress m_TlasAddress = 0;
         u32 m_TlasCapacity = 0;
-        // The primitiveCount the CURRENT TLAS was last fully built with. An
-        // update must use exactly this value
-        // (VUID-vkCmdBuildAccelerationStructuresKHR-pInfos-03407): a refit
-        // with a different count is invalid usage that leaves the structure
-        // undefined, and shrinking hits it just as readily as growing.
+        // The primitiveCount the CURRENT TLAS was last built with. The
+        // storage is sized for a count, so a different one, smaller as much
+        // as larger, takes a new structure instead of the old one's memory.
         u32 m_TlasBuiltPrimitiveCount = 0;
 
         // Set whenever a build was recorded this frame, cleared by the
@@ -942,9 +940,9 @@ namespace OloEngine::RayTracing
         }
 
         const u32 instanceCount = static_cast<u32>(instances.size());
-        // A refit cannot grow past what the current TLAS was sized for, and a
-        // TLAS that has never been built cannot be updated. Promote rather
-        // than fail — the caller is told which mode was actually used.
+        // The storage cannot hold more than the current TLAS was sized for,
+        // and a TLAS that has never been built has none. Promote rather than
+        // fail — the caller is told what was actually recorded.
         TlasBuildReason used = requested;
         if (m_Tlas == VK_NULL_HANDLE || instanceCount > m_TlasCapacity)
         {
@@ -1096,28 +1094,45 @@ namespace OloEngine::RayTracing
         VkAccelerationStructureBuildGeometryInfoKHR build{};
         build.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
         build.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-        build.flags = VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR |
-                      VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+        // ALWAYS a full build, never VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE,
+        // and so never ALLOW_UPDATE either. A request to refit is recorded as a
+        // build into the SAME storage and reported as InPlaceRebuild.
+        //
+        // An in-place update of the TLAS (src == dst) read past the end of the
+        // structure's storage on an RTX 4090 with Drift's eight instances: a
+        // device fault, "READ of invalid address", one page after the storage.
+        // It is silent wherever the next page is mapped, which is almost
+        // everywhere in a shared memory block, and that is how it lived here
+        // unseen; it took the structure landing in the last 4 KiB of a block.
+        // With the TLAS storage in a dedicated allocation, so that nothing
+        // follows it, the update faulted in every run and a full build into the
+        // same storage ran clean for thousands of frames. The update also
+        // faulted with async compute off, so it is not a reader on the other
+        // queue. The call matched the size query in flags, geometry and
+        // primitive count, and master's Drift scene refitted six to thirteen
+        // instances without a fault, so what in that instance set triggers the
+        // over-read is not known. A TLAS build is cheap at these counts and is
+        // what the vendors recommend over a refit in any case.
+        // docs/agent-rules/vulkan-tlas-is-rebuilt-not-refitted.md has the runs.
+        build.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
         build.geometryCount = 1;
         build.pGeometries = &geometry;
-        build.mode = used == TlasBuildReason::Update ? VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
-                                                     : VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
 
         VkAccelerationStructureBuildSizesInfoKHR sizes{};
         sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
         vkGetAccelerationStructureBuildSizesKHR(device->GetDevice(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
                                                 &build, &packedCount, &sizes);
 
-        // An update whose primitiveCount differs from the source's build count
-        // is invalid usage, so ANY change in instance count forces a rebuild —
-        // shrinking as much as growing. The scene's own shrink heuristic still
-        // decides when a rebuild is WORTH it; this is the correctness floor
-        // under it.
+        // The storage was sized for the count it was built with, so ANY change
+        // in instance count takes a new structure — shrinking as much as
+        // growing. `packed` can be shorter than `instances` (an instance whose
+        // BLAS is not built yet is skipped above), which is why this compares
+        // what is actually about to be built.
         if (used == TlasBuildReason::Update && packedCount != m_TlasBuiltPrimitiveCount)
         {
             used = packedCount > m_TlasBuiltPrimitiveCount ? TlasBuildReason::InstanceCountGrew
                                                            : TlasBuildReason::InstanceCountShrank;
-            build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
         }
 
         if (used != TlasBuildReason::Update || m_Tlas == VK_NULL_HANDLE ||
@@ -1154,7 +1169,6 @@ namespace OloEngine::RayTracing
             {
                 used = TlasBuildReason::InstanceCountGrew;
             }
-            build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
 
             VkAccelerationStructureDeviceAddressInfoKHR addressInfo{};
             addressInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
@@ -1162,15 +1176,15 @@ namespace OloEngine::RayTracing
             m_TlasAddress = vkGetAccelerationStructureDeviceAddressKHR(device->GetDevice(), &addressInfo);
         }
 
-        if (build.mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR)
+        // What is left as Update kept its storage: the same instances, the
+        // same structure, rebuilt from this frame's transforms.
+        if (used == TlasBuildReason::Update)
         {
-            build.srcAccelerationStructure = m_Tlas;
+            used = TlasBuildReason::InPlaceRebuild;
         }
         build.dstAccelerationStructure = m_Tlas;
 
-        const VkDeviceSize scratchNeeded = build.mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR
-                                               ? sizes.updateScratchSize
-                                               : sizes.buildScratchSize;
+        const VkDeviceSize scratchNeeded = sizes.buildScratchSize;
         if (!EnsureScratch(scratchNeeded))
         {
             return used;
@@ -1197,11 +1211,7 @@ namespace OloEngine::RayTracing
         const VkAccelerationStructureBuildRangeInfoKHR* rangePtr = &range;
         vkCmdBuildAccelerationStructuresKHR(cmd, 1, &build, &rangePtr);
         m_BuildsPendingBarrier = true;
-        // Only a full build redefines what a later update must match.
-        if (build.mode == VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR)
-        {
-            m_TlasBuiltPrimitiveCount = packedCount;
-        }
+        m_TlasBuiltPrimitiveCount = packedCount;
         return used;
     }
 

@@ -397,6 +397,43 @@ namespace OloEngine
             return whole;
         }
 
+        // The JSON document of a binary glTF: a 12-byte header (magic "glTF",
+        // version, total length) and then chunks of (length, type, bytes), the
+        // first of which is the JSON. Anything that is not that reads as a
+        // discarded document, which names no dependencies.
+        [[nodiscard]] nlohmann::json ReadGlbJsonChunk(const std::filesystem::path& file)
+        {
+            constexpr u32 kGlbMagic = 0x46546C67u;  // "glTF"
+            constexpr u32 kJsonChunk = 0x4E4F534Au; // "JSON"
+            const auto discarded = []
+            {
+                return nlohmann::json(nlohmann::json::value_t::discarded);
+            };
+
+            std::ifstream input(file, std::ios::binary);
+            std::array<unsigned char, 20> header{};
+            if (!input.read(reinterpret_cast<char*>(header.data()), static_cast<std::streamsize>(header.size())))
+                return discarded();
+            const auto word = [&header](sizet at)
+            {
+                return static_cast<u32>(header[at]) | (static_cast<u32>(header[at + 1]) << 8) |
+                       (static_cast<u32>(header[at + 2]) << 16) | (static_cast<u32>(header[at + 3]) << 24);
+            };
+            if (word(0) != kGlbMagic || word(16) != kJsonChunk)
+                return discarded();
+
+            // Bound the chunk by the file, not by what the file says about itself.
+            std::error_code ec;
+            const auto fileSize = std::filesystem::file_size(file, ec);
+            const u32 jsonLength = word(12);
+            if (ec || jsonLength == 0 || jsonLength > fileSize - std::min<std::uintmax_t>(fileSize, header.size()))
+                return discarded();
+            std::string text(jsonLength, '\0');
+            if (!input.read(text.data(), static_cast<std::streamsize>(text.size())))
+                return discarded();
+            return nlohmann::json::parse(text, nullptr, /*allow_exceptions=*/false);
+        }
+
         // The files `file` opens by itself, as paths relative to its own directory.
         [[nodiscard]] std::vector<std::string> ReadContentDependencies(const std::filesystem::path& file)
         {
@@ -441,10 +478,23 @@ namespace OloEngine
                     }
                 }
             }
-            else if (extension == ".gltf")
+            else if (extension == ".gltf" || extension == ".glb")
             {
-                std::ifstream input(file);
-                const nlohmann::json document = nlohmann::json::parse(input, nullptr, /*allow_exceptions=*/false);
+                // A .gltf IS the JSON document. A .glb carries the same document as
+                // its first chunk, and although its mesh buffer is inside the file
+                // its images need not be: every kit model in the sandbox is a .glb
+                // whose one image is an external PNG, so a scene that drew one by
+                // path shipped without its texture.
+                nlohmann::json document;
+                if (extension == ".gltf")
+                {
+                    std::ifstream input(file);
+                    document = nlohmann::json::parse(input, nullptr, /*allow_exceptions=*/false);
+                }
+                else
+                {
+                    document = ReadGlbJsonChunk(file);
+                }
                 if (document.is_object())
                 {
                     for (const char* array : { "buffers", "images" })

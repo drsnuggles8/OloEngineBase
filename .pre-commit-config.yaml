@@ -99,6 +99,20 @@ repos:
       pass_filenames: false
       files: '(.*\.(c|cc|cpp|h|hpp|inl)|scripts/check_stb_include_path\.py)$'
 
+    - id: asset-registry-no-cache
+      name: a tracked asset registry names no cache file
+      description: >-
+        Fails if a staged AssetRegistry.oar registers a path under Assets/cache/, which
+        is git-ignored. The editor adds such entries while it loads models, and a
+        registry committed with them passes every check on the machine that has the
+        cache and fails AssetContentValidity on a fresh clone (PR #1708: red on the
+        Linux shards only). Reads the index, so an editor session's working copy does
+        not trip it.
+      entry: python scripts/check_asset_registry_no_cache.py
+      language: system
+      pass_filenames: false
+      files: '(.*AssetRegistry\.oar|scripts/check_asset_registry_no_cache\.py)$'
+
     - id: docs-consistency
       name: documentation links, anchors, index and contract-doc names resolve
       description: >-
@@ -112,6 +126,20 @@ repos:
       language: system
       pass_filenames: false
       always_run: true
+
+    - id: ci-download-retries
+      name: a CI download retries every error
+      description: >-
+        Fails if a workflow or action downloads a file with curl and no
+        --retry <n> --retry-all-errors, or with Invoke-WebRequest -OutFile. curl's --retry alone
+        does not repeat a connection reset in the middle of a body, which is how a
+        large download from a release CDN fails; two sanitizer builds died on it in
+        one day with their three retries unused. Runs its own negative-control
+        fixtures first. See docs/agent-rules/ci-downloads-retry-every-error.md.
+      entry: python scripts/check_ci_download_retries.py
+      language: system
+      pass_filenames: false
+      files: '(\.github/.*\.ya?ml|scripts/check_ci_download_retries\.py)$'
 
     - id: generated-evidence
       name: generated verification output is not committed

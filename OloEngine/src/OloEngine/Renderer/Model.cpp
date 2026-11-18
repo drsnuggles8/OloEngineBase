@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "OloEngine/Renderer/AssimpTriangleIndices.h"
+#include "OloEngine/Renderer/EmbeddedModelTexture.h"
 #include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/Model.h"
 #include "OloEngine/Renderer/Renderer3D.h"
@@ -774,6 +775,34 @@ namespace OloEngine
         }
     } // namespace
 
+    Ref<Texture2D> LoadEmbeddedModelTexture(const aiTexture* embedded, const std::string& modelSourcePath,
+                                            const std::string& assimpTextureRef, bool srgb)
+    {
+        // COOK FIRST: an embedded texture written into the asset cache gains a
+        // path (and, where a project is mounted, an AssetHandle), so
+        // ImportedMaterialCodec can persist it through both the .omesh cache and
+        // the asset pack. Without this the material comes back from either
+        // container with no maps.
+        // Loading it back off the cooked file (rather than keeping the
+        // in-memory decode) is deliberate: the texture we hand out is then
+        // byte-for-byte the one the codec will resolve later, so the editor
+        // session and a reload cannot disagree.
+        Ref<Texture2D> texture;
+        if (auto cooked = CookEmbeddedTexture(embedded, modelSourcePath, assimpTextureRef, srgb))
+        {
+            texture = Texture2D::Create(cooked->string(), srgb);
+            if (texture && !texture->IsLoaded())
+                texture = nullptr;
+        }
+        // The cook failed (no writable cache directory, or an undecodable
+        // bitmap): fall back to the GPU-only decode. Renders correctly this
+        // session; simply cannot persist — and the cache-write site drops the
+        // whole material table rather than storing a reference to it.
+        if (!texture)
+            texture = CreateTextureFromEmbedded(embedded, srgb);
+        return texture;
+    }
+
     Model::Model(const std::string& path, const TextureOverride& textureOverride, bool flipUV)
         : m_TextureOverride(textureOverride.HasAnyTexture() ? std::optional<TextureOverride>(textureOverride) : std::nullopt),
           m_FlipUV(flipUV)
@@ -1028,7 +1057,11 @@ namespace OloEngine
         for (u32 i = 0; i < scene->mNumMeshes; ++i)
         {
             const aiMesh* rawMesh = scene->mMeshes[i];
-            m_SourceIsRigged = m_SourceIsRigged || rawMesh->mNumBones > 0;
+            // Bones, or morph targets: either is data only AnimatedModel imports, and
+            // aiProcess_PreTransformVertices discards both. A file with morph targets and
+            // no skeleton (a sail, a flag, a face sculpt) used to come through here and
+            // reach its MeshComponent as a mesh that could not be deformed.
+            m_SourceIsRigged = m_SourceIsRigged || rawMesh->mNumBones > 0 || rawMesh->mNumAnimMeshes > 0;
             if ((rawMesh->mPrimitiveTypes & (aiPrimitiveType_LINE | aiPrimitiveType_POINT)) != 0)
             {
                 ++lineOrPointMeshes;
@@ -1432,28 +1465,8 @@ namespace OloEngine
                         continue;
                     }
 
-                    // COOK FIRST: an embedded texture written into the asset cache gains a
-                    // path (and, where a project is mounted, an AssetHandle), so
-                    // ImportedMaterialCodec can persist it through both the .omesh cache and
-                    // the asset pack. Without this the material comes back from either
-                    // container with no maps.
-                    // Loading it back off the cooked file (rather than keeping the
-                    // in-memory decode) is deliberate: the texture we hand out is then
-                    // byte-for-byte the one the codec will resolve later, so the editor
-                    // session and a reload cannot disagree.
-                    Ref<Texture2D> texture;
-                    if (auto cooked = CookEmbeddedTexture(embedded, m_SourcePath.ToStdString(), str.C_Str(), srgb))
-                    {
-                        texture = Texture2D::Create(cooked->string(), srgb);
-                        if (texture && !texture->IsLoaded())
-                            texture = nullptr;
-                    }
-                    // The cook failed (no writable cache directory, or an undecodable
-                    // bitmap): fall back to the GPU-only decode. Renders correctly this
-                    // session; simply cannot persist — and the cache-write site drops the
-                    // whole material table rather than storing a reference to it.
-                    if (!texture)
-                        texture = CreateTextureFromEmbedded(embedded, srgb);
+                    const Ref<Texture2D> texture =
+                        LoadEmbeddedModelTexture(embedded, m_SourcePath.ToStdString(), str.C_Str(), srgb);
 
                     if (texture && texture->IsLoaded())
                     {

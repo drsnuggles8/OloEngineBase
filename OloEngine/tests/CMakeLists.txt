@@ -850,6 +850,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/DogShowcaseEvidenceTest.cpp
 		Rendering/PropertyTests/DogPlayEvidenceTest.cpp
 		Rendering/PropertyTests/DogAssetDeliveryTest.cpp
+		Rendering/PropertyTests/DriftBoatDeliveryTest.cpp
 		# Criterion 4's pictures: both reference animals under front/side/backlight,
 		# on all three rendering paths, plus the silhouette-under-budget and
 		# layer-separability measurements a screenshot cannot make (#1251).
@@ -1757,6 +1758,7 @@ add_executable(OloEngine-Tests
 		Functional/AnimationPhysics/TerrainStreamingSculptCollisionTest.cpp
 		Functional/AnimationPhysics/ClothSimulationTest.cpp
 		Functional/AnimationPhysics/ClothSkeletonAttachTest.cpp
+		Functional/AnimationPhysics/ColliderOffsetKeepsEntityOriginTest.cpp
 		Functional/AnimationPhysics/PhysicsJoint3DTest.cpp
 		Functional/AnimationPhysics/PhysicsJointCollideConnectedTest.cpp
 		Functional/AnimationPhysics/VehicleTest.cpp

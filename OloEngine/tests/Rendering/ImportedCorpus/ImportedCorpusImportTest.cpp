@@ -437,9 +437,9 @@ namespace OloEngine::Tests::ImportedCorpus
         auto morphActor = GetScene().CreateEntity("Imported morph actor");
         auto& morphTransform = morphActor.GetComponent<TransformComponent>();
         morphTransform.Translation.x = 3.0f;
-        // AnimatedModel retains the cube's 0.02-unit mesh coordinates; the
-        // glTF node's 100x presentation scale is not baked into this source.
-        morphTransform.Scale = { 100.0f, 100.0f, 100.0f };
+        // The cube's mesh is 0.02 units across on a node scaled by 100.
+        // AnimatedModel bakes a boneless mesh's node transform, so the source
+        // arrives two units across and the entity needs no scale of its own.
         morphActor.AddComponent<MeshComponent>().m_MeshSource = morphSource;
         morphActor.AddComponent<MaterialComponent>().m_Material.SetBaseColorFactor(
             glm::vec4(0.85f, 0.15f, 0.10f, 1.0f));

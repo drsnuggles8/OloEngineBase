@@ -299,7 +299,7 @@ namespace OloEngine
                     // Spring: proportional to compression. Damper: opposes only the
                     // component of the contact point's velocity along the leg, so it
                     // resists bouncing without fighting the roll-out.
-                    const glm::vec3 contactVel = body->GetLinearVelocity() + glm::cross(body->GetAngularVelocity(), attach - bodyPos);
+                    const glm::vec3 contactVel = body->GetLinearVelocity() + glm::cross(body->GetAngularVelocity(), attach - body->GetCenterOfMassPosition());
                     if (!IsFinite(contactVel))
                         continue;
 

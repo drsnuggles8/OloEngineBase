@@ -20,6 +20,7 @@
 #include <Jolt/Physics/Collision/Shape/ConvexHullShape.h>
 #include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 #include <Jolt/Physics/Collision/Shape/MutableCompoundShape.h>
+#include <Jolt/Physics/Collision/Shape/RotatedTranslatedShape.h>
 #include <Jolt/Physics/Collision/Shape/DecoratedShape.h>
 #include <Jolt/Physics/Collision/Shape/ScaledShape.h>
 #include <Jolt/Physics/Collision/Shape/HeightFieldShape.h>
@@ -235,7 +236,7 @@ namespace OloEngine
             auto shape = CreateBoxShape(component, entityScale);
             if (shape)
             {
-                collectedShapes.push_back({ shape, component.m_Offset });
+                collectedShapes.push_back({ shape, component.m_Offset * entityScale });
             }
         }
 
@@ -246,7 +247,7 @@ namespace OloEngine
             auto shape = CreateSphereShape(component, entityScale);
             if (shape)
             {
-                collectedShapes.push_back({ shape, component.m_Offset });
+                collectedShapes.push_back({ shape, component.m_Offset * entityScale });
             }
         }
 
@@ -257,7 +258,7 @@ namespace OloEngine
             auto shape = CreateCapsuleShape(component, entityScale);
             if (shape)
             {
-                collectedShapes.push_back({ shape, component.m_Offset });
+                collectedShapes.push_back({ shape, component.m_Offset * entityScale });
             }
         }
 
@@ -270,7 +271,7 @@ namespace OloEngine
             auto shape = CreateMeshShape(component, combinedScale);
             if (shape)
             {
-                collectedShapes.push_back({ shape, component.m_Offset });
+                collectedShapes.push_back({ shape, component.m_Offset * entityScale });
             }
         }
 
@@ -283,7 +284,7 @@ namespace OloEngine
             auto shape = CreateConvexMeshShape(component, combinedScale);
             if (shape)
             {
-                collectedShapes.push_back({ shape, component.m_Offset });
+                collectedShapes.push_back({ shape, component.m_Offset * entityScale });
             }
         }
 
@@ -296,12 +297,44 @@ namespace OloEngine
             auto shape = CreateTriangleMeshShape(component, combinedScale);
             if (shape)
             {
-                collectedShapes.push_back({ shape, component.m_Offset });
+                collectedShapes.push_back({ shape, component.m_Offset * entityScale });
             }
         }
 
         return collectedShapes;
     }
+
+    namespace
+    {
+        // An entity's only collider, placed at its offset. A compound's children
+        // carry their offsets, but a lone shape used to be handed to the body as it
+        // was, so the offset the inspector edits, the debug draw shows and the
+        // navmesh bakes moved nothing in the simulation. The offset arrives already
+        // multiplied by the entity's scale (CollectColliderShapesForEntity), as the
+        // shape's extents are: the navmesh, DiscoverySystem and the gizmo all put
+        // the offset through the entity's matrix, and an unscaled one here would
+        // put a scaled entity's collider somewhere none of them say it is.
+        [[nodiscard]] JPH::Ref<JPH::Shape> PlaceLoneShape(const JPH::Ref<JPH::Shape>& shape, const glm::vec3& offset)
+        {
+            if (!std::isfinite(offset.x) || !std::isfinite(offset.y) || !std::isfinite(offset.z))
+            {
+                OLO_CORE_ERROR("Collider offset is not finite; the shape stays at the entity's origin");
+                return shape;
+            }
+            if (glm::dot(offset, offset) <= 0.0f)
+            {
+                return shape;
+            }
+            const JPH::RotatedTranslatedShapeSettings settings(JoltUtils::ToJoltVector(offset), JPH::Quat::sIdentity(), shape);
+            JPH::Shape::ShapeResult result = settings.Create();
+            if (result.HasError())
+            {
+                OLO_CORE_ERROR("Failed to offset a collider shape: {0}", result.GetError().c_str());
+                return nullptr;
+            }
+            return result.Get();
+        }
+    } // namespace
 
     JPH::Ref<JPH::Shape> JoltShapes::CreateCompoundShape(Entity entity, bool isMutable)
     {
@@ -324,10 +357,10 @@ namespace OloEngine
             return nullptr;
         }
 
-        // If only one shape, return it directly (no need for compound)
+        // If only one shape, no compound is needed: just the shape at its offset
         if (collectedShapes.size() == 1)
         {
-            return collectedShapes[0].shape;
+            return PlaceLoneShape(collectedShapes[0].shape, collectedShapes[0].offset);
         }
 
         // Create compound shape based on mutability requirement
@@ -393,10 +426,10 @@ namespace OloEngine
             return CreateBoxShapeInternal(glm::vec3(0.5f)); // 1x1x1 box
         }
 
-        // If only one collider, return its shape directly
+        // If only one collider, its shape at its offset
         if (collectedShapes.size() == 1)
         {
-            return collectedShapes[0].shape;
+            return PlaceLoneShape(collectedShapes[0].shape, collectedShapes[0].offset);
         }
 
         // Multiple colliders, create compound shape
@@ -732,6 +765,18 @@ namespace OloEngine
                             OLO_CORE_WARN("GetShapeType: ScaledShape has no inner shape, defaulting to Box");
                             return ShapeType::Box;
                         }
+                    }
+                    case JPH::EShapeSubType::RotatedTranslated:
+                    {
+                        // A lone collider placed at its offset (PlaceLoneShape): the
+                        // type is the primitive's.
+                        const auto* placed = static_cast<const JPH::RotatedTranslatedShape*>(shape);
+                        if (placed->GetInnerShape())
+                        {
+                            return GetShapeType(placed->GetInnerShape());
+                        }
+                        OLO_CORE_WARN("GetShapeType: RotatedTranslatedShape has no inner shape, defaulting to Box");
+                        return ShapeType::Box;
                     }
                     default:
                     {

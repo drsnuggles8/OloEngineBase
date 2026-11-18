@@ -14,6 +14,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 
 #include <cmath>
+#include <limits>
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
@@ -865,6 +866,33 @@ namespace
     }
 } // namespace
 
+// The full-screen lens (wobble + god rays) is weighted by how far the eye is under
+// the surface drawn above it. CPU mirror of underwaterEyeSubmersion.
+TEST(WaterRendering, EyeSubmersionIsZeroInAirAndFullAQuarterMetreDown)
+{
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(-1.0f), 0.0f) << "an eye a metre over the water saw the lens";
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(-0.001f), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(0.0f), 0.0f);
+    EXPECT_NEAR(UnderwaterCaustics::EyeSubmersion(0.125f), 0.5f, 1.0e-6f) << "the ramp is not linear over its quarter metre";
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(UnderwaterCaustics::kEyeSubmersionRamp), 1.0f);
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(40.0f), 1.0f);
+
+    f32 previous = 0.0f;
+    for (i32 i = 0; i <= 50; ++i)
+    {
+        const f32 weight = UnderwaterCaustics::EyeSubmersion(-0.1f + 0.01f * static_cast<f32>(i));
+        EXPECT_GE(weight, previous) << "the lens weakened as the eye went deeper";
+        previous = weight;
+    }
+}
+
+TEST(WaterRendering, EyeSubmersionSurvivesGarbageDepth)
+{
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(std::numeric_limits<f32>::quiet_NaN()), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(std::numeric_limits<f32>::infinity()), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterCaustics::EyeSubmersion(-std::numeric_limits<f32>::infinity()), 0.0f);
+}
+
 TEST(WaterRendering, RefractionOffsetDisabledWhenStrengthZeroOrNegative)
 {
     const glm::vec2 off0 = UnderwaterCaustics::RefractionOffset({ 0.3f, 0.7f }, 5.0f, 0.0f, 18.0f, 1.2f);
@@ -1191,6 +1219,147 @@ TEST(WaterRendering, UnderwaterSegment_RespectsNonZeroSurfacePlane)
     const glm::vec3 cam(0.0f, 5.0f, 0.0f);   // at the raised surface
     const glm::vec3 frag(0.0f, -5.0f, 0.0f); // 10 m below the surface
     EXPECT_NEAR(UnderwaterFog::UnderwaterSegmentLength(cam, frag, surfaceY), 10.0f, 1e-4f);
+}
+
+// The fog is only for water on the EYE'S side of the surface in front of a pixel
+// (the drawn one, or the still plane where none was drawn). CPU mirror of
+// underwaterSurfacePixelFogShare.
+TEST(WaterRendering, SurfacePixelFog_AnEyeInTheAirLeavesTheSeaBelowItAsDrawn)
+{
+    // One metre over the sea, looking at it: the water shader shaded that pixel.
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, 0.0f), 0.0f) << "the fog was laid over the sea seen from above";
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(0.05f, -0.3f, 0.0f), 0.0f) << "a trough below a low eye is still seen from above";
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(0.0f, 0.0f, 0.0f), 0.0f);
+}
+
+TEST(WaterRendering, SurfacePixelFog_ACrestOverTheEyeIsFoggedWhereverTheEyeIs)
+{
+    // The underside of a crest: there is water between the eye and that surface.
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(0.5f, 1.2f, 0.0f), 1.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(-3.0f, 0.0f, 1.0f), 1.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(-3.0f, 0.0f, 0.0f), 1.0f) << "the share must not wait for the lens weight under a crest";
+}
+
+TEST(WaterRendering, SurfacePixelFog_ASubmergedEyeFogsTheSurfaceBelowItTooAndEasesIn)
+{
+    // An eye inside a crest, above the trough ahead of it: its lens is in the water.
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(0.4f, -0.2f, 1.0f), 1.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(0.4f, -0.2f, 0.5f), 0.5f) << "the fog must come in with the lens, not pop";
+
+    f32 previous = 0.0f;
+    for (i32 i = 0; i <= 40; ++i)
+    {
+        const f32 share = UnderwaterFog::SurfacePixelFogShare(0.4f, -0.2f, UnderwaterFog::EyeInWater(-0.05f + 0.005f * static_cast<f32>(i)));
+        EXPECT_GE(share, previous) << "the fog thinned as the eye went under";
+        previous = share;
+    }
+    EXPECT_FLOAT_EQ(previous, 1.0f);
+}
+
+// The fog is the water in front of the eye, not a look: it does not wait for the
+// lens. CPU mirror of underwaterEyeInWater.
+TEST(WaterRendering, EyeInWater_AnEyeAHandsBreadthUnderHasAllOfTheFog)
+{
+    EXPECT_FLOAT_EQ(UnderwaterFog::EyeInWater(-1.0f), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::EyeInWater(0.0f), 0.0f) << "an eye at the surface is not under it";
+
+    // Water_Waterline.png's eye: 8 cm under a crest, where the lens is a third in.
+    EXPECT_FLOAT_EQ(UnderwaterFog::EyeInWater(0.08f), 1.0f) << "the sea went transparent for an eye just under its surface";
+    EXPECT_LT(UnderwaterCaustics::EyeSubmersion(0.08f), 0.5f) << "the lens weight is the slower of the two, or this pins nothing";
+    EXPECT_FLOAT_EQ(UnderwaterFog::EyeInWater(3.0f), 1.0f);
+
+    // The crossing itself is a ramp, not a step, and never thins on the way down.
+    EXPECT_GT(UnderwaterFog::EyeInWater(0.5f * UnderwaterFog::kEyeInWaterRamp), 0.0f);
+    EXPECT_LT(UnderwaterFog::EyeInWater(0.5f * UnderwaterFog::kEyeInWaterRamp), 1.0f);
+    EXPECT_GE(UnderwaterFog::EyeInWater(0.04f), UnderwaterFog::EyeInWater(0.02f));
+
+    EXPECT_FLOAT_EQ(UnderwaterFog::EyeInWater(std::numeric_limits<f32>::quiet_NaN()), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::EyeInWater(std::numeric_limits<f32>::infinity()), 0.0f);
+}
+
+TEST(WaterRendering, SurfacePixelFog_SurvivesGarbageWeights)
+{
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, std::numeric_limits<f32>::quiet_NaN()), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, std::numeric_limits<f32>::infinity()), 0.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, 7.0f), 1.0f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::SurfacePixelFogShare(1.0f, 0.0f, -7.0f), 0.0f);
+}
+
+TEST(WaterRendering, DrawnSurface_AFlatTileIsTheProbesSample)
+{
+    // A flat tile's plane is the height of its origin, wherever the eye is: the
+    // probe's sample, waves and all, is the surface.
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(2.0f, 2.0f, 2.4f), 2.4f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(2.0f, 2.0f, 1.7f), 1.7f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(0.0f, 0.0f, 0.0f), 0.0f);
+}
+
+TEST(WaterRendering, DrawnSurface_ATiltedTileKeepsItsPlaneUnderTheWaves)
+{
+    // A wave-free tile turned 45 degrees about Z has its surface at Y = 1 where X = 1
+    // (TilePlaneYAt, above), and its origin at Y = 0. An eye at (1, 0.5, 0) is half a metre under it. The
+    // probe, which measures from the origin, answers 0 there; taken whole (0 - 0.5)
+    // that reads as an eye half a metre in the AIR, and the lens switches off under water.
+    const f32 planeAtEye = 1.0f;
+    const f32 originY = 0.0f;
+    const f32 cameraY = 0.5f;
+    const f32 drawn = UnderwaterFog::DrawnSurfaceY(planeAtEye, originY, /*probeSurfaceY=*/0.0f);
+    EXPECT_FLOAT_EQ(drawn, 1.0f);
+    EXPECT_GT(UnderwaterFog::EyeInWater(drawn - cameraY), 0.99f) << "the eye is under the tilted surface";
+
+    // Waves ride on the plane.
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(planeAtEye, originY, 0.3f), 1.3f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(planeAtEye, originY, -0.2f), 0.8f);
+}
+
+TEST(WaterRendering, TilePlane_ALevelTileIsAtItsOriginsHeightEverywhere)
+{
+    // Moved, scaled and turned about the vertical: still level, still one height.
+    glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(30.0f, 2.0f, -250.0f));
+    model = glm::rotate(model, glm::radians(37.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+    model = glm::scale(model, glm::vec3(400.0f, 1.0f, 150.0f));
+    for (const glm::vec2 at : { glm::vec2(30.0f, -250.0f), glm::vec2(-80.0f, 12.0f), glm::vec2(1000.0f, 1000.0f) })
+    {
+        EXPECT_FLOAT_EQ(UnderwaterFog::TilePlaneYAt(model, at.x, at.y, -99.0f), 2.0f) << at.x << ", " << at.y;
+    }
+}
+
+TEST(WaterRendering, TilePlane_ATiltedTileIsMeasuredOnTheVerticalThroughTheEye)
+{
+    // Turned 45 degrees about Z, the plane is y = x. An eye at (1, 0.9, 0) has the
+    // surface a tenth of a metre above it. The foot of the perpendicular from the eye
+    // onto the plane is at y = 0.95, which halves that depth and with it the lens.
+    const glm::mat4 model = glm::rotate(glm::mat4(1.0f), glm::radians(45.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    const glm::vec3 eye(1.0f, 0.9f, 0.0f);
+    const f32 plane = UnderwaterFog::TilePlaneYAt(model, eye.x, eye.z, -99.0f);
+    EXPECT_NEAR(plane, 1.0f, 1e-5f);
+
+    const glm::vec4 local = glm::inverse(model) * glm::vec4(eye, 1.0f);
+    const f32 foot = (model * glm::vec4(local.x, 0.0f, local.z, 1.0f)).y;
+    EXPECT_NEAR(foot, 0.95f, 1e-5f) << "the control: the perpendicular's foot is a different point";
+
+    // And the depth the lens is given, through the same two steps the scene takes.
+    const f32 depth = UnderwaterFog::DrawnSurfaceY(plane, model[3].y, /*probeSurfaceY=*/model[3].y) - eye.y;
+    EXPECT_NEAR(depth, 0.1f, 1e-5f);
+}
+
+TEST(WaterRendering, TilePlane_ATileOnEdgeHasNoHeightAndTakesTheFallback)
+{
+    const glm::mat4 onEdge = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    EXPECT_FLOAT_EQ(UnderwaterFog::TilePlaneYAt(onEdge, 1.0f, 0.0f, 7.5f), 7.5f);
+    glm::mat4 broken(1.0f);
+    broken[0] = glm::vec4(std::numeric_limits<f32>::quiet_NaN());
+    EXPECT_FLOAT_EQ(UnderwaterFog::TilePlaneYAt(broken, 1.0f, 0.0f, 7.5f), 7.5f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::TilePlaneYAt(glm::mat4(0.0f), 1.0f, 0.0f, 7.5f), 7.5f);
+}
+
+TEST(WaterRendering, DrawnSurface_AProbeWithNoAnswerLeavesTheStillPlane)
+{
+    const f32 nan = std::numeric_limits<f32>::quiet_NaN();
+    const f32 inf = std::numeric_limits<f32>::infinity();
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(1.5f, 0.0f, nan), 1.5f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(1.5f, 0.0f, inf), 1.5f);
+    EXPECT_FLOAT_EQ(UnderwaterFog::DrawnSurfaceY(1.5f, nan, 0.2f), 1.5f);
 }
 
 TEST(WaterRendering, WaterFace_CameraAbove_KeepsTopsDiscardsUndersides)

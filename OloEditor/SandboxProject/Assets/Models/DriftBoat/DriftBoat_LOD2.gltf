@@ -1,0 +1,163 @@
+{
+ "asset": {
+  "version": "2.0",
+  "generator": "OloEngine build_drift_boat.py"
+ },
+ "scene": 0,
+ "scenes": [
+  {
+   "name": "DriftBoat",
+   "nodes": [
+    0
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "name": "DriftBoat",
+   "mesh": 0
+  }
+ ],
+ "meshes": [
+  {
+   "name": "DriftBoat",
+   "primitives": [
+    {
+     "attributes": {
+      "POSITION": 0,
+      "NORMAL": 1,
+      "TEXCOORD_0": 2
+     },
+     "indices": 3,
+     "material": 0
+    }
+   ]
+  }
+ ],
+ "materials": [
+  {
+   "name": "DriftBoatHull",
+   "pbrMetallicRoughness": {
+    "baseColorTexture": {
+     "index": 0
+    },
+    "metallicRoughnessTexture": {
+     "index": 2
+    },
+    "metallicFactor": 1.0,
+    "roughnessFactor": 1.0
+   },
+   "normalTexture": {
+    "index": 1
+   },
+   "occlusionTexture": {
+    "index": 2
+   },
+   "doubleSided": false
+  }
+ ],
+ "textures": [
+  {
+   "sampler": 0,
+   "source": 0
+  },
+  {
+   "sampler": 0,
+   "source": 1
+  },
+  {
+   "sampler": 0,
+   "source": 2
+  }
+ ],
+ "samplers": [
+  {
+   "magFilter": 9729,
+   "minFilter": 9987,
+   "wrapS": 33071,
+   "wrapT": 33071
+  }
+ ],
+ "images": [
+  {
+   "uri": "DriftBoatHullColor.png",
+   "mimeType": "image/png"
+  },
+  {
+   "uri": "DriftBoatHullNormal.png",
+   "mimeType": "image/png"
+  },
+  {
+   "uri": "DriftBoatHullORM.png",
+   "mimeType": "image/png"
+  }
+ ],
+ "buffers": [
+  {
+   "uri": "DriftBoat_LOD2.bin",
+   "byteLength": 112712
+  }
+ ],
+ "bufferViews": [
+  {
+   "buffer": 0,
+   "byteOffset": 0,
+   "byteLength": 32052,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 32052,
+   "byteLength": 32052,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 64104,
+   "byteLength": 21368,
+   "target": 34962
+  },
+  {
+   "buffer": 0,
+   "byteOffset": 85472,
+   "byteLength": 27240,
+   "target": 34963
+  }
+ ],
+ "accessors": [
+  {
+   "bufferView": 0,
+   "componentType": 5126,
+   "count": 2671,
+   "type": "VEC3",
+   "min": [
+    -1.2959015369415283,
+    -0.6512739658355713,
+    -3.6704115867614746
+   ],
+   "max": [
+    1.2959015369415283,
+    5.25,
+    3.8184256553649902
+   ]
+  },
+  {
+   "bufferView": 1,
+   "componentType": 5126,
+   "count": 2671,
+   "type": "VEC3"
+  },
+  {
+   "bufferView": 2,
+   "componentType": 5126,
+   "count": 2671,
+   "type": "VEC2"
+  },
+  {
+   "bufferView": 3,
+   "componentType": 5125,
+   "count": 6810,
+   "type": "SCALAR"
+  }
+ ]
+}

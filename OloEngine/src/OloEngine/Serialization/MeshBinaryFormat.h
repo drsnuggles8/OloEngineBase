@@ -9,7 +9,7 @@
 namespace OloEngine
 {
     // ============================================================================
-    // .omesh Binary Mesh Format — Version 16 (history at CurrentVersion below)
+    // .omesh Binary Mesh Format — Version 17 (history at CurrentVersion below)
     //
     // Layout:
     //   [FileHeader]
@@ -138,15 +138,23 @@ namespace OloEngine
         // also stopped trusting aiProcess_GenSmoothNormals on an indexed (glTF) mesh, which
         // gave each shared vertex one face's normal (AssimpSmoothNormals.h). A warm load
         // would keep serving the old normals.
-        constexpr u32 CurrentVersion = 16;
+        //
+        // v17 adds no section. It invalidates every v16 cache of a source with morph
+        // targets and no skeleton. FlagSourceRigged below now also covers morph targets:
+        // the static importer drops those exactly as it drops bones, so such a file has to
+        // be routed to the animated importer too. A v16 STATIC cache of one reads back
+        // with the bit clear and the file would keep loading undeformable, with its
+        // MorphTargetComponent counting every weight as an unknown target.
+        constexpr u32 CurrentVersion = 17;
 
         constexpr u32 FlagCompressed = 1;   // Payload is zlib-compressed (always set; required by the reader)
         constexpr u32 FlagPreOptimized = 2; // Mesh was already optimized before caching
-        // v8+ (issue #1272): the SOURCE FILE this cache was built from contained bones.
+        // v8+ (issue #1272): the SOURCE FILE this cache was built from contained bones
+        // or, from v17, morph targets: data only the animated importer extracts.
         // Distinct from "this file has a BoneInfluence section" -- a rigged source imported
         // down the STATIC path writes no influences at all, and without this bit the cache
         // cannot say so. AssimpMeshImporter reads it from the header alone to route the
-        // next load to the importer that extracts bones.
+        // next load to the importer that extracts them.
         constexpr u32 FlagSourceRigged = 4;
 
         // ── Safety caps for deserialized counts (defence against corrupt files) ──
