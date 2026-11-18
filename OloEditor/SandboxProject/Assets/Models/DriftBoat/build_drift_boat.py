@@ -1992,7 +1992,13 @@ def paint_cloth(c, back=False):
     s = c.U / width                                   # 0..1 across the sail (port to starboard or back)
     if back:
         s = 1.0 - s
-    t = c.V / np.maximum(c.W, 1e-3)                   # 0 at the head, 1 at the foot
+    # Metres down from the head. MeshBuilder.add reverses a grid along this axis when it has to
+    # turn it to face outward, and the sail's two faces face opposite ways: one of them is laid
+    # head to foot and the other foot to head. Taking the chart's own V for both painted one face
+    # upside down: its reef band 28% down instead of on the reef points at 72%, its patch off the
+    # other face's, and the bleaching at its foot.
+    v = (c.W - c.V) if c.g.flipped else c.V
+    t = v / np.maximum(c.W, 1e-3)                     # 0 at the head, 1 at the foot
     n_cloths = 7
     f = s * n_cloths
     k = np.clip(np.floor(f), 0, n_cloths - 1)
@@ -2028,7 +2034,7 @@ def paint_cloth(c, back=False):
     # Tabling: the doubled hem all the way round, and the reef band across.
     d_edge = np.minimum(np.minimum(c.U, width - c.U), np.minimum(c.V, c.W - c.V))
     hem = smoothstep(0.075, 0.068, d_edge).astype(F32)
-    reef = smoothstep(0.045, 0.038, np.abs(c.V - 0.72 * c.W)).astype(F32)
+    reef = smoothstep(0.045, 0.038, np.abs(v - 0.72 * c.W)).astype(F32)
     doubled = np.maximum(hem, reef)
     colour = mix(colour, colour * 0.84, doubled)
     height = height + 0.0011 * doubled
@@ -2036,8 +2042,8 @@ def paint_cloth(c, back=False):
     colour = mix(colour, col(0.20, 0.16, 0.11), 0.7 * hem_stitch)
     # A patch: someone mended her low on the port side.
     pu, pv = (0.71 if not back else 0.29) * width, 0.58 * c.W
-    inside = (np.abs(c.U - pu) < 0.21) & (np.abs(c.V - pv) < 0.16)
-    patch_edge = np.minimum(0.21 - np.abs(c.U - pu), 0.16 - np.abs(c.V - pv))
+    inside = (np.abs(c.U - pu) < 0.21) & (np.abs(v - pv) < 0.16)
+    patch_edge = np.minimum(0.21 - np.abs(c.U - pu), 0.16 - np.abs(v - pv))
     colour = np.where(inside[..., None], mix(col(0.500, 0.440, 0.320), col(0.600, 0.530, 0.400), warp), colour)
     ps = inside & (np.abs(patch_edge - 0.012) < 0.003) & (np.mod(c.U + c.V, 0.016) < 0.009)
     colour = mix(colour, col(0.18, 0.14, 0.10), 0.8 * ps.astype(F32))
