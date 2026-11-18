@@ -5,6 +5,7 @@
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Renderer/AssimpSmoothNormals.h"
 #include "OloEngine/Renderer/AssimpTriangleIndices.h"
+#include "OloEngine/Renderer/EmbeddedModelTexture.h"
 #include "OloEngine/Renderer/GltfPhysicalMaterial.h"
 #include "OloEngine/Renderer/MeshOptimization.h"
 #include "OloEngine/Animation/MorphTargets/MorphTarget.h"
@@ -601,6 +602,7 @@ namespace OloEngine
         m_Animations.Reset();
         m_BoneInfoMap.clear();
         m_LoadedTextures.clear();
+        m_SourceFile = path;
         m_HasMeshNodeTransform = false;
         m_MeshLoadedFromCache = false;
         m_MeshNodeGlobalTransform = glm::mat4(1.0f);
@@ -655,7 +657,7 @@ namespace OloEngine
                                 {
                                     if (materialIndices[i] < matScene->mNumMaterials)
                                     {
-                                        m_Materials[i] = ProcessMaterial(matScene->mMaterials[materialIndices[i]]);
+                                        m_Materials[i] = ProcessMaterial(matScene->mMaterials[materialIndices[i]], matScene);
                                     }
                                 }
                             }
@@ -936,7 +938,7 @@ namespace OloEngine
                 Material material;
                 if (mesh->mMaterialIndex >= 0 && mesh->mMaterialIndex < scene->mNumMaterials)
                 {
-                    material = ProcessMaterial(scene->mMaterials[mesh->mMaterialIndex]);
+                    material = ProcessMaterial(scene->mMaterials[mesh->mMaterialIndex], scene);
                 }
                 else
                 {
@@ -1796,7 +1798,8 @@ namespace OloEngine
         return glm::mix(keys[keyIndex].Scale, keys[keyIndex + 1].Scale, static_cast<f32>(t));
     }
 
-    TArray<Ref<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, i32 semanticIndex)
+    TArray<Ref<Texture2D>> AnimatedModel::LoadMaterialTextures(const aiMaterial* mat, const aiTextureType type, const aiScene* scene,
+                                                               i32 semanticIndex)
     {
         TArray<Ref<Texture2D>> textures;
 
@@ -1850,6 +1853,36 @@ namespace OloEngine
                 continue;
 
             std::string filename = str.C_Str();
+
+            // A texture inside the file itself: Assimp names it "*N" (an index
+            // into aiScene::mTextures) or by the embedded texture's own file
+            // name, and GetEmbeddedTexture answers for both. Before the path
+            // checks, because "*0" is not a path; a name that is not embedded
+            // falls through to the on-disk loader below. The loader is Model's,
+            // so a static and an animated import of one file cook the same copy.
+            if (scene != nullptr)
+            {
+                if (const aiTexture* embedded = scene->GetEmbeddedTexture(str.C_Str()))
+                {
+                    const std::string embeddedKey = std::string{ "embedded|" } + filename + std::string(srgbSuffix);
+                    if (const auto found = m_LoadedTextures.find(embeddedKey); found != m_LoadedTextures.end())
+                    {
+                        textures.Add(found->second);
+                        continue;
+                    }
+                    const Ref<Texture2D> texture = LoadEmbeddedModelTexture(embedded, m_SourceFile, filename, srgb);
+                    if (texture && texture->IsLoaded())
+                    {
+                        m_LoadedTextures[embeddedKey] = texture;
+                        textures.Add(texture);
+                    }
+                    else
+                    {
+                        OLO_CORE_WARN("AnimatedModel::LoadMaterialTextures: Failed to decode embedded texture '{}'", filename);
+                    }
+                    continue;
+                }
+            }
 
             // Validate texture path before any load attempt — reject absolute
             // paths and parent-traversal ("..") to prevent directory escape.
@@ -2108,7 +2141,7 @@ namespace OloEngine
         return textures;
     }
 
-    Material AnimatedModel::ProcessMaterial(const aiMaterial* mat)
+    Material AnimatedModel::ProcessMaterial(const aiMaterial* mat, const aiScene* scene)
     {
         // Get material name
         aiString name;
@@ -2180,23 +2213,23 @@ namespace OloEngine
         ImportGltfPhysicalMaterial(mat, material);
 
         // Load PBR textures
-        auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE);
+        auto albedoMaps = LoadMaterialTextures(mat, aiTextureType_DIFFUSE, scene);
         if (albedoMaps.IsEmpty())
         {
             // Try base color for newer PBR/glTF materials
-            albedoMaps = LoadMaterialTextures(mat, aiTextureType_BASE_COLOR);
+            albedoMaps = LoadMaterialTextures(mat, aiTextureType_BASE_COLOR, scene);
         }
         if (!albedoMaps.IsEmpty())
         {
             material.SetAlbedoMap(albedoMaps[0]);
         }
 
-        if (auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS); !metallicRoughnessMaps.IsEmpty())
+        if (auto metallicRoughnessMaps = LoadMaterialTextures(mat, aiTextureType_METALNESS, scene); !metallicRoughnessMaps.IsEmpty())
         {
             material.SetMetallicRoughnessMap(metallicRoughnessMaps[0]);
         }
 
-        if (auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS); !normalMaps.IsEmpty())
+        if (auto normalMaps = LoadMaterialTextures(mat, aiTextureType_NORMALS, scene); !normalMaps.IsEmpty())
         {
             material.SetNormalMap(normalMaps[0]);
         }
@@ -2205,17 +2238,17 @@ namespace OloEngine
         // aiTextureType_LIGHTMAP, not AMBIENT_OCCLUSION, so without the second
         // lookup every glTF occlusion map was dropped here while the static
         // Model route (which already falls back the same way) kept it.
-        auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION);
+        auto aoMaps = LoadMaterialTextures(mat, aiTextureType_AMBIENT_OCCLUSION, scene);
         if (aoMaps.IsEmpty())
         {
-            aoMaps = LoadMaterialTextures(mat, aiTextureType_LIGHTMAP);
+            aoMaps = LoadMaterialTextures(mat, aiTextureType_LIGHTMAP, scene);
         }
         if (!aoMaps.IsEmpty())
         {
             material.SetAOMap(aoMaps[0]);
         }
 
-        if (auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE); !emissiveMaps.IsEmpty())
+        if (auto emissiveMaps = LoadMaterialTextures(mat, aiTextureType_EMISSIVE, scene); !emissiveMaps.IsEmpty())
         {
             material.SetEmissiveMap(emissiveMaps[0]);
         }
@@ -2231,7 +2264,7 @@ namespace OloEngine
         // This closes the gap GltfPhysicalMaterial.cpp used to only COUNT:
         // before #1242 a thickness texture raised ThicknessMapsIgnored and was
         // dropped, so an authored ear arrived uniformly thick.
-        if (auto thicknessMaps = LoadMaterialTextures(mat, aiTextureType_TRANSMISSION, /*semanticIndex=*/1);
+        if (auto thicknessMaps = LoadMaterialTextures(mat, aiTextureType_TRANSMISSION, scene, /*semanticIndex=*/1);
             !thicknessMaps.IsEmpty())
         {
             material.SetThicknessMap(thicknessMaps[0]);

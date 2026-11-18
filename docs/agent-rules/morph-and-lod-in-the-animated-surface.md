@@ -124,6 +124,13 @@ Three things had to be true before it moved.
   like `mNumBones > 0`, and `AnimatedModel` records a morph-carrying result as needing the animated
   route on the warm load too. `MeshAssetBoneInfluenceImport.AMorphOnlyFileKeepsItsMorphTargetsColdAndWarm`
   pins both loads; with the routing removed it fails on the cold one.
+- **The textures.** A texture the file carries inside itself (`"*0"`, a data URI, a GLB chunk)
+  is loaded by one function for both importers, `LoadEmbeddedModelTexture`. `AnimatedModel` used
+  to read `"*0"` as a file name beside the model and find nothing, which no fixture showed while
+  only rigged files took that route, and which became a regression for every morph-only file
+  once those did. `MeshAssetBoneInfluenceImport.AMorphOnlyFileKeepsItsEmbeddedTextureColdAndWarm`
+  imports a morph-only glTF with a data-URI image and fails on the cold load with the lookup
+  removed.
 - **The node.** `AnimatedModel` reads vertices in the mesh's own space and leaves a skinned mesh's
   node to its skeleton. A mesh with no bones has no skeleton, so once morph-only files were routed
   here, one on a moved or scaled node would have arrived at the origin in its local size, which

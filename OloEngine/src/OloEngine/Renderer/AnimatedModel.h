@@ -141,9 +141,11 @@ namespace OloEngine
         // volume THICKNESS map, since it shares aiTextureType_TRANSMISSION with
         // the transmission map and is distinguished only by index 1 (issue
         // #1242). -1, the default, keeps the historical count-driven behaviour.
-        TArray<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, aiTextureType type,
+        // `scene` is where a texture the file carries inside itself is found
+        // ("*N", or the embedded texture's own name); null skips that lookup.
+        TArray<Ref<Texture2D>> LoadMaterialTextures(const aiMaterial* mat, aiTextureType type, const aiScene* scene,
                                                     i32 semanticIndex = -1);
-        Material ProcessMaterial(const aiMaterial* mat);
+        Material ProcessMaterial(const aiMaterial* mat, const aiScene* scene);
 
         // Skeleton and animation processing
         void ProcessSkeleton(const aiScene* scene);
@@ -174,6 +176,9 @@ namespace OloEngine
         Ref<Skeleton> m_Skeleton;
 
         FString m_Directory;
+        // The model file itself: with the reference a material names it by, the
+        // identity of an embedded texture's cooked copy.
+        std::string m_SourceFile;
         std::unordered_map<std::string, Ref<Texture2D>> m_LoadedTextures;
 
         // Bone name to BoneInfo mapping for O(1) lookup during mesh processing.
