@@ -14,6 +14,7 @@ import numpy as np
 # The ogee above the drip edge: elevations and radii shared by the sheet
 # pattern and its geometry. The UV's longitudinal coordinate follows the metal.
 HOOD = ((21.66, 1.88), (22.14, 1.50), (22.52, 0.91), (22.74, 0.33), (22.89, 0.22))
+HOOD_GUTTER_FRACTION = 1 / 64
 HOOD_SLANT = np.r_[0, np.cumsum(np.linalg.norm(np.diff(HOOD, axis=0), axis=1))]
 HOOD_V = HOOD_SLANT / HOOD_SLANT[-1]
 
@@ -115,7 +116,7 @@ class Surfaces:
                 tree.links.new(split.outputs["Blue"], shader.inputs["Metallic"])
             else:
                 tree.links.new(tex.outputs["Color"], shader.inputs[target])
-        self.finishes[name] = mat
+        self.finishes[name] = (colour, normal, orm)
         return mat
 
     def walls(self, source):
@@ -362,15 +363,24 @@ class Surfaces:
                     0.13 + 0.44 * folded,
                 )
             )
-        self.image(
-            "StacksHood",
-            np.vstack([np.hstack(colours[:2]), np.hstack(colours[2:])]),
-            True,
-        )
-        self.image(
-            "StacksHoodORM",
-            np.vstack([np.hstack(responses[:2]), np.hstack(responses[2:])]),
-        )
+
+        def pack(panels):
+            # Duplicate texels outside each panel so bilinear/mip filtering
+            # samples its own folded edge or hem on both sides of its boundary.
+            gutter = round(size * HOOD_GUTTER_FRACTION)
+            index = np.rint(np.linspace(0, size - 1, size - 2 * gutter)).astype(int)
+            padded = [
+                np.pad(
+                    panel[np.ix_(index, index)],
+                    ((gutter, gutter), (gutter, gutter), (0, 0)),
+                    mode="edge",
+                )
+                for panel in panels
+            ]
+            return np.vstack([np.hstack(padded[:2]), np.hstack(padded[2:])])
+
+        self.image("StacksHood", pack(colours), True)
+        self.image("StacksHoodORM", pack(responses))
 
     def build(self, archive):
         with tempfile.TemporaryDirectory(prefix="stacks-scans-") as tmp:

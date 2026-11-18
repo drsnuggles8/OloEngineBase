@@ -21,7 +21,7 @@ surface. Four panel patterns place verdigris against the folded seams and lower
 hem. Inside the lantern, open bronze hoops and narrow glass prisms surround
 the luminous core. The gallery floor has raised cast lozenges.
 
-The glTF contains 82,887 triangles in 18 material primitives. The 27 shared
+The glTF contains 82,975 triangles in 18 material primitives. The 27 shared
 textures comprise eight 2048², thirteen 1024² and six 512² images. The packed
 data maps store occlusion, roughness and metallic in R, G and B. The engine
 generates tangents from the exported normals and UVs. The scene adds the
@@ -40,7 +40,14 @@ blender -b --factory-startup --python-exit-code 1 --python "$model/build_lightho
 bakes the material finishes with Blender's bundled NumPy and the images in
 `SurfaceSources.zip`. A rebuild works offline. To compare a clean generation,
 pass a different output directory after `--`; the generator reads its inputs
-beside the script. Keep the glTF, binary buffer and its 27 referenced PNGs
+beside the script. The generator bakes into a temporary directory and checks the
+UV charts, buffer and each finish's colour, normal and packed map references.
+`lighthouse_package.py` then replaces changed payloads and publishes the glTF
+last. A failed replacement restores the previous files. If a process is killed
+during publication, the output directory's `.stacks-light-recovery` subdirectory
+retains original files with a `.previous` suffix for recovery.
+
+Keep the glTF, binary buffer and its 27 referenced PNGs
 together for delivery. Reopen or reimport the model and textures before comparing
 frames.
 

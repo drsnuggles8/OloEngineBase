@@ -1,9 +1,9 @@
 """Generate the Stacks light. Run in factory-startup Blender, in background mode."""
 
 import hashlib
-import json
 import math
 import sys
+import tempfile
 from itertools import pairwise
 from pathlib import Path
 
@@ -14,12 +14,18 @@ from mathutils import Vector
 # Blender's --python does not put the script directory on sys.path.
 SOURCE = Path(__file__).resolve().parent
 sys.path.insert(0, str(SOURCE))
-from lighthouse_surfaces import HOOD, HOOD_V, Surfaces
+from lighthouse_package import finalize_descriptor, publish_package, staging_parent
+from lighthouse_surfaces import HOOD, HOOD_GUTTER_FRACTION, HOOD_V, Surfaces
 
-ROOT = Path(
+DESTINATION = Path(
     sys.argv[sys.argv.index("--") + 1] if "--" in sys.argv else Path(__file__).parent
 ).resolve()
-ROOT.mkdir(parents=True, exist_ok=True)
+# The exporter can fail after writing a buffer or some of its images.
+# Work on the destination filesystem so the later file replacements are atomic.
+staging = tempfile.TemporaryDirectory(
+    dir=staging_parent(DESTINATION), prefix=".stacks-bake-"
+)
+ROOT = Path(staging.name)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 TAU = math.tau
 
@@ -622,6 +628,60 @@ def station_plate(a, r):
         bpy.ops.object.convert(target="MESH")
 
 
+def drain_tube(path, angle):
+    """Miter a hollow copper leader through bends in one vertical plane."""
+    centers = [Vector(p) for p in path]
+    directions = [(b - a).normalized() for a, b in pairwise(centers)]
+    side = Vector((-math.sin(angle), math.cos(angle), 0))
+    verts, faces, uvs = [], [], []
+    count = 16
+    distances = [0.0]
+    for a, b in pairwise(centers):
+        distances.append(distances[-1] + (b - a).length)
+    for k, p in enumerate(centers):
+        incoming = directions[max(0, k - 1)]
+        outgoing = directions[min(k, len(directions) - 1)]
+        tangent = (incoming + outgoing).normalized()
+        # All segments share the bend plane. Stretch the section in that
+        # plane to intersect the two circular cylinders at the same ring.
+        miter = tangent.cross(side) / tangent.dot(incoming)
+        for radius in (0.066, 0.055):
+            for i in range(count):
+                t = TAU * i / count
+                verts.append(
+                    tuple(p + radius * (math.cos(t) * side + math.sin(t) * miter))
+                )
+    for k in range(len(centers) - 1):
+        for shell, radius in enumerate((0.066, 0.055)):
+            a = (2 * k + shell) * count
+            for i in range(count):
+                j = (i + 1) % count
+                face = (a + i, a + j, a + 2 * count + j, a + 2 * count + i)
+                uv = [
+                    (t * TAU * radius / 1.28, distances[n] / 1.28)
+                    for t, n in (
+                        (i / count, k),
+                        ((i + 1) / count, k),
+                        ((i + 1) / count, k + 1),
+                        (i / count, k + 1),
+                    )
+                ]
+                faces.append(face[::-1] if shell else face)
+                uvs.append(uv[::-1] if shell else uv)
+    for k in (0, len(centers) - 1):
+        a = 2 * k * count
+        for i in range(count):
+            j = (i + 1) % count
+            face = (a + i, a + j, a + count + j, a + count + i)
+            uv = [
+                (r * math.cos(TAU * n / count), r * math.sin(TAU * n / count))
+                for n, r in ((i, 0.066), (j, 0.066), (j, 0.055), (i, 0.055))
+            ]
+            faces.append(face if k else face[::-1])
+            uvs.append(uv if k else uv[::-1])
+    mesh("Mitered copper conductor", verts, faces, copper, uvs, True)
+
+
 def tower():
     cuts = [
         (60, 15, 0.12, 2.40),
@@ -660,8 +720,7 @@ def tower():
         polar(3.24, a, -0.71),
         polar(3.48, a, -0.88),
     ]
-    for p, q in pairwise(path):
-        bar("Rainwater conductor", p, q, 0.066, copper, 16)
+    drain_tube(path, a)
     for z in np.arange(0.70, 17.4, 2.3):
         r = shaft_radius(z)
         block("Conductor anchor", a, r + 0.011, 0, z, 0.065, 0.27, 0.115, iron, 0.016)
@@ -962,25 +1021,15 @@ def copper_hood():
             for k in range(divisions):
                 i = start + row * (divisions + 1) + k
                 faces.append((i, i + 1, i + divisions + 2, i + divisions + 1))
-                uvs.append(
-                    [
-                        (
-                            (
-                                tile % 2
-                                + 0.5
-                                + (col / divisions - 0.5) * HOOD[h][1] / HOOD[0][1]
-                            )
-                            / 2,
-                            (tile // 2 + HOOD_V[h]) / 2,
-                        )
-                        for col, h in (
-                            (k, row),
-                            (k + 1, row),
-                            (k + 1, row + 1),
-                            (k, row + 1),
-                        )
-                    ]
-                )
+                coords = []
+                for col, h in ((k, row), (k + 1, row), (k + 1, row + 1), (k, row + 1)):
+                    across = 0.5 + (col / divisions - 0.5) * HOOD[h][1] / HOOD[0][1]
+                    # Both atlas resolutions share this normalized gutter.
+                    extent = 1 - 2 * HOOD_GUTTER_FRACTION
+                    u = tile % 2 + HOOD_GUTTER_FRACTION + extent * across
+                    v = tile // 2 + HOOD_GUTTER_FRACTION + extent * HOOD_V[h]
+                    coords.append((u / 2, v / 2))
+                uvs.append(coords)
     mesh("Rolled copper roof gores", verts, faces, hood_sheet, uvs, True)
     for i in range(12):
         a = i * TAU / 12
@@ -1051,14 +1100,6 @@ bpy.ops.export_scene.gltf(
     export_tangents=False,
 )
 
-# The three material responses share one authored image. Blender connects G
-# and B to its BSDF; record the R channel's glTF occlusion usage explicitly.
-descriptor = ROOT / "StacksLight.gltf"
-document = json.loads(descriptor.read_text(encoding="utf-8"))
-for mat in document["materials"]:
-    if mat["name"] in surfaces.finishes:
-        packed = mat["pbrMetallicRoughness"]["metallicRoughnessTexture"]
-        mat["occlusionTexture"] = {"index": packed["index"]}
-descriptor.write_text(
-    json.dumps(document, indent=2) + "\n", encoding="utf-8", newline="\n"
-)
+package = finalize_descriptor(ROOT, surfaces.finishes)
+publish_package(ROOT, DESTINATION, package)
+staging.cleanup()
