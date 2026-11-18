@@ -94,8 +94,9 @@ is test input, not a tool, and the step checks only that the file is not empty.
   `$(...)` is a command of its own, inside double quotes too. Each command needs its own flags:
   a compliant download does not vouch for the one after it on the same line.
 - A command is a download when its program is `curl` or `curl.exe`, after `sudo`, `if`, a
-  `VAR=value` prefix or a PowerShell `$x =`, and with or without a directory in front. A `curl`
-  inside another command's argument (`echo 'curl ...'`) is text.
+  `VAR=value` prefix or a PowerShell `$x =`, and with or without a directory in front. After
+  `timeout`, `nice`, `ionice`, `nohup`, `stdbuf` or `xargs` the command is judged from the first
+  word that names curl. A `curl` inside another command's argument (`echo 'curl ...'`) is text.
 - A `curl` command that writes a file (`-o`, `--output`, `-O`, also inside a cluster such as
   `-fsSLo`) needs `--retry-all-errors` and a `--retry` count above zero, with or without `-f`.
   The count judged is the last one of the command.
@@ -106,17 +107,27 @@ is test input, not a tool, and the step checks only that the file is not empty.
   value is that value (`--header '--retry-all-errors'` sets no flag), also attached to a short
   option (`-oarchive.tar.gz`) or after `=`. Of two opposite flags the later is in force
   (`--retry-all-errors --no-retry-all-errors` is off). Each `-o` serves one URL, so a second URL
-  without one is a transfer through stdout, and so is `-o -`. `--` ends the options, and
-  `--next` starts a new operation with the options reset, judged on its own. An unquoted
-  redirection and its target are not arguments; a quoted `>` is (`--write-out '>status'`). The
-  list of value-taking options is from `curl --help all` of 8.12 and 8.22; an option of a later
-  curl is read as a flag, which can add a finding and cannot hide one.
+  without one is a transfer through stdout, and so is `-o -`. `--expand-output` is `--output`.
+  `--` ends the options. `--next`, or `:` in a cluster of short options (`-s:`), starts a new
+  operation with the options reset, judged on its own; as the value of another option
+  (`--header --next`) or after `--` it is text, as it is to curl. An unquoted redirection and its
+  target are not arguments; a quoted `>` is (`--write-out '>status'`). The list of value-taking
+  options is from `curl --help all` of 8.12 and 8.22; an option of a later curl is read as a
+  flag, which can add a finding and cannot hide one.
 - `Invoke-WebRequest` or `iwr` with `-OutFile` is refused.
 - A finding in a literal block (`run: |`) reports the command's own line; in a folded or one-line
   script it reports the `run:` line.
 
-What it does not read: the body of a here-document, so a script fed to `bash <<EOF` is not
-judged. A `--retry` count that is a variable is taken as given.
+What it does not read, because the text of the step does not hold it:
+
+- the body of a here-document, so a script fed to `bash <<EOF` is not judged, and a script
+  passed as one quoted word (`bash -c '...'`, `eval`);
+- a variable: a `--retry` count that is one is taken as given, and options that arrive through
+  one (`curl $CURL_OPTS ...`) are not seen;
+- a curl config file (`-K`, `--config`, `.curlrc`);
+- a shell function or alias that wraps curl, and a program outside the six above that runs it.
+
+A download written one of these ways is not judged at all, so it is written plainly instead.
 
 It runs its own cases before it reads the repository: must-fail scripts with the one message
 each must produce, must-pass scripts, and YAML documents with the lines to report. It fails if one

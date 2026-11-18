@@ -33,8 +33,10 @@ splits it: quotes hold a `;` or a `#` together, a comment is not an argument, an
 word that says `curl` inside another command's argument is not a download. Each
 command is judged on its own arguments.
 
-Not read: the body of a here-document. A --retry count that is not a literal number
-(a variable) is taken as given.
+Not read, because the text of the step does not hold it: the body of a here-document,
+a script passed as one quoted word (`bash -c`), options that arrive through a
+variable or a curl config file, a function that wraps curl. A --retry count that is
+not a literal number (a variable) is taken as given.
 
 Opt out with a comment on one of the command's own lines:
 
@@ -67,6 +69,10 @@ IWR = "Invoke-WebRequest -OutFile does not retry a dropped connection; use curl.
 
 # Words a shell reads before the command itself.
 PREFIX_WORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "time", "exec", "command", "sudo", "env", "try"}
+# Programs that run the command in their arguments. What they run is judged from the
+# first word that names curl; their own options are not parsed.
+WRAPPERS = {"timeout", "nice", "ionice", "nohup", "stdbuf", "xargs"}
+CURL = ("curl", "curl.exe")
 ASSIGNMENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*=.*", re.S)
 # After a backslash these are escaped; before anything else the backslash is a
 # character of the word (a Windows path in a PowerShell script).
@@ -275,6 +281,11 @@ def split_commands(script: str) -> list[Command]:
     return reader.commands
 
 
+def program_name(word: str) -> str:
+    """Lower-cased, without its directory."""
+    return re.split(r"[\\/]", word)[-1].lower()
+
+
 def executable(words: list[str]) -> tuple[str, list[str]]:
     """The command's program, lower-cased without its directory, and its arguments."""
     index = 0
@@ -287,110 +298,132 @@ def executable(words: list[str]) -> tuple[str, list[str]]:
         elif word.startswith("$") and index + 1 < len(words) and words[index + 1] == "=":
             index += 2  # PowerShell: $result = command ...
         else:
-            return re.split(r"[\\/]", word)[-1].lower(), words[index + 1 :]
+            program = program_name(word)
+            if program in WRAPPERS:
+                for later in range(index + 1, len(words)):
+                    if program_name(words[later]) in CURL:
+                        return program_name(words[later]), words[later + 1 :]
+            return program, words[index + 1 :]
     return "", []
 
 
-def curl_findings(args: list[str]) -> list[str]:
-    """Every operation of a curl command: `--next` starts one with the options reset."""
-    found: list[str] = []
-    operation: list[str] = []
-    for position, arg in enumerate(args):
-        if arg == "--":  # the rest are URLs of this operation
-            operation.extend(args[position:])
-            break
-        if arg in ("--next", "-:"):
-            found.extend(operation_findings(operation))
-            operation = []
-        else:
-            operation.append(arg)
-    found.extend(operation_findings(operation))
-    return found
+@dataclass
+class _Operation:
+    """What one curl operation was told, each option as its last occurrence left it."""
 
+    fail: bool = False
+    fail_with_body: bool = False
+    all_errors: bool = False
+    remote_name_all: bool = False
+    retry: str = ""  # the last --retry value
+    files: int = 0  # -o / -O destinations
+    stdouts: int = 0  # `-o -`
+    urls: int = 0  # transfers
 
-def operation_findings(args: list[str]) -> list[str]:
-    """Reads the arguments in order, as curl does: a later option replaces an earlier one."""
-    fail = all_errors = remote_name_all = False
-    retry = ""  # the last --retry value
-    files = stdouts = urls = 0  # -o destinations, `-o -`, and transfers
-
-    def option(name: str, value: str) -> None:
-        nonlocal fail, all_errors, remote_name_all, retry, files, stdouts, urls
-        if name in ("f", "fail", "fail-with-body"):
-            fail = True
+    def option(self, name: str, value: str) -> None:
+        if name in ("f", "fail"):
+            self.fail = True
         elif name == "no-fail":
-            fail = False
+            self.fail = False
+        elif name == "fail-with-body":
+            self.fail_with_body = True
+        elif name == "no-fail-with-body":
+            self.fail_with_body = False
         elif name == "retry-all-errors":
-            all_errors = True
+            self.all_errors = True
         elif name == "no-retry-all-errors":
-            all_errors = False
+            self.all_errors = False
         elif name == "retry":
-            retry = value
+            self.retry = value
         elif name in ("o", "output"):
             if value == "-":
-                stdouts += 1
+                self.stdouts += 1
             else:
-                files += 1
+                self.files += 1
         elif name in ("O", "remote-name"):
-            files += 1
+            self.files += 1
         elif name == "remote-name-all":
-            remote_name_all = True
+            self.remote_name_all = True
+        elif name == "no-remote-name-all":
+            self.remote_name_all = False
         elif name == "url":
-            urls += 1
+            self.urls += 1
 
+    def findings(self) -> list[str]:
+        # Each -o serves one URL, in order. A transfer without one goes to stdout.
+        to_stdout = self.stdouts > 0 or (not self.remote_name_all and self.urls > self.files + self.stdouts)
+        to_file = self.files > 0 or (self.remote_name_all and self.urls > 0)
+        found = []
+        if to_stdout and self.all_errors:
+            found.append(STDOUT_RETRY)
+        elif to_stdout and (self.fail or self.fail_with_body):
+            found.append(STDOUT_FAIL)
+        if to_file and not self.all_errors:
+            found.append(NO_ALL_ERRORS)
+        # curl keeps the last --retry it is given: `--retry 3 --retry 0` retries nothing.
+        elif to_file and (not self.retry or (self.retry.isdigit() and int(self.retry) == 0)):
+            found.append(NO_COUNT)
+        return found
+
+
+def curl_findings(args: list[str]) -> list[str]:
+    """Reads the arguments in order, as curl does, and judges each operation on its own.
+
+    `--next`, or `:` in a cluster of short options, starts a new operation with the
+    options reset. It is one only where curl reads an option: as the value of
+    another option (`--header --next`) or after `--` it is text.
+    """
+    found: list[str] = []
+    operation = _Operation()
     index = 0
     options_ended = False
     while index < len(args):
         arg = args[index]
         index += 1
         if options_ended:
-            urls += 1
+            operation.urls += 1
         elif arg == "--":
             options_ended = True
-        elif arg.startswith("--") and len(arg) > 2:
+        elif arg.startswith("--"):
             name, equals, attached = arg[2:].partition("=")
-            if name in LONG_WITH_VALUE:
+            # --expand-output is --output with curl's variables expanded in the value.
+            name = name.removeprefix("expand-")
+            if name == "next":
+                found.extend(operation.findings())
+                operation = _Operation()
+            elif name in LONG_WITH_VALUE:
                 if equals:  # --output=file, curl 8.16 and later
-                    option(name, attached)
+                    operation.option(name, attached)
                 else:
-                    option(name, args[index] if index < len(args) else "")
+                    operation.option(name, args[index] if index < len(args) else "")
                     index += 1
             else:
-                option(name, "")
+                operation.option(name, "")
         elif arg.startswith("-") and len(arg) > 1:
             for position, letter in enumerate(arg[1:], start=1):
-                if letter in SHORT_WITH_VALUE:
+                if letter == ":":  # -: is --next, alone or in a cluster (-s:)
+                    found.extend(operation.findings())
+                    operation = _Operation()
+                elif letter in SHORT_WITH_VALUE:
                     attached = arg[position + 1 :]  # -oarchive.tar.gz
                     if attached:
-                        option(letter, attached)
+                        operation.option(letter, attached)
                     else:
-                        option(letter, args[index] if index < len(args) else "")
+                        operation.option(letter, args[index] if index < len(args) else "")
                         index += 1
                     break
-                option(letter, "")
+                else:
+                    operation.option(letter, "")
         else:
-            urls += 1
-
-    # Each -o serves one URL, in order. A transfer without one goes to stdout.
-    to_stdout = stdouts > 0 or (not remote_name_all and urls > files + stdouts)
-    to_file = files > 0 or (remote_name_all and urls > 0)
-    found = []
-    if to_stdout and all_errors:
-        found.append(STDOUT_RETRY)
-    elif to_stdout and fail:
-        found.append(STDOUT_FAIL)
-    if to_file and not all_errors:
-        found.append(NO_ALL_ERRORS)
-    # curl keeps the last --retry it is given: `--retry 3 --retry 0` retries nothing.
-    elif to_file and (not retry or (retry.isdigit() and int(retry) == 0)):
-        found.append(NO_COUNT)
+            operation.urls += 1
+    found.extend(operation.findings())
     return found
 
 
 def command_findings(words: list[str]) -> list[str]:
     """What is wrong with one command, judged on its own arguments."""
     program, args = executable(words)
-    if program in ("curl", "curl.exe"):
+    if program in CURL:
         return curl_findings(args)
     if program in ("invoke-webrequest", "iwr") and any(arg.lower().startswith("-outf") for arg in args):
         return [IWR]
@@ -484,6 +517,21 @@ SCRIPTS_MUST_FAIL = [
     # --next starts an operation with the options reset: the second transfer has no destination
     ('curl --retry 3 --retry-all-errors --remote-name-all "$a" --next --retry 3 --retry-all-errors "$b" > b', STDOUT_RETRY),
     ('curl --retry 3 --retry-all-errors -o a "$a" --next -o b "$b"', NO_ALL_ERRORS),
+    # `:` in a cluster of short options is --next too
+    ('curl --retry 3 --retry-all-errors --remote-name-all "$a" -s: --retry 3 --retry-all-errors "$b" > b', STDOUT_RETRY),
+    # --next as the value of another option is text: this is one operation, and its second URL has no -o
+    ('curl --retry 3 --retry-all-errors -o a --header --next "$a" "$b" > b', STDOUT_RETRY),
+    # and after `--` it is a URL
+    ('curl --retry 3 --retry-all-errors -o a -- "$a" --next > b', STDOUT_RETRY),
+    # --remote-name-all can be switched off again
+    ('curl --retry 3 --retry-all-errors --remote-name-all --no-remote-name-all "$url" > archive', STDOUT_RETRY),
+    # --expand-output is --output
+    ('curl -L --expand-output "{{name}}.tar.gz" "$url"', NO_ALL_ERRORS),
+    # --fail-with-body is not switched off by --no-fail
+    ('curl -sSL --fail-with-body --no-fail "$url" | tar -xz', STDOUT_FAIL),
+    # a program that runs curl does not hide it
+    ('timeout -k 5 300 curl -fL -o f "$url"', NO_ALL_ERRORS),
+    ('cat urls.txt | xargs -n 1 curl -fLO', NO_ALL_ERRORS),
     # a quoted `>` is an argument, here the value of --write-out
     ("curl --retry 3 --write-out '>status' -o archive \"$url\"", NO_ALL_ERRORS),
     # a here-string is one word and hides nothing after it
@@ -507,6 +555,11 @@ SCRIPTS_MUST_PASS = [
     'curl --retry 3 --retry-all-errors -o a "$a" -o b "$b"',
     'curl --retry 3 --retry-all-errors -o a "$a" --next --retry 3 --retry-all-errors -o b "$b"',
     "curl --retry 3 --retry-all-errors --write-out '>status' -o archive \"$url\"",
+    'curl --retry 3 --retry-all-errors -o a "$a" -s: --retry 3 --retry-all-errors -o b "$b"',
+    'curl --retry 3 --retry-all-errors -o a --header --next "$a"',
+    'curl --retry 3 --retry-all-errors --expand-output "{{name}}.tar.gz" "$url"',
+    'timeout 300 curl -fL --retry 3 --retry-all-errors -o f "$url"',
+    "timeout 300 make test-curl",
     # `--` ends the options and is not a URL
     'curl --retry 3 --retry-all-errors -o archive -- "$url"',
     # a redirection is not a second transfer
