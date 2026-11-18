@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from lighthouse_package import publish_package, staging_parent
+from lighthouse_package import create_staging_directory, publish_package
 
 
 class PublicationTests(unittest.TestCase):
@@ -77,8 +77,46 @@ class PublicationTests(unittest.TestCase):
         (self.live / "Example.oloproj").touch()
         scratch = self.live / "custom-temp"
         scratch.mkdir()
-        with patch("lighthouse_package.tempfile.gettempdir", return_value=str(scratch)):
-            self.assertFalse(staging_parent().is_relative_to(self.live))
+        with (
+            patch("lighthouse_package.tempfile.gettempdir", return_value=str(scratch)),
+            create_staging_directory() as choice,
+        ):
+            self.assertFalse(Path(choice).resolve().is_relative_to(self.live.resolve()))
+
+    def test_an_unwritable_project_sibling_falls_back_to_a_safe_temp_root(self):
+        project = self.live / "project"
+        custom = project / "tmp"
+        custom.mkdir(parents=True)
+        (project / "Example.oloproj").touch()
+        alternate = self.staged
+        real_temp = tempfile.TemporaryDirectory
+
+        def allocate(*, dir, prefix):
+            if dir == self.live.resolve():
+                raise PermissionError("project sibling is read-only")
+            return real_temp(dir=dir, prefix=prefix)
+
+        with (
+            patch("lighthouse_package.tempfile.gettempdir", return_value=str(custom)),
+            patch.dict(os.environ, {"TMPDIR": str(custom), "TEMP": str(alternate)}),
+            patch(
+                "lighthouse_package.tempfile.TemporaryDirectory", side_effect=allocate
+            ),
+            create_staging_directory() as choice,
+        ):
+            self.assertEqual(Path(choice).resolve().parent, alternate.resolve())
+
+    def test_unavailable_staging_reports_how_to_select_another_directory(self):
+        with (
+            patch(
+                "lighthouse_package.tempfile.TemporaryDirectory",
+                side_effect=PermissionError(),
+            ),
+            self.assertRaisesRegex(
+                OSError, "Set TMPDIR to a writable directory outside"
+            ),
+        ):
+            create_staging_directory()
 
 
 if __name__ == "__main__":

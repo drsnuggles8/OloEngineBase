@@ -3,7 +3,6 @@
 import hashlib
 import math
 import sys
-import tempfile
 from itertools import pairwise
 from pathlib import Path
 
@@ -14,7 +13,11 @@ from mathutils import Vector
 # Blender's --python does not put the script directory on sys.path.
 SOURCE = Path(__file__).resolve().parent
 sys.path.insert(0, str(SOURCE))
-from lighthouse_package import finalize_descriptor, publish_package, staging_parent
+from lighthouse_package import (
+    create_staging_directory,
+    finalize_descriptor,
+    publish_package,
+)
 from lighthouse_surfaces import HOOD, HOOD_GUTTER_FRACTION, HOOD_V, Surfaces
 
 DESTINATION = Path(
@@ -22,7 +25,7 @@ DESTINATION = Path(
 ).resolve()
 # The exporter can fail after writing a buffer or some of its images.
 # Stage outside the editor project; publication does its own local file replacements.
-staging = tempfile.TemporaryDirectory(dir=staging_parent(), prefix=".stacks-bake-")
+staging = create_staging_directory()
 ROOT = Path(staging.name)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 TAU = math.tau

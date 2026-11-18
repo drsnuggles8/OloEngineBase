@@ -9,19 +9,52 @@ import tempfile
 from pathlib import Path
 
 
-def staging_parent():
-    """Keep Blender's temporary .png/.gltf files outside watched projects."""
-    scratch = Path(tempfile.gettempdir()).resolve()
-    # A custom TMPDIR can itself live below a project. Choose a sibling of
-    # the outermost enclosing project, even when the output is on another drive.
-    for folder in (scratch, *scratch.parents):
-        if any(folder.glob("*.oloproj")):
-            if folder == folder.parent:
-                raise ValueError(
-                    "Set the system temporary directory outside the watched project"
-                )
-            scratch = folder.parent
-    return scratch
+def create_staging_directory():
+    """Allocate a writable private directory outside the editor's watched projects."""
+    # gettempdir() normally supplies a writable directory. A developer can
+    # point TMPDIR into the project, so also try its sibling, other configured
+    # temp roots, and the user's home. Actually creating the directory checks
+    # permissions (including Windows ACLs) without an access-check race.
+    try:
+        preferred = tempfile.gettempdir()
+    except OSError:
+        preferred = None
+    home = os.path.expanduser("~")
+    if os.name == "nt":
+        local_data = os.getenv("LOCALAPPDATA")
+        platform_roots = (Path(local_data) / "Temp",) if local_data else ()
+    else:
+        platform_roots = ("/tmp", "/var/tmp")
+    roots = (
+        preferred,
+        os.getenv("TMPDIR"),
+        os.getenv("TEMP"),
+        os.getenv("TMP"),
+        *platform_roots,
+        None if home == "~" else home,
+    )
+    tried = set()
+    last_error = None
+    for root in roots:
+        if not root:
+            continue
+        try:
+            candidate = Path(root).resolve()
+            for folder in (candidate, *candidate.parents):
+                if any(folder.glob("*.oloproj")):
+                    if folder.parent == folder:
+                        candidate = None
+                        break
+                    candidate = folder.parent
+            if candidate is None or candidate in tried:
+                continue
+            tried.add(candidate)
+            return tempfile.TemporaryDirectory(dir=candidate, prefix=".stacks-bake-")
+        except OSError as error:
+            last_error = error
+    raise OSError(
+        "Set TMPDIR to a writable directory outside the watched project"
+    ) from last_error
 
 
 def finalize_descriptor(staged, finishes):

@@ -45,7 +45,9 @@ UV charts, buffer and each finish's colour, normal and packed map references.
 `lighthouse_package.py` then replaces changed payloads and publishes the glTF
 last. A failed replacement restores the previous files. The destination-local
 `.pending` and `.previous` files have unregistered extensions, so staging also
-works when the system temporary directory is on another volume.
+works when the system temporary directory is on another volume. If none of the
+normal temporary locations is writable outside the watched project, set `TMPDIR`
+to a writable directory outside it.
 
 **Interrupted publication.** The error names the output directory's
 `.stacks-light-recovery` folder. First verify that no Blender process is still
