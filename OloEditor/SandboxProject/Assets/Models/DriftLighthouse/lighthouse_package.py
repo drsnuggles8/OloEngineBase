@@ -21,10 +21,21 @@ def create_staging_directory():
         preferred = None
     home = os.path.expanduser("~")
     if os.name == "nt":
+        # gettempdir may have succeeded inside a watched project. Its other
+        # documented Windows candidates still deserve an actual allocation try.
         local_data = os.getenv("LOCALAPPDATA")
-        platform_roots = (Path(local_data) / "Temp",) if local_data else ()
+        system = os.getenv("SYSTEMROOT")
+        platform_roots = (
+            Path(local_data) / "Temp" if local_data else None,
+            Path(home) / "AppData/Local/Temp" if home != "~" else None,
+            Path(system) / "Temp" if system else None,
+            r"C:\Temp",
+            r"C:\tmp",
+            r"\Temp",
+            r"\tmp",
+        )
     else:
-        platform_roots = ("/tmp", "/var/tmp")
+        platform_roots = ("/tmp", "/var/tmp", "/usr/tmp")
     roots = (
         preferred,
         os.getenv("TMPDIR"),
@@ -41,7 +52,14 @@ def create_staging_directory():
         try:
             candidate = Path(root).resolve()
             for folder in (candidate, *candidate.parents):
-                if any(folder.glob("*.oloproj")):
+                # glob suppresses listing errors. A directory we can traverse
+                # but cannot inspect is not proof that staging is unwatched.
+                with os.scandir(folder) as entries:
+                    is_project = any(
+                        entry.name.lower().endswith(".oloproj") and entry.is_file()
+                        for entry in entries
+                    )
+                if is_project:
                     if folder.parent == folder:
                         candidate = None
                         break

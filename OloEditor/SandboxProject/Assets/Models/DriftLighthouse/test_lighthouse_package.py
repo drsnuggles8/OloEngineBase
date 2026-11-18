@@ -11,7 +11,7 @@ from lighthouse_package import create_staging_directory, publish_package
 
 class PublicationTests(unittest.TestCase):
     def setUp(self):
-        scratch = tempfile.TemporaryDirectory()
+        scratch = create_staging_directory()
         self.addCleanup(scratch.cleanup)
         root = Path(scratch.name)
         self.staged, self.live = root / "stage", root / "live"
@@ -105,6 +105,25 @@ class PublicationTests(unittest.TestCase):
             create_staging_directory() as choice,
         ):
             self.assertEqual(Path(choice).resolve().parent, alternate.resolve())
+
+    def test_non_listable_ancestor_is_not_mistaken_for_an_unwatched_root(self):
+        custom = self.live / "tmp"
+        custom.mkdir()
+        real_scan = os.scandir
+
+        def restricted(folder):
+            if Path(folder) == self.live.resolve():
+                raise PermissionError("cannot list project markers")
+            return real_scan(folder)
+
+        with (
+            patch("lighthouse_package.tempfile.gettempdir", return_value=str(custom)),
+            patch.dict(os.environ, {"TMPDIR": str(custom), "TEMP": str(self.staged)}),
+            patch("lighthouse_package.os.scandir", side_effect=restricted),
+        ):
+            choice = create_staging_directory()
+        with choice as selected:
+            self.assertEqual(Path(selected).resolve().parent, self.staged.resolve())
 
     def test_unavailable_staging_reports_how_to_select_another_directory(self):
         with (
