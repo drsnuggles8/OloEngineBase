@@ -125,8 +125,8 @@ namespace OloEngine::Tests
 
         struct FrameDiff
         {
-            f64 MeanAbs = 0.0;      // mean absolute 8-bit difference over RGB
-            u32 PixelsOver8 = 0;    // pixels whose largest channel delta exceeds 8
+            f64 MeanAbs = 0.0;   // mean absolute 8-bit difference over RGB
+            u32 PixelsOver8 = 0; // pixels whose largest channel delta exceeds 8
             u32 MaxDelta = 0;
         };
 
@@ -169,7 +169,7 @@ namespace OloEngine::Tests
             glm::vec3 Eye;
         };
         constexpr std::array<CameraPose, 2> kPoses{ { { "Oblique", { 0.0f, 9.0f, 9.0f } },
-                                                       { "Side", { 10.0f, 4.0f, 1.0f } } } };
+                                                      { "Side", { 10.0f, 4.0f, 1.0f } } } };
 
         enum class Arm : u8
         {
@@ -288,7 +288,7 @@ namespace OloEngine::Tests
             spot.m_InnerCutoff = 20.0f;
             spot.m_OuterCutoff = 32.0f;
             spot.m_Direction = (parented || arm == Arm::Misplaced) ? glm::inverse(parentRotation) * kSpotWorldDirection
-                                                                    : kSpotWorldDirection;
+                                                                   : kSpotWorldDirection;
             spot.m_CastShadows = casts;
 
             m_Lights[2] = place("Sphere", kSphereWorld);

@@ -12,7 +12,8 @@
 // places a local light with:
 //   * a light under a translated AND rotated parent answers the same world
 //     position and spot direction as a root light authored at that world pose;
-//   * a root light answers its raw Translation and the identity, bit for bit,
+//   * a root light answers its raw Translation and its authored direction,
+//     bit for bit,
 //     so no unparented light moves;
 //   * the light entity's OWN rotation stays unused, as it always was.
 // And the two CPU consumers outside the raster collection:
@@ -39,7 +40,10 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 
+#include <cmath>
 #include <cstring>
+#include <limits>
+#include <utility>
 #include <span>
 
 namespace OloEngine::Tests
@@ -152,7 +156,7 @@ namespace OloEngine::Tests
                        ExpectedWorldDirection(), 1.0e-5f, "the spot must aim along its parent's rotated frame");
     }
 
-    TEST(LocalLightWorldPose, ARootLightAnswersItsRawTranslationAndTheIdentityBitForBit)
+    TEST(LocalLightWorldPose, ARootLightAnswersItsRawTranslationAndAuthoredDirectionBitForBit)
     {
         LightRig rig = MakeRig(false);
         const glm::vec3 authored = rig.Spot.GetComponent<SpotLightComponent>().m_Direction;
@@ -165,6 +169,48 @@ namespace OloEngine::Tests
             const glm::vec3 world = pose.ToWorldDirection(authored);
             EXPECT_EQ(std::memcmp(&world, &authored, sizeof(world)), 0) << "an unparented spot must not turn";
         }
+    }
+
+    // Bit for bit means every bit: a signed zero or an infinity an author
+    // typed is handed back as it was, so the packing and the bake key of an
+    // unparented spot cannot move by a rounding of the identity.
+    TEST(LocalLightWorldPose, ARootSpotKeepsEvenASignedZeroAndAnInfinity)
+    {
+        LightRig rig = MakeRig(false);
+        const glm::vec3 authored{ -0.0f, -1.0f, std::numeric_limits<f32>::infinity() };
+        const glm::vec3 world = rig.World->GetLocalLightWorldPose(rig.Spot).ToWorldDirection(authored);
+        EXPECT_EQ(std::memcmp(&world, &authored, sizeof(world)), 0);
+    }
+
+    // The direction goes through the parent the way its children's meshes do.
+    // A mirrored lamp (scale -1 on X) aims its cone into the mirrored shade,
+    // and a stretched parent bends it as it bends the shade; the authored
+    // length is kept, since the packing never normalises.
+    TEST(LocalLightWorldPose, AMirroredOrStretchedParentCarriesTheSpotLikeItsMesh)
+    {
+        const auto worldPose = [](const glm::vec3& parentScale)
+        {
+            auto world = Ref<Scene>::Create();
+            Entity parent = world->CreateEntity("Lamp");
+            parent.GetComponent<TransformComponent>().Scale = parentScale;
+            Entity spot = world->CreateEntity("Spot");
+            spot.GetComponent<TransformComponent>().Translation = { 1.0f, 0.0f, 0.0f };
+            spot.AddComponent<SpotLightComponent>();
+            spot.SetParent(parent);
+            world->PropagateWorldTransforms();
+            const Scene::LocalLightWorldPose pose = world->GetLocalLightWorldPose(spot);
+            return std::pair{ pose.Position, pose.ToWorldDirection({ 1.0f, -1.0f, 0.0f }) };
+        };
+
+        const auto [mirroredAt, mirroredAim] = worldPose({ -1.0f, 1.0f, 1.0f });
+        ExpectVec3Near(mirroredAt, { -1.0f, 0.0f, 0.0f }, 1.0e-6f, "the mirrored lamp's light is not where its mesh is");
+        ExpectVec3Near(mirroredAim, { -1.0f, -1.0f, 0.0f }, 1.0e-6f,
+                       "the mirrored lamp's cone does not point into its mirrored shade");
+
+        const auto [stretchedAt, stretchedAim] = worldPose({ 2.0f, 1.0f, 1.0f });
+        ExpectVec3Near(stretchedAt, { 2.0f, 0.0f, 0.0f }, 1.0e-6f, "the stretched lamp's light is not where its mesh is");
+        const glm::vec3 bent = glm::vec3(2.0f, -1.0f, 0.0f) * (std::sqrt(2.0f) / std::sqrt(5.0f));
+        ExpectVec3Near(stretchedAim, bent, 1.0e-6f, "the stretched parent did not bend the cone as it bends the shade");
     }
 
     TEST(LocalLightWorldPose, TheLightEntitysOwnRotationDoesNotTurnItsSpot)

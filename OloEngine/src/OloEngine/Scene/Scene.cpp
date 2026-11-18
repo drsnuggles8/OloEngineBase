@@ -2733,49 +2733,37 @@ namespace OloEngine
         return m_Registry.get<TransformComponent>(entity).GetTransform();
     }
 
-    namespace
-    {
-        // Split a world matrix into translation, rotation and per-axis scale.
-        // Declared ahead of its definition below: GetLocalLightWorldPose uses it.
-        [[nodiscard]] bool SplitWorldMatrix(const glm::mat4& world, glm::vec3& translation, glm::quat& rotation, glm::vec3& scale);
-    } // namespace
-
     Scene::LocalLightWorldPose Scene::GetLocalLightWorldPose(entt::entity entity) const
     {
         const auto& local = m_Registry.get<TransformComponent>(entity);
         LocalLightWorldPose pose;
         pose.Position = local.Translation;
 
-        // A root light keeps its raw Translation and an identity rotation, so
+        // A root light keeps its raw Translation and its authored direction, so
         // every unparented light packs exactly the bytes it always did. The
         // bone-attachment component needs a parent too, so this covers it.
-        if (ResolveTransformParent(entity) == entt::null)
+        const entt::entity parent = ResolveTransformParent(entity);
+        if (parent == entt::null)
             return pose;
 
         const glm::mat4 world = GetWorldTransform(entity);
         pose.Position = glm::vec3(world[3]);
+        pose.Parented = true;
 
-        // The parent's frame is world * inverse(local): this holds for a bone
-        // attachment (parentWorld * bone) as for an ordinary parent, without
-        // re-resolving the bone here. A local transform with a zero scale has
-        // no inverse; the parent's own world matrix is then the frame, which is
-        // exact for every parent but a bone attachment.
-        glm::mat4 parentFrame = world * glm::inverse(local.GetTransform());
-        glm::vec3 translation{ 0.0f };
-        glm::vec3 scale{ 1.0f };
-        glm::quat rotation{ 1.0f, 0.0f, 0.0f, 0.0f };
-        if (!SplitWorldMatrix(parentFrame, translation, rotation, scale))
+        // The frame the light's transform lives in. For an ordinary parent that
+        // is the parent's world matrix (ComposeWorldTransform's own rule). A
+        // bone attachment composes parentWorld * bone * local, so its frame is
+        // world * inverse(local), which needs no bone re-resolution here; a
+        // local transform with a zero scale has no inverse, and the parent's
+        // matrix stands in.
+        glm::mat4 parentFrame = GetWorldTransform(parent);
+        if (m_Registry.all_of<BoneAttachmentComponent>(entity))
         {
-            parentFrame = GetWorldTransform(ResolveTransformParent(entity));
-            if (!SplitWorldMatrix(parentFrame, translation, rotation, scale))
-            {
-                // A parent collapsed to zero scale has no orientation; the
-                // direction stays as authored. Its children's meshes vanish
-                // with it, so there is no drawn emitter to disagree with.
-                return pose;
-            }
+            const glm::mat4 localMatrix = local.GetTransform();
+            if (std::abs(glm::determinant(glm::mat3(localMatrix))) > 1.0e-12f)
+                parentFrame = world * glm::inverse(localMatrix);
         }
-        pose.ParentRotation = rotation;
+        pose.ParentBasis = glm::mat3(parentFrame);
         return pose;
     }
 

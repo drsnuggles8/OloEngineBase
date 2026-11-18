@@ -1135,26 +1135,39 @@ namespace OloEngine
         // Where a local light (point, spot, sphere area) sits in the world
         // (issue #1707). Position is the light entity's composed world
         // translation, so a light parented under a moved entity shines where
-        // its bulb mesh is drawn. ParentRotation is the rotation of the frame
+        // its bulb mesh is drawn. ParentBasis is the linear part of the frame
         // the light's TransformComponent lives in (its parent's world frame,
         // bone included): a SpotLightComponent::m_Direction is authored in that
         // frame, exactly as Translation is, and the light entity's OWN rotation
         // stays unused, as it always was. A root light answers its raw
-        // Translation and an identity rotation, bit-for-bit what it packed
-        // before. Every consumer that places a local light — the renderer's
-        // light collection, the light gizmos, the path-tracing reference and
-        // the lightmap staleness key — reads it here, so they cannot disagree.
+        // Translation and hands its direction back untouched, bit-for-bit what
+        // it packed before. Every consumer that places a local light — the
+        // renderer's light collection, the light gizmos, the path-tracing
+        // reference and the lightmap staleness key — reads it here, so they
+        // cannot disagree. Directional lights are not placed: their direction
+        // stays world-space whatever their parent.
         struct LocalLightWorldPose
         {
             glm::vec3 Position{ 0.0f };
-            glm::quat ParentRotation{ 1.0f, 0.0f, 0.0f, 0.0f };
+            glm::mat3 ParentBasis{ 1.0f };
+            bool Parented = false;
 
-            // An authored spot direction carried into the world frame. Not
-            // normalised: the packing keeps the authored length
-            // (SanitizeSpotLightDirection), and a rotation preserves it.
+            // An authored spot direction carried into the world frame, the way
+            // the parent carries its children's meshes: through the parent's
+            // linear part, so a mirrored or non-uniformly scaled parent aims
+            // the cone where its lamp shade points. Keeps the authored length
+            // (the packing does not normalise, SanitizeSpotLightDirection). A
+            // parent frame that collapses the direction leaves it as authored.
             [[nodiscard]] glm::vec3 ToWorldDirection(const glm::vec3& authoredDirection) const
             {
-                return ParentRotation * authoredDirection;
+                if (!Parented)
+                    return authoredDirection;
+                const glm::vec3 carried = ParentBasis * authoredDirection;
+                const f32 carriedLength = glm::length(carried);
+                const f32 authoredLength = glm::length(authoredDirection);
+                if (!std::isfinite(carriedLength) || !(carriedLength > 1.0e-12f) || !std::isfinite(authoredLength))
+                    return authoredDirection;
+                return carried * (authoredLength / carriedLength);
             }
         };
         [[nodiscard("Store this!")]] LocalLightWorldPose GetLocalLightWorldPose(entt::entity entity) const;

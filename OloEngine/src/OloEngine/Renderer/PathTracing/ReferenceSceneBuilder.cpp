@@ -466,8 +466,13 @@ namespace OloEngine::PathTracing
         m_Lights.Add(refLight);
     }
 
+    void ReferenceSceneBuilder::AddSpotLight(const SpotLightComponent& light, const glm::vec3& position)
+    {
+        AddSpotLight(light, position, light.m_Direction);
+    }
+
     void ReferenceSceneBuilder::AddSpotLight(const SpotLightComponent& light, const glm::vec3& position,
-                                             const glm::quat& frameRotation)
+                                             const glm::vec3& worldDirection)
     {
         if (m_Consumed)
         {
@@ -502,7 +507,7 @@ namespace OloEngine::PathTracing
         // Sanitized by the SAME function Scene.cpp's packing uses
         // (Renderer/LightCommon.h), and passed UNnormalized like the UBO —
         // CalculateSpotIntensity normalizes, same as the shader.
-        refLight.Direction = SanitizeSpotLightDirection(frameRotation * light.m_Direction);
+        refLight.Direction = SanitizeSpotLightDirection(worldDirection);
         // Cone params as COSINES, inner then outer, falloff 1 — the x/y/z the
         // UBO carries. The UBO's w is the light-type tag (2 = spot), which
         // ReferenceLight expresses through Type instead; its w is the
@@ -677,7 +682,7 @@ namespace OloEngine::PathTracing
                             { AddPointLight(light, pose.Position); });
             addLightsOfType(std::type_identity<SpotLightComponent>{},
                             [this](const SpotLightComponent& light, const Scene::LocalLightWorldPose& pose)
-                            { AddSpotLight(light, pose.Position, pose.ParentRotation); });
+                            { AddSpotLight(light, pose.Position, pose.ToWorldDirection(light.m_Direction)); });
             addLightsOfType(std::type_identity<SphereAreaLightComponent>{},
                             [this](const SphereAreaLightComponent& light, const Scene::LocalLightWorldPose& pose)
                             { AddSphereAreaLight(light, pose.Position); });
