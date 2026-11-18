@@ -389,6 +389,15 @@ namespace OloEngine
         bool LiftAttachmentColorMasksForClear();
         void RestoreAttachmentColorMasks();
 
+        // The same for the depth write mask (#1710): a depth clear honours
+        // glDepthMask, so a clear issued while an earlier pass left depth
+        // writes off silently does nothing. Reads the LIVE mask rather than
+        // m_DepthMaskEnabled, so a raw glDepthMask elsewhere cannot hide it.
+        // Returns true if the mask was lifted; RestoreDepthMaskAfterClear
+        // puts it back.
+        [[nodiscard]] static bool LiftDepthMaskForClear();
+        static void RestoreDepthMaskAfterClear(bool lifted);
+
         // THE BLEND ENABLE IS A TRI-STATE PER DRAW BUFFER, and this pair is how
         // GL holds it. Raw GL cannot: glEnablei/glDisablei is the only way to
         // speak to a draw buffer, there is no "unset", and glEnable(GL_BLEND)

@@ -394,9 +394,22 @@ namespace OloEngine
                     restoreStencilWriteMask = true;
                 }
             }
+            // The depth clear honours glDepthMask; a pass that left depth
+            // writes off would drop it and keep last frame's depth (#1710).
+            GLboolean depthWrites = GL_TRUE;
+            glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWrites);
+            if (depthWrites != GL_TRUE)
+            {
+                glDepthMask(GL_TRUE);
+            }
+
             glClearDepth(1.0);
             glClear(clearBits);
 
+            if (depthWrites != GL_TRUE)
+            {
+                glDepthMask(GL_FALSE);
+            }
             if (restoreStencilWriteMask)
             {
                 glStencilMask(static_cast<GLuint>(previousStencilWriteMask));

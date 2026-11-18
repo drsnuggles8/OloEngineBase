@@ -25,6 +25,7 @@
 #include "RenderPropertyTest.h"
 #include "RendererAttachedTest.h"
 #include "AttachmentFeedbackEvidence.h"
+#include "TestRenderBackend.h"
 
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Framebuffer.h"
@@ -40,12 +41,15 @@
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/Scene.h"
 
+#include <glad/gl.h>
 #include <gtest/gtest.h>
 #include <stb_image/stb_image_write.h>
 
 #include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <functional>
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -160,28 +164,17 @@ namespace OloEngine::Tests
             camera.SetPose(pose.Position, pose.Yaw, pose.Pitch);
             RunEditorFrames(camera, 2);
 
-            Ref<Framebuffer> fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::UIComposite);
-            if (!fb)
-            {
-                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::ToneMapColor);
-            }
-            if (!fb)
-            {
-                fb = Renderer3D::ResolveFrameGraphFramebuffer(ResourceNames::SceneColor);
-            }
-            if (!fb)
-            {
-                return false;
-            }
-
+            // By RHI handle, so the pool case also runs in the Vulkan process.
             std::vector<u8> upsideDown;
-            ReadbackRgba8(fb->GetColorAttachmentHandle(0), kWidth, kHeight, upsideDown);
-            if (upsideDown.size() != static_cast<sizet>(kWidth) * kHeight * 4)
+            u32 width = 0;
+            u32 height = 0;
+            if (!ReadbackComposite(upsideDown, width, height) || width != kWidth || height != kHeight ||
+                upsideDown.size() != static_cast<sizet>(kWidth) * kHeight * 4)
             {
                 return false;
             }
 
-            // GL rows are bottom-up.
+            // The composite reads back bottom-up.
             outRgba.resize(upsideDown.size());
             const sizet rowBytes = static_cast<sizet>(kWidth) * 4;
             for (u32 y = 0; y < kHeight; ++y)
@@ -193,6 +186,18 @@ namespace OloEngine::Tests
         }
 
         Entity m_Fluid;
+    };
+
+    // The pool's on/off contract runs in both processes, the default one and
+    // --olo-rhi=vulkan (#1710). The other cases above stay GL-only: they read
+    // GL state or call GL directly.
+    class FluidPoolEvidenceTest : public FluidVisualEvidenceTest
+    {
+      protected:
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
     };
 
     // -------------------------------------------------------------------------
@@ -290,7 +295,7 @@ namespace OloEngine::Tests
         }
     }
 
-    TEST_F(FluidVisualEvidenceTest, PoolRendersFromMultipleAnglesAndChangesTheFrame)
+    TEST_F(FluidPoolEvidenceTest, PoolRendersFromMultipleAnglesAndChangesTheFrame)
     {
         OLO_ENSURE_GPU_OR_SKIP();
 
@@ -302,7 +307,7 @@ namespace OloEngine::Tests
         for (sizet i = 0; i < std::size(kPoses); ++i)
         {
             ASSERT_TRUE(Capture(kPoses[i], withFluid[i])) << kPoses[i].Name;
-            WritePng(std::string("Fluid_") + kPoses[i].Name, withFluid[i], kWidth, kHeight);
+            WritePng(TestRenderBackend::EvidenceName("Fluid") + kPoses[i].Name, withFluid[i], kWidth, kHeight);
 
             const f64 mean = MeanChannel(withFluid[i]);
             EXPECT_GT(mean, 5.0) << "capture " << kPoses[i].Name << " is black — nothing rendered";
@@ -316,10 +321,7 @@ namespace OloEngine::Tests
         {
             std::vector<u8> control;
             ASSERT_TRUE(Capture(kPoses[i], control)) << kPoses[i].Name;
-            if (i == 0)
-            {
-                WritePng("Fluid_Side_ControlNoFluid", control, kWidth, kHeight);
-            }
+            WritePng(TestRenderBackend::EvidenceName("FluidOff") + kPoses[i].Name, control, kWidth, kHeight);
 
             // The fluid must actually change the image. The pool covers a
             // large fraction of every pose, so even a subtle shading pass
@@ -330,9 +332,81 @@ namespace OloEngine::Tests
             // the farthest pose measures ~0.6 — 0.3 splits them with margin
             // on both sides without depending on pool coverage per pose.
             const f64 diff = MeanAbsDiff(withFluid[i], control);
+            std::cout << "[fluid-pool] " << kPoses[i].Name << ": mean |fluid - no fluid| = " << diff << '\n';
             EXPECT_GT(diff, 0.3)
                 << "pose " << kPoses[i].Name
                 << ": with-fluid and no-fluid frames are near-identical — the composite drew nothing";
         }
+    }
+
+    // #1710: the pool above rendered NOTHING on OpenGL. FluidIntermediatesPass
+    // clears its splat depth to 1.0 through ClearFramebufferDepth, a DSA depth
+    // clear honours glDepthMask exactly as glClear does, and a pass earlier in
+    // the frame had left depth writes off. The clear dropped, the depth target
+    // kept its creation value of 0, every splat fragment failed GL_LESS, and
+    // the composite discarded the whole pool with no error anywhere. Pinned on
+    // every GL depth-clear entry point, each starting from a stale depth of
+    // 0.25 with depth writes off.
+    TEST_F(FluidVisualEvidenceTest, ADepthClearIgnoresADepthMaskAnEarlierPassLeftOff)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        FramebufferSpecification spec;
+        spec.Width = 4;
+        spec.Height = 4;
+        spec.Attachments = { FramebufferTextureFormat::RGBA8, FramebufferTextureFormat::DEPTH_COMPONENT32F };
+        Ref<Framebuffer> fb = Framebuffer::Create(spec);
+        ASSERT_TRUE(fb);
+
+        const auto readDepth = [&fb]
+        {
+            f32 texel = -1.0f;
+            glGetTextureSubImage(fb->GetDepthAttachmentRendererID(), 0, 1, 1, 0, 1, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT,
+                                 static_cast<GLsizei>(sizeof(texel)), &texel);
+            return texel;
+        };
+
+        const auto expectClearLands = [&](const char* entryPoint, const std::function<void()>& clearToOne)
+        {
+            SCOPED_TRACE(entryPoint);
+            RenderCommand::SetDepthMask(true);
+            RenderCommand::ClearFramebufferDepth(fb->GetRHIHandle(), 0.25f);
+            ASSERT_FLOAT_EQ(readDepth(), 0.25f) << "the stale depth this case starts from was not written";
+
+            RenderCommand::SetDepthMask(false);
+            clearToOne();
+            GLboolean depthWritesAfter = GL_TRUE;
+            glGetBooleanv(GL_DEPTH_WRITEMASK, &depthWritesAfter);
+            RenderCommand::SetDepthMask(true);
+
+            EXPECT_FLOAT_EQ(readDepth(), 1.0f) << "the depth clear was dropped under a depth mask an earlier pass left off";
+            EXPECT_EQ(depthWritesAfter, GL_FALSE) << "the clear did not give the depth mask back";
+        };
+
+        expectClearLands("RenderCommand::ClearFramebufferDepth",
+                         [&] { RenderCommand::ClearFramebufferDepth(fb->GetRHIHandle(), 1.0f); });
+        expectClearLands("Framebuffer::ClearAllAttachments",
+                         [&]
+                         {
+                             // Clears the BOUND framebuffer (glClear / glClearBuffer*).
+                             fb->Bind();
+                             fb->ClearAllAttachments();
+                             fb->Unbind();
+                         });
+        expectClearLands("RenderCommand::Clear",
+                         [&]
+                         {
+                             fb->Bind();
+                             RenderCommand::SetDepthTest(true);
+                             RenderCommand::Clear();
+                             fb->Unbind();
+                         });
+        expectClearLands("RenderCommand::ClearDepthOnly",
+                         [&]
+                         {
+                             fb->Bind();
+                             RenderCommand::ClearDepthOnly();
+                             fb->Unbind();
+                         });
     }
 } // namespace OloEngine::Tests

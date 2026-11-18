@@ -19,7 +19,8 @@ to open, and a pass that opens cannot cover an earlier pass that forgot to resto
 Selecting the draw buffers (`SetFramebufferDrawAttachments`) is not enough. Draw buffers say where a
 fragment output goes; the mask says whether it is written. A pass can route its second output to
 the right texture and still write nothing there. A GL colour clear honours the mask too; the
-backend lifts masks around both `glClear` and `ClearFramebufferColorAttachment`.
+backend lifts masks around both `glClear` and `ClearFramebufferColorAttachment`. A depth clear
+honours `glDepthMask` the same way, and every GL depth-clear entry point lifts it (#1710, below).
 
 ## The same fault, found twice in one day
 
@@ -53,6 +54,15 @@ the G-Buffer bucket on a masked draw.
   emissive lane. With depth test off it wrote no depth either, so over sky the lighting pass shaded
   it as background, and every debug line was invisible on Deferred. Such draws now go to
   `ForwardOverlayPass` there, where the mask means what it was written for.
+- **A depth clear was dropped under a depth mask an earlier pass left off** (#1710).
+  `FluidIntermediatesPass` clears its splat depth to 1.0 through `ClearFramebufferDepth`, then
+  opens the depth mask for its draws. `glClearNamedFramebufferfv(GL_DEPTH)` honours the mask the
+  pass found, so the clear did nothing, the target kept its creation value of 0, every splat failed
+  `GL_LESS`, and the OpenGL fluid pool rendered nothing with no error. Only the thickness splat,
+  which has no depth test, still wrote. `ClearDepthOnly` and `ClearColorAndDepth` already lifted
+  the mask; `ClearFramebufferDepth`, `Clear` and `OpenGLFramebuffer::ClearAllAttachments` now do
+  too, reading the live `GL_DEPTH_WRITEMASK`. `FluidVisualEvidenceTest.ADepthClearIgnoresADepthMaskAnEarlierPassLeftOff`
+  pins all four. Vulkan clears ignore write masks, so it never reproduced there.
 
 ## How to find one: query the mask, not the output
 
