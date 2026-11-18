@@ -21,10 +21,8 @@ DESTINATION = Path(
     sys.argv[sys.argv.index("--") + 1] if "--" in sys.argv else Path(__file__).parent
 ).resolve()
 # The exporter can fail after writing a buffer or some of its images.
-# Work on the destination filesystem so the later file replacements are atomic.
-staging = tempfile.TemporaryDirectory(
-    dir=staging_parent(DESTINATION), prefix=".stacks-bake-"
-)
+# Stage outside the editor project; publication does its own local file replacements.
+staging = tempfile.TemporaryDirectory(dir=staging_parent(), prefix=".stacks-bake-")
 ROOT = Path(staging.name)
 bpy.ops.wm.read_factory_settings(use_empty=True)
 TAU = math.tau

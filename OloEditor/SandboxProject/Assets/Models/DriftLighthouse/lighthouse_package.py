@@ -9,16 +9,19 @@ import tempfile
 from pathlib import Path
 
 
-def staging_parent(destination):
-    """Stay on the output filesystem, outside the editor's watched asset tree."""
-    parent = destination.parent
-    parent.mkdir(parents=True, exist_ok=True)
+def staging_parent():
+    """Keep Blender's temporary .png/.gltf files outside watched projects."""
     scratch = Path(tempfile.gettempdir()).resolve()
-    if scratch.stat().st_dev == parent.stat().st_dev:
-        return scratch
-    return next(
-        (p.parent for p in destination.parents if p.name.casefold() == "assets"), parent
-    )
+    # A custom TMPDIR can itself live below a project. Choose a sibling of
+    # the outermost enclosing project, even when the output is on another drive.
+    for folder in (scratch, *scratch.parents):
+        if any(folder.glob("*.oloproj")):
+            if folder == folder.parent:
+                raise ValueError(
+                    "Set the system temporary directory outside the watched project"
+                )
+            scratch = folder.parent
+    return scratch
 
 
 def finalize_descriptor(staged, finishes):
@@ -79,10 +82,18 @@ def publish_package(staged, destination, names):
     # Use the same lock across users and temporary directories. Backup files
     # end in .previous so editor asset watchers cannot import them.
     recovery = destination / ".stacks-light-recovery"
-    recovery.mkdir()
+    try:
+        recovery.mkdir()
+    except FileExistsError as error:
+        raise RuntimeError(
+            f"Publication already active or interrupted at {recovery}. "
+            "Leave it in place until the publisher exits; see README.md for recovery."
+        ) from error
+
     replaced = []
     remove_recovery = True
     try:
+        existing, added = [], []
         changed = []
         for name in names:
             old = destination / name
@@ -94,21 +105,47 @@ def publish_package(staged, destination, names):
                 if not old.stat().st_mode & stat.S_IWRITE:
                     raise PermissionError(f"Read-only output: {old}")
                 shutil.copy2(old, recovery / (name + ".previous"))
-            changed.append(name)
-        for name in changed:
-            os.replace(staged / name, destination / name)
-            replaced.append(name)
-    except BaseException:
-        # Keep backups if the filesystem itself prevents restoration.
-        remove_recovery = False
-        for name in reversed(replaced):
-            backup = recovery / (name + ".previous")
-            if backup.exists():
-                os.replace(backup, destination / name)
+                existing.append(name)
             else:
-                (destination / name).unlink()
+                added.append(name)
+            # Copy every validated payload onto the destination mount before
+            # the first replacement. Its .pending suffix is invisible to import.
+            shutil.copyfile(staged / name, recovery / (name + ".pending"))
+            changed.append(name)
+        # The marker is installed atomically. Without it no replacement started.
+        plan = recovery / "transaction.pending"
+        plan.write_text(
+            json.dumps({"existing": existing, "added": added}), encoding="utf-8"
+        )
+        os.replace(plan, recovery / "transaction.plan")
+        for name in changed:
+            os.replace(recovery / (name + ".pending"), destination / name)
+            replaced.append(name)
+    except BaseException as publish_error:
+        remove_recovery = False
+        errors = []
+        for name in reversed(replaced):
+            try:
+                backup = recovery / (name + ".previous")
+                if backup.exists():
+                    # Retain every original until the whole rollback succeeds.
+                    restore = recovery / (name + ".restore")
+                    shutil.copy2(backup, restore)
+                    os.replace(restore, destination / name)
+                else:
+                    (destination / name).unlink(missing_ok=True)
+            except OSError as rollback_error:
+                errors.append(f"{name}: {rollback_error}")
+        if errors:
+            raise RuntimeError(
+                f"Publication failed: {publish_error}. Originals are in {recovery}. "
+                f"Could not restore: {'; '.join(errors)}"
+            ) from publish_error
         remove_recovery = True
         raise
     finally:
         if remove_recovery:
+            # Remove the active journal before deleting its backups. A process
+            # killed during cleanup then leaves a stable destination.
+            (recovery / "transaction.plan").unlink(missing_ok=True)
             shutil.rmtree(recovery)

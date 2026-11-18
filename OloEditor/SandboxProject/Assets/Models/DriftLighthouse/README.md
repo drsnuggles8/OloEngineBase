@@ -43,9 +43,18 @@ pass a different output directory after `--`; the generator reads its inputs
 beside the script. The generator bakes into a temporary directory and checks the
 UV charts, buffer and each finish's colour, normal and packed map references.
 `lighthouse_package.py` then replaces changed payloads and publishes the glTF
-last. A failed replacement restores the previous files. If a process is killed
-during publication, the output directory's `.stacks-light-recovery` subdirectory
-retains original files with a `.previous` suffix for recovery.
+last. A failed replacement restores the previous files. The destination-local
+`.pending` and `.previous` files have unregistered extensions, so staging also
+works when the system temporary directory is on another volume.
+
+**Interrupted publication.** The error names the output directory's
+`.stacks-light-recovery` folder. First verify that no Blender process is still
+publishing to that destination. Keep a copy of the recovery folder. If it has
+no `transaction.plan`, no unfinished replacement needs rollback. Otherwise, copy each file
+listed under `existing` from its `.previous` backup to its original name, then
+remove only the live files listed under `added`. For an interrupted build into
+an empty directory, `existing` is empty. Once the original state is restored,
+move the recovery folder outside the project and retry the rebuild.
 
 Keep the glTF, binary buffer and its 27 referenced PNGs
 together for delivery. Reopen or reimport the model and textures before comparing
