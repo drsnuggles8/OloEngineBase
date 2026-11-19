@@ -7,7 +7,7 @@ rebuilds from goes on an authored entity (or in a framed settings block).**
 
 - **Mark the root of a hierarchy, at creation.** `Scene::IsRuntimeOwned` is true for the marked
   entity and its descendants, so a menu parented under one marked canvas needs one call. Mark
-  separately anything not parented under the root, such as the dialogue choice buttons.
+  separately anything the system creates outside that subtree.
 - **Rebuild after a load into a running scene.** `SaveGameSerializer::RestoreSceneState` swaps the
   whole registry, so a system that keeps running holds the UUIDs of entities that are gone. Check
   that the hierarchy is alive on update and rebuild it: `DialogueUIController::IsHierarchyIntact`,
