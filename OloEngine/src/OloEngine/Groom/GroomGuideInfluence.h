@@ -191,6 +191,8 @@ namespace OloEngine
         }
     };
 
+    class GroomGuideStandInSet;
+
     /**
      * @brief Everything the strand build needs to move a rendered strand.
      *
@@ -208,11 +210,28 @@ namespace OloEngine
         /// guide count, so a strand's slot lookup is always in range.
         std::span<const u32> GuideOfSlot{};
 
+        /// Every guide slot's stand-ins (#1509), published beside the simulated
+        /// guides rather than expanded into them (#1589): the coat is drawn
+        /// from EVERY slot's displacement, a left-out slot's being the blend of
+        /// its stand-ins. Null when every slot was simulated -- the simulated
+        /// set is then already every slot. Read only through ExpandsStandIns().
+        /// A CPU reader samples the expansion (GroomGuideExpansion), never the
+        /// simulated subset as it stands: that would leave each left-out slot
+        /// at rest.
+        const GroomGuideStandInSet* StandIns = nullptr;
+
         [[nodiscard]] bool IsUsable(u32 curveCount) const noexcept
         {
             return Influence != nullptr && Influence->GetWeights().size() == curveCount &&
                    GuideOfSlot.size() == Influence->GetGuideCount() && Displacements.IsUsable();
         }
+
+        /// Whether this frame is drawn from its stand-ins' expansion: there are
+        /// stand-ins, one per slot of the table, and they describe these
+        /// displacements (GroomGuideStandInsDescribe). False draws the simulated
+        /// set as it is, which is also what stand-ins that do not describe it
+        /// get -- the rule the producer applied when it expanded them itself.
+        [[nodiscard]] bool ExpandsStandIns() const noexcept;
     };
 
     /**
@@ -289,4 +308,122 @@ namespace OloEngine
                                                      std::span<const u32> guideOffsets,
                                                      std::span<const glm::vec3> displacements,
                                                      TArray<u32>& outOffsets, TArray<glm::vec3>& outDisplacements);
+
+    /**
+     * @brief Whether one expansion is described: the check
+     * ExpandGroomGuideDisplacements makes before it writes anything.
+     *
+     * One point count per stand-in; offsets that start at 0, never decrease and
+     * end inside `displacementCount`; every stand-in naming a guide the offsets
+     * have. GroomExpandGuides.comp trusts the layout it is handed, so the CPU
+     * asks this before it packs one for the kernel.
+     */
+    [[nodiscard]] bool GroomGuideStandInsDescribe(std::span<const GroomGuideWeights> standIns,
+                                                  std::span<const u32> slotPointCounts,
+                                                  std::span<const u32> guideOffsets, sizet displacementCount) noexcept;
+
+    /**
+     * @brief Every guide slot's stand-ins for one simulation budget (#1589).
+     *
+     * Built when the budget changes which guides are simulated, then never
+     * written again, so the strand requests of later frames share it by Ref and
+     * a GPU buffer that sent it can tell it is unchanged by its serial alone:
+     * the stand-ins cross the bus once per budget step, and only the simulated
+     * guides' points cross every frame. The dense layout is precomputed here
+     * too -- each slot's window is the running sum of the slots' point counts.
+     */
+    class GroomGuideStandInSet : public RefCounted
+    {
+      public:
+        /// Null when the two arrays differ in length, are empty, or the slots'
+        /// points do not fit a u32 offset.
+        [[nodiscard]] static Ref<GroomGuideStandInSet> Create(TArray<GroomGuideWeights> standIns,
+                                                              TArray<u32> slotPointCounts);
+
+        /// Per slot, its stand-ins: SIMULATED GUIDE indices and their weights.
+        [[nodiscard]] std::span<const GroomGuideWeights> GetStandIns() const noexcept
+        {
+            return { m_StandIns.GetData(), static_cast<sizet>(m_StandIns.Num()) };
+        }
+        /// Per slot, its curve's point count: the length of its window.
+        [[nodiscard]] std::span<const u32> GetSlotPointCounts() const noexcept
+        {
+            return { m_SlotPointCounts.GetData(), static_cast<sizet>(m_SlotPointCounts.Num()) };
+        }
+        /// Slots + 1 entries: where each slot's window starts in the dense
+        /// layout, and the total.
+        [[nodiscard]] std::span<const u32> GetSlotOffsets() const noexcept
+        {
+            return { m_SlotOffsets.GetData(), static_cast<sizet>(m_SlotOffsets.Num()) };
+        }
+        [[nodiscard]] u32 GetSlotCount() const noexcept
+        {
+            return static_cast<u32>(m_StandIns.Num());
+        }
+        /// Every slot's points: the dense layout's size.
+        [[nodiscard]] u32 GetPointCount() const noexcept
+        {
+            return m_SlotOffsets.IsEmpty() ? 0u : m_SlotOffsets.Last();
+        }
+        /// Unique per set for the life of the process, so "is this the set I
+        /// sent?" never mistakes a new set at a reused address for the old one.
+        [[nodiscard]] u64 GetSerial() const noexcept
+        {
+            return m_Serial;
+        }
+        /// One past the highest simulated guide any stand-in names (0 when
+        /// none does), found once at Create: the set never changes, so whether
+        /// it fits a frame's guides is one comparison, not a walk of every slot
+        /// for every reader of every frame.
+        [[nodiscard]] u32 GetGuidesNamed() const noexcept
+        {
+            return m_GuidesNamed;
+        }
+        /// Whether these stand-ins describe a frame of guides laid out by
+        /// `guideOffsets` over `displacementCount` points: GroomGuideStandInsDescribe's
+        /// answer, from the guides named at Create rather than a walk.
+        [[nodiscard]] bool Describes(std::span<const u32> guideOffsets, sizet displacementCount) const noexcept;
+        [[nodiscard]] u64 GetCpuMemoryBytes() const noexcept;
+
+      private:
+        TArray<GroomGuideWeights> m_StandIns;
+        TArray<u32> m_SlotPointCounts;
+        TArray<u32> m_SlotOffsets;
+        u64 m_Serial = 0;
+        u32 m_GuidesNamed = 0;
+    };
+
+    /**
+     * @brief The dense simulation a CPU reader samples (#1589).
+     *
+     * The producer publishes the simulated guides and their stand-ins, not
+     * their expansion; the GPU expands them where it draws the coat
+     * (GroomExpandGuides.comp). A CPU reader -- the CPU deformation path, the
+     * caster padding, the coat bake's drawn pose, the ray-traced proxy --
+     * samples the same expansion here, through ExpandGroomGuideDisplacements:
+     * one entry per SLOT in slot order, every slot mapped to itself. Exactly
+     * what the producer used to publish, so every CPU reader reads what it
+     * read before.
+     *
+     * Owns its arrays; the view Expand returns is valid until the next call.
+     */
+    class GroomGuideExpansion
+    {
+      public:
+        /// `simulation` itself when it does not expand stand-ins. Otherwise its
+        /// expansion -- and, with `withPrevious`, last frame's, all or nothing:
+        /// a previous frame that does not expand is no previous frame (zero
+        /// motion), never a partial one. A current frame that does not expand
+        /// returns the simulated set as it stands.
+        [[nodiscard]] GroomStrandSimulation Expand(const GroomStrandSimulation& simulation, bool withPrevious = true);
+
+        [[nodiscard]] u64 GetCpuBytes() const noexcept;
+
+      private:
+        TArray<u32> m_Offsets;
+        TArray<u32> m_PrevOffsets;
+        TArray<u32> m_IdentitySlots;
+        TArray<glm::vec3> m_Displacements;
+        TArray<glm::vec3> m_PrevDisplacements;
+    };
 } // namespace OloEngine

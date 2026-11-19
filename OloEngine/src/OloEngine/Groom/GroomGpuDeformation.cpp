@@ -10,6 +10,7 @@
 #include <glm/gtc/quaternion.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -32,6 +33,13 @@ namespace OloEngine
         constexpr u32 kUnitsPerSkin = 2u;
         constexpr u32 kUnitsPerVertex = 3u;
         constexpr u32 kUnitsPerBone = 4u; // one mat4
+        // The GPU guide expansion's regions (#1589): a slot's stand-ins are a
+        // GroomGuideWeights, a simulated point a displacement record, and the
+        // guides' prefix four u32s to a unit.
+        constexpr u32 kUnitsPerStandIn = kUnitsPerWeights;
+        constexpr u32 kGuideOffsetsPerUnit = 4u;
+        // GroomExpandGuides.comp's local_size_x.
+        constexpr u32 kExpandGroupSize = 64u;
         static_assert(sizeof(GroomRootSkinRecord) == kUnitsPerSkin * kUnitBytes);
         static_assert(sizeof(GroomSurfaceVertexRecord) == kUnitsPerVertex * kUnitBytes);
         static_assert(sizeof(glm::mat4) == kUnitsPerBone * kUnitBytes);
@@ -199,6 +207,26 @@ namespace OloEngine
         return layout;
     }
 
+    GroomDeformBufferLayout GroomDeformBufferLayout::WithGuideExpansion(u32 sourceCapacity) const noexcept
+    {
+        if (sourceCapacity == 0u || SlotCount == 0u)
+        {
+            return *this;
+        }
+        // After everything else, so no region the vertex stage or the root
+        // kernel reads moves, and a layout without them is byte for byte the
+        // layout it was.
+        GroomDeformBufferLayout layout = *this;
+        layout.SourceCapacity = sourceCapacity;
+        layout.StandInBase = TotalUnits;
+        layout.GuideOffsetBase = layout.StandInBase + SlotCount * kUnitsPerStandIn;
+        // A guide per slot at most, and the prefix has one entry more.
+        const u32 offsetUnits = (SlotCount + 1u + kGuideOffsetsPerUnit - 1u) / kGuideOffsetsPerUnit;
+        layout.SourceBase = layout.GuideOffsetBase + offsetUnits;
+        layout.TotalUnits = layout.SourceBase + sourceCapacity * kUnitsPerDisplacement;
+        return layout;
+    }
+
     u32 GroomDeformDisplacementCapacity(const GroomAsset& groom, const GroomGuideInfluenceTable* influence) noexcept
     {
         if (influence == nullptr)
@@ -231,6 +259,12 @@ namespace OloEngine
         m_Displacements.Init(GroomDeformDisplacementRecord{}, static_cast<i32>(layout.DisplacementCapacity));
         m_Bytes.Init(u8{ 0 }, cpuOnly ? 0 : static_cast<i64>(layout.TotalBytes()));
         m_CountsValid = false;
+        m_Source.Reset();
+        m_GuideOffsets.Reset();
+        m_PackedStandInSerial = 0;
+        m_ExpandedValid = false;
+        m_Expanded = {};
+        m_CpuGuidesResolved = true;
 
         // The STATIC region: each drawn strand's guide weights, in root-slot
         // order. A strand with no table, or a table that does not span the
@@ -296,7 +330,8 @@ namespace OloEngine
     GroomDeformFrameStats GroomDeformBuffer::PackFrame(std::span<const u32> rootCurves,
                                                        const GroomBindingAsset& binding,
                                                        std::span<const GroomRootTransform> rootTransforms,
-                                                       const GroomStrandSimulation* simulation, u32 baseCurveCount)
+                                                       const GroomStrandSimulation* simulation, u32 baseCurveCount,
+                                                       bool gpuExpandsGuides)
     {
         OLO_PROFILE_FUNCTION();
         OLO_PERF_SCOPE_AUTO("Groom::PackFrame");
@@ -355,12 +390,20 @@ namespace OloEngine
         // BuildGroomStrandMesh states for the same input. The slot region is
         // cleared either way, so a frame that stops simulating cannot leave the
         // previous frame's windows behind for the shader to read.
+        m_ExpandedValid = false;
+        m_CpuGuidesResolved = true;
         for (GroomDeformSlotRecord& slot : m_Slots)
         {
             slot = GroomDeformSlotRecord{};
         }
+        // Every frame that writes the slot region from here forgets the set
+        // whose dense windows it held, so a later expanded frame writes them
+        // again.
         const auto finishSlots = [this]()
-        { WriteRegion(m_CpuOnly, m_Bytes, m_Layout.SlotBase, AsSpan(m_Slots, m_Layout.SlotCount)); };
+        {
+            WriteRegion(m_CpuOnly, m_Bytes, m_Layout.SlotBase, AsSpan(m_Slots, m_Layout.SlotCount));
+            m_PackedStandInSerial = 0;
+        };
 
         if (simulation == nullptr || !simulation->IsUsable(baseCurveCount))
         {
@@ -368,10 +411,8 @@ namespace OloEngine
             return m_Frame;
         }
 
-        const GroomGuideDisplacements& guides = simulation->Displacements;
-        const u32 displacementCount = static_cast<u32>(guides.Displacements.size());
-        if (displacementCount > m_Layout.DisplacementCapacity ||
-            simulation->Influence->GetGuideCount() != m_Layout.SlotCount)
+        const GroomGuideDisplacements& sparse = simulation->Displacements;
+        if (simulation->Influence->GetGuideCount() != m_Layout.SlotCount)
         {
             // The caller sized the buffer for this table; a mismatch means the
             // table changed under a live entry. The coat stays on its bound rest
@@ -381,9 +422,55 @@ namespace OloEngine
             return m_Frame;
         }
 
+        // THE STAND-INS EXPANDED ON THE GPU (#1589): only the simulated points
+        // are packed, for GroomExpandGuides.comp to expand into the dense
+        // region the vertex stage reads. Needs a layout with the kernel's
+        // regions, room for this frame's points, and a byte image to send.
+        const bool expands = simulation->ExpandsStandIns();
+        if (expands && gpuExpandsGuides && !m_CpuOnly && m_Layout.ExpandsGuides() &&
+            sparse.Displacements.size() <= m_Layout.SourceCapacity &&
+            sparse.GuideCount() <= m_Layout.SlotCount &&
+            simulation->StandIns->GetPointCount() <= m_Layout.DisplacementCapacity)
+        {
+            PackGuideSource(*simulation);
+            m_Frame.Simulated = true;
+            m_Frame.DisplacementCount = simulation->StandIns->GetPointCount();
+            m_CpuGuidesResolved = false;
+            if (m_IdentitySlots.Num() != static_cast<i32>(m_Layout.SlotCount))
+            {
+                m_IdentitySlots.SetNumUninitialized(static_cast<i32>(m_Layout.SlotCount));
+                for (i32 slot = 0; slot < m_IdentitySlots.Num(); ++slot)
+                {
+                    m_IdentitySlots[slot] = static_cast<u32>(slot);
+                }
+            }
+            // Every slot has a displacement: counted as the expansion's own map.
+            CountStrands(rootCurves, *simulation,
+                         std::span<const u32>(m_IdentitySlots.GetData(), static_cast<sizet>(m_IdentitySlots.Num())));
+            return m_Frame;
+        }
+
+        // DENSE: the simulation as it is, or -- for stand-ins the GPU does not
+        // expand here (a CPU-only buffer, a layout without the kernel's
+        // regions) -- its expansion, made on the CPU as before #1589.
+        if (expands)
+        {
+            m_Expanded = m_Expansion.Expand(*simulation);
+            m_ExpandedValid = true;
+        }
+        const GroomStrandSimulation& dense = expands ? m_Expanded : *simulation;
+        const GroomGuideDisplacements& guides = dense.Displacements;
+        const u32 displacementCount = static_cast<u32>(guides.Displacements.size());
+        if (displacementCount > m_Layout.DisplacementCapacity)
+        {
+            m_ExpandedValid = false;
+            finishSlots();
+            return m_Frame;
+        }
+
         for (u32 slot = 0; slot < m_Layout.SlotCount; ++slot)
         {
-            const u32 guide = slot < simulation->GuideOfSlot.size() ? simulation->GuideOfSlot[slot] : GroomNoGuide;
+            const u32 guide = slot < dense.GuideOfSlot.size() ? dense.GuideOfSlot[slot] : GroomNoGuide;
             if (guide == GroomNoGuide || static_cast<sizet>(guide) + 1u >= guides.GuideOffsets.size())
             {
                 continue; // not simulated this frame
@@ -398,6 +485,21 @@ namespace OloEngine
         }
         finishSlots();
 
+        (void)PackDisplacementRecords(guides, false);
+        m_Frame.Simulated = true;
+        m_Frame.DisplacementCount = displacementCount;
+        CountStrands(rootCurves, dense, dense.GuideOfSlot);
+        return m_Frame;
+    }
+
+    u32 GroomDeformBuffer::PackDisplacementRecords(const GroomGuideDisplacements& guides, bool cpuMirrorOnly)
+    {
+        const u32 displacementCount =
+            std::min(static_cast<u32>(guides.Displacements.size()), static_cast<u32>(m_Displacements.Num()));
+        if (displacementCount == 0u)
+        {
+            return 0u;
+        }
         const bool hasPrevious = !guides.PrevDisplacements.empty();
         // In parallel (#1533): every guide point of the coat, every frame, for
         // the raster pass and again for the ray-traced proxy.
@@ -413,25 +515,88 @@ namespace OloEngine
                         // zero, as SampleGroomGuideDisplacement's is.
                         record.Previous = hasPrevious ? glm::vec4(guides.PrevDisplacements[i], 0.0f) : record.Current;
                     });
-        WriteRegion(m_CpuOnly, m_Bytes, m_Layout.DisplacementBase, AsSpan(m_Displacements, displacementCount));
+        if (!cpuMirrorOnly)
+        {
+            WriteRegion(m_CpuOnly, m_Bytes, m_Layout.DisplacementBase, AsSpan(m_Displacements, displacementCount));
+        }
+        return displacementCount;
+    }
 
-        m_Frame.Simulated = true;
-        m_Frame.DisplacementCount = displacementCount;
+    void GroomDeformBuffer::PackGuideSource(const GroomStrandSimulation& simulation)
+    {
+        OLO_PERF_SCOPE_AUTO("Groom::PackGuideSource");
+        const GroomGuideStandInSet& set = *simulation.StandIns;
+        const GroomGuideDisplacements& guides = simulation.Displacements;
+        const u32 slots = m_Layout.SlotCount;
 
+        // Each slot's window in the dense region: the running sum of the slots'
+        // point counts, which is ExpandGroomGuideDisplacements' layout. Into
+        // the typed records every frame (the CPU twin reads them); into the
+        // image, with the stand-ins, only for a set the image does not hold.
+        const std::span<const u32> windows = set.GetSlotOffsets();
+        const std::span<const u32> counts = set.GetSlotPointCounts();
+        for (u32 slot = 0; slot < slots; ++slot)
+        {
+            m_Slots[slot] = GroomDeformSlotRecord{ windows[slot], counts[slot], 0u, 0u };
+        }
+        if (set.GetSerial() != m_PackedStandInSerial)
+        {
+            WriteRegion(m_CpuOnly, m_Bytes, m_Layout.SlotBase, AsSpan(m_Slots, slots));
+            WriteRegion(m_CpuOnly, m_Bytes, m_Layout.StandInBase, set.GetStandIns());
+            m_PackedStandInSerial = set.GetSerial();
+            m_Frame.StandInsWritten = true;
+        }
+
+        // The simulated guides' prefix, padded to whole units with zeros the
+        // kernel never reads (it reads entries 0..guides).
+        const u32 guideCount = guides.GuideCount();
+        const u32 offsetUnits = (guideCount + 1u + kGuideOffsetsPerUnit - 1u) / kGuideOffsetsPerUnit;
+        m_GuideOffsets.SetNumZeroed(static_cast<i32>(offsetUnits * kGuideOffsetsPerUnit), EAllowShrinking::No);
+        std::memcpy(m_GuideOffsets.GetData(), guides.GuideOffsets.data(), guides.GuideOffsets.size_bytes());
+        WriteRegion(m_CpuOnly, m_Bytes, m_Layout.GuideOffsetBase,
+                    std::span<const u32>(m_GuideOffsets.GetData(), static_cast<sizet>(m_GuideOffsets.Num())));
+
+        // The simulated points, this frame and last, as the dense records are
+        // laid out: "no previous frame" is resolved by the kernel, which writes
+        // this frame's expansion in both lanes.
+        const u32 sourceCount = static_cast<u32>(guides.Displacements.size());
+        const bool hasPrevious = !guides.PrevDisplacements.empty();
+        m_Source.SetNumUninitialized(static_cast<i32>(sourceCount), EAllowShrinking::No);
+        GroomDeformDisplacementRecord* const records = m_Source.GetData();
+        ParallelFor("GroomPackGuideSource", static_cast<i32>(sourceCount), 8192,
+                    [records, &guides, hasPrevious](i32 index)
+                    {
+                        const auto i = static_cast<sizet>(index);
+                        records[i].Current = glm::vec4(guides.Displacements[i], 0.0f);
+                        records[i].Previous = hasPrevious ? glm::vec4(guides.PrevDisplacements[i], 0.0f) : records[i].Current;
+                    });
+        WriteRegion(m_CpuOnly, m_Bytes, m_Layout.SourceBase, AsSpan(m_Source, sourceCount));
+
+        m_Frame.GuidesExpandedOnGpu = true;
+        m_Frame.SourceCount = sourceCount;
+        m_Frame.SourceGuides = guideCount;
+        m_Frame.SourceHasPrevious = hasPrevious;
+    }
+
+    void GroomDeformBuffer::CountStrands(std::span<const u32> rootCurves, const GroomStrandSimulation& simulation,
+                                         std::span<const u32> guideOfSlot)
+    {
         // The strands a guide actually moved this frame, counted the way the
         // CPU build counted them: HasGroomGuideInfluence, per drawn strand --
         // and only when the guides it moved are not the ones last counted.
-        const bool countsCurrent =
-            m_CountsValid && m_CountedTable == simulation->Influence &&
-            std::ranges::equal(std::span<const u32>(m_CountedGuideOfSlot), simulation->GuideOfSlot);
+        const u32 rootCount = std::min(m_Layout.RootCount, static_cast<u32>(rootCurves.size()));
+        const bool countsCurrent = m_CountsValid && m_CountedTable == simulation.Influence &&
+                                   std::ranges::equal(std::span<const u32>(m_CountedGuideOfSlot), guideOfSlot);
         if (!countsCurrent)
         {
             OLO_PERF_SCOPE_AUTO("Groom::CountStrands");
+            GroomStrandSimulation counted = simulation;
+            counted.GuideOfSlot = guideOfSlot;
             m_CountedSimulated = 0;
             m_CountedUnguided = 0;
             for (u32 slot = 0; slot < rootCount; ++slot)
             {
-                if (HasGroomGuideInfluence(*simulation, rootCurves[slot]))
+                if (HasGroomGuideInfluence(counted, rootCurves[slot]))
                 {
                     ++m_CountedSimulated;
                 }
@@ -440,13 +605,50 @@ namespace OloEngine
                     ++m_CountedUnguided;
                 }
             }
-            m_CountedGuideOfSlot.assign(simulation->GuideOfSlot.begin(), simulation->GuideOfSlot.end());
-            m_CountedTable = simulation->Influence;
+            m_CountedGuideOfSlot.assign(guideOfSlot.begin(), guideOfSlot.end());
+            m_CountedTable = simulation.Influence;
             m_CountsValid = true;
         }
         m_Frame.StrandsSimulated = m_CountedSimulated;
         m_Frame.StrandsUnguided = m_CountedUnguided;
-        return m_Frame;
+    }
+
+    GroomGuideExpansionDispatch GroomDeformBuffer::GuideExpansionDispatch() const noexcept
+    {
+        GroomGuideExpansionDispatch dispatch;
+        if (!m_Frame.GuidesExpandedOnGpu)
+        {
+            return dispatch;
+        }
+        dispatch.Counts = glm::ivec4(static_cast<i32>(m_Layout.SlotCount), static_cast<i32>(m_Frame.SourceGuides),
+                                     m_Frame.SourceHasPrevious ? 1 : 0, static_cast<i32>(m_Frame.SourceCount));
+        dispatch.Bases = glm::ivec4(static_cast<i32>(m_Layout.StandInBase), static_cast<i32>(m_Layout.SlotBase),
+                                    static_cast<i32>(m_Layout.GuideOffsetBase), static_cast<i32>(m_Layout.SourceBase));
+        dispatch.Target = glm::ivec4(static_cast<i32>(m_Layout.DisplacementBase), 0, 0, 0);
+        dispatch.Groups = (m_Layout.SlotCount + kExpandGroupSize - 1u) / kExpandGroupSize;
+        return dispatch;
+    }
+
+    GroomStrandSimulation GroomDeformBuffer::ResolveCpuGuides(const GroomStrandSimulation& simulation)
+    {
+        if (m_ExpandedValid)
+        {
+            return m_Expanded; // PackFrame expanded on the CPU, or a reader already asked
+        }
+        if (!m_Frame.GuidesExpandedOnGpu)
+        {
+            // Nothing expanded: the frame was packed from `simulation` as it is
+            // -- or not simulated at all, which the GPU draws at rest too.
+            return m_Frame.Simulated ? simulation : GroomStrandSimulation{};
+        }
+        OLO_PERF_SCOPE_AUTO("Groom::ResolveCpuGuides");
+        m_Expanded = m_Expansion.Expand(simulation);
+        m_ExpandedValid = true;
+        // The CPU twin's records, from the expansion the kernel was handed the
+        // inputs of; the image is not written -- that region is the kernel's.
+        (void)PackDisplacementRecords(m_Expanded.Displacements, true);
+        m_CpuGuidesResolved = true;
+        return m_Expanded;
     }
 
     std::span<const GroomGuideWeights> GroomDeformBuffer::Weights() const noexcept
@@ -756,6 +958,22 @@ namespace OloEngine
 
     std::span<const GroomDeformDisplacementRecord> GroomDeformBuffer::Displacements() const noexcept
     {
+        // While the GPU expands the frame's guides the CPU twin holds no
+        // expansion until a reader asks for one (ResolveCpuGuides). A reader
+        // that did not ask gets no displacement -- its coat at rest -- and that
+        // is said: an assert in a debug build, an error once in any build.
+        OLO_CORE_ASSERT(m_CpuGuidesResolved, "GroomDeformBuffer: the GPU expands this frame's guides; call "
+                                             "ResolveCpuGuides before a CPU reader samples them");
+        if (!m_CpuGuidesResolved)
+        {
+            static std::atomic<bool> s_Reported{ false };
+            if (!s_Reported.exchange(true, std::memory_order_relaxed))
+            {
+                OLO_CORE_ERROR_TAG("Groom", "GroomDeformBuffer: a CPU reader sampled guides the GPU expands without "
+                                            "ResolveCpuGuides; it reads the coat at rest (further reads not logged)");
+            }
+            return {};
+        }
         return AsSpan(m_Displacements, m_Frame.DisplacementCount);
     }
 

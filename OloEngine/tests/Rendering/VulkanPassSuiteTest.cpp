@@ -68,6 +68,7 @@ TEST(VulkanPassSuite, SkipsWhenNotCompiledIn)
 #include "OloEngine/Renderer/VirtualGeometry/VirtualMeshGpuData.h"
 #include "VirtualRasterCoverageMirror.h"
 #include "../Groom/GroomBindingFixture.h"
+#include "../Groom/GroomExpandGuidesFixture.h"
 #include "../Groom/GroomStrandFixture.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
 #include "ScopedRendererApi.h"
@@ -15395,6 +15396,97 @@ TEST_F(VulkanPassSuite, MemoryReportReconcilesWithVmaAndCatchesAViewCountedAsBac
     GTEST_LOG_(INFO) << "Vulkan memory: array committed " << committed << " bytes; residency "
                      << ToString(before.Observation.Residency) << "; VMA allocation bytes "
                      << before.Observation.AllocationBytes << " in " << before.Observation.Heaps.Num() << " heaps";
+}
+
+// =============================================================================
+// GroomExpandGuidesKernelMatchesTheCpuExpansion -- issue #1589.
+//
+// The Vulkan twin of GroomExpandGuidesParityTest: compute/GroomExpandGuides.comp
+// compiled to SPIR-V, dispatched on the deformation buffer exactly as
+// GroomRenderPass dispatches it -- the buffer a StreamCommandOrdered storage
+// buffer whose bytes go up as a recorded transfer in the same frame as the
+// dispatch -- and every record it writes held to ExpandGroomGuideDisplacements
+// by the same rule (GroomExpandGuidesFixture.h), at two simulation budgets. The
+// control breaks one slot's stand-in weights in the uploaded bytes and must be
+// found in that slot alone.
+// =============================================================================
+TEST_F(VulkanPassSuite, GroomExpandGuidesKernelMatchesTheCpuExpansion)
+{
+    using namespace OloEngine::GroomExpandGuidesTest;
+    const Ref<GroomAsset> groom = MakeVariedCoat(144u);
+    ASSERT_TRUE(groom);
+    Ref<ComputeShader> kernel = ComputeShader::Create("assets/shaders/compute/GroomExpandGuides.comp");
+    ASSERT_TRUE(kernel && kernel->IsValid()) << "GroomExpandGuides.comp did not compile to SPIR-V";
+    Ref<UniformBuffer> params = UniformBuffer::Create(UBOStructures::GroomExpandGuideParamsUBO::GetSize(),
+                                                      ShaderBindingLayout::UBO_USER_0, "GroomExpandGuideParams");
+    ASSERT_TRUE(params);
+
+    const auto run = [&](const Budget& budget, u32 broken) -> KernelRun
+    {
+        PackedFrame packed = PackSparseFrame(*groom, budget);
+        if (broken != GroomNoGuide)
+        {
+            BreakStandInWeights(packed.Bytes, packed.Layout, broken);
+        }
+        KernelRun out;
+        out.Frame = packed.Frame;
+        out.Layout = packed.Layout;
+        Ref<StorageBuffer> buffer = StorageBuffer::Create(static_cast<u32>(packed.Bytes.size()),
+                                                          ShaderBindingLayout::SSBO_GROOM_DEFORMATION,
+                                                          StorageBufferUsage::StreamCommandOrdered);
+        EXPECT_TRUE(buffer);
+        if (!buffer)
+        {
+            return out;
+        }
+        UBOStructures::GroomExpandGuideParamsUBO block;
+        block.Counts = packed.Dispatch.Counts;
+        block.Bases = packed.Dispatch.Bases;
+        block.Target = packed.Dispatch.Target;
+        SubmitFrame(
+            [&]
+            {
+                buffer->SetData(packed.Bytes.data(), static_cast<u32>(packed.Bytes.size()), 0u);
+                params->SetData(&block, UBOStructures::GroomExpandGuideParamsUBO::GetSize());
+                params->Bind();
+                buffer->Bind();
+                RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
+                kernel->Bind();
+                RenderCommand::DispatchCompute(packed.Dispatch.Groups, 1u, 1u);
+                RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::VertexAttribArray);
+            });
+        out.Records.resize(out.Frame.DisplacementCount);
+        buffer->GetData(out.Records.data(),
+                        static_cast<u32>(out.Records.size() * sizeof(GroomDeformDisplacementRecord)),
+                        static_cast<u32>(out.Layout.DisplacementBase * 16u));
+        return out;
+    };
+
+    for (const u32 keepEvery : { 2u, 4u })
+    {
+        SCOPED_TRACE("keep every " + std::to_string(keepEvery) + " guide slots");
+        const Budget budget = MakeBudget(*groom, keepEvery, true);
+        ASSERT_TRUE(budget.StandIns);
+        const Reference cpu = ExpandOnCpu(budget);
+        const KernelRun gpu = run(budget, GroomNoGuide);
+        ASSERT_EQ(gpu.Records.size(), static_cast<sizet>(cpu.Current.Num()));
+        EXPECT_LT(gpu.Frame.SourceCount, gpu.Frame.DisplacementCount);
+        const Comparison result = Compare(gpu, cpu, true);
+        EXPECT_TRUE(result.WrongSlots.empty())
+            << result.WrongSlots.size() << " slots disagree, first "
+            << (result.WrongSlots.empty() ? 0u : result.WrongSlots.front());
+        std::printf("[GroomExpandGuidesParity] Vulkan keep 1/%u: %u simulated points -> %u expanded, max error "
+                    "%.3e m\n",
+                    keepEvery, gpu.Frame.SourceCount, gpu.Frame.DisplacementCount, static_cast<f64>(result.MaxError));
+    }
+
+    // The control.
+    const Budget budget = MakeBudget(*groom, 4u, true);
+    const u32 broken = FindSlotWithTwoStandIns(budget);
+    ASSERT_NE(broken, GroomNoGuide) << "the fixture has no slot with two weighted stand-ins";
+    const Comparison tampered = Compare(run(budget, broken), ExpandOnCpu(budget), true);
+    ASSERT_EQ(tampered.WrongSlots.size(), 1u) << "the broken weight was not caught, or it leaked into other slots";
+    EXPECT_EQ(tampered.WrongSlots.front(), broken);
 }
 
 #endif // OLO_WITH_VULKAN

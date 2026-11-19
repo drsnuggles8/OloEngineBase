@@ -284,8 +284,12 @@ namespace OloEngine::RayTracing
             // frame buffer is: a coat that starts being simulated, switches table
             // or outgrows the capacity gets a new layout.
             const u32 rootCount = static_cast<u32>(entry.RootCurves.size());
+            // The points PackFrame writes: every slot's when the stand-ins are
+            // expanded (#1589; on the CPU here -- this buffer has no kernel).
             const u32 displacements =
-                simulated ? static_cast<u32>(simulation.Displacements.Displacements.size()) : 0u;
+                !simulated                     ? 0u
+                : simulation.ExpandsStandIns() ? simulation.StandIns->GetPointCount()
+                                               : static_cast<u32>(simulation.Displacements.Displacements.size());
             const Ref<GroomGuideInfluenceTable> weightsFrom =
                 simulated ? request.Influence : Ref<GroomGuideInfluenceTable>{};
             const GroomDeformBufferLayout& layout = entry.DeformCpu.GetLayout();

@@ -58,6 +58,7 @@
 #include "TestTempDir.h"
 
 #include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Core/DebugLevers.h"
 #include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
@@ -951,6 +952,106 @@ namespace OloEngine::Tests
         RunFrames(1, 1.0f / 60.0f);
         EXPECT_EQ(PassStats().GroomsSimulated, 0u);
         EXPECT_EQ(PassStats().GuidesSimulated, 0u);
+    }
+
+    // -------------------------------------------------------------------------
+    // #1589: the stand-ins the GPU expands are the stand-ins the CPU expanded
+    // -------------------------------------------------------------------------
+
+    // A budget below the guide count draws each left-out slot from its
+    // stand-ins. Since #1589 only the simulated guides cross the bus and
+    // GroomExpandGuides.comp expands them; OLO_GROOM_GUIDES_EXPANDED_ON_CPU is
+    // the upload before it -- the expansion made on the CPU and every slot's
+    // points sent. The same motion, on every path, must draw the same coat to
+    // float rounding, while each frame sends at least the left-out slots'
+    // points fewer. The control is the coat with its simulation off, which the
+    // comparison must be able to see.
+    TEST_F(GroomSimulationVisualEvidenceTest, StandInsExpandedOnTheGpuDrawTheCpuExpansionForFewerBytes)
+    {
+        struct LeverRestore
+        {
+            bool Previous = Levers::GroomGuidesExpandedOnCpu();
+            ~LeverRestore()
+            {
+                Levers::SetGroomGuidesExpandedOnCpu(Previous);
+            }
+        } restore;
+        auto& simulation = m_GroomEntity.GetComponent<GroomSimulationComponent>();
+        simulation.m_MaxGuidesUnassigned = 4u;
+
+        struct PathCase
+        {
+            const char* Name;
+            RenderingPath Path;
+        };
+        const PathCase paths[] = { { "Forward", RenderingPath::Forward },
+                                   { "ForwardPlus", RenderingPath::ForwardPlus },
+                                   { "Deferred", RenderingPath::Deferred } };
+        const glm::vec3 eye{ 0.0f, 0.9f, 4.6f };
+        for (const PathCase& pathCase : paths)
+        {
+            SCOPED_TRACE(pathCase.Name);
+            Renderer3D::GetRendererSettings().Path = pathCase.Path;
+            Renderer3D::ApplyRendererSettings();
+
+            const auto arm = [&](bool onCpu, const std::string& saveAs, std::vector<u8>& pixels)
+            {
+                Levers::SetGroomGuidesExpandedOnCpu(onCpu);
+                ResetMotion();
+                const MotionResult motion = RunBenchmarkMotion(1.0f, 60.0f);
+                Capture(saveAs, eye, 0.0f, 0.10f, pixels);
+                return motion;
+            };
+            std::vector<u8> cpu;
+            std::vector<u8> gpu;
+            std::vector<u8> still;
+            const MotionResult onCpu = arm(true, std::string("GroomGpuGuideExpansionOff_GL_") + pathCase.Name, cpu);
+            const MotionResult onGpu = arm(false, std::string("GroomGpuGuideExpansion_GL_") + pathCase.Name, gpu);
+            SetSimulationEnabled(false);
+            (void)arm(false, "", still);
+            SetSimulationEnabled(true);
+
+            // Both arms simulated the same budget, and only one sent it sparse.
+            ASSERT_EQ(onCpu.Last.GroomsSimulated, 1u);
+            ASSERT_EQ(onGpu.Last.GroomsSimulated, 1u);
+            ASSERT_LE(onGpu.Last.GuidesSimulated, 4u);
+            EXPECT_EQ(onCpu.Last.GroomsGuidesExpandedOnGpu, 0u) << "the lever must keep the expansion on the CPU";
+            ASSERT_EQ(onGpu.Last.GroomsGuidesExpandedOnGpu, 1u) << "the kernel did not expand the coat's stand-ins";
+            ASSERT_GT(onGpu.Last.GuideSlotsExpandedOnGpu, onGpu.Last.GuidesSimulated)
+                << "no slot was left out: there were no stand-ins to expand";
+            const u64 sent = onGpu.Last.GuidePointsSent;
+            const u64 expanded = onGpu.Last.GuidePointsExpanded;
+            ASSERT_LT(sent, expanded);
+
+            // THE BYTES. The dense upload sends every slot's window and every
+            // slot's points; the sparse one the guides' offsets and the
+            // simulated points. Everything else -- the palette or the roots, the
+            // wet record -- is the same in both, so the saving is at least the
+            // left-out slots' points (the slot windows outweigh the offsets).
+            const u64 saving = (expanded - sent) * sizeof(GroomDeformDisplacementRecord);
+            EXPECT_GE(onCpu.Last.DeformedUploadBytes, onGpu.Last.DeformedUploadBytes + saving)
+                << "the sparse frame did not send the left-out slots' points fewer";
+
+            const u32 control = CountDifferingPixels(gpu, still);
+            const u32 differing = CountDifferingPixels(gpu, cpu);
+            std::printf("[groom-expand] %-12s guides %u of %u slots: %llu points sent for %llu expanded; "
+                        "upload %llu -> %llu B/frame; %u px differ from the CPU expansion (control %u px)\n",
+                        pathCase.Name, onGpu.Last.GuidesSimulated, onGpu.Last.GuideSlotsExpandedOnGpu,
+                        static_cast<unsigned long long>(sent), static_cast<unsigned long long>(expanded),
+                        static_cast<unsigned long long>(onCpu.Last.DeformedUploadBytes),
+                        static_cast<unsigned long long>(onGpu.Last.DeformedUploadBytes), differing, control);
+
+            // The control: the simulation's drape is in the frame, so a kernel
+            // that left the stand-ins at rest would differ by thousands of
+            // pixels here. The two expansions agree to float rounding -- a
+            // micrometre on a coat whose strands are a millimetre apart on
+            // screen -- which moves no pixel past the 12/255 floor.
+            ASSERT_GT(control, 2000u) << "the simulated drape is not visible: this compares nothing";
+            EXPECT_EQ(differing, 0u) << "the GPU's expansion drew a different coat from the CPU's";
+        }
+
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Deferred;
+        Renderer3D::ApplyRendererSettings();
     }
 
     // -------------------------------------------------------------------------

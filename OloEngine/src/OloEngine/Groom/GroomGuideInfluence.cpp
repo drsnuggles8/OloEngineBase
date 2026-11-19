@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <limits>
 #include <unordered_map>
@@ -508,35 +509,12 @@ namespace OloEngine
         // at the same size every frame.
         outOffsets.Empty();
         outDisplacements.Empty();
-        if (standIns.size() != slotPointCounts.size() || guideOffsets.empty())
-        {
-            return false;
-        }
         // THE WHOLE LAYOUT IS CHECKED BEFORE EITHER OUTPUT IS WRITTEN, so a
         // refusal publishes nothing rather than a zero displacement for a guide
-        // whose range was bad: offsets start at 0, never decrease and end inside
-        // the displacements, and every stand-in names a guide in the table.
-        if (guideOffsets.front() != 0u || guideOffsets.back() > displacements.size())
+        // whose range was bad.
+        if (!GroomGuideStandInsDescribe(standIns, slotPointCounts, guideOffsets, displacements.size()))
         {
             return false;
-        }
-        for (sizet i = 1; i < guideOffsets.size(); ++i)
-        {
-            if (guideOffsets[i] < guideOffsets[i - 1u])
-            {
-                return false;
-            }
-        }
-        const sizet guideCount = guideOffsets.size() - 1u;
-        for (const GroomGuideWeights& standIn : standIns)
-        {
-            for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
-            {
-                if (standIn.Guides[k] != GroomNoGuide && standIn.Guides[k] >= guideCount)
-                {
-                    return false;
-                }
-            }
         }
 
         // The offsets first, as a running sum of the slots' point counts, so
@@ -594,5 +572,161 @@ namespace OloEngine
                         }
                     });
         return true;
+    }
+
+    namespace
+    {
+        // Offsets that start at 0, never decrease and end inside the
+        // displacements: the half of the check that depends on the frame.
+        [[nodiscard]] bool GuideOffsetsDescribe(std::span<const u32> guideOffsets, sizet displacementCount) noexcept
+        {
+            if (guideOffsets.empty() || guideOffsets.front() != 0u || guideOffsets.back() > displacementCount)
+            {
+                return false;
+            }
+            for (sizet i = 1; i < guideOffsets.size(); ++i)
+            {
+                if (guideOffsets[i] < guideOffsets[i - 1u])
+                {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // One past the highest guide any stand-in names; 0 when none does.
+        [[nodiscard]] u32 GuidesNamedBy(std::span<const GroomGuideWeights> standIns) noexcept
+        {
+            u32 named = 0;
+            for (const GroomGuideWeights& standIn : standIns)
+            {
+                for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
+                {
+                    if (standIn.Guides[k] != GroomNoGuide)
+                    {
+                        named = std::max(named, standIn.Guides[k] + 1u);
+                    }
+                }
+            }
+            return named;
+        }
+    } // namespace
+
+    bool GroomGuideStandInsDescribe(std::span<const GroomGuideWeights> standIns, std::span<const u32> slotPointCounts,
+                                    std::span<const u32> guideOffsets, sizet displacementCount) noexcept
+    {
+        // One point count per stand-in, offsets that describe the frame, and
+        // every stand-in naming a guide the offsets have.
+        return standIns.size() == slotPointCounts.size() && GuideOffsetsDescribe(guideOffsets, displacementCount) &&
+               GuidesNamedBy(standIns) <= guideOffsets.size() - 1u;
+    }
+
+    Ref<GroomGuideStandInSet> GroomGuideStandInSet::Create(TArray<GroomGuideWeights> standIns,
+                                                           TArray<u32> slotPointCounts)
+    {
+        if (standIns.IsEmpty() || standIns.Num() != slotPointCounts.Num())
+        {
+            return nullptr;
+        }
+        TArray<u32> offsets;
+        offsets.SetNumUninitialized(slotPointCounts.Num() + 1);
+        offsets[0] = 0u;
+        u64 total = 0;
+        for (i32 slot = 0; slot < slotPointCounts.Num(); ++slot)
+        {
+            total += slotPointCounts[slot];
+            if (total > std::numeric_limits<u32>::max())
+            {
+                return nullptr;
+            }
+            offsets[slot + 1] = static_cast<u32>(total);
+        }
+
+        // Process-unique, so a set at an address a freed one used is still a
+        // different set to every buffer that compares serials.
+        static std::atomic<u64> s_NextSerial{ 1 };
+        Ref<GroomGuideStandInSet> set = Ref<GroomGuideStandInSet>::Create();
+        set->m_StandIns = std::move(standIns);
+        set->m_SlotPointCounts = std::move(slotPointCounts);
+        set->m_SlotOffsets = std::move(offsets);
+        set->m_Serial = s_NextSerial.fetch_add(1, std::memory_order_relaxed);
+        set->m_GuidesNamed = GuidesNamedBy(set->GetStandIns());
+        return set;
+    }
+
+    bool GroomGuideStandInSet::Describes(std::span<const u32> guideOffsets, sizet displacementCount) const noexcept
+    {
+        return GuideOffsetsDescribe(guideOffsets, displacementCount) && m_GuidesNamed <= guideOffsets.size() - 1u;
+    }
+
+    u64 GroomGuideStandInSet::GetCpuMemoryBytes() const noexcept
+    {
+        return static_cast<u64>(m_StandIns.GetAllocatedSize() + m_SlotPointCounts.GetAllocatedSize() +
+                                m_SlotOffsets.GetAllocatedSize());
+    }
+
+    bool GroomStrandSimulation::ExpandsStandIns() const noexcept
+    {
+        return StandIns != nullptr && Influence != nullptr && StandIns->GetSlotCount() == Influence->GetGuideCount() &&
+               StandIns->Describes(Displacements.GuideOffsets, Displacements.Displacements.size());
+    }
+
+    GroomStrandSimulation GroomGuideExpansion::Expand(const GroomStrandSimulation& simulation, bool withPrevious)
+    {
+        OLO_PROFILE_FUNCTION();
+        if (!simulation.ExpandsStandIns())
+        {
+            // Nothing to expand, or stand-ins that do not describe this frame:
+            // the simulated set as it stands, which is what the producer
+            // published in both cases before #1589.
+            GroomStrandSimulation sparse = simulation;
+            sparse.StandIns = nullptr;
+            return sparse;
+        }
+        const GroomGuideStandInSet& set = *simulation.StandIns;
+        const std::span<const glm::vec3> current = simulation.Displacements.Displacements;
+        const std::span<const glm::vec3> previous = simulation.Displacements.PrevDisplacements;
+        // Described above, so the current frame expands; the previous one has
+        // the same length (GroomGuideDisplacements::IsUsable) and expands too.
+        if (!ExpandGroomGuideDisplacements(set.GetStandIns(), set.GetSlotPointCounts(),
+                                           simulation.Displacements.GuideOffsets, current, m_Offsets, m_Displacements))
+        {
+            GroomStrandSimulation sparse = simulation;
+            sparse.StandIns = nullptr;
+            return sparse;
+        }
+        m_PrevDisplacements.Empty();
+        if (withPrevious && !previous.empty() &&
+            !ExpandGroomGuideDisplacements(set.GetStandIns(), set.GetSlotPointCounts(),
+                                           simulation.Displacements.GuideOffsets, previous, m_PrevOffsets,
+                                           m_PrevDisplacements))
+        {
+            m_PrevDisplacements.Reset();
+        }
+        if (m_IdentitySlots.Num() != static_cast<i32>(set.GetSlotCount()))
+        {
+            m_IdentitySlots.SetNumUninitialized(static_cast<i32>(set.GetSlotCount()));
+            for (i32 slot = 0; slot < m_IdentitySlots.Num(); ++slot)
+            {
+                m_IdentitySlots[slot] = static_cast<u32>(slot);
+            }
+        }
+
+        GroomStrandSimulation dense;
+        dense.Influence = simulation.Influence;
+        dense.GuideOfSlot = { m_IdentitySlots.GetData(), static_cast<sizet>(m_IdentitySlots.Num()) };
+        dense.Displacements.GuideOffsets = { m_Offsets.GetData(), static_cast<sizet>(m_Offsets.Num()) };
+        dense.Displacements.Displacements = { m_Displacements.GetData(), static_cast<sizet>(m_Displacements.Num()) };
+        dense.Displacements.PrevDisplacements = { m_PrevDisplacements.GetData(),
+                                                  static_cast<sizet>(m_PrevDisplacements.Num()) };
+        dense.Displacements.SlotOfGuide = dense.GuideOfSlot;
+        return dense;
+    }
+
+    u64 GroomGuideExpansion::GetCpuBytes() const noexcept
+    {
+        return static_cast<u64>(m_Offsets.GetAllocatedSize() + m_PrevOffsets.GetAllocatedSize() +
+                                m_IdentitySlots.GetAllocatedSize() + m_Displacements.GetAllocatedSize() +
+                                m_PrevDisplacements.GetAllocatedSize());
     }
 } // namespace OloEngine

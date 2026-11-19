@@ -347,6 +347,13 @@ namespace OloEngine
         /// Guide index -> table slot, the inverse of the above.
         TArray<u32> SimulationSlotOfGuide;
 
+        /// Every slot's stand-ins (#1509) for this budget, shared with the
+        /// producer and every later frame at the same budget; null when every
+        /// slot was simulated. Published instead of their expansion (#1589):
+        /// the GPU expands them where it draws the coat, and a CPU reader
+        /// through GroomGuideExpansion. See GroomStrandSimulation::StandIns.
+        Ref<GroomGuideStandInSet> SimulationStandIns;
+
         /// What the step did, forwarded to the renderer's statistics panel so
         /// "why is this coat not moving" is answerable from the editor.
         GroomSimulationStats SimulationStats;
@@ -494,7 +501,8 @@ namespace OloEngine
             return Groom ? GroomBuildSource::FromAsset(*Groom) : GroomBuildSource{};
         }
 
-        /// The view over the four arrays above, assembled at the point of use.
+        /// The view over the simulation arrays and the stand-in set above,
+        /// assembled at the point of use.
         ///
         /// A FUNCTION rather than a stored view, because a GroomStrandRequest is
         /// MOVED (Scene builds it, pushes it into a vector and hands the vector
@@ -514,6 +522,7 @@ namespace OloEngine
             simulation.Displacements.Displacements = std::span{ SimulationDisplacements.GetData(), static_cast<sizet>(SimulationDisplacements.Num()) };
             simulation.Displacements.PrevDisplacements = std::span{ SimulationPrevDisplacements.GetData(), static_cast<sizet>(SimulationPrevDisplacements.Num()) };
             simulation.Displacements.SlotOfGuide = std::span{ SimulationSlotOfGuide.GetData(), static_cast<sizet>(SimulationSlotOfGuide.Num()) };
+            simulation.StandIns = SimulationStandIns.Raw();
             return simulation;
         }
     };
@@ -563,6 +572,7 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationGuideOffsets)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationGuideOfSlot)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationSlotOfGuide)> &&
+                                      TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationStandIns)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationStats)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationStretchTolerance)> &&
                                       TIsTriviallyRelocatable_V<decltype(GroomStrandRequest::SimulationColliders)> &&

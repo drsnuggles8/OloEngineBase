@@ -166,6 +166,8 @@ add_executable(OloEngine-Tests
 		Groom/GroomDeformationTest.cpp
 		Groom/GroomGpuDeformationTest.cpp
 		Groom/GroomRootFramesParityTest.cpp
+		# The GPU guide expansion against the CPU's (#1589).
+		Groom/GroomExpandGuidesParityTest.cpp
 		# Guide simulation and body collision (#1250). The length/rest-shape
 		# contract across frame rate, pause/resume and teleport; the fitted body
 		# proxy; and the guide-to-strand interpolation that turns a few hundred

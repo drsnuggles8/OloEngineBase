@@ -1834,6 +1834,32 @@ namespace OloEngine
         static_assert(sizeof(GroomRootFrameParamsUBO) == 176,
                       "GroomRootFrameParamsUBO std140 size drifted from GLSL expectation (176 B)");
 
+        // @brief The GPU guide expansion's dispatch (#1589), uploaded at
+        // UBO_USER_0 (7) right before it, as GroomRootFrameParamsUBO is and for
+        // the same reason. GLSL twin: the GroomExpandGuideParams block in
+        // compute/GroomExpandGuides.comp; filled from
+        // GroomDeformBuffer::GuideExpansionDispatch.
+        struct GroomExpandGuideParamsUBO
+        {
+            /// x = guide slots, y = simulated guides, z = 1 when there is a
+            /// previous frame (else it is this one), w = simulated points.
+            glm::ivec4 Counts{ 0, 0, 0, 0 };
+            /// The deformation buffer's regions it reads, in 16-byte units:
+            /// x = stand-ins, y = slot windows, z = guide offsets, w = source.
+            glm::ivec4 Bases{ 0, 0, 0, 0 };
+            /// x = the displacement records it writes; yzw unused.
+            glm::ivec4 Target{ 0, 0, 0, 0 };
+
+            static constexpr u32 GetSize()
+            {
+                return static_cast<u32>(sizeof(GroomExpandGuideParamsUBO));
+            }
+        };
+
+        // Three ivec4 lanes: the std140 layout is the C++ layout.
+        static_assert(sizeof(GroomExpandGuideParamsUBO) == 48,
+                      "GroomExpandGuideParamsUBO std140 size drifted from GLSL expectation (48 B)");
+
         // @brief Auto-exposure metering/adaptation parameters (issue #691),
         // uploaded at UBO_AUTO_EXPOSURE (58). GLSL twin: the
         // AutoExposureParams block shared verbatim by

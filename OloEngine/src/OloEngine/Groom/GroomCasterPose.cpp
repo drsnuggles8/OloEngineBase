@@ -539,6 +539,17 @@ namespace OloEngine
     {
         GroomCasterPosePadding padding;
         padding.Radius = std::isfinite(radius) ? std::max(radius, 0.0f) : 0.0f;
+        // Measured over every slot's displacement as the coat is drawn: a
+        // simulation published with its stand-ins (#1589) is expanded first,
+        // this frame only (the padding reads no previous frame). A caller with
+        // a reusable expansion hands the expanded view, and this costs nothing.
+        GroomGuideExpansion expansion;
+        GroomStrandSimulation expanded;
+        if (simulation != nullptr && simulation->StandIns != nullptr)
+        {
+            expanded = expansion.Expand(*simulation, false);
+            simulation = &expanded;
+        }
         if (simulation == nullptr || !simulation->Displacements.IsUsable())
         {
             return padding;
