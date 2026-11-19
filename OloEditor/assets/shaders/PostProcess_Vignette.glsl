@@ -90,7 +90,7 @@ void main()
 
     // Softness sets the width of the transition. Strength is the fraction
     // of the input to remove at the edge; zero leaves even the corners intact.
-    float width = clamp(u_VignetteSmoothness, 0.0001, 0.5);
+    float width = max(u_VignetteSmoothness, 0.0001);
     float edge = smoothstep(0.5 - width, 0.5, dist);
     color *= clamp(1.0 - u_VignetteIntensity * edge, 0.0, 1.0);
 
