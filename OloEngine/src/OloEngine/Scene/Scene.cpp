@@ -2753,15 +2753,18 @@ namespace OloEngine
         // The frame the light's transform lives in. For an ordinary parent that
         // is the parent's world matrix (ComposeWorldTransform's own rule). A
         // bone attachment composes parentWorld * bone * local, so its frame is
-        // world * inverse(local), which needs no bone re-resolution here; a
-        // local transform with a zero scale has no inverse, and the parent's
-        // matrix stands in.
+        // parentWorld * bone, resolved by the same rule as the composition.
+        // It is built directly rather than as world * inverse(local), so a light
+        // with a zero or tiny scale keeps its bone's frame. An attachment that
+        // cannot resolve composes parent-relative, so the parent's matrix is
+        // its frame too.
         glm::mat4 parentFrame = GetWorldTransform(parent);
-        if (m_Registry.all_of<BoneAttachmentComponent>(entity))
+        if (const std::optional<BoneAttachmentResolution> attachment = ResolveBoneAttachment(entity);
+            attachment && attachment->Status == BoneAttachmentStatus::Attached && attachment->BoneIndex >= 0)
         {
-            const glm::mat4 localMatrix = local.GetTransform();
-            if (std::abs(glm::determinant(glm::mat3(localMatrix))) > 1.0e-12f)
-                parentFrame = world * glm::inverse(localMatrix);
+            const Skeleton& skeleton = *m_Registry.get<SkeletonComponent>(parent).m_Skeleton;
+            if (const auto boneIndex = static_cast<sizet>(attachment->BoneIndex); boneIndex < skeleton.m_GlobalTransforms.size())
+                parentFrame = parentFrame * skeleton.m_GlobalTransforms[boneIndex];
         }
         pose.ParentBasis = glm::mat3(parentFrame);
         return pose;

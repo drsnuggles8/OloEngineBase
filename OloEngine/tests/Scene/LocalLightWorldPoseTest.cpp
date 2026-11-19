@@ -30,6 +30,8 @@
 
 #include <gtest/gtest.h>
 
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/Skeleton.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceScene.h"
 #include "OloEngine/Renderer/PathTracing/ReferenceSceneBuilder.h"
 #include "OloEngine/Scene/Components.h"
@@ -38,6 +40,7 @@
 #include "OloEngine/Scene/SceneLightmap.h"
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
 #include <cmath>
@@ -227,6 +230,45 @@ namespace OloEngine::Tests
         ExpectVec3Near(after.ToWorldDirection(kLocalDirection), before, 1.0e-5f,
                        "the light entity's own rotation leaked into the spot direction");
         ExpectVec3Near(after.Position, ExpectedWorldPosition(), 1.0e-4f, "a rotation about its own origin moved the light");
+    }
+
+    // A bone-attached spot lives in parentWorld * bone, the frame the
+    // composition puts it in. That frame does not depend on the light's own
+    // transform, so a zero or tiny scale on the light must not drop the bone
+    // and aim the cone in the parent's frame instead.
+    TEST(LocalLightWorldPose, ABoneAttachedSpotKeepsItsBonesFrameWhateverItsOwnScale)
+    {
+        auto skeleton = Ref<Skeleton>::Create(2);
+        skeleton->m_BoneNames = { "Root", "Head" };
+        skeleton->m_ParentIndices = { -1, 0 };
+        const glm::mat4 head = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 1.0f, 0.0f)) *
+                               glm::mat4_cast(glm::angleAxis(glm::radians(90.0f), glm::vec3(0.0f, 1.0f, 0.0f)));
+        skeleton->m_LocalTransforms = { glm::mat4(1.0f), head };
+        skeleton->m_BonePreTransforms = { glm::mat4(1.0f), glm::mat4(1.0f) };
+        skeleton->m_GlobalTransforms[0] = skeleton->m_LocalTransforms[0];
+        skeleton->m_GlobalTransforms[1] = head;
+        skeleton->SetBindPose();
+
+        const glm::vec3 authored{ 1.0f, -1.0f, 0.0f };
+        const glm::vec3 expected = glm::mat3(head) * authored;
+        for (const glm::vec3 scale : { glm::vec3(1.0f), glm::vec3(0.0f, 1.0f, 1.0f), glm::vec3(1.0e-5f) })
+        {
+            SCOPED_TRACE(::testing::Message() << "light scale (" << scale.x << ", " << scale.y << ", " << scale.z << ")");
+            auto world = Ref<Scene>::Create();
+            Entity character = world->CreateEntity("Character");
+            character.AddComponent<SkeletonComponent>(skeleton);
+            Entity spot = world->CreateEntity("HeadLamp");
+            spot.GetComponent<TransformComponent>().Scale = scale;
+            spot.AddComponent<SpotLightComponent>().m_Direction = authored;
+            spot.SetParent(character);
+            spot.AddComponent<BoneAttachmentComponent>("Head");
+            world->PropagateWorldTransforms();
+
+            const Scene::LocalLightWorldPose pose = world->GetLocalLightWorldPose(spot);
+            ExpectVec3Near(pose.ToWorldDirection(authored), expected, 1.0e-5f,
+                           "the spot left its bone's frame for its parent's");
+            ExpectVec3Near(pose.Position, glm::vec3(0.0f, 1.0f, 0.0f), 1.0e-5f, "the spot is not at its bone");
+        }
     }
 
     TEST(LocalLightWorldPose, AParentedLightFeedsTheBakeTheSameLightAsItsRootTwin)
