@@ -1,19 +1,38 @@
 #include "OloEnginePCH.h"
 #include <gtest/gtest.h>
 #include "TestTempDir.h"
+#include "Functional/Helpers/AnimationFixtures.h"
 
+#include "OloEngine/Animation/AnimatedMeshComponents.h"
+#include "OloEngine/Animation/AnimationSystem.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetComponents.h"
+#include "OloEngine/Animation/MorphTargets/MorphTargetSet.h"
 #include "OloEngine/SaveGame/SaveGameFile.h"
 #include "OloEngine/SaveGame/SaveGameSerializer.h"
 #include "OloEngine/SaveGame/SaveGameTypes.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/ModelImporter.h"
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/Serialization/Archive.h"
 
 #include <filesystem>
 
 using namespace OloEngine;
+
+namespace
+{
+    // The scene loader sets the resource handle when resolving MeshSourceHandle.
+    // This test needs the identity and reference, without allocating a GPU mesh.
+    struct BoundMeshSource final : MeshSource
+    {
+        explicit BoundMeshSource(AssetHandle handle)
+        {
+            SetHandle(handle);
+        }
+    };
+} // namespace
 
 class SaveGameIntegrationTest : public ::testing::Test
 {
@@ -52,6 +71,268 @@ TEST_F(SaveGameIntegrationTest, CaptureAndRestoreEmptyScene)
 
     Ref<Scene> newScene = Ref<Scene>::Create();
     EXPECT_TRUE(SaveGameSerializer::RestoreSceneState(*newScene, data));
+}
+
+TEST_F(SaveGameIntegrationTest, ContinueRetainsTheLoadedGeometryForMatchingAuthoredEntities)
+{
+    auto tower = m_Scene->CreateEntity("Tower");
+    const UUID towerID = tower.GetUUID();
+    const auto model = Ref<Model>::Create();
+    auto& savedModel = tower.AddComponent<ModelComponent>(model, "Assets/Models/Tower.gltf");
+    savedModel.m_Visible = false;
+    auto bulb = m_Scene->CreateEntity("Optic");
+    const UUID bulbID = bulb.GetUUID();
+    const auto sphere = Ref<MeshSource>::Create();
+    auto& savedMesh = bulb.AddComponent<MeshComponent>(sphere);
+    savedMesh.m_Primitive = MeshPrimitive::Sphere;
+
+    const auto payload = SaveGameSerializer::CaptureSceneState(*m_Scene);
+    savedModel.m_Visible = true;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    const auto restoredTower = m_Scene->GetEntityByUUID(towerID);
+    EXPECT_EQ(restoredTower.GetComponent<ModelComponent>().m_Model, model);
+    EXPECT_FALSE(restoredTower.GetComponent<ModelComponent>().m_Visible);
+    EXPECT_EQ(m_Scene->GetEntityByUUID(bulbID).GetComponent<MeshComponent>().m_MeshSource, sphere);
+
+    // A different asset can occupy the same authored UUID in a later scene.
+    // Its loaded geometry must not be attached to the saved identity.
+    m_Scene->GetEntityByUUID(towerID).GetComponent<ModelComponent>().m_FilePath = "Assets/Models/Other.gltf";
+    m_Scene->GetEntityByUUID(bulbID).GetComponent<MeshComponent>().m_Primitive = MeshPrimitive::Cube;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    EXPECT_NE(m_Scene->GetEntityByUUID(towerID).GetComponent<ModelComponent>().m_Model, model);
+    EXPECT_NE(m_Scene->GetEntityByUUID(bulbID).GetComponent<MeshComponent>().m_MeshSource, sphere);
+}
+
+TEST_F(SaveGameIntegrationTest, ContinuePreservesTheAuthoredMeshSourceHandle)
+{
+    auto hull = m_Scene->CreateEntity("Boat Hull");
+    const UUID hullID = hull.GetUUID();
+    const Ref<MeshSource> authored = Ref<BoundMeshSource>::Create(AssetHandle(1234));
+    hull.AddComponent<MeshComponent>(authored).m_LightmapStatic = true;
+    auto transient = m_Scene->CreateEntity("Unregistered scratch mesh");
+    const UUID transientID = transient.GetUUID();
+    transient.AddComponent<MeshComponent>(Ref<MeshSource>::Create());
+
+    const auto payload = SaveGameSerializer::CaptureSceneState(*m_Scene);
+    hull.GetComponent<MeshComponent>().m_LightmapStatic = false;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    const auto& restored = m_Scene->GetEntityByUUID(hullID).GetComponent<MeshComponent>();
+    EXPECT_EQ(restored.m_MeshSource, authored);
+    EXPECT_TRUE(restored.m_LightmapStatic);
+    EXPECT_FALSE(m_Scene->GetEntityByUUID(transientID).GetComponent<MeshComponent>().m_MeshSource);
+
+    m_Scene->GetEntityByUUID(hullID).GetComponent<MeshComponent>().m_Primitive = MeshPrimitive::Cube;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    const auto& differentBinding = m_Scene->GetEntityByUUID(hullID).GetComponent<MeshComponent>();
+    EXPECT_EQ(differentBinding.m_Primitive, MeshPrimitive::None);
+    EXPECT_NE(differentBinding.m_MeshSource, authored);
+}
+
+TEST_F(SaveGameIntegrationTest, ContinueRetainsTheMeshOfAMatchingMorphImport)
+{
+    auto face = m_Scene->CreateEntity("Face");
+    const UUID faceID = face.GetUUID();
+    auto source = Ref<MeshSource>::Create();
+    auto targets = Ref<MorphTargetSet>::Create();
+    ASSERT_TRUE(targets->AddTarget(MorphTarget("Smile", 3)));
+    source->SetMorphTargets(targets);
+    const auto imported = ModelImporter::PopulateAnimatedEntityFromParts(face, source, nullptr, {}, nullptr, "Assets/Models/./Face.gltf");
+    ASSERT_TRUE(imported.IsAnimated);
+    ASSERT_FALSE(face.HasComponent<SkeletonComponent>());
+    ASSERT_EQ(static_cast<u64>(source->GetHandle()), 0u);
+    face.GetComponent<MorphTargetComponent>().Weights["Smile"] = 0.75f;
+    const auto payload = SaveGameSerializer::CaptureSceneState(*m_Scene);
+
+    // Re-authoring the scene with an equivalent spelling still refers to Face.
+    face.GetComponent<AnimationStateComponent>().m_SourceFilePath = "Assets/Models/Face.gltf";
+    face.GetComponent<MorphTargetComponent>().Weights["Smile"] = 0.1f;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    auto restored = m_Scene->GetEntityByUUID(faceID);
+    const auto& restoredSource = restored.GetComponent<MeshComponent>().m_MeshSource;
+    ASSERT_EQ(restoredSource, source);
+    EXPECT_EQ(restoredSource->GetMorphTargets(), targets);
+    EXPECT_FLOAT_EQ(restored.GetComponent<MorphTargetComponent>().Weights.at("Smile"), 0.75f);
+
+    const Ref<MeshSource> other = Ref<BoundMeshSource>::Create(AssetHandle(4321));
+    restored.GetComponent<MeshComponent>().m_MeshSource = other;
+    restored.GetComponent<AnimationStateComponent>().m_SourceFilePath = "Assets/Models/Different.gltf";
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    EXPECT_FALSE(m_Scene->GetEntityByUUID(faceID).GetComponent<MeshComponent>().m_MeshSource);
+}
+
+TEST_F(SaveGameIntegrationTest, ContinueSamplesEachRigAtItsSavedClockAndPreservesQueuedRequests)
+{
+    using namespace OloEngine::Functional::Fixtures;
+    auto actor = m_Scene->CreateEntity("Walking");
+    auto paused = m_Scene->CreateEntity("Paused");
+    const UUID actorID = actor.GetUUID(), pausedID = paused.GetUUID();
+    const auto mesh = Ref<MeshSource>::Create();
+    auto rig = MakeSingleBoneSkeleton();
+    std::array clips{ MakeTranslationClip(1.0f), MakeTranslationClip(2.0f, "Root", {}, { 4, 0, 0 }) };
+    clips[0]->Name = "Idle";
+    clips[1]->Name = "Walk";
+    for (auto entity : { actor, paused })
+        ModelImporter::PopulateAnimatedEntityFromParts(entity, mesh, rig, clips, nullptr, "Fox.gltf");
+    auto& surface = actor.AddComponent<MaterialComponent>();
+    surface.m_Material.SetRoughnessFactor(0.73f);
+    surface.m_Material.SetAlphaMode(AlphaMode::Mask);
+    surface.m_ShaderGraphHandle = AssetHandle(314);
+    auto& walking = actor.GetComponent<AnimationStateComponent>();
+    walking.m_CurrentClipIndex = 1;
+    walking.m_CurrentTime = 0.5f;
+    walking.m_PlaybackSpeed = 0.5f;
+    walking.m_IsPlaying = true;
+    walking.m_BoneEntityIds = { pausedID };
+    auto& stationary = paused.GetComponent<AnimationStateComponent>();
+    stationary.m_RequestedClip = "Walk";
+    stationary.m_RequestedLoop = false;
+    stationary.m_CurrentTime = 0.75f;
+    const auto payload = SaveGameSerializer::CaptureSceneState(*m_Scene);
+    walking.m_CurrentClipIndex = 0;
+    surface.m_Material.SetRoughnessFactor(0.1f);
+    stationary.m_IsPlaying = true;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    auto restored = m_Scene->GetEntityByUUID(actorID);
+    const auto& restoredSurface = restored.GetComponent<MaterialComponent>();
+    EXPECT_FLOAT_EQ(restoredSurface.m_Material.GetRoughnessFactor(), 0.73f);
+    EXPECT_EQ(restoredSurface.m_Material.GetAlphaMode(), AlphaMode::Mask);
+    EXPECT_EQ(static_cast<u64>(restoredSurface.m_ShaderGraphHandle), 314u);
+    auto& state = restored.GetComponent<AnimationStateComponent>();
+    auto pose = restored.GetComponent<SkeletonComponent>().m_Skeleton;
+    ASSERT_TRUE(pose);
+    EXPECT_NE(pose, rig);
+    ASSERT_EQ(state.m_AvailableClips.size(), 2u);
+    EXPECT_EQ(state.m_CurrentClip, clips[1]);
+    EXPECT_EQ(state.m_BoneEntityIds, std::vector<UUID>{ pausedID });
+    EXPECT_TRUE(state.m_IsPlaying);
+    EXPECT_FLOAT_EQ(pose->m_FinalBoneMatrices[0][3].x, 1.0f);
+
+    auto restoredPaused = m_Scene->GetEntityByUUID(pausedID);
+    const auto pausedPose = restoredPaused.GetComponent<SkeletonComponent>().m_Skeleton;
+    const auto& pausedState = restoredPaused.GetComponent<AnimationStateComponent>();
+    ASSERT_TRUE(pausedPose);
+    EXPECT_NE(pose, pausedPose);
+    EXPECT_FALSE(pausedState.m_IsPlaying);
+    EXPECT_EQ(pausedState.m_RequestedClip, "Walk");
+    EXPECT_FALSE(pausedState.m_RequestedLoop);
+    EXPECT_FLOAT_EQ(pausedPose->m_FinalBoneMatrices[0][3].y, 0.375f);
+
+    m_Scene->SetRenderingEnabled(false);
+    constexpr f32 tick = 1.0f / 60.0f;
+    m_Scene->OnUpdateRuntime(Timestep{ tick });
+    EXPECT_FLOAT_EQ(restored.GetComponent<AnimationStateComponent>().m_CurrentTime, 0.5f + tick * 0.5f);
+    EXPECT_FLOAT_EQ(pose->m_FinalBoneMatrices[0][3].x, 1.0f + tick);
+    EXPECT_FLOAT_EQ(pausedPose->m_FinalBoneMatrices[0][3].y, 0.375f);
+}
+
+TEST_F(SaveGameIntegrationTest, ContinueResumesTheSelectedBlendDestinationAndHandlesChangedClips)
+{
+    using namespace OloEngine::Functional::Fixtures;
+    auto actor = m_Scene->CreateEntity("Blending");
+    const UUID id = actor.GetUUID();
+    std::array clips{ MakeTranslationClip(1.0f), MakeTranslationClip(2.0f) };
+    clips[1]->Name = "Walk";
+    ModelImporter::PopulateAnimatedEntityFromParts(actor, Ref<MeshSource>::Create(), MakeSingleBoneSkeleton(), clips, nullptr, "Fox.gltf");
+    actor.AddComponent<MaterialComponent>().m_Material.SetAlphaMode(AlphaMode::Mask);
+    auto& before = actor.GetComponent<AnimationStateComponent>();
+    before.m_CurrentTime = 0.7f;
+    before.m_RequestedClip = "Walk";
+    before.m_RequestedLoop = false;
+    Animation::AnimationSystem::Update(before, *actor.GetComponent<SkeletonComponent>().m_Skeleton, 0.125f);
+    ASSERT_TRUE(before.m_Blending);
+    const auto payload = SaveGameSerializer::CaptureSceneState(*m_Scene);
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    auto state = [&]() -> AnimationStateComponent&
+    { return m_Scene->GetEntityByUUID(id).GetComponent<AnimationStateComponent>(); };
+    EXPECT_EQ(state().m_CurrentClip, clips[1]);
+    EXPECT_FLOAT_EQ(state().m_CurrentTime, 0.125f);
+    EXPECT_FALSE(state().m_Loop);
+    EXPECT_FALSE(state().m_Blending);
+    EXPECT_FALSE(state().m_NextClip);
+
+    // V50 identifies a slot. A reordered catalogue selects the new occupant,
+    // a removed slot falls back to zero, and an empty catalogue has no clip.
+    state().m_AvailableClips = { clips[1], clips[0] };
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    EXPECT_EQ(state().m_CurrentClip, clips[0]);
+    state().m_AvailableClips = { clips[1] };
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    EXPECT_EQ(state().m_CurrentClipIndex, 0);
+    EXPECT_EQ(state().m_CurrentClip, clips[1]);
+    state().m_AvailableClips.clear();
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    EXPECT_FALSE(state().m_CurrentClip);
+    EXPECT_TRUE(m_Scene->GetEntityByUUID(id).GetComponent<SkeletonComponent>().m_Skeleton);
+
+    state().m_SourceFilePath = "Different.gltf";
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    auto mismatch = m_Scene->GetEntityByUUID(id);
+    EXPECT_FALSE(mismatch.GetComponent<MeshComponent>().m_MeshSource);
+    EXPECT_FALSE(mismatch.GetComponent<SkeletonComponent>().m_Skeleton);
+    EXPECT_EQ(mismatch.GetComponent<MaterialComponent>().m_Material.GetAlphaMode(), AlphaMode::Opaque);
+    EXPECT_TRUE(state().m_AvailableClips.empty());
+}
+
+TEST_F(SaveGameIntegrationTest, ContinueRestoresALegacyBindPoseRigWithoutAddingPlayback)
+{
+    using namespace OloEngine::Functional::Fixtures;
+    auto actor = m_Scene->CreateEntity("Bind pose");
+    const UUID id = actor.GetUUID();
+    const auto mesh = Ref<MeshSource>::Create();
+    auto rig = MakeSingleBoneSkeleton();
+    actor.AddComponent<MeshComponent>(mesh);
+    actor.AddComponent<SkeletonComponent>(rig);
+    const auto legacy = SaveGameSerializer::CaptureSceneState(*m_Scene);
+    ModelImporter::PopulateAnimatedEntityFromParts(actor, mesh, rig, {}, nullptr, "Fox.gltf");
+    ASSERT_EQ(actor.GetComponent<AnimationStateComponent>().m_SourceFilePath, "Fox.gltf");
+    rig->m_LocalTransforms[0][3].x = 5.0f;
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, legacy));
+    const auto restored = m_Scene->GetEntityByUUID(id);
+    EXPECT_EQ(restored.GetComponent<MeshComponent>().m_MeshSource, mesh);
+    EXPECT_FALSE(restored.HasComponent<AnimationStateComponent>());
+    auto pose = restored.GetComponent<SkeletonComponent>().m_Skeleton;
+    ASSERT_TRUE(pose);
+    EXPECT_FLOAT_EQ(pose->m_FinalBoneMatrices[0][3].x, 0.0f);
+}
+
+TEST_F(SaveGameIntegrationTest, StartupAutoplaysNewActorsAndResumesOnlyTheSavedPlaybackOnce)
+{
+    using namespace OloEngine::Functional::Fixtures;
+    auto actor = m_Scene->CreateEntity("Paused before saving");
+    const UUID actorID = actor.GetUUID();
+    const std::array clips{ MakeTranslationClip(1.0f) };
+    ModelImporter::PopulateAnimatedEntityFromParts(actor, Ref<MeshSource>::Create(), MakeSingleBoneSkeleton(), clips, nullptr, "Fox.gltf");
+    actor.GetComponent<AnimationStateComponent>().m_CurrentTime = 0.5f;
+    const auto checkpoint = SaveGameSerializer::CaptureSceneState(*m_Scene);
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, checkpoint));
+
+    auto restored = m_Scene->GetEntityByUUID(actorID);
+    auto duplicate = m_Scene->CreateEntity("Added after Continue");
+    duplicate.AddComponent<AnimationStateComponent>(restored.GetComponent<AnimationStateComponent>());
+    auto& saved = restored.GetComponent<AnimationStateComponent>();
+    auto& fresh = duplicate.GetComponent<AnimationStateComponent>();
+    fresh.StartRuntimePlayback(duplicate.GetUUID());
+    EXPECT_TRUE(fresh.m_IsPlaying);
+    EXPECT_FLOAT_EQ(fresh.m_CurrentTime, 0.0f);
+    saved.StartRuntimePlayback(actorID);
+    EXPECT_FALSE(saved.m_IsPlaying);
+    EXPECT_FLOAT_EQ(saved.m_CurrentTime, 0.5f);
+
+    saved.StartRuntimePlayback(actorID);
+    EXPECT_TRUE(saved.m_IsPlaying);
+    EXPECT_FLOAT_EQ(saved.m_CurrentTime, 0.0f);
+
+    // Loading during ordinary play preserves the checkpoint immediately.
+    // A subsequent fresh start on that scene must still autoplay.
+    m_Scene->SetRunning(true);
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, checkpoint));
+    m_Scene->SetRunning(false);
+    auto& inGame = m_Scene->GetEntityByUUID(actorID).GetComponent<AnimationStateComponent>();
+    EXPECT_FALSE(inGame.m_IsPlaying);
+    EXPECT_FLOAT_EQ(inGame.m_CurrentTime, 0.5f);
+    inGame.StartRuntimePlayback(actorID);
+    EXPECT_TRUE(inGame.m_IsPlaying);
+    EXPECT_FLOAT_EQ(inGame.m_CurrentTime, 0.0f);
 }
 
 TEST_F(SaveGameIntegrationTest, CaptureAndRestoreWithEntities)

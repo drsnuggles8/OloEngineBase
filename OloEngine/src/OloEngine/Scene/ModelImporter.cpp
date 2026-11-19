@@ -19,6 +19,14 @@
 
 namespace OloEngine
 {
+    void ModelImporter::BindAnimationClips(AnimationStateComponent& state, std::span<const Ref<AnimationClip>> clips)
+    {
+        state.m_AvailableClips.assign(clips.begin(), clips.end());
+        if (state.m_CurrentClipIndex < 0 || static_cast<sizet>(state.m_CurrentClipIndex) >= clips.size())
+            state.m_CurrentClipIndex = 0;
+        state.m_CurrentClip = clips.empty() ? nullptr : clips[static_cast<sizet>(state.m_CurrentClipIndex)];
+    }
+
     ModelImportResult ModelImporter::PopulateAnimatedEntityFromParts(
         Entity entity,
         const Ref<MeshSource>& meshSource,
@@ -70,10 +78,8 @@ namespace OloEngine
         }
 
         // AnimationStateComponent — playback state + the available clip set. Also
-        // for a clip-less MORPH source (issue #1439), because this component is what
-        // records the source file: without it a saved scene has no path to re-import
-        // the mesh from, and a morph-only face would reload with no mesh at all.
-        if (!clips.empty() || hasMorphTargets)
+        // records the import path for bind-pose rigs and morph-only meshes.
+        if (result.IsAnimated)
         {
             if (!entity.HasComponent<AnimationStateComponent>())
             {
@@ -81,11 +87,11 @@ namespace OloEngine
                 result.AddedAnimationStateComponent = true;
             }
             auto& anim = entity.GetComponent<AnimationStateComponent>();
-            anim.m_AvailableClips = std::vector<Ref<AnimationClip>>(clips.begin(), clips.end());
 
             if (resetPlaybackState)
             {
                 anim.m_State = AnimationStateComponent::State::Idle;
+                anim.m_RestoredPlaybackOwner = 0;
                 anim.m_CurrentClipIndex = 0;
                 anim.m_CurrentTime = 0.0f;
                 anim.m_IsPlaying = false;
@@ -93,15 +99,7 @@ namespace OloEngine
                 anim.m_NextClip = nullptr;
             }
 
-            // Clamp the (possibly deserialized) current-clip index into range and
-            // resolve the matching clip. Mirrors the deserializer's fallback to clip 0.
-            // No clips at all (a clip-less morph source) leaves no current clip, which
-            // the morph-only animation update already skips.
-            if (anim.m_CurrentClipIndex < 0 || anim.m_CurrentClipIndex >= static_cast<int>(clips.size()))
-            {
-                anim.m_CurrentClipIndex = 0;
-            }
-            anim.m_CurrentClip = clips.empty() ? nullptr : clips[static_cast<sizet>(anim.m_CurrentClipIndex)];
+            BindAnimationClips(anim, clips);
 
             anim.m_SourceFilePath = sourcePath;
         }

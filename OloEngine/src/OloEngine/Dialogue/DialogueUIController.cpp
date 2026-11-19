@@ -126,8 +126,8 @@ namespace OloEngine
         {
             if (static_cast<u64>(uuid) != 0)
             {
-                if (Entity ent = scene.GetEntityByUUID(uuid))
-                    scene.DestroyEntity(ent);
+                if (auto ent = scene.TryGetEntityWithUUID(uuid))
+                    scene.DestroyEntity(*ent);
                 uuid = 0;
             }
         };
@@ -402,9 +402,8 @@ namespace OloEngine
 
         for (auto uuid : m_ChoiceEntities)
         {
-            Entity ent = scene.GetEntityByUUID(uuid);
-            if (ent)
-                scene.DestroyEntity(ent);
+            if (auto ent = scene.TryGetEntityWithUUID(uuid))
+                scene.DestroyEntity(*ent);
         }
         m_ChoiceEntities.Reset();
     }

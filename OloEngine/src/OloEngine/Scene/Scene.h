@@ -57,6 +57,7 @@
 namespace OloEngine
 {
     class Entity;
+    struct StartupScriptCall;
     class MeshSource;
     class Material;
     class MaterialOverrideCache;
@@ -1562,6 +1563,9 @@ namespace OloEngine
         glm::vec2 m_ViewportOffset{ 0.0f, 0.0f };
         glm::mat4 m_CameraViewProjection{ 1.0f }; // Cached for UI world-anchor projection
         bool m_IsRunning = false;
+        StartupScriptCall* m_ActiveStartupScript = nullptr;
+        bool m_BlockCheckpointLoad = false;
+        bool StopStartupForCheckpoint();
         bool m_IsPaused = false;
         bool m_PendingReload = false;
         // Profiler section spanning the current Play or Simulate session (0 = none).
