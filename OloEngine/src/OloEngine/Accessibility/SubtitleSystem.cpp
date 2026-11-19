@@ -133,9 +133,12 @@ namespace OloEngine
         // triggered the creation, showing it for exactly one frame.
         DestroyEntities(scene);
 
+        // Runtime-owned (#1712): a save never captures the caption overlay;
+        // EnsureEntities rebuilds it on the next caption after Continue.
         Entity canvasEntity = scene.CreateEntity("SubtitleCanvas");
         if (!canvasEntity)
             return false;
+        scene.MarkRuntimeOwned(canvasEntity);
         {
             auto& canvas = canvasEntity.AddComponent<UICanvasComponent>();
             canvas.m_RenderMode = UICanvasRenderMode::ScreenSpaceOverlay;
@@ -154,6 +157,7 @@ namespace OloEngine
             DestroyEntities(scene);
             return false;
         }
+        scene.MarkRuntimeOwned(panelEntity);
         {
             auto& rect = panelEntity.AddComponent<UIRectTransformComponent>();
             rect.m_AnchorMin = kPanelAnchorMin;
@@ -177,6 +181,7 @@ namespace OloEngine
             DestroyEntities(scene);
             return false;
         }
+        scene.MarkRuntimeOwned(textEntity);
         {
             auto& rect = textEntity.AddComponent<UIRectTransformComponent>();
             rect.m_AnchorMin = { 0.02f, 0.05f };

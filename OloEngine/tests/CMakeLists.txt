@@ -1828,6 +1828,7 @@ add_executable(OloEngine-Tests
 		Functional/Scene/EntitySetParentCycleRejectionTest.cpp
 		Functional/Scene/DuplicateTagFindableTest.cpp
 		Functional/SaveGame/NetworkIdentitySurvivesSaveLoadTest.cpp
+		Functional/SaveGame/DialogueUIRebuiltOnContinueTest.cpp
 		Functional/SaveGame/RegisteredComponentsSurviveSaveLoadTest.cpp
 		Functional/AnimationPhysics/CharacterControllerJumpsTest.cpp
 		Functional/Scripting/LuaScriptMutatesTransformViaSceneTickTest.cpp

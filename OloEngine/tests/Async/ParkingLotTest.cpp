@@ -221,6 +221,7 @@ TEST_F(ParkingLotTest, ATimedWaitTimingOutWhileItsWakerIsMidWakeLeavesNoWakeBehi
 
     i32 First = 0;
     i32 Second = 0;
+    std::atomic<bool> bQueuedOnFirst{ false };
     std::atomic<bool> bParkingOnSecond{ false };
     std::atomic<bool> bReturnedFromSecond{ false };
     bool bTimedWaitReturnedBeforeTheNotify = false;
@@ -229,7 +230,8 @@ TEST_F(ParkingLotTest, ATimedWaitTimingOutWhileItsWakerIsMidWakeLeavesNoWakeBehi
         [&]
         {
             ParkingLot::WaitFor(&First, []
-                                { return true; }, [] {}, FMonotonicTimeSpan::FromMilliseconds(100.0));
+                                { return true; }, [&]
+                                { bQueuedOnFirst.store(true, std::memory_order_release); }, FMonotonicTimeSpan::FromMilliseconds(100.0));
             bTimedWaitReturnedBeforeTheNotify = !s_HookDone.load();
             // BeforeWait runs once this park's node is queued and its event reset.
             ParkingLot::Wait(&Second, []
@@ -242,6 +244,28 @@ TEST_F(ParkingLotTest, ATimedWaitTimingOutWhileItsWakerIsMidWakeLeavesNoWakeBehi
 
     // Wake the timed waiter as soon as it is queued; the hook then holds this
     // thread for 300 ms between the clear and the notify, past the 100 ms timeout.
+    // The 80 ms window opens when the waiter reports itself queued, not when this
+    // thread starts spinning: on a loaded runner the waiter's thread can start
+    // late, and a window measured from here closed before it ever queued.
+    // Bounded, so a ParkingLot that stopped calling BeforeWait fails the test
+    // instead of hanging the binary.
+    const auto QueueDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!bQueuedOnFirst.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < QueueDeadline)
+    {
+        std::this_thread::yield();
+    }
+    if (!bQueuedOnFirst.load(std::memory_order_acquire))
+    {
+        // Release the waiter wherever it is: its timed wait ends on its own, and
+        // this wakes its second park (which may not report itself either).
+        while (!bReturnedFromSecond.load(std::memory_order_acquire))
+        {
+            ParkingLot::WakeOne(&Second);
+            std::this_thread::yield();
+        }
+        Waiter.join();
+        FAIL() << "the waiter never reported itself queued: ParkingLot::WaitFor did not call BeforeWait";
+    }
     bool bWoke = false;
     {
         FHook Hook;
@@ -266,7 +290,7 @@ TEST_F(ParkingLotTest, ATimedWaitTimingOutWhileItsWakerIsMidWakeLeavesNoWakeBehi
     }
     Waiter.join();
 
-    ASSERT_TRUE(bWoke) << "the waiter was not queued within 80 ms, so the gap was never tested";
+    ASSERT_TRUE(bWoke) << "the queued waiter was not woken within 80 ms, so the gap was never tested";
     EXPECT_EQ(s_HeldWakes.load(), 1);
     // A timed wait that returns before the notify leaves it pending; the second
     // park only shows that if it reset its event before the notify arrived.

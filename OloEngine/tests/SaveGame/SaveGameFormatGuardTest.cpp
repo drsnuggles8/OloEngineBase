@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/SaveGame/ISaveable.h"
 #include "OloEngine/SaveGame/SaveGameFile.h"
 #include "OloEngine/SaveGame/SaveGameComponentSerializer.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
@@ -21,6 +22,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <string>
 
 // The save game reads exactly one format version, and a short or malformed
 // payload fails instead of being read as an older layout (#1498). Before, the
@@ -308,6 +310,135 @@ TEST(SaveGameComponentRoundTrip, WaterKeepsTheCascadeCountAndTheFieldsAfterIt)
     EXPECT_TRUE(loaded.m_WakeShapeEnabled);
 }
 
+// A conversation's save block (#1712) loads untrusted bytes sanitized: a
+// Processing state exists only inside one DialogueSystem call.
+TEST(SaveGameComponentRoundTrip, AHostileConversationLoadsSanitized)
+{
+    DialogueStateComponent seed;
+    seed.m_State = DialogueState::Processing;
+    seed.m_CurrentNodeID = UUID(0xC1);
+    seed.m_CurrentText = "The lamp still turns.";
+    seed.m_AvailableChoices.Add(DialogueChoice{ .Text = "Only", .TargetNodeID = UUID(0xD2), .Condition = "has_key" });
+    seed.m_HoveredChoiceIndex = 7;
+    seed.m_SelectedChoiceIndex = -5;
+    seed.m_TextRevealProgress = std::numeric_limits<f32>::quiet_NaN();
+    seed.m_TextRevealSpeed = -3.0f;
+    const DialogueStateComponent loaded = RoundTrip(seed);
+    EXPECT_EQ(loaded.m_State, DialogueState::Inactive);
+    EXPECT_EQ(static_cast<u64>(loaded.m_CurrentNodeID), 0xC1ull);
+    EXPECT_EQ(loaded.m_CurrentText, "The lamp still turns.");
+    ASSERT_EQ(loaded.m_AvailableChoices.Num(), 1);
+    EXPECT_EQ(loaded.m_AvailableChoices[0].Text, FString("Only"));
+    EXPECT_EQ(static_cast<u64>(loaded.m_AvailableChoices[0].TargetNodeID), 0xD2ull);
+    EXPECT_EQ(loaded.m_AvailableChoices[0].Condition, FString("has_key"));
+    EXPECT_EQ(loaded.m_HoveredChoiceIndex, -1);
+    EXPECT_EQ(loaded.m_SelectedChoiceIndex, -1);
+    EXPECT_FLOAT_EQ(loaded.m_TextRevealProgress, 1.0f);
+    EXPECT_FLOAT_EQ(loaded.m_TextRevealSpeed, 30.0f);
+}
+
+// A choice state with nothing to choose could never be left (#1712).
+TEST(SaveGameComponentRoundTrip, AChoiceStateWithNoChoicesLoadsInactive)
+{
+    DialogueStateComponent seed;
+    seed.m_State = DialogueState::WaitingForChoice;
+    EXPECT_EQ(RoundTrip(seed).m_State, DialogueState::Inactive);
+
+    seed.m_AvailableChoices.Add(DialogueChoice{ .Text = "Go", .TargetNodeID = UUID(0xD3), .Condition = {} });
+    EXPECT_EQ(RoundTrip(seed).m_State, DialogueState::WaitingForChoice) << "positive control: with a choice it stays";
+}
+
+// A finished TriggerOnce conversation stays finished after Continue (#1712):
+// m_HasTriggered used to load as false and replay it, action nodes included.
+TEST(SaveGameComponentRoundTrip, DialogueKeepsThatItHasTriggered)
+{
+    DialogueComponent seed;
+    seed.m_DialogueTree = AssetHandle(0x1712);
+    seed.m_TriggerOnce = true;
+    seed.m_HasTriggered = true;
+    // Not through RoundTrip: its return may copy, and DialogueComponent's copy
+    // constructor resets m_HasTriggered on purpose.
+    std::vector<u8> buffer;
+    {
+        FMemoryWriter writer(buffer);
+        writer.ArIsSaveGame = true;
+        SaveGameComponentSerializer::Serialize(writer, seed);
+        ASSERT_FALSE(writer.IsError());
+    }
+    DialogueComponent loaded;
+    FMemoryReader reader(buffer);
+    reader.ArIsSaveGame = true;
+    SaveGameComponentSerializer::Serialize(reader, loaded);
+    ASSERT_FALSE(reader.IsError());
+    EXPECT_TRUE(reader.AtEnd()) << "the reader did not consume exactly the block";
+    EXPECT_EQ(static_cast<u64>(loaded.m_DialogueTree), 0x1712ull);
+    EXPECT_TRUE(loaded.m_TriggerOnce);
+    EXPECT_TRUE(loaded.m_HasTriggered);
+}
+
+// A runtime-owned entity (#1712) and everything parented under it stay out of
+// the save, and a saved parent's child list stops naming them. The live scene
+// keeps its child list: the capture scrubs a copy, not the scene.
+TEST(SaveGameRuntimeOwned, MarkedSubtreesAreNotCapturedAndSavedParentsForgetThem)
+{
+    Ref<Scene> scene = MakeScene();
+    Entity anchor = scene->CreateEntity("SavedAnchor");
+    Entity owned = scene->CreateEntity("RuntimeOverlay");
+    Entity ownedChild = scene->CreateEntity("RuntimeOverlayText");
+    Entity savedChild = scene->CreateEntity("SavedChild");
+    owned.SetParent(anchor);
+    ownedChild.SetParent(owned);
+    savedChild.SetParent(anchor);
+    scene->MarkRuntimeOwned(owned);
+    // A child whose parent link names the marked entity but which its parent's
+    // child list does not hold: still runtime-owned, never saved as an orphan.
+    Entity unlisted = scene->CreateEntity("RuntimeOverlayUnlisted");
+    unlisted.AddComponent<RelationshipComponent>().m_ParentHandle = owned.GetUUID();
+    // The reverse: an authored entity reparented to the anchor that a stale
+    // runtime-owned child list still names. Its parent link decides: saved.
+    Entity reparented = scene->CreateEntity("ReparentedAuthored");
+    reparented.AddComponent<RelationshipComponent>().m_ParentHandle = anchor.GetUUID();
+    anchor.GetComponent<RelationshipComponent>().m_Children.Add(reparented.GetUUID());
+    owned.GetComponent<RelationshipComponent>().m_Children.Add(reparented.GetUUID());
+    ASSERT_TRUE(scene->IsRuntimeOwned(ownedChild)) << "a child of a marked entity is runtime-owned";
+    ASSERT_TRUE(scene->IsRuntimeOwned(unlisted));
+    ASSERT_FALSE(scene->IsRuntimeOwned(reparented));
+    // A handle from another scene is refused, not applied to whatever local
+    // entity shares its numeric value.
+    Ref<Scene> other = Ref<Scene>::Create();
+    Entity foreign = other->CreateEntity("Foreign");
+    scene->MarkRuntimeOwned(foreign);
+    ASSERT_FALSE(scene->IsRuntimeOwned(Entity{ static_cast<entt::entity>(foreign), scene.get() }))
+        << "a foreign handle marked a local entity";
+    // ...including one from a copy, which shares UUIDs and usually handles.
+    Ref<Scene> copy = Scene::Copy(scene);
+    copy->MarkRuntimeOwned(anchor);
+    const auto copiedAnchor = copy->TryGetEntityWithUUID(anchor.GetUUID());
+    ASSERT_TRUE(copiedAnchor.has_value());
+    ASSERT_FALSE(copy->IsRuntimeOwned(*copiedAnchor)) << "the source scene's handle marked the copy's entity";
+    ASSERT_FALSE(scene->IsRuntimeOwned(anchor));
+    const sizet total = scene->GetAllEntitiesWith<IDComponent>().size();
+
+    u32 savedCount = 0;
+    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*scene, &savedCount);
+    EXPECT_EQ(anchor.Children().Num(), 3) << "the capture changed the live scene's child list";
+    EXPECT_EQ(savedCount, total - 3) << "the count a header or slot list shows must be what the save holds";
+
+    Ref<Scene> loaded = Ref<Scene>::Create();
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, payload));
+    EXPECT_EQ(loaded->GetAllEntitiesWith<IDComponent>().size(), total - 3);
+    EXPECT_FALSE(loaded->TryGetEntityWithUUID(owned.GetUUID()).has_value());
+    EXPECT_FALSE(loaded->TryGetEntityWithUUID(ownedChild.GetUUID()).has_value());
+    EXPECT_FALSE(loaded->TryGetEntityWithUUID(unlisted.GetUUID()).has_value());
+    EXPECT_TRUE(loaded->TryGetEntityWithUUID(reparented.GetUUID()).has_value()) << "a stale runtime child list must not drop an authored entity";
+    const auto loadedAnchor = loaded->TryGetEntityWithUUID(anchor.GetUUID());
+    ASSERT_TRUE(loadedAnchor.has_value());
+    const TArray<UUID> children = loadedAnchor->Children();
+    ASSERT_EQ(children.Num(), 2);
+    EXPECT_EQ(static_cast<u64>(children[0]), static_cast<u64>(savedChild.GetUUID()));
+    EXPECT_EQ(static_cast<u64>(children[1]), static_cast<u64>(reparented.GetUUID()));
+}
+
 // A script can change the streaming byte budgets at runtime (#1365), so a save must
 // carry them: before #1531 the Streaming block stopped at RegionDirectory and a loaded
 // save came back with the scene file's budgets instead of the saved ones.
@@ -349,4 +480,70 @@ TEST(SaveGameSceneSettingsRoundTrip, CorruptStreamingBudgetsLoadAsNoBudget)
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationResidentMegabytes, 0.0f);
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationUploadMegabytesPerFrame, 0.0f);
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationStagingMegabytes, 0.0f);
+}
+
+// Scripts set dialogue variables and condition nodes read them. Before #1712 the
+// save did not carry them, so a Continue reset every branch a conversation had
+// unlocked. Every variant alternative round-trips, and the restore replaces the
+// loading scene's table rather than merging into it.
+TEST(SaveGameSceneSettingsRoundTrip, DialogueVariablesSurviveASave)
+{
+    Ref<Scene> saved = MakeScene();
+    saved->GetDialogueVariables().SetBool("met_keeper", true);
+    saved->GetDialogueVariables().SetInt("lamps_lit", 3);
+    saved->GetDialogueVariables().SetFloat("trust", 0.75f);
+    saved->GetDialogueVariables().SetString("ship_name", "Drift");
+    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*saved);
+
+    Ref<Scene> loaded = MakeScene();
+    loaded->GetDialogueVariables().SetBool("stale", true);
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, payload));
+    const DialogueVariables& variables = loaded->GetDialogueVariables();
+    EXPECT_TRUE(variables.GetBool("met_keeper"));
+    EXPECT_EQ(variables.GetInt("lamps_lit"), 3);
+    EXPECT_FLOAT_EQ(variables.GetFloat("trust"), 0.75f);
+    EXPECT_EQ(variables.GetString("ship_name"), "Drift");
+    EXPECT_FALSE(variables.Has("stale")) << "the restore merged into the loading scene's table";
+    EXPECT_EQ(variables.GetAll().size(), 4u);
+}
+
+TEST(SaveGameSceneSettingsRoundTrip, MoreDialogueVariablesThanTheReaderAcceptsFailTheCapture)
+{
+    // A block that refuses to write fails the whole capture instead of saving
+    // a file whose settings no load can parse.
+    Ref<Scene> saved = MakeScene();
+    // A script's ISaveable callback marks whether the entity pass ran.
+    // The registry is process-global: unregister on every exit, ASSERTs included,
+    // so no later test can call a lambda holding this frame's local.
+    bool entityPassRan = false;
+    SaveableRegistry::Register("SaveGameGuardProbe", [&entityPassRan](FArchive&, UUID)
+                               { entityPassRan = true; });
+    struct UnregisterProbe
+    {
+        ~UnregisterProbe()
+        {
+            SaveableRegistry::Unregister("SaveGameGuardProbe");
+        }
+    } unregisterProbe;
+    saved->CreateEntity("Scripted").AddComponent<ScriptComponent>().ClassName = "SaveGameGuardProbe";
+    ASSERT_FALSE(SaveGameSerializer::CaptureSceneState(*saved).empty());
+    ASSERT_TRUE(entityPassRan) << "positive control: a capture that succeeds runs the callback";
+
+    entityPassRan = false;
+    for (u32 i = 0; i <= 65'536; ++i)
+        saved->GetDialogueVariables().SetBool("flag_" + std::to_string(i), true);
+    EXPECT_TRUE(SaveGameSerializer::CaptureSceneState(*saved).empty());
+    EXPECT_FALSE(entityPassRan) << "a refused save must stop before script callbacks run";
+}
+
+TEST(SaveGameSceneSettingsRoundTrip, ANonFiniteDialogueVariableLoadsAsZero)
+{
+    Ref<Scene> saved = MakeScene();
+    saved->GetDialogueVariables().SetFloat("trust", std::numeric_limits<f32>::quiet_NaN());
+    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*saved);
+
+    Ref<Scene> loaded = MakeScene();
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, payload));
+    ASSERT_TRUE(loaded->GetDialogueVariables().Has("trust"));
+    EXPECT_FLOAT_EQ(loaded->GetDialogueVariables().GetFloat("trust", -1.0f), 0.0f);
 }

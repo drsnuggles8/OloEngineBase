@@ -11,6 +11,12 @@ namespace OloEngine
 {
     static constexpr f32 kDialoguePanelAlpha = 0.85f;
 
+    // Layout notes. UILayoutSystem is y-down (0 at the top of the screen), and a
+    // stretched rect (anchor min != max) adds SizeDelta around its anchors, so
+    // every rect below that should sit exactly on its anchors sets SizeDelta to
+    // zero; the component's default {100, 100} grew each one 50 px past every
+    // edge, which pushed the body line off the top of the screen.
+
     void DialogueUIController::Initialize(Scene& scene)
     {
         OLO_PROFILE_FUNCTION();
@@ -20,6 +26,7 @@ namespace OloEngine
         // Canvas entity — root of the dialogue UI
         {
             Entity canvasEntity = scene.CreateEntity("DialogueCanvas");
+            scene.MarkRuntimeOwned(canvasEntity);
             auto& canvas = canvasEntity.AddComponent<UICanvasComponent>();
             canvas.m_RenderMode = UICanvasRenderMode::ScreenSpaceOverlay;
             canvas.m_SortOrder = 100;
@@ -27,6 +34,7 @@ namespace OloEngine
             auto& rect = canvasEntity.AddComponent<UIRectTransformComponent>();
             rect.m_AnchorMin = { 0.0f, 0.0f };
             rect.m_AnchorMax = { 1.0f, 1.0f };
+            rect.m_SizeDelta = { 0.0f, 0.0f };
 
             m_CanvasEntity = canvasEntity.GetUUID();
         }
@@ -34,10 +42,13 @@ namespace OloEngine
         // Panel entity — dialogue box background
         {
             Entity panelEntity = scene.CreateEntity("DialoguePanel");
+            scene.MarkRuntimeOwned(panelEntity);
             auto& rect = panelEntity.AddComponent<UIRectTransformComponent>();
-            rect.m_AnchorMin = { 0.1f, 0.0f };
-            rect.m_AnchorMax = { 0.9f, 0.25f };
-            rect.m_AnchoredPosition = { 0.0f, 20.0f };
+            // The bottom quarter of the screen, raised 20 px off the bottom edge.
+            rect.m_AnchorMin = { 0.1f, 0.75f };
+            rect.m_AnchorMax = { 0.9f, 1.0f };
+            rect.m_AnchoredPosition = { 0.0f, -20.0f };
+            rect.m_SizeDelta = { 0.0f, 0.0f };
 
             auto& panel = panelEntity.AddComponent<UIPanelComponent>();
             panel.m_BackgroundColor = { 0.1f, 0.1f, 0.15f, kDialoguePanelAlpha };
@@ -62,9 +73,12 @@ namespace OloEngine
         // Speaker name entity
         {
             Entity speakerEntity = scene.CreateEntity("DialogueSpeakerName");
+            scene.MarkRuntimeOwned(speakerEntity);
             auto& rect = speakerEntity.AddComponent<UIRectTransformComponent>();
-            rect.m_AnchorMin = { 0.05f, 0.7f };
-            rect.m_AnchorMax = { 0.5f, 0.95f };
+            // The top band of the panel.
+            rect.m_AnchorMin = { 0.05f, 0.05f };
+            rect.m_AnchorMax = { 0.5f, 0.3f };
+            rect.m_SizeDelta = { 0.0f, 0.0f };
 
             auto& text = speakerEntity.AddComponent<UITextComponent>();
             text.m_FontSize = 28.0f;
@@ -89,9 +103,12 @@ namespace OloEngine
         // Dialogue body text entity
         {
             Entity bodyEntity = scene.CreateEntity("DialogueBody");
+            scene.MarkRuntimeOwned(bodyEntity);
             auto& rect = bodyEntity.AddComponent<UIRectTransformComponent>();
-            rect.m_AnchorMin = { 0.05f, 0.05f };
-            rect.m_AnchorMax = { 0.95f, 0.65f };
+            // Below the speaker name.
+            rect.m_AnchorMin = { 0.05f, 0.35f };
+            rect.m_AnchorMax = { 0.95f, 0.95f };
+            rect.m_SizeDelta = { 0.0f, 0.0f };
 
             auto& text = bodyEntity.AddComponent<UITextComponent>();
             text.m_FontSize = 22.0f;
@@ -142,9 +159,32 @@ namespace OloEngine
         m_ActiveNpcEntity = 0;
     }
 
+    bool DialogueUIController::IsHierarchyIntact(const Scene& scene) const
+    {
+        const auto alive = [&scene](UUID uuid)
+        {
+            return static_cast<u64>(uuid) != 0 && scene.TryGetEntityWithUUID(uuid).has_value();
+        };
+        // The choice buttons too: one destroyed out from under the controller
+        // would otherwise keep its UUID in m_ChoiceEntities and never come back.
+        return alive(m_CanvasEntity) && alive(m_PanelEntity) && alive(m_SpeakerNameEntity) && alive(m_DialogueBodyEntity) &&
+               std::ranges::all_of(m_ChoiceEntities, alive);
+    }
+
     void DialogueUIController::Update(Scene& scene)
     {
         OLO_PROFILE_FUNCTION();
+
+        // The hierarchy is runtime-owned, so a save never carries it. Loading a
+        // save into a running scene replaces the whole registry and takes the
+        // hierarchy with it: rebuild it, and let the restored DialogueStateComponent
+        // below fill it in (#1712). Shutdown first, so a partly destroyed
+        // hierarchy leaves no survivors parented to dead entities.
+        if (!IsHierarchyIntact(scene))
+        {
+            Shutdown(scene);
+            Initialize(scene);
+        }
 
         // Find the first entity with an active DialogueStateComponent
         entt::entity activeEntity = entt::null;
@@ -337,11 +377,12 @@ namespace OloEngine
         while (m_ChoiceEntities.Num() < state.m_AvailableChoices.Num())
         {
             Entity choiceEntity = scene.CreateEntity("DialogueChoice_" + std::to_string(m_ChoiceEntities.Num()));
+            scene.MarkRuntimeOwned(choiceEntity);
+            // Anchored on the panel's top edge, above the dialogue box; the
+            // vertical slot is set below, once the number of choices is known.
             auto& rect = choiceEntity.AddComponent<UIRectTransformComponent>();
-            f32 const index = static_cast<f32>(m_ChoiceEntities.Num());
             rect.m_AnchorMin = { 0.1f, 0.0f };
             rect.m_AnchorMax = { 0.9f, 0.0f };
-            rect.m_AnchoredPosition = { 0.0f, -30.0f - index * 35.0f };
             rect.m_SizeDelta = { 0.0f, 30.0f };
 
             auto& btn = choiceEntity.AddComponent<UIButtonComponent>();
@@ -369,12 +410,21 @@ namespace OloEngine
             m_ChoiceEntities.Add(choiceEntity.GetUUID());
         }
 
-        // Update text and state for each choice
+        // Update text and state for each choice. The stack grows upward from the
+        // box (y-down), and the first choice is the top row, so the list reads
+        // in authored order and Up/Down move the highlight the way they look.
+        const auto choiceCount = static_cast<f32>(state.m_AvailableChoices.Num());
         for (size_t i = 0; i < state.m_AvailableChoices.Num(); ++i)
         {
-            Entity choiceEnt = scene.GetEntityByUUID(m_ChoiceEntities[i]);
-            if (!choiceEnt)
+            const auto found = scene.TryGetEntityWithUUID(m_ChoiceEntities[i]);
+            if (!found)
                 continue;
+            Entity choiceEnt = *found;
+            if (choiceEnt.HasComponent<UIRectTransformComponent>())
+            {
+                const f32 rowsBelow = choiceCount - 1.0f - static_cast<f32>(i);
+                choiceEnt.GetComponent<UIRectTransformComponent>().m_AnchoredPosition = { 0.0f, -30.0f - rowsBelow * 35.0f };
+            }
             if (choiceEnt.HasComponent<UITextComponent>())
             {
                 choiceEnt.GetComponent<UITextComponent>().m_Text = state.m_AvailableChoices[i].Text.ToStdString();
@@ -389,9 +439,8 @@ namespace OloEngine
         // Destroy excess choice entities
         for (size_t i = state.m_AvailableChoices.Num(); i < m_ChoiceEntities.Num(); ++i)
         {
-            Entity choiceEnt = scene.GetEntityByUUID(m_ChoiceEntities[i]);
-            if (choiceEnt)
-                scene.DestroyEntity(choiceEnt);
+            if (const auto choiceEnt = scene.TryGetEntityWithUUID(m_ChoiceEntities[i]))
+                scene.DestroyEntity(*choiceEnt);
         }
         m_ChoiceEntities.SetNum(state.m_AvailableChoices.Num(), EAllowShrinking::No);
     }

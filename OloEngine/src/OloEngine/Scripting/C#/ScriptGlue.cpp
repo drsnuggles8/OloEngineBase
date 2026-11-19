@@ -2212,7 +2212,9 @@ namespace OloEngine
         OLO_CORE_ASSERT(scene);
         Entity entity = scene->GetEntityByUUID(entityID);
         OLO_CORE_ASSERT(entity);
-        return entity.HasComponent<DialogueStateComponent>();
+        // Another NPC's StartDialogue leaves this one's component Inactive.
+        return entity.HasComponent<DialogueStateComponent>() &&
+               entity.GetComponent<DialogueStateComponent>().m_State != DialogueState::Inactive;
     }
 
     static void DialogueComponent_EndDialogue(UUID entityID)

@@ -125,6 +125,7 @@ namespace OloEngine
     struct LuaScriptComponent;
     struct TileRendererComponent;
     struct DialogueComponent;
+    struct DialogueStateComponent;
     struct VisualScriptComponent;
     struct NavMeshBoundsComponent;
     struct NavAgentComponent;
@@ -282,6 +283,7 @@ namespace OloEngine
         static void Serialize(FArchive& ar, LuaScriptComponent& c);
         static void Serialize(FArchive& ar, TileRendererComponent& c);
         static void Serialize(FArchive& ar, DialogueComponent& c);
+        static void Serialize(FArchive& ar, DialogueStateComponent& c);
         static void Serialize(FArchive& ar, VisualScriptComponent& c);
         static void Serialize(FArchive& ar, NavMeshBoundsComponent& c);
         static void Serialize(FArchive& ar, NavAgentComponent& c);
