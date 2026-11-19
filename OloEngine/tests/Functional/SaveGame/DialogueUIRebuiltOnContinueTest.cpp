@@ -44,6 +44,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scene/SceneSerializer.h"
+#include "OloEngine/UI/UILayoutSystem.h"
 
 #include <array>
 #include <cstddef>
@@ -344,6 +345,13 @@ TEST_F(DialogueUIRebuiltOnContinueTest, ContinueShowsTheSameSpeakerLineAndChoice
     EXPECT_EQ(state.m_State, DialogueState::WaitingForChoice);
     EXPECT_EQ(static_cast<u64>(state.m_CurrentNodeID), kChoice);
     EXPECT_EQ(ChoiceLabels(*choices), (std::vector<std::string>{ "Ask about the light", "Leave" }));
+
+    // The first choice is the top row: the stack reads in authored order.
+    UILayoutSystem::ResolveLayout(*choices, 1920, 1080);
+    const auto rowTop = [&choices](const char* tag)
+    { return choices->FindEntityByName(tag).GetComponent<UIResolvedRectComponent>().m_Position.y; };
+    EXPECT_LT(rowTop("DialogueChoice_0"), rowTop("DialogueChoice_1"));
+    EXPECT_LT(rowTop("DialogueChoice_1"), rowTop("DialoguePanel")) << "the choices sit above the box";
 
     // The restored conversation is live, not a picture of one: picking a
     // choice follows the tree from the restored node.

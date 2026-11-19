@@ -8,6 +8,8 @@
 #include "OloEngine/Scene/Scene.h"
 #include "OloEngine/UI/UILayoutSystem.h"
 
+#include <array>
+
 using namespace OloEngine;
 
 // ============================================================================
@@ -307,17 +309,16 @@ TEST(DialogueUIControllerLayout, TheBoxSitsInsideTheBottomOfTheScreen)
     constexpr f32 kHeight = 1080.0f;
     UILayoutSystem::ResolveLayout(*scene, static_cast<u32>(kWidth), static_cast<u32>(kHeight));
 
-    const auto rectOf = [&scene](const char* tag)
+    std::array<UIResolvedRectComponent, 4> rects;
+    const std::array<const char*, 4> tags = { "DialogueCanvas", "DialoguePanel", "DialogueSpeakerName", "DialogueBody" };
+    for (sizet i = 0; i < tags.size(); ++i)
     {
-        Entity entity = scene->FindEntityByName(tag);
-        EXPECT_TRUE(entity) << tag;
-        EXPECT_TRUE(entity.HasComponent<UIResolvedRectComponent>()) << tag;
-        return entity.GetComponent<UIResolvedRectComponent>();
-    };
-    const auto canvas = rectOf("DialogueCanvas");
-    const auto panel = rectOf("DialoguePanel");
-    const auto speaker = rectOf("DialogueSpeakerName");
-    const auto body = rectOf("DialogueBody");
+        Entity entity = scene->FindEntityByName(tags[i]);
+        ASSERT_TRUE(entity) << tags[i];
+        ASSERT_TRUE(entity.HasComponent<UIResolvedRectComponent>()) << tags[i];
+        rects[i] = entity.GetComponent<UIResolvedRectComponent>();
+    }
+    const auto& [canvas, panel, speaker, body] = rects;
 
     // The canvas is exactly the screen.
     EXPECT_FLOAT_EQ(canvas.m_Position.x, 0.0f);

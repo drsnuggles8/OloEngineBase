@@ -375,13 +375,11 @@ namespace OloEngine
         {
             Entity choiceEntity = scene.CreateEntity("DialogueChoice_" + std::to_string(m_ChoiceEntities.Num()));
             scene.MarkRuntimeOwned(choiceEntity);
-            // Anchored on the panel's top edge and stacked upward (y-down), so
-            // the choices sit above the dialogue box.
+            // Anchored on the panel's top edge, above the dialogue box; the
+            // vertical slot is set below, once the number of choices is known.
             auto& rect = choiceEntity.AddComponent<UIRectTransformComponent>();
-            f32 const index = static_cast<f32>(m_ChoiceEntities.Num());
             rect.m_AnchorMin = { 0.1f, 0.0f };
             rect.m_AnchorMax = { 0.9f, 0.0f };
-            rect.m_AnchoredPosition = { 0.0f, -30.0f - index * 35.0f };
             rect.m_SizeDelta = { 0.0f, 30.0f };
 
             auto& btn = choiceEntity.AddComponent<UIButtonComponent>();
@@ -409,12 +407,20 @@ namespace OloEngine
             m_ChoiceEntities.Add(choiceEntity.GetUUID());
         }
 
-        // Update text and state for each choice
+        // Update text and state for each choice. The stack grows upward from the
+        // box (y-down), and the first choice is the top row, so the list reads
+        // in authored order and Up/Down move the highlight the way they look.
+        const auto choiceCount = static_cast<f32>(state.m_AvailableChoices.Num());
         for (size_t i = 0; i < state.m_AvailableChoices.Num(); ++i)
         {
             Entity choiceEnt = scene.GetEntityByUUID(m_ChoiceEntities[i]);
             if (!choiceEnt)
                 continue;
+            if (choiceEnt.HasComponent<UIRectTransformComponent>())
+            {
+                const f32 rowsBelow = choiceCount - 1.0f - static_cast<f32>(i);
+                choiceEnt.GetComponent<UIRectTransformComponent>().m_AnchoredPosition = { 0.0f, -30.0f - rowsBelow * 35.0f };
+            }
             if (choiceEnt.HasComponent<UITextComponent>())
             {
                 choiceEnt.GetComponent<UITextComponent>().m_Text = state.m_AvailableChoices[i].Text.ToStdString();
