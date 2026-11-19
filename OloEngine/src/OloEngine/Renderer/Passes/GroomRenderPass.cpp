@@ -1072,9 +1072,14 @@ namespace OloEngine
             // Over every slot's displacement as the coat is drawn (#1589): the
             // pack's own expansion when it made one on the CPU, else this
             // frame's alone into the pass's reusable scratch -- the padding
-            // reads no previous frame, and the GPU's expansion is never read back.
+            // reads no previous frame, and the GPU's expansion is never read
+            // back. A coat whose self-shadow bake evaluates the drawn pose later
+            // this frame resolves the CPU mirror anyway (AcquireDrawnPose), so
+            // its padding reads that one cached expansion rather than a second.
+            const bool posesLater = !request.CoatBakeAtRest && request.CoatShadow != GroomCoatShadowTechnique::None &&
+                                    GroomCoatShadowModeIsImplemented(request.CoatShadow);
             const GroomStrandSimulation padded = !simulated ? GroomStrandSimulation{}
-                                                 : packed.GuidesExpandedOnGpu
+                                                 : packed.GuidesExpandedOnGpu && !posesLater
                                                      ? m_GuideExpansion.Expand(simulation, false)
                                                      : entry.DeformCpu.ResolveCpuGuides(simulation);
             GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
