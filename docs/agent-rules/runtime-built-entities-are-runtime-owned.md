@@ -11,7 +11,9 @@ rebuilds from goes on an authored entity (or in a framed settings block).**
 - **Rebuild after a load into a running scene.** `SaveGameSerializer::RestoreSceneState` swaps the
   whole registry, so a system that keeps running holds the UUIDs of entities that are gone. Check
   that the hierarchy is alive on update and rebuild it: `DialogueUIController::IsHierarchyIntact`,
-  `SubtitleSystem::EnsureEntities`.
+  `SubtitleSystem::EnsureEntities`, `RuntimeInputRebindMenu::CanvasIsLive`. Hold UUIDs, not raw
+  `Entity` handles: after the swap a stale handle names a restored entity, and destroying through it
+  deletes authored content.
 - **Save the state, not the picture of it.** The dialogue UI is rebuilt from the
   `DialogueStateComponent` on the speaking NPC, which the save carries.
 - **Never exclude by tag.** An authored entity may share a display name with a runtime one; only the
