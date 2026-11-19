@@ -46,9 +46,12 @@ run pays the ~10-15 min build). The specialised analysis jobs (ASan/UBSan, fuzz,
 SonarCloud, cross-vendor) explicitly opt **out** with `-DOLO_VIDEO_FFMPEG=OFF`, since a
 from-source FFmpeg build is irrelevant overhead for them. A dedicated workflow —
 [.github/workflows/video-ffmpeg.yml](../../.github/workflows/video-ffmpeg.yml) — builds with FFmpeg
-on for **both** `windows-latest` and `ubuntu-24.04` and runs the decode test against a fetched
-sample MP4. Both from-source builds are verified: the Windows path end-to-end (build → backend
-compile → link → decode a 1080p H.264 MP4); the Linux path producing the FFmpeg `.so`s.
+on for **both** `windows-2025` and `ubuntu-24.04` and runs the decode test against a fetched
+sample MP4. Both legs are verified end-to-end (FFmpeg build → backend compile → link → decode a
+1080p H.264 MP4). The Linux leg takes its toolchain from `.github/actions/setup-linux-build` like
+every other Linux job (#1711); a dispatch can run one leg with the `legs` input, since the
+Windows leg takes about four hours. A red scheduled run opens or updates a `ci-nightly-red`
+issue through `scripts/nightly_red_streak.py`.
 
 To convert media to MPEG-1 for the dependency-free path: `ffmpeg -i input.mp4 -c:v mpeg1video
 -q:v 4 -c:a mp2 output.mpg`. With `OLO_VIDEO_FFMPEG=ON`, `.mp4`/`.mov`/`.mkv` play directly.

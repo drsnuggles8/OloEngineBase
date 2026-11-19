@@ -918,26 +918,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: scripts/nightly_red_streak.py
+          sparse-checkout: |
+            scripts/nightly_red_streak.py
+            .github/actions/red-streak-alert
           sparse-checkout-cone-mode: false
 
+      # The weekly showcase call tracks its own streak, by its own workflow file and
+      # job name (workflow_call above).
       - name: Open, update or close the red-streak issue
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RESULT: ${{ needs.amd-hardware.result }}
-          DRY_RUN: ${{ github.event_name != 'schedule' && '--dry-run' || '' }}
-          # The weekly showcase call tracks its own streak, by its own workflow
-          # file and job name (workflow_call above).
-          STREAK_WORKFLOW: ${{ inputs.red_streak_workflow || 'gpu-conformance-amd.yml' }}
-          STREAK_JOB: ${{ inputs.red_streak_job || 'Linux / AMD Navi 10 (radeonsi, hardware)' }}
-          STREAK_TIMEOUT: ${{ inputs.job_timeout_minutes || 150 }}
-          STREAK_THRESHOLD: ${{ inputs.red_streak_threshold || 2 }}
-        run: |
-          python3 scripts/nightly_red_streak.py \
-            --workflow "$STREAK_WORKFLOW" \
-            --job "$STREAK_JOB" \
-            --timeout-minutes "$STREAK_TIMEOUT" \
-            --threshold "$STREAK_THRESHOLD" \
-            --result "$RESULT" \
-            --run-id "$GITHUB_RUN_ID" \
-            $DRY_RUN | tee -a "$GITHUB_STEP_SUMMARY"
+        uses: ./.github/actions/red-streak-alert
+        with:
+          workflow: ${{ inputs.red_streak_workflow || 'gpu-conformance-amd.yml' }}
+          jobs: ${{ inputs.red_streak_job || 'Linux / AMD Navi 10 (radeonsi, hardware)' }}
+          result: ${{ needs.amd-hardware.result }}
+          timeout-minutes: ${{ inputs.job_timeout_minutes || 150 }}
+          threshold: ${{ inputs.red_streak_threshold || 2 }}
