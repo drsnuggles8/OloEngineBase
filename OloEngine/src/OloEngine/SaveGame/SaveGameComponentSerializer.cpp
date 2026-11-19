@@ -3703,7 +3703,10 @@ namespace OloEngine
         ar << c.m_AutoTrigger;
         ar << c.m_TriggerRadius;
         ar << c.m_TriggerOnce;
-        // m_HasTriggered is runtime-only — not persisted (resets on load).
+        // Saved: it is how a TriggerOnce conversation knows it has run. Not
+        // saving it replayed a finished one-time conversation after Continue,
+        // and with it its action nodes (a quest accept, an item grant).
+        ar << c.m_HasTriggered;
     }
 
     void SaveGameComponentSerializer::Serialize(FArchive& ar, DialogueStateComponent& c)
@@ -3749,8 +3752,9 @@ namespace OloEngine
             // Untrusted input. Processing exists only inside one DialogueSystem
             // call, so a saved one, like an unknown value, loads as Inactive.
             const auto loaded = static_cast<DialogueState>(state);
+            // WaitingForChoice with no choice to pick could never be left.
             const bool resting = loaded == DialogueState::Inactive || loaded == DialogueState::Displaying ||
-                                 loaded == DialogueState::WaitingForChoice;
+                                 (loaded == DialogueState::WaitingForChoice && choiceCount > 0);
             c.m_State = resting ? loaded : DialogueState::Inactive;
 
             const auto choiceIndexOrNone = [count = static_cast<i32>(choiceCount)](i32 index)
@@ -3776,8 +3780,7 @@ namespace OloEngine
         //
         // What is NOT saved is the live VM state — current node, latent timers,
         // blackboard values mutated during play. A save-game restores the graph
-        // to its authored starting point and replays OnBeginPlay, which is the
-        // same contract DialogueComponent's m_HasTriggered has. Persisting a
+        // to its authored starting point and replays OnBeginPlay. Persisting a
         // suspended exec position would need the plan's node indices to be
         // stable across a graph edit, which they are not.
         u32 overrideCount = static_cast<u32>(c.m_VariableOverrides.size());

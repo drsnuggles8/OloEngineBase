@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <string>
 
 // The save game reads exactly one format version, and a short or malformed
 // payload fails instead of being read as an older layout (#1498). Before, the
@@ -333,6 +334,31 @@ TEST(SaveGameComponentRoundTrip, AHostileConversationLoadsSanitized)
     EXPECT_EQ(loaded.m_SelectedChoiceIndex, -1);
     EXPECT_FLOAT_EQ(loaded.m_TextRevealProgress, 1.0f);
     EXPECT_FLOAT_EQ(loaded.m_TextRevealSpeed, 30.0f);
+}
+
+// A choice state with nothing to choose could never be left (#1712).
+TEST(SaveGameComponentRoundTrip, AChoiceStateWithNoChoicesLoadsInactive)
+{
+    DialogueStateComponent seed;
+    seed.m_State = DialogueState::WaitingForChoice;
+    EXPECT_EQ(RoundTrip(seed).m_State, DialogueState::Inactive);
+
+    seed.m_AvailableChoices.Add(DialogueChoice{ .Text = "Go", .TargetNodeID = UUID(0xD3), .Condition = {} });
+    EXPECT_EQ(RoundTrip(seed).m_State, DialogueState::WaitingForChoice) << "positive control: with a choice it stays";
+}
+
+// A finished TriggerOnce conversation stays finished after Continue (#1712):
+// m_HasTriggered used to load as false and replay it, action nodes included.
+TEST(SaveGameComponentRoundTrip, DialogueKeepsThatItHasTriggered)
+{
+    DialogueComponent seed;
+    seed.m_DialogueTree = AssetHandle(0x1712);
+    seed.m_TriggerOnce = true;
+    seed.m_HasTriggered = true;
+    const DialogueComponent loaded = RoundTrip(seed);
+    EXPECT_EQ(static_cast<u64>(loaded.m_DialogueTree), 0x1712ull);
+    EXPECT_TRUE(loaded.m_TriggerOnce);
+    EXPECT_TRUE(loaded.m_HasTriggered);
 }
 
 // A runtime-owned entity (#1712) and everything parented under it stay out of
