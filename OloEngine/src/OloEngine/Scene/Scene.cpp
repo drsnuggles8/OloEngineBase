@@ -645,7 +645,16 @@ namespace OloEngine
 
     void Scene::MarkRuntimeOwned(Entity entity)
     {
-        OLO_CORE_ASSERT(entity, "Scene::MarkRuntimeOwned - invalid entity");
+        // The entity must be a live entity of THIS scene: a handle from another
+        // registry can name a different local entity, which the save would then
+        // silently leave out.
+        const auto local = entity ? TryGetEntityWithUUID(entity.GetUUID()) : std::nullopt;
+        if (!local || static_cast<entt::entity>(*local) != static_cast<entt::entity>(entity))
+        {
+            OLO_CORE_ERROR("[Scene] MarkRuntimeOwned: the entity is not a live entity of scene '{}'; not marked",
+                           m_Name.ToStdString());
+            return;
+        }
         m_Registry.emplace_or_replace<RuntimeOwnedTag>(static_cast<entt::entity>(entity));
     }
 

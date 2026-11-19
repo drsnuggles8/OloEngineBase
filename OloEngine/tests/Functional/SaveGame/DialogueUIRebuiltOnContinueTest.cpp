@@ -352,7 +352,13 @@ TEST_F(DialogueUIRebuiltOnContinueTest, ContinueShowsTheSameSpeakerLineAndChoice
     const std::array<const char*, 3> rowTags = { "DialogueChoice_0", "DialogueChoice_1", "DialoguePanel" };
     for (sizet i = 0; i < rowTags.size(); ++i)
     {
-        Entity row = choices->FindEntityByName(rowTags[i]);
+        // The controller's entity by tag: the authored "DialoguePanel" shares the name.
+        Entity row;
+        for (auto [handle, tc] : choices->GetAllEntitiesWith<TagComponent>().each())
+        {
+            if (tc.Tag == rowTags[i] && choices->IsRuntimeOwned(Entity{ handle, *choices }))
+                row = Entity{ handle, *choices };
+        }
         ASSERT_TRUE(row) << rowTags[i];
         ASSERT_TRUE(row.HasComponent<UIResolvedRectComponent>()) << rowTags[i];
         rows[i] = row.GetComponent<UIResolvedRectComponent>();
@@ -492,4 +498,18 @@ return script
 
     std::error_code ec;
     std::filesystem::remove(script, ec);
+}
+
+TEST_F(DialogueUIRebuiltOnContinueTest, AChoiceButtonDestroyedOutsideTheControllerIsRebuilt)
+{
+    // A script or the editor deletes one button while the choices are up: the
+    // controller must notice and rebuild, not keep the dead UUID.
+    Reach(SavedIn::ChoicesOffered);
+    Entity choice = GetScene().FindEntityByName("DialogueChoice_0");
+    ASSERT_TRUE(choice);
+    GetScene().DestroyEntity(choice);
+    RunFrames(1);
+
+    ExpectOneControllerHierarchy(GetScene(), SavedIn::ChoicesOffered);
+    EXPECT_EQ(ChoiceLabels(GetScene()), (std::vector<std::string>{ "Ask about the light", "Leave" }));
 }

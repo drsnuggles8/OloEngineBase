@@ -356,7 +356,21 @@ TEST(SaveGameComponentRoundTrip, DialogueKeepsThatItHasTriggered)
     seed.m_DialogueTree = AssetHandle(0x1712);
     seed.m_TriggerOnce = true;
     seed.m_HasTriggered = true;
-    const DialogueComponent loaded = RoundTrip(seed);
+    // Not through RoundTrip: its return may copy, and DialogueComponent's copy
+    // constructor resets m_HasTriggered on purpose.
+    std::vector<u8> buffer;
+    {
+        FMemoryWriter writer(buffer);
+        writer.ArIsSaveGame = true;
+        SaveGameComponentSerializer::Serialize(writer, seed);
+        ASSERT_FALSE(writer.IsError());
+    }
+    DialogueComponent loaded;
+    FMemoryReader reader(buffer);
+    reader.ArIsSaveGame = true;
+    SaveGameComponentSerializer::Serialize(reader, loaded);
+    ASSERT_FALSE(reader.IsError());
+    EXPECT_TRUE(reader.AtEnd()) << "the reader did not consume exactly the block";
     EXPECT_EQ(static_cast<u64>(loaded.m_DialogueTree), 0x1712ull);
     EXPECT_TRUE(loaded.m_TriggerOnce);
     EXPECT_TRUE(loaded.m_HasTriggered);
@@ -389,6 +403,13 @@ TEST(SaveGameRuntimeOwned, MarkedSubtreesAreNotCapturedAndSavedParentsForgetThem
     ASSERT_TRUE(scene->IsRuntimeOwned(ownedChild)) << "a child of a marked entity is runtime-owned";
     ASSERT_TRUE(scene->IsRuntimeOwned(unlisted));
     ASSERT_FALSE(scene->IsRuntimeOwned(reparented));
+    // A handle from another scene is refused, not applied to whatever local
+    // entity shares its numeric value.
+    Ref<Scene> other = Ref<Scene>::Create();
+    Entity foreign = other->CreateEntity("Foreign");
+    scene->MarkRuntimeOwned(foreign);
+    ASSERT_FALSE(scene->IsRuntimeOwned(Entity{ static_cast<entt::entity>(foreign), scene.get() }))
+        << "a foreign handle marked a local entity";
     ASSERT_FALSE(scene->IsRuntimeOwned(anchor));
     const sizet total = scene->GetAllEntitiesWith<IDComponent>().size();
 

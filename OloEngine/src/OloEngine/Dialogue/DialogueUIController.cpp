@@ -165,7 +165,10 @@ namespace OloEngine
         {
             return static_cast<u64>(uuid) != 0 && scene.TryGetEntityWithUUID(uuid).has_value();
         };
-        return alive(m_CanvasEntity) && alive(m_PanelEntity) && alive(m_SpeakerNameEntity) && alive(m_DialogueBodyEntity);
+        // The choice buttons too: one destroyed out from under the controller
+        // would otherwise keep its UUID in m_ChoiceEntities and never come back.
+        return alive(m_CanvasEntity) && alive(m_PanelEntity) && alive(m_SpeakerNameEntity) && alive(m_DialogueBodyEntity) &&
+               std::ranges::all_of(m_ChoiceEntities, alive);
     }
 
     void DialogueUIController::Update(Scene& scene)
@@ -413,9 +416,10 @@ namespace OloEngine
         const auto choiceCount = static_cast<f32>(state.m_AvailableChoices.Num());
         for (size_t i = 0; i < state.m_AvailableChoices.Num(); ++i)
         {
-            Entity choiceEnt = scene.GetEntityByUUID(m_ChoiceEntities[i]);
-            if (!choiceEnt)
+            const auto found = scene.TryGetEntityWithUUID(m_ChoiceEntities[i]);
+            if (!found)
                 continue;
+            Entity choiceEnt = *found;
             if (choiceEnt.HasComponent<UIRectTransformComponent>())
             {
                 const f32 rowsBelow = choiceCount - 1.0f - static_cast<f32>(i);
@@ -435,9 +439,8 @@ namespace OloEngine
         // Destroy excess choice entities
         for (size_t i = state.m_AvailableChoices.Num(); i < m_ChoiceEntities.Num(); ++i)
         {
-            Entity choiceEnt = scene.GetEntityByUUID(m_ChoiceEntities[i]);
-            if (choiceEnt)
-                scene.DestroyEntity(choiceEnt);
+            if (const auto choiceEnt = scene.TryGetEntityWithUUID(m_ChoiceEntities[i]))
+                scene.DestroyEntity(*choiceEnt);
         }
         m_ChoiceEntities.SetNum(state.m_AvailableChoices.Num(), EAllowShrinking::No);
     }
