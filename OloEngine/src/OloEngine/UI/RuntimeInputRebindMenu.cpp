@@ -191,6 +191,7 @@ namespace OloEngine
         // Runtime-owned (#1712): a save never captures the open menu. Every other
         // menu entity is parented under the canvas, which excludes it too.
         m_Scene->MarkRuntimeOwned(m_Canvas);
+        m_CanvasId = m_Canvas.GetUUID();
         auto& canvas = m_Canvas.AddComponent<UICanvasComponent>();
         canvas.m_RenderMode = UICanvasRenderMode::ScreenSpaceOverlay;
         canvas.m_ScaleMode = UICanvasScaleMode::ScaleWithScreenSize;
@@ -283,10 +284,13 @@ namespace OloEngine
         if (m_Scene && m_Canvas)
         {
             // Scene::DestroyEntity does not cascade, so tear down the whole canvas subtree.
-            DestroyUITree(*m_Scene, m_Canvas);
+            // After a registry swap the handle may name a restored entity: destroy nothing.
+            if (CanvasIsLive())
+                DestroyUITree(*m_Scene, m_Canvas);
             m_Scene->GetUINavigation().SetInputSuppressed(false);
         }
         m_Canvas = {};
+        m_CanvasId = 0;
         m_Rows.Reset();
         m_AllButtons.Reset();
         m_PrevButtonState.clear();
@@ -298,10 +302,31 @@ namespace OloEngine
         m_Scene = nullptr;
     }
 
+    bool RuntimeInputRebindMenu::CanvasIsLive() const
+    {
+        if (!m_Scene || !m_Canvas)
+            return false;
+        const auto canvas = m_Scene->TryGetEntityWithUUID(m_CanvasId);
+        return canvas && static_cast<entt::entity>(*canvas) == static_cast<entt::entity>(m_Canvas);
+    }
+
     void RuntimeInputRebindMenu::OnUpdate()
     {
         if (!m_Open || !m_Scene)
         {
+            return;
+        }
+
+        // The menu is runtime-owned, so a save never carries it, and a save
+        // loaded into the running scene swaps the registry out from under it
+        // (#1712). Rebuild it as it was rather than drive stale handles.
+        if (!CanvasIsLive())
+        {
+            Scene& scene = *m_Scene;
+            const InputContextType context = m_Controller.GetTargetContext();
+            std::filesystem::path savePath = m_SavePath;
+            Close();
+            Open(scene, context, std::move(savePath));
             return;
         }
 
