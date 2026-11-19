@@ -628,43 +628,85 @@ TEST(ArchiveExtensionsTest, AStringLongerThanTheReaderFailsBeforeAllocating)
     EXPECT_EQ(read, "lamp");
 }
 
+namespace
+{
+    // An element whose default constructor counts, so a test sees whether a
+    // reader built the declared count before it refused the read.
+    struct CountedElement
+    {
+        static inline u32 s_DefaultConstructed = 0;
+        u32 Value = 0;
+
+        CountedElement()
+        {
+            ++s_DefaultConstructed;
+        }
+
+        friend FArchive& operator<<(FArchive& ar, CountedElement& element)
+        {
+            ar << element.Value;
+            return ar;
+        }
+    };
+} // namespace
+
 // The same bound for a container: a count larger than the bytes left fails
 // before the container is allocated (each element takes at least one byte).
 TEST(ArchiveExtensionsTest, AContainerCountLargerThanTheReaderFailsBeforeAllocating)
 {
+    // 16 declared, one element's 4 bytes present. Without the bound both
+    // readers build 16 elements, then fail on the second and discard them.
     std::vector<u8> buffer;
     {
         FMemoryWriter writer(buffer);
-        u32 declared = 9'000'000; // under kMaxContainerDeserializeCount, far over the bytes present
+        u32 declared = 16;
         writer << declared;
         u32 oneElement = 7;
         writer << oneElement;
     }
     {
         FMemoryReader reader(buffer);
-        std::vector<u32> values;
+        std::vector<CountedElement> values;
+        CountedElement::s_DefaultConstructed = 0;
         reader << values;
         EXPECT_TRUE(reader.IsError());
         EXPECT_TRUE(values.empty());
+        EXPECT_EQ(CountedElement::s_DefaultConstructed, 0u) << "the std::vector reader built the declared count";
     }
     {
         FMemoryReader reader(buffer);
-        TArray<u32> values;
+        TArray<CountedElement> values;
+        CountedElement::s_DefaultConstructed = 0;
         SerializeOwnedArray(reader, values);
         EXPECT_TRUE(reader.IsError());
         EXPECT_EQ(values.Num(), 0);
+        EXPECT_EQ(CountedElement::s_DefaultConstructed, 0u) << "the TArray reader built the declared count";
     }
 
-    // Positive control: a count that fits reads normally.
+    // Positive control: a count that fits reads normally, through both readers.
     std::vector<u8> fits;
     {
         FMemoryWriter writer(fits);
         std::vector<u32> values{ 1, 2, 3 };
         writer << values;
     }
-    FMemoryReader reader(fits);
-    std::vector<u32> read;
-    reader << read;
-    EXPECT_FALSE(reader.IsError());
-    EXPECT_EQ(read, (std::vector<u32>{ 1, 2, 3 }));
+    {
+        FMemoryReader reader(fits);
+        std::vector<CountedElement> read;
+        CountedElement::s_DefaultConstructed = 0;
+        reader << read;
+        EXPECT_FALSE(reader.IsError());
+        ASSERT_EQ(read.size(), 3u);
+        EXPECT_EQ(read[0].Value, 1u);
+        EXPECT_EQ(read[2].Value, 3u);
+        EXPECT_EQ(CountedElement::s_DefaultConstructed, 3u);
+    }
+    {
+        FMemoryReader reader(fits);
+        TArray<CountedElement> read;
+        SerializeOwnedArray(reader, read);
+        EXPECT_FALSE(reader.IsError());
+        ASSERT_EQ(read.Num(), 3);
+        EXPECT_EQ(read[1].Value, 2u);
+    }
 }
