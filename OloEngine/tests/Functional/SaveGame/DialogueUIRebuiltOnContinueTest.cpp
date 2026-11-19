@@ -31,6 +31,7 @@
 // =============================================================================
 
 #include "Functional/FunctionalTest.h"
+#include "TestTempDir.h"
 
 #include "OloEngine/Asset/AssetManager.h"
 #include "OloEngine/Dialogue/DialogueSystem.h"
@@ -436,3 +437,43 @@ TEST_F(DialogueUIRebuiltOnContinueTest, TheEditSceneNeverHoldsTheControllerUI)
     EXPECT_EQ(CountEntities(*edit), 2u);
 }
 
+TEST_F(DialogueUIRebuiltOnContinueTest, ALuaStartedConversationContinuesWithItsVariables)
+{
+    // The scripting cell: a conversation a Lua script started, with a dialogue
+    // variable it set, survives save -> Continue like one the player started.
+    // A small UUID keeps sol2's u64 -> Lua-number coercion exact.
+    Entity npc = GetScene().CreateEntityWithUUID(UUID{ 4243 }, "LuaKeeper");
+    npc.AddComponent<DialogueComponent>().m_DialogueTree = m_Npc.GetComponent<DialogueComponent>().m_DialogueTree;
+    const auto script = OloEngine::Tests::TempFile("olo_functional_dialogue_continue.lua");
+    std::ofstream(script, std::ios::binary | std::ios::trunc) << R"(
+local script = {}
+function script.OnCreate(entityID)
+    local id = math.tointeger(entityID)
+    dialogue_vars.set_bool("lua_greeted", true)
+    dialogue.start(id)
+    dialogue.advance(id)
+end
+return script
+)";
+    EnableLua();
+    RegisterLuaScript(npc, script);
+    RunFrames(1);
+
+    ASSERT_TRUE(npc.HasComponent<DialogueStateComponent>()) << "dialogue.start(id) did not start the conversation";
+    ASSERT_EQ(npc.GetComponent<DialogueStateComponent>().m_State, DialogueState::Displaying);
+    const DialogueStateComponent saved = npc.GetComponent<DialogueStateComponent>();
+    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(GetScene());
+    ExpectSaveHoldsNoControllerUI(payload, m_AuthoredCount + 1); // the Lua NPC is authored too
+
+    Ref<Scene> continued = Continue(payload);
+    ExpectOneControllerHierarchy(*continued, m_AuthoredCount + 1 + kControllerTags.size(), 0u);
+    const auto restored = continued->TryGetEntityWithUUID(UUID{ 4243 });
+    ASSERT_TRUE(restored.has_value());
+    ASSERT_TRUE(restored->HasComponent<DialogueStateComponent>());
+    EXPECT_TRUE(restored->GetComponent<DialogueStateComponent>() == saved);
+    EXPECT_EQ(ControllerText(*continued, "DialogueBody"), "The lamp still turns.");
+    EXPECT_TRUE(continued->GetDialogueVariables().GetBool("lua_greeted")) << "the variable the script set was lost";
+
+    std::error_code ec;
+    std::filesystem::remove(script, ec);
+}
