@@ -6,6 +6,12 @@ He watches out to 115 m. From 18:30 until 06:00 he raises his brass lantern.
 He stands on the granite tread with his feet planted. His boots, ochre oilskin
 and the light in his left hand give him a silhouette you can read from the water.
 
+![The keeper raises a brass lantern at the Stacks Light door in the packaged game](../images/drift-keeper/packaged.jpg)
+
+The packaged OpenGL runtime drew this view from the inspection camera with
+the cooking project’s keeper model folder renamed. The ordinary menu’s Continue
+button restores the voyage with the boat camera.
+
 ## Drawing the figure
 
 Three photographs guided different parts of the design. The keeper's head,
@@ -145,19 +151,20 @@ first. The coat hem, cap peak and bent arm carry the gesture farther.
 
 ## From the water
 
-Approach from west-southwest to see the door. At a camera height of 2.5 m,
-the stack itself hides the keeper when looking along his forward axis. The
-paired crops below use a bearing of 240° from world +X towards +Z. At 30 m
-horizontal range the oilskin and dark trousers separate across the rail. At
-150 m the coat is a few amber pixels in the doorway. The right-hand crop in
-each pair moves the keeper out of frame and leaves the stair in place.
+At a helm height of 2.5 m the stack hides the door on some bearings. The
+30 m view below looks in from 225° measured from world +X towards +Z. Its
+seabed is 7.22 m below sea level. The 150 m camera uses 240°. At 30 m the
+oilskin and dark trousers separate across the rail. At 150 m the coat covers
+a few amber pixels in the doorway. At 30 m, 16 of 35 sampled entity IDs changed when the keeper moved out of view
+and returned when he moved back. At 150 m, 11 of 35 did the same.
+The crops show exactly which part of the doorway he occupies.
 
 ![Full Drift from sea level at 30 m and 150 m with enlarged keeper-on and keeper-off crops](../images/drift-keeper/approach.jpg)
 
 The fixed-camera close-ups use the tower, sun, body, eye profiles and bound
 hair from the shipped scene. Each has a matching groom-off frame. In OpenGL
-Deferred, the 4× MSAA pair changed 113,567 pixels above the repeat-control
-noise threshold. Temporal Quality upscale changed 84,428 pixels.
+Deferred, the 4× MSAA pair changed 113,251 pixels above the repeat-control
+noise threshold. Temporal Quality upscale changed 84,033 pixels.
 
 ![The same face in OpenGL and Vulkan on Forward, Forward+ and Deferred](../images/drift-keeper/render-paths.jpg)
 
