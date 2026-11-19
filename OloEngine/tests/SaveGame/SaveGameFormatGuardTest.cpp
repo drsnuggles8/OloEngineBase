@@ -6,6 +6,7 @@
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Project/Project.h"
+#include "OloEngine/SaveGame/ISaveable.h"
 #include "OloEngine/SaveGame/SaveGameFile.h"
 #include "OloEngine/SaveGame/SaveGameComponentSerializer.h"
 #include "OloEngine/SaveGame/SaveGameManager.h"
@@ -379,14 +380,21 @@ TEST(SaveGameRuntimeOwned, MarkedSubtreesAreNotCapturedAndSavedParentsForgetThem
     // child list does not hold: still runtime-owned, never saved as an orphan.
     Entity unlisted = scene->CreateEntity("RuntimeOverlayUnlisted");
     unlisted.AddComponent<RelationshipComponent>().m_ParentHandle = owned.GetUUID();
+    // The reverse: an authored entity reparented to the anchor that a stale
+    // runtime-owned child list still names. Its parent link decides: saved.
+    Entity reparented = scene->CreateEntity("ReparentedAuthored");
+    reparented.AddComponent<RelationshipComponent>().m_ParentHandle = anchor.GetUUID();
+    anchor.GetComponent<RelationshipComponent>().m_Children.Add(reparented.GetUUID());
+    owned.GetComponent<RelationshipComponent>().m_Children.Add(reparented.GetUUID());
     ASSERT_TRUE(scene->IsRuntimeOwned(ownedChild)) << "a child of a marked entity is runtime-owned";
     ASSERT_TRUE(scene->IsRuntimeOwned(unlisted));
+    ASSERT_FALSE(scene->IsRuntimeOwned(reparented));
     ASSERT_FALSE(scene->IsRuntimeOwned(anchor));
     const sizet total = scene->GetAllEntitiesWith<IDComponent>().size();
 
     u32 savedCount = 0;
     const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*scene, &savedCount);
-    EXPECT_EQ(anchor.Children().Num(), 2) << "the capture changed the live scene's child list";
+    EXPECT_EQ(anchor.Children().Num(), 3) << "the capture changed the live scene's child list";
     EXPECT_EQ(savedCount, total - 3) << "the count a header or slot list shows must be what the save holds";
 
     Ref<Scene> loaded = Ref<Scene>::Create();
@@ -395,11 +403,13 @@ TEST(SaveGameRuntimeOwned, MarkedSubtreesAreNotCapturedAndSavedParentsForgetThem
     EXPECT_FALSE(loaded->TryGetEntityWithUUID(owned.GetUUID()).has_value());
     EXPECT_FALSE(loaded->TryGetEntityWithUUID(ownedChild.GetUUID()).has_value());
     EXPECT_FALSE(loaded->TryGetEntityWithUUID(unlisted.GetUUID()).has_value());
+    EXPECT_TRUE(loaded->TryGetEntityWithUUID(reparented.GetUUID()).has_value()) << "a stale runtime child list must not drop an authored entity";
     const auto loadedAnchor = loaded->TryGetEntityWithUUID(anchor.GetUUID());
     ASSERT_TRUE(loadedAnchor.has_value());
     const TArray<UUID> children = loadedAnchor->Children();
-    ASSERT_EQ(children.Num(), 1);
+    ASSERT_EQ(children.Num(), 2);
     EXPECT_EQ(static_cast<u64>(children[0]), static_cast<u64>(savedChild.GetUUID()));
+    EXPECT_EQ(static_cast<u64>(children[1]), static_cast<u64>(reparented.GetUUID()));
 }
 
 // A script can change the streaming byte budgets at runtime (#1365), so a save must
@@ -475,9 +485,20 @@ TEST(SaveGameSceneSettingsRoundTrip, MoreDialogueVariablesThanTheReaderAcceptsFa
     // A block that refuses to write fails the whole capture instead of saving
     // a file whose settings no load can parse.
     Ref<Scene> saved = MakeScene();
+    // A script's ISaveable callback marks whether the entity pass ran.
+    bool entityPassRan = false;
+    SaveableRegistry::Register("SaveGameGuardProbe", [&entityPassRan](FArchive&, UUID)
+                               { entityPassRan = true; });
+    saved->CreateEntity("Scripted").AddComponent<ScriptComponent>().ClassName = "SaveGameGuardProbe";
+    ASSERT_FALSE(SaveGameSerializer::CaptureSceneState(*saved).empty());
+    ASSERT_TRUE(entityPassRan) << "positive control: a capture that succeeds runs the callback";
+
+    entityPassRan = false;
     for (u32 i = 0; i <= 65'536; ++i)
         saved->GetDialogueVariables().SetBool("flag_" + std::to_string(i), true);
     EXPECT_TRUE(SaveGameSerializer::CaptureSceneState(*saved).empty());
+    EXPECT_FALSE(entityPassRan) << "a refused save must stop before script callbacks run";
+    SaveableRegistry::Unregister("SaveGameGuardProbe");
 }
 
 TEST(SaveGameSceneSettingsRoundTrip, ANonFiniteDialogueVariableLoadsAsZero)

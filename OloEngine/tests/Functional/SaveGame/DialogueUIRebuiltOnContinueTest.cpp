@@ -348,10 +348,18 @@ TEST_F(DialogueUIRebuiltOnContinueTest, ContinueShowsTheSameSpeakerLineAndChoice
 
     // The first choice is the top row: the stack reads in authored order.
     UILayoutSystem::ResolveLayout(*choices, 1920, 1080);
-    const auto rowTop = [&choices](const char* tag)
-    { return choices->FindEntityByName(tag).GetComponent<UIResolvedRectComponent>().m_Position.y; };
-    EXPECT_LT(rowTop("DialogueChoice_0"), rowTop("DialogueChoice_1"));
-    EXPECT_LT(rowTop("DialogueChoice_1"), rowTop("DialoguePanel")) << "the choices sit above the box";
+    std::array<UIResolvedRectComponent, 3> rows;
+    const std::array<const char*, 3> rowTags = { "DialogueChoice_0", "DialogueChoice_1", "DialoguePanel" };
+    for (sizet i = 0; i < rowTags.size(); ++i)
+    {
+        Entity row = choices->FindEntityByName(rowTags[i]);
+        ASSERT_TRUE(row) << rowTags[i];
+        ASSERT_TRUE(row.HasComponent<UIResolvedRectComponent>()) << rowTags[i];
+        rows[i] = row.GetComponent<UIResolvedRectComponent>();
+    }
+    const auto& [first, second, box] = rows;
+    EXPECT_LE(first.m_Position.y + first.m_Size.y, second.m_Position.y) << "the first choice is the top row";
+    EXPECT_LE(second.m_Position.y + second.m_Size.y, box.m_Position.y) << "the choices sit above the box, not over it";
 
     // The restored conversation is live, not a picture of one: picking a
     // choice follows the tree from the restored node.

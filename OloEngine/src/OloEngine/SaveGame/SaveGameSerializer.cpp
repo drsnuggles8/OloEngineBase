@@ -35,6 +35,7 @@
 #include <cmath>
 #include <optional>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <variant>
 
@@ -330,6 +331,8 @@ namespace OloEngine
 
         if (variables.GetAll().size() > kMaxVariables)
         {
+            OLO_CORE_ERROR("[SaveGameSerializer] {} dialogue variables, more than the {} a save can hold; the save is refused",
+                           variables.GetAll().size(), kMaxVariables);
             ar.SetError();
             return;
         }
@@ -515,47 +518,47 @@ namespace OloEngine
 
         // Runtime-owned entities (the dialogue UI, captions, debris…) are rebuilt
         // by their systems after Continue, so the save never carries them, nor
-        // anything parented under them (#1712): the same set Scene::IsRuntimeOwned
-        // answers for. Collected downward from the marked roots through child
-        // lists; then any entity whose parent link names a collected entity
-        // joins too, so a child missing from its parent's list is not saved as
-        // an orphan. No marked entity, no work.
+        // anything parented under them (#1712). One definition, the one
+        // Scene::IsRuntimeOwned uses: an entity is excluded when it or an
+        // ancestor along its parent links carries RuntimeOwnedTag. Each chain is
+        // walked once and every entity on it memoised, so this is O(N), and it
+        // is skipped when nothing is marked.
         auto view = scene.GetAllEntitiesWith<IDComponent>();
         std::unordered_set<u64> runtimeOwned;
+        if (!scene.m_Registry.view<RuntimeOwnedTag>().empty())
         {
-            TArray<UUID> pending;
-            const auto collectSubtrees = [&scene, &runtimeOwned, &pending]
+            std::unordered_map<u64, bool> decided;
+            TArray<u64> chain;
+            for (auto [handle, id] : scene.m_Registry.view<IDComponent>().each())
             {
-                while (!pending.IsEmpty())
+                chain.Reset();
+                bool owned = false;
+                std::optional<Entity> current = Entity{ handle, &scene };
+                // The step bound stops a corrupt parent cycle: no chain is
+                // longer than the entity count.
+                for (sizet step = 0; current && step <= view.size(); ++step)
                 {
-                    const UUID id = pending.Last();
-                    pending.Pop(EAllowShrinking::No);
-                    const auto owned = scene.TryGetEntityWithUUID(id);
-                    // A dangling child UUID names no entity and is not counted;
-                    // the insert doubles as the guard against a corrupt cycle.
-                    if (!owned || !runtimeOwned.insert(static_cast<u64>(id)).second)
-                        continue;
-                    if (owned->HasComponent<RelationshipComponent>())
-                        pending.Append(owned->GetComponent<RelationshipComponent>().m_Children);
-                }
-            };
-            for (auto handle : scene.m_Registry.view<RuntimeOwnedTag>())
-                pending.Add(scene.m_Registry.get<IDComponent>(handle).ID);
-            collectSubtrees();
-            for (bool grew = !runtimeOwned.empty(); grew;)
-            {
-                grew = false;
-                for (auto [handle, id, relationship] : scene.m_Registry.view<IDComponent, RelationshipComponent>().each())
-                {
-                    if (static_cast<u64>(relationship.m_ParentHandle) != 0 &&
-                        runtimeOwned.contains(static_cast<u64>(relationship.m_ParentHandle)) &&
-                        !runtimeOwned.contains(static_cast<u64>(id.ID)))
+                    const u64 uuid = static_cast<u64>(current->GetUUID());
+                    if (const auto known = decided.find(uuid); known != decided.end())
                     {
-                        pending.Add(id.ID);
-                        grew = true;
+                        owned = known->second;
+                        break;
                     }
+                    chain.Add(uuid);
+                    if (scene.m_Registry.all_of<RuntimeOwnedTag>(static_cast<entt::entity>(*current)))
+                    {
+                        owned = true;
+                        break;
+                    }
+                    const UUID parent = current->GetParentUUID();
+                    current = static_cast<u64>(parent) != 0 ? scene.TryGetEntityWithUUID(parent) : std::nullopt;
                 }
-                collectSubtrees();
+                for (const u64 uuid : chain)
+                {
+                    decided.emplace(uuid, owned);
+                    if (owned)
+                        runtimeOwned.insert(uuid);
+                }
             }
         }
         const auto isRuntimeOwned = [&runtimeOwned](UUID child)
