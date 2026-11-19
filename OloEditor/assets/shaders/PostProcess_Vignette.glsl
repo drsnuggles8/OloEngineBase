@@ -88,9 +88,11 @@ void main()
     vec2 center = v_TexCoord - vec2(0.5);
     float dist = length(center);
 
-    // Smooth vignette: darkens edges
-    float vignette = smoothstep(0.5, 0.5 - u_VignetteSmoothness, dist * (1.0 + u_VignetteIntensity));
-    color *= vignette;
+    // Softness sets the width of the transition. Strength is the fraction
+    // of the input to remove at the edge; zero leaves even the corners intact.
+    float width = max(u_VignetteSmoothness, 0.0001);
+    float edge = smoothstep(0.5 - width, 0.5, dist);
+    color *= clamp(1.0 - u_VignetteIntensity * edge, 0.0, 1.0);
 
     o_Color = vec4(color, 1.0);
 }
