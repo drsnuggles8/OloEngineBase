@@ -411,3 +411,39 @@ TEST(SaveGameSceneSettingsRoundTrip, CorruptStreamingBudgetsLoadAsNoBudget)
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationStagingMegabytes, 0.0f);
 }
 
+// Scripts set dialogue variables and condition nodes read them. Before #1712 the
+// save did not carry them, so a Continue reset every branch a conversation had
+// unlocked. Every variant alternative round-trips, and the restore replaces the
+// loading scene's table rather than merging into it.
+TEST(SaveGameSceneSettingsRoundTrip, DialogueVariablesSurviveASave)
+{
+    Ref<Scene> saved = MakeScene();
+    saved->GetDialogueVariables().SetBool("met_keeper", true);
+    saved->GetDialogueVariables().SetInt("lamps_lit", 3);
+    saved->GetDialogueVariables().SetFloat("trust", 0.75f);
+    saved->GetDialogueVariables().SetString("ship_name", "Drift");
+    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*saved);
+
+    Ref<Scene> loaded = MakeScene();
+    loaded->GetDialogueVariables().SetBool("stale", true);
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, payload));
+    const DialogueVariables& variables = loaded->GetDialogueVariables();
+    EXPECT_TRUE(variables.GetBool("met_keeper"));
+    EXPECT_EQ(variables.GetInt("lamps_lit"), 3);
+    EXPECT_FLOAT_EQ(variables.GetFloat("trust"), 0.75f);
+    EXPECT_EQ(variables.GetString("ship_name"), "Drift");
+    EXPECT_FALSE(variables.Has("stale")) << "the restore merged into the loading scene's table";
+    EXPECT_EQ(variables.GetAll().size(), 4u);
+}
+
+TEST(SaveGameSceneSettingsRoundTrip, ANonFiniteDialogueVariableLoadsAsZero)
+{
+    Ref<Scene> saved = MakeScene();
+    saved->GetDialogueVariables().SetFloat("trust", std::numeric_limits<f32>::quiet_NaN());
+    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*saved);
+
+    Ref<Scene> loaded = MakeScene();
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, payload));
+    ASSERT_TRUE(loaded->GetDialogueVariables().Has("trust"));
+    EXPECT_FLOAT_EQ(loaded->GetDialogueVariables().GetFloat("trust", -1.0f), 0.0f);
+}

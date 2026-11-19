@@ -11,6 +11,7 @@
 #include "OloEngine/Cinematic/CinematicComponent.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/FileSystem.h"
+#include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
@@ -35,6 +36,7 @@
 #include <optional>
 #include <string_view>
 #include <unordered_set>
+#include <variant>
 
 namespace OloEngine
 {
@@ -247,6 +249,120 @@ namespace OloEngine
         }
     }
 
+    // The scene's dialogue variables: the flags and counters scripts set and
+    // dialogue condition nodes read. Without them a Continue reset every branch
+    // a conversation had unlocked. Written sorted by key so a save is
+    // byte-stable; each value carries its variant index.
+    static void SerializeDialogueVariables(FArchive& ar, DialogueVariables& variables)
+    {
+        OLO_PROFILE_FUNCTION();
+        static constexpr u32 kMaxVariables = 65'536;
+        enum : u8
+        {
+            kBool = 0,
+            kInt = 1,
+            kFloat = 2,
+            kString = 3
+        };
+        static_assert(std::is_same_v<std::variant_alternative_t<kBool, DialogueVariableValue>, bool> &&
+                          std::is_same_v<std::variant_alternative_t<kInt, DialogueVariableValue>, i32> &&
+                          std::is_same_v<std::variant_alternative_t<kFloat, DialogueVariableValue>, f32> &&
+                          std::is_same_v<std::variant_alternative_t<kString, DialogueVariableValue>, FString>,
+                      "the save writes DialogueVariableValue's variant index");
+
+        if (ar.IsLoading())
+        {
+            u32 count = 0;
+            ar << count;
+            if (ar.IsError() || count > kMaxVariables)
+            {
+                ar.SetError();
+                return;
+            }
+            DialogueVariables loaded;
+            for (u32 i = 0; i < count; ++i)
+            {
+                std::string key;
+                u8 type = 0;
+                ar << key << type;
+                if (ar.IsError())
+                    return;
+                switch (type)
+                {
+                    case kBool:
+                    {
+                        bool value = false;
+                        ar << value;
+                        loaded.SetBool(key, value);
+                        break;
+                    }
+                    case kInt:
+                    {
+                        i32 value = 0;
+                        ar << value;
+                        loaded.SetInt(key, value);
+                        break;
+                    }
+                    case kFloat:
+                    {
+                        f32 value = 0.0f;
+                        ar << value;
+                        loaded.SetFloat(key, std::isfinite(value) ? value : 0.0f);
+                        break;
+                    }
+                    case kString:
+                    {
+                        std::string value;
+                        ar << value;
+                        loaded.SetString(key, value);
+                        break;
+                    }
+                    default:
+                        ar.SetError();
+                        return;
+                }
+                if (ar.IsError())
+                    return;
+            }
+            variables = std::move(loaded);
+            return;
+        }
+
+        std::vector<const std::pair<const std::string, DialogueVariableValue>*> entries;
+        entries.reserve(variables.GetAll().size());
+        for (const auto& entry : variables.GetAll())
+            entries.push_back(&entry);
+        std::ranges::sort(entries, {}, [](const auto* entry)
+                          { return std::string_view(entry->first); });
+        if (entries.size() > kMaxVariables)
+        {
+            ar.SetError();
+            return;
+        }
+        u32 count = static_cast<u32>(entries.size());
+        ar << count;
+        for (const auto* entry : entries)
+        {
+            std::string key = entry->first;
+            u8 type = static_cast<u8>(entry->second.index());
+            ar << key << type;
+            std::visit([&ar](const auto& value)
+                       {
+                           using T = std::decay_t<decltype(value)>;
+                           if constexpr (std::is_same_v<T, FString>)
+                           {
+                               std::string text = value.ToStdString();
+                               ar << text;
+                           }
+                           else
+                           {
+                               T copy = value;
+                               ar << copy;
+                           } },
+                       entry->second);
+        }
+    }
+
     // ========================================================================
     // Framed settings blocks
     // ========================================================================
@@ -344,6 +460,8 @@ namespace OloEngine
                            { SerializePrecipitationSettings(ar, scene.m_PrecipitationSettings); });
         WriteSettingsBlock(writer, [&scene](FArchive& ar)
                            { SerializeStreamingSettings(ar, scene.m_StreamingSettings); });
+        WriteSettingsBlock(writer, [&scene](FArchive& ar)
+                           { SerializeDialogueVariables(ar, scene.m_DialogueVariables); });
 
         // --- Entities ---
         u32 entitiesMarker = 0x454E5453; // "ENTS"
@@ -767,6 +885,7 @@ namespace OloEngine
         SkinDiffusionSettings skinDiffusion = scene.m_SkinDiffusionSettings;
         PrecipitationSettings precipitation = scene.m_PrecipitationSettings;
         StreamingSettings streaming = scene.m_StreamingSettings;
+        DialogueVariables dialogueVariables;
 
         const bool settingsRead =
             ReadSettingsBlock(reader, "PostProcess", [&](FArchive& ar)
@@ -786,7 +905,9 @@ namespace OloEngine
             ReadSettingsBlock(reader, "Precipitation", [&](FArchive& ar)
                               { SerializePrecipitationSettings(ar, precipitation); }) &&
             ReadSettingsBlock(reader, "Streaming", [&](FArchive& ar)
-                              { SerializeStreamingSettings(ar, streaming); });
+                              { SerializeStreamingSettings(ar, streaming); }) &&
+            ReadSettingsBlock(reader, "DialogueVariables", [&](FArchive& ar)
+                              { SerializeDialogueVariables(ar, dialogueVariables); });
         if (!settingsRead)
         {
             OLO_CORE_ERROR("[SaveGameSerializer] Failed to parse scene settings, scene is unchanged");
@@ -885,6 +1006,8 @@ namespace OloEngine
         scene.m_SkinDiffusionSettings = std::move(skinDiffusion);
         scene.m_PrecipitationSettings = std::move(precipitation);
         scene.m_StreamingSettings = std::move(streaming);
+        // After StopStartupForCheckpoint: its OnRuntimeStop clears the variables.
+        scene.m_DialogueVariables = std::move(dialogueVariables);
 
         // Destroy all existing entities in the real scene (children before parents)
         {
