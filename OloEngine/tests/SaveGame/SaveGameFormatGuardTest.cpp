@@ -375,20 +375,26 @@ TEST(SaveGameRuntimeOwned, MarkedSubtreesAreNotCapturedAndSavedParentsForgetThem
     ownedChild.SetParent(owned);
     savedChild.SetParent(anchor);
     scene->MarkRuntimeOwned(owned);
+    // A child whose parent link names the marked entity but which its parent's
+    // child list does not hold: still runtime-owned, never saved as an orphan.
+    Entity unlisted = scene->CreateEntity("RuntimeOverlayUnlisted");
+    unlisted.AddComponent<RelationshipComponent>().m_ParentHandle = owned.GetUUID();
     ASSERT_TRUE(scene->IsRuntimeOwned(ownedChild)) << "a child of a marked entity is runtime-owned";
+    ASSERT_TRUE(scene->IsRuntimeOwned(unlisted));
     ASSERT_FALSE(scene->IsRuntimeOwned(anchor));
     const sizet total = scene->GetAllEntitiesWith<IDComponent>().size();
 
     u32 savedCount = 0;
     const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*scene, &savedCount);
     EXPECT_EQ(anchor.Children().Num(), 2) << "the capture changed the live scene's child list";
-    EXPECT_EQ(savedCount, total - 2) << "the count a header or slot list shows must be what the save holds";
+    EXPECT_EQ(savedCount, total - 3) << "the count a header or slot list shows must be what the save holds";
 
     Ref<Scene> loaded = Ref<Scene>::Create();
     ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, payload));
-    EXPECT_EQ(loaded->GetAllEntitiesWith<IDComponent>().size(), total - 2);
+    EXPECT_EQ(loaded->GetAllEntitiesWith<IDComponent>().size(), total - 3);
     EXPECT_FALSE(loaded->TryGetEntityWithUUID(owned.GetUUID()).has_value());
     EXPECT_FALSE(loaded->TryGetEntityWithUUID(ownedChild.GetUUID()).has_value());
+    EXPECT_FALSE(loaded->TryGetEntityWithUUID(unlisted.GetUUID()).has_value());
     const auto loadedAnchor = loaded->TryGetEntityWithUUID(anchor.GetUUID());
     ASSERT_TRUE(loadedAnchor.has_value());
     const TArray<UUID> children = loadedAnchor->Children();

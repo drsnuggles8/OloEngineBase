@@ -461,6 +461,12 @@ namespace OloEngine
                            { SerializeStreamingSettings(ar, scene.m_StreamingSettings); });
         WriteSettingsBlock(writer, [&scene](FArchive& ar)
                            { SerializeDialogueVariables(ar, scene.m_DialogueVariables); });
+        if (writer.IsError())
+        {
+            // A settings block refused to write. Stop before the entity pass and
+            // its script ISaveable callbacks run for a save that cannot happen.
+            return {};
+        }
 
         // --- Entities ---
         u32 entitiesMarker = 0x454E5453; // "ENTS"
@@ -509,25 +515,47 @@ namespace OloEngine
 
         // Runtime-owned entities (the dialogue UI, captions, debris…) are rebuilt
         // by their systems after Continue, so the save never carries them, nor
-        // anything parented under them (#1712). Collected downward from the
-        // marked roots, so the cost scales with them, not with the scene.
+        // anything parented under them (#1712): the same set Scene::IsRuntimeOwned
+        // answers for. Collected downward from the marked roots through child
+        // lists; then any entity whose parent link names a collected entity
+        // joins too, so a child missing from its parent's list is not saved as
+        // an orphan. No marked entity, no work.
         auto view = scene.GetAllEntitiesWith<IDComponent>();
         std::unordered_set<u64> runtimeOwned;
         {
             TArray<UUID> pending;
+            const auto collectSubtrees = [&scene, &runtimeOwned, &pending]
+            {
+                while (!pending.IsEmpty())
+                {
+                    const UUID id = pending.Last();
+                    pending.Pop(EAllowShrinking::No);
+                    const auto owned = scene.TryGetEntityWithUUID(id);
+                    // A dangling child UUID names no entity and is not counted;
+                    // the insert doubles as the guard against a corrupt cycle.
+                    if (!owned || !runtimeOwned.insert(static_cast<u64>(id)).second)
+                        continue;
+                    if (owned->HasComponent<RelationshipComponent>())
+                        pending.Append(owned->GetComponent<RelationshipComponent>().m_Children);
+                }
+            };
             for (auto handle : scene.m_Registry.view<RuntimeOwnedTag>())
                 pending.Add(scene.m_Registry.get<IDComponent>(handle).ID);
-            while (!pending.IsEmpty())
+            collectSubtrees();
+            for (bool grew = !runtimeOwned.empty(); grew;)
             {
-                const UUID id = pending.Last();
-                pending.Pop(EAllowShrinking::No);
-                const auto owned = scene.TryGetEntityWithUUID(id);
-                // A dangling child UUID names no entity and is not counted; the
-                // insert doubles as the guard against a corrupt parent cycle.
-                if (!owned || !runtimeOwned.insert(static_cast<u64>(id)).second)
-                    continue;
-                if (owned->HasComponent<RelationshipComponent>())
-                    pending.Append(owned->GetComponent<RelationshipComponent>().m_Children);
+                grew = false;
+                for (auto [handle, id, relationship] : scene.m_Registry.view<IDComponent, RelationshipComponent>().each())
+                {
+                    if (static_cast<u64>(relationship.m_ParentHandle) != 0 &&
+                        runtimeOwned.contains(static_cast<u64>(relationship.m_ParentHandle)) &&
+                        !runtimeOwned.contains(static_cast<u64>(id.ID)))
+                    {
+                        pending.Add(id.ID);
+                        grew = true;
+                    }
+                }
+                collectSubtrees();
             }
         }
         const auto isRuntimeOwned = [&runtimeOwned](UUID child)
