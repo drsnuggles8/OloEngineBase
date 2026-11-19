@@ -20,6 +20,7 @@
 #include "OloEngine/Renderer/MeshSource.h"
 #include "OloEngine/Renderer/SkinProfile.h"
 #include "OloEngine/Renderer/Texture.h"
+#include "OloEngine/SaveGame/SaveGameSerializer.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Scripting/C#/ScriptEngine.h"
@@ -314,6 +315,31 @@ namespace OloEngine::Tests
             EXPECT_EQ(clip(), "Idle");
             EXPECT_LT(ik.AimWeight, 0.02f);
             EXPECT_NEAR(bulb.m_Intensity, 0, 0.001f);
+
+            // Save after the gesture finishes, with the same boat still inside
+            // the greeting radius. Continue reconstructs Lua's instance table.
+            placeBoat(50);
+            advance(15);
+            ASSERT_EQ(clip(), "Wave");
+            advance(100);
+            ASSERT_EQ(clip(), "Idle");
+            const auto saved = SaveGameSerializer::CaptureSceneState(scene);
+            ASSERT_FALSE(saved.empty());
+            scene.SetRunning(false);
+            LuaScriptEngine::OnRuntimeStop();
+            ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(scene, saved));
+            Entity restoredKeeper = scene.FindEntityByName(kKeeper);
+            ASSERT_TRUE(restoredKeeper);
+            scene.PropagateWorldTransforms();
+            LuaScriptEngine::OnRuntimeStart(&scene);
+            ScriptEngine::SetSceneContextForTesting(&scene);
+            scene.SetRunning(true);
+            LuaScriptEngine::OnCreateEntity(restoredKeeper, script.string());
+            advance(20);
+            const auto& resumed = restoredKeeper.GetComponent<AnimationStateComponent>();
+            ASSERT_TRUE(resumed.m_CurrentClip);
+            EXPECT_EQ(resumed.m_CurrentClip->Name, "Idle") << "Continue is not another approach";
+            EXPECT_GT(restoredKeeper.GetComponent<IKTargetComponent>().AimWeight, 0.9f);
         }
 
         class DriftKeeperDeliveryTest : public RendererAttachedTest

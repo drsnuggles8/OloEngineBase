@@ -2,6 +2,10 @@
 -- attachments are authored in Drift so a Continue restores the same entities.
 local Keeper = {}
 local state = {}
+-- Scene story flags travel in drift_voyage. Keeping the greeting here means
+-- Continue beside the stair does not count as a new arrival.
+local greetingFlag = "drift.stacks_light.greeted"
+
 local function clamp(x, lo, hi) return math.min(hi, math.max(lo, x)) end
 local function yaw(id)
     local r = entity_utils.get_rotation(id)
@@ -10,7 +14,7 @@ local function yaw(id)
 end
 
 function Keeper.OnCreate(id)
-    local s = { clock = 0, waveUntil = 0, greeted = false, look = 0 }
+    local s = { clock = 0, waveUntil = 0, greeted = dialogue_vars.get_bool(greetingFlag), look = 0 }
     state[id] = s
     for key, name in pairs({ boat = "Boat", sky = "Atmosphere", tower = "Stacks Light",
                              wick = "Keeper Lamp Socket", light = "Keeper Lamplight",
@@ -22,6 +26,12 @@ function Keeper.OnCreate(id)
         end
     end
     s.anim = entity_utils.get_component(id, "AnimationStateComponent")
+    if s.anim then
+        s.clip = s.anim.currentClip
+        if s.greeted and s.clip == "Wave" then
+            s.waveUntil = math.max(0, 3.6 - s.anim.currentTime)
+        end
+    end
     s.morph = entity_utils.get_component(id, "MorphTargetComponent")
     s.fibres = s.foundation and entity_utils.get_component(s.foundation, "MorphTargetComponent")
     s.ik = entity_utils.get_component(id, "IKTargetComponent")
@@ -44,10 +54,14 @@ function Keeper.OnUpdate(id, dt)
     local sky = s.sky and entity_utils.get_component(s.sky, "TimeOfDayComponent")
     local hour = sky and sky.timeOfDayHours or 12
     local dark = hour >= 18.5 or hour < 6
-    if range > 78 then s.greeted = false end
+    if range > 78 and s.greeted then
+        s.greeted = false
+        dialogue_vars.set_bool(greetingFlag, false)
+    end
     if dark or range > 78 then s.waveUntil = 0 end
     if range < 62 and not s.greeted and not dark then
         s.greeted, s.waveUntil = true, s.clock + 3.6
+        dialogue_vars.set_bool(greetingFlag, true)
     end
     local clip = dark and "LanternRaise" or (s.clock < s.waveUntil and "Wave" or "Idle")
     if s.anim and clip ~= s.clip then
