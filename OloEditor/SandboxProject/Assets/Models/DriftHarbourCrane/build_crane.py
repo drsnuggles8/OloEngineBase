@@ -65,7 +65,7 @@ class Mesh:
         self.uvs.extend(uv)
         self.smooth.append(smooth)
 
-    def loft(self, rings, material, smooth=False, closed=False, strip_materials=None):
+    def loft(self, rings, material, smooth=False, closed=False, strip_materials=None, face_materials=None):
         # Physical UVs: U runs around a section, V follows a timber or shaft.
         ids = [self.ring(row) for row in rings]
         u0, v0 = rng.random(), rng.random()
@@ -106,7 +106,7 @@ class Mesh:
                     ]
                 self.face(
                     [ids[i][j], ids[i][jj], ids[k][jj], ids[k][j]],
-                    (strip_materials or {}).get(i, material),
+                    (face_materials or {}).get((i, j), (strip_materials or {}).get(i, material)),
                     chart,
                     smooth,
                 )
@@ -404,23 +404,56 @@ def pipe(points, radius, mat, sides=12):
     model.loft(rows, mat, True)
 
 
-def wheel(x, z, y, r, teeth, phase):
-    # Open web with a continuous toothed rim. Both gears use the same circular pitch.
-    rows = [[] for _ in range(4)]
+def tooth_profile(pitch_radius, teeth):
+    """One 20-degree involute tooth in polar coordinates, starting in its root space."""
+    pressure = math.radians(20)
+    base = pitch_radius * math.cos(pressure)
+    root, tip = pitch_radius - 0.020, pitch_radius + 0.015
+    # Leave one millimetre at each pitch flank for the exposed iron gearing.
+    half_width = math.pi / (2 * teeth) - 0.001 / pitch_radius
+
+    def half_angle(radius):
+        alpha = math.acos(min(1.0, base / radius))
+        return half_width + math.tan(pressure) - pressure - (math.tan(alpha) - alpha)
+
+    start = max(root + 0.0025, base)
+    radii = [start + (tip - start) * i / 4 for i in range(5)]
+    foot_angle = half_angle(start)
+    left = [(-foot_angle - 0.002 / pitch_radius, root), (-foot_angle - 0.001 / pitch_radius, root + 0.0008)]
+    left.extend((-half_angle(radius), radius) for radius in radii)
+    return [(-math.pi / teeth, root), *left, (0.0, tip), *((-a, radius) for a, radius in reversed(left))]
+
+
+def wheel(x, z, y, r, teeth, phase, *, pinion=False):
+    rows = [[] for _ in range(6)]
+    wear = {}
+    profile = tooth_profile(r, teeth)
     for tooth in range(teeth):
-        for fraction, dr in [(0, -0.016), (0.16, -0.016), (0.32, 0.015), (0.61, 0.015), (0.79, -0.016)]:
-            a = TAU * (tooth + fraction) / teeth + phase
+        for j, (angle, outer) in enumerate(profile):
+            a = TAU * (tooth + 0.5) / teeth + phase + angle
             dx, dz = math.cos(a), -math.sin(a)
+            # The pinion drives opposite flanks on the larger drum wheel.
+            next_radius = profile[(j + 1) % len(profile)][1]
+            loaded = next_radius > outer if pinion else next_radius < outer
+            if loaded and max(outer, next_radius) >= r - 0.004:
+                wear[1, tooth * len(profile) + j] = steel
             for row, (rad, side) in zip(
                 rows,
-                [(r + dr, y - 0.035), (r + dr, y + 0.035), (r * 0.83, y + 0.035), (r * 0.83, y - 0.035)],
+                [
+                    (outer - 0.0016, y - 0.035),
+                    (outer, y - 0.0334),
+                    (outer, y + 0.0334),
+                    (outer - 0.0016, y + 0.035),
+                    (r * 0.83, y + 0.035),
+                    (r * 0.83, y - 0.035),
+                ],
             ):
                 row.append(Vector((x + dx * rad, side, z + dz * rad)))
-    model.loft(rows, grease, closed=True, strip_materials={0: steel})
+    model.loft(rows, grease, closed=True, face_materials=wear)
     # Flared cast arms flow into the rim and hub. The small pinion has
     # a solid web; a second set of six spokes left little metal at its root.
-    if teeth < 20:
-        axle(x, z, y - 0.022, y + 0.022, r * 0.89, grease)
+    if pinion:
+        axle(x, z, y - 0.022, y + 0.022, r * 0.84, grease)
     else:
         for j in range(6):
             a = TAU * j / 6
@@ -614,7 +647,7 @@ def crane():
         grease,
     )
     wheel(-0.82, 1.22, -0.464, 0.41625, 48, 0)
-    wheel(-1.375, 1.22, -0.464, 0.13875, 16, TAU * 0.5 / 16)
+    wheel(-1.375, 1.22, -0.464, 0.13875, 16, TAU * 0.5 / 16, pinion=True)
     keeper(-0.82, -0.59, 1.22, -1)
     for s in (-1, 1):
         keeper(0.47, s * 0.58, 0.58, s)

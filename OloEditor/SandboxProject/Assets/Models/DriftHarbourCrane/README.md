@@ -18,7 +18,10 @@ stops behind the wheel and the two cheek plates carry it beyond the end grain.
 [Historic England, list entry 1392897](https://historicengland.org.uk/listing/the-list/list-entry/1392897)
 
 The crank centre is 1.22 m above the deck. A 16-tooth pinion drives the 48-tooth
-barrel wheel. The opposite side carries the ratchet and a lever-operated band brake.
+barrel wheel. Both use 20° involute flanks at a 54.49 mm circular pitch. The
+chamfered teeth carry polished contact strips on opposite flanks. A sweep of 193
+paired positions through one tooth pitch found zero outline crossings. The
+opposite side carries the ratchet and a lever-operated band brake.
 One line winds ten times around the drum, leaves it on a tangent, leads over the
 pillar and head sheaves, and descends into the hook socket. Its 4.856 m outreach
 places the hook 2.77 m beyond the outermost fender bolt. The lowest part of the hook
@@ -73,15 +76,15 @@ directory outside the project and rerun the build.
 
 | Asset | Local bounds, min → max (m) | Triangles | Material primitives |
 | --- | --- | ---: | ---: |
-| Crane | (−1.719, 0, −0.646) → (5.000, 5.077, 0.786) | 46,872 | 9 |
+| Crane | (−1.719, 0, −0.646) → (5.000, 5.077, 0.786) | 56,600 | 9 |
 | Landing | (−3.060, −8.650, −4.430) → (2.083, 0.410, 4.430) | 10,352 | 5 |
 
-The 23 runtime files occupy 24.54 MiB. The scan archive adds 4.47 MiB to the
+The 23 runtime files occupy 25.10 MiB. The scan archive adds 4.47 MiB to the
 authoring package. The 19 distinct square textures comprise three at 2048, three
 at 1024, ten at 512 and three at 256 pixels per side. They represent 70.75 MiB at
 RGBA8 native resolution, or approximately 94.33 MiB with full mip chains before
 GPU compression. The two meshes share metal and timber maps. Geometry retains the
-open gear web, rope turns, hook throat and pin fasteners in silhouette. For comparison,
+tooth profiles, open gear web, rope turns, hook throat and pin fasteners in silhouette. For comparison,
 the Drift boat hull has 30,860 triangles and Stacks Light has 82,975. The large wood
 maps serve both the five-metre jib and the entire landing. A separate end-grain map
 turns the annual rings across the cut ends. The rope's 256² maps repeat around six
