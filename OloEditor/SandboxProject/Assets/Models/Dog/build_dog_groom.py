@@ -929,9 +929,25 @@ def export_groom_abc(path, collection_name="DogGroom", log=print, cards=CARDS):
         cv["groom_card_points"] = int(cards[1])
     # The collection, not the selection: `selected` exports nothing from a background session.
     t0 = time.time()
-    bpy.ops.wm.alembic_export(filepath=path, collection=col.name, selected=False, start=1, end=1, export_hair=True,
-                              export_particles=False, export_custom_properties=True, uvs=False, normals=False,
-                              vcolors=False, orcos=False, face_sets=False, flatten=False, evaluation_mode="RENDER")
+    # Blender 5.3 also exports named curve attributes as arbGeomParams. The
+    # importer refuses a groom_guide supplied both there and in userProperties.
+    # Keep the portable property used by older Blender, then restore each live
+    # editing attribute even if the Alembic write fails.
+    removed = []
+    try:
+        for ob in col.objects:
+            cv = ob.data
+            attr = cv.attributes.get("groom_guide")
+            if attr is not None:
+                cv.attributes.remove(attr)
+                removed.append(cv)
+        bpy.ops.wm.alembic_export(filepath=path, collection=col.name, selected=False, start=1, end=1, export_hair=True,
+                                  export_particles=False, export_custom_properties=True, uvs=False, normals=False,
+                                  vcolors=False, orcos=False, face_sets=False, flatten=False, evaluation_mode="RENDER")
+    finally:
+        for cv in removed:
+            guide = cv.attributes.new("groom_guide", "INT", "CURVE")
+            guide.data.foreach_set("value", np.asarray(cv["groom_guide"], dtype=np.int32))
     log(f"[groom] wrote {path} ({os.path.getsize(path) / 1e6:.1f} MB, {time.time() - t0:.1f}s)")
 
 
