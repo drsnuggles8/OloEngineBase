@@ -22,14 +22,21 @@ barrel wheel. The opposite side carries the ratchet and a lever-operated band br
 One line winds ten times around the drum, leaves it on a tangent, leads over the
 pillar and head sheaves, and descends into the hook socket. Its 4.856 m outreach
 places the hook 2.77 m beyond the outermost fender bolt. The lowest part of the hook
-hangs about 1.56 m above still water. The 2.60 m beam of the existing boat determined
-the outreach and the length of the fendered face.
+hangs 1.57 m above still water, with about 13.2 m of wire wound on the drum.
+The existing boat's 2.60 m beam determined the outreach and the length of the
+fendered face.
 
 The shoreward deck edge crosses ground at 1.31–1.49 m at three Jolt ray samples.
 The same live survey measured a bed elevation of −3.21 m beneath the hook and
 −3.52 m on the alongside track at z = 152.70. The drawn hull has 0.65 m of draft.
 The timber structure comprises individually charted deck boards, longitudinal
 joists, transverse caps, driven piles, bracing, fenders and two mooring bollards.
+
+Approach from the west along the fenders and shorten sail before bringing the
+bow under the static hook. At a recorded boat position of (−108.66, 0.06, 154.10),
+the hook hung 0.86 m above the foredeck. The hull kept at least 0.94 m of clearance
+from the outer fender plane over 20 alongside samples. The exported hull, mast,
+yard and furled sail cleared both crane and landing at the loading position.
 
 ## Import and rebuild
 
@@ -44,7 +51,7 @@ From the repository root, with Blender 5.3.0 (build `02f0899d78e3`) on PATH:
 
 ```powershell
 $model = 'OloEditor/SandboxProject/Assets/Models/DriftHarbourCrane'
-blender -b --factory-startup --python-exit-code 1 --python "$model/build_crane.py" -- "$model"
+blender -b --factory-startup --offline-mode --python-exit-code 1 --python "$model/build_crane.py" -- "$model"
 ```
 
 Give a fresh output directory as the last argument for a clean build. The generator
@@ -112,3 +119,10 @@ featureless wood. The revised view shows the eye and keeper on the sheave pin,
 the lowered hook, board grain and individual fastenings. Use `olo_screenshot`
 with the camera pose, `settleFrames=8` and `maxWidth=1600` to repeat the comparison.
 The delivery regression runs under `--gtest_filter=DriftHarbourCraneDelivery.*`.
+
+The review gallery includes `reproduce.py` for the three headless OpenGL paths.
+It runs `BenchmarkCapture.RunWhenRequested` in a scratch project with a private
+registry and cache, using the checkout's assets and the two camera poses above.
+Pass it `--repo`, `--tests` (the built test executable), and `--out` (the results
+directory). Each path produces `approach/Beauty.png` and `winch/Beauty.png`.
+[Review gallery and capture script](https://gist.github.com/drsnuggles8/3e79c7e4f070dd3832864268bd23f8bf)
