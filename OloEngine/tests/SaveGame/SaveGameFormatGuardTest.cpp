@@ -379,8 +379,10 @@ TEST(SaveGameRuntimeOwned, MarkedSubtreesAreNotCapturedAndSavedParentsForgetThem
     ASSERT_FALSE(scene->IsRuntimeOwned(anchor));
     const sizet total = scene->GetAllEntitiesWith<IDComponent>().size();
 
-    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*scene);
+    u32 savedCount = 0;
+    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*scene, &savedCount);
     EXPECT_EQ(anchor.Children().Num(), 2) << "the capture changed the live scene's child list";
+    EXPECT_EQ(savedCount, total - 2) << "the count a header or slot list shows must be what the save holds";
 
     Ref<Scene> loaded = Ref<Scene>::Create();
     ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, payload));

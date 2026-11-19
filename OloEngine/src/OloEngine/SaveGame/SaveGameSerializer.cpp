@@ -429,7 +429,7 @@ namespace OloEngine
     // CaptureSceneState
     // ========================================================================
 
-    std::vector<u8> SaveGameSerializer::CaptureSceneState(Scene& scene)
+    std::vector<u8> SaveGameSerializer::CaptureSceneState(Scene& scene, u32* outEntityCount)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -555,6 +555,8 @@ namespace OloEngine
 
         u32 entityCount = static_cast<u32>(view.size() - runtimeOwned.size());
         writer << entityCount;
+        if (outEntityCount)
+            *outEntityCount = entityCount;
 
         // Serialize each entity
         for (auto entityHandle : view)
