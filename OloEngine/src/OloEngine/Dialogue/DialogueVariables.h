@@ -28,6 +28,12 @@ namespace OloEngine
         bool Has(const std::string& key) const;
         void Clear();
 
+        // The whole table, for the save-game, which carries it across Continue.
+        [[nodiscard]] const std::unordered_map<std::string, DialogueVariableValue>& GetAll() const
+        {
+            return m_Variables;
+        }
+
       private:
         std::unordered_map<std::string, DialogueVariableValue> m_Variables;
     };

@@ -8059,8 +8059,12 @@ namespace OloEngine
         AssetHandle m_DialogueTree = 0;
         bool m_AutoTrigger = false;
         f32 m_TriggerRadius = 3.0f;
+        // Not in scene YAML: an authored NPC has not talked yet. The save-game
+        // carries it, so a finished TriggerOnce conversation stays finished
+        // after Continue (#1712). Copies reset it: Play starts from the
+        // authored scene, and a duplicated NPC has not talked either.
         OLO_SERIALIZE(Skip)
-        bool m_HasTriggered = false; // runtime-only, not serialized
+        bool m_HasTriggered = false;
         bool m_TriggerOnce = true;
 
         DialogueComponent() = default;

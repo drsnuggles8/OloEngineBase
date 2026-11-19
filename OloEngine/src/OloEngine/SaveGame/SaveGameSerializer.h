@@ -14,8 +14,11 @@ namespace OloEngine
     class SaveGameSerializer
     {
       public:
-        // Capture all entity components + scene settings to binary blob
-        static std::vector<u8> CaptureSceneState(Scene& scene);
+        // Capture all entity components + scene settings to binary blob.
+        // outEntityCount receives the number of entities the blob holds, which
+        // excludes runtime-owned entities (#1712), so a header or a slot list
+        // never counts the dialogue UI or debris the save left out.
+        static std::vector<u8> CaptureSceneState(Scene& scene, u32* outEntityCount = nullptr);
 
         // Clear scene and restore entities + settings from a blob written by
         // CaptureSceneState in this build (kSaveGameFormatVersion; the file header is

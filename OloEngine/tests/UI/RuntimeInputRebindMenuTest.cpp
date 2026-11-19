@@ -14,6 +14,7 @@
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/KeyCodes.h"
 #include "OloEngine/Core/SyntheticInput.h"
+#include "OloEngine/SaveGame/SaveGameSerializer.h"
 #include "OloEngine/Events/KeyEvent.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
@@ -175,8 +176,41 @@ TEST_F(RuntimeInputRebindMenuTest, CloseDestroysEntireCanvasSubtreeNoOrphans)
     };
 
     EXPECT_GT(uiEntityCount(), 0u); // the menu built its widgets in SetUp
+    // Every widget sits under the runtime-owned canvas, so a save never captures the open menu (#1712).
+    for (const auto e : m_Scene->GetAllEntitiesWith<UIRectTransformComponent>())
+        EXPECT_TRUE(m_Scene->IsRuntimeOwned(Entity{ e, *m_Scene }));
     m_Menu.Close();
     EXPECT_EQ(uiEntityCount(), 0u); // no orphaned children left behind
+}
+
+TEST_F(RuntimeInputRebindMenuTest, ASaveLoadedWhileOpenRebuildsTheMenuAndTouchesNothingElse)
+{
+    // The menu is runtime-owned, so the save does not carry it, and the load
+    // swaps the registry under the open menu (#1712). Its old entt handles then
+    // name restored entities: the authored HUD below would be what a stale
+    // Close() destroyed.
+    Entity hud = m_Scene->CreateEntity("AuthoredHud");
+    hud.AddComponent<UIRectTransformComponent>();
+    Entity hudLabel = m_Scene->CreateEntity("AuthoredHudLabel");
+    hudLabel.AddComponent<UIRectTransformComponent>();
+    hudLabel.SetParent(hud);
+    const UUID hudId = hud.GetUUID();
+    const UUID hudLabelId = hudLabel.GetUUID();
+
+    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*m_Scene);
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*m_Scene, payload));
+    Frame({ 0.0f, 0.0f }, false, false);
+
+    EXPECT_TRUE(m_Menu.IsOpen()) << "the open menu was rebuilt, not dropped";
+    auto tags = m_Scene->GetAllEntitiesWith<TagComponent>();
+    EXPECT_EQ(std::ranges::count_if(tags, [&tags](auto e)
+                                    { return tags.get<TagComponent>(e).Tag == "RebindMenuCanvas"; }),
+              1);
+    EXPECT_TRUE(FindButton("Close"));
+
+    m_Menu.Close();
+    EXPECT_TRUE(m_Scene->TryGetEntityWithUUID(hudId).has_value());
+    EXPECT_TRUE(m_Scene->TryGetEntityWithUUID(hudLabelId).has_value());
 }
 
 TEST_F(RuntimeInputRebindMenuTest, ConflictOverlayDisablesRowButtonsAndEnablesResolutionButtons)
