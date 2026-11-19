@@ -852,6 +852,8 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/DogPlayEvidenceTest.cpp
 		Rendering/PropertyTests/DogAssetDeliveryTest.cpp
 		Rendering/PropertyTests/DriftBoatDeliveryTest.cpp
+		Rendering/PropertyTests/DriftKeeperDeliveryTest.cpp
+		Rendering/PropertyTests/DriftKeeperEvidenceTest.cpp
 		Rendering/PropertyTests/DriftHarbourCraneDeliveryTest.cpp
 		# Criterion 4's pictures: both reference animals under front/side/backlight,
 		# on all three rendering paths, plus the silhouette-under-budget and
