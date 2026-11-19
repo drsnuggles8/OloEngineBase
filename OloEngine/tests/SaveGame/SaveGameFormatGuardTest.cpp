@@ -410,6 +410,12 @@ TEST(SaveGameRuntimeOwned, MarkedSubtreesAreNotCapturedAndSavedParentsForgetThem
     scene->MarkRuntimeOwned(foreign);
     ASSERT_FALSE(scene->IsRuntimeOwned(Entity{ static_cast<entt::entity>(foreign), scene.get() }))
         << "a foreign handle marked a local entity";
+    // ...including one from a copy, which shares UUIDs and usually handles.
+    Ref<Scene> copy = Scene::Copy(scene);
+    copy->MarkRuntimeOwned(anchor);
+    const auto copiedAnchor = copy->TryGetEntityWithUUID(anchor.GetUUID());
+    ASSERT_TRUE(copiedAnchor.has_value());
+    ASSERT_FALSE(copy->IsRuntimeOwned(*copiedAnchor)) << "the source scene's handle marked the copy's entity";
     ASSERT_FALSE(scene->IsRuntimeOwned(anchor));
     const sizet total = scene->GetAllEntitiesWith<IDComponent>().size();
 
@@ -507,9 +513,18 @@ TEST(SaveGameSceneSettingsRoundTrip, MoreDialogueVariablesThanTheReaderAcceptsFa
     // a file whose settings no load can parse.
     Ref<Scene> saved = MakeScene();
     // A script's ISaveable callback marks whether the entity pass ran.
+    // The registry is process-global: unregister on every exit, ASSERTs included,
+    // so no later test can call a lambda holding this frame's local.
     bool entityPassRan = false;
     SaveableRegistry::Register("SaveGameGuardProbe", [&entityPassRan](FArchive&, UUID)
                                { entityPassRan = true; });
+    struct UnregisterProbe
+    {
+        ~UnregisterProbe()
+        {
+            SaveableRegistry::Unregister("SaveGameGuardProbe");
+        }
+    } unregisterProbe;
     saved->CreateEntity("Scripted").AddComponent<ScriptComponent>().ClassName = "SaveGameGuardProbe";
     ASSERT_FALSE(SaveGameSerializer::CaptureSceneState(*saved).empty());
     ASSERT_TRUE(entityPassRan) << "positive control: a capture that succeeds runs the callback";
@@ -519,7 +534,6 @@ TEST(SaveGameSceneSettingsRoundTrip, MoreDialogueVariablesThanTheReaderAcceptsFa
         saved->GetDialogueVariables().SetBool("flag_" + std::to_string(i), true);
     EXPECT_TRUE(SaveGameSerializer::CaptureSceneState(*saved).empty());
     EXPECT_FALSE(entityPassRan) << "a refused save must stop before script callbacks run";
-    SaveableRegistry::Unregister("SaveGameGuardProbe");
 }
 
 TEST(SaveGameSceneSettingsRoundTrip, ANonFiniteDialogueVariableLoadsAsZero)

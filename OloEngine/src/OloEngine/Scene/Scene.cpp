@@ -643,14 +643,19 @@ namespace OloEngine
         return entity;
     }
 
+    bool Scene::OwnsLiveEntity(Entity entity) const
+    {
+        // The scene pointer first: a handle from another registry, a copied
+        // scene's included, can name a different local entity.
+        return entity && entity.GetScene() == this && m_Registry.valid(static_cast<entt::entity>(entity));
+    }
+
     void Scene::MarkRuntimeOwned(Entity entity)
     {
-        // The entity must be a live entity of THIS scene: a handle from another
-        // registry can name a different local entity, which the save would then
-        // silently leave out.
-        const auto local = entity ? TryGetEntityWithUUID(entity.GetUUID()) : std::nullopt;
-        if (!local || static_cast<entt::entity>(*local) != static_cast<entt::entity>(entity))
+        if (!OwnsLiveEntity(entity))
         {
+            // Marking another scene's entity would make the save silently drop
+            // whichever local entity shares its handle.
             OLO_CORE_ERROR("[Scene] MarkRuntimeOwned: the entity is not a live entity of scene '{}'; not marked",
                            m_Name.ToStdString());
             return;
@@ -658,22 +663,65 @@ namespace OloEngine
         m_Registry.emplace_or_replace<RuntimeOwnedTag>(static_cast<entt::entity>(entity));
     }
 
+    bool Scene::ResolveRuntimeOwned(entt::entity start, std::unordered_map<entt::entity, bool>* memo) const
+    {
+        // The one rule (#1712): runtime-owned when the entity or an ancestor
+        // along its parent links carries RuntimeOwnedTag. The step bound stops a
+        // corrupt parent cycle: no chain is longer than the entity count. With a
+        // memo, every entity on the walked chain is recorded, so a whole-scene
+        // pass costs O(N).
+        TArray<entt::entity> chain;
+        bool owned = false;
+        const sizet maxSteps = m_Registry.view<IDComponent>().size();
+        entt::entity current = start;
+        for (sizet step = 0; current != entt::null && step <= maxSteps; ++step)
+        {
+            if (memo)
+            {
+                if (const auto known = memo->find(current); known != memo->end())
+                {
+                    owned = known->second;
+                    break;
+                }
+            }
+            chain.Add(current);
+            if (m_Registry.all_of<RuntimeOwnedTag>(current))
+            {
+                owned = true;
+                break;
+            }
+            const auto* relationship = m_Registry.try_get<RelationshipComponent>(current);
+            const UUID parent = relationship ? relationship->m_ParentHandle : UUID(0);
+            if (static_cast<u64>(parent) == 0)
+                break;
+            const auto parentEntity = TryGetEntityWithUUID(parent);
+            current = parentEntity ? static_cast<entt::entity>(*parentEntity) : entt::null;
+        }
+        if (memo)
+        {
+            for (const entt::entity walked : chain)
+                memo->emplace(walked, owned);
+        }
+        return owned;
+    }
+
     bool Scene::IsRuntimeOwned(Entity entity) const
     {
-        // Walk up the parent chain. The step bound stops a corrupt parent cycle
-        // from hanging the save: no chain is longer than the entity count.
-        const sizet maxSteps = m_Registry.view<IDComponent>().size();
-        std::optional<Entity> current = entity ? std::optional<Entity>(entity) : std::nullopt;
-        for (sizet step = 0; current && step <= maxSteps; ++step)
+        return OwnsLiveEntity(entity) && ResolveRuntimeOwned(static_cast<entt::entity>(entity), nullptr);
+    }
+
+    std::unordered_set<u64> Scene::CollectRuntimeOwned() const
+    {
+        std::unordered_set<u64> owned;
+        if (m_Registry.view<RuntimeOwnedTag>().empty())
+            return owned;
+        std::unordered_map<entt::entity, bool> memo;
+        for (auto [handle, id] : m_Registry.view<IDComponent>().each())
         {
-            if (m_Registry.all_of<RuntimeOwnedTag>(static_cast<entt::entity>(*current)))
-                return true;
-            const UUID parent = current->GetParentUUID();
-            if (static_cast<u64>(parent) == 0)
-                return false;
-            current = TryGetEntityWithUUID(parent);
+            if (ResolveRuntimeOwned(handle, &memo))
+                owned.insert(static_cast<u64>(id.ID));
         }
-        return false;
+        return owned;
     }
 
     [[nodiscard]] Entity Scene::Instantiate(AssetHandle prefabHandle)

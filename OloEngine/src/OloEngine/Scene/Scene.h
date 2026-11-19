@@ -173,9 +173,12 @@ namespace OloEngine
         void DestroyEntity(Entity entity);
 
         // Runtime-owned entities (see RuntimeOwnedTag). IsRuntimeOwned is true for
-        // a marked entity and for every entity parented under one.
+        // a marked entity and for every entity parented under one; both refuse an
+        // entity of another scene. CollectRuntimeOwned is the same rule over the
+        // whole scene, as the UUIDs the save-game leaves out.
         void MarkRuntimeOwned(Entity entity);
         [[nodiscard]] bool IsRuntimeOwned(Entity entity) const;
+        [[nodiscard]] std::unordered_set<u64> CollectRuntimeOwned() const;
 
         // Destroy `entity` together with its whole descendant subtree (children
         // first, root last) and unlink it from its parent's child list. Plain
@@ -1344,6 +1347,10 @@ namespace OloEngine
       private:
         template<typename T>
         void OnComponentAdded(Entity entity, T& component);
+
+        // Runtime-owned helpers (see RuntimeOwnedTag).
+        [[nodiscard]] bool OwnsLiveEntity(Entity entity) const;
+        [[nodiscard]] bool ResolveRuntimeOwned(entt::entity start, std::unordered_map<entt::entity, bool>* memo) const;
 
         // Called by Entity::RemoveComponent before the component is erased
         // from the registry, so subsystem teardown can read runtime state

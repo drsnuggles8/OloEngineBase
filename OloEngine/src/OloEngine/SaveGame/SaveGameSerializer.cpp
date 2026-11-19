@@ -35,7 +35,6 @@
 #include <cmath>
 #include <optional>
 #include <string_view>
-#include <unordered_map>
 #include <unordered_set>
 #include <variant>
 
@@ -518,49 +517,10 @@ namespace OloEngine
 
         // Runtime-owned entities (the dialogue UI, captions, debris…) are rebuilt
         // by their systems after Continue, so the save never carries them, nor
-        // anything parented under them (#1712). One definition, the one
-        // Scene::IsRuntimeOwned uses: an entity is excluded when it or an
-        // ancestor along its parent links carries RuntimeOwnedTag. Each chain is
-        // walked once and every entity on it memoised, so this is O(N), and it
-        // is skipped when nothing is marked.
+        // anything parented under them (#1712). Scene::CollectRuntimeOwned applies
+        // the same rule as Scene::IsRuntimeOwned, in one O(N) pass.
         auto view = scene.GetAllEntitiesWith<IDComponent>();
-        std::unordered_set<u64> runtimeOwned;
-        if (!scene.m_Registry.view<RuntimeOwnedTag>().empty())
-        {
-            std::unordered_map<u64, bool> decided;
-            TArray<u64> chain;
-            for (auto [handle, id] : scene.m_Registry.view<IDComponent>().each())
-            {
-                chain.Reset();
-                bool owned = false;
-                std::optional<Entity> current = Entity{ handle, &scene };
-                // The step bound stops a corrupt parent cycle: no chain is
-                // longer than the entity count.
-                for (sizet step = 0; current && step <= view.size(); ++step)
-                {
-                    const u64 uuid = static_cast<u64>(current->GetUUID());
-                    if (const auto known = decided.find(uuid); known != decided.end())
-                    {
-                        owned = known->second;
-                        break;
-                    }
-                    chain.Add(uuid);
-                    if (scene.m_Registry.all_of<RuntimeOwnedTag>(static_cast<entt::entity>(*current)))
-                    {
-                        owned = true;
-                        break;
-                    }
-                    const UUID parent = current->GetParentUUID();
-                    current = static_cast<u64>(parent) != 0 ? scene.TryGetEntityWithUUID(parent) : std::nullopt;
-                }
-                for (const u64 uuid : chain)
-                {
-                    decided.emplace(uuid, owned);
-                    if (owned)
-                        runtimeOwned.insert(uuid);
-                }
-            }
-        }
+        const std::unordered_set<u64> runtimeOwned = scene.CollectRuntimeOwned();
         const auto isRuntimeOwned = [&runtimeOwned](UUID child)
         {
             return runtimeOwned.contains(static_cast<u64>(child));
