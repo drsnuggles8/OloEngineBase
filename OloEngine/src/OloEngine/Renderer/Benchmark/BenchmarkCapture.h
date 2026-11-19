@@ -260,6 +260,12 @@ namespace OloEngine::Benchmark
         u64 GroomEvictions = 0;
         u32 GroomPendingRequests = 0;
         u32 GroomFallbackRequests = 0;
+        // What the deformed grooms sent the GPU this frame (#1589): the frame
+        // buffers' bytes, and the guide points behind them -- the simulated
+        // points sent and the slot points the GPU expanded them into.
+        u64 GroomDeformUploadBytes = 0;
+        u64 GroomGuidePointsSent = 0;
+        u64 GroomGuidePointsExpanded = 0;
         u64 VegetationCanonicalCpuBytes = 0;
         u64 VegetationPinnedGpuBytes = 0;
         u64 VegetationOptionalGpuBytes = 0;
@@ -304,6 +310,9 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(Record::GroomEvictions)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::GroomPendingRequests)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::GroomFallbackRequests)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomDeformUploadBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomGuidePointsSent)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomGuidePointsExpanded)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::VegetationCanonicalCpuBytes)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::VegetationPinnedGpuBytes)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::VegetationOptionalGpuBytes)> &&

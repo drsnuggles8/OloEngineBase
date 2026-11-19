@@ -95,6 +95,36 @@ class TempCase(unittest.TestCase):
         self.root = Path(temporary.name)
 
 
+class GroomUploadTest(TempCase):
+    """The deformed grooms' bytes per frame (#1589), from the streaming
+    telemetry: summarised per scenario, and unavailable -- not zero -- in a
+    capture that does not carry it."""
+
+    def write_streaming(self, capture, directory, bytes_of):
+        capture.result['measurement']['streamingRawFile'] = 'measurement-streaming.jsonl'
+        run = capture.write(directory)
+        lines = [json.dumps({'camera': row['camera'], 'index': row['index'], 'cpuFrameId': 0, 'host': 'test-binary',
+                             'groom': {'deformUploadBytes': bytes_of(row['camera'], row['index'])}})
+                 for row in capture.rows]
+        (run / 'measurement-streaming.jsonl').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+        return run
+
+    def test_per_frame_bytes_are_summarised_per_scenario(self):
+        capture = Capture(cameras=('stationary', 'dolly'))
+        run = self.write_streaming(capture, self.root / 'run',
+                                   lambda camera, index: (2 if camera == 'dolly' else 1) * MIB + index)
+        analysis = acceptance.analyse_run(run, GATE)
+        stationary = analysis['scenarios']['stationary']['groomUpload']
+        self.assertEqual(stationary['count'], 120)
+        self.assertAlmostEqual(stationary['p50MiB'], (MIB + 59) / MIB)
+        self.assertAlmostEqual(analysis['scenarios']['dolly']['groomUpload']['maxMiB'], (2 * MIB + 119) / MIB)
+        self.assertEqual(analysis['invalidReasons'], [])
+
+    def test_a_capture_without_the_counter_has_no_upload_figure(self):
+        analysis = acceptance.analyse_run(Capture(cameras=('stationary',)).write(self.root / 'run'), GATE)
+        self.assertIsNone(analysis['scenarios']['stationary']['groomUpload'])
+
+
 class PassAggregationTest(TempCase):
     def test_invalid_duplicate_and_subpass_rules(self):
         capture = Capture(frames=120, cameras=('stationary',))

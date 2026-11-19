@@ -650,6 +650,10 @@ namespace OloEngine::Benchmark
             sample.GroomPendingRequests = s.Pending;
             sample.GroomFallbackRequests = s.FallbackDraws;
             sample.GroomEvictions = s.Evictions;
+            const auto& frame = groom->GetStats();
+            sample.GroomDeformUploadBytes = frame.DeformedUploadBytes;
+            sample.GroomGuidePointsSent = frame.GuidePointsSent;
+            sample.GroomGuidePointsExpanded = frame.GuidePointsExpanded;
         }
         const auto view = scene.GetAllEntitiesWith<FoliageComponent>();
         for (auto entity : view)
@@ -1290,7 +1294,10 @@ namespace OloEngine::Benchmark
                                             { "optionalGpuBytes", frame.GroomOptionalGpuBytes },
                                             { "pendingRequests", frame.GroomPendingRequests },
                                             { "fallbackDraws", frame.GroomFallbackRequests },
-                                            { "evictions", frame.GroomEvictions } };
+                                            { "evictions", frame.GroomEvictions },
+                                            { "deformUploadBytes", frame.GroomDeformUploadBytes },
+                                            { "guidePointsSent", frame.GroomGuidePointsSent },
+                                            { "guidePointsExpanded", frame.GroomGuidePointsExpanded } };
                 streamingFrame["vegetation"] = { { "canonicalCpuBytes", frame.VegetationCanonicalCpuBytes },
                                                  { "pinnedGpuBytes", frame.VegetationPinnedGpuBytes },
                                                  { "optionalGpuBytes", frame.VegetationOptionalGpuBytes },
