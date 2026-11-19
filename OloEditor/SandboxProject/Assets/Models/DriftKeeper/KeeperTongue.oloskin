@@ -1,0 +1,32 @@
+SkinProfile:
+  Name: Keeper Tongue
+  EvaluationModel: 4
+  Units: 'colours: linear Rec.709 (unitless 0..1); lengths: millimetres'
+  ScatterColor:
+  - 0.82
+  - 0.42
+  - 0.38
+  ScatterRadiusMM:
+  - 1.8
+  - 0.85
+  - 0.6
+  ThicknessScale: 1000
+  SpecularTint:
+  - 1.0
+  - 0.97
+  - 0.95
+  Transmission:
+    Strength: 1
+    Anisotropy: 0.7
+    Power: 4
+  Specular:
+    LobeMix: 0.4
+    LobeRoughnessScale: 2.2
+    NormalVarianceStrength: 0.0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  Oral:
+    CoatStrength: 0.65
+    CoatRoughness: 0.07
+    CoatIor: 1.33
+    CavityOcclusion: 1.0

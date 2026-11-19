@@ -1,0 +1,32 @@
+SkinProfile:
+  Name: Keeper Lip
+  EvaluationModel: 4
+  Units: 'colours: linear Rec.709 (unitless 0..1); lengths: millimetres'
+  ScatterColor:
+  - 0.86
+  - 0.5
+  - 0.42
+  ScatterRadiusMM:
+  - 2.1
+  - 1.05
+  - 0.7
+  ThicknessScale: 1000
+  SpecularTint:
+  - 0.98
+  - 0.95
+  - 0.93
+  Transmission:
+    Strength: 1
+    Anisotropy: 0.7
+    Power: 4
+  Specular:
+    LobeMix: 0.35
+    LobeRoughnessScale: 2.0
+    NormalVarianceStrength: 0.0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  Oral:
+    CoatStrength: 0.35
+    CoatRoughness: 0.09
+    CoatIor: 1.33
+    CavityOcclusion: 0.35

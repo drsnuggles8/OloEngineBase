@@ -1,0 +1,49 @@
+SkinProfile:
+  Name: Keeper Eye
+  EvaluationModel: 5
+  Units: 'colours: linear Rec.709 (unitless 0..1); lengths: millimetres'
+  ScatterColor:
+  - 0.88
+  - 0.8
+  - 0.76
+  ScatterRadiusMM:
+  - 0.15
+  - 0.1
+  - 0.08
+  ThicknessScale: 1000
+  SpecularTint:
+  - 1
+  - 1
+  - 1
+  Transmission:
+    Strength: 0.25
+    Anisotropy: 0.7
+    Power: 4
+  Specular:
+    LobeMix: 0.2
+    LobeRoughnessScale: 2
+    NormalVarianceStrength: 0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  Oral:
+    CoatStrength: 0.5
+    CoatRoughness: 0.04
+    CoatIor: 1.337
+    CavityOcclusion: 0
+  Ocular:
+    OcularStrength: 1
+    RefractionStrength: 1
+    EyeRadiusMM: 12
+    CorneaRadiusMM: 7.8
+    IrisRadiusMM: 5.85
+    PupilRadiusMM: 2.15
+    IrisPlaneDepthMM: 2.48
+    CorneaIor: 1.336
+    LimbalRingWidthMM: 0.7
+    LimbalRingStrength: 0.75
+    PupilDarkening: 1
+    IrisConcavity: 0.25
+    IrisColor:
+    - 1
+    - 1
+    - 1

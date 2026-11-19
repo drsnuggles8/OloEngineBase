@@ -17,6 +17,11 @@
 OloEditor/SandboxProject/Assets/Models/DriftHarbourCrane/*.gltf text eol=lf
 OloEditor/SandboxProject/Assets/Models/DriftHarbourCrane/*.bin binary
 
+# Generated keeper buffers and Alembic groom archive.
+OloEditor/SandboxProject/Assets/Models/DriftKeeper/*.gltf text eol=lf
+OloEditor/SandboxProject/Assets/Models/DriftKeeper/*.bin binary
+OloEditor/SandboxProject/Assets/Models/DriftKeeper/Keeper.abc filter=lfs diff=lfs merge=lfs -text
+
 # Force LF for docs and scripts that should be LF
 *.md text eol=lf
 *.markdown text eol=lf
