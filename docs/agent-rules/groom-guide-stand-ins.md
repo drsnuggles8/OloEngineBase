@@ -36,8 +36,8 @@ per-role guide budget (`GroomSimulationComponent::m_MaxGuides*`), or the simulat
    stand-ins cross once per budget step. A CPU reader (the CPU deformation path, the caster padding,
    the coat bake's drawn pose, the ray-traced proxy) expands them through `GroomGuideExpansion`,
    which calls `ExpandGroomGuideDisplacements` and so reads what the producer used to publish, bit
-   for bit. The dense upload was about 120k points a fox at any budget, about 170 MiB a frame for the
-   acceptance herd.
+   for bit. At the acceptance head close-up the GL upload fell from 176 MiB to 8.6 MiB a frame: 44,607
+   simulated points sent where 5.2 million expanded ones were.
 
 5. **A CPU reader of a GPU-expanded deformation buffer calls `ResolveCpuGuides` first.** The kernel's
    output is never read back, so the CPU twin's displacement records stay stale until a reader asks;
@@ -48,6 +48,13 @@ per-role guide budget (`GroomSimulationComponent::m_MaxGuides*`), or the simulat
    backends.** `GroomExpandGuidesParityTest` (GL) and the `VulkanPassSuite` tenant
    `GroomExpandGuidesKernelMatchesTheCpuExpansion` hold it, each with a broken-weight control.
    `OLO_GROOM_GUIDES_EXPANDED_ON_CPU` is the A/B: it expands on the CPU and sends every slot.
+
+7. **On GL, judge a groom change by frame time and the capture's groom CPU fields, not by one
+   `GroomPass/RootFrames` bracket.** A GPU starved by main-thread work reports the CPU's gap as time
+   inside whichever per-coat `Upload` or `Dispatch` bracket straddles the next flush. At the coats
+   close-up one coat's `Dispatch` read 31 ms while every other coat read 0.05 ms. Read
+   `deformBuildUs`, `deformUploadUs`, `casterPoseUs` and `deformedPoseUs` in
+   `measurement-streaming.jsonl` beside the brackets.
 
 ## How it was found
 
