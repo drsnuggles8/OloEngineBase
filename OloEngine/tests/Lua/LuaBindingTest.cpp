@@ -2053,6 +2053,24 @@ class LuaSceneTest : public ::testing::Test
     }
 };
 
+TEST_F(LuaSceneTest, DialogueIsActiveIgnoresAnInactiveConversation)
+{
+    // Another NPC's StartDialogue leaves this one's DialogueStateComponent in
+    // place, Inactive: is_active must not report it running. Small UUID keeps
+    // the u64 -> Lua-number coercion exact.
+    Entity npc = scene->CreateEntityWithUUID(UUID{ 4244 }, "Npc");
+    const auto isActive = [this]
+    { return lua.script("return dialogue.is_active(4244)").get<bool>(); };
+    EXPECT_FALSE(isActive()) << "no conversation at all";
+
+    auto& state = npc.AddComponent<DialogueStateComponent>();
+    state.m_State = DialogueState::Displaying;
+    EXPECT_TRUE(isActive());
+
+    state.m_State = DialogueState::Inactive;
+    EXPECT_FALSE(isActive()) << "an Inactive component is not a running conversation";
+}
+
 TEST_F(LuaSceneTest, RepresentationStreamingBudgetsUpdateTheActiveSceneAndReturnAnOwningSnapshot)
 {
     auto& settings = scene->GetStreamingSettings();

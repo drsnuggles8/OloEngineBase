@@ -905,7 +905,9 @@ namespace OloEngine
         {
             const Scene* scene = ScriptEngine::GetSceneContext();
             const auto entity = scene ? scene->TryGetEntityWithUUID(UUID(entityID)) : std::nullopt;
-            return entity && entity->HasComponent<DialogueStateComponent>();
+            // Another NPC's StartDialogue leaves this one's component Inactive.
+            return entity && entity->HasComponent<DialogueStateComponent>() &&
+                   entity->GetComponent<DialogueStateComponent>().m_State != DialogueState::Inactive;
         };
         dialogueTable["end_dialogue"] = [withDialogue](u64 entityID)
         {
