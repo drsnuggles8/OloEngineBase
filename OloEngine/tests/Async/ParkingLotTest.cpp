@@ -247,9 +247,24 @@ TEST_F(ParkingLotTest, ATimedWaitTimingOutWhileItsWakerIsMidWakeLeavesNoWakeBehi
     // The 80 ms window opens when the waiter reports itself queued, not when this
     // thread starts spinning: on a loaded runner the waiter's thread can start
     // late, and a window measured from here closed before it ever queued.
-    while (!bQueuedOnFirst.load(std::memory_order_acquire))
+    // Bounded, so a ParkingLot that stopped calling BeforeWait fails the test
+    // instead of hanging the binary.
+    const auto QueueDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!bQueuedOnFirst.load(std::memory_order_acquire) && std::chrono::steady_clock::now() < QueueDeadline)
     {
         std::this_thread::yield();
+    }
+    if (!bQueuedOnFirst.load(std::memory_order_acquire))
+    {
+        // Release the waiter wherever it is: its timed wait ends on its own, and
+        // this wakes its second park (which may not report itself either).
+        while (!bReturnedFromSecond.load(std::memory_order_acquire))
+        {
+            ParkingLot::WakeOne(&Second);
+            std::this_thread::yield();
+        }
+        Waiter.join();
+        FAIL() << "the waiter never reported itself queued: ParkingLot::WaitFor did not call BeforeWait";
     }
     bool bWoke = false;
     {
