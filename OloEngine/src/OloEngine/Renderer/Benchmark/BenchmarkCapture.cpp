@@ -654,6 +654,10 @@ namespace OloEngine::Benchmark
             sample.GroomDeformUploadBytes = frame.DeformedUploadBytes;
             sample.GroomGuidePointsSent = frame.GuidePointsSent;
             sample.GroomGuidePointsExpanded = frame.GuidePointsExpanded;
+            sample.GroomDeformBuildMicroseconds = frame.DeformedBuildMicroseconds;
+            sample.GroomDeformUploadMicroseconds = frame.DeformedUploadMicroseconds;
+            sample.GroomCasterPoseMicroseconds = frame.CasterPoseMicroseconds;
+            sample.GroomDeformedPoseMicroseconds = frame.DeformedPoseMicroseconds;
         }
         const auto view = scene.GetAllEntitiesWith<FoliageComponent>();
         for (auto entity : view)
@@ -1297,7 +1301,11 @@ namespace OloEngine::Benchmark
                                             { "evictions", frame.GroomEvictions },
                                             { "deformUploadBytes", frame.GroomDeformUploadBytes },
                                             { "guidePointsSent", frame.GroomGuidePointsSent },
-                                            { "guidePointsExpanded", frame.GroomGuidePointsExpanded } };
+                                            { "guidePointsExpanded", frame.GroomGuidePointsExpanded },
+                                            { "deformBuildUs", frame.GroomDeformBuildMicroseconds },
+                                            { "deformUploadUs", frame.GroomDeformUploadMicroseconds },
+                                            { "casterPoseUs", frame.GroomCasterPoseMicroseconds },
+                                            { "deformedPoseUs", frame.GroomDeformedPoseMicroseconds } };
                 streamingFrame["vegetation"] = { { "canonicalCpuBytes", frame.VegetationCanonicalCpuBytes },
                                                  { "pinnedGpuBytes", frame.VegetationPinnedGpuBytes },
                                                  { "optionalGpuBytes", frame.VegetationOptionalGpuBytes },
