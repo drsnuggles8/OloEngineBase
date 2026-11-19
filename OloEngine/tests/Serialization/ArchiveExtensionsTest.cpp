@@ -627,3 +627,44 @@ TEST(ArchiveExtensionsTest, AStringLongerThanTheReaderFailsBeforeAllocating)
     EXPECT_FALSE(fitsReader.IsError());
     EXPECT_EQ(read, "lamp");
 }
+
+// The same bound for a container: a count larger than the bytes left fails
+// before the container is allocated (each element takes at least one byte).
+TEST(ArchiveExtensionsTest, AContainerCountLargerThanTheReaderFailsBeforeAllocating)
+{
+    std::vector<u8> buffer;
+    {
+        FMemoryWriter writer(buffer);
+        u32 declared = 9'000'000; // under kMaxContainerDeserializeCount, far over the bytes present
+        writer << declared;
+        u32 oneElement = 7;
+        writer << oneElement;
+    }
+    {
+        FMemoryReader reader(buffer);
+        std::vector<u32> values;
+        reader << values;
+        EXPECT_TRUE(reader.IsError());
+        EXPECT_TRUE(values.empty());
+    }
+    {
+        FMemoryReader reader(buffer);
+        TArray<u32> values;
+        SerializeOwnedArray(reader, values);
+        EXPECT_TRUE(reader.IsError());
+        EXPECT_EQ(values.Num(), 0);
+    }
+
+    // Positive control: a count that fits reads normally.
+    std::vector<u8> fits;
+    {
+        FMemoryWriter writer(fits);
+        std::vector<u32> values{ 1, 2, 3 };
+        writer << values;
+    }
+    FMemoryReader reader(fits);
+    std::vector<u32> read;
+    reader << read;
+    EXPECT_FALSE(reader.IsError());
+    EXPECT_EQ(read, (std::vector<u32>{ 1, 2, 3 }));
+}
