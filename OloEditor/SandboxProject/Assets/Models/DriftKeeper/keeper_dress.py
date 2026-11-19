@@ -374,7 +374,7 @@ def body(s, lod):
         x, y, z = visor(a, 1)
         return (x, y - 0.0022 * t, z)
 
-    s.grid("KeeperLeather", n, 1, visor_edge, "head")
+    s.grid("KeeperLeather", n, 1, visor_edge, "head", invert=True)
     cord = [
         (0.085 * sin(t), 1.696 - 0.008 * cos(t) ** 2, 0.109 * cos(t) - 0.003)
         for t in np.linspace(-1.50, 1.50, 36)

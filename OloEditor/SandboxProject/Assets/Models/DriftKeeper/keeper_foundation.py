@@ -9,12 +9,20 @@ from keeper_mesh import Surface, Gltf
 REGIONS = ("beard", "moustache", "scalp", "eyebrow", "eyelash")
 
 
+def root_uv(region, side, u, v):
+    # Separate the ten patches in a 4x4 atlas. Leave a gutter wider than
+    # a card cell: mirrored cheeks must never choose the same representative.
+    chart = REGIONS.index(region) * 2 + int(side > 0)
+    scale = 0.24
+    return ((chart % 4) * 0.25 + 0.005 + scale * u, (chart // 4) * 0.25 + 0.005 + scale * v)
+
+
 def follicle(region, side, u, v):
     if region == "eyelash":
         a = 0.07 + (pi - 0.14) * u
         dx = 0.0119 * cos(a)
         dy = (0.0048 + 0.0014 * v) * sin(a) + 0.0006 * side * cos(a)
-        r = EYE_R + 0.00050 + 0.00014 * v
+        r = EYE_R + 0.00053
         return np.array((side * EYE_X + dx, EYE_Y + dy, EYE_Z + sqrt(max(0, r * r - dx * dx - dy * dy))))
     if region == "beard":
         a = side * (0.001 + 1.84 * u)
@@ -58,7 +66,8 @@ def export(out):
                 for i in range(cols + 1):
                     u, v = i / cols, j / rows
                     p = follicle(region, side, u, v)
-                    index = model.vertex(p, (u, 1 - v), "head")
+                    tu, tv = root_uv(region, side, u, v)
+                    index = model.vertex(p, (tu, 1 - tv), "head")
                     if region == "eyelash":
                         dy = -(0.0048 + 0.0014 * v) * sin(0.07 + (pi - 0.14) * u) - 0.00045
                         r = EYE_R + 0.00055
@@ -79,7 +88,7 @@ def export(out):
                     if i and j:
                         a, b, c, d = index - cols - 2, index - cols - 1, index, index - 1
                         # Lash loops travel the opposite way around the sphere.
-                        if (side < 0) != (region == "eyelash"):
+                        if region == "eyelash" or side < 0:
                             b, d = d, b
                         model.quad("KeeperLashLine" if region == "eyelash" else "KeeperUndercoat", a, b, c, d)
     file = Gltf()

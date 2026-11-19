@@ -10,7 +10,7 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "Dog"))
-from keeper_foundation import follicle
+from keeper_foundation import follicle, root_uv
 from build_dog_groom import make_curves, export_groom_abc, layer, GUARD, LONGHAIR, WHISKER
 
 COLLECTION = "KeeperGroom"
@@ -71,7 +71,7 @@ def grow(body):
                 curve += t * bend * length * np.array((0.052, 0.008, 0.029))
             pts.append(curve)
             widths.append(width * rng.uniform(0.73, 1.22) * (1 - 0.86 * t[:, 0]))
-            uvs.append((u, v))
+            uvs.append(root_uv(name, s, u, v))
             salt.append(
                 rng.random() < (0.53 + 0.16 * sin(100 * root[0]) * cos(90 * root[2]))
                 if name not in ("eyelash", "eyebrow")
@@ -122,7 +122,7 @@ def main():
 
     with create_staging_directory() as staging:
         source = Path(staging) / "Keeper.abc"
-        export_groom_abc(str(source), COLLECTION, cards=(0.006, 4))
+        export_groom_abc(str(source), COLLECTION, cards=(0.006 * 0.24, 4))
         publish_package(source.parent, dest, [source.name])
 
 
