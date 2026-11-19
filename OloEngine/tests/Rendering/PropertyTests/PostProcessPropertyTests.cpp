@@ -437,6 +437,31 @@ namespace OloEngine::Tests
         EXPECT_NEAR(centerLum, 0.5f, 0.08f) << "Vignette darkened the center too aggressively";
     }
 
+    TEST(VignettePropertyTest, StrengthControlsCornerAttenuation)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 64;
+        auto settings = MakeDefaultPostProcessUBO(kSize, kSize);
+        settings.VignetteSmoothness = 0.35f;
+        PostProcessHarness pass(kSize, kSize, "assets/shaders/PostProcess_Vignette.glsl", settings);
+        pass.SetInputTexture(CreateUniformFloatTexture2D(kSize, kSize, 0.5f, 0.5f, 0.5f, 1.0f));
+
+        // Drift uses 0.28. Previously, both that setting and zero produced
+        // a black corner while the full-strength property above still passed.
+        for (const f32 strength : { 0.0f, 0.28f, 1.0f })
+        {
+            settings.VignetteIntensity = strength;
+            pass.m_Ubo->SetData(&settings, PostProcessUBOData::GetSize());
+            pass.Draw();
+            std::vector<u8> pixels;
+            pass.ReadOutputRgba8(pixels);
+            ASSERT_EQ(pixels.size(), static_cast<sizet>(kSize * kSize * 4));
+            EXPECT_NEAR(pixels[0], 127.5f * (1.0f - strength), 1.0f) << strength;
+            EXPECT_NEAR(pixels[(kSize / 2 * kSize + kSize / 2) * 4], 127.5f, 1.0f) << strength;
+        }
+    }
+
     // =========================================================================
     // Chromatic aberration
     // =========================================================================
