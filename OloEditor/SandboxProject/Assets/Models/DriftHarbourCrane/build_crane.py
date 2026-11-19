@@ -327,10 +327,15 @@ def builder_plate(a, b):
         points = [v.co.copy() for v in glyphs.vertices]
         ids = model.ring([project(p.x, p.y + baseline, 0.017 + p.z) for p in points])
         for tri in glyphs.loop_triangles:
+            # The extruded letter walls are edge-on in the face chart. Project
+            # each triangle on its dominant plane so the importer can build
+            # a tangent frame even when the plaque is assigned a new material.
+            dominant = max(range(3), key=lambda axis: abs(tri.normal[axis]))
+            u, v = (dominant + 1) % 3, (dominant + 2) % 3
             model.face(
                 [ids[j] for j in tri.vertices],
                 polished_brass,
-                [(points[j].x, points[j].y) for j in tri.vertices],
+                [(points[j][u], points[j][v]) for j in tri.vertices],
             )
         obj_eval.to_mesh_clear()
         bpy.data.objects.remove(obj, do_unlink=True)
