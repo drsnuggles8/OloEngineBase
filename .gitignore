@@ -4,6 +4,9 @@
 bin-int/
 obj/
 **/cache/**
+# Any case, on every platform: the engine treats a directory called cache in any case as
+# derived data (AssetRegistry::IsCacheArtefact, #1664), and git on Linux is case-sensitive.
+**/[Cc][Aa][Cc][Hh][Ee]/**
 
 # Baked shader pack (issue #908) — a CI/build-time artifact (or produced
 # locally by the editor's "Build Shader Pack" menu / a headless bake), never

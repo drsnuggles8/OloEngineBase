@@ -850,6 +850,11 @@ namespace OloEngine
         if (!std::filesystem::is_directory(assetDirectory, ec))
             return 0;
 
+        // An asset directory that itself sits under a `cache` directory makes every file in it a
+        // cache artefact, which the lexical test below (relative to the asset directory) cannot see.
+        const bool assetDirectoryIsCache =
+            AssetRegistry::IsCacheArtefact(MakeRegistryKey(assetDirectory / "x", projectPath));
+
         for (auto it = std::filesystem::recursive_directory_iterator(assetDirectory, ec);
              !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
         {
@@ -858,11 +863,10 @@ namespace OloEngine
                 continue;
             // Lexical first: almost every file in a project is authored, and MakeRegistryKey
             // canonicalises (two syscalls a file).
-            if (!AssetRegistry::IsCacheArtefact(it->path().lexically_relative(assetDirectory)))
+            if (!assetDirectoryIsCache && !AssetRegistry::IsCacheArtefact(it->path().lexically_relative(assetDirectory)))
                 continue;
-            // Model's cook writes `<stem>.tmp<hex>.png` and renames it into place when the write
-            // is complete; a build running beside a cook must not pack a half-written file.
-            if (it->path().stem().extension().string().starts_with(".tmp"))
+            // A build running beside a cook must not pack a half-written file.
+            if (AssetRegistry::IsInFlightCookFile(it->path()))
                 continue;
 
             const std::filesystem::path key = MakeRegistryKey(it->path(), projectPath);
@@ -957,6 +961,14 @@ namespace OloEngine
         // Convert to project-relative path
         std::filesystem::path relativePath = GetRelativePath(absolutePath);
 
+        // A cooked texture still being written (the startup scan or the file watcher can see it
+        // before the cook renames it into place): it disappears in a moment, so never register it.
+        if (AssetRegistry::IsInFlightCookFile(relativePath))
+        {
+            OLO_CORE_TRACE("Not importing {}: a cook is still writing it", relativePath.string());
+            return 0;
+        }
+
         // Check if already imported
         if (AssetHandle existingHandle = m_AssetRegistry.GetHandleFromPath(relativePath); existingHandle != 0)
         {
@@ -969,7 +981,7 @@ namespace OloEngine
         // (#1664), so the next session, the pack cook and the .omesh that recorded the handle
         // all have to arrive at the same one on their own.
         AssetMetadata metadata;
-        metadata.Handle = AssetRegistry::IsCacheArtefact(relativePath) ? AssetRegistry::HandleForNewEntry(relativePath)
+        metadata.Handle = AssetRegistry::IsCacheArtefact(relativePath) ? AssetRegistry::CacheArtefactHandle(relativePath)
                                                                        : m_AssetRegistry.GenerateHandle();
         metadata.FilePath = relativePath;
         metadata.Type = type;
@@ -1583,6 +1595,8 @@ namespace OloEngine
         // disk is safe; the bytes are parsed lazily on first GetAsset. A burst of
         // create/modify events for one new file therefore imports exactly once;
         // later events fall through to the (loaded-only) reload branch.
+        if (AssetRegistry::IsInFlightCookFile(absolutePath))
+            return; // a cook's temporary; the renamed file arrives as its own event
         const AssetHandle handle = ImportAsset(absolutePath);
         if (handle == 0)
         {

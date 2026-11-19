@@ -547,6 +547,10 @@ namespace OloEngine::Tests
         EXPECT_FALSE(AssetRegistry::IsCacheArtefact("Assets/Textures/cache")) << "git's `**/cache/**` needs a directory";
         EXPECT_FALSE(AssetRegistry::IsCacheArtefact("Assets/cached/x.png"));
         EXPECT_FALSE(AssetRegistry::IsCacheArtefact("Assets/Textures/Foo.png"));
+
+        EXPECT_TRUE(AssetRegistry::IsInFlightCookFile("Assets/cache/embedded/emb_0123456789abcdef_basecolor.tmp00000000deadbeef.png"));
+        EXPECT_FALSE(AssetRegistry::IsInFlightCookFile("Assets/cache/embedded/emb_0123456789abcdef_basecolor.png"));
+        EXPECT_FALSE(AssetRegistry::IsInFlightCookFile("Assets/Textures/foo.tmp1.png")) << "only a cook writes these";
     }
 
     TEST(AssetRegistryCacheArtefacts, TheRegistryFileNeverCarriesACacheArtefact)

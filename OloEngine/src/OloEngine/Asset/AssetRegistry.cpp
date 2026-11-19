@@ -50,6 +50,12 @@ namespace OloEngine
         return IsCacheArtefact(path) ? CacheArtefactHandle(path) : AssetHandle();
     }
 
+    bool AssetRegistry::IsInFlightCookFile(const std::filesystem::path& path)
+    {
+        // "<stem>.tmp<16 hex>.png": the inner extension starts ".tmp" (Model.cpp CookRgbaToAssetCache).
+        return IsCacheArtefact(path) && path.stem().extension().string().starts_with(".tmp");
+    }
+
     bool AssetRegistry::IsAcceptableHandleForPath(AssetHandle handle, const std::filesystem::path& path, const char* caller)
     {
         if (!IsCacheArtefact(path))

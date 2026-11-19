@@ -494,6 +494,14 @@ namespace OloEngine::Automation
                 return Failure("destination must be inside the project asset directory (" + assetDir +
                                "). Got: " + candidate);
             }
+            // Refused here, before any file moves or reference is rewritten: a cache/ directory
+            // is git-ignored derived data, and the registry refuses an authored asset there
+            // because its handle could not survive a restart (#1664).
+            if (AssetRegistry::IsCacheArtefact(EditorAssetManager::MakeRegistryKey(destination, project.Root)))
+            {
+                return Failure("destination " + candidate +
+                               " is under a cache/ directory, which is git-ignored derived data; choose another folder.");
+            }
             std::error_code ec;
             if (!std::filesystem::is_directory(destination.parent_path(), ec) || ec)
             {

@@ -59,15 +59,18 @@ namespace OloEngine
         //     Deserialize() drops one found in a file;
         //   * is refused by AddAsset/UpdateMetadata under any other handle, because that
         //     handle could not be re-derived after a restart.
-        // The directory name is matched ignoring case: this repo runs with core.ignorecase, so
-        // git ignores Cache/ and CACHE/ on Windows too.
+        // The directory name is matched ignoring case, on every platform, so a registry means the
+        // same everywhere; .gitignore ignores `[Cc][Aa][Cc][Hh][Ee]/` to match.
         [[nodiscard]] static bool IsCacheArtefact(const std::filesystem::path& path);
         // Nonzero for every path. FNV-1a-64 of the path's generic spelling.
         [[nodiscard]] static AssetHandle CacheArtefactHandle(const std::filesystem::path& path);
         // The handle to give a NEW entry for this registry path: CacheArtefactHandle for a
-        // cache artefact, a fresh random one otherwise. Every caller that mints a handle for a
-        // path it is about to register takes it from here.
+        // cache artefact, a fresh random one otherwise. A caller that mints a random handle
+        // takes it from here (ImportAsset keeps the sequential counter for authored files).
         [[nodiscard]] static AssetHandle HandleForNewEntry(const std::filesystem::path& path);
+        // Model's cook writes `<stem>.tmp<hex>.png` beside the cooked file and renames it into
+        // place when the write is complete. Such a file is never registered.
+        [[nodiscard]] static bool IsInFlightCookFile(const std::filesystem::path& path);
 
         /**
          * @brief Add or update asset metadata in the registry

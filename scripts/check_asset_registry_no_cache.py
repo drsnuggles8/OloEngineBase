@@ -28,10 +28,10 @@ import subprocess
 import sys
 
 REGISTRY_NAME = "AssetRegistry.oar"
-# For a file that does not parse: any path with a `cache` directory, as plain bytes. The
-# engine's rule (AssetRegistry::IsCacheArtefact) and .gitignore's `**/cache/**` match a
-# directory named cache at any depth, ignoring case here (core.ignorecase).
-CACHE_ENTRY = re.compile(rb"(?i)[A-Za-z0-9_./\\ +()-]{0,200}(?<![A-Za-z0-9_])cache[/\\][A-Za-z0-9_./\\ +()-]{1,200}")
+# For a file that does not parse: every printable path-like run of bytes, each then judged by
+# is_cache_artefact, the engine's rule (AssetRegistry::IsCacheArtefact) and .gitignore's
+# `**/cache/**` / `**/[Cc][Aa][Cc][Hh][Ee]/**`: a directory named cache at any depth, any case.
+PATH_RUN = re.compile(rb"[A-Za-z0-9_./\\ +()-]{3,400}")
 
 
 def tracked_registries() -> list[str]:
@@ -88,7 +88,8 @@ def main() -> int:
                 print(f"{path}: entries are not in ascending handle order, so the first save rewrites the file")
             cache_entries = sorted({entry for _, entry in entries if is_cache_artefact(entry)})
         else:
-            cache_entries = sorted({match.group(0).decode("ascii") for match in CACHE_ENTRY.finditer(data)})
+            runs = {match.group(0).decode("ascii") for match in PATH_RUN.finditer(data)}
+            cache_entries = sorted(run for run in runs if is_cache_artefact(run))
         for entry in cache_entries:
             count += 1
             print(f"{path}: registers {entry}, which is git-ignored cache and absent from a fresh clone")
