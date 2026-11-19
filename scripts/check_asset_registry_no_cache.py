@@ -28,8 +28,10 @@ import subprocess
 import sys
 
 REGISTRY_NAME = "AssetRegistry.oar"
-# The registry stores project-relative paths as plain bytes inside a binary file.
-CACHE_ENTRY = re.compile(rb"Assets[/\\]cache[/\\][A-Za-z0-9_./\\ +()-]{1,200}")
+# For a file that does not parse: any path with a `cache` directory, as plain bytes. The
+# engine's rule (AssetRegistry::IsCacheArtefact) and .gitignore's `**/cache/**` match a
+# directory named cache at any depth, ignoring case here (core.ignorecase).
+CACHE_ENTRY = re.compile(rb"(?i)[A-Za-z0-9_./\\ +()-]{0,200}(?<![A-Za-z0-9_])cache[/\\][A-Za-z0-9_./\\ +()-]{1,200}")
 
 
 def tracked_registries() -> list[str]:
@@ -47,20 +49,26 @@ def staged_bytes(path: str) -> bytes | None:
 FILE_VERSION = 3
 
 
-def handles_in_file_order(data: bytes) -> list[int] | None:
-    """The entry handles of a v3 registry in file order, or None for any other file."""
+def entries_in_file_order(data: bytes) -> list[tuple[int, str]] | None:
+    """The (handle, path) entries of a v3 registry in file order, or None for any other file."""
     try:
         version, count = struct.unpack_from("<II", data, 0)
         if version != FILE_VERSION:
             return None
-        offset, handles = 8, []
+        offset, entries = 8, []
         for _ in range(count):
             handle, _type, length = struct.unpack_from("<QII", data, offset)
-            offset += 16 + length
-            handles.append(handle)
-        return handles if offset == len(data) else None
+            offset += 16
+            entries.append((handle, data[offset : offset + length].decode("utf-8", errors="replace")))
+            offset += length
+        return entries if offset == len(data) else None
     except struct.error:
         return None
+
+
+def is_cache_artefact(path: str) -> bool:
+    """AssetRegistry::IsCacheArtefact: a directory (not the file name) called cache, any case."""
+    return any(part.lower() == "cache" for part in re.split(r"[/\\]", path)[:-1])
 
 
 def main() -> int:
@@ -72,11 +80,16 @@ def main() -> int:
         # AssetRegistry::Serialize writes entries in ascending handle order. A registry put
         # together by hand (a merge resolution) in any other order is rewritten by the first
         # editor session or test that saves it, so the checkout is dirty from then on.
-        handles = handles_in_file_order(data)
-        if handles is not None and handles != sorted(handles):
-            count += 1
-            print(f"{path}: entries are not in ascending handle order, so the first save rewrites the file")
-        for entry in sorted({match.group(0).decode("ascii") for match in CACHE_ENTRY.finditer(data)}):
+        entries = entries_in_file_order(data)
+        if entries is not None:
+            handles = [handle for handle, _ in entries]
+            if handles != sorted(handles):
+                count += 1
+                print(f"{path}: entries are not in ascending handle order, so the first save rewrites the file")
+            cache_entries = sorted({entry for _, entry in entries if is_cache_artefact(entry)})
+        else:
+            cache_entries = sorted({match.group(0).decode("ascii") for match in CACHE_ENTRY.finditer(data)})
+        for entry in cache_entries:
             count += 1
             print(f"{path}: registers {entry}, which is git-ignored cache and absent from a fresh clone")
     if count:

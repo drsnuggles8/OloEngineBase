@@ -540,6 +540,8 @@ namespace OloEngine::Tests
     {
         EXPECT_TRUE(AssetRegistry::IsCacheArtefact("Assets/cache/embedded/emb_0123456789abcdef_basecolor.png"));
         EXPECT_TRUE(AssetRegistry::IsCacheArtefact("Assets/Models/cache/x.png"));
+        EXPECT_TRUE(AssetRegistry::IsCacheArtefact("Assets/Models/Cache/x.png")) << "git ignores it too (core.ignorecase)";
+        EXPECT_TRUE(AssetRegistry::IsCacheArtefact("Assets/CACHE/x.png"));
         EXPECT_TRUE(AssetRegistry::IsCacheArtefact("C:/repo/OloEditor/assets/cache/ibl/x.hdr"));
         EXPECT_FALSE(AssetRegistry::IsCacheArtefact("Assets/Textures/cache.png")) << "a file name is not a directory";
         EXPECT_FALSE(AssetRegistry::IsCacheArtefact("Assets/Textures/cache")) << "git's `**/cache/**` needs a directory";
@@ -635,6 +637,9 @@ namespace OloEngine::Tests
         EXPECT_EQ(registry.GetAssetCount(), 1u);
         EXPECT_TRUE(registry.Exists(AssetHandle{ 5ULL }));
         EXPECT_FALSE(registry.Exists(AssetHandle{ 6ULL })) << "a cache entry from the file was kept";
+        // Something (a scene, a stale .omesh) may still hold handle 6: it must not be reissued.
+        EXPECT_GT(static_cast<u64>(registry.GenerateHandle()), 6u)
+            << "the dropped entry's handle went back into circulation";
     }
 
     // The editor end to end: the scan and ImportAsset register a cache artefact
@@ -684,6 +689,9 @@ namespace OloEngine::Tests
             EXPECT_EQ(ReadAllBytes(oar), savedBytes) << "a cooked texture dirtied the registry file";
         }
         EXPECT_EQ(ReadAllBytes(oar), savedBytes) << "the shutdown save dirtied the registry file";
+
+        // A cook in flight beside the pack build: never registered, never packed.
+        std::ofstream(root / "Assets" / "cache" / "embedded" / "emb_0123456789abcdef_basecolor.tmp00000000deadbeef.png") << "half";
 
         AssetRegistry onDisk;
         ASSERT_TRUE(onDisk.Deserialize(oar));

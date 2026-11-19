@@ -255,7 +255,11 @@ namespace OloEngine::Automation
                     throw std::runtime_error("Cannot register the prefab: the project has no editor asset manager.");
                 }
                 manager->AddMemoryOnlyAsset(m_Prefab);
-                manager->SetMetadata(m_Metadata.Handle, m_Metadata);
+                if (!manager->SetMetadata(m_Metadata.Handle, m_Metadata))
+                {
+                    throw std::runtime_error("The asset registry refused the prefab " + m_Metadata.FilePath.generic_string() +
+                                             " (see the log).");
+                }
                 if (!manager->SerializeAssetRegistry())
                 {
                     throw std::runtime_error("Failed to write the asset registry.");
@@ -1821,7 +1825,14 @@ namespace OloEngine::Automation
                 manager->RemoveAsset(handle);
                 return Error(std::string("The prefab file could not be written: ") + e.what());
             }
-            manager->SetMetadata(handle, metadata);
+            if (!manager->SetMetadata(handle, metadata))
+            {
+                RestoreAll(before);
+                manager->RemoveAsset(handle);
+                ReplaceFileContents(absolute, yaml, std::nullopt);
+                return Error("The asset registry refused the prefab's path (see the log; a cache/ directory cannot hold "
+                             "an authored asset); the prefab was not created.");
+            }
             if (!manager->SerializeAssetRegistry())
             {
                 RestoreAll(before);

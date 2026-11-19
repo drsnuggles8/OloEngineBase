@@ -59,9 +59,15 @@ namespace OloEngine
         //     Deserialize() drops one found in a file;
         //   * is refused by AddAsset/UpdateMetadata under any other handle, because that
         //     handle could not be re-derived after a restart.
+        // The directory name is matched ignoring case: this repo runs with core.ignorecase, so
+        // git ignores Cache/ and CACHE/ on Windows too.
         [[nodiscard]] static bool IsCacheArtefact(const std::filesystem::path& path);
         // Nonzero for every path. FNV-1a-64 of the path's generic spelling.
         [[nodiscard]] static AssetHandle CacheArtefactHandle(const std::filesystem::path& path);
+        // The handle to give a NEW entry for this registry path: CacheArtefactHandle for a
+        // cache artefact, a fresh random one otherwise. Every caller that mints a handle for a
+        // path it is about to register takes it from here.
+        [[nodiscard]] static AssetHandle HandleForNewEntry(const std::filesystem::path& path);
 
         /**
          * @brief Add or update asset metadata in the registry
@@ -156,8 +162,10 @@ namespace OloEngine
          * @brief Update asset metadata (preserving handle)
          * @param handle Asset handle
          * @param metadata New metadata (handle will be preserved)
+         * @return False when the handle is unknown or the new path is a cache artefact whose
+         *         derived handle is not this one (both logged); nothing is changed then.
          */
-        void UpdateMetadata(AssetHandle handle, const AssetMetadata& metadata);
+        bool UpdateMetadata(AssetHandle handle, const AssetMetadata& metadata);
 
         /**
          * @brief Generate a new unique asset handle

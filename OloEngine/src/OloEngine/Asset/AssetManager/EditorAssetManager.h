@@ -128,8 +128,11 @@ namespace OloEngine
          * Registers the asset when @p handle is not in the registry yet, and
          * updates it when it is -- so a caller that minted its own handle can use
          * this to register it. `metadata.Handle` is overwritten with @p handle.
+         *
+         * @return False when the registry refused it (logged): a path under a `cache/`
+         *         directory with a handle other than AssetRegistry::HandleForNewEntry's (#1664).
          */
-        void SetMetadata(AssetHandle handle, const AssetMetadata& metadata);
+        [[nodiscard]] bool SetMetadata(AssetHandle handle, const AssetMetadata& metadata);
 
         /**
          * @brief Update asset status (thread-safe)
@@ -272,8 +275,7 @@ namespace OloEngine
             {
                 // A fresh unique handle, or for a cache artefact the one derived from its
                 // path, which is the only handle the registry accepts for it (#1664).
-                metadata.Handle = AssetRegistry::IsCacheArtefact(relativePath) ? AssetRegistry::CacheArtefactHandle(relativePath)
-                                                                               : AssetHandle();
+                metadata.Handle = AssetRegistry::HandleForNewEntry(relativePath);
                 metadata.FilePath = relativePath;
                 metadata.Type = T::GetStaticType();
                 metadata.IsDataLoaded = true;
@@ -301,7 +303,14 @@ namespace OloEngine
             auto absolutePath = GetFileSystemPath(metadata);
             std::error_code timeError;
             metadata.LastWriteTime = std::filesystem::last_write_time(absolutePath, timeError);
-            SetMetadata(metadata.Handle, metadata);
+            if (!SetMetadata(metadata.Handle, metadata))
+            {
+                m_LoadedAssets.erase(metadata.Handle);
+                OLO_CORE_ERROR_TAG("AssetManager", "Saved {}, but the asset registry refused it (see the error above); "
+                                                   "it is not registered",
+                                   metadata.FilePath.string());
+                return nullptr;
+            }
             // The asset is registered in memory either way. The next registry write
             // (any import or create) persists it; a restart before that loses the handle.
             if (!replaceAsset && !SerializeAssetRegistry())

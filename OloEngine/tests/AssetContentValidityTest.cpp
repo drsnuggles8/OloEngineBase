@@ -1066,7 +1066,7 @@ namespace OloEngine::Tests
             // first cache artifacts to reach this point. They are registered in memory under a
             // handle derived from their path and never written to the registry file (#1664,
             // AssetRegistry::IsCacheArtefact), so the file never lists them.
-            if (relative.starts_with("Assets/cache/"))
+            if (AssetRegistry::IsCacheArtefact(relative))
                 continue;
 
             // A curves-only Alembic archive is a groom source, which the editor
@@ -2076,7 +2076,7 @@ namespace OloEngine::Tests
             // Derived and git-ignored, as EverySupportedAssetOnDiskIsInTheRegistry skips it:
             // registered here, a machine that had run the editor committed entries a fresh
             // clone has no files for (#1559's rebase added twelve).
-            if (relative.starts_with("Assets/cache/"))
+            if (AssetRegistry::IsCacheArtefact(relative))
                 continue;
 
             if (auto it = byLowerPath.find(toLower(relative)); it != byLowerPath.end())
@@ -2100,7 +2100,8 @@ namespace OloEngine::Tests
             md.Type = type;
             md.FilePath = relative; // stored generic (forward-slash)
             md.Status = AssetStatus::None;
-            registry.AddAsset(md);
+            if (!registry.AddAsset(md))
+                continue; // refused and logged by the registry
             registeredPaths.insert(relative);
             byLowerPath.emplace(toLower(relative), md);
             ++addedCount;

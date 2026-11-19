@@ -3,10 +3,13 @@
 
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/FileSystem.h"
+#include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Asset/AssetExtensions.h"
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
+#include <string_view>
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -21,10 +24,13 @@ namespace OloEngine
     {
         // `**/cache/**` in .gitignore: a DIRECTORY named cache at any depth. The filename itself
         // is not a directory, so a file called "cache" is not matched (and neither is it by git).
+        // Case-insensitive, as git is here (core.ignorecase).
         const std::filesystem::path parent = path.parent_path();
         for (const std::filesystem::path& component : parent)
         {
-            if (component == "cache")
+            const std::string name = component.string();
+            if (name.size() == 5 && std::ranges::equal(name, std::string_view{ "cache" }, [](char a, char b)
+                                                       { return std::tolower(static_cast<unsigned char>(a)) == b; }))
                 return true;
         }
         return false;
@@ -32,15 +38,16 @@ namespace OloEngine
 
     AssetHandle AssetRegistry::CacheArtefactHandle(const std::filesystem::path& path)
     {
-        // FNV-1a-64 over the generic (forward-slash) spelling, so Windows and Linux derive the
-        // same handle for the same project-relative path.
-        u64 hash = 14695981039346656037ULL;
-        for (const char c : path.generic_string())
-        {
-            hash ^= static_cast<u8>(c);
-            hash *= 1099511628211ULL;
-        }
+        // Over the generic (forward-slash) spelling, so Windows and Linux derive the same handle
+        // for the same project-relative path.
+        const std::string key = path.generic_string();
+        const u64 hash = Hash::FNV1a64(key.data(), key.size());
         return AssetHandle(hash == 0 ? 1 : hash);
+    }
+
+    AssetHandle AssetRegistry::HandleForNewEntry(const std::filesystem::path& path)
+    {
+        return IsCacheArtefact(path) ? CacheArtefactHandle(path) : AssetHandle();
     }
 
     bool AssetRegistry::IsAcceptableHandleForPath(AssetHandle handle, const std::filesystem::path& path, const char* caller)
@@ -239,10 +246,10 @@ namespace OloEngine
         m_HandleCounter.store(1, std::memory_order_relaxed);
     }
 
-    void AssetRegistry::UpdateMetadata(AssetHandle handle, const AssetMetadata& metadata)
+    bool AssetRegistry::UpdateMetadata(AssetHandle handle, const AssetMetadata& metadata)
     {
         if (!IsAcceptableHandleForPath(handle, metadata.FilePath, "UpdateMetadata"))
-            return;
+            return false;
 
         TUniqueLock<FSharedMutex> lock(m_Mutex);
 
@@ -250,7 +257,7 @@ namespace OloEngine
         if (it == m_AssetMetadata.end())
         {
             OLO_CORE_WARN("AssetRegistry::UpdateMetadata - Asset handle {} not found", handle);
-            return;
+            return false;
         }
 
         // Remove old path mapping
@@ -276,6 +283,7 @@ namespace OloEngine
 
             m_PathToHandle[updatedMetadata.FilePath] = handle;
         }
+        return true;
     }
 
     AssetHandle AssetRegistry::GenerateHandle()
@@ -454,6 +462,14 @@ namespace OloEngine
                                    "Save the registry to remove it from the file.",
                                    filepath.string(), metadata.FilePath.generic_string(),
                                    static_cast<u64>(metadata.Handle));
+                    // Its handle was minted by the counter and something (a scene, a stale
+                    // .omesh) may still hold it: keep the counter past it so the next authored
+                    // asset does not inherit it and resolve as the wrong asset.
+                    if (const u64 currentCounter = m_HandleCounter.load(std::memory_order_relaxed);
+                        static_cast<u64>(metadata.Handle) >= currentCounter)
+                    {
+                        m_HandleCounter.store(static_cast<u64>(metadata.Handle) + 1, std::memory_order_relaxed);
+                    }
                     continue;
                 }
 

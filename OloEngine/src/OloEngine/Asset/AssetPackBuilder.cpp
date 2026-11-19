@@ -229,7 +229,11 @@ namespace OloEngine
                 {
                     try
                     {
-                        tempAssetManager->SetMetadata(allAssets[i].Handle, allAssets[i]);
+                        if (!tempAssetManager->SetMetadata(allAssets[i].Handle, allAssets[i]))
+                        {
+                            loadErrors[i] = "the asset registry refused its entry (see the error above)";
+                            return;
+                        }
                         loadedAssets[i] = tempAssetManager->GetAsset(allAssets[i].Handle);
                     }
                     catch (const std::exception& e)

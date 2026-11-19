@@ -741,8 +741,11 @@ namespace OloEngine
                 }
                 else
                 {
-                    editorManager->SetMetadata(handle, metadata);
-                    if (!editorManager->SerializeAssetRegistry())
+                    if (!editorManager->SetMetadata(handle, metadata))
+                        OLO_CORE_ERROR("Saved prefab '{}', but the asset registry refused it (see the error above): it "
+                                       "is not registered, so '{}' is not linked to it",
+                                       prefabPath.string(), entityTag);
+                    else if (!editorManager->SerializeAssetRegistry())
                         OLO_CORE_ERROR("Saved prefab '{}', but the asset registry could not be written: its handle "
                                        "exists only in this session until the next registry write",
                                        prefabPath.string());

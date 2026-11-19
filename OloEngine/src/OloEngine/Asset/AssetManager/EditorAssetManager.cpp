@@ -856,6 +856,14 @@ namespace OloEngine
             std::error_code fileEc;
             if (!it->is_regular_file(fileEc) || fileEc)
                 continue;
+            // Lexical first: almost every file in a project is authored, and MakeRegistryKey
+            // canonicalises (two syscalls a file).
+            if (!AssetRegistry::IsCacheArtefact(it->path().lexically_relative(assetDirectory)))
+                continue;
+            // Model's cook writes `<stem>.tmp<hex>.png` and renames it into place when the write
+            // is complete; a build running beside a cook must not pack a half-written file.
+            if (it->path().stem().extension().string().starts_with(".tmp"))
+                continue;
 
             const std::filesystem::path key = MakeRegistryKey(it->path(), projectPath);
             if (!AssetRegistry::IsCacheArtefact(key))
@@ -961,7 +969,7 @@ namespace OloEngine
         // (#1664), so the next session, the pack cook and the .omesh that recorded the handle
         // all have to arrive at the same one on their own.
         AssetMetadata metadata;
-        metadata.Handle = AssetRegistry::IsCacheArtefact(relativePath) ? AssetRegistry::CacheArtefactHandle(relativePath)
+        metadata.Handle = AssetRegistry::IsCacheArtefact(relativePath) ? AssetRegistry::HandleForNewEntry(relativePath)
                                                                        : m_AssetRegistry.GenerateHandle();
         metadata.FilePath = relativePath;
         metadata.Type = type;
@@ -1621,7 +1629,7 @@ namespace OloEngine
         return m_AssetRegistry.GetMetadata(handle);
     }
 
-    void EditorAssetManager::SetMetadata(AssetHandle handle, const AssetMetadata& metadata)
+    bool EditorAssetManager::SetMetadata(AssetHandle handle, const AssetMetadata& metadata)
     {
         TUniqueLock<FSharedMutex> lock(m_RegistryMutex);
         // UpdateMetadata only UPDATES: an unknown handle logs a warning and writes
@@ -1634,14 +1642,8 @@ namespace OloEngine
         // new; AddAsset keeps the path mapping in step.
         AssetMetadata stored = metadata;
         stored.Handle = handle;
-        if (m_AssetRegistry.Exists(handle))
-        {
-            m_AssetRegistry.UpdateMetadata(handle, stored);
-        }
-        else
-        {
-            m_AssetRegistry.AddAsset(stored);
-        }
+        return m_AssetRegistry.Exists(handle) ? m_AssetRegistry.UpdateMetadata(handle, stored)
+                                              : m_AssetRegistry.AddAsset(stored);
     }
 
     void EditorAssetManager::SetAssetStatus(AssetHandle handle, AssetStatus status)
