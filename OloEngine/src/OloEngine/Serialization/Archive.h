@@ -1062,6 +1062,18 @@ namespace OloEngine
                     return Ar;
                 }
 
+                // A sized archive (memory readers, the save payload) refuses a
+                // length longer than what is left before allocating it: the
+                // read below would fail anyway, after a resize of up to 2 GiB.
+                const i64 Position = Ar.Tell();
+                const i64 Size = Ar.TotalSize();
+                if (Position != INDEX_NONE && Size != INDEX_NONE && static_cast<i64>(Length) > Size - Position)
+                {
+                    Ar.SetError();
+                    Value.clear();
+                    return Ar;
+                }
+
                 Value.resize(Length);
             }
 

@@ -593,3 +593,37 @@ TEST(ArchiveExtensionsTest, TruncatedMapCountFailsKeepsDestination)
     EXPECT_TRUE(reader.IsError());
     EXPECT_EQ(loaded, original);
 }
+
+// A string's declared length is checked against what the reader holds before
+// the string is allocated (#1712 review): a corrupt save used to resize a
+// std::string to the declared length, up to 2 GiB, and only then fail the read.
+TEST(ArchiveExtensionsTest, AStringLongerThanTheReaderFailsBeforeAllocating)
+{
+    std::vector<u8> buffer;
+    {
+        FMemoryWriter writer(buffer);
+        i32 declared = 0x7FFFFFF0; // about 2 GiB
+        writer << declared;
+        u8 oneByte = 'x';
+        writer << oneByte;
+    }
+    FMemoryReader reader(buffer);
+    std::string value = "unchanged";
+    reader << value;
+    EXPECT_TRUE(reader.IsError());
+    EXPECT_TRUE(value.empty());
+    EXPECT_LT(value.capacity(), 1024u) << "the declared length was allocated";
+
+    // Positive control: a length that fits reads normally.
+    std::vector<u8> fits;
+    {
+        FMemoryWriter writer(fits);
+        std::string text = "lamp";
+        writer << text;
+    }
+    FMemoryReader fitsReader(fits);
+    std::string read;
+    fitsReader << read;
+    EXPECT_FALSE(fitsReader.IsError());
+    EXPECT_EQ(read, "lamp");
+}
