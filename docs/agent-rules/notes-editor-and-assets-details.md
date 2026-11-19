@@ -579,14 +579,21 @@ The rule now lives in `AssetRegistry` itself:
   platform. `.gitignore` ignores `[Cc][Aa][Cc][Hh][Ee]/` to match, so the rule does not depend on
   `core.ignorecase`.
 - Such an entry's handle is `CacheArtefactHandle(path)`, FNV-1a-64 of the path's generic spelling.
-  `ImportAsset` gives a cache file that handle, and a caller minting a random handle takes it from
-  `HandleForNewEntry(path)`. `AddAsset` and `UpdateMetadata` refuse any other handle with an
+  Every caller that mints a handle for a new entry, `ImportAsset` included, takes it from
+  `HandleForNewEntry(path)`: the derived handle for a cache file, a random one for an authored
+  file. Authored handles are random rather than the next value of the registry's counter, because
+  the counter is rebuilt from the file on load and would hand out again a handle that was dropped
+  with an older file's cache entry. `AddAsset` and `UpdateMetadata` refuse any other handle with an
   error, because no later session could re-derive it, and `EditorAssetManager::SetMetadata` returns
   that refusal so its callers fail instead of reporting success. A derived handle does not move the
-  sequential handle counter, so the next authored asset's handle does not depend on which cache
-  files a machine has.
+  counter.
+- A cooked file moved out of `cache/` keeps its derived handle under its new, authored path. When
+  the cook writes the file again at the old path, it derives the same handle, and `AddAsset`
+  refuses that cache entry instead of overwriting the authored one.
 - An authored asset never goes under `cache/`: the MCP asset move, the MCP prefab create and the
   hierarchy panel's *Save as Prefab* refuse such a destination before writing or moving anything.
+  The MCP commands classify the registry key, which follows links and `..`, so a link to `cache/`
+  is refused and `cache/../Prefabs/` is not.
 - Model's cook writes `<stem>.tmp<hex>.png` and renames it into place. `IsInFlightCookFile` keeps
   that file out of the startup scan, the file watcher and the pack walk.
 - `Serialize` leaves these entries out and `Deserialize` drops one found in a file (an older build
@@ -594,7 +601,8 @@ The rule now lives in `AssetRegistry` itself:
   never given to another asset.
 - The pack cook reads the registry file, so `AssetPackBuilder::BuildFromActiveProject` adds them
   back with `EditorAssetManager::RegisterCacheArtefacts`, under the handle the cooking session gave
-  them.
+  them. A directory walk that fails part-way stops the pack build, because the pack would otherwise
+  ship without the artefacts after that point and still report success.
 
 The choice over a git-ignored side registry: the cooked name is already deterministic (a hash of
 the model path, the Assimp texture reference and the colour-space intent; not of the pixels), so a

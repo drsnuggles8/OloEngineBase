@@ -751,6 +751,17 @@ namespace OloEngine::Automation::Tests
             << "the prefab was written (and then rolled back) before the refusal";
     }
 
+    // The refusal judges where the path resolves to, not how it is spelled: a `cache`
+    // component that `..` cancels leaves an ordinary authored path.
+    TEST_F(AutomationPrefabCommandsTest, CreateAcceptsAPathThatOnlySpellsACacheDirectory)
+    {
+        Entity root = m_Host.ActiveScene->CreateEntity("Through");
+        const Json created =
+            Ok("olo_prefab_create", { { "entity", Id(root) }, { "path", "Assets/cache/../Prefabs/Through.oloprefab" } });
+        EXPECT_FALSE(created.value("prefab", std::string{}).empty()) << created.dump(2);
+        EXPECT_TRUE(std::filesystem::exists(Project::GetProjectDirectory() / "Assets" / "Prefabs" / "Through.oloprefab"));
+    }
+
     TEST_F(AutomationPrefabCommandsTest, CreateRefusesPathsOutsideTheAssetDirectoryAndNonPrefabExtensions)
     {
         Entity root = m_Host.ActiveScene->CreateEntity("Loose");

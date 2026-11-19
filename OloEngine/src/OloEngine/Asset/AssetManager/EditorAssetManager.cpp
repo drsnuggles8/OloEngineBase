@@ -840,8 +840,9 @@ namespace OloEngine
         return type;
     }
 
-    sizet EditorAssetManager::RegisterCacheArtefacts(AssetRegistry& registry, const std::filesystem::path& assetDirectory,
-                                                     const std::filesystem::path& projectPath)
+    std::optional<sizet> EditorAssetManager::RegisterCacheArtefacts(AssetRegistry& registry,
+                                                                    const std::filesystem::path& assetDirectory,
+                                                                    const std::filesystem::path& projectPath)
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::RegisterCacheArtefacts");
 
@@ -889,6 +890,7 @@ namespace OloEngine
             OLO_CORE_ERROR("EditorAssetManager::RegisterCacheArtefacts - could not walk {}: {}; cache artefacts after "
                            "that point are not registered",
                            assetDirectory.string(), ec.message());
+            return std::nullopt;
         }
         return registered;
     }
@@ -979,10 +981,11 @@ namespace OloEngine
         // Create metadata. A cache artefact (a cooked embedded texture under Assets/cache/)
         // takes the handle derived from its path: it is never written to the registry file
         // (#1664), so the next session, the pack cook and the .omesh that recorded the handle
-        // all have to arrive at the same one on their own.
+        // all have to arrive at the same one on their own. An authored file takes a random
+        // handle, never the next value of a counter: a counter rebuilt from the registry file
+        // would hand out again a handle that was dropped with an older file's cache entry.
         AssetMetadata metadata;
-        metadata.Handle = AssetRegistry::IsCacheArtefact(relativePath) ? AssetRegistry::CacheArtefactHandle(relativePath)
-                                                                       : m_AssetRegistry.GenerateHandle();
+        metadata.Handle = AssetRegistry::HandleForNewEntry(relativePath);
         metadata.FilePath = relativePath;
         metadata.Type = type;
 

@@ -1072,11 +1072,24 @@ namespace
         return pixels;
     }
 
+    // Whole RGBA8 pixels against the first one: comparing bytes, a solid opaque-black block
+    // (0,0,0,255) would count as varying because its alpha differs from its red.
     bool HasVaryingPixels(const std::vector<u8>& pixels)
     {
-        return !pixels.empty() &&
-               std::any_of(pixels.begin(), pixels.end(), [&](u8 b)
-                           { return b != pixels[0]; });
+        constexpr sizet stride = 4u;
+        if (pixels.size() < 2u * stride || pixels.size() % stride != 0u)
+        {
+            return false;
+        }
+        for (sizet offset = stride; offset < pixels.size(); offset += stride)
+        {
+            if (!std::equal(pixels.begin(), pixels.begin() + static_cast<std::ptrdiff_t>(stride),
+                            pixels.begin() + static_cast<std::ptrdiff_t>(offset)))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 } // namespace
 

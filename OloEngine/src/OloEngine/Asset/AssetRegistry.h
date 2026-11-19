@@ -65,8 +65,9 @@ namespace OloEngine
         // Nonzero for every path. FNV-1a-64 of the path's generic spelling.
         [[nodiscard]] static AssetHandle CacheArtefactHandle(const std::filesystem::path& path);
         // The handle to give a NEW entry for this registry path: CacheArtefactHandle for a
-        // cache artefact, a fresh random one otherwise. A caller that mints a random handle
-        // takes it from here (ImportAsset keeps the sequential counter for authored files).
+        // cache artefact, a fresh random one otherwise. Every caller that mints a handle for a
+        // path it is about to register takes it from here. A random handle, unlike the counter,
+        // cannot reissue a handle dropped with an older registry file's cache entry.
         [[nodiscard]] static AssetHandle HandleForNewEntry(const std::filesystem::path& path);
         // Model's cook writes `<stem>.tmp<hex>.png` beside the cooked file and renames it into
         // place when the write is complete. Such a file is never registered.
@@ -75,8 +76,10 @@ namespace OloEngine
         /**
          * @brief Add or update asset metadata in the registry
          * @param metadata Asset metadata to store
-         * @return False when the entry was refused (a zero handle, or a cache artefact whose
-         *         handle is not CacheArtefactHandle of its path); the refusal is logged as an error.
+         * @return False when the entry was refused (a zero handle, a cache artefact whose
+         *         handle is not CacheArtefactHandle of its path, or a cache artefact whose handle
+         *         already belongs to another path, a file moved out of the cache); the refusal is
+         *         logged as an error.
          */
         bool AddAsset(const AssetMetadata& metadata);
 

@@ -81,9 +81,11 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -184,6 +186,40 @@ namespace OloEngine::Tests
             std::ifstream in(path, std::ios::binary);
             return in ? std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>())
                       : std::vector<char>{};
+        }
+
+        // Every entry path of a v3 AssetRegistry.oar, read straight from its bytes:
+        // Deserialize drops cache entries, so it cannot show that one was written.
+        // Empty optional when the bytes are not a whole v3 registry.
+        std::optional<std::vector<fs::path>> RawRegistryEntryPaths(const std::vector<char>& bytes)
+        {
+            sizet offset = 0;
+            const auto take = [&](auto& value)
+            {
+                if (bytes.size() - offset < sizeof(value))
+                    return false;
+                std::memcpy(&value, bytes.data() + offset, sizeof(value));
+                offset += sizeof(value);
+                return true;
+            };
+            u32 version = 0;
+            u32 count = 0;
+            if (!take(version) || version != OloEngine::AssetRegistry::FileVersion || !take(count))
+                return std::nullopt;
+            std::vector<fs::path> paths;
+            for (u32 i = 0; i < count; ++i)
+            {
+                u64 handle = 0;
+                u32 type = 0;
+                u32 length = 0;
+                if (!take(handle) || !take(type) || !take(length) || bytes.size() - offset < length)
+                    return std::nullopt;
+                paths.emplace_back(std::string(bytes.data() + offset, length));
+                offset += length;
+            }
+            if (offset != bytes.size())
+                return std::nullopt;
+            return paths;
         }
 
         // Find the .oloproj inside a staged temp project. Sandbox.oloproj
@@ -473,10 +509,14 @@ namespace OloEngine::Tests
         {
             // On the raw bytes: Deserialize drops cache entries, so comparing parsed registries
             // cannot see one that was written.
-            const std::vector<char> afterBytes = ReadAllBytes(tempRoot / "AssetRegistry.oar");
-            const std::string_view afterText(afterBytes.data(), afterBytes.size());
-            EXPECT_EQ(afterText.find("Assets/cache/"), std::string_view::npos)
-                << "a cache artefact was written to AssetRegistry.oar";
+            const std::optional<std::vector<fs::path>> writtenPaths =
+                RawRegistryEntryPaths(ReadAllBytes(tempRoot / "AssetRegistry.oar"));
+            ASSERT_TRUE(writtenPaths.has_value()) << "the saved AssetRegistry.oar is not a whole v3 registry";
+            for (const fs::path& written : *writtenPaths)
+            {
+                EXPECT_FALSE(AssetRegistry::IsCacheArtefact(written))
+                    << "a cache artefact was written to AssetRegistry.oar: " << written.generic_string();
+            }
 
             const fs::path beforePath = TempDir("registry-before") / "AssetRegistry.oar";
             std::ofstream(beforePath, std::ios::binary)
@@ -486,15 +526,20 @@ namespace OloEngine::Tests
             ASSERT_TRUE(before.Deserialize(beforePath));
             ASSERT_TRUE(after.Deserialize(tempRoot / "AssetRegistry.oar"));
             std::ostringstream diff;
+            const fs::path realProject = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject";
             for (const AssetMetadata& m : after.GetAllAssets())
             {
                 // A key starting ".." names a file outside the project: the scenes import engine
                 // textures (OloEditor/assets/...). The checked-in registry has them as
-                // "../assets/...", which is right for the real SandboxProject; this staged copy
-                // lives elsewhere, so the same file gets another relative key here. Not a change
-                // a real checkout would see, so it is not counted.
+                // "../assets/...", relative to the real SandboxProject; this staged copy lives
+                // elsewhere, so the same file gets another key here. Such an addition is not
+                // counted only when, keyed from the real project, the file is already registered.
+                // An engine texture the checked-in registry lacks is a real addition.
                 const bool escapesTheProject = !m.FilePath.empty() && *m.FilePath.begin() == "..";
-                if (const AssetMetadata old = before.GetMetadata(m.Handle); !old.IsValid() && !escapesTheProject)
+                const bool stagingDuplicate =
+                    escapesTheProject &&
+                    before.Exists(EditorAssetManager::MakeRegistryKey(tempRoot / m.FilePath, realProject));
+                if (const AssetMetadata old = before.GetMetadata(m.Handle); !old.IsValid() && !stagingDuplicate)
                     diff << "\n  added   " << static_cast<u64>(m.Handle) << " " << m.FilePath.generic_string();
                 else if (old.IsValid() && (old.FilePath != m.FilePath || old.Type != m.Type))
                     diff << "\n  changed " << static_cast<u64>(m.Handle) << " " << old.FilePath.generic_string()

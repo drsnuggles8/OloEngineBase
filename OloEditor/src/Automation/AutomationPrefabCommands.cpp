@@ -1733,14 +1733,6 @@ namespace OloEngine::Automation
             {
                 return Error("path must end in " + std::string(OloExtensions::Prefab) + ".");
             }
-            if (AssetRegistry::IsCacheArtefact(requested))
-            {
-                // Refused up front, before anything is written or stamped: a cache/ directory
-                // is git-ignored derived data, and the registry refuses an authored asset
-                // there because it could not keep its handle (#1664).
-                return Error("path " + requested.generic_string() +
-                             " is under a cache/ directory, which is git-ignored derived data; choose another folder.");
-            }
             const std::filesystem::path absolute = (Project::GetProjectDirectory() / requested).lexically_normal();
             const std::filesystem::path assetDirectory = Project::GetAssetDirectory();
             if (!IsInsideDirectory(absolute, assetDirectory))
@@ -1761,6 +1753,15 @@ namespace OloEngine::Automation
                 }
                 message += ", asset directory '" + DirectoryForComparison(assetDirectory).generic_string() + "'.";
                 return Error(std::move(message));
+            }
+            // Refused before anything is written or stamped: a cache/ directory is git-ignored
+            // derived data, and the registry refuses an authored asset there because it could
+            // not keep its handle (#1664). Classified on the registry key, which follows links
+            // and `..`, so an alias of cache/ is refused and `cache/../Prefabs/` is not.
+            if (AssetRegistry::IsCacheArtefact(EditorAssetManager::MakeRegistryKey(absolute, Project::GetProjectDirectory())))
+            {
+                return Error("path " + requested.generic_string() +
+                             " resolves under a cache/ directory, which is git-ignored derived data; choose another folder.");
             }
             std::error_code ec;
             const bool exists = std::filesystem::exists(absolute, ec) && !ec;

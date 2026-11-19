@@ -14,6 +14,7 @@
 #include "OloEngine/Threading/SharedMutex.h"
 
 #include <filesystem>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <string>
@@ -234,10 +235,13 @@ namespace OloEngine
          * #1664), so a reader of that file — the asset-pack cook — adds them back from disk
          * with this, each under its derived handle, the one an editor session gave it.
          *
-         * @return The number of files registered.
+         * @return The number of files registered, or nullopt when the directory walk failed part-way:
+         *         the artefacts after that point are missing, and a pack built from the registry
+         *         would ship without them, so the caller stops. A complete walk that found none is 0.
          */
-        static sizet RegisterCacheArtefacts(AssetRegistry& registry, const std::filesystem::path& assetDirectory,
-                                            const std::filesystem::path& projectPath);
+        [[nodiscard]] static std::optional<sizet> RegisterCacheArtefacts(AssetRegistry& registry,
+                                                                         const std::filesystem::path& assetDirectory,
+                                                                         const std::filesystem::path& projectPath);
 
         /**
          * @brief Check if file exists for given metadata

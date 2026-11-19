@@ -152,9 +152,15 @@ namespace OloEngine
         // Cache artefacts (the cooked embedded textures under Assets/cache/) are never in the
         // registry file (#1664). The meshes that use them reference them by their derived
         // handle, so add them from disk under that handle, or the pack ships those meshes mapless.
-        const sizet cacheArtefacts = EditorAssetManager::RegisterCacheArtefacts(registry, Project::GetAssetDirectory(),
-                                                                                Project::GetProjectDirectory());
-        OLO_CORE_INFO("AssetPackBuilder: registered {} cache artefact(s) from {}", cacheArtefacts,
+        const std::optional<sizet> cacheArtefacts =
+            EditorAssetManager::RegisterCacheArtefacts(registry, Project::GetAssetDirectory(), Project::GetProjectDirectory());
+        if (!cacheArtefacts)
+        {
+            // A part-way walk leaves later artefacts out of the registry; the pack would ship
+            // without them and still report success.
+            return { false, "Could not list the cache artefacts under " + Project::GetAssetDirectory().string() + " (see the log); the pack would miss cooked textures", 0, 0, {} };
+        }
+        OLO_CORE_INFO("AssetPackBuilder: registered {} cache artefact(s) from {}", *cacheArtefacts,
                       Project::GetAssetDirectory().string());
 
         OLO_CORE_INFO("AssetPackBuilder: Starting asset pack build from active project ({} registered assets)", registry.GetAllAssets().size());

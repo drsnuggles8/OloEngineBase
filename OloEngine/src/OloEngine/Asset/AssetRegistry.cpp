@@ -86,6 +86,16 @@ namespace OloEngine
         // Check for existing asset with same handle
         if (auto handleIt = m_AssetMetadata.find(metadata.Handle); handleIt != m_AssetMetadata.end())
         {
+            // A cooked file moved out of cache/ keeps its derived handle under an authored path.
+            // The cook writing the file again at the old path derives that same handle; replacing
+            // the authored entry with it would point every reference at the regenerated copy.
+            if (IsCacheArtefact(metadata.FilePath) && handleIt->second.FilePath != metadata.FilePath)
+            {
+                OLO_CORE_ERROR("AssetRegistry::AddAsset - refused {}: its derived handle {} already belongs to {}, "
+                               "which was moved out of the cache (#1664); the cache artefact stays unregistered",
+                               metadata.FilePath.string(), metadata.Handle, handleIt->second.FilePath.string());
+                return false;
+            }
             // Handle already exists - log warning about potential overwrite
             if (handleIt->second.FilePath != metadata.FilePath || handleIt->second.Type != metadata.Type)
             {

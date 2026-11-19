@@ -613,6 +613,17 @@ namespace OloEngine::Tests
         ASSERT_TRUE(registry.AddAsset(MakeMetadata(authored, AssetType::Texture2D, "Assets/Textures/Bar.png")));
         registry.UpdateMetadata(authored, AssetMetadata{ authored, AssetType::Texture2D, "Assets/cache/embedded/bar.png" });
         EXPECT_EQ(registry.GetMetadata(authored).FilePath, std::filesystem::path{ "Assets/Textures/Bar.png" });
+
+        // A cooked file moved out of cache/ keeps its derived handle under its new, authored
+        // path. When the cook writes the file again at the old path, it derives that same handle:
+        // the cache entry is refused rather than overwriting the authored one.
+        const std::filesystem::path movedFrom{ "Assets/cache/embedded/emb_00000000000000bb_linear.png" };
+        const AssetHandle promoted = AssetRegistry::CacheArtefactHandle(movedFrom);
+        ASSERT_TRUE(registry.AddAsset(MakeMetadata(promoted, AssetType::Texture2D, "Assets/Textures/Promoted.png")));
+        EXPECT_FALSE(registry.AddAsset(AssetMetadata{ promoted, AssetType::Texture2D, movedFrom }))
+            << "a regenerated cache artefact replaced the authored entry that holds its handle";
+        EXPECT_EQ(registry.GetMetadata(promoted).FilePath, std::filesystem::path{ "Assets/Textures/Promoted.png" });
+        EXPECT_FALSE(registry.Exists(movedFrom));
     }
 
     // A registry written before #1664 can still hold cache entries under random handles.
@@ -676,6 +687,25 @@ namespace OloEngine::Tests
         ASSERT_TRUE(Project::Load(root / "Test.oloproj"));
         const ProjectScope projectScope;
         const std::filesystem::path oar = Project::GetAssetRegistryPath();
+        // A registry from before #1664: the authored texture under handle 5, and a cooked one
+        // under handle 6, which every session drops.
+        constexpr u64 droppedHandle = 6ULL;
+        {
+            std::ofstream file(oar, std::ios::binary);
+            const auto put = [&file](const auto& value)
+            { file.write(reinterpret_cast<const char*>(&value), sizeof(value)); };
+            const auto entry = [&](u64 handle, const std::string& path)
+            {
+                put(handle);
+                put(static_cast<u32>(std::to_underlying(AssetType::Texture2D)));
+                put(static_cast<u32>(path.size()));
+                file.write(path.data(), static_cast<std::streamsize>(path.size()));
+            };
+            put(AssetRegistry::FileVersion);
+            put(u32{ 2 });
+            entry(5ULL, "Assets/Textures/Authored.png");
+            entry(droppedHandle, "Assets/cache/embedded/emb_00000000000000aa_basecolor.png");
+        }
         std::vector<char> savedBytes;
         {
             auto manager = Ref<EditorAssetManager>::Create();
@@ -702,7 +732,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(onDisk.GetAssetCount(), 1u) << "only the authored texture belongs in the file";
         EXPECT_EQ(EditorAssetManager::RegisterCacheArtefacts(onDisk, Project::GetAssetDirectory(),
                                                              Project::GetProjectDirectory()),
-                  2u);
+                  std::optional<sizet>{ 2u });
         EXPECT_EQ(static_cast<u64>(onDisk.GetHandleFromPath(lateKey)),
                   static_cast<u64>(AssetRegistry::CacheArtefactHandle(lateKey)))
             << "the pack cook's reader gave the artefact another handle than the session that cooked it";
@@ -715,6 +745,19 @@ namespace OloEngine::Tests
                 << "a second session did not arrive at the same handle";
         }
         EXPECT_EQ(ReadAllBytes(oar), savedBytes);
+
+        // The file no longer names handle 6, so a reopened registry knows nothing of it.
+        // Something (a stale .omesh) may still hold it: a new authored asset must not get it.
+        std::ofstream(root / "Assets" / "Textures" / "New.png") << "png";
+        {
+            auto third = Ref<EditorAssetManager>::Create();
+            third->Initialize(/*startFileWatcher=*/false);
+            const AssetHandle fresh = third->GetAssetHandleFromFilePath("Assets/Textures/New.png");
+            EXPECT_NE(static_cast<u64>(fresh), 0u) << "the scan did not import the new texture";
+            EXPECT_NE(static_cast<u64>(fresh), droppedHandle)
+                << "a handle dropped with an older file's cache entry went back into circulation";
+            EXPECT_EQ(static_cast<u64>(third->GetAssetHandleFromFilePath("Assets/Textures/Authored.png")), 5ULL);
+        }
     }
 
 } // namespace OloEngine::Tests
