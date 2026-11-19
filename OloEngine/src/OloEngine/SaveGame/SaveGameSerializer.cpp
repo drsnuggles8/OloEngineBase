@@ -328,18 +328,18 @@ namespace OloEngine
             return;
         }
 
-        std::vector<const std::pair<const std::string, DialogueVariableValue>*> entries;
-        entries.reserve(variables.GetAll().size());
-        for (const auto& entry : variables.GetAll())
-            entries.push_back(&entry);
-        std::ranges::sort(entries, {}, [](const auto* entry)
-                          { return std::string_view(entry->first); });
-        if (entries.size() > kMaxVariables)
+        if (variables.GetAll().size() > kMaxVariables)
         {
             ar.SetError();
             return;
         }
-        u32 count = static_cast<u32>(entries.size());
+        TArray<const std::pair<const std::string, DialogueVariableValue>*> entries;
+        entries.Reserve(static_cast<i32>(variables.GetAll().size()));
+        for (const auto& entry : variables.GetAll())
+            entries.Add(&entry);
+        std::ranges::sort(entries, {}, [](const auto* entry)
+                          { return std::string_view(entry->first); });
+        u32 count = static_cast<u32>(entries.Num());
         ar << count;
         for (const auto* entry : entries)
         {
@@ -348,17 +348,8 @@ namespace OloEngine
             ar << key << type;
             std::visit([&ar](const auto& value)
                        {
-                           using T = std::decay_t<decltype(value)>;
-                           if constexpr (std::is_same_v<T, FString>)
-                           {
-                               std::string text = value.ToStdString();
-                               ar << text;
-                           }
-                           else
-                           {
-                               T copy = value;
-                               ar << copy;
-                           } },
+                           auto copy = value;
+                           ar << copy; },
                        entry->second);
         }
     }
@@ -380,6 +371,14 @@ namespace OloEngine
             FMemoryWriter blockWriter(block);
             blockWriter.ArIsSaveGame = true;
             serialize(blockWriter);
+            if (blockWriter.IsError())
+            {
+                // A block that refused to write (e.g. more dialogue variables
+                // than the reader accepts) fails the whole capture, as a
+                // component block does, instead of saving a file no load reads.
+                writer.SetError();
+                return;
+            }
         }
         u32 byteCount = static_cast<u32>(block.size());
         writer << byteCount;
@@ -509,36 +508,50 @@ namespace OloEngine
         }
 
         // Runtime-owned entities (the dialogue UI, captions, debris…) are rebuilt
-        // by their systems after Continue, so the save never carries them (#1712).
-        // A saved parent's child list is scrubbed of them for the capture and
-        // put back afterwards, so the saved hierarchy names no missing entity.
+        // by their systems after Continue, so the save never carries them, nor
+        // anything parented under them (#1712). Collected downward from the
+        // marked roots, so the cost scales with them, not with the scene.
         auto view = scene.GetAllEntitiesWith<IDComponent>();
         std::unordered_set<u64> runtimeOwned;
-        for (auto entityHandle : view)
         {
-            if (Entity entity = { entityHandle, &scene }; scene.IsRuntimeOwned(entity))
-                runtimeOwned.insert(static_cast<u64>(entity.GetUUID()));
-        }
-        struct ChildListBackup
-        {
-            entt::entity Entity;
-            TArray<UUID> Children;
-        };
-        std::vector<ChildListBackup> childListBackups;
-        if (!runtimeOwned.empty())
-        {
-            for (auto [handle, relationship] : scene.m_Registry.view<RelationshipComponent>().each())
+            TArray<UUID> pending;
+            for (auto handle : scene.m_Registry.view<RuntimeOwnedTag>())
+                pending.Add(scene.m_Registry.get<IDComponent>(handle).ID);
+            while (!pending.IsEmpty())
             {
-                const auto isRuntimeOwned = [&runtimeOwned](UUID child)
-                {
-                    return runtimeOwned.contains(static_cast<u64>(child));
-                };
-                if (std::ranges::none_of(relationship.m_Children, isRuntimeOwned))
+                const UUID id = pending.Last();
+                pending.Pop(EAllowShrinking::No);
+                const auto owned = scene.TryGetEntityWithUUID(id);
+                // A dangling child UUID names no entity and is not counted; the
+                // insert doubles as the guard against a corrupt parent cycle.
+                if (!owned || !runtimeOwned.insert(static_cast<u64>(id)).second)
                     continue;
-                childListBackups.push_back({ handle, relationship.m_Children });
-                relationship.m_Children.RemoveAll(isRuntimeOwned);
+                if (owned->HasComponent<RelationshipComponent>())
+                    pending.Append(owned->GetComponent<RelationshipComponent>().m_Children);
             }
         }
+        const auto isRuntimeOwned = [&runtimeOwned](UUID child)
+        {
+            return runtimeOwned.contains(static_cast<u64>(child));
+        };
+
+        // A saved parent's child list is written without its runtime-owned
+        // children, so the saved hierarchy names no missing entity. The live
+        // list is put back as soon as that entity's components are written,
+        // before any script callback can observe it.
+        struct ScrubbedChildList
+        {
+            RelationshipComponent* Component = nullptr;
+            TArray<UUID> Live;
+            ScrubbedChildList() = default;
+            ScrubbedChildList(const ScrubbedChildList&) = delete;
+            ScrubbedChildList& operator=(const ScrubbedChildList&) = delete;
+            ~ScrubbedChildList()
+            {
+                if (Component)
+                    Component->m_Children = MoveTemp(Live);
+            }
+        };
 
         u32 entityCount = static_cast<u32>(view.size() - runtimeOwned.size());
         writer << entityCount;
@@ -557,13 +570,27 @@ namespace OloEngine
             UUID uuid = id.ID;
             writer << uuid;
 
-            // Serialize all present components. The SAVE_COMPONENT(...) enumeration
-            // is generated by OloHeaderTool from every `struct *Component` with a
-            // save serializer (see SaveGameComponentSerializer.cpp) — DO NOT hand-
-            // edit. Add a Serialize() overload + REGISTER_SAVE_COMPONENT and the
-            // next GenerateBindings run adds the component here automatically.
-            // Guarded by SaveGameComponentSerializerCoverageTest.
+            {
+                ScrubbedChildList scrubbed;
+                if (!runtimeOwned.empty() && entity.HasComponent<RelationshipComponent>())
+                {
+                    auto& relationship = entity.GetComponent<RelationshipComponent>();
+                    if (std::ranges::any_of(relationship.m_Children, isRuntimeOwned))
+                    {
+                        scrubbed.Component = &relationship;
+                        scrubbed.Live = relationship.m_Children;
+                        relationship.m_Children.RemoveAll(isRuntimeOwned);
+                    }
+                }
+
+                // Serialize all present components. The SAVE_COMPONENT(...) enumeration
+                // is generated by OloHeaderTool from every `struct *Component` with a
+                // save serializer (see SaveGameComponentSerializer.cpp) — DO NOT hand-
+                // edit. Add a Serialize() overload + REGISTER_SAVE_COMPONENT and the
+                // next GenerateBindings run adds the component here automatically.
+                // Guarded by SaveGameComponentSerializerCoverageTest.
 #include "OloEngine/SaveGame/Generated/SaveGameComponentCapture.Generated.inl"
+            }
 
             // ISaveable blob for ScriptComponent custom state
             if (entity.HasComponent<ScriptComponent>())
@@ -596,10 +623,6 @@ namespace OloEngine
             auto& rb3d = scene.m_Registry.get<Rigidbody3DComponent>(backup.Entity);
             rb3d.m_InitialLinearVelocity = backup.LinearVelocity;
             rb3d.m_InitialAngularVelocity = backup.AngularVelocity;
-        }
-        for (auto& backup : childListBackups)
-        {
-            scene.m_Registry.get<RelationshipComponent>(backup.Entity).m_Children = std::move(backup.Children);
         }
 
         // If serialization failed, return empty buffer so callers detect the error
@@ -1006,8 +1029,6 @@ namespace OloEngine
         scene.m_SkinDiffusionSettings = std::move(skinDiffusion);
         scene.m_PrecipitationSettings = std::move(precipitation);
         scene.m_StreamingSettings = std::move(streaming);
-        // After StopStartupForCheckpoint: its OnRuntimeStop clears the variables.
-        scene.m_DialogueVariables = std::move(dialogueVariables);
 
         // Destroy all existing entities in the real scene (children before parents)
         {
@@ -1059,6 +1080,11 @@ namespace OloEngine
         }
         std::swap(scene.m_Registry, staging->m_Registry);
         std::swap(scene.m_EntityMap, staging->m_EntityMap);
+
+        // After the teardown above, whose script OnDestroy callbacks may still
+        // write variables, and after StopStartupForCheckpoint's OnRuntimeStop,
+        // which clears them.
+        scene.m_DialogueVariables = std::move(dialogueVariables);
 
         // Apply deferred ISaveable restores now that entities live in the committed scene
         bool restored = true;

@@ -462,6 +462,16 @@ TEST(SaveGameSceneSettingsRoundTrip, DialogueVariablesSurviveASave)
     EXPECT_EQ(variables.GetAll().size(), 4u);
 }
 
+TEST(SaveGameSceneSettingsRoundTrip, MoreDialogueVariablesThanTheReaderAcceptsFailTheCapture)
+{
+    // A block that refuses to write fails the whole capture instead of saving
+    // a file whose settings no load can parse.
+    Ref<Scene> saved = MakeScene();
+    for (u32 i = 0; i <= 65'536; ++i)
+        saved->GetDialogueVariables().SetBool("flag_" + std::to_string(i), true);
+    EXPECT_TRUE(SaveGameSerializer::CaptureSceneState(*saved).empty());
+}
+
 TEST(SaveGameSceneSettingsRoundTrip, ANonFiniteDialogueVariableLoadsAsZero)
 {
     Ref<Scene> saved = MakeScene();
