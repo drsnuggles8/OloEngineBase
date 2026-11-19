@@ -788,7 +788,7 @@ def footing():
 
 def publish(staged, destination):
     # Validate both descriptors before publishing any file to the editor's
-    # watched project. Re-running after an interruption repairs the package.
+    # watched project. Publish the descriptors after their dependencies.
     descriptors = sorted(staged.glob("*.gltf"))
     names = set()
     for descriptor in descriptors:
@@ -804,17 +804,43 @@ def publish(staged, destination):
                 raise ValueError(f"Missing texture: {path}")
             names.add(path.name)
     destination.mkdir(parents=True, exist_ok=True)
-    for name in sorted(names) + [p.name for p in descriptors]:
-        src, dst = staged / name, destination / name
-        if dst.is_file() and filecmp.cmp(src, dst, shallow=False):
-            continue
-        with tempfile.NamedTemporaryFile(dir=destination, suffix=".pending", delete=False) as temp:
-            pending = Path(temp.name)
-        try:
-            shutil.copyfile(src, pending)
-            os.replace(pending, dst)
-        finally:
-            pending.unlink(missing_ok=True)
+    recovery = destination / ".harbour-publish"
+    recovery.mkdir()  # One publisher per destination, including across processes.
+    changes = []
+    replaced = []
+    try:
+        for name in sorted(names) + [p.name for p in descriptors]:
+            src, dst = staged / name, destination / name
+            if dst.is_symlink() or (dst.exists() and not dst.is_file()):
+                raise ValueError(f"Expected a regular output file: {dst}")
+            if dst.is_file():
+                if filecmp.cmp(src, dst, shallow=False):
+                    continue
+                shutil.copy2(dst, recovery / (name + ".previous"))
+            shutil.copyfile(src, recovery / (name + ".pending"))
+            changes.append(name)
+        # The plan is complete before any destination file changes. Both
+        # backups and pending payloads have extensions the editor ignores.
+        (recovery / "plan.pending").write_text(json.dumps(changes), encoding="utf-8")
+        os.replace(recovery / "plan.pending", recovery / "transaction.plan")
+        for name in changes:
+            os.replace(recovery / (name + ".pending"), destination / name)
+            replaced.append(name)
+    except BaseException:
+        for name in reversed(replaced):
+            backup = recovery / (name + ".previous")
+            if backup.exists():
+                # Keep the backups available if rollback itself is interrupted.
+                restored = recovery / (name + ".restore")
+                shutil.copy2(backup, restored)
+                os.replace(restored, destination / name)
+            else:
+                (destination / name).unlink(missing_ok=True)
+        (recovery / "transaction.plan").unlink(missing_ok=True)
+        shutil.rmtree(recovery)
+        raise
+    (recovery / "transaction.plan").unlink()
+    shutil.rmtree(recovery)
 
 
 with tempfile.TemporaryDirectory(prefix="drift-harbour-crane-") as scratch:

@@ -51,9 +51,16 @@ Give a fresh output directory as the last argument for a clean build. The genera
 reads the six scan inputs from the adjacent archive. Blender's bundled Python and
 NumPy suffice offline. The generator builds in a temporary directory, checks both
 descriptors' dependencies, replaces changed payloads, then publishes the descriptors.
-If a publish is interrupted, rerun it to finish. After regeneration, reimport the
-changed textures and both MeshSources in the editor, then reopen Drift. Import
+An ordinary write error restores the previous package. After regeneration, reimport
+the changed textures and both MeshSources in the editor, then reopen Drift. Import
 `HarbourCrane.gltf` alone in an empty scene to inspect its mounting pivot.
+
+If a process stops during publication, first check that its Blender process has
+exited. Keep a copy of the destination's `.harbour-publish` directory. For every
+name in `transaction.plan`, restore its `.previous` file if present, or remove the
+newly added destination file if it has no backup. A missing plan means that staging
+or cleanup was interrupted and the destination is consistent. Move the recovery
+directory outside the project and rerun the build.
 
 ## Delivery budget
 
