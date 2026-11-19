@@ -483,6 +483,53 @@ namespace OloEngine::Tests
     }
 
     // -------------------------------------------------------------------------
+    // When the rejected registry cannot be moved aside, Initialize blocks every
+    // registry write for the session so the only copy of the scenes' handles is
+    // not overwritten. That includes the save in Shutdown, which used to call
+    // AssetRegistry::Serialize directly and wrote over it on the way out.
+    // -------------------------------------------------------------------------
+    TEST(AssetRegistryInvariants, ARejectedRegistryThatCannotBeMovedAsideSurvivesShutdown)
+    {
+        const std::filesystem::path root = TempDir("blocked-oar");
+        std::error_code ec;
+        std::filesystem::create_directories(root / "Assets", ec);
+        // A non-empty DIRECTORY where the .rejected file would go: neither removing it nor
+        // renaming the registry onto it can succeed, on any platform.
+        std::filesystem::create_directories(root / "AssetRegistry.oar.rejected" / "occupied", ec);
+        ASSERT_FALSE(ec) << ec.message();
+        {
+            std::ofstream project(root / "Test.oloproj");
+            project << "Project:\n"
+                       "  Name: BlockedOar\n"
+                       "  StartScene: \"\"\n"
+                       "  AssetDirectory: \"Assets\"\n"
+                       "  ScriptModulePath: \"\"\n";
+        }
+        const std::filesystem::path oar = root / "AssetRegistry.oar";
+        {
+            AssetRegistry written;
+            written.AddAsset(MakeMetadata(AssetHandle{ 515151ULL }, AssetType::Texture2D, "Assets/Textures/Foo.png"));
+            ASSERT_TRUE(written.Serialize(oar));
+            std::fstream file(oar, std::ios::binary | std::ios::in | std::ios::out);
+            ASSERT_TRUE(file.is_open());
+            const u32 otherVersion = AssetRegistry::FileVersion + 1;
+            file.write(reinterpret_cast<const char*>(&otherVersion), sizeof(otherVersion));
+        }
+        const std::vector<char> originalBytes = ReadAllBytes(oar);
+
+        ASSERT_TRUE(Project::Load(root / "Test.oloproj"));
+        const ProjectScope projectScope;
+        {
+            auto manager = Ref<EditorAssetManager>::Create();
+            manager->Initialize(/*startFileWatcher=*/false);
+            EXPECT_FALSE(manager->SerializeAssetRegistry()) << "a save was allowed over the rejected registry";
+            EXPECT_EQ(ReadAllBytes(oar), originalBytes);
+            manager->Shutdown();
+        }
+        EXPECT_EQ(ReadAllBytes(oar), originalBytes) << "the shutdown save overwrote the registry it was told to keep";
+    }
+
+    // -------------------------------------------------------------------------
     // Cache artefacts (#1664). A cooked embedded texture under Assets/cache/ is
     // git-ignored, so its entry must never reach the tracked AssetRegistry.oar:
     // committed, it names a file a fresh clone does not have (PR #1708 went red

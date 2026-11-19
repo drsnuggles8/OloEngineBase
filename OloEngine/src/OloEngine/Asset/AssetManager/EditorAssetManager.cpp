@@ -241,11 +241,12 @@ namespace OloEngine
         }
 #endif
 
-        // Save asset registry
+        // Save asset registry. Through SerializeAssetRegistry, which refuses while writes are
+        // blocked: a direct Serialize here overwrote the rejected registry Initialize could not
+        // move aside, the only copy of the handles every scene refers to.
         if (Project::GetActive())
         {
-            auto registryPath = Project::GetAssetRegistryPath();
-            m_AssetRegistry.Serialize(registryPath);
+            SerializeAssetRegistry();
         }
 
         // Clear all loaded assets and memory assets
