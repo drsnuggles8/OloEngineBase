@@ -1,6 +1,6 @@
 # The keeper of Stacks Light
 
-The keeper stands on the top granite tread of Stacks Light in `Scenes/Drift.olo`.
+The keeper stands on the second granite tread below the door of Stacks Light in `Scenes/Drift.olo`.
 The source models use metres, +Y up and +Z forward. The origin is on the ground
 between the boots. The uncapped height is 1.750 m. Chin to crown is 0.232 m,
 or 7.54 heads per standing figure. The eyes are 1.634 m above the soles, halfway

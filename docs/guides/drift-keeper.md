@@ -108,7 +108,10 @@ The scan and its render carry CC BY 3.0. [Attribution and source chain](../../Ol
 ## In the scene
 
 `Stacks Light` parents the keeper, so moving the tower moves him with the
-steps. The body supplies the pose and nine expression targets. Each eye has
+steps. A triangle-intersection check at thirteen poses per clip found clearance
+from the door, treads and rail through idle, wave and lantern raise. The initial
+position put the heels through the raised door sill. On the final tread the two
+heel samples are within 3 mm of the granite. The body supplies the pose and nine expression targets. Each eye has
 its own bone attachment. A second head attachment carries the pigmented skin
 under the groom. Its triangle indices stay fixed as the body changes LOD, so
 each beard, brow or lash root keeps its binding. The cook contains 23,000 beard

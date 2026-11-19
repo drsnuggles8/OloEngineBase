@@ -84,10 +84,10 @@
   "groomSource": "Keeper.abc",
   "placement": {
     "translation": [
-      1.44,
-      0.096,
-      -2.494
+      1.436795,
+      -0.082,
+      -2.888602
     ],
-    "yawRadians": 2.6179938779914944
+    "yawRadians": 2.827433388230814
   }
 }

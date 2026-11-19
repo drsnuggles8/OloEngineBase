@@ -302,7 +302,8 @@ def generate(destination):
         profiles=profiles,
         materials=list(PALETTE),
         groomSource="Keeper.abc",
-        placement=dict(translation=[1.44, 0.096, -2.494], yawRadians=5 * pi / 6),
+        # Second tread, clear of the door sill and handrail through both gestures.
+        placement=dict(translation=[1.436795, -0.082, -2.888602], yawRadians=radians(162)),
     )
     (destination / "Keeper.rig.json").write_text(json.dumps(rig, indent=2) + "\n", encoding="utf-8")
 
