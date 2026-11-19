@@ -120,14 +120,14 @@ namespace OloEngine::Tests
         const SceneLightmapSettings settings = f.World->GetLightmapSettings();
         const u64 original = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
 
-        // The bake consumes the light's RAW TransformComponent::Translation
-        // (ReferenceSceneBuilder parity — not the parent-composed world
-        // position), so that exact value is what the key must track.
+        // The bake consumes the light's world position (ReferenceSceneBuilder
+        // parity, Scene::GetLocalLightWorldPose); for this root light that is
+        // its Translation, bit for bit.
         auto& transform = f.Light.GetComponent<TransformComponent>();
         const glm::vec3 originalPos = transform.Translation;
         transform.Translation = originalPos + glm::vec3(0.0f, 1.0f, 0.0f);
         EXPECT_NE(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original)
-            << "the bake integrated this light from its raw Translation; moving it must stale the bake";
+            << "the bake integrated this light from its position; moving it must stale the bake";
 
         transform.Translation = originalPos;
         EXPECT_EQ(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original);
@@ -152,6 +152,37 @@ namespace OloEngine::Tests
         point.m_Color = glm::vec3(0.2f, 0.9f, 0.4f);
         point.m_Range = 55.0f;
         EXPECT_EQ(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), withoutLight);
+    }
+
+    // ReferenceSceneBuilder bakes sphere area lights, and the key used to
+    // skip them: adding, moving or resizing one left a stale bake reading as
+    // fresh.
+    TEST(SceneLightmapStaleness, ASphereAreaLightIsAKeyInput)
+    {
+        StalenessFixture f = MakeFixture();
+        const SceneLightmapSettings settings = f.World->GetLightmapSettings();
+        const u64 original = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
+
+        Entity sphere = f.World->CreateEntity("Sphere Light");
+        sphere.GetComponent<TransformComponent>().Translation = { 2.0f, 3.0f, 1.0f };
+        auto& area = sphere.AddComponent<SphereAreaLightComponent>();
+        area.m_Intensity = 5.0f;
+        area.m_Range = 12.0f;
+        area.m_Radius = 0.5f;
+        const u64 added = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
+        EXPECT_NE(added, original) << "the bake integrates sphere area lights; adding one must stale it";
+
+        sphere.GetComponent<TransformComponent>().Translation.x += 1.0f;
+        const u64 moved = SceneLightmapRuntime::ComputeBakeKey(*f.World, settings);
+        EXPECT_NE(moved, added) << "moving a baked sphere area light must stale the bake";
+
+        area.m_Radius = 1.0f;
+        EXPECT_NE(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), moved)
+            << "the emitter radius shapes the baked light; it is a key input";
+
+        area.m_Intensity = 0.0f;
+        EXPECT_EQ(SceneLightmapRuntime::ComputeBakeKey(*f.World, settings), original)
+            << "a sphere area light the bake rejects must be invisible to the key";
     }
 
     TEST(SceneLightmapStaleness, LightAndMaterialChangesChangeTheKey)

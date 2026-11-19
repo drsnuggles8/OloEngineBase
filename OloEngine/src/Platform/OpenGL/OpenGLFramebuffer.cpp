@@ -394,8 +394,13 @@ namespace OloEngine
                     restoreStencilWriteMask = true;
                 }
             }
-            glClearDepth(1.0);
-            glClear(clearBits);
+            {
+                // The depth clear honours glDepthMask; a pass that left depth
+                // writes off would drop it and keep last frame's depth (#1710).
+                Utils::GLClearDepthMaskGuard depthMaskGuard;
+                glClearDepth(1.0);
+                glClear(clearBits);
+            }
 
             if (restoreStencilWriteMask)
             {
@@ -403,7 +408,9 @@ namespace OloEngine
             }
         }
 
-        // Clear each color attachment based on its type
+        // Clear each color attachment based on its type. The per-buffer clears
+        // honour the colour masks an earlier draw left (#1417), so open them.
+        Utils::GLClearColorMaskGuard colorMaskGuard;
         for (sizet i = 0; i < m_ColorAttachmentSpecifications.Num(); ++i)
         {
             auto const& spec = m_ColorAttachmentSpecifications[i];

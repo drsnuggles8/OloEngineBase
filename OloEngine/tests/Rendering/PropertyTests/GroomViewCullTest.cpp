@@ -175,6 +175,52 @@ namespace OloEngine::Tests
         EXPECT_FALSE(Submitted(m_BehindCasterAway));
     }
 
+    // A casting LOCAL light whose range holds a coat and reaches the view keeps
+    // that coat: its shadow can land in view. The coat far to the side is out
+    // of the sun's reach (above), so only the local light can bring it back.
+    // Sphere area lights cast through the same shadow atlas as point and spot
+    // lights; the cull's list of local shadow lights used to skip them, and a
+    // coat they shadowed into view was culled with its shadow.
+    TEST_F(GroomViewCullTest, ACoatInsideACastingLocalLightThatReachesTheViewIsSubmitted)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        ASSERT_TRUE(Renderer3D::IsFrustumCullingEnabled());
+
+        // Halfway between the view and the far coat, with a range that holds
+        // both: 200 m to the coat, about 200 m to the camera.
+        const auto addLight = [this](const char* name)
+        {
+            Entity light = GetScene().CreateEntity(name);
+            light.GetComponent<TransformComponent>().Translation = { 200.0f, 2.0f, 10.0f };
+            return light;
+        };
+
+        Entity sphere = addLight("SphereLight");
+        auto& area = sphere.AddComponent<SphereAreaLightComponent>();
+        area.m_Intensity = 5.0f;
+        area.m_Range = 230.0f;
+        area.m_Radius = 0.5f;
+        area.m_CastShadows = true;
+        RunEditorFrames(Camera(), 2);
+        EXPECT_TRUE(Submitted(m_BehindCasterAway))
+            << "a casting sphere area light holds this coat and reaches the view, and the coat was culled";
+        EXPECT_FALSE(Submitted(m_Behind)) << "a coat that casts no shadow came back with the light";
+
+        // The same with the light's shadows off: nothing to keep the coat.
+        area.m_CastShadows = false;
+        RunEditorFrames(Camera(), 2);
+        EXPECT_FALSE(Submitted(m_BehindCasterAway)) << "a coat was kept for a light that casts no shadow";
+
+        // And a point light in the same place, the case that always worked.
+        GetScene().DestroyEntity(sphere);
+        Entity point = addLight("PointLight");
+        auto& pl = point.AddComponent<PointLightComponent>();
+        pl.m_Range = 230.0f;
+        pl.m_CastShadows = true;
+        RunEditorFrames(Camera(), 2);
+        EXPECT_TRUE(Submitted(m_BehindCasterAway)) << "the point-light control lost the coat";
+    }
+
     // Control arm: with frustum culling off every coat is submitted, so the
     // case above measures the cull and not some other reason a coat drops out.
     TEST_F(GroomViewCullTest, WithFrustumCullingOffEveryCoatIsSubmitted)

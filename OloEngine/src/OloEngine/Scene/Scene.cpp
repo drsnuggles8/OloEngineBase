@@ -2733,6 +2733,43 @@ namespace OloEngine
         return m_Registry.get<TransformComponent>(entity).GetTransform();
     }
 
+    Scene::LocalLightWorldPose Scene::GetLocalLightWorldPose(entt::entity entity) const
+    {
+        const auto& local = m_Registry.get<TransformComponent>(entity);
+        LocalLightWorldPose pose;
+        pose.Position = local.Translation;
+
+        // A root light keeps its raw Translation and its authored direction, so
+        // every unparented light packs exactly the bytes it always did. The
+        // bone-attachment component needs a parent too, so this covers it.
+        const entt::entity parent = ResolveTransformParent(entity);
+        if (parent == entt::null)
+            return pose;
+
+        const glm::mat4 world = GetWorldTransform(entity);
+        pose.Position = glm::vec3(world[3]);
+        pose.Parented = true;
+
+        // The frame the light's transform lives in. For an ordinary parent that
+        // is the parent's world matrix (ComposeWorldTransform's own rule). A
+        // bone attachment composes parentWorld * bone * local, so its frame is
+        // parentWorld * bone, resolved by the same rule as the composition.
+        // It is built directly rather than as world * inverse(local), so a light
+        // with a zero or tiny scale keeps its bone's frame. An attachment that
+        // cannot resolve composes parent-relative, so the parent's matrix is
+        // its frame too.
+        glm::mat4 parentFrame = GetWorldTransform(parent);
+        if (const std::optional<BoneAttachmentResolution> attachment = ResolveBoneAttachment(entity);
+            attachment && attachment->Status == BoneAttachmentStatus::Attached && attachment->BoneIndex >= 0)
+        {
+            const Skeleton& skeleton = *m_Registry.get<SkeletonComponent>(parent).m_Skeleton;
+            if (const auto boneIndex = static_cast<sizet>(attachment->BoneIndex); boneIndex < skeleton.m_GlobalTransforms.size())
+                parentFrame = parentFrame * skeleton.m_GlobalTransforms[boneIndex];
+        }
+        pose.ParentBasis = glm::mat3(parentFrame);
+        return pose;
+    }
+
     namespace
     {
         // Split a world matrix into translation, rotation and per-axis scale.
@@ -9773,15 +9810,17 @@ namespace OloEngine
         return input;
     }
 
-    [[nodiscard]] static GPUSceneLightInput MakeGPUSceneLightInput(const glm::vec3& position,
+    [[nodiscard]] static GPUSceneLightInput MakeGPUSceneLightInput(const Scene::LocalLightWorldPose& pose,
                                                                    const SpotLightComponent& light)
     {
         GPUSceneLightInput input;
         input.m_Type = std::to_underlying(GPUSceneLightType::Spot);
-        input.m_Position = position;
-        // Sanitised through the shared helper so the bake's ReferenceSceneBuilder
-        // stays bit-identical to this packing (LightCommon.h); not normalised.
-        input.m_Direction = SanitizeSpotLightDirection(light.m_Direction);
+        input.m_Position = pose.Position;
+        // The authored direction is in the parent's frame, like Translation
+        // (#1707). Sanitised through the shared helper so the bake's
+        // ReferenceSceneBuilder stays bit-identical to this packing
+        // (LightCommon.h); not normalised.
+        input.m_Direction = SanitizeSpotLightDirection(pose.ToWorldDirection(light.m_Direction));
         input.m_Color = light.m_Color;
         input.m_Intensity = light.m_Intensity;
         input.m_Range = light.m_Range;
@@ -10274,7 +10313,7 @@ namespace OloEngine
             }
             const auto addLocal = [this, &groomViewFrustum, &groomLocalShadowLights](entt::entity e, f32 range)
             {
-                const glm::vec3 center = glm::vec3(GetWorldTransform(e)[3]);
+                const glm::vec3 center = GetLocalLightWorldPose(e).Position;
                 if (std::isfinite(range) && range > 0.0f && groomViewFrustum.IsSphereVisible(center, range))
                     groomLocalShadowLights.Add({ center, range });
             };
@@ -10286,6 +10325,12 @@ namespace OloEngine
             for (const auto e : m_Registry.view<SpotLightComponent>())
             {
                 if (const auto& light = m_Registry.get<SpotLightComponent>(e); light.m_CastShadows)
+                    addLocal(e, light.m_Range);
+            }
+            // Sphere area lights cast through the same atlas, as point casters.
+            for (const auto e : m_Registry.view<SphereAreaLightComponent>())
+            {
+                if (const auto& light = m_Registry.get<SphereAreaLightComponent>(e); light.m_CastShadows)
                     addLocal(e, light.m_Range);
             }
         }
@@ -12657,7 +12702,10 @@ namespace OloEngine
             fpPointLights.Reserve(pointLightView.size_hint());
             for (auto entity : pointLightView)
             {
-                const auto& [transform, pointLight] = pointLightView.get<TransformComponent, PointLightComponent>(entity);
+                const auto& pointLight = pointLightView.get<PointLightComponent>(entity);
+                // The WORLD position (#1707): a light under a moved parent
+                // shines where its bulb mesh is drawn.
+                const LocalLightWorldPose pose = GetLocalLightWorldPose(entity);
 
                 // Forward+ SSBO entry (capacity clamped in LightCullingBuffer::Update;
                 // ShadowAndAttenuation.x = -1 until the shadow allocation below
@@ -12666,7 +12714,7 @@ namespace OloEngine
                 // MultiLightUBO entry (shared mixed-type array, capped at MAX_LIGHTS),
                 // both derived from the record.
                 const GPUSceneLight canonical =
-                    extractCanonicalLight(entity, MakeGPUSceneLightInput(transform.Translation, pointLight));
+                    extractCanonicalLight(entity, MakeGPUSceneLightInput(pose.Position, pointLight));
 
                 fpPointLights.Add(GPUSceneLightAdapter::ToForwardPlusPoint(canonical));
 
@@ -12681,7 +12729,7 @@ namespace OloEngine
                     RayTracedShadowLightRequest request;
                     request.UboLightIndex = lightIndex;
                     request.Directional = false;
-                    request.Vector = transform.Translation;
+                    request.Vector = pose.Position;
                     // A point light has no authored emitter size, so its
                     // penumbra comes from the shadow settings' angular radius
                     // reinterpreted as a metre radius. Stated rather than
@@ -12699,7 +12747,7 @@ namespace OloEngine
                     candidate.UboLightIndex = inUbo ? lightIndex : -1;
                     candidate.FpIndex = static_cast<u32>(fpPointLights.Num()) - 1;
                     candidate.LightEntity = GetShadowCandidateEntityUuid(m_Registry, entity);
-                    candidate.Position = transform.Translation;
+                    candidate.Position = pose.Position;
                     candidate.Range = pointLight.m_Range;
                     candidate.Intensity = pointLight.m_Intensity;
                     shadowCandidates.Add(candidate);
@@ -12714,13 +12762,14 @@ namespace OloEngine
             fpSpotLights.Reserve(spotLightView.size_hint());
             for (auto entity : spotLightView)
             {
-                const auto& [transform, spotLight] = spotLightView.get<TransformComponent, SpotLightComponent>(entity);
+                const auto& spotLight = spotLightView.get<SpotLightComponent>(entity);
+                const LocalLightWorldPose pose = GetLocalLightWorldPose(entity);
 
                 // Sanitized direction shared by the Forward+ SSBO, the
                 // MultiLight UBO, and the spot-shadow projection below —
                 // via the shared helper so the bake's ReferenceSceneBuilder
                 // stays bit-identical to this packing (LightCommon.h).
-                const GPUSceneLightInput lightInput = MakeGPUSceneLightInput(transform.Translation, spotLight);
+                const GPUSceneLightInput lightInput = MakeGPUSceneLightInput(pose, spotLight);
                 const glm::vec3 spotDir = lightInput.m_Direction;
 
                 // Forward+ entry (capacity clamped in LightCullingBuffer::Update,
@@ -12741,7 +12790,7 @@ namespace OloEngine
                     RayTracedShadowLightRequest request;
                     request.UboLightIndex = lightIndex;
                     request.Directional = false;
-                    request.Vector = transform.Translation;
+                    request.Vector = pose.Position;
                     request.Shape = Renderer3D::GetShadowMap().GetSettings().RayTraced.LightAngularRadiusDegrees;
                     request.Range = spotLight.m_Range;
                     rayTracedShadowRequests.Add(request);
@@ -12754,7 +12803,7 @@ namespace OloEngine
                     candidate.UboLightIndex = inUbo ? lightIndex : -1;
                     candidate.FpIndex = static_cast<u32>(fpSpotLights.Num()) - 1;
                     candidate.LightEntity = GetShadowCandidateEntityUuid(m_Registry, entity);
-                    candidate.Position = transform.Translation;
+                    candidate.Position = pose.Position;
                     candidate.Direction = spotDir;
                     candidate.Range = spotLight.m_Range;
                     candidate.OuterCutoff = spotLight.m_OuterCutoff;
@@ -12773,13 +12822,14 @@ namespace OloEngine
             fpSphereAreaLights.Reserve(sphereAreaLightView.size_hint());
             for (auto entity : sphereAreaLightView)
             {
-                const auto& [transform, areaLight] = sphereAreaLightView.get<TransformComponent, SphereAreaLightComponent>(entity);
+                const auto& areaLight = sphereAreaLightView.get<SphereAreaLightComponent>(entity);
+                const LocalLightWorldPose pose = GetLocalLightWorldPose(entity);
 
                 // Forward+ entry (capacity clamped in LightCullingBuffer::Update,
                 // RangeAndPadding.y = -1 until patched below) and the MultiLightUBO
                 // entry, both derived from the record.
                 const GPUSceneLight canonical =
-                    extractCanonicalLight(entity, MakeGPUSceneLightInput(transform.Translation, areaLight));
+                    extractCanonicalLight(entity, MakeGPUSceneLightInput(pose.Position, areaLight));
 
                 fpSphereAreaLights.Add(GPUSceneLightAdapter::ToForwardPlusSphereArea(canonical));
 
@@ -12797,7 +12847,7 @@ namespace OloEngine
                     RayTracedShadowLightRequest request;
                     request.UboLightIndex = lightIndex;
                     request.Directional = false;
-                    request.Vector = transform.Translation;
+                    request.Vector = pose.Position;
                     request.Shape = areaLight.m_Radius;
                     request.Range = areaLight.m_Range;
                     rayTracedShadowRequests.Add(request);
@@ -12813,7 +12863,7 @@ namespace OloEngine
                     candidate.UboLightIndex = inUbo ? lightIndex : -1;
                     candidate.FpIndex = static_cast<u32>(fpSphereAreaLights.Num()) - 1;
                     candidate.LightEntity = GetShadowCandidateEntityUuid(m_Registry, entity);
-                    candidate.Position = transform.Translation;
+                    candidate.Position = pose.Position;
                     candidate.Range = areaLight.m_Range;
                     candidate.Intensity = areaLight.m_Intensity;
                     shadowCandidates.Add(candidate);
@@ -17291,11 +17341,13 @@ namespace OloEngine
                 auto view = m_Registry.view<TransformComponent, DirectionalLightComponent>();
                 for (auto entity : view)
                 {
-                    const auto& [tc, dirLight] = view.get<TransformComponent, DirectionalLightComponent>(entity);
+                    const auto& dirLight = view.get<DirectionalLightComponent>(entity);
 
                     // Draw the directional light gizmo with arrow and sun icon
+                    // at the entity's world position; a directional light has
+                    // no position of its own, the gizmo just marks the entity.
                     Renderer3D::DrawDirectionalLightGizmo(
-                        tc.Translation,
+                        glm::vec3(GetWorldTransform(entity)[3]),
                         dirLight.m_Direction,
                         dirLight.m_Color,
                         dirLight.m_Intensity);
@@ -17305,11 +17357,12 @@ namespace OloEngine
                 auto view = m_Registry.view<TransformComponent, PointLightComponent>();
                 for (auto entity : view)
                 {
-                    const auto& [tc, pointLight] = view.get<TransformComponent, PointLightComponent>(entity);
+                    const auto& pointLight = view.get<PointLightComponent>(entity);
 
-                    // Draw the point light gizmo with range sphere
+                    // Draw the point light gizmo with range sphere, where the
+                    // light shines (#1707), not at its parent-local position.
                     Renderer3D::DrawPointLightGizmo(
-                        tc.Translation,
+                        GetLocalLightWorldPose(entity).Position,
                         pointLight.m_Range,
                         pointLight.m_Color,
                         true // Show range sphere
@@ -17320,12 +17373,13 @@ namespace OloEngine
                 auto view = m_Registry.view<TransformComponent, SpotLightComponent>();
                 for (auto entity : view)
                 {
-                    const auto& [tc, spotLight] = view.get<TransformComponent, SpotLightComponent>(entity);
+                    const auto& spotLight = view.get<SpotLightComponent>(entity);
+                    const LocalLightWorldPose pose = GetLocalLightWorldPose(entity);
 
                     // Draw the spot light gizmo with cone visualization
                     Renderer3D::DrawSpotLightGizmo(
-                        tc.Translation,
-                        spotLight.m_Direction,
+                        pose.Position,
+                        pose.ToWorldDirection(spotLight.m_Direction),
                         spotLight.m_Range,
                         spotLight.m_InnerCutoff,
                         spotLight.m_OuterCutoff,
@@ -17336,10 +17390,10 @@ namespace OloEngine
                 auto view = m_Registry.view<TransformComponent, SphereAreaLightComponent>();
                 for (auto entity : view)
                 {
-                    const auto& [tc, areaLight] = view.get<TransformComponent, SphereAreaLightComponent>(entity);
+                    const auto& areaLight = view.get<SphereAreaLightComponent>(entity);
 
                     Renderer3D::DrawSphereAreaLightGizmo(
-                        tc.Translation,
+                        GetLocalLightWorldPose(entity).Position,
                         areaLight.m_Radius,
                         areaLight.m_Range,
                         areaLight.m_Color,

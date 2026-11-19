@@ -683,6 +683,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/LightProbeRasterBakeTest.cpp
 		Rendering/PropertyTests/ProbeBakeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowMapWithoutCastersTest.cpp
+		Rendering/PropertyTests/ParentedLocalLightEvidenceTest.cpp
 		Rendering/PropertyTests/OceanFFTGpuContractTest.cpp
 		Rendering/PropertyTests/OceanCascadeTest.cpp
 		Rendering/PropertyTests/OceanCascadeVisualEvidenceTest.cpp
@@ -1258,6 +1259,8 @@ add_executable(OloEngine-Tests
 		# System scheduler dependency-graph derivation (issue #453)
 		Scene/SceneLightmapGatherTest.cpp
 		Scene/SceneLightmapStalenessTest.cpp
+		# A parented local light shines from its world pose (#1707)
+		Scene/LocalLightWorldPoseTest.cpp
 		# What the editor's selection outline covers (#1533)
 		Scene/SelectionOutlineSetTest.cpp
 		Scene/AnimalSchedulerContractTest.cpp
