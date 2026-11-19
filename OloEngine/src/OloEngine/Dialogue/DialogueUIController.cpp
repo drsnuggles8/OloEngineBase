@@ -20,6 +20,7 @@ namespace OloEngine
         // Canvas entity — root of the dialogue UI
         {
             Entity canvasEntity = scene.CreateEntity("DialogueCanvas");
+            scene.MarkRuntimeOwned(canvasEntity);
             auto& canvas = canvasEntity.AddComponent<UICanvasComponent>();
             canvas.m_RenderMode = UICanvasRenderMode::ScreenSpaceOverlay;
             canvas.m_SortOrder = 100;
@@ -34,6 +35,7 @@ namespace OloEngine
         // Panel entity — dialogue box background
         {
             Entity panelEntity = scene.CreateEntity("DialoguePanel");
+            scene.MarkRuntimeOwned(panelEntity);
             auto& rect = panelEntity.AddComponent<UIRectTransformComponent>();
             rect.m_AnchorMin = { 0.1f, 0.0f };
             rect.m_AnchorMax = { 0.9f, 0.25f };
@@ -62,6 +64,7 @@ namespace OloEngine
         // Speaker name entity
         {
             Entity speakerEntity = scene.CreateEntity("DialogueSpeakerName");
+            scene.MarkRuntimeOwned(speakerEntity);
             auto& rect = speakerEntity.AddComponent<UIRectTransformComponent>();
             rect.m_AnchorMin = { 0.05f, 0.7f };
             rect.m_AnchorMax = { 0.5f, 0.95f };
@@ -89,6 +92,7 @@ namespace OloEngine
         // Dialogue body text entity
         {
             Entity bodyEntity = scene.CreateEntity("DialogueBody");
+            scene.MarkRuntimeOwned(bodyEntity);
             auto& rect = bodyEntity.AddComponent<UIRectTransformComponent>();
             rect.m_AnchorMin = { 0.05f, 0.05f };
             rect.m_AnchorMax = { 0.95f, 0.65f };
@@ -142,9 +146,29 @@ namespace OloEngine
         m_ActiveNpcEntity = 0;
     }
 
+    bool DialogueUIController::IsHierarchyIntact(const Scene& scene) const
+    {
+        const auto alive = [&scene](UUID uuid)
+        {
+            return static_cast<u64>(uuid) != 0 && scene.TryGetEntityWithUUID(uuid).has_value();
+        };
+        return alive(m_CanvasEntity) && alive(m_PanelEntity) && alive(m_SpeakerNameEntity) && alive(m_DialogueBodyEntity);
+    }
+
     void DialogueUIController::Update(Scene& scene)
     {
         OLO_PROFILE_FUNCTION();
+
+        // The hierarchy is runtime-owned, so a save never carries it. Loading a
+        // save into a running scene replaces the whole registry and takes the
+        // hierarchy with it: rebuild it, and let the restored DialogueStateComponent
+        // below fill it in (#1712). Shutdown first, so a partly destroyed
+        // hierarchy leaves no survivors parented to dead entities.
+        if (!IsHierarchyIntact(scene))
+        {
+            Shutdown(scene);
+            Initialize(scene);
+        }
 
         // Find the first entity with an active DialogueStateComponent
         entt::entity activeEntity = entt::null;
@@ -337,6 +361,7 @@ namespace OloEngine
         while (m_ChoiceEntities.Num() < state.m_AvailableChoices.Num())
         {
             Entity choiceEntity = scene.CreateEntity("DialogueChoice_" + std::to_string(m_ChoiceEntities.Num()));
+            scene.MarkRuntimeOwned(choiceEntity);
             auto& rect = choiceEntity.AddComponent<UIRectTransformComponent>();
             f32 const index = static_cast<f32>(m_ChoiceEntities.Num());
             rect.m_AnchorMin = { 0.1f, 0.0f };

@@ -308,6 +308,66 @@ TEST(SaveGameComponentRoundTrip, WaterKeepsTheCascadeCountAndTheFieldsAfterIt)
     EXPECT_TRUE(loaded.m_WakeShapeEnabled);
 }
 
+// A conversation's save block (#1712) loads untrusted bytes sanitized: a
+// Processing state exists only inside one DialogueSystem call.
+TEST(SaveGameComponentRoundTrip, AHostileConversationLoadsSanitized)
+{
+    DialogueStateComponent seed;
+    seed.m_State = DialogueState::Processing;
+    seed.m_CurrentNodeID = UUID(0xC1);
+    seed.m_CurrentText = "The lamp still turns.";
+    seed.m_AvailableChoices.Add(DialogueChoice{ .Text = "Only", .TargetNodeID = UUID(0xD2), .Condition = "has_key" });
+    seed.m_HoveredChoiceIndex = 7;
+    seed.m_SelectedChoiceIndex = -5;
+    seed.m_TextRevealProgress = std::numeric_limits<f32>::quiet_NaN();
+    seed.m_TextRevealSpeed = -3.0f;
+    const DialogueStateComponent loaded = RoundTrip(seed);
+    EXPECT_EQ(loaded.m_State, DialogueState::Inactive);
+    EXPECT_EQ(static_cast<u64>(loaded.m_CurrentNodeID), 0xC1ull);
+    EXPECT_EQ(loaded.m_CurrentText, "The lamp still turns.");
+    ASSERT_EQ(loaded.m_AvailableChoices.Num(), 1);
+    EXPECT_EQ(loaded.m_AvailableChoices[0].Text, FString("Only"));
+    EXPECT_EQ(static_cast<u64>(loaded.m_AvailableChoices[0].TargetNodeID), 0xD2ull);
+    EXPECT_EQ(loaded.m_AvailableChoices[0].Condition, FString("has_key"));
+    EXPECT_EQ(loaded.m_HoveredChoiceIndex, -1);
+    EXPECT_EQ(loaded.m_SelectedChoiceIndex, -1);
+    EXPECT_FLOAT_EQ(loaded.m_TextRevealProgress, 1.0f);
+    EXPECT_FLOAT_EQ(loaded.m_TextRevealSpeed, 30.0f);
+}
+
+// A runtime-owned entity (#1712) and everything parented under it stay out of
+// the save, and a saved parent's child list stops naming them. The live scene
+// keeps its child list: the capture scrubs a copy, not the scene.
+TEST(SaveGameRuntimeOwned, MarkedSubtreesAreNotCapturedAndSavedParentsForgetThem)
+{
+    Ref<Scene> scene = MakeScene();
+    Entity anchor = scene->CreateEntity("SavedAnchor");
+    Entity owned = scene->CreateEntity("RuntimeOverlay");
+    Entity ownedChild = scene->CreateEntity("RuntimeOverlayText");
+    Entity savedChild = scene->CreateEntity("SavedChild");
+    owned.SetParent(anchor);
+    ownedChild.SetParent(owned);
+    savedChild.SetParent(anchor);
+    scene->MarkRuntimeOwned(owned);
+    ASSERT_TRUE(scene->IsRuntimeOwned(ownedChild)) << "a child of a marked entity is runtime-owned";
+    ASSERT_FALSE(scene->IsRuntimeOwned(anchor));
+    const sizet total = scene->GetAllEntitiesWith<IDComponent>().size();
+
+    const std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(*scene);
+    EXPECT_EQ(anchor.Children().Num(), 2) << "the capture changed the live scene's child list";
+
+    Ref<Scene> loaded = Ref<Scene>::Create();
+    ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(*loaded, payload));
+    EXPECT_EQ(loaded->GetAllEntitiesWith<IDComponent>().size(), total - 2);
+    EXPECT_FALSE(loaded->TryGetEntityWithUUID(owned.GetUUID()).has_value());
+    EXPECT_FALSE(loaded->TryGetEntityWithUUID(ownedChild.GetUUID()).has_value());
+    const auto loadedAnchor = loaded->TryGetEntityWithUUID(anchor.GetUUID());
+    ASSERT_TRUE(loadedAnchor.has_value());
+    const TArray<UUID> children = loadedAnchor->Children();
+    ASSERT_EQ(children.Num(), 1);
+    EXPECT_EQ(static_cast<u64>(children[0]), static_cast<u64>(savedChild.GetUUID()));
+}
+
 // A script can change the streaming byte budgets at runtime (#1365), so a save must
 // carry them: before #1531 the Streaming block stopped at RegionDirectory and a loaded
 // save came back with the scene file's budgets instead of the saved ones.
@@ -350,3 +410,4 @@ TEST(SaveGameSceneSettingsRoundTrip, CorruptStreamingBudgetsLoadAsNoBudget)
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationUploadMegabytesPerFrame, 0.0f);
     EXPECT_FLOAT_EQ(loaded->GetStreamingSettings().RepresentationStagingMegabytes, 0.0f);
 }
+

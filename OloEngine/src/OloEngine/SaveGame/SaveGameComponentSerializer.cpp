@@ -3706,6 +3706,64 @@ namespace OloEngine
         // m_HasTriggered is runtime-only — not persisted (resets on load).
     }
 
+    void SaveGameComponentSerializer::Serialize(FArchive& ar, DialogueStateComponent& c)
+    {
+        // The conversation in progress (#1712). The dialogue UI is runtime-owned
+        // and never saved; on Continue the DialogueUIController rebuilds it from
+        // this component, which sits on the speaking NPC. The text and choice
+        // labels are saved as they were resolved, so a restored line reads
+        // exactly as it did, independent of the tree's localization keys.
+        auto state = static_cast<u8>(std::to_underlying(c.m_State));
+        ar << c.m_CurrentNodeID << state;
+        ar << c.m_CurrentText << c.m_CurrentSpeaker;
+
+        // A conversation offers a handful of choices; anything past this is a
+        // corrupt count, refused before it allocates.
+        static constexpr u32 kMaxChoices = 1024;
+        u32 choiceCount = static_cast<u32>(c.m_AvailableChoices.Num());
+        if (!ar.IsLoading() && choiceCount > kMaxChoices)
+        {
+            ar.SetError();
+            return;
+        }
+        ar << choiceCount;
+        if (ar.IsError() || choiceCount > kMaxChoices)
+        {
+            ar.SetError();
+            return;
+        }
+        if (ar.IsLoading())
+        {
+            c.m_AvailableChoices.SetNum(static_cast<i32>(choiceCount));
+        }
+        for (auto& choice : c.m_AvailableChoices)
+        {
+            ar << choice.Text << choice.TargetNodeID << choice.Condition;
+        }
+
+        ar << c.m_SelectedChoiceIndex << c.m_HoveredChoiceIndex;
+        ar << c.m_TextRevealProgress << c.m_TextRevealSpeed;
+
+        if (ar.IsLoading())
+        {
+            // Untrusted input. Processing exists only inside one DialogueSystem
+            // call, so a saved one, like an unknown value, loads as Inactive.
+            const auto loaded = static_cast<DialogueState>(state);
+            const bool resting = loaded == DialogueState::Inactive || loaded == DialogueState::Displaying ||
+                                 loaded == DialogueState::WaitingForChoice;
+            c.m_State = resting ? loaded : DialogueState::Inactive;
+
+            const auto choiceIndexOrNone = [count = static_cast<i32>(choiceCount)](i32 index)
+            {
+                return index >= 0 && index < count ? index : -1;
+            };
+            c.m_SelectedChoiceIndex = choiceIndexOrNone(c.m_SelectedChoiceIndex);
+            c.m_HoveredChoiceIndex = choiceIndexOrNone(c.m_HoveredChoiceIndex);
+            c.m_TextRevealProgress = std::isfinite(c.m_TextRevealProgress) ? std::clamp(c.m_TextRevealProgress, 0.0f, 1.0f) : 1.0f;
+            c.m_TextRevealSpeed = std::isfinite(c.m_TextRevealSpeed) && c.m_TextRevealSpeed > 0.0f ? c.m_TextRevealSpeed : 30.0f;
+        }
+    }
+
     void SaveGameComponentSerializer::Serialize(FArchive& ar, VisualScriptComponent& c)
     {
         ar << c.m_Graph;
@@ -5459,6 +5517,7 @@ namespace OloEngine
         REGISTER_SAVE_COMPONENT(LuaScriptComponent);
         REGISTER_SAVE_COMPONENT(TileRendererComponent);
         REGISTER_SAVE_COMPONENT(DialogueComponent);
+        REGISTER_SAVE_COMPONENT(DialogueStateComponent);
         REGISTER_SAVE_COMPONENT(VisualScriptComponent);
         REGISTER_SAVE_COMPONENT(NavMeshBoundsComponent);
         REGISTER_SAVE_COMPONENT(NavAgentComponent);

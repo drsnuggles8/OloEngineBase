@@ -60,7 +60,10 @@ namespace OloEngine
     // 48: NavAgentComponent root-motion locomotion and turn speed (#1559).
     // 49: FoliageLayer::DecorrelatedVariation removed (#1502).
     // 50: SkinDiffusionSettings settings block after SnowEjecta (#1689).
-    static constexpr u32 kSaveGameFormatVersion = 50;
+    // 51: runtime-owned entities (the dialogue UI) are no longer captured, and
+    //     DialogueStateComponent is (#1712). A v50 save can carry a duplicated
+    //     dialogue UI hierarchy, so it is refused like every other version.
+    static constexpr u32 kSaveGameFormatVersion = 51;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Compression flags (stored in Header.Flags)

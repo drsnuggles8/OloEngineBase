@@ -34,6 +34,7 @@
 #include <cmath>
 #include <optional>
 #include <string_view>
+#include <unordered_set>
 
 namespace OloEngine
 {
@@ -389,15 +390,49 @@ namespace OloEngine
             }
         }
 
-        // Count entities with IDComponent (all real entities)
+        // Runtime-owned entities (the dialogue UI, captions, debris…) are rebuilt
+        // by their systems after Continue, so the save never carries them (#1712).
+        // A saved parent's child list is scrubbed of them for the capture and
+        // put back afterwards, so the saved hierarchy names no missing entity.
         auto view = scene.GetAllEntitiesWith<IDComponent>();
-        u32 entityCount = static_cast<u32>(view.size());
+        std::unordered_set<u64> runtimeOwned;
+        for (auto entityHandle : view)
+        {
+            if (Entity entity = { entityHandle, &scene }; scene.IsRuntimeOwned(entity))
+                runtimeOwned.insert(static_cast<u64>(entity.GetUUID()));
+        }
+        struct ChildListBackup
+        {
+            entt::entity Entity;
+            TArray<UUID> Children;
+        };
+        std::vector<ChildListBackup> childListBackups;
+        if (!runtimeOwned.empty())
+        {
+            for (auto [handle, relationship] : scene.m_Registry.view<RelationshipComponent>().each())
+            {
+                const auto isRuntimeOwned = [&runtimeOwned](UUID child)
+                {
+                    return runtimeOwned.contains(static_cast<u64>(child));
+                };
+                if (std::ranges::none_of(relationship.m_Children, isRuntimeOwned))
+                    continue;
+                childListBackups.push_back({ handle, relationship.m_Children });
+                relationship.m_Children.RemoveAll(isRuntimeOwned);
+            }
+        }
+
+        u32 entityCount = static_cast<u32>(view.size() - runtimeOwned.size());
         writer << entityCount;
 
         // Serialize each entity
         for (auto entityHandle : view)
         {
             Entity entity = { entityHandle, &scene };
+            if (runtimeOwned.contains(static_cast<u64>(entity.GetUUID())))
+            {
+                continue;
+            }
 
             // Write UUID first (always present via IDComponent)
             const auto& id = entity.GetComponent<IDComponent>();
@@ -443,6 +478,10 @@ namespace OloEngine
             auto& rb3d = scene.m_Registry.get<Rigidbody3DComponent>(backup.Entity);
             rb3d.m_InitialLinearVelocity = backup.LinearVelocity;
             rb3d.m_InitialAngularVelocity = backup.AngularVelocity;
+        }
+        for (auto& backup : childListBackups)
+        {
+            scene.m_Registry.get<RelationshipComponent>(backup.Entity).m_Children = std::move(backup.Children);
         }
 
         // If serialization failed, return empty buffer so callers detect the error
@@ -574,7 +613,7 @@ namespace OloEngine
                     return false;
                 }
 
-                // V50 saves material factors. Read them over the authored maps,
+                // The save carries material factors. Read them over the authored maps,
                 // shader and alpha settings after this entity's source identity
                 // is known, independent of the order of its component blocks.
                 if (typeHash == materialType)
@@ -653,7 +692,7 @@ namespace OloEngine
             auto& state = saved.GetComponent<AnimationStateComponent>();
             ModelImporter::BindAnimationClips(state, authored.GetComponent<AnimationStateComponent>().m_AvailableClips);
             // ApplyClipRequest sets the selected index to the destination as
-            // soon as a blend starts. V50 omits the outgoing clip identity.
+            // soon as a blend starts. The save omits the outgoing clip identity.
             if (state.m_Blending)
             {
                 state.m_CurrentTime = state.m_NextTime;
@@ -820,7 +859,7 @@ namespace OloEngine
                     continue;
                 }
 
-                // V50 has no separate MeshSourceHandle field. Without an import
+                // The save has no separate MeshSourceHandle field. Without an import
                 // path, the scene supplies its registered mesh or matching primitive.
                 const bool hasAssetHandle = static_cast<u64>(source.m_MeshSource->GetHandle()) != 0;
                 if (legacyBindPose || !savedPath.empty() || hasAssetHandle || mesh.m_Primitive != MeshPrimitive::None)

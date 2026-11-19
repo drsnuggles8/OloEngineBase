@@ -643,6 +643,30 @@ namespace OloEngine
         return entity;
     }
 
+    void Scene::MarkRuntimeOwned(Entity entity)
+    {
+        OLO_CORE_ASSERT(entity, "Scene::MarkRuntimeOwned - invalid entity");
+        m_Registry.emplace_or_replace<RuntimeOwnedTag>(static_cast<entt::entity>(entity));
+    }
+
+    bool Scene::IsRuntimeOwned(Entity entity) const
+    {
+        // Walk up the parent chain. The step bound stops a corrupt parent cycle
+        // from hanging the save: no chain is longer than the entity count.
+        const sizet maxSteps = m_Registry.view<IDComponent>().size();
+        std::optional<Entity> current = entity ? std::optional<Entity>(entity) : std::nullopt;
+        for (sizet step = 0; current && step <= maxSteps; ++step)
+        {
+            if (m_Registry.all_of<RuntimeOwnedTag>(static_cast<entt::entity>(*current)))
+                return true;
+            const UUID parent = current->GetParentUUID();
+            if (static_cast<u64>(parent) == 0)
+                return false;
+            current = TryGetEntityWithUUID(parent);
+        }
+        return false;
+    }
+
     [[nodiscard]] Entity Scene::Instantiate(AssetHandle prefabHandle)
     {
         return InstantiateWithUUID(prefabHandle, UUID());
