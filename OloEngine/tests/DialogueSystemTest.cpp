@@ -3,6 +3,10 @@
 #include "OloEngine/Dialogue/DialogueTreeAsset.h"
 #include "OloEngine/Dialogue/DialogueTypes.h"
 #include "OloEngine/Scene/Components.h"
+#include "OloEngine/Dialogue/DialogueUIController.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/UI/UILayoutSystem.h"
 
 using namespace OloEngine;
 
@@ -285,3 +289,57 @@ TEST(DialogueChoiceTest, ShortAndLongStringsSurviveArrayGrowthAndIndependentCopi
 // - EndDialogueRemovesState
 // - TypewriterProgressAdvances
 // - TriggerOncePreventsDuplicateStart
+
+// =============================================================================
+// DialogueUIController layout: the box sits inside the bottom of the screen
+// =============================================================================
+
+// The layout is y-down and a stretched rect adds SizeDelta around its anchors.
+// The controller once kept the default SizeDelta {100, 100} and anchored the box
+// as if y pointed up: the box drew across the top of the screen, 50 px wider than
+// its anchors on every side, and the body line started above the screen.
+TEST(DialogueUIControllerLayout, TheBoxSitsInsideTheBottomOfTheScreen)
+{
+    Ref<Scene> scene = Ref<Scene>::Create();
+    DialogueUIController controller;
+    controller.Initialize(*scene);
+    constexpr f32 kWidth = 1920.0f;
+    constexpr f32 kHeight = 1080.0f;
+    UILayoutSystem::ResolveLayout(*scene, static_cast<u32>(kWidth), static_cast<u32>(kHeight));
+
+    const auto rectOf = [&scene](const char* tag)
+    {
+        Entity entity = scene->FindEntityByName(tag);
+        EXPECT_TRUE(entity) << tag;
+        EXPECT_TRUE(entity.HasComponent<UIResolvedRectComponent>()) << tag;
+        return entity.GetComponent<UIResolvedRectComponent>();
+    };
+    const auto canvas = rectOf("DialogueCanvas");
+    const auto panel = rectOf("DialoguePanel");
+    const auto speaker = rectOf("DialogueSpeakerName");
+    const auto body = rectOf("DialogueBody");
+
+    // The canvas is exactly the screen.
+    EXPECT_FLOAT_EQ(canvas.m_Position.x, 0.0f);
+    EXPECT_FLOAT_EQ(canvas.m_Position.y, 0.0f);
+    EXPECT_FLOAT_EQ(canvas.m_Size.x, kWidth);
+    EXPECT_FLOAT_EQ(canvas.m_Size.y, kHeight);
+
+    // The panel spans 10-90 % of the width and the bottom quarter, raised 20 px.
+    EXPECT_FLOAT_EQ(panel.m_Position.x, 0.1f * kWidth);
+    EXPECT_FLOAT_EQ(panel.m_Size.x, 0.8f * kWidth);
+    EXPECT_FLOAT_EQ(panel.m_Position.y, 0.75f * kHeight - 20.0f);
+    EXPECT_FLOAT_EQ(panel.m_Position.y + panel.m_Size.y, kHeight - 20.0f);
+
+    // Both text rects sit inside the panel, the speaker above the body.
+    for (const auto* text : { &speaker, &body })
+    {
+        EXPECT_GE(text->m_Position.x, panel.m_Position.x);
+        EXPECT_GE(text->m_Position.y, panel.m_Position.y);
+        EXPECT_LE(text->m_Position.x + text->m_Size.x, panel.m_Position.x + panel.m_Size.x);
+        EXPECT_LE(text->m_Position.y + text->m_Size.y, panel.m_Position.y + panel.m_Size.y);
+    }
+    EXPECT_LE(speaker.m_Position.y + speaker.m_Size.y, body.m_Position.y) << "the speaker name overlaps the line";
+
+    controller.Shutdown(*scene);
+}
