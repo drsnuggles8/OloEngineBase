@@ -41,6 +41,8 @@
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -478,6 +480,182 @@ namespace OloEngine::Tests
         AssetRegistry rebuilt;
         EXPECT_TRUE(rebuilt.Deserialize(oar)) << "the rebuilt registry is written in the current version";
         EXPECT_FALSE(rebuilt.Exists(AssetHandle{ 424242ULL }));
+    }
+
+    // -------------------------------------------------------------------------
+    // Cache artefacts (#1664). A cooked embedded texture under Assets/cache/ is
+    // git-ignored, so its entry must never reach the tracked AssetRegistry.oar:
+    // committed, it names a file a fresh clone does not have (PR #1708 went red
+    // on Linux CI with twelve of them). Its handle is derived from its path, so
+    // nothing needs to persist it.
+    // -------------------------------------------------------------------------
+    TEST(AssetRegistryCacheArtefacts, ADirectoryNamedCacheAtAnyDepthMakesACacheArtefact)
+    {
+        EXPECT_TRUE(AssetRegistry::IsCacheArtefact("Assets/cache/embedded/emb_0123456789abcdef_basecolor.png"));
+        EXPECT_TRUE(AssetRegistry::IsCacheArtefact("Assets/Models/cache/x.png"));
+        EXPECT_TRUE(AssetRegistry::IsCacheArtefact("C:/repo/OloEditor/assets/cache/ibl/x.hdr"));
+        EXPECT_FALSE(AssetRegistry::IsCacheArtefact("Assets/Textures/cache.png")) << "a file name is not a directory";
+        EXPECT_FALSE(AssetRegistry::IsCacheArtefact("Assets/Textures/cache")) << "git's `**/cache/**` needs a directory";
+        EXPECT_FALSE(AssetRegistry::IsCacheArtefact("Assets/cached/x.png"));
+        EXPECT_FALSE(AssetRegistry::IsCacheArtefact("Assets/Textures/Foo.png"));
+    }
+
+    TEST(AssetRegistryCacheArtefacts, TheRegistryFileNeverCarriesACacheArtefact)
+    {
+        const std::filesystem::path cachePath{ "Assets/cache/embedded/emb_0123456789abcdef_basecolor.png" };
+        const AssetHandle cacheHandle = AssetRegistry::CacheArtefactHandle(cachePath);
+        const AssetMetadata authored = MakeMetadata(AssetHandle{ 777ULL }, AssetType::Texture2D, "Assets/Textures/Foo.png");
+
+        const std::filesystem::path withCache = TempDir("cache-oar") / "WithCache.oar";
+        const std::filesystem::path authoredOnly = TempDir("cache-oar") / "AuthoredOnly.oar";
+        {
+            AssetRegistry registry;
+            ASSERT_TRUE(registry.AddAsset(authored));
+            ASSERT_TRUE(registry.AddAsset(AssetMetadata{ cacheHandle, AssetType::Texture2D, cachePath }));
+            EXPECT_EQ(registry.GetAssetCount(), 2u) << "the cache artefact must still resolve in this session";
+            EXPECT_EQ(static_cast<u64>(registry.GetHandleFromPath(cachePath)), static_cast<u64>(cacheHandle));
+            ASSERT_TRUE(registry.Serialize(withCache));
+        }
+        {
+            AssetRegistry registry;
+            ASSERT_TRUE(registry.AddAsset(authored));
+            ASSERT_TRUE(registry.Serialize(authoredOnly));
+        }
+
+        const std::vector<char> bytes = ReadAllBytes(withCache);
+        const std::string_view text(bytes.data(), bytes.size());
+        EXPECT_EQ(text.find("cache/"), std::string_view::npos) << "a cache artefact reached the registry file";
+        EXPECT_EQ(bytes, ReadAllBytes(authoredOnly)) << "the cache entry changed the file's bytes";
+
+        AssetRegistry reread;
+        ASSERT_TRUE(reread.Deserialize(withCache));
+        EXPECT_EQ(reread.GetAssetCount(), 1u);
+        EXPECT_FALSE(reread.Exists(cachePath));
+    }
+
+    TEST(AssetRegistryCacheArtefacts, AnyHandleButTheDerivedOneIsRefusedAndNoneMovesTheCounter)
+    {
+        const std::filesystem::path cachePath{ "Assets/cache/embedded/emb_00000000000000ff_linear.png" };
+        const AssetHandle derived = AssetRegistry::CacheArtefactHandle(cachePath);
+        EXPECT_NE(static_cast<u64>(derived), 0u);
+        EXPECT_EQ(static_cast<u64>(AssetRegistry::CacheArtefactHandle(cachePath)), static_cast<u64>(derived))
+            << "the handle is not a function of the path";
+        EXPECT_NE(static_cast<u64>(AssetRegistry::CacheArtefactHandle("Assets/cache/embedded/other.png")),
+                  static_cast<u64>(derived));
+
+        AssetRegistry registry;
+        EXPECT_FALSE(registry.AddAsset(AssetMetadata{ AssetHandle{ 42ULL }, AssetType::Texture2D, cachePath }))
+            << "a cache artefact under a handle no later session can re-derive was accepted";
+        EXPECT_FALSE(registry.Exists(cachePath));
+
+        const AssetHandle before = registry.GenerateHandle();
+        ASSERT_TRUE(registry.AddAsset(AssetMetadata{ derived, AssetType::Texture2D, cachePath }));
+        const AssetHandle after = registry.GenerateHandle();
+        EXPECT_EQ(static_cast<u64>(after), static_cast<u64>(before) + 1u)
+            << "the cache artefact's hash handle moved the counter: the next authored asset's handle would depend "
+               "on which cache files this machine has";
+
+        // Moving an authored entry onto a cache path keeps its handle, so it is refused too.
+        const AssetHandle authored{ 900ULL };
+        ASSERT_TRUE(registry.AddAsset(MakeMetadata(authored, AssetType::Texture2D, "Assets/Textures/Bar.png")));
+        registry.UpdateMetadata(authored, AssetMetadata{ authored, AssetType::Texture2D, "Assets/cache/embedded/bar.png" });
+        EXPECT_EQ(registry.GetMetadata(authored).FilePath, std::filesystem::path{ "Assets/Textures/Bar.png" });
+    }
+
+    // A registry written before #1664 can still hold cache entries under random handles.
+    TEST(AssetRegistryCacheArtefacts, DeserializeDropsACacheEntryFromAnOlderFile)
+    {
+        const std::filesystem::path oar = TempDir("cache-oar-old") / "AssetRegistry.oar";
+        {
+            std::ofstream file(oar, std::ios::binary);
+            const auto put = [&file](const auto& value)
+            { file.write(reinterpret_cast<const char*>(&value), sizeof(value)); };
+            const auto entry = [&](u64 handle, const std::string& path)
+            {
+                put(handle);
+                put(static_cast<u32>(std::to_underlying(AssetType::Texture2D)));
+                put(static_cast<u32>(path.size()));
+                file.write(path.data(), static_cast<std::streamsize>(path.size()));
+            };
+            put(AssetRegistry::FileVersion);
+            put(u32{ 2 });
+            entry(5ULL, "Assets/Textures/Foo.png");
+            entry(6ULL, "Assets/cache/embedded/emb_0123456789abcdef_basecolor.png");
+        }
+
+        AssetRegistry registry;
+        ASSERT_TRUE(registry.Deserialize(oar));
+        EXPECT_EQ(registry.GetAssetCount(), 1u);
+        EXPECT_TRUE(registry.Exists(AssetHandle{ 5ULL }));
+        EXPECT_FALSE(registry.Exists(AssetHandle{ 6ULL })) << "a cache entry from the file was kept";
+    }
+
+    // The editor end to end: the scan and ImportAsset register a cache artefact
+    // under its derived handle, the saved registry does not change, a second
+    // session finds the same handle, and the pack cook's reader gets it back.
+    TEST(AssetRegistryCacheArtefacts, AnEditorSessionLeavesTheRegistryFileAsItFoundIt)
+    {
+        const std::filesystem::path root = TempDir("cache-oar-editor");
+        std::error_code ec;
+        std::filesystem::create_directories(root / "Assets" / "Textures", ec);
+        std::filesystem::create_directories(root / "Assets" / "cache" / "embedded", ec);
+        ASSERT_FALSE(ec) << ec.message();
+        {
+            std::ofstream project(root / "Test.oloproj");
+            project << "Project:\n"
+                       "  Name: CacheOar\n"
+                       "  StartScene: \"\"\n"
+                       "  AssetDirectory: \"Assets\"\n"
+                       "  ScriptModulePath: \"\"\n";
+        }
+        // Neither the scan nor ImportAsset reads the pixels, only the name.
+        std::ofstream(root / "Assets" / "Textures" / "Authored.png") << "png";
+        const std::filesystem::path cooked = root / "Assets" / "cache" / "embedded" / "emb_0123456789abcdef_basecolor.png";
+        const std::filesystem::path late = root / "Assets" / "cache" / "embedded" / "emb_fedcba9876543210_linear.png";
+        std::ofstream(cooked) << "png";
+
+        const std::filesystem::path cookedKey{ "Assets/cache/embedded/emb_0123456789abcdef_basecolor.png" };
+        const std::filesystem::path lateKey{ "Assets/cache/embedded/emb_fedcba9876543210_linear.png" };
+
+        ASSERT_TRUE(Project::Load(root / "Test.oloproj"));
+        const ProjectScope projectScope;
+        const std::filesystem::path oar = Project::GetAssetRegistryPath();
+        std::vector<char> savedBytes;
+        {
+            auto manager = Ref<EditorAssetManager>::Create();
+            manager->Initialize(/*startFileWatcher=*/false);
+            EXPECT_EQ(static_cast<u64>(manager->GetAssetHandleFromFilePath(cookedKey)),
+                      static_cast<u64>(AssetRegistry::CacheArtefactHandle(cookedKey)))
+                << "the scan registered the cache artefact under a handle that is not derived from its path";
+            savedBytes = ReadAllBytes(oar);
+
+            // What Model's cook does when it writes a texture mid-session.
+            std::ofstream(late) << "png";
+            EXPECT_EQ(static_cast<u64>(manager->ImportAsset(late)),
+                      static_cast<u64>(AssetRegistry::CacheArtefactHandle(lateKey)));
+            EXPECT_TRUE(manager->SerializeAssetRegistry());
+            EXPECT_EQ(ReadAllBytes(oar), savedBytes) << "a cooked texture dirtied the registry file";
+        }
+        EXPECT_EQ(ReadAllBytes(oar), savedBytes) << "the shutdown save dirtied the registry file";
+
+        AssetRegistry onDisk;
+        ASSERT_TRUE(onDisk.Deserialize(oar));
+        EXPECT_EQ(onDisk.GetAssetCount(), 1u) << "only the authored texture belongs in the file";
+        EXPECT_EQ(EditorAssetManager::RegisterCacheArtefacts(onDisk, Project::GetAssetDirectory(),
+                                                             Project::GetProjectDirectory()),
+                  2u);
+        EXPECT_EQ(static_cast<u64>(onDisk.GetHandleFromPath(lateKey)),
+                  static_cast<u64>(AssetRegistry::CacheArtefactHandle(lateKey)))
+            << "the pack cook's reader gave the artefact another handle than the session that cooked it";
+
+        {
+            auto second = Ref<EditorAssetManager>::Create();
+            second->Initialize(/*startFileWatcher=*/false);
+            EXPECT_EQ(static_cast<u64>(second->GetAssetHandleFromFilePath(lateKey)),
+                      static_cast<u64>(AssetRegistry::CacheArtefactHandle(lateKey)))
+                << "a second session did not arrive at the same handle";
+        }
+        EXPECT_EQ(ReadAllBytes(oar), savedBytes);
     }
 
 } // namespace OloEngine::Tests

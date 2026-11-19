@@ -563,3 +563,31 @@ With the folder away the log has no `Loading texture from path` line for the mod
 `ImportedMaterialCodec: could not resolve texture` warning, and the model is textured. The Drift
 boat was checked this way on OpenGL and Vulkan; with the folder in place the same run passed
 without reading one texture from the pack.
+
+## Cache artefacts are never in the registry file (issue #1664)
+
+Model's import cooks each embedded texture to `Assets/cache/embedded/emb_<hash>_<intent>.png` and
+registers it, so the `.omesh` cache and the asset pack can reference it by handle. `**/cache/**` is
+git-ignored, and the registry is tracked, so every editor session or test that loaded such a model
+used to leave `AssetRegistry.oar` dirty with entries for files no other checkout has. PR #1708
+committed twelve of them and failed `AssetContentValidity` on all three Linux sanitizer shards while
+passing on the machine that made it.
+
+The rule now lives in `AssetRegistry` itself:
+
+- `IsCacheArtefact(path)`: a directory named `cache` anywhere in the path, matching `.gitignore`.
+- Such an entry's handle is `CacheArtefactHandle(path)`, FNV-1a-64 of the path's generic spelling.
+  `EditorAssetManager::ImportAsset`, the startup scan and `CreateOrReplaceAsset` mint it;
+  `AddAsset` and `UpdateMetadata` refuse any other handle with an error, because no later session
+  could re-derive it. It does not move the sequential handle counter, so the next authored asset's
+  handle does not depend on which cache files a machine has.
+- `Serialize` leaves these entries out and `Deserialize` drops one found in a file (an older build
+  wrote it), with an error naming it.
+- The pack cook reads the registry file, so `AssetPackBuilder::BuildFromActiveProject` adds them
+  back with `EditorAssetManager::RegisterCacheArtefacts`, under the handle the cooking session gave
+  them.
+
+The choice over a git-ignored side registry: the cooked name already carries a content hash, so a
+handle derived from it needs no second file to load, save, migrate or keep in step, and a fresh
+clone with a warm `cache/` from elsewhere resolves the same handles without one.
+`AssetRegistryCacheArtefacts.*` in `AssetRegistryInvariantsTest.cpp` pins it.

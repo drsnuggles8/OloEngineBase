@@ -839,6 +839,47 @@ namespace OloEngine
         return type;
     }
 
+    sizet EditorAssetManager::RegisterCacheArtefacts(AssetRegistry& registry, const std::filesystem::path& assetDirectory,
+                                                     const std::filesystem::path& projectPath)
+    {
+        OLO_PROFILER_SCOPE("EditorAssetManager::RegisterCacheArtefacts");
+
+        sizet registered = 0;
+        std::error_code ec;
+        if (!std::filesystem::is_directory(assetDirectory, ec))
+            return 0;
+
+        for (auto it = std::filesystem::recursive_directory_iterator(assetDirectory, ec);
+             !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+        {
+            std::error_code fileEc;
+            if (!it->is_regular_file(fileEc) || fileEc)
+                continue;
+
+            const std::filesystem::path key = MakeRegistryKey(it->path(), projectPath);
+            if (!AssetRegistry::IsCacheArtefact(key))
+                continue;
+            const AssetType type = GetRegistrationType(it->path());
+            if (type == AssetType::None)
+                continue;
+
+            AssetMetadata metadata;
+            metadata.Handle = AssetRegistry::CacheArtefactHandle(key);
+            metadata.FilePath = key;
+            metadata.Type = type;
+            metadata.LastWriteTime = std::filesystem::last_write_time(it->path(), fileEc);
+            if (registry.AddAsset(metadata))
+                ++registered;
+        }
+        if (ec)
+        {
+            OLO_CORE_ERROR("EditorAssetManager::RegisterCacheArtefacts - could not walk {}: {}; cache artefacts after "
+                           "that point are not registered",
+                           assetDirectory.string(), ec.message());
+        }
+        return registered;
+    }
+
     AssetHandle EditorAssetManager::ImportAsset(const std::filesystem::path& filepath)
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::ImportAsset");
@@ -914,9 +955,13 @@ namespace OloEngine
             return existingHandle;
         }
 
-        // Create metadata
+        // Create metadata. A cache artefact (a cooked embedded texture under Assets/cache/)
+        // takes the handle derived from its path: it is never written to the registry file
+        // (#1664), so the next session, the pack cook and the .omesh that recorded the handle
+        // all have to arrive at the same one on their own.
         AssetMetadata metadata;
-        metadata.Handle = m_AssetRegistry.GenerateHandle(); // Generate a valid handle
+        metadata.Handle = AssetRegistry::IsCacheArtefact(relativePath) ? AssetRegistry::CacheArtefactHandle(relativePath)
+                                                                       : m_AssetRegistry.GenerateHandle();
         metadata.FilePath = relativePath;
         metadata.Type = type;
 
@@ -936,7 +981,11 @@ namespace OloEngine
         }
 
         // Register in registry
-        m_AssetRegistry.AddAsset(metadata);
+        if (!m_AssetRegistry.AddAsset(metadata))
+        {
+            OLO_CORE_ERROR("Cannot import asset: the registry refused {} (see the error above)", relativePath.string());
+            return 0;
+        }
 
         OLO_CORE_INFO("Imported asset: {} -> {}", filepath.string(), (u64)metadata.Handle);
         return metadata.Handle;

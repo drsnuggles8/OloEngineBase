@@ -77,11 +77,16 @@
 
 #include "Rendering/PropertyTests/RenderPropertyTest.h"
 
+#include "OloEngine/Asset/AssetRegistry.h"
+
 #include <algorithm>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #ifndef OLO_TEST_EDITOR_ROOT
@@ -174,6 +179,13 @@ namespace OloEngine::Tests
             return tempRoot;
         }
 
+        std::vector<char> ReadAllBytes(const fs::path& path)
+        {
+            std::ifstream in(path, std::ios::binary);
+            return in ? std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>())
+                      : std::vector<char>{};
+        }
+
         // Find the .oloproj inside a staged temp project. Sandbox.oloproj
         // is the only one in the real project; if the file count or name
         // changes, this needs to track.
@@ -255,6 +267,9 @@ namespace OloEngine::Tests
                 OLO_CORE_WARN("AssetSceneLoad: could not remove staging dir '{}': {}", Dir.string(), ec.message());
             }
         } cleanup{ tempRoot };
+
+        const std::vector<char> registryBefore = ReadAllBytes(tempRoot / "AssetRegistry.oar");
+        ASSERT_FALSE(registryBefore.empty()) << "the staged project has no AssetRegistry.oar";
 
         const fs::path projectFile = FindProjectFile(tempRoot);
         ASSERT_FALSE(projectFile.empty())
@@ -440,6 +455,60 @@ namespace OloEngine::Tests
             // deletion of objects that no scene or cached asset holds. The final
             // AssetManagerShutdown drains the shared assets' deletions too.
             scene.Reset();
+        }
+
+        // Loading every scene cooks each model's embedded textures into Assets/cache/ and
+        // registers them. None of that may reach the registry FILE (#1664): it is tracked, the
+        // cache is git-ignored, and a registry committed with those entries fails on a fresh
+        // clone only. So after the whole sweep and a save, the file holds the entries that were
+        // checked in and nothing else. (Entry ORDER is the asset-registry-no-cache hook's check.)
+        ASSERT_TRUE(assetManager->SerializeAssetRegistry());
+        sizet cacheArtefacts = 0;
+        for (const AssetHandle handle : assetManager->GetAllAssetsWithType(AssetType::Texture2D))
+        {
+            cacheArtefacts += AssetRegistry::IsCacheArtefact(assetManager->GetMetadata(handle).FilePath) ? 1u : 0u;
+        }
+        ::testing::Test::RecordProperty("olo_cache_artefacts_registered", std::to_string(cacheArtefacts));
+        std::printf("[asset-scene-load] %zu cache artefact(s) registered in memory after the sweep\n", cacheArtefacts);
+        {
+            // On the raw bytes: Deserialize drops cache entries, so comparing parsed registries
+            // cannot see one that was written.
+            const std::vector<char> afterBytes = ReadAllBytes(tempRoot / "AssetRegistry.oar");
+            const std::string_view afterText(afterBytes.data(), afterBytes.size());
+            EXPECT_EQ(afterText.find("Assets/cache/"), std::string_view::npos)
+                << "a cache artefact was written to AssetRegistry.oar";
+
+            const fs::path beforePath = TempDir("registry-before") / "AssetRegistry.oar";
+            std::ofstream(beforePath, std::ios::binary)
+                .write(registryBefore.data(), static_cast<std::streamsize>(registryBefore.size()));
+            AssetRegistry before;
+            AssetRegistry after;
+            ASSERT_TRUE(before.Deserialize(beforePath));
+            ASSERT_TRUE(after.Deserialize(tempRoot / "AssetRegistry.oar"));
+            std::ostringstream diff;
+            for (const AssetMetadata& m : after.GetAllAssets())
+            {
+                // A key starting ".." names a file outside the project: the scenes import engine
+                // textures (OloEditor/assets/...). The checked-in registry has them as
+                // "../assets/...", which is right for the real SandboxProject; this staged copy
+                // lives elsewhere, so the same file gets another relative key here. Not a change
+                // a real checkout would see, so it is not counted.
+                const bool escapesTheProject = !m.FilePath.empty() && *m.FilePath.begin() == "..";
+                if (const AssetMetadata old = before.GetMetadata(m.Handle); !old.IsValid() && !escapesTheProject)
+                    diff << "\n  added   " << static_cast<u64>(m.Handle) << " " << m.FilePath.generic_string();
+                else if (old.IsValid() && (old.FilePath != m.FilePath || old.Type != m.Type))
+                    diff << "\n  changed " << static_cast<u64>(m.Handle) << " " << old.FilePath.generic_string()
+                         << " -> " << m.FilePath.generic_string();
+            }
+            for (const AssetMetadata& m : before.GetAllAssets())
+            {
+                if (!after.Exists(m.Handle))
+                    diff << "\n  removed " << static_cast<u64>(m.Handle) << " " << m.FilePath.generic_string();
+            }
+            EXPECT_TRUE(diff.str().empty())
+                << "loading the sandbox scenes changed the entries of AssetRegistry.oar; the checked-in registry "
+                   "would be dirty after any editor session:"
+                << diff.str();
         }
 
         if (!failures.empty())

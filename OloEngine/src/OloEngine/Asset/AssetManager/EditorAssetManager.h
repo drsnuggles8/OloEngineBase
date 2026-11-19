@@ -225,6 +225,18 @@ namespace OloEngine
                                                                    const std::filesystem::path& projectPath);
 
         /**
+         * @brief Register every asset file under a `cache` directory of assetDirectory.
+         *
+         * Cache artefacts are never in a registry file (AssetRegistry::IsCacheArtefact,
+         * #1664), so a reader of that file — the asset-pack cook — adds them back from disk
+         * with this, each under its derived handle, the one an editor session gave it.
+         *
+         * @return The number of files registered.
+         */
+        static sizet RegisterCacheArtefacts(AssetRegistry& registry, const std::filesystem::path& assetDirectory,
+                                            const std::filesystem::path& projectPath);
+
+        /**
          * @brief Check if file exists for given metadata
          * @param metadata Asset metadata to check
          * @return True if file exists on disk
@@ -258,7 +270,10 @@ namespace OloEngine
             const bool replaceAsset = metadata.Handle != 0;
             if (!replaceAsset)
             {
-                metadata.Handle = AssetHandle(); // Generate a fresh unique handle
+                // A fresh unique handle, or for a cache artefact the one derived from its
+                // path, which is the only handle the registry accepts for it (#1664).
+                metadata.Handle = AssetRegistry::IsCacheArtefact(relativePath) ? AssetRegistry::CacheArtefactHandle(relativePath)
+                                                                               : AssetHandle();
                 metadata.FilePath = relativePath;
                 metadata.Type = T::GetStaticType();
                 metadata.IsDataLoaded = true;

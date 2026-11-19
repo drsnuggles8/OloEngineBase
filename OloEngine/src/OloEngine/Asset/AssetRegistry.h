@@ -47,11 +47,29 @@ namespace OloEngine
         AssetRegistry(AssetRegistry&&) = delete;
         AssetRegistry& operator=(AssetRegistry&&) = delete;
 
+        // ── Cache artefacts (#1664) ──
+        // A file under a directory named `cache` (the `.gitignore` rule `**/cache/**`) is
+        // derived data: a cooked embedded texture under Assets/cache/embedded/, for one. Its
+        // file is never committed, so its registry entry must never be either, or a fresh
+        // clone holds an entry for a file it does not have. Such an entry therefore:
+        //   * has the handle CacheArtefactHandle(path), derived from its registry path, so every
+        //     manager that registers the file (an editor session, the pack cook, a test)
+        //     gives it the same handle without reading it from anywhere;
+        //   * is held in memory like any other entry, but Serialize() never writes it, and
+        //     Deserialize() drops one found in a file;
+        //   * is refused by AddAsset/UpdateMetadata under any other handle, because that
+        //     handle could not be re-derived after a restart.
+        [[nodiscard]] static bool IsCacheArtefact(const std::filesystem::path& path);
+        // Nonzero for every path. FNV-1a-64 of the path's generic spelling.
+        [[nodiscard]] static AssetHandle CacheArtefactHandle(const std::filesystem::path& path);
+
         /**
          * @brief Add or update asset metadata in the registry
          * @param metadata Asset metadata to store
+         * @return False when the entry was refused (a zero handle, or a cache artefact whose
+         *         handle is not CacheArtefactHandle of its path); the refusal is logged as an error.
          */
-        void AddAsset(const AssetMetadata& metadata);
+        bool AddAsset(const AssetMetadata& metadata);
 
         /**
          * @brief Remove asset metadata from the registry
@@ -149,6 +167,10 @@ namespace OloEngine
 
         /**
          * @brief Serialize the registry to a file
+         *
+         * Writes every entry except cache artefacts (IsCacheArtefact), which are re-derived
+         * by whoever registers their files and never belong in the tracked registry.
+         *
          * @param filepath Path where to save the registry
          * @return True if serialization was successful
          */
@@ -197,6 +219,9 @@ namespace OloEngine
          * concurrently from multiple threads without external synchronization.
          */
         AssetHandle GetNextHandle();
+
+        // Shared by AddAsset and UpdateMetadata; logs the refusal.
+        static bool IsAcceptableHandleForPath(AssetHandle handle, const std::filesystem::path& path, const char* caller);
 
       private:
         // Main metadata storage (handle -> metadata)
