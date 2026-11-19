@@ -1666,6 +1666,28 @@ Entities:
           ImpostorHemiOctahedral: true
           Enabled: true
 
+  # Ridgeback's southern loading berth. Both origins are on the mounting deck.
+  - Entity: 878551717000001
+    TagComponent:
+      Tag: Ridgeback - hand crane
+    TransformComponent:
+      Translation: [-106, 1.48, 158.5]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      MeshSourceHandle: 8797525685858992129
+      Visible: true
+  - Entity: 878551717000002
+    TagComponent:
+      Tag: Ridgeback - timber landing
+    TransformComponent:
+      Translation: [-106, 1.48, 158.5]
+      Rotation: [0, 1.5707963, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      MeshSourceHandle: 8797525685858992130
+      Visible: true
+
   # Stacks Light stands on the outer western stack. Its stair is turned onto
   # the rock shelf at (-417.74, 28.68, -469.71), just below the final tread.
   - Entity: 878550100000001
