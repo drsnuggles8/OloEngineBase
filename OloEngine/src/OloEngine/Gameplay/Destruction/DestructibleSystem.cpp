@@ -97,6 +97,7 @@ namespace OloEngine
                 const glm::vec3 dir = ScatterDir(req.SourceID, i);
 
                 Entity d = scene->CreateEntity("Debris");
+                scene->MarkRuntimeOwned(d); // Transient: a save never restores a chunk (#1712).
                 auto& tc = d.GetComponent<TransformComponent>();
                 tc.Translation = req.Position + dir * spawnRadius;
                 tc.Scale = pieceScale;

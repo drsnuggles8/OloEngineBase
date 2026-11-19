@@ -148,6 +148,9 @@ TEST_F(RuntimeInputRebindMenuTest, CloseDestroysEntireCanvasSubtreeNoOrphans)
     };
 
     EXPECT_GT(uiEntityCount(), 0u); // the menu built its widgets in SetUp
+    // Every widget sits under the runtime-owned canvas, so a save never captures the open menu (#1712).
+    for (const auto e : m_Scene->GetAllEntitiesWith<UIRectTransformComponent>())
+        EXPECT_TRUE(m_Scene->IsRuntimeOwned(Entity{ e, *m_Scene }));
     m_Menu.Close();
     EXPECT_EQ(uiEntityCount(), 0u); // no orphaned children left behind
 }

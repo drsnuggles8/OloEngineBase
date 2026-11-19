@@ -188,6 +188,9 @@ namespace OloEngine
 
         // Root canvas covering the whole screen, drawn above gameplay UI.
         m_Canvas = m_Scene->CreateEntity("RebindMenuCanvas");
+        // Runtime-owned (#1712): a save never captures the open menu. Every other
+        // menu entity is parented under the canvas, which excludes it too.
+        m_Scene->MarkRuntimeOwned(m_Canvas);
         auto& canvas = m_Canvas.AddComponent<UICanvasComponent>();
         canvas.m_RenderMode = UICanvasRenderMode::ScreenSpaceOverlay;
         canvas.m_ScaleMode = UICanvasScaleMode::ScaleWithScreenSize;

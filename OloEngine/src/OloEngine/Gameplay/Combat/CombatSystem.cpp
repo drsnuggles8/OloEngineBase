@@ -79,6 +79,7 @@ namespace OloEngine
         }
 
         Entity impactDecal = scene->CreateEntity("Weapon Impact");
+        scene->MarkRuntimeOwned(impactDecal); // Transient: a save never restores a decal (#1712).
         auto& decalTransform = impactDecal.GetComponent<TransformComponent>();
         glm::vec3 normal = hit.m_Normal;
         const f32 normalLengthSquared = glm::dot(normal, normal);
@@ -383,6 +384,7 @@ namespace OloEngine
         for (auto& launch : launches)
         {
             Entity projectile = scene->CreateEntity("Projectile");
+            scene->MarkRuntimeOwned(projectile); // Transient: a save never restores a shot in flight (#1712).
             projectile.GetComponent<TransformComponent>().Translation = launch.State.Position;
             ProjectileComponent component;
             component.m_State = std::move(launch.State);
