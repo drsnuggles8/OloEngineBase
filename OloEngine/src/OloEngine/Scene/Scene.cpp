@@ -1797,6 +1797,10 @@ namespace OloEngine
         // per-tick rebuild path.
         m_SpatialIndex.Clear();
 
+        // Gameplay scripts can read a child's world position from OnCreate
+        // and from their first tick, before the scheduled propagation pass.
+        PropagateWorldTransforms();
+
         // In headless mode, disable rendering
         if (Application::Get().IsHeadless())
         {

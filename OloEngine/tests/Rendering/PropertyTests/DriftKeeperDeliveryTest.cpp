@@ -330,7 +330,8 @@ namespace OloEngine::Tests
             ASSERT_TRUE(SaveGameSerializer::RestoreSceneState(scene, saved));
             Entity restoredKeeper = scene.FindEntityByName(kKeeper);
             ASSERT_TRUE(restoredKeeper);
-            scene.PropagateWorldTransforms();
+            const glm::vec3 restoredFoot(scene.GetWorldTransform(static_cast<entt::entity>(restoredKeeper))[3]);
+            EXPECT_LT(glm::distance(restoredFoot, here), 1e-3f) << "restore must publish world space before the first script reads it";
             LuaScriptEngine::OnRuntimeStart(&scene);
             ScriptEngine::SetSceneContextForTesting(&scene);
             scene.SetRunning(true);
