@@ -129,3 +129,28 @@ game, inspect the eyes, mouth, shoulder and lantern separately in close-up,
 then look back at the tower from 30 and 150 metres. The face detail disappears
 first. The coat hem, cap peak and bent arm carry the gesture farther.
 [Asset contract and regeneration commands](../../OloEditor/SandboxProject/Assets/Models/DriftKeeper/README.md)
+
+
+## From the water
+
+Approach from west-southwest to see the door. At a camera height of 2.5 m,
+the stack itself hides the keeper when looking along his forward axis. The
+paired crops below use a bearing of 240° from world +X towards +Z. At 30 m
+horizontal range the oilskin and dark trousers separate across the rail. At
+150 m the coat is a few amber pixels in the doorway. The right-hand crop in
+each pair moves the keeper out of frame and leaves the stair in place.
+
+![Full Drift from sea level at 30 m and 150 m with enlarged keeper-on and keeper-off crops](../images/drift-keeper/approach.jpg)
+
+The fixed-camera close-ups use the tower, sun, body, eye profiles and bound
+hair from the shipped scene. Each has a matching groom-off frame. In OpenGL
+Deferred, the 4× MSAA pair changed 113,567 pixels above the repeat-control
+noise threshold. Temporal Quality upscale changed 84,428 pixels.
+
+![The same face in OpenGL and Vulkan on Forward, Forward+ and Deferred](../images/drift-keeper/render-paths.jpg)
+
+These five editor views hold the doorway and camera still while changing
+the Drift weather state and clock. At night the doorway falls into shadow.
+The keeper raises his lamp when the Lua controller is running in Play.
+
+![Clear, Overcast, Storm, dusk and night at the station door](../images/drift-keeper/weather.jpg)
