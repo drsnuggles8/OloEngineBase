@@ -575,21 +575,26 @@ passing on the machine that made it.
 
 The rule now lives in `AssetRegistry` itself:
 
-- `IsCacheArtefact(path)`: a directory named `cache` anywhere in the path, ignoring case, matching
-  `.gitignore` under this repo's `core.ignorecase`.
+- `IsCacheArtefact(path)`: a directory named `cache` anywhere in the path, ignoring case on every
+  platform. `.gitignore` ignores `[Cc][Aa][Cc][Hh][Ee]/` to match, so the rule does not depend on
+  `core.ignorecase`.
 - Such an entry's handle is `CacheArtefactHandle(path)`, FNV-1a-64 of the path's generic spelling.
-  Every caller that mints a handle for a new entry takes it from `HandleForNewEntry(path)`;
-  `AddAsset` and `UpdateMetadata` refuse any other handle with an error, because no later session
-  could re-derive it, and `EditorAssetManager::SetMetadata` returns that refusal so its callers
-  (prefab save, the asset-move commands) fail instead of reporting success. A derived handle does
-  not move the sequential handle counter, so the next authored asset's handle does not depend on
-  which cache files a machine has.
+  `ImportAsset` gives a cache file that handle, and a caller minting a random handle takes it from
+  `HandleForNewEntry(path)`. `AddAsset` and `UpdateMetadata` refuse any other handle with an
+  error, because no later session could re-derive it, and `EditorAssetManager::SetMetadata` returns
+  that refusal so its callers fail instead of reporting success. A derived handle does not move the
+  sequential handle counter, so the next authored asset's handle does not depend on which cache
+  files a machine has.
+- An authored asset never goes under `cache/`: the MCP asset move, the MCP prefab create and the
+  hierarchy panel's *Save as Prefab* refuse such a destination before writing or moving anything.
+- Model's cook writes `<stem>.tmp<hex>.png` and renames it into place. `IsInFlightCookFile` keeps
+  that file out of the startup scan, the file watcher and the pack walk.
 - `Serialize` leaves these entries out and `Deserialize` drops one found in a file (an older build
   wrote it), with an error naming it, and still moves the counter past its handle so that handle is
   never given to another asset.
 - The pack cook reads the registry file, so `AssetPackBuilder::BuildFromActiveProject` adds them
   back with `EditorAssetManager::RegisterCacheArtefacts`, under the handle the cooking session gave
-  them. It skips Model's in-flight `<stem>.tmp<hex>.png` files.
+  them.
 
 The choice over a git-ignored side registry: the cooked name is already deterministic (a hash of
 the model path, the Assimp texture reference and the colour-space intent; not of the pixels), so a
