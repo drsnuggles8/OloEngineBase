@@ -308,7 +308,9 @@ namespace OloEngine::Tests
             }
             placeBoat(200);
             clock.m_TimeOfDayHours = 9;
-            advance(100);
+            advance(15);
+            EXPECT_EQ(clip(), "Idle") << "a wave interrupted by night must not replay after the boat leaves";
+            advance(85);
             EXPECT_EQ(clip(), "Idle");
             EXPECT_LT(ik.AimWeight, 0.02f);
             EXPECT_NEAR(bulb.m_Intensity, 0, 0.001f);

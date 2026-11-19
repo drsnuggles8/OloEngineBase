@@ -45,6 +45,7 @@ function Keeper.OnUpdate(id, dt)
     local hour = sky and sky.timeOfDayHours or 12
     local dark = hour >= 18.5 or hour < 6
     if range > 78 then s.greeted = false end
+    if dark or range > 78 then s.waveUntil = 0 end
     if range < 62 and not s.greeted and not dark then
         s.greeted, s.waveUntil = true, s.clock + 3.6
     end
