@@ -31,7 +31,71 @@ def mix_weights(value, low, high, first, second):
     return {first: 1 - t, second: t}
 
 
-def body(s, lod):
+def add_hand(s, sign, suffix):
+    # Hands hang with palms facing the thighs. Longitudinal differences and
+    # bent distal phalanges keep the fingertips from forming a single edge.
+    hx = sign * 0.252
+    s.loft(
+        "KeeperSkin",
+        [
+            (0.852, hx, 0.055, 0.017, 0.038),
+            (0.869, hx, 0.056, 0.023, 0.044),
+            (0.904, hx, 0.052, 0.025, 0.043),
+            (0.932, hx, 0.050, 0.020, 0.030),
+            (0.952, hx, 0.052, 0.020, 0.027),
+        ],
+        "hand_" + suffix,
+        26,
+    )
+    for f, (offset, length) in enumerate([(-0.028, 0.060), (-0.009, 0.072), (0.011, 0.076), (0.030, 0.066)]):
+        z = 0.054 + offset
+        curl = 0.012 if suffix == "R" else 0.028
+        base = 0.867 if f in (1, 2) else 0.864
+        path = [
+            (hx, base, z),
+            (hx + sign * 0.002, base - 0.34 * length, z),
+            (hx - sign * curl * 0.35, base - 0.68 * length, z + 0.002),
+            (hx - sign * curl, base - length, z + 0.004),
+            (hx - sign * (curl + 0.003), base - length - 0.002, z + 0.005),
+        ]
+        s.tube(
+            "KeeperSkin",
+            path,
+            [(0.009, 0.009), (0.009, 0.009), (0.008, 0.008), (0.006, 0.007), (0.002, 0.003)],
+            "hand_" + suffix,
+            14,
+        )
+        s.oval(
+            "KeeperNail",
+            (path[-2][0] + sign * 0.005, path[-2][1] + 0.003, path[-2][2]),
+            (0.002, 0.005, 0.004),
+            "hand_" + suffix,
+            12,
+            8,
+        )
+    s.tube(
+        "KeeperSkin",
+        [
+            (hx, 0.907, 0.079),
+            (hx - sign * 0.009, 0.892, 0.099),
+            (hx - sign * 0.019, 0.874, 0.106),
+            (hx - sign * 0.027, 0.860, 0.105),
+        ],
+        [(0.012, 0.015), (0.012, 0.013), (0.010, 0.010), (0.006, 0.007)],
+        "hand_" + suffix,
+        16,
+    )
+
+
+def stagger_stance(s):
+    for i, point in enumerate(s.points):
+        x, y, z = point
+        if y < 0.90 and x > 0:
+            shift = 0.035 * min(1, max(0, (0.90 - y) / 0.40))
+            s.points[i] = (x, y, z + shift)
+
+
+def body(s, lod, anatomy=False):
     n = (80, 36, 18)[lod]
 
     def trunk(p):
@@ -41,6 +105,15 @@ def body(s, lod):
 
     def torso(mat, rows, weights=trunk, fluting=None):
         s.loft(mat, [(y, 0, z, w, d) for y, w, d, z in rows], weights, n, fluting)
+
+    if anatomy:
+        from keeper_anatomy import underlying_body
+
+        underlying_body(s, trunk, mix_weights)
+        for sign, suffix in ((1, "L"), (-1, "R")):
+            add_hand(s, sign, suffix)
+        stagger_stance(s)
+        return
 
     torso(
         "KeeperSkin",
@@ -264,66 +337,8 @@ def body(s, lod):
             part("forearm"),
             n // 2,
         )
-        # Hands hang with palms facing the thighs. Longitudinal differences and
-        # bent distal phalanges keep the fingertips from forming a single edge.
-        hx = sign * 0.252
-        s.loft(
-            "KeeperSkin",
-            [
-                (0.852, hx, 0.055, 0.017, 0.038),
-                (0.869, hx, 0.056, 0.023, 0.044),
-                (0.904, hx, 0.052, 0.025, 0.043),
-                (0.932, hx, 0.050, 0.020, 0.030),
-                (0.952, hx, 0.052, 0.020, 0.027),
-            ],
-            part("hand"),
-            26,
-        )
-        for f, (offset, length) in enumerate(
-            [(-0.028, 0.060), (-0.009, 0.072), (0.011, 0.076), (0.030, 0.066)]
-        ):
-            z = 0.054 + offset
-            curl = 0.012 if suffix == "R" else 0.028
-            base = 0.867 if f in (1, 2) else 0.864
-            path = [
-                (hx, base, z),
-                (hx + sign * 0.002, base - 0.34 * length, z),
-                (hx - sign * curl * 0.35, base - 0.68 * length, z + 0.002),
-                (hx - sign * curl, base - length, z + 0.004),
-                (hx - sign * (curl + 0.003), base - length - 0.002, z + 0.005),
-            ]
-            s.tube(
-                "KeeperSkin",
-                path,
-                [(0.009, 0.009), (0.009, 0.009), (0.008, 0.008), (0.006, 0.007), (0.002, 0.003)],
-                part("hand"),
-                14,
-            )
-            s.oval(
-                "KeeperNail",
-                (path[-2][0] + sign * 0.005, path[-2][1] + 0.003, path[-2][2]),
-                (0.002, 0.005, 0.004),
-                part("hand"),
-                12,
-                8,
-            )
-        s.tube(
-            "KeeperSkin",
-            [
-                (hx, 0.907, 0.079),
-                (hx - sign * 0.009, 0.892, 0.099),
-                (hx - sign * 0.019, 0.874, 0.106),
-                (hx - sign * 0.027, 0.860, 0.105),
-            ],
-            [(0.012, 0.015), (0.012, 0.013), (0.010, 0.010), (0.006, 0.007)],
-            part("hand"),
-            16,
-        )
-    for i, point in enumerate(s.points):
-        x, y, z = point
-        if y < 0.90 and x > 0:
-            shift = 0.035 * min(1, max(0, (0.90 - y) / 0.40))
-            s.points[i] = (x, y, z + shift)
+        add_hand(s, sign, suffix)
+    stagger_stance(s)
     # Cap band, canted crown with an overhanging welt, peaked leather visor.
     torso(
         "KeeperCap",

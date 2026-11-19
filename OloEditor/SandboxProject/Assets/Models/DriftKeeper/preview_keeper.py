@@ -17,6 +17,9 @@ def main():
         action="store_true",
         help="Also render the clips, expressions, LOD masks and scanned reference",
     )
+    parser.add_argument(
+        "--anatomy", type=Path, help="Path to the optional rigged KeeperAnatomy.gltf proportion study"
+    )
     parser.add_argument("--groom", action="store_true")
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1 :])
     args.output.mkdir(parents=True, exist_ok=True)
@@ -26,16 +29,18 @@ def main():
         bpy.ops.import_scene.gltf(filepath=str((args.models / name).resolve()), import_pack_images=True)
         return list(bpy.context.selected_objects)
 
-    objs = load("Keeper.gltf")
+    objs = load(args.anatomy.resolve() if args.anatomy else "Keeper.gltf")
     arm = next(o for o in objs if o.type == "ARMATURE")
     body = next(o for o in objs if o.type == "MESH" and o.data.shape_keys)
     for ob in objs:
         ob.animation_data_clear()
         if ob.type == "ARMATURE":
             ob.data.pose_position = "REST"
-    foundation = next(ob for ob in load("KeeperHairFoundation.gltf") if ob.type == "MESH")
+    foundation = (
+        None if args.anatomy else next(ob for ob in load("KeeperHairFoundation.gltf") if ob.type == "MESH")
+    )
     rig = json.loads((args.models / "Keeper.rig.json").read_text())
-    attachments = [(foundation, "head")]
+    attachments = [(foundation, "head")] if foundation else []
     for eye in rig["eyes"]:
         globe = next(o for o in load("KeeperEyeball.gltf") if o.type == "MESH")
         x, y, z = eye["centre"]
@@ -43,7 +48,7 @@ def main():
         globe.scale = (rig["eyeRadius"],) * 3
         attachments.append((globe, eye["bone"]))
     scene = bpy.context.scene
-    if args.groom:
+    if args.groom and foundation:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from build_keeper_groom import grow
 
@@ -91,6 +96,26 @@ def main():
         scene.render.filepath = str((args.output / (name + ".png")).resolve())
         bpy.ops.render.render(write_still=True)
 
+    if args.anatomy:
+        for name, delta in [
+            ("front", (0, -1, 0.02)),
+            ("quarter", (0.64, -1, 0.04)),
+            ("profile", (1, -0.02, 0.02)),
+            ("back", (0, 1, 0.04)),
+        ]:
+            shot(name, delta, 0.88, 1.94)
+        if args.study:
+            arm.data.pose_position = "POSE"
+            anim = arm.animation_data_create()
+            anim.action = bpy.data.actions["Wave"]
+            anim.action_slot = anim.action.slots[0]
+            scene.frame_set(37)
+            bpy.context.view_layer.update()
+            for ob, bone in attachments:
+                posed = arm.pose.bones[bone]
+                ob.matrix_world = posed.matrix @ posed.bone.matrix_local.inverted() @ ob.matrix_world
+            shot("wave", (0.45, -2, 0.10), 0.90, 2.05)
+        return
     for name, delta, height, scale in [
         ("body", (0.85, -2, 0.25), 0.90, 1.97),
         ("front", (0, -1, 0.018), 1.62, 0.34),

@@ -41,6 +41,18 @@ Its standing height is 7.54 heads, close to the seven to seven and a half
 used in the Seattle Art Museum's figure-drawing exercise.
 [Gallop portrait, National Park Service](https://www.nps.gov/people/petergregorygallop.htm) Â· [Seattle Art Museum, appendix C](https://www1.seattleartmuseum.org/EuropeanMasters/imgs/KenwoodHouseERG.pdf)
 
+## Under the uniform
+
+The first anatomical study joined separate muscle volumes. In profile the
+patella and calf protruded like joints on a wooden figure. The second used
+smooth cross sections through the shoulders, wrists, knees and ankles. Each
+foot has five toes. The final pose study exposed a wrist incorrectly weighted
+to the trunk at hip height. Weighting the arm by its own surface fixed the
+stretched wrist. At the armpit the most stretched mesh edge still lengthens
+by 22 mm in the held wave. The fitted outer sleeve conceals that crease in Drift.
+
+![First muscle study, revised standing front and profile, and the waved arm on the unclothed rig](../images/drift-keeper/anatomy.jpg)
+
 ## What changed in the studies
 
 ![Four successive three-quarter views showing the bare construction and three revisions of the haired face](../images/drift-keeper/face-development.jpg)
@@ -135,7 +147,7 @@ first. The coat hem, cap peak and bent arm carry the gesture farther.
 
 Approach from west-southwest to see the door. At a camera height of 2.5 m,
 the stack itself hides the keeper when looking along his forward axis. The
-paired crops below use a bearing of 240° from world +X towards +Z. At 30 m
+paired crops below use a bearing of 240Â° from world +X towards +Z. At 30 m
 horizontal range the oilskin and dark trousers separate across the rail. At
 150 m the coat is a few amber pixels in the doorway. The right-hand crop in
 each pair moves the keeper out of frame and leaves the stair in place.
@@ -144,7 +156,7 @@ each pair moves the keeper out of frame and leaves the stair in place.
 
 The fixed-camera close-ups use the tower, sun, body, eye profiles and bound
 hair from the shipped scene. Each has a matching groom-off frame. In OpenGL
-Deferred, the 4× MSAA pair changed 113,567 pixels above the repeat-control
+Deferred, the 4Ã— MSAA pair changed 113,567 pixels above the repeat-control
 noise threshold. Temporal Quality upscale changed 84,428 pixels.
 
 ![The same face in OpenGL and Vulkan on Forward, Forward+ and Deferred](../images/drift-keeper/render-paths.jpg)

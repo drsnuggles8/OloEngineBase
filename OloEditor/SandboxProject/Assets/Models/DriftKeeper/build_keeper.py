@@ -4,7 +4,7 @@ Run with Python + NumPy, or Blender in background mode (see README).
 """
 
 import argparse
-from math import cos, pi, radians, sin
+from math import cos, radians, sin
 import json
 from pathlib import Path
 import sys
@@ -179,15 +179,16 @@ def animate(file, ids):
     file.doc["animations"] = animations
 
 
-def export_body(path, lod):
+def export_body(path, lod, anatomy=False):
     surface = Surface(lod)
     face(surface, lod)
-    body(surface, lod)
+    body(surface, lod, anatomy=anatomy)
     file = Gltf()
     joints = bones()
     names = list(joints)
     file.mesh(surface, PALETTE, names)
-    dress_materials(file)
+    if not anatomy:
+        dress_materials(file)
     nodes = file.doc["nodes"]
     nodes.append(dict(name="KeeperBody", mesh=0, skin=0))
     ids = {name: 1 + i for i, name in enumerate(names)}
@@ -260,13 +261,22 @@ def export_eye(out):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("out", nargs="?", type=Path, default=HERE)
+    parser.add_argument(
+        "--anatomy-only",
+        action="store_true",
+        help="Export the complete unclothed, rigged figure for a proportion study",
+    )
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1 :] if "--" in sys.argv else None)
     sys.path.insert(0, str(HERE.parent / "DriftLighthouse"))
     from lighthouse_package import create_staging_directory, publish_package
 
     with create_staging_directory() as staging:
         staged = Path(staging)
-        generate(staged)
+        if args.anatomy_only:
+            export_body(staged / "KeeperAnatomy.gltf", 0, anatomy=True)
+            export_eye(staged)
+        else:
+            generate(staged)
         files = sorted(staged.iterdir(), key=lambda p: (p.suffix in (".gltf", ".json"), p.name))
         publish_package(staged, args.out, [p.name for p in files])
 

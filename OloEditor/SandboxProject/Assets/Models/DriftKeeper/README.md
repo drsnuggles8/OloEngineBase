@@ -61,6 +61,17 @@ and textures before their descriptors. If an interrupted publication leaves a
 `.stacks-light-recovery` directory, follow the recovery instructions in the
 [lighthouse README](../DriftLighthouse/README.md).
 
+The full anatomical study uses the same head, hands, armature, expression targets
+and clip data as the dressed keeper. Surface nets join the rib cage, pelvis,
+upper and lower limbs, ankles and toes. The dressed tiers omit the skin covered
+by the oilskin, trousers and boots. Export the unclothed study into a scratch
+directory to inspect its topology or pose it in Blender.
+
+```powershell
+python "$models/build_keeper.py" --anatomy-only build-cached/keeper-anatomy
+& $blender -b --factory-startup --python-exit-code 1 --python "$models/preview_keeper.py" -- $models build-cached/keeper-anatomy-views --anatomy build-cached/keeper-anatomy/KeeperAnatomy.gltf --study
+```
+
 The body generator also runs with `python "$models/build_keeper.py" $models`
 in a Python environment with NumPy. The groom and previews use Blender.
 Omit `--groom` for faster Workbench shape studies. The `--study` option adds
