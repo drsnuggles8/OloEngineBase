@@ -66,8 +66,10 @@ namespace OloEngine
         [[nodiscard]] static AssetHandle CacheArtefactHandle(const std::filesystem::path& path);
         // The handle to give a NEW entry for this registry path: CacheArtefactHandle for a
         // cache artefact, a fresh random one otherwise. Every caller that mints a handle for a
-        // path it is about to register takes it from here. A random handle, unlike the counter,
-        // cannot reissue a handle dropped with an older registry file's cache entry.
+        // path it is about to register takes it from here. A random 64-bit handle matches a
+        // handle dropped with an older registry file's cache entry only by chance: the same
+        // probabilistic uniqueness every UUID in the engine relies on. The counter, rebuilt from
+        // the file on load, would reissue such a handle deterministically.
         [[nodiscard]] static AssetHandle HandleForNewEntry(const std::filesystem::path& path);
         // Model's cook writes `<stem>.tmp<hex>.png` beside the cooked file and renames it into
         // place when the write is complete. Such a file is never registered.
@@ -174,8 +176,12 @@ namespace OloEngine
         bool UpdateMetadata(AssetHandle handle, const AssetMetadata& metadata);
 
         /**
-         * @brief Generate a new unique asset handle
-         * @return New unique asset handle
+         * @brief The next value of this registry's sequential handle counter
+         *
+         * Unique only within this registry's lifetime: the counter is rebuilt from the file on
+         * load, so it can return a handle that an older file held and a newer one dropped. A
+         * handle for a new entry comes from HandleForNewEntry instead.
+         * @return The next counter value
          */
         AssetHandle GenerateHandle();
 
