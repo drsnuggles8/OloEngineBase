@@ -1222,6 +1222,7 @@ add_executable(OloEngine-Tests
 		Terrain/DriftIslandSplatCoverageTest.cpp
 		Terrain/TerrainGeneratorTest.cpp
 		Terrain/TerrainLayerTextureContractTest.cpp
+		Terrain/TerrainLodMetricTest.cpp
 		Terrain/TerrainVirtualTextureTest.cpp
 		Terrain/TerrainAuthoringReadbackTest.cpp
 		Terrain/VoxelGreedyMesherTest.cpp
