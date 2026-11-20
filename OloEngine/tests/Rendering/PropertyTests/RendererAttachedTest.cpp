@@ -7,6 +7,7 @@
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -355,6 +356,15 @@ namespace OloEngine::Tests
         // For the minimal smoke tests we don't enable physics, so just
         // drop the Scene ref.
         m_Scene.Reset();
+
+        // A STREAMING PREPARATION THIS TEST STARTED ENDS WITH IT. The groom pass
+        // outlives the scene, and a detail load cancelled while its worker runs
+        // keeps its shared staging until the worker returns. Under CPU load that
+        // outlasted the next test's warm-up frames: the vegetation streaming test
+        // found 134 MB of a groom LOD test's staging still reserved, and its own
+        // requests were refused.
+        if (auto* pass = Renderer3D::GetGroomRenderPass())
+            pass->WaitForStreamingWork();
         RenderPropertyFixture::SetVulkanSceneTestAdmitted(false);
     }
 

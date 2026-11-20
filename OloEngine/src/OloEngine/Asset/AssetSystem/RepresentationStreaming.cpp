@@ -173,6 +173,17 @@ namespace OloEngine
         }
     }
 
+    void FRepresentationLoadQueue::WaitForLaunchedWork()
+    {
+        if (m_StartGate && !m_StartGate->IsCompleted())
+            return;
+        TArray<Tasks::TTask<Ref<FRepresentationPayload>>> tasks;
+        m_Loads.CollectTasks(tasks);
+        for (auto& task : tasks)
+            task.Wait();
+        ReapAbandoned();
+    }
+
     void FRepresentationLoadQueue::Shutdown()
     {
         if (m_Stopped)

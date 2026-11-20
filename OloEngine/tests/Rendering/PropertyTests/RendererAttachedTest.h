@@ -19,8 +19,9 @@
 //   * Per-test `SetUp` creates a fresh `Scene` with rendering DISABLED.
 //     Subclasses override `BuildScene()` to add entities and, when they
 //     want the full draw path to run, call `EnableRendering(w, h)`.
-//   * Per-test `TearDown` clears the Scene; the renderer stays initialised
-//     for the next test.
+//   * Per-test `TearDown` clears the Scene and waits out the groom pass's
+//     streaming preparations, so none keeps shared staging into the next
+//     test; the renderer stays initialised for the next test.
 //   * `Renderer::Shutdown()` runs once, after ALL tests in the process,
 //     from the test `main()` (after RUN_ALL_TESTS) — while the shared GL
 //     context is still current. (Doing it at process exit /

@@ -97,6 +97,46 @@ TEST_F(RepresentationStreamingTest, CancelledRunningWorkKeepsSharedStagingUntilI
     EXPECT_EQ(first.GetStats().Cancellation.AbandonedResultsDropped, 1u);
 }
 
+TEST_F(RepresentationStreamingTest, WaitingForLaunchedWorkReleasesAnAbandonedLoadsStaging)
+{
+    FRepresentationLoadQueue queue;
+    auto hook = Tests::MakeLoadHookState();
+    ASSERT_EQ(queue.Request(7, Descriptor(60), [hook]() -> Ref<FRepresentationPayload>
+                            {
+                                hook->Block();
+                                return Ref<TestRepresentationPayload>::Create(7); }),
+              ERepresentationRequestResult::Queued);
+    ASSERT_TRUE(hook->WorkerInside.WaitFor());
+    ASSERT_EQ(queue.Cancel(7), EAssetLoadCancelResult::AbandonedInFlight);
+    ASSERT_EQ(RepresentationStreaming::Get().GetStats().StagingCpuBytes, 60u);
+    // The worker returns only after the wait has begun, so a wait that merely
+    // reaps what has already finished still finds the staging reserved.
+    std::thread release([hook]()
+                        {
+                            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                            hook->Release.Set(); });
+    queue.WaitForLaunchedWork();
+    release.join();
+    EXPECT_EQ(queue.GetStats().StagingBytes, 0u);
+    EXPECT_EQ(RepresentationStreaming::Get().GetStats().StagingCpuBytes, 0u);
+}
+
+TEST_F(RepresentationStreamingTest, WaitingForLaunchedWorkLeavesLoadsBehindAClosedGateQueued)
+{
+    FRepresentationLoadQueue queue;
+    Tasks::FTaskEvent gate("RepresentationWaitBehindGate");
+    queue.SetStartGate(gate);
+    ASSERT_EQ(queue.Request(7, Descriptor(60), []() -> Ref<FRepresentationPayload>
+                            { return Ref<TestRepresentationPayload>::Create(7); }),
+              ERepresentationRequestResult::Queued);
+    queue.WaitForLaunchedWork(); // returns: the gated load cannot finish
+    EXPECT_TRUE(queue.IsPending(7));
+    EXPECT_EQ(queue.GetStats().StagingBytes, 60u);
+    gate.Trigger();
+    queue.Shutdown();
+    EXPECT_EQ(queue.GetStats().StagingBytes, 0u);
+}
+
 TEST_F(RepresentationStreamingTest, CancelledQueuedWorkNeverRunsPreparation)
 {
     FRepresentationLoadQueue queue;
