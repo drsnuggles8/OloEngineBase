@@ -605,6 +605,10 @@ The rule now lives in `AssetRegistry` itself:
   without the artefacts after that point and still report success. That covers an iterator error
   and a status error on the asset directory or on any entry. Only "no such file" is not a failure:
   a missing asset directory is an empty walk, and an entry gone mid-walk (a cook's rename) is skipped.
+- On a fresh checkout the pack build's own mesh loads cook the textures. `Model` registers a cooked
+  file with the project's asset manager, not the build's temporary one, so `BuildFromRegistry` walks
+  the cache before and after its loads, and loads every file the loads cooked into the pack. Without
+  that, the packed mesh recorded a texture handle that the pack did not hold.
 
 The choice over a git-ignored side registry: the cooked name is already deterministic (a hash of
 the model path, the Assimp texture reference and the colour-space intent; not of the pixels), so a

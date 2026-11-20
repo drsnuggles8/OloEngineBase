@@ -119,6 +119,18 @@ namespace OloEngine
             }
             return true;
         }
+
+        // Every cache artefact under the active project's asset directory, as the pack cook would
+        // register it; empty with no project, nullopt when the walk could not finish.
+        [[nodiscard]] std::optional<std::vector<AssetMetadata>> CacheArtefactsOnDisk()
+        {
+            if (!Project::GetActive())
+                return std::vector<AssetMetadata>{};
+            AssetRegistry onDisk;
+            if (!EditorAssetManager::RegisterCacheArtefacts(onDisk, Project::GetAssetDirectory(), Project::GetProjectDirectory()))
+                return std::nullopt;
+            return onDisk.GetAllAssets();
+        }
     } // namespace
 
     AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromActiveProject(const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
@@ -215,6 +227,16 @@ namespace OloEngine
             auto allAssets = assetRegistry.GetAllAssets();
             OLO_CORE_INFO("AssetPackBuilder: Loading {} assets from registry", allAssets.size());
 
+            // A mesh load below can cook an embedded texture to Assets/cache/. Model registers
+            // the cooked file with the PROJECT's asset manager, not this temporary one, so a
+            // texture cooked during this build would be missing from the pack while the packed
+            // mesh records its handle (#1664). The cache walk before the loads tells the files
+            // this build cooked apart from those that were already there; the latter are the
+            // caller's to list (BuildFromActiveProject registers them all).
+            const std::optional<std::vector<AssetMetadata>> cachedBefore = CacheArtefactsOnDisk();
+            if (!cachedBefore)
+                return { false, "Could not list the cache artefacts under the asset directory (see the error above)", 0, 0, {} };
+
             // Set up progress tracking for asset loading
             float loadProgress = 0.0f;
             float progressPerAsset = 0.3f / static_cast<float>(allAssets.size()); // Reserve 30% for loading
@@ -222,79 +244,107 @@ namespace OloEngine
             sizet loadedCount = 0;
             sizet failedCount = 0;
 
-            // Load each asset from the registry into the temporary manager, ON
-            // THE GAME THREAD (ForEachOnGameThread). A load creates the asset's
-            // GPU resources (texture pixels, mesh buffers), and this build runs
-            // on a worker: on Vulkan its load-time uploads submitted to the
-            // frame's queue from a second thread and lost the device.
-            std::vector<Ref<Asset>> loadedAssets(allAssets.size());
-            std::vector<std::string> loadErrors(allAssets.size());
-            const bool loadsCompleted = ForEachOnGameThread(
-                allAssets.size(), cancelToken, "AssetPackBuilder::LoadAssets",
-                [&](sizet i)
+            // Load each asset of a batch into the temporary manager, ON THE GAME THREAD
+            // (ForEachOnGameThread). A load creates the asset's GPU resources (texture pixels,
+            // mesh buffers), and this build runs on a worker: on Vulkan its load-time uploads
+            // submitted to the frame's queue from a second thread and lost the device.
+            const auto loadBatch = [&](const std::vector<AssetMetadata>& batch, float perAsset) -> bool
+            {
+                std::vector<Ref<Asset>> loadedAssets(batch.size());
+                std::vector<std::string> loadErrors(batch.size());
+                const bool completed = ForEachOnGameThread(
+                    batch.size(), cancelToken, "AssetPackBuilder::LoadAssets",
+                    [&](sizet i)
+                    {
+                        try
+                        {
+                            if (!tempAssetManager->SetMetadata(batch[i].Handle, batch[i]))
+                            {
+                                loadErrors[i] = "the asset registry refused its entry (see the error above)";
+                                return;
+                            }
+                            loadedAssets[i] = tempAssetManager->GetAsset(batch[i].Handle);
+                        }
+                        catch (const std::exception& e)
+                        {
+                            loadErrors[i] = e.what();
+                        }
+                    },
+                    [&](sizet begin, sizet end)
+                    {
+                        for (sizet i = begin; i < end; ++i)
+                        {
+                            const auto& metadata = batch[i];
+                            const Ref<Asset>& asset = loadedAssets[i];
+                            if (!loadErrors[i].empty())
+                            {
+                                ++failedCount;
+                                OLO_CORE_ERROR("AssetPackBuilder: Exception loading asset {} ({}): {}", metadata.Handle,
+                                               metadata.FilePath.string(), loadErrors[i]);
+                            }
+                            // A load that fails comes back as the type's PLACEHOLDER,
+                            // not null, and is not cached, so it never reaches the
+                            // pack. It used to be counted as loaded: a build that
+                            // dropped every groom .abc reported "0 failed".
+                            else if (asset && PlaceholderAssetManager::IsPlaceholderAsset(asset))
+                            {
+                                ++failedCount;
+                                OLO_CORE_WARN("AssetPackBuilder: asset {} ({}) did not load and is NOT in the pack; the editor "
+                                              "draws a placeholder for it",
+                                              metadata.Handle, metadata.FilePath.string());
+                            }
+                            else if (asset)
+                            {
+                                ++loadedCount;
+                                OLO_CORE_TRACE("AssetPackBuilder: Loaded asset {} ({})", metadata.Handle, metadata.FilePath.string());
+                            }
+                            else
+                            {
+                                ++failedCount;
+                                OLO_CORE_WARN("AssetPackBuilder: Failed to load asset {} ({})", metadata.Handle,
+                                              metadata.FilePath.string());
+                            }
+                            loadProgress += perAsset;
+                        }
+                        progress = loadProgress;
+                    });
+                // The results hold references to assets the game thread created;
+                // the temporary manager owns them too, and it is released there.
+                loadedAssets.clear();
+                return completed;
+            };
+
+            bool loadsCompleted = loadBatch(allAssets, progressPerAsset);
+            if (loadsCompleted)
+            {
+                const std::optional<std::vector<AssetMetadata>> cachedAfter = CacheArtefactsOnDisk();
+                if (!cachedAfter)
+                    return { false, "Could not list the cache artefacts the asset loads cooked (see the error above)", 0, 0, {} };
+                std::unordered_set<AssetHandle> known;
+                for (const auto& metadata : *cachedBefore)
+                    known.insert(metadata.Handle);
+                for (const auto& metadata : allAssets)
+                    known.insert(metadata.Handle);
+                std::vector<AssetMetadata> cooked;
+                for (const auto& metadata : *cachedAfter)
                 {
-                    try
-                    {
-                        if (!tempAssetManager->SetMetadata(allAssets[i].Handle, allAssets[i]))
-                        {
-                            loadErrors[i] = "the asset registry refused its entry (see the error above)";
-                            return;
-                        }
-                        loadedAssets[i] = tempAssetManager->GetAsset(allAssets[i].Handle);
-                    }
-                    catch (const std::exception& e)
-                    {
-                        loadErrors[i] = e.what();
-                    }
-                },
-                [&](sizet begin, sizet end)
+                    if (!known.contains(metadata.Handle))
+                        cooked.push_back(metadata);
+                }
+                if (!cooked.empty())
                 {
-                    for (sizet i = begin; i < end; ++i)
-                    {
-                        const auto& metadata = allAssets[i];
-                        const Ref<Asset>& asset = loadedAssets[i];
-                        if (!loadErrors[i].empty())
-                        {
-                            ++failedCount;
-                            OLO_CORE_ERROR("AssetPackBuilder: Exception loading asset {} ({}): {}", metadata.Handle,
-                                           metadata.FilePath.string(), loadErrors[i]);
-                        }
-                        // A load that fails comes back as the type's PLACEHOLDER,
-                        // not null, and is not cached, so it never reaches the
-                        // pack. It used to be counted as loaded: a build that
-                        // dropped every groom .abc reported "0 failed".
-                        else if (asset && PlaceholderAssetManager::IsPlaceholderAsset(asset))
-                        {
-                            ++failedCount;
-                            OLO_CORE_WARN("AssetPackBuilder: asset {} ({}) did not load and is NOT in the pack; the editor "
-                                          "draws a placeholder for it",
-                                          metadata.Handle, metadata.FilePath.string());
-                        }
-                        else if (asset)
-                        {
-                            ++loadedCount;
-                            OLO_CORE_TRACE("AssetPackBuilder: Loaded asset {} ({})", metadata.Handle, metadata.FilePath.string());
-                        }
-                        else
-                        {
-                            ++failedCount;
-                            OLO_CORE_WARN("AssetPackBuilder: Failed to load asset {} ({})", metadata.Handle,
-                                          metadata.FilePath.string());
-                        }
-                        loadProgress += progressPerAsset;
-                    }
-                    progress = loadProgress;
-                });
-            // The results hold references to assets the game thread created;
-            // the temporary manager owns them too, and it is released there.
-            loadedAssets.clear();
+                    OLO_CORE_INFO("AssetPackBuilder: the loads cooked {} cache artefact(s); loading them into the pack",
+                                  cooked.size());
+                    loadsCompleted = loadBatch(cooked, 0.0f);
+                }
+            }
             if (!loadsCompleted)
             {
                 OLO_CORE_INFO("AssetPackBuilder: Build cancelled during asset loading");
                 return { false, "Build cancelled by user", 0, 0, {} };
             }
 
-            OLO_CORE_INFO("AssetPackBuilder: Loaded {}/{} assets successfully ({} failed)", loadedCount, allAssets.size(), failedCount);
+            OLO_CORE_INFO("AssetPackBuilder: Loaded {}/{} assets successfully ({} failed)", loadedCount, loadedCount + failedCount, failedCount);
 
             // Check if we have any loaded assets to pack
             if (loadedCount == 0)
