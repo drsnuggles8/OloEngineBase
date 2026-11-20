@@ -54,7 +54,9 @@ namespace OloEngine
     // bitmap into a real .png asset under <AssetRoot>/cache/embedded/ and (where an editor
     // asset manager exists) ImportAsset()s it, so it gains a stable, deterministic path AND a
     // registry handle like any other texture — after which the handle-plus-path scheme below
-    // already works, unchanged. The cooked name is derived from FNV-1a-64(model path | Assimp
+    // already works, unchanged. Being under cache/, that handle is derived from the cooked path
+    // and never written to the tracked registry file; the pack cook re-registers the file under
+    // the same handle (AssetRegistry::IsCacheArtefact, #1664). The cooked name is derived from FNV-1a-64(model path | Assimp
     // texture ref) plus the colour-space intent, so it is stable across re-imports (the pack
     // does not churn and scene references do not rot), and the intent is spelled into the
     // filename because the packed-runtime loader and the pack cook both decide sRGB from the

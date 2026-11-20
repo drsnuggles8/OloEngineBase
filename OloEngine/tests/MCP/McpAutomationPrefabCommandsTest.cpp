@@ -735,6 +735,33 @@ namespace OloEngine::Automation::Tests
         EXPECT_FALSE(std::filesystem::exists(PrefabPath("Nope.oloprefab")));
     }
 
+    // A cache/ directory is git-ignored derived data, and the registry refuses an authored asset
+    // there (#1664): the refusal comes before the file is written or the entity is stamped.
+    TEST_F(AutomationPrefabCommandsTest, CreateRefusesAPathUnderACacheDirectory)
+    {
+        Entity root = m_Host.ActiveScene->CreateEntity("Cached");
+        const std::string refusal =
+            Failure("olo_prefab_create", { { "entity", Id(root) }, { "path", "Assets/cache/Cached.oloprefab" } });
+        // The up-front refusal's own wording: the registry's later refusal, followed by a
+        // rollback of the written file, ends in the same state but says something else.
+        EXPECT_NE(refusal.find("git-ignored derived data"), std::string::npos) << refusal;
+        EXPECT_FALSE(root.HasComponent<PrefabComponent>()) << "the entity was stamped before the refusal";
+        // Nothing was written: not the prefab, and not the directory it would have needed.
+        EXPECT_FALSE(std::filesystem::exists(Project::GetProjectDirectory() / "Assets" / "cache"))
+            << "the prefab was written (and then rolled back) before the refusal";
+    }
+
+    // The refusal judges where the path resolves to, not how it is spelled: a `cache`
+    // component that `..` cancels leaves an ordinary authored path.
+    TEST_F(AutomationPrefabCommandsTest, CreateAcceptsAPathThatOnlySpellsACacheDirectory)
+    {
+        Entity root = m_Host.ActiveScene->CreateEntity("Through");
+        const Json created =
+            Ok("olo_prefab_create", { { "entity", Id(root) }, { "path", "Assets/cache/../Prefabs/Through.oloprefab" } });
+        EXPECT_FALSE(created.value("prefab", std::string{}).empty()) << created.dump(2);
+        EXPECT_TRUE(std::filesystem::exists(Project::GetProjectDirectory() / "Assets" / "Prefabs" / "Through.oloprefab"));
+    }
+
     TEST_F(AutomationPrefabCommandsTest, CreateRefusesPathsOutsideTheAssetDirectoryAndNonPrefabExtensions)
     {
         Entity root = m_Host.ActiveScene->CreateEntity("Loose");

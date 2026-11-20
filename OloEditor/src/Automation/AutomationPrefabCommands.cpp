@@ -255,7 +255,11 @@ namespace OloEngine::Automation
                     throw std::runtime_error("Cannot register the prefab: the project has no editor asset manager.");
                 }
                 manager->AddMemoryOnlyAsset(m_Prefab);
-                manager->SetMetadata(m_Metadata.Handle, m_Metadata);
+                if (!manager->SetMetadata(m_Metadata.Handle, m_Metadata))
+                {
+                    throw std::runtime_error("The asset registry refused the prefab " + m_Metadata.FilePath.generic_string() +
+                                             " (see the log).");
+                }
                 if (!manager->SerializeAssetRegistry())
                 {
                     throw std::runtime_error("Failed to write the asset registry.");
@@ -1750,6 +1754,15 @@ namespace OloEngine::Automation
                 message += ", asset directory '" + DirectoryForComparison(assetDirectory).generic_string() + "'.";
                 return Error(std::move(message));
             }
+            // Refused before anything is written or stamped: a cache/ directory is git-ignored
+            // derived data, and the registry refuses an authored asset there because it could
+            // not keep its handle (#1664). Classified on the registry key, which follows links
+            // and `..`, so an alias of cache/ is refused and `cache/../Prefabs/` is not.
+            if (AssetRegistry::IsCacheArtefact(EditorAssetManager::MakeRegistryKey(absolute, Project::GetProjectDirectory())))
+            {
+                return Error("path " + requested.generic_string() +
+                             " resolves under a cache/ directory, which is git-ignored derived data; choose another folder.");
+            }
             std::error_code ec;
             const bool exists = std::filesystem::exists(absolute, ec) && !ec;
             if (exists)
@@ -1821,7 +1834,14 @@ namespace OloEngine::Automation
                 manager->RemoveAsset(handle);
                 return Error(std::string("The prefab file could not be written: ") + e.what());
             }
-            manager->SetMetadata(handle, metadata);
+            if (!manager->SetMetadata(handle, metadata))
+            {
+                RestoreAll(before);
+                manager->RemoveAsset(handle);
+                ReplaceFileContents(absolute, yaml, std::nullopt);
+                return Error("The asset registry refused the prefab's path (see the log; a cache/ directory cannot hold "
+                             "an authored asset); the prefab was not created.");
+            }
             if (!manager->SerializeAssetRegistry())
             {
                 RestoreAll(before);

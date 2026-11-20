@@ -100,14 +100,16 @@ repos:
       files: '(.*\.(c|cc|cpp|h|hpp|inl)|scripts/check_stb_include_path\.py)$'
 
     - id: asset-registry-no-cache
-      name: a tracked asset registry names no cache file
+      name: a tracked asset registry names no cache file and is in handle order
       description: >-
         Fails if a staged AssetRegistry.oar registers a path under Assets/cache/, which
-        is git-ignored. The editor adds such entries while it loads models, and a
-        registry committed with them passes every check on the machine that has the
-        cache and fails AssetContentValidity on a fresh clone (PR #1708: red on the
-        Linux shards only). Reads the index, so an editor session's working copy does
-        not trip it.
+        is git-ignored. A registry committed with them passes every check on the
+        machine that has the cache and fails AssetContentValidity on a fresh clone
+        (PR #1708: red on the Linux shards only). Since #1664 the engine never writes
+        one (AssetRegistry::Serialize skips cache artefacts); this catches a registry
+        from an older build or a hand edit. Also fails a registry whose entries are not
+        in ascending handle order (a hand-merged one), which the first save rewrites.
+        Reads the index.
       entry: python scripts/check_asset_registry_no_cache.py
       language: system
       pass_filenames: false

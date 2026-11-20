@@ -733,19 +733,31 @@ namespace OloEngine
                 // Written before it is registered: a prefab whose file could not be
                 // written must not reach the registry, and the entity must not
                 // become an instance of it.
-                const bool saved = AssetImporter::Serialize(metadata, prefab);
+                // A path under a cache/ directory is git-ignored derived data (#1664): an
+                // authored prefab there could not keep its handle, so it is refused before
+                // anything is written.
+                const bool underCache = AssetRegistry::IsCacheArtefact(relativePath);
+                if (underCache)
+                    OLO_CORE_ERROR("Not saving prefab '{}': it is under a cache/ directory, which is git-ignored derived "
+                                   "data and cannot hold an authored asset; '{}' is unchanged",
+                                   prefabPath.string(), entityTag);
+                const bool written = !underCache && AssetImporter::Serialize(metadata, prefab);
+                const bool saved = written && editorManager->SetMetadata(handle, metadata);
                 if (!saved)
                 {
                     AssetManager::RemoveAsset(handle);
-                    OLO_CORE_ERROR("Could not save prefab '{}'; '{}' is unchanged", prefabPath.string(), entityTag);
+                    if (written)
+                        OLO_CORE_ERROR("Wrote prefab '{}', but the asset registry refused it (see the error above); it is "
+                                       "not registered and '{}' is unchanged",
+                                       prefabPath.string(), entityTag);
+                    else if (!underCache)
+                        OLO_CORE_ERROR("Could not save prefab '{}'; '{}' is unchanged", prefabPath.string(), entityTag);
                 }
-                else
+                else if (!editorManager->SerializeAssetRegistry())
                 {
-                    editorManager->SetMetadata(handle, metadata);
-                    if (!editorManager->SerializeAssetRegistry())
-                        OLO_CORE_ERROR("Saved prefab '{}', but the asset registry could not be written: its handle "
-                                       "exists only in this session until the next registry write",
-                                       prefabPath.string());
+                    OLO_CORE_ERROR("Saved prefab '{}', but the asset registry could not be written: its handle "
+                                   "exists only in this session until the next registry write",
+                                   prefabPath.string());
                 }
 
                 // Mark the source entity as a prefab instance

@@ -494,6 +494,14 @@ namespace OloEngine::Automation
                 return Failure("destination must be inside the project asset directory (" + assetDir +
                                "). Got: " + candidate);
             }
+            // Refused here, before any file moves or reference is rewritten: a cache/ directory
+            // is git-ignored derived data, and the registry refuses an authored asset there
+            // because its handle could not survive a restart (#1664).
+            if (AssetRegistry::IsCacheArtefact(EditorAssetManager::MakeRegistryKey(destination, project.Root)))
+            {
+                return Failure("destination " + candidate +
+                               " is under a cache/ directory, which is git-ignored derived data; choose another folder.");
+            }
             std::error_code ec;
             if (!std::filesystem::is_directory(destination.parent_path(), ec) || ec)
             {
@@ -826,7 +834,13 @@ namespace OloEngine::Automation
                 std::error_code stampEc;
                 if (const auto stamp = std::filesystem::last_write_time(to, stampEc); !stampEc)
                     metadata.LastWriteTime = stamp;
-                manager->SetMetadata(m_Record.Handle, metadata);
+                if (!manager->SetMetadata(m_Record.Handle, metadata))
+                {
+                    OLO_CORE_ERROR("Asset move {}: the registry refused {} (see the error above); handle {} keeps its "
+                                   "old path",
+                                   forward ? "redo" : "undo", metadata.FilePath.generic_string(),
+                                   static_cast<u64>(m_Record.Handle));
+                }
                 (void)manager->SerializeAssetRegistry();
             }
 
@@ -911,7 +925,11 @@ namespace OloEngine::Automation
                     std::error_code ec;
                     if (const auto stamp = std::filesystem::last_write_time(destination, ec); !ec)
                         metadata.LastWriteTime = stamp;
-                    manager->SetMetadata(target.Handle, metadata);
+                    if (!manager->SetMetadata(target.Handle, metadata))
+                        return Failure("Moved the files, but the asset registry refused the new path " +
+                                       destinationKey.generic_string() +
+                                       ": an asset under a cache/ directory cannot keep its handle (#1664). Move it "
+                                       "back out of the cache directory.");
                     registryUpdated = 1;
                 }
                 if (!manager->SerializeAssetRegistry())

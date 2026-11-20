@@ -33,6 +33,7 @@
 #include "OloEngine/Asset/AssetManager/EditorAssetManager.h"
 #include "OloEngine/Asset/AssetManager/RuntimeAssetManager.h"
 #include "OloEngine/Asset/AssetPackBuilder.h"
+#include "OloEngine/Asset/AssetRegistry.h"
 #include "OloEngine/Asset/AssetSerializer.h"
 #include "OloEngine/Asset/MeshCache.h"
 #include "OloEngine/Renderer/Model.h"
@@ -52,7 +53,9 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <iterator>
 #include <cstring>
 #include <filesystem>
 #include <unordered_map>
@@ -1069,11 +1072,24 @@ namespace
         return pixels;
     }
 
+    // Whole RGBA8 pixels against the first one: comparing bytes, a solid opaque-black block
+    // (0,0,0,255) would count as varying because its alpha differs from its red.
     bool HasVaryingPixels(const std::vector<u8>& pixels)
     {
-        return !pixels.empty() &&
-               std::any_of(pixels.begin(), pixels.end(), [&](u8 b)
-                           { return b != pixels[0]; });
+        constexpr sizet stride = 4u;
+        if (pixels.size() < 2u * stride || pixels.size() % stride != 0u)
+        {
+            return false;
+        }
+        for (sizet offset = stride; offset < pixels.size(); offset += stride)
+        {
+            if (!std::equal(pixels.begin(), pixels.begin() + static_cast<std::ptrdiff_t>(stride),
+                            pixels.begin() + static_cast<std::ptrdiff_t>(offset)))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 } // namespace
 
@@ -1204,6 +1220,150 @@ TEST_F(ImportedMaterialPackTest, EmbeddedTextureSurvivesTheAssetPack)
     EXPECT_EQ(packedPixels, coldPixels) << "the packed albedo's CONTENT differs from the imported one";
     EXPECT_FLOAT_EQ(packedMaterial->GetMetallicFactor(), 0.25f); // the factors still ride along
     EXPECT_FLOAT_EQ(packedMaterial->GetRoughnessFactor(), 0.75f);
+}
+
+// The cooked texture never enters the registry FILE (#1664: the file is tracked, the cache is
+// git-ignored), yet the real pack cook, which reads that file, must still ship it under the
+// handle the mesh recorded, and a packed runtime must draw it.
+TEST_F(ImportedMaterialPackTest, EmbeddedTextureShipsThroughThePackCookWithoutARegistryFileEntry)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    const fs::path assets = m_TempDir / "Assets";
+    const fs::path modelPath = AuthorGltfWithEmbeddedAlbedo(assets, EmbeddedAlbedoPixels(), 4, 4);
+    ASSERT_FALSE(modelPath.empty());
+    MeshCache::InvalidateCache(modelPath);
+    MeshCache::InvalidateCache(modelPath, "static_uvflip_v1");
+
+    const AssetHandle meshHandle = m_AssetManager->ImportAsset(modelPath);
+    ASSERT_NE(static_cast<u64>(meshHandle), 0ULL);
+    Ref<MeshSource> const cold = AssetManager::GetAsset<MeshSource>(meshHandle);
+    ASSERT_TRUE(cold && !cold->GetImportedMaterials().empty());
+    Ref<Texture2D> const coldAlbedo = cold->GetImportedMaterials()[0]->GetAlbedoMap();
+    ASSERT_TRUE(coldAlbedo);
+    const std::vector<u8> coldPixels = ReadTexturePixels(coldAlbedo);
+    ASSERT_TRUE(HasVaryingPixels(coldPixels));
+
+    const auto descs = ImportedMaterialCodec::Describe(cold->GetImportedMaterials());
+    ASSERT_FALSE(descs.empty());
+    const AssetHandle albedoHandle = descs[0].Albedo.Handle;
+    const AssetMetadata albedoMetadata = m_AssetManager->GetMetadata(albedoHandle);
+    ASSERT_TRUE(AssetRegistry::IsCacheArtefact(albedoMetadata.FilePath))
+        << "fixture is wrong: the albedo is not a cooked cache artefact (" << albedoMetadata.FilePath.generic_string() << ")";
+    EXPECT_EQ(static_cast<u64>(albedoHandle), static_cast<u64>(AssetRegistry::CacheArtefactHandle(albedoMetadata.FilePath)));
+
+    ASSERT_TRUE(m_AssetManager->SerializeAssetRegistry());
+    {
+        std::ifstream in(Project::GetAssetRegistryPath(), std::ios::binary);
+        const std::string bytes(std::istreambuf_iterator<char>(in), {});
+        EXPECT_EQ(bytes.find("cache/"), std::string::npos) << "the cooked texture reached the registry file";
+    }
+
+    AssetPackBuilder::BuildSettings settings;
+    settings.m_OutputPath = m_TempDir / "Package" / "AssetPack.olopack";
+    settings.m_IncludeScriptModule = false;
+    settings.m_IncludeLocalizationFiles = false;
+    // Compression stays on, as in a real Build Game: only a compressed record embeds the pixels
+    // (an uncompressed one re-reads the loose file), so it is the one that shows delivery.
+    std::atomic<f32> progress{ 0.0f };
+    const auto built = AssetPackBuilder::BuildFromActiveProject(settings, progress);
+    ASSERT_TRUE(built.m_Success) << built.m_ErrorMessage;
+    EXPECT_EQ(built.m_FailedAssetCount, 0u);
+
+    // Move the cooked file away: Realize() resolves a texture by its path before its handle,
+    // so with the file on disk the runtime would draw it without the pack having shipped it.
+    std::error_code ec;
+    fs::rename(assets / "cache", assets / "cache-aside", ec);
+    ASSERT_FALSE(ec) << ec.message();
+
+    struct RestoreManager
+    {
+        Ref<AssetManagerBase> Previous = Project::GetAssetManager();
+        ~RestoreManager()
+        {
+            Project::SetAssetManager(Previous);
+        }
+    } restore;
+    auto runtime = Ref<RuntimeAssetManager>::Create(false);
+    ASSERT_TRUE(runtime->LoadAssetPack(settings.m_OutputPath));
+    Project::SetAssetManager(runtime);
+    const auto packed = runtime->GetAsset(meshHandle).As<MeshSource>();
+    ASSERT_TRUE(packed && !packed->GetImportedMaterials().empty());
+    Ref<Texture2D> const packedAlbedo = packed->GetImportedMaterials()[0]->GetAlbedoMap();
+    ASSERT_TRUE(packedAlbedo) << "the packed runtime lost the embedded texture: the pack cook did not ship the "
+                                 "cache artefact";
+    EXPECT_EQ(static_cast<u64>(packedAlbedo->GetHandle()), static_cast<u64>(albedoHandle));
+    EXPECT_EQ(packedAlbedo->GetWidth(), coldAlbedo->GetWidth());
+    EXPECT_EQ(packedAlbedo->GetHeight(), coldAlbedo->GetHeight());
+    // BC7 is lossy, and this fixture's 16 unrelated colours in one 4x4 block are its worst case,
+    // so the content is checked for being the texture at all, not for exact pixels.
+    EXPECT_TRUE(HasVaryingPixels(ReadTexturePixels(packedAlbedo))) << "the packed albedo is blank";
+}
+
+// A fresh checkout has no Assets/cache/: the pack build's own mesh load cooks the texture.
+// Model registers that file with the project's manager, not the build's temporary one, so
+// without a second pass the pack shipped the mesh but not the texture it records (#1664).
+TEST_F(ImportedMaterialPackTest, ATextureCookedDuringThePackBuildShipsInThePack)
+{
+    OLO_ENSURE_GPU_OR_SKIP();
+
+    const fs::path assets = m_TempDir / "Assets";
+    const fs::path modelPath = AuthorGltfWithEmbeddedAlbedo(assets, EmbeddedAlbedoPixels(), 4, 4);
+    ASSERT_FALSE(modelPath.empty());
+    MeshCache::InvalidateCache(modelPath);
+    MeshCache::InvalidateCache(modelPath, "static_uvflip_v1");
+
+    const AssetHandle meshHandle = m_AssetManager->ImportAsset(modelPath);
+    ASSERT_NE(static_cast<u64>(meshHandle), 0ULL);
+    // Importing the model already cooked its texture; take the build back to a fresh checkout,
+    // where neither the cooked file nor the mesh cache that records it exists.
+    std::error_code ec;
+    fs::remove_all(assets / "cache", ec);
+    ASSERT_FALSE(ec) << ec.message();
+    MeshCache::InvalidateCache(modelPath);
+    MeshCache::InvalidateCache(modelPath, "static_uvflip_v1");
+    ASSERT_TRUE(m_AssetManager->SerializeAssetRegistry());
+
+    AssetPackBuilder::BuildSettings settings;
+    settings.m_OutputPath = m_TempDir / "Package" / "AssetPack.olopack";
+    settings.m_IncludeScriptModule = false;
+    settings.m_IncludeLocalizationFiles = false;
+    std::atomic<f32> progress{ 0.0f };
+    const auto built = AssetPackBuilder::BuildFromActiveProject(settings, progress);
+    ASSERT_TRUE(built.m_Success) << built.m_ErrorMessage;
+    EXPECT_EQ(built.m_FailedAssetCount, 0u);
+
+    std::vector<fs::path> cookedFiles;
+    for (const auto& entry : fs::recursive_directory_iterator(assets / "cache"))
+    {
+        if (entry.is_regular_file() && entry.path().extension() == ".png")
+            cookedFiles.push_back(entry.path());
+    }
+    ASSERT_EQ(cookedFiles.size(), 1u) << "the build's mesh load did not cook exactly the one embedded texture";
+    const fs::path cookedKey = EditorAssetManager::MakeRegistryKey(cookedFiles[0], Project::GetProjectDirectory());
+    const AssetHandle cookedHandle = AssetRegistry::CacheArtefactHandle(cookedKey);
+
+    // With the file on disk the runtime would draw it by path whether or not the pack shipped it.
+    fs::rename(assets / "cache", assets / "cache-aside", ec);
+    ASSERT_FALSE(ec) << ec.message();
+
+    struct RestoreManager
+    {
+        Ref<AssetManagerBase> Previous = Project::GetAssetManager();
+        ~RestoreManager()
+        {
+            Project::SetAssetManager(Previous);
+        }
+    } restore;
+    auto runtime = Ref<RuntimeAssetManager>::Create(false);
+    ASSERT_TRUE(runtime->LoadAssetPack(settings.m_OutputPath));
+    Project::SetAssetManager(runtime);
+    const auto packed = runtime->GetAsset(meshHandle).As<MeshSource>();
+    ASSERT_TRUE(packed && !packed->GetImportedMaterials().empty());
+    Ref<Texture2D> const packedAlbedo = packed->GetImportedMaterials()[0]->GetAlbedoMap();
+    ASSERT_TRUE(packedAlbedo) << "the texture the build cooked is not in the pack, though the packed mesh records it";
+    EXPECT_EQ(static_cast<u64>(packedAlbedo->GetHandle()), static_cast<u64>(cookedHandle));
+    EXPECT_TRUE(HasVaryingPixels(ReadTexturePixels(packedAlbedo))) << "the packed albedo is blank";
 }
 
 // STABILITY: the cooked texture's handle must not change between imports. If it did, the
