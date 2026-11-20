@@ -36,6 +36,7 @@
 // =============================================================================
 
 #include "../include/TerrainLayerBlend.glsl"
+#include "../include/TerrainHeightUV.glsl"
 
 layout(local_size_x = 8, local_size_y = 8) in;
 
@@ -91,11 +92,13 @@ vec2 terrainSlope(vec2 uv)
 {
     float texelSize = u_VTBakeTexel.x;
     float heightScale = u_VTBakeWorld.z;
+    // The height map's samples sit on the tile's edges (TerrainHeightUV.glsl).
+    float resolution = float(textureSize(u_TerrainHeightmap, 0).x);
 
-    float hL = textureLod(u_TerrainHeightmap, uv + vec2(-texelSize, 0.0), 0.0).r * heightScale;
-    float hR = textureLod(u_TerrainHeightmap, uv + vec2( texelSize, 0.0), 0.0).r * heightScale;
-    float hD = textureLod(u_TerrainHeightmap, uv + vec2(0.0, -texelSize), 0.0).r * heightScale;
-    float hU = textureLod(u_TerrainHeightmap, uv + vec2(0.0,  texelSize), 0.0).r * heightScale;
+    float hL = textureLod(u_TerrainHeightmap, oloTerrainHeightUV(uv + vec2(-texelSize, 0.0), resolution), 0.0).r * heightScale;
+    float hR = textureLod(u_TerrainHeightmap, oloTerrainHeightUV(uv + vec2( texelSize, 0.0), resolution), 0.0).r * heightScale;
+    float hD = textureLod(u_TerrainHeightmap, oloTerrainHeightUV(uv + vec2(0.0, -texelSize), resolution), 0.0).r * heightScale;
+    float hU = textureLod(u_TerrainHeightmap, oloTerrainHeightUV(uv + vec2(0.0,  texelSize), resolution), 0.0).r * heightScale;
 
     float dX = (hR - hL) / (2.0 * texelSize * u_VTBakeWorld.x);
     float dZ = (hU - hD) / (2.0 * texelSize * u_VTBakeWorld.y);
@@ -228,7 +231,9 @@ void main()
     bool useTriplanar = oloTerrainUseTriplanar(localNormal);
     mat3 tbn = oloTerrainTangentFrame(localNormal);
 
-    float height = textureLod(u_TerrainHeightmap, uvClamped, 0.0).r * u_VTBakeWorld.z;
+    float height = textureLod(u_TerrainHeightmap,
+                              oloTerrainHeightUV(uvClamped, float(textureSize(u_TerrainHeightmap, 0).x)), 0.0).r *
+                   u_VTBakeWorld.z;
     vec3 worldPos = (u_VTBakeModel * vec4(uv.x * u_VTBakeWorld.x, height, uv.y * u_VTBakeWorld.y, 1.0)).xyz;
 
     // Where the layers are sampled — the SAME function the fragment paths call

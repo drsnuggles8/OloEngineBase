@@ -192,13 +192,15 @@ namespace OloEngine::Tests
         // Plain, cliff, plateau, and a fall back to the plain's height along X;
         // constant along Z.
         //
-        // THE TWO X EDGES ARE THE SAME HEIGHT ON PURPOSE. The GPU heightmap is a
-        // repeat-wrapped texture (TerrainData::UploadToGPU sets no wrap mode), so
-        // the vertices on the u = 0 edge filter in the texels of the u = 1 edge.
-        // With a plateau running to the far edge that raised a 12 m wall along
-        // x = 0, whose shadow covered the first 10 m of the plain in every
-        // capture. It is a defect of its own, outside what this suite pins; a
-        // height field whose opposite edges agree does not show it.
+        // The two X edges are the same height. When this suite was written the
+        // GPU heightmap was a repeat-wrapped texture read at the tile UV, so the
+        // vertices on the u = 0 edge filtered in the texels of the u = 1 edge,
+        // and a plateau running to the far edge raised a 12 m wall along x = 0
+        // whose shadow covered the first 10 m of the plain. Both halves of that
+        // are fixed (TerrainData::UploadToGPU clamps; the shaders read the edge
+        // SAMPLE at the edge, include/TerrainHeightUV.glsl), and
+        // TerrainHeightSampleConventionTest pins the second. The profile stays
+        // as it is because the assertions below are measured on it.
         void WriteHeightmap(const fs::path& file)
         {
             std::vector<u8> pixels(static_cast<sizet>(kHeightmapSize) * kHeightmapSize);

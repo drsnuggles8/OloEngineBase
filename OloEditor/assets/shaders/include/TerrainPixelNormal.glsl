@@ -18,6 +18,8 @@
 #ifndef OLO_TERRAIN_PIXEL_NORMAL_GLSL
 #define OLO_TERRAIN_PIXEL_NORMAL_GLSL
 
+#include "TerrainHeightUV.glsl"
+
 // Tile-local normal at `uv`. `uvDx` / `uvDy` are the screen-space gradients of
 // the terrain UV, taken by the caller before any branch.
 //
@@ -35,11 +37,13 @@ vec3 oloTerrainPixelNormalLocal(vec2 uv, vec2 uvDx, vec2 uvDy)
     float mip = clamp(log2(max(footprintTexels, 1.0)), 0.0, maxMip);
     float texel = u_TerrainParams.x * exp2(mip);
 
+    // The offsets are in TILE UV, and so is the run the slope divides by; the
+    // fetch converts each to where the samples are (TerrainHeightUV.glsl).
     float heightScale = u_WorldSizeAndHeightScale.z;
-    float hL = textureLod(u_TerrainHeightmap, uv + vec2(-texel, 0.0), mip).r * heightScale;
-    float hR = textureLod(u_TerrainHeightmap, uv + vec2( texel, 0.0), mip).r * heightScale;
-    float hD = textureLod(u_TerrainHeightmap, uv + vec2(0.0, -texel), mip).r * heightScale;
-    float hU = textureLod(u_TerrainHeightmap, uv + vec2(0.0,  texel), mip).r * heightScale;
+    float hL = textureLod(u_TerrainHeightmap, oloTerrainHeightUV(uv + vec2(-texel, 0.0), resolution), mip).r * heightScale;
+    float hR = textureLod(u_TerrainHeightmap, oloTerrainHeightUV(uv + vec2( texel, 0.0), resolution), mip).r * heightScale;
+    float hD = textureLod(u_TerrainHeightmap, oloTerrainHeightUV(uv + vec2(0.0, -texel), resolution), mip).r * heightScale;
+    float hU = textureLod(u_TerrainHeightmap, oloTerrainHeightUV(uv + vec2(0.0,  texel), resolution), mip).r * heightScale;
 
     float dX = (hR - hL) / (2.0 * texel * max(u_WorldSizeAndHeightScale.x, 0.0001));
     float dZ = (hU - hD) / (2.0 * texel * max(u_WorldSizeAndHeightScale.y, 0.0001));

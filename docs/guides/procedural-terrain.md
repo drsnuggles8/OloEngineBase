@@ -142,7 +142,11 @@ The serialized fields of a `TerrainComponent` that take a file are content paths
 | `MacroMapPath` | RGBA8 | RGB multiplies the blended albedo, 128 is neutral (ceiling about x2); alpha is dryness, 255 dry. Applied on every render path, after the virtual-texture resolve too. |
 | `Layers[].AlbedoPath` / `NormalPath` / `ARMPath` | any image | resampled to `LayerResolution`. Albedo is sRGB. Normals are OpenGL convention. ARM is AO, roughness, metallic, with the layer's height in alpha for the height blend. |
 
-All of them have image row 0 on the tile's z = 0 edge. `LayerResolution` (64 to
+All of them have image row 0 on the tile's z = 0 edge. The height map is a grid of
+**samples**: its first and last texels sit on the tile's edges, so an N px map has
+a height every `size / (N - 1)` metres, on the CPU, in the collision shape and in
+every shader (`include/TerrainHeightUV.glsl`). The splatmaps and the macro map
+are grids of **areas**: texel j covers the j-th N-th of the tile. `LayerResolution` (64 to
 4096, a power of two, default 512) is the size the layer arrays are built at.
 `Layers[].TilingScale` is the number of repeats **across the tile**, on flat
 ground and on the triplanar projections alike: for a repeat every 2.4 m on a

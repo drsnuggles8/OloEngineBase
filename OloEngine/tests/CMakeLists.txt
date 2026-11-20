@@ -907,6 +907,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp
 		Rendering/PropertyTests/TerrainGenerationEvidenceTest.cpp
+		Rendering/PropertyTests/TerrainHeightSampleConventionTest.cpp
 		Rendering/PropertyTests/TerrainLayerTextureEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainCameraRelativeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainGPUQuadtreeVisualEvidenceTest.cpp
