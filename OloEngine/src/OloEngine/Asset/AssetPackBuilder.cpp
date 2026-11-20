@@ -176,10 +176,27 @@ namespace OloEngine
                       Project::GetAssetDirectory().string());
 
         OLO_CORE_INFO("AssetPackBuilder: Starting asset pack build from active project ({} registered assets)", registry.GetAllAssets().size());
-        return BuildFromRegistry(registry, settings, progress, cancelToken);
+        // The walk above is the baseline: every cache artefact it saw is in the registry, so any
+        // other found after the loads was cooked since, by the loads or by an editor session
+        // running beside the build. A second walk taken here would hide the latter.
+        return BuildFromRegistryWithCacheBaseline(registry, settings, progress, cancelToken, {});
     }
 
     AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromRegistry(const AssetRegistry& assetRegistry, const BuildSettings& settings, std::atomic<f32>& progress, const std::atomic<bool>* cancelToken)
+    {
+        // The cache artefacts on disk now are the caller's to list: a caller packing a subset of
+        // the project must not receive every cooked texture of it.
+        const std::optional<std::vector<AssetMetadata>> cachedBefore = CacheArtefactsOnDisk();
+        if (!cachedBefore)
+            return { false, "Could not list the cache artefacts under the asset directory (see the error above)", 0, 0, {} };
+        return BuildFromRegistryWithCacheBaseline(assetRegistry, settings, progress, cancelToken, *cachedBefore);
+    }
+
+    AssetPackBuilder::BuildResult AssetPackBuilder::BuildFromRegistryWithCacheBaseline(const AssetRegistry& assetRegistry,
+                                                                                       const BuildSettings& settings,
+                                                                                       std::atomic<f32>& progress,
+                                                                                       const std::atomic<bool>* cancelToken,
+                                                                                       const std::vector<AssetMetadata>& cacheBaseline)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -230,12 +247,9 @@ namespace OloEngine
             // A mesh load below can cook an embedded texture to Assets/cache/. Model registers
             // the cooked file with the PROJECT's asset manager, not this temporary one, so a
             // texture cooked during this build would be missing from the pack while the packed
-            // mesh records its handle (#1664). The cache walk before the loads tells the files
-            // this build cooked apart from those that were already there; the latter are the
-            // caller's to list (BuildFromActiveProject registers them all).
-            const std::optional<std::vector<AssetMetadata>> cachedBefore = CacheArtefactsOnDisk();
-            if (!cachedBefore)
-                return { false, "Could not list the cache artefacts under the asset directory (see the error above)", 0, 0, {} };
+            // mesh records its handle (#1664). cacheBaseline tells the files cooked since the
+            // build started apart from those that were already there, which are the caller's
+            // to list.
 
             // Set up progress tracking for asset loading
             float loadProgress = 0.0f;
@@ -321,7 +335,7 @@ namespace OloEngine
                 if (!cachedAfter)
                     return { false, "Could not list the cache artefacts the asset loads cooked (see the error above)", 0, 0, {} };
                 std::unordered_set<AssetHandle> known;
-                for (const auto& metadata : *cachedBefore)
+                for (const auto& metadata : cacheBaseline)
                     known.insert(metadata.Handle);
                 for (const auto& metadata : allAssets)
                     known.insert(metadata.Handle);
