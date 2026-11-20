@@ -176,9 +176,10 @@ namespace OloEngine::Tests
                 ASSERT_NE(authored, materials.end()) << name;
                 if (authored->contains("normalTexture"))
                 {
-                    // The cloth, skin and leather have paired 1024-square maps
-                    // on every level. A 1x1 placeholder has the right type.
-                    for (const auto& map : { mat->GetAlbedoMap(), mat->GetNormalMap() })
+                    // The same packed texture supplies AO and metallic/roughness at every LOD.
+                    ASSERT_EQ(authored->at("occlusionTexture").at("index"),
+                              authored->at("pbrMetallicRoughness").at("metallicRoughnessTexture").at("index"));
+                    for (const auto& map : { mat->GetAlbedoMap(), mat->GetNormalMap(), mat->GetMetallicRoughnessMap(), mat->GetAOMap() })
                     {
                         ASSERT_TRUE(map && map->IsLoaded()) << name;
                         EXPECT_EQ(map->GetWidth(), 1024u) << name;
