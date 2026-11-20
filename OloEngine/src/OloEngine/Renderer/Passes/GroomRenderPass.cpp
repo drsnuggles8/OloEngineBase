@@ -1676,14 +1676,15 @@ namespace OloEngine
         // per entity and it is already rebuilt and refilled every frame.
         // Built from the stand-ins' expansion when the simulation was published
         // with them (#1589), into the pass's reusable scratch: the CPU build
-        // draws every slot as the GPU path's kernel does.
+        // draws every slot as the GPU path's kernel does. The expansion is part
+        // of the build, so the build timer starts before it.
+        const auto buildStart = std::chrono::steady_clock::now();
         const GroomStrandSimulation simulation = m_GuideExpansion.Expand(request.Simulation());
         // THE CURVE SET THE LOD SELECTED (#1252), which is the cooked card
         // level past the hand-over and the base groom otherwise. Both go
         // through this one build, this one shader and this one BCSDF, which is
         // what makes criterion 1's "colour and highlight response are preserved
         // across transitions" true by construction rather than by care.
-        const auto buildStart = std::chrono::steady_clock::now();
         Ref<FPreparedGroomGeometry> prepared = deformed ? nullptr : PreparedStreamingGeometry(request);
         GroomStrandMeshStats stats;
         if (prepared)
