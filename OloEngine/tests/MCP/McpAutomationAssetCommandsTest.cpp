@@ -374,6 +374,22 @@ namespace OloEngine::Automation::Tests
         EXPECT_TRUE(std::filesystem::exists(TexturePath()));
     }
 
+    // A cache/ directory is git-ignored derived data. The registry refuses an authored asset
+    // there (its handle could not survive a restart, #1664), so the move is refused BEFORE the
+    // file moves or any reference is rewritten.
+    TEST_F(AutomationAssetCommandsTest, MoveRefusesADestinationUnderACacheDirectory)
+    {
+        std::filesystem::create_directories(m_Project / "Assets" / "cache" / "embedded");
+        const std::string sceneBefore = Read(ScenePath());
+        const auto result = Call("olo_asset_move", Json{ { "path", "Assets/Textures/Checkerboard.png" },
+                                                         { "destination", "Assets/cache/embedded/Checkerboard.png" } });
+        ASSERT_TRUE(result.Result.IsError) << result.Result.Content.dump(2);
+        EXPECT_NE(result.Result.Content.dump().find("cache/"), std::string::npos) << result.Result.Content.dump();
+        EXPECT_TRUE(std::filesystem::exists(TexturePath()));
+        EXPECT_FALSE(std::filesystem::exists(m_Project / "Assets" / "cache" / "embedded" / "Checkerboard.png"));
+        EXPECT_EQ(Read(ScenePath()), sceneBefore) << "a reference was rewritten before the refusal";
+    }
+
     TEST_F(AutomationAssetCommandsTest, MoveDoesNotTouchTheSceneWhenTheDestinationIsRejected)
     {
         const std::string before = Read(ScenePath());

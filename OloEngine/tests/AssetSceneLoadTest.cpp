@@ -77,11 +77,18 @@
 
 #include "Rendering/PropertyTests/RenderPropertyTest.h"
 
+#include "OloEngine/Asset/AssetRegistry.h"
+
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #ifndef OLO_TEST_EDITOR_ROOT
@@ -174,6 +181,47 @@ namespace OloEngine::Tests
             return tempRoot;
         }
 
+        std::vector<char> ReadAllBytes(const fs::path& path)
+        {
+            std::ifstream in(path, std::ios::binary);
+            return in ? std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>())
+                      : std::vector<char>{};
+        }
+
+        // Every entry path of a v3 AssetRegistry.oar, read straight from its bytes:
+        // Deserialize drops cache entries, so it cannot show that one was written.
+        // Empty optional when the bytes are not a whole v3 registry.
+        std::optional<std::vector<fs::path>> RawRegistryEntryPaths(const std::vector<char>& bytes)
+        {
+            sizet offset = 0;
+            const auto take = [&](auto& value)
+            {
+                if (bytes.size() - offset < sizeof(value))
+                    return false;
+                std::memcpy(&value, bytes.data() + offset, sizeof(value));
+                offset += sizeof(value);
+                return true;
+            };
+            u32 version = 0;
+            u32 count = 0;
+            if (!take(version) || version != OloEngine::AssetRegistry::FileVersion || !take(count))
+                return std::nullopt;
+            std::vector<fs::path> paths;
+            for (u32 i = 0; i < count; ++i)
+            {
+                u64 handle = 0;
+                u32 type = 0;
+                u32 length = 0;
+                if (!take(handle) || !take(type) || !take(length) || bytes.size() - offset < length)
+                    return std::nullopt;
+                paths.emplace_back(std::string(bytes.data() + offset, length));
+                offset += length;
+            }
+            if (offset != bytes.size())
+                return std::nullopt;
+            return paths;
+        }
+
         // Find the .oloproj inside a staged temp project. Sandbox.oloproj
         // is the only one in the real project; if the file count or name
         // changes, this needs to track.
@@ -255,6 +303,9 @@ namespace OloEngine::Tests
                 OLO_CORE_WARN("AssetSceneLoad: could not remove staging dir '{}': {}", Dir.string(), ec.message());
             }
         } cleanup{ tempRoot };
+
+        const std::vector<char> registryBefore = ReadAllBytes(tempRoot / "AssetRegistry.oar");
+        ASSERT_FALSE(registryBefore.empty()) << "the staged project has no AssetRegistry.oar";
 
         const fs::path projectFile = FindProjectFile(tempRoot);
         ASSERT_FALSE(projectFile.empty())
@@ -440,6 +491,69 @@ namespace OloEngine::Tests
             // deletion of objects that no scene or cached asset holds. The final
             // AssetManagerShutdown drains the shared assets' deletions too.
             scene.Reset();
+        }
+
+        // Loading every scene cooks each model's embedded textures into Assets/cache/ and
+        // registers them. None of that may reach the registry FILE (#1664): it is tracked, the
+        // cache is git-ignored, and a registry committed with those entries fails on a fresh
+        // clone only. So after the whole sweep and a save, the file holds the entries that were
+        // checked in and nothing else. (Entry ORDER is the asset-registry-no-cache hook's check.)
+        ASSERT_TRUE(assetManager->SerializeAssetRegistry());
+        sizet cacheArtefacts = 0;
+        for (const AssetHandle handle : assetManager->GetAllAssetsWithType(AssetType::Texture2D))
+        {
+            cacheArtefacts += AssetRegistry::IsCacheArtefact(assetManager->GetMetadata(handle).FilePath) ? 1u : 0u;
+        }
+        ::testing::Test::RecordProperty("olo_cache_artefacts_registered", std::to_string(cacheArtefacts));
+        std::printf("[asset-scene-load] %zu cache artefact(s) registered in memory after the sweep\n", cacheArtefacts);
+        {
+            // On the raw bytes: Deserialize drops cache entries, so comparing parsed registries
+            // cannot see one that was written.
+            const std::optional<std::vector<fs::path>> writtenPaths =
+                RawRegistryEntryPaths(ReadAllBytes(tempRoot / "AssetRegistry.oar"));
+            ASSERT_TRUE(writtenPaths.has_value()) << "the saved AssetRegistry.oar is not a whole v3 registry";
+            for (const fs::path& written : *writtenPaths)
+            {
+                EXPECT_FALSE(AssetRegistry::IsCacheArtefact(written))
+                    << "a cache artefact was written to AssetRegistry.oar: " << written.generic_string();
+            }
+
+            const fs::path beforePath = TempDir("registry-before") / "AssetRegistry.oar";
+            std::ofstream(beforePath, std::ios::binary)
+                .write(registryBefore.data(), static_cast<std::streamsize>(registryBefore.size()));
+            AssetRegistry before;
+            AssetRegistry after;
+            ASSERT_TRUE(before.Deserialize(beforePath));
+            ASSERT_TRUE(after.Deserialize(tempRoot / "AssetRegistry.oar"));
+            std::ostringstream diff;
+            const fs::path realProject = fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject";
+            for (const AssetMetadata& m : after.GetAllAssets())
+            {
+                // A key starting ".." names a file outside the project: the scenes import engine
+                // textures (OloEditor/assets/...). The checked-in registry has them as
+                // "../assets/...", relative to the real SandboxProject; this staged copy lives
+                // elsewhere, so the same file gets another key here. Such an addition is not
+                // counted only when, keyed from the real project, the file is already registered.
+                // An engine texture the checked-in registry lacks is a real addition.
+                const bool escapesTheProject = !m.FilePath.empty() && *m.FilePath.begin() == "..";
+                const bool stagingDuplicate =
+                    escapesTheProject &&
+                    before.Exists(EditorAssetManager::MakeRegistryKey(tempRoot / m.FilePath, realProject));
+                if (const AssetMetadata old = before.GetMetadata(m.Handle); !old.IsValid() && !stagingDuplicate)
+                    diff << "\n  added   " << static_cast<u64>(m.Handle) << " " << m.FilePath.generic_string();
+                else if (old.IsValid() && (old.FilePath != m.FilePath || old.Type != m.Type))
+                    diff << "\n  changed " << static_cast<u64>(m.Handle) << " " << old.FilePath.generic_string()
+                         << " -> " << m.FilePath.generic_string();
+            }
+            for (const AssetMetadata& m : before.GetAllAssets())
+            {
+                if (!after.Exists(m.Handle))
+                    diff << "\n  removed " << static_cast<u64>(m.Handle) << " " << m.FilePath.generic_string();
+            }
+            EXPECT_TRUE(diff.str().empty())
+                << "loading the sandbox scenes changed the entries of AssetRegistry.oar; the checked-in registry "
+                   "would be dirty after any editor session:"
+                << diff.str();
         }
 
         if (!failures.empty())

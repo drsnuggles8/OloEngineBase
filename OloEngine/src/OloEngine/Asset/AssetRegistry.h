@@ -47,11 +47,43 @@ namespace OloEngine
         AssetRegistry(AssetRegistry&&) = delete;
         AssetRegistry& operator=(AssetRegistry&&) = delete;
 
+        // ── Cache artefacts (#1664) ──
+        // A file under a directory named `cache` (the `.gitignore` rule `**/cache/**`) is
+        // derived data: a cooked embedded texture under Assets/cache/embedded/, for one. Its
+        // file is never committed, so its registry entry must never be either, or a fresh
+        // clone holds an entry for a file it does not have. Such an entry therefore:
+        //   * has the handle CacheArtefactHandle(path), derived from its registry path, so every
+        //     manager that registers the file (an editor session, the pack cook, a test)
+        //     gives it the same handle without reading it from anywhere;
+        //   * is held in memory like any other entry, but Serialize() never writes it, and
+        //     Deserialize() drops one found in a file;
+        //   * is refused by AddAsset/UpdateMetadata under any other handle, because that
+        //     handle could not be re-derived after a restart.
+        // The directory name is matched ignoring case, on every platform, so a registry means the
+        // same everywhere; .gitignore ignores `[Cc][Aa][Cc][Hh][Ee]/` to match.
+        [[nodiscard]] static bool IsCacheArtefact(const std::filesystem::path& path);
+        // Nonzero for every path. FNV-1a-64 of the path's generic spelling.
+        [[nodiscard]] static AssetHandle CacheArtefactHandle(const std::filesystem::path& path);
+        // The handle to give a NEW entry for this registry path: CacheArtefactHandle for a
+        // cache artefact, a fresh random one otherwise. Every caller that mints a handle for a
+        // path it is about to register takes it from here. A random 64-bit handle matches a
+        // handle dropped with an older registry file's cache entry only by chance: the same
+        // probabilistic uniqueness every UUID in the engine relies on. The counter, rebuilt from
+        // the file on load, would reissue such a handle deterministically.
+        [[nodiscard]] static AssetHandle HandleForNewEntry(const std::filesystem::path& path);
+        // Model's cook writes `<stem>.tmp<hex>.png` beside the cooked file and renames it into
+        // place when the write is complete. Such a file is never registered.
+        [[nodiscard]] static bool IsInFlightCookFile(const std::filesystem::path& path);
+
         /**
          * @brief Add or update asset metadata in the registry
          * @param metadata Asset metadata to store
+         * @return False when the entry was refused (a zero handle, a cache artefact whose
+         *         handle is not CacheArtefactHandle of its path, or a cache artefact whose handle
+         *         already belongs to another path, a file moved out of the cache); the refusal is
+         *         logged as an error.
          */
-        void AddAsset(const AssetMetadata& metadata);
+        bool AddAsset(const AssetMetadata& metadata);
 
         /**
          * @brief Remove asset metadata from the registry
@@ -138,17 +170,27 @@ namespace OloEngine
          * @brief Update asset metadata (preserving handle)
          * @param handle Asset handle
          * @param metadata New metadata (handle will be preserved)
+         * @return False when the handle is unknown or the new path is a cache artefact whose
+         *         derived handle is not this one (both logged); nothing is changed then.
          */
-        void UpdateMetadata(AssetHandle handle, const AssetMetadata& metadata);
+        bool UpdateMetadata(AssetHandle handle, const AssetMetadata& metadata);
 
         /**
-         * @brief Generate a new unique asset handle
-         * @return New unique asset handle
+         * @brief The next value of this registry's sequential handle counter
+         *
+         * Unique only within this registry's lifetime: the counter is rebuilt from the file on
+         * load, so it can return a handle that an older file held and a newer one dropped. A
+         * handle for a new entry comes from HandleForNewEntry instead.
+         * @return The next counter value
          */
         AssetHandle GenerateHandle();
 
         /**
          * @brief Serialize the registry to a file
+         *
+         * Writes every entry except cache artefacts (IsCacheArtefact), which are re-derived
+         * by whoever registers their files and never belong in the tracked registry.
+         *
          * @param filepath Path where to save the registry
          * @return True if serialization was successful
          */
@@ -197,6 +239,9 @@ namespace OloEngine
          * concurrently from multiple threads without external synchronization.
          */
         AssetHandle GetNextHandle();
+
+        // Shared by AddAsset and UpdateMetadata; logs the refusal.
+        static bool IsAcceptableHandleForPath(AssetHandle handle, const std::filesystem::path& path, const char* caller);
 
       private:
         // Main metadata storage (handle -> metadata)

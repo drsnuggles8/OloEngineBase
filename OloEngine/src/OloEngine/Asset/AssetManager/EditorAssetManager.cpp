@@ -241,11 +241,12 @@ namespace OloEngine
         }
 #endif
 
-        // Save asset registry
+        // Save asset registry. Through SerializeAssetRegistry, which refuses while writes are
+        // blocked: a direct Serialize here overwrote the rejected registry Initialize could not
+        // move aside, the only copy of the handles every scene refers to.
         if (Project::GetActive())
         {
-            auto registryPath = Project::GetAssetRegistryPath();
-            m_AssetRegistry.Serialize(registryPath);
+            SerializeAssetRegistry();
         }
 
         // Clear all loaded assets and memory assets
@@ -839,6 +840,75 @@ namespace OloEngine
         return type;
     }
 
+    std::optional<sizet> EditorAssetManager::RegisterCacheArtefacts(AssetRegistry& registry,
+                                                                    const std::filesystem::path& assetDirectory,
+                                                                    const std::filesystem::path& projectPath)
+    {
+        OLO_PROFILER_SCOPE("EditorAssetManager::RegisterCacheArtefacts");
+
+        // A path that does not exist (or a file deleted mid-walk: the cook renames its temp file)
+        // holds no cache artefact. Any other status error leaves the walk incomplete, and a pack
+        // built from it would miss cooked textures without a word.
+        const auto isGone = [](const std::error_code& error)
+        { return error == std::errc::no_such_file_or_directory; };
+        const auto walkFailed = [&assetDirectory](const std::filesystem::path& where, const std::error_code& error)
+        {
+            OLO_CORE_ERROR("EditorAssetManager::RegisterCacheArtefacts - could not walk {} (at {}): {}; cache "
+                           "artefacts after that point are not registered",
+                           assetDirectory.string(), where.string(), error.message());
+            return std::optional<sizet>{};
+        };
+
+        sizet registered = 0;
+        std::error_code ec;
+        const bool isDirectory = std::filesystem::is_directory(assetDirectory, ec);
+        if (ec && !isGone(ec))
+            return walkFailed(assetDirectory, ec);
+        if (!isDirectory)
+            return 0;
+
+        // An asset directory that itself sits under a `cache` directory makes every file in it a
+        // cache artefact, which the lexical test below (relative to the asset directory) cannot see.
+        const bool assetDirectoryIsCache =
+            AssetRegistry::IsCacheArtefact(MakeRegistryKey(assetDirectory / "x", projectPath));
+
+        for (auto it = std::filesystem::recursive_directory_iterator(assetDirectory, ec);
+             !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
+        {
+            std::error_code fileEc;
+            const bool isFile = it->is_regular_file(fileEc);
+            if (fileEc && !isGone(fileEc))
+                return walkFailed(it->path(), fileEc);
+            if (!isFile)
+                continue;
+            // Lexical first: almost every file in a project is authored, and MakeRegistryKey
+            // canonicalises (two syscalls a file).
+            if (!assetDirectoryIsCache && !AssetRegistry::IsCacheArtefact(it->path().lexically_relative(assetDirectory)))
+                continue;
+            // A build running beside a cook must not pack a half-written file.
+            if (AssetRegistry::IsInFlightCookFile(it->path()))
+                continue;
+
+            const std::filesystem::path key = MakeRegistryKey(it->path(), projectPath);
+            if (!AssetRegistry::IsCacheArtefact(key))
+                continue;
+            const AssetType type = GetRegistrationType(it->path());
+            if (type == AssetType::None)
+                continue;
+
+            AssetMetadata metadata;
+            metadata.Handle = AssetRegistry::CacheArtefactHandle(key);
+            metadata.FilePath = key;
+            metadata.Type = type;
+            metadata.LastWriteTime = std::filesystem::last_write_time(it->path(), fileEc);
+            if (registry.AddAsset(metadata))
+                ++registered;
+        }
+        if (ec)
+            return walkFailed(assetDirectory, ec);
+        return registered;
+    }
+
     AssetHandle EditorAssetManager::ImportAsset(const std::filesystem::path& filepath)
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::ImportAsset");
@@ -907,6 +977,14 @@ namespace OloEngine
         // Convert to project-relative path
         std::filesystem::path relativePath = GetRelativePath(absolutePath);
 
+        // A cooked texture still being written (the startup scan or the file watcher can see it
+        // before the cook renames it into place): it disappears in a moment, so never register it.
+        if (AssetRegistry::IsInFlightCookFile(relativePath))
+        {
+            OLO_CORE_TRACE("Not importing {}: a cook is still writing it", relativePath.string());
+            return 0;
+        }
+
         // Check if already imported
         if (AssetHandle existingHandle = m_AssetRegistry.GetHandleFromPath(relativePath); existingHandle != 0)
         {
@@ -914,9 +992,14 @@ namespace OloEngine
             return existingHandle;
         }
 
-        // Create metadata
+        // Create metadata. A cache artefact (a cooked embedded texture under Assets/cache/)
+        // takes the handle derived from its path: it is never written to the registry file
+        // (#1664), so the next session, the pack cook and the .omesh that recorded the handle
+        // all have to arrive at the same one on their own. An authored file takes a random
+        // handle, never the next value of a counter: a counter rebuilt from the registry file
+        // would hand out again a handle that was dropped with an older file's cache entry.
         AssetMetadata metadata;
-        metadata.Handle = m_AssetRegistry.GenerateHandle(); // Generate a valid handle
+        metadata.Handle = AssetRegistry::HandleForNewEntry(relativePath);
         metadata.FilePath = relativePath;
         metadata.Type = type;
 
@@ -936,7 +1019,11 @@ namespace OloEngine
         }
 
         // Register in registry
-        m_AssetRegistry.AddAsset(metadata);
+        if (!m_AssetRegistry.AddAsset(metadata))
+        {
+            OLO_CORE_ERROR("Cannot import asset: the registry refused {} (see the error above)", relativePath.string());
+            return 0;
+        }
 
         OLO_CORE_INFO("Imported asset: {} -> {}", filepath.string(), (u64)metadata.Handle);
         return metadata.Handle;
@@ -1525,6 +1612,8 @@ namespace OloEngine
         // disk is safe; the bytes are parsed lazily on first GetAsset. A burst of
         // create/modify events for one new file therefore imports exactly once;
         // later events fall through to the (loaded-only) reload branch.
+        if (AssetRegistry::IsInFlightCookFile(absolutePath))
+            return; // a cook's temporary; the renamed file arrives as its own event
         const AssetHandle handle = ImportAsset(absolutePath);
         if (handle == 0)
         {
@@ -1571,7 +1660,7 @@ namespace OloEngine
         return m_AssetRegistry.GetMetadata(handle);
     }
 
-    void EditorAssetManager::SetMetadata(AssetHandle handle, const AssetMetadata& metadata)
+    bool EditorAssetManager::SetMetadata(AssetHandle handle, const AssetMetadata& metadata)
     {
         TUniqueLock<FSharedMutex> lock(m_RegistryMutex);
         // UpdateMetadata only UPDATES: an unknown handle logs a warning and writes
@@ -1584,14 +1673,8 @@ namespace OloEngine
         // new; AddAsset keeps the path mapping in step.
         AssetMetadata stored = metadata;
         stored.Handle = handle;
-        if (m_AssetRegistry.Exists(handle))
-        {
-            m_AssetRegistry.UpdateMetadata(handle, stored);
-        }
-        else
-        {
-            m_AssetRegistry.AddAsset(stored);
-        }
+        return m_AssetRegistry.Exists(handle) ? m_AssetRegistry.UpdateMetadata(handle, stored)
+                                              : m_AssetRegistry.AddAsset(stored);
     }
 
     void EditorAssetManager::SetAssetStatus(AssetHandle handle, AssetStatus status)

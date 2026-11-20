@@ -563,3 +563,56 @@ With the folder away the log has no `Loading texture from path` line for the mod
 `ImportedMaterialCodec: could not resolve texture` warning, and the model is textured. The Drift
 boat was checked this way on OpenGL and Vulkan; with the folder in place the same run passed
 without reading one texture from the pack.
+
+## Cache artefacts are never in the registry file (issue #1664)
+
+Model's import cooks each embedded texture to `Assets/cache/embedded/emb_<hash>_<intent>.png` and
+registers it, so the `.omesh` cache and the asset pack can reference it by handle. `**/cache/**` is
+git-ignored, and the registry is tracked, so every editor session or test that loaded such a model
+used to leave `AssetRegistry.oar` dirty with entries for files no other checkout has. PR #1708
+committed twelve of them and failed `AssetContentValidity` on all three Linux sanitizer shards while
+passing on the machine that made it.
+
+The rule now lives in `AssetRegistry` itself:
+
+- `IsCacheArtefact(path)`: a directory named `cache` anywhere in the path, ignoring case on every
+  platform. `.gitignore` ignores `[Cc][Aa][Cc][Hh][Ee]/` to match, so the rule does not depend on
+  `core.ignorecase`.
+- Such an entry's handle is `CacheArtefactHandle(path)`, FNV-1a-64 of the path's generic spelling.
+  Every caller that mints a handle for a new entry, `ImportAsset` included, takes it from
+  `HandleForNewEntry(path)`: the derived handle for a cache file, a random one for an authored
+  file. Authored handles are random rather than the next value of the registry's counter, because
+  the counter is rebuilt from the file on load and would hand out again a handle that was dropped
+  with an older file's cache entry. `AddAsset` and `UpdateMetadata` refuse any other handle with an
+  error, because no later session could re-derive it, and `EditorAssetManager::SetMetadata` returns
+  that refusal so its callers fail instead of reporting success. A derived handle does not move the
+  counter.
+- A cooked file moved out of `cache/` keeps its derived handle under its new, authored path. When
+  the cook writes the file again at the old path, it derives the same handle, and `AddAsset`
+  refuses that cache entry instead of overwriting the authored one.
+- An authored asset never goes under `cache/`: the MCP asset move, the MCP prefab create and the
+  hierarchy panel's *Save as Prefab* refuse such a destination before writing or moving anything.
+  The MCP commands classify the registry key, which follows links and `..`, so a link to `cache/`
+  is refused and `cache/../Prefabs/` is not.
+- Model's cook writes `<stem>.tmp<hex>.png` and renames it into place. `IsInFlightCookFile` keeps
+  that file out of the startup scan, the file watcher and the pack walk.
+- `Serialize` leaves these entries out and `Deserialize` drops one found in a file (an older build
+  wrote it), with an error naming it, and still moves the counter past its handle so that handle is
+  never given to another asset.
+- The pack cook reads the registry file, so `AssetPackBuilder::BuildFromActiveProject` adds them
+  back with `EditorAssetManager::RegisterCacheArtefacts`, under the handle the cooking session gave
+  them. A walk that cannot finish stops the pack build, because the pack would otherwise ship
+  without the artefacts after that point and still report success. That covers an iterator error
+  and a status error on the asset directory or on any entry. Only "no such file" is not a failure:
+  a missing asset directory is an empty walk, and an entry gone mid-walk (a cook's rename) is skipped.
+- On a fresh checkout the pack build's own mesh loads cook the textures. `Model` registers a cooked
+  file with the project's asset manager, not the build's temporary one, so `BuildFromRegistry` walks
+  the cache before and after its loads, and loads every file the loads cooked into the pack. Without
+  that, the packed mesh recorded a texture handle that the pack did not hold.
+
+The choice over a git-ignored side registry: the cooked name is already deterministic (a hash of
+the model path, the Assimp texture reference and the colour-space intent; not of the pixels), so a
+handle derived from it needs no second file to load, save, migrate or keep in step, and a fresh
+clone with a warm `cache/` from elsewhere resolves the same handles without one. A re-exported
+model keeps its handles even when the pixels change.
+`AssetRegistryCacheArtefacts.*` in `AssetRegistryInvariantsTest.cpp` pins it.
