@@ -93,6 +93,27 @@ namespace OloEngine
         }
     }
 
+    void GroomRenderPass::ReleaseStreamingStaging()
+    {
+        m_StreamingLoads.WaitForLaunchedWork();
+        TArray<FCompletedRepresentationLoad> completed;
+        m_StreamingLoads.RetrieveCompleted(completed);
+        for (auto& result : completed)
+        {
+            result.Payload = nullptr;
+            m_StreamingLoads.ReleaseStaging(result.StagingTicket);
+        }
+        // An entry left without its payload requests it again if a later scene
+        // wants the same detail.
+        for (auto& [key, entry] : m_StreamingDetails)
+        {
+            if (entry.StagingTicket == 0)
+                continue;
+            entry.Prepared = nullptr;
+            m_StreamingLoads.ReleaseStaging(std::exchange(entry.StagingTicket, 0u));
+        }
+    }
+
     void GroomRenderPass::ResolveStreamingRequest(GroomStrandRequest& request)
     {
         if (!m_StreamingEnabled || !request.Groom)

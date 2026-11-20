@@ -668,13 +668,12 @@ namespace OloEngine
         {
             m_StreamingLoads.SetStartGate(std::move(gate));
         }
-        // The pass outlives a scene, and a detail load cancelled while its worker
-        // runs keeps its shared staging until the worker returns. A scene's owner
-        // calls this when the scene goes so that staging cannot outlive it.
-        void WaitForStreamingWork()
-        {
-            m_StreamingLoads.WaitForLaunchedWork();
-        }
+        // The pass outlives a scene. A detail load cancelled while its worker runs
+        // keeps its shared staging until the worker returns, and a load that
+        // completed without being integrated keeps it until the next frame drops
+        // it. A scene's owner calls this when the scene goes, so that no detail
+        // load's staging outlives it.
+        void ReleaseStreamingStaging();
 
         /// When a DEFORMED coat's volume is rebuilt (#1426). Engine-wide rather
         /// than per groom: it trades CPU time against shadow lag, which is a

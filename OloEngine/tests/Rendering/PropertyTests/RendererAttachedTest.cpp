@@ -2,6 +2,7 @@
 #include "ProcessRendererInit.h"
 #include "RendererAttachedTest.h"
 
+#include "OloEngine/Asset/AssetSystem/RepresentationStreaming.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
@@ -357,14 +358,21 @@ namespace OloEngine::Tests
         // drop the Scene ref.
         m_Scene.Reset();
 
-        // A STREAMING PREPARATION THIS TEST STARTED ENDS WITH IT. The groom pass
-        // outlives the scene, and a detail load cancelled while its worker runs
-        // keeps its shared staging until the worker returns. Under CPU load that
-        // outlasted the next test's warm-up frames: the vegetation streaming test
-        // found 134 MB of a groom LOD test's staging still reserved, and its own
-        // requests were refused.
+        // THE STREAMING STAGING THIS TEST RESERVED ENDS WITH IT. The groom pass
+        // outlives the scene. A detail load cancelled while its worker runs keeps
+        // its shared staging until the worker returns, and one that completed
+        // without being integrated keeps it until a later frame. Under CPU load
+        // the first outlasted the next test's warm-up frames: the vegetation
+        // streaming test found 134 MB of a groom LOD test's staging still
+        // reserved, and its own requests were refused. A scene's own queues go
+        // with the scene, so nothing may be left.
         if (auto* pass = Renderer3D::GetGroomRenderPass())
-            pass->WaitForStreamingWork();
+            pass->ReleaseStreamingStaging();
+        if (const u64 staging = RepresentationStreaming::Get().GetStats().StagingCpuBytes; staging != 0u)
+        {
+            ADD_FAILURE() << staging << " bytes of representation-streaming staging are still reserved after the "
+                                        "scene was released; the next test's requests would be refused for them.";
+        }
         RenderPropertyFixture::SetVulkanSceneTestAdmitted(false);
     }
 
