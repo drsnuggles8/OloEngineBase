@@ -138,8 +138,8 @@ def mouth_seam(x):
     """The upper central tubercle overlaps the lower lip at rest."""
     return (
         MOUTH_Y
-        - 0.00125 * exp(-((x / 0.0058) ** 2))
-        + 0.00062 * exp(-(((abs(x) - 0.010) / 0.0052) ** 2))
+        - 0.00125 * np.exp(-((x / 0.0058) ** 2))
+        + 0.00062 * np.exp(-(((abs(x) - 0.010) / 0.0052) ** 2))
         - 0.00195 * (x / 0.026) ** 2
         + 0.00066 * x / 0.026
     )

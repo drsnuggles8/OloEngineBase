@@ -5,6 +5,8 @@ import numpy as np
 from struct import pack
 from zlib import compress, crc32
 
+from keeper_face import mouth_seam, skull_section
+
 FINISHES = {
     "KeeperSkin": "WeatheredSkin",
     "KeeperOilskin": "Oilcloth",
@@ -95,7 +97,8 @@ def bake(out, palette):
             angle = (u - 0.5) * 2 * np.pi
             y = 1.750 - 0.232 * v
             cheeks = np.exp(-(((abs(angle) - 0.55) / 0.35) ** 2) - ((y - 1.616) / 0.024) ** 2)
-            x = 0.079 * np.sin(angle)
+            widths = np.array([skull_section(height)[0] for height in y[:, 0]])
+            x = widths[:, None] * np.sin(angle)
             ax = np.abs(x)
             nose = np.exp(-((angle / 0.215) ** 2) - ((y - 1.595) / 0.017) ** 2)
             face = np.clip(1.8 * np.cos(angle), 0, 1)
@@ -133,13 +136,7 @@ def bake(out, palette):
             color *= 1 - 0.052 * furrows[..., None]
             # Soft feathered vermilion and vertical cracks share the face's UV
             # coordinates across the lip-material boundary.
-            seam = (
-                1.561
-                - 0.00125 * np.exp(-((x / 0.0058) ** 2))
-                + 0.00062 * np.exp(-(((ax - 0.010) / 0.0052) ** 2))
-                - 0.00195 * (x / 0.026) ** 2
-                + 0.00066 * x / 0.026
-            )
+            seam = mouth_seam(x)
             lip = face * np.exp(
                 -(((y - seam) / (0.0042 + 0.0012 * np.exp(-(((ax - 0.008) / 0.010) ** 2)))) ** 4)
                 - (ax / 0.025) ** 6
