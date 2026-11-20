@@ -103,6 +103,12 @@ local kSeaName       = "Sea"
 -- Margins outside an island's own coast, not absolute distances: the six run
 -- from a 260 m tile to a 420 m one, so one fixed radius would be inshore of the
 -- big islands and half a kilometre off the small ones.
+--
+-- "The coast" is one circle per island: the radius that holds ALL of its land
+-- (tools/drift-islands stamps it), so a boat on any of its shores is inside
+-- the ring. An island that is longer than it is wide therefore has its ring
+-- well off its long sides: sailing at Ridgeback's south shore from the start
+-- line, landfall comes about 115 m off the beach, not 45.
 local kLandfallMargin   = 45.0   -- m outside the coast: close enough to count as arriving
 local kDepartureMargin  = 135.0  -- must clear this again before a leg can end
 local kLegMaxSeconds    = 300.0  -- failsafe only
@@ -428,7 +434,7 @@ function WeatherDirector.OnUpdate(id, dt)
         -- ARMING IS PER ISLAND, and that is the whole reason this loop is not a
         -- nearest-island test. With one island a single flag was enough. With
         -- six, the departure circles OVERLAP on several of the passages between
-        -- them — Ridgeback's reaches 303 m and Sisters' landfall ring is 266 m
+        -- them — Ridgeback's reaches 317 m and Sisters' landfall ring is 272 m
         -- from Ridgeback's centre — so a boat crossing from one to the other is
         -- never outside "the nearest island's" departure radius, never arms, and
         -- every leg on that route advances on the 300 s failsafe instead. Per

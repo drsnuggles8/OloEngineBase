@@ -75,15 +75,15 @@ namespace
     // and it is why the fixture now builds all six rather than the one it cares
     // about.
     constexpr f32 kIslandSize = 420.0f;
-    constexpr f32 kIslandFalloffRadius = 0.454f;
+    constexpr f32 kIslandFalloffRadius = 0.366f;
     constexpr glm::vec3 kIslandOrigin{ -210.0f, -24.0f, 70.0f };
     const glm::vec3 kIslandCentre{ kIslandOrigin.x + kIslandSize * 0.5f, 0.0f,
                                    kIslandOrigin.z + kIslandSize * 0.5f };
 
     // The script's own radii, derived the way it derives them: the coast is
     // (falloff radius + 0.5) x half the tile, landfall is 45 m outside that and
-    // departure 135 m outside it. For Ridgeback that is a 200 m coast (its
-    // farthest land), a 245 m landfall ring and a 335 m departure ring.
+    // departure 135 m outside it. For Ridgeback that is a 182 m coast (its
+    // farthest land), a 227 m landfall ring and a 317 m departure ring.
     constexpr f32 kCoast = (kIslandFalloffRadius + 0.5f) * 0.5f * kIslandSize;
     const glm::vec3 kOffshore{ kIslandCentre.x, 0.0f, kIslandCentre.z - (kCoast + 400.0f) };
     const glm::vec3 kAtIsland{ kIslandCentre.x, 0.0f, kIslandCentre.z - (kCoast + 10.0f) };
@@ -103,7 +103,7 @@ namespace
         { "Island - Mesa", { 320.0f, -24.0f, -140.0f }, 360.0f, 0.318f },
         { "Island - Atoll", { 130.0f, -24.0f, -680.0f }, 400.0f, 0.128f },
         { "Island - Stacks", { -480.0f, -24.0f, -670.0f }, 300.0f, 0.448f },
-        { "Island - Dunes", { -730.0f, -24.0f, -130.0f }, 380.0f, 0.375f },
+        { "Island - Dunes", { -730.0f, -24.0f, -130.0f }, 380.0f, 0.313f },
         { "Island - Sisters", { -290.0f, -24.0f, 530.0f }, 260.0f, 0.227f },
     } };
 

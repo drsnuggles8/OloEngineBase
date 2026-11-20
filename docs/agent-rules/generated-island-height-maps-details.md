@@ -81,6 +81,17 @@ A map stores heights as 16 bits of `HeightScale`. A recipe whose summit reaches 
 range is clipped flat with no error anywhere, so `pipeline.generate` raises when the peak does not
 fit, and the test asserts the stored maximum is below 1.
 
+The border step drives the last 26 m before the tile's edge to the floor, and inside that ramp the
+ground is no longer the recipe's. An island has to finish before it. Ridgeback's east point did
+not: land came within 9 m of the edge in the recipe, and the ramp cut the point into a scarp
+parallel to the tile's edge, 57 degrees at the waterline against 8 on the rest of the coast. Dunes'
+foreshore, which a beach profile carries 34 m out from the waterline, ran into it under water.
+Nothing failed: the border was still exactly the floor, and the coast-slope test takes an
+island-wide median. `shaping.fits_tile` measures how near the shore (ground less than 3 m under
+the sea) comes to each edge, `pipeline.generate` raises when that is inside the ramp, and
+`EveryShoreFinishesBeforeTheTilesBorderRamp` checks the shipped maps. The code review found it by
+measuring the map; none of 246 captures had made it obvious.
+
 `HeightScale` also sets every foliage altitude band, which are metres above the tile floor: the
 sea is at 24.
 
@@ -157,6 +168,13 @@ estimated where a radial mask's waterline fell. A height map applies no mask, so
 measures the coast (the 99.5th percentile of the land's distance from the tile centre, so one
 awash rock does not set it) and stores the value that makes the formula return it. The component
 field carries nothing else on a height-map terrain.
+
+That radius holds ALL of the island, on purpose: a boat beached anywhere on it is inside the ring,
+which a mean radius would not give the ends of a long island. The price is on the long sides.
+Ridgeback's ring is 182 m and its south shore 110 m from the centre, so a boat sailing at that
+shore from the start line makes landfall about 115 m off the beach, where a disc island made it
+at 45. The generator prints the mean coast radius beside the stamped one so the difference is
+visible when a recipe changes.
 
 ## 11. Landmark sites
 
@@ -236,11 +254,19 @@ Two more followed from measuring in Play from the boat instead of from a parked 
    rim's shadow edge at 26.9 m, not 24. The rule compared a caster's quads with the size the pixel
    target ASKS the main view's triangles to be, and the main view cannot draw that coarsely: a
    node is 64 quads a side whatever its level, so its quads stop growing at the root node's. On
-   that map the root node draws 1 m quads and a chunk's coarsest mesh was 4 m. A height read for a
-   coarse vertex is a filtered one (it has to be, or a coarse node undersamples the relief), so a
-   caster four times blunter than the drawn ground is also lower at every rim, and its shadow
-   shorter. `TerrainShadowLod::CoarsestReceiverQuad` is the ceiling. It never binds on a map of 512
-   samples or more, which is why six 1024 px islands did not show it and a test terrain did.
+   that map (3 chunks a side) the root node draws 1 m quads and a chunk's coarsest mesh was 2.7 m.
+   A height read for a coarse vertex is a filtered one (it has to be, or a coarse node undersamples
+   the relief), so a caster that much blunter than the drawn ground is also lower at every rim, and
+   its shadow shorter. `TerrainShadowLod::CoarsestReceiverQuad` is the ceiling. A tile is
+   `ceil(resolution / 64)` chunks a side, so it never binds from 449 samples up, which is why six
+   1024 px islands did not show it and a test terrain did.
+6. **Tessellation off.** The code review of that test found the same fault by another road. A
+   terrain drawn without tessellation shows every vertex at its exact height at any distance, and
+   its chunk casters carry those heights too; the tile mesh has none of its own and reads filtered
+   ones. So only a tessellated terrain casts from the tile mesh. The test's third arm is that
+   terrain, and each arm now asserts how many casters the shadow pass was handed
+   (`Renderer3D::GetTerrainShadowCasterCountLastFrame`): one for the tile mesh, one per chunk
+   otherwise. Before that, the arm named "TileMesh" proved only that some coarse caster had cast.
 
 ## 14. The quadtree split on the wrong size
 

@@ -62,7 +62,24 @@ def apply_rock_platform(h, cell, rock_shore, seed, x, z, width=8.0, level=0.6):
     return lerp(h, cut, np.clip(rock_shore, 0.0, 1.0) * (d > 0.0))
 
 
-def apply_border(h, x, z, size, cell, ramp=26.0):
+BORDER_RAMP = 26.0   # metres from the tile's edge over which apply_border takes the ground to BASE
+SHORE_DEPTH = -3.0   # ground above this is shore: land, a platform, a foreshore one can see
+
+
+def fits_tile(h, x, z, size):
+    """(metres, side) of the shore that comes nearest the tile's edge. An island fits its tile
+    when that is at least BORDER_RAMP: inside the ramp the ground is not the recipe's any more,
+    it is being driven down to the tile floor, and a point or a foreshore that reaches in ends
+    in a 50 degree scarp parallel to the tile's edge instead of in its own shore."""
+    shore = h > SHORE_DEPTH
+    nearest = (float("inf"), "none")
+    for side, distance in (("west", x), ("east", size - x), ("south", z), ("north", size - z)):
+        if shore.any():
+            nearest = min(nearest, (float(distance[shore].min()), side))
+    return nearest
+
+
+def apply_border(h, x, z, size, cell, ramp=BORDER_RAMP):
     """Drive the tile's rim to BASE exactly: the outermost samples, which sit ON the tile's
     edges, get weight 0."""
     edge = np.minimum(np.minimum(x, size - x), np.minimum(z, size - z))

@@ -51,15 +51,17 @@ def ridgeback(x, z, seed):
     xw, zw = f.warp(x, z, seed, 120.0, 13.0)
     xw, zw = f.warp(xw, zw, seed + 5, 38.0, 4.0)
     # (x, z, crest height, half-width south, half-width north)
+    # The two ends stop 55 m short of the tile's edge: the points, their rock platforms and the
+    # first of the deep water all have to fit before the border ramp begins (shaping.fits_tile).
     spine = [
-        (52.0, 136.0, 5.0, 40.0, 28.0),
+        (68.0, 142.0, 5.0, 32.0, 24.0),
         (104.0, 164.0, 30.0, 84.0, 48.0),
         (165.0, 200.0, 57.0, 112.0, 54.0),
         (222.0, 224.0, 71.0, 124.0, 54.0),
         (270.0, 236.0, 58.0, 116.0, 50.0),
         (318.0, 240.0, 84.0, 112.0, 48.0),
-        (358.0, 230.0, 42.0, 66.0, 40.0),
-        (384.0, 214.0, 6.0, 34.0, 26.0),
+        (342.0, 233.0, 44.0, 62.0, 38.0),
+        (356.0, 225.0, 7.0, 24.0, 20.0),
     ]
     dist, side, crest, w_south, w_north = f.polyline_field(xw, zw, spine)
     north = side > 0.0
@@ -301,7 +303,9 @@ def mesa(x, z, seed):
 def dunes(x, z, seed):
     """Sand on a low platform: a foredune behind the windward beach, a big parabolic dune,
     machair in its lee, and a spit hooking round a shallow lagoon."""
-    u, r, _ = _blob(x, z, 180.0, 205.0, 124.0, 86.0, -14.0, seed, 110.0, 11.0)
+    # 117 m along its length, not more: the windward and lee foreshores run 34 m out from the
+    # waterline, and both have to end before the tile's border ramp (shaping.fits_tile).
+    u, r, _ = _blob(x, z, 180.0, 205.0, 117.0, 86.0, -14.0, seed, 110.0, 11.0)
     inland = np.maximum(1.0 - u, 0.0) * r
     platform = np.minimum(inland * 0.12, 3.2 + 0.012 * inland)
     wx, wz = 0.989, 0.148  # the scene's wind (Drift.olo WindSettings.Direction)
@@ -333,7 +337,7 @@ def dunes(x, z, seed):
     land = platform + np.maximum(field, big) + fore
     h = np.where(u < 1.0, land, _sea((u - 1.0) * r, 30.0))
     # The spit: a low sand ridge from the south-east corner, hooking back west.
-    spit = [(262.0, 152.0, 2.0), (298.0, 120.0, 1.8), (306.0, 88.0, 1.6), (286.0, 66.0, 1.4), (258.0, 62.0, 1.0)]
+    spit = [(262.0, 152.0, 2.0), (296.0, 124.0, 1.8), (300.0, 98.0, 1.6), (284.0, 80.0, 1.4), (258.0, 76.0, 1.0)]
     dist, _, top = f.polyline_field(x, z, spit)
     ridge = np.where(dist < 15.0, top * (1.0 - (dist / 15.0) ** 2), _sea(dist - 15.0, 16.0) * 0.6)
     h = np.maximum(h, ridge)

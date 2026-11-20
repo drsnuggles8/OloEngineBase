@@ -283,6 +283,41 @@ namespace OloEngine::Tests
         }
     }
 
+    // An island fits its tile. The generator drives the last 26 m before a
+    // tile's edge down to the tile floor, so that the tile ends in sea and not
+    // in a wall; inside that ramp the ground is not the recipe's any more. A
+    // point or a foreshore that reaches into it ends in a scarp parallel to the
+    // tile's edge instead of in its own shore: Ridgeback's east point did, 57
+    // degrees at the waterline against 8 on the rest of its coast, and the
+    // island-wide median of TheCoastIsAShoreNotARamp could not see it. "Shore"
+    // is ground less than 3 m under the sea: what a boat's crew can see.
+    TEST_F(DriftIslandSplatCoverage, EveryShoreFinishesBeforeTheTilesBorderRamp)
+    {
+        constexpr f32 kBorderRamp = 26.0f; // shaping.BORDER_RAMP in tools/drift-islands
+        constexpr f32 kShoreDepth = -3.0f; // shaping.SHORE_DEPTH
+        for (const Island& isl : s_Islands)
+        {
+            const u32 n = isl.Resolution;
+            const f32 metresPerSample = isl.WorldSize / static_cast<f32>(n - 1);
+            f32 nearest = isl.WorldSize;
+            u32 shore = 0;
+            for (u32 z = 0; z < n; ++z)
+            {
+                for (u32 x = 0; x < n; ++x)
+                {
+                    if (isl.MetresAboveSea(static_cast<sizet>(z) * n + x) <= kShoreDepth)
+                        continue;
+                    ++shore;
+                    const u32 samplesIn = std::min(std::min(x, n - 1 - x), std::min(z, n - 1 - z));
+                    nearest = std::min(nearest, static_cast<f32>(samplesIn) * metresPerSample);
+                }
+            }
+            ASSERT_GT(shore, 0u) << isl.Name << " has no ground near the surface at all";
+            EXPECT_GE(nearest, kBorderRamp)
+                << isl.Name << ": its shore comes within " << nearest << " m of the tile's edge, inside the border ramp";
+        }
+    }
+
     // DriftWeatherDirector.lua arms a leg 45 m outside
     //   coast = (IslandFalloffRadius + 0.5) * 0.5 * WorldSizeX
     // from the tile centre. The scene stamper writes the radius from the map's
@@ -480,8 +515,14 @@ namespace OloEngine::Tests
             ASSERT_FALSE(file.empty()) << "an island leaves one of its maps unnamed";
             std::error_code ec;
             ASSERT_TRUE(fs::exists(package / file, ec)) << file.generic_string() << " was not staged into the package";
-            EXPECT_EQ(fs::file_size(package / file, ec), fs::file_size(project / file, ec))
-                << file.generic_string() << " was staged as a different file";
+            const auto bytes = [](const fs::path& path)
+            {
+                std::ifstream in(path, std::ios::binary);
+                return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+            };
+            const std::vector<char> staged = bytes(package / file);
+            EXPECT_FALSE(staged.empty()) << file.generic_string() << " was staged empty";
+            EXPECT_TRUE(staged == bytes(project / file)) << file.generic_string() << " was staged as a different file";
         }
         for (const Island& isl : s_Islands)
         {

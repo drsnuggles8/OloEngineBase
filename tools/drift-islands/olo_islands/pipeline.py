@@ -35,6 +35,11 @@ def generate(name, n=RESOLUTION, verbose=True):
     h = s.apply_rock_platform(h, cell, aux["rock_shore"], seed + 12, x, z)
     if sites is not None:
         h = sites(h, x, z)
+    clearance, side = s.fits_tile(h, x, z, size)
+    if clearance < s.BORDER_RAMP:
+        raise ValueError(f"{name}: its shore comes within {clearance:.1f} m of the tile's {side} edge, inside the "
+                         f"{s.BORDER_RAMP:.0f} m border ramp. Draw the island in or give it a larger tile; the ramp "
+                         "would cut that shore into a scarp")
     h = s.apply_border(h, x, z, size, cell)
 
     top = float(h.max())
@@ -49,19 +54,19 @@ def generate(name, n=RESOLUTION, verbose=True):
         ring = (d > 0.0) & (d < 6.0)
         print(f"{name}: peak {top:.1f} m, land {100.0 * land.mean():.1f}% of tile, "
               f"median slope within 6 m of the water {np.median(slope[ring]):.1f} deg, "
-              f"coast radius {mean_coast_radius(h, size):.1f} m")
+              f"mean coast radius {mean_coast_radius(h, size):.1f} m, "
+              f"shore {clearance:.0f} m clear of the tile's {side} edge")
     return {"name": name, "h": h, "height01": height01, "splat0": splat0, "splat1": splat1, "macro": macro,
             "weights": weights, "size": size, "height_scale": height_scale, "cell": cell, "aux": aux,
             "flow": flow}
 
 
 def mean_coast_radius(h, size):
-    """Mean distance from the tile centre to the outermost land along 180 bearings.
-
-    DriftWeatherDirector.lua derives each island's landfall and departure rings from
-    (IslandFalloffRadius + 0.5) * 0.5 * WorldSizeX, so the scene restates this number as the
-    falloff radius that formula turns back into it.
-    """
+    """Mean distance from the tile centre to the outermost land along 180 bearings. Printed
+    for the reader, and not what the scene carries: DriftWeatherDirector.lua's landfall and
+    departure rings are stamped from scene.enclosing_radius, the radius that holds ALL of the
+    island, so a boat on any of its shores is inside the ring. On a long island that ring
+    stands well off the short sides (Ridgeback: 182 m against a 110 m south shore)."""
     n = h.shape[0]
     c = (n - 1) * 0.5
     radii = []

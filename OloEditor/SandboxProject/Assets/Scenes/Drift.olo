@@ -185,7 +185,7 @@ PrecipitationSettings:
 #     Atoll      (  330,  -480)  400 m tile, peak   6 m  stbd quarter   313 m of water
 #     Stacks     ( -330,  -520)  300 m tile, peak  88 m  port quarter   278 m of water
 #     Mesa       (  500,    40)  360 m tile, peak  41 m  stbd bow       456 m of water
-#     Dunes      ( -540,    60)  380 m tile, peak  25 m  port bow       458 m of water
+#     Dunes      ( -540,    60)  380 m tile, peak  25 m  port bow       467 m of water
 #     Sisters    ( -160,   660)  260 m tile, peak  52 m  ahead          854 m of water
 #
 #   Peaks are above the sea. The last column is the open water from the start line to the
@@ -925,9 +925,9 @@ Entities:
       # No mask is applied to a height map. The radius is kept because the weather director
       # derives this island's landfall and departure rings from it:
       #   coast = (IslandFalloffRadius + 0.5) * 0.5 * WorldSizeX
-      # which gives 200 m here, the distance from the tile centre to its farthest land.
+      # which gives 182 m here, the distance from the tile centre to its farthest land.
       ShapingIslandFalloff: 0
-      ShapingIslandFalloffRadius: 0.454
+      ShapingIslandFalloffRadius: 0.366
       AutoMaterial: false
       # The GPU LOD quadtree (issue #714) drives this terrain; nodes are picked by
       # screen-space error, so the island resolves as the boat closes instead of popping.
@@ -1032,8 +1032,8 @@ Entities:
       BodyType: 0
       IsTrigger: true
     BoxCollider3DComponent:
-      HalfExtents: [198, 80, 113]
-      Offset: [211, 24, 192]
+      HalfExtents: [179, 80, 113]
+      Offset: [207, 24, 192]
     FoliageComponent:
       Enabled: true
       Layers:
@@ -2194,9 +2194,9 @@ Entities:
       # No mask is applied to a height map. The radius is kept because the weather director
       # derives this island's landfall and departure rings from it:
       #   coast = (IslandFalloffRadius + 0.5) * 0.5 * WorldSizeX
-      # which gives 166 m here, the distance from the tile centre to its farthest land.
+      # which gives 155 m here, the distance from the tile centre to its farthest land.
       ShapingIslandFalloff: 0
-      ShapingIslandFalloffRadius: 0.375
+      ShapingIslandFalloffRadius: 0.313
       AutoMaterial: false
       # The GPU LOD quadtree (issue #714) drives this terrain; nodes are picked by
       # screen-space error, so the island resolves as the boat closes instead of popping.
@@ -2301,8 +2301,8 @@ Entities:
       BodyType: 0
       IsTrigger: true
     BoxCollider3DComponent:
-      HalfExtents: [141, 80, 133]
-      Offset: [190, 24, 170]
+      HalfExtents: [134, 80, 126]
+      Offset: [191, 24, 177]
     FoliageComponent:
       Enabled: true
       Layers:
