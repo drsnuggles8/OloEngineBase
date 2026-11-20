@@ -3,6 +3,9 @@
 #include "OloEngine/Containers/Array.h"
 #include <gtest/gtest.h>
 
+#include "../TestTempDir.h"
+
+#include "OloEngine/Build/GameBuildPipeline.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainLayer.h"
 
@@ -13,7 +16,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -416,6 +421,79 @@ namespace OloEngine::Tests
                 EXPECT_GE(glm::length(means[i] - means[j]), kMinSeparation)
                     << s_Islands[i].Name << " and " << s_Islands[j].Name << " have the same mean ground colour";
             }
+        }
+    }
+
+    // The cooked cell. Nothing an island names is an asset: the height map, the
+    // two splatmaps, the macro map and the 24 layer files are content PATHS the
+    // runtime opens through ResolveContentPath, so they reach a packaged game
+    // only because the build's scene scan stages every scalar that names a file
+    // (GameBuildPipeline, issue #1392). Staged here from the six island entities
+    // as the scene authors them: every file must arrive, byte for byte, and the
+    // height map must decode from where the runtime will look for it.
+    TEST_F(DriftIslandSplatCoverage, TheGameBuildShipsEveryFileAnIslandNames)
+    {
+        const fs::path project = ProjectDir();
+        const fs::path scenePath = fs::path("Assets") / "Scenes" / "Drift.olo";
+        const fs::path stagingProject = TempDir("islands-only-project");
+        const fs::path package = TempDir("package");
+
+        // The six islands alone: staging the whole scene would copy the boat,
+        // the crane and the lighthouse too, which other suites cover.
+        const YAML::Node authored = YAML::LoadFile((project / scenePath).string());
+        YAML::Node islandsOnly;
+        std::vector<fs::path> named;
+        for (const auto& entity : authored["Entities"])
+        {
+            const YAML::Node tag = entity["TagComponent"];
+            const YAML::Node terrain = entity["TerrainComponent"];
+            if (!terrain || !tag || !tag["Tag"].as<std::string>("").starts_with("Island - "))
+                continue;
+            islandsOnly["Entities"].push_back(entity);
+            for (const char* key : { "HeightmapPath", "SplatmapPath0", "SplatmapPath1", "MacroMapPath" })
+                named.emplace_back(terrain[key].as<std::string>(""));
+            for (const auto& layer : terrain["Layers"])
+            {
+                for (const char* key : { "AlbedoPath", "NormalPath", "ARMPath" })
+                    named.emplace_back(layer[key].as<std::string>(""));
+            }
+        }
+        ASSERT_EQ(islandsOnly["Entities"].size(), kIslandCount);
+        ASSERT_EQ(named.size(), kIslandCount * (4u + MAX_TERRAIN_LAYERS * 3u));
+        fs::create_directories((stagingProject / scenePath).parent_path());
+        {
+            std::ofstream out(stagingProject / scenePath);
+            out << islandsOnly;
+            ASSERT_TRUE(out.good());
+        }
+
+        sizet copied = 0;
+        std::vector<std::string> unresolved;
+        std::string error;
+        ASSERT_TRUE(StageSceneReferencedContent({ stagingProject / scenePath }, project, "Assets", fs::path{ OLO_TEST_EDITOR_ROOT },
+                                                package, copied, unresolved, error))
+            << error;
+        EXPECT_TRUE(unresolved.empty()) << "a file an island names cannot ship:" << Join(unresolved);
+
+        for (const fs::path& file : named)
+        {
+            ASSERT_FALSE(file.empty()) << "an island leaves one of its maps unnamed";
+            std::error_code ec;
+            ASSERT_TRUE(fs::exists(package / file, ec)) << file.generic_string() << " was not staged into the package";
+            EXPECT_EQ(fs::file_size(package / file, ec), fs::file_size(project / file, ec))
+                << file.generic_string() << " was staged as a different file";
+        }
+        for (const Island& isl : s_Islands)
+        {
+            // From the package, with the runtime's own decoder.
+            const fs::path staged = package / "Assets" / "Terrain" / "DriftIslands" / (isl.Name.substr(9) + "_Height.png");
+            TArray<f32> heights;
+            u32 resolution = 0;
+            ASSERT_TRUE(TerrainData::DecodeHeightmapFile(staged.string(), heights, resolution)) << staged.generic_string();
+            EXPECT_EQ(resolution, isl.Resolution);
+            ASSERT_EQ(heights.Num(), isl.Heights.Num());
+            EXPECT_EQ(std::memcmp(heights.GetData(), isl.Heights.GetData(), static_cast<sizet>(heights.Num()) * sizeof(f32)), 0)
+                << isl.Name << ": the staged height map is not the project's";
         }
     }
 } // namespace OloEngine::Tests
