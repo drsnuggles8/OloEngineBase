@@ -14304,10 +14304,16 @@ namespace OloEngine
                         // The non-tessellated cull frustum is built PER TILE inside
                         // (from tileModel), so a streamed tile offset by WorldOrigin
                         // is culled against its true position — see below (#613).
+                        // What the shadow casters' level of detail is judged
+                        // by: the size of the main view's own terrain triangles.
+                        const f32 shadowPixelSizePerMetre =
+                            TerrainShadowLod::PixelSizePerMetre(cullViewProjection, static_cast<f32>(m_ViewportHeight));
+                        const f32 shadowTargetTrianglePixels = SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
                         auto submitChunkPackets = [&terrain, &transform, &splatmapID, &splatmap1ID,
                                                    &albedoArrayID, &normalArrayID, &armArrayID,
                                                    &hasMaterial, &useTess, &terrainShader, &entityID,
-                                                   &hasActiveShadows, &cullCameraPosition, &cullViewProjection, casterInstanceKey](const TerrainChunkManager& chunkMgr,
+                                                   &hasActiveShadows, &cullCameraPosition, &cullViewProjection, casterInstanceKey,
+                                                   shadowPixelSizePerMetre, shadowTargetTrianglePixels](const TerrainChunkManager& chunkMgr,
                                                                                                                                    const TerrainData* terrainData,
                                                                                                                                    const TerrainMaterial* tileMaterial,
                                                                                                                                    f32 worldSizeX, f32 worldSizeZ,
@@ -14559,15 +14565,39 @@ namespace OloEngine
                                     for (const auto& selected : chunkMgr.GetSelectedChunks())
                                         shadowLODs.emplace(selected.Chunk, selected.LODData);
                                 }
+                                // A chunk mesh already carries a vertex on every
+                                // height texel (TerrainChunk::Build), so tessellating
+                                // it for a shadow map adds triangles and no shape:
+                                // at the 4x this used to ask for, a 1024 px island
+                                // was 33 million triangles per cascade it fell in,
+                                // and the far cascade of a 600 m shadow range cost
+                                // 6-23 ms of terrain casters alone. Snow is the one
+                                // displacement finer than the height field, so only
+                                // a terrain under displacing snow is subdivided.
+                                const auto& snow = Renderer3D::GetSnowAccumulationSettings();
+                                const bool snowDisplaces = snow.Enabled && std::abs(snow.MaxDepth * snow.DisplacementScale) > 0.0f;
                                 ShaderBindingLayout::TerrainUBO shadowUBO = terrainUBOData;
-                                shadowUBO.TessFactors = glm::vec4(useTess ? 4.0f : 1.0f);
+                                shadowUBO.TessFactors = glm::vec4((useTess && snowDisplaces) ? 4.0f : 1.0f);
                                 shadowUBO.TessFactors2 = glm::vec4(0.0f, useTess ? 0.0f : 1.0f, 0.0f, 1.0f);
                                 const auto sourceRange = terrainData ? terrainData->GetHeightRange() : std::optional<glm::vec2>{ glm::vec2(0.0f, 1.0f) };
                                 const auto heightRange = sourceRange.value_or(glm::vec2(0.0f)) * heightScale;
                                 const f32 minHeight = std::min(heightRange.x, heightRange.y);
                                 const f32 maxHeight = std::max(heightRange.x, heightRange.y);
-                                const auto& snow = Renderer3D::GetSnowAccumulationSettings();
                                 const f32 snowExtent = snow.Enabled ? std::abs(snow.MaxDepth * snow.DisplacementScale) : 0.0f;
+                                // A chunk casts from the coarsest of its meshes
+                                // that is still as fine as the main view draws
+                                // the same ground (TerrainShadowLod, issue
+                                // #1721). Not under the virtual shadow map,
+                                // whose cached pages would keep the level they
+                                // were drawn at as the camera closed in, and not
+                                // under displacing snow, which is finer than the
+                                // height field.
+                                const bool shadowLevels = shadowPixelSizePerMetre > 0.0f && !snowDisplaces &&
+                                                          !Renderer3D::GetShadowMap().IsVirtualShadowMapActive();
+                                const f32 shadowQuadSize =
+                                    std::max(worldSizeX / static_cast<f32>(std::max(chunkMgr.GetNumChunksX(), 1u)),
+                                             worldSizeZ / static_cast<f32>(std::max(chunkMgr.GetNumChunksZ(), 1u))) /
+                                    static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION);
                                 for (const auto* chunk : shadowChunks)
                                 {
                                     const auto va = chunk->GetVertexArray();
@@ -14579,18 +14609,36 @@ namespace OloEngine
                                     bounds.Min.y = std::min(bounds.Min.y, minHeight) - snowExtent;
                                     bounds.Max.y = std::max(bounds.Max.y, maxHeight) + snowExtent;
                                     ShaderBindingLayout::TerrainUBO chunkUBO = shadowUBO;
+                                    u32 shadowLevel = 0;
+                                    const BoundingBox worldBounds = bounds.Transform(tileModel);
                                     if (const auto selected = shadowLODs.find(chunk); selected != shadowLODs.end())
                                     {
+                                        // The CPU LOD path: the caster follows
+                                        // the main view's own tessellation.
                                         chunkUBO.TessFactors = selected->second.TessFactors;
                                         chunkUBO.TessFactors2 = selected->second.TessFactors2;
                                         chunkUBO.TessFactors2.w = 1.0f;
                                     }
+                                    else if (shadowLevels)
+                                    {
+                                        const glm::vec3 nearest = glm::clamp(cullCameraPosition, worldBounds.Min, worldBounds.Max);
+                                        shadowLevel = TerrainShadowLod::Select(glm::distance(cullCameraPosition, nearest), shadowQuadSize,
+                                                                               shadowPixelSizePerMetre, shadowTargetTrianglePixels);
+                                    }
+                                    else
+                                    {
+                                        // No additional handling required.
+                                    }
+                                    // Keyed on the chunk's own mesh whatever
+                                    // level is drawn, so the caster's identity
+                                    // does not change with the camera.
                                     const auto handle = va->GetRHIHandle();
                                     const u64 partKey = (static_cast<u64>(handle.Generation) << 32) | handle.Index;
                                     const u64 casterKey = (casterInstanceKey * 1099511628211ull) ^ partKey;
-                                    Renderer3D::AddTerrainShadowCaster(va->GetRHIHandle(), chunk->GetIndexCount(), 3,
+                                    Renderer3D::AddTerrainShadowCaster(chunk->GetShadowVertexArray(shadowLevel)->GetRHIHandle(),
+                                                                       chunk->GetShadowIndexCount(shadowLevel), 3,
                                                                        tileModel, heightmapID, chunkUBO,
-                                                                       { casterKey, sourceRange ? bounds.Transform(tileModel) : NoBounds, terrainData ? terrainData->GetHeightRevision() : 0 });
+                                                                       { casterKey, sourceRange ? worldBounds : NoBounds, terrainData ? terrainData->GetHeightRevision() : 0 });
                                 }
                             }
                         };

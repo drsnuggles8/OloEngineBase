@@ -1223,6 +1223,7 @@ add_executable(OloEngine-Tests
 		Terrain/TerrainGeneratorTest.cpp
 		Terrain/TerrainLayerTextureContractTest.cpp
 		Terrain/TerrainLodMetricTest.cpp
+		Terrain/TerrainShadowLodTest.cpp
 		Terrain/TerrainVirtualTextureTest.cpp
 		Terrain/TerrainAuthoringReadbackTest.cpp
 		Terrain/VoxelGreedyMesherTest.cpp

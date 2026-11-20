@@ -1343,38 +1343,57 @@ namespace OloEngine
                     familyVsm->BindPhysicalPoolImage();
                 auto terrainUBO = Renderer3D::GetTerrainUBO();
 
+                // The chunks of one terrain tile arrive together and share
+                // their transform, height map and (for all but the CPU LOD
+                // path) their uniform block. Uploading those again for every
+                // chunk was most of this pass: a 1024 px terrain is 256 chunks,
+                // and each one re-sent the 2.3 KB terrain block, the instance
+                // record and the heap offsets it already had (issue #1721). So
+                // the state is sent when it CHANGES. "Changed" is byte
+                // identity, which is exactly "the upload would differ".
+                const ShadowTerrainCaster* stateOwner = nullptr;
                 for (const auto& caster : m_TerrainCasters)
                 {
                     if (cullFrustum && ShouldCull(caster.WorldBounds, *cullFrustum))
                         continue;
-                    uploadShadowModelUBO(caster.transform);
 
-                    if (caster.heightmapTextureID.IsValid())
+                    const bool sameState =
+                        stateOwner != nullptr && stateOwner->heightmapTextureID == caster.heightmapTextureID &&
+                        std::memcmp(&stateOwner->transform, &caster.transform, sizeof(caster.transform)) == 0 &&
+                        std::memcmp(&stateOwner->terrainUBO, &caster.terrainUBO, sizeof(caster.terrainUBO)) == 0;
+                    if (!sameState)
                     {
-                        // Persistent: a terrain heightmap is an asset-owned texture,
-                        // not a graph-pooled target. The shader was bound once above
-                        // the loop, so the seam's program fork is already correct
-                        // (issue #691).
-                        HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP,
-                                                         caster.heightmapTextureID,
+                        uploadShadowModelUBO(caster.transform);
+
+                        if (caster.heightmapTextureID.IsValid())
+                        {
+                            // Persistent: a terrain heightmap is an asset-owned texture,
+                            // not a graph-pooled target. The shader was bound once above
+                            // the loop, so the seam's program fork is already correct
+                            // (issue #691).
+                            HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_TERRAIN_HEIGHTMAP,
+                                                             caster.heightmapTextureID,
+                                                             RHI::HeapSlotLifetime::Persistent);
+                        }
+
+                        if (terrainUBO)
+                        {
+                            terrainUBO->SetData(&caster.terrainUBO, ShaderBindingLayout::TerrainUBO::GetSize());
+                            terrainUBO->Bind();
+                        }
+
+                        HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_SNOW_DEPTH,
+                                                         SnowAccumulationSystem::GetSnowDepthTextureHandle(),
                                                          RHI::HeapSlotLifetime::Persistent);
+
+                        // A FLUSH PER STATE, not per pass: a different terrain
+                        // rebinds the heightmap slot to ITS texture, so a flush
+                        // hoisted out of this loop would publish only the last
+                        // terrain's offset and every earlier patch would
+                        // displace against it.
+                        HeapBinding::FlushOffsets();
+                        stateOwner = &caster;
                     }
-
-                    if (terrainUBO)
-                    {
-                        terrainUBO->SetData(&caster.terrainUBO, ShaderBindingLayout::TerrainUBO::GetSize());
-                        terrainUBO->Bind();
-                    }
-
-                    HeapBinding::BindTextureOrOffset(ShaderBindingLayout::TEX_SNOW_DEPTH,
-                                                     SnowAccumulationSystem::GetSnowDepthTextureHandle(),
-                                                     RHI::HeapSlotLifetime::Persistent);
-
-                    // A FLUSH PER CASTER, not per pass: each iteration rebinds the
-                    // heightmap slot to a DIFFERENT terrain's texture, so a flush
-                    // hoisted out of this loop would publish only the last caster's
-                    // offset and every earlier patch would displace against it.
-                    HeapBinding::FlushOffsets();
                     RenderCommand::DrawIndexedPatchesRaw(caster.vaoID, caster.indexCount, caster.patchVertexCount);
                 }
                 RenderCommand::EnableCulling();
