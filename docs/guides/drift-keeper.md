@@ -105,6 +105,11 @@ are apparent on inspection. The neck, shoulders and jaw lack the secondary
 flesh movement of a speaking or gesturing person. The beard carries direction
 and length across the jaw, yet the cut edge above each cheek is unusually crisp.
 
+In the blink study the lash roots follow the posed eyelid surface. The median
+left-root displacement is 4.03 mm with the left lid closed, while the right
+lashes stay at rest. The hand and neck UVs sample neutral skin behind the
+pigmented cheek and nose charts.
+
 ## Comparing the face
 
 ![The generated keeper and a textured render of the Infinite Scan bust from the same three-quarter direction](../images/drift-keeper/keeper-and-scan.jpg)
@@ -137,8 +142,8 @@ curves, 3,800 moustache curves, 13,500 scalp hairs, 2,100 brow hairs and 270
 lashes. The lantern's light follows a socket at its wick.
 
 The three body meshes have 95,088, 26,124 and 11,088 triangles. At the same
-three-quarter pose and orthographic scale, their silhouettes cover 76,940,
-76,624 and 75,788 pixels in 520 × 680 frames. Thresholding alpha at one
+three-quarter pose and orthographic scale, their silhouettes cover 76,941,
+76,625 and 75,789 pixels in 520 × 680 frames. Thresholding alpha at one
 half gives 99.52% overlap between tiers 0 and 1 and 98.49% between tiers 0
 and 2 (intersection divided by union). This measures the outline, including
 the shared head attachments. Use the model README to regenerate the body and
@@ -156,15 +161,15 @@ At a helm height of 2.5 m the stack hides the door on some bearings. The
 seabed is 7.22 m below sea level. The 150 m camera uses 240°. At 30 m the
 oilskin and dark trousers separate across the rail. At 150 m the coat covers
 a few amber pixels in the doorway. At 30 m, 16 of 35 sampled entity IDs changed when the keeper moved out of view
-and returned when he moved back. At 150 m, 11 of 35 did the same.
+and returned when he moved back. At 150 m, 19 of 35 did the same.
 The crops show exactly which part of the doorway he occupies.
 
 ![Full Drift from sea level at 30 m and 150 m with enlarged keeper-on and keeper-off crops](../images/drift-keeper/approach.jpg)
 
 The fixed-camera close-ups use the tower, sun, body, eye profiles and bound
 hair from the shipped scene. Each has a matching groom-off frame. In OpenGL
-Deferred, the 4× MSAA pair changed 113,251 pixels above the repeat-control
-noise threshold. Temporal Quality upscale changed 84,033 pixels.
+Deferred, the 4× MSAA pair changed 113,248 pixels above the repeat-control
+noise threshold. Temporal Quality upscale changed 84,035 pixels.
 
 ![The same face in OpenGL and Vulkan on Forward, Forward+ and Deferred](../images/drift-keeper/render-paths.jpg)
 
