@@ -1876,6 +1876,205 @@ Entities:
     ModelComponent:
       FilePath: Assets/Models/DriftLighthouse/StacksLight.gltf
       Visible: true
+    RelationshipComponent:
+      ParentHandle: 0
+      Children: [878550100000011]
+  # Stacks Light's keeper and hand-held lantern. The second tread leaves room for the raised lamp.
+  - Entity: 878550100000011
+    TagComponent:
+      Tag: Stacks Light Keeper
+    TransformComponent:
+      Translation: [1.436795, -0.0815, -2.888602]
+      Rotation: [0, 2.827433388230814, 0]
+      Scale: [1, 1, 1]
+    MeshComponent: {}
+    AnimationStateComponent:
+      SourceFilePath: Assets/Models/DriftKeeper/Keeper.gltf
+      CurrentClipName: Idle
+      CurrentClipIndex: 0
+      IsPlaying: true
+      Loop: true
+      RootMotion: false
+      PlaybackSpeed: 1
+    SkeletonComponent: {}
+    MorphTargetComponent:
+      Weights: {}
+    LODGroupComponent:
+      Enabled: true
+      Bias: 1
+      Levels:
+      - MeshHandle: 14409495868182326795
+        MaxDistance: 18
+        TriangleCount: 171840
+      - MeshHandle: 3761803413143181578
+        MaxDistance: 78
+        TriangleCount: 49664
+      - MeshHandle: 15289720284050343393
+        MaxDistance: 1000
+        TriangleCount: 21438
+    MaterialOverridesComponent:
+      Overrides:
+      - MaterialName: KeeperSkin
+        Kind: 2
+        SkinProfile: 15582898272038645123
+        ThicknessFactor: 0.003
+      - MaterialName: KeeperEar
+        Kind: 2
+        SkinProfile: 15582898272038645123
+        ThicknessFactor: 0.003
+      - MaterialName: KeeperLip
+        Kind: 2
+        SkinProfile: 8341730846078546219
+        ThicknessFactor: 0.003
+      - MaterialName: KeeperGum
+        Kind: 2
+        SkinProfile: 373261561201249100
+        ThicknessFactor: 0.003
+      - MaterialName: KeeperTongue
+        Kind: 2
+        SkinProfile: 2818948009044300225
+        ThicknessFactor: 0.003
+      - MaterialName: KeeperTeeth
+        Kind: 2
+        SkinProfile: 8983037296690341006
+        ThicknessFactor: 0.003
+    IKTargetComponent:
+      AimIKEnabled: false
+      AimAxis: [0, 0, 1]
+      AimPoleVector: [0, 1, 0]
+      AimChainLength: 2
+      AimChainFactor: 0.28
+      AimWeight: 0
+    LuaScriptComponent:
+      ScriptFile: Scripts/LuaScripts/DriftKeeper.lua
+    RelationshipComponent:
+      ParentHandle: 878550100000001
+      Children: [878550100000012, 878550100000013, 878550100000015, 878550100000017]
+  - Entity: 878550100000012
+    TagComponent:
+      Tag: Keeper Eye L
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.0126, 0.0126, 0.0126]
+    MeshComponent:
+      MeshSourceHandle: 14067552302284456526
+    MaterialComponent:
+      AlbedoColor: [1, 1, 1]
+      Metallic: 0
+      Roughness: 0.14
+      AlbedoMapPath: Assets/Models/DriftKeeper/KeeperIrisColor.png
+      MaterialKind: 2
+      SkinProfile: 5293569896917943830
+      ThicknessFactor: 0.003
+    BoneAttachmentComponent:
+      BoneName: eye_L
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 878550100000011
+      Children: []
+  - Entity: 878550100000013
+    TagComponent:
+      Tag: Keeper Eye R
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [0.0126, 0.0126, 0.0126]
+    MeshComponent:
+      MeshSourceHandle: 14067552302284456526
+    MaterialComponent:
+      AlbedoColor: [1, 1, 1]
+      Metallic: 0
+      Roughness: 0.14
+      AlbedoMapPath: Assets/Models/DriftKeeper/KeeperIrisColor.png
+      MaterialKind: 2
+      SkinProfile: 5293569896917943830
+      ThicknessFactor: 0.003
+    BoneAttachmentComponent:
+      BoneName: eye_R
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 878550100000011
+      Children: []
+  - Entity: 878550100000017
+    TagComponent:
+      Tag: Keeper Hair Foundation
+    TransformComponent:
+      Translation: [0, -1.529, 0.018]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    MeshComponent:
+      MeshSourceHandle: 10651440819441710641
+    MorphTargetComponent:
+      Weights: {}
+    BoneAttachmentComponent:
+      BoneName: head
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 878550100000011
+      Children: [878550100000014]
+  - Entity: 878550100000014
+    TagComponent:
+      Tag: Keeper Groom
+    TransformComponent:
+      Translation: [0, 0, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    GroomComponent:
+      Groom: 836002694542585438
+      WidthScale: 1
+      MaxRenderStrands: 50000
+      RenderStrands: true
+      ShowPreview: false
+      CompositionMode: 1
+    GroomBindingComponent:
+      Binding: 737017912390046644
+      TargetEntity: 878550100000017
+      Enabled: true
+    GroomFibreComponent:
+      BaseColor: [1, 0.94, 0.85]
+      Eumelanin: 0.8
+      Pheomelanin: 0
+      LongitudinalRoughness: 0.48
+      AzimuthalRoughness: 0.36
+      PigmentMode: 1
+      Enabled: true
+    GroomCoatComponent:
+      Enabled: true
+      RoleVisibilityMask: 31
+    GroomLodComponent:
+      Enabled: true
+      CardPixelSize: 40
+      MeshPixelSize: 20
+      MaxWidthCompensation: 6
+    RelationshipComponent:
+      ParentHandle: 878550100000017
+      Children: []
+  - Entity: 878550100000015
+    TagComponent:
+      Tag: Keeper Lamp Socket
+    TransformComponent:
+      Translation: [0, -0.161, 0]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    BoneAttachmentComponent:
+      BoneName: lantern
+      Enabled: true
+    RelationshipComponent:
+      ParentHandle: 878550100000011
+      Children: []
+  - Entity: 878550100000016
+    TagComponent:
+      Tag: Keeper Lamplight
+    TransformComponent:
+      Translation: [-418, 30.66, -468]
+      Rotation: [0, 0, 0]
+      Scale: [1, 1, 1]
+    PointLightComponent:
+      Color: [1, 0.65, 0.27]
+      Intensity: 0
+      Range: 3
+      CastShadows: false
   # Point lights submit their local position to the renderer. This second root
   # places both the luminous glass and its light at the gallery in world space.
   - Entity: 878550100000002

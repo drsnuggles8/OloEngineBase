@@ -929,9 +929,28 @@ def export_groom_abc(path, collection_name="DogGroom", log=print, cards=CARDS):
         cv["groom_card_points"] = int(cards[1])
     # The collection, not the selection: `selected` exports nothing from a background session.
     t0 = time.time()
-    bpy.ops.wm.alembic_export(filepath=path, collection=col.name, selected=False, start=1, end=1, export_hair=True,
-                              export_particles=False, export_custom_properties=True, uvs=False, normals=False,
-                              vcolors=False, orcos=False, face_sets=False, flatten=False, evaluation_mode="RENDER")
+    # Blender 5.3 also exports named curve attributes as arbGeomParams. The
+    # importer refuses a groom_guide supplied both there and in userProperties.
+    # Keep the portable property used by older Blender, then restore each live
+    # editing attribute even if the Alembic write fails.
+    removed = []
+    try:
+        for ob in col.objects:
+            cv = ob.data
+            attr = cv.attributes.get("groom_guide")
+            if attr is not None:
+                # A combed .blend may use a BOOLEAN guide selection. Keep its
+                # editable type and values independently of the integer archive flags.
+                saved = (cv, attr.data_type, attr.domain, [item.value for item in attr.data])
+                cv.attributes.remove(attr)
+                removed.append(saved)
+        bpy.ops.wm.alembic_export(filepath=path, collection=col.name, selected=False, start=1, end=1, export_hair=True,
+                                  export_particles=False, export_custom_properties=True, uvs=False, normals=False,
+                                  vcolors=False, orcos=False, face_sets=False, flatten=False, evaluation_mode="RENDER")
+    finally:
+        for cv, data_type, domain, values in removed:
+            guide = cv.attributes.new("groom_guide", data_type, domain)
+            guide.data.foreach_set("value", values)
     log(f"[groom] wrote {path} ({os.path.getsize(path) / 1e6:.1f} MB, {time.time() - t0:.1f}s)")
 
 

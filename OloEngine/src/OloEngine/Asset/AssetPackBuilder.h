@@ -9,6 +9,7 @@
 #include <filesystem>
 #include <atomic>
 #include <unordered_map>
+#include <vector>
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Containers/String.h"
 #include <optional>
@@ -99,6 +100,10 @@ namespace OloEngine
 
         /**
          * @brief Create asset pack from specific asset registry
+         *
+         * A texture one of its meshes cooks during the build (a fresh checkout has no
+         * Assets/cache/) is packed too. A cache artefact already on disk when the build starts
+         * is packed only if assetRegistry lists it.
          * @param assetRegistry Asset registry to build from
          * @param settings Build settings for the pack
          * @param progress Atomic progress tracker (0.0 to 1.0)
@@ -123,6 +128,13 @@ namespace OloEngine
             const std::unordered_map<AssetHandle, Ref<Asset>>& assets);
 
       private:
+        // BuildFromRegistry, with the cache artefacts that were on disk before the build and are
+        // the caller's to list (cacheBaseline). Every cache artefact found after the loads that is
+        // neither there nor in assetRegistry was cooked by them and is loaded into the pack.
+        static BuildResult BuildFromRegistryWithCacheBaseline(const AssetRegistry& assetRegistry, const BuildSettings& settings,
+                                                              std::atomic<f32>& progress, const std::atomic<bool>* cancelToken,
+                                                              const std::vector<AssetMetadata>& cacheBaseline);
+
         /**
          * @brief One stage's share of the caller's progress: a stage writes 0..1 of its
          *        own work and the caller's atomic receives Base + Scale * value. It

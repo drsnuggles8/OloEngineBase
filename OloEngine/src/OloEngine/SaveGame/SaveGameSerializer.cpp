@@ -1074,6 +1074,11 @@ namespace OloEngine
         std::swap(scene.m_Registry, staging->m_Registry);
         std::swap(scene.m_EntityMap, staging->m_EntityMap);
 
+        // World matrices are derived and do not travel in the checkpoint.
+        // Publish the restored hierarchy before restore callbacks or the next
+        // live script update can mistake a parented entity's local pose for world.
+        scene.PropagateWorldTransforms();
+
         // After the teardown above, whose script OnDestroy callbacks may still
         // write variables, and after StopStartupForCheckpoint's OnRuntimeStop,
         // which clears them.

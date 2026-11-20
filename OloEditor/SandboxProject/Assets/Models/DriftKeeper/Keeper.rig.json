@@ -1,0 +1,94 @@
+{
+  "clips": [
+    "Idle",
+    "Wave",
+    "LanternRaise"
+  ],
+  "morphs": [
+    "BlinkL",
+    "BlinkR",
+    "JawOpen",
+    "Smile",
+    "BrowRaise",
+    "Squint",
+    "AA",
+    "EE",
+    "OO"
+  ],
+  "eyes": [
+    {
+      "bone": "eye_L",
+      "centre": [
+        0.032,
+        1.634,
+        0.0765
+      ]
+    },
+    {
+      "bone": "eye_R",
+      "centre": [
+        -0.032,
+        1.634,
+        0.0765
+      ]
+    }
+  ],
+  "eyeRadius": 0.0126,
+  "lods": [
+    {
+      "source": "Keeper.gltf",
+      "maxDistance": 18,
+      "triangles": 171840
+    },
+    {
+      "source": "KeeperLOD1.gltf",
+      "maxDistance": 78,
+      "triangles": 49664
+    },
+    {
+      "source": "KeeperLOD2.gltf",
+      "maxDistance": 1000,
+      "triangles": 21438
+    }
+  ],
+  "profiles": {
+    "KeeperSkin": "Assets/Models/DriftKeeper/KeeperFace.oloskin",
+    "KeeperEar": "Assets/Models/DriftKeeper/KeeperFace.oloskin",
+    "KeeperEye": "Assets/Models/DriftKeeper/KeeperEye.oloskin",
+    "KeeperLip": "Assets/Models/DriftKeeper/KeeperLip.oloskin",
+    "KeeperGum": "Assets/Models/DriftKeeper/KeeperGum.oloskin",
+    "KeeperTongue": "Assets/Models/DriftKeeper/KeeperTongue.oloskin",
+    "KeeperTeeth": "Assets/Models/DriftKeeper/KeeperTeeth.oloskin"
+  },
+  "materials": [
+    "KeeperSkin",
+    "KeeperEar",
+    "KeeperWetLid",
+    "KeeperLip",
+    "KeeperGum",
+    "KeeperTongue",
+    "KeeperTeeth",
+    "KeeperNostril",
+    "KeeperNail",
+    "KeeperOilskin",
+    "KeeperSeam",
+    "KeeperGansey",
+    "KeeperTwill",
+    "KeeperCap",
+    "KeeperLeather",
+    "KeeperSole",
+    "KeeperBrass",
+    "KeeperGlass",
+    "KeeperWick",
+    "KeeperSclera"
+  ],
+  "groomSource": "Keeper.abc",
+  "placement": {
+    "translation": [
+      1.436795,
+      -0.0815,
+      -2.888602
+    ],
+    "yawRadians": 2.827433388230814
+  }
+}

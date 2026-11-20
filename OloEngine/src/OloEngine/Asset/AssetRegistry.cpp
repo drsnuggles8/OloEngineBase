@@ -3,10 +3,13 @@
 
 #include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/FileSystem.h"
+#include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/Log.h"
 #include "OloEngine/Asset/AssetExtensions.h"
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
+#include <string_view>
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -16,19 +19,83 @@ namespace OloEngine
 {
     // Static empty metadata for invalid lookups
     static const AssetMetadata s_EmptyMetadata{};
-    void AssetRegistry::AddAsset(const AssetMetadata& metadata)
-    {
-        TUniqueLock<FSharedMutex> lock(m_Mutex);
 
+    bool AssetRegistry::IsCacheArtefact(const std::filesystem::path& path)
+    {
+        // `**/cache/**` in .gitignore: a DIRECTORY named cache at any depth. The filename itself
+        // is not a directory, so a file called "cache" is not matched (and neither is it by git).
+        // Case-insensitive, as git is here (core.ignorecase).
+        const std::filesystem::path parent = path.parent_path();
+        for (const std::filesystem::path& component : parent)
+        {
+            const std::string name = component.string();
+            if (name.size() == 5 && std::ranges::equal(name, std::string_view{ "cache" }, [](char a, char b)
+                                                       { return std::tolower(static_cast<unsigned char>(a)) == b; }))
+                return true;
+        }
+        return false;
+    }
+
+    AssetHandle AssetRegistry::CacheArtefactHandle(const std::filesystem::path& path)
+    {
+        // Over the generic (forward-slash) spelling, so Windows and Linux derive the same handle
+        // for the same project-relative path.
+        const std::string key = path.generic_string();
+        const u64 hash = Hash::FNV1a64(key.data(), key.size());
+        return AssetHandle(hash == 0 ? 1 : hash);
+    }
+
+    AssetHandle AssetRegistry::HandleForNewEntry(const std::filesystem::path& path)
+    {
+        return IsCacheArtefact(path) ? CacheArtefactHandle(path) : AssetHandle();
+    }
+
+    bool AssetRegistry::IsInFlightCookFile(const std::filesystem::path& path)
+    {
+        // "<stem>.tmp<16 hex>.png": the inner extension starts ".tmp" (Model.cpp CookRgbaToAssetCache).
+        return IsCacheArtefact(path) && path.stem().extension().string().starts_with(".tmp");
+    }
+
+    bool AssetRegistry::IsAcceptableHandleForPath(AssetHandle handle, const std::filesystem::path& path, const char* caller)
+    {
+        if (!IsCacheArtefact(path))
+            return true;
+        if (const AssetHandle derived = CacheArtefactHandle(path); handle != derived)
+        {
+            OLO_CORE_ERROR("AssetRegistry::{} - refused {} under handle {}: it is a cache artefact, whose handle must be "
+                           "the one derived from its path ({}). Any other handle would be lost on the next load, "
+                           "because cache artefacts are never written to the registry file (#1664).",
+                           caller, path.generic_string(), static_cast<u64>(handle), static_cast<u64>(derived));
+            return false;
+        }
+        return true;
+    }
+
+    bool AssetRegistry::AddAsset(const AssetMetadata& metadata)
+    {
         if (metadata.Handle == 0)
         {
             OLO_CORE_WARN("AssetRegistry::AddAsset - Invalid asset handle");
-            return;
+            return false;
         }
+        if (!IsAcceptableHandleForPath(metadata.Handle, metadata.FilePath, "AddAsset"))
+            return false;
+
+        TUniqueLock<FSharedMutex> lock(m_Mutex);
 
         // Check for existing asset with same handle
         if (auto handleIt = m_AssetMetadata.find(metadata.Handle); handleIt != m_AssetMetadata.end())
         {
+            // A cooked file moved out of cache/ keeps its derived handle under an authored path.
+            // The cook writing the file again at the old path derives that same handle; replacing
+            // the authored entry with it would point every reference at the regenerated copy.
+            if (IsCacheArtefact(metadata.FilePath) && handleIt->second.FilePath != metadata.FilePath)
+            {
+                OLO_CORE_ERROR("AssetRegistry::AddAsset - refused {}: its derived handle {} already belongs to {}, "
+                               "which was moved out of the cache (#1664); the cache artefact stays unregistered",
+                               metadata.FilePath.string(), metadata.Handle, handleIt->second.FilePath.string());
+                return false;
+            }
             // Handle already exists - log warning about potential overwrite
             if (handleIt->second.FilePath != metadata.FilePath || handleIt->second.Type != metadata.Type)
             {
@@ -61,12 +128,18 @@ namespace OloEngine
             m_PathToHandle[metadata.FilePath] = metadata.Handle;
         }
 
-        // Update handle counter to maintain monotonic sequence and avoid duplicates
-        u64 currentCounter = m_HandleCounter.load(std::memory_order_relaxed);
-        if (metadata.Handle >= currentCounter)
+        // Update handle counter to maintain monotonic sequence and avoid duplicates. Not for a
+        // cache artefact: its handle is a hash, and letting it move the counter would make the
+        // handle of the next authored asset depend on which cache files this machine has.
+        if (!IsCacheArtefact(metadata.FilePath))
         {
-            m_HandleCounter.store(metadata.Handle + 1, std::memory_order_relaxed);
+            u64 currentCounter = m_HandleCounter.load(std::memory_order_relaxed);
+            if (metadata.Handle >= currentCounter)
+            {
+                m_HandleCounter.store(metadata.Handle + 1, std::memory_order_relaxed);
+            }
         }
+        return true;
     }
 
     bool AssetRegistry::RemoveAsset(AssetHandle handle)
@@ -189,15 +262,18 @@ namespace OloEngine
         m_HandleCounter.store(1, std::memory_order_relaxed);
     }
 
-    void AssetRegistry::UpdateMetadata(AssetHandle handle, const AssetMetadata& metadata)
+    bool AssetRegistry::UpdateMetadata(AssetHandle handle, const AssetMetadata& metadata)
     {
+        if (!IsAcceptableHandleForPath(handle, metadata.FilePath, "UpdateMetadata"))
+            return false;
+
         TUniqueLock<FSharedMutex> lock(m_Mutex);
 
         auto it = m_AssetMetadata.find(handle);
         if (it == m_AssetMetadata.end())
         {
             OLO_CORE_WARN("AssetRegistry::UpdateMetadata - Asset handle {} not found", handle);
-            return;
+            return false;
         }
 
         // Remove old path mapping
@@ -223,6 +299,7 @@ namespace OloEngine
 
             m_PathToHandle[updatedMetadata.FilePath] = handle;
         }
+        return true;
     }
 
     AssetHandle AssetRegistry::GenerateHandle()
@@ -242,21 +319,30 @@ namespace OloEngine
             {
                 TSharedLock<FSharedMutex> lock(m_Mutex);
 
+                // Entries in handle order: the map's iteration order depends on how it was
+                // filled, so a session that re-registered the same assets wrote the same
+                // registry in another order and dirtied the git-tracked file.
+                //
+                // Cache artefacts are left out (#1664): their files are git-ignored, so an entry
+                // for one in the tracked registry names a file a fresh clone does not have. They
+                // lose nothing by it, because their handle is derived from their path and every
+                // manager that registers the file derives it again.
+                TArray<const AssetMetadata*> ordered;
+                ordered.Reserve(static_cast<i32>(m_AssetMetadata.size()));
+                for (const auto& entry : m_AssetMetadata)
+                {
+                    if (!IsCacheArtefact(entry.second.FilePath))
+                        ordered.Add(&entry.second);
+                }
+
                 // Write header
                 const u32 version = FileVersion;
                 file.write(reinterpret_cast<const char*>(&version), sizeof(version));
 
                 // Write asset count
-                const u32 assetCount = static_cast<u32>(m_AssetMetadata.size());
+                const u32 assetCount = static_cast<u32>(ordered.Num());
                 file.write(reinterpret_cast<const char*>(&assetCount), sizeof(assetCount));
 
-                // Entries in handle order: the map's iteration order depends on how it was
-                // filled, so a session that re-registered the same assets wrote the same
-                // registry in another order and dirtied the git-tracked file.
-                TArray<const AssetMetadata*> ordered;
-                ordered.Reserve(static_cast<i32>(m_AssetMetadata.size()));
-                for (const auto& entry : m_AssetMetadata)
-                    ordered.Add(&entry.second);
                 ordered.Sort([](const AssetMetadata* a, const AssetMetadata* b)
                              { return static_cast<u64>(a->Handle) < static_cast<u64>(b->Handle); });
 
@@ -346,6 +432,7 @@ namespace OloEngine
             }
 
             // Read each asset metadata
+            u32 droppedCacheEntries = 0;
             for (u32 i = 0; i < assetCount; ++i)
             {
                 AssetMetadata metadata;
@@ -379,6 +466,29 @@ namespace OloEngine
                 // Serialize() writes generic_string(), so paths are always forward-slashed.
                 metadata.FilePath = pathStr;
 
+                // A cache artefact in a registry FILE was written by a build from before #1664
+                // (or by hand). Its handle is not the derived one, so keeping it would give the
+                // file two handles depending on which registered it first. Drop it; the scan
+                // registers the file again under its derived handle if the file is there.
+                if (IsCacheArtefact(metadata.FilePath))
+                {
+                    ++droppedCacheEntries;
+                    OLO_CORE_ERROR("AssetRegistry::Deserialize - {} registers the cache artefact {} (handle {}); cache "
+                                   "artefacts are never stored in a registry file (#1664), so the entry is dropped. "
+                                   "Save the registry to remove it from the file.",
+                                   filepath.string(), metadata.FilePath.generic_string(),
+                                   static_cast<u64>(metadata.Handle));
+                    // Its handle was minted by the counter and something (a scene, a stale
+                    // .omesh) may still hold it: keep the counter past it so the next authored
+                    // asset does not inherit it and resolve as the wrong asset.
+                    if (const u64 currentCounter = m_HandleCounter.load(std::memory_order_relaxed);
+                        static_cast<u64>(metadata.Handle) >= currentCounter)
+                    {
+                        m_HandleCounter.store(static_cast<u64>(metadata.Handle) + 1, std::memory_order_relaxed);
+                    }
+                    continue;
+                }
+
                 // Refresh LastWriteTime from filesystem if file exists
                 if (std::filesystem::exists(metadata.FilePath))
                 {
@@ -400,7 +510,8 @@ namespace OloEngine
                 }
             }
 
-            OLO_CORE_INFO("AssetRegistry deserialized from: {} ({} assets)", filepath.string(), assetCount);
+            OLO_CORE_INFO("AssetRegistry deserialized from: {} ({} assets)", filepath.string(),
+                          assetCount - droppedCacheEntries);
             return true;
         }
         catch (const std::exception& e)

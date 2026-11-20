@@ -1063,12 +1063,10 @@ namespace OloEngine::Tests
             // This only started to matter with issue #791. Cache files never had a *supported
             // asset extension* before, so the scan skipped them all on the extension check
             // above; the cooked embedded/packed textures are real `.png` files, so they are the
-            // first cache artifacts to reach this point. Registering them is a runtime
-            // side-effect of loading a model, and the registry is tracked while the files
-            // themselves are ignored — so requiring the two to agree here would fail on any
-            // machine that had run the editor, and committing the entries would leave a fresh
-            // clone pointing at files that do not exist.
-            if (relative.starts_with("Assets/cache/"))
+            // first cache artifacts to reach this point. They are registered in memory under a
+            // handle derived from their path and never written to the registry file (#1664,
+            // AssetRegistry::IsCacheArtefact), so the file never lists them.
+            if (AssetRegistry::IsCacheArtefact(relative))
                 continue;
 
             // A curves-only Alembic archive is a groom source, which the editor
@@ -2078,7 +2076,7 @@ namespace OloEngine::Tests
             // Derived and git-ignored, as EverySupportedAssetOnDiskIsInTheRegistry skips it:
             // registered here, a machine that had run the editor committed entries a fresh
             // clone has no files for (#1559's rebase added twelve).
-            if (relative.starts_with("Assets/cache/"))
+            if (AssetRegistry::IsCacheArtefact(relative))
                 continue;
 
             if (auto it = byLowerPath.find(toLower(relative)); it != byLowerPath.end())
@@ -2102,7 +2100,8 @@ namespace OloEngine::Tests
             md.Type = type;
             md.FilePath = relative; // stored generic (forward-slash)
             md.Status = AssetStatus::None;
-            registry.AddAsset(md);
+            if (!registry.AddAsset(md))
+                continue; // refused and logged by the registry
             registeredPaths.insert(relative);
             byLowerPath.emplace(toLower(relative), md);
             ++addedCount;

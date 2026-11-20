@@ -672,9 +672,11 @@ namespace OloEngine
                 OLO_CORE_TRACE("Model: Cooked texture '{}' -> {}", identity, cookedPath.string());
             }
 
-            // Registering the file (or fetching the handle it already has) is what puts the
-            // texture in the asset registry and therefore in the ASSET PACK. That needs an
-            // EditorAssetManager, which only exists in an editor session with a project
+            // Registering the file (or fetching the handle it already has) gives the texture its
+            // asset handle in this session. The file is under cache/, so that handle is derived
+            // from its path and the entry is never written to the tracked AssetRegistry.oar
+            // (#1664); the pack cook registers it again from disk under the same handle. That
+            // needs an EditorAssetManager, which only exists in an editor session with a project
             // mounted — so it is best-effort, NOT a precondition. Failing it costs the packed
             // runtime its handle; returning nullopt here would additionally cost the .omesh
             // its path, which is the strictly worse outcome the cook exists to prevent.
