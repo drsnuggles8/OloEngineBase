@@ -8,6 +8,14 @@ from pathlib import Path
 import numpy as np
 
 TAU = 2 * pi
+TEXTURE_REPEAT_METRES = {
+    "KeeperOilskin": 0.273,
+    "KeeperLeather": 0.4,
+    "KeeperCap": 0.27,
+    "KeeperGansey": 0.24,
+    "KeeperTwill": 0.273,
+    "KeeperSeam": 0.273,
+}
 MORPHS = ["BlinkL", "BlinkR", "JawOpen", "Smile", "BrowRaise", "Squint", "AA", "EE", "OO"]
 
 
@@ -50,14 +58,7 @@ class Surface:
                         self.quad(material, a, b, d, c)
         # Measure fabric charts in metres so cuff, lapel and sleeve carry the
         # same weave size. Sample a fixed grid independent of geometric LOD.
-        repeat = {
-            "KeeperOilskin": 0.273,
-            "KeeperLeather": 0.4,
-            "KeeperCap": 0.27,
-            "KeeperGansey": 0.24,
-            "KeeperTwill": 0.273,
-            "KeeperSeam": 0.273,
-        }.get(material)
+        repeat = TEXTURE_REPEAT_METRES.get(material)
         if repeat:
             knots = np.linspace(0, 1, 17)
             samples = np.array([[sample(TAU * u, v) for u in knots] for v in knots])

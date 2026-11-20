@@ -4,6 +4,8 @@ from math import cos, exp, pi, sin
 
 import numpy as np
 
+from keeper_mesh import TEXTURE_REPEAT_METRES
+
 PALETTE = {
     "KeeperSkin": ((0.50, 0.245, 0.163), 0.54, 0),
     "KeeperEar": ((0.36, 0.116, 0.080), 0.62, 0),
@@ -414,7 +416,8 @@ def dress_sleeve(s, sign, suffix, half):
 
     cols = 2 * half
     rows = max(17, round(37 * s.detail))
-    s.grid("KeeperOilskin", cols, rows, lambda q, t: shaft(q, 0.944 + 0.248 * t), sleeve_weight)
+    lower_sleeve = s.grid("KeeperOilskin", cols, rows, lambda q, t: shaft(q, 0.944 + 0.248 * t), sleeve_weight)
+    elbow_ring = lower_sleeve[-(cols + 1) :]
 
     # On a dress pattern the armpit side of a sleeve cap is much shorter
     # than its outer crown. A horizontal final ring forces the inner sleeve
@@ -440,11 +443,19 @@ def dress_sleeve(s, sign, suffix, half):
                 + 0.004 * roll(t - 0.68 + 0.11 * sin(q + 0.7), 0.095)
             )
             point += (fan * sin(q), 0, fan * cos(q))
-            end_w = arm_weight(p3, sign, suffix)["chest"]
-            chest = end_w * t * t * (3 - 2 * t)
-            idx = s.vertex(
-                point, (i / cols, 1 - (0.62 + 0.38 * t)), {"chest": chest, "upperarm_" + suffix: 1 - chest}
-            )
+            # Share the shaft's chart and influence at the sewn elbow. Both
+            # copies of each vertex must meet after settling and animating.
+            elbow = elbow_ring[i]
+            blend = t * t * (3 - 2 * t)
+            forearm = (1 - blend) * s.bones[elbow]["forearm_" + suffix]
+            chest = blend * arm_weight(p3, sign, suffix)["chest"]
+            weights = {"forearm_" + suffix: forearm, "chest": chest, "upperarm_" + suffix: 1 - chest - forearm}
+            u, v = s.uvs[elbow]
+            if j:
+                previous = len(s.points) - (cols + 1)
+                length = np.linalg.norm(point - s.points[previous])
+                v = s.uvs[previous][1] - length / TEXTURE_REPEAT_METRES["KeeperOilskin"]
+            idx = s.vertex(point, (u, v), weights)
             if i and j:
                 s.quad("KeeperOilskin", idx - cols - 2, idx - cols - 1, idx, idx - 1)
 

@@ -267,10 +267,12 @@ def auricle(surface, side, lod):
             x, y, z = surface.points[idx]
             a = 2 * pi * i / cols
             fall = 0.0093 - 0.0050 * sin(a) + 0.0014 * cos(a)
+            # Unroll the return behind the helix into an annulus around the
+            # face of the ear. Its chart width follows the local return depth.
+            chart_radius = 1 + t * fall / 0.030
+            uv = (0.12 + 0.052 * chart_radius * sin(a), 0.52 - 0.16 * chart_radius * cos(a))
             backring.append(
-                surface.vertex(
-                    (x - side * fall * t, y - 0.0018 * t, z - 0.0029 * t), surface.uvs[idx], "head"
-                )
+                surface.vertex((x - side * fall * t, y - 0.0018 * t, z - 0.0029 * t), uv, "head")
             )
         grid.append(backring)
     for j in range(1, len(grid)):
