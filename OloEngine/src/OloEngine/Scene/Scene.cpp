@@ -14806,27 +14806,26 @@ namespace OloEngine
                     // rather than inheriting whatever the last chunk left behind.
                     //
                     // TilingScale is repeats across the TILE (issue #1721); the
-                    // voxel shaders multiply a world position in metres, so the
-                    // lane carries repeats per metre. A carved cave wall then
-                    // shows a layer at the scale the surface around it does.
-                    // The tile is the one the surface draw is given: a streamed
-                    // terrain's own tile size, not the component's WorldSizeX.
-                    // A voxel wall has one scale for all three axes, so on a
-                    // tile that is not square it takes the X one.
-                    // (Below 0.001 per metre the voxel shaders substitute their
-                    // own default: a repeat longer than a kilometre.)
+                    // voxel shaders sample a world position in metres, so they
+                    // are given the tile's size beside it and turn the one into
+                    // repeats per metre along X and along Z
+                    // (include/TerrainVoxelTiling.glsl). A carved cave wall then
+                    // shows a layer at the scale the surface around it does, on
+                    // both axes of a tile that is not square. The tile is the
+                    // one the surface draw is given: a streamed terrain's own
+                    // tile size, not the component's world size.
                     VoxelTerrainSurface voxelSurface;
                     voxelSurface.TriplanarSharpness = kTerrainTriplanarSharpness;
+                    voxelSurface.TileWorldSize = terrain.m_StreamingEnabled
+                                                     ? glm::vec2(terrain.m_TileWorldSize)
+                                                     : glm::vec2(terrain.m_WorldSizeX, terrain.m_WorldSizeZ);
                     if (terrain.m_Material)
                     {
-                        const f32 surfaceTileSize = terrain.m_StreamingEnabled ? terrain.m_TileWorldSize : terrain.m_WorldSizeX;
-                        const f32 repeatsPerMetre = 1.0f / std::max(surfaceTileSize, 1.0e-3f);
                         const u32 voxelLayerCount = std::min(terrain.m_Material->GetLayerCount(), 8u);
                         for (u32 i = 0; i < voxelLayerCount; ++i)
                         {
                             glm::vec4& lane = i < 4 ? voxelSurface.LayerTilingScales0 : voxelSurface.LayerTilingScales1;
-                            lane[static_cast<glm::length_t>(i % 4)] =
-                                terrain.m_Material->GetLayer(i).TilingScale * repeatsPerMetre;
+                            lane[static_cast<glm::length_t>(i % 4)] = terrain.m_Material->GetLayer(i).TilingScale;
                         }
                     }
 

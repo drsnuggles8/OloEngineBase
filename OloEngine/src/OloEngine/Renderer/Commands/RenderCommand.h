@@ -953,8 +953,14 @@ namespace OloEngine
     struct VoxelTerrainSurface
     {
         f32 TriplanarSharpness = 4.0f;
+        // Each layer's TilingScale: repeats across the tile, as authored.
         glm::vec4 LayerTilingScales0{ 0.0f };
         glm::vec4 LayerTilingScales1{ 0.0f };
+        // The tile the heightfield surface is drawn with, in metres along X
+        // and Z. The voxel shaders divide by it per axis
+        // (include/TerrainVoxelTiling.glsl); zero means "no tile", and they
+        // fall back to a repeat every 10 m.
+        glm::vec2 TileWorldSize{ 0.0f };
     };
 
     struct DrawVoxelMeshCommand

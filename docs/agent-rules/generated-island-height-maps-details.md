@@ -143,6 +143,12 @@ steep enough for the triplanar path: a layer that repeated 40 times across a 200
 8000 times on the slope beside it. It now means repeats across the tile everywhere, so the stamper
 writes `tile size / metres per repeat` (`layers.LIBRARY` holds the metres).
 
+Voxel terrain samples a world position in metres, so its draw is given the tile's size beside the
+layers' `TilingScale` and the shaders divide per axis (`include/TerrainVoxelTiling.glsl`): X-facing
+faces by the tile's Z size, Z-facing faces by its X size, the top by both, which is what the
+heightfield's own three projections do. A first version converted once on the CPU with the X size,
+so a carved wall on a tile that is not square matched the ground beside it along one axis only.
+
 ## 10. The landfall radius
 
 `DriftWeatherDirector.lua` arms a leg 45 m outside each island's coast and reads the coast off the

@@ -3430,6 +3430,10 @@ namespace OloEngine
             uboData.TerrainParams.w = cmd->surface.TriplanarSharpness;
             uboData.LayerTilingScales0 = cmd->surface.LayerTilingScales0;
             uboData.LayerTilingScales1 = cmd->surface.LayerTilingScales1;
+            // The tile size the voxel shaders turn repeats-across-the-tile into
+            // repeats per metre with, per axis. No height scale: a voxel
+            // surface has none.
+            uboData.WorldSizeAndHeightScale = glm::vec4(cmd->surface.TileWorldSize, 0.0f, 0.0f);
             BindTerrainAmbientLadder(api, uboData);
             terrainUBO->SetData(&uboData, ShaderBindingLayout::TerrainUBO::GetSize());
             api.BindUniformBuffer(ShaderBindingLayout::UBO_TERRAIN, terrainUBO->GetRHIHandle());

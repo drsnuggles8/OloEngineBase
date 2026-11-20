@@ -24,16 +24,25 @@
 #include "OloEnginePCH.h"
 
 #include "OloEngine/Containers/Array.h"
+#include "OloEngine/Scene/Components.h"
+#include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Scene/Scene.h"
+#include "OloEngine/Scene/SceneSerializer.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 #include "OloEngine/Terrain/TerrainSurfaceShading.h"
 
+#include "../Rendering/ReSTIR/ShaderSourceScan.h"
+
 #include <gtest/gtest.h>
+#include <yaml-cpp/yaml.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <limits>
 #include <span>
+#include <string>
 
 namespace OloEngine::Tests
 {
@@ -294,5 +303,130 @@ namespace OloEngine::Tests
         EXPECT_FLOAT_EQ(macro.y, 255.0f / 128.0f);
         EXPECT_FLOAT_EQ(macro.z, 0.55f);
         EXPECT_FLOAT_EQ(macro.w, 0.12f);
+    }
+
+    // A voxel surface samples a world position in metres, and the tile a
+    // layer's TilingScale counts repeats across need not be square: each of the
+    // three projections takes the scale of the axis the heightfield's own
+    // projection runs along (include/TerrainVoxelTiling.glsl). Counted in all
+    // four voxel surface shaders, so one written back to a single scalar fails.
+    TEST(TerrainLayerTextureContract, AVoxelWallTakesTheTilesScalePerAxis)
+    {
+        const auto count = [](const std::string& text, const std::string& needle)
+        {
+            u32 n = 0;
+            for (sizet at = text.find(needle); at != std::string::npos; at = text.find(needle, at + needle.size()))
+                ++n;
+            return n;
+        };
+        for (const char* shader : { "Terrain_Voxel.glsl", "Terrain_Voxel_GBuffer.glsl", "Terrain_VoxelGreedy.glsl",
+                                    "Terrain_VoxelGreedy_GBuffer.glsl" })
+        {
+            const std::filesystem::path path = ShaderScan::ResolveShaderPath(shader);
+            ASSERT_TRUE(std::filesystem::exists(path)) << path.string();
+            std::string source = ShaderScan::ReadTextFile(path);
+            std::erase_if(source, [](const char c)
+                          { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; });
+            EXPECT_EQ(count(source, "#include\"include/TerrainVoxelTiling.glsl\""), 1u) << shader;
+            // Albedo, ARM and normal, once per projection.
+            EXPECT_EQ(count(source, "vec3(wpTri.yz*tiling.y,"), 3u) << shader << ": X-facing faces take the Z axis' scale";
+            EXPECT_EQ(count(source, "vec3(wpTri.xz*tiling,"), 3u) << shader << ": the top projection takes both";
+            EXPECT_EQ(count(source, "vec3(wpTri.xy*tiling.x,"), 3u) << shader << ": Z-facing faces take the X axis' scale";
+            EXPECT_EQ(count(source, "wpTri."), 9u) << shader << " samples a projection this test does not know";
+        }
+
+        // The helper divides by the tile, per axis, and keeps the old default
+        // when a draw uploads no tile or no tiling.
+        std::string helper = ShaderScan::ReadTextFile(ShaderScan::ResolveShaderPath("include/TerrainVoxelTiling.glsl"));
+        std::erase_if(helper, [](const char c)
+                      { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; });
+        EXPECT_EQ(count(helper, "returnvec2(repeatsAcrossTile)/tileSize;"), 1u);
+        EXPECT_EQ(count(helper, "vec2tileSize=u_WorldSizeAndHeightScale.xy;"), 1u);
+        EXPECT_EQ(count(helper, "returnvec2(0.1);"), 1u);
+    }
+
+    // The scene file. Drift.olo's island blocks are written by a Python tool,
+    // so the engine's own WRITE of the material keys is exercised here and
+    // nowhere else: a material goes out through SceneSerializer and comes back
+    // with its maps, its layer-array resolution and its layers as authored.
+    TEST(TerrainLayerTextureContract, AMaterialRoundTripsThroughTheSceneFile)
+    {
+        auto scene = Scene::Create();
+        Entity entity = scene->CreateEntity("Terrain");
+        const UUID uuid = entity.GetUUID();
+        {
+            auto& terrain = entity.AddComponent<TerrainComponent>();
+            terrain.m_HeightmapPath = "Assets/Terrain/Test/Height.png";
+            terrain.m_Material = Ref<TerrainMaterial>::Create();
+            terrain.m_Material->SetSplatmapPath(0, "Assets/Terrain/Test/Splat0.png");
+            terrain.m_Material->SetSplatmapPath(1, "Assets/Terrain/Test/Splat1.png");
+            terrain.m_Material->SetMacroMapPath("Assets/Terrain/Test/Macro.png");
+            terrain.m_Material->SetLayerResolution(1024);
+            TerrainLayer rock;
+            rock.Name = "Rock";
+            rock.AlbedoPath = "Assets/Terrain/Test/Rock_Color.jpg";
+            rock.NormalPath = "Assets/Terrain/Test/Rock_Normal.jpg";
+            rock.ARMPath = "Assets/Terrain/Test/Rock_ARM.png";
+            rock.TilingScale = 175.0f;
+            rock.BaseColor = glm::vec3(0.21f, 0.2f, 0.19f);
+            terrain.m_Material->AddLayer(rock);
+            TerrainLayer turf;
+            turf.Name = "Turf";
+            turf.TilingScale = 120.0f;
+            terrain.m_Material->AddLayer(turf);
+        }
+
+        const std::string yaml = SceneSerializer(scene).SerializeToYAML();
+        auto loaded = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(loaded).DeserializeFromYAML(yaml));
+        Entity reloaded = loaded->GetEntityByUUID(uuid);
+        ASSERT_TRUE(reloaded);
+        const auto& terrain = reloaded.GetComponent<TerrainComponent>();
+        ASSERT_TRUE(terrain.m_Material);
+        const TerrainMaterial& material = *terrain.m_Material;
+        EXPECT_EQ(terrain.m_HeightmapPath, "Assets/Terrain/Test/Height.png");
+        EXPECT_EQ(material.GetSplatmapPath(0).ToStdString(), "Assets/Terrain/Test/Splat0.png");
+        EXPECT_EQ(material.GetSplatmapPath(1).ToStdString(), "Assets/Terrain/Test/Splat1.png");
+        EXPECT_EQ(material.GetMacroMapPath().ToStdString(), "Assets/Terrain/Test/Macro.png");
+        EXPECT_EQ(material.GetLayerResolution(), 1024u);
+        ASSERT_EQ(material.GetLayerCount(), 2u);
+        EXPECT_EQ(material.GetLayer(0).Name.ToStdString(), "Rock");
+        EXPECT_EQ(material.GetLayer(0).AlbedoPath.ToStdString(), "Assets/Terrain/Test/Rock_Color.jpg");
+        EXPECT_EQ(material.GetLayer(0).NormalPath.ToStdString(), "Assets/Terrain/Test/Rock_Normal.jpg");
+        EXPECT_EQ(material.GetLayer(0).ARMPath.ToStdString(), "Assets/Terrain/Test/Rock_ARM.png");
+        EXPECT_FLOAT_EQ(material.GetLayer(0).TilingScale, 175.0f);
+        EXPECT_FLOAT_EQ(material.GetLayer(0).BaseColor.g, 0.2f);
+        EXPECT_FLOAT_EQ(material.GetLayer(1).TilingScale, 120.0f);
+
+        // Saved again, the text is the same: nothing is dropped or defaulted on
+        // the way round.
+        EXPECT_EQ(SceneSerializer(loaded).SerializeToYAML(), yaml);
+
+        // A scene written before the two keys existed has no macro map and the
+        // resolution every material was built at then.
+        YAML::Node document = YAML::Load(yaml);
+        bool removed = false;
+        for (auto entityNode : document["Entities"])
+        {
+            YAML::Node terrainNode = entityNode["TerrainComponent"];
+            if (!terrainNode)
+                continue;
+            ASSERT_TRUE(terrainNode["MacroMapPath"]) << "MacroMapPath is not written";
+            ASSERT_TRUE(terrainNode["LayerResolution"]) << "LayerResolution is not written";
+            terrainNode.remove("MacroMapPath");
+            terrainNode.remove("LayerResolution");
+            removed = true;
+        }
+        ASSERT_TRUE(removed) << "the saved scene has no TerrainComponent";
+        const std::string older = YAML::Dump(document);
+        auto fromOlder = Scene::Create();
+        ASSERT_TRUE(SceneSerializer(fromOlder).DeserializeFromYAML(older));
+        Entity olderEntity = fromOlder->GetEntityByUUID(uuid);
+        ASSERT_TRUE(olderEntity);
+        const auto& olderTerrain = olderEntity.GetComponent<TerrainComponent>();
+        ASSERT_TRUE(olderTerrain.m_Material);
+        EXPECT_TRUE(olderTerrain.m_Material->GetMacroMapPath().ToStdString().empty());
+        EXPECT_EQ(olderTerrain.m_Material->GetLayerResolution(), TerrainMaterial::kDefaultLayerResolution);
+        EXPECT_EQ(olderTerrain.m_Material->GetLayerCount(), 2u);
     }
 } // namespace OloEngine::Tests
