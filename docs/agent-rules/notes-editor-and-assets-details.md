@@ -601,8 +601,10 @@ The rule now lives in `AssetRegistry` itself:
   never given to another asset.
 - The pack cook reads the registry file, so `AssetPackBuilder::BuildFromActiveProject` adds them
   back with `EditorAssetManager::RegisterCacheArtefacts`, under the handle the cooking session gave
-  them. A directory walk that fails part-way stops the pack build, because the pack would otherwise
-  ship without the artefacts after that point and still report success.
+  them. A walk that cannot finish stops the pack build, because the pack would otherwise ship
+  without the artefacts after that point and still report success. That covers an iterator error
+  and a status error on the asset directory or on any entry. Only "no such file" is not a failure:
+  a missing asset directory is an empty walk, and an entry gone mid-walk (a cook's rename) is skipped.
 
 The choice over a git-ignored side registry: the cooked name is already deterministic (a hash of
 the model path, the Assimp texture reference and the colour-space intent; not of the pixels), so a

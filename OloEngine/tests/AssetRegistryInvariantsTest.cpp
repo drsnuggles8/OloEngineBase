@@ -37,6 +37,7 @@
 
 #include "TestTempDir.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -74,6 +75,22 @@ namespace OloEngine::Tests
                 return {};
             }
             return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+
+        // A directory link at `link` to `target`: a symbolic link where the host allows one, else
+        // (Windows without the privilege) a junction, which any user may create. False when neither.
+        bool MakeDirectoryLink(const std::filesystem::path& target, const std::filesystem::path& link)
+        {
+            std::error_code ec;
+            std::filesystem::create_directory_symlink(target, link, ec);
+            if (!ec)
+                return true;
+#ifdef _WIN32
+            const std::string command = "mklink /J \"" + link.string() + "\" \"" + target.string() + "\" >nul 2>&1";
+            return std::system(command.c_str()) == 0;
+#else
+            return false;
+#endif
         }
     } // namespace
 
@@ -758,6 +775,49 @@ namespace OloEngine::Tests
                 << "a handle dropped with an older file's cache entry went back into circulation";
             EXPECT_EQ(static_cast<u64>(third->GetAssetHandleFromFilePath("Assets/Textures/Authored.png")), 5ULL);
         }
+    }
+
+    // The pack cook trusts the count: a walk that could not finish must say so, or the pack
+    // ships without the cooked textures past the failure. A self-referencing link makes a real
+    // status error (ELOOP, or ERROR_CANT_RESOLVE_FILENAME for a Windows junction).
+    TEST(AssetRegistryCacheArtefacts, ACacheWalkThatCannotFinishFailsAndAnEmptyOneIsZero)
+    {
+        namespace fs = std::filesystem;
+        const fs::path root = TempDir("cache-walk");
+        const fs::path assets = root / "Assets";
+        fs::create_directories(assets / "Textures");
+        std::ofstream(assets / "Textures" / "Authored.png") << "png";
+
+        AssetRegistry registry;
+        EXPECT_EQ(EditorAssetManager::RegisterCacheArtefacts(registry, assets, root), std::optional<sizet>{ 0u })
+            << "a complete walk with no cache directory is an empty success";
+        EXPECT_EQ(EditorAssetManager::RegisterCacheArtefacts(registry, root / "NoAssets", root),
+                  std::optional<sizet>{ 0u })
+            << "a project without an asset directory holds no cache artefact";
+
+        const fs::path cache = assets / "cache" / "embedded";
+        fs::create_directories(cache);
+        std::ofstream(cache / "emb_00000000000000aa_basecolor.png") << "png";
+        if (!MakeDirectoryLink(cache / "Vanished", cache / "Dangling.png"))
+            GTEST_SKIP() << "this host can create neither a symbolic link nor a junction";
+        EXPECT_EQ(EditorAssetManager::RegisterCacheArtefacts(registry, assets, root), std::optional<sizet>{ 1u })
+            << "a file gone before its status was read (what a cook's rename leaves) is skipped, not a failure";
+
+        const fs::path loopEntry = cache / "Loop.png";
+        ASSERT_TRUE(MakeDirectoryLink(loopEntry, loopEntry));
+        std::error_code statusEc;
+        static_cast<void>(fs::status(loopEntry, statusEc));
+        ASSERT_TRUE(statusEc && statusEc != std::errc::no_such_file_or_directory)
+            << "the self-link did not produce a status error here: " << statusEc.message();
+        AssetRegistry entryFails;
+        EXPECT_EQ(EditorAssetManager::RegisterCacheArtefacts(entryFails, assets, root), std::nullopt)
+            << "an entry whose status could not be read was skipped, and the walk reported success";
+
+        const fs::path loopDirectory = root / "LoopAssets";
+        ASSERT_TRUE(MakeDirectoryLink(loopDirectory, loopDirectory));
+        AssetRegistry directoryFails;
+        EXPECT_EQ(EditorAssetManager::RegisterCacheArtefacts(directoryFails, loopDirectory, root), std::nullopt)
+            << "an asset directory whose status could not be read was reported as an empty walk";
     }
 
 } // namespace OloEngine::Tests

@@ -846,9 +846,25 @@ namespace OloEngine
     {
         OLO_PROFILER_SCOPE("EditorAssetManager::RegisterCacheArtefacts");
 
+        // A path that does not exist (or a file deleted mid-walk: the cook renames its temp file)
+        // holds no cache artefact. Any other status error leaves the walk incomplete, and a pack
+        // built from it would miss cooked textures without a word.
+        const auto isGone = [](const std::error_code& error)
+        { return error == std::errc::no_such_file_or_directory; };
+        const auto walkFailed = [&assetDirectory](const std::filesystem::path& where, const std::error_code& error)
+        {
+            OLO_CORE_ERROR("EditorAssetManager::RegisterCacheArtefacts - could not walk {} (at {}): {}; cache "
+                           "artefacts after that point are not registered",
+                           assetDirectory.string(), where.string(), error.message());
+            return std::optional<sizet>{};
+        };
+
         sizet registered = 0;
         std::error_code ec;
-        if (!std::filesystem::is_directory(assetDirectory, ec))
+        const bool isDirectory = std::filesystem::is_directory(assetDirectory, ec);
+        if (ec && !isGone(ec))
+            return walkFailed(assetDirectory, ec);
+        if (!isDirectory)
             return 0;
 
         // An asset directory that itself sits under a `cache` directory makes every file in it a
@@ -860,7 +876,10 @@ namespace OloEngine
              !ec && it != std::filesystem::recursive_directory_iterator(); it.increment(ec))
         {
             std::error_code fileEc;
-            if (!it->is_regular_file(fileEc) || fileEc)
+            const bool isFile = it->is_regular_file(fileEc);
+            if (fileEc && !isGone(fileEc))
+                return walkFailed(it->path(), fileEc);
+            if (!isFile)
                 continue;
             // Lexical first: almost every file in a project is authored, and MakeRegistryKey
             // canonicalises (two syscalls a file).
@@ -886,12 +905,7 @@ namespace OloEngine
                 ++registered;
         }
         if (ec)
-        {
-            OLO_CORE_ERROR("EditorAssetManager::RegisterCacheArtefacts - could not walk {}: {}; cache artefacts after "
-                           "that point are not registered",
-                           assetDirectory.string(), ec.message());
-            return std::nullopt;
-        }
+            return walkFailed(assetDirectory, ec);
         return registered;
     }
 
