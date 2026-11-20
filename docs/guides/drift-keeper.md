@@ -1,16 +1,25 @@
 # The keeper of Stacks Light
 
-Sail past Stacks Light in daylight and the keeper turns towards the boat.
-Within 62 m he waves once. Sail beyond 78 m and he can greet the next approach.
-He watches out to 115 m. From 18:30 until 06:00 he raises his brass lantern.
-He stands on the granite tread with his feet planted. His boots, ochre oilskin
-and the light in his left hand give him a silhouette you can read from the water.
+The keeper of Stacks Light watches the boat inside 115 m. Within 62 m in
+daylight he waves once. Sail beyond 78 m to reset his greeting. From 18:30
+until 06:00 he raises the lantern in his left hand.
 
-![The keeper raises a brass lantern at the Stacks Light door in the packaged game](../images/drift-keeper/packaged.jpg)
+![The keeper before and after revision, alongside the reference scan](../images/drift-keeper/keeper-and-scan.jpg)
 
-The packaged OpenGL runtime drew this view from the inspection camera with
-the cooking project’s keeper model folder renamed. The ordinary menu’s Continue
-button restores the voyage with the boat camera.
+The three-quarter comparison shows the original design, the revised keeper and the
+licensed *Infinite, 3D Head Scan*. All three are Blender renders. The scan is
+reframed and has closed eyes. Look at the curve from the temple into the eye
+socket, the shadow at the nostril and the transition from the lip to the chin.
+The shorter beard exposes the keeper's lower face. His lips and moustache still
+separate in a hard arc, and the cheeks have a smoother surface than the scan.
+The head falls short of the human showcase close-up for #1402. The keeper
+appears in Drift, and `DigitalHuman.olo` continues to use the scan.
+[Human-head acceptance issue](https://github.com/drsnuggles8/OloEngineBase/issues/1402)
+
+The right panel shows *Infinite, 3D Head Scan* by Lee Perry-Smith
+(Triplegangers). Morgan McGuire and Guedis Cardenas converted the files.
+Keijiro Takahashi prepared the FBX distribution. The scan and its
+render carry CC BY 3.0. [Attribution chain](../../OloEditor/assets/models/InfiniteScanHead/README.md) · [Licence](https://creativecommons.org/licenses/by/3.0/)
 
 ## Drawing the figure
 
@@ -27,7 +36,7 @@ were used to compare landmarks and silhouettes.
   [US Lighthouse Society archive](https://archives.uslhs.org/people/marcus-hanna) · [Public-domain portrait record](https://commons.wikimedia.org/wiki/File:Marcus_Hanna,_Lighthouse_keeper_at_Cape_Elizabeth_ME.jpg)
 - In Hill and Adamson's Newhaven group (1843–47), the middle man's fingertips
   hang 54% of the way from cap to sole and his jacket ends at 46%. The keeper
-  has a longer storm coat, with a separate cape to shed spray from the shoulders.
+  has a longer storm coat, with a doubled yoke across the back and a split front below the lower fastening.
   David Octavius Hill and Robert Adamson, *Alexander Rutherford, William Ramsay
   and John Linton*. National Gallery of Art, Paul Mellon Fund. Public domain.
   [Photograph](https://www.nga.gov/artworks/137713-alexander-rutherford-william-ramsay-and-john-linton)
@@ -47,134 +56,117 @@ Its standing height is 7.54 heads, close to the seven to seven and a half
 used in the Seattle Art Museum's figure-drawing exercise.
 [Gallop portrait, National Park Service](https://www.nps.gov/people/petergregorygallop.htm) · [Seattle Art Museum, appendix C](https://www1.seattleartmuseum.org/EuropeanMasters/imgs/KenwoodHouseERG.pdf)
 
-## Under the uniform
+## Revising the head
 
-The first anatomical study joined separate muscle volumes. In profile the
-patella and calf protruded like joints on a wooden figure. The second used
-smooth cross sections through the shoulders, wrists, knees and ankles. Each
-foot has five toes. The final pose study exposed a wrist incorrectly weighted
-to the trunk at hip height. Weighting the arm by its own surface fixed the
-stretched wrist. At the armpit the most stretched mesh edge still lengthens
-by 22 mm in the held wave. The fitted outer sleeve conceals that crease in Drift.
+![Earlier and revised untextured heads at the same front, three-quarter and profile cameras](../images/drift-keeper/face-development.jpg)
 
-![First muscle study, revised standing front and profile, and the waved arm on the unclothed rig](../images/drift-keeper/anatomy.jpg)
+These clay renders use the same camera, scale and lights in each column.
+Removing the cap, beard and skin colour reveals why the first face read as a
+mask. The cheek stayed almost as broad at the mouth as it was below the eye.
+In profile the lower lid projected ahead of the cheek and the nose ended in
+a sharp shelf. The revised cheek turns inward towards the mouth, the jaw
+narrows before the chin, and the skin folds from each nostril towards the
+upper lip. Each 12.6 mm eye sits 3 mm farther back in its socket. A rounded
+helix now folds back into the ear bowl. The smooth scalp and near-level
+mouth remain conspicuous in the bare front view.
 
-## What changed in the studies
+![Revised keeper's face from the front, three-quarter, profile and above](../images/drift-keeper/four-views.jpg)
 
-![Four successive three-quarter views showing the bare construction and three revisions of the haired face](../images/drift-keeper/face-development.jpg)
+The revision shortened the beard and exposed more of the mouth, lowered the
+moustache near the corners and let the ends split into locks. The recipe grows
+23,000 beard strands, 3,800 moustache strands, 13,500 scalp hairs, 850 brow
+hairs and 270 lashes. In the left blink the left lash roots move a median
+3.41 mm. The right lash roots stay still and reopening the eye restores
+the starting positions. The beard gains darker roots and silver patches. Its
+edge along the cheek is still sharply drawn in profile. Light from above
+catches the cloth of the cap and the grain on the leather peak separately.
 
-The first pass exposed the sockets and mouth in Workbench. Flat planes ran
-across the lower orbits, and the visible teeth looked like a row fixed to the
-front of the mouth. The first strand pass established the beard silhouette but
-produced an almost white sheet with a straight part down the centre. Mixing
-silver and brown by follicle broke up that sheet. The cap gained a cord and
-peak, the lashes acquired fitted roots, and the cut of the shoulder cape became
-visible at full length. The fifth study rounded the ear bowl and lip volume and
-narrowed the cloth where the trousers enter the boots. The sixth recessed the eyes, added colour to the wind-exposed cheeks, shortened guard hairs at the beard line and advanced one boot on the tread.
+## Stance and work clothes
 
-![Four views of the keeper at face distance](../images/drift-keeper/four-views.jpg)
+![The revised unclothed figure standing and waving](../images/drift-keeper/anatomy.jpg)
 
-Read the head from the side as well as from the front. The peak leaves room for
-the eyes to turn. The nose projects sharply, the neck stands upright and the
-hair ends in a nearly level fringe across the back of the head. From above,
-the strong line under each eye and the sharply drawn cheek line of the beard
-still read as graphic shapes. These are fixed-camera Blender studies. In
-OloEngine, the eye and oral profiles, hair rendering, lighting and LOD changes
-also affect the result.
+The earlier keeper stood squarely with his arms hanging beside his legs.
+The revised pelvis sits 54 mm towards his weight-bearing right boot and
+17 mm lower. The left ankle is 58 mm forward of the right in the exported
+rest pose. The knees bend to reach the planted soles, the pelvis and chest
+turn in opposite directions and the lantern draws the left shoulder lower.
+The unclothed study shows how the bare hip, knee and ankle line up under
+the uniform. At full wave one edge at the bare armpit stretches by 22.1 mm.
 
-## Hands, expression and motion
+![Earlier and revised dressed stance, wave, lantern raise, blink, smile and two mouth shapes](../images/drift-keeper/movement.jpg)
 
-![The keeper at rest, waving, raising the lantern, blinking, opening his mouth and forming a rounded vowel](../images/drift-keeper/movement.jpg)
+The original coat had a closed front and a separate sleeve that peaked when
+the arm rose. Three clothing studies changed the cut. The upper sleeve joins
+an oval armhole with a short underarm edge and a long outer edge. Two open
+fronts overlap beneath the buttons, then roll back to show the gansey. Creases
+radiate from the waist fastening and welted pockets. The boot shafts turn down
+over the tucked trousers. The curved cap crown drops over one temple. Wool,
+leather and cotton weave use generic CC0 surface scans. The diamond-pattern
+knit and skin pores are procedural. [Surface sources](../../OloEditor/SandboxProject/Assets/Models/DriftKeeper/SurfaceSources.md)
 
-The wave shows the right palm and the left fingers curl round the lantern bail.
-The fingers have separate profiles, pads and nails. Each hand has one joint,
-so the fingers keep their authored curl during the gesture. The wave is driven
-by the shoulder, elbow and wrist. Clothing folds and the flare at the cuff
-travel with those joints. The elbows remain sharply defined at the top of the
-wave. The raised sleeve meets the cape in a hard ridge. The torso shifts
-little compared with the reach of the arm. In the earlier lantern pose the
-right arm stayed up from the wave and the lamp tilted with the left forearm.
-Rest keys now release the right shoulder, and a joint at the bail keeps
-the lantern upright as the hand rises.
+The wave lifts the open right palm. On the left, the modelled fingers curl under
+the wire grip. Its midpoint is the lantern pivot, so the lamp can stay upright
+as the wrist turns. Each hand has one joint and keeps its finger shape throughout
+the gesture. One sharp fold persists at the waved elbow, and the pocket and
+cuff corners are stiff. The fitted coat shows its construction more clearly
+than it shows years of use.
 
-The upper and lower lids wrap each globe. A full blink closes the aperture.
-The lower lip and dental arch descend for the open vowel. The cheeks move only
-a little on a smile, and the thick moustache obscures much of the mouth. The
-teeth are individually modelled, but their regular spacing and similar shapes
-are apparent on inspection. The neck, shoulders and jaw lack the secondary
-flesh movement of a speaking or gesturing person. The beard carries direction
-and length across the jaw, yet the cut edge above each cheek is unusually crisp.
+The blink closes one lid over its globe. At full weight, the largest left-blink
+skin displacement in LOD 0 is 4.34 mm. In the open jaw the largest lip
+displacement is 17.75 mm and the lower dental arch moves up to 14.04 mm.
+The smile lifts the ends of the lips while the cheeks move less. Teeth,
+gums and tongue have their own material surfaces. The teeth are unusually
+regular and the centre of the rounded mouth retains a pronounced notch.
 
-In the blink study the lash roots follow the posed eyelid surface. The median
-left-root displacement is 4.03 mm with the left lid closed, while the right
-lashes stay at rest. The hand and neck UVs sample neutral skin behind the
-pigmented cheek and nose charts.
+## Silhouette at distance
 
-## Comparing the face
+![The three body outlines and the differences between the first and last tier](../images/drift-keeper/silhouette.jpg)
 
-![The generated keeper and a textured render of the Infinite Scan bust from the same three-quarter direction](../images/drift-keeper/keeper-and-scan.jpg)
+The three body meshes contain 168,824, 47,620 and 20,070 triangles.
+The corresponding 520 × 680 orthographic renders cover 72,265, 71,980 and
+71,276 pixels at an alpha threshold of one half. Intersection divided by
+union is 99.52% for tiers 0 and 1, and 98.57% for tiers 0 and 2. The
+fourth panel marks pixels present only in tier 0 in amber and pixels present
+only in tier 2 in blue. These measurements include the shared head attachments.
+In the game the second tier starts beyond 18 m and the third beyond 78 m.
+The silhouette test holds the camera and pose fixed so the change of mesh
+is visible at the same scale.
 
-Both busts use the same viewing direction. The scan has a different crop,
-closed eyes and exposed cheeks. Compare where light rolls from the temple
-into the socket and from the nostril into the upper lip. The scan carries
-small changes of curvature and colour through those transitions. The keeper's
-nose, brow and cheek still meet in distinct planes. The keeper's separable eyes
-and mouth serve his Drift rig, but the close-up falls short of the scanned
-reference. `DigitalHuman.olo` continues to use the scan.
-[Human-head acceptance issue #1402](https://github.com/drsnuggles8/OloEngineBase/issues/1402)
+## At Stacks Light
 
-The right panel is a Blender render, reframed for this comparison, of *Infinite,
-3D Head Scan* by Lee Perry-Smith (Triplegangers). Morgan McGuire and Guedis
-Cardenas converted the files. Keijiro Takahashi prepared the FBX distribution.
-The scan and its render carry CC BY 3.0. [Attribution and source chain](../../OloEditor/assets/models/InfiniteScanHead/README.md) · [Licence](https://creativecommons.org/licenses/by/3.0/)
+The keeper stands on the second tread below the door. A triangle intersection
+check sampled 13 poses in each of the three revised clips and found zero
+body intersections with the tower, stairs or rail. A downward ray from
+each of 41 low vertices per boot hit the granite. The closest samples were
+3.07 mm above the tread on the right and 0.27 mm on the left. Breathing
+starts at the spine to keep the boots planted during idle. The tower parents the
+keeper. Each eye follows its own bone. A separate head attachment carries
+the skin beneath the groom and keeps the same triangle indices across body
+LODs. The lamp light follows the wick socket.
+[Model contract and regeneration commands](../../OloEditor/SandboxProject/Assets/Models/DriftKeeper/README.md)
 
-## In the scene
+## In-engine captures
 
-`Stacks Light` parents the keeper, so moving the tower moves him with the
-steps. A triangle-intersection check at thirteen poses per clip found clearance
-from the door, treads and rail through idle, wave and lantern raise. The initial
-position put the heels through the raised door sill. On the final tread the two
-heel samples are within 3 mm of the granite. The body supplies the pose and nine expression targets. Each eye has
-its own bone attachment. A second head attachment carries the pigmented skin
-under the groom. Its triangle indices stay fixed as the body changes LOD, so
-each beard, brow or lash root keeps its binding. The cook contains 23,000 beard
-curves, 3,800 moustache curves, 13,500 scalp hairs, 2,100 brow hairs and 270
-lashes. The lantern's light follows a socket at its wick.
+![Keeper with lantern at the door in the packaged OpenGL runtime](../images/drift-keeper/packaged.jpg)
 
-The three body meshes have 95,088, 26,124 and 11,088 triangles. At the same
-three-quarter pose and orthographic scale, their silhouettes cover 76,941,
-76,625 and 75,789 pixels in 520 × 680 frames. Thresholding alpha at one
-half gives 99.52% overlap between tiers 0 and 1 and 98.49% between tiers 0
-and 2 (intersection divided by union). This measures the outline, including
-the shared head attachments. Use the model README to regenerate the body and
-paired groom assets. To check a change in the
-game, inspect the eyes, mouth, shoulder and lantern separately in close-up,
-then look back at the tower from 30 and 150 metres. The face detail disappears
-first. The coat hem, cap peak and bent arm carry the gesture farther.
-[Asset contract and regeneration commands](../../OloEditor/SandboxProject/Assets/Models/DriftKeeper/README.md)
+This inspection view came from the packaged OpenGL runtime with the cooking
+project’s keeper source folder renamed. The menu’s Continue button restores
+the voyage with the boat camera.
 
+From 2.5 m above the water the stack hides the door on some bearings. These
+approaches use 225° at 30 m and 240° at 150 m, measured from world +X
+towards +Z. Moving the keeper out of frame and back changed and restored
+15 of 35 sampled entity IDs at 30 m and 11 of 35 at 150 m. At the longer
+distance, the coat occupies just a few pixels against the doorway.
 
-## From the water
+![Keeper from sea level at 30 m and 150 m with keeper-on and keeper-off crops](../images/drift-keeper/approach.jpg)
 
-At a helm height of 2.5 m the stack hides the door on some bearings. The
-30 m view below looks in from 225° measured from world +X towards +Z. Its
-seabed is 7.22 m below sea level. The 150 m camera uses 240°. At 30 m the
-oilskin and dark trousers separate across the rail. At 150 m the coat covers
-a few amber pixels in the doorway. At 30 m, 16 of 35 sampled entity IDs changed when the keeper moved out of view
-and returned when he moved back. At 150 m, 19 of 35 did the same.
-The crops show exactly which part of the doorway he occupies.
+![Face in OpenGL and Vulkan across Forward, Forward+ and Deferred](../images/drift-keeper/render-paths.jpg)
 
-![Full Drift from sea level at 30 m and 150 m with enlarged keeper-on and keeper-off crops](../images/drift-keeper/approach.jpg)
+Tower lighting brings out a hard shadow under the cheekbone. In OpenGL
+Deferred, hiding the groom changed 89,746 pixels at native resolution,
+86,602 with 4× MSAA and 45,568 with Temporal Quality upscale. Each count
+excludes pixels that moved by less than 4/255 or at most twice the
+repeat-frame difference.
 
-The fixed-camera close-ups use the tower, sun, body, eye profiles and bound
-hair from the shipped scene. Each has a matching groom-off frame. In OpenGL
-Deferred, the 4× MSAA pair changed 113,248 pixels above the repeat-control
-noise threshold. Temporal Quality upscale changed 84,035 pixels.
-
-![The same face in OpenGL and Vulkan on Forward, Forward+ and Deferred](../images/drift-keeper/render-paths.jpg)
-
-These five editor views hold the doorway and camera still while changing
-the Drift weather state and clock. At night the doorway falls into shadow.
-The keeper raises his lamp when the Lua controller is running in Play.
-
-![Clear, Overcast, Storm, dusk and night at the station door](../images/drift-keeper/weather.jpg)
+![Keeper at the station door in Clear, Overcast, Storm, dusk and night](../images/drift-keeper/weather.jpg)
