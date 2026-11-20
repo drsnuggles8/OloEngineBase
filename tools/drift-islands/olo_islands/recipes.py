@@ -102,30 +102,49 @@ def ridgeback_sites(h, x, z):
     Surveyed bed: -3.21 m under the hook (local z 83.64), -3.52 m on the alongside track.
     """
     lx = 104.0
-    # The hard standing behind the deck: a low rock spit built up to deck height and carried
-    # inland until it meets the island's own slope, wherever the warped coast put that.
+    # The surveyed profile, as a function of z: the hard standing meets the deck's shoreward
+    # edge (z = 91.6) at deck height and climbs inland; under the deck a rock face falls to the
+    # berth's bed, -3.21 m under the hook; seaward of the hook the bed deepens at 0.33 m per
+    # metre, which puts the alongside track (z = 82.7) at -3.52 m.
     apron = 1.42 + 0.085 * np.maximum(z - 91.6, 0.0) + 0.012 * np.abs(x - lx)
-    w = s.box_weight(x, z, lx - 10.0, lx + 10.0, 91.7, 150.0, 9.0)
-    h = f.lerp(h, np.maximum(h, apron), w)
-    # The berth: a rock face under the deck's shoreward edge, then the surveyed bed.
-    bed = np.where(z < 83.64, -3.21 - 0.33 * (83.64 - z), f.lerp(-3.21, -0.6, f.smoothstep(83.64, 90.9, z)))
-    w = s.box_weight(x, z, lx - 16.0, lx + 16.0, 56.0, 91.0, 6.0)
-    h = f.lerp(h, np.minimum(h, bed), w)
-    # The alongside track and the approach from the west (boat draft 0.65 m).
+    face = f.lerp(-3.21, 1.42, np.clip((z - 83.64) / (91.6 - 83.64), 0.0, 1.0))
+    bed = -3.21 - 0.33 * np.maximum(83.64 - z, 0.0)
+    profile = np.where(z >= 91.6, apron, np.where(z >= 83.64, face, bed))
+    # Inland the standing only ever RAISES ground, and is carried until it meets the island's
+    # own slope, wherever the warped coast put that.
+    w = s.box_weight(x, z, lx - 10.0, lx + 10.0, 91.6, 150.0, 9.0)
+    h = f.lerp(h, np.maximum(h, profile), w)
+    # The alongside track and the approach from the west (boat draft 0.65 m). Before the berth,
+    # which then has the last word under the deck: a channel cut afterwards took the rock face
+    # down with it.
     h = s.channel(h, x, z, 30.0, 76.0, 150.0, 82.5, 7.0, 3.5, 8.0)
+    # The berth is SET, not only cut: the natural bed here is 12-17 m down, and the survey the
+    # landing's piles and the hook were built against is a ledge 3 m under the surface.
+    w = s.box_weight(x, z, lx - 12.0, lx + 12.0, 74.0, 91.6, 7.0)
+    h = f.lerp(h, profile, w)
     return h
 
 
 # ── Sisters ─────────────────────────────────────────────────────────────────────────────────
 def sisters(x, z, seed):
     """Two steep islets of the same rock, joined by a shingle bar that the swell washes over."""
-    islets = ((96.0, 154.0, 56.0, 44.0, 28.0, 51.0, seed), (180.0, 102.0, 38.0, 31.0, -20.0, 34.0, seed + 40))
+    islets = ((96.0, 154.0, 56.0, 44.0, 28.0, 45.0, seed), (180.0, 102.0, 38.0, 31.0, -20.0, 30.0, seed + 40))
     h = np.full_like(x, s.BASE)
     for cx, cz, rx, rz, rot, peak, sd in islets:
-        u, r, _ = _blob(x, z, cx, cz, rx, rz, rot, sd, 60.0, 7.0)
+        u, r, theta = _blob(x, z, cx, cz, rx, rz, rot, sd, 60.0, 7.0)
         crag = f.ridged(x, z, sd + 3, 46.0, 4) - 0.4
-        # A rounded cap over a wall: the islets are too small and too exposed to hold a slope.
-        land = peak * (1.0 - np.clip(u, 0.0, 1.0) ** 2.8) * (1.0 + 0.22 * crag)
+        # Tilted blocks: the swell has cut a wall on the weather (west) side and left the bedding
+        # plane as a slope in the lee, so the summit stands near the western edge, not in the
+        # middle. `weather` is 1 facing the swell and 0 in the lee.
+        weather = f.smoothstep(-0.45, 0.55, np.cos(theta + np.radians(rot) - np.radians(195.0)))
+        uc = np.clip(u, 0.0, 1.0)
+        wall = 1.0 - uc ** 7.0                     # holds its height almost to the rim, then drops
+        slope = (1.0 - uc) ** 0.85 * (1.0 + 0.5 * uc)  # falls from the summit all the way down
+        land = peak * f.lerp(slope, wall, weather) * (1.0 + 0.30 * crag * f.smoothstep(0.05, 0.4, 1.0 - uc))
+        # Ledges: the rock breaks along its bedding, in steps a few metres high.
+        step = 4.5 + 1.5 * f.fbm(x, z, sd + 11, 50.0, 2)
+        stepped = (np.floor(land / step) + f.smoothstep(0.55, 0.95, land / step - np.floor(land / step))) * step
+        land = f.lerp(land, stepped, 0.55 * weather + 0.2)
         land += 1.5 * f.fbm(x, z, sd + 9, 14.0, 4) * f.smoothstep(1.0, 8.0, land)
         h = np.maximum(h, np.where(u < 1.0, land, _sea((u - 1.0) * r, 12.0)))
     # The bar: a low shingle ridge between them, bowed toward the swell.
@@ -136,6 +155,18 @@ def sisters(x, z, seed):
     beach = (dist < 26.0).astype(np.float64) * (1.0 - f.smoothstep(14.0, 26.0, dist))
     return {"h": h, "hard": np.full_like(h, 0.85), "beach": beach, "rock_shore": 1.0 - beach,
             "rock_kind": np.zeros_like(h), "wind": (0.9, 0.4)}
+
+
+def _faceted(lx, lz, sides, seed, irregular=0.2):
+    """Distance in units of an irregular convex polygon's inradius: 1 on its faces. The faces are
+    the joint planes a stack broke along, so no two are the same length or quite evenly turned."""
+    rng = np.random.default_rng(seed)
+    angles = (np.arange(sides) + rng.uniform(-0.28, 0.28, sides)) * (2.0 * np.pi / sides)
+    reach = 1.0 + rng.uniform(-irregular, irregular, sides)
+    d = np.full_like(lx, -1.0e9)
+    for a, r in zip(angles, reach):
+        d = np.maximum(d, (lx * np.cos(a) + lz * np.sin(a)) / r)
+    return np.maximum(d, 0.0)
 
 
 # ── Stacks ──────────────────────────────────────────────────────────────────────────────────
@@ -156,6 +187,9 @@ def stacks(x, z, seed):
     xw, zw = f.warp(x, z, seed, 34.0, 5.0)
     # Joints: an angular noise that notches the plan into buttresses and re-entrants.
     joint = f.ridged(x, z, seed + 3, 21.0, 3) - 0.5
+    # Columns: basalt cools into columns a metre or two across, and a height field extrudes any
+    # plan detail vertically, so a fine ridged noise on the plan IS a fluted face.
+    flute = f.ridged(x, z, seed + 4, 3.4, 2) - 0.5
     h = np.full_like(x, s.BASE)
     solid = np.zeros_like(x)
 
@@ -168,7 +202,7 @@ def stacks(x, z, seed):
         # A superellipse: flat sides and rounded corners, like a jointed block, not a disc.
         u = (np.abs(lx / rx) ** 3.4 + np.abs(lz / rz) ** 3.4) ** (1.0 / 3.4)
         r = 0.5 * (rx + rz)
-        edge = (1.0 - u) * r + 5.5 * joint  # metres inside the outer wall
+        edge = (1.0 - u) * r + 5.5 * joint + 0.7 * flute  # metres inside the outer wall
         level = np.full_like(x, s.BASE)
         for ledge_h, setback in tiers:
             ragged = setback * (0.55 + 0.9 * (0.5 + 0.5 * f.fbm(x, z, sd + int(ledge_h), 26.0, 3)))
@@ -191,15 +225,26 @@ def stacks(x, z, seed):
             solid = np.maximum(solid, m)
             h = np.maximum(h, f.lerp(s.BASE, top, m))
             continue
-        # A stack is an oval, never a circle, wider at the foot than at the head.
+        # A stack is what is left of a wall: a faceted column of jointed basalt, never a cone.
+        # Its plan is an irregular polygon (the joints it broke along), its faces are fluted by
+        # the columns, it steps in once or twice on the way up, and its head is not level.
         rot = np.radians(37.0 * i)
         lx = (x - cx) * np.cos(rot) + (z - cz) * np.sin(rot)
         lz = -(x - cx) * np.sin(rot) + (z - cz) * np.cos(rot)
-        rr = np.hypot(lx / 1.35, lz / 0.8) + 1.6 * joint + 1.2 * f.fbm(x, z, seed + 70 + i, 9.0, 3)
-        foot = 1.0 - f.smoothstep(radius * 1.25, radius * 1.25 + 2.6, rr)
-        head = 1.0 - f.smoothstep(radius * 0.8, radius * 0.8 + 2.4, rr)
-        col = f.lerp(f.lerp(s.BASE, top * 0.42, foot), top + 0.8 * f.fbm(x, z, seed + 80 + i, 6.0, 3), head)
-        solid = np.maximum(solid, foot)
+        rr = _faceted(lx / 1.3, lz / 0.82, 5 + (i % 3), seed + 70 + i)  # metres from the axis
+        rr = rr + 1.3 * joint + 0.55 * flute + 0.9 * f.fbm(x, z, seed + 70 + i, 9.0, 3)
+        rng = np.random.default_rng(seed + 300 + i)
+        col = np.full_like(x, s.BASE)
+        # (radius fraction, height fraction): a boulder skirt, one or two ledges, then the head.
+        tiers = [(1.42, 0.07), (1.08, rng.uniform(0.30, 0.48)), (0.86, rng.uniform(0.62, 0.8))]
+        for frac, height in tiers:
+            ragged = radius * frac * (1.0 + 0.10 * f.fbm(x, z, seed + 90 + i + int(frac * 10), 11.0, 2))
+            col = f.lerp(col, top * height + 0.5 * f.fbm(x, z, seed + 80 + i, 4.0, 3),
+                         1.0 - f.smoothstep(ragged - 0.2, ragged + 1.1, rr))
+        dip = rng.uniform(0.0, 2.0 * np.pi)
+        head_top = top * (1.0 - 0.012 * (lx * np.cos(dip) + lz * np.sin(dip))) + 0.8 * f.fbm(x, z, seed + 80 + i, 6.0, 3)
+        col = f.lerp(col, head_top, 1.0 - f.smoothstep(radius * 0.66, radius * 0.66 + 1.0, rr))
+        solid = np.maximum(solid, 1.0 - f.smoothstep(radius * 1.08, radius * 1.08 + 1.5, rr))
         h = np.maximum(h, col)
 
     # The platform: bare rock awash around the block and out to the light, then deep water.
@@ -327,12 +372,15 @@ def atoll(x, z, seed):
     sand = np.zeros_like(h)
     for centre, half, crest in MOTUS:
         da = np.abs((deg - centre + 180.0) % 360.0 - 180.0)
-        # A cay tapers to its ends and wanders: wide where the sand has piled, a neck elsewhere.
-        along = np.clip(1.0 - (da / half) ** 2, 0.0, 1.0) ** 0.6
-        width = 25.0 * (0.72 + 0.4 * f.fbm(x, z, seed + 7, 60.0, 2))
-        across = (d + 22.0 + 6.0 * f.fbm(x, z, seed + 5, 44.0, 2)) / width  # centred just inside the crest
-        body = np.clip(1.0 - across * across, 0.0, 1.0) * along
-        motu = crest * body ** 0.6 + 0.6 * f.fbm(x, z, seed + 6, 12.0, 3) * body
+        # A cay is a lens of sand the waves have piled on the reef flat: widest and highest in
+        # its middle, drawn out to a point at each end, its outline wandering with the reef. The
+        # arc it covers is itself uneven, or every cay would end on a radial line.
+        da = da + 0.11 * half * f.fbm(x, z, seed + 8 + int(centre), 30.0, 3)
+        along = np.clip(1.0 - (da / half) ** 2, 0.0, 1.0)
+        width = 27.0 * (0.55 + 0.75 * (0.5 + 0.5 * f.fbm(x, z, seed + 7, 52.0, 2))) * (0.25 + 0.75 * along ** 0.7)
+        across = (d + 20.0 + 7.0 * f.fbm(x, z, seed + 5, 44.0, 2)) / width  # centred just inside the crest
+        body = np.clip(1.0 - across * across, 0.0, 1.0) * along ** 0.9
+        motu = crest * body ** 0.75 + 0.6 * f.fbm(x, z, seed + 6, 12.0, 3) * body
         h = np.where(body > 0.0, np.maximum(h, -0.4 + motu), h)
         sand = np.maximum(sand, f.smoothstep(0.0, 0.2, body))
     # The pass: a channel through the reef.

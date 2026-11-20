@@ -83,8 +83,11 @@ def main():
         sys.exit(f"unknown island(s): {', '.join(unknown)}; known: {', '.join(recipes.TILES)}")
 
     def stamp_scene():
-        radii = {n: scene.enclosing_radius(height_from_png(args.out, n), recipes.TILES[n][0]) for n in recipes.TILES}
-        scene.stamp(SCENE, radii)
+        heights = {n: height_from_png(args.out, n) for n in recipes.TILES}
+        radii = {n: scene.enclosing_radius(heights[n], recipes.TILES[n][0]) for n in recipes.TILES}
+        facts = {n: (float(heights[n].max()), scene.water_from_start(heights[n], n)) for n in recipes.TILES}
+        boxes = {n: scene.land_box(heights[n], recipes.TILES[n][0]) for n in recipes.TILES}
+        scene.stamp(SCENE, radii, facts, boxes)
         print("stamped Drift.olo; landfall radii (m): " + ", ".join(f"{n} {r:.0f}" for n, r in radii.items()))
 
     if args.only_stamp:

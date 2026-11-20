@@ -161,13 +161,26 @@ def enclosing_radius(h, size):
     return float(np.percentile(np.hypot(xx - c, zz - c), 99.5) * size / n)
 
 
-def island_block(name, radius):
+def land_box(h, size, margin=10.0):
+    """(centre x, centre z, half x, half z) of the land's bounding box in tile-local metres,
+    grown by `margin`: the discovery trigger. A box sized to the landfall CIRCLE reaches a
+    hundred metres off the narrow side of a long island; the land's own extent does not."""
+    import numpy as np
+    n = h.shape[0]
+    zz, xx = np.nonzero(h > 0.0)
+    scale = size / (n - 1)
+    x0, x1 = xx.min() * scale - margin, xx.max() * scale + margin
+    z0, z1 = zz.min() * scale - margin, zz.max() * scale + margin
+    return (round((x0 + x1) * 0.5), round((z0 + z1) * 0.5), math.ceil((x1 - x0) * 0.5), math.ceil((z1 - z0) * 0.5))
+
+
+def island_block(name, radius, box):
     size, height_scale, _, corner_x, corner_z = recipes.TILES[name]
     # DriftWeatherDirector.lua: coast = (IslandFalloffRadius + 0.5) * 0.5 * WorldSizeX.
     falloff = round(2.0 * radius / size - 0.5, 3)
     if not 0.0 <= falloff < 0.5:
         raise ValueError(f"{name}: landfall radius {radius:.1f} m does not fit the weather director's formula")
-    half = math.ceil((radius + 12.0) / 5.0) * 5
+    box_x, box_z, half_x, half_z = box
     centre = size * 0.5
     o = []
     title = f"  # ── Island - {name} "
@@ -235,17 +248,17 @@ def island_block(name, radius):
             "          Metallic: 0",
         ]
     o += [
-        "    # Discovery loop (issue #881): landing trigger + landmark tag. The box is centred on",
-        "    # the tile and reaches past the island's farthest land, from below the waterline to",
-        "    # above the peak, so a boat registers a landing on approach.",
+        "    # Discovery loop (issue #881): landing trigger + landmark tag. The box is the land's",
+        "    # own bounding box plus 10 m, from below the waterline to above the peak, so a boat",
+        "    # registers a landing as it closes the shore.",
         "    DiscoverableComponent:",
         f"      DisplayName: {name}",
         "    Rigidbody3DComponent:",
         "      BodyType: 0",
         "      IsTrigger: true",
         "    BoxCollider3DComponent:",
-        f"      HalfExtents: [{half}, 80, {half}]",
-        f"      Offset: [{centre:g}, 24, {centre:g}]",
+        f"      HalfExtents: [{half_x}, 80, {half_z}]",
+        f"      Offset: [{box_x:g}, 24, {box_z:g}]",
         "    FoliageComponent:",
         "      Enabled: true",
         "      Layers:",
@@ -258,17 +271,82 @@ def island_block(name, radius):
     return o
 
 
-def stamp(scene_path, radii):
-    """Replace each island's entity block. `radii` is name -> landfall radius in metres."""
+START = (0.0, -250.0)  # where the boat starts (Drift.olo, the Boat entity's Translation x, z)
+BEARINGS = ("ahead", "stbd bow", "stbd abeam", "stbd quarter", "astern", "port quarter", "port abeam", "port bow")
+LAYOUT_FIRST = "# LAYOUT — the island field"
+LAYOUT_NEXT = "#   The sea is 1.6 km square"  # the first hand-written line after the section
+
+
+def water_from_start(h, name):
+    """Metres of open water from the boat's start to the island's nearest land."""
+    import numpy as np
+    size, _, _, corner_x, corner_z = recipes.TILES[name]
+    n = h.shape[0]
+    zz, xx = np.nonzero(h > 0.0)
+    wx = corner_x + xx / (n - 1) * size
+    wz = corner_z + zz / (n - 1) * size
+    return float(np.hypot(wx - START[0], wz - START[1]).min())
+
+
+def layout_block(facts):
+    """The LAYOUT section of the scene's header comment. `facts` is name -> (peak m, metres of
+    open water from the start line to the island's nearest land)."""
+    out = [
+        LAYOUT_FIRST + " (issues #880, #1721)",
+        "#   GENERATED with the island entities: tools/drift-islands/build_islands.py --stamp-scene",
+        "#   writes this section, down to the paragraph about the sea, from the maps on disk.",
+        "#",
+        "#   The boat starts at (0, 0, -250) pointing at Ridgeback, the tallest thing on that",
+        "#   bearing. Five more lie around it, at different bearings and distances, so there is",
+        "#   always somewhere else to go and turning round is worth doing:",
+        "#",
+    ]
+    for name in ("Ridgeback", "Atoll", "Stacks", "Mesa", "Dunes", "Sisters"):
+        size, _, _, corner_x, corner_z = recipes.TILES[name]
+        cx, cz = corner_x + size * 0.5, corner_z + size * 0.5
+        peak, water = facts[name]
+        # The boat heads +Z; a bearing is measured clockwise from that, +X to starboard.
+        angle = math.degrees(math.atan2(cx - START[0], cz - START[1])) % 360.0
+        bearing = BEARINGS[int((angle + 22.5) // 45.0) % 8]
+        out.append(f"#     {name:<10s} ({cx:5.0f}, {cz:5.0f})  {size:.0f} m tile, peak {peak:3.0f} m  "
+                   f"{bearing:<13s} {water:4.0f} m of water")
+    out += [
+        "#",
+        "#   Peaks are above the sea. The last column is the open water from the start line to the",
+        "#   island's nearest land.",
+        "#",
+        "#   They are DIFFERENT PLACES. Each is a height map the tool builds as a landform: a recipe",
+        "#   draws its character in metres, erosion and a shore profile are derived from that, and",
+        "#   the material maps are baked beside it. The per-island notes on each entity say what",
+        "#   each one is. All six share one library of eight scanned ground layers; an island's own",
+        "#   rock and sand colour comes from its macro map.",
+        "#",
+        "#   THE SHORELINE. A terrain tile that meets an ocean must not end in a wall: every border",
+        "#   texel of every map is exactly the tile floor, and each island sits that floor 24 m",
+        "#   under the sea, so a tile's edge is seabed. Inside it the coast is shaped, not left to",
+        "#   a mask: sand coasts are pulled to a beach profile (a 7 degree foreshore and a berm),",
+        "#   rock coasts get a wave-cut platform. docs/agent-rules/terrain-tile-meets-ocean.md has",
+        "#   the rules; DriftIslandSplatCoverage pins them on the shipped maps.",
+        "#",
+    ]
+    return out
+
+
+def stamp(scene_path, radii, facts, boxes):
+    """Replace each island's entity block and the header's LAYOUT section. `radii` is name ->
+    landfall radius in metres; `facts` is what layout_block takes; `boxes` is name -> land_box."""
     with io.open(scene_path, "r", encoding="utf-8", newline="") as fh:
         text = fh.read()
     newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.split(newline)
+    first = next(i for i, line in enumerate(lines) if line.startswith(LAYOUT_FIRST))
+    last = next(i for i in range(first, len(lines)) if lines[i].startswith(LAYOUT_NEXT))
+    lines[first:last] = layout_block(facts)
     for name, radius in radii.items():
         start = next(i for i, line in enumerate(lines) if line.startswith(f"  # ── Island - {name} "))
         foliage = next(i for i in range(start, len(lines)) if lines[i].rstrip() == "    FoliageComponent:")
         end = next(i for i in range(foliage, len(lines)) if lines[i].strip() == "")
-        lines[start:end] = island_block(name, radius)
+        lines[start:end] = island_block(name, radius, boxes[name])
     with io.open(scene_path, "w", encoding="utf-8", newline="") as fh:
         fh.write(newline.join(lines))
     return os.path.basename(scene_path)

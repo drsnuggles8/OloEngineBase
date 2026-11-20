@@ -56,6 +56,17 @@ PALETTES = {
 # The tile's deep floor matches the scene's flat seafloor plane (Drift.olo "Seafloor",
 # AlbedoColor 0.30/0.29/0.24), so the tile's square edge has nothing to show against.
 SEAFLOOR = (0.30, 0.29, 0.24)
+# What lies under the first few metres of water, which the sea is clear enough to show: kelp and
+# dark rock round a rock island, the island's own sand round a sand one. A pale bed under a
+# basalt stack reads as a white halo from above. Fades to SEAFLOOR with depth.
+SHALLOWS = {
+    "Ridgeback": (0.085, 0.095, 0.075),
+    "Sisters": (0.095, 0.10, 0.08),
+    "Stacks": (0.045, 0.055, 0.05),
+    "Mesa": (0.24, 0.17, 0.115),
+    "Dunes": (0.44, 0.41, 0.32),
+    "Atoll": (0.56, 0.54, 0.44),
+}
 
 
 def _norm(weights):
@@ -97,9 +108,9 @@ def bake(name, h, cell, x, z, aux, flow, talus, seed):
     wx, wz = aux["wind"]
     gz, gx = np.gradient(f.blur(h, 3.0), cell)
     windward = np.clip(-(gx * wx + gz * wz) * 1.4, -1.0, 1.0)  # +1 faces the wind
-    exposure = np.clip(0.9 * h / top + 0.35 * windward - 0.9 * flow_n + 0.45 * n_big, 0.0, 1.0)
+    exposure = np.clip(0.9 * h / top + 0.35 * windward - 0.45 * flow_n + 0.45 * n_big, 0.0, 1.0)
     soil = (1.0 - steep) * (1.0 - scree) * f.smoothstep(shore_top - 0.2, shore_top + 1.0, h)
-    heath = f.smoothstep(0.42, 0.62, exposure + 0.18 * n_mid)
+    heath = f.smoothstep(0.34, 0.56, exposure + 0.18 * n_mid)
 
     if sandy is not None and name == "Dunes":
         # Marram holds the lee and the hollows; the windward faces and crests are bare sand.
@@ -111,13 +122,13 @@ def bake(name, h, cell, x, z, aux, flow, talus, seed):
         w[HEATH] = veg * (1.0 - np.clip(machair + 0.25, 0.0, 1.0))
         w[SAND] = np.maximum(1.0 - veg, 0.0) * f.smoothstep(-3.5, -1.8, h)
     elif sandy is not None:  # Atoll
-        motu = sandy * f.smoothstep(1.2, 2.2, h + 0.4 * n_mid)
+        motu = sandy * f.smoothstep(0.9, 1.7, h + 0.4 * n_mid)
         w[HEATH] = motu * 0.7
         w[TURF] = motu * 0.3 * f.smoothstep(-0.2, 0.3, n_big)
         reef_d = aux["reef_d"]
         flat = (1.0 - sandy) * f.smoothstep(-1.5, -0.9, h) * f.smoothstep(-aux["flat_in"] * 1.2, -aux["flat_in"] * 0.5, reef_d)
         w[BEDDED] = flat  # the reef flat: coral rock awash
-        lagoon = (reef_d < 0.0) * (1.0 - flat)
+        lagoon = (reef_d < 0.0) * (1.0 - flat) * (1.0 - sandy)  # the cays stand inside the crest too
         w[SAND] = np.maximum(sandy * (1.0 - motu), lagoon * 1.0)
         w[SEABED] = (reef_d >= 0.0) * f.smoothstep(-1.5, -5.0, h)
     else:
@@ -149,10 +160,13 @@ def bake(name, h, cell, x, z, aux, flow, talus, seed):
     # ── Macro colour ──────────────────────────────────────────────────────────────────────
     palette = PALETTES[name]
     tint = np.zeros(h.shape + (3,))
+    shallow = f.smoothstep(-11.0, -2.5, h)[..., None]
     for layer in range(8):
-        target = SEAFLOOR if layer == SEABED else palette[layer]
-        ratio = np.array(target) / np.array(NEUTRAL[layer])
-        tint += w[layer][..., None] * ratio
+        if layer == SEABED:
+            target = f.lerp(np.array(SEAFLOOR), np.array(SHALLOWS[name]), shallow)
+        else:
+            target = np.array(palette[layer])
+        tint += w[layer][..., None] * (target / np.array(NEUTRAL[layer]))
     rockish = w[ROCK] + w[BEDDED]
     veg = w[TURF] + w[HEATH]
 
@@ -164,6 +178,9 @@ def bake(name, h, cell, x, z, aux, flow, talus, seed):
     mul(veg * flow_n, (0.72, 0.86, 0.62))
     mul(veg * f.smoothstep(0.45, 0.9, exposure), (1.28, 1.14, 0.86))
     mul(veg * f.smoothstep(0.15, 0.6, n_big), (0.9, 0.96, 0.84))
+    # Sward is never one green: rank dark patches, and paler, yellower ones where it is thin.
+    mul(veg * f.smoothstep(0.05, 0.5, 0.6 * n_mid - 0.5 * n_big), (1.26, 1.13, 0.80))
+    mul(veg * f.smoothstep(0.1, 0.55, n_fine + 0.4 * n_mid), (0.84, 0.90, 0.80))
     # The intertidal ladder on rock: black algae, pale barnacles, orange lichen above the spray.
     tide = rockish + w[SHINGLE] + w[SCREE]
     mul(tide * f.smoothstep(-1.6, -0.4, h) * (1.0 - f.smoothstep(0.9, 1.5, h + 0.25 * n_mid)), (0.36, 0.38, 0.34))
