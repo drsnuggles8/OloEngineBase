@@ -93,6 +93,7 @@ contract docs before claiming support; read the issues before claiming a gap is 
 ## process/ — how we run the project
 
 - [process/issue-scoring.md](process/issue-scoring.md) — the rubric for rating issues/tasks (WSJF-derived, engine-tuned: Capability/Craft/Stability/Decay over Effort, plus Learning/Fun). Drives `/start-work` task picking; raw axes live in an `olo-score` block in each issue body, ranked on demand by `scripts/issue_scores.py` (nothing derived is stored).
+- [process/north-star.md](process/north-star.md) — the project goal the backlog is steered toward (the user sets it): the game, its milestone, target hardware and frame budget, and the critical-path checklist. `issue_scores.py` reads its milestone to flag goal issues and enforce their Decay rung.
 - [process/task-loop.md](process/task-loop.md) — the **worker-session contract**: what a session started from `HANDOVER.md` does, from implementing through self-review, PR, CI and CodeRabbit, to a green thread-clean PR. Absorbed the former `/finish-pr` and `/pr-status` commands. Stops short of merging.
 
 The three workflow skills live in [`.claude/skills/`](../.claude/skills/) and are versioned with the repo because they reference repo content: `/start-work` (pick + scaffold), `/cleanup-worktree` (reclaim merged worktrees, heal the registry), `/resume-worktrees` (reopen windows). All three are manual-only (`disable-model-invocation: true`). The worker's subagents live in [`.claude/agents/`](../.claude/agents/).
