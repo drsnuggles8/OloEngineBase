@@ -173,6 +173,22 @@ namespace OloEngine
         }
     }
 
+    void FRepresentationLoadQueue::CancelAll()
+    {
+        TArray<u64> keys;
+        for (const FLoadRecord& record : m_Loads.Live())
+            keys.Add(record.Key);
+        for (const u64 key : keys)
+            (void)Cancel(key);
+        // A load cancelled before it started already gave its staging back and
+        // may sit behind a closed gate; only work that started is waited out.
+        TArray<Tasks::TTask<Ref<FRepresentationPayload>>> started;
+        m_Loads.CollectStartedTasks(started);
+        for (auto& task : started)
+            task.Wait();
+        ReapAbandoned();
+    }
+
     void FRepresentationLoadQueue::Shutdown()
     {
         if (m_Stopped)

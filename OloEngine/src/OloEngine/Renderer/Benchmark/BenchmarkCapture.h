@@ -260,6 +260,22 @@ namespace OloEngine::Benchmark
         u64 GroomEvictions = 0;
         u32 GroomPendingRequests = 0;
         u32 GroomFallbackRequests = 0;
+        // What the deformed grooms sent the GPU this frame (#1589): the frame
+        // buffers' bytes, and the guide points behind them -- the simulated
+        // points sent and the slot points the GPU expanded them into.
+        u64 GroomDeformUploadBytes = 0;
+        u64 GroomGuidePointsSent = 0;
+        u64 GroomGuidePointsExpanded = 0;
+        // And the main-thread CPU microseconds the pass spent on them: packing
+        // the frame buffers (#1588), sending them, re-posing the casters' runs
+        // and evaluating the drawn pose a coat self-shadow reads. The GPU's
+        // RootFrames brackets cannot tell CPU work from GPU work on GL: a
+        // starved GPU reads the CPU's gap as time inside whichever bracket
+        // straddles the next flush.
+        u64 GroomDeformBuildMicroseconds = 0;
+        u64 GroomDeformUploadMicroseconds = 0;
+        u64 GroomCasterPoseMicroseconds = 0;
+        u64 GroomDeformedPoseMicroseconds = 0;
         u64 VegetationCanonicalCpuBytes = 0;
         u64 VegetationPinnedGpuBytes = 0;
         u64 VegetationOptionalGpuBytes = 0;
@@ -304,6 +320,13 @@ namespace OloEngine
                                       TIsTriviallyRelocatable_V<decltype(Record::GroomEvictions)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::GroomPendingRequests)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::GroomFallbackRequests)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomDeformUploadBytes)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomGuidePointsSent)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomGuidePointsExpanded)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomDeformBuildMicroseconds)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomDeformUploadMicroseconds)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomCasterPoseMicroseconds)> &&
+                                      TIsTriviallyRelocatable_V<decltype(Record::GroomDeformedPoseMicroseconds)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::VegetationCanonicalCpuBytes)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::VegetationPinnedGpuBytes)> &&
                                       TIsTriviallyRelocatable_V<decltype(Record::VegetationOptionalGpuBytes)> &&

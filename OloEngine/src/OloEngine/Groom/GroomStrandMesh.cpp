@@ -1014,6 +1014,17 @@ namespace OloEngine
                                               std::vector<GroomCasterStrand>* outCasterStrands,
                                               std::vector<u32>* outStrandCurves)
     {
+        // A simulation published with its stand-ins (#1589) is built from their
+        // expansion, as the GPU draws it: sampling the simulated subset as it
+        // stands would leave every left-out slot at rest. A caller with a
+        // reusable expansion hands the expanded view, and this costs nothing.
+        GroomGuideExpansion expansion;
+        GroomStrandSimulation expanded;
+        if (simulation != nullptr && simulation->StandIns != nullptr)
+        {
+            expanded = expansion.Expand(*simulation);
+            simulation = &expanded;
+        }
         outVertices.clear();
         outIndices.clear();
         if (outStrandFirstIndex != nullptr)

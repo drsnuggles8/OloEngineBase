@@ -169,6 +169,66 @@ namespace
         return sim;
     }
 
+    // A budget that keeps every `keepEvery`th guide slot, published as the
+    // producer publishes it since #1589: the simulated guides' points only, and
+    // every slot's stand-ins -- so the coat is drawn from their expansion.
+    struct StandInSimulation
+    {
+        Simulation Sparse;
+        Ref<GroomGuideStandInSet> StandIns;
+
+        [[nodiscard]] GroomStrandSimulation View() const
+        {
+            GroomStrandSimulation sim = Sparse.View();
+            sim.StandIns = StandIns.Raw();
+            return sim;
+        }
+    };
+
+    [[nodiscard]] StandInSimulation MakeStandInSimulation(const GroomAsset& groom, u32 keepEvery)
+    {
+        StandInSimulation sim;
+        sim.Sparse.Table = BuildGroomGuideInfluence(groom);
+        const GroomGuideInfluenceTable& table = *sim.Sparse.Table;
+        TArray<glm::vec3> roots;
+        TArray<u32> groups;
+        TArray<u32> roles;
+        TArray<u32> pointCounts;
+        sim.Sparse.Offsets.push_back(0u);
+        for (u32 slot = 0; slot < table.GetGuideCount(); ++slot)
+        {
+            const u32 curve = table.GetGuideCurves()[slot];
+            const u32 count = groom.GetCurvePointCount(curve);
+            roots.Add(groom.GetPoints()[groom.GetCurveFirstPoint(curve)]);
+            groups.Add(groom.GetCurveGroupIds()[curve]);
+            roles.Add(0u);
+            pointCounts.Add(count);
+            if (slot % keepEvery != 0u)
+            {
+                sim.Sparse.GuideOfSlot.push_back(GroomNoGuide);
+                continue;
+            }
+            sim.Sparse.GuideOfSlot.push_back(static_cast<u32>(sim.Sparse.SlotOfGuide.size()));
+            sim.Sparse.SlotOfGuide.push_back(slot);
+            for (u32 p = 0; p < count; ++p)
+            {
+                const f32 s = static_cast<f32>(slot) + 1.0f;
+                const f32 t = static_cast<f32>(p);
+                sim.Sparse.Displacements.emplace_back(0.003f * s * t, -0.002f * t, 0.001f * std::sin(s + t));
+                sim.Sparse.PrevDisplacements.emplace_back(0.002f * s * t, -0.001f * t, 0.0015f * std::cos(s + t));
+            }
+            sim.Sparse.Offsets.push_back(static_cast<u32>(sim.Sparse.Displacements.size()));
+        }
+        TArray<GroomGuideWeights> standIns;
+        BuildGroomGuideStandIns(std::span{ roots.GetData(), static_cast<sizet>(roots.Num()) },
+                                std::span{ groups.GetData(), static_cast<sizet>(groups.Num()) },
+                                std::span{ roles.GetData(), static_cast<sizet>(roles.Num()) },
+                                std::span<const u32>(sim.Sparse.GuideOfSlot), standIns);
+        sim.StandIns = GroomGuideStandInSet::Create(std::move(standIns), std::move(pointCounts));
+        EXPECT_TRUE(sim.StandIns);
+        return sim;
+    }
+
     [[nodiscard]] bool BitwiseEqual(const glm::vec3& a, const glm::vec3& b) noexcept
     {
         return std::bit_cast<u32>(a.x) == std::bit_cast<u32>(b.x) && std::bit_cast<u32>(a.y) == std::bit_cast<u32>(b.y) &&
@@ -182,7 +242,7 @@ namespace
                          const GroomBindingAsset& binding, std::span<const GroomRootTransform> transforms,
                          const GroomStrandSimulation* simulation, f32 heldTolerance = -1.0f,
                          const GroomCoatContext* coat = nullptr, const GroomDeformWetRecord* wet = nullptr,
-                         std::span<const glm::vec3> clumpGrowth = {})
+                         std::span<const glm::vec3> clumpGrowth = {}, bool expandGuidesOnGpu = false)
     {
         GroomStrandDeformation deformation;
         deformation.Binding = &binding;
@@ -255,11 +315,16 @@ namespace
         }
 
         const GroomGuideInfluenceTable* table = simulation != nullptr ? simulation->Influence : nullptr;
-        const u32 displacements =
-            simulation != nullptr ? static_cast<u32>(simulation->Displacements.Displacements.size()) : 0u;
+        // Sized as the pass sizes it: every slot's points when the stand-ins
+        // are expanded (#1589), and -- when the GPU expands them -- a source
+        // region for the simulated points alone.
+        const bool standIns = simulation != nullptr && simulation->ExpandsStandIns();
+        const u32 sparse = simulation != nullptr ? static_cast<u32>(simulation->Displacements.Displacements.size()) : 0u;
+        const u32 displacements = standIns ? simulation->StandIns->GetPointCount() : sparse;
         GroomDeformBuffer buffer;
         buffer.Reset(GroomDeformBufferLayout::Make(static_cast<u32>(rootCurves.size()),
-                                                   table != nullptr ? table->GetGuideCount() : 0u, displacements),
+                                                   table != nullptr ? table->GetGuideCount() : 0u, displacements)
+                         .WithGuideExpansion(expandGuidesOnGpu ? sparse : 0u),
                      rootCurves, table);
         if (wet != nullptr)
         {
@@ -269,6 +334,13 @@ namespace
         }
         const GroomDeformFrameStats frame =
             buffer.PackFrame(rootCurves, binding, transforms, simulation, source.BaseCurveCount);
+        EXPECT_EQ(frame.GuidesExpandedOnGpu, expandGuidesOnGpu && standIns);
+        if (simulation != nullptr)
+        {
+            // The CPU twin's guides: the expansion the kernel twins when the
+            // GPU expands them, a no-op otherwise.
+            (void)buffer.ResolveCpuGuides(*simulation);
+        }
         EXPECT_EQ(frame.StrandsHeldAtRest, cpuStats.StrandsHeldAtRest);
         EXPECT_EQ(frame.StrandsSimulated, cpuStats.StrandsSimulated);
         EXPECT_EQ(frame.StrandsUnguided, cpuStats.StrandsUnguided);
@@ -748,6 +820,150 @@ TEST(GroomGpuDeformation, ABudgetThatDropsGuidesRenormalisesExactlyAsTheCpuDoes)
     EXPECT_GT(ExpectPathsAgree(GroomBuildSource::FromAsset(*scene.Groom), GroomStrandBuildSettings{}, *scene.Binding,
                                transforms, &view),
               0u);
+}
+
+// #1589. A budget that simulates a quarter of the guide slots draws the rest
+// from their stand-ins. Whether the CPU expands them (and packs them dense) or
+// the GPU does (and the CPU twin resolves them for a reader), every corner is
+// the CPU build's bit for bit -- the build that expands the same stand-ins the
+// same way. That the kernel's expansion is this one is
+// GroomExpandGuidesParityTest's to hold.
+TEST(GroomGpuDeformation, AStandInCoatReproducesTheCpuStreamExactlyOnEitherExpansion)
+{
+    const BoundScene scene = MakeBoundScene(48u);
+    const StandInSimulation simulation = MakeStandInSimulation(*scene.Groom, 4u);
+    const GroomStrandSimulation view = simulation.View();
+    ASSERT_TRUE(view.IsUsable(scene.Groom->GetCurveCount()));
+    ASSERT_TRUE(view.ExpandsStandIns());
+    ASSERT_LT(simulation.Sparse.SlotOfGuide.size() * 2u, simulation.Sparse.GuideOfSlot.size())
+        << "most slots must be stand-ins, or this compares the simulated set with itself";
+    const std::span<const GroomRootTransform> transforms{ scene.Transforms.GetData(),
+                                                          static_cast<sizet>(scene.Transforms.Num()) };
+    for (const bool onGpu : { false, true })
+    {
+        SCOPED_TRACE(onGpu ? "expanded on the GPU" : "expanded on the CPU");
+        EXPECT_GT(ExpectPathsAgree(GroomBuildSource::FromAsset(*scene.Groom), GroomStrandBuildSettings{},
+                                   *scene.Binding, transforms, &view, -1.0f, nullptr, nullptr, {}, onGpu),
+                  0u);
+    }
+
+    // And the stand-ins do move the coat: drawn from the simulated set as it
+    // stands, a left-out slot's strands would rest.
+    std::vector<GroomStrandVertex> expanded;
+    std::vector<GroomStrandVertex> asItStands;
+    std::vector<u32> indices;
+    GroomStrandDeformation deformation;
+    deformation.Binding = scene.Binding.Raw();
+    deformation.RootTransforms = transforms;
+    const GroomStrandSimulation sparse = simulation.Sparse.View();
+    (void)BuildGroomStrandMesh(*scene.Groom, GroomStrandBuildSettings{}, expanded, indices, &deformation, nullptr,
+                               &view);
+    (void)BuildGroomStrandMesh(*scene.Groom, GroomStrandBuildSettings{}, asItStands, indices, &deformation, nullptr,
+                               &sparse);
+    ASSERT_EQ(expanded.size(), asItStands.size());
+    u32 moved = 0;
+    for (sizet i = 0; i < expanded.size(); ++i)
+    {
+        moved += BitwiseEqual(expanded[i].Position, asItStands[i].Position) ? 0u : 1u;
+    }
+    EXPECT_GT(moved, 0u) << "the stand-ins moved no corner: the case above proved nothing";
+}
+
+// #1589. What a frame whose guides the GPU expands puts in the image it sends:
+// the simulated points and their guides' offsets every frame, the dense slot
+// windows and the stand-ins once per set -- and never the dense displacements,
+// which are the kernel's to write.
+TEST(GroomGpuDeformation, AGpuExpandedFramePacksTheSimulatedGuidesAndEachSetOnce)
+{
+    const BoundScene scene = MakeBoundScene(48u, 9u);
+    const StandInSimulation simulation = MakeStandInSimulation(*scene.Groom, 4u);
+    const GroomStrandSimulation view = simulation.View();
+    std::vector<GroomStrandVertex> rest;
+    std::vector<u32> indices;
+    std::vector<u32> rootCurves;
+    (void)BuildGroomStrandRestMesh(GroomBuildSource::FromAsset(*scene.Groom), GroomStrandBuildSettings{},
+                                   *scene.Binding, rest, indices, rootCurves);
+    const u32 slots = simulation.Sparse.Table->GetGuideCount();
+    const u32 sparse = static_cast<u32>(simulation.Sparse.Displacements.size());
+    const u32 dense = simulation.StandIns->GetPointCount();
+    ASSERT_LT(sparse, dense);
+    const GroomDeformBufferLayout plain = GroomDeformBufferLayout::Make(static_cast<u32>(rootCurves.size()), slots, dense);
+    const GroomDeformBufferLayout layout = plain.WithGuideExpansion(sparse);
+    ASSERT_TRUE(layout.ExpandsGuides());
+    // The regions the vertex stage reads did not move.
+    EXPECT_EQ(layout.DisplacementBase, plain.DisplacementBase);
+    EXPECT_EQ(layout.StandInBase, plain.TotalUnits);
+
+    GroomDeformBuffer buffer;
+    buffer.Reset(layout, rootCurves, simulation.Sparse.Table.Raw());
+    const std::span<const GroomRootTransform> transforms{ scene.Transforms.GetData(),
+                                                          static_cast<sizet>(scene.Transforms.Num()) };
+    const GroomDeformFrameStats first =
+        buffer.PackFrame(rootCurves, *scene.Binding, transforms, &view, scene.Groom->GetCurveCount());
+    ASSERT_TRUE(first.Simulated);
+    EXPECT_TRUE(first.GuidesExpandedOnGpu);
+    EXPECT_TRUE(first.StandInsWritten);
+    EXPECT_TRUE(first.SourceHasPrevious);
+    EXPECT_EQ(first.SourceCount, sparse);
+    EXPECT_EQ(first.SourceGuides, static_cast<u32>(simulation.Sparse.SlotOfGuide.size()));
+    EXPECT_EQ(first.DisplacementCount, dense) << "the vertex stage reads every slot's points";
+
+    const std::span<const u8> bytes = buffer.GetBytes();
+    const auto at = [&](u32 unit)
+    { return bytes.data() + static_cast<sizet>(unit) * 16u; };
+    // The stand-ins, as the set holds them.
+    const auto standIns = simulation.StandIns->GetStandIns();
+    EXPECT_EQ(std::memcmp(at(layout.StandInBase), standIns.data(), standIns.size_bytes()), 0);
+    // Each slot's window in the dense layout.
+    for (u32 slot = 0; slot < slots; ++slot)
+    {
+        GroomDeformSlotRecord record;
+        std::memcpy(&record, at(layout.SlotBase + slot), sizeof(record));
+        EXPECT_EQ(record.First, simulation.StandIns->GetSlotOffsets()[slot]) << "slot " << slot;
+        EXPECT_EQ(record.Count, simulation.StandIns->GetSlotPointCounts()[slot]) << "slot " << slot;
+    }
+    // The guides' prefix, then the simulated points this frame and last.
+    EXPECT_EQ(std::memcmp(at(layout.GuideOffsetBase), simulation.Sparse.Offsets.data(),
+                          simulation.Sparse.Offsets.size() * sizeof(u32)),
+              0);
+    for (u32 i = 0; i < sparse; ++i)
+    {
+        GroomDeformDisplacementRecord record;
+        std::memcpy(&record, at(layout.SourceBase + i * 2u), sizeof(record));
+        EXPECT_TRUE(BitwiseEqual(glm::vec3(record.Current), simulation.Sparse.Displacements[i])) << "point " << i;
+        EXPECT_TRUE(BitwiseEqual(glm::vec3(record.Previous), simulation.Sparse.PrevDisplacements[i])) << "point " << i;
+    }
+    const GroomGuideExpansionDispatch dispatch = buffer.GuideExpansionDispatch();
+    const glm::ivec4 counts{ static_cast<i32>(slots), static_cast<i32>(first.SourceGuides), 1, static_cast<i32>(sparse) };
+    const glm::ivec4 bases{ static_cast<i32>(layout.StandInBase), static_cast<i32>(layout.SlotBase),
+                            static_cast<i32>(layout.GuideOffsetBase), static_cast<i32>(layout.SourceBase) };
+    for (i32 lane = 0; lane < 4; ++lane)
+    {
+        EXPECT_EQ(dispatch.Counts[lane], counts[lane]) << "count lane " << lane;
+        EXPECT_EQ(dispatch.Bases[lane], bases[lane]) << "base lane " << lane;
+    }
+    EXPECT_EQ(dispatch.Target.x, static_cast<i32>(layout.DisplacementBase));
+    EXPECT_EQ(dispatch.Groups, (slots + 63u) / 64u);
+
+    // The same set next frame is not written again; a new set is, even with
+    // the same contents -- it is a new budget's.
+    EXPECT_FALSE(buffer.PackFrame(rootCurves, *scene.Binding, transforms, &view, scene.Groom->GetCurveCount())
+                     .StandInsWritten);
+    StandInSimulation rebuilt = MakeStandInSimulation(*scene.Groom, 4u);
+    const GroomStrandSimulation rebuiltView = rebuilt.View();
+    EXPECT_TRUE(buffer.PackFrame(rootCurves, *scene.Binding, transforms, &rebuiltView, scene.Groom->GetCurveCount())
+                    .StandInsWritten);
+
+    // A frame with no room for its points is expanded on the CPU and packed
+    // dense instead, as before #1589: never sent short.
+    GroomDeformBuffer small;
+    small.Reset(plain.WithGuideExpansion(sparse - 1u), rootCurves, simulation.Sparse.Table.Raw());
+    const GroomDeformFrameStats packedDense =
+        small.PackFrame(rootCurves, *scene.Binding, transforms, &view, scene.Groom->GetCurveCount());
+    EXPECT_TRUE(packedDense.Simulated);
+    EXPECT_FALSE(packedDense.GuidesExpandedOnGpu);
+    EXPECT_EQ(packedDense.DisplacementCount, dense);
+    EXPECT_EQ(small.GuideExpansionDispatch().Groups, 0u);
 }
 
 TEST(GroomGpuDeformation, AStrandBudgetReproducesTheCpuStreamExactly)

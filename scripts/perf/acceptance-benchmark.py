@@ -386,6 +386,35 @@ def technique_flags(result: dict, manifest_text: str | None) -> tuple:
     return flags, problems
 
 
+def read_groom_upload(directory: Path, measurement: dict, cameras) -> dict:
+    """Per camera, the bytes the deformed grooms sent the GPU each measured frame
+    (#1589), in MiB, from the streaming telemetry's groom.deformUploadBytes. A
+    capture without the counter (one taken before it existed, or with no
+    streaming file) gives None for every camera: unavailable, never zero."""
+    found = {camera: [] for camera in cameras}
+    name = measurement.get('streamingRawFile')
+    path = directory / name if name else None
+    if path is None or not path.exists():
+        return {camera: None for camera in cameras}
+    with path.open(encoding='utf-8') as stream:
+        for line in stream:
+            if not line.strip():
+                continue
+            record = json.loads(line)
+            value = (record.get('groom') or {}).get('deformUploadBytes')
+            if record.get('camera') in found and type(value) is int and value >= 0:
+                found[record['camera']].append(value / (1 << 20))
+    return {camera: (values or None) for camera, values in found.items()}
+
+
+def describe_upload(values) -> dict | None:
+    """p50/p95/max of one run's per-frame groom upload, in MiB."""
+    if not values:
+        return None
+    return {'count': len(values), 'p50MiB': nearest_rank(values, 0.50), 'p95MiB': nearest_rank(values, 0.95),
+            'maxMiB': max(values)}
+
+
 def read_frames(path: Path, gate_ms: float) -> tuple:
     """Per-camera channel samples and total-GPU samples from measurement.csv."""
     cameras = {}
@@ -599,6 +628,7 @@ def analyse_run(directory: Path, gate_ms: float) -> dict:
             passes, pass_excluded, pass_excluded_by_pass, pass_rows = aggregate_passes(records, frame_counts)
         if pass_rows != rows:
             invalid.append(f'truncated per-pass capture: {pass_rows} of {rows} rows')
+    uploads = read_groom_upload(directory, measurement, cameras)
     scenarios = {}
     for camera, entry in sorted(cameras.items()):
         if len(entry['indices']) < MIN_FRAMES:
@@ -609,6 +639,7 @@ def analyse_run(directory: Path, gate_ms: float) -> dict:
             scenario[name] = None if values is None else describe(values, gate_ms)
         scenario['gpu'] = describe(entry['gpu'], gate_ms)
         scenario['gpuExcluded'] = entry['gpuExcluded']
+        scenario['groomUpload'] = describe_upload(uploads.get(camera))
         camera_passes = passes.get(camera, {'passes': {}, 'subPasses': {}, 'parents': {}})
         scenario['passes'] = {name: describe(values) for name, values in sorted(camera_passes['passes'].items())}
         scenario['subPasses'] = {name: {**describe(values), 'parent': camera_passes['parents'][name]}
@@ -1272,6 +1303,10 @@ def summarise_cell(cell_id: str, entries: list, repeats: int, gate_ms: float) ->
                 'channels': {name: {'perRun': [r[name] for r in rows], 'range': stat_ranges([r[name] for r in rows])}
                              for name in SUMMARY_CHANNELS},
                 'gpuExcluded': [r['gpuExcluded'] for r in rows]}
+        # The groom upload per frame (#1589), only when every counted run has it.
+        uploads = [r.get('groomUpload') for r in rows]
+        item['groomUpload'] = ({key: _range([u[key] for u in uploads]) for key in ('p50MiB', 'p95MiB', 'maxMiB')}
+                               if uploads and all(uploads) else None)
         for group in ('passes', 'subPasses'):
             names = sorted({name for r in rows for name in r[group]})
             item[group] = {}
@@ -1469,6 +1504,11 @@ def render_markdown(summary: dict) -> str:
                 lines.append('')
                 lines.append('Excluded total-GPU samples (all counted runs): '
                              + ', '.join(f'{reason} {count}' for reason, count in sorted(excluded.items())) + '.')
+            upload = item.get('groomUpload')
+            if upload:
+                lines += ['', f"Groom deformation upload per frame, MiB (range over counted runs): "
+                              f"p50 {fmt_range(upload['p50MiB'], 3)}, p95 {fmt_range(upload['p95MiB'], 3)}, "
+                              f"max {fmt_range(upload['maxMiB'], 3)}."]
             for group, title, limit in (('passes', 'Top passes by p50', 15), ('subPasses', 'Top sub-passes by p50', 10)):
                 ranked = sorted(item[group].items(), key=lambda kv: -(kv[1]['range']['p50Ms'] or [0, 0])[1])[:limit]
                 if not ranked:

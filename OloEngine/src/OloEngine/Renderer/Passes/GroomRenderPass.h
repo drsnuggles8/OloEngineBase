@@ -330,6 +330,14 @@ namespace OloEngine
         /// packed CPU-evaluated roots.
         u32 GroomsRootsOnGpu = 0;
         u32 RootsEvaluatedOnGpu = 0;
+        /// The deformed grooms whose guide stand-ins the GPU expanded this frame
+        /// (#1589; compute/GroomExpandGuides.comp), the guide slots that was,
+        /// and the simulated points sent for it -- against the slots' points,
+        /// which is what a dense upload would have sent.
+        u32 GroomsGuidesExpandedOnGpu = 0;
+        u32 GuideSlotsExpandedOnGpu = 0;
+        u64 GuidePointsSent = 0;
+        u64 GuidePointsExpanded = 0;
         /// Bound grooms the GPU path REFUSED this frame because their
         /// deformation buffer could not be created; they were drawn through the
         /// CPU path. Non-zero is a device problem, and a count so it is visible.
@@ -660,6 +668,16 @@ namespace OloEngine
         {
             m_StreamingLoads.SetStartGate(std::move(gate));
         }
+        // The pass outlives a scene. A detail load cancelled while its worker runs
+        // keeps its shared staging until the worker returns, and a load that
+        // completed without being integrated keeps it until the next frame's
+        // FinishStreamingFrame drops the entry no scene wants. The editor and
+        // runtime always run that frame, so they need no call here. A host that
+        // stops ticking between scenes, as RendererAttachedTest does between
+        // tests, calls this so that no detail load's staging outlives the scene.
+        // It cancels every detail load, queued ones even behind a closed start
+        // gate, and blocks until running preparations return.
+        void ReleaseStreamingStaging();
 
         /// When a DEFORMED coat's volume is rebuilt (#1426). Engine-wide rather
         /// than per groom: it trades CPU time against shadow lag, which is a
@@ -1078,10 +1096,11 @@ namespace OloEngine
         /// CPU path instead.
         [[nodiscard]] CacheEntry* AcquireGpuDeformedGeometry(const GroomStrandRequest& request, u64 key);
         /// The CPU-deformed path's caster runs in this frame's pose, from the
-        /// root transforms it was just built with; a coat that does not cast
-        /// keeps none.
+        /// root transforms it was just built with and the simulation it drew --
+        /// the stand-ins' expansion when it had them (#1589); a coat that does
+        /// not cast keeps none.
         void PoseCpuCasterRuns(const GroomStrandRequest& request, CacheEntry& entry,
-                               std::span<const GroomRootTransform> transforms);
+                               std::span<const GroomRootTransform> transforms, const GroomStrandSimulation& simulation);
         /// The shared rest stream this request draws, found or built. Null when
         /// it cannot be built (a binding that does not span the base groom, or
         /// a selection that emits nothing).
@@ -1098,6 +1117,16 @@ namespace OloEngine
         [[nodiscard]] bool EnsureRootFrameKernel();
         /// Records GroomRootFrames.comp over `entry`'s drawn roots (#1533 E1).
         void DispatchRootFrames(const GroomStrandRequest& request, CacheEntry& entry, bool usePreviousPose);
+        /// The GPU guide expansion's kernel (#1589), loaded on first use; false
+        /// when it cannot run -- the stand-ins are then expanded on the CPU and
+        /// sent dense, said once.
+        [[nodiscard]] bool EnsureGuideExpansionKernel();
+        /// Whether `request`'s stand-ins are expanded by GroomExpandGuides.comp
+        /// this frame: it has stand-ins, the kernel loads, and the
+        /// OLO_GROOM_GUIDES_EXPANDED_ON_CPU lever is off.
+        [[nodiscard]] bool ExpandsGuidesOnGpu(const GroomStrandRequest& request);
+        /// Records GroomExpandGuides.comp over `entry`'s guide slots (#1589).
+        void DispatchGuideExpansion(CacheEntry& entry);
         /// The drawn pose of a DEFORMED groom, as centrelines, for the coat bake
         /// (#1426). Evaluated from the frame buffer on the GPU path and read
         /// from the rebuilt stream on the CPU path. Empty for an undeformed
@@ -1324,7 +1353,7 @@ namespace OloEngine
         static constexpr u64 kScratchIdleFrames = 120;
         u64 m_BakeScratchUsedTick = 0;       ///< m_CoatSegments, m_RestCentrelines, the volume and its packing
         u64 m_PoseScratchUsedTick = 0;       ///< m_DrawnPose(Full), m_DeformedVertices, m_CpuRootScratch
-        u64 m_EvaluationScratchUsedTick = 0; ///< m_CasterPoseScratch, m_CpuSkinScratch
+        u64 m_EvaluationScratchUsedTick = 0; ///< m_CasterPoseScratch, m_CpuSkinScratch, m_GuideExpansion
 
         GroomCoatShadow::CoatRebakePolicy m_CoatRebakePolicy;
         bool m_GpuDeformation = true;
@@ -1349,6 +1378,16 @@ namespace OloEngine
         Ref<ComputeShader> m_RootFrameShader;
         Ref<UniformBuffer> m_RootFrameParams;
         bool m_RootFrameShaderFailed = false;
+        /// The GPU guide expansion (#1589), the same way: created on first use;
+        /// a kernel that fails to load is said once, and the stand-ins are then
+        /// expanded on the CPU and sent dense, as before #1589.
+        Ref<ComputeShader> m_GuideExpansionShader;
+        Ref<UniformBuffer> m_GuideExpansionParams;
+        bool m_GuideExpansionShaderFailed = false;
+        /// The stand-ins expanded on the CPU for a CPU reader of a coat this
+        /// frame -- the caster padding, the CPU-deformed path -- reused coat
+        /// after coat (#1589).
+        GroomGuideExpansion m_GuideExpansion;
         /// The drawn roots evaluated on the CPU for a request that left them to
         /// the GPU, when the pass takes a CPU path after all.
         TArray<GroomRootTransform> m_CpuRootScratch;

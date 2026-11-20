@@ -12,7 +12,8 @@ deformation itself (root frames, previous poses, invalidation) is
    shader.** `BuildGroomStrandRestMesh` writes every point as
    `conjugate(RestRotation) * (rest - RestOrigin)`, which is the half of `ApplyGroomRootTransform`
    that never changes. Per frame the pass uploads one `GroomDeformRootRecord` per drawn strand
-   (origin and rotation, this frame and last) plus the guide slots and displacement samples; the
+   (origin and rotation, this frame and last) plus the simulated guides' displacement samples
+   (expanded to every slot on the GPU: [groom-guide-stand-ins.md](groom-guide-stand-ins.md)); the
    shader evaluates `Origin + Rotation * local` and adds the guide displacement. The stream is then
    cached and immutable like an unbound groom's.
 

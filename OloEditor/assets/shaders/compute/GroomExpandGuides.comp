@@ -1,0 +1,188 @@
+#version 450 core
+
+// =============================================================================
+// GroomExpandGuides.comp -- every guide slot's displacement, from the simulated
+// guides' ones. Issue #1589.
+//
+// A simulation budget simulates a SUBSET of a coat's guide slots, and every slot
+// it left out takes the blend of the nearest simulated guides of its own group
+// (its stand-ins, #1509). Until #1589 that blend ran on the CPU and the DENSE
+// result -- every point of every slot, ~120k points a fox at any budget -- was
+// sent every frame: about 170 MiB a frame for the acceptance herd, which on
+// OpenGL cost 52-56 ms of GroomPass/RootFrames/Upload. Now only the simulated
+// guides' points cross the bus, with each slot's stand-ins (sent when the
+// budget changes), and this kernel writes the dense region the vertex stage
+// (include/GroomStrandDeform.glsl) reads, unchanged.
+//
+// ONE INVOCATION PER GUIDE SLOT. Each writes only its own slot's records, from
+// regions no invocation writes, so the order of the invocations does not matter.
+//
+// A TWIN, LINE FOR LINE, of the CPU expansion it replaces on this path:
+//   oloGroomSampleGuideAt       -> SampleGuideAt        (Groom/GroomGuideInfluence.cpp)
+//   oloGroomKeepNeighbourLength -> KeepNeighbourLength
+//   main                        -> ExpandGroomGuideDisplacements's per-slot body
+// GroomExpandGuidesParityTest runs this shader against
+// ExpandGroomGuideDisplacements on the same inputs. A change to either side
+// without the other fails it.
+//
+// THE BUFFER is the coat's deformation buffer (GroomGpuDeformation.h): this
+// shader reads the slot, stand-in, guide-offset and source regions and writes
+// only the displacement region. Its bases come in the params block below.
+// =============================================================================
+
+layout(local_size_x = 64) in;
+
+// UBO_USER_0 -- the number GroomStrandParams, GroomShadowParams and
+// GroomRootFrameParams use, rebound before every use, so a block here can
+// neither clobber nor be clobbered by a draw or the root kernel (this shader
+// declares nothing else at 7). GroomRenderPass uploads and binds it right
+// before the dispatch.
+layout(std140, binding = 7) uniform GroomExpandGuideParams
+{
+	ivec4 u_ExpandCounts; // x = slots, y = simulated guides, z = has a previous frame, w = source records
+	ivec4 u_ExpandBases;  // x = stand-in records, y = slot records, z = guide offsets, w = source records
+	ivec4 u_ExpandTarget; // x = displacement records, yzw unused
+};
+
+// SSBO_GROOM_DEFORMATION (79), the storage-buffer namespace being full; see
+// ShaderBindingLayout.h. Read-write here, read-only in the vertex stage.
+layout(std430, binding = 79) buffer GroomDeformation
+{
+	uvec4 b_GroomDeform[];
+};
+
+const uint kGroomNoGuide = 0xFFFFFFFFu;
+// KeepNeighbourLength's coherence ramp: GroomGuideInfluence.cpp's
+// kStandInIncoherent and kStandInCoherent.
+const float kStandInIncoherent = 0.25;
+const float kStandInCoherent = 0.6;
+
+vec4 oloGroomUnitFloat4(uint unit)
+{
+	return uintBitsToFloat(b_GroomDeform[unit]);
+}
+
+// The simulated guides' prefix table, four u32s to a unit.
+uint oloGroomGuideOffset(uint guide)
+{
+	return b_GroomDeform[uint(u_ExpandBases.z) + guide / 4u][guide % 4u];
+}
+
+bool oloGroomFinite(float x)
+{
+	return !isnan(x) && !isinf(x);
+}
+
+// glm::mix(x, y, a) is x * (1 - a) + y * a; spelled out so the arithmetic is
+// the CPU's rather than the driver's choice of mix().
+vec3 oloGroomMix3(vec3 x, vec3 y, float a)
+{
+	return x * (1.0 - a) + y * a;
+}
+
+float oloGroomMix1(float x, float y, float a)
+{
+	return x * (1.0 - a) + y * a;
+}
+
+// SampleGuideAt: one simulated guide's displacement at parameter t, sampled BY
+// PARAMETER. `previous` reads last frame's lane of the source record.
+bool oloGroomSampleGuideAt(uint guide, float t, bool previous, out vec3 sampled)
+{
+	sampled = vec3(0.0);
+	if (guide >= uint(u_ExpandCounts.y))
+	{
+		return false;
+	}
+	uint first = oloGroomGuideOffset(guide);
+	uint last = oloGroomGuideOffset(guide + 1u);
+	if (last <= first || last > uint(u_ExpandCounts.w))
+	{
+		return false;
+	}
+	uint count = last - first;
+	uint lane = previous ? 1u : 0u;
+	uint source = uint(u_ExpandBases.w);
+	if (count == 1u)
+	{
+		sampled = oloGroomUnitFloat4(source + first * 2u + lane).xyz;
+		return true;
+	}
+	float scaled = clamp(t, 0.0, 1.0) * float(count - 1u);
+	float floored = floor(scaled);
+	uint lower = min(uint(floored), count - 1u);
+	uint upper = min(lower + 1u, count - 1u);
+	vec3 a = oloGroomUnitFloat4(source + (first + lower) * 2u + lane).xyz;
+	vec3 b = oloGroomUnitFloat4(source + (first + upper) * 2u + lane).xyz;
+	sampled = oloGroomMix3(a, b, scaled - floored);
+	return true;
+}
+
+// KeepNeighbourLength: the blend's direction, and the neighbours' mean length
+// faded in by how coherent they are (#1533).
+vec3 oloGroomKeepNeighbourLength(vec3 linear, float meanLength)
+{
+	float len = length(linear);
+	if (!(len > 0.0) || !(meanLength > len) || !oloGroomFinite(meanLength))
+	{
+		return linear;
+	}
+	// glm::smoothstep, spelled out for the same reason as oloGroomMix3.
+	float x = clamp((len / meanLength - kStandInIncoherent) / (kStandInCoherent - kStandInIncoherent), 0.0, 1.0);
+	float restore = x * x * (3.0 - 2.0 * x);
+	return linear * (oloGroomMix1(len, meanLength, restore) / len);
+}
+
+vec3 oloGroomExpandPoint(uvec4 guides, vec4 weights, float t, bool previous)
+{
+	vec3 blended = vec3(0.0);
+	float lengths = 0.0;
+	float applied = 0.0;
+	for (int k = 0; k < 4; ++k)
+	{
+		vec3 sampled;
+		if (guides[k] == kGroomNoGuide || !(weights[k] > 0.0) ||
+		    !oloGroomSampleGuideAt(guides[k], t, previous, sampled))
+		{
+			continue;
+		}
+		blended += sampled * weights[k];
+		lengths += length(sampled) * weights[k];
+		applied += weights[k];
+	}
+	return applied > 0.0 ? oloGroomKeepNeighbourLength(blended / applied, lengths / applied) : vec3(0.0);
+}
+
+void main()
+{
+	uint slot = gl_GlobalInvocationID.x;
+	if (slot >= uint(u_ExpandCounts.x))
+	{
+		return;
+	}
+
+	// The slot's window in the dense region, as GroomDeformBuffer::PackFrame
+	// laid it out: the running sum of the slots' point counts.
+	uvec4 window = b_GroomDeform[uint(u_ExpandBases.y) + slot];
+	uint first = window.x;
+	uint count = window.y;
+
+	uint standInUnit = uint(u_ExpandBases.x) + slot * 2u;
+	uvec4 guides = b_GroomDeform[standInUnit];
+	vec4 weights = oloGroomUnitFloat4(standInUnit + 1u);
+
+	bool hasPrevious = u_ExpandCounts.z != 0;
+	float invSpan = count > 1u ? 1.0 / float(count - 1u) : 0.0;
+	uint target = uint(u_ExpandTarget.x);
+	for (uint i = 0u; i < count; ++i)
+	{
+		float t = float(i) * invSpan;
+		vec3 current = oloGroomExpandPoint(guides, weights, t, false);
+		// No previous frame is "the same as current" -- written as the same
+		// value, so the velocity it produces is exactly zero, as PackFrame's is.
+		vec3 previous = hasPrevious ? oloGroomExpandPoint(guides, weights, t, true) : current;
+		uint unit = target + (first + i) * 2u;
+		b_GroomDeform[unit] = floatBitsToUint(vec4(current, 0.0));
+		b_GroomDeform[unit + 1u] = floatBitsToUint(vec4(previous, 0.0));
+	}
+}

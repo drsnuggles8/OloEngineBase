@@ -1,9 +1,9 @@
 # Guide stand-ins keep their neighbours' drape (#1533)
 
-Read before touching `ExpandGroomGuideDisplacements` or `BuildGroomGuideStandIns` in
-`Groom/GroomGuideInfluence.cpp`, a coat's per-role guide budget (`GroomSimulationComponent::
-m_MaxGuides*`), or the simulation steps of `GroomLodComponent`. The solver itself is
-[groom-guide-simulation.md](groom-guide-simulation.md)'s.
+Read before touching `ExpandGroomGuideDisplacements`, `BuildGroomGuideStandIns`, `GroomGuideStandInSet`
+or `GroomGuideExpansion` in `Groom/GroomGuideInfluence.*`, `compute/GroomExpandGuides.comp`, a coat's
+per-role guide budget (`GroomSimulationComponent::m_MaxGuides*`), or the simulation steps of
+`GroomLodComponent`. The solver itself is [groom-guide-simulation.md](groom-guide-simulation.md)'s.
 
 ## The rules
 
@@ -28,6 +28,33 @@ m_MaxGuides*`), or the simulation steps of `GroomLodComponent`. The solver itsel
    the stand-ins further from their neighbours' drape. The long coat's strand tier read 14% less
    shadowed at 14 m than the full coat: seen energy 1.156 against a +-10% contract. With the length
    kept it reads 1.039.
+
+4. **Publish the stand-ins, not their expansion, and expand where the coat is read (#1589).** The
+   producer publishes the simulated guides' points and a `GroomGuideStandInSet`, shared by `Ref` and
+   rebuilt only when the budget changes. `GroomExpandGuides.comp` writes every slot's displacement
+   into the deformation buffer, so only the simulated points cross the bus each frame, and the
+   stand-ins cross once per budget step. A CPU reader (the CPU deformation path, the caster padding,
+   the coat bake's drawn pose, the ray-traced proxy) expands them through `GroomGuideExpansion`,
+   which calls `ExpandGroomGuideDisplacements` and so reads what the producer used to publish, bit
+   for bit. At the acceptance head close-up the GL upload fell from 176 MiB to 8.6 MiB a frame: 44,607
+   simulated points sent where 5.2 million expanded ones were.
+
+5. **A CPU reader of a GPU-expanded deformation buffer calls `ResolveCpuGuides` first.** The kernel's
+   output is never read back, so the CPU twin's displacement records stay stale until a reader asks;
+   `GroomDeformBuffer::Displacements()` asserts rather than sample every slot at rest. A
+   `BuildGroomStrandMesh` or `MeasureGroomCasterPosePadding` handed stand-ins expands them itself.
+
+6. **The kernel matches the CPU expansion within 1e-6 m + 1e-5 of the displacement, on both
+   backends.** `GroomExpandGuidesParityTest` (GL) and the `VulkanPassSuite` tenant
+   `GroomExpandGuidesKernelMatchesTheCpuExpansion` hold it, each with a broken-weight control.
+   `OLO_GROOM_GUIDES_EXPANDED_ON_CPU` is the A/B: it expands on the CPU and sends every slot.
+
+7. **On GL, judge a groom change by frame time and the capture's groom CPU fields, not by one
+   `GroomPass/RootFrames` bracket.** A GPU starved by main-thread work reports the CPU's gap as time
+   inside whichever per-coat `Upload` or `Dispatch` bracket straddles the next flush. At the coats
+   close-up one coat's `Dispatch` read 31 ms while every other coat read 0.05 ms. Read
+   `deformBuildUs`, `deformUploadUs`, `casterPoseUs` and `deformedPoseUs` in
+   `measurement-streaming.jsonl` beside the brackets.
 
 ## How it was found
 

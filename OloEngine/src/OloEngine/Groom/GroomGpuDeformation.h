@@ -58,6 +58,21 @@
 // ~300k roots' triangles and packing and sending their 64-byte records was
 // the CPU's largest cost in the showcase dog's frame.
 //
+// And when the guides are EXPANDED ON THE GPU (#1589; see
+// compute/GroomExpandGuides.comp), three more, after everything above:
+//
+//   [StandInBase, +2S)      GroomGuideWeights per slot: its stand-ins } per
+//   [GuideOffsetBase, ..)   the simulated guides' prefix, 4 to a unit } budget
+//   [SourceBase, +2C)       GroomDeformDisplacementRecord per         } per
+//                           SIMULATED point, C its capacity           } frame
+//
+// The slot and displacement regions are then laid out over EVERY slot -- the
+// dense layout the vertex stage reads -- and the displacement region is
+// WRITTEN BY THE KERNEL, not uploaded: a budget simulates a tenth of a coat's
+// guide slots, and sending the other nine tenths' blends was ~170 MiB a frame
+// for the acceptance herd, 52-56 ms of GroomPass on OpenGL. The slot and
+// stand-in regions go up when the budget changes, the source every frame.
+//
 // ONE block because the storage-buffer namespace is full
 // (ShaderBindingLayout.h, SSBO_GROOM_DEFORMATION), and because one block is one
 // command-ordered upload per coat per frame on Vulkan rather than three.
@@ -74,6 +89,7 @@
 
 #include <glm/glm.hpp>
 
+#include <algorithm>
 #include <span>
 #include <vector>
 
@@ -177,6 +193,13 @@ namespace OloEngine
         u32 SkinBase = 0;
         u32 VertexBase = 0;
         u32 PaletteBase = 0;
+        /// The GPU guide expansion's regions (#1589), all zero-sized when the
+        /// expansion is uploaded dense from the CPU. SourceCapacity is the
+        /// simulated points the source region holds.
+        u32 SourceCapacity = 0;
+        u32 StandInBase = 0;
+        u32 GuideOffsetBase = 0;
+        u32 SourceBase = 0;
         u32 TotalUnits = 0;
 
         [[nodiscard]] static GroomDeformBufferLayout Make(u32 rootCount, u32 slotCount,
@@ -187,14 +210,58 @@ namespace OloEngine
         [[nodiscard]] static GroomDeformBufferLayout Make(u32 rootCount, u32 slotCount, u32 displacementCapacity,
                                                           u32 vertexCount, u32 boneCount) noexcept;
 
+        /// This layout with the GPU guide expansion's regions appended (#1589),
+        /// for up to `sourceCapacity` simulated points. Unchanged when there are
+        /// no slots or no capacity: the expansion is then the CPU's.
+        [[nodiscard]] GroomDeformBufferLayout WithGuideExpansion(u32 sourceCapacity) const noexcept;
+
         /// Whether the root region is written by the compute pass.
         [[nodiscard]] bool RootsOnGpu() const noexcept
         {
             return BoneCount > 0u && VertexCount > 0u;
         }
+        /// Whether a coat's stand-ins are expanded by the compute pass into the
+        /// displacement region (GroomExpandGuides.comp).
+        [[nodiscard]] bool ExpandsGuides() const noexcept
+        {
+            return SourceCapacity > 0u && SlotCount > 0u;
+        }
         [[nodiscard]] u64 PaletteOffsetBytes() const noexcept
         {
             return static_cast<u64>(PaletteBase) * 16u;
+        }
+        /// The palette's end: this frame's palette and last frame's.
+        [[nodiscard]] u64 PaletteEndBytes() const noexcept
+        {
+            return PaletteOffsetBytes() + static_cast<u64>(BoneCount) * 2u * sizeof(glm::mat4);
+        }
+        [[nodiscard]] u64 SlotOffsetBytes() const noexcept
+        {
+            return static_cast<u64>(SlotBase) * 16u;
+        }
+        /// The slot region's end, which is where the displacement region starts.
+        [[nodiscard]] u64 SlotEndBytes() const noexcept
+        {
+            return static_cast<u64>(DisplacementBase) * 16u;
+        }
+        /// The stand-in region, sent when the budget's stand-ins change.
+        [[nodiscard]] u64 StandInOffsetBytes() const noexcept
+        {
+            return static_cast<u64>(StandInBase) * 16u;
+        }
+        [[nodiscard]] u64 StandInEndBytes() const noexcept
+        {
+            return static_cast<u64>(GuideOffsetBase) * 16u;
+        }
+        /// The guide offsets and then `sourceCount` simulated points: what a
+        /// frame whose guides the GPU expands sends of its guides.
+        [[nodiscard]] u64 GuideOffsetBytes() const noexcept
+        {
+            return static_cast<u64>(GuideOffsetBase) * 16u;
+        }
+        [[nodiscard]] u64 SourceEndBytes(u32 sourceCount) const noexcept
+        {
+            return (static_cast<u64>(SourceBase) + static_cast<u64>(std::min(sourceCount, SourceCapacity)) * 2u) * 16u;
         }
         /// The bound surface's vertex region, for re-sending it alone when a
         /// morph moves the body's rest positions; empty on the CPU-packed layout.
@@ -238,10 +305,39 @@ namespace OloEngine
         /// Guide displacements travel this frame; false leaves every strand on
         /// its bound rest shape, which is what an un-simulated coat is.
         bool Simulated = false;
+        /// The displacement records the vertex stage reads: the simulated
+        /// guides' points, or every slot's when the stand-ins are expanded.
         u32 DisplacementCount = 0;
         u32 StrandsHeldAtRest = 0;
         u32 StrandsSimulated = 0;
         u32 StrandsUnguided = 0;
+
+        /// The stand-ins are expanded by the compute pass this frame (#1589):
+        /// the displacement region is the kernel's to write, and what was
+        /// packed for it is the source -- SourceCount simulated points of
+        /// SourceGuides guides -- and, when StandInsWritten, the slot and
+        /// stand-in regions, rewritten for a new budget.
+        bool GuidesExpandedOnGpu = false;
+        bool StandInsWritten = false;
+        bool SourceHasPrevious = false;
+        u32 SourceCount = 0;
+        u32 SourceGuides = 0;
+    };
+
+    /// GroomExpandGuides.comp's parameters for one coat's frame, in the
+    /// GroomExpandGuideParams block's order (ShaderBindingLayout.h). Groups is
+    /// the dispatch's x; zero means there is nothing to expand.
+    struct GroomGuideExpansionDispatch
+    {
+        /// x = slots, y = simulated guides, z = 1 with a previous frame, w =
+        /// simulated points.
+        glm::ivec4 Counts{ 0 };
+        /// The regions it reads, in 16-byte units: x = stand-ins, y = slot
+        /// records, z = guide offsets, w = source records.
+        glm::ivec4 Bases{ 0 };
+        /// x = the displacement records it writes; yzw unused.
+        glm::ivec4 Target{ 0 };
+        u32 Groups = 0;
     };
 
     /// The GUIDE-DISPLACEMENT capacity a coat's buffer needs: every point of
@@ -278,11 +374,38 @@ namespace OloEngine
          *        and spanning the whole groom (GroomStrandRequest::RootTransforms).
          * @param simulation the frame's guide displacements, or null. An
          *        unusable one is treated as absent, as BuildGroomStrandMesh does.
+         *        One that expands stand-ins (#1589) is drawn from every slot's
+         *        expansion: on a layout that ExpandsGuides() with room for its
+         *        points, the simulated points are packed for
+         *        GroomExpandGuides.comp and the GPU expands them
+         *        (GuidesExpandedOnGpu); otherwise the expansion is made here, on
+         *        the CPU, and packed dense, as before #1589.
          * @param baseCurveCount the base groom's curve count.
+         * @param gpuExpandsGuides false packs the expansion dense even on a
+         *        layout with the kernel's regions: the caller will not dispatch
+         *        it this frame (OLO_GROOM_GUIDES_EXPANDED_ON_CPU).
          */
         GroomDeformFrameStats PackFrame(std::span<const u32> rootCurves, const GroomBindingAsset& binding,
                                         std::span<const GroomRootTransform> rootTransforms,
-                                        const GroomStrandSimulation* simulation, u32 baseCurveCount);
+                                        const GroomStrandSimulation* simulation, u32 baseCurveCount,
+                                        bool gpuExpandsGuides = true);
+
+        /// GroomExpandGuides.comp's parameters for the frame PackFrame packed
+        /// (#1589); Groups is zero unless that frame's GuidesExpandedOnGpu.
+        [[nodiscard]] GroomGuideExpansionDispatch GuideExpansionDispatch() const noexcept;
+
+        /**
+         * @brief The dense simulation this frame's pack is drawn from, for a CPU reader (#1589).
+         *
+         * And the CPU mirror's displacement records resolved to it, so
+         * EvaluateGroomDeformedPoint and the functions built on it read what the
+         * GPU draws. `simulation` must be the one PackFrame was handed this
+         * frame. When the GPU expands the guides, the CPU never needs the
+         * expansion unless a reader asks, so it is made here, once per pack;
+         * when PackFrame expanded them on the CPU, it is that expansion. Without
+         * stand-ins it is `simulation` itself. Valid until the next PackFrame.
+         */
+        [[nodiscard]] GroomStrandSimulation ResolveCpuGuides(const GroomStrandSimulation& simulation);
 
         /**
          * @brief Writes the GPU root evaluation's STATIC regions (#1533 E1).
@@ -350,8 +473,10 @@ namespace OloEngine
             return static_cast<u64>(m_Weights.GetAllocatedSize() + m_BindFrames.GetAllocatedSize() +
                                     m_Clump.GetAllocatedSize() +
                                     m_Roots.GetAllocatedSize() + m_Slots.GetAllocatedSize() +
-                                    m_Displacements.GetAllocatedSize() + m_Bytes.GetAllocatedSize()) +
-                   static_cast<u64>(m_CountedGuideOfSlot.capacity()) * sizeof(u32);
+                                    m_Displacements.GetAllocatedSize() + m_Bytes.GetAllocatedSize() +
+                                    m_Source.GetAllocatedSize() + m_GuideOffsets.GetAllocatedSize() +
+                                    m_IdentitySlots.GetAllocatedSize()) +
+                   static_cast<u64>(m_CountedGuideOfSlot.capacity()) * sizeof(u32) + m_Expansion.GetCpuBytes();
         }
         /// The per-frame region only — what a frame uploads.
         [[nodiscard]] std::span<const u8> GetDynamicBytes() const noexcept
@@ -378,6 +503,20 @@ namespace OloEngine
         /// frame where a root has no deformed one. Returns the roots held.
         u32 PackRootRecords(std::span<const u32> rootCurves, const GroomBindingAsset& binding,
                             std::span<const GroomRootTransform> rootTransforms, u32 baseCurveCount);
+
+        /// A dense simulation's displacement records into m_Displacements, and
+        /// into the byte image unless `cpuMirrorOnly`. Returns the count.
+        u32 PackDisplacementRecords(const GroomGuideDisplacements& guides, bool cpuMirrorOnly);
+
+        /// The frame's simulated points, guide offsets and -- for a new set --
+        /// the dense slot windows and the stand-ins, for GroomExpandGuides.comp.
+        void PackGuideSource(const GroomStrandSimulation& simulation);
+
+        /// The strand counters, recounted only when the slots a guide moves
+        /// are not the ones last counted. `guideOfSlot` is the frame's slot
+        /// map; every slot counts as moved when the stand-ins are expanded.
+        void CountStrands(std::span<const u32> rootCurves, const GroomStrandSimulation& simulation,
+                          std::span<const u32> guideOfSlot);
 
         GroomDeformBufferLayout m_Layout;
         GroomDeformFrameStats m_Frame;
@@ -417,6 +556,26 @@ namespace OloEngine
         u32 m_CountedSimulated = 0;
         u32 m_CountedUnguided = 0;
         bool m_CountsValid = false;
+
+        // THE GUIDE EXPANSION (#1589). The source the kernel expands -- the
+        // simulated points, this frame and last, and the guides' offsets padded
+        // to whole units -- and the serial of the stand-in set whose slot
+        // windows and stand-ins the image holds, so a set is written (and sent)
+        // once, not every frame. 0 is no set: serials start at 1.
+        TArray<GroomDeformDisplacementRecord> m_Source;
+        TArray<u32> m_GuideOffsets;
+        u64 m_PackedStandInSerial = 0;
+        // The CPU's expansion of the frame's stand-ins, made by PackFrame when
+        // it packs dense, or by ResolveCpuGuides for a CPU reader when the GPU
+        // expands. Its view is m_Expanded's, valid while m_ExpandedValid.
+        GroomGuideExpansion m_Expansion;
+        GroomStrandSimulation m_Expanded;
+        bool m_ExpandedValid = false;
+        // False while the GPU expands the frame's guides and no CPU reader has
+        // asked for them: the CPU mirror's displacement records are stale.
+        bool m_CpuGuidesResolved = true;
+        // 0..slots-1: the slot map of an expanded frame, for the counters.
+        TArray<u32> m_IdentitySlots;
     };
 
     /**

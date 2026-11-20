@@ -1126,6 +1126,8 @@ TEST(GroomLodCrossFade, ThePartnerIsTheSameCoatOnItsOwnTierAndViewsThePrimarysRo
     primary.Build.MaxStrands = 50u;
     primary.RootTransforms.SetNum(100);
     primary.SimulationDisplacements.SetNum(3);
+    primary.SimulationStandIns = GroomGuideStandInSet::Create(TArray<GroomGuideWeights>{ GroomGuideWeights{} },
+                                                              TArray<u32>{ 3u });
     primary.GpuRootInputs.HasHistory = true;
 
     GroomStrandRequest partner;
@@ -1150,6 +1152,11 @@ TEST(GroomLodCrossFade, ThePartnerIsTheSameCoatOnItsOwnTierAndViewsThePrimarysRo
     EXPECT_EQ(partner.EntityID, 7);
     EXPECT_EQ(partner.IntersectionBodyEntityID, 42) << "the outgoing tier lost the body its soft intersection ignores";
     EXPECT_EQ(partner.SimulationDisplacements.Num(), 3);
+    // #1589: the guides are published with their stand-ins, and the fading
+    // tier is drawn from the same expansion as the primary.
+    ASSERT_TRUE(primary.SimulationStandIns);
+    EXPECT_EQ(partner.SimulationStandIns.Raw(), primary.SimulationStandIns.Raw())
+        << "the outgoing tier lost the stand-ins its left-out slots are drawn from";
     EXPECT_TRUE(partner.GpuRootInputs.HasHistory);
     EXPECT_EQ(partner.Lod.Representation, GroomRepresentation::Strand);
     EXPECT_EQ(partner.Lod.VisibilityStep, 1u) << "the partner took the primary's strand budget (#1628)";

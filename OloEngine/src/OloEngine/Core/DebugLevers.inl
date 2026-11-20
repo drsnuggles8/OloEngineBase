@@ -95,6 +95,11 @@ OLO_LEVER_EXACT(GroomProxyOnCpu, "OLO_GROOM_PROXY_ON_CPU",
                 "The two produce the same ribbons to float rounding (a degenerate segment is dropped on the CPU and "
                 "written as a zero-area quad on the GPU); this is the A/B for the GroomProxy CPU scopes and for the "
                 "shadow. Read per frame.")
+OLO_LEVER_EXACT(GroomGuidesExpandedOnCpu, "OLO_GROOM_GUIDES_EXPANDED_ON_CPU",
+                "Expand a simulated coat's guide stand-ins on the CPU and upload every slot's displacement, instead "
+                "of sending the simulated guides alone for GroomExpandGuides.comp to expand (#1589). The two draw "
+                "the same coat to float rounding; this is the A/B for GroomPass/RootFrames/Upload and the "
+                "DeformedUploadBytes the kernel removes. Read per frame.")
 OLO_LEVER_NUMBER(GroomShadowCasterFraction, "OLO_GROOM_SHADOW_CASTER_FRACTION", 0.015625f, 1.0f,
                  "Cast every groom's scene shadow from this share of its strands in EVERY view, instead of the share "
                  "each view's width floor allows (GroomShadowCasterFraction, #1533 E1). 1 casts the whole coat -- the "

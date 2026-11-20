@@ -22,6 +22,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <set>
 #include <string>
@@ -818,4 +819,157 @@ TEST(GroomGuideInfluence, AMalformedLayoutIsRefusedWithNothingPublished)
     standIns[0].Guides[0] = 0u;
     EXPECT_TRUE(ExpandGroomGuideDisplacements(view, pointCounts, valid, two, outOffsets, out));
     EXPECT_EQ(out.Num(), 2);
+}
+
+// =============================================================================
+// Issue #1589: the stand-ins are published beside the simulated guides, not
+// expanded into them.
+//
+// The producer used to expand every slot's displacement on the CPU for every
+// coat, every frame, and the dense result crossed the bus: ~120k points a fox.
+// It now publishes the simulated guides and a GroomGuideStandInSet; the GPU
+// expands them where it draws the coat, and every CPU reader -- the CPU build,
+// the caster padding, the coat bake, the ray-traced proxy -- samples
+// GroomGuideExpansion's expansion, which must be the one the producer published.
+// =============================================================================
+namespace
+{
+    // The stand-in set the producer publishes beside `fixture`'s budget.
+    [[nodiscard]] Ref<GroomGuideStandInSet> MakeStandInSet(const GroomAsset& groom, const SimulationFixture& fixture)
+    {
+        std::vector<glm::vec3> roots;
+        std::vector<u32> groups;
+        TArray<u32> pointCounts;
+        for (const u32 curve : fixture.Table->GetGuideCurves())
+        {
+            roots.push_back(groom.GetPoints()[groom.GetCurveFirstPoint(curve)]);
+            groups.push_back(groom.GetCurveGroupIds()[curve]);
+            pointCounts.Add(groom.GetCurvePointCount(curve));
+        }
+        TArray<GroomGuideWeights> standIns;
+        const std::vector<u32> roles(roots.size(), 0u); // one role
+        BuildGroomGuideStandIns(roots, groups, roles, fixture.GuideOfSlot, standIns);
+        return GroomGuideStandInSet::Create(std::move(standIns), std::move(pointCounts));
+    }
+
+    template<typename T>
+    [[nodiscard]] bool SameBits(std::span<const T> a, std::span<const T> b) noexcept
+    {
+        return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size_bytes()) == 0);
+    }
+} // namespace
+
+TEST(GroomGuideInfluence, TheExpansionACpuReaderSamplesIsTheOneTheProducerPublished)
+{
+    auto groom = MakeLine(400, 4);
+    ASSERT_TRUE(groom);
+    auto table = BuildGroomGuideInfluence(*groom);
+    SimulationFixture fixture = MakeSimulation(*groom, table, [](u32 slot)
+                                               { return glm::vec3(0.01f * static_cast<f32>(slot % 7u), -0.2f, 0.1f); });
+    KeepEvery(fixture, 4u);
+    for (const glm::vec3& d : fixture.Displacements)
+    {
+        fixture.PrevDisplacements.push_back(d * 0.5f);
+    }
+    const Ref<GroomGuideStandInSet> set = MakeStandInSet(*groom, fixture);
+    ASSERT_TRUE(set);
+    EXPECT_EQ(set->GetSlotCount(), table->GetGuideCount());
+
+    GroomStrandSimulation sparse = fixture.View();
+    sparse.StandIns = set.Raw();
+    ASSERT_TRUE(sparse.IsUsable(groom->GetCurveCount()));
+    ASSERT_TRUE(sparse.ExpandsStandIns());
+
+    // What the producer published before #1589, this frame and last.
+    TArray<u32> offsets;
+    TArray<glm::vec3> current;
+    TArray<u32> prevOffsets;
+    TArray<glm::vec3> previous;
+    ASSERT_TRUE(ExpandGroomGuideDisplacements(set->GetStandIns(), set->GetSlotPointCounts(), fixture.Offsets,
+                                              fixture.Displacements, offsets, current));
+    ASSERT_TRUE(ExpandGroomGuideDisplacements(set->GetStandIns(), set->GetSlotPointCounts(), fixture.Offsets,
+                                              fixture.PrevDisplacements, prevOffsets, previous));
+    EXPECT_EQ(set->GetPointCount(), static_cast<u32>(current.Num()));
+    EXPECT_TRUE(SameBits(set->GetSlotOffsets(), std::span<const u32>(offsets.GetData(), static_cast<sizet>(offsets.Num()))))
+        << "the set's dense windows are the expansion's own layout";
+
+    GroomGuideExpansion expansion;
+    const GroomStrandSimulation dense = expansion.Expand(sparse);
+    EXPECT_EQ(dense.StandIns, nullptr) << "an expanded view is never expanded again";
+    EXPECT_TRUE(dense.IsUsable(groom->GetCurveCount()));
+    EXPECT_TRUE(SameBits(dense.Displacements.GuideOffsets, std::span<const u32>(offsets.GetData(), static_cast<sizet>(offsets.Num()))));
+    EXPECT_TRUE(SameBits(dense.Displacements.Displacements,
+                         std::span<const glm::vec3>(current.GetData(), static_cast<sizet>(current.Num()))));
+    EXPECT_TRUE(SameBits(dense.Displacements.PrevDisplacements,
+                         std::span<const glm::vec3>(previous.GetData(), static_cast<sizet>(previous.Num()))));
+    ASSERT_EQ(dense.GuideOfSlot.size(), static_cast<sizet>(table->GetGuideCount()));
+    for (u32 slot = 0; slot < table->GetGuideCount(); ++slot)
+    {
+        EXPECT_EQ(dense.GuideOfSlot[slot], slot);
+        EXPECT_EQ(dense.Displacements.SlotOfGuide[slot], slot);
+    }
+
+    // This frame alone, for a reader that reads no previous frame.
+    const GroomStrandSimulation currentOnly = expansion.Expand(sparse, false);
+    EXPECT_TRUE(currentOnly.Displacements.PrevDisplacements.empty());
+    EXPECT_TRUE(SameBits(currentOnly.Displacements.Displacements,
+                         std::span<const glm::vec3>(current.GetData(), static_cast<sizet>(current.Num()))));
+}
+
+TEST(GroomGuideInfluence, StandInsThatDoNotDescribeTheFrameDrawItAsItStands)
+{
+    auto groom = MakeLine(64, 4);
+    ASSERT_TRUE(groom);
+    auto table = BuildGroomGuideInfluence(*groom);
+    SimulationFixture fixture = MakeSimulation(*groom, table, [](u32)
+                                               { return glm::vec3(0.0f, -0.1f, 0.0f); });
+    KeepEvery(fixture, 2u);
+    const Ref<GroomGuideStandInSet> set = MakeStandInSet(*groom, fixture);
+    ASSERT_TRUE(set);
+
+    // The control: these stand-ins describe this frame.
+    GroomStrandSimulation sparse = fixture.View();
+    sparse.StandIns = set.Raw();
+    ASSERT_TRUE(sparse.ExpandsStandIns());
+
+    // A frame with one guide fewer than the stand-ins name: they no longer
+    // describe it, and it is drawn as the simulated set stands -- what the
+    // producer published for such a frame before #1589 -- never half-expanded.
+    SimulationFixture shorter = fixture;
+    shorter.Offsets.pop_back();
+    shorter.SlotOfGuide.pop_back();
+    shorter.Displacements.resize(shorter.Offsets.back());
+    GroomStrandSimulation mismatched = shorter.View();
+    mismatched.StandIns = set.Raw();
+    EXPECT_FALSE(mismatched.ExpandsStandIns());
+    GroomGuideExpansion expansion;
+    const GroomStrandSimulation asItStands = expansion.Expand(mismatched);
+    EXPECT_EQ(asItStands.StandIns, nullptr);
+    EXPECT_EQ(asItStands.Displacements.Displacements.data(), mismatched.Displacements.Displacements.data());
+    EXPECT_EQ(asItStands.GuideOfSlot.data(), mismatched.GuideOfSlot.data());
+
+    // No stand-ins at all: the simulated set is every slot already.
+    const GroomStrandSimulation full = fixture.View();
+    EXPECT_FALSE(full.ExpandsStandIns());
+    EXPECT_EQ(expansion.Expand(full).Displacements.Displacements.data(), full.Displacements.Displacements.data());
+}
+
+TEST(GroomGuideInfluence, AStandInSetIsOneLayoutAndEachSetIsItsOwn)
+{
+    TArray<GroomGuideWeights> two;
+    two.SetNum(2);
+    // A point count per slot, or no set.
+    EXPECT_FALSE(GroomGuideStandInSet::Create(two, TArray<u32>{ 3u }));
+    EXPECT_FALSE(GroomGuideStandInSet::Create(TArray<GroomGuideWeights>{}, TArray<u32>{}));
+    // Slots whose points do not fit a u32 offset.
+    EXPECT_FALSE(GroomGuideStandInSet::Create(two, TArray<u32>{ 0xFFFFFFFFu, 2u }));
+
+    const Ref<GroomGuideStandInSet> a = GroomGuideStandInSet::Create(two, TArray<u32>{ 3u, 5u });
+    const Ref<GroomGuideStandInSet> b = GroomGuideStandInSet::Create(two, TArray<u32>{ 3u, 5u });
+    ASSERT_TRUE(a && b);
+    EXPECT_EQ(a->GetPointCount(), 8u);
+    ASSERT_EQ(a->GetSlotOffsets().size(), 3u);
+    EXPECT_EQ(a->GetSlotOffsets()[1], 3u);
+    // The same contents, a different set: a buffer that sent `a` must send `b`.
+    EXPECT_NE(a->GetSerial(), b->GetSerial());
 }

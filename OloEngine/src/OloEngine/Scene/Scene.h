@@ -1947,22 +1947,26 @@ namespace OloEngine
             /// per frame, on the coat's first step of it (SimulateGroomGuides).
             u64 m_RotatedFrame = ~0ull;
 
-            /// EVERY SLOT'S displacement, as published to the strand build
-            /// (issue #1509): the simulated guides' own, and for each slot the
-            /// budget left out, the blend of its stand-ins -- the nearest
-            /// simulated guides of its group (BuildGroomGuideStandIns). Without
+            /// EVERY SLOT'S stand-ins (issue #1509): for each slot the budget
+            /// left out, the nearest simulated guides of its group
+            /// (BuildGroomGuideStandIns), whose blend it is drawn with. Without
             /// them a strand whose guides were all left out drew at its groomed
-            /// rest shape, a third of the coat at a quarter of the guides. Also
-            /// what a budget step seeds the new guide set from, so the coat keeps
-            /// its drape across the step instead of dropping back to rest.
-            TArray<GroomGuideWeights> m_StandInOfSlot; ///< rebuilt on a budget change
-            TArray<u32> m_SlotPointCount;              ///< each slot's curve point count
-            TArray<u32> m_IdentitySlots;               ///< 0..slots-1, the published slot <-> entry maps
+            /// rest shape, a third of the coat at a quarter of the guides.
+            /// Rebuilt on a budget change and published as it is, beside the
+            /// simulated guides (#1589): the GPU expands them where it draws the
+            /// coat, so only the simulated points cross the bus. Null when every
+            /// slot is simulated.
+            Ref<GroomGuideStandInSet> m_StandIns;
+            /// What the last frame published -- its stand-ins and its guides'
+            /// offsets; its displacements are m_PrevDisplacements once rotated --
+            /// which a budget step seeds the new guide set from, so the coat
+            /// keeps its drape across the step instead of dropping back to rest.
+            Ref<GroomGuideStandInSet> m_PublishedStandIns;
             TArray<u32> m_PublishedOffsets;
-            TArray<glm::vec3> m_PublishedDisplacements;
-            TArray<glm::vec3> m_PublishedPrevDisplacements;
-            TArray<u32> m_PublishedPrevOffsets; ///< scratch for the previous frame's expansion
-            TArray<glm::vec3> m_Seeds;          ///< scratch for a budget step's seed
+            bool m_PublishedEverySlot = false;
+            TArray<u32> m_SeedOffsets;             ///< scratch for a budget step's expanded seed
+            TArray<glm::vec3> m_SeedDisplacements; ///< scratch for a budget step's expanded seed
+            TArray<glm::vec3> m_Seeds;             ///< scratch for a budget step's seed
 
             /// The fitted body proxy, in the body's REST object space, and this
             /// frame's resolution of it into world space.

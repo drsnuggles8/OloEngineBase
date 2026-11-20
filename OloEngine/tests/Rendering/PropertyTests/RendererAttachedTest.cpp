@@ -2,11 +2,13 @@
 #include "ProcessRendererInit.h"
 #include "RendererAttachedTest.h"
 
+#include "OloEngine/Asset/AssetSystem/RepresentationStreaming.h"
 #include "OloEngine/Precipitation/PrecipitationSystem.h"
 #include "OloEngine/Precipitation/ScreenSpacePrecipitation.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Debug/GLStateGuard.h"
 #include "OloEngine/Renderer/Framebuffer.h"
+#include "OloEngine/Renderer/Passes/GroomRenderPass.h"
 #include "OloEngine/Renderer/Renderer.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -355,6 +357,23 @@ namespace OloEngine::Tests
         // For the minimal smoke tests we don't enable physics, so just
         // drop the Scene ref.
         m_Scene.Reset();
+
+        // THE STREAMING STAGING THIS TEST RESERVED ENDS WITH IT. The groom pass
+        // outlives the scene. A detail load cancelled while its worker runs keeps
+        // its shared staging until the worker returns, one that completed
+        // without being integrated keeps it until a later frame, and one queued
+        // behind a start gate the test left closed keeps it until it is cancelled. Under CPU load
+        // the first outlasted the next test's warm-up frames: the vegetation
+        // streaming test found 134 MB of a groom LOD test's staging still
+        // reserved, and its own requests were refused. A scene's own queues go
+        // with the scene, so nothing may be left.
+        if (auto* pass = Renderer3D::GetGroomRenderPass())
+            pass->ReleaseStreamingStaging();
+        if (const u64 staging = RepresentationStreaming::Get().GetStats().StagingCpuBytes; staging != 0u)
+        {
+            ADD_FAILURE() << staging << " bytes of representation-streaming staging are still reserved after the "
+                                        "scene was released; the next test's requests would be refused for them.";
+        }
         RenderPropertyFixture::SetVulkanSceneTestAdmitted(false);
     }
 

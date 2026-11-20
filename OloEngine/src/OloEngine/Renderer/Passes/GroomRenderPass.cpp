@@ -923,8 +923,18 @@ namespace OloEngine
         const u32 baseCurveCount = request.Groom->GetCurveCount();
         const GroomStrandSimulation simulation = request.Simulation();
         const bool simulated = simulation.IsUsable(baseCurveCount);
+        // THE STAND-INS EXPANDED ON THE GPU (#1589) when the kernel runs: only
+        // the simulated guides' points are sent, into a source region sized for
+        // them, and GroomExpandGuides.comp writes every slot's displacement.
+        // Otherwise PackFrame expands them on the CPU and they are sent dense.
+        const bool standIns = simulated && simulation.ExpandsStandIns();
+        const bool expandOnGpu = standIns && ExpandsGuidesOnGpu(request);
         const u32 displacementsThisFrame =
-            simulated ? static_cast<u32>(simulation.Displacements.Displacements.size()) : 0u;
+            !simulated ? 0u
+            : standIns ? simulation.StandIns->GetPointCount()
+                       : static_cast<u32>(simulation.Displacements.Displacements.size());
+        const u32 sourceThisFrame =
+            expandOnGpu ? static_cast<u32>(simulation.Displacements.Displacements.size()) : 0u;
         const std::vector<u32>& rootCurves = entry.Rest->RootCurves;
         const u32 rootCount = static_cast<u32>(rootCurves.size());
 
@@ -951,14 +961,26 @@ namespace OloEngine
             current.RootsOnGpu() != rootsOnGpu ||
             (rootsOnGpu && (current.VertexCount != vertexCount || current.BoneCount != boneCount ||
                             entry.RootSkinKey != request.GpuRootSurfaceKey));
+        // A coat the GPU now expands for and whose layout has no source region,
+        // or too small a one (a budget step up), is laid out again; one that no
+        // longer needs it keeps it rather than relayout at every LOD step.
+        const bool sourceOutgrown =
+            expandOnGpu && (!current.ExpandsGuides() || sourceThisFrame > current.SourceCapacity);
         const bool relayout = !entry.DeformGpu || current.RootCount != rootCount || tableChanged ||
-                              displacementsThisFrame > current.DisplacementCapacity || surfaceChanged;
+                              displacementsThisFrame > current.DisplacementCapacity || surfaceChanged || sourceOutgrown;
         if (relayout)
         {
             const GroomGuideInfluenceTable* table = simulated ? simulation.Influence : nullptr;
             const u32 capacity = std::max(GroomDeformDisplacementCapacity(*request.Groom, table), displacementsThisFrame);
-            const GroomDeformBufferLayout layout = GroomDeformBufferLayout::Make(
-                rootCount, table != nullptr ? table->GetGuideCount() : 0u, capacity, vertexCount, boneCount);
+            // The source keeps the largest budget this entry has met -- also
+            // through a relayout on a frame the GPU does not expand (a lever
+            // flip, an unsimulated frame) -- so no relayout shrinks it under
+            // the next step, and the next expanded frame does not lay out again.
+            const u32 sourceCapacity = std::max(expandOnGpu ? sourceThisFrame : 0u, current.SourceCapacity);
+            const GroomDeformBufferLayout layout =
+                GroomDeformBufferLayout::Make(rootCount, table != nullptr ? table->GetGuideCount() : 0u, capacity,
+                                              vertexCount, boneCount)
+                    .WithGuideExpansion(sourceCapacity);
             entry.DeformCpu.Reset(layout, rootCurves, table);
             entry.DeformClumpWritten = false;
             entry.DeformWeightsFrom = simulated ? request.Influence : Ref<GroomGuideInfluenceTable>{};
@@ -1032,8 +1054,9 @@ namespace OloEngine
         const std::span<const GroomRootTransform> transforms =
             rootsOnGpu ? request.DrawnRoots()
                        : GroomCpuRootTransforms(request, rootCurves, m_CpuRootScratch, CpuSkinScratch());
-        const GroomDeformFrameStats packed = entry.DeformCpu.PackFrame(rootCurves, *request.Binding, transforms,
-                                                                       simulated ? &simulation : nullptr, baseCurveCount);
+        const GroomDeformFrameStats packed =
+            entry.DeformCpu.PackFrame(rootCurves, *request.Binding, transforms, simulated ? &simulation : nullptr,
+                                      baseCurveCount, expandOnGpu);
         // THE CASTER'S RUNS IN THIS POSE (#1533), here because this is where the
         // frame's root data is in hand: the palette when the kernel evaluates
         // the drawn roots, the transforms PackFrame just read otherwise. The
@@ -1046,8 +1069,21 @@ namespace OloEngine
             const auto poseStart = std::chrono::steady_clock::now();
             const GroomCasterStream& caster = entry.Rest->Caster;
             const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
+            // Over every slot's displacement as the coat is drawn (#1589): the
+            // pack's own expansion when it made one on the CPU, else this
+            // frame's alone into the pass's reusable scratch -- the padding
+            // reads no previous frame, and the GPU's expansion is never read
+            // back. A coat whose self-shadow bake evaluates the drawn pose later
+            // this frame resolves the CPU mirror anyway (AcquireDrawnPose), so
+            // its padding reads that one cached expansion rather than a second.
+            const bool posesLater = !request.CoatBakeAtRest && request.CoatShadow != GroomCoatShadowTechnique::None &&
+                                    GroomCoatShadowModeIsImplemented(request.CoatShadow);
+            const GroomStrandSimulation padded = !simulated ? GroomStrandSimulation{}
+                                                 : packed.GuidesExpandedOnGpu && !posesLater
+                                                     ? m_GuideExpansion.Expand(simulation, false)
+                                                     : entry.DeformCpu.ResolveCpuGuides(simulation);
             GroomCasterPosePadding padding = MeasureGroomCasterPosePadding(
-                simulated ? &simulation : nullptr, request.Groom->GetCurveGroupIds(), &coat,
+                simulated ? &padded : nullptr, request.Groom->GetCurveGroupIds(), &coat,
                 entry.Rest->MaxRadius * std::max(request.WidthScale, 0.0f));
             padding.WetDisplacement = GroomWetCasterDisplacement(request, caster.MaxStrandLength);
             GroomCasterPoseScratch& scratch = CasterPoseScratch();
@@ -1116,7 +1152,22 @@ namespace OloEngine
                                       std::memcmp(&wetRecord, &entry.DeformWetSent, sizeof(GroomDeformWetRecord)) == 0;
             if (relayout)
             {
-                send(0u, bytes.size());
+                // Every region but the dense displacements when the kernel
+                // writes those (#1589): a budget step up lays the buffer out
+                // again, and sending ~120k points of zeros a fox for the kernel
+                // to overwrite would re-send the bytes this layout exists to save.
+                if (entry.DeformCpu.GetFrameStats().GuidesExpandedOnGpu)
+                {
+                    const u64 denseBegin = static_cast<u64>(layout.DisplacementBase) * 16u;
+                    const u64 denseEnd = denseBegin + static_cast<u64>(layout.DisplacementCapacity) *
+                                                          sizeof(GroomDeformDisplacementRecord);
+                    send(0u, denseBegin);
+                    send(denseEnd, bytes.size());
+                }
+                else
+                {
+                    send(0u, bytes.size());
+                }
                 entry.DeformWetSent = wetRecord;
             }
             else
@@ -1129,12 +1180,32 @@ namespace OloEngine
                 {
                     send(layout.VertexOffsetBytes(), layout.VertexEndBytes());
                 }
-                const u64 usedEnd = (static_cast<u64>(layout.DisplacementBase) +
-                                     static_cast<u64>(entry.DeformCpu.GetFrameStats().DisplacementCount) * 2u) *
-                                    16u;
-                const u64 begin = layout.RootsOnGpu() ? static_cast<u64>(layout.SlotBase) * 16u
-                                                      : layout.DynamicOffsetBytes();
-                send(begin, std::max(usedEnd, begin));
+                const GroomDeformFrameStats& frame = entry.DeformCpu.GetFrameStats();
+                if (frame.GuidesExpandedOnGpu)
+                {
+                    // ONLY THE SIMULATED GUIDES CROSS (#1589): their offsets and
+                    // points, every frame, and the slot windows and stand-ins
+                    // when the budget changed them. The displacement region is
+                    // the kernel's to write. CPU-packed roots go up as before,
+                    // with the wet record ahead of them.
+                    if (!layout.RootsOnGpu())
+                    {
+                        send(layout.DynamicOffsetBytes(), layout.SlotOffsetBytes());
+                    }
+                    if (frame.StandInsWritten)
+                    {
+                        send(layout.SlotOffsetBytes(), layout.SlotEndBytes());
+                        send(layout.StandInOffsetBytes(), layout.StandInEndBytes());
+                    }
+                    send(layout.GuideOffsetBytes(), layout.SourceEndBytes(frame.SourceCount));
+                }
+                else
+                {
+                    const u64 usedEnd =
+                        (static_cast<u64>(layout.DisplacementBase) + static_cast<u64>(frame.DisplacementCount) * 2u) * 16u;
+                    const u64 begin = layout.RootsOnGpu() ? layout.SlotOffsetBytes() : layout.DynamicOffsetBytes();
+                    send(begin, std::max(usedEnd, begin));
+                }
                 if (layout.RootsOnGpu())
                 {
                     // The wet record (#1615) sits just before the root region the
@@ -1146,7 +1217,7 @@ namespace OloEngine
                         send(layout.DynamicOffsetBytes(), layout.WetEndBytes());
                         entry.DeformWetSent = wetRecord;
                     }
-                    send(layout.PaletteOffsetBytes(), bytes.size());
+                    send(layout.PaletteOffsetBytes(), layout.PaletteEndBytes());
                 }
                 else
                 {
@@ -1157,13 +1228,21 @@ namespace OloEngine
             {
                 gpuSubTimers.EndSubPass();
             }
-            if (layout.RootsOnGpu())
+            const bool expandGuides = entry.DeformCpu.GetFrameStats().GuidesExpandedOnGpu;
+            if (layout.RootsOnGpu() || expandGuides)
             {
                 if (bracket)
                 {
                     gpuSubTimers.BeginSubPass("Dispatch");
                 }
-                DispatchRootFrames(request, entry, usePreviousPose);
+                if (expandGuides)
+                {
+                    DispatchGuideExpansion(entry);
+                }
+                if (layout.RootsOnGpu())
+                {
+                    DispatchRootFrames(request, entry, usePreviousPose);
+                }
                 if (bracket)
                 {
                     gpuSubTimers.EndSubPass();
@@ -1220,6 +1299,71 @@ namespace OloEngine
         const u32 reached = std::min(entry.RootsReached, layout.RootCount);
         m_Stats.RootsDeformed += reached;
         m_Stats.RootsHeldAtRest += layout.RootCount - reached;
+    }
+
+    bool GroomRenderPass::EnsureGuideExpansionKernel()
+    {
+        if (m_GuideExpansionShaderFailed)
+        {
+            return false;
+        }
+        if (!m_GuideExpansionShader)
+        {
+            m_GuideExpansionShader = ComputeShader::Create("assets/shaders/compute/GroomExpandGuides.comp");
+            m_GuideExpansionParams = UniformBuffer::Create(UBOStructures::GroomExpandGuideParamsUBO::GetSize(),
+                                                           ShaderBindingLayout::UBO_USER_0, "GroomExpandGuideParams");
+            if (!m_GuideExpansionShader || !m_GuideExpansionShader->IsValid() || !m_GuideExpansionParams)
+            {
+                // Said once; the stand-ins are then expanded on the CPU and sent
+                // dense, the path every coat took before #1589, so the coat
+                // still drapes -- at the old upload's cost.
+                m_GuideExpansionShaderFailed = true;
+                m_GuideExpansionShader = nullptr;
+                m_GuideExpansionParams = nullptr;
+                OLO_CORE_ERROR_TAG("Groom", "GroomRenderPass: GroomExpandGuides.comp is unavailable; simulated coats' "
+                                            "guide stand-ins are expanded on the CPU and uploaded dense instead");
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool GroomRenderPass::ExpandsGuidesOnGpu(const GroomStrandRequest& request)
+    {
+        // The lever is the A/B for the upload this kernel removes (#1589); read
+        // per frame, like the other groom levers.
+        return request.SimulationStandIns && !Levers::GroomGuidesExpandedOnCpu() && EnsureGuideExpansionKernel();
+    }
+
+    void GroomRenderPass::DispatchGuideExpansion(CacheEntry& entry)
+    {
+        const GroomGuideExpansionDispatch dispatch = entry.DeformCpu.GuideExpansionDispatch();
+        if (dispatch.Groups == 0u || !m_GuideExpansionShader)
+        {
+            return;
+        }
+        UBOStructures::GroomExpandGuideParamsUBO params;
+        params.Counts = dispatch.Counts;
+        params.Bases = dispatch.Bases;
+        params.Target = dispatch.Target;
+        m_GuideExpansionParams->SetData(&params, UBOStructures::GroomExpandGuideParamsUBO::GetSize());
+        m_GuideExpansionParams->Bind();
+        entry.DeformGpu->Bind();
+
+        // Before: the source and stand-ins just sent are visible to the kernel,
+        // and last frame's draws have finished reading the displacement region
+        // it overwrites. After: every draw that reads the displacements -- the
+        // casters and the strands -- sees them, as storage in the vertex stage.
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::BufferUpdate);
+        m_GuideExpansionShader->Bind();
+        RenderCommand::DispatchCompute(dispatch.Groups, 1u, 1u);
+        RenderCommand::MemoryBarrier(MemoryBarrierFlags::ShaderStorage | MemoryBarrierFlags::VertexAttribArray);
+
+        const GroomDeformFrameStats& frame = entry.DeformCpu.GetFrameStats();
+        ++m_Stats.GroomsGuidesExpandedOnGpu;
+        m_Stats.GuideSlotsExpandedOnGpu += entry.DeformCpu.GetLayout().SlotCount;
+        m_Stats.GuidePointsSent += frame.SourceCount;
+        m_Stats.GuidePointsExpanded += frame.DisplacementCount;
     }
 
     std::span<const GroomCoatShadow::CoatSegment> GroomRenderPass::AcquireDrawnPose(const GroomStrandRequest& request,
@@ -1301,6 +1445,10 @@ namespace OloEngine
                                                                           m_CpuRootScratch, CpuSkinScratch()),
                                                    request.Groom->GetCurveCount());
             }
+            // Likewise the guides (#1589): when the GPU expands the stand-ins,
+            // the CPU twin's displacement records are resolved from the same
+            // inputs the kernel was handed, by the expansion it twins.
+            (void)entry.DeformCpu.ResolveCpuGuides(request.Simulation());
             EvaluateGroomDeformedPose(entry.DeformCpu, evaluate, m_DrawnPose);
         }
         else
@@ -1526,13 +1674,17 @@ namespace OloEngine
         // the solver inside DeformGroomAgainstSurface, against the root
         // transforms), so IsDeformed is already true, the entry is already keyed
         // per entity and it is already rebuilt and refilled every frame.
-        const GroomStrandSimulation simulation = request.Simulation();
+        // Built from the stand-ins' expansion when the simulation was published
+        // with them (#1589), into the pass's reusable scratch: the CPU build
+        // draws every slot as the GPU path's kernel does. The expansion is part
+        // of the build, so the build timer starts before it.
+        const auto buildStart = std::chrono::steady_clock::now();
+        const GroomStrandSimulation simulation = m_GuideExpansion.Expand(request.Simulation());
         // THE CURVE SET THE LOD SELECTED (#1252), which is the cooked card
         // level past the hand-over and the base groom otherwise. Both go
         // through this one build, this one shader and this one BCSDF, which is
         // what makes criterion 1's "colour and highlight response are preserved
         // across transitions" true by construction rather than by care.
-        const auto buildStart = std::chrono::steady_clock::now();
         Ref<FPreparedGroomGeometry> prepared = deformed ? nullptr : PreparedStreamingGeometry(request);
         GroomStrandMeshStats stats;
         if (prepared)
@@ -1598,7 +1750,7 @@ namespace OloEngine
                 entry.Stats = stats;
                 entry.LastUsedFrame = m_CacheTick;
                 ++m_Stats.DeformedRebuilds;
-                PoseCpuCasterRuns(request, entry, deformation.RootTransforms);
+                PoseCpuCasterRuns(request, entry, deformation.RootTransforms, simulation);
                 return &entry;
             }
             ReleaseCoatVolume(entry, m_CacheBytes);
@@ -1661,7 +1813,7 @@ namespace OloEngine
         const auto [it, inserted] = m_Cache.emplace(key, std::move(entry));
         if (inserted && deformed)
         {
-            PoseCpuCasterRuns(request, it->second, deformation.RootTransforms);
+            PoseCpuCasterRuns(request, it->second, deformation.RootTransforms, simulation);
         }
         if (inserted)
         {
@@ -1673,14 +1825,16 @@ namespace OloEngine
     }
 
     void GroomRenderPass::PoseCpuCasterRuns(const GroomStrandRequest& request, CacheEntry& entry,
-                                            std::span<const GroomRootTransform> transforms)
+                                            std::span<const GroomRootTransform> transforms,
+                                            const GroomStrandSimulation& simulation)
     {
         entry.PosedRunsTick = 0;
         if (!request.CastsSceneShadow || !request.Binding || !request.Groom)
         {
             return;
         }
-        const GroomStrandSimulation simulation = request.Simulation();
+        // `simulation` is the expansion the build drew from (#1589), so the
+        // padding measures every slot as drawn without expanding again.
         const bool simulated = simulation.IsUsable(request.Groom->GetCurveCount());
         OLO_PERF_SCOPE_AUTO("Groom::CasterPose");
         const auto poseStart = std::chrono::steady_clock::now();
@@ -2677,7 +2831,9 @@ namespace OloEngine
         // strand draw with the compute program bound and drew no coat at all.
         // The shadow pass usually acquires a coat first, which hid it: the coat
         // that vanished was the one that casts no shadow. Acquired here, the
-        // loop's own acquire finds this frame's upload and only draws.
+        // loop's own acquire finds this frame's upload and only draws. A coat
+        // whose guide stand-ins the GPU expands (#1589) dispatches too, so it is
+        // acquired here for the same reason, its roots on the GPU or not.
         auto& gpuSubTimers = GPUPassTimerPool::GetInstance();
         if (m_GpuDeformation)
         {
@@ -2685,8 +2841,9 @@ namespace OloEngine
             m_BracketDeformUpload = true;
             for (const auto& request : m_Requests)
             {
-                if (request.Groom && request.GpuRootFrames && request.BindingReject == GroomBindingRejectReason::None &&
-                    IsDeformed(request) && AdmitFirstBuild(request))
+                if (request.Groom && (request.GpuRootFrames || ExpandsGuidesOnGpu(request)) &&
+                    request.BindingReject == GroomBindingRejectReason::None && IsDeformed(request) &&
+                    AdmitFirstBuild(request))
                 {
                     if (CacheEntry* entry = AcquireGpuDeformedGeometry(request, CacheKey(request, true)))
                     {
@@ -3799,6 +3956,7 @@ namespace OloEngine
         {
             m_CasterPoseScratch.Release();
             m_CpuSkinScratch.Release();
+            m_GuideExpansion = {};
         }
         if (idle(m_BakeScratchUsedTick))
         {
@@ -3876,7 +4034,8 @@ namespace OloEngine
                                  capacityBytes(m_RestCentrelines) + capacityBytes(m_CoatVolumeScratch.Density) +
                                  capacityBytes(m_CoatVolumeScratch.Direction) +
                                  capacityBytes(m_CoatVolumeScratch.Body) + capacityBytes(m_CoatPackHalf) +
-                                 capacityBytes(m_CoatPackFloat) + static_cast<u64>(m_CpuRootScratch.GetAllocatedSize());
+                                 capacityBytes(m_CoatPackFloat) + static_cast<u64>(m_CpuRootScratch.GetAllocatedSize()) +
+                                 m_GuideExpansion.GetCpuBytes();
         for (const CoatBodyBake& bake : m_CoatBodyBakes)
         {
             memory.CpuScratchBytes += capacityBytes(bake.Body);
