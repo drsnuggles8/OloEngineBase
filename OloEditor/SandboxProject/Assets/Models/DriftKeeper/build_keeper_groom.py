@@ -2,7 +2,7 @@
 
 import sys
 from pathlib import Path
-from math import cos, pi, sin
+from math import cos, exp, pi, sin
 
 import bpy
 import numpy as np
@@ -10,16 +10,17 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(HERE.parent / "Dog"))
-from keeper_foundation import follicle, root_uv
+from keeper_foundation import follicle, hair_coordinates, root_uv
+from keeper_face import head_point
 from build_dog_groom import make_curves, export_groom_abc, layer, GUARD, LONGHAIR, WHISKER
 
 COLLECTION = "KeeperGroom"
 RECIPE = [
-    ("cheek", "beard", LONGHAIR, 23000, 0.00034),
-    ("muzzle", "moustache", GUARD, 3800, 0.00024),
-    ("skull", "scalp", LONGHAIR, 13500, 0.00030),
-    ("brow", "eyebrow", GUARD, 2100, 0.00026),
-    ("eyerim", "eyelash", WHISKER, 270, 0.00014),
+    ("cheek", "beard", LONGHAIR, 23000, 0.00023),
+    ("muzzle", "moustache", GUARD, 3800, 0.00017),
+    ("skull", "scalp", LONGHAIR, 13500, 0.00020),
+    ("brow", "eyebrow", GUARD, 850, 0.00015),
+    ("eyerim", "eyelash", WHISKER, 270, 0.00010),
 ]
 
 
@@ -38,47 +39,77 @@ def grow(body):
             x, y, z = root
             a = np.arctan2(x, z + 0.009)
             if name == "beard":
-                length = 0.026 + 0.050 * (1 - u) + 0.010 * cos(5 * a) - 0.28 * (y - 1.529)
-                # The shortest growth at the top of a sideburn is stubble.
-                # A negative length would comb its guide back through the skin.
-                length = max(0.0012, length) * (1 - 0.73 * v**4)
-                flow = np.array((-0.17 * sin(a) + 0.045 * s + 0.08 * sin(9 * a), -1, 0.26 + 0.13 * cos(a)))
-            elif name == "moustache":
-                length = 0.014 + 0.013 * (1 - u)
-                flow = np.array(((0.70 + 0.21 * u) * s, -0.76 + 0.24 * u, 0.36))
-            elif name == "scalp":
-                if y < 1.656 and 1.30 < abs(a) < 1.90:
+                if v > 0.66 and rng.random() < 0.94 * ((v - 0.66) / 0.34) ** 1.3:
                     continue
-                length = 0.021 + 0.012 * cos(a) ** 2
-                flow = np.array((0.24 * sin(a), -0.9, -0.38))
+                chin = (1 - u) ** 1.35
+                length = (0.009 + 0.023 * chin + 0.008 * exp(-(((u - 0.27) / 0.19) ** 2))) * (
+                    1 - 0.81 * v**2.3
+                )
+                flow = np.array(
+                    (-0.26 * sin(a) + 0.13 * sin(9 * a + 53 * y) + 0.09, -0.92, 0.34 * cos(a) + 0.065)
+                )
+            elif name == "moustache":
+                if rng.random() > 0.40 + 0.60 * sin(pi * u) ** 0.4:
+                    continue
+                length = (0.0045 + 0.008 * v + 0.0055 * u) * rng.uniform(0.88, 1.13)
+                flow = np.array((s * (0.30 + 0.77 * u), -0.94 + 0.44 * u, 0.25))
+            elif name == "scalp":
+                length = (0.018 + 0.008 * max(0, -cos(a))) * (0.52 + 0.48 * v)
+                flow = np.array((0.30 * sin(a), -0.72, -0.67))
             elif name == "eyebrow":
-                length = 0.006 + 0.004 * (1 - u)
-                flow = np.array((0.78 * s, 0.34 - 0.63 * u, 0.38))
+                length = (0.004 + 0.006 * (1 - u)) * (0.64 + 0.54 * rng.random())
+                flow = np.array(((0.46 + 0.5 * u) * s, 0.77 - 1.34 * u + 0.18 * rng.normal(), 0.42))
             else:
                 t = 0.07 + (pi - 0.14) * u
                 length = 0.003 + 0.0022 * sin(t)
                 flow = np.array((0.50 * cos(t), 0.40, 0.82))
-            length *= rng.uniform(0.74, 1.22)
+            if name in ("beard", "scalp"):
+                # Follow the changing skin tangent down across the jaw and
+                # occiput. A constant direction lifts the entire nape into air.
+                angle, height = hair_coordinates(name, s, u, v)
+                across = head_point(angle + 0.003, height) - head_point(angle - 0.003, height)
+                down = head_point(angle, max(1.518, height - 0.001)) - head_point(angle, height + 0.001)
+                across /= np.linalg.norm(across)
+                down /= np.linalg.norm(down)
+                normal = np.cross(down, across)
+                if name == "scalp":
+                    flow = down + 0.42 * s * across + 0.19 * normal
+                    length *= 0.70 + 0.30 * min(1, v * 4)
+                else:
+                    # A short beard rounds the underside of the chin, where
+                    # the tangent itself turns backward into the throat.
+                    flow = 0.52 * down + np.array((0.02, -0.56, 0)) - 0.23 * s * across + 0.29 * normal
+            length *= rng.uniform(0.67, 1.28)
             flow /= np.linalg.norm(flow)
             outward = np.array((sin(a), 0, cos(a))) if name != "eyelash" else np.array((0, 0, 1))
             t = np.linspace(0, 1, 7)[:, None]
             # Neighbouring roots share a bend, with a small independent stray.
             lock = sin(140 * root[0] + 90 * root[1]) + cos(94 * root[2] - 55 * root[1])
             sweep = np.array((0.15 * lock + rng.normal(0, 0.075), 0.04 * rng.normal(), 0.10 * lock))
-            curve = root + t * flow * length + length * (t * (1 - t) * outward * 0.82 + t * t * sweep)
+            curve = root + t * flow * length + length * (t * (1 - t) * outward * 0.62 + t * t * sweep)
             if name in ("beard", "scalp", "moustache"):
                 # Phase shared by roots in one lock, with a few frizzier flyaways.
-                phase = 3.2 * lock + 0.45 * cos(310 * x)
-                bend = np.sin(2 * pi * t + phase) - sin(phase)
-                curve += t * bend * length * np.array((0.052, 0.008, 0.029))
+                # A lock gathers fibres into a soft tip. Offsetting its cell
+                # centre with height breaks up the edge of the beard in profile.
+                tangent = np.array((cos(a), 0, -sin(a)))
+                cell = 28 * u + 0.86 * sin(9 * u + 4 * v) + 0.22 * sin(18 * v)
+                gather = np.clip(0.5 - (cell % 1), -0.5, 0.5) * min(0.0048, 0.35 * length)
+                phase = 2.8 * lock + 0.4 * cos(280 * x)
+                bend = np.sin(2 * pi * t * 1.25 + phase) - sin(phase)
+                curve += t * t * gather * tangent + t * bend * length * (0.079 * tangent + 0.035 * outward)
+            if name == "beard":
+                curve[:, 2] -= 0.25 * length * cos(a) * t[:, 0] ** 2
             pts.append(curve)
             widths.append(width * rng.uniform(0.73, 1.22) * (1 - 0.86 * t[:, 0]))
             uvs.append(root_uv(name, s, u, v))
-            salt.append(
-                rng.random() < (0.53 + 0.16 * sin(100 * root[0]) * cos(90 * root[2]))
-                if name not in ("eyelash", "eyebrow")
-                else rng.random() < 0.16
-            )
+            # Age dapples the hair in patches. The moustache stays darker
+            # through the centre while the cheek and chin carry more silver.
+            grey = 0.47 + 0.22 * cos(61 * x) * cos(83 * z)
+            if name == "moustache":
+                grey = 0.21 + 0.22 * u
+            elif name in ("eyelash", "eyebrow"):
+                grey = 0.12 + 0.13 * u
+            salt.append(rng.random() < grey)
         salt = np.array(salt)
         for silver in (False, True):
             mask = salt == silver

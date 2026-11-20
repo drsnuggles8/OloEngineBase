@@ -17,11 +17,12 @@ historical references, modelling passes, expression studies and scan comparison.
 | `Keeper*.olomesh` | The scene handles for the body tiers. Their upper distance bounds are 18, 78 and 1,000 m. The last tier continues beyond its bound. |
 | `KeeperEyeball.gltf`, `.bin`, `KeeperIrisColor.png` | A unit globe and planar iris chart shared by both eye entities. Each globe scales to a 12.6 mm radius and turns about its own centre. The eye profile supplies the cornea and iris optics. |
 | `KeeperHairFoundation.gltf` and `.bin` | Pigmented skin beneath the beard, moustache, brows, lashes and exposed scalp. This head attachment has one topology across body tiers and facial targets for its moving regions. It is the surface the groom binds to. |
+| `SurfaceSources.zip` | Nine arrays of luminance, normal and roughness from three generic CC0 material scans. [Artist credits, download URLs and original SHA-256 hashes](SurfaceSources.md). |
 | `Keeper.abc` | Source curves, organised by anatomical region and pigment. The game reads the cooked groom and its matching binding in `Assets/Grooms/DriftKeeper/`. |
 | `Keeper*.oloskin` | The six profiles assign skin, eye, lip, gum, tongue and enamel distinct responses. Face, ears and hands use the skin profile. |
 | `Keeper.rig.json` | Local transform relative to the tower, source and count for each LOD, eye joints and positions, clip and morph names, material/profile assignments and groom source. |
 
-`build_keeper.py` writes glTF directly. The skull uses interpolated sections.
+`build_keeper.py` writes glTF directly. The skull uses cubic sections in height. A separate relief field shapes the nasal bridge, alae, cheek and folds at the mouth.
 The face removes patches for the two eye sockets and the mouth, then builds the
 lids and lips around their openings. The dental arches, gums and tongue sit
 behind the lips. Moving the lower tissue with the open-mouth shapes exposes the
@@ -29,15 +30,24 @@ interior. The expression order is `BlinkL`, `BlinkR`, `JawOpen`, `Smile`,
 `BrowRaise`, `Squint`, `AA`, `EE`, `OO`. The engine exposes them to Lua as
 `MorphTarget_0` through `MorphTarget_8` in that order.
 
-The shoulders, sleeves, palms, individual fingers, boots and layers of the
-coat are built from sections and swept curves. The cap peak, shoulder cape,
-cuffs, welted pockets and brass buttons have geometry. The material generator
-bakes periodic weave, grain, variations in pigment and surface normals onto the
-same charts for all three tiers. The hair generator grows seven-point curves
-on the foundation with separate length, direction, width and curl per region.
+The sleeve cap joins the edge of an oval armhole. Its underarm edge is
+shorter than its outer edge. The fronts overlap beneath the fastenings, then
+fold open over the gansey. The welts follow the pocket openings and a doubled
+yoke spans the back. The cap has a cloth crown with eight shallow darts, a
+leather peak and twisted storm cord. The left fingertips wrap the lantern bail.
+
+Six 1,024 × 1,024 finishes each have a colour image, tangent-space normal and
+packed ambient occlusion/roughness/metallic image. The oilcloth and twill share
+a cotton weave source. The cap uses wool herringbone and the boots use brown
+leather. The knit loops, purl diamonds, skin pores, sun spots and capillaries
+are procedural. All three body tiers share the charts. Hair grows in
+seven-point curves, with independent flow, length, width and pigment for
+each region. [Surface source manifest](SurfaceSources.md)
 
 The skeleton branches at the pelvis, chest and head. Each arm has an upper
-arm, forearm and hand. Each leg has a thigh, shin and boot. The eyes follow
+arm, forearm and hand. Each leg has a thigh, shin and boot. Before export, `keeper_pose.py` shifts the pelvis over the right boot, solves the
+knees to the planted ankles and bakes the stance into both vertices and joint
+centres. The 22 joints retain their local rotation axes. The eyes follow
 their own joints, and the lamp follows the left hand. `Idle` shifts the chest
 and head over a five-second cycle. `Wave` takes 3.6 seconds. `LanternRaise`
 takes four seconds. The Lua controller supplies blinking, greeting and gaze.
@@ -53,6 +63,7 @@ $models = (Resolve-Path 'OloEditor/SandboxProject/Assets/Models/DriftKeeper').Pa
 $blender = 'C:/Program Files (x86)/Steam/steamapps/common/Blender/blender.exe'
 & $blender -b --factory-startup --python-exit-code 1 --python "$models/build_keeper.py" -- $models
 & $blender -b --factory-startup --python-exit-code 1 --python "$models/build_keeper_groom.py" -- $models
+& $blender -b --factory-startup --python-exit-code 1 --python "$models/preview_keeper.py" -- $models build-cached/keeper-clay --clay
 & $blender -b --factory-startup --python-exit-code 1 --python "$models/preview_keeper.py" -- $models build-cached/keeper-preview --study --groom
 ```
 
@@ -74,7 +85,8 @@ python "$models/build_keeper.py" --anatomy-only build-cached/keeper-anatomy
 
 The body generator also runs with `python "$models/build_keeper.py" $models`
 in a Python environment with NumPy. The groom and previews use Blender.
-Omit `--groom` for faster Workbench shape studies. The `--study` option adds
+Use `--clay` for fixed front, quarter and profile studies of the bare face.
+Omit `--groom` and `--clay` for faster Workbench figure studies. The `--study` option adds
 clip poses, expressions, LOD masks and the licensed reference bust. The scan
 is loaded only for the reference frame.
 
@@ -111,7 +123,7 @@ source model folder temporarily renamed, then restore that folder.
 
 ## Licence
 
-The keeper's geometry, rig, motion, groom and material maps were generated in
-this repository and use the [repository licence](../../../../../LICENSE).
-The photographs and the separate scan image shown in the guide have their own
-credits there.
+The original geometry, rig, motion, groom and authoring scripts use the
+[repository licence](../../../../../LICENSE). The generic leather, cotton and
+wool surface sources carry CC0. The historical photographs and separate scan
+render have their own credits in the character guide. [Texture credits](SurfaceSources.md)

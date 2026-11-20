@@ -1708,7 +1708,7 @@ Entities:
     TagComponent:
       Tag: Stacks Light Keeper
     TransformComponent:
-      Translation: [1.436795, -0.082, -2.888602]
+      Translation: [1.436795, -0.0815, -2.888602]
       Rotation: [0, 2.827433388230814, 0]
       Scale: [1, 1, 1]
     MeshComponent: {}
@@ -1729,13 +1729,13 @@ Entities:
       Levels:
       - MeshHandle: 14409495868182326795
         MaxDistance: 18
-        TriangleCount: 95088
+        TriangleCount: 168824
       - MeshHandle: 3761803413143181578
         MaxDistance: 78
-        TriangleCount: 26124
+        TriangleCount: 47620
       - MeshHandle: 15289720284050343393
         MaxDistance: 1000
-        TriangleCount: 11088
+        TriangleCount: 20070
     MaterialOverridesComponent:
       Overrides:
       - MaterialName: KeeperSkin

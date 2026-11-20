@@ -16,6 +16,7 @@ sys.path.insert(0, str(HERE))
 from keeper_mesh import Gltf, MORPHS, Surface
 from keeper_face import EYE_R, EYE_X, EYE_Y, EYE_Z, face
 from keeper_dress import PALETTE, body
+from keeper_pose import settle
 import keeper_foundation
 from keeper_finishes import bake, dress_materials
 
@@ -79,8 +80,9 @@ def animate(file, ids):
         # Every clip has a rest key for each joint it does not move. Changing
         # from the wave to the lantern must release the right shoulder.
         if name == "Idle":
+            # The feet share an uneven stone tread. Breathe above the hips so
+            # the long lever from pelvis to heel cannot lift or bury a sole.
             for bone, amp in [
-                ("pelvis", (0, 0.25, 0.42)),
                 ("spine", (1.0, 0, 0.8)),
                 ("chest", (-1.8, 0.5, -0.5)),
                 ("head", (0.7, 1.6, -0.4)),
@@ -97,8 +99,8 @@ def animate(file, ids):
                 )
         elif name == "Wave":
             for bone, pose in [
-                ("upperarm_R", (-14, 3, -72)),
-                ("forearm_R", (-8, 5, -86)),
+                ("upperarm_R", (-19, 5, -69)),
+                ("forearm_R", (19, -6, -120)),
                 ("chest", (0, -6, -3)),
                 ("head", (2, 5, 4)),
             ]:
@@ -117,12 +119,12 @@ def animate(file, ids):
                 "hand_R",
                 [
                     (0, (0, 0, 0)),
-                    (0.28, (5, 65, 0)),
-                    (0.36, (5, 72, -18)),
-                    (0.46, (5, 57, 16)),
-                    (0.55, (5, 72, -19)),
-                    (0.65, (5, 57, 16)),
-                    (0.74, (5, 65, -10)),
+                    (0.28, (7, -6, -13)),
+                    (0.36, (4, 0, -25)),
+                    (0.46, (7, -16, 9)),
+                    (0.55, (4, 0, -26)),
+                    (0.65, (7, -16, 9)),
+                    (0.74, (7, -9, -14)),
                     (1, (0, 0, 0)),
                 ],
             )
@@ -184,7 +186,7 @@ def export_body(path, lod, anatomy=False):
     face(surface, lod)
     body(surface, lod, anatomy=anatomy)
     file = Gltf()
-    joints = bones()
+    joints = settle(surface, bones())
     names = list(joints)
     file.mesh(surface, PALETTE, names)
     if not anatomy:
@@ -196,7 +198,7 @@ def export_body(path, lod, anatomy=False):
     for name, (parent, point) in joints.items():
         position = np.array(point, dtype=float)
         local = position - np.array(joints[parent][1]) if parent else position
-        nodes.append(dict(name=name, translation=local.tolist()))
+        nodes.append(dict(name=name, translation=local.astype(np.float32).tolist()))
         if parent:
             nodes[ids[parent]].setdefault("children", []).append(ids[name])
         inverse = np.identity(4)
@@ -235,16 +237,25 @@ def export_eye(out):
     axis = np.linspace(-1, 1, size)
     x, y = np.meshgrid(axis, axis)
     a, r = np.arctan2(y, x), np.hypot(x, y) / 0.48
-    fibres = (
-        0.48
-        + 0.14 * np.sin(109 * a + 7 * r)
-        + 0.11 * np.sin(73 * a - 8 * r)
-        + 0.09 * np.sin(147 * a + np.sin(24 * a))
+    fibre = (
+        0.5
+        + 0.23 * np.sin(113 * a + 8 * r + 1.8 * np.sin(22 * a))
+        + 0.17 * np.sin(179 * a - 11 * r + 0.7 * np.sin(35 * a + 7 * r))
     )
-    pigment = np.array([0.18, 0.235, 0.19]) + fibres[..., None] * [0.23, 0.20, 0.14]
-    pigment *= (1 - 0.47 * np.exp(-(((r - 0.95) / 0.060) ** 2)))[..., None]
-    pigment *= (1 - 0.87 * np.clip((0.39 - r) / 0.025, 0, 1))[..., None]
-    rgba = np.where((r < 1)[..., None], pigment, np.array([0.84, 0.79, 0.72]))
+    crypt = np.clip(np.sin(31 * a + 3 * r) + np.sin(47 * a - 6 * r) - 0.6, 0, 1)
+    collarette = np.exp(-(((r - 0.53 - 0.032 * np.sin(21 * a)) / 0.08) ** 2))
+    pigment = np.array([0.22, 0.27, 0.26]) + fibre[..., None] * [0.21, 0.22, 0.18]
+    pigment += collarette[..., None] * np.array([0.091, 0.053, 0.007])
+    pigment *= 1 - 0.23 * (crypt * np.exp(-(((r - 0.61) / 0.21) ** 2)))[..., None]
+    pigment *= (1 - 0.33 * np.exp(-(((r - 0.94) / 0.07) ** 2)))[..., None]
+    pupil = np.clip((r - 0.345) / 0.025, 0, 1)
+    pigment = pigment * pupil[..., None] + np.array([0.027, 0.030, 0.030]) * (1 - pupil[..., None])
+    lateral = np.clip((np.abs(x) - 0.41) / 0.56, 0, 1)
+    white = np.array([0.81, 0.79, 0.75]) - lateral[..., None] * [0.043, 0.091, 0.089]
+    vein = np.exp(-((np.sin(39 * y + 3 * np.sin(6 * x) + np.sin(15 * x)) / 0.062) ** 2)) * lateral
+    white -= vein[..., None] * [0.002, 0.052, 0.049]
+    limbus = np.clip((1.015 - r) / 0.045, 0, 1)[..., None]
+    rgba = white * (1 - limbus) + pigment * limbus
     data = np.uint8(np.clip(rgba * 255, 0, 255))
 
     def chunk(tag, data):
@@ -313,7 +324,7 @@ def generate(destination):
         materials=list(PALETTE),
         groomSource="Keeper.abc",
         # Second tread, clear of the door sill and handrail through both gestures.
-        placement=dict(translation=[1.436795, -0.082, -2.888602], yawRadians=radians(162)),
+        placement=dict(translation=[1.436795, -0.0815, -2.888602], yawRadians=radians(162)),
     )
     (destination / "Keeper.rig.json").write_text(json.dumps(rig, indent=2) + "\n", encoding="utf-8")
 

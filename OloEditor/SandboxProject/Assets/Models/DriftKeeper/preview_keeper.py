@@ -24,6 +24,30 @@ def bind_preview_groom(foundation, curves):
         modifier.node_group = group
 
 
+def prepare_clay(body, foundation):
+    """Study the exported cranial planes under one broad, neutral key light."""
+    clay = bpy.data.materials.new("Portrait clay")
+    clay.node_tree.nodes.get("Principled BSDF").inputs["Base Color"].default_value = (0.38, 0.34, 0.31, 1)
+    clay.node_tree.nodes.get("Principled BSDF").inputs["Roughness"].default_value = 0.66
+    cavity = bpy.data.materials.new("Clay in recesses")
+    cavity.node_tree.nodes.get("Principled BSDF").inputs["Base Color"].default_value = (0.09, 0.073, 0.062, 1)
+    invisible = bpy.data.materials.new("Hide the clothing in the clay study")
+    tree = invisible.node_tree
+    tree.links.new(
+        tree.nodes.new("ShaderNodeBsdfTransparent").outputs[0],
+        tree.nodes.get("Material Output").inputs["Surface"],
+    )
+    for idx, mat in enumerate(body.data.materials):
+        if mat.name in ("KeeperEar", "KeeperNostril"):
+            body.data.materials[idx] = cavity
+        elif mat.name in ("KeeperSkin", "KeeperLip", "KeeperTeeth", "KeeperGum", "KeeperTongue"):
+            body.data.materials[idx] = clay
+        else:
+            body.data.materials[idx] = invisible
+    if foundation:
+        foundation.hide_render = True
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("models", type=Path)
@@ -37,6 +61,9 @@ def main():
         "--anatomy", type=Path, help="Path to the optional rigged KeeperAnatomy.gltf proportion study"
     )
     parser.add_argument("--groom", action="store_true")
+    parser.add_argument(
+        "--clay", action="store_true", help="Render the exported face without facial hair, cap or pigment"
+    )
     args = parser.parse_args(sys.argv[sys.argv.index("--") + 1 :])
     args.output.mkdir(parents=True, exist_ok=True)
     bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -64,7 +91,7 @@ def main():
         globe.scale = (rig["eyeRadius"],) * 3
         attachments.append((globe, eye["bone"]))
     scene = bpy.context.scene
-    if args.groom and foundation:
+    if args.groom and foundation and not args.clay:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from build_keeper_groom import grow
 
@@ -78,7 +105,7 @@ def main():
     camera.data.type = "ORTHO"
     scene.render.engine = "CYCLES"
     scene.cycles.samples = 12
-    scene.render.engine = "CYCLES" if args.groom else "BLENDER_WORKBENCH"
+    scene.render.engine = "CYCLES" if args.groom or args.clay else "BLENDER_WORKBENCH"
     shading = scene.display.shading
     shading.light = "STUDIO"
     shading.color_type = "MATERIAL"
@@ -114,6 +141,20 @@ def main():
         scene.render.filepath = str((args.output / (name + ".png")).resolve())
         bpy.ops.render.render(write_still=True)
 
+    if args.clay:
+        prepare_clay(body, foundation)
+        bpy.ops.object.light_add(type="AREA", location=(1.6, -1.9, 2.15))
+        bounce = bpy.context.object
+        bounce.data.energy = 85
+        bounce.data.size = 1.8
+        bounce.rotation_euler = (Vector((0, 0, 1.62)) - bounce.location).to_track_quat("-Z", "Y").to_euler()
+        for name, direction in [
+            ("front", (0, -1, 0.02)),
+            ("quarter", (0.70, -1, 0.09)),
+            ("profile", (1, -0.012, 0.025)),
+        ]:
+            shot(name, direction, 1.627, 0.306)
+        return
     if args.anatomy:
         for name, delta in [
             ("front", (0, -1, 0.02)),

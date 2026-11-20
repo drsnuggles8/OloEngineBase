@@ -21,7 +21,7 @@
       "centre": [
         0.032,
         1.634,
-        0.0795
+        0.0765
       ]
     },
     {
@@ -29,7 +29,7 @@
       "centre": [
         -0.032,
         1.634,
-        0.0795
+        0.0765
       ]
     }
   ],
@@ -38,17 +38,17 @@
     {
       "source": "Keeper.gltf",
       "maxDistance": 18,
-      "triangles": 95088
+      "triangles": 168824
     },
     {
       "source": "KeeperLOD1.gltf",
       "maxDistance": 78,
-      "triangles": 26124
+      "triangles": 47620
     },
     {
       "source": "KeeperLOD2.gltf",
       "maxDistance": 1000,
-      "triangles": 11088
+      "triangles": 20070
     }
   ],
   "profiles": {
@@ -85,7 +85,7 @@
   "placement": {
     "translation": [
       1.436795,
-      -0.082,
+      -0.0815,
       -2.888602
     ],
     "yawRadians": 2.827433388230814

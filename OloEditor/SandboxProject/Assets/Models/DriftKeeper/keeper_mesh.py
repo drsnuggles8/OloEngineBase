@@ -48,6 +48,26 @@ class Surface:
                         self.quad(material, a, c, d, b)
                     else:
                         self.quad(material, a, b, d, c)
+        # Measure fabric charts in metres so cuff, lapel and sleeve carry the
+        # same weave size. Sample a fixed grid independent of geometric LOD.
+        repeat = {
+            "KeeperOilskin": 0.273,
+            "KeeperLeather": 0.4,
+            "KeeperCap": 0.27,
+            "KeeperGansey": 0.24,
+            "KeeperTwill": 0.273,
+            "KeeperSeam": 0.273,
+        }.get(material)
+        if repeat:
+            knots = np.linspace(0, 1, 17)
+            samples = np.array([[sample(TAU * u, v) for u in knots] for v in knots])
+            du = np.median(np.linalg.norm(np.diff(samples, axis=1), axis=2), axis=0)
+            dv = np.median(np.linalg.norm(np.diff(samples, axis=0), axis=2), axis=1)
+            us = np.interp(np.arange(cols + 1) / cols, knots, np.r_[0, np.cumsum(du)]) / repeat
+            vs = np.interp(np.arange(rows + 1) / rows, knots, np.r_[0, np.cumsum(dv)]) / repeat
+            for j, v in enumerate(vs):
+                for i, u in enumerate(us):
+                    self.uvs[start + j * (cols + 1) + i] = (u, 1 - v)
         return range(start, len(self.points))
 
     def loft(self, material, rings, bone, sides, fluting=None):
