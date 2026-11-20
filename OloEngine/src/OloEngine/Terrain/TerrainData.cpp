@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Particle/SimplexNoise.h"
+#include "OloEngine/Renderer/RenderCommand.h"
 
 #include <stb_image/stb_image.h>
 #include <algorithm>
@@ -30,68 +31,65 @@ namespace OloEngine
         return m_CachedHeightRange;
     }
 
-    bool TerrainData::LoadFromFile(const std::string& path)
+    bool TerrainData::DecodeHeightmapFile(const std::string& path, TArray<f32>& outHeights, u32& outResolution)
     {
         OLO_PROFILE_FUNCTION();
 
-        // Try loading as 16-bit PNG first
+        outHeights.Reset();
+        outResolution = 0;
+
         int width = 0;
         int height = 0;
         int channels = 0;
 
+        // Row 0 of the image is the tile's z = 0 edge. The flip latch is
+        // per-thread state another loader may have left set.
         stbi_set_flip_vertically_on_load_thread(0);
-        if (stbi_us* data16 = stbi_load_16(path.c_str(), &width, &height, &channels, 1); data16)
+
+        // 16-bit first. stb widens an 8-bit file for this call, so the 8-bit
+        // case needs no second decode; an 8-bit grey is simply coarser.
+        stbi_us* texels = stbi_load_16(path.c_str(), &width, &height, &channels, 1);
+        if (!texels)
         {
-            if (width != height)
-            {
-                OLO_CORE_ERROR("TerrainData::LoadFromFile: Non-square heightmap {}x{} not supported in '{}'", width, height, path);
-                stbi_image_free(data16);
-                return false;
-            }
-
-            m_Resolution = static_cast<u32>(width);
-            m_Heights.SetNum(static_cast<sizet>(width) * static_cast<sizet>(height), EAllowShrinking::No);
-
-            // Normalize 16-bit [0, 65535] → [0, 1]
-            constexpr f32 inv65535 = 1.0f / 65535.0f;
-            for (sizet i = 0; i < m_Heights.Num(); ++i)
-            {
-                m_Heights[i] = static_cast<f32>(data16[i]) * inv65535;
-            }
-
-            stbi_image_free(data16);
-            UploadToGPU();
-            OLO_CORE_INFO("TerrainData: Loaded {}x{} heightmap from '{}'", m_Resolution, m_Resolution, path);
-            return true;
+            OLO_CORE_ERROR("TerrainData: failed to load heightmap '{}': {}", path, stbi_failure_reason());
+            return false;
+        }
+        if (width != height || width < 2)
+        {
+            OLO_CORE_ERROR("TerrainData: heightmap '{}' is {}x{}; a heightmap is square and at least 2 texels wide",
+                           path, width, height);
+            stbi_image_free(texels);
+            return false;
         }
 
-        // Fallback: try 8-bit
-        if (stbi_uc* data8 = stbi_load(path.c_str(), &width, &height, &channels, 1); data8)
+        outResolution = static_cast<u32>(width);
+        const sizet count = static_cast<sizet>(width) * static_cast<sizet>(height);
+        outHeights.SetNum(static_cast<TArray<f32>::SizeType>(count), EAllowShrinking::No);
+        constexpr f32 inv65535 = 1.0f / 65535.0f;
+        for (sizet i = 0; i < count; ++i)
         {
-            if (width != height)
-            {
-                OLO_CORE_ERROR("TerrainData::LoadFromFile: Non-square heightmap {}x{} not supported in '{}'", width, height, path);
-                stbi_image_free(data8);
-                return false;
-            }
+            outHeights[static_cast<TArray<f32>::SizeType>(i)] = static_cast<f32>(texels[i]) * inv65535;
+        }
+        stbi_image_free(texels);
+        return true;
+    }
 
-            m_Resolution = static_cast<u32>(width);
-            m_Heights.SetNum(static_cast<sizet>(width) * static_cast<sizet>(height), EAllowShrinking::No);
+    bool TerrainData::LoadFromFile(const std::string& path)
+    {
+        OLO_PROFILE_FUNCTION();
 
-            constexpr f32 inv255 = 1.0f / 255.0f;
-            for (sizet i = 0; i < m_Heights.Num(); ++i)
-            {
-                m_Heights[i] = static_cast<f32>(data8[i]) * inv255;
-            }
-
-            stbi_image_free(data8);
-            UploadToGPU();
-            OLO_CORE_INFO("TerrainData: Loaded {}x{} (8-bit) heightmap from '{}'", m_Resolution, m_Resolution, path);
-            return true;
+        TArray<f32> heights;
+        u32 resolution = 0;
+        if (!DecodeHeightmapFile(path, heights, resolution))
+        {
+            return false;
         }
 
-        OLO_CORE_ERROR("TerrainData::LoadFromFile: Failed to load '{}'", path);
-        return false;
+        m_Resolution = resolution;
+        m_Heights = std::move(heights);
+        UploadToGPU();
+        OLO_CORE_INFO("TerrainData: Loaded {}x{} heightmap from '{}'", m_Resolution, m_Resolution, path);
+        return true;
     }
 
     void TerrainData::CreateFlat(u32 resolution, f32 defaultHeight)
@@ -279,6 +277,10 @@ namespace OloEngine
 
         m_GPUHeightmap = Texture2D::Create(spec);
         m_GPUHeightmap->SetData(m_Heights.GetData(), static_cast<u32>(m_Heights.Num() * sizeof(f32)));
+        // A height map covers its tile once. Under the default repeat wrap the
+        // filter at u or v = 0 takes half its weight from the OPPOSITE edge, so
+        // a tile whose two edges differ grows a wall along the lower one.
+        RenderCommand::SetTextureWrap(m_GPUHeightmap->GetRHIHandle(), RHI::AddressMode::ClampToEdge);
     }
 
     void TerrainData::UploadRegionToGPU(u32 x, u32 y, u32 width, u32 height)

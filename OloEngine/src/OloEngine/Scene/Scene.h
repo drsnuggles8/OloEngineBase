@@ -1183,9 +1183,10 @@ namespace OloEngine
 
         // A single-tile terrain's height field on the CPU, without the GPU: the
         // render-built TerrainData when there is one, else the procedural recipe
-        // generated headless, else flat. `scratch` holds generated heights. False
-        // for a streamed terrain, and for a heightmap file the render path has
-        // not loaded (file loading is GPU-coupled). The physics height field and
+        // generated headless, else the heightmap file decoded on the CPU, else
+        // flat. `scratch` holds generated or decoded heights. False for a
+        // streamed terrain, and for a heightmap file that does not resolve or
+        // decode (logged). The physics height field and
         // the navmesh bake both read it, so a bake before the first rendered
         // frame (runtime start, a server) still finds the ground (#1559).
         [[nodiscard]] static bool CpuTerrainHeights(const TerrainComponent& terrain, TArray<f32>& scratch,

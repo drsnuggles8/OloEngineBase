@@ -180,6 +180,7 @@
 #include "OloEngine/Audio/VoiceManager.h"
 #include "OloEngine/Audio/AudioTransform.h"
 #include "OloEngine/Audio/DSP/Spatializer/Spatializer.h"
+#include "OloEngine/Project/ContentPath.h"
 #include "OloEngine/Project/Project.h"
 
 #include <glm/glm.hpp>
@@ -2748,9 +2749,19 @@ namespace OloEngine
             outHeights = { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
             return true;
         }
-        // A heightmap file whose heights the render path has not built: file
-        // loading is GPU-coupled today.
-        return false;
+        // A heightmap file whose heights the render path has not built (a
+        // dedicated server, a functional test): decoded here with the decoder
+        // the render path uploads from, so both stand on the same field. An
+        // unresolvable or undecodable file is logged by the resolver or the
+        // decoder and is "no heights", never a flat stand-in.
+        const std::filesystem::path file = ResolveContentPath(terrain.m_HeightmapPath);
+        if (file.empty() || !TerrainData::DecodeHeightmapFile(file.string(), scratch, outResolution))
+        {
+            outResolution = 0;
+            return false;
+        }
+        outHeights = { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
+        return true;
     }
 
     glm::mat4 Scene::GetWorldTransform(entt::entity entity) const
@@ -8019,10 +8030,11 @@ namespace OloEngine
             TArray<f32> generated;
             if (!Scene::CpuTerrainHeights(terrain, generated, heights, resolution))
             {
-                // Heightmap-file terrain whose CPU heights aren't built yet (headless).
-                // File loading is GPU-coupled today; the render-built TerrainData path
-                // covers editor/runtime. Headless heightmap-file collision is a follow-up.
-                OLO_CORE_WARN("Terrain collision: heightmap-file terrain has no CPU heights yet; skipping collision for entity {0}", (u64)entity.GetUUID());
+                // A streamed terrain was returned above, so this is a heightmap
+                // file that did not resolve or decode; the cause is in the log
+                // line before this one.
+                OLO_CORE_ERROR("Terrain collision: no height field for entity {0} (heightmap '{1}'); it has no collision body",
+                               (u64)entity.GetUUID(), terrain.m_HeightmapPath);
                 return;
             }
 
@@ -13659,7 +13671,19 @@ namespace OloEngine
                             terrain.m_TerrainData = Ref<TerrainData>::Create();
                             if (!terrain.m_HeightmapPath.empty())
                             {
-                                terrain.m_TerrainData->LoadFromFile(terrain.m_HeightmapPath);
+                                // A content path (#1496): project-relative
+                                // "Assets/..." or working-directory-relative.
+                                // Handing the stored spelling to the loader read
+                                // a project heightmap against the working
+                                // directory, where it is not. A file that does
+                                // not resolve or decode is logged and leaves
+                                // the terrain with no surface, which is what the
+                                // scene then visibly lacks.
+                                if (const std::filesystem::path file = ResolveContentPath(terrain.m_HeightmapPath);
+                                    !file.empty())
+                                {
+                                    terrain.m_TerrainData->LoadFromFile(file.string());
+                                }
                             }
                             else if (terrain.m_ProceduralEnabled)
                             {
