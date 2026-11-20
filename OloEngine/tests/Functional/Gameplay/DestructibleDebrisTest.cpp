@@ -105,6 +105,8 @@ TEST_F(DestructibleDebrisTest, DamageShattersIntoDebrisExactlyOnce)
     RunFrames(1);
     EXPECT_EQ(CountDebris(), 6u) << "the killing hit must spawn exactly m_ChunkCount debris";
     EXPECT_TRUE(crate.GetComponent<DestructibleComponent>().m_Broken);
+    for (auto e : GetScene().GetAllEntitiesWith<DebrisComponent>())
+        EXPECT_TRUE(GetScene().IsRuntimeOwned(Entity{ e, GetScene() })) << "a save must never restore a chunk (#1712)";
 
     // Further damage on an already-broken object is rejected and spawns nothing.
     EXPECT_FALSE(DestructibleSystem::ApplyDamage(&GetScene(), crate, 999.0f))

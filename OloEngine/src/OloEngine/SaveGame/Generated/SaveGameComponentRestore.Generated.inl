@@ -43,6 +43,7 @@ TRY_LOAD_COMPONENT(ConvexMeshCollider3DComponent);
 TRY_LOAD_COMPONENT(DecalComponent);
 TRY_LOAD_COMPONENT(DestructibleComponent);
 TRY_LOAD_COMPONENT(DialogueComponent);
+TRY_LOAD_COMPONENT(DialogueStateComponent);
 TRY_LOAD_COMPONENT(DirectionalLightComponent);
 TRY_LOAD_COMPONENT(DiscoverableComponent);
 TRY_LOAD_COMPONENT(DiscoveredSetComponent);

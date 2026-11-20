@@ -303,6 +303,11 @@ TEST_F(SubtitlesFollowDialogueStateTest, OverlayEntitiesAreCreatedOnceAndReusedA
     subtitles->ShowCaption("First", "", 5.0f);
     RunFrames(2);
     ASSERT_EQ(CountOverlayEntities(), 3u);
+    for (auto view = GetScene().GetAllEntitiesWith<TagComponent>(); auto e : view)
+    {
+        if (view.get<TagComponent>(e).Tag.starts_with("Subtitle"))
+            EXPECT_TRUE(GetScene().IsRuntimeOwned(Entity{ e, GetScene() })) << "a save must never capture the overlay (#1712)";
+    }
     // OloEngine::UUID, spelled out: <rpcdce.h> (pulled in transitively by the
     // Windows headers) defines a ::UUID struct, so the bare name is ambiguous.
     const OloEngine::UUID firstTextEntity = subtitles->GetTextEntity();

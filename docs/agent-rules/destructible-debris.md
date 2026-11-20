@@ -129,8 +129,10 @@ resource twin).
   (it's persistent gameplay state), and a Lua usertype (scripts deplete `health`
   to trigger a break).
 - `DebrisComponent` is runtime-only transient. It's excluded from save-games
-  (`kComponentsNotInSaveGame`) — a saved mid-explosion would restore orphaned
-  chunks. Everything else (tuple, on-add/remove no-ops, scene YAML) is generated
+  (`kComponentsNotInSaveGame`), and the debris entity itself is runtime-owned
+  (`Scene::MarkRuntimeOwned`, #1712): excluding the component alone still saved
+  the entity, so a saved mid-explosion restored each chunk as a permanent body
+  ([runtime-built-entities-are-runtime-owned.md](runtime-built-entities-are-runtime-owned.md)). Everything else (tuple, on-add/remove no-ops, scene YAML) is generated
   and harmless (authored scenes never contain debris).
 
 ## Where the contract is pinned
