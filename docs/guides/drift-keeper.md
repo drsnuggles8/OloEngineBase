@@ -80,6 +80,9 @@ hairs and 270 lashes. In the left blink the left lash roots move a median
 the starting positions. The beard gains darker roots and silver patches. Its
 edge along the cheek is still sharply drawn in profile. Light from above
 catches the cloth of the cap and the grain on the leather peak separately.
+An earlier profile exposed a step at the temple where the eyelid support
+reached the side of the head. Restricting it to the orbit let the hair follow
+a continuous surface. The band sits over the upper roots.
 
 ## Stance and work clothes
 
@@ -97,7 +100,9 @@ the uniform. At full wave one edge at the bare armpit stretches by 22.1 mm.
 
 The original coat had a closed front and a separate sleeve that peaked when
 the arm rose. Three clothing studies changed the cut. The upper sleeve joins
-an oval armhole with a short underarm edge and a long outer edge. Two open
+an oval armhole with a short underarm edge and a long outer edge. Matching
+the joint weights on both sides of the elbow closed a 29.49 mm gap in the
+bent right sleeve. The gansey's rolled neck follows the shape of the nape. Two open
 fronts overlap beneath the buttons, then roll back to show the gansey. Creases
 radiate from the waist fastening and welted pockets. The boot shafts turn down
 over the tucked trousers. The curved cap crown drops over one temple. Wool,
@@ -122,10 +127,10 @@ regular and the centre of the rounded mouth retains a pronounced notch.
 
 ![The three body outlines and the differences between the first and last tier](../images/drift-keeper/silhouette.jpg)
 
-The three body meshes contain 168,824, 47,620 and 20,070 triangles.
-The corresponding 520 × 680 orthographic renders cover 72,265, 71,980 and
-71,276 pixels at an alpha threshold of one half. Intersection divided by
-union is 99.52% for tiers 0 and 1, and 98.57% for tiers 0 and 2. The
+The three body meshes contain 169,320, 47,868 and 20,202 triangles.
+The corresponding 520 × 680 orthographic renders cover 72,437, 72,150 and
+71,437 pixels at an alpha threshold of one half. Intersection divided by
+union is 99.52% for tiers 0 and 1, and 98.56% for tiers 0 and 2. The
 fourth panel marks pixels present only in tier 0 in amber and pixels present
 only in tier 2 in blue. These measurements include the shared head attachments.
 In the game the second tier starts beyond 18 m and the third beyond 78 m.
@@ -156,7 +161,9 @@ the voyage with the boat camera.
 From 2.5 m above the water the stack hides the door on some bearings. These
 approaches use 225° at 30 m and 240° at 150 m, measured from world +X
 towards +Z. Moving the keeper out of frame and back changed and restored
-15 of 35 sampled entity IDs at 30 m and 11 of 35 at 150 m. At the longer
+13 of 35 sampled entity IDs at 30 m and 14 of 35 at 150 m. At 30 m the
+repeat frame also changed more colour pixels than the removal frame, so the
+entity IDs distinguish the keeper from moving water and lighting. At the longer
 distance, the coat occupies just a few pixels against the doorway.
 
 ![Keeper from sea level at 30 m and 150 m with keeper-on and keeper-off crops](../images/drift-keeper/approach.jpg)
@@ -164,8 +171,8 @@ distance, the coat occupies just a few pixels against the doorway.
 ![Face in OpenGL and Vulkan across Forward, Forward+ and Deferred](../images/drift-keeper/render-paths.jpg)
 
 Tower lighting brings out a hard shadow under the cheekbone. In OpenGL
-Deferred, hiding the groom changed 89,746 pixels at native resolution,
-86,602 with 4× MSAA and 45,568 with Temporal Quality upscale. Each count
+Deferred, hiding the groom changed 88,508 pixels at native resolution,
+85,425 with 4× MSAA and 45,302 with Temporal Quality upscale. Each count
 excludes pixels that moved by less than 4/255 or at most twice the
 repeat-frame difference.
 
