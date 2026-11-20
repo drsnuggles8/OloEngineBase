@@ -1,37 +1,37 @@
 {
  "Heath": {
-  "asset": "brown_mud_leaves_01",
+  "asset": "withered_grass",
   "authors": {
-   "Rob Tuytel": "All"
+   "Charlotte Baglioni": "All"
   },
   "licence": "CC0 1.0 Universal",
   "maps": {
    "arm": {
-    "bytes": 4619226,
-    "md5": "3f4caa35a07e94a20508e51d3d4aba89",
-    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/brown_mud_leaves_01/brown_mud_leaves_01_arm_1k.png"
+    "bytes": 4744452,
+    "md5": "7a3762459017d9cb80cb52401d06381a",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/withered_grass/withered_grass_arm_1k.png"
    },
    "diff": {
-    "bytes": 5909847,
-    "md5": "9cd7fd7f230b6ce9e051b4e08e6ad6ec",
-    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/brown_mud_leaves_01/brown_mud_leaves_01_diff_1k.png"
+    "bytes": 5999305,
+    "md5": "aaf94c41831f1f2e66aafb667bfb5677",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/withered_grass/withered_grass_diff_1k.png"
    },
    "disp": {
-    "bytes": 1815216,
-    "md5": "866f473aa70094dfbc4d7afd73b2d015",
-    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/brown_mud_leaves_01/brown_mud_leaves_01_disp_1k.png"
+    "bytes": 1885120,
+    "md5": "c29d45d78c25aa2bf429f25adb59d924",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/withered_grass/withered_grass_disp_1k.png"
    },
    "nor_gl": {
-    "bytes": 6109028,
-    "md5": "bfa4b76dc2218b8b953d3eb2055fafad",
-    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/brown_mud_leaves_01/brown_mud_leaves_01_nor_gl_1k.png"
+    "bytes": 6142710,
+    "md5": "1fd7d26d6a6088f1f5a3568462bdd753",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/withered_grass/withered_grass_nor_gl_1k.png"
    }
   },
-  "name": "Brown Mud Leaves 01",
-  "page": "https://polyhaven.com/a/brown_mud_leaves_01",
+  "name": "Withered Grass",
+  "page": "https://polyhaven.com/a/withered_grass",
   "scan_size_mm": [
-   1299.9998331069946,
-   1299.9998331069946
+   1999.9996423721313,
+   1999.9996423721313
   ]
  },
  "Rock": {

@@ -63,7 +63,8 @@ def apply_rock_platform(h, cell, rock_shore, seed, x, z, width=8.0, level=0.6):
 
 
 def apply_border(h, x, z, size, cell, ramp=26.0):
-    """Drive the tile's rim to BASE exactly: the outermost texel centres get weight 0."""
+    """Drive the tile's rim to BASE exactly: the outermost samples, which sit ON the tile's
+    edges, get weight 0."""
     edge = np.minimum(np.minimum(x, size - x), np.minimum(z, size - z))
     m = smoothstep(0.5 * cell, ramp, edge)
     out = lerp(BASE, np.maximum(h, BASE), m)

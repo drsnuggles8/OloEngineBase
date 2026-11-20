@@ -29,9 +29,9 @@ hangs 1.57 m above still water, with about 13.2 m of wire wound on the drum.
 The existing boat's 2.60 m beam determined the outreach and the length of the
 fendered face.
 
-The shoreward deck edge crosses ground at 1.43–1.48 m at three Jolt ray samples.
-The same live survey measured a bed elevation of −3.13 m beneath the hook and
-−3.48 m on the alongside track at z = 152.70. The drawn hull has 0.65 m of draft.
+The shoreward deck edge crosses ground at 1.40–1.41 m at three Jolt ray samples.
+The same live survey measured a bed elevation of −3.19 m beneath the hook and
+−3.52 m on the alongside track at z = 152.70. The drawn hull has 0.65 m of draft.
 That ground is a site in Ridgeback's recipe (`ridgeback_sites` in
 `tools/drift-islands/olo_islands/recipes.py`), which restates the survey the
 landing was first built against (1.31–1.49 m, −3.21 m, −3.52 m): a hard standing

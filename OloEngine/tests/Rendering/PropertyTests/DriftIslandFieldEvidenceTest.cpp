@@ -2,77 +2,68 @@
 // =============================================================================
 // DriftIslandFieldEvidenceTest.cpp
 //
-// Visual evidence (PNG) for the Drift procedural island field (issue #880), and
-// the one contract that decides whether the feature works at all:
+// Visual evidence (PNG) for a Drift island as the game ships it (issues #880,
+// #1721): Ridgeback, built from the SAME height map, splatmaps, macro map and
+// layer textures Drift.olo names, read out of the scene file so the two cannot
+// drift apart.
 //
-//   A PROCEDURAL TERRAIN TILE MEETING AN OCEAN MUST NOT END IN A WALL.
+// Three contracts run on the rendered frame, none of them a golden:
 //
-// Every shaping knob TerrainGenerator had before #880 was uniform over the tile,
-// so whatever the noise happened to leave high at the tile BORDER became a
-// vertical cliff dropping into the sea. Measured on the Drift island as it
-// shipped: 64.9% of its border stood above sea level. #880 added
-// TerrainHeightShaping::IslandFalloff, a radial mask that drives every border
-// texel to the tile's base height, and this scene mirrors Drift.olo's Ridgeback
-// island (same seed / shaping / height scale, base 24 m under water) so the PNGs
-// show the real thing rather than a demo.
+//   1. TileBorderIsSeaNotCliff. A TERRAIN TILE MEETING AN OCEAN MUST NOT END IN
+//      A WALL (#880). The tile's own border points are projected through the
+//      capture camera and the pixels there must read as water. The CPU half of
+//      the claim (every border texel of the map is the floor) is
+//      DriftIslandSplatCoverage.
+//   2. TheIslandShowsItsMaterials. Seen from above, the land is not one colour:
+//      a real share of it is turf-green and a real share is rock-grey. That is
+//      the whole textured path at once (layer arrays, splatmaps from files, the
+//      macro map) reaching the frame; with any of them missing the island is one
+//      flat tone, which is what the art review (#1721) found.
+//   3. Every pose renders something (mean luma), so a black frame cannot pass.
 //
-// Six poses are captured to
+// Contracts 1 and 2 run on Forward, Forward+ and Deferred, in this process and
+// in `OloEngine-Tests --olo-rhi=vulkan`, and write
+//   OloEditor/assets/tests/visual/DriftIsland_<Backend>_<Path>_<pose>.png
+//
+// Six poses on the default path are also GOLDENS (OpenGL only),
 //   OloEditor/assets/tests/visual/DriftIsland_<pose>.png
-// and they are the poses the issue asks for: three approach distances, the
-// waterline, submerged, and straight down.
+// the poses #880 asked for: three approach distances, the waterline, submerged,
+// and straight down. A normal run compares against the committed PNGs (RMSE)
+// and writes nothing; pass --olo-golden-rebase after a deliberate visual change.
 //
-// Two DRIVER-INDEPENDENT contracts run alongside the golden compare, because a
-// golden only ever answers "did it change?":
+// What this deliberately does NOT cover: the island's foliage layers.
+// UpdateImpostorAtlas bakes an octahedral atlas from a mesh asset on first use,
+// which is a second subsystem's cost and failure mode inside what is meant to be
+// a ground-and-shoreline test. Those are verified live in the editor.
 //
-//   1. TileBorderIsSeaNotCliff — projects the tile's own border points through
-//      the capture camera's view-projection and asserts the pixels there read as
-//      water, not terrain. That is the #880 claim, checked on a rendered frame
-//      rather than inferred from the height field. The CPU side of the same
-//      claim (border height == 0 exactly, at several resolutions) lives in
-//      TerrainGeneratorTest.
-//   2. Every pose renders something (mean luma), so a black frame cannot pass as
-//      "matches the golden" if the golden were ever rebased black.
+// READING THE CAPTURES: the pale mountains along the horizon in the above-water
+// poses are the SKYBOX (assets/textures/Skybox is a coastal cubemap with a
+// mountain range in it), not geometry.
 //
-// What this test deliberately does NOT cover: the foliage/impostor layers the
-// shipped scene puts on each island. UpdateImpostorAtlas bakes an octahedral
-// atlas from a mesh asset on first use, which is a second subsystem's cost and
-// failure mode inside what is meant to be a shoreline test. Those are verified
-// live in the editor instead; ImpostorBakeEvidenceTest owns the bake itself.
-//
-// READING THE CAPTURES: the pale mountains along the horizon in every above-water
-// pose are the SKYBOX (assets/textures/Skybox is a coastal cubemap with a mountain
-// range in it), not geometry and not the seafloor plane showing past the water's
-// edge. That was checked rather than assumed — the first read of these goldens
-// diagnosed them as an uncovered seafloor ring and shrank the plane, which changed
-// nothing because the mountains are painted on the sky.
-//
-// Runs in the normal suite: SKIPs cleanly (not fails) without a GL 4.6 context,
-// like every other RendererAttachedTest capture. A normal run COMPARES against
-// the committed PNGs (RMSE) and writes nothing, so a passing run leaves no
-// tracked-file churn; pass --olo-golden-rebase to (re)write them after a
-// deliberate visual change. Run from OloEditor/ so assets resolve.
-//
-// Classification: L8 / integration (full GL pipeline + RGBA8 readback + PNG).
+// Classification: L8 / integration (full pipeline + RGBA8 readback + PNG).
 // =============================================================================
 
 #include "OloEnginePCH.h"
 #include "../../TestOptions.h"
 
 #include "RendererAttachedTest.h"
+#include "TestRenderBackend.h"
 
 #include "OloEngine/Utils/PlatformUtils.h"
 #include "OloEngine/Renderer/Camera/EditorCamera.h"
 #include "OloEngine/Renderer/Mesh.h"
 #include "OloEngine/Renderer/MeshPrimitives.h"
+#include "OloEngine/Renderer/Renderer3D.h"
+#include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
-#include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 
 #include <glm/glm.hpp>
 #include <gtest/gtest.h>
 #include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
+#include <yaml-cpp/yaml.h>
 
 #include <array>
 #include <cmath>
@@ -101,31 +92,101 @@ namespace OloEngine::Tests
         // wave/foam detail.
         constexpr f64 kGoldenRmseThreshold = 6.0;
 
-        // ── Ridgeback, transcribed from Drift.olo ────────────────────────────
-        // Only the heightmap resolution differs (256 rather than the shipped
-        // 512), and deliberately: the noise is sampled at x/resolution, so a
-        // coarser grid is the SAME field read at fewer points, not a different
-        // island. The border guarantee is a property of the mask, which is
-        // evaluated per texel at whatever resolution is asked for — and
-        // TerrainGeneratorTest sweeps resolutions for exactly that reason.
-        constexpr f32 kTileSize = 420.0f;    // metres square
-        constexpr f32 kHeightScale = 110.0f; // metres, 0..1 of the field maps onto this
-        constexpr f32 kBaseY = -24.0f;       // tile origin: the border sits here, 24 m under
-        constexpr f32 kIslandCentreX = 0.0f;
-        constexpr f32 kIslandCentreZ = 280.0f;
         constexpr f32 kSeaSize = 1600.0f;
         constexpr f32 kSeafloorY = -26.0f;
         // Out-reaches the water tile, as in the shipped scene: any smaller and a
         // grazing look through the transparency finds the plane's own edge.
         constexpr f32 kSeafloorSize = kSeaSize * 1.5f;
 
-        // Waterline as a fraction of the height range — the number every layer
-        // band below is anchored on, matching the scene's own derivation.
-        constexpr f32 kSeaLevel01 = -kBaseY / kHeightScale; // 0.218
-
-        [[nodiscard]] constexpr f32 AboveWater(f32 fraction)
+        // The tests run with OloEditor/ as the working directory and no active
+        // project, so the scene's project-relative "Assets/..." spelling is
+        // given its working-directory one.
+        [[nodiscard]] std::string FromWorkingDirectory(const std::string& projectRelative)
         {
-            return kSeaLevel01 + fraction * (1.0f - kSeaLevel01);
+            return projectRelative.empty() ? projectRelative : "SandboxProject/" + projectRelative;
+        }
+
+        // Ridgeback as Drift.olo authors it.
+        struct IslandSource
+        {
+            glm::vec3 Translation{ 0.0f };
+            f32 WorldSize = 0.0f;
+            f32 HeightScale = 0.0f;
+            f32 TargetTriangleSize = 8.0f;
+            f32 MorphRegion = 0.3f;
+            u32 LayerResolution = 512;
+            std::string Heightmap;
+            std::array<std::string, 2> Splatmaps;
+            std::string MacroMap;
+            std::vector<TerrainLayer> Layers;
+
+            [[nodiscard]] glm::vec2 Centre() const
+            {
+                return { Translation.x + WorldSize * 0.5f, Translation.z + WorldSize * 0.5f };
+            }
+        };
+
+        [[nodiscard]] bool LoadRidgeback(IslandSource& out, std::string& why)
+        {
+            const fs::path scenePath = fs::path("SandboxProject") / "Assets" / "Scenes" / "Drift.olo";
+            if (!fs::exists(scenePath))
+            {
+                why = "Drift.olo not found at " + scenePath.generic_string();
+                return false;
+            }
+            const YAML::Node root = YAML::LoadFile(scenePath.generic_string());
+            for (const auto& entity : root["Entities"])
+            {
+                const YAML::Node tag = entity["TagComponent"];
+                if (!tag || tag["Tag"].as<std::string>("") != "Island - Ridgeback")
+                    continue;
+                const YAML::Node terrain = entity["TerrainComponent"];
+                const YAML::Node translation = entity["TransformComponent"]["Translation"];
+                if (!terrain || !translation || translation.size() != 3)
+                    break;
+                out.Translation = { translation[0].as<f32>(), translation[1].as<f32>(), translation[2].as<f32>() };
+                out.WorldSize = terrain["WorldSizeX"].as<f32>(0.0f);
+                out.HeightScale = terrain["HeightScale"].as<f32>(0.0f);
+                out.TargetTriangleSize = terrain["TargetTriangleSize"].as<f32>(out.TargetTriangleSize);
+                out.MorphRegion = terrain["MorphRegion"].as<f32>(out.MorphRegion);
+                out.LayerResolution = terrain["LayerResolution"].as<u32>(out.LayerResolution);
+                out.Heightmap = FromWorkingDirectory(terrain["HeightmapPath"].as<std::string>(""));
+                out.Splatmaps[0] = FromWorkingDirectory(terrain["SplatmapPath0"].as<std::string>(""));
+                out.Splatmaps[1] = FromWorkingDirectory(terrain["SplatmapPath1"].as<std::string>(""));
+                out.MacroMap = FromWorkingDirectory(terrain["MacroMapPath"].as<std::string>(""));
+                for (const auto& node : terrain["Layers"])
+                {
+                    TerrainLayer layer;
+                    layer.Name = node["Name"].as<std::string>("Unnamed");
+                    layer.AlbedoPath = FromWorkingDirectory(node["AlbedoPath"].as<std::string>(""));
+                    layer.NormalPath = FromWorkingDirectory(node["NormalPath"].as<std::string>(""));
+                    layer.ARMPath = FromWorkingDirectory(node["ARMPath"].as<std::string>(""));
+                    layer.TilingScale = node["TilingScale"].as<f32>(layer.TilingScale);
+                    layer.HeightBlendSharpness = node["HeightBlendSharpness"].as<f32>(layer.HeightBlendSharpness);
+                    layer.TriplanarSharpness = node["TriplanarSharpness"].as<f32>(layer.TriplanarSharpness);
+                    if (const YAML::Node bc = node["BaseColor"]; bc && bc.size() == 3)
+                        layer.BaseColor = { bc[0].as<f32>(), bc[1].as<f32>(), bc[2].as<f32>() };
+                    layer.Roughness = node["Roughness"].as<f32>(layer.Roughness);
+                    layer.Metallic = node["Metallic"].as<f32>(layer.Metallic);
+                    out.Layers.push_back(std::move(layer));
+                }
+                if (out.WorldSize <= 0.0f || out.HeightScale <= 0.0f || out.Heightmap.empty() || out.Layers.empty())
+                {
+                    why = "Island - Ridgeback is not a height-map terrain with layers any more";
+                    return false;
+                }
+                for (const std::string& file : { out.Heightmap, out.Splatmaps[0], out.Splatmaps[1], out.MacroMap })
+                {
+                    if (!fs::exists(file))
+                    {
+                        why = "Ridgeback names a map that is not on disk: " + file;
+                        return false;
+                    }
+                }
+                return true;
+            }
+            why = "no 'Island - Ridgeback' terrain in Drift.olo";
+            return false;
         }
 
         [[nodiscard]] f64 Rgba8Rmse(const std::vector<u8>& a, const std::vector<u8>& b)
@@ -146,10 +207,9 @@ namespace OloEngine::Tests
             return count ? std::sqrt(sumSq / static_cast<f64>(count)) : 0.0;
         }
 
-        // glGetTextureImage hands back rows bottom-up (GL origin). stbi_write_png
-        // and every "upper/lower part of the frame" statement below treat row 0
-        // as the TOP, so flip once, right after readback, and reason in image
-        // space from then on.
+        // The readback hands rows back bottom-up. stbi_write_png and every
+        // "upper/lower part of the frame" statement below treat row 0 as the
+        // TOP, so flip once, right after readback, and reason in image space.
         void FlipRowsInPlace(std::vector<u8>& rgba, u32 width, u32 height)
         {
             const sizet rowBytes = static_cast<sizet>(width) * 4u;
@@ -167,60 +227,97 @@ namespace OloEngine::Tests
         struct Pose
         {
             const char* Name;
-            glm::vec3 Position;
-            f32 Yaw;   // radians; 0 looks toward -Z, so pi looks toward +Z
-            f32 Pitch; // radians; POSITIVE tilts the view down
+            f32 OffShore;  // metres south of the island's south shore; ignored for TopDown
+            f32 EyeHeight; // metres above the sea
+            f32 Pitch;     // radians; POSITIVE tilts the view down
             const char* What;
         };
 
-        // The island sits at +Z from the boat's start line, so every approach pose
-        // looks toward +Z (yaw = pi).
+        // The boat's start line is south of Ridgeback, so every approach pose
+        // looks north (+Z, yaw = pi) along the island's centre line.
         //
-        // DISTANCES ARE TO THE SHORE, NOT TO THE CENTRE, and the shore is not
-        // where the falloff radius puts it. The mask starts falling at
-        // `IslandFalloffRadius * tile` (126 m here) and reaches zero at the tile's
-        // inscribed circle (210 m); land survives anywhere between the two that
-        // the noise left high enough, so this island's coastline is at ~165 m from
-        // the centre — world z = 115 on the approach axis. Estimating it from the
-        // falloff radius put the first two "approach" poses 5 and 13 m INLAND,
-        // which renders as a wall of rock filling the frame and is very hard to
-        // read as a mis-placed camera rather than a broken island.
-        constexpr f32 kShoreZ = 115.0f; // measured, not derived — see above
+        // DISTANCES ARE TO THE SHORE, NOT TO THE CENTRE. The south shore on the
+        // centre line is 110 m from the tile centre (a Jolt ray survey of the
+        // shipped map); it is a constant here because a pose derived from the
+        // map would move the camera whenever the map changed and make every
+        // golden diff a camera diff.
+        constexpr f32 kShoreFromCentre = 110.0f;
         constexpr f32 kPi = 3.14159265358979323846f;
+        constexpr sizet kTopDownPose = 5;
         const std::array<Pose, 6> kPoses = { {
-            { "ApproachFar", { 0.0f, 7.0f, kShoreZ - 445.0f }, kPi, 0.02f, "445 m off the shore — the island as a silhouette on the horizon" },
-            { "ApproachMid", { 0.0f, 7.0f, kShoreZ - 175.0f }, kPi, 0.04f, "175 m off — relief and the shore band resolve" },
-            { "ApproachNear", { 0.0f, 7.0f, kShoreZ - 60.0f }, kPi, 0.05f, "60 m off — the LOD level the boat actually arrives at" },
-            { "Waterline", { 0.0f, 0.5f, kShoreZ - 22.0f }, kPi, 0.02f, "eye at deck height, 22 m off — the shore straddling the frame" },
-            { "Submerged", { 0.0f, -3.0f, kShoreZ - 22.0f }, kPi, -0.05f, "3 m under at the same spot, looking up at the surface" },
-            { "TopDown", { kIslandCentreX, 430.0f, kIslandCentreZ }, kPi, 1.53f, "straight down on the whole tile — where a border cliff would be obvious" },
+            { "ApproachFar", 445.0f, 7.0f, 0.02f, "445 m off the shore: the island as a silhouette on the horizon" },
+            { "ApproachMid", 175.0f, 7.0f, 0.04f, "175 m off: relief and the shore band resolve" },
+            { "ApproachNear", 60.0f, 7.0f, 0.05f, "60 m off: the LOD level the boat actually arrives at" },
+            { "Waterline", 22.0f, 0.5f, 0.02f, "eye at deck height, 22 m off: the shore straddling the frame" },
+            { "Submerged", 22.0f, -3.0f, -0.05f, "3 m under at the same spot, looking up at the surface" },
+            { "TopDown", 0.0f, 430.0f, 1.53f, "straight down on the whole tile: where a border cliff would be obvious" },
         } };
 
-        [[nodiscard]] bool GoldenRebaseRequested()
+        [[nodiscard]] const char* PathName(RenderingPath path)
         {
-            return OloEngine::Tests::Options().GoldenRebase;
+            switch (path)
+            {
+                case RenderingPath::Forward:
+                    return "Forward";
+                case RenderingPath::ForwardPlus:
+                    return "ForwardPlus";
+                case RenderingPath::Deferred:
+                    return "Deferred";
+                default:
+                    return "Other";
+            }
         }
+
+        // Freezes the clock for a capture; restores whatever it found.
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(f32 t)
+                : m_HadMock(Time::HasMockTime()), m_Previous(Time::GetMockTime())
+            {
+                Time::SetMockTime(t);
+            }
+            ~ScopedMockTime()
+            {
+                if (m_HadMock)
+                    Time::SetMockTime(m_Previous);
+                else
+                    Time::ClearMockTime();
+            }
+            ScopedMockTime(const ScopedMockTime&) = delete;
+            ScopedMockTime& operator=(const ScopedMockTime&) = delete;
+
+          private:
+            bool m_HadMock;
+            f32 m_Previous;
+        };
     } // namespace
 
-    class DriftIslandFieldEvidenceTest : public RendererAttachedTest
+    // The scene both suites below render: Ridgeback, the sea, its floor, a sun
+    // and the coastal skybox.
+    class DriftIslandScene : public RendererAttachedTest
     {
       protected:
-        void BuildScene() override
+        void BuildIslandScene()
         {
             Scene& scene = GetScene();
             EnableRendering(kWidth, kHeight);
+            // No editor grid: it is drawn through the shore band, where the
+            // ground lies within a metre of the grid's own plane, and a frame
+            // with it in is not what the game shows.
+            Renderer3D::GetRendererSettings().ShowGrid = false;
+            Renderer3D::ApplyRendererSettings();
+
+            std::string why;
+            ASSERT_TRUE(LoadRidgeback(m_Source, why)) << why;
 
             {
                 Entity light = scene.CreateEntity("Sun");
                 auto& dl = light.AddComponent<DirectionalLightComponent>();
                 // Travelling +Z, i.e. AWAY from every approach camera, so the face
-                // the boat sails at is the lit one — a sun over the camera's
-                // shoulder. Elevated enough (~40 deg) that the near shore is not
-                // in the island's own shadow at the close poses, which is what
-                // turned the first waterline capture into a black wall, and still
-                // low enough to keep the relief that tells one island from
-                // another. This scene has no time-of-day clock; the shipped scene
-                // drives its sun off one, so its light is not this light.
+                // the boat sails at is the lit one: a sun over the camera's
+                // shoulder, about 40 degrees up. This scene has no time-of-day
+                // clock; the shipped scene drives its sun off one, so its light is
+                // not this light.
                 dl.m_Direction = glm::normalize(glm::vec3(-0.30f, -0.84f, 0.45f));
                 dl.m_Color = glm::vec3(1.0f, 0.94f, 0.86f);
                 dl.m_Intensity = 3.0f;
@@ -236,10 +333,9 @@ namespace OloEngine::Tests
                 env.m_IBLIntensity = 0.35f;
             }
 
-            // Seafloor — the same 2 m of clearance under the tile base the scene
+            // Seafloor: the same 2 m of clearance under the tile base the scene
             // uses. Higher than that and this plane would slice the island's
-            // underwater flank into a flat lid, which is a different artefact
-            // that looks exactly like the one being tested for.
+            // underwater flank into a flat lid.
             {
                 Entity floor = scene.CreateEntity("Seafloor");
                 auto& tc = floor.GetComponent<TransformComponent>();
@@ -273,108 +369,53 @@ namespace OloEngine::Tests
 
             {
                 m_Island = scene.CreateEntity("Island - Ridgeback");
-                auto& tc = m_Island.GetComponent<TransformComponent>();
-                // The terrain origin is a CORNER, so translate by half the tile.
-                tc.Translation = { kIslandCentreX - kTileSize * 0.5f, kBaseY, kIslandCentreZ - kTileSize * 0.5f };
+                // The terrain origin is a CORNER, as in the scene.
+                m_Island.GetComponent<TransformComponent>().Translation = m_Source.Translation;
 
                 auto& terrain = m_Island.AddComponent<TerrainComponent>();
-                terrain.m_WorldSizeX = kTileSize;
-                terrain.m_WorldSizeZ = kTileSize;
-                terrain.m_HeightScale = kHeightScale;
-                // No Jolt body: nothing in this test drives physics, and building
-                // one would be a heightfield-shape cost per run for no assertion.
+                terrain.m_HeightmapPath = m_Source.Heightmap;
+                terrain.m_WorldSizeX = m_Source.WorldSize;
+                terrain.m_WorldSizeZ = m_Source.WorldSize;
+                terrain.m_HeightScale = m_Source.HeightScale;
+                // No Jolt body: nothing in this test drives physics.
                 terrain.m_CollisionEnabled = false;
-                terrain.m_ProceduralEnabled = true;
-                terrain.m_ProceduralSeed = 879;
-                terrain.m_ProceduralResolution = 256;
-                terrain.m_ProceduralOctaves = 6;
-                terrain.m_ProceduralFrequency = 2.4f;
-                terrain.m_ProceduralLacunarity = 2.0f;
-                terrain.m_ProceduralPersistence = 0.46f;
-                terrain.m_HeightShaping.RidgeBlend = 0.72f;
-                terrain.m_HeightShaping.WarpStrength = 0.18f;
-                terrain.m_HeightShaping.WarpFrequency = 2.0f;
-                terrain.m_HeightShaping.HeightExponent = 1.15f;
-                // The subject of this whole file.
-                terrain.m_HeightShaping.IslandFalloff = 1.0f;
-                terrain.m_HeightShaping.IslandFalloffRadius = 0.30f;
-
-                // The GPU LOD quadtree, which is what makes the approach series
-                // resolve rather than pop. No Drift terrain set this before #880.
+                terrain.m_ProceduralEnabled = false;
+                terrain.m_AutoMaterial = false;
                 terrain.m_TessellationEnabled = true;
-                terrain.m_TargetTriangleSize = 10.0f;
+                terrain.m_TargetTriangleSize = m_Source.TargetTriangleSize;
+                terrain.m_MorphRegion = m_Source.MorphRegion;
 
-                terrain.m_AutoMaterial = true;
-                terrain.m_SplatmapGenResolution = 256;
                 terrain.m_Material = Ref<TerrainMaterial>::Create();
-                for (const auto& layer : MakeShoreLayers())
+                for (const TerrainLayer& layer : m_Source.Layers)
                     terrain.m_Material->AddLayer(layer);
-                terrain.m_LayerRules = MakeShoreRules();
+                terrain.m_Material->SetSplatmapPath(0, m_Source.Splatmaps[0]);
+                terrain.m_Material->SetSplatmapPath(1, m_Source.Splatmaps[1]);
+                terrain.m_Material->SetMacroMapPath(m_Source.MacroMap);
+                terrain.m_Material->SetLayerResolution(m_Source.LayerResolution);
                 terrain.m_MaterialNeedsRebuild = true;
-                terrain.m_AutoSplatNeedsRebuild = true;
             }
         }
 
-        // Sand / scrub / rock / heath, banded on this island's own waterline the
-        // way Drift.olo bands every one of its six. Solid colours — no texture
-        // assets needed, so the capture is the same with or without a cook.
-        [[nodiscard]] static std::vector<TerrainLayer> MakeShoreLayers()
+        [[nodiscard]] glm::vec3 PosePosition(const Pose& pose) const
         {
-            const auto layer = [](const char* name, glm::vec3 colour, f32 tiling, f32 roughness)
-            {
-                TerrainLayer l;
-                l.Name = name;
-                l.BaseColor = colour;
-                l.TilingScale = tiling;
-                l.Roughness = roughness;
-                l.Metallic = 0.0f;
-                return l;
-            };
-            return {
-                layer("Sand", { 0.78f, 0.72f, 0.55f }, 22.0f, 0.95f),
-                layer("Scrub", { 0.28f, 0.40f, 0.21f }, 24.0f, 0.92f),
-                layer("Rock", { 0.44f, 0.41f, 0.38f }, 14.0f, 0.85f),
-                layer("Heath", { 0.52f, 0.50f, 0.44f }, 18.0f, 0.80f),
-            };
-        }
-
-        [[nodiscard]] static TArray<TerrainLayerRule> MakeShoreRules()
-        {
-            const auto rule = [](u32 index, f32 minH, f32 maxH, f32 heightBlend, f32 minSlope, f32 maxSlope,
-                                 f32 slopeBlend)
-            {
-                TerrainLayerRule r;
-                r.LayerIndex = index;
-                r.MinHeight = minH;
-                r.MaxHeight = maxH;
-                r.HeightBlend = heightBlend;
-                r.MinSlopeDeg = minSlope;
-                r.MaxSlopeDeg = maxSlope;
-                r.SlopeBlend = slopeBlend;
-                r.Strength = 1.0f;
-                return r;
-            };
-            return {
-                rule(0, 0.0f, AboveWater(0.10f), 0.05f, 0.0f, 40.0f, 8.0f),
-                rule(1, AboveWater(0.12f), AboveWater(0.66f), 0.06f, 0.0f, 30.0f, 8.0f),
-                rule(2, 0.0f, 1.0f, 0.0f, 34.0f, 90.0f, 10.0f),
-                rule(3, AboveWater(0.80f), 1.0f, 0.05f, 0.0f, 45.0f, 10.0f),
-            };
+            const glm::vec2 centre = m_Source.Centre();
+            if (pose.OffShore <= 0.0f)
+                return { centre.x, pose.EyeHeight, centre.y };
+            return { centre.x, pose.EyeHeight, centre.y - kShoreFromCentre - pose.OffShore };
         }
 
         // Pose, tick, read back, flip. Callers MUST wrap this in
-        // ASSERT_NO_FATAL_FAILURE — the ASSERT_ below returns from the helper,
-        // not from the test, so a failed readback would otherwise leave
-        // `outPixels` empty and let every assertion run on nothing.
+        // ASSERT_NO_FATAL_FAILURE: the ASSERT_ below returns from the helper,
+        // not from the test.
         void Capture(const Pose& pose, std::vector<u8>& outPixels, EditorCamera& outCamera)
         {
             outCamera = EditorCamera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.2f, 4000.0f);
             outCamera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
-            outCamera.SetPose(pose.Position, pose.Yaw, pose.Pitch);
+            outCamera.SetPose(PosePosition(pose), kPi, pose.Pitch);
 
-            // The first ticks build the height field, the chunk meshes, both
-            // quadtrees and the auto-splat; the last renders the ready terrain.
-            RunEditorFrames(outCamera, 4);
+            // The first ticks load the maps and build the chunk meshes, both
+            // quadtrees and the layer arrays; the last renders the ready terrain.
+            RunEditorFrames(outCamera, 6);
 
             u32 width = 0;
             u32 height = 0;
@@ -384,17 +425,125 @@ namespace OloEngine::Tests
             FlipRowsInPlace(outPixels, kWidth, kHeight);
         }
 
+        static void ExpectNotBlack(const Pose& pose, const std::vector<u8>& pixels)
+        {
+            u64 lumaSum = 0;
+            for (sizet i = 0; i + 3 < pixels.size(); i += 4)
+                lumaSum += pixels[i] + pixels[i + 1] + pixels[i + 2];
+            const f64 meanChannel = static_cast<f64>(lumaSum) / (static_cast<f64>(kWidth) * kHeight * 3.0);
+            EXPECT_GT(meanChannel, 5.0) << "Pose '" << pose.Name << "' (" << pose.What << ") rendered (near-)black";
+        }
+
+        // The #880 claim, on a rendered frame: the tile ENDS in sea, not in a
+        // wall. Looking straight down, the midpoint of each border and each
+        // corner is projected through the capture camera and the pixel there
+        // must be blue-dominant: no ground in the palette is, and the sea is.
+        // Sampled at the TILE BASE, where the border surface actually is: a
+        // 24 m height error at a 207 m offset would shift the sample 11 m and
+        // put it outside the tile, where the sea is open whatever the tile does.
+        void ExpectTileBorderIsSea(const EditorCamera& camera, const std::vector<u8>& pixels, const std::string& evidence) const
+        {
+            const glm::vec2 centre = m_Source.Centre();
+            const f32 sampleY = m_Source.Translation.y;
+            const f32 edge = m_Source.WorldSize * 0.5f * 0.985f;
+            struct BorderPoint
+            {
+                const char* Name;
+                glm::vec3 World;
+            };
+            const std::array<BorderPoint, 8> border = { {
+                { "+X edge", { centre.x + edge, sampleY, centre.y } },
+                { "-X edge", { centre.x - edge, sampleY, centre.y } },
+                { "+Z edge", { centre.x, sampleY, centre.y + edge } },
+                { "-Z edge", { centre.x, sampleY, centre.y - edge } },
+                { "+X+Z corner", { centre.x + edge, sampleY, centre.y + edge } },
+                { "+X-Z corner", { centre.x + edge, sampleY, centre.y - edge } },
+                { "-X+Z corner", { centre.x - edge, sampleY, centre.y + edge } },
+                { "-X-Z corner", { centre.x - edge, sampleY, centre.y - edge } },
+            } };
+
+            const glm::mat4 viewProjection = camera.GetViewProjection();
+            u32 sampled = 0;
+            for (const BorderPoint& point : border)
+            {
+                const glm::vec4 clip = viewProjection * glm::vec4(point.World, 1.0f);
+                ASSERT_GT(clip.w, 0.0f) << point.Name << " projected behind the camera";
+                const glm::vec3 ndc = glm::vec3(clip) / clip.w;
+                if (std::fabs(ndc.x) > 1.0f || std::fabs(ndc.y) > 1.0f)
+                    continue; // outside the frame at this framing
+                const u32 x = static_cast<u32>((ndc.x * 0.5f + 0.5f) * static_cast<f32>(kWidth - 1u));
+                // Rows are in image space (row 0 = top), so +Y in NDC is a
+                // SMALLER row index.
+                const u32 y = static_cast<u32>((1.0f - (ndc.y * 0.5f + 0.5f)) * static_cast<f32>(kHeight - 1u));
+                const sizet idx = (static_cast<sizet>(y) * kWidth + x) * 4u;
+                ASSERT_LT(idx + 2u, pixels.size()) << point.Name;
+                const int r = pixels[idx + 0];
+                const int b = pixels[idx + 2];
+                EXPECT_GT(b, r) << "Tile border point '" << point.Name << "' at pixel (" << x << ", " << y
+                                << ") reads as land (r=" << r << ", b=" << b << "), not sea. See " << evidence;
+                ++sampled;
+            }
+            // Anti-vacuity: with the tile out of frame every point is skipped.
+            EXPECT_GE(sampled, 6u) << "only " << sampled << " of 8 tile-border points were in frame";
+        }
+
+        // Contract 2. Land is every pixel that is not blue-dominant. On it, the
+        // turf is green-dominant and the gneiss is near-neutral; each must hold
+        // a real share. Shares are of LAND pixels, so the sea's size is not in
+        // the number. Loose on purpose: the map gives turf 45% and rock 48% of
+        // the land, and the bound only has to fail an island of one tone.
+        static void ExpectTheIslandShowsItsMaterials(const std::vector<u8>& pixels, const std::string& evidence)
+        {
+            u32 land = 0;
+            u32 green = 0;
+            u32 grey = 0;
+            for (sizet i = 0; i + 3 < pixels.size(); i += 4)
+            {
+                const f32 r = pixels[i];
+                const f32 g = pixels[i + 1];
+                const f32 b = pixels[i + 2];
+                if (b > r && b > g)
+                    continue; // sea
+                ++land;
+                const f32 top = std::max({ r, g, b, 1.0f });
+                if (g > r * 1.06f && g > b * 1.06f)
+                    ++green;
+                else if ((top - std::min({ r, g, b })) / top < 0.16f)
+                    ++grey;
+            }
+            ASSERT_GT(land, kWidth * kHeight / 50u) << "the island covers under 2% of the frame. See " << evidence;
+            const f32 greenShare = static_cast<f32>(green) / static_cast<f32>(land);
+            const f32 greyShare = static_cast<f32>(grey) / static_cast<f32>(land);
+            EXPECT_GT(greenShare, 0.12f) << "turf covers " << greenShare * 100.0f << "% of the land. See " << evidence;
+            EXPECT_GT(greyShare, 0.12f) << "bare rock covers " << greyShare * 100.0f << "% of the land. See " << evidence;
+        }
+
+        IslandSource m_Source;
+        Entity m_Island;
+    };
+
+    // ── The goldens: six poses, default path, OpenGL ─────────────────────────
+
+    class DriftIslandFieldEvidenceTest : public DriftIslandScene
+    {
+      protected:
+        void BuildScene() override
+        {
+            BuildIslandScene();
+        }
+
         // Golden model: rebase writes, a normal run compares and writes nothing.
         void CompareOrRebase(const std::string& poseName, const std::vector<u8>& pixels)
         {
             const fs::path dir = fs::path("assets") / "tests" / "visual";
             const std::string path = (dir / ("DriftIsland_" + poseName + ".png")).string();
 
-            if (GoldenRebaseRequested())
+            if (OloEngine::Tests::Options().GoldenRebase)
             {
                 std::error_code ec;
                 fs::create_directories(dir, ec);
                 ASSERT_FALSE(ec) << "Failed to create golden dir '" << dir.string() << "': " << ec.message();
+                ::stbi_flip_vertically_on_write(0);
                 const int wrote = ::stbi_write_png(path.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight),
                                                    4, pixels.data(), static_cast<int>(kWidth) * 4);
                 ASSERT_NE(wrote, 0) << "stbi_write_png failed to write golden '" << path << "'";
@@ -404,148 +553,110 @@ namespace OloEngine::Tests
             int goldenWidth = 0;
             int goldenHeight = 0;
             int goldenChannels = 0;
+            ::stbi_set_flip_vertically_on_load_thread(0);
             stbi_uc* golden = ::stbi_load(path.c_str(), &goldenWidth, &goldenHeight, &goldenChannels, 4);
-            ASSERT_NE(golden, nullptr) << "Missing golden '" << path << "' — rerun with --olo-golden-rebase.";
+            ASSERT_NE(golden, nullptr) << "Missing golden '" << path << "'; rerun with --olo-golden-rebase.";
             const bool sizeMatches = (goldenWidth == static_cast<int>(kWidth) && goldenHeight == static_cast<int>(kHeight));
             std::vector<u8> goldenPixels;
             if (sizeMatches)
                 goldenPixels.assign(golden, golden + static_cast<sizet>(kWidth) * kHeight * 4u);
             ::stbi_image_free(golden);
             ASSERT_TRUE(sizeMatches) << "Golden '" << path << "' is " << goldenWidth << "x" << goldenHeight
-                                     << ", expected " << kWidth << "x" << kHeight << " — rerun with --olo-golden-rebase.";
+                                     << ", expected " << kWidth << "x" << kHeight << "; rerun with --olo-golden-rebase.";
 
             const f64 rmse = Rgba8Rmse(pixels, goldenPixels);
             EXPECT_LE(rmse, kGoldenRmseThreshold)
                 << "Pose '" << poseName << "' diverged from golden (RMSE " << rmse << " > " << kGoldenRmseThreshold
                 << "). If this is an intended visual change, rerun with --olo-golden-rebase to update " << path;
         }
-
-        Entity m_Island;
     };
-
-    // Freezes the clock for the whole run so every pose is deterministic — the
-    // precondition for treating the PNGs as goldens. RAII restores the real clock
-    // on every exit path, including an ASSERT early-return.
-    namespace
-    {
-        struct ScopedMockTime
-        {
-            explicit ScopedMockTime(f32 t)
-            {
-                Time::SetMockTime(t);
-            }
-            ~ScopedMockTime()
-            {
-                Time::ClearMockTime();
-            }
-        };
-    } // namespace
 
     TEST_F(DriftIslandFieldEvidenceTest, CaptureApproachSeriesAndWaterline)
     {
         OLO_ENSURE_GPU_OR_SKIP();
-        ScopedMockTime scopedMockTime(kCaptureTime);
+        const ScopedMockTime scopedMockTime(kCaptureTime);
 
         for (const Pose& pose : kPoses)
         {
             std::vector<u8> pixels;
             EditorCamera camera;
             ASSERT_NO_FATAL_FAILURE(Capture(pose, pixels, camera)) << pose.Name;
-
-            // A black frame must never pass as "matches the golden" — which it
-            // would, silently, if a golden were ever rebased from a broken run.
-            u64 lumaSum = 0;
-            for (sizet i = 0; i + 3 < pixels.size(); i += 4)
-                lumaSum += pixels[i] + pixels[i + 1] + pixels[i + 2];
-            const f64 meanChannel = static_cast<f64>(lumaSum) / (static_cast<f64>(kWidth) * kHeight * 3.0);
-            EXPECT_GT(meanChannel, 5.0) << "Pose '" << pose.Name << "' (" << pose.What << ") rendered (near-)black";
-
+            // A black frame must never pass as "matches the golden", which it
+            // would if a golden were ever rebased from a broken run.
+            ExpectNotBlack(pose, pixels);
             ASSERT_NO_FATAL_FAILURE(CompareOrRebase(pose.Name, pixels)) << pose.Name;
         }
     }
 
-    // The #880 claim, on a rendered frame: the tile ENDS in sea, not in a wall.
-    //
-    // Looking straight down at the tile, project the midpoint of each of its four
-    // borders (and its four corners) into screen space through the capture
-    // camera's own view-projection, and sample the pixel there. With the radial
-    // mask on, the surface at those points is 24 m under water, so what is drawn
-    // is open sea — blue-dominant. Without the mask two thirds of that ring was
-    // terrain, which is sand/rock/scrub: red at least as strong as blue.
-    //
-    // The blue-over-red test is what makes this driver-independent: it does not
-    // care about the exact shade of either, only that no plausible terrain colour
-    // in the palette above is blue-dominant and no plausible sea colour is not.
-    TEST_F(DriftIslandFieldEvidenceTest, TileBorderIsSeaNotCliff)
+    // ── The contracts: every path, both backends ─────────────────────────────
+
+    class DriftIslandPaths : public DriftIslandScene, public ::testing::WithParamInterface<RenderingPath>
+    {
+      protected:
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
+        void BuildScene() override
+        {
+            Renderer3D::GetRendererSettings().Path = GetParam();
+            BuildIslandScene(); // applies the renderer settings
+        }
+
+        [[nodiscard]] std::string WriteEvidence(const char* poseName, const std::vector<u8>& pixels) const
+        {
+            const fs::path dir = fs::path("assets") / "tests" / "visual";
+            std::error_code ec;
+            fs::create_directories(dir, ec);
+            const std::string file =
+                (dir / (TestRenderBackend::EvidenceName("DriftIsland") + PathName(GetParam()) + "_" + poseName + ".png")).string();
+            ::stbi_flip_vertically_on_write(0);
+            EXPECT_NE(::stbi_write_png(file.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4,
+                                       pixels.data(), static_cast<int>(kWidth) * 4),
+                      0)
+                << "could not write " << file;
+            return file;
+        }
+    };
+
+    TEST_P(DriftIslandPaths, TheTileEndsInSeaAndTheIslandShowsItsMaterials)
     {
         OLO_ENSURE_GPU_OR_SKIP();
-        ScopedMockTime scopedMockTime(kCaptureTime);
+        const ScopedMockTime scopedMockTime(kCaptureTime);
 
-        const Pose& topDown = kPoses[5];
+        const Pose& topDown = kPoses[kTopDownPose];
         ASSERT_STREQ(topDown.Name, "TopDown");
-
         std::vector<u8> pixels;
         EditorCamera camera;
         ASSERT_NO_FATAL_FAILURE(Capture(topDown, pixels, camera));
+        const std::string evidence = WriteEvidence(topDown.Name, pixels);
 
-        // Sampled at the TILE BASE, not at y = 0: that is where the masked border
-        // surface actually is, and the TopDown camera is near-vertical rather than
-        // vertical. A 24 m height error at a ~207 m offset shifts the projected
-        // pixel radially by ~207 * 24 / 430 = 11 m, which is well past the 3 m
-        // inset below — the sample would land outside the tile, where the sea is
-        // open whether or not the falloff works, and the contract would pass
-        // vacuously.
-        const f32 sampleY = kBaseY;
-        const f32 half = kTileSize * 0.5f;
-        // Pulled a hair inside the tile so a sample can never land on the very
-        // first texel column and be argued about; the mask is zero well before
-        // this (the ramp ends on the outermost texel centre).
-        const f32 edge = half * 0.985f;
-        struct BorderPoint
-        {
-            const char* Name;
-            glm::vec3 World;
-        };
-        const std::array<BorderPoint, 8> border = { {
-            { "+X edge", { kIslandCentreX + edge, sampleY, kIslandCentreZ } },
-            { "-X edge", { kIslandCentreX - edge, sampleY, kIslandCentreZ } },
-            { "+Z edge", { kIslandCentreX, sampleY, kIslandCentreZ + edge } },
-            { "-Z edge", { kIslandCentreX, sampleY, kIslandCentreZ - edge } },
-            { "+X+Z corner", { kIslandCentreX + edge, sampleY, kIslandCentreZ + edge } },
-            { "+X-Z corner", { kIslandCentreX + edge, sampleY, kIslandCentreZ - edge } },
-            { "-X+Z corner", { kIslandCentreX - edge, sampleY, kIslandCentreZ + edge } },
-            { "-X-Z corner", { kIslandCentreX - edge, sampleY, kIslandCentreZ - edge } },
-        } };
-
-        const glm::mat4 viewProjection = camera.GetViewProjection();
-        u32 sampled = 0;
-        for (const BorderPoint& point : border)
-        {
-            const glm::vec4 clip = viewProjection * glm::vec4(point.World, 1.0f);
-            ASSERT_GT(clip.w, 0.0f) << point.Name << " projected behind the camera";
-            const glm::vec3 ndc = glm::vec3(clip) / clip.w;
-            if (std::fabs(ndc.x) > 1.0f || std::fabs(ndc.y) > 1.0f)
-                continue; // outside the frame at this framing — nothing to say about it
-
-            const u32 x = static_cast<u32>((ndc.x * 0.5f + 0.5f) * static_cast<f32>(kWidth - 1u));
-            // Rows were flipped to image space (row 0 = top), so +Y in NDC is UP
-            // and therefore a SMALLER row index.
-            const u32 y = static_cast<u32>((1.0f - (ndc.y * 0.5f + 0.5f)) * static_cast<f32>(kHeight - 1u));
-            const sizet idx = (static_cast<sizet>(y) * kWidth + x) * 4u;
-            ASSERT_LT(idx + 2u, pixels.size()) << point.Name;
-
-            const int r = pixels[idx + 0];
-            const int b = pixels[idx + 2];
-            EXPECT_GT(b, r) << "Tile border point '" << point.Name << "' at pixel (" << x << ", " << y
-                            << ") reads as land (r=" << r << ", b=" << b << "), not sea — the island falloff is "
-                            << "not reaching the tile edge. See DriftIsland_TopDown.png.";
-            ++sampled;
-        }
-
-        // Anti-vacuity: if the framing ever changes so the tile no longer fits in
-        // frame, every point would be skipped and the loop above would assert
-        // nothing at all while reporting green.
-        EXPECT_GE(sampled, 6u) << "only " << sampled << " of 8 tile-border points were in frame — "
-                               << "the TopDown pose no longer frames the tile, so this test proves nothing";
+        ExpectNotBlack(topDown, pixels);
+        ASSERT_NO_FATAL_FAILURE(ExpectTileBorderIsSea(camera, pixels, evidence));
+        ASSERT_NO_FATAL_FAILURE(ExpectTheIslandShowsItsMaterials(pixels, evidence));
     }
+
+    // The view the boat arrives at: the shore band, the turf slope and the rock
+    // above it in one frame. Evidence for each path and backend; the frame must
+    // not be black.
+    TEST_P(DriftIslandPaths, TheArrivalViewRenders)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedMockTime scopedMockTime(kCaptureTime);
+
+        const Pose& arrival = kPoses[2];
+        ASSERT_STREQ(arrival.Name, "ApproachNear");
+        std::vector<u8> pixels;
+        EditorCamera camera;
+        ASSERT_NO_FATAL_FAILURE(Capture(arrival, pixels, camera));
+        (void)WriteEvidence(arrival.Name, pixels);
+        ExpectNotBlack(arrival, pixels);
+    }
+
+    INSTANTIATE_TEST_SUITE_P(AllPaths, DriftIslandPaths,
+                             ::testing::Values(RenderingPath::Forward, RenderingPath::ForwardPlus,
+                                               RenderingPath::Deferred),
+                             [](const ::testing::TestParamInfo<RenderingPath>& info)
+                             { return std::string(PathName(info.param)); });
 } // namespace OloEngine::Tests

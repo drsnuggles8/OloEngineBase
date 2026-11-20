@@ -249,6 +249,8 @@ scripts/steam/generated/
 # resolve.
 .vegetation-source/
 .island-source/
+# Save games a Play session writes into the sandbox project.
+OloEditor/SandboxProject/Saves/
 # The showcase dog's coat as Blender grows it (build_dog_groom.py): ~60 MB of Alembic curves,
 # cooked into the committed Grooms/Dog/Dog.ologroom. Outside SandboxProject/Assets for the
 # reason above.

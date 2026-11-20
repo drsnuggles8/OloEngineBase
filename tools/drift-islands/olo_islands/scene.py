@@ -149,28 +149,37 @@ def _fmt(v):
     return str(v)
 
 
+def _land_metres(h, size):
+    """Tile-local (x, z) in metres of every land sample, by the generator's own mapping
+    (fields.xz): sample i is at i * size / (n - 1), which is where the engine draws it and
+    collides with it. Every measurement the stamper takes goes through here, so the landfall
+    ring, the discovery box and the header's distances describe one coast."""
+    import numpy as np
+    from . import fields
+    n = h.shape[0]
+    zz, xx = np.nonzero(h > 0.0)
+    if xx.size == 0:
+        raise ValueError("the height map has no land above the sea")
+    return xx * fields.cell(n, size), zz * fields.cell(n, size)
+
+
 def enclosing_radius(h, size):
     """Metres from the tile centre to the island's farthest land: its landfall circle.
 
     The 99.5th percentile of the land's distances, so one awash rock does not set the ring.
     """
     import numpy as np
-    n = h.shape[0]
-    zz, xx = np.nonzero(h > 0.0)
-    c = (n - 1) * 0.5
-    return float(np.percentile(np.hypot(xx - c, zz - c), 99.5) * size / n)
+    xx, zz = _land_metres(h, size)
+    return float(np.percentile(np.hypot(xx - size * 0.5, zz - size * 0.5), 99.5))
 
 
 def land_box(h, size, margin=10.0):
     """(centre x, centre z, half x, half z) of the land's bounding box in tile-local metres,
     grown by `margin`: the discovery trigger. A box sized to the landfall CIRCLE reaches a
     hundred metres off the narrow side of a long island; the land's own extent does not."""
-    import numpy as np
-    n = h.shape[0]
-    zz, xx = np.nonzero(h > 0.0)
-    scale = size / (n - 1)
-    x0, x1 = xx.min() * scale - margin, xx.max() * scale + margin
-    z0, z1 = zz.min() * scale - margin, zz.max() * scale + margin
+    xx, zz = _land_metres(h, size)
+    x0, x1 = xx.min() - margin, xx.max() + margin
+    z0, z1 = zz.min() - margin, zz.max() + margin
     return (round((x0 + x1) * 0.5), round((z0 + z1) * 0.5), math.ceil((x1 - x0) * 0.5), math.ceil((z1 - z0) * 0.5))
 
 
@@ -281,11 +290,8 @@ def water_from_start(h, name):
     """Metres of open water from the boat's start to the island's nearest land."""
     import numpy as np
     size, _, _, corner_x, corner_z = recipes.TILES[name]
-    n = h.shape[0]
-    zz, xx = np.nonzero(h > 0.0)
-    wx = corner_x + xx / (n - 1) * size
-    wz = corner_z + zz / (n - 1) * size
-    return float(np.hypot(wx - START[0], wz - START[1]).min())
+    xx, zz = _land_metres(h, size)
+    return float(np.hypot(corner_x + xx - START[0], corner_z + zz - START[1]).min())
 
 
 def layout_block(facts):
@@ -332,6 +338,17 @@ def layout_block(facts):
     return out
 
 
+def _anchor(lines, start, matches, what):
+    """Index of the first line from `start` that matches, or an error that names what the
+    stamper was looking for. An editor save drops the scene's comments, and the comments are
+    the anchors: say so instead of dying on a StopIteration."""
+    for i in range(start, len(lines)):
+        if matches(lines[i]):
+            return i
+    raise ValueError(f"Drift.olo: could not find {what}. The stamper finds each block by its comments; "
+                     "restore them (git checkout the scene) rather than stamping a scene saved from the editor.")
+
+
 def stamp(scene_path, radii, facts, boxes):
     """Replace each island's entity block and the header's LAYOUT section. `radii` is name ->
     landfall radius in metres; `facts` is what layout_block takes; `boxes` is name -> land_box."""
@@ -339,13 +356,18 @@ def stamp(scene_path, radii, facts, boxes):
         text = fh.read()
     newline = "\r\n" if "\r\n" in text else "\n"
     lines = text.split(newline)
-    first = next(i for i, line in enumerate(lines) if line.startswith(LAYOUT_FIRST))
-    last = next(i for i in range(first, len(lines)) if lines[i].startswith(LAYOUT_NEXT))
+    first = _anchor(lines, 0, lambda line: line.startswith(LAYOUT_FIRST), f"the header line '{LAYOUT_FIRST}'")
+    last = _anchor(lines, first, lambda line: line.startswith(LAYOUT_NEXT),
+                   f"the header line '{LAYOUT_NEXT}' that follows the LAYOUT section")
     lines[first:last] = layout_block(facts)
     for name, radius in radii.items():
-        start = next(i for i, line in enumerate(lines) if line.startswith(f"  # ── Island - {name} "))
-        foliage = next(i for i in range(start, len(lines)) if lines[i].rstrip() == "    FoliageComponent:")
-        end = next(i for i in range(foliage, len(lines)) if lines[i].strip() == "")
+        start = _anchor(lines, 0, lambda line: line.startswith(f"  # ── Island - {name} "),
+                        f"the comment line '  # ── Island - {name} ' that opens that island's entity")
+        foliage = _anchor(lines, start, lambda line: line.rstrip() == "    FoliageComponent:",
+                          f"Island - {name}'s FoliageComponent")
+        # The block ends at the first blank line after the foliage layers: everything from the
+        # header comment to there is replaced, so nothing may be added by hand in between.
+        end = _anchor(lines, foliage, lambda line: line.strip() == "", f"the blank line that ends Island - {name}'s entity")
         lines[start:end] = island_block(name, radius, boxes[name])
     with io.open(scene_path, "w", encoding="utf-8", newline="") as fh:
         fh.write(newline.join(lines))

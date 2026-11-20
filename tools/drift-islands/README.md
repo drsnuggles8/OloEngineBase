@@ -45,11 +45,18 @@ discovery box, the landfall radius the weather director reads, and the foliage l
    beach profile (7 degree foreshore, 1.6 m berm); rock coasts get a wave-cut platform.
 4. **Sites.** The landmarks' ground: the lighthouse's stack top and the landing's hard standing
    and berth. Each restates a Jolt ray survey of the terrain the landmark was built against.
-5. **Border.** Every border texel is driven to the tile floor exactly, so the tile edge is seabed.
+5. **Border.** Every border sample is driven to the tile floor exactly, so the tile edge is seabed.
 6. **Materials** ([materials.py](olo_islands/materials.py)). Splat weights from slope, height,
    shore distance, drainage and exposure; the macro map carries what is bigger than a texture
    tile: the island's own rock and sand colour, the tide band, lichen, guano, bedding, damp
    gullies and baked occlusion.
+
+Every field is computed on the height map's own grid: n **samples**, the first and last on the
+tile's edges, `size / (n - 1)` metres apart ([fields.py](olo_islands/fields.py)). That is how the
+engine reads a height map, so a site stated in metres is where the recipe put it, on screen and
+under a physics body. The splatmaps and the macro map are read as **areas** (texel j is the j-th
+n-th of the tile), so the bake moves everything it paints to texel centres (`fields.to_areas`)
+before it quantises.
 
 `preview.py` renders a shaded map and four views from the sea in software, so a recipe can be
 judged without building the engine.
@@ -82,7 +89,7 @@ packed into the ARM alpha.
 | Sand | [Sandy Gravel 02](https://polyhaven.com/a/sandy_gravel_02) | Dario Barresi |
 | Shingle | [Ganges River Pebbles](https://polyhaven.com/a/ganges_river_pebbles) | Amal Kumar |
 | Turf | [Sparse Grass](https://polyhaven.com/a/sparse_grass) | Amal Kumar |
-| Heath | [Brown Mud Leaves 01](https://polyhaven.com/a/brown_mud_leaves_01) | Rob Tuytel |
+| Heath | [Withered Grass](https://polyhaven.com/a/withered_grass) | Charlotte Baglioni |
 | Rock | [Rock Face 03](https://polyhaven.com/a/rock_face_03) | Dario Barresi (photography), Rico Cilliers (processing) |
 | RockBedded | [Cliff Side](https://polyhaven.com/a/cliff_side) | Dario Barresi, James Ray Cock (photography), Jenelle van Heerden (processing) |
 | Scree | [Gray Rocks](https://polyhaven.com/a/gray_rocks) | Dimitrios Savva |

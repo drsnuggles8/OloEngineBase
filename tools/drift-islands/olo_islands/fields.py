@@ -3,14 +3,41 @@
 Everything works in METRES. A grid of n x n samples covers a tile of `size` metres; `xz(n, size)`
 returns the sample coordinates, x along columns and z along rows, which is also how the engine
 reads a heightmap (row 0 is the tile's z = 0 edge).
+
+TWO GRIDS, AND WHICH MAP IS ON WHICH. A height map is a grid of SAMPLES: its first and last sit on
+the tile's edges, n - 1 intervals apart, `cell(n, size)` metres each. That is how the engine reads
+one everywhere (TerrainData::GetHeightAt, the collision shape, the terrain shaders through
+include/TerrainHeightUV.glsl), and it is the grid every field here is computed on. A splatmap or a
+macro map is a grid of AREAS: texel j covers the j-th n-th of the tile and is read at its centre.
+`to_areas` moves a field from the first grid to the second, and the bake calls it on everything it
+paints, so a colour lands on the ground it was computed for and not up to half a texel beside it.
 """
 import numpy as np
 from scipy import ndimage
 
 
+def cell(n, size):
+    """Metres between two neighbouring height samples."""
+    return size / (n - 1)
+
+
 def xz(n, size):
-    c = (np.arange(n, dtype=np.float64) + 0.5) * (size / n)
+    c = np.arange(n, dtype=np.float64) * cell(n, size)
     return np.meshgrid(c, c)
+
+
+def to_areas(a):
+    """A field on the sample grid (rows, columns leading), resampled at the texel centres of an
+    image of the same size: centre j is at sample coordinate (j + 0.5) * (n - 1) / n. Linear, so
+    weights that sum to one still do."""
+    n = a.shape[0]
+    t = (np.arange(n, dtype=np.float64) + 0.5) * ((n - 1) / n)
+    i0 = np.minimum(t.astype(np.int64), n - 2)
+    fr = t - i0
+    shape = (n,) + (1,) * (a.ndim - 1)
+    rows = a[i0] * (1.0 - fr).reshape(shape) + a[i0 + 1] * fr.reshape(shape)
+    shape = (1, n) + (1,) * (a.ndim - 2)
+    return rows[:, i0] * (1.0 - fr).reshape(shape) + rows[:, i0 + 1] * fr.reshape(shape)
 
 
 def _hash(ix, iz, seed):

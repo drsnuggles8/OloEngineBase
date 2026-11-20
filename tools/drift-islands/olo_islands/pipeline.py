@@ -9,7 +9,7 @@ RESOLUTION = 1024  # height samples per edge; 16 x 16 chunks of the engine's 64-
 def generate(name, n=RESOLUTION, verbose=True):
     size, height_scale, seed, _, _ = recipes.TILES[name]
     landform, sites = recipes.RECIPES[name]
-    cell = size / n
+    cell = f.cell(n, size)
     x, z = f.xz(n, size)
     aux = landform(x, z, seed)
     h = aux["h"].astype(np.float64)
@@ -71,5 +71,5 @@ def mean_coast_radius(h, size):
         pz = np.clip((c + steps * np.sin(a)).astype(int), 0, n - 1)
         on_land = np.nonzero(h[pz, px] > 0.0)[0]
         if on_land.size:
-            radii.append(steps[on_land[-1]] * size / n)
+            radii.append(steps[on_land[-1]] * f.cell(n, size))
     return float(np.mean(radii)) if radii else 0.0

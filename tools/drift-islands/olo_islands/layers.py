@@ -33,7 +33,7 @@ LIBRARY = {
     "Sand": ("sandy_gravel_02", 2.6),
     "Shingle": ("ganges_river_pebbles", 2.2),
     "Turf": ("sparse_grass", 2.4),
-    "Heath": ("brown_mud_leaves_01", 2.0),
+    "Heath": ("withered_grass", 2.0),
     "Rock": ("rock_face_03", 3.0),
     "RockBedded": ("cliff_side", 3.4),
     "Scree": ("gray_rocks", 2.2),

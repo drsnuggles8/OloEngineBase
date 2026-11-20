@@ -223,6 +223,12 @@ def bake(name, h, cell, x, z, aux, flow, talus, seed):
     wet = np.maximum(wet, 0.45 * flow_n * f.smoothstep(0.5, 0.85, flow_n) * (1.0 - sandish))
     alpha = 1.0 - 0.9 * np.clip(wet, 0.0, 1.0)
 
+    # Everything above is on the height SAMPLES; the three maps written here are read as AREAS
+    # (fields.py's header). Move each to its texel centres before it is quantised.
+    tint = f.to_areas(tint)
+    alpha = f.to_areas(alpha)
+    w = np.moveaxis(f.to_areas(np.moveaxis(w, 0, -1)), -1, 0)
+
     macro = np.concatenate([np.clip(tint * 128.0, 0.0, 255.0), (alpha * 255.0)[..., None]], axis=-1)
     macro = np.round(macro).astype(np.uint8)
     q = np.round(np.moveaxis(w, 0, -1) * 255.0).astype(np.uint8)
