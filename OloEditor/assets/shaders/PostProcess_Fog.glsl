@@ -50,11 +50,15 @@ void main()
 
 #ifdef OLO_BINDLESS
 #define u_DepthTexture OLO_HEAP_TEX_2D(19)      // TEX_POSTPROCESS_DEPTH
+#define u_WaterSurfaceDepth OLO_HEAP_TEX_2D(32) // TEX_UNDERWATER_WATER_DEPTH
 #define u_FroxelFogVolume OLO_HEAP_TEX_3D(53)   // TEX_FROXEL_FOG (sampler3D)
 #else
 layout(binding = 19) uniform sampler2D u_DepthTexture;  // Full-res scene depth
+layout(binding = 32) uniform sampler2D u_WaterSurfaceDepth;
 layout(binding = 53) uniform sampler3D u_FroxelFogVolume;
 #endif
+
+#include "include/FogSurfaceDepth.glsl"
 
 // Output: RGB = accumulated inscatter light, A = transmittance
 // Compositing happens in the upsample/composite pass
@@ -138,7 +142,7 @@ vec3 worldPosFromDepth(vec2 uv, float depth)
 // ---------------------------------------------------------------------------
 void main()
 {
-    float depth = texture(u_DepthTexture, v_TexCoord).r;
+    float depth = oloFogSurfaceDepth(v_TexCoord);
 
     // Early out for disabled fog
     if (u_FogFlags.x < 0.5)

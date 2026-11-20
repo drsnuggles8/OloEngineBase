@@ -50,6 +50,7 @@
 #include "RenderPropertyTest.h"
 #include "TestRenderBackend.h"
 
+#include "OloEngine/Renderer/PostProcessSettings.h"
 #include "OloEngine/Renderer/Renderer3D.h"
 #include "OloEngine/Renderer/ShaderBindingLayout.h"
 #include "OloEngine/Renderer/UniformBuffer.h"
@@ -623,5 +624,104 @@ namespace OloEngine::Tests
             << "the skybox is not in the frame: the arm proves nothing";
         EXPECT_EQ(waterChanged, 0u) << "water with no environment map changed when the skybox was drawn: it reflects the cubemap "
                                     << "the skybox left on the environment unit";
+    }
+
+    // The fog on a sea is the fog of its SURFACE, not of whatever lies under it
+    // (issue #1721). Water is drawn blended and writes no scene depth, so the
+    // fog pass used to reconstruct the seabed behind each water pixel and fog
+    // that: lightly where a floor lay close under the surface, to the limit
+    // where none did. Drift's islands each stood on a straight-edged patch of
+    // differently coloured water for it, the shape of the terrain tile beneath.
+    //
+    // Two frames in heavy fog from one pose: the fixture's seafloor in place,
+    // and the same floor taken out of the world. The floor is 20 m down, far
+    // past the depth at which the water is opaque, so the surface is the same
+    // surface in both and so must its fog be. The floor's own reach is the
+    // control: it covers the middle of the frame and not the edges, so before
+    // the fix the two frames differed across exactly that middle.
+    TEST_F(WaterVisualEvidenceTest, TheFogOnTheSeaDoesNotDependOnTheSeabed)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        struct ScopedMockTime
+        {
+            explicit ScopedMockTime(const f32 time)
+            {
+                Time::SetMockTime(time);
+            }
+            ~ScopedMockTime()
+            {
+                Time::ClearMockTime();
+            }
+        } scopedMockTime(kCaptureTime);
+        struct ScopedFogSettings
+        {
+            FogSettings Saved;
+            ScopedFogSettings() : Saved(Renderer3D::GetFogSettings()) {}
+            ~ScopedFogSettings()
+            {
+                Renderer3D::GetFogSettings() = Saved;
+            }
+        } scopedFog;
+        {
+            auto& fog = Renderer3D::GetFogSettings();
+            fog.Enabled = true;
+            fog.Mode = FogMode::Exponential;
+            fog.Color = glm::vec3(0.85f, 0.85f, 0.80f);
+            // 50% at 35 m, the distance of the water in the middle of the frame:
+            // a wrong depth is then a large change in either direction.
+            fog.Density = 0.02f;
+            fog.HeightFalloff = 0.0f;
+            fog.HeightOffset = 0.0f;
+            fog.MaxOpacity = 1.0f;
+            fog.EnableScattering = false;
+            fog.EnableVolumetric = false;
+            fog.EnableNoise = false;
+            fog.EnableLightShafts = false;
+        }
+
+        Entity floor = GetScene().FindEntityByName("Seafloor");
+        ASSERT_TRUE(floor);
+        const std::string backend = TestRenderBackend::EvidenceBackendPrefix();
+        const auto capture = [&](const f32 floorY, const char* name, std::vector<u8>& pixels)
+        {
+            floor.GetComponent<TransformComponent>().Translation.y = floorY;
+            Capture(TestRenderBackend::EvidenceName(name) + "Forward", { 0.0f, 16.0f, 38.0f }, 0.0f, 0.40f, pixels, false);
+        };
+        std::vector<u8> withFloor;
+        std::vector<u8> withoutFloor;
+        capture(-20.0f, "SeaFogSeabedPresent", withFloor);
+        ASSERT_FALSE(HasFatalFailure());
+        // Past the far plane: behind the water there is then only sky.
+        capture(-5000.0f, "SeaFogSeabedAbsent", withoutFloor);
+        ASSERT_FALSE(HasFatalFailure());
+        ASSERT_EQ(withFloor.size(), withoutFloor.size());
+
+        // The lower half of the frame is water in this pose (row 0 is the top).
+        // The submerged cube and the pillar stand in it and are the same in both
+        // frames; what may not differ is the open water round them.
+        sizet water = 0;
+        sizet changed = 0;
+        i32 largest = 0;
+        for (u32 y = kHeight / 2u; y < kHeight; ++y)
+        {
+            for (u32 x = 0; x < kWidth; ++x)
+            {
+                const sizet at = (static_cast<sizet>(y) * kWidth + x) * 4u;
+                i32 delta = 0;
+                for (sizet channel = 0; channel < 3u; ++channel)
+                    delta = std::max(delta, std::abs(static_cast<i32>(withFloor[at + channel]) - static_cast<i32>(withoutFloor[at + channel])));
+                ++water;
+                changed += (delta > 6) ? 1u : 0u;
+                largest = std::max(largest, delta);
+            }
+        }
+        const f64 changedShare = static_cast<f64>(changed) / static_cast<f64>(water);
+        std::cout << "[sea-fog-surface-depth] " << backend << ": removing the seabed changed " << changed << " of " << water
+                  << " water pixels (" << changedShare * 100.0 << "%), largest channel delta " << largest << "\n";
+        // Measured: no pixel past the threshold with the fix (largest delta 1);
+        // 45.8% of the half-frame with the fog reading the scene depth alone.
+        EXPECT_LT(changedShare, 0.02)
+            << "the sea's fog changed when the seabed under it was removed: the fog pass is fogging the floor behind the "
+            << "water instead of the surface. See " << backend << "SeaFogSeabed{Present,Absent}Forward.png";
     }
 } // namespace OloEngine::Tests
