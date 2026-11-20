@@ -6553,29 +6553,31 @@ namespace OloEngine
                 {
                     char sp0Buf[256]{};
                     std::strncpy(sp0Buf, mat->GetSplatmapPath(0).GetData(), sizeof(sp0Buf) - 1);
+                    // Each of these three path fields keeps what is typed, and
+                    // rebuilds the material once, when the edit is finished: a
+                    // rebuild per keystroke re-decoded both splatmaps, re-placed
+                    // the foliage and logged an unresolvable path for every
+                    // prefix of the name being typed.
                     if (ImGui::InputText("Splatmap 0", sp0Buf, sizeof(sp0Buf)))
-                    {
                         mat->SetSplatmapPath(0, sp0Buf);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
                         component.m_MaterialNeedsRebuild = true;
-                    }
 
                     char sp1Buf[256]{};
                     std::strncpy(sp1Buf, mat->GetSplatmapPath(1).GetData(), sizeof(sp1Buf) - 1);
                     if (ImGui::InputText("Splatmap 1", sp1Buf, sizeof(sp1Buf)))
-                    {
                         mat->SetSplatmapPath(1, sp1Buf);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
                         component.m_MaterialNeedsRebuild = true;
-                    }
 
                     // The macro map: a per-terrain tint (RGB, 128 = neutral)
                     // and dryness (alpha, 255 = dry) over the whole terrain.
                     char macroBuf[256]{};
                     std::strncpy(macroBuf, mat->GetMacroMapPath().GetData(), sizeof(macroBuf) - 1);
                     if (ImGui::InputText("Macro Map", macroBuf, sizeof(macroBuf)))
-                    {
                         mat->SetMacroMapPath(macroBuf);
+                    if (ImGui::IsItemDeactivatedAfterEdit())
                         component.m_MaterialNeedsRebuild = true;
-                    }
 
                     // The resolution every layer texture is resampled to. A
                     // power of two; the material clamps and rounds what it is

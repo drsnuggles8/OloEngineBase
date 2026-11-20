@@ -2806,6 +2806,26 @@ namespace OloEngine
             outHeights = { heights.GetData(), static_cast<sizet>(heights.Num()) };
             return true;
         }
+        // The render path's own order (the single-tile rebuild in OnUpdate):
+        // a heightmap file first, then the procedural recipe, then flat. A
+        // terrain that names a file AND keeps ProceduralEnabled set is drawn
+        // from the file, so it must collide with the file.
+        if (!terrain.m_HeightmapPath.empty())
+        {
+            // A heightmap file whose heights the render path has not built (a
+            // dedicated server, a functional test): decoded here with the
+            // decoder the render path uploads from, so both stand on the same
+            // field. An unresolvable or undecodable file is logged by the
+            // resolver or the decoder and is "no heights", never a stand-in.
+            const std::filesystem::path file = ResolveContentPath(terrain.m_HeightmapPath);
+            if (file.empty() || !TerrainData::DecodeHeightmapFile(file.string(), scratch, outResolution))
+            {
+                outResolution = 0;
+                return false;
+            }
+            outHeights = { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
+            return true;
+        }
         if (terrain.m_ProceduralEnabled)
         {
             TerrainGenerator::HeightParams params;
@@ -2822,26 +2842,10 @@ namespace OloEngine
             outHeights = { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
             return true;
         }
-        if (terrain.m_HeightmapPath.empty())
-        {
-            // Flat terrain -- mirrors the render path's CreateFlat(256, 0).
-            outResolution = 256;
-            scratch.Reset();
-            scratch.SetNumZeroed(static_cast<i32>(outResolution * outResolution));
-            outHeights = { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
-            return true;
-        }
-        // A heightmap file whose heights the render path has not built (a
-        // dedicated server, a functional test): decoded here with the decoder
-        // the render path uploads from, so both stand on the same field. An
-        // unresolvable or undecodable file is logged by the resolver or the
-        // decoder and is "no heights", never a flat stand-in.
-        const std::filesystem::path file = ResolveContentPath(terrain.m_HeightmapPath);
-        if (file.empty() || !TerrainData::DecodeHeightmapFile(file.string(), scratch, outResolution))
-        {
-            outResolution = 0;
-            return false;
-        }
+        // Flat terrain -- mirrors the render path's CreateFlat(256, 0).
+        outResolution = 256;
+        scratch.Reset();
+        scratch.SetNumZeroed(static_cast<i32>(outResolution * outResolution));
         outHeights = { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
         return true;
     }
@@ -14805,13 +14809,18 @@ namespace OloEngine
                     // voxel shaders multiply a world position in metres, so the
                     // lane carries repeats per metre. A carved cave wall then
                     // shows a layer at the scale the surface around it does.
+                    // The tile is the one the surface draw is given: a streamed
+                    // terrain's own tile size, not the component's WorldSizeX.
+                    // A voxel wall has one scale for all three axes, so on a
+                    // tile that is not square it takes the X one.
                     // (Below 0.001 per metre the voxel shaders substitute their
                     // own default: a repeat longer than a kilometre.)
                     VoxelTerrainSurface voxelSurface;
                     voxelSurface.TriplanarSharpness = kTerrainTriplanarSharpness;
                     if (terrain.m_Material)
                     {
-                        const f32 repeatsPerMetre = 1.0f / std::max(terrain.m_WorldSizeX, 1.0e-3f);
+                        const f32 surfaceTileSize = terrain.m_StreamingEnabled ? terrain.m_TileWorldSize : terrain.m_WorldSizeX;
+                        const f32 repeatsPerMetre = 1.0f / std::max(surfaceTileSize, 1.0e-3f);
                         const u32 voxelLayerCount = std::min(terrain.m_Material->GetLayerCount(), 8u);
                         for (u32 i = 0; i < voxelLayerCount; ++i)
                         {
