@@ -8,6 +8,22 @@ import bpy
 from mathutils import Vector
 
 
+def bind_preview_groom(foundation, curves):
+    """Evaluate the groom on the shaped foundation, matching its runtime binding."""
+    foundation.add_rest_position_attribute = True
+    group = bpy.data.node_groups.new("Keeper preview surface deformation", "GeometryNodeTree")
+    for direction in ("INPUT", "OUTPUT"):
+        group.interface.new_socket(name="Geometry", in_out=direction, socket_type="NodeSocketGeometry")
+    incoming = group.nodes.new("NodeGroupInput")
+    deform = group.nodes.new("GeometryNodeDeformCurvesOnSurface")
+    outgoing = group.nodes.new("NodeGroupOutput")
+    group.links.new(incoming.outputs["Geometry"], deform.inputs["Curves"])
+    group.links.new(deform.outputs["Curves"], outgoing.inputs["Geometry"])
+    for hair in curves:
+        modifier = hair.modifiers.new("Follow the keeper's expression", "NODES")
+        modifier.node_group = group
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("models", type=Path)
@@ -52,7 +68,9 @@ def main():
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         from build_keeper_groom import grow
 
-        for hair in grow(foundation):
+        curves = grow(foundation)
+        bind_preview_groom(foundation, curves)
+        for hair in curves:
             attachments.append((hair, "head"))
     bpy.ops.object.camera_add()
     camera = bpy.context.object

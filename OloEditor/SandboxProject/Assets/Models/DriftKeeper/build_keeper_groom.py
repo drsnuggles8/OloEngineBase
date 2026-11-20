@@ -39,7 +39,9 @@ def grow(body):
             a = np.arctan2(x, z + 0.009)
             if name == "beard":
                 length = 0.026 + 0.050 * (1 - u) + 0.010 * cos(5 * a) - 0.28 * (y - 1.529)
-                length *= 1 - 0.73 * v**4
+                # The shortest growth at the top of a sideburn is stubble.
+                # A negative length would comb its guide back through the skin.
+                length = max(0.0012, length) * (1 - 0.73 * v**4)
                 flow = np.array((-0.17 * sin(a) + 0.045 * s + 0.08 * sin(9 * a), -1, 0.26 + 0.13 * cos(a)))
             elif name == "moustache":
                 length = 0.014 + 0.013 * (1 - u)
