@@ -109,7 +109,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [groom-ray-traced-proxies.md](groom-ray-traced-proxies.md): a groom proxy occludes other receivers and never its own coat.
 - [groom-card-coverage.md](groom-card-coverage.md): cook a card as wide as its members cover, never their sum.
 - [groom-coat-colour.md](groom-coat-colour.md): a groom's root UVs are in the engine's runtime texture convention (v up).
-- [groom-coat-bake-cost.md](groom-coat-bake-cost.md): split a bake's time by stage before cutting it.
+- [groom-coat-bake-cost.md](groom-coat-bake-cost.md): split a bake's time by stage before cutting it; share a rest bake across a herd and cap bakes per frame.
 - [groom-gpu-strand-deformation.md](groom-gpu-strand-deformation.md): build a bound coat's stream once in each root's bind frame and move it in the vertex shader, keeping the CPU rebuild as a bit-exact reference.
 - [groom-scene-lighting-and-wetness.md](groom-scene-lighting-and-wetness.md): light a coat from the rung of the ambient ladder its body takes and from the Forward+ cluster lists where they are live.
 - [multi-animal-scheduling-budgets.md](multi-animal-scheduling-budgets.md): share one frame's work out among a POPULATION of animals, in calibrated units and never in a clock reading.

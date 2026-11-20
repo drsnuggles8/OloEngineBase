@@ -49,6 +49,7 @@
 // =============================================================================
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Groom/CoatRebuildBudget.h"
 #include "OloEngine/Groom/GroomCasterPose.h"
 #include "OloEngine/Groom/GroomCoatShadowTechnique.h"
 #include "OloEngine/Groom/GroomGpuDeformation.h"
@@ -833,6 +834,65 @@ namespace OloEngine
             u64 BytesCountedTick = 0;
         };
 
+        /// EVERYTHING A REST BAKE READS (#1594), so two coats with equal keys bake
+        /// the same volume: the asset and its build (CacheKey's fields), the
+        /// width scale, the resolution and the body's surface by content. The
+        /// body's placement is matched beside the key, within
+        /// GroomCoatShadow::kBodyPlacementToleranceVoxels, as the body bakes are
+        /// (#1646): every fox's body-to-coat matrix is one matrix evaluated
+        /// through its own world transform. Field by field, never hashed alone,
+        /// so a collision cannot hand one coat another's volume.
+        struct SharedCoatVolumeKey
+        {
+            u64 Handle = 0;
+            const GroomAsset* Groom = nullptr;
+            u32 MaxStrands = 0;
+            u32 MaxSegments = 0;
+            u32 MaxWidthCompensationBits = 0;
+            u32 WidthScaleBits = 0;
+            u64 CoatDigest = 0;
+            u64 StreamingKey = 0;
+            u64 Binding = 0;
+            u32 Representation = 0;
+            u32 Resolution = 0;
+            u64 BodySurfaceHash = 0;
+            u32 BodyVertexCount = 0;
+            u32 BodyIndexCount = 0;
+            bool GuidesOnly = false;
+            bool HasBody = false;
+
+            [[nodiscard]] auto operator==(const SharedCoatVolumeKey&) const -> bool = default;
+            /// The budget's ticket: herd mates waiting for one bake share one.
+            [[nodiscard]] u64 Hash() const noexcept;
+        };
+
+        /// ONE REST BAKE SHARED BY EVERY COAT THAT WOULD BAKE IT (#1594): the
+        /// herd case, the move #1646 made for body bakes. Written once and never
+        /// rewritten in place, since other coats may be reading it; held by the
+        /// entries that draw it and by the pass's list, and given back when no
+        /// entry holds it. Its bytes are in m_CacheBytes once, here.
+        struct SharedCoatVolume : public RefCounted
+        {
+            SharedCoatVolumeKey Key;
+            glm::mat4 SurfaceToGroom{ 1.0f };
+            glm::vec3 SurfaceLo{ 0.0f };
+            glm::vec3 SurfaceHi{ 0.0f };
+            Ref<Texture3D> Volume;
+            Ref<Texture3D> Body;
+            glm::vec3 BoundsMin{ 0.0f };
+            glm::vec3 BoundsMax{ 0.0f };
+            f32 VoxelSize = 0.0f;
+            u32 BodyVoxels = 0;
+            u64 Bytes = 0;
+            u64 BuiltTick = 0;
+            /// The cache tick a draw last used it, the tick its bytes were last
+            /// counted in the stats, and the frame a draw last bound it.
+            u64 UsedTick = 0;
+            u64 BytesCountedTick = 0;
+            u32 LastBoundFrame = 0;
+            bool Bound = false;
+        };
+
         // One groom's GPU geometry, keyed by asset handle.
         /// Coat volumes kept per coat (#1445): enough that a coat rebaking every
         /// frame always finds a slot no recording still to be submitted reads.
@@ -1015,6 +1075,10 @@ namespace OloEngine
             };
             std::array<CoatVolumeSlot, kCoatVolumeRing> CoatRing;
             u32 CoatSlot = 0;
+            /// The shared rest bake this coat draws (#1594), or null. While set,
+            /// CoatVolume and CoatBody are its textures, the ring is empty and
+            /// CoatBytes is zero: the bytes are the shared bake's, counted once.
+            Ref<SharedCoatVolume> CoatShared;
 
             // ── GPU deformation (#1427) ─────────────────────────────
 
@@ -1344,6 +1408,39 @@ namespace OloEngine
         static constexpr u64 kCoatBodyIdleFrames = 3600;
         std::vector<CoatBodyBake> m_CoatBodyBakes;
         u64 m_CoatBodyUsedTick = 0;
+
+        /// The shared rest bakes (#1594), a handful at a time: a herd's coats
+        /// at each resolution they draw at. See SharedCoatVolume.
+        std::vector<Ref<SharedCoatVolume>> m_SharedCoatVolumes;
+        /// The key a rest bake of `request` at `resolution` would have, over
+        /// `body` (null for a coat with no bound surface).
+        [[nodiscard]] SharedCoatVolumeKey MakeSharedCoatVolumeKey(const GroomStrandRequest& request, u32 resolution,
+                                                                  const GroomDeformationInputs* body) const;
+        /// The shared bake with `key`, placed within the body tolerance of
+        /// `body`; null when there is none.
+        [[nodiscard]] Ref<SharedCoatVolume> FindSharedCoatVolume(const SharedCoatVolumeKey& key,
+                                                                 const GroomDeformationInputs* body) const;
+        /// Points `entry` at `shared`, giving back the volume it held of its own.
+        void AttachSharedCoatVolume(CacheEntry& entry, const Ref<SharedCoatVolume>& shared);
+        /// Moves the volume `entry` has just baked into a new shared bake under
+        /// `key`, and attaches `entry` to it.
+        void PublishSharedCoatVolume(CacheEntry& entry, const SharedCoatVolumeKey& key,
+                                     const GroomDeformationInputs* body);
+        /// Drops every shared bake no entry holds, and its bytes.
+        void PruneSharedCoatVolumes();
+
+        /// THE PER-FRAME REBUILD BUDGET (#1594): CoatRebakePolicy::
+        /// MaxRebuildsPerFrame bakes a frame, the rest deferred in order. Its
+        /// frame is m_CacheTick, the pass's frame, as the first-build staging
+        /// budget's is.
+        GroomCoatShadow::CoatRebuildBudget m_CoatRebuildBudget;
+        /// The deferral counts into the stats, and the log line when a wave of
+        /// deferred rebuilds starts and when it has drained.
+        void ReportCoatRebuildBudget();
+        bool m_CoatDeferralWave = false;
+        u64 m_CoatDeferralWaveStartTick = 0;
+        u32 m_CoatDeferralWavePeak = 0;
+        u64 m_CoatDeferralWaveTotal = 0;
         /// THE SCRATCH IS GIVEN BACK WHEN IT IDLES (#1533). Each group keeps the
         /// capacity of the largest job it served, so a coat that rebakes or
         /// re-poses every frame never reallocates; a coat that did its job once

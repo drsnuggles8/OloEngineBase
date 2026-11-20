@@ -1,8 +1,8 @@
 # What a walking coat's self-shadow bake costs, and how it was cut (#1445)
 
 Read before touching `GroomRenderPass::{AcquireDrawnPose, AcquireCoatVolume, BakeCoatVolume}`,
-`GroomCoatShadow::{CoatBakeSubsetStride, SubsampleCoatSegments}` or
-`CoatRebakePolicy::BakeSegmentsPerOccupiedVoxel`. Why a bound coat is baked from its drawn pose at
+`GroomCoatShadow::{CoatBakeSubsetStride, SubsampleCoatSegments, CoatRebuildBudget}`,
+`GroomRenderPass::SharedCoatVolume` or `CoatRebakePolicy::{BakeSegmentsPerOccupiedVoxel, MaxRebuildsPerFrame}`. Why a bound coat is baked from its drawn pose at
 all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shadowing.md).
 
 ## The rules
@@ -29,10 +29,22 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    `GroomCoatShadowDeformed.ASubsetBakesOnTheFullPosesGrid` pins it.
    [Details](groom-coat-bake-cost-details.md#the-rules)
 
+8. **One rest bake serves every coat that would bake it** (#1594). A rest bake reads only
+   `SharedCoatVolumeKey` (asset, build, width scale, resolution, the body by content) and the
+   body's placement within `kBodyPlacementToleranceVoxels`, so a herd's coats at one coat-LOD step
+   take one `SharedCoatVolume`. It is written once and never rewritten in place; a pose bake is
+   never shared. `CoatsOfOneAssetAtOneStepShareOneRestBakeAndOthersDoNot` pins it.
+   [Details](groom-coat-bake-cost-details.md#the-rules)
+9. **At most `CoatRebakePolicy::MaxRebuildsPerFrame` bakes run a frame** (#1594), the oldest
+   deferred coats first. A deferred coat draws the volume it holds when it is the right kind, a
+   pose bake's drift measured across a stride change so the stale bound still applies; every
+   deferral is counted. `AMixedSceneRebuildsWithinTheBudgetAndNoWaitingCoatGoesUnshadowed` pins it.
+   [Details](groom-coat-bake-cost-details.md#the-rules)
+
 ## Not done
 
-Multithreaded binning, a per-frame rebake budget and a recorded Vulkan upload were each measured
-and left out. [Details](groom-coat-bake-cost-details.md#not-done-and-why)
+Multithreaded binning and a recorded Vulkan upload were each measured and left out.
+[Details](groom-coat-bake-cost-details.md#not-done-and-why)
 
 ---
 

@@ -9957,6 +9957,14 @@ namespace OloEngine
                 ImGui::Text("Bound coats: %u rebakes, %.2f voxels of drift in use, %.2f ms baking",
                             stats.DeformedRebakes, static_cast<double>(stats.MaxDriftVoxels),
                             static_cast<double>(stats.BakeMicroseconds) / 1000.0);
+                // #1594: a herd shares one rest bake per step, and a frame
+                // makes at most the budget's bakes; the rest wait and draw the
+                // volume they hold, which is a stale volume and so is shown.
+                ImGui::Text("Shared rest bakes: %u resident, %u taken this frame", stats.SharedVolumes,
+                            stats.SharedBakesReused);
+                ImGui::Text("Rebuild budget %u/frame: %u deferred (%u drawn stale), %u waiting, oldest %u frames",
+                            stats.RebuildBudget, stats.RebuildsDeferred, stats.DrawnFromDeferredVolume,
+                            stats.RebuildsWaiting, stats.OldestRebuildWaitFrames);
 
                 const GroomCoatShadowFallbackReason reason = stats.DominantFallbackReason();
                 if (reason != GroomCoatShadowFallbackReason::None)

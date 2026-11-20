@@ -3,8 +3,8 @@
 > The rules from this guide, without the stories: [groom-coat-bake-cost.md](groom-coat-bake-cost.md).
 
 Read before touching `GroomRenderPass::{AcquireDrawnPose, AcquireCoatVolume, BakeCoatVolume}`,
-`GroomCoatShadow::{CoatBakeSubsetStride, SubsampleCoatSegments}` or
-`CoatRebakePolicy::BakeSegmentsPerOccupiedVoxel`. Why a bound coat is baked from its drawn pose at
+`GroomCoatShadow::{CoatBakeSubsetStride, SubsampleCoatSegments, CoatRebuildBudget}`,
+`GroomRenderPass::SharedCoatVolume` or `CoatRebakePolicy::{BakeSegmentsPerOccupiedVoxel, MaxRebuildsPerFrame}`. Why a bound coat is baked from its drawn pose at
 all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shadowing.md).
 
 ## The rules
@@ -52,6 +52,39 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    sets `DensityVolumeSettings::RadiusExtent` to kept/full;
    `GroomCoatShadowDeformed.ASubsetBakesOnTheFullPosesGrid` pins it.
 
+8. **One rest bake serves every coat that would bake it** (#1594). At the acceptance scene's
+   `population-dolly` cut about 44 foxes crossed a coat-LOD step in one frame and each rebuilt its
+   volume, 40-50 ms apiece, all of them the same bake: the same asset, build and step, and the same
+   body placed through a matrix that differs between animals only by float noise. A rest bake
+   reads nothing else (`SharedCoatVolumeKey`: the asset and its build, the width scale, the
+   resolution, the body's surface by content), so the first coat to need one bakes it and
+   publishes it as a `SharedCoatVolume`, and every later coat with an equal key and a body placed
+   within `kBodyPlacementToleranceVoxels` takes it (`CoatShadow.SharedBakesReused`). Per-coat
+   state that is not baked -- the pose, wetness, colour, the transform -- stays out of the key,
+   so it cannot leak through the bake. The key is the resolution, not the step: two steps that
+   give one resolution give one volume. A shared texture is never rewritten in place (another
+   coat may be reading it), its bytes are counted once by the bake (`CoatVolumeBytes`, the memory
+   report's "shared coat rest bakes" row with the per-coat charge it avoids), and it is given back
+   when the last coat holding it lets go. A pose bake is the coat's own pose and is never shared.
+
+9. **At most `CoatRebakePolicy::MaxRebuildsPerFrame` bakes run a frame** (#1594), default 2. It
+   is the backstop for a scene of mixed assets, where sharing does not help.
+   `GroomCoatShadow::CoatRebuildBudget` keeps the deferred coats in the order they were first
+   deferred and reserves the budget for the oldest at each frame start; a newcomer bakes only with
+   budget left after every unserved reservation, so a deferred coat is served within
+   ceil(position / budget) frames of being drawn, however many coats keep asking in front of it.
+   The budget's frame is the pass's own tick, as the first-build staging budget's is: a host that
+   leaves `GroomFrameState::FrameIndex` fixed would otherwise never refill it. A deferred coat draws the volume it already holds if it is the right kind (a
+   pose bake for a posed coat, a rest bake for one at rest), at that volume's resolution, and is
+   counted in `DrawnFromDeferredVolume`; one holding nothing falls back as
+   `RepresentationNotBuilt`. The earlier objection to a budget -- "it needs the stale bound's
+   prioritisation" -- is met by keeping the stale bound in force: a deferred pose bake's drift is
+   measured even across a stride change (`MaxCoatPoseDriftAcrossStrides`; a resolution change
+   re-measures with a full bake, which changes the stride under a waiting coat), and a volume past
+   `StaleDriftVoxels` is not sampled. Deferrals, the queue and its oldest wait are in
+   `GroomCoatShadowStats`, `olo_groom_budget_stats.coatShadow` and the inspector, and a wave of
+   deferrals is logged when it starts and when it drains.
+
 ## Measured
 
 `TheMovingCoatShadowFollowsTheWalk`, **Release**, GL, two walking horses (57k and 94k strands) and
@@ -86,8 +119,6 @@ representation's own error.
 - **Multithreaded binning.** After the subset it is 4.8 ms for three coats. Order-independent
   binning is only deterministic with a fixed partition and a fixed merge order, which costs a
   per-partition volume; not worth it at this size.
-- **A per-frame rebake budget.** With every coat rebaking every frame for 11.5 ms total, a
-  budget that lets coats lag would buy little, and it needs the stale bound's prioritisation.
 - **Vulkan's blocking upload.** `VulkanTexture3D::SetData` waits on a fence per bake, so on
   Vulkan each rebake drains the queue. The ring does not change that; a recorded, in-frame upload
   would. Live on Vulkan (Release editor, `Scenes/GroomAnimals.olo`) the whole bake read 4.8-8.9 ms

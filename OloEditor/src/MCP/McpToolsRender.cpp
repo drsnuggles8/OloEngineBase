@@ -7030,6 +7030,13 @@ namespace OloEngine::MCP
             snapshot.CoatBakeMicroseconds = coat.BakeMicroseconds;
             snapshot.CoatResolutionInForce = coat.ResolutionInForce;
             snapshot.CoatResidentBytes = coat.ResidentBytes;
+            snapshot.CoatSharedBakesReused = coat.SharedBakesReused;
+            snapshot.CoatSharedVolumes = coat.SharedVolumes;
+            snapshot.CoatRebuildBudget = coat.RebuildBudget;
+            snapshot.CoatRebuildsDeferred = coat.RebuildsDeferred;
+            snapshot.CoatDrawnFromDeferredVolume = coat.DrawnFromDeferredVolume;
+            snapshot.CoatRebuildsWaiting = coat.RebuildsWaiting;
+            snapshot.CoatOldestRebuildWaitFrames = coat.OldestRebuildWaitFrames;
 
             const GroomShadowCasterStats& sceneShadow = groom.SceneShadow;
             snapshot.GroomsAskedToCast = sceneShadow.GroomsAskedToCast;

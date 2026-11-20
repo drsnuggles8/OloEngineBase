@@ -21,9 +21,13 @@
 
 #include <gtest/gtest.h>
 
+#include "OloEngine/Groom/CoatRebuildBudget.h"
 #include "OloEngine/Groom/CoatVolumeAdmission.h"
+#include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomCoatShadowTechnique.h"
 
+#include <limits>
+#include <map>
 #include <optional>
 #include <set>
 #include <string>
@@ -551,4 +555,173 @@ TEST(GroomCoatShadowSelection, ALargeNewcomerReclaimsUntilItFitsOrIsRefused)
         EXPECT_TRUE(admitted);
         EXPECT_EQ(count, 3u);
     }
+}
+
+// THE REBUILD BUDGET (#1594), acceptance: rebuilds per frame stay within the
+// budget, and every deferral is counted. A camera cut moved ~44 coats across a
+// coat-LOD step in one frame and every one rebuilt in it.
+TEST(GroomCoatShadowSelection, RebuildsPerFrameStayWithinTheBudgetAndEveryDeferralIsCounted)
+{
+    GroomCoatShadow::CoatRebuildBudget budget;
+    budget.SetPerFrame(2u);
+    constexpr u32 kCoats = 44u;
+    u32 deferredTotal = 0u;
+    u32 frames = 0u;
+    std::set<u64> done;
+    for (u64 frame = 1u; frame <= 30u && done.size() < kCoats; ++frame)
+    {
+        ++frames;
+        budget.BeginFrame(frame);
+        u32 granted = 0u;
+        u32 deferred = 0u;
+        for (u64 coat = 0u; coat < kCoats; ++coat)
+        {
+            if (done.contains(coat))
+                continue;
+            if (budget.Request(coat))
+            {
+                ++granted;
+                done.insert(coat);
+            }
+            else
+            {
+                ++deferred;
+            }
+        }
+        EXPECT_LE(granted, 2u) << "frame " << frame << " rebuilt past the budget";
+        EXPECT_EQ(budget.GrantedThisFrame(), granted);
+        EXPECT_EQ(budget.DeferredThisFrame(), deferred) << "a deferral went uncounted";
+        deferredTotal += deferred;
+    }
+    EXPECT_EQ(done.size(), kCoats) << "a coat waiting for its rebuild was never served";
+    EXPECT_EQ(frames, 22u) << "44 coats at 2 a frame";
+    // 42 + 40 + ... + 2: every frame a coat waits is one deferral.
+    EXPECT_EQ(deferredTotal, 462u);
+    budget.BeginFrame(100u);
+    EXPECT_EQ(budget.Waiting(), 0u) << "a served coat stayed in the queue";
+}
+
+// NO STARVATION (#1594): a coat that keeps being deferred is served, however
+// many newcomers keep asking in front of it. Without the reservation, the coats
+// iterated first every frame would take the budget forever.
+TEST(GroomCoatShadowSelection, ADeferredCoatIsServedAheadOfNewcomers)
+{
+    GroomCoatShadow::CoatRebuildBudget budget;
+    budget.SetPerFrame(2u);
+    // Six coats wait from frame 1; each later frame, three NEW coats ask first.
+    std::set<u64> waiting{ 100u, 101u, 102u, 103u, 104u, 105u };
+    std::map<u64, u64> servedAt;
+    u64 nextNewcomer = 1000u;
+    for (u64 frame = 1u; frame <= 12u; ++frame)
+    {
+        budget.BeginFrame(frame);
+        if (frame > 1u)
+        {
+            for (u32 n = 0; n < 3u; ++n)
+                (void)budget.Request(nextNewcomer++);
+        }
+        for (auto it = waiting.begin(); it != waiting.end();)
+        {
+            if (budget.Request(*it))
+            {
+                servedAt[*it] = frame;
+                it = waiting.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+        EXPECT_LE(budget.GrantedThisFrame(), 2u);
+    }
+    EXPECT_TRUE(waiting.empty()) << waiting.size() << " deferred coat(s) starved behind newcomers";
+    // Two served on frame 1, then the oldest two, reserved, on each frame after.
+    for (const auto& [coat, frame] : servedAt)
+        EXPECT_LE(frame, 3u) << "coat " << coat << " waited past its turn";
+    EXPECT_GT(budget.Waiting(), 0u) << "the newcomers should be the ones waiting now";
+}
+
+// A coat that stops asking (culled, or no longer needing its rebuild) leaves the
+// queue at the next frame and stops holding a reservation; a second camera in
+// the same frame spends the same budget; zero is no limit.
+TEST(GroomCoatShadowSelection, TheRebuildQueueForgetsCoatsThatStopAskingAndSharesOneFramesBudget)
+{
+    GroomCoatShadow::CoatRebuildBudget budget;
+    budget.SetPerFrame(1u);
+    budget.BeginFrame(1u);
+    EXPECT_TRUE(budget.Request(1u));
+    EXPECT_FALSE(budget.Request(2u));
+    EXPECT_FALSE(budget.Request(3u));
+    EXPECT_EQ(budget.Waiting(), 2u);
+    // The second camera of frame 1: the same frame, the budget already spent.
+    budget.BeginFrame(1u);
+    EXPECT_FALSE(budget.Request(4u)) << "a repeat BeginFrame for the same frame refilled the budget";
+    EXPECT_EQ(budget.DeferredThisFrame(), 3u);
+
+    // Frame 2: coat 2 holds the reservation but is not drawn; coat 3 waits.
+    budget.BeginFrame(2u);
+    EXPECT_FALSE(budget.Request(3u)) << "coat 3 jumped coat 2's reservation";
+    EXPECT_EQ(budget.OldestWaitFrames(), 1u);
+    // Frame 3: coat 2 did not ask on frame 2, so it is gone, and coat 3 is first.
+    budget.BeginFrame(3u);
+    EXPECT_TRUE(budget.Request(3u));
+    EXPECT_FALSE(budget.Request(4u));
+    budget.BeginFrame(4u);
+    EXPECT_TRUE(budget.Request(4u));
+    budget.BeginFrame(5u);
+    EXPECT_EQ(budget.Waiting(), 0u) << "a coat that stopped asking stayed queued";
+
+    budget.SetPerFrame(0u);
+    budget.BeginFrame(6u);
+    for (u64 coat = 0u; coat < 100u; ++coat)
+        EXPECT_TRUE(budget.Request(coat)) << "a zero budget limited a rebuild";
+    EXPECT_EQ(budget.DeferredThisFrame(), 0u);
+}
+
+// A deferred pose bake keeps drawing its volume across a stride change (#1594),
+// so its drift has to be measurable across one: the full bake against the
+// subset pose and the subset bake against the full pose give the same answer as
+// the same stride, and two different subsets are incomparable.
+TEST(GroomCoatShadowSelection, DriftIsMeasuredAcrossABakeSubsetStrideChange)
+{
+    using GroomCoatShadow::CoatSegment;
+    std::vector<CoatSegment> full;
+    for (u32 s = 0; s < 400u; ++s)
+    {
+        // Every segment moves by a different amount, so a misaligned pairing
+        // reads a different drift than the aligned one.
+        const glm::vec3 a(static_cast<f32>(s) * 0.01f, 0.0f, 0.0f);
+        full.push_back(CoatSegment{ a, a + glm::vec3(0.0f, 0.01f, 0.0f), 0.001f, 0.001f });
+    }
+    std::vector<CoatSegment> moved = full;
+    for (sizet s = 0; s < moved.size(); ++s)
+    {
+        const f32 shift = 0.001f * static_cast<f32>(s % 17u);
+        moved[s].A.z += shift;
+        moved[s].B.z += shift;
+    }
+    constexpr u32 kStride = 3u;
+    std::vector<CoatSegment> subsetMoved;
+    (void)GroomCoatShadow::SubsampleCoatSegments(moved, kStride, subsetMoved);
+    std::vector<CoatSegment> subsetFull;
+    (void)GroomCoatShadow::SubsampleCoatSegments(full, kStride, subsetFull);
+    ASSERT_LT(subsetMoved.size(), moved.size());
+
+    std::vector<glm::vec3> bakedFull;
+    GroomCoatShadow::CaptureCoatPose(full, bakedFull);
+    std::vector<glm::vec3> bakedSubset;
+    GroomCoatShadow::CaptureCoatPose(subsetFull, bakedSubset);
+
+    // The subset's own drift is what both cross-stride arms must report.
+    const f32 subsetDrift = GroomCoatShadow::MaxCoatPoseDrift(bakedSubset, subsetMoved);
+    ASSERT_GT(subsetDrift, 0.0f);
+    EXPECT_FLOAT_EQ(GroomCoatShadow::MaxCoatPoseDriftAcrossStrides(bakedFull, 1u, subsetMoved, kStride), subsetDrift)
+        << "a full bake against a subset pose";
+    EXPECT_FLOAT_EQ(GroomCoatShadow::MaxCoatPoseDriftAcrossStrides(bakedSubset, kStride, moved, 1u), subsetDrift)
+        << "a subset bake against the full pose";
+    EXPECT_FLOAT_EQ(GroomCoatShadow::MaxCoatPoseDriftAcrossStrides(bakedFull, 1u, moved, 1u),
+                    GroomCoatShadow::MaxCoatPoseDrift(bakedFull, moved));
+    EXPECT_EQ(GroomCoatShadow::MaxCoatPoseDriftAcrossStrides(bakedSubset, kStride, subsetMoved, 5u),
+              std::numeric_limits<f32>::infinity())
+        << "two different subsets cannot be compared";
 }

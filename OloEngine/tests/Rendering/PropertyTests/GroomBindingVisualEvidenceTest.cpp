@@ -335,17 +335,38 @@ namespace OloEngine::Tests
                 m_GroomEntity = {};
             }
 
-            m_Groom = BuildCoat(kind);
-            ASSERT_TRUE(m_Groom);
+            m_GroomEntity = CreateCoatEntity(kind, "Groom", m_Groom, m_Binding, m_GroomHandle, m_BindingHandle);
+        }
+
+        // A coat of `kind` on the body, worn by a new entity `name`: built,
+        // cooked against the bind pose, registered, and bound. InstallCoat's
+        // coat is one; a test that needs a second ASSET on the body makes
+        // another (#1594).
+        Entity CreateCoatEntity(const CoatKind& kind, const std::string& name, Ref<GroomAsset>& outGroom,
+                                Ref<GroomBindingAsset>& outBinding, AssetHandle& outGroomHandle,
+                                AssetHandle& outBindingHandle)
+        {
+            Entity created;
+            CreateCoatEntityInto(kind, name, outGroom, outBinding, outGroomHandle, outBindingHandle, created);
+            return created;
+        }
+
+        void CreateCoatEntityInto(const CoatKind& kind, const std::string& name, Ref<GroomAsset>& outGroom,
+                                  Ref<GroomBindingAsset>& outBinding, AssetHandle& outGroomHandle,
+                                  AssetHandle& outBindingHandle, Entity& outEntity)
+        {
+            Scene& scene = GetScene();
+            outGroom = BuildCoat(kind);
+            ASSERT_TRUE(outGroom);
 
             std::vector<u8> bytes;
             GroomBindingBuildStats buildStats;
             std::string reason;
-            ASSERT_TRUE(GroomBindingCooker::CookPair(*m_Groom, BodyView(), "EvidenceBody",
-                                                     GroomBindingBuildSettings{}, bytes, m_Binding, buildStats,
-                                                     reason))
+            Ref<GroomBindingAsset> cooked;
+            ASSERT_TRUE(GroomBindingCooker::CookPair(*outGroom, BodyView(), "EvidenceBody",
+                                                     GroomBindingBuildSettings{}, bytes, cooked, buildStats, reason))
                 << reason;
-            ASSERT_TRUE(m_Binding);
+            ASSERT_TRUE(cooked);
             std::printf("[groom-binding] %-10s  %u roots (%u exact / %u clamped / %u distant), max rest %.4f, "
                         "%zu cooked bytes\n",
                         kind.Name, buildStats.RootsBound, buildStats.RootsExact, buildStats.RootsClamped,
@@ -357,16 +378,16 @@ namespace OloEngine::Tests
             Ref<GroomBindingAsset> loaded;
             ASSERT_TRUE(GroomBindingSerializer::DecodeFromBytes(bytes.data(), bytes.size(), loaded, reason))
                 << reason;
-            m_Binding = loaded;
+            outBinding = loaded;
 
-            m_GroomHandle = AssetManager::AddMemoryOnlyAsset<GroomAsset>(m_Groom);
-            m_BindingHandle = AssetManager::AddMemoryOnlyAsset<GroomBindingAsset>(m_Binding);
-            ASSERT_NE(static_cast<u64>(m_GroomHandle), 0u);
-            ASSERT_NE(static_cast<u64>(m_BindingHandle), 0u);
+            outGroomHandle = AssetManager::AddMemoryOnlyAsset<GroomAsset>(outGroom);
+            outBindingHandle = AssetManager::AddMemoryOnlyAsset<GroomBindingAsset>(outBinding);
+            ASSERT_NE(static_cast<u64>(outGroomHandle), 0u);
+            ASSERT_NE(static_cast<u64>(outBindingHandle), 0u);
 
-            m_GroomEntity = scene.CreateEntity("Groom");
-            auto& groomComponent = m_GroomEntity.AddComponent<GroomComponent>();
-            groomComponent.m_Groom = m_GroomHandle;
+            outEntity = scene.CreateEntity(name);
+            auto& groomComponent = outEntity.AddComponent<GroomComponent>();
+            groomComponent.m_Groom = outGroomHandle;
             groomComponent.m_ShowPreview = false;
             groomComponent.m_RenderStrands = true;
             groomComponent.m_MaxRenderStrands = kind.Strands;
@@ -374,8 +395,8 @@ namespace OloEngine::Tests
             groomComponent.m_CompositionMode = static_cast<u8>(GroomCompositionMode::OpaqueRibbon);
             groomComponent.m_StrandColor = glm::vec3(0.72f, 0.60f, 0.46f);
 
-            auto& binding = m_GroomEntity.AddComponent<GroomBindingComponent>();
-            binding.m_Binding = m_BindingHandle;
+            auto& binding = outEntity.AddComponent<GroomBindingComponent>();
+            binding.m_Binding = outBindingHandle;
             binding.m_TargetEntity = m_BodyEntity.GetUUID();
             binding.m_Enabled = true;
         }
@@ -1248,6 +1269,254 @@ namespace OloEngine::Tests
         EXPECT_EQ(off.Memory.CoatVolumeBytes, 0u) << "a coat that stopped asking kept its volume";
         EXPECT_EQ(off.CachedBytes, before.CachedBytes);
         EXPECT_EQ(off.Memory.GpuBytes(), off.CachedBytes);
+        m_GroomEntity.RemoveComponent<GroomCoatShadowComponent>();
+    }
+
+    // The rebake policy is process-wide (Renderer3D); a case that changes it
+    // puts it back however it exits.
+    struct ScopedCoatRebakePolicy
+    {
+        GroomCoatShadow::CoatRebakePolicy Saved = Renderer3D::GetGroomCoatRebakePolicy();
+        explicit ScopedCoatRebakePolicy(u32 maxRebuildsPerFrame)
+        {
+            GroomCoatShadow::CoatRebakePolicy policy = Saved;
+            policy.MaxRebuildsPerFrame = maxRebuildsPerFrame;
+            Renderer3D::SetGroomCoatRebakePolicy(policy);
+        }
+        ~ScopedCoatRebakePolicy()
+        {
+            Renderer3D::SetGroomCoatRebakePolicy(Saved);
+        }
+        ScopedCoatRebakePolicy(const ScopedCoatRebakePolicy&) = delete;
+        ScopedCoatRebakePolicy& operator=(const ScopedCoatRebakePolicy&) = delete;
+    };
+
+    // A coat self-shadow baked at rest, at a 32^3 base. `coarser` forces one
+    // coat-LOD step down: a pixel-size threshold no on-screen size reaches.
+    GroomCoatShadowComponent& AddRestBakedCoatShadow(Entity entity, bool coarser = false, bool atRest = true)
+    {
+        auto& coat = entity.AddOrReplaceComponent<GroomCoatShadowComponent>();
+        coat.m_Enabled = true;
+        coat.m_Resolution = 32u;
+        coat.m_MaxLodSteps = coarser ? 1u : 0u;
+        coat.m_PixelSizeForLod0 = coarser ? 1.0e9f : 512.0f;
+        coat.m_BakeAtRest = atRest;
+        return coat;
+    }
+
+    // #1594, acceptance: coats of the same asset at the same coat-LOD step share
+    // ONE rest bake, and a different asset or a different step does not. The
+    // acceptance herd rebuilt ~44 coat volumes in one frame at a camera cut,
+    // one per fox, all of them the same bake.
+    TEST_F(GroomBindingVisualEvidenceTest, CoatsOfOneAssetAtOneStepShareOneRestBakeAndOthersDoNot)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBodyPose(55.0f);
+        SetBindingEnabled(true);
+        // No rebuild budget here: what is measured is the sharing alone.
+        const ScopedCoatRebakePolicy unlimited(0u);
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+        struct Bakes
+        {
+            u32 Rebuilds = 0;
+            u32 Shared = 0;
+        };
+        const auto run = [&](u32 frames)
+        {
+            Bakes bakes;
+            for (u32 f = 0; f < frames; ++f)
+            {
+                RunEditorFrames(camera, 1);
+                bakes.Rebuilds += PassStats().CoatShadow.Rebuilds;
+                bakes.Shared += PassStats().CoatShadow.SharedBakesReused;
+            }
+            return bakes;
+        };
+        EvictUnused([&](u32 frames)
+                    { (void)run(frames); });
+
+        // One coat: the bake every herd mate below should take.
+        (void)AddRestBakedCoatShadow(m_GroomEntity);
+        const Bakes first = run(4u);
+        const GroomRenderStats one = PassStats();
+        ASSERT_EQ(first.Rebuilds, 1u) << "the first coat did not bake once";
+        ASSERT_EQ(one.CoatShadow.ShadowedGrooms, 1u);
+        ASSERT_GT(one.Memory.CoatVolumeBytes, 0u);
+        EXPECT_EQ(one.CoatShadow.SharedVolumes, 1u) << "a rest bake was not published to share";
+        const u64 oneVolume = one.Memory.CoatVolumeBytes;
+
+        // Three more entities wearing the same coat at the same step: no bake.
+        std::vector<Entity> herd;
+        for (u32 i = 0; i < 3u; ++i)
+        {
+            Entity mate = GetScene().CreateEntity("HerdMate" + std::to_string(i));
+            mate.AddComponent<GroomComponent>(m_GroomEntity.GetComponent<GroomComponent>());
+            mate.AddComponent<GroomBindingComponent>(m_GroomEntity.GetComponent<GroomBindingComponent>());
+            (void)AddRestBakedCoatShadow(mate);
+            herd.push_back(mate);
+        }
+        const Bakes mates = run(8u);
+        const GroomRenderStats four = PassStats();
+        std::printf("[coat-share] one coat: %llu volume bytes; four coats of one asset at one step: %u bake(s), %u "
+                    "taken, %llu volume bytes, %u shared volume(s)\n",
+                    static_cast<unsigned long long>(oneVolume), mates.Rebuilds, mates.Shared,
+                    static_cast<unsigned long long>(four.Memory.CoatVolumeBytes), four.CoatShadow.SharedVolumes);
+        EXPECT_EQ(mates.Rebuilds, 0u) << "a herd mate baked a volume of its own";
+        EXPECT_EQ(mates.Shared, 3u) << "each herd mate takes the shared bake once";
+        EXPECT_EQ(four.CoatShadow.ShadowedGrooms, 4u);
+        EXPECT_EQ(four.CoatShadow.SharedVolumes, 1u);
+        EXPECT_EQ(four.Memory.CoatVolumeBytes, oneVolume) << "four coats on one bake must hold one volume";
+        EXPECT_EQ(four.CoatShadow.ResidentBytes, oneVolume) << "the stats must count the shared bake once";
+        EXPECT_EQ(four.Memory.GpuBytes(), four.CachedBytes);
+
+        // A different STEP: one mate a coat-LOD step coarser bakes its own,
+        // and the others keep theirs. Coarsening waits out the hysteresis.
+        (void)AddRestBakedCoatShadow(herd[0], true);
+        const Bakes stepped = run(8u);
+        const GroomRenderStats twoSteps = PassStats();
+        EXPECT_EQ(stepped.Rebuilds, 1u) << "a coat at another step must bake its own volume, once";
+        EXPECT_EQ(stepped.Shared, 0u) << "a coat at another step took the first step's bake";
+        EXPECT_EQ(twoSteps.CoatShadow.SharedVolumes, 2u);
+        EXPECT_EQ(twoSteps.CoatShadow.LodStepInForce, 1u);
+        EXPECT_EQ(twoSteps.CoatShadow.ShadowedGrooms, 4u);
+
+        // A different ASSET on the same body, at the first step: its own bake.
+        Ref<GroomAsset> otherGroom;
+        Ref<GroomBindingAsset> otherBinding;
+        AssetHandle otherGroomHandle = 0;
+        AssetHandle otherBindingHandle = 0;
+        Entity other = CreateCoatEntity(kLongAnimalCoat, "OtherCoat", otherGroom, otherBinding, otherGroomHandle,
+                                        otherBindingHandle);
+        ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        (void)AddRestBakedCoatShadow(other);
+        const Bakes another = run(8u);
+        const GroomRenderStats three = PassStats();
+        EXPECT_EQ(another.Rebuilds, 1u) << "a coat of another asset must bake its own volume, once";
+        EXPECT_EQ(another.Shared, 0u) << "a coat of another asset took this asset's bake";
+        EXPECT_EQ(three.CoatShadow.SharedVolumes, 3u);
+        EXPECT_EQ(three.CoatShadow.ShadowedGrooms, 5u);
+        EXPECT_EQ(three.Memory.GpuBytes(), three.CachedBytes);
+
+        // Every wearer gone: every shared bake is given back, to the byte.
+        for (Entity mate : herd)
+            GetScene().DestroyEntity(mate);
+        GetScene().DestroyEntity(other);
+        m_GroomEntity.RemoveComponent<GroomCoatShadowComponent>();
+        EvictUnused([&](u32 frames)
+                    { (void)run(frames); });
+        const GroomRenderStats after = PassStats();
+        EXPECT_EQ(after.CoatShadow.SharedVolumes, 0u) << "a shared bake outlived every coat that drew it";
+        EXPECT_EQ(after.Memory.CoatVolumeBytes, 0u);
+        EXPECT_EQ(after.Memory.GpuBytes(), after.CachedBytes);
+    }
+
+    // #1594, acceptance: rebuilds per frame stay within the budget, every
+    // deferral is counted, and every deferred coat is rebuilt. Coats of three
+    // ASSETS, so no bake is shared and only the budget can bound the frame, plus
+    // one coat baked from its pose. And the hazard the budget was once left out
+    // for: across a step change, no coat goes unshadowed while it waits -- each
+    // draws the volume it holds, counted as drawn from a deferred volume.
+    TEST_F(GroomBindingVisualEvidenceTest, AMixedSceneRebuildsWithinTheBudgetAndNoWaitingCoatGoesUnshadowed)
+    {
+        Renderer3D::GetRendererSettings().Path = RenderingPath::Forward;
+        Renderer3D::ApplyRendererSettings();
+        SetBodyPose(55.0f);
+        SetBindingEnabled(true);
+        const ScopedCoatRebakePolicy oneAFrame(1u);
+        EditorCamera camera(60.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight), 0.05f, 1000.0f);
+        camera.SetViewportSize(static_cast<f32>(kWidth), static_cast<f32>(kHeight));
+        camera.SetPose({ 0.0f, 0.9f, 4.6f }, 0.0f, 0.10f);
+        EvictUnused([&](u32 frames)
+                    { RunEditorFrames(camera, frames); });
+
+        std::vector<Entity> coats{ m_GroomEntity };
+        for (const CoatKind* kind : { &kLongAnimalCoat, &kHumanHair })
+        {
+            Ref<GroomAsset> groom;
+            Ref<GroomBindingAsset> binding;
+            AssetHandle groomHandle = 0;
+            AssetHandle bindingHandle = 0;
+            coats.push_back(CreateCoatEntity(*kind, std::string("Mixed") + kind->Name, groom, binding, groomHandle,
+                                             bindingHandle));
+            ASSERT_FALSE(::testing::Test::HasFatalFailure());
+        }
+        Entity posed = GetScene().CreateEntity("PosedTwin");
+        posed.AddComponent<GroomComponent>(m_GroomEntity.GetComponent<GroomComponent>());
+        posed.AddComponent<GroomBindingComponent>(m_GroomEntity.GetComponent<GroomBindingComponent>());
+        coats.push_back(posed);
+        for (Entity coat : coats)
+            (void)AddRestBakedCoatShadow(coat, false, coat != posed);
+        const u32 coatCount = static_cast<u32>(coats.size());
+
+        struct Phase
+        {
+            u32 Frames = 0;
+            u32 Rebuilds = 0;
+            u32 MaxRebuildsInAFrame = 0;
+            u32 Deferred = 0;
+            u32 DrawnFromDeferred = 0;
+            u32 FramesWithAFallback = 0;
+            u32 MaxWait = 0;
+        };
+        const auto runUntilSettled = [&](u32 maxFrames)
+        {
+            Phase phase;
+            for (u32 f = 0; f < maxFrames; ++f)
+            {
+                RunEditorFrames(camera, 1);
+                const GroomCoatShadowStats& s = PassStats().CoatShadow;
+                ++phase.Frames;
+                phase.Rebuilds += s.Rebuilds;
+                phase.MaxRebuildsInAFrame = std::max(phase.MaxRebuildsInAFrame, s.Rebuilds);
+                phase.Deferred += s.RebuildsDeferred;
+                phase.DrawnFromDeferred += s.DrawnFromDeferredVolume;
+                phase.FramesWithAFallback += s.FallbackGrooms > 0u ? 1u : 0u;
+                phase.MaxWait = std::max(phase.MaxWait, s.OldestRebuildWaitFrames);
+                EXPECT_EQ(s.RebuildBudget, 1u);
+                if (f >= 8u && s.Rebuilds == 0u && s.RebuildsWaiting == 0u && s.ShadowedGrooms == coatCount)
+                    break;
+            }
+            return phase;
+        };
+
+        // Arriving together: one bake a frame, the rest wait their turn.
+        const Phase arrival = runUntilSettled(60u);
+        std::printf("[coat-budget] %u coats arriving: %u bakes over %u frames (at most %u in a frame), %u "
+                    "deferrals, oldest wait %u frames\n",
+                    coatCount, arrival.Rebuilds, arrival.Frames, arrival.MaxRebuildsInAFrame, arrival.Deferred,
+                    arrival.MaxWait);
+        EXPECT_LE(arrival.MaxRebuildsInAFrame, 1u) << "a frame baked past the budget";
+        EXPECT_GE(arrival.Rebuilds, coatCount) << "a coat was never baked";
+        EXPECT_GT(arrival.Deferred, 0u) << "four coats at one bake a frame must defer some: this measures nothing";
+        ASSERT_EQ(PassStats().CoatShadow.ShadowedGrooms, coatCount) << "a deferred coat was never served";
+        EXPECT_EQ(PassStats().CoatShadow.RebuildsWaiting, 0u);
+
+        // Every coat one step coarser at once -- a camera cut's worth: one bake
+        // a frame, and every waiting coat keeps drawing the volume it holds.
+        for (Entity coat : coats)
+            (void)AddRestBakedCoatShadow(coat, true, coat != posed);
+        const Phase cut = runUntilSettled(60u);
+        std::printf("[coat-budget] a step change for all %u: %u bakes over %u frames (at most %u in a frame), %u "
+                    "deferrals, %u draws from a deferred volume, %u frame(s) with a coat unshadowed, oldest wait %u\n",
+                    coatCount, cut.Rebuilds, cut.Frames, cut.MaxRebuildsInAFrame, cut.Deferred, cut.DrawnFromDeferred,
+                    cut.FramesWithAFallback, cut.MaxWait);
+        EXPECT_LE(cut.MaxRebuildsInAFrame, 1u) << "a frame baked past the budget";
+        EXPECT_GE(cut.Rebuilds, coatCount) << "a coat never moved to the coarser step";
+        EXPECT_GT(cut.Deferred, 0u) << "the step change deferred nothing: this measures nothing";
+        EXPECT_GT(cut.DrawnFromDeferred, 0u) << "a deferred coat did not draw the volume it holds";
+        EXPECT_EQ(cut.FramesWithAFallback, 0u) << "a coat went unshadowed while its rebuild waited";
+        EXPECT_EQ(PassStats().CoatShadow.LodStepInForce, 1u);
+        EXPECT_EQ(PassStats().CoatShadow.ShadowedGrooms, coatCount);
+        EXPECT_EQ(PassStats().CoatShadow.RebuildsWaiting, 0u) << "a deferred rebuild was never served";
+
+        for (Entity coat : coats)
+        {
+            if (coat != m_GroomEntity)
+                GetScene().DestroyEntity(coat);
+        }
         m_GroomEntity.RemoveComponent<GroomCoatShadowComponent>();
     }
 

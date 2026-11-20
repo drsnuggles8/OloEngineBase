@@ -544,6 +544,48 @@ namespace OloEngine::GroomCoatShadow
         return MaxCoatPoseDriftFrom(bakedMidpoints, SegmentPose{ pose });
     }
 
+    f32 MaxCoatPoseDriftAcrossStrides(std::span<const glm::vec3> bakedMidpoints, u32 bakedStride,
+                                      std::span<const CoatSegment> pose, u32 poseStride)
+    {
+        bakedStride = std::max(bakedStride, 1u);
+        poseStride = std::max(poseStride, 1u);
+        if (bakedStride == poseStride)
+        {
+            return MaxCoatPoseDrift(bakedMidpoints, pose);
+        }
+        if (bakedStride == 1u)
+        {
+            // The bake is the full pose: compare the pose's subset with the
+            // bake's segments that subset keeps.
+            std::vector<glm::vec3> kept;
+            kept.reserve(bakedMidpoints.size() / poseStride + 1u);
+            for (sizet s = 0; s < bakedMidpoints.size(); ++s)
+            {
+                if (CoatBakeKeepsSegment(static_cast<u32>(s), poseStride))
+                {
+                    kept.push_back(bakedMidpoints[s]);
+                }
+            }
+            return MaxCoatPoseDrift(kept, pose);
+        }
+        if (poseStride == 1u)
+        {
+            // The pose is full: compare the bake's subset with the pose's
+            // segments it kept.
+            std::vector<CoatSegment> kept;
+            kept.reserve(pose.size() / bakedStride + 1u);
+            for (sizet s = 0; s < pose.size(); ++s)
+            {
+                if (CoatBakeKeepsSegment(static_cast<u32>(s), bakedStride))
+                {
+                    kept.push_back(pose[s]);
+                }
+            }
+            return MaxCoatPoseDrift(bakedMidpoints, kept);
+        }
+        return std::numeric_limits<f32>::infinity();
+    }
+
     void CoatPoseFromStrandVertices(std::span<const GroomStrandVertex> vertices, std::vector<CoatSegment>& outPose)
     {
         outPose.clear();

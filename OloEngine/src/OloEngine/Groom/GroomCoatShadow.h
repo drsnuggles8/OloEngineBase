@@ -215,6 +215,16 @@ namespace OloEngine
         [[nodiscard]] f32 MaxCoatPoseDrift(std::span<const glm::vec3> bakedMidpoints,
                                            std::span<const CoatSegment> pose) noexcept;
 
+        // The drift of a pose taken at one bake-subset stride from a bake made
+        // at another (#1594): a coat whose rebuild the budget deferred keeps
+        // its volume, and the stride may have changed under it (a resolution
+        // change re-measures with a full bake). Every subset keeps the segments
+        // CoatBakeKeepsSegment keeps of the FULL pose, in order, so a stride-1
+        // side is matched to the other side's kept indices. +INFINITY when
+        // neither stride is 1, or the counts do not match, as MaxCoatPoseDrift.
+        [[nodiscard]] f32 MaxCoatPoseDriftAcrossStrides(std::span<const glm::vec3> bakedMidpoints, u32 bakedStride,
+                                                        std::span<const CoatSegment> pose, u32 poseStride);
+
         // A GroomStrandMesh stream's drawn pose as centrelines — corners 0 and 2
         // of each segment. `outPose` is cleared first; a stream whose length is
         // not a multiple of four yields nothing.
@@ -257,6 +267,13 @@ namespace OloEngine
             /// sweep in GroomCoatShadowDeformed.ASubsetBakeKeepsTheShadowItReplaces.
             f32 BakeSegmentsPerOccupiedVoxel = 8.0f;
 
+            /// Coat-volume bakes the pass makes per frame, over every coat
+            /// (#1594, GroomCoatShadow::CoatRebuildBudget); zero is no limit. A
+            /// coat over it keeps drawing the volume it holds, its rebuild is
+            /// deferred and counted, and the oldest deferred coats go first.
+            /// See groom-coat-bake-cost.md for how the number was chosen.
+            u32 MaxRebuildsPerFrame = 2;
+
             /// Bit-exact per float, per cpp-coding-quality §2a: a defaulted
             /// operator== here would be a float `==`. Field by field rather
             /// than a whole-object memcmp, because the trailing bool leaves
@@ -266,7 +283,8 @@ namespace OloEngine
                 return Math::BitwiseEqual(MaxDriftVoxels, other.MaxDriftVoxels) &&
                        Math::BitwiseEqual(StaleDriftVoxels, other.StaleDriftVoxels) &&
                        RebakeOnDrift == other.RebakeOnDrift &&
-                       Math::BitwiseEqual(BakeSegmentsPerOccupiedVoxel, other.BakeSegmentsPerOccupiedVoxel);
+                       Math::BitwiseEqual(BakeSegmentsPerOccupiedVoxel, other.BakeSegmentsPerOccupiedVoxel) &&
+                       MaxRebuildsPerFrame == other.MaxRebuildsPerFrame;
             }
         };
 

@@ -247,7 +247,7 @@ No crash, no error, no log line: work or data disappears and the system keeps ru
 | [rt-quality-pressure-plans-a-complete-tier.md](rt-quality-pressure-plans-a-complete-tier.md) | Every ray-traced effect, to one casting vegetation group that did not fit and caused both TLAS addresses to be withheld. |
 | [groom-ray-traced-proxies.md](groom-ray-traced-proxies.md) | A coat to black, to a groom made a ray-traced-shadow receiver as well as a caster, plus four other proxy failures. |
 | [groom-card-coverage.md](groom-card-coverage.md) | A card tier drawing 2.6x its coat, to card widths summed over members that overlap, among nine other coverage failures. |
-| [groom-coat-bake-cost.md](groom-coat-bake-cost.md) | 95 ms a frame for three walking coats' self-shadow. |
+| [groom-coat-bake-cost.md](groom-coat-bake-cost.md) | 95 ms a frame for three walking coats' self-shadow; a 1-2 s hitch at a camera cut as a herd rebuilds its coat volumes. |
 | [groom-gpu-strand-deformation.md](groom-gpu-strand-deformation.md) | A herd's frame, to every bound strand rebuilt and re-uploaded on the CPU each frame. |
 | [coat-authoring-and-per-role-budgets.md](coat-authoring-and-per-role-budgets.md) | An animal's silhouette, to one global stride that thins sparse guard hairs and dense undercoat by the same fraction. |
 | [mcp-protocol-eras.md](mcp-protocol-eras.md) | Event pushes, when the notification carrier was swapped instead of run beside the old one. |
