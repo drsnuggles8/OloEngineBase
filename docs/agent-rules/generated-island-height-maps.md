@@ -16,11 +16,12 @@ Applies to: `tools/drift-islands/**`, the six `Island - *` entities in `OloEdito
 10. **Let the stamper write the coast radius; never type it.** `DriftWeatherDirector.lua` reads it back from `ShapingIslandFalloffRadius`, and `TheLandfallRingHoldsTheIsland` fails when a map's coast moved without a re-stamp. [Details](generated-island-height-maps-details.md#10-the-landfall-radius)
 11. **Restate a landmark's ground as a site in the recipe, and re-survey it after the coast moves.** The crane landing and Stacks Light were built against Jolt ray surveys; their READMEs name the points. [Details](generated-island-height-maps-details.md#11-landmark-sites)
 12. **Resolve a scene-stored terrain path with `ResolveContentPath`, and decode a height map on the CPU for a headless run.** `TerrainData::DecodeHeightmapFile` is the one decoder; `Scene::CpuTerrainHeights` uses it, so a server's collision and a client's surface are the same field. [Details](generated-island-height-maps-details.md#12-a-height-map-terrain-off-the-gpu)
-13. **Cast a distant terrain chunk's shadow from a coarser mesh (`TerrainShadowLod`), never from the full-density one.** A chunk mesh has a vertex on every height texel; a far cascade does not need them and pays for every one. [Details](generated-island-height-maps-details.md#13-terrain-shadow-casters-follow-the-main-views-detail)
+13. **Cast a distant terrain's shadow from a mesh as coarse as the ground the main view draws there (`TerrainShadowLod`): no finer, and no coarser.** A chunk mesh has a vertex on every height texel, which a far cascade pays for and cannot show; a caster blunter than the drawn ground puts the shadow's edge in the wrong place. [Details](generated-island-height-maps-details.md#13-terrain-shadow-casters-follow-the-main-views-detail)
 14. **Measure a terrain's level of detail as the on-screen size of one quad of a node, never of the node.** `TerrainLodMetric::QuadProjectionScale` is the one projection scale both descents use; it is the length of the view-projection's second row, not the element `[1][1]`, which carries the camera's pitch and Vulkan's sign. [Details](generated-island-height-maps-details.md#14-the-quadtree-split-on-the-wrong-size)
 15. **A pass that rebuilds a position from scene depth is reading the seabed under water; take the nearer of it and the water surface depth.** Water writes no depth. `include/FogSurfaceDepth.glsl` is the fog's answer, and `WaterVisualEvidenceTest.TheFogOnTheSeaDoesNotDependOnTheSeabed` holds it. [Details](generated-island-height-maps-details.md#15-fog-was-computed-to-the-seabed)
 16. **Light terrain by a per-pixel normal from the height map, not by the vertex normal.** The vertex normal's detail is the tessellation's, so lighting changes with the level a node is drawn at. `include/TerrainPixelNormal.glsl`. [Details](generated-island-height-maps-details.md#16-lighting-that-does-not-know-the-level-of-detail)
 17. **Commit regenerated maps once per change, not once per iteration.** The six islands and the layer library are about 40 MiB of plain blobs; every committed iteration stays in history. [Details](generated-island-height-maps-details.md#17-binary-maps-in-history)
+18. **Read a height map as samples and a splatmap or macro map as areas.** A height map's first and last texels sit ON the tile's edges, N - 1 intervals apart: fetch it in a shader through `oloTerrainHeightUV`, never by the bare tile UV, and write it from a grid of `i * size / (N - 1)`. A painted map's texel j is the j-th N-th of the tile, read at its centre. [Details](generated-island-height-maps-details.md#18-samples-and-areas)
 
 ## Commands and checks
 
@@ -29,6 +30,7 @@ python tools/drift-islands/build_islands.py --preview out/      # judge a recipe
 python tools/drift-islands/build_islands.py --stamp-scene       # maps, then Drift.olo
 python tools/drift-islands/build_islands.py --check             # regenerate and compare; writes nothing
 build-cached/OloEngine/tests/Release/OloEngine-Tests.exe --gtest_filter=DriftIslandSplatCoverage.*
+build-cached/OloEngine/tests/Release/OloEngine-Tests.exe --gtest_filter=*TerrainHeightSampleConvention*:*TerrainShadowFrom*
 ```
 
 ---

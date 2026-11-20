@@ -4,6 +4,20 @@ The stories, measurements and derivations behind
 [generated-island-height-maps.md](generated-island-height-maps.md). From issue #1721, the art
 review of *Drift*'s six islands.
 
+## Before and after
+
+The review's captures, BEFORE (base `a0c80c28f`) on the left and AFTER on the right. The cameras
+from the boat and from above are the same world-space cameras in both; the on-foot ones stand by
+the same rule on the new coast, because the coast is what moved.
+
+- [From the boat, clear noon](../images/drift-islands/from-the-boat-clear-noon.jpg)
+- [From above](../images/drift-islands/from-above.jpg)
+- [On foot](../images/drift-islands/on-foot.jpg)
+- [Storm at dusk, and clear dawn](../images/drift-islands/storm-and-dawn.jpg)
+- [The landmarks](../images/drift-islands/landmarks.jpg)
+
+![Six islands from 150 m off their shores at clear noon, before and after](../images/drift-islands/from-the-boat-clear-noon.jpg)
+
 ## 1. The scene block is derived data
 
 `tools/drift-islands/build_islands.py` writes four maps per island and, with `--stamp-scene`,
@@ -150,6 +164,10 @@ The landing is stamped with `max(height, apron)` carried inland until it meets t
 slope. A first version stamped a fixed rectangle, and the warped coast left it standing in open
 water.
 
+Surveyed again on the generated islands, in Play, by the same rays: the deck's edge meets ground
+at 1.40-1.41 m, there is 3.19 m of water under the hook and 3.52 m alongside the track, and the
+lighthouse's stack top is 28.68-28.70 m across its whole 20 m.
+
 ## 12. A height-map terrain off the GPU
 
 Two defects sat on the path no scene had used:
@@ -199,6 +217,25 @@ The levels are not applied under the virtual shadow map, whose cached pages woul
 they were drawn at as the camera closed in, nor under displacing snow, which is finer than the
 height field.
 
+Two more followed from measuring in Play from the boat instead of from a parked editor camera.
+
+4. **The draw count.** With the uploads gone the GPU time was small and the frame was not: six
+   islands were still about 1,500 shadow draws a frame, and the pass's CPU time was 1.7 ms. A
+   terrain whose NEAREST point already selects the coarsest level has every chunk there, so it
+   casts from one mesh of the whole tile (`TerrainChunkManager::GetShadowTileMesh`): a flat grid
+   at the coarsest level's spacing, which the depth shader's evaluation stage displaces like any
+   chunk. One draw and one cull replace 256.
+5. **The ceiling.** `TerrainShadowCasterEvidenceTest` was written to show the tile mesh casts the
+   shadow the chunks cast, and its first run failed: on a 129 px map the tile mesh put a 24 m
+   rim's shadow edge at 26.9 m, not 24. The rule compared a caster's quads with the size the pixel
+   target ASKS the main view's triangles to be, and the main view cannot draw that coarsely: a
+   node is 64 quads a side whatever its level, so its quads stop growing at the root node's. On
+   that map the root node draws 1 m quads and a chunk's coarsest mesh was 4 m. A height read for a
+   coarse vertex is a filtered one (it has to be, or a coarse node undersamples the relief), so a
+   caster four times blunter than the drawn ground is also lower at every rim, and its shadow
+   shorter. `TerrainShadowLod::CoarsestReceiverQuad` is the ceiling. It never binds on a map of 512
+   samples or more, which is why six 1024 px islands did not show it and a test terrain did.
+
 ## 14. The quadtree split on the wrong size
 
 `TerrainQuadtree::CalculateScreenSpaceError` (and its transcription in `TerrainNodeSelect.comp`)
@@ -238,8 +275,18 @@ plane and the fog was at its limit. The edge of the patch was the edge of the ti
 
 `WaterRenderPass` already captures the surface's own depth for the underwater fog. The fog pass
 binds it and `include/FogSurfaceDepth.glsl` takes the nearer of the two depths, in the fog shader
-and in its upsample. When no water was drawn the pass binds a white texture (depth 1.0), never the
-null resource, whose samples read 0 and would put the whole frame at the near plane.
+and in its upsample. When no water was drawn the pass binds the scene depth to both slots, never the
+null resource, whose samples read 0 and would put the whole frame at the near plane. A first version
+bound the renderer's white texture there, which is a texture of the renderer's own device: the
+Vulkan pass suite, which runs the pass on a device of its own inside the OpenGL test process, read
+half the fog it expects, and that failure is what removed the stand-in.
+
+The fix moved the eight overcast and storm goldens of `DriftWeatherVisualEvidenceTest`, the two
+night ones past the test's threshold (RMSE 14.6 and 19.7 of 255), which is the change itself and
+not drift. From 4.2 m above
+the sea the surface ten rows under the horizon is 118 m away and the seabed behind it is past the
+far plane, so the old frames fogged the whole sea as if it were at the horizon. A dump of both
+depths down one column of the frame settled that before the goldens were rebased.
 
 ## 16. Lighting that does not know the level of detail
 
@@ -258,3 +305,38 @@ the terrain fragment stage is at the driver's limit of uniform blocks on the bin
 The six islands' maps are 8 MiB and the layer library 31 MiB, all plain blobs (not LFS). An art
 pass regenerates them many times. Iterate with the maps uncommitted and commit the final set with
 the scene that names them.
+
+## 18. Samples and areas
+
+The engine read one height map two ways. `TerrainData::GetHeightAt` maps a normalized coordinate
+onto the texel index range [0, N-1] and lerps between texels: N samples, N - 1 intervals, the
+first and last on the tile's edges. The collision shape, the chunk meshes, foliage placement and
+the picker all follow it. The terrain shaders handed the tile UV to `textureLod`, which reads a
+texel as an area centred half a texel in from the edge: N texels, N intervals. The two disagree by
+(u - 0.5) texels: nothing at the middle of a tile, half a texel at its edges. On the 256 px, 260 m
+terrains Drift had before this work that was half a metre sideways between the drawn ground and
+the ground a body stands on, and on a 45 degree slope as much up or down.
+
+It had been seen before and stepped round. The GPU picker's shader carried a comment saying it
+transcribes `GetHeightAt` with `texelFetch` because a bilinear fetch "works in the texel-centre
+convention", and that it "leaves the rendering path's convention alone". The code review of the
+island generator found it a third time, as two texel-to-metre factors in one Python file (`size /
+n` and `size / (n - 1)`), each right for one of the engine's two readings.
+
+`include/TerrainHeightUV.glsl` converts a tile UV to the coordinate whose bilinear fetch is the
+CPU's lerp, `(uv * (N - 1) + 0.5) / N`. It is the same at every mip of a power-of-two map, because
+mip m's texel j is the mean of base samples centred at `j * 2^m + (2^m - 1) / 2`. Every fetch of the
+height map by a tile UV goes through it: the evaluation stages' helper, the per-pixel normal and
+the virtual-texture bake.
+
+`TerrainHeightSampleConventionTest` renders a 17 px height map (4 m between samples, so half a
+texel is 2 m) straight down, unprojects every pixel's depth and compares the height with
+`GetHeightAt` at that point: 0.2 mm rms on OpenGL, 0.6 mm on Vulkan, on all three paths. With the
+conversion removed the same frame is 1.06 m rms from `GetHeightAt` and 0.05 m from the area rule
+evaluated on the CPU, which is what says the old behaviour was that rule and nothing else. A
+second case counts the fetches per shader file, so one added without the conversion fails.
+
+A splatmap and a macro map are the other kind: painted areas, read at texel centres, and left as
+they were. The generator therefore works on the sample grid (`fields.xz`, `fields.cell`) and moves
+everything it paints to texel centres before quantising (`fields.to_areas`), so a tide line is on
+the ground it was computed for and not up to half a texel beside it.

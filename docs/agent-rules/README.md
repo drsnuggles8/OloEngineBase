@@ -213,7 +213,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [terrain-virtual-texturing.md](terrain-virtual-texturing.md): every VT defect is a wrong address; touch LRU in reverse priority, and treat an eviction as an entry, not an absence.
 - [async-fault-in-under-a-residency-cache.md](async-fault-in-under-a-residency-cache.md): obtain the payload before you claim the slot, or the cache evicts a live entry for bytes that have not arrived.
 - [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md): measure a tile's outermost ring, and never key an auto-material rock rule below the shoreline mask's slope.
-- [generated-island-height-maps.md](generated-island-height-maps.md): change a Drift island through its recipe in `tools/drift-islands`, state albedo as linear reflectance, measure terrain detail per quad and not per node, and fog a sea to its surface.
+- [generated-island-height-maps.md](generated-island-height-maps.md): change a Drift island through its recipe in `tools/drift-islands`, state albedo as linear reflectance, measure terrain detail per quad and not per node, read a height map as samples and a painted map as areas, and fog a sea to its surface.
 - [binary-greedy-voxel-meshing.md](binary-greedy-voxel-meshing.md): the packed-quad encoding is mirrored in GLSL, and a merged quad can render plausibly and wrong six ways.
 - [camera-relative-rendering.md](camera-relative-rendering.md): every world-space GPU upload is a site, because f32 cancellation shows as jitter and shadow swim.
 - [distance-impostor-reflection-probes.md](distance-impostor-reflection-probes.md): one encoding contract is mirrored in three places, and a miss sentinel must not shade from stale sky.
