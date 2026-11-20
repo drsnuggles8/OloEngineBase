@@ -14395,11 +14395,11 @@ namespace OloEngine
                                                    &hasMaterial, &useTess, &terrainShader, &entityID,
                                                    &hasActiveShadows, &cullCameraPosition, &cullViewProjection, casterInstanceKey,
                                                    shadowPixelSizePerMetre, shadowTargetTrianglePixels](const TerrainChunkManager& chunkMgr,
-                                                                                                                                   const TerrainData* terrainData,
-                                                                                                                                   const TerrainMaterial* tileMaterial,
-                                                                                                                                   f32 worldSizeX, f32 worldSizeZ,
-                                                                                                                                   f32 heightScale,
-                                                                                                                                   const glm::vec3& tileWorldOrigin)
+                                                                                                        const TerrainData* terrainData,
+                                                                                                        const TerrainMaterial* tileMaterial,
+                                                                                                        f32 worldSizeX, f32 worldSizeZ,
+                                                                                                        f32 heightScale,
+                                                                                                        const glm::vec3& tileWorldOrigin)
                         {
                             if (!chunkMgr.IsBuilt())
                             {
@@ -14679,6 +14679,44 @@ namespace OloEngine
                                     std::max(worldSizeX / static_cast<f32>(std::max(chunkMgr.GetNumChunksX(), 1u)),
                                              worldSizeZ / static_cast<f32>(std::max(chunkMgr.GetNumChunksZ(), 1u))) /
                                     static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION);
+                                // The main view's quads stop growing at its
+                                // root node's; a caster coarser than that is a
+                                // blunter terrain than the one drawn.
+                                const f32 shadowCoarsestReceiverQuad = TerrainShadowLod::CoarsestReceiverQuad(worldSizeX, worldSizeZ);
+                                // A terrain far enough away that its NEAREST
+                                // point is at the coarsest level has every
+                                // chunk there, and casts from the whole tile as
+                                // one mesh: one draw and one cull in place of
+                                // one per chunk, 256 for a 1024 px map.
+                                bool castFromTileMesh = false;
+                                if (shadowLevels && sourceRange && chunkMgr.GetShadowTileMesh() && shadowLODs.empty())
+                                {
+                                    const BoundingBox tileBounds =
+                                        BoundingBox(glm::vec3(0.0f, minHeight - snowExtent, 0.0f),
+                                                    glm::vec3(worldSizeX, maxHeight + snowExtent, worldSizeZ))
+                                            .Transform(tileModel);
+                                    const glm::vec3 nearest = glm::clamp(cullCameraPosition, tileBounds.Min, tileBounds.Max);
+                                    if (TerrainShadowLod::Select(glm::distance(cullCameraPosition, nearest), shadowQuadSize,
+                                                                 shadowPixelSizePerMetre, shadowTargetTrianglePixels,
+                                                                 shadowCoarsestReceiverQuad) == TerrainShadowLod::kLevelCount - 1u)
+                                    {
+                                        // A flat grid: its height is always the
+                                        // sampled one (morph 0), one patch per
+                                        // triangle.
+                                        ShaderBindingLayout::TerrainUBO tileUBO = shadowUBO;
+                                        tileUBO.TessFactors = glm::vec4(1.0f);
+                                        tileUBO.TessFactors2 = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                                        const auto handle = chunkMgr.GetShadowTileMesh()->GetRHIHandle();
+                                        const u64 partKey = (static_cast<u64>(handle.Generation) << 32) | handle.Index;
+                                        Renderer3D::AddTerrainShadowCaster(
+                                            handle, chunkMgr.GetShadowTileIndexCount(), 3, tileModel, heightmapID, tileUBO,
+                                            { (casterInstanceKey * 1099511628211ull) ^ partKey, tileBounds,
+                                              terrainData ? terrainData->GetHeightRevision() : 0 });
+                                        castFromTileMesh = true;
+                                    }
+                                }
+                                if (castFromTileMesh)
+                                    shadowChunks.Reset();
                                 for (const auto* chunk : shadowChunks)
                                 {
                                     const auto va = chunk->GetVertexArray();
@@ -14704,7 +14742,8 @@ namespace OloEngine
                                     {
                                         const glm::vec3 nearest = glm::clamp(cullCameraPosition, worldBounds.Min, worldBounds.Max);
                                         shadowLevel = TerrainShadowLod::Select(glm::distance(cullCameraPosition, nearest), shadowQuadSize,
-                                                                               shadowPixelSizePerMetre, shadowTargetTrianglePixels);
+                                                                               shadowPixelSizePerMetre, shadowTargetTrianglePixels,
+                                                                               shadowCoarsestReceiverQuad);
                                     }
                                     else
                                     {

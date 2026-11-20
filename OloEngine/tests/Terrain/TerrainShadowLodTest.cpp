@@ -30,6 +30,8 @@ namespace OloEngine::Tests
         // Drift's Ridgeback: a 420 m tile on a 1024 px height map is 16 chunks
         // of 64 quads a side, so a quad is 420 / (16 * 64) m.
         constexpr f32 kQuad = 420.0f / (16.0f * 64.0f);
+        // ... and the main view's root node draws it as 64 quads a side.
+        constexpr f32 kCeiling = 420.0f / 64.0f;
         constexpr f32 kTargetPixels = 6.0f;
         constexpr f32 kViewportHeight = 1080.0f;
         constexpr f32 kFovY = 1.0471975512f; // 60 degrees
@@ -64,7 +66,7 @@ namespace OloEngine::Tests
         EXPECT_EQ(TerrainShadowLod::PixelSizePerMetre(ortho, kViewportHeight), 0.0f);
         EXPECT_EQ(TerrainShadowLod::PixelSizePerMetre(glm::mat4(0.0f), kViewportHeight), 0.0f);
         EXPECT_EQ(TerrainShadowLod::PixelSizePerMetre(glm::perspective(kFovY, 1.0f, 0.1f, 10.0f), 0.0f), 0.0f);
-        EXPECT_EQ(TerrainShadowLod::Select(900.0f, kQuad, 0.0f, kTargetPixels), 0u);
+        EXPECT_EQ(TerrainShadowLod::Select(900.0f, kQuad, 0.0f, kTargetPixels, kCeiling), 0u);
     }
 
     // The promise: the mesh a chunk casts from is never coarser than the
@@ -76,7 +78,7 @@ namespace OloEngine::Tests
         u32 previous = 0;
         for (f32 distance = 0.0f; distance < 2000.0f; distance += 3.0f)
         {
-            const u32 level = TerrainShadowLod::Select(distance, kQuad, pixelPerMetre, kTargetPixels);
+            const u32 level = TerrainShadowLod::Select(distance, kQuad, pixelPerMetre, kTargetPixels, kCeiling);
             ASSERT_LT(level, TerrainShadowLod::kLevelCount);
             EXPECT_GE(level, previous) << "the level dropped as the chunk moved away, at " << distance << " m";
             previous = level;
@@ -89,9 +91,34 @@ namespace OloEngine::Tests
                 EXPECT_GT(casterQuad * 2.0f, receiver) << "a coarser level would still have done at " << distance << " m";
         }
         // Close up it is the chunk mesh itself; far away, the coarsest.
-        EXPECT_EQ(TerrainShadowLod::Select(0.0f, kQuad, pixelPerMetre, kTargetPixels), 0u);
-        EXPECT_EQ(TerrainShadowLod::Select(20.0f, kQuad, pixelPerMetre, kTargetPixels), 0u);
+        EXPECT_EQ(TerrainShadowLod::Select(0.0f, kQuad, pixelPerMetre, kTargetPixels, kCeiling), 0u);
+        EXPECT_EQ(TerrainShadowLod::Select(20.0f, kQuad, pixelPerMetre, kTargetPixels, kCeiling), 0u);
         EXPECT_EQ(previous, TerrainShadowLod::kLevelCount - 1u);
+    }
+
+    // The main view draws a node as 64 quads a side whatever its level, so its
+    // quads never exceed the root node's. A 64 m tile on a 129 px map is 2 x 2
+    // chunks of 0.5 m quads and a root node of 1 m quads: the caster may double
+    // its quads once and no further, however far away the camera is. On a 513 px
+    // map of the same tile a chunk's coarsest mesh is the root's quad exactly.
+    TEST(TerrainShadowLod, TheCasterIsNeverCoarserThanTheMainViewsRootNode)
+    {
+        const f32 pixelPerMetre = PixelPerMetre();
+        const f32 ceiling = TerrainShadowLod::CoarsestReceiverQuad(64.0f, 64.0f);
+        EXPECT_FLOAT_EQ(ceiling, 1.0f);
+        const f32 smallMapQuad = 64.0f / 128.0f;
+        EXPECT_EQ(TerrainShadowLod::Select(5000.0f, smallMapQuad, pixelPerMetre, kTargetPixels, ceiling), 1u);
+        const f32 largeMapQuad = 64.0f / 512.0f;
+        EXPECT_EQ(TerrainShadowLod::Select(5000.0f, largeMapQuad, pixelPerMetre, kTargetPixels, ceiling),
+                  TerrainShadowLod::kLevelCount - 1u);
+        // A map coarser than the root node's grid casts from the chunk mesh itself.
+        EXPECT_EQ(TerrainShadowLod::Select(5000.0f, 64.0f / 32.0f, pixelPerMetre, kTargetPixels, ceiling), 0u);
+
+        // The shorter side of a tile that is not square, and nothing for no tile.
+        EXPECT_FLOAT_EQ(TerrainShadowLod::CoarsestReceiverQuad(128.0f, 64.0f), 1.0f);
+        EXPECT_FLOAT_EQ(TerrainShadowLod::CoarsestReceiverQuad(0.0f, 64.0f), 0.0f);
+        EXPECT_FLOAT_EQ(TerrainShadowLod::CoarsestReceiverQuad(std::numeric_limits<f32>::quiet_NaN(), 64.0f), 0.0f);
+        EXPECT_EQ(TerrainShadowLod::Select(5000.0f, largeMapQuad, pixelPerMetre, kTargetPixels, 0.0f), 0u);
     }
 
     TEST(TerrainShadowLod, BadInputsMeanFullDensity)
@@ -99,13 +126,13 @@ namespace OloEngine::Tests
         const f32 pixelPerMetre = PixelPerMetre();
         const f32 nan = std::numeric_limits<f32>::quiet_NaN();
         const f32 inf = std::numeric_limits<f32>::infinity();
-        EXPECT_EQ(TerrainShadowLod::Select(nan, kQuad, pixelPerMetre, kTargetPixels), 0u);
-        EXPECT_EQ(TerrainShadowLod::Select(inf, kQuad, pixelPerMetre, kTargetPixels), 0u);
-        EXPECT_EQ(TerrainShadowLod::Select(500.0f, 0.0f, pixelPerMetre, kTargetPixels), 0u);
-        EXPECT_EQ(TerrainShadowLod::Select(500.0f, -1.0f, pixelPerMetre, kTargetPixels), 0u);
-        EXPECT_EQ(TerrainShadowLod::Select(500.0f, kQuad, nan, kTargetPixels), 0u);
-        EXPECT_EQ(TerrainShadowLod::Select(500.0f, kQuad, pixelPerMetre, 0.0f), 0u);
-        EXPECT_EQ(TerrainShadowLod::Select(-5.0f, kQuad, pixelPerMetre, kTargetPixels), 0u);
+        EXPECT_EQ(TerrainShadowLod::Select(nan, kQuad, pixelPerMetre, kTargetPixels, kCeiling), 0u);
+        EXPECT_EQ(TerrainShadowLod::Select(inf, kQuad, pixelPerMetre, kTargetPixels, kCeiling), 0u);
+        EXPECT_EQ(TerrainShadowLod::Select(500.0f, 0.0f, pixelPerMetre, kTargetPixels, kCeiling), 0u);
+        EXPECT_EQ(TerrainShadowLod::Select(500.0f, -1.0f, pixelPerMetre, kTargetPixels, kCeiling), 0u);
+        EXPECT_EQ(TerrainShadowLod::Select(500.0f, kQuad, nan, kTargetPixels, kCeiling), 0u);
+        EXPECT_EQ(TerrainShadowLod::Select(500.0f, kQuad, pixelPerMetre, 0.0f, kCeiling), 0u);
+        EXPECT_EQ(TerrainShadowLod::Select(-5.0f, kQuad, pixelPerMetre, kTargetPixels, kCeiling), 0u);
     }
 
     // The coarsest level still has to be a grid: the stride of the last level
