@@ -20,7 +20,7 @@
 //     Subclasses override `BuildScene()` to add entities and, when they
 //     want the full draw path to run, call `EnableRendering(w, h)`.
 //   * Per-test `TearDown` clears the Scene and releases the groom pass's
-//     streaming staging, running or completed, and fails the test if any
+//     streaming staging, queued, running or completed, and fails the test if any
 //     staging is still reserved; the renderer stays initialised for the
 //     next test.
 //   * `Renderer::Shutdown()` runs once, after ALL tests in the process,

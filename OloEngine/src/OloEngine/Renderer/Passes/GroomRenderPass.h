@@ -675,7 +675,8 @@ namespace OloEngine
         // runtime always run that frame, so they need no call here. A host that
         // stops ticking between scenes, as RendererAttachedTest does between
         // tests, calls this so that no detail load's staging outlives the scene.
-        // It blocks until running preparations return.
+        // It cancels every detail load, queued ones even behind a closed start
+        // gate, and blocks until running preparations return.
         void ReleaseStreamingStaging();
 
         /// When a DEFORMED coat's volume is rebuilt (#1426). Engine-wide rather

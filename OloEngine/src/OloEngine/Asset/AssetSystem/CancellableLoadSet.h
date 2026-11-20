@@ -208,6 +208,21 @@ namespace OloEngine
                 outTasks.Add(record.Task);
         }
 
+        /** Every task, live and abandoned, whose worker has started its work. */
+        void CollectStartedTasks(TArray<Tasks::TTask<TResult>>& outTasks) const
+        {
+            for (const FRecord& record : m_Live)
+            {
+                if (record.Ticket->State.load() == FAssetLoadTicket::EState::Running)
+                    outTasks.Add(record.Task);
+            }
+            for (const FRecord& record : m_Abandoned)
+            {
+                if (record.Ticket->State.load() == FAssetLoadTicket::EState::Running)
+                    outTasks.Add(record.Task);
+            }
+        }
+
         /** Hand every record, live and abandoned, to `outDropped`. */
         void Clear(TArray<FRecord>& outDropped)
         {

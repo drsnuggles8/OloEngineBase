@@ -106,10 +106,11 @@ namespace OloEngine
         void RetrieveCompleted(TArray<FCompletedRepresentationLoad>& outCompleted);
         void ReleaseStaging(u64 ticket);
         void ReapAbandoned();
-        // Wait out every launched load that can finish, then reap the abandoned
-        // ones, so no running preparation keeps shared staging. Loads behind a
-        // start gate that is still closed cannot finish and are left queued.
-        void WaitForLaunchedWork();
+        // Cancel every live load: a queued one never runs and gives its staging
+        // back at once, even behind a closed start gate; a completed one is
+        // dropped; a running one is waited out and reaped. Afterwards the queue
+        // holds staging only for payloads its owner already retrieved.
+        void CancelAll();
         void Shutdown();
         [[nodiscard]] FRepresentationLoadStats GetStats() const;
         void SetStartGate(std::optional<Tasks::FTaskEvent> gate);

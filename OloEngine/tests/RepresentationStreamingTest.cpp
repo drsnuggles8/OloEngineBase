@@ -97,7 +97,7 @@ TEST_F(RepresentationStreamingTest, CancelledRunningWorkKeepsSharedStagingUntilI
     EXPECT_EQ(first.GetStats().Cancellation.AbandonedResultsDropped, 1u);
 }
 
-TEST_F(RepresentationStreamingTest, WaitingForLaunchedWorkReleasesAnAbandonedLoadsStaging)
+TEST_F(RepresentationStreamingTest, CancellingAllWaitsOutRunningWorkAndReleasesItsStaging)
 {
     FRepresentationLoadQueue queue;
     auto hook = Tests::MakeLoadHookState();
@@ -107,34 +107,39 @@ TEST_F(RepresentationStreamingTest, WaitingForLaunchedWorkReleasesAnAbandonedLoa
                                 return Ref<TestRepresentationPayload>::Create(7); }),
               ERepresentationRequestResult::Queued);
     ASSERT_TRUE(hook->WorkerInside.WaitFor());
-    ASSERT_EQ(queue.Cancel(7), EAssetLoadCancelResult::AbandonedInFlight);
     ASSERT_EQ(RepresentationStreaming::Get().GetStats().StagingCpuBytes, 60u);
-    // The worker returns only after the wait has begun, so a wait that merely
+    // The worker returns only after CancelAll has begun, so a call that merely
     // reaps what has already finished still finds the staging reserved.
     std::thread release([hook]()
                         {
                             std::this_thread::sleep_for(std::chrono::milliseconds(50));
                             hook->Release.Set(); });
-    queue.WaitForLaunchedWork();
+    queue.CancelAll();
     release.join();
+    EXPECT_FALSE(queue.IsPending(7));
+    EXPECT_FALSE(queue.HasFailed(7));
     EXPECT_EQ(queue.GetStats().StagingBytes, 0u);
     EXPECT_EQ(RepresentationStreaming::Get().GetStats().StagingCpuBytes, 0u);
 }
 
-TEST_F(RepresentationStreamingTest, WaitingForLaunchedWorkLeavesLoadsBehindAClosedGateQueued)
+TEST_F(RepresentationStreamingTest, CancellingAllReleasesALoadBehindAClosedGateWithoutWaitingForIt)
 {
     FRepresentationLoadQueue queue;
-    Tasks::FTaskEvent gate("RepresentationWaitBehindGate");
+    Tasks::FTaskEvent gate("RepresentationCancelBehindGate");
     queue.SetStartGate(gate);
-    ASSERT_EQ(queue.Request(7, Descriptor(60), []() -> Ref<FRepresentationPayload>
-                            { return Ref<TestRepresentationPayload>::Create(7); }),
+    auto started = std::make_shared<std::atomic<u32>>(0);
+    ASSERT_EQ(queue.Request(7, Descriptor(60), [started]() -> Ref<FRepresentationPayload>
+                            {
+                                ++*started;
+                                return Ref<TestRepresentationPayload>::Create(7); }),
               ERepresentationRequestResult::Queued);
-    queue.WaitForLaunchedWork(); // returns: the gated load cannot finish
-    EXPECT_TRUE(queue.IsPending(7));
-    EXPECT_EQ(queue.GetStats().StagingBytes, 60u);
+    queue.CancelAll(); // returns although the gate is closed
+    EXPECT_FALSE(queue.IsPending(7));
+    EXPECT_EQ(queue.GetStats().StagingBytes, 0u);
+    EXPECT_EQ(RepresentationStreaming::Get().GetStats().StagingCpuBytes, 0u);
     gate.Trigger();
     queue.Shutdown();
-    EXPECT_EQ(queue.GetStats().StagingBytes, 0u);
+    EXPECT_EQ(started->load(), 0u);
 }
 
 TEST_F(RepresentationStreamingTest, CancelledQueuedWorkNeverRunsPreparation)

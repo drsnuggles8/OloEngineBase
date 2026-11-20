@@ -360,8 +360,9 @@ namespace OloEngine::Tests
 
         // THE STREAMING STAGING THIS TEST RESERVED ENDS WITH IT. The groom pass
         // outlives the scene. A detail load cancelled while its worker runs keeps
-        // its shared staging until the worker returns, and one that completed
-        // without being integrated keeps it until a later frame. Under CPU load
+        // its shared staging until the worker returns, one that completed
+        // without being integrated keeps it until a later frame, and one queued
+        // behind a start gate the test left closed keeps it until it is cancelled. Under CPU load
         // the first outlasted the next test's warm-up frames: the vegetation
         // streaming test found 134 MB of a groom LOD test's staging still
         // reserved, and its own requests were refused. A scene's own queues go
