@@ -118,6 +118,11 @@ def bake(out, palette):
             color *= 1 + redness[..., None] * np.array([0.16, -0.13, -0.13])
             color *= 1 + orbital[..., None] * np.array([-0.145, -0.135, -0.075])
             color *= 1 - spots[..., None] * np.array([0.20, 0.32, 0.37])
+            # Warm, uneven exposure across the bridge and tops of the cheeks.
+            # The sheltered area below the orbit keeps its cooler undertone.
+            exposure = np.clip(cheeks + 0.86 * nose, 0, 1) * face
+            mottle = np.clip(0.45 + 0.31 * coarse + 0.32 * mids, 0, 1)
+            color *= 1 + (exposure * mottle)[..., None] * np.array([0.085, -0.17, -0.23])
             capillary = np.exp(-((np.sin(35 * angle + 8 * noise(rng, u, v, 19)) / 0.11) ** 2))
             color *= 1 + (redness * capillary)[..., None] * np.array([0.045, -0.10, -0.10])
             # Wrinkles are discontinuous folds in relief. Their lengths follow
@@ -129,6 +134,11 @@ def bake(out, palette):
             for off, slope in ((-0.003, -0.44), (0.0004, -0.09), (0.0035, 0.29)):
                 trace = 1.633 + off + slope * (ax - 0.049) + 0.00050 * mids
                 furrows += np.exp(-(((y - trace) / 0.00062) ** 2) - ((ax - 0.052) / 0.010) ** 2)
+            tear_fold = 1.616 + 0.27 * (ax - 0.041) + 0.0012 * np.sin(82 * x + 0.4)
+            furrows += 0.77 * np.exp(-(((y - tear_fold) / 0.0009) ** 2) - ((ax - 0.043) / 0.012) ** 2)
+            for offset, extent in ((0, 0.017), (0.0038, 0.010)):
+                fold_x = 0.021 + 0.41 * (1.589 - y) + offset + 0.00045 * mids
+                furrows += 0.60 * np.exp(-(((ax - fold_x) / 0.0010) ** 2) - ((y - 1.574) / extent) ** 2)
             for side in (-1, 1):
                 ridge = side * 0.005 + 0.15 * (y - 1.653) * side + 0.0008 * mids
                 furrows += 0.72 * np.exp(-(((x - ridge) / 0.0008) ** 2) - ((y - 1.654) / 0.008) ** 2)

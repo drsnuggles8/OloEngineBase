@@ -9,6 +9,7 @@ from keeper_mesh import TEXTURE_REPEAT_METRES
 PALETTE = {
     "KeeperSkin": ((0.50, 0.245, 0.163), 0.54, 0),
     "KeeperEar": ((0.36, 0.116, 0.080), 0.62, 0),
+    "KeeperWetLid": ((0.42, 0.22, 0.19), 0.095, 0),
     "KeeperLip": ((0.37, 0.134, 0.106), 0.42, 0),
     "KeeperGum": ((0.32, 0.085, 0.065), 0.57, 0),
     "KeeperTongue": ((0.46, 0.145, 0.121), 0.39, 0),

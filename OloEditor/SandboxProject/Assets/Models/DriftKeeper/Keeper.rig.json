@@ -38,17 +38,17 @@
     {
       "source": "Keeper.gltf",
       "maxDistance": 18,
-      "triangles": 169320
+      "triangles": 171840
     },
     {
       "source": "KeeperLOD1.gltf",
       "maxDistance": 78,
-      "triangles": 47868
+      "triangles": 49664
     },
     {
       "source": "KeeperLOD2.gltf",
       "maxDistance": 1000,
-      "triangles": 20202
+      "triangles": 21438
     }
   ],
   "profiles": {
@@ -63,6 +63,7 @@
   "materials": [
     "KeeperSkin",
     "KeeperEar",
+    "KeeperWetLid",
     "KeeperLip",
     "KeeperGum",
     "KeeperTongue",

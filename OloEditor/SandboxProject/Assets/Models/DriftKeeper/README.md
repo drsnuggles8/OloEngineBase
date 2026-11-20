@@ -24,9 +24,13 @@ historical references, modelling passes, expression studies and scan comparison.
 
 `build_keeper.py` writes glTF directly. The skull uses cubic sections in height. A separate relief field shapes the nasal bridge, alae, cheek and folds at the mouth.
 The face removes patches for the two eye sockets and the mouth, then builds the
-lids and lips around their openings. The dental arches, gums and tongue sit
-behind the lips. Moving the lower tissue with the open-mouth shapes exposes the
-interior. The expression order is `BlinkL`, `BlinkR`, `JawOpen`, `Smile`,
+lids and lips around their openings. A narrow wet edge follows the lower lid
+through a blink. The globe curves forward by 0.33 mm over the iris. Each
+dental arch has twelve crowns, with six on each side running from the
+central incisor to the first molar. The lower incisors sit behind the upper pair.
+Opening the jaw exposes their broad, worn edges. The smile moves the lips,
+cheeks and whisker roots using the same field. The expression order is
+`BlinkL`, `BlinkR`, `JawOpen`, `Smile`,
 `BrowRaise`, `Squint`, `AA`, `EE`, `OO`. The engine exposes them to Lua as
 `MorphTarget_0` through `MorphTarget_8` in that order.
 

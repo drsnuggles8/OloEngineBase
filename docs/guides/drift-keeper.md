@@ -76,7 +76,8 @@ The revision shortened the beard and exposed more of the mouth, lowered the
 moustache near the corners and let the ends split into locks. The recipe grows
 23,000 beard strands, 3,800 moustache strands, 13,500 scalp hairs, 850 brow
 hairs and 270 lashes. In the left blink the left lash roots move a median
-3.41 mm. The right lash roots stay still and reopening the eye restores
+2.95 mm. The strip retains its full width from corner to corner in the blink.
+The right lash roots stay still and reopening the eye restores
 the starting positions. The beard gains darker roots and silver patches. Its
 edge along the cheek is still sharply drawn in profile. Light from above
 catches the cloth of the cap and the grain on the leather peak separately.
@@ -119,18 +120,27 @@ than it shows years of use.
 The blink closes one lid over its globe. At full weight, the largest left-blink
 skin displacement in LOD 0 is 4.34 mm. In the open jaw the largest lip
 displacement is 17.75 mm and the lower dental arch moves up to 14.04 mm.
-The smile lifts the ends of the lips while the cheeks move less. Teeth,
-gums and tongue have their own material surfaces. The teeth are unusually
-regular and the centre of the rounded mouth retains a pronounced notch.
+The smile lifts a sample at the keeper's left mouth corner by 6.4 mm and
+the cheek above it by 2.4 mm. The whisker roots follow the same movement.
+The lower lid has a thin wet edge and the cheek has a shorter fold below it.
+The revised moustache tapers towards the mouth corners. The beard boundary
+and the notch at the centre of the rounded mouth remain visible.
+
+![Previous and revised portraits, smiles and open jaws under the same lighting](../images/drift-keeper/portrait-and-expression.jpg)
+
+The open jaw shows the broad incisors at the front of each curved dental
+arch. The canine has an offset cusp and the molars sit farther back.
+At all three mesh levels, the upper and lower teeth cleared one another
+at rest, with the jaw open and in the three vowel shapes.
 
 ## Silhouette at distance
 
 ![The three body outlines and the differences between the first and last tier](../images/drift-keeper/silhouette.jpg)
 
-The three body meshes contain 169,320, 47,868 and 20,202 triangles.
-The corresponding 520 × 680 orthographic renders cover 72,437, 72,150 and
-71,437 pixels at an alpha threshold of one half. Intersection divided by
-union is 99.52% for tiers 0 and 1, and 98.56% for tiers 0 and 2. The
+The three body meshes contain 171,840, 49,664 and 21,438 triangles.
+The corresponding 520 × 680 orthographic renders cover 72,419, 72,133 and
+71,417 pixels at an alpha threshold of one half. Intersection divided by
+union is 99.52% for tiers 0 and 1, and 98.55% for tiers 0 and 2. The
 fourth panel marks pixels present only in tier 0 in amber and pixels present
 only in tier 2 in blue. These measurements include the shared head attachments.
 In the game the second tier starts beyond 18 m and the third beyond 78 m.
@@ -154,10 +164,11 @@ LODs. The lamp light follows the wick socket.
 
 ![Keeper with lantern at the door in the packaged OpenGL runtime](../images/drift-keeper/packaged.jpg)
 
-This inspection view came from the packaged OpenGL runtime with the cooking
+This inspection view shows the preceding portrait in the packaged OpenGL runtime with the cooking
 project’s keeper source folder renamed. The menu’s Continue button restores
 the voyage with the boat camera.
 
+The sea approaches and weather pictures also show that build.
 From 2.5 m above the water the stack hides the door on some bearings. These
 approaches use 225° at 30 m and 240° at 150 m, measured from world +X
 towards +Z. Moving the keeper out of frame and back changed and restored
@@ -171,8 +182,8 @@ distance, the coat occupies just a few pixels against the doorway.
 ![Face in OpenGL and Vulkan across Forward, Forward+ and Deferred](../images/drift-keeper/render-paths.jpg)
 
 Tower lighting brings out a hard shadow under the cheekbone. In OpenGL
-Deferred, hiding the groom changed 88,508 pixels at native resolution,
-85,425 with 4× MSAA and 45,302 with Temporal Quality upscale. Each count
+Deferred, hiding the groom changed 84,946 pixels at native resolution,
+81,948 with 4× MSAA and 40,215 with Temporal Quality upscale. Each count
 excludes pixels that moved by less than 4/255 or at most twice the
 repeat-frame difference.
 

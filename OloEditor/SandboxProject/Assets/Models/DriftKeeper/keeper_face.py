@@ -57,11 +57,11 @@ NOSE_DEPTH = 0.001 * np.array(
     [
         [0, 0, 0, 0, 0, 0],
         [5, 3, 1, 2, 0, 0],
-        [14, 9, 3, 6, 1, 0],
-        [23, 18, 9, 16, 3, 0],
-        [31, 29, 21, 18, 5, 0],
-        [33, 31, 22, 9, 3, 0],
-        [28, 23, 13, 5, 1, 0],
+        [13, 10, 5, 7, 2, 0],
+        [22, 19, 13, 14, 5, 0],
+        [30, 28, 23, 18, 7, 0],
+        [32, 30, 24, 14, 5, 0],
+        [28, 24, 16, 8, 2, 0],
         [22, 17, 9, 3, 0, 0],
         [16, 12, 5, 1, 0, 0],
         [7, 5, 2, 0, 0, 0],
@@ -164,8 +164,8 @@ def head_point(angle, y):
             0.009 * bump(ax, y, 0.025, brow, 0.027, 0.011)
             + 0.004 * bump(ax, y, 0.051, brow - 0.003, 0.020, 0.014)
             - 0.0035 * bump(ax, y, 0.033, EYE_Y, 0.026, 0.014)
-            + 0.0074 * bump(ax, y, 0.041, 1.609 + 0.35 * (ax - 0.034), 0.028, 0.015)
-            - 0.0054 * bump(ax, y, 0.053, 1.580 + 0.53 * (ax - 0.037), 0.024, 0.017)
+            + 0.0068 * bump(ax, y, 0.041, 1.608 + 0.29 * (ax - 0.034), 0.033, 0.022)
+            - 0.0037 * bump(ax, y, 0.055, 1.579 + 0.48 * (ax - 0.037), 0.026, 0.023)
             + 0.004 * bump(ax, y, 0.056, 1.554, 0.017, 0.020)
             + 0.005 * bump(ax, y, 0.012, 1.569, 0.022, 0.018)
             - 0.002 * bump(ax, y, 0.021 + 0.25 * (1.587 - y), 1.575, 0.005, 0.017)
@@ -176,8 +176,13 @@ def head_point(angle, y):
         # The tear trough descends outwards from the inner canthus. Its fold
         # dissolves into the cheek instead of encircling both eyes as a rim.
         trough = 1.625 - 0.26 * (ax - 0.018) - 0.0012 * sin(95 * x)
-        relief += 0.0014 * bump(ax, y, 0.030, trough + 0.003, 0.022, 0.006)
-        relief -= 0.0016 * bump(ax, y, 0.029, trough - 0.003, 0.017, 0.0025)
+        relief += 0.0021 * bump(ax, y, 0.029, trough + 0.002, 0.019, 0.005)
+        relief -= 0.0011 * bump(ax, y, 0.029, trough - 0.003, 0.017, 0.003)
+        # A second, shorter fold catches the cheek below the lateral lid.
+        # Its slope and length differ on the two sides of the face.
+        outer_fold = 1.616 + 0.27 * (ax - 0.041) + 0.0012 * sin(82 * x + 0.4)
+        relief -= 0.00085 * bump(ax, y, 0.044, outer_fold, 0.014, 0.0018)
+        relief += 0.00065 * bump(ax, y, 0.045, outer_fold + 0.0024, 0.012, 0.0028)
         for level in (1.666, 1.674, 1.684):
             relief -= 0.00065 * bump(ax, y, 0.027, level + 0.12 * ax + 0.0015 * sin(x * 63), 0.033, 0.00135)
         for offset in (-0.004, 0, 0.0035):
@@ -221,6 +226,45 @@ def face_motion_fade(depth):
     """Keep frontal expressions unchanged and fade them behind the jaw hinge."""
     t = float(np.clip((depth + 0.033) / 0.025, 0, 1))
     return t * t * (3 - 2 * t)
+
+
+def smile_displacement(point):
+    """The mouth corner lifts back into the cheek. Whiskers follow the same skin."""
+    x, y, z = point
+    ax = abs(x)
+    corner = bump(ax, y, 0.026, MOUTH_Y, 0.016, 0.013)
+    cheek = bump(ax, y, 0.040, 1.589 + 0.44 * (ax - 0.036), 0.023, 0.024)
+    fade = face_motion_fade(z) * float(np.clip((1.628 - y) / 0.014, 0, 1))
+    strength = 0.93 + 0.07 * np.tanh(x / 0.015)
+    return fade * strength * np.array((
+        np.sign(x) * (0.0042 * corner + 0.0017 * cheek),
+        0.0058 * corner + 0.0024 * cheek,
+        -0.0017 * corner + 0.0020 * cheek,
+    ))
+
+
+def lower_waterline(surface, side, lod):
+    # A wet ridge pools between the globe and lower lid. Taper its ends
+    # into the canthi and carry the entire cross-section through a blink.
+    cols = (38, 22, 12)[lod]
+    for j in range(4):
+        for i in range(cols + 1):
+            phase = i / cols
+            angle = pi + 0.09 + (pi - 0.18) * phase
+            margin = lid_margin(side, angle)
+            half_width = 0.00028 * (0.10 + 0.90 * sin(pi * phase) ** 0.7)
+            dx, dy = margin[0] - side * EYE_X, margin[1] - EYE_Y
+            closed_y = -0.0015 + 0.00105 * side * cos(angle)
+            r = EYE_R + 0.00048
+            depth_delta = max(0, EYE_Z + sqrt(max(0, r * r - dx * dx - closed_y * closed_y)) - margin[2])
+            margin[1] += half_width * (2 * j / 3 - 1)
+            margin[2] += half_width * (0.3 + 0.7 * sin(pi * j / 3))
+            index = surface.vertex(margin, (phase, 1 - j / 3), "head")
+            move = np.array([0, closed_y - dy, depth_delta])
+            surface.shapes["BlinkL" if side > 0 else "BlinkR"][index] = move
+            surface.shapes["Squint"][index] = 0.55 * move
+            if i and j:
+                surface.quad("KeeperWetLid", index - cols - 2, index - cols - 1, index, index - 1)
 
 
 def jaw_influence(point):
@@ -289,7 +333,75 @@ def auricle(surface, side, lod):
             surface.quad(mat, a, b, c, e)
 
 
+def dental_arch(surface, upper, lod):
+    # Central incisor through first molar. Depth recedes around the corners
+    # of the jaw, and the lower incisors sit just inside the upper arch.
+    centres = [
+        (0.0040, 0.0835), (0.0111, 0.0822), (0.0171, 0.0792),
+        (0.0212, 0.0738), (0.0240, 0.0674), (0.0260, 0.0592),
+    ]
+    widths = (0.0081, 0.0064, 0.0068, 0.0069, 0.0073, 0.0093)
+    sizes = np.array(centres) * [1.0 if upper else 0.91, 1.0]
+    if not upper:
+        sizes[:, 1] -= np.linspace(0.0042, 0.0020, len(sizes))
+    bone = "head" if upper else "jaw"
+    direction = 1 if upper else -1
+    pieces = []
+    sides = (16, 10, 6)[lod]
+    heights = (
+        (0, 0.025, 0.09, 0.24, 0.45, 0.70, 0.91, 0.975, 1),
+        (0, 0.035, 0.19, 0.63, 0.94, 1),
+        (0, 0.06, 0.34, 0.88, 1),
+    )[lod]
+    rear = sizes[-1] + 0.70 * (sizes[-1] - sizes[-2])
+    gum_side = np.vstack((sizes, rear))
+    arch = np.vstack((gum_side[::-1] * [-1, 1], gum_side))
+    tangents = np.gradient(arch, axis=0)
+    gum_height = MOUTH_Y + direction * 0.0084
+
+    def gum(a, v):
+        station = v * (len(arch) - 1)
+        idx = min(int(station), len(arch) - 2)
+        fraction = station - idx
+        x, z = (1 - fraction) * arch[idx] + fraction * arch[idx + 1]
+        tangent = (1 - fraction) * tangents[idx] + fraction * tangents[idx + 1]
+        normal = np.array([-tangent[1], tangent[0]]) / np.linalg.norm(tangent)
+        radius = 0.0031 * min(1, station, len(arch) - 1 - station)
+        x, z = [x, z] + normal * (radius * cos(a) - 0.0011)
+        return x, gum_height + radius * sin(a), z
+
+    pieces.extend(surface.grid("KeeperGum", sides, 2 * (len(arch) - 1), gum, bone, invert=True))
+    for idx, (x, z) in enumerate(sizes):
+        tangent = sizes[min(idx + 1, len(sizes) - 1)] - sizes[max(0, idx - 1)]
+        tangent /= np.linalg.norm(tangent)
+        for side in (-1, 1):
+            across = np.array([tangent[0], side * tangent[1]])
+            front = np.array([-across[1], across[0]])
+
+            def crown(a, v):
+                # The worn edge is broad on the incisors and comes to a
+                # single offset cusp on the canine. The neck tapers into gum.
+                t = heights[round((v if upper else 1 - v) * (len(heights) - 1))]
+                span = np.interp(t, [0, 0.025, 0.19, 0.72, 0.95, 1], [0, 0.86, 1, 0.96, 0.71, 0])
+                c, s = cos(a), sin(a)
+                width = 0.5 * widths[idx] * (1 if upper else 0.91)
+                flank = np.sign(s) * abs(s) ** 0.63
+                depth = (0.0019 if idx < 3 else 0.0034) * np.sign(c) * abs(c) ** 0.68
+                position = np.array([side * x, z]) + span * (width * flank * across + depth * front)
+                cusp = 0.0018 * (1 - abs(flank)) if idx == 2 else 0.00042 * cos(a + 0.6 * side)
+                # The incisors overlap in height with horizontal clearance.
+                # Behind the canine the opposing biting surfaces face one
+                # another, so their cusps stop short of the occlusal plane.
+                edge = ((-0.0028 if upper else -0.0023) + 0.00065 * idx) if idx < 2 else 0.0025
+                y = MOUTH_Y + direction * ((1 - t) * edge + t * 0.0092 - span * cusp * (1 - t) ** 3)
+                return position[0], y + 0.00022 * sin(3 * idx + side), position[1]
+
+            pieces.extend(surface.grid("KeeperTeeth", sides, len(heights) - 1, crown, bone))
+    return pieces
+
+
 def face(surface, lod):
+    skin_start = len(surface.points)
     # Patch boundaries coincide with grid lines at every resolution. The wound
     # edges are bridged into concentric skin loops surrounding each aperture.
     holes = [(-0.72, -0.18, 1.615, 1.652, -1), (0.18, 0.72, 1.615, 1.652, 1), (-0.48, 0.48, 1.545, 1.579, 0)]
@@ -396,8 +508,8 @@ def face(surface, lod):
                         -((distance_xy / 0.007) ** 2)
                     )
                     distance = abs(p[1] - edge[1])
-                    roll = 0.00155 * exp(-(((distance - 0.0025) / 0.0020) ** 2))
-                    crease = 0.00125 * exp(-(((distance - 0.0066) / 0.0016) ** 2))
+                    roll = (0.0017 if v > 0 else 0.00065) * exp(-(((distance - 0.0025) / 0.0024) ** 2))
+                    crease = (0.00135 if v > 0 else 0.00052) * exp(-(((distance - 0.0066) / 0.0019) ** 2))
                     p[2] += (roll - crease) * abs(v) * sin(pi * f) ** 0.8
                     # Keep the tarsal fold outside the globe, including the
                     # strip between rings when the upper lid is hooded.
@@ -445,7 +557,6 @@ def face(surface, lod):
                             -gap * lower * f - jaw,
                             push * f - 0.22 * jaw,
                         )
-                    surface.shapes["Smile"][i] = (0.004 * u * f, 0.006 * abs(u) ** 2 * f, 0)
                 ring.append(i)
             for h in range(len(ring)):
                 n = (h + 1) % len(ring)
@@ -494,26 +605,16 @@ def face(surface, lod):
         surface.grid("KeeperEar", (24, 16, 10)[lod], 3, caruncle, "head", invert=side < 0)
 
         auricle(surface, side, lod)
+        lower_waterline(surface, side, lod)
+    for i in range(skin_start, len(surface.points)):
+        move = smile_displacement(surface.points[i])
+        if np.dot(move, move) > 1e-12:
+            surface.shapes["Smile"][i] = move
     # Dental arcades and tongue lie behind the open lip loops. Lower tissue
     # follows the same aperture targets as the lower lip.
     for upper in (False, True):
         y = MOUTH_Y + (0.0047 if upper else -0.0040)
-        pieces = list(
-            surface.oval("KeeperGum", (0, y, 0.073), (0.025, 0.005, 0.012), "jaw" if not upper else "head")
-        )
-        tooth_count = (12, 8, 4)[lod]
-        for tooth in range(tooth_count):
-            t = 2 * (tooth + 0.5) / tooth_count - 1
-            pieces.extend(
-                surface.oval(
-                    "KeeperTeeth",
-                    (t * 0.023, y + (-0.003 if upper else 0.0025), 0.083 - 0.011 * t * t),
-                    (0.027 / tooth_count, 0.0034, 0.0024),
-                    "head" if upper else "jaw",
-                    12,
-                    8,
-                )
-            )
+        pieces = dental_arch(surface, upper, lod)
         if not upper:
             pieces.extend(
                 surface.oval("KeeperTongue", (0, y - 0.002, 0.076), (0.019, 0.0038, 0.010), "jaw", 24, 10)

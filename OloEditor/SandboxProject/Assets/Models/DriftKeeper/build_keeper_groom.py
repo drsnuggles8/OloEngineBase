@@ -16,8 +16,8 @@ from build_dog_groom import make_curves, export_groom_abc, layer, GUARD, LONGHAI
 
 COLLECTION = "KeeperGroom"
 RECIPE = [
-    ("cheek", "beard", LONGHAIR, 23000, 0.00023),
-    ("muzzle", "moustache", GUARD, 3800, 0.00017),
+    ("cheek", "beard", LONGHAIR, 23000, 0.00017),
+    ("muzzle", "moustache", GUARD, 3800, 0.00014),
     ("skull", "scalp", LONGHAIR, 13500, 0.00020),
     ("brow", "eyebrow", GUARD, 850, 0.00015),
     ("eyerim", "eyelash", WHISKER, 270, 0.00010),
@@ -39,11 +39,11 @@ def grow(body):
             x, y, z = root
             a = np.arctan2(x, z + 0.009)
             if name == "beard":
-                if v > 0.66 and rng.random() < 0.94 * ((v - 0.66) / 0.34) ** 1.3:
+                if v > 0.52 and rng.random() < 0.97 * ((v - 0.52) / 0.48) ** 0.80:
                     continue
-                chin = (1 - u) ** 1.35
-                length = (0.009 + 0.023 * chin + 0.008 * exp(-(((u - 0.27) / 0.19) ** 2))) * (
-                    1 - 0.81 * v**2.3
+                chin = (1 - u) ** 1.25
+                length = (0.008 + 0.018 * chin + 0.014 * exp(-(((u - 0.26) / 0.21) ** 2))) * (
+                    1 - 0.89 * v**1.9
                 )
                 flow = np.array(
                     (-0.26 * sin(a) + 0.13 * sin(9 * a + 53 * y) + 0.09, -0.92, 0.34 * cos(a) + 0.065)
@@ -51,8 +51,8 @@ def grow(body):
             elif name == "moustache":
                 if rng.random() > 0.40 + 0.60 * sin(pi * u) ** 0.4:
                     continue
-                length = (0.0045 + 0.008 * v + 0.0055 * u) * rng.uniform(0.88, 1.13)
-                flow = np.array((s * (0.30 + 0.77 * u), -0.94 + 0.44 * u, 0.25))
+                length = (0.0034 + 0.0055 * v + 0.0068 * sin(pi * u) + 0.004 * u) * rng.uniform(0.8, 1.18)
+                flow = np.array((s * (0.32 + 0.90 * sin(pi * u)), -0.72 - 0.30 * u**2, 0.29))
             elif name == "scalp":
                 length = (0.018 + 0.008 * max(0, -cos(a))) * (0.52 + 0.48 * v)
                 flow = np.array((0.30 * sin(a), -0.72, -0.67))
@@ -104,9 +104,9 @@ def grow(body):
             uvs.append(root_uv(name, s, u, v))
             # Age dapples the hair in patches. The moustache stays darker
             # through the centre while the cheek and chin carry more silver.
-            grey = 0.47 + 0.22 * cos(61 * x) * cos(83 * z)
+            grey = 0.29 + 0.48 * (0.5 + 0.5 * sin(96 * x + 1.5 * cos(82 * y))) ** 2
             if name == "moustache":
-                grey = 0.21 + 0.22 * u
+                grey = 0.12 + 0.35 * u**1.4 + 0.09 * sin(16 * u + s)
             elif name in ("eyelash", "eyebrow"):
                 grey = 0.12 + 0.13 * u
             salt.append(rng.random() < grey)

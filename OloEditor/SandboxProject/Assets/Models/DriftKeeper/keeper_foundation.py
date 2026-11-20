@@ -3,7 +3,7 @@
 from math import cos, sin, sqrt, pi, exp
 import numpy as np
 
-from keeper_face import EYE_X, EYE_Y, EYE_Z, EYE_R, head_point, jaw_influence, lid_margin
+from keeper_face import EYE_X, EYE_Y, EYE_Z, EYE_R, head_point, jaw_influence, lid_margin, smile_displacement
 from keeper_mesh import Surface, Gltf
 
 REGIONS = ("beard", "moustache", "scalp", "eyebrow", "eyelash")
@@ -25,13 +25,16 @@ def hair_coordinates(region, side, u, v):
         # High side whiskers sweep into the jaw; leave the nasolabial
         # triangle and the space directly beneath the lip exposed.
         top = 1.555 + 0.049 * u**1.25 + 0.038 * exp(-(((abs(a) - 1.285) / 0.29) ** 2))
-        top += 0.0014 * sin(15 * u + 0.53 * side) - 0.007 * exp(-(((u - 0.12) / 0.085) ** 2))
+        top += 0.0022 * sin(15 * u + 0.63 * side) - 0.012 * exp(-(((u - 0.12) / 0.105) ** 2))
+        top += 0.0040 * exp(-((u / 0.075) ** 2)) + 0.0052 * exp(-(((u - 0.58) / 0.28) ** 2))
         y = 1.520 + v * (top - 1.520)
     elif region == "moustache":
-        a = side * (0.0015 + 0.435 * u)
-        top = 1.5813 - 0.0076 * u - 0.0022 * exp(-((u / 0.13) ** 2))
-        base = 1.5655 - 0.0052 * u**1.7 + 0.0016 * exp(-((u / 0.12) ** 2))
-        y = base + v * (top - base) + 0.00045 * side
+        a = side * (0.003 + 0.494 * u)
+        # A narrow philtrum part opens into the belly of each half. The
+        # outer third then thins and falls around the corner of the mouth.
+        base = 1.5655 - 0.0083 * u**1.6 + 0.0012 * exp(-((u / 0.15) ** 2))
+        depth = 0.0037 + 0.0090 * sin(pi * u) ** 0.82 + 0.0034 * exp(-(((u - 0.23) / 0.18) ** 2))
+        y = base + v * depth + 0.00055 * side * u
     elif region == "scalp":
         a = side * (0.81 + (pi - 0.81) * u)
         # A continuous outline turns above the ear from the recession at the
@@ -66,6 +69,9 @@ def follicle(region, side, u, v):
     # Bury the edge of the pigmented short undercoat. Individual guard hairs
     # emerge through the skin over a few millimetres along the cheek line.
     lift += 0.00025 - 0.0025 * abs(2 * v - 1) ** 3 - 0.0013 * abs(2 * u - 1) ** 5
+    if region == "beard":
+        # Let skin show between the short guard hairs near the cheek line.
+        lift -= 0.0020 * v**2 * sin(pi * u) ** 0.5
     root += np.array((sin(a), 0, cos(a))) * lift
     return root
 
@@ -105,7 +111,7 @@ def export(out):
                         lower = jaw_influence(p)
                         for name, gap in (("JawOpen", 0.018), ("AA", 0.010), ("OO", 0.004)):
                             model.shapes[name][index] = (0, -gap * lower, -gap * 0.22 * lower)
-                        model.shapes["Smile"][index] = (0.002 * side * v, 0.002 * u * v, 0)
+                        model.shapes["Smile"][index] = smile_displacement(p)
                     if i and j:
                         a, b, c, d = index - cols - 2, index - cols - 1, index, index - 1
                         # Lash loops travel the opposite way around the sphere.

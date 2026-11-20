@@ -222,6 +222,12 @@ def export_eye(out):
     surface = Surface()
     surface.oval("KeeperSclera", (0, 0, 0), (1, 1, 1), "head", 64, 40)
     surface.uvs = [(0.5 + 0.5 * x, 0.5 - 0.5 * y) for x, y, _ in surface.points]
+    # Round the clear optical surface over the iris. Leave the limbus
+    # tangent to the sclera and the eyelids free to close across it.
+    surface.points = [
+        (x, y, z + (0.026 * max(0, 1 - (x * x + y * y) / 0.48**2) ** 2 if z > 0 else 0))
+        for x, y, z in surface.points
+    ]
     file = Gltf()
     file.mesh(surface, PALETTE)
     file.doc["nodes"] = [dict(name="KeeperEyeball", mesh=0)]
