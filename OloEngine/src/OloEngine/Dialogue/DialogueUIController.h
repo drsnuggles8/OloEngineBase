@@ -21,6 +21,7 @@ namespace OloEngine
         void Update(Scene& scene);
 
       private:
+        [[nodiscard]] bool IsHierarchyIntact(const Scene& scene) const;
         void ShowDialogueBox(Scene& scene);
         void HideDialogueBox(Scene& scene);
         void UpdateChoiceEntities(Scene& scene);

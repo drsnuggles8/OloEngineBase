@@ -252,6 +252,7 @@ Each entry is one sentence stating the rule. The story that taught it is inside 
 - [component-serializer-codegen.md](component-serializer-codegen.md): when a component round-trips for free, when to annotate a field, and every generated touch-point's exclusion set.
 - [scene-binary-sidecar.md](scene-binary-sidecar.md): the `.scenebin` fast path is generated and hybrid-covered.
 - [binary-format-versioning.md](binary-format-versioning.md): every on-disk format reads exactly its current version and rejects any other with a fix message.
+- [runtime-built-entities-are-runtime-owned.md](runtime-built-entities-are-runtime-owned.md): mark every entity a runtime system builds with `Scene::MarkRuntimeOwned`, so a save skips it, and rebuild it after a load.
 - [cache-stored-unresolvable-reference.md](cache-stored-unresolvable-reference.md): a cache must refuse to store a name nothing can resolve; the failure shows on the second load only.
 - [scene-copy-must-carry-scene-level-settings.md](scene-copy-must-carry-scene-level-settings.md): `Scene::Copy()` must carry every scene-level settings struct into Play.
 - [scene-render-settings.md](scene-render-settings.md): a setting the scene owns and the renderer draws with goes in `SceneRenderSettings` plus both scene emitters, the shared reader and `Scene::Copy`.

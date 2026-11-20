@@ -232,7 +232,7 @@ Components deliberately kept hand-written, and why:
 | `SphereAreaLightComponent`, `ProceduralSkyComponent` | reject-not-clamp semantics entangled with other per-field `Sanitize*` work. `SphereAreaLightComponent` is the only component still needing a *dedicated* vec3 mechanism |
 | `MorphTargetComponent` | a `Ref<MorphTargetSet>` field (`MorphTargetSet` is `RefCounted` but not `Asset`-derived, so `Ref<T>` classification doesn't reach it) plus a per-value `[0, 1]` clamp on load via `SetWeight()`. Its `std::unordered_map<std::string, f32> Weights` would classify trivial on its own |
 | `Rigidbody3DComponent` | its enum is keyed `BodyType`, not the `m_`-stripped `Type`, plus a runtime `m_RuntimeBodyToken` and many fields the hand-written serializer omits |
-| the three runtime `*StateComponent`s | `DialogueStateComponent`, `NoiseAnimationStateComponent`, `SpringBoneStateComponent` — per-tick state that must **not** be serialized |
+| the three runtime `*StateComponent`s | `DialogueStateComponent`, `NoiseAnimationStateComponent`, `SpringBoneStateComponent` — runtime state that must **not** go into scene YAML. `DialogueStateComponent` does go into the save-game (#1712): it is the conversation Continue rebuilds the dialogue UI from |
 | `IDComponent` | entity identity; see the blind spot in §5 |
 
 ---

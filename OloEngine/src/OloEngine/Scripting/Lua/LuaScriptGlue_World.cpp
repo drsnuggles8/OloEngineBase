@@ -875,43 +875,44 @@ namespace OloEngine
 
         // --- Dialogue system functions ---
         auto dialogueTable = lua.create_named_table("dialogue");
-        dialogueTable["start"] = [](Entity* entity)
+        // Every function takes an entity ID, the u64 a script holds (OnCreate's
+        // `id`, entity_utils.find_by_name). They used to take an Entity*, which
+        // no Lua value converts to, so no script could start a conversation.
+        const auto withDialogue = [](u64 entityID, const auto& action)
         {
-            if (!entity)
+            Scene* scene = ScriptEngine::GetSceneContext();
+            if (!scene || !scene->GetDialogueSystem())
                 return;
-            const Scene* scene = ScriptEngine::GetSceneContext();
-            if (scene && scene->GetDialogueSystem())
-                scene->GetDialogueSystem()->StartDialogue(*entity);
+            if (const auto entity = scene->TryGetEntityWithUUID(UUID(entityID)))
+                action(*scene->GetDialogueSystem(), *entity);
         };
-        dialogueTable["advance"] = [](Entity* entity)
+        dialogueTable["start"] = [withDialogue](u64 entityID)
         {
-            if (!entity)
-                return;
-            const Scene* scene = ScriptEngine::GetSceneContext();
-            if (scene && scene->GetDialogueSystem())
-                scene->GetDialogueSystem()->AdvanceDialogue(*entity);
+            withDialogue(entityID, [](DialogueSystem& system, Entity entity)
+                         { system.StartDialogue(entity); });
         };
-        dialogueTable["select_choice"] = [](Entity* entity, i32 index)
+        dialogueTable["advance"] = [withDialogue](u64 entityID)
         {
-            if (!entity)
-                return;
-            const Scene* scene = ScriptEngine::GetSceneContext();
-            if (scene && scene->GetDialogueSystem())
-                scene->GetDialogueSystem()->SelectChoice(*entity, index);
+            withDialogue(entityID, [](DialogueSystem& system, Entity entity)
+                         { system.AdvanceDialogue(entity); });
         };
-        dialogueTable["is_active"] = [](Entity* entity) -> bool
+        dialogueTable["select_choice"] = [withDialogue](u64 entityID, i32 index)
         {
-            if (!entity)
-                return false;
-            return entity->HasComponent<DialogueStateComponent>();
+            withDialogue(entityID, [index](DialogueSystem& system, Entity entity)
+                         { system.SelectChoice(entity, index); });
         };
-        dialogueTable["end_dialogue"] = [](Entity* entity)
+        dialogueTable["is_active"] = [](u64 entityID) -> bool
         {
-            if (!entity)
-                return;
             const Scene* scene = ScriptEngine::GetSceneContext();
-            if (scene && scene->GetDialogueSystem())
-                scene->GetDialogueSystem()->EndDialogue(*entity);
+            const auto entity = scene ? scene->TryGetEntityWithUUID(UUID(entityID)) : std::nullopt;
+            // Another NPC's StartDialogue leaves this one's component Inactive.
+            return entity && entity->HasComponent<DialogueStateComponent>() &&
+                   entity->GetComponent<DialogueStateComponent>().m_State != DialogueState::Inactive;
+        };
+        dialogueTable["end_dialogue"] = [withDialogue](u64 entityID)
+        {
+            withDialogue(entityID, [](const DialogueSystem& system, Entity entity)
+                         { system.EndDialogue(entity); });
         };
 
         // --- Dialogue variables ---

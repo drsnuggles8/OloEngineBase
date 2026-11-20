@@ -58,6 +58,7 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 | [completed-frame-perf-windows.md](completed-frame-perf-windows.md) | An estimated sleep labelled 120 history samples as a new camera window after only 66 new frames. |
 | [measurement-validity-and-sentinels.md](measurement-validity-and-sentinels.md) | Four unrelated failures all published `0.0 ms`. |
 | [renderer-memory-accounting.md](renderer-memory-accounting.md) | The Vulkan memory report read 6 MiB because no Vulkan code booked anything. |
+| [runtime-built-entities-are-runtime-owned.md](runtime-built-entities-are-runtime-owned.md) | Every save, Continue, save cycle added a second dialogue UI, and the save tests passed because none counted entities. |
 | [binary-format-versioning.md](binary-format-versioning.md) | The save game carried 38 versions and 47 per-field gates because parallel branches collided on the version number and `AtEnd()` probes could not tell older from truncated. |
 | [vulkan-query-generations.md](vulkan-query-generations.md) | Dense Vulkan frames produced backward whole-frame timestamps and plausible stale pass timings because query availability described the previous reset generation. |
 | [planar-reflection-ao-restoration.md](planar-reflection-ao-restoration.md) | Reflection replay left white AO/depth fallbacks bound after the suspension flag cleared. |
