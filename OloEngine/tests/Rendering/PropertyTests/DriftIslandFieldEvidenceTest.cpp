@@ -57,6 +57,7 @@
 #include "OloEngine/Renderer/RenderingPath.h"
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
+#include "OloEngine/Terrain/TerrainData.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
 
 #include <glm/glm.hpp>
@@ -70,7 +71,9 @@
 #include <cstring>
 #include <filesystem>
 #include <limits>
+#include <iostream>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -106,7 +109,7 @@ namespace OloEngine::Tests
             return projectRelative.empty() ? projectRelative : "SandboxProject/" + projectRelative;
         }
 
-        // Ridgeback as Drift.olo authors it.
+        // An island as Drift.olo authors it.
         struct IslandSource
         {
             glm::vec3 Translation{ 0.0f };
@@ -126,8 +129,9 @@ namespace OloEngine::Tests
             }
         };
 
-        [[nodiscard]] bool LoadRidgeback(IslandSource& out, std::string& why)
+        [[nodiscard]] bool LoadIsland(const std::string& island, IslandSource& out, std::string& why)
         {
+            const std::string tagName = "Island - " + island;
             const fs::path scenePath = fs::path("SandboxProject") / "Assets" / "Scenes" / "Drift.olo";
             if (!fs::exists(scenePath))
             {
@@ -138,7 +142,7 @@ namespace OloEngine::Tests
             for (const auto& entity : root["Entities"])
             {
                 const YAML::Node tag = entity["TagComponent"];
-                if (!tag || tag["Tag"].as<std::string>("") != "Island - Ridgeback")
+                if (!tag || tag["Tag"].as<std::string>("") != tagName)
                     continue;
                 const YAML::Node terrain = entity["TerrainComponent"];
                 const YAML::Node translation = entity["TransformComponent"]["Translation"];
@@ -172,20 +176,20 @@ namespace OloEngine::Tests
                 }
                 if (out.WorldSize <= 0.0f || out.HeightScale <= 0.0f || out.Heightmap.empty() || out.Layers.empty())
                 {
-                    why = "Island - Ridgeback is not a height-map terrain with layers any more";
+                    why = tagName + " is not a height-map terrain with layers any more";
                     return false;
                 }
                 for (const std::string& file : { out.Heightmap, out.Splatmaps[0], out.Splatmaps[1], out.MacroMap })
                 {
                     if (!fs::exists(file))
                     {
-                        why = "Ridgeback names a map that is not on disk: " + file;
+                        why = island + " names a map that is not on disk: " + file;
                         return false;
                     }
                 }
                 return true;
             }
-            why = "no 'Island - Ridgeback' terrain in Drift.olo";
+            why = "no '" + tagName + "' terrain in Drift.olo";
             return false;
         }
 
@@ -292,12 +296,12 @@ namespace OloEngine::Tests
         };
     } // namespace
 
-    // The scene both suites below render: Ridgeback, the sea, its floor, a sun
-    // and the coastal skybox.
+    // The scene every suite below renders: one island (Ridgeback unless a
+    // suite names another), the sea, its floor, a sun and the coastal skybox.
     class DriftIslandScene : public RendererAttachedTest
     {
       protected:
-        void BuildIslandScene()
+        void BuildIslandScene(const std::string& island = "Ridgeback")
         {
             Scene& scene = GetScene();
             EnableRendering(kWidth, kHeight);
@@ -308,7 +312,7 @@ namespace OloEngine::Tests
             Renderer3D::ApplyRendererSettings();
 
             std::string why;
-            ASSERT_TRUE(LoadRidgeback(m_Source, why)) << why;
+            ASSERT_TRUE(LoadIsland(island, m_Source, why)) << why;
 
             {
                 Entity light = scene.CreateEntity("Sun");
@@ -368,7 +372,7 @@ namespace OloEngine::Tests
             }
 
             {
-                m_Island = scene.CreateEntity("Island - Ridgeback");
+                m_Island = scene.CreateEntity("Island - " + island);
                 // The terrain origin is a CORNER, as in the scene.
                 m_Island.GetComponent<TransformComponent>().Translation = m_Source.Translation;
 
@@ -659,4 +663,118 @@ namespace OloEngine::Tests
                                                RenderingPath::Deferred),
                              [](const ::testing::TestParamInfo<RenderingPath>& info)
                              { return std::string(PathName(info.param)); });
+
+    // ── Every island, every path, both backends ──────────────────────────────
+    //
+    // The suite above holds Ridgeback to its own materials. This one puts each
+    // of the six in view, straight down, on each path: the tile must end in
+    // sea, the island must be there, and its ground must not be one tone (a
+    // layer array or a macro map that failed to reach a path draws the layers'
+    // flat colours). Evidence:
+    // DriftIsland<Island>_<Backend>_<Path>_TopDown.png.
+    using IslandOnPath = std::tuple<const char*, RenderingPath>;
+
+    class DriftEveryIslandPaths : public DriftIslandScene, public ::testing::WithParamInterface<IslandOnPath>
+    {
+      protected:
+        [[nodiscard]] bool RunsInVulkanProcess() const override
+        {
+            return true;
+        }
+
+        void BuildScene() override
+        {
+            Renderer3D::GetRendererSettings().Path = std::get<RenderingPath>(GetParam());
+            BuildIslandScene(std::get<const char*>(GetParam())); // applies the renderer settings
+        }
+    };
+
+    TEST_P(DriftEveryIslandPaths, TheIslandStandsInTheSeaAndShowsItsGround)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        const ScopedMockTime scopedMockTime(kCaptureTime);
+        const char* island = std::get<const char*>(GetParam());
+        const RenderingPath path = std::get<RenderingPath>(GetParam());
+
+        const Pose& topDown = kPoses[kTopDownPose];
+        std::vector<u8> pixels;
+        EditorCamera camera;
+        ASSERT_NO_FATAL_FAILURE(Capture(topDown, pixels, camera));
+
+        const fs::path dir = fs::path("assets") / "tests" / "visual";
+        std::error_code ec;
+        fs::create_directories(dir, ec);
+        const std::string evidence =
+            (dir / (TestRenderBackend::EvidenceName(std::string("DriftIsland") + island) + PathName(path) + "_TopDown.png")).string();
+        ::stbi_flip_vertically_on_write(0);
+        EXPECT_NE(::stbi_write_png(evidence.c_str(), static_cast<int>(kWidth), static_cast<int>(kHeight), 4, pixels.data(),
+                                   static_cast<int>(kWidth) * 4),
+                  0)
+            << "could not write " << evidence;
+
+        ExpectNotBlack(topDown, pixels);
+        ASSERT_NO_FATAL_FAILURE(ExpectTileBorderIsSea(camera, pixels, evidence));
+
+        // Land by the MAP, not by colour: a pixel is land when the height map
+        // puts the ground under it more than a metre above the sea. (A colour
+        // test calls a turquoise shallow land and a blue-grey basalt sea, and
+        // counted a quarter of the frame as land on the smallest island.) The
+        // pixel's ground point is where its ray meets the sea plane; from 430 m
+        // straight above, the parallax of a hill is a few pixels at the coast.
+        TArray<f32> heights;
+        u32 resolution = 0;
+        ASSERT_TRUE(TerrainData::DecodeHeightmapFile(m_Source.Heightmap, heights, resolution)) << m_Source.Heightmap;
+        const glm::mat4 inverseViewProjection = glm::inverse(camera.GetViewProjection());
+        const auto groundAt = [&](const u32 column, const u32 row)
+        {
+            const f32 ndcX = (static_cast<f32>(column) + 0.5f) / static_cast<f32>(kWidth) * 2.0f - 1.0f;
+            // Rows are in image space: row 0 is the top.
+            const f32 ndcY = 1.0f - (static_cast<f32>(row) + 0.5f) / static_cast<f32>(kHeight) * 2.0f;
+            glm::vec4 nearPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, -1.0f, 1.0f);
+            glm::vec4 farPoint = inverseViewProjection * glm::vec4(ndcX, ndcY, 1.0f, 1.0f);
+            nearPoint /= nearPoint.w;
+            farPoint /= farPoint.w;
+            const f32 t = nearPoint.y / (nearPoint.y - farPoint.y); // where the ray reaches y = 0
+            return glm::vec2(glm::mix(nearPoint.x, farPoint.x, t), glm::mix(nearPoint.z, farPoint.z, t));
+        };
+        u32 land = 0;
+        f64 lumaSum = 0.0;
+        f64 lumaSquares = 0.0;
+        for (u32 row = 0; row < kHeight; ++row)
+        {
+            for (u32 column = 0; column < kWidth; ++column)
+            {
+                const glm::vec2 ground = groundAt(column, row);
+                const f32 u = (ground.x - m_Source.Translation.x) / m_Source.WorldSize;
+                const f32 v = (ground.y - m_Source.Translation.z) / m_Source.WorldSize;
+                if (u < 0.0f || u > 1.0f || v < 0.0f || v > 1.0f)
+                    continue;
+                const f32 metresAboveSea =
+                    TerrainData::SampleHeight(heights, resolution, u, v) * m_Source.HeightScale + m_Source.Translation.y;
+                if (metresAboveSea < 1.0f)
+                    continue;
+                const sizet i = (static_cast<sizet>(row) * kWidth + column) * 4u;
+                ++land;
+                const f64 luma = 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
+                lumaSum += luma;
+                lumaSquares += luma * luma;
+            }
+        }
+        // The smallest island, Atoll, is a tenth of its tile: 3% of this frame.
+        ASSERT_GT(land, kWidth * kHeight / 100u) << island << " covers under 1% of the frame. See " << evidence;
+        const f64 mean = lumaSum / land;
+        const f64 deviation = std::sqrt(std::max(lumaSquares / land - mean * mean, 0.0));
+        std::cout << "[DriftEveryIslandPaths] " << island << " " << PathName(path) << ": land " << land << " px, luma " << mean
+                  << " +/- " << deviation << "\n";
+        EXPECT_GT(mean, 20.0) << island << "'s ground is black. See " << evidence;
+        EXPECT_GT(deviation, 6.0) << island << "'s ground is one tone: its layers or its macro map did not reach this path. See "
+                                  << evidence;
+    }
+
+    INSTANTIATE_TEST_SUITE_P(AllIslands, DriftEveryIslandPaths,
+                             ::testing::Combine(::testing::Values("Ridgeback", "Mesa", "Atoll", "Stacks", "Dunes", "Sisters"),
+                                                ::testing::Values(RenderingPath::Forward, RenderingPath::ForwardPlus,
+                                                                  RenderingPath::Deferred)),
+                             [](const ::testing::TestParamInfo<IslandOnPath>& info)
+                             { return std::string(std::get<const char*>(info.param)) + "_" + PathName(std::get<RenderingPath>(info.param)); });
 } // namespace OloEngine::Tests
