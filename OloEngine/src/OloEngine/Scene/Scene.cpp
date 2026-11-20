@@ -133,6 +133,7 @@
 #include "OloEngine/Terrain/TerrainChunk.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
+#include "OloEngine/Terrain/TerrainSurfaceShading.h"
 #include "OloEngine/Terrain/TerrainTile.h"
 #include "OloEngine/Terrain/TerrainStreamer.h"
 #include "OloEngine/Scene/ModelImporter.h"
@@ -13639,6 +13640,7 @@ namespace OloEngine
                     {
                         terrain.m_Material->BuildTextureArrays();
                         terrain.m_Material->LoadSplatmaps();
+                        terrain.m_Material->LoadMacroMap();
                         terrain.m_Streamer->SetMaterial(terrain.m_Material);
                         terrain.m_MaterialNeedsRebuild = false;
                     }
@@ -13753,6 +13755,7 @@ namespace OloEngine
                     {
                         terrain.m_Material->BuildTextureArrays();
                         terrain.m_Material->LoadSplatmaps();
+                        terrain.m_Material->LoadMacroMap();
                         terrain.m_MaterialNeedsRebuild = false;
                         // Every resident VT tile was composited from the OLD layer
                         // arrays. Nothing about a rebuilt material tells the cache
@@ -14391,6 +14394,27 @@ namespace OloEngine
                                 }
                             }
 
+                            // Two-scale layer sampling (issue #1721): on, unless
+                            // this terrain shades through the virtual texture. A
+                            // baked tile has no view distance, and the per-pixel
+                            // fallback of a sector that is not ready yet has to
+                            // keep matching the tiles around it — so the test is
+                            // the terrain's VT SETTING (the condition the update
+                            // pass creates the virtual texture on), not whether
+                            // the cache happens to be ready this frame.
+                            const bool shadesThroughVirtualTexture = terrain.m_VirtualTextureEnabled && !terrain.m_StreamingEnabled;
+                            terrainUBOData.LayerScale = TerrainSurfaceShading::PackLayerScale(!shadesThroughVirtualTexture);
+
+                            // The macro map (issue #1721), from the material the
+                            // layers come from.
+                            RHI::ResourceHandle macroMapID{};
+                            if (effectiveMat)
+                            {
+                                if (const auto macroMap = effectiveMat->GetMacroMap())
+                                    macroMapID = macroMap->GetRHIHandle();
+                            }
+                            terrainUBOData.MacroParams = TerrainSurfaceShading::PackMacroParams(macroMapID.IsValid());
+
                             // Virtual texturing (issue #715). PER TERRAIN, not per
                             // tile: slice 1's virtual image covers one terrain's UV
                             // space, and a streamed terrain's tiles each have their
@@ -14463,7 +14487,7 @@ namespace OloEngine
                                     tileModel, gpuUBO, entityID,
                                     gpuQuadtree->GetDrawArgsHandle(),
                                     gpuQuadtree->GetVisibleNodesHandle(),
-                                    vtBindings);
+                                    vtBindings, macroMapID);
                                 if (packet)
                                     Renderer3D::SubmitPacket(packet);
 
@@ -14494,7 +14518,7 @@ namespace OloEngine
                                         terrainShader,
                                         heightmapID, tileSplatmapID, tileSplatmap1ID,
                                         tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                        tileModel, terrainUBOData, entityID, {}, {}, vtBindings);
+                                        tileModel, terrainUBOData, entityID, {}, {}, vtBindings, macroMapID);
                                     if (packet)
                                         Renderer3D::SubmitPacket(packet);
                                 }
@@ -14518,7 +14542,7 @@ namespace OloEngine
                                         terrainShader,
                                         heightmapID, tileSplatmapID, tileSplatmap1ID,
                                         tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                        tileModel, terrainUBOData, entityID, {}, {}, vtBindings);
+                                        tileModel, terrainUBOData, entityID, {}, {}, vtBindings, macroMapID);
                                     if (packet)
                                         Renderer3D::SubmitPacket(packet);
                                 }
@@ -14608,15 +14632,24 @@ namespace OloEngine
                     // heightmap chunks above use for u_TerrainParams.w and
                     // u_LayerTilingScales0/1. The voxel draw uploads them itself
                     // rather than inheriting whatever the last chunk left behind.
+                    //
+                    // TilingScale is repeats across the TILE (issue #1721); the
+                    // voxel shaders multiply a world position in metres, so the
+                    // lane carries repeats per metre. A carved cave wall then
+                    // shows a layer at the scale the surface around it does.
+                    // (Below 0.001 per metre the voxel shaders substitute their
+                    // own default: a repeat longer than a kilometre.)
                     VoxelTerrainSurface voxelSurface;
                     voxelSurface.TriplanarSharpness = kTerrainTriplanarSharpness;
                     if (terrain.m_Material)
                     {
+                        const f32 repeatsPerMetre = 1.0f / std::max(terrain.m_WorldSizeX, 1.0e-3f);
                         const u32 voxelLayerCount = std::min(terrain.m_Material->GetLayerCount(), 8u);
                         for (u32 i = 0; i < voxelLayerCount; ++i)
                         {
                             glm::vec4& lane = i < 4 ? voxelSurface.LayerTilingScales0 : voxelSurface.LayerTilingScales1;
-                            lane[static_cast<glm::length_t>(i % 4)] = terrain.m_Material->GetLayer(i).TilingScale;
+                            lane[static_cast<glm::length_t>(i % 4)] =
+                                terrain.m_Material->GetLayer(i).TilingScale * repeatsPerMetre;
                         }
                     }
 

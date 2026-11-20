@@ -12,16 +12,23 @@
 // gl_GlobalInvocationID.z selects the tile, so every page the CPU mapped this
 // frame is baked by one dispatch.
 //
-// Two things differ from the fragment path on purpose:
+// Three things differ from the fragment path on purpose:
 //
-//  - **Explicit LOD.** A compute invocation has no derivatives, so the layer
-//    arrays are sampled with a LOD derived from the page's own texel density.
-//    That is not a workaround — it is more correct than the fragment path's
-//    implicit derivatives, because a cache texel's footprint is known exactly.
-//  - **Absolute world position.** The triplanar projection is world-anchored, so
-//    the bake takes the terrain's ABSOLUTE model matrix rather than the
+//  - **Explicit footprint.** A compute invocation has no derivatives, so the
+//    layer arrays are sampled with a LOD (top projection) or gradients (side
+//    projections) derived from the page's own texel density and the height
+//    field's slope. That is not a workaround — it is more correct than the
+//    fragment path's screen-space derivatives, because a cache texel's
+//    footprint is known exactly.
+//  - **Absolute world height.** The side projections run texture V down world
+//    Y, so the bake takes the terrain's ABSOLUTE model matrix rather than the
 //    camera-relative one the draw path uses (issue #429). The cache is
 //    invalidated if that matrix moves.
+//  - **One scale.** The fragment path's two-scale sampling fades on view
+//    distance, which a baked tile does not have, so it is off for a terrain
+//    that shades through this cache (u_TerrainLayerScale is zero there, which
+//    also keeps the per-pixel fallback of an unready sector matching its
+//    neighbours).
 //
 // The blend math itself is shared with both fragment paths via
 // include/TerrainLayerBlend.glsl — three evaluators of one blend is exactly the
@@ -76,10 +83,11 @@ float layerTiling(int layer)
     return oloTerrainLayerTiling(layer, u_VTBakeTiling0, u_VTBakeTiling1);
 }
 
-// Terrain-local surface normal from the height field — the same four-tap central
-// difference the tess_eval stage uses, so the triplanar decision here matches
-// the geometry the shaded pixel actually sits on.
-vec3 terrainNormal(vec2 uv)
+// The height field's slope, in metres of height per metre along X and along Z —
+// the same four-tap central difference the tess_eval stage uses, so the
+// triplanar decision here matches the geometry the shaded pixel actually sits
+// on.
+vec2 terrainSlope(vec2 uv)
 {
     float texelSize = u_VTBakeTexel.x;
     float heightScale = u_VTBakeWorld.z;
@@ -91,7 +99,72 @@ vec3 terrainNormal(vec2 uv)
 
     float dX = (hR - hL) / (2.0 * texelSize * u_VTBakeWorld.x);
     float dZ = (hU - hD) / (2.0 * texelSize * u_VTBakeWorld.y);
-    return normalize(vec3(-dX, 1.0, -dZ));
+    return vec2(dX, dZ);
+}
+
+// One array, all the projections the texel uses — the bake's twin of
+// oloTerrainSampleLayer in include/TerrainLayerSampling.glsl. The top
+// projection keeps its explicit LOD; the side projections take the gradients
+// of their own coordinates, because along world Y a cache texel's footprint is
+// stretched by the slope and a single LOD would either alias it or blur the
+// horizontal axis.
+struct BakeFootprint
+{
+    float TopLod;   // before the per-layer tiling: log2(texels per cache texel) at tiling 1, resolution 1
+    vec2 SideXDx;
+    vec2 SideXDy;
+    vec2 SideZDx;
+    vec2 SideZDy;
+};
+
+vec4 sampleLayer(sampler2DArray layers, int layer, OloTerrainProjection proj, BakeFootprint footprint, vec3 w,
+                 bool useTriplanar, float tiling, float layerResolution)
+{
+    float lod = log2(max(footprint.TopLod * tiling * layerResolution, 1e-6));
+    if (!useTriplanar)
+        return textureLod(layers, vec3(proj.Top * tiling, float(layer)), lod);
+
+    vec4 result = vec4(0.0);
+    if (w.y > 0.0)
+        result += textureLod(layers, vec3(proj.Top * tiling, float(layer)), lod) * w.y;
+    if (w.x > 0.0)
+    {
+        result += textureGrad(layers, vec3(proj.SideX * tiling, float(layer)), footprint.SideXDx * tiling,
+                              footprint.SideXDy * tiling) * w.x;
+    }
+    if (w.z > 0.0)
+    {
+        result += textureGrad(layers, vec3(proj.SideZ * tiling, float(layer)), footprint.SideZDx * tiling,
+                              footprint.SideZDy * tiling) * w.z;
+    }
+    return result;
+}
+
+// A layer's normal in the top projection's tangent frame — the bake's twin of
+// oloTerrainSampleLayerNormal.
+vec3 sampleLayerNormal(int layer, OloTerrainProjection proj, BakeFootprint footprint, vec3 surfaceNormal, mat3 tbn,
+                       vec3 w, bool useTriplanar, float tiling, float layerResolution)
+{
+    float lod = log2(max(footprint.TopLod * tiling * layerResolution, 1e-6));
+    if (!useTriplanar)
+        return textureLod(u_TerrainNormalArray, vec3(proj.Top * tiling, float(layer)), lod).rgb * 2.0 - 1.0;
+
+    vec3 tangentTop = vec3(0.0, 0.0, 1.0);
+    vec3 tangentSideX = vec3(0.0, 0.0, 1.0);
+    vec3 tangentSideZ = vec3(0.0, 0.0, 1.0);
+    if (w.y > 0.0)
+        tangentTop = textureLod(u_TerrainNormalArray, vec3(proj.Top * tiling, float(layer)), lod).rgb * 2.0 - 1.0;
+    if (w.x > 0.0)
+    {
+        tangentSideX = textureGrad(u_TerrainNormalArray, vec3(proj.SideX * tiling, float(layer)),
+                                   footprint.SideXDx * tiling, footprint.SideXDy * tiling).rgb * 2.0 - 1.0;
+    }
+    if (w.z > 0.0)
+    {
+        tangentSideZ = textureGrad(u_TerrainNormalArray, vec3(proj.SideZ * tiling, float(layer)),
+                                   footprint.SideZDx * tiling, footprint.SideZDy * tiling).rgb * 2.0 - 1.0;
+    }
+    return oloTerrainTriplanarNormal(surfaceNormal, tbn, tangentTop, tangentSideX, tangentSideZ, w);
 }
 
 void main()
@@ -149,41 +222,57 @@ void main()
         weights[4] = 0.0; weights[5] = 0.0; weights[6] = 0.0; weights[7] = 0.0;
     }
 
-    vec3 localNormal = terrainNormal(uvClamped);
-    vec3 triWeights = oloTerrainTriplanarWeights(localNormal, u_VTBakeWorld.w);
+    vec2 slope = terrainSlope(uvClamped);
+    vec3 localNormal = normalize(vec3(-slope.x, 1.0, -slope.y));
+    vec3 projectionWeights = oloTerrainProjectionWeights(oloTerrainTriplanarWeights(localNormal, u_VTBakeWorld.w));
     bool useTriplanar = oloTerrainUseTriplanar(localNormal);
+    mat3 tbn = oloTerrainTangentFrame(localNormal);
 
     float height = textureLod(u_TerrainHeightmap, uvClamped, 0.0).r * u_VTBakeWorld.z;
     vec3 worldPos = (u_VTBakeModel * vec4(uv.x * u_VTBakeWorld.x, height, uv.y * u_VTBakeWorld.y, 1.0)).xyz;
 
-    // How many layer-texture texels one cache texel spans. Planar sampling reads
-    // the array at uv * tiling; triplanar reads it at worldPos.xz * tiling, so
-    // the two differ by the world size.
-    float uvPerTexel = span / pageTexels;
-    float worldPerTexel = uvPerTexel * max(u_VTBakeWorld.x, u_VTBakeWorld.y);
-    float lodBase = useTriplanar ? worldPerTexel : uvPerTexel;
+    // Where the layers are sampled — the SAME function the fragment paths call
+    // (include/TerrainLayerBlend.glsl), from the unclamped UV so a border texel
+    // continues the tiling, and from the absolute world height.
+    OloTerrainProjection proj = oloTerrainProjection(uv, worldPos.y, u_VTBakeWorld.xy);
 
+    // One cache texel is `uvPerTexel` of terrain UV along each axis. Over that
+    // step the height changes by slope * (uvPerTexel * worldSize) metres, which
+    // is the side projections' V gradient (V runs DOWN world Y, over the same
+    // world size oloTerrainProjection divides by).
+    float uvPerTexel = span / pageTexels;
+    BakeFootprint footprint;
+    footprint.TopLod = uvPerTexel;
+    float heightPerTexelX = slope.x * uvPerTexel * u_VTBakeWorld.x; // metres per texel step along terrain U
+    float heightPerTexelZ = slope.y * uvPerTexel * u_VTBakeWorld.y; // metres per texel step along terrain V
+    footprint.SideXDx = vec2(0.0, -heightPerTexelX / max(u_VTBakeWorld.y, 0.0001));
+    footprint.SideXDy = vec2(uvPerTexel, -heightPerTexelZ / max(u_VTBakeWorld.y, 0.0001));
+    footprint.SideZDx = vec2(uvPerTexel, -heightPerTexelX / max(u_VTBakeWorld.x, 0.0001));
+    footprint.SideZDy = vec2(0.0, -heightPerTexelZ / max(u_VTBakeWorld.x, 0.0001));
+
+    // The ARM alpha is the layer's height for the height blend: sampled only
+    // for the layers the splatmap puts at this texel, and kept for the blend
+    // loop — the fragment paths' rule, which the bake has to share or a tile
+    // and the per-pixel fallback beside it blend differently.
     float heights[8];
-    for (int i = 0; i < layerCount; ++i)
+    vec4 layerARMs[8];
+    for (int i = 0; i < 8; ++i)
     {
-        float tiling = layerTiling(i);
-        float lod = log2(max(lodBase * tiling * layerResolution, 1e-6));
-        vec4 arm;
-        if (useTriplanar)
-        {
-            vec4 xARM = textureLod(u_TerrainARMArray, vec3(worldPos.yz * tiling, float(i)), lod);
-            vec4 yARM = textureLod(u_TerrainARMArray, vec3(worldPos.xz * tiling, float(i)), lod);
-            vec4 zARM = textureLod(u_TerrainARMArray, vec3(worldPos.xy * tiling, float(i)), lod);
-            arm = xARM * triWeights.x + yARM * triWeights.y + zARM * triWeights.z;
-        }
-        else
-        {
-            arm = textureLod(u_TerrainARMArray, vec3(uv * tiling, float(i)), lod);
-        }
-        heights[i] = arm.a;
-    }
-    for (int i = layerCount; i < 8; ++i)
         heights[i] = 0.0;
+        layerARMs[i] = vec4(0.0);
+    }
+    int sampledMask = 0;
+    for (int i = 0; i < 8; ++i)
+    {
+        if (i >= layerCount)
+            break;
+        if (oloTerrainLayerIsDead(weights[i]))
+            continue;
+        layerARMs[i] = sampleLayer(u_TerrainARMArray, i, proj, footprint, projectionWeights, useTriplanar,
+                                   layerTiling(i), layerResolution);
+        heights[i] = layerARMs[i].a;
+        sampledMask |= (1 << i);
+    }
 
     oloTerrainHeightBlend(weights, heights, layerCount, u_VTBakeSharp0, u_VTBakeSharp1);
 
@@ -193,44 +282,25 @@ void main()
     float roughness = 0.0;
     float metallic = 0.0;
 
-    for (int i = 0; i < layerCount; ++i)
+    for (int i = 0; i < 8; ++i)
     {
+        if (i >= layerCount)
+            break;
         if (weights[i] < 0.001)
             continue;
 
         float tiling = layerTiling(i);
-        float lod = log2(max(lodBase * tiling * layerResolution, 1e-6));
 
-        vec4 layerAlbedo;
-        vec3 layerNormal;
-        vec4 layerARM;
-
-        if (useTriplanar)
+        vec4 layerARM = layerARMs[i];
+        if ((sampledMask & (1 << i)) == 0)
         {
-            vec2 uvX = worldPos.yz * tiling;
-            vec2 uvY = worldPos.xz * tiling;
-            vec2 uvZ = worldPos.xy * tiling;
-
-            layerAlbedo = textureLod(u_TerrainAlbedoArray, vec3(uvX, float(i)), lod) * triWeights.x +
-                          textureLod(u_TerrainAlbedoArray, vec3(uvY, float(i)), lod) * triWeights.y +
-                          textureLod(u_TerrainAlbedoArray, vec3(uvZ, float(i)), lod) * triWeights.z;
-
-            vec3 nX = textureLod(u_TerrainNormalArray, vec3(uvX, float(i)), lod).rgb * 2.0 - 1.0;
-            vec3 nY = textureLod(u_TerrainNormalArray, vec3(uvY, float(i)), lod).rgb * 2.0 - 1.0;
-            vec3 nZ = textureLod(u_TerrainNormalArray, vec3(uvZ, float(i)), lod).rgb * 2.0 - 1.0;
-            layerNormal = normalize(nX * triWeights.x + nY * triWeights.y + nZ * triWeights.z);
-
-            layerARM = textureLod(u_TerrainARMArray, vec3(uvX, float(i)), lod) * triWeights.x +
-                       textureLod(u_TerrainARMArray, vec3(uvY, float(i)), lod) * triWeights.y +
-                       textureLod(u_TerrainARMArray, vec3(uvZ, float(i)), lod) * triWeights.z;
+            layerARM = sampleLayer(u_TerrainARMArray, i, proj, footprint, projectionWeights, useTriplanar, tiling,
+                                   layerResolution);
         }
-        else
-        {
-            vec2 layerUV = uv * tiling;
-            layerAlbedo = textureLod(u_TerrainAlbedoArray, vec3(layerUV, float(i)), lod);
-            layerNormal = textureLod(u_TerrainNormalArray, vec3(layerUV, float(i)), lod).rgb * 2.0 - 1.0;
-            layerARM = textureLod(u_TerrainARMArray, vec3(layerUV, float(i)), lod);
-        }
+        vec4 layerAlbedo = sampleLayer(u_TerrainAlbedoArray, i, proj, footprint, projectionWeights, useTriplanar,
+                                       tiling, layerResolution);
+        vec3 layerNormal = sampleLayerNormal(i, proj, footprint, localNormal, tbn, projectionWeights, useTriplanar,
+                                             tiling, layerResolution);
 
         albedo    += layerAlbedo.rgb * weights[i];
         normalMap += layerNormal * weights[i];

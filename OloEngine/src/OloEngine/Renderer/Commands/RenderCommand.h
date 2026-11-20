@@ -910,6 +910,10 @@ namespace OloEngine
         RHI::ResourceHandle albedoArrayTextureID{};
         RHI::ResourceHandle normalArrayTextureID{};
         RHI::ResourceHandle armArrayTextureID{};
+        // The terrain's macro map (issue #1721), bound at TEX_DIFFUSE. Null
+        // when the terrain has none; the UBO's MacroParams.x carries the
+        // matching flag, so the shader never samples an unbound slot.
+        RHI::ResourceHandle macroMapTextureID{};
 
         // Transform
         glm::mat4 transform = glm::mat4(1.0f);

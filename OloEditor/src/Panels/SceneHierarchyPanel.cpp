@@ -6566,6 +6566,37 @@ namespace OloEngine
                         mat->SetSplatmapPath(1, sp1Buf);
                         component.m_MaterialNeedsRebuild = true;
                     }
+
+                    // The macro map: a per-terrain tint (RGB, 128 = neutral)
+                    // and dryness (alpha, 255 = dry) over the whole terrain.
+                    char macroBuf[256]{};
+                    std::strncpy(macroBuf, mat->GetMacroMapPath().GetData(), sizeof(macroBuf) - 1);
+                    if (ImGui::InputText("Macro Map", macroBuf, sizeof(macroBuf)))
+                    {
+                        mat->SetMacroMapPath(macroBuf);
+                        component.m_MaterialNeedsRebuild = true;
+                    }
+
+                    // The resolution every layer texture is resampled to. A
+                    // power of two; the material clamps and rounds what it is
+                    // given, so the combo only offers valid values.
+                    const u32 layerResolution = mat->GetLayerResolution();
+                    if (ImGui::BeginCombo("Layer Resolution", std::to_string(layerResolution).c_str()))
+                    {
+                        for (u32 option = TerrainMaterial::kMinLayerResolution;
+                             option <= TerrainMaterial::kMaxLayerResolution; option *= 2u)
+                        {
+                            const bool selected = (option == layerResolution);
+                            if (ImGui::Selectable(std::to_string(option).c_str(), selected) && !selected)
+                            {
+                                mat->SetLayerResolution(option);
+                                component.m_MaterialNeedsRebuild = true;
+                            }
+                            if (selected)
+                                ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
                 }
 
                 // Layer list
@@ -6621,7 +6652,8 @@ namespace OloEngine
                             component.m_MaterialNeedsRebuild = true;
                         }
 
-                        ImGui::DragFloat("Tiling", &layer.TilingScale, 0.1f, 0.1f, 200.0f);
+                        ImGui::DragFloat("Tiling", &layer.TilingScale, 0.1f, 0.1f, 4096.0f);
+                        ImGui::SetItemTooltip("Repeats of the layer textures across the whole tile.");
                         ImGui::DragFloat("Blend Sharpness", &layer.HeightBlendSharpness, 0.1f, 0.1f, 32.0f);
                         ImGui::DragFloat("Triplanar Sharpness", &layer.TriplanarSharpness, 0.1f, 1.0f, 32.0f);
                         ImGui::ColorEdit3("Base Color", &layer.BaseColor.x);

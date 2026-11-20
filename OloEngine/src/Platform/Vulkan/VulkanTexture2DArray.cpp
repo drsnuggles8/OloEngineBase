@@ -42,6 +42,8 @@ namespace OloEngine
                     // Linear variant, matching the GL twin's
                     // GL_COMPRESSED_RGBA_BPTC_UNORM.
                     return VK_FORMAT_BC7_UNORM_BLOCK;
+                case Texture2DArrayFormat::RGBA8_SRGB:
+                    return VK_FORMAT_R8G8B8A8_SRGB;
             }
             return VK_FORMAT_UNDEFINED;
         }
@@ -129,6 +131,20 @@ namespace OloEngine
         {
             colourUsage = 0;
         }
+        else if (spec.Format == Texture2DArrayFormat::RGBA8_SRGB)
+        {
+            // An sRGB format is never a storage image (no device reports
+            // STORAGE_IMAGE for it, so asking would fail the creation), and it
+            // needs no attachment bit either: its layers are uploaded and its
+            // mip chain is a blit, which TRANSFER_SRC/DST below cover. The
+            // blit filters in linear space, as glGenerateTextureMipmap does on
+            // the GL twin.
+            colourUsage = 0;
+        }
+        else
+        {
+            // No additional handling required.
+        }
         imageInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | (copySource ? VK_IMAGE_USAGE_TRANSFER_SRC_BIT : 0u) |
                           VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                           (isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : colourUsage);
@@ -170,6 +186,12 @@ namespace OloEngine
             registryInfo.AddressMode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
         else
             registryInfo.AddressMode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+        // Anisotropy rides the same record (issue #1721): the sampler a bind
+        // with no stated intent gets is minted from this image's own state, so
+        // this is the twin of GL_TEXTURE_MAX_ANISOTROPY on the GL object. The
+        // device clamp is applied where the sampler is created.
+        if (!isDepth && spec.Format != Texture2DArrayFormat::RGBA32UI)
+            registryInfo.MaxAnisotropy = std::max(m_Specification.MaxAnisotropy, 1.0f);
         VulkanImageInfoRegistry::Get().Register(m_Image, registryInfo);
 
         m_RHIHandle.Adopt(RHI::ResourceKind::Texture, reinterpret_cast<u64>(m_Image), RHI::Backend::Vulkan);
@@ -243,6 +265,7 @@ namespace OloEngine
         switch (m_Specification.Format)
         {
             case Texture2DArrayFormat::RGBA8:
+            case Texture2DArrayFormat::RGBA8_SRGB:
                 bpp = 4;
                 break;
             case Texture2DArrayFormat::RGBA16F:

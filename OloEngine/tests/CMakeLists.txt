@@ -907,6 +907,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/WaterBuoyancyVisualEvidenceTest.cpp
 		Rendering/PropertyTests/ShadowTerrainPropertyTests.cpp
 		Rendering/PropertyTests/TerrainGenerationEvidenceTest.cpp
+		Rendering/PropertyTests/TerrainLayerTextureEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainCameraRelativeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/TerrainGPUQuadtreeVisualEvidenceTest.cpp
 		Rendering/PropertyTests/DriftIslandFieldEvidenceTest.cpp
@@ -1220,6 +1221,7 @@ add_executable(OloEngine-Tests
 		# Procedural Terrain Generation Tests
 		Terrain/DriftIslandSplatCoverageTest.cpp
 		Terrain/TerrainGeneratorTest.cpp
+		Terrain/TerrainLayerTextureContractTest.cpp
 		Terrain/TerrainVirtualTextureTest.cpp
 		Terrain/TerrainAuthoringReadbackTest.cpp
 		Terrain/VoxelGreedyMesherTest.cpp

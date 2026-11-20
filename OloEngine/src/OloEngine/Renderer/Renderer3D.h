@@ -885,7 +885,10 @@ namespace OloEngine
             RHI::ResourceHandle terrainVisibleNodesID = {},
             // Terrain virtual texturing (issue #715). Default-constructed means
             // "VT off for this draw"; a partially-filled set is rejected.
-            const TerrainVTBindings& virtualTexture = {});
+            const TerrainVTBindings& virtualTexture = {},
+            // The terrain's macro map (issue #1721); null for a terrain
+            // without one. The caller sets TerrainUBO::MacroParams to match.
+            RHI::ResourceHandle macroMapID = {});
 
         static CommandPacket* DrawVoxelMesh(
             RHI::ResourceHandle vaoID, u32 indexCount,
