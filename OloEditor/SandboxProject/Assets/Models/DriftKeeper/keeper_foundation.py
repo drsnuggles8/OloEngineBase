@@ -42,9 +42,9 @@ def hair_coordinates(region, side, u, v):
             [1.682, 1.656, 1.627, 1.650, 1.656, 1.638, 1.607, 1.595],
         )
         bottom += 0.0014 * sin(12 * a)
-        # The firm sweatband has a sloping lower edge. Grow up to its
-        # underside around the temple, where a flat cutoff pierced the band.
-        ceiling = 1.674 + 0.004 * cos(a) - 0.003 * sin(a) - 0.0025
+        # The firm sweatband folds down over the top few millimetres of
+        # hair. Its sloped edge conceals the roots at both temples.
+        ceiling = 1.6715 + 0.004 * cos(a) - 0.003 * sin(a)
         bottom = min(bottom, ceiling - 0.0015)
         y = bottom + v * (ceiling - bottom)
     else:

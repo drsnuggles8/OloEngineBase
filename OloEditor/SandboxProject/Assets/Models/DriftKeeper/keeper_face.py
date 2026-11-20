@@ -198,7 +198,7 @@ def head_point(angle, y):
         relief += 0.0021 * bump(x, y, -0.041, 1.603, 0.028, 0.023) - 0.0013 * bump(
             x, y, 0.043, 1.579, 0.023, 0.020
         )
-        x += 0.0015 * bump(x, y, 0, 1.535, 0.043, 0.013)
+        x += 0.0015 * bump(x, y, 0, 1.535, 0.043, 0.013) * min(1, 2 * c)
         z += relief * min(1, 2 * c)
         nasal, dy = nose_section(x, y)
         z += nasal
@@ -208,7 +208,10 @@ def head_point(angle, y):
         limit = 0.86 * radius
         depth = sqrt(radius**2 - min(rho, limit) ** 2)
         shell = EYE_Z + depth - max(0, rho - limit) * limit / depth
-        z += 0.0018 * log1p(exp(min(40, (shell - z) / 0.0018)))
+        # This envelope supports the lids on the globe. Extending its tangent
+        # behind the outer orbit put a 30 mm step through the temple and hair.
+        orbital = float(np.clip((0.032 - rho) / 0.010, 0, 1))
+        z += orbital**2 * (3 - 2 * orbital) * 0.0018 * log1p(exp(min(40, (shell - z) / 0.0018)))
     seat = exp(-(((abs(angle) - 1.71) / 0.22) ** 4) - ((y - 1.625) / 0.023) ** 4)
     x -= np.sign(x) * 0.005 * seat
     return np.array((x, height, z))

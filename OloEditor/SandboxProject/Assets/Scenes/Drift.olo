@@ -1729,13 +1729,13 @@ Entities:
       Levels:
       - MeshHandle: 14409495868182326795
         MaxDistance: 18
-        TriangleCount: 168824
+        TriangleCount: 169320
       - MeshHandle: 3761803413143181578
         MaxDistance: 78
-        TriangleCount: 47620
+        TriangleCount: 47868
       - MeshHandle: 15289720284050343393
         MaxDistance: 1000
-        TriangleCount: 20070
+        TriangleCount: 20202
     MaterialOverridesComponent:
       Overrides:
       - MaterialName: KeeperSkin

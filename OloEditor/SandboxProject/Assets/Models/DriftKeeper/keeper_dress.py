@@ -198,6 +198,24 @@ def arm_weight(p, sign, suffix):
     return {"upperarm_" + suffix: 0.72 * cap, "chest": 1 - 0.72 * cap}
 
 
+def neck_height(angle):
+    return 0.130 + 0.013 * (1 - cos(angle))
+
+
+def neck_point(angle, y):
+    c = cos(angle)
+    t = between(y, 1.430, 1.430 + neck_height(angle))
+    w = np.interp(
+        y, [1.430, 1.460, 1.486, 1.515, 1.549, 1.587], [0.068, 0.063, 0.057, 0.055, 0.061, 0.057]
+    )
+    depth = np.interp(y, [1.430, 1.468, 1.500, 1.545, 1.587], [0.060, 0.060, 0.055, 0.063, 0.067])
+    centre = -0.005 - 0.020 * t
+    a = abs((angle + pi) % (2 * pi) - pi)
+    scm = 0.0048 * exp(-(((a - (0.36 + 1.02 * t)) / 0.18) ** 2)) * sin(pi * t) ** 0.6
+    throat = 0.0038 * exp(-((a / 0.39) ** 2) - ((y - 1.496) / 0.011) ** 2)
+    return (sin(angle) * (w + scm), y, centre + c * (depth + scm + throat))
+
+
 def dress_coat(s, lod, trunk):
     n = (84, 44, 24)[lod]
     sides = (22, 14, 8)[lod]
@@ -351,23 +369,46 @@ def dress_coat(s, lod, trunk):
         (1.34, 0.176, 0.129, 0),
         (1.398, 0.162, 0.110, -0.003),
         (1.448, 0.101, 0.079, -0.003),
-        (1.462, 0.077, 0.066, 0),
-        (1.485, 0.068, 0.064, -0.003),
-        (1.489, 0.054, 0.052, -0.003),
     ]
 
     def knit_weights(point):
         if point[1] > 1.445:
-            return mix_weights(point[1], 1.445, 1.484, "chest", "neck")
+            return mix_weights(point[1], 1.445, 1.474, "chest", "neck")
         return trunk(point)
+
+    def knit_flute(a, y):
+        return 0.0014 * cos(44 * a) + 0.003 * bell((y - 1.25) / 0.18) * cos(6 * a + 8 * y)
 
     s.loft(
         "KeeperGansey",
         [(y, 0, z, w, d) for y, w, d, z in knit],
         knit_weights,
         n,
-        lambda a, y: 0.0014 * cos(44 * a) + 0.003 * bell((y - 1.25) / 0.18) * cos(6 * a + 8 * y),
+        knit_flute,
     )
+
+    # Fit the ribbed neck to the actual nape. The inner lip follows the skin
+    # contour while the raised outer edge leaves room for the thickness of wool.
+    def neckband(a, t):
+        rim_y = 1.491 + 0.005 * (1 - cos(a)) / 2
+        stations = [
+            (1.448, 0.010),
+            (1.463, 0.008),
+            (rim_y - 0.012, 0.0055),
+            (rim_y - 0.002, 0.0055),
+            (rim_y, 0.004),
+            (rim_y - 0.001, 0.001),
+        ]
+        row = round(t * (len(stations) - 1))
+        y, ease = stations[row]
+        if row == 0:
+            d = knit_flute(a, y)
+            return ((0.101 + d) * sin(a), y, -0.003 + (0.079 + d) * cos(a))
+        x, y, z = neck_point(a, y)
+        rib = 0.00055 * cos(44 * a) * sin(pi * t)
+        return (x + (ease + rib) * sin(a), y, z + (ease + rib) * cos(a))
+
+    s.grid("KeeperGansey", n, 5, neckband, knit_weights)
 
 
 def dress_sleeve(s, sign, suffix, half):
@@ -536,15 +577,16 @@ def deck_cap(s, n):
 
     def band(a, t):
         y, w, d = [
-            (1.674, 0.077, 0.102),
-            (1.677, 0.083, 0.107),
+            (1.666, 0.079, 0.103),
+            (1.666, 0.085, 0.110),
+            (1.669, 0.0855, 0.1105),
             (1.683, 0.084, 0.108),
             (1.696, 0.085, 0.107),
             (1.700, 0.085, 0.108),
-        ][round(4 * t)]
+        ][round(5 * t)]
         return (w * sin(a), y + 0.004 * cos(a) - 0.003 * sin(a), -0.008 + d * cos(a))
 
-    s.grid("KeeperCap", n, 4, band, "head")
+    s.grid("KeeperCap", n, 5, band, "head")
 
     # Glazed leather bill, dished across its width with a cut, dark edge.
     def brim(a, t):
@@ -701,22 +743,7 @@ def body(s, lod, anatomy=False):
             add_hand(s, sign, suffix)
         return
 
-    # The neck flares into the trapezius at the back. Two oblique muscle
-    # bands run from the mastoid to the sternum, beside the larynx.
-    def neck(angle, t):
-        c = cos(angle)
-        y = 1.430 + (0.130 + 0.026 * (1 - c) / 2) * t
-        w = np.interp(
-            y, [1.430, 1.460, 1.486, 1.515, 1.549, 1.587], [0.068, 0.063, 0.057, 0.055, 0.061, 0.057]
-        )
-        depth = np.interp(y, [1.430, 1.468, 1.500, 1.545, 1.587], [0.060, 0.060, 0.055, 0.063, 0.067])
-        centre = -0.005 - 0.020 * t
-        a = abs((angle + pi) % (2 * pi) - pi)
-        scm = 0.0048 * exp(-(((a - (0.36 + 1.02 * t)) / 0.18) ** 2)) * sin(pi * t) ** 0.6
-        throat = 0.0038 * exp(-((a / 0.39) ** 2) - ((y - 1.496) / 0.011) ** 2)
-        return (sin(angle) * (w + scm), y, centre + c * (depth + scm + throat))
-
-    s.grid("KeeperSkin", n, (32, 18, 10)[lod], neck, "neck")
+    s.grid("KeeperSkin", n, (32, 18, 10)[lod], lambda a, t: neck_point(a, 1.430 + neck_height(a) * t), "neck")
 
     dress_coat(s, lod, trunk)
     for sign, suffix in ((1, "L"), (-1, "R")):

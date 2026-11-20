@@ -38,17 +38,17 @@
     {
       "source": "Keeper.gltf",
       "maxDistance": 18,
-      "triangles": 168824
+      "triangles": 169320
     },
     {
       "source": "KeeperLOD1.gltf",
       "maxDistance": 78,
-      "triangles": 47620
+      "triangles": 47868
     },
     {
       "source": "KeeperLOD2.gltf",
       "maxDistance": 1000,
-      "triangles": 20070
+      "triangles": 20202
     }
   ],
   "profiles": {
