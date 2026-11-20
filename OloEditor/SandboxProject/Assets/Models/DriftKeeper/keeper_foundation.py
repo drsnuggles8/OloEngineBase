@@ -87,12 +87,15 @@ def export(out):
                     tu, tv = root_uv(region, side, u, v)
                     index = model.vertex(p, (tu, 1 - tv), "head")
                     if region == "eyelash":
-                        dy = EYE_Y - 0.0015 + side * 0.00105 * cos(0.07 + (pi - 0.14) * u) - p[1]
+                        # Carry the width of the attachment along with its
+                        # lower edge when the upper lid closes over the globe.
+                        edge = follicle(region, side, u, 0)
+                        dy = EYE_Y - 0.0015 + side * 0.00105 * cos(0.07 + (pi - 0.14) * u) - edge[1]
                         r = EYE_R + 0.00055
                         dz = (
                             EYE_Z
-                            + sqrt(max(0, r * r - (p[0] - side * EYE_X) ** 2 - (p[1] + dy - EYE_Y) ** 2))
-                            - p[2]
+                            + sqrt(max(0, r * r - (edge[0] - side * EYE_X) ** 2 - (edge[1] + dy - EYE_Y) ** 2))
+                            - edge[2]
                         )
                         model.shapes["BlinkL" if side == 1 else "BlinkR"][index] = (0, dy, dz)
                         model.shapes["Squint"][index] = (0, 0.55 * dy, 0.55 * dz)
