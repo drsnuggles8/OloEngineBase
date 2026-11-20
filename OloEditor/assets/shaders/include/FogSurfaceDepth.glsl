@@ -11,8 +11,8 @@
 // WaterRenderPass captures the surface's own depth for the underwater fog
 // (TEX_UNDERWATER_WATER_DEPTH; 1.0 where there is no water). The fog takes the
 // nearer of the two, which is the surface wherever the camera sees one.
-// FogRenderPass binds a white texture when no water was drawn, so the min is
-// then the scene depth unchanged.
+// FogRenderPass binds the scene depth to both when no water was drawn, so the
+// min is then the scene depth unchanged.
 //
 // Shared by PostProcess_Fog.glsl and PostProcess_FogUpsample.glsl: the
 // upsample's edge weights must judge the depths the fog was computed at.

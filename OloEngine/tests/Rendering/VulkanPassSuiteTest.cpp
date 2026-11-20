@@ -4233,11 +4233,19 @@ TEST_F(VulkanPassSuite, CloudscapeRendersCloudsAgainstTheSkyAndExtractsHistory)
 // DependsOnPass("VolumetricFogPass") edge dangles harmlessly (no such node —
 // tryAddDerivedDependency simply adds no edge).
 //
-// Contract, two chains over a mid-gray input with uniform far-plane depth:
+// Contract, three chains over a mid-gray input with uniform far-plane depth:
 // density 0.05 EXPONENTIAL red fog fully fogs the far field (centre pixel ~
 // fogColor: factor 1 - exp(-5) = 0.993), and density 0 is an exact
 // passthrough (transmittance 1, inscatter 0) — so a fog that never applies,
 // or always applies, fails one side.
+//
+// The third chain is the water surface (issue #1721). Water writes no scene
+// depth, so the fog takes the nearer of the scene depth and the depth the
+// water pass captured (TEX_UNDERWATER_WATER_DEPTH). With a captured surface
+// 0.2 m in front of the same far field, the same density fogs almost nothing
+// (factor 1 - exp(-0.05 * 0.2) = 0.01). The first two chains state that no
+// water was drawn: the capture is a renderer-global handle, and a chain that
+// left it to chance would read whatever an earlier test published.
 // =============================================================================
 TEST_F(VulkanPassSuite, FogFogsTheFarFieldAnalyticallyAndPassesThroughAtZeroDensity)
 {
@@ -4303,9 +4311,22 @@ TEST_F(VulkanPassSuite, FogFogsTheFarFieldAnalyticallyAndPassesThroughAtZeroDens
     ASSERT_NE(tinyVolume, nullptr);
     bool tinyVolumeSeeded = false;
 
-    const auto runChain = [&](f32 density) -> TArray64<u8>
+    // Depth 128 / 255 under this projection (near 0.1, far 100) is 0.2 m.
+    auto nearSurfaceDepth = MakeSolidTexture(kSize, 128, 128, 128, 255);
+    ASSERT_NE(nearSurfaceDepth, nullptr);
+    struct RestoreWaterSurfaceDepth
+    {
+        RHI::ResourceHandle Saved = Renderer3D::GetWaterSurfaceDepthTextureID();
+        ~RestoreWaterSurfaceDepth()
+        {
+            Renderer3D::SetWaterSurfaceDepthTextureID(Saved);
+        }
+    } restoreWaterSurfaceDepth;
+
+    const auto runChain = [&](f32 density, RHI::ResourceHandle waterSurfaceDepth = RHI::NullResource) -> TArray64<u8>
     {
         TArray64<u8> rendered;
+        Renderer3D::SetWaterSurfaceDepthTextureID(waterSurfaceDepth);
 
         FogUBOData fogData{};
         fogData.ColorAndDensity = glm::vec4(1.0f, 0.0f, 0.0f, density); // red fog
@@ -4443,6 +4464,19 @@ TEST_F(VulkanPassSuite, FogFogsTheFarFieldAnalyticallyAndPassesThroughAtZeroDens
         }
     }
     EXPECT_LE(maxDiff, 2u) << "zero density must pass the scene through the two-draw chain untouched";
+
+    // A water surface 0.2 m away in front of the far field: the fog is the
+    // surface's, 1 % of the red, not the far field's 99 %.
+    const auto overWater = runChain(0.05f, nearSurfaceDepth->GetRHIHandle());
+    ASSERT_EQ(overWater.Num(), static_cast<sizet>(kSize) * kSize * 4);
+    for (const auto& [x, y] : { std::pair<u32, u32>{ 64, 64 }, { 8, 8 }, { 120, 120 } })
+    {
+        const sizet i = (static_cast<sizet>(y) * kSize + x) * 4;
+        EXPECT_NEAR(static_cast<int>(overWater[i]), 129, 4)
+            << "the fog over a captured water surface must be the surface's, at (" << x << "," << y << ")";
+        EXPECT_NEAR(static_cast<int>(overWater[i + 1]), 127, 4)
+            << "the scene behind a near water surface must come through, at (" << x << "," << y << ")";
+    }
 
     auto& api = static_cast<VulkanRendererAPI&>(RenderCommand::GetRendererAPI());
     EXPECT_EQ(api.GetUnimplementedStubHitCount(), 0u);
