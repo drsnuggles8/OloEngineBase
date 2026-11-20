@@ -250,6 +250,40 @@ TEST_F(WeaponImpactUsesGameplayDamageTest, WeaponComponentConsumesExternalFireIn
     ItemDatabase::Clear();
 }
 
+TEST_F(WeaponImpactUsesGameplayDamageTest, AProjectileInFlightIsRuntimeOwned)
+{
+    // A save never restores a shot in flight (#1712): its ProjectileComponent is
+    // not saved, so a captured projectile entity came back as an empty husk.
+    ItemDatabase::Clear();
+    ItemDefinition item;
+    item.ItemID = "test_launcher";
+    item.Category = ItemCategory::Weapon;
+    item.Weapon = WeaponDefinition{};
+    item.Weapon->Delivery = WeaponDelivery::Projectile;
+    item.Weapon->Damage = 10.0f;
+    item.Weapon->Range = 100.0f;
+    item.Weapon->ProjectileSpeed = 1.0f; // still in flight after one tick
+    ItemDatabase::Register(item);
+
+    WeaponComponent weapon;
+    weapon.m_WeaponItemID = item.ItemID;
+    weapon.m_UseDeviceInput = false;
+    weapon.m_FireInput = true;
+    m_Shooter.AddComponent<WeaponComponent>(weapon);
+
+    SingleHitSceneQueries queries;
+    queries.Hit.m_HitEntity = m_Target.GetUUID();
+    queries.Hit.m_Distance = 90.0f;
+    queries.Hit.m_Position = { 0.0f, 0.0f, -90.0f };
+    CombatSystem::OnUpdate(&GetScene(), &queries, 1.0f / 60.0f);
+
+    const auto projectiles = GetScene().GetAllEntitiesWith<ProjectileComponent>();
+    ASSERT_EQ(std::ranges::distance(projectiles), 1) << "the shot must still be in flight";
+    for (const auto projectile : projectiles)
+        EXPECT_TRUE(GetScene().IsRuntimeOwned(Entity{ projectile, GetScene() }));
+    ItemDatabase::Clear();
+}
+
 TEST_F(WeaponImpactUsesGameplayDamageTest, HeldFirePreservesCadenceAcrossVariableTimesteps)
 {
     ItemDatabase::Clear();
@@ -348,6 +382,8 @@ TEST_F(WeaponImpactUsesGameplayDamageTest, ImpactPublishesReactionAndAlertsTheTa
     EXPECT_EQ(observed.Position, hit.m_Position);
     const auto decals = GetScene().GetAllEntitiesWith<ImpactDecalComponent, DecalComponent>();
     EXPECT_EQ(std::ranges::distance(decals), 1);
+    for (const auto decal : decals)
+        EXPECT_TRUE(GetScene().IsRuntimeOwned(Entity{ decal, GetScene() })) << "a save must never restore a decal (#1712)";
 
     CombatSystem::OnUpdate(&GetScene(), nullptr, 8.1f);
     EXPECT_TRUE(GetScene().GetAllEntitiesWith<ImpactDecalComponent>().empty());

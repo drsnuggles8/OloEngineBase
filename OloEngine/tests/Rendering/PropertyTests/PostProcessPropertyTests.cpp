@@ -44,6 +44,7 @@
 #include <glm/glm.hpp>
 
 #include <cmath>
+#include <utility>
 #include <vector>
 
 namespace OloEngine::Tests
@@ -435,6 +436,41 @@ namespace OloEngine::Tests
 
         // The center should be nearly untouched (within ~10% of input 0.5).
         EXPECT_NEAR(centerLum, 0.5f, 0.08f) << "Vignette darkened the center too aggressively";
+    }
+
+    TEST(VignettePropertyTest, StrengthControlsCornerAttenuation)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+
+        constexpr u32 kSize = 64;
+        auto settings = MakeDefaultPostProcessUBO(kSize, kSize);
+        PostProcessHarness pass(kSize, kSize, "assets/shaders/PostProcess_Vignette.glsl", settings);
+        pass.SetInputTexture(CreateUniformFloatTexture2D(kSize, kSize, 0.5f, 0.5f, 0.5f, 1.0f));
+
+        // Drift uses 0.28. Previously, both that setting and zero produced
+        // a black corner while the full-strength property above still passed.
+        constexpr u32 kTransitionX = 51;
+        constexpr u32 kTransitionY = 32;
+        const glm::vec2 sampleUV = (glm::vec2(kTransitionX, kTransitionY) + 0.5f) / static_cast<f32>(kSize);
+        const f32 radius = glm::length(sampleUV - 0.5f);
+        for (const auto& [strength, softness] : { std::pair{ 0.0f, 0.35f }, std::pair{ 0.28f, 0.15f },
+                                                  std::pair{ 0.28f, 0.35f }, std::pair{ 1.0f, 0.35f } })
+        {
+            settings.VignetteIntensity = strength;
+            settings.VignetteSmoothness = softness;
+            pass.m_Ubo->SetData(&settings, PostProcessUBOData::GetSize());
+            pass.Draw();
+            std::vector<u8> pixels;
+            pass.ReadOutputRgba8(pixels);
+            ASSERT_EQ(pixels.size(), static_cast<sizet>(kSize * kSize * 4));
+            EXPECT_NEAR(pixels[0], 127.5f * (1.0f - strength), 1.0f) << strength;
+            EXPECT_NEAR(pixels[(kSize / 2 * kSize + kSize / 2) * 4], 127.5f, 1.0f) << strength;
+            // At radius 0.305 the narrower transition has not started. The
+            // wider transition darkens this sample at the same edge strength.
+            const f32 edge = glm::smoothstep(0.5f - softness, 0.5f, radius);
+            EXPECT_NEAR(pixels[(kTransitionY * kSize + kTransitionX) * 4], 127.5f * (1.0f - strength * edge), 1.0f)
+                << "strength " << strength << ", softness " << softness;
+        }
     }
 
     // =========================================================================

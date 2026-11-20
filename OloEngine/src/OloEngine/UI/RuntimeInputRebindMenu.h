@@ -88,6 +88,9 @@ namespace OloEngine
         void UpdateButtonStates();
         // Show/hide an overlay subtree by moving its root on/off screen.
         static void SetActive(Entity root, bool visible);
+        // False once a save loaded into the running scene has swapped the
+        // registry: the canvas is gone, and m_Canvas may name a restored entity.
+        [[nodiscard]] bool CanvasIsLive() const;
 
         Scene* m_Scene = nullptr;
         InputRebindController m_Controller;
@@ -95,6 +98,7 @@ namespace OloEngine
         std::filesystem::path m_SavePath;
 
         Entity m_Canvas;
+        UUID m_CanvasId = 0;
         TArray<Row> m_Rows;
         Entity m_ResetAllButton;
         Entity m_SaveButton;

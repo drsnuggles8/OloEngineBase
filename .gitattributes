@@ -13,6 +13,10 @@
 *.lib binary
 *.dat binary
 
+# Compare the headless crane rebuild byte-for-byte on Windows and Linux.
+OloEditor/SandboxProject/Assets/Models/DriftHarbourCrane/*.gltf text eol=lf
+OloEditor/SandboxProject/Assets/Models/DriftHarbourCrane/*.bin binary
+
 # Force LF for docs and scripts that should be LF
 *.md text eol=lf
 *.markdown text eol=lf

@@ -957,7 +957,8 @@ namespace OloEngine
         EnsureSaveDirectory();
 
         // --- Main-thread work: capture scene state to binary ---
-        std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(scene);
+        u32 entityCount = 0;
+        std::vector<u8> payload = SaveGameSerializer::CaptureSceneState(scene, &entityCount);
         if (payload.empty())
         {
             OLO_CORE_ERROR("[SaveGameManager] Failed to capture scene state");
@@ -981,8 +982,8 @@ namespace OloEngine
         metadata.SlotType = slotType;
         metadata.ThumbnailAvailable = !thumbnailPNG.empty();
 
-        auto view = scene.GetAllEntitiesWith<IDComponent>();
-        u32 entityCount = static_cast<u32>(view.size());
+        // What the payload holds, not the live registry: runtime-owned entities
+        // (the dialogue UI, debris) are not in the save (#1712).
         metadata.EntityCount = entityCount;
 
         auto path = GetSaveFilePath(slotName);

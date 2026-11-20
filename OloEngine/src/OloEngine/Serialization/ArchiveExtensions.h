@@ -144,6 +144,18 @@ namespace OloEngine
     // Sanity cap for container deserialization to prevent huge allocations from corrupt data
     static constexpr u32 kMaxContainerDeserializeCount = 10'000'000;
 
+    // A loading archive that knows its size (the memory readers every save and
+    // pack block goes through) refuses a container count larger than the bytes
+    // it has left, before allocating the container: every element takes at
+    // least one byte on the wire. The same rule FArchive's std::string read
+    // applies to a string length (#1718).
+    [[nodiscard]] inline bool CountFitsRemainingBytes(FArchive& ar, u64 count)
+    {
+        const i64 position = ar.Tell();
+        const i64 size = ar.TotalSize();
+        return position == INDEX_NONE || size == INDEX_NONE || count <= static_cast<u64>(size - position);
+    }
+
     // Component arrays keep the legacy std::vector framing, validation and
     // transactional read. Native TArray archive serialization has a different contract.
     template<std::derived_from<FArchive> Ar, typename T, typename Allocator>
@@ -159,7 +171,8 @@ namespace OloEngine
         static_cast<FArchive&>(ar) << count;
         if (ar.IsError())
             return ar;
-        if (count > kMaxContainerDeserializeCount || count > static_cast<u64>(std::numeric_limits<typename TArray<T, Allocator>::SizeType>::max()))
+        if (count > kMaxContainerDeserializeCount || count > static_cast<u64>(std::numeric_limits<typename TArray<T, Allocator>::SizeType>::max()) ||
+            (ar.IsLoading() && !CountFitsRemainingBytes(ar, count)))
         {
             ar.SetError();
             return ar;
@@ -206,7 +219,7 @@ namespace OloEngine
 
         if (ar.IsLoading())
         {
-            if (count > kMaxContainerDeserializeCount)
+            if (count > kMaxContainerDeserializeCount || !CountFitsRemainingBytes(ar, count))
             {
                 ar.SetError();
                 return ar;
@@ -254,7 +267,7 @@ namespace OloEngine
 
         if (ar.IsLoading())
         {
-            if (count > kMaxContainerDeserializeCount)
+            if (count > kMaxContainerDeserializeCount || !CountFitsRemainingBytes(ar, count))
             {
                 ar.SetError();
                 return ar;

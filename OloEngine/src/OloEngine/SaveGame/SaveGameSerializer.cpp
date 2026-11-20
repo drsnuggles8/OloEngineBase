@@ -11,6 +11,7 @@
 #include "OloEngine/Cinematic/CinematicComponent.h"
 #include "OloEngine/Core/Hash.h"
 #include "OloEngine/Core/FileSystem.h"
+#include "OloEngine/Dialogue/DialogueVariables.h"
 #include "OloEngine/Gameplay/Abilities/AbilityComponents.h"
 #include "OloEngine/Gameplay/Inventory/InventoryComponents.h"
 #include "OloEngine/Gameplay/Quest/QuestComponents.h"
@@ -34,6 +35,8 @@
 #include <cmath>
 #include <optional>
 #include <string_view>
+#include <unordered_set>
+#include <variant>
 
 namespace OloEngine
 {
@@ -246,6 +249,113 @@ namespace OloEngine
         }
     }
 
+    // The scene's dialogue variables: the flags and counters scripts set and
+    // dialogue condition nodes read. Without them a Continue reset every branch
+    // a conversation had unlocked. Written sorted by key so a save is
+    // byte-stable; each value carries its variant index.
+    static void SerializeDialogueVariables(FArchive& ar, DialogueVariables& variables)
+    {
+        OLO_PROFILE_FUNCTION();
+        static constexpr u32 kMaxVariables = 65'536;
+        enum : u8
+        {
+            kBool = 0,
+            kInt = 1,
+            kFloat = 2,
+            kString = 3
+        };
+        static_assert(std::is_same_v<std::variant_alternative_t<kBool, DialogueVariableValue>, bool> &&
+                          std::is_same_v<std::variant_alternative_t<kInt, DialogueVariableValue>, i32> &&
+                          std::is_same_v<std::variant_alternative_t<kFloat, DialogueVariableValue>, f32> &&
+                          std::is_same_v<std::variant_alternative_t<kString, DialogueVariableValue>, FString>,
+                      "the save writes DialogueVariableValue's variant index");
+
+        if (ar.IsLoading())
+        {
+            u32 count = 0;
+            ar << count;
+            if (ar.IsError() || count > kMaxVariables)
+            {
+                ar.SetError();
+                return;
+            }
+            DialogueVariables loaded;
+            for (u32 i = 0; i < count; ++i)
+            {
+                std::string key;
+                u8 type = 0;
+                ar << key << type;
+                if (ar.IsError())
+                    return;
+                switch (type)
+                {
+                    case kBool:
+                    {
+                        bool value = false;
+                        ar << value;
+                        loaded.SetBool(key, value);
+                        break;
+                    }
+                    case kInt:
+                    {
+                        i32 value = 0;
+                        ar << value;
+                        loaded.SetInt(key, value);
+                        break;
+                    }
+                    case kFloat:
+                    {
+                        f32 value = 0.0f;
+                        ar << value;
+                        loaded.SetFloat(key, std::isfinite(value) ? value : 0.0f);
+                        break;
+                    }
+                    case kString:
+                    {
+                        std::string value;
+                        ar << value;
+                        loaded.SetString(key, value);
+                        break;
+                    }
+                    default:
+                        ar.SetError();
+                        return;
+                }
+                if (ar.IsError())
+                    return;
+            }
+            variables = std::move(loaded);
+            return;
+        }
+
+        if (variables.GetAll().size() > kMaxVariables)
+        {
+            OLO_CORE_ERROR("[SaveGameSerializer] {} dialogue variables, more than the {} a save can hold; the save is refused",
+                           variables.GetAll().size(), kMaxVariables);
+            ar.SetError();
+            return;
+        }
+        TArray<const std::pair<const std::string, DialogueVariableValue>*> entries;
+        entries.Reserve(static_cast<i32>(variables.GetAll().size()));
+        for (const auto& entry : variables.GetAll())
+            entries.Add(&entry);
+        std::ranges::sort(entries, {}, [](const auto* entry)
+                          { return std::string_view(entry->first); });
+        u32 count = static_cast<u32>(entries.Num());
+        ar << count;
+        for (const auto* entry : entries)
+        {
+            std::string key = entry->first;
+            u8 type = static_cast<u8>(entry->second.index());
+            ar << key << type;
+            std::visit([&ar](const auto& value)
+                       {
+                           auto copy = value;
+                           ar << copy; },
+                       entry->second);
+        }
+    }
+
     // ========================================================================
     // Framed settings blocks
     // ========================================================================
@@ -263,6 +373,14 @@ namespace OloEngine
             FMemoryWriter blockWriter(block);
             blockWriter.ArIsSaveGame = true;
             serialize(blockWriter);
+            if (blockWriter.IsError())
+            {
+                // A block that refused to write (e.g. more dialogue variables
+                // than the reader accepts) fails the whole capture, as a
+                // component block does, instead of saving a file no load reads.
+                writer.SetError();
+                return;
+            }
         }
         u32 byteCount = static_cast<u32>(block.size());
         writer << byteCount;
@@ -313,7 +431,7 @@ namespace OloEngine
     // CaptureSceneState
     // ========================================================================
 
-    std::vector<u8> SaveGameSerializer::CaptureSceneState(Scene& scene)
+    std::vector<u8> SaveGameSerializer::CaptureSceneState(Scene& scene, u32* outEntityCount)
     {
         OLO_PROFILE_FUNCTION();
 
@@ -343,6 +461,14 @@ namespace OloEngine
                            { SerializePrecipitationSettings(ar, scene.m_PrecipitationSettings); });
         WriteSettingsBlock(writer, [&scene](FArchive& ar)
                            { SerializeStreamingSettings(ar, scene.m_StreamingSettings); });
+        WriteSettingsBlock(writer, [&scene](FArchive& ar)
+                           { SerializeDialogueVariables(ar, scene.m_DialogueVariables); });
+        if (writer.IsError())
+        {
+            // A settings block refused to write. Stop before the entity pass and
+            // its script ISaveable callbacks run for a save that cannot happen.
+            return {};
+        }
 
         // --- Entities ---
         u32 entitiesMarker = 0x454E5453; // "ENTS"
@@ -389,28 +515,75 @@ namespace OloEngine
             }
         }
 
-        // Count entities with IDComponent (all real entities)
+        // Runtime-owned entities (the dialogue UI, captions, debris…) are rebuilt
+        // by their systems after Continue, so the save never carries them, nor
+        // anything parented under them (#1712). Scene::CollectRuntimeOwned applies
+        // the same rule as Scene::IsRuntimeOwned, in one O(N) pass.
         auto view = scene.GetAllEntitiesWith<IDComponent>();
-        u32 entityCount = static_cast<u32>(view.size());
+        const std::unordered_set<u64> runtimeOwned = scene.CollectRuntimeOwned();
+        const auto isRuntimeOwned = [&runtimeOwned](UUID child)
+        {
+            return runtimeOwned.contains(static_cast<u64>(child));
+        };
+
+        // A saved parent's child list is written without its runtime-owned
+        // children, so the saved hierarchy names no missing entity. The live
+        // list is put back as soon as that entity's components are written,
+        // before any script callback can observe it.
+        struct ScrubbedChildList
+        {
+            RelationshipComponent* Component = nullptr;
+            TArray<UUID> Live;
+            ScrubbedChildList() = default;
+            ScrubbedChildList(const ScrubbedChildList&) = delete;
+            ScrubbedChildList& operator=(const ScrubbedChildList&) = delete;
+            ~ScrubbedChildList()
+            {
+                if (Component)
+                    Component->m_Children = MoveTemp(Live);
+            }
+        };
+
+        u32 entityCount = static_cast<u32>(view.size() - runtimeOwned.size());
         writer << entityCount;
+        if (outEntityCount)
+            *outEntityCount = entityCount;
 
         // Serialize each entity
         for (auto entityHandle : view)
         {
             Entity entity = { entityHandle, &scene };
+            if (runtimeOwned.contains(static_cast<u64>(entity.GetUUID())))
+            {
+                continue;
+            }
 
             // Write UUID first (always present via IDComponent)
             const auto& id = entity.GetComponent<IDComponent>();
             UUID uuid = id.ID;
             writer << uuid;
 
-            // Serialize all present components. The SAVE_COMPONENT(...) enumeration
-            // is generated by OloHeaderTool from every `struct *Component` with a
-            // save serializer (see SaveGameComponentSerializer.cpp) — DO NOT hand-
-            // edit. Add a Serialize() overload + REGISTER_SAVE_COMPONENT and the
-            // next GenerateBindings run adds the component here automatically.
-            // Guarded by SaveGameComponentSerializerCoverageTest.
+            {
+                ScrubbedChildList scrubbed;
+                if (!runtimeOwned.empty() && entity.HasComponent<RelationshipComponent>())
+                {
+                    auto& relationship = entity.GetComponent<RelationshipComponent>();
+                    if (std::ranges::any_of(relationship.m_Children, isRuntimeOwned))
+                    {
+                        scrubbed.Component = &relationship;
+                        scrubbed.Live = relationship.m_Children;
+                        relationship.m_Children.RemoveAll(isRuntimeOwned);
+                    }
+                }
+
+                // Serialize all present components. The SAVE_COMPONENT(...) enumeration
+                // is generated by OloHeaderTool from every `struct *Component` with a
+                // save serializer (see SaveGameComponentSerializer.cpp) — DO NOT hand-
+                // edit. Add a Serialize() overload + REGISTER_SAVE_COMPONENT and the
+                // next GenerateBindings run adds the component here automatically.
+                // Guarded by SaveGameComponentSerializerCoverageTest.
 #include "OloEngine/SaveGame/Generated/SaveGameComponentCapture.Generated.inl"
+            }
 
             // ISaveable blob for ScriptComponent custom state
             if (entity.HasComponent<ScriptComponent>())
@@ -574,7 +747,7 @@ namespace OloEngine
                     return false;
                 }
 
-                // V50 saves material factors. Read them over the authored maps,
+                // The save carries material factors. Read them over the authored maps,
                 // shader and alpha settings after this entity's source identity
                 // is known, independent of the order of its component blocks.
                 if (typeHash == materialType)
@@ -653,7 +826,7 @@ namespace OloEngine
             auto& state = saved.GetComponent<AnimationStateComponent>();
             ModelImporter::BindAnimationClips(state, authored.GetComponent<AnimationStateComponent>().m_AvailableClips);
             // ApplyClipRequest sets the selected index to the destination as
-            // soon as a blend starts. V50 omits the outgoing clip identity.
+            // soon as a blend starts. The save omits the outgoing clip identity.
             if (state.m_Blending)
             {
                 state.m_CurrentTime = state.m_NextTime;
@@ -728,6 +901,7 @@ namespace OloEngine
         SkinDiffusionSettings skinDiffusion = scene.m_SkinDiffusionSettings;
         PrecipitationSettings precipitation = scene.m_PrecipitationSettings;
         StreamingSettings streaming = scene.m_StreamingSettings;
+        DialogueVariables dialogueVariables;
 
         const bool settingsRead =
             ReadSettingsBlock(reader, "PostProcess", [&](FArchive& ar)
@@ -747,7 +921,9 @@ namespace OloEngine
             ReadSettingsBlock(reader, "Precipitation", [&](FArchive& ar)
                               { SerializePrecipitationSettings(ar, precipitation); }) &&
             ReadSettingsBlock(reader, "Streaming", [&](FArchive& ar)
-                              { SerializeStreamingSettings(ar, streaming); });
+                              { SerializeStreamingSettings(ar, streaming); }) &&
+            ReadSettingsBlock(reader, "DialogueVariables", [&](FArchive& ar)
+                              { SerializeDialogueVariables(ar, dialogueVariables); });
         if (!settingsRead)
         {
             OLO_CORE_ERROR("[SaveGameSerializer] Failed to parse scene settings, scene is unchanged");
@@ -820,7 +996,7 @@ namespace OloEngine
                     continue;
                 }
 
-                // V50 has no separate MeshSourceHandle field. Without an import
+                // The save has no separate MeshSourceHandle field. Without an import
                 // path, the scene supplies its registered mesh or matching primitive.
                 const bool hasAssetHandle = static_cast<u64>(source.m_MeshSource->GetHandle()) != 0;
                 if (legacyBindPose || !savedPath.empty() || hasAssetHandle || mesh.m_Primitive != MeshPrimitive::None)
@@ -897,6 +1073,11 @@ namespace OloEngine
         }
         std::swap(scene.m_Registry, staging->m_Registry);
         std::swap(scene.m_EntityMap, staging->m_EntityMap);
+
+        // After the teardown above, whose script OnDestroy callbacks may still
+        // write variables, and after StopStartupForCheckpoint's OnRuntimeStop,
+        // which clears them.
+        scene.m_DialogueVariables = std::move(dialogueVariables);
 
         // Apply deferred ISaveable restores now that entities live in the committed scene
         bool restored = true;

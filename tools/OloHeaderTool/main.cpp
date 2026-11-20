@@ -850,7 +850,6 @@ static const std::set<std::string> kComponentsNotInTuple = {
 // Serialize() overload + REGISTER_SAVE_COMPONENT and remove it from this set.
 static const std::set<std::string> kComponentsNotInSaveGame = {
     "UIResolvedRectComponent",
-    "DialogueStateComponent",
     "SpringBoneStateComponent",
     "NoiseAnimationStateComponent",
     "RetargetingStateComponent",
