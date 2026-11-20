@@ -3,7 +3,7 @@
 from math import cos, sin, sqrt, pi
 import numpy as np
 
-from keeper_face import EYE_X, EYE_Y, EYE_Z, EYE_R, head_point
+from keeper_face import EYE_X, EYE_Y, EYE_Z, EYE_R, head_point, jaw_influence
 from keeper_mesh import Surface, Gltf
 
 REGIONS = ("beard", "moustache", "scalp", "eyebrow", "eyelash")
@@ -81,7 +81,7 @@ def export(out):
                     elif region == "eyebrow":
                         model.shapes["BrowRaise"][index] = (0, 0.004, 0)
                     elif region in ("beard", "moustache"):
-                        lower = np.exp(-((p[0] / 0.061) ** 2 + ((p[1] - 1.534) / 0.019) ** 2))
+                        lower = jaw_influence(p)
                         for name, gap in (("JawOpen", 0.018), ("AA", 0.010), ("OO", 0.004)):
                             model.shapes[name][index] = (0, -gap * lower, -gap * 0.22 * lower)
                         model.shapes["Smile"][index] = (0.002 * side * v, 0.002 * u * v, 0)

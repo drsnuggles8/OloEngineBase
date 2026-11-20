@@ -32,12 +32,15 @@ class Surface:
     def grid(self, material, cols, rows, sample, bone, invert=False):
         """A wrapped section from bottom to top, with a split UV seam."""
         start = len(self.points)
+        # Head and lid loops use their own cranial coordinates. Generic skin
+        # grids (hands, neck, pinnae) sample the neutral rear of that chart.
+        u_origin, u_span = (0.02, 0.18) if material == "KeeperSkin" else (0.0, 1.0)
         for j in range(rows + 1):
             for i in range(cols + 1):
                 u, v = i / cols, j / rows
                 p = sample(TAU * u, v)
                 weights = bone(p) if callable(bone) else bone
-                self.vertex(p, (u, 1 - v), weights)
+                self.vertex(p, (u_origin + u_span * u, 1 - v), weights)
                 if i and j:
                     d = len(self.points) - 1
                     a, b, c = d - cols - 2, d - cols - 1, d - 1
@@ -148,6 +151,8 @@ class Gltf:
                 np.add.at(normals, column, n)
         # Coincident UV seams and poles must agree on the lighting normal.
         keys, inv = np.unique(np.round(positions, 7), axis=0, return_inverse=True)
+        # NumPy 2.0.0 returns (N, 1) for axis=0; the accumulator needs one index per vertex.
+        inv = inv.reshape(-1)
         smooth = np.zeros_like(keys)
         np.add.at(smooth, inv, normals)
         normals = smooth[inv]

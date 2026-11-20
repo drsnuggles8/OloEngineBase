@@ -99,6 +99,17 @@ def head_point(angle, y):
     return np.array((x, y, z))
 
 
+def face_motion_fade(depth):
+    """Keep frontal expressions unchanged and fade them behind the jaw hinge."""
+    t = float(np.clip((depth + 0.033) / 0.025, 0, 1))
+    return t * t * (3 - 2 * t)
+
+
+def jaw_influence(point):
+    x, y, z = point
+    return face_motion_fade(z) * bump(x, y, 0, 1.535, 0.065, 0.018)
+
+
 def face(surface, lod):
     # Patch boundaries coincide with grid lines at every resolution. The wound
     # edges are bridged into concentric skin loops surrounding each aperture.
@@ -120,9 +131,16 @@ def face(surface, lod):
     def head_vertex(a, y):
         p = head_point(a, y)
         i = surface.vertex(p, ((a + pi) / (2 * pi), (1.75 - y) / 0.232), "head")
-        if cos(a) > 0:
-            surface.shapes["BrowRaise"][i] = (0, 0.005 * bump(abs(p[0]), y, 0.032, 1.653, 0.025, 0.012), 0)
-            lower = bump(p[0], y, 0, 1.535, 0.065, 0.018)
+        # Carry the front's deformation through the temple and jaw hinge.
+        # A hard front/back cut produced a 9 mm step in an open jaw.
+        fade = face_motion_fade(p[2])
+        if fade > 0:
+            surface.shapes["BrowRaise"][i] = (
+                0,
+                fade * 0.005 * bump(abs(p[0]), y, 0.032, 1.653, 0.025, 0.012),
+                0,
+            )
+            lower = jaw_influence(p)
             for name, size in (("JawOpen", 0.018), ("AA", 0.010), ("OO", 0.004)):
                 surface.shapes[name][i] = (0, -size * lower, -size * 0.22 * lower)
         return i
@@ -204,7 +222,7 @@ def face(surface, lod):
                         ("EE", 0.005, 0.002, 0),
                         ("OO", -0.013, 0.008, 0.006),
                     ]:
-                        outer_weight = bump(outside[0], outside[1], 0, 1.535, 0.065, 0.018)
+                        outer_weight = jaw_influence(outside)
                         jaw = (
                             {"JawOpen": 0.018, "AA": 0.010, "OO": 0.004}.get(name, 0) * outer_weight * (1 - f)
                         )
