@@ -207,6 +207,7 @@ namespace OloEngine
         if (!m_ShadowMap || !m_ShadowMap->IsEnabled() || !shadowsRequested)
         {
             // Clear caster lists for next frame
+            m_TerrainCastersLastFrame = static_cast<u32>(m_TerrainCasters.Num());
             m_MeshCasters.Reset();
             m_SkinnedCasters.Reset();
             m_TerrainCasters.Reset();
@@ -756,6 +757,7 @@ namespace OloEngine
         }
 
         // Clear caster lists for next frame (vectors keep their allocation)
+        m_TerrainCastersLastFrame = static_cast<u32>(m_TerrainCasters.Num());
         m_MeshCasters.Reset();
         m_SkinnedCasters.Reset();
         m_TerrainCasters.Reset();

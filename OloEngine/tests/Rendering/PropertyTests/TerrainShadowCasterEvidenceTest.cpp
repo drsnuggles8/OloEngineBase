@@ -10,32 +10,36 @@
 // of the whole tile instead. TerrainShadowLodTest pins the selection rule as a
 // pure function; this pins what the rule may not change: where the shadow falls.
 //
-// THE SCENE. A 64 m terrain from a 513 px height map the test writes (8 x 8
-// chunks): a plain, a cliff rising 24 m between x = 40 and 48 m, a plateau, a
+// THE SCENE. A 64 m terrain from a 513 px height map the test writes (9 x 9
+// chunks, ceil(513 / 64) a side): a plain, a cliff rising 24 m between x = 40 and 48 m, a plateau, a
 // fall back to zero at the far edge. The sun stands 45 degrees up behind the
 // plateau, so the plateau's rim at x = 48 m throws its shadow 24 m across the
 // plain: the shadow's edge is at x = 24 m. The camera looks straight down.
 //
-// TWO ARMS, which differ only in TerrainComponent::m_TargetTriangleSize:
-//   Chunks   0.5 px triangles: every chunk casts from its finest set (level 0),
-//   TileMesh  24 px triangles: the whole terrain casts from the tile mesh.
-// Each arm first checks, with the engine's own rule on this camera, that it is
-// the arm it says it is.
+// THREE ARMS:
+//   Chunks        0.5 px triangles: every chunk casts from its finest set,
+//   TileMesh       24 px triangles: the whole terrain casts from the tile mesh,
+//   Untessellated  24 px triangles, tessellation off: the terrain is drawn at
+//                  full density at any distance, so it must NOT cast from the
+//                  tile mesh, whose heights are filtered to its spacing.
+// Each arm checks, with the engine's own rule on this camera and the chunk
+// manager's own quad size, the level it expects, and then the number of
+// terrain casters the shadow pass was handed: one for the tile mesh, one per
+// chunk otherwise. That count is what says which path cast.
 //
-// WHAT IS ASSERTED, per render path, in this process's backend, for both arms:
-// the plain is lit on the sunny side of x = 24 m and shadowed between there and
-// the cliff, and the edge between them is within 1.5 m of 24 m.
+// WHAT IS ASSERTED, per render path, in this process's backend: the plain is
+// lit on the sunny side of x = 24 m and shadowed between there and the cliff,
+// and the edge between them is within 1.5 m of 24 m (0.6 m for the two arms
+// whose casters carry exact heights).
 //
-// WHAT THIS FOUND. Written on a 129 px map, the TileMesh arm put the edge at
-// 26.9 m on every path: a chunk's coarsest mesh was 4 m quads there, the main
-// view's root node 1 m quads, and a caster four times blunter than the ground
-// drawn rounds a rim off by the height its filter loses. The rule now stops at
-// the root node's quad (TerrainShadowLod::CoarsestReceiverQuad), and on that
-// map the tile mesh is never chosen; this one is the smallest where it is.
-//
-// NEGATIVE CONTROL, run by hand when this was written: with the tile mesh's
-// index count forced to zero the TileMesh arm loses its shadow and fails on
-// all three paths, while the Chunks arm stays green.
+// WHAT THIS FOUND. Written on a 129 px map (3 x 3 chunks), the TileMesh arm
+// put the edge at 26.9 m on every path: a chunk's coarsest mesh was 2.7 m
+// quads there, the main view's root node 1 m quads, and a caster that much
+// blunter than the ground drawn rounds a rim off by the height its filter
+// loses. The rule now stops at the root node's quad
+// (TerrainShadowLod::CoarsestReceiverQuad), and on that map the tile mesh is
+// never chosen. And the review of this file found that a terrain with
+// tessellation off still took the tile mesh; the third arm is that case.
 //
 // Evidence: OloEditor/assets/tests/visual/TerrainShadowCasters<Arm>_<Backend>_<Path>.png.
 // Runs in the --olo-rhi=vulkan process too.
@@ -56,6 +60,7 @@
 #include "OloEngine/Scene/Components.h"
 #include "OloEngine/Scene/Entity.h"
 #include "OloEngine/Terrain/TerrainChunk.h"
+#include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/TerrainShadowLod.h"
 
 #include <gtest/gtest.h>
@@ -125,6 +130,17 @@ namespace OloEngine::Tests
         [[nodiscard]] virtual f32 TargetTrianglePixels() const = 0;
         [[nodiscard]] virtual u32 ExpectedLevel() const = 0;
         [[nodiscard]] virtual const char* ArmName() const = 0;
+        [[nodiscard]] virtual bool Tessellated() const
+        {
+            return true;
+        }
+        // Whether the whole terrain is expected to cast as ONE caster.
+        [[nodiscard]] virtual bool ExpectsTheTileMesh() const = 0;
+        // How close to the predicted edge this arm's casters put it.
+        [[nodiscard]] virtual f32 EdgeTolerance() const
+        {
+            return 1.5f;
+        }
 
         void BuildScene() override
         {
@@ -186,6 +202,7 @@ namespace OloEngine::Tests
             terrain.m_HeightScale = kHeightScale;
             terrain.m_CollisionEnabled = false;
             terrain.m_TargetTriangleSize = TargetTrianglePixels();
+            terrain.m_TessellationEnabled = Tessellated();
         }
 
         // The level the engine's rule gives this camera for the terrain's
@@ -195,17 +212,36 @@ namespace OloEngine::Tests
             const glm::mat4 world = m_Camera.GetComponent<TransformComponent>().GetTransform();
             const glm::mat4 viewProjection = m_Camera.GetComponent<CameraComponent>().Camera.GetProjection() * glm::inverse(world);
             const f32 pixelSizePerMetre = TerrainShadowLod::PixelSizePerMetre(viewProjection, static_cast<f32>(kFrame));
-            const f32 quadSize = kWorldSize / static_cast<f32>(kSamples - 1u);
+            // The engine's quad: the tile over its chunks over a chunk's quads.
+            // Not kWorldSize / (kSamples - 1): a 513 px map is 9 chunks a side.
+            const auto& terrain = m_Terrain.GetComponent<TerrainComponent>();
+            if (!terrain.m_ChunkManager || terrain.m_ChunkManager->GetNumChunksX() == 0)
+                return ~0u;
+            const f32 quadSize = kWorldSize / static_cast<f32>(terrain.m_ChunkManager->GetNumChunksX()) /
+                                 static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION);
             return TerrainShadowLod::Select(kCameraHeight - kHeightScale, quadSize, pixelSizePerMetre, TargetTrianglePixels(),
                                             TerrainShadowLod::CoarsestReceiverQuad(kWorldSize, kWorldSize));
         }
 
         void MeasureAndAssert()
         {
+            RunFrames(8);
             ASSERT_EQ(LevelAtTheNearestPoint(), ExpectedLevel())
                 << "this arm no longer casts from the meshes it is named for; move its triangle size";
-
-            RunFrames(8);
+            // Which path cast: the tile mesh is one caster for the whole
+            // terrain, the chunk path one per chunk in a cascade.
+            const u32 casters = Renderer3D::GetTerrainShadowCasterCountLastFrame();
+            const u32 chunks = m_Terrain.GetComponent<TerrainComponent>().m_ChunkManager->GetNumChunksX() *
+                               m_Terrain.GetComponent<TerrainComponent>().m_ChunkManager->GetNumChunksZ();
+            if (ExpectsTheTileMesh())
+                ASSERT_EQ(casters, 1u) << "the terrain did not cast from its tile mesh";
+            else
+            {
+                // One per chunk the shadow range reaches: more than one, and
+                // never more than the terrain has.
+                ASSERT_GT(casters, 1u) << "the terrain cast from one mesh, not from its chunks";
+                ASSERT_LE(casters, chunks);
+            }
             std::vector<u8> rgba;
             u32 w = 0;
             u32 h = 0;
@@ -264,7 +300,7 @@ namespace OloEngine::Tests
 
             EXPECT_GT(lit, shadowed * 1.5) << "the plateau casts no shadow on the plain in front of it";
             ASSERT_GE(edgeMetres, 0.0f) << "no shadow edge on the plain";
-            EXPECT_NEAR(edgeMetres, kShadowEdge, 1.5f) << "the shadow's edge is not where the plateau's rim puts it";
+            EXPECT_NEAR(edgeMetres, kShadowEdge, EdgeTolerance()) << "the shadow's edge is not where the plateau's rim puts it";
         }
 
       private:
@@ -308,6 +344,14 @@ namespace OloEngine::Tests
         {
             return "Chunks";
         }
+        [[nodiscard]] bool ExpectsTheTileMesh() const override
+        {
+            return false;
+        }
+        [[nodiscard]] f32 EdgeTolerance() const override
+        {
+            return 0.6f;
+        }
     };
 
     class TerrainShadowFromTheTileMesh : public TerrainShadowCasterEvidence
@@ -325,15 +369,60 @@ namespace OloEngine::Tests
         {
             return "TileMesh";
         }
+        [[nodiscard]] bool ExpectsTheTileMesh() const override
+        {
+            return true;
+        }
+    };
+
+    // The same triangle size with tessellation off. The main view then draws
+    // every chunk at full density with its vertices' own heights, so the caster
+    // may thin its indices with distance (the coarsest level here) but must
+    // keep those heights: chunks, not the tile mesh.
+    class TerrainShadowUntessellated : public TerrainShadowCasterEvidence
+    {
+      protected:
+        [[nodiscard]] f32 TargetTrianglePixels() const override
+        {
+            return 24.0f;
+        }
+        [[nodiscard]] u32 ExpectedLevel() const override
+        {
+            return TerrainShadowLod::kLevelCount - 1u;
+        }
+        [[nodiscard]] const char* ArmName() const override
+        {
+            return "Untessellated";
+        }
+        [[nodiscard]] bool Tessellated() const override
+        {
+            return false;
+        }
+        [[nodiscard]] bool ExpectsTheTileMesh() const override
+        {
+            return false;
+        }
+        [[nodiscard]] f32 EdgeTolerance() const override
+        {
+            return 0.6f;
+        }
     };
 
     TEST_P(TerrainShadowFromChunks, ThePlateauShadowsThePlainWhereItsRimPutsIt)
     {
+        OLO_ENSURE_GPU_OR_SKIP();
         MeasureAndAssert();
     }
 
     TEST_P(TerrainShadowFromTheTileMesh, ThePlateauShadowsThePlainWhereItsRimPutsIt)
     {
+        OLO_ENSURE_GPU_OR_SKIP();
+        MeasureAndAssert();
+    }
+
+    TEST_P(TerrainShadowUntessellated, ThePlateauShadowsThePlainWhereItsRimPutsIt)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
         MeasureAndAssert();
     }
 
@@ -342,6 +431,10 @@ namespace OloEngine::Tests
                              [](const ::testing::TestParamInfo<RenderingPath>& info)
                              { return std::string(PathName(info.param)); });
     INSTANTIATE_TEST_SUITE_P(AllPaths, TerrainShadowFromTheTileMesh,
+                             ::testing::Values(RenderingPath::Forward, RenderingPath::ForwardPlus, RenderingPath::Deferred),
+                             [](const ::testing::TestParamInfo<RenderingPath>& info)
+                             { return std::string(PathName(info.param)); });
+    INSTANTIATE_TEST_SUITE_P(AllPaths, TerrainShadowUntessellated,
                              ::testing::Values(RenderingPath::Forward, RenderingPath::ForwardPlus, RenderingPath::Deferred),
                              [](const ::testing::TestParamInfo<RenderingPath>& info)
                              { return std::string(PathName(info.param)); });

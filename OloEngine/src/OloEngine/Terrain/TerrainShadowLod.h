@@ -27,11 +27,13 @@
 // know about: the main view draws a node as TerrainLodMetric::kNodeQuads quads
 // a side whatever its level, so its quads are never larger than the ROOT
 // node's. Past the distance where the root's quads are under the pixel target
-// the receiver stops coarsening, and so must the caster. On a height map of
-// 512 samples or more a chunk's coarsest mesh is already finer than the root's
-// quads and the ceiling never binds; on a smaller one it is what keeps the
-// caster from being a blunter terrain than the one drawn. A 129 px map without
-// it cast a 24 m rim's shadow 2.9 m short (TerrainShadowCasterEvidenceTest).
+// the receiver stops coarsening, and so must the caster. A tile is
+// ceil(resolution / 64) chunks a side, so from 449 samples up (8 chunks) a
+// chunk's coarsest mesh is no coarser than the root's quads and the ceiling
+// never binds; on a smaller map it is what keeps the caster from being a
+// blunter terrain than the one drawn. A 129 px map (3 chunks: 2.7 m quads at
+// the coarsest level against the root's 1 m) cast a 24 m rim's shadow 2.9 m
+// short without it (TerrainShadowCasterEvidenceTest).
 // =============================================================================
 namespace OloEngine::TerrainShadowLod
 {

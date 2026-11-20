@@ -1742,6 +1742,9 @@ namespace OloEngine
                                            const glm::mat4& transform, RHI::ResourceHandle heightmapTextureID,
                                            const ShaderBindingLayout::TerrainUBO& terrainUBO,
                                            const ShadowCasterFootprint& footprint = {});
+        // Terrain casters the last rendered frame's shadow pass was handed
+        // (ShadowRenderPass::GetTerrainCasterCountLastFrame); 0 with no pass.
+        [[nodiscard]] static u32 GetTerrainShadowCasterCountLastFrame();
 
         // instanceCount > 0 selects the packed-quad depth shader + instanced
         // draw (issue #727); 0 keeps the marching-cubes triangle-soup path.

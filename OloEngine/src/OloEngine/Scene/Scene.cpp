@@ -14692,8 +14692,18 @@ namespace OloEngine
                                 // chunk there, and casts from the whole tile as
                                 // one mesh: one draw and one cull in place of
                                 // one per chunk, 256 for a 1024 px map.
+                                //
+                                // Tessellated terrain only. The tile mesh has
+                                // no heights of its own: the evaluation stage
+                                // samples them, filtered to its spacing, which
+                                // is the ground a tessellated main view draws
+                                // at that distance. A terrain drawn without
+                                // tessellation shows every vertex at its exact
+                                // height at any distance, and its chunk casters
+                                // do too (morph 1), so for it the filtered tile
+                                // mesh would be the blunter ground.
                                 bool castFromTileMesh = false;
-                                if (shadowLevels && sourceRange && chunkMgr.GetShadowTileMesh() && shadowLODs.empty())
+                                if (useTess && shadowLevels && sourceRange && chunkMgr.GetShadowTileMesh() && shadowLODs.empty())
                                 {
                                     const BoundingBox tileBounds =
                                         BoundingBox(glm::vec3(0.0f, minHeight - snowExtent, 0.0f),

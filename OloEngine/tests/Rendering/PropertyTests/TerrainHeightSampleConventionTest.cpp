@@ -176,6 +176,7 @@ namespace OloEngine::Tests
 
     TEST_P(TerrainHeightSampleConvention, TheDrawnGroundIsWhereTheCpuHeightIs)
     {
+        OLO_ENSURE_GPU_OR_SKIP();
         RunFrames(6);
 
         const auto& terrain = m_Terrain.GetComponent<TerrainComponent>();

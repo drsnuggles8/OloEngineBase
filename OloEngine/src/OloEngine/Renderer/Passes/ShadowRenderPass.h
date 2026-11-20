@@ -289,6 +289,14 @@ namespace OloEngine
                               const glm::mat4& transform, RHI::ResourceHandle heightmapTextureID,
                               const ShaderBindingLayout::TerrainUBO& terrainUBO,
                               const ShadowCasterFootprint& footprint = {});
+        // How many terrain casters the last executed frame was handed: one
+        // per chunk, or one for a whole tile cast from its tile mesh (issue
+        // #1721). The lists are cleared by Execute, so this is the only place
+        // a frame's count survives it.
+        [[nodiscard]] u32 GetTerrainCasterCountLastFrame() const
+        {
+            return m_TerrainCastersLastFrame;
+        }
         void AddVoxelCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform,
                             u32 instanceCount = 0, const ShadowCasterFootprint& footprint = {});
         void AddFoliageCaster(FoliageRenderer* renderer, const Ref<Shader>& depthShader, f32 time);
@@ -562,6 +570,7 @@ namespace OloEngine
         TArray64<ShadowMeshCaster> m_MeshCasters;
         TArray64<ShadowSkinnedCaster> m_SkinnedCasters;
         TArray64<ShadowTerrainCaster> m_TerrainCasters;
+        u32 m_TerrainCastersLastFrame = 0;
         TArray64<ShadowVoxelCaster> m_VoxelCasters;
         TArray64<ShadowFoliageCaster> m_FoliageCasters;
         // Rebuilt every frame from the published groom requests (#1323), not

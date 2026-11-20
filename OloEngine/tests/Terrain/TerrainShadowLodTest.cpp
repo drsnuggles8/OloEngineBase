@@ -97,18 +97,19 @@ namespace OloEngine::Tests
     }
 
     // The main view draws a node as 64 quads a side whatever its level, so its
-    // quads never exceed the root node's. A 64 m tile on a 129 px map is 2 x 2
-    // chunks of 0.5 m quads and a root node of 1 m quads: the caster may double
-    // its quads once and no further, however far away the camera is. On a 513 px
-    // map of the same tile a chunk's coarsest mesh is the root's quad exactly.
+    // quads never exceed the root node's. A tile is ceil(resolution / 64) chunks
+    // a side: a 64 m tile on a 129 px map is 3 x 3 chunks of 0.33 m quads under
+    // a root node of 1 m quads, so the caster may double its quads once and no
+    // further, however far away the camera is. On a 513 px map (9 x 9 chunks) a
+    // chunk's coarsest mesh is 0.89 m quads, under the root's.
     TEST(TerrainShadowLod, TheCasterIsNeverCoarserThanTheMainViewsRootNode)
     {
         const f32 pixelPerMetre = PixelPerMetre();
         const f32 ceiling = TerrainShadowLod::CoarsestReceiverQuad(64.0f, 64.0f);
         EXPECT_FLOAT_EQ(ceiling, 1.0f);
-        const f32 smallMapQuad = 64.0f / 128.0f;
+        const f32 smallMapQuad = 64.0f / (3.0f * 64.0f);
         EXPECT_EQ(TerrainShadowLod::Select(5000.0f, smallMapQuad, pixelPerMetre, kTargetPixels, ceiling), 1u);
-        const f32 largeMapQuad = 64.0f / 512.0f;
+        const f32 largeMapQuad = 64.0f / (9.0f * 64.0f);
         EXPECT_EQ(TerrainShadowLod::Select(5000.0f, largeMapQuad, pixelPerMetre, kTargetPixels, ceiling),
                   TerrainShadowLod::kLevelCount - 1u);
         // A map coarser than the root node's grid casts from the chunk mesh itself.
