@@ -73,8 +73,14 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    deferred and reserves the budget for the oldest at each frame start; a newcomer bakes only with
    budget left after every unserved reservation, so a deferred coat is served within
    ceil(position / budget) frames of being drawn, however many coats keep asking in front of it.
-   The budget's frame is the pass's own tick, as the first-build staging budget's is: a host that
-   leaves `GroomFrameState::FrameIndex` fixed would otherwise never refill it. A deferred coat draws the volume it already holds if it is the right kind (a
+   The budget is the physical frame's (`GroomFrameState::FrameIndex`): every view's pass of one
+   frame spends one budget, and a coat waiting in one view keeps its place while another renders
+   (keyed on the pass tick, two views alternated reservations and no waiting coat ever baked).
+   `kMaxPassesPerFrame` passes of an unchanged frame index start the next frame anyway, for a host
+   that never advances it. The ticket is the COAT's, so a coat keeps its place when its step or
+   tier changes while it waits, and a herd mate that takes another's shared bake leaves the queue.
+   Reservations are decided before the frame knows who will ask, so on the frame a camera cuts away
+   from waiting coats their reservations go unused and the coats now in view wait one frame more. A deferred coat draws the volume it already holds if it is the right kind (a
    pose bake for a posed coat, a rest bake for one at rest), at that volume's resolution, and is
    counted in `DrawnFromDeferredVolume`; one holding nothing falls back as
    `RepresentationNotBuilt`. **A rebake due on drift is never deferred**: it is forced

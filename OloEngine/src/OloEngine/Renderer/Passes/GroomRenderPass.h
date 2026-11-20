@@ -862,8 +862,6 @@ namespace OloEngine
             bool HasBody = false;
 
             [[nodiscard]] auto operator==(const SharedCoatVolumeKey&) const -> bool = default;
-            /// The budget's ticket: herd mates waiting for one bake share one.
-            [[nodiscard]] u64 Hash() const noexcept;
         };
 
         /// ONE REST BAKE SHARED BY EVERY COAT THAT WOULD BAKE IT (#1594): the
@@ -874,6 +872,9 @@ namespace OloEngine
         struct SharedCoatVolume : public RefCounted
         {
             SharedCoatVolumeKey Key;
+            /// The asset the key names by address, held so the address cannot
+            /// be reused by another asset while this bake can still match it.
+            Ref<GroomAsset> Asset;
             glm::mat4 SurfaceToGroom{ 1.0f };
             glm::vec3 SurfaceLo{ 0.0f };
             glm::vec3 SurfaceHi{ 0.0f };
@@ -1079,6 +1080,13 @@ namespace OloEngine
             /// CoatVolume and CoatBody are its textures, the ring is empty and
             /// CoatBytes is zero: the bytes are the shared bake's, counted once.
             Ref<SharedCoatVolume> CoatShared;
+            /// The rest body's content hash (SharedCoatVolumeKey::
+            /// BodySurfaceHash), kept for the surface it was taken from: a coat
+            /// waiting for its bake asks for its key every frame, and hashing
+            /// the whole body each time was tens of thousands of vertices a
+            /// coat a frame.
+            u64 CoatBodyHash = 0;
+            u64 CoatBodyHashSource = 0;
 
             // ── GPU deformation (#1427) ─────────────────────────────
 
@@ -1411,28 +1419,32 @@ namespace OloEngine
 
         /// The shared rest bakes (#1594), a handful at a time: a herd's coats
         /// at each resolution they draw at. See SharedCoatVolume.
-        std::vector<Ref<SharedCoatVolume>> m_SharedCoatVolumes;
+        TArray<Ref<SharedCoatVolume>> m_SharedCoatVolumes;
         /// The key a rest bake of `request` at `resolution` would have, over
-        /// `body` (null for a coat with no bound surface).
-        [[nodiscard]] SharedCoatVolumeKey MakeSharedCoatVolumeKey(const GroomStrandRequest& request, u32 resolution,
-                                                                  const GroomDeformationInputs* body) const;
+        /// `body` (null for a coat with no bound surface). The body's hash is
+        /// kept on `entry` for the surface it came from.
+        [[nodiscard]] SharedCoatVolumeKey MakeSharedCoatVolumeKey(const GroomStrandRequest& request, CacheEntry& entry,
+                                                                  u32 resolution, const GroomDeformationInputs* body) const;
         /// The shared bake with `key`, placed within the body tolerance of
         /// `body`; null when there is none.
         [[nodiscard]] Ref<SharedCoatVolume> FindSharedCoatVolume(const SharedCoatVolumeKey& key,
                                                                  const GroomDeformationInputs* body) const;
-        /// Points `entry` at `shared`, giving back the volume it held of its own.
-        void AttachSharedCoatVolume(CacheEntry& entry, const Ref<SharedCoatVolume>& shared);
+        /// Points `entry` at `shared`, giving back the volume it held of its own
+        /// (and its slot in `residentVolumes`).
+        void AttachSharedCoatVolume(CacheEntry& entry, const Ref<SharedCoatVolume>& shared, u32& residentVolumes);
         /// Moves the volume `entry` has just baked into a new shared bake under
-        /// `key`, and attaches `entry` to it.
-        void PublishSharedCoatVolume(CacheEntry& entry, const SharedCoatVolumeKey& key,
+        /// `key`, and attaches `entry` to it. False, publishing nothing, when
+        /// the body's placement cannot be matched (a surface with no bounds).
+        bool PublishSharedCoatVolume(CacheEntry& entry, const Ref<GroomAsset>& asset, const SharedCoatVolumeKey& key,
                                      const GroomDeformationInputs* body);
         /// Drops every shared bake no entry holds, and its bytes.
         void PruneSharedCoatVolumes();
 
         /// THE PER-FRAME REBUILD BUDGET (#1594): CoatRebakePolicy::
         /// MaxRebuildsPerFrame bakes a frame, the rest deferred in order. Its
-        /// frame is m_CacheTick, the pass's frame, as the first-build staging
-        /// budget's is.
+        /// frame is GroomFrameState::FrameIndex, which every view of one frame
+        /// shares, with the pass tick as its guard against a host that never
+        /// advances it (CoatRebuildBudget::kMaxPassesPerFrame).
         GroomCoatShadow::CoatRebuildBudget m_CoatRebuildBudget;
         /// The deferral counts into the stats, and the log line when a wave of
         /// deferred rebuilds starts and when it has drained.

@@ -1,9 +1,7 @@
 #pragma once
 
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Core/Base.h"
-
-#include <algorithm>
-#include <vector>
 
 namespace OloEngine::GroomCoatShadow
 {
@@ -23,7 +21,11 @@ namespace OloEngine::GroomCoatShadow
     // always ranks behind every waiter, so a coat that keeps being deferred
     // only moves forward and is served within ceil(position / PerFrame)
     // frames of being drawn. A waiter that stops asking (no longer drawn, or
-    // its rebuild no longer needed) leaves the queue at the next frame.
+    // its rebuild no longer needed) leaves the queue at the next frame. The
+    // reservation is decided before the frame knows who will ask, so on the
+    // frame a camera cuts away from waiting coats their reservations go unused
+    // and the coats now in view wait one frame more; deciding inline, frame by
+    // frame, cannot know the frame's requests in advance.
     //
     // A FORCED bake (Force) is one the caller must not defer -- a moving
     // coat's drift rebake, which a deferral would turn into a shadow sliding
@@ -31,11 +33,16 @@ namespace OloEngine::GroomCoatShadow
     // other, so on a frame of moving coats fewer other rebuilds run; only
     // forced bakes take a frame past PerFrame.
     //
-    // Keys are the caller's: one per bake, so coats that would share one
-    // bake share one ticket.
+    // Keys are the caller's, one per COAT, so a coat keeps its place in the
+    // queue when what it needs changes while it waits (another LOD step).
     class CoatRebuildBudget
     {
       public:
+        /// Passes of one frame id, at most, before a new frame is started
+        /// anyway: a host that never advances the frame id must not freeze the
+        /// budget, and no frame draws grooms through this many views.
+        static constexpr u64 kMaxPassesPerFrame = 8;
+
         /// Bakes allowed per frame; 0 is no limit.
         void SetPerFrame(u32 perFrame) noexcept
         {
@@ -46,30 +53,32 @@ namespace OloEngine::GroomCoatShadow
             return m_PerFrame;
         }
 
-        /// Starts the frame `frameId` names; a repeat call with the same id is
-        /// a no-op, so a caller that may start one frame twice spends one
-        /// budget.
-        void BeginFrame(u64 frameId)
+        /// Starts the frame `frameId` names, from the pass tick `passTick`
+        /// that is running it. Every pass of one frame id -- one per view --
+        /// spends the same budget; kMaxPassesPerFrame passes of an unchanged id
+        /// start the next frame anyway.
+        void BeginFrame(u64 frameId, u64 passTick)
         {
-            if (m_Started && frameId == m_FrameId)
+            if (m_Started && frameId == m_FrameId && passTick - m_FrameStartTick < kMaxPassesPerFrame)
             {
                 return;
             }
             m_Started = true;
             m_FrameId = frameId;
+            m_FrameStartTick = passTick;
             ++m_Frame;
 
             // A waiter that did not ask last frame no longer needs its rebuild.
-            std::erase_if(m_Waiting, [](const Waiter& waiter)
-                          { return !waiter.Requested; });
-            // Oldest first; equal ages keep the order they arrived in.
-            std::ranges::stable_sort(m_Waiting, {}, &Waiter::Since);
+            // The queue stays oldest first: a waiter is appended at the frame it
+            // was first deferred and removals keep the order.
+            m_Waiting.RemoveAll([](const Waiter& waiter)
+                                { return !waiter.Requested; });
             m_UnservedReservations = 0;
-            for (sizet i = 0; i < m_Waiting.size(); ++i)
+            for (i32 i = 0; i < m_Waiting.Num(); ++i)
             {
                 Waiter& waiter = m_Waiting[i];
                 waiter.Requested = false;
-                waiter.Reserved = m_PerFrame != 0u && i < m_PerFrame;
+                waiter.Reserved = m_PerFrame != 0u && static_cast<u32>(i) < m_PerFrame;
                 m_UnservedReservations += waiter.Reserved ? 1u : 0u;
             }
             m_Granted = 0;
@@ -81,53 +90,44 @@ namespace OloEngine::GroomCoatShadow
         /// whatever the budget says, counted, and spending it.
         void Force(u64 key)
         {
-            if (const auto it = std::ranges::find(m_Waiting, key, &Waiter::Key); it != m_Waiting.end())
-            {
-                m_UnservedReservations -= it->Reserved ? 1u : 0u;
-                m_Waiting.erase(it);
-            }
+            Withdraw(key);
             ++m_Granted;
             ++m_Forced;
         }
 
-        /// A coat needs the bake `key` names this frame. True: bake now, and it
-        /// is counted against the budget. False: deferred, counted, and queued.
+        /// The coat `key` no longer needs a bake of its own (it took a shared
+        /// one): it leaves the queue, and its reservation, if it held one, goes
+        /// back to the frame's other requests.
+        void Withdraw(u64 key)
+        {
+            const i32 index = IndexOf(key);
+            if (index != INDEX_NONE)
+            {
+                m_UnservedReservations -= m_Waiting[index].Reserved ? 1u : 0u;
+                m_Waiting.RemoveAt(index);
+            }
+        }
+
+        /// A coat needs a bake this frame. True: bake now, and it is counted
+        /// against the budget. False: deferred, counted, and queued.
         [[nodiscard]] bool Request(u64 key)
         {
-            const auto it = std::ranges::find(m_Waiting, key, &Waiter::Key);
-            if (m_PerFrame == 0u)
+            const i32 index = IndexOf(key);
+            const bool reserved = index != INDEX_NONE && m_Waiting[index].Reserved;
+            if (m_PerFrame == 0u || reserved || m_Granted + m_UnservedReservations < m_PerFrame)
             {
-                if (it != m_Waiting.end())
-                {
-                    m_Waiting.erase(it);
-                }
-                ++m_Granted;
-                return true;
-            }
-            if (it != m_Waiting.end() && it->Reserved)
-            {
-                --m_UnservedReservations;
-                m_Waiting.erase(it);
-                ++m_Granted;
-                return true;
-            }
-            if (m_Granted + m_UnservedReservations < m_PerFrame)
-            {
-                if (it != m_Waiting.end())
-                {
-                    m_Waiting.erase(it);
-                }
+                Withdraw(key);
                 ++m_Granted;
                 return true;
             }
             ++m_Deferred;
-            if (it != m_Waiting.end())
+            if (index != INDEX_NONE)
             {
-                it->Requested = true;
+                m_Waiting[index].Requested = true;
             }
             else
             {
-                m_Waiting.push_back({ key, m_Frame, true, false });
+                m_Waiting.Add({ key, m_Frame, true, false });
             }
             return false;
         }
@@ -149,22 +149,17 @@ namespace OloEngine::GroomCoatShadow
         /// Bakes still queued, and how many frames the oldest has waited.
         [[nodiscard]] u32 Waiting() const noexcept
         {
-            return static_cast<u32>(m_Waiting.size());
+            return static_cast<u32>(m_Waiting.Num());
         }
         [[nodiscard]] u32 OldestWaitFrames() const noexcept
         {
-            u64 oldest = m_Frame;
-            for (const Waiter& waiter : m_Waiting)
-            {
-                oldest = std::min(oldest, waiter.Since);
-            }
-            return static_cast<u32>(m_Frame - oldest);
+            return m_Waiting.IsEmpty() ? 0u : static_cast<u32>(m_Frame - m_Waiting[0].Since);
         }
 
         /// Forgets every waiter, as when the coats it held are released.
         void Clear() noexcept
         {
-            m_Waiting.clear();
+            m_Waiting.Empty();
             m_UnservedReservations = 0;
         }
 
@@ -176,7 +171,14 @@ namespace OloEngine::GroomCoatShadow
             bool Requested = false;
             bool Reserved = false;
         };
-        std::vector<Waiter> m_Waiting;
+
+        [[nodiscard]] i32 IndexOf(u64 key) const
+        {
+            return m_Waiting.IndexOfByPredicate([key](const Waiter& waiter)
+                                                { return waiter.Key == key; });
+        }
+
+        TArray<Waiter> m_Waiting;
         u32 m_PerFrame = 0;
         u32 m_Granted = 0;
         u32 m_Deferred = 0;
@@ -184,6 +186,7 @@ namespace OloEngine::GroomCoatShadow
         u32 m_UnservedReservations = 0;
         u64 m_Frame = 0;
         u64 m_FrameId = 0;
+        u64 m_FrameStartTick = 0;
         bool m_Started = false;
     };
 } // namespace OloEngine::GroomCoatShadow

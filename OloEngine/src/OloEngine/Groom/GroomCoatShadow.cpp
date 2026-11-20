@@ -557,31 +557,32 @@ namespace OloEngine::GroomCoatShadow
         {
             // The bake is the full pose: compare the pose's subset with the
             // bake's segments that subset keeps.
-            std::vector<glm::vec3> kept;
-            kept.reserve(bakedMidpoints.size() / poseStride + 1u);
+            TArray<glm::vec3> kept;
+            kept.Reserve(static_cast<i32>(bakedMidpoints.size() / poseStride + 1u));
             for (sizet s = 0; s < bakedMidpoints.size(); ++s)
             {
                 if (CoatBakeKeepsSegment(static_cast<u32>(s), poseStride))
                 {
-                    kept.push_back(bakedMidpoints[s]);
+                    kept.Add(bakedMidpoints[s]);
                 }
             }
-            return MaxCoatPoseDrift(kept, pose);
+            return MaxCoatPoseDrift({ kept.GetData(), static_cast<sizet>(kept.Num()) }, pose);
         }
         if (poseStride == 1u)
         {
             // The pose is full: compare the bake's subset with the pose's
             // segments it kept.
-            std::vector<CoatSegment> kept;
-            kept.reserve(pose.size() / bakedStride + 1u);
+            TArray<CoatSegment> kept;
+            kept.Reserve(static_cast<i32>(pose.size() / bakedStride + 1u));
             for (sizet s = 0; s < pose.size(); ++s)
             {
                 if (CoatBakeKeepsSegment(static_cast<u32>(s), bakedStride))
                 {
-                    kept.push_back(pose[s]);
+                    kept.Add(pose[s]);
                 }
             }
-            return MaxCoatPoseDrift(bakedMidpoints, kept);
+            return MaxCoatPoseDrift(bakedMidpoints,
+                                    std::span<const CoatSegment>{ kept.GetData(), static_cast<sizet>(kept.Num()) });
         }
         return std::numeric_limits<f32>::infinity();
     }

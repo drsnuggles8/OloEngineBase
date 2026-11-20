@@ -1887,7 +1887,7 @@ namespace OloEngine
     u32 GroomRenderPass::CountResidentCoatVolumes() const noexcept
     {
         // A volume, not a holder: a herd drawing one shared bake holds one.
-        u32 resident = static_cast<u32>(m_SharedCoatVolumes.size());
+        u32 resident = static_cast<u32>(m_SharedCoatVolumes.Num());
         for (const auto& [key, entry] : m_Cache)
         {
             if (entry.CoatVolume && !entry.CoatShared)
@@ -1946,7 +1946,7 @@ namespace OloEngine
     }
 
     GroomRenderPass::SharedCoatVolumeKey GroomRenderPass::MakeSharedCoatVolumeKey(const GroomStrandRequest& request,
-                                                                                  u32 resolution,
+                                                                                  CacheEntry& entry, u32 resolution,
                                                                                   const GroomDeformationInputs* body) const
     {
         // What the rest bake below reads, and nothing else: the walk at rest
@@ -1971,30 +1971,27 @@ namespace OloEngine
         if (body != nullptr && body->Surface.IsUsable())
         {
             key.HasBody = true;
-            key.BodySurfaceHash = SurfaceContentHash(body->Surface);
+            // The body's content, hashed once per surface: by its storage, its
+            // size and the request's surface and morph keys (a morph rewrites
+            // the positions in place and changes only the morph key).
+            u64 source = 1469598103934665603ull;
+            const auto mix = [&source](u64 value)
+            { source = (source ^ value) * 1099511628211ull; };
+            mix(static_cast<u64>(reinterpret_cast<uintptr_t>(body->Surface.PositionData)));
+            mix(static_cast<u64>(reinterpret_cast<uintptr_t>(body->Surface.Indices)));
+            mix((static_cast<u64>(body->Surface.VertexCount) << 32u) | body->Surface.IndexCount);
+            mix(request.GpuRootSurfaceKey);
+            mix(request.GpuRootMorphKey);
+            if (entry.CoatBodyHashSource != source || entry.CoatBodyHash == 0u)
+            {
+                entry.CoatBodyHash = SurfaceContentHash(body->Surface);
+                entry.CoatBodyHashSource = source;
+            }
+            key.BodySurfaceHash = entry.CoatBodyHash;
             key.BodyVertexCount = body->Surface.VertexCount;
             key.BodyIndexCount = body->Surface.IndexCount;
         }
         return key;
-    }
-
-    u64 GroomRenderPass::SharedCoatVolumeKey::Hash() const noexcept
-    {
-        u64 hash = 1469598103934665603ull;
-        const auto mix = [&hash](u64 value)
-        { hash = (hash ^ value) * 1099511628211ull; };
-        mix(Handle);
-        mix(static_cast<u64>(reinterpret_cast<uintptr_t>(Groom)));
-        mix((static_cast<u64>(MaxStrands) << 32u) | MaxSegments);
-        mix((static_cast<u64>(MaxWidthCompensationBits) << 32u) | WidthScaleBits);
-        mix(CoatDigest);
-        mix(StreamingKey);
-        mix(Binding);
-        mix((static_cast<u64>(Representation) << 32u) | Resolution);
-        mix(BodySurfaceHash);
-        mix((static_cast<u64>(BodyVertexCount) << 32u) | BodyIndexCount);
-        mix((GuidesOnly ? 1u : 0u) | (HasBody ? 2u : 0u));
-        return hash;
     }
 
     Ref<GroomRenderPass::SharedCoatVolume> GroomRenderPass::FindSharedCoatVolume(const SharedCoatVolumeKey& key,
@@ -2022,12 +2019,19 @@ namespace OloEngine
         return nullptr;
     }
 
-    void GroomRenderPass::AttachSharedCoatVolume(CacheEntry& entry, const Ref<SharedCoatVolume>& shared)
+    void GroomRenderPass::AttachSharedCoatVolume(CacheEntry& entry, const Ref<SharedCoatVolume>& shared,
+                                                 u32& residentVolumes)
     {
         if (entry.CoatShared != shared)
         {
             // The volume the coat held of its own goes, bytes first: the
-            // shared bake's are counted by the bake.
+            // shared bake's are counted by the bake. So does its slot in the
+            // frame's resident count, which a newcomer later this frame can
+            // take.
+            if (entry.CoatVolume && !entry.CoatShared && residentVolumes > 0u)
+            {
+                --residentVolumes;
+            }
             m_CacheBytes -= std::min(m_CacheBytes, entry.CoatBytes);
             entry.CoatBytes = 0;
             for (CacheEntry::CoatVolumeSlot& slot : entry.CoatRing)
@@ -2052,15 +2056,26 @@ namespace OloEngine
         entry.CoatShared->UsedTick = m_CacheTick;
     }
 
-    void GroomRenderPass::PublishSharedCoatVolume(CacheEntry& entry, const SharedCoatVolumeKey& key,
-                                                  const GroomDeformationInputs* body)
+    bool GroomRenderPass::PublishSharedCoatVolume(CacheEntry& entry, const Ref<GroomAsset>& asset,
+                                                  const SharedCoatVolumeKey& key, const GroomDeformationInputs* body)
     {
+        // A body is matched by placement, over its bounds; one with no bounds
+        // cannot be, so its bake stays the coat's own, as the body bakes refuse
+        // reuse without them.
+        glm::vec3 surfaceLo{ 0.0f };
+        glm::vec3 surfaceHi{ 0.0f };
+        if (key.HasBody && (body == nullptr || !SurfaceBounds(body->Surface, surfaceLo, surfaceHi)))
+        {
+            return false;
+        }
         auto shared = Ref<SharedCoatVolume>::Create();
         shared->Key = key;
-        if (key.HasBody && body != nullptr)
+        shared->Asset = asset;
+        if (key.HasBody)
         {
             shared->SurfaceToGroom = body->SurfaceToGroom;
-            (void)SurfaceBounds(body->Surface, shared->SurfaceLo, shared->SurfaceHi);
+            shared->SurfaceLo = surfaceLo;
+            shared->SurfaceHi = surfaceHi;
         }
         shared->Volume = entry.CoatVolume;
         shared->Body = entry.CoatBody;
@@ -2081,22 +2096,23 @@ namespace OloEngine
         }
         entry.CoatSlot = 0;
         entry.CoatShared = shared;
-        m_SharedCoatVolumes.push_back(std::move(shared));
+        m_SharedCoatVolumes.Add(std::move(shared));
+        return true;
     }
 
     void GroomRenderPass::PruneSharedCoatVolumes()
     {
         // Only the list's own reference left: no entry draws it.
-        std::erase_if(m_SharedCoatVolumes,
-                      [this](const Ref<SharedCoatVolume>& shared)
-                      {
-                          if (shared->GetRefCount() > 1u)
-                          {
-                              return false;
-                          }
-                          m_CacheBytes -= std::min(m_CacheBytes, shared->Bytes);
-                          return true;
-                      });
+        m_SharedCoatVolumes.RemoveAll(
+            [this](const Ref<SharedCoatVolume>& shared)
+            {
+                if (shared->GetRefCount() > 1u)
+                {
+                    return false;
+                }
+                m_CacheBytes -= std::min(m_CacheBytes, shared->Bytes);
+                return true;
+            });
     }
 
     bool GroomRenderPass::BakeCoatVolume(CacheEntry& entry, std::span<const GroomCoatShadow::CoatSegment> segments,
@@ -2680,14 +2696,20 @@ namespace OloEngine
         // rebuild ~44 of them in one frame. The first bakes it; the rest take
         // it. A pose bake is the coat's own pose and is never shared.
         const bool shareable = bakeAtRest && !deformed;
+        // The coat's ticket in the rebuild budget below: its own, not the
+        // bake's, so a coat keeps its place in the queue when its step or tier
+        // changes while it waits.
+        const u64 ticket = CacheKey(request, entry.GpuDeformed) ^ 0x1594ull;
         SharedCoatVolumeKey shareKey;
         bool attached = false;
         if (needsRebuild && shareable && aboveFloor)
         {
-            shareKey = MakeSharedCoatVolumeKey(request, resolution, restBody);
+            shareKey = MakeSharedCoatVolumeKey(request, entry, resolution, restBody);
             if (const Ref<SharedCoatVolume> shared = FindSharedCoatVolume(shareKey, restBody))
             {
-                AttachSharedCoatVolume(entry, shared);
+                AttachSharedCoatVolume(entry, shared, residentVolumes);
+                // Waiting for a bake of its own, it no longer needs one.
+                m_CoatRebuildBudget.Withdraw(ticket);
                 entry.CoatLodStep = lodStep;
                 entry.CoatWidthScale = request.WidthScale;
                 entry.CoatBakedCoatDigest = request.Build.CoatDigest;
@@ -2701,8 +2723,9 @@ namespace OloEngine
         //
         // A bake this frame needs one of CoatRebakePolicy::MaxRebuildsPerFrame
         // tickets, the oldest deferred coats served first. One ticket per
-        // BAKE: herd mates waiting on one shared bake hold one between them.
-        // Asked before the slot below, so a deferred newcomer reclaims no
+        // COAT, its place kept across a step change; a herd mate that takes
+        // the shared bake another made leaves the queue. Asked before the slot
+        // below, so a deferred newcomer reclaims no
         // other coat's volume for a bake it will not make.
         //
         // A REBAKE DUE ON DRIFT IS NEVER DEFERRED. Deferred, a moving coat
@@ -2719,7 +2742,6 @@ namespace OloEngine
         bool deferred = false;
         if (wantsBake)
         {
-            const u64 ticket = shareable ? shareKey.Hash() : CacheKey(request, entry.GpuDeformed) ^ 0x1594ull;
             if (poseMoved)
             {
                 m_CoatRebuildBudget.Force(ticket);
@@ -2747,7 +2769,12 @@ namespace OloEngine
         // least-recently-used volume belonging to a groom NOT drawn this frame.
         // Only when every resident volume is in use this frame is the budget
         // genuinely exhausted — and that is what gets reported.
-        const bool alreadyResident = entry.CoatVolume != nullptr;
+        // A coat drawing a shared bake that other coats also draw makes a NEW
+        // volume when it bakes -- the old one stays, held by the others -- so
+        // it is admitted like a newcomer, or the resident caps would not hold.
+        const bool sharesItsVolume = entry.CoatShared && entry.CoatShared->GetRefCount() > 2u;
+        const bool alreadyResident = entry.CoatVolume != nullptr && !sharesItsVolume;
+        bool heldBack = false;
         if (alreadyResident)
         {
             inputs.GrantedSlot = 0u;
@@ -2772,9 +2799,16 @@ namespace OloEngine
                                                                    [this]
                                                                    { return ReclaimLeastRecentlyUsedCoatVolume(); });
             inputs.GrantedSlot = admitted ? residentVolumes : kNoGroomCoatShadowSlot;
+            // Refused a new volume, a coat drawing a shared bake keeps drawing
+            // it, as a deferred one does, rather than going unshadowed.
+            if (!admitted && entry.CoatVolume != nullptr)
+            {
+                inputs.GrantedSlot = 0u;
+                heldBack = true;
+            }
         }
 
-        if (wantsBake && !deferred && inputs.GrantedSlot != kNoGroomCoatShadowSlot)
+        if (wantsBake && !deferred && !heldBack && inputs.GrantedSlot != kNoGroomCoatShadowSlot)
         {
             const auto bakeStart = std::chrono::steady_clock::now();
 
@@ -2905,7 +2939,7 @@ namespace OloEngine
                     if (shareable)
                     {
                         // Every herd mate that would bake this takes it instead.
-                        PublishSharedCoatVolume(entry, shareKey, restBody);
+                        (void)PublishSharedCoatVolume(entry, request.Groom, shareKey, restBody);
                     }
                 }
                 ++m_Stats.CoatShadow.Rebuilds;
@@ -2938,7 +2972,8 @@ namespace OloEngine
         // stride change, and the stale bound below still refuses one that has
         // fallen too far behind. A coat holding nothing it can draw falls back
         // as not built.
-        if (deferred && entry.CoatVolume != nullptr && entry.CoatBakedFromPose == deformed)
+        const bool waits = deferred || heldBack;
+        if (waits && entry.CoatVolume != nullptr && entry.CoatBakedFromPose == deformed)
         {
             inputs.RepresentationReady = true;
             inputs.ResolvedResolution = entry.CoatResolution;
@@ -2949,7 +2984,7 @@ namespace OloEngine
         // visibly "this did not run".
         inputs.RepresentationStale = deformed && GroomCoatShadow::CoatBakeIsStale(driftVoxels, m_CoatRebakePolicy);
         const GroomCoatShadowDecision decision = SelectGroomCoatShadow(inputs);
-        if (deferred && decision.Effective != GroomCoatShadowTechnique::None)
+        if (waits && decision.Effective != GroomCoatShadowTechnique::None)
         {
             ++m_Stats.CoatShadow.DrawnFromDeferredVolume;
         }
@@ -3008,6 +3043,10 @@ namespace OloEngine
             m_CacheBytes -= std::min(m_CacheBytes, it->second.Bytes);
             m_Cache.erase(it);
             ++m_Stats.CacheEvictions;
+            // A shared rest bake's bytes (#1594) come back with its last
+            // holder, here, so the budget check above sees them and the loop
+            // stops evicting as soon as it is met.
+            PruneSharedCoatVolumes();
         }
         // An evicted entity may have been the last holder of its stream, or of
         // its shared rest bake (#1594).
@@ -3284,13 +3323,13 @@ namespace OloEngine
         // AcquireCoatVolume maintains it from here — it is the only place that
         // creates or reclaims one.
         u32 residentCoatVolumes = CountResidentCoatVolumes();
-        // The rebuild budget's frame (#1594) is the pass's own tick, as the
-        // first-build staging budget's is: it advances on every frame that
-        // draws grooms, which GroomFrameState::FrameIndex does not on a host
-        // that leaves it fixed, and a budget that never refills would leave
-        // every coat after the first few waiting forever.
+        // The rebuild budget's frame (#1594) is the PHYSICAL frame: every
+        // view's pass of one frame spends one budget, and a coat waiting in one
+        // view keeps its place while another renders. The pass tick guards a
+        // host that leaves the frame index fixed: kMaxPassesPerFrame passes of
+        // one index start the next frame anyway.
         m_CoatRebuildBudget.SetPerFrame(m_CoatRebakePolicy.MaxRebuildsPerFrame);
-        m_CoatRebuildBudget.BeginFrame(m_CacheTick);
+        m_CoatRebuildBudget.BeginFrame(m_FrameState.FrameIndex, m_CacheTick);
 
         // A FADING COAT'S TWO TIERS ARE DRAWN PREPASS, PREPASS, SHADE, SHADE
         // (#1612), not prepass-shade per tier. The two tiers cover the same
@@ -4115,7 +4154,7 @@ namespace OloEngine
         coat.RebuildsForced = m_CoatRebuildBudget.ForcedThisFrame();
         coat.RebuildsWaiting = m_CoatRebuildBudget.Waiting();
         coat.OldestRebuildWaitFrames = m_CoatRebuildBudget.OldestWaitFrames();
-        coat.SharedVolumes = static_cast<u32>(m_SharedCoatVolumes.size());
+        coat.SharedVolumes = static_cast<u32>(m_SharedCoatVolumes.Num());
         // Said when a wave of deferred rebuilds starts and when it has drained,
         // not per frame: the counts per frame are in the stats. A stale volume
         // drawn while it waits is never silent.
@@ -4652,7 +4691,7 @@ namespace OloEngine
         m_RestStreams.clear();
         m_RefusedRestStreams.clear();
         std::vector<CoatBodyBake>().swap(m_CoatBodyBakes);
-        std::vector<Ref<SharedCoatVolume>>().swap(m_SharedCoatVolumes);
+        m_SharedCoatVolumes.Empty();
         m_CoatRebuildBudget = {};
         m_CoatDeferralWave = false;
         m_CacheBytes = 0;

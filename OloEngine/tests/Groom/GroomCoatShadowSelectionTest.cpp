@@ -571,7 +571,7 @@ TEST(GroomCoatShadowSelection, RebuildsPerFrameStayWithinTheBudgetAndEveryDeferr
     for (u64 frame = 1u; frame <= 30u && done.size() < kCoats; ++frame)
     {
         ++frames;
-        budget.BeginFrame(frame);
+        budget.BeginFrame(frame, frame);
         u32 granted = 0u;
         u32 deferred = 0u;
         for (u64 coat = 0u; coat < kCoats; ++coat)
@@ -597,7 +597,7 @@ TEST(GroomCoatShadowSelection, RebuildsPerFrameStayWithinTheBudgetAndEveryDeferr
     EXPECT_EQ(frames, 22u) << "44 coats at 2 a frame";
     // 42 + 40 + ... + 2: every frame a coat waits is one deferral.
     EXPECT_EQ(deferredTotal, 462u);
-    budget.BeginFrame(100u);
+    budget.BeginFrame(100u, 100u);
     EXPECT_EQ(budget.Waiting(), 0u) << "a served coat stayed in the queue";
 }
 
@@ -614,7 +614,7 @@ TEST(GroomCoatShadowSelection, ADeferredCoatIsServedAheadOfNewcomers)
     u64 nextNewcomer = 1000u;
     for (u64 frame = 1u; frame <= 12u; ++frame)
     {
-        budget.BeginFrame(frame);
+        budget.BeginFrame(frame, frame);
         if (frame > 1u)
         {
             for (u32 n = 0; n < 3u; ++n)
@@ -648,31 +648,32 @@ TEST(GroomCoatShadowSelection, TheRebuildQueueForgetsCoatsThatStopAskingAndShare
 {
     GroomCoatShadow::CoatRebuildBudget budget;
     budget.SetPerFrame(1u);
-    budget.BeginFrame(1u);
+    budget.BeginFrame(1u, 1u);
     EXPECT_TRUE(budget.Request(1u));
     EXPECT_FALSE(budget.Request(2u));
     EXPECT_FALSE(budget.Request(3u));
     EXPECT_EQ(budget.Waiting(), 2u);
-    // The second camera of frame 1: the same frame, the budget already spent.
-    budget.BeginFrame(1u);
+    // The second camera of frame 1: the same frame id on the next pass, the
+    // budget already spent.
+    budget.BeginFrame(1u, 2u);
     EXPECT_FALSE(budget.Request(4u)) << "a repeat BeginFrame for the same frame refilled the budget";
     EXPECT_EQ(budget.DeferredThisFrame(), 3u);
 
     // Frame 2: coat 2 holds the reservation but is not drawn; coat 3 waits.
-    budget.BeginFrame(2u);
+    budget.BeginFrame(2u, 2u);
     EXPECT_FALSE(budget.Request(3u)) << "coat 3 jumped coat 2's reservation";
     EXPECT_EQ(budget.OldestWaitFrames(), 1u);
     // Frame 3: coat 2 did not ask on frame 2, so it is gone, and coat 3 is first.
-    budget.BeginFrame(3u);
+    budget.BeginFrame(3u, 3u);
     EXPECT_TRUE(budget.Request(3u));
     EXPECT_FALSE(budget.Request(4u));
-    budget.BeginFrame(4u);
+    budget.BeginFrame(4u, 4u);
     EXPECT_TRUE(budget.Request(4u));
-    budget.BeginFrame(5u);
+    budget.BeginFrame(5u, 5u);
     EXPECT_EQ(budget.Waiting(), 0u) << "a coat that stopped asking stayed queued";
 
     budget.SetPerFrame(0u);
-    budget.BeginFrame(6u);
+    budget.BeginFrame(6u, 6u);
     for (u64 coat = 0u; coat < 100u; ++coat)
         EXPECT_TRUE(budget.Request(coat)) << "a zero budget limited a rebuild";
     EXPECT_EQ(budget.DeferredThisFrame(), 0u);
@@ -734,13 +735,13 @@ TEST(GroomCoatShadowSelection, ADriftRebakeIsForcedAndSpendsTheBudget)
 {
     GroomCoatShadow::CoatRebuildBudget budget;
     budget.SetPerFrame(2u);
-    budget.BeginFrame(1u);
+    budget.BeginFrame(1u, 1u);
     EXPECT_TRUE(budget.Request(1u));
     EXPECT_TRUE(budget.Request(2u));
     EXPECT_FALSE(budget.Request(3u)) << "coat 3 waits for frame 2";
 
     // Frame 2: three walking coats rebake on drift before coat 3 is reached.
-    budget.BeginFrame(2u);
+    budget.BeginFrame(2u, 2u);
     for (u64 walker = 10u; walker < 13u; ++walker)
         budget.Force(walker);
     EXPECT_EQ(budget.ForcedThisFrame(), 3u);
@@ -750,9 +751,58 @@ TEST(GroomCoatShadowSelection, ADriftRebakeIsForcedAndSpendsTheBudget)
     EXPECT_EQ(budget.DeferredThisFrame(), 1u);
 
     // A forced bake of a waiting coat takes it out of the queue.
-    budget.BeginFrame(3u);
+    budget.BeginFrame(3u, 3u);
     budget.Force(4u);
-    budget.BeginFrame(4u);
+    budget.BeginFrame(4u, 4u);
     EXPECT_EQ(budget.Waiting(), 0u) << "a coat whose bake was forced stayed queued";
     EXPECT_EQ(budget.ForcedThisFrame(), 0u);
+}
+
+// The budget is the PHYSICAL frame's (#1594): every view's pass of one frame
+// spends one budget, and a waiter one view draws keeps its place while another
+// view renders. A host that never advances the frame id gets a new frame after
+// kMaxPassesPerFrame passes rather than a budget that never refills. A coat that
+// takes a shared bake while it waits leaves the queue and frees its reservation.
+TEST(GroomCoatShadowSelection, TheRebuildBudgetIsTheFramesAcrossViewsAndAStalledFrameIdStillRefills)
+{
+    using GroomCoatShadow::CoatRebuildBudget;
+    CoatRebuildBudget budget;
+    budget.SetPerFrame(1u);
+    // Frame 7, view A then view B.
+    budget.BeginFrame(7u, 100u);
+    EXPECT_TRUE(budget.Request(1u)) << "view A";
+    budget.BeginFrame(7u, 101u);
+    EXPECT_FALSE(budget.Request(2u)) << "view B of the same frame spent view A's budget again";
+    EXPECT_EQ(budget.GrantedThisFrame(), 1u);
+    // Frame 8: view A first, but coat 2 (view B's) holds the reservation and is
+    // served when view B renders.
+    budget.BeginFrame(8u, 102u);
+    EXPECT_FALSE(budget.Request(3u)) << "a newcomer in view A took view B's reserved coat's turn";
+    budget.BeginFrame(8u, 103u);
+    EXPECT_TRUE(budget.Request(2u)) << "view B's waiting coat lost its place while view A rendered";
+
+    // A host that leaves the frame id at 9: a new frame every kMaxPassesPerFrame passes.
+    CoatRebuildBudget stalled;
+    stalled.SetPerFrame(1u);
+    stalled.BeginFrame(9u, 200u);
+    EXPECT_TRUE(stalled.Request(10u));
+    u32 refills = 0;
+    for (u64 tick = 201u; tick < 200u + 3u * CoatRebuildBudget::kMaxPassesPerFrame; ++tick)
+    {
+        stalled.BeginFrame(9u, tick);
+        if (stalled.GrantedThisFrame() == 0u && stalled.Request(11u + tick))
+            ++refills;
+    }
+    EXPECT_EQ(refills, 2u) << "a stalled frame id must start a new frame every kMaxPassesPerFrame passes";
+
+    // Withdraw: a reserved coat that took a shared bake frees its turn.
+    CoatRebuildBudget shared;
+    shared.SetPerFrame(1u);
+    shared.BeginFrame(1u, 1u);
+    EXPECT_TRUE(shared.Request(1u));
+    EXPECT_FALSE(shared.Request(2u));
+    shared.BeginFrame(2u, 2u);
+    shared.Withdraw(2u);
+    EXPECT_TRUE(shared.Request(3u)) << "a withdrawn reservation still blocked the frame";
+    EXPECT_EQ(shared.Waiting(), 0u);
 }
