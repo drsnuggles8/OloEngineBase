@@ -124,8 +124,10 @@ slot. A large pick runs as one long session per
 
 **Goal slot** (issue-scoring.md §3.9). While a north star is set, a batch of N ≥ 2 gives one slot to
 the `goal:` candidate, so the project's goal always has a task in flight. One task may fill several
-slots (a goal issue that is also large or Tier 1). Fill them in this order: goal, Tier 1 when due,
-large when due, then the rank. Any slot without a startable candidate goes to the rank.
+slots (a goal issue that is also large or Tier 1). Fill them in this order: goal, Tier 1 (always
+for N ≥ 2, due or not, per the Tier-1 slot above), large when due, then the rank. With N = 2 and
+all three wanted, goal and Tier 1 take the batch and the large slot stays due for the next one. Any
+slot without a startable candidate goes to the rank.
 
 **N > 1: the tasks must be mutually distinct and non-overlapping**, ideally different subsystems and
 disjoint files. If two candidates would touch the same files, keep one and replace the other.

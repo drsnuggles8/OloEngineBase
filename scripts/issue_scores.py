@@ -163,6 +163,16 @@ def milestone_title(it):
 
 
 # ---- north star -------------------------------------------------------------
+def scalar_value(val):
+    """A YAML-like scalar. A quoted value keeps every character inside its quotes,
+    `#` included (`"Demo #1"`). An unquoted one ends at an inline `# comment`."""
+    val = val.strip()
+    if val[:1] in ('"', "'"):
+        end = val.find(val[0], 1)
+        return val[1:end] if end > 0 else val[1:]
+    return val.split("#", 1)[0].strip()
+
+
 def parse_north_star(text):
     """{"milestone": str, "items": [(done, text, issue numbers)]} from north-star.md.
 
@@ -175,7 +185,7 @@ def parse_north_star(text):
         for line in m.group(1).splitlines():
             key, _, val = line.partition(":")
             if key.strip() == "milestone":
-                out["milestone"] = val.split("#", 1)[0].strip().strip('"').strip("'")
+                out["milestone"] = scalar_value(val)
     for done, item in CHECKLIST_RE.findall(text or ""):
         out["items"].append((done.lower() == "x", item.strip(),
                              [int(n) for n in TITLE_NUM_RE.findall(item)]))
@@ -288,11 +298,41 @@ def is_large_issue(body):
     return bool(d) and d.get("effort", 0) >= LARGE_EFFORT
 
 
+def _pull_requests(query):
+    out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
+                         capture_output=True, text=True, encoding="utf-8",
+                         check=False, timeout=_BLOCKER_TIMEOUT_S)
+    return json.loads(out.stdout)["data"]["repository"]["pullRequests"]
+
+
+def open_large_prs():
+    """Every open feature/* PR that closes a large issue, over all pages of open PRs.
+
+    Not taken from the history page: a large PR can stay open while 40 newer PRs
+    are created, and the slot must still see it."""
+    found, cursor = [], None
+    while True:
+        after = f', after: "{cursor}"' if cursor else ""
+        page = _pull_requests(
+            f'query {{ repository(owner: "{REPO_OWNER}", name: "{REPO_NAME}") {{ '
+            f'pullRequests(first: 100, states: [OPEN]{after}) {{ '
+            'pageInfo { hasNextPage endCursor } nodes { number headRefName '
+            'closingIssuesReferences(first: 10) { nodes { body } } } } } }')
+        for pr in page["nodes"]:
+            if ((pr.get("headRefName") or "").startswith("feature/")
+                    and any(is_large_issue(i.get("body"))
+                            for i in pr["closingIssuesReferences"]["nodes"])):
+                found.append(pr["number"])
+        if not page["pageInfo"]["hasNextPage"]:
+            return found
+        cursor = page["pageInfo"]["endCursor"]
+
+
 def recent_started_tasks():
     """(last, open_large): the last TIER1_EVERY feature/* PRs (open or merged) as
-    [StartedTask], and the numbers of every open feature/* PR in the window that
-    closes a large issue. None when the history could not be read; `rank` then
-    says so and follows the plain order instead of guessing that a slot is due.
+    [StartedTask], and the numbers of every open feature/* PR that closes a large
+    issue (open_large_prs). None when either could not be read; `rank` then says so
+    and follows the plain order instead of guessing that a slot is due.
     """
     query = (f'query {{ repository(owner: "{REPO_OWNER}", name: "{REPO_NAME}") {{ '
              'pullRequests(first: 40, states: [OPEN, MERGED], '
@@ -301,10 +341,8 @@ def recent_started_tasks():
              'state closingIssuesReferences(first: 10) { nodes { body labels(first: 20) { nodes { name } } } } '
              '} } } }')
     try:
-        out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
-                             capture_output=True, text=True, encoding="utf-8",
-                             check=False, timeout=_BLOCKER_TIMEOUT_S)
-        nodes = json.loads(out.stdout)["data"]["repository"]["pullRequests"]["nodes"]
+        nodes = _pull_requests(query)["nodes"]
+        open_large = open_large_prs()
     except (subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
         return None
     started = []
@@ -318,8 +356,9 @@ def recent_started_tasks():
         started.append(StartedTask(pr["number"], bool(labels & TIER1_LABELS),
                                    any(is_large_issue(i.get("body")) for i in issues),
                                    pr.get("state") == "OPEN"))
-    open_large = [t.pr for t in started if t.large and t.is_open]
-    return started[:TIER1_EVERY], open_large
+        if len(started) == TIER1_EVERY:
+            break
+    return started, open_large
 
 
 def tier1_due(started):
@@ -743,9 +782,10 @@ def cmd_rank(args):
             nxt = tier1
             why = (f" (Tier-1 slot: none of the last {TIER1_EVERY} started tasks was Tier 1; "
                    f"the plain rank would pick #{plain[0]})")
-        elif large_due(started, open_large) and large and plain and large[0] != plain[0]:
-            # The Tier-1 slot wins a tie for a single pick; the large slot stays due
-            # and takes the next one.
+        elif (not (due and tier1) and large_due(started, open_large) and large and plain
+              and large[0] != plain[0]):
+            # A due Tier-1 slot owns the single pick even when its candidate already
+            # leads the rank; the large slot stays due and takes the next one.
             nxt = large
             why = (f" (large-item slot: none of the last {TIER1_EVERY} started tasks was large and "
                    f"no large PR is open; the plain rank would pick #{plain[0]})")
@@ -856,16 +896,34 @@ def pulse_counts(prs, issues, today, days):
     return merged, opened, closed
 
 
+PULSE_LIMIT = 1000
+_PULSE_ISSUE_FIELDS = "number,author,body,labels,createdAt,closedAt,state,milestone"
+
+
+def gh_list_complete(args):
+    """A gh list that must be complete. Each pulse query is bounded (a date window, open
+    items, one milestone), so PULSE_LIMIT rows means the bound failed: exit loudly
+    rather than print a count that silently drops the rest."""
+    rows = gh_json([*args, "--repo", REPO, "--limit", str(PULSE_LIMIT)])
+    if len(rows) >= PULSE_LIMIT:
+        sys.exit(f"pulse: `gh {' '.join(args[:3])}` returned {len(rows)} rows, its full limit; "
+                 f"the count would be truncated, so nothing is printed")
+    return rows
+
+
 def cmd_pulse(args):
     today = dt.date.today()
-    prs = gh_json(["pr", "list", "--repo", REPO, "--state", "merged", "--limit", "300",
-                   "--json", "number,headRefName,mergedAt,author"])
-    in_flight = gh_json(["pr", "list", "--repo", REPO, "--state", "open", "--limit", "100",
-                         "--json", "number,headRefName,title"])
-    issues = [it for it in gh_json(["issue", "list", "--repo", REPO, "--state", "all",
-                                    "--limit", "600", "--json",
-                                    "number,author,body,labels,createdAt,closedAt,state,milestone"])
-              if is_backlog_item(it)]
+    since = (today - dt.timedelta(days=28)).isoformat()
+    prs = gh_list_complete(["pr", "list", "--state", "merged", "--search", f"merged:>={since}",
+                            "--json", "number,headRefName,mergedAt,author"])
+    in_flight = gh_list_complete(["pr", "list", "--state", "open", "--json", "number,headRefName"])
+    by_number = {}
+    for query in (["--state", "all", "--search", f"created:>={since}"],
+                  ["--state", "closed", "--search", f"closed:>={since}"],
+                  ["--state", "open"]):
+        for it in gh_list_complete(["issue", "list", *query, "--json", _PULSE_ISSUE_FIELDS]):
+            by_number[it["number"]] = it
+    issues = [it for it in by_number.values() if is_backlog_item(it)]
     print("window   task PRs merged   issues opened   issues closed   net backlog")
     for days in (7, 28):
         merged, opened, closed = pulse_counts(prs, issues, today, days)
@@ -879,7 +937,9 @@ def cmd_pulse(args):
     if not star["milestone"]:
         print("north star: NOT SET (docs/process/north-star.md)")
         return
-    goal = [it for it in issues if milestone_title(it) == star["milestone"]]
+    goal = [it for it in gh_list_complete(["issue", "list", "--state", "all", "--milestone",
+                                           star["milestone"], "--json", _PULSE_ISSUE_FIELDS])
+            if is_backlog_item(it)]
     done = sum(1 for it in goal if it.get("state") != "OPEN")
     items_done = sum(1 for d, _, _ in star["items"] if d)
     print(f"north star: {star['milestone']} — milestone issues {done}/{len(goal)} closed; "
@@ -1075,6 +1135,10 @@ milestone: "Game: vertical slice"   # comment
 NORTH_STAR_CASES = (
     ("a set milestone, with comment and quotes stripped, and its checklist", _STAR,
      "Game: vertical slice", [(True, [12]), (False, []), (False, [13, 14])]),
+    ("a quoted milestone keeps its '#', the comment after the quote goes",
+     '```olo-north-star\nmilestone: "Demo #1"   # first demo\n```', "Demo #1", []),
+    ("an unquoted milestone ends at the comment", "```olo-north-star\nmilestone: Slice # x\n```",
+     "Slice", []),
     ("an empty milestone is no goal", "```olo-north-star\nmilestone:\n```", "", []),
     ("no file at all is no goal", "", "", []),
 )
