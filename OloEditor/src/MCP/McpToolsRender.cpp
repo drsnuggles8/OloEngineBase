@@ -7034,6 +7034,7 @@ namespace OloEngine::MCP
             snapshot.CoatSharedVolumes = coat.SharedVolumes;
             snapshot.CoatRebuildBudget = coat.RebuildBudget;
             snapshot.CoatRebuildsDeferred = coat.RebuildsDeferred;
+            snapshot.CoatRebuildsForced = coat.RebuildsForced;
             snapshot.CoatDrawnFromDeferredVolume = coat.DrawnFromDeferredVolume;
             snapshot.CoatRebuildsWaiting = coat.RebuildsWaiting;
             snapshot.CoatOldestRebuildWaitFrames = coat.OldestRebuildWaitFrames;

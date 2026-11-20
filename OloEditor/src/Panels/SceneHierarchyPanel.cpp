@@ -9962,9 +9962,10 @@ namespace OloEngine
                 // volume they hold, which is a stale volume and so is shown.
                 ImGui::Text("Shared rest bakes: %u resident, %u taken this frame", stats.SharedVolumes,
                             stats.SharedBakesReused);
-                ImGui::Text("Rebuild budget %u/frame: %u deferred (%u drawn stale), %u waiting, oldest %u frames",
+                ImGui::Text("Rebuild budget %u/frame: %u deferred (%u drawn stale), %u forced by drift, %u waiting, "
+                            "oldest %u frames",
                             stats.RebuildBudget, stats.RebuildsDeferred, stats.DrawnFromDeferredVolume,
-                            stats.RebuildsWaiting, stats.OldestRebuildWaitFrames);
+                            stats.RebuildsForced, stats.RebuildsWaiting, stats.OldestRebuildWaitFrames);
 
                 const GroomCoatShadowFallbackReason reason = stats.DominantFallbackReason();
                 if (reason != GroomCoatShadowFallbackReason::None)

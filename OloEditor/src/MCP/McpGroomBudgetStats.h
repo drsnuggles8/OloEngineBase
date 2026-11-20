@@ -111,6 +111,7 @@ namespace OloEngine::MCP::GroomBudgetStats
         u32 CoatSharedVolumes = 0;
         u32 CoatRebuildBudget = 0;
         u32 CoatRebuildsDeferred = 0;
+        u32 CoatRebuildsForced = 0;
         u32 CoatDrawnFromDeferredVolume = 0;
         u32 CoatRebuildsWaiting = 0;
         u32 CoatOldestRebuildWaitFrames = 0;
@@ -247,6 +248,7 @@ namespace OloEngine::MCP::GroomBudgetStats
             { "sharedVolumes", snapshot.CoatSharedVolumes },
             { "rebuildBudget", snapshot.CoatRebuildBudget },
             { "rebuildsDeferred", snapshot.CoatRebuildsDeferred },
+            { "rebuildsForced", snapshot.CoatRebuildsForced },
             { "drawnFromDeferredVolume", snapshot.CoatDrawnFromDeferredVolume },
             { "rebuildsWaiting", snapshot.CoatRebuildsWaiting },
             { "oldestRebuildWaitFrames", snapshot.CoatOldestRebuildWaitFrames },

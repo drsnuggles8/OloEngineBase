@@ -1912,6 +1912,9 @@ namespace OloEngine::Tests
         const MemoryCapacityRow rest = row(report, "Groom shared rest streams");
         const MemoryCapacityRow entities = row(report, "Groom per-entity");
         const MemoryCapacityRow ring = row(report, "Groom coat-volume rings");
+        // Rest bakes shared between coats (#1594), counted once: earlier cases
+        // may have left one cached, as they leave streams and rings.
+        const MemoryCapacityRow shared = row(report, "Groom shared coat rest bakes");
         const MemoryCapacityRow cpu = row(report, "Groom CPU");
         ASSERT_FALSE(::testing::Test::HasFatalFailure());
         ASSERT_TRUE(rest.CapacityBytes && rest.ActiveDemandBytes && entities.ActiveDemandBytes && ring.CapacityBytes &&
@@ -1931,7 +1934,9 @@ namespace OloEngine::Tests
         // The pass's own breakdown (#1533) walks the same allocations by KIND
         // where these rows split them by sharing and demand. Two walks written
         // apart: a byte one of them misses shows as a difference here.
-        EXPECT_EQ(*rest.CapacityBytes + entities.CapacityBytes.value_or(0) + *ring.CapacityBytes, both.Memory.GpuBytes())
+        EXPECT_EQ(*rest.CapacityBytes + entities.CapacityBytes.value_or(0) + *ring.CapacityBytes +
+                      shared.CapacityBytes.value_or(0),
+                  both.Memory.GpuBytes())
             << "the report's GPU rows and the pass's breakdown count different allocations";
         EXPECT_EQ(both.Memory.GpuBytes(), both.CachedBytes) << "the breakdown misses bytes the cache budget counts";
         EXPECT_EQ(cpu.CapacityBytes.value_or(0), both.Memory.CpuBytes())

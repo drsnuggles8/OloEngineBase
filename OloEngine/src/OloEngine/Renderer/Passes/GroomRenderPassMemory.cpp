@@ -161,8 +161,9 @@ namespace OloEngine
                     ringDemand += *bytes;
             }
             // The body's texture (#1533) is bound with the coat's slot, so it
-            // is in demand exactly when that slot is.
-            if (entry.CoatBody)
+            // is in demand exactly when that slot is. A shared rest bake's body
+            // (#1594) is the bake's, counted once in its own row below.
+            if (entry.CoatBody && !entry.CoatShared)
             {
                 const auto bytes = Texture3DBytes(*entry.CoatBody);
                 if (!bytes)

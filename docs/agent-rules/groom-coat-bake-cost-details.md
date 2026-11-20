@@ -77,11 +77,16 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    leaves `GroomFrameState::FrameIndex` fixed would otherwise never refill it. A deferred coat draws the volume it already holds if it is the right kind (a
    pose bake for a posed coat, a rest bake for one at rest), at that volume's resolution, and is
    counted in `DrawnFromDeferredVolume`; one holding nothing falls back as
-   `RepresentationNotBuilt`. The earlier objection to a budget -- "it needs the stale bound's
-   prioritisation" -- is met by keeping the stale bound in force: a deferred pose bake's drift is
-   measured even across a stride change (`MaxCoatPoseDriftAcrossStrides`; a resolution change
-   re-measures with a full bake, which changes the stride under a waiting coat), and a volume past
-   `StaleDriftVoxels` is not sampled. Deferrals, the queue and its oldest wait are in
+   `RepresentationNotBuilt`. **A rebake due on drift is never deferred**: it is forced
+   (`RebuildsForced`), always runs and spends the budget the frame's other rebuilds would take.
+   The earlier objection to a budget -- "it needs the stale bound's prioritisation" -- was right:
+   with a plain budget of two, `TheMovingCoatShadowFollowsTheWalk`'s three walking coats drew
+   volumes 1.8 voxels behind their pose against the 0.5 bound and went stale on some frames. So
+   the budget defers only resolution and source changes (a camera cut's, an arrival's), whose
+   waiting volume is still within the drift bound; the drift policy already paces the rest. A
+   waiting pose bake's drift is measured even across a stride change
+   (`MaxCoatPoseDriftAcrossStrides`; a resolution change re-measures with a full bake, which
+   changes the stride under a waiting coat), so a coat that moves while it waits is forced too. Deferrals, the queue and its oldest wait are in
    `GroomCoatShadowStats`, `olo_groom_budget_stats.coatShadow` and the inspector, and a wave of
    deferrals is logged when it starts and when it drains.
 

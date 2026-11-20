@@ -2704,12 +2704,30 @@ namespace OloEngine
         // BAKE: herd mates waiting on one shared bake hold one between them.
         // Asked before the slot below, so a deferred newcomer reclaims no
         // other coat's volume for a bake it will not make.
+        //
+        // A REBAKE DUE ON DRIFT IS NEVER DEFERRED. Deferred, a moving coat
+        // keeps a volume baked where its strands were, a shadow sliding over
+        // the coat a little further each frame it waits: three walking coats
+        // under a budget of two drew volumes 1.8 voxels behind their pose,
+        // past the 0.5 bound, and went stale and unshadowed on some frames
+        // (TheMovingCoatShadowFollowsTheWalk). The drift bound already paces
+        // that cost, so the bake is forced: counted, and spending the budget
+        // the frame's other rebuilds would take. What the budget defers is a
+        // resolution or source change -- a camera cut's, an arrival's -- whose
+        // waiting volume is still within the drift bound of its pose.
         const bool wantsBake = needsRebuild && !attached && aboveFloor;
         bool deferred = false;
         if (wantsBake)
         {
             const u64 ticket = shareable ? shareKey.Hash() : CacheKey(request, entry.GpuDeformed) ^ 0x1594ull;
-            deferred = !m_CoatRebuildBudget.Request(ticket);
+            if (poseMoved)
+            {
+                m_CoatRebuildBudget.Force(ticket);
+            }
+            else
+            {
+                deferred = !m_CoatRebuildBudget.Request(ticket);
+            }
         }
 
         // The slot goes to a coat that already holds one before any newcomer,
@@ -4094,6 +4112,7 @@ namespace OloEngine
         GroomCoatShadowStats& coat = m_Stats.CoatShadow;
         coat.RebuildBudget = m_CoatRebuildBudget.PerFrame();
         coat.RebuildsDeferred = m_CoatRebuildBudget.DeferredThisFrame();
+        coat.RebuildsForced = m_CoatRebuildBudget.ForcedThisFrame();
         coat.RebuildsWaiting = m_CoatRebuildBudget.Waiting();
         coat.OldestRebuildWaitFrames = m_CoatRebuildBudget.OldestWaitFrames();
         coat.SharedVolumes = static_cast<u32>(m_SharedCoatVolumes.size());

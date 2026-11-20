@@ -36,9 +36,9 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    never shared. `CoatsOfOneAssetAtOneStepShareOneRestBakeAndOthersDoNot` pins it.
    [Details](groom-coat-bake-cost-details.md#the-rules)
 9. **At most `CoatRebakePolicy::MaxRebuildsPerFrame` bakes run a frame** (#1594), the oldest
-   deferred coats first. A deferred coat draws the volume it holds when it is the right kind, a
-   pose bake's drift measured across a stride change so the stale bound still applies; every
-   deferral is counted. `AMixedSceneRebuildsWithinTheBudgetAndNoWaitingCoatGoesUnshadowed` pins it.
+   deferred coats first; a deferred coat draws the volume it holds, and every deferral is counted.
+   **A rebake due on drift is never deferred**: it is forced and spends the budget, or a walking
+   coat's shadow slides off it. `AMixedSceneRebuildsWithinTheBudgetAndNoWaitingCoatGoesUnshadowed` pins it.
    [Details](groom-coat-bake-cost-details.md#the-rules)
 
 ## Not done

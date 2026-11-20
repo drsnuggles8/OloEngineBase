@@ -491,6 +491,10 @@ namespace OloEngine
         /// volume it already held (DrawnFromDeferredVolume) or, holding none,
         /// fell back as RepresentationNotBuilt.
         u32 RebuildsDeferred = 0;
+        /// Rebakes due on drift this frame, which the budget never defers (a
+        /// deferred one is a shadow sliding off a moving coat) and which spend
+        /// it; the only bakes that take a frame past RebuildBudget.
+        u32 RebuildsForced = 0;
         /// Coats shadowed this frame by a volume whose rebuild is deferred: a
         /// stale volume, counted so it is never silent.
         u32 DrawnFromDeferredVolume = 0;
@@ -561,6 +565,7 @@ namespace OloEngine
                    BakeBodyMicroseconds == other.BakeBodyMicroseconds && BodyBakesReused == other.BodyBakesReused &&
                    SharedBakesReused == other.SharedBakesReused && SharedVolumes == other.SharedVolumes &&
                    RebuildBudget == other.RebuildBudget && RebuildsDeferred == other.RebuildsDeferred &&
+                   RebuildsForced == other.RebuildsForced &&
                    DrawnFromDeferredVolume == other.DrawnFromDeferredVolume &&
                    RebuildsWaiting == other.RebuildsWaiting &&
                    OldestRebuildWaitFrames == other.OldestRebuildWaitFrames;

@@ -25,6 +25,12 @@ namespace OloEngine::GroomCoatShadow
     // frames of being drawn. A waiter that stops asking (no longer drawn, or
     // its rebuild no longer needed) leaves the queue at the next frame.
     //
+    // A FORCED bake (Force) is one the caller must not defer -- a moving
+    // coat's drift rebake, which a deferral would turn into a shadow sliding
+    // off the coat. It always runs, is counted, and spends the budget like any
+    // other, so on a frame of moving coats fewer other rebuilds run; only
+    // forced bakes take a frame past PerFrame.
+    //
     // Keys are the caller's: one per bake, so coats that would share one
     // bake share one ticket.
     class CoatRebuildBudget
@@ -68,6 +74,20 @@ namespace OloEngine::GroomCoatShadow
             }
             m_Granted = 0;
             m_Deferred = 0;
+            m_Forced = 0;
+        }
+
+        /// A bake that must run this frame (see the class comment): granted
+        /// whatever the budget says, counted, and spending it.
+        void Force(u64 key)
+        {
+            if (const auto it = std::ranges::find(m_Waiting, key, &Waiter::Key); it != m_Waiting.end())
+            {
+                m_UnservedReservations -= it->Reserved ? 1u : 0u;
+                m_Waiting.erase(it);
+            }
+            ++m_Granted;
+            ++m_Forced;
         }
 
         /// A coat needs the bake `key` names this frame. True: bake now, and it
@@ -112,10 +132,15 @@ namespace OloEngine::GroomCoatShadow
             return false;
         }
 
-        /// Bakes granted, and requests deferred, since BeginFrame.
+        /// Bakes granted (forced ones included), forced, and requests
+        /// deferred, since BeginFrame.
         [[nodiscard]] u32 GrantedThisFrame() const noexcept
         {
             return m_Granted;
+        }
+        [[nodiscard]] u32 ForcedThisFrame() const noexcept
+        {
+            return m_Forced;
         }
         [[nodiscard]] u32 DeferredThisFrame() const noexcept
         {
@@ -155,6 +180,7 @@ namespace OloEngine::GroomCoatShadow
         u32 m_PerFrame = 0;
         u32 m_Granted = 0;
         u32 m_Deferred = 0;
+        u32 m_Forced = 0;
         u32 m_UnservedReservations = 0;
         u64 m_Frame = 0;
         u64 m_FrameId = 0;

@@ -725,3 +725,34 @@ TEST(GroomCoatShadowSelection, DriftIsMeasuredAcrossABakeSubsetStrideChange)
               std::numeric_limits<f32>::infinity())
         << "two different subsets cannot be compared";
 }
+
+// A REBAKE DUE ON DRIFT IS FORCED (#1594): a moving coat's rebake always runs
+// -- deferred, its shadow slides off the coat -- and it spends the budget, so on
+// a frame of moving coats fewer other rebuilds run. Only forced bakes take a
+// frame past the budget, and a reserved waiter is still served.
+TEST(GroomCoatShadowSelection, ADriftRebakeIsForcedAndSpendsTheBudget)
+{
+    GroomCoatShadow::CoatRebuildBudget budget;
+    budget.SetPerFrame(2u);
+    budget.BeginFrame(1u);
+    EXPECT_TRUE(budget.Request(1u));
+    EXPECT_TRUE(budget.Request(2u));
+    EXPECT_FALSE(budget.Request(3u)) << "coat 3 waits for frame 2";
+
+    // Frame 2: three walking coats rebake on drift before coat 3 is reached.
+    budget.BeginFrame(2u);
+    for (u64 walker = 10u; walker < 13u; ++walker)
+        budget.Force(walker);
+    EXPECT_EQ(budget.ForcedThisFrame(), 3u);
+    EXPECT_FALSE(budget.Request(4u)) << "a newcomer baked on a budget the forced bakes spent";
+    EXPECT_TRUE(budget.Request(3u)) << "the reserved waiter must still be served";
+    EXPECT_EQ(budget.GrantedThisFrame(), 4u) << "three forced and one reserved";
+    EXPECT_EQ(budget.DeferredThisFrame(), 1u);
+
+    // A forced bake of a waiting coat takes it out of the queue.
+    budget.BeginFrame(3u);
+    budget.Force(4u);
+    budget.BeginFrame(4u);
+    EXPECT_EQ(budget.Waiting(), 0u) << "a coat whose bake was forced stayed queued";
+    EXPECT_EQ(budget.ForcedThisFrame(), 0u);
+}
