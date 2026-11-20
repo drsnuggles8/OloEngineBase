@@ -1,0 +1,27 @@
+SkinProfile:
+  Name: Keeper Face
+  EvaluationModel: 3
+  Units: 'colours: linear Rec.709 (unitless 0..1); lengths: millimetres'
+  ScatterColor:
+  - 0.85
+  - 0.55
+  - 0.45
+  ScatterRadiusMM:
+  - 0.94
+  - 0.43
+  - 0.24
+  ThicknessScale: 1000
+  SpecularTint:
+  - 0.97
+  - 0.93
+  - 0.9
+  Transmission:
+    Strength: 1
+    Anisotropy: 0.7
+    Power: 4
+  Specular:
+    LobeMix: 0.55
+    LobeRoughnessScale: 2
+    NormalVarianceStrength: 0.3
+    DetailStrength: 0
+    ExpressionDetailGain: 0

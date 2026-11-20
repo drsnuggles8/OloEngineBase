@@ -13,6 +13,7 @@
 #include "OloEngine/Core/InputAction.h"
 #include "OloEngine/Core/InputActionManager.h"
 #include "OloEngine/Core/KeyCodes.h"
+#include "OloEngine/Core/SyntheticInput.h"
 #include "OloEngine/SaveGame/SaveGameSerializer.h"
 #include "OloEngine/Events/KeyEvent.h"
 #include "OloEngine/Scene/Components.h"
@@ -97,6 +98,32 @@ class RuntimeInputRebindMenuTest : public ::testing::Test
         Frame(centre, /*down=*/false, /*pressed=*/false); // release → click
     }
 };
+
+TEST_F(RuntimeInputRebindMenuTest, RuntimeHitTestingUsesTheGameViewportOrigin)
+{
+    m_Scene->SetRenderingEnabled(false);
+    m_Scene->SetPaused(true);
+    m_Scene->OnViewportResize(kW, kH);
+    UILayoutSystem::ResolveLayout(*m_Scene, kW, kH, glm::mat4(1.0f));
+    Entity button = FindButton("Reset All to Default");
+    ASSERT_TRUE(button && button.HasComponent<UIResolvedRectComponent>());
+    const auto& rect = button.GetComponent<UIResolvedRectComponent>();
+    const auto centre = rect.m_Position + 0.5f * rect.m_Size;
+    const glm::vec2 panelOffset(410.0f, 62.0f);
+    const auto stateAt = [&](glm::vec2 clientPosition)
+    {
+        SyntheticInput::SetMousePosition(clientPosition);
+        m_Scene->OnUpdateRuntime(Timestep(1.0f / 60.0f));
+        return button.GetComponent<UIButtonComponent>().m_State;
+    };
+
+    m_Scene->SetViewportOffset(panelOffset);
+    EXPECT_EQ(stateAt(centre), UIButtonState::Normal);
+    EXPECT_EQ(stateAt(centre + panelOffset), UIButtonState::Hovered);
+    m_Scene->SetViewportOffset(glm::vec2(0.0f));
+    EXPECT_EQ(stateAt(centre), UIButtonState::Hovered);
+    SyntheticInput::ClearMousePosition();
+}
 
 TEST_F(RuntimeInputRebindMenuTest, ClickingRebindButtonStartsCapture)
 {

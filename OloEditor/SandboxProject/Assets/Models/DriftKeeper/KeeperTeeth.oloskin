@@ -1,0 +1,32 @@
+SkinProfile:
+  Name: Keeper Teeth
+  EvaluationModel: 4
+  Units: 'colours: linear Rec.709 (unitless 0..1); lengths: millimetres'
+  ScatterColor:
+  - 0.92
+  - 0.9
+  - 0.88
+  ScatterRadiusMM:
+  - 0.42
+  - 0.4
+  - 0.38
+  ThicknessScale: 1000
+  SpecularTint:
+  - 1.0
+  - 1.0
+  - 0.98
+  Transmission:
+    Strength: 1
+    Anisotropy: 0.7
+    Power: 4
+  Specular:
+    LobeMix: 0.1
+    LobeRoughnessScale: 1.6
+    NormalVarianceStrength: 0.0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  Oral:
+    CoatStrength: 0.45
+    CoatRoughness: 0.04
+    CoatIor: 1.63
+    CavityOcclusion: 1.0

@@ -1797,6 +1797,10 @@ namespace OloEngine
         // per-tick rebuild path.
         m_SpatialIndex.Clear();
 
+        // Gameplay scripts can read a child's world position from OnCreate
+        // and from their first tick, before the scheduled propagation pass.
+        PropagateWorldTransforms();
+
         // In headless mode, disable rendering
         if (Application::Get().IsHeadless())
         {
@@ -6678,7 +6682,9 @@ namespace OloEngine
             UILayoutSystem::ResolveLayout(*this, m_ViewportWidth, m_ViewportHeight, m_CameraViewProjection);
             m_UILayoutResolvedThisFrame = true;
 
-            const glm::vec2 mousePos = Input::GetMousePosition();
+            // GLFW reports window-client coordinates. The resolved rects
+            // start at the docked game viewport's top-left (zero in OloRuntime).
+            const glm::vec2 mousePos = Input::GetMousePosition() - GetViewportOffset();
             const bool mouseDown = Input::IsMouseButtonPressed(Mouse::ButtonLeft);
             const bool mousePressed = mouseDown && !m_PreviousMouseButtonDown;
             m_PreviousMouseButtonDown = mouseDown;

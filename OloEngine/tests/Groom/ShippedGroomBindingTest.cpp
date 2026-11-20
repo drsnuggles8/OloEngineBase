@@ -112,6 +112,7 @@ namespace OloEngine::Tests
             const char* ModelDir;           // relative to OloEditor/
             const char* ModelFile;          // inside ModelDir
             std::vector<const char*> Coats; // relative to Assets/Grooms, without the extension
+            bool ExpectsSkeleton = true;
         };
 
         // Every committed binding that is cooked against a model. Keep this in
@@ -120,6 +121,7 @@ namespace OloEngine::Tests
         const std::vector<Body>& Bodies()
         {
             static const std::vector<Body> bodies = {
+                { "SandboxProject/Assets/Models/DriftKeeper", "KeeperHairFoundation.gltf", { "DriftKeeper/Keeper" }, /*ExpectsSkeleton=*/false },
                 { "SandboxProject/Assets/Models/Dog", "Dog.gltf", { "Dog/Dog" } },
                 { "SandboxProject/Assets/Models/Samoyed", "Samoyed.gltf", { "Samoyed/Samoyed" } },
                 { "SandboxProject/Assets/Models/Bernese", "Bernese.gltf", { "Bernese/Bernese" } },
@@ -197,19 +199,22 @@ namespace OloEngine::Tests
 
         GroomBindingTargetSignature coldSignature;
         GroomBindingTargetSignature warmSignature;
+        const auto signImport = [&](bool expectCacheHit, GroomBindingTargetSignature& signature)
         {
-            const Ref<AnimatedModel> cold = Ref<AnimatedModel>::Create(path.string());
-            ASSERT_TRUE(cold->GetEntityMeshSource() && cold->GetSkeleton()) << body.ModelFile;
-            ASSERT_FALSE(cold->WasMeshLoadedFromCache());
-            coldSignature = GroomBindingBuilder::SignTarget(MakeGroomSurfaceView(*cold->GetEntityMeshSource(), cold->GetSkeleton().Raw()));
-            PrintSubmeshIndexHashes(body.ModelFile, *cold->GetEntityMeshSource());
-        }
-        {
-            const Ref<AnimatedModel> warm = Ref<AnimatedModel>::Create(path.string());
-            ASSERT_TRUE(warm->GetEntityMeshSource() && warm->GetSkeleton()) << body.ModelFile;
-            ASSERT_TRUE(warm->WasMeshLoadedFromCache());
-            warmSignature = GroomBindingBuilder::SignTarget(MakeGroomSurfaceView(*warm->GetEntityMeshSource(), warm->GetSkeleton().Raw()));
-        }
+            SCOPED_TRACE(body.ModelFile);
+            const Ref<AnimatedModel> model = Ref<AnimatedModel>::Create(path.string());
+            const Ref<MeshSource> surface = model->GetEntityMeshSource();
+            ASSERT_TRUE(surface);
+            ASSERT_EQ(model->WasMeshLoadedFromCache(), expectCacheHit);
+            ASSERT_EQ(model->HasSkeleton(), body.ExpectsSkeleton);
+            if (!body.ExpectsSkeleton)
+                ASSERT_TRUE(surface->HasMorphTargets()) << "a skeleton-free binding target must retain its expression morphs";
+            signature = GroomBindingBuilder::SignTarget(MakeGroomSurfaceView(*surface, model->GetSkeleton().Raw()));
+            if (!expectCacheHit)
+                PrintSubmeshIndexHashes(body.ModelFile, *surface);
+        };
+        ASSERT_NO_FATAL_FAILURE(signImport(false, coldSignature));
+        ASSERT_NO_FATAL_FAILURE(signImport(true, warmSignature));
         std::printf("[shipped-binding] %s cold: %s\n", body.ModelFile, Describe(coldSignature).c_str());
         std::printf("[shipped-binding] %s warm: %s\n", body.ModelFile, Describe(warmSignature).c_str());
 

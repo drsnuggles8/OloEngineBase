@@ -1,0 +1,32 @@
+SkinProfile:
+  Name: Keeper Gum
+  EvaluationModel: 4
+  Units: 'colours: linear Rec.709 (unitless 0..1); lengths: millimetres'
+  ScatterColor:
+  - 0.84
+  - 0.44
+  - 0.4
+  ScatterRadiusMM:
+  - 1.6
+  - 0.8
+  - 0.58
+  ThicknessScale: 1000
+  SpecularTint:
+  - 0.98
+  - 0.95
+  - 0.94
+  Transmission:
+    Strength: 1
+    Anisotropy: 0.7
+    Power: 4
+  Specular:
+    LobeMix: 0.3
+    LobeRoughnessScale: 2.0
+    NormalVarianceStrength: 0.0
+    DetailStrength: 0
+    ExpressionDetailGain: 0
+  Oral:
+    CoatStrength: 0.5
+    CoatRoughness: 0.11
+    CoatIor: 1.33
+    CavityOcclusion: 1.0
