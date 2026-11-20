@@ -222,9 +222,19 @@ def dress_coat(s, lod, trunk):
 
     def coat_weight(p):
         x, y, _ = p
-        if y > 1.20 and abs(x) > 0.100:
-            return arm_weight(p, 1 if x > 0 else -1, "L" if x > 0 else "R")
-        return trunk(p)
+        # The lowest armhole point is above 1.247 m and the innermost is
+        # 0.147 m from the midline. Finish the blend before the sewn ring.
+        blend = between(y, 1.165, 1.240) * between(abs(x), 0.080, 0.140)
+        if blend == 0:
+            return trunk(p)
+        shoulder = arm_weight(p, 1 if x > 0 else -1, "L" if x > 0 else "R")
+        if blend == 1:
+            return shoulder
+        blend = blend * blend * (3 - 2 * blend)
+        weights = {bone: (1 - blend) * w for bone, w in trunk(p).items()}
+        for bone, w in shoulder.items():
+            weights[bone] = weights.get(bone, 0) + blend * w
+        return weights
 
     # The edges of underarm and crown are sampled by the same q grid as the
     # sleeve's top. Adjacent body panels meet at the front/back scye points.
