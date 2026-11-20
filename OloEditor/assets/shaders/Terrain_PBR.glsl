@@ -196,6 +196,14 @@ layout(location = 3) flat out vec4 v_SnowClip;          // xy = ring-0 centre (w
 layout(location = 4) flat out float v_SnowAccumulation; // u_DisplacementParams.z: > 0.5 when the clipmap is live
 layout(location = 5) flat out vec4 v_BrushPosAndRadius;
 layout(location = 6) flat out vec4 v_BrushParams;
+// The instance's normal matrix, for the fragment stage's per-pixel normal
+// (include/TerrainPixelNormal.glsl, issue #1721): that normal is computed in
+// the tile's own frame and has to be turned into the world's. Flat for the
+// reason the four above are: one value per draw, and no new block in a stage
+// that has none to spare.
+layout(location = 7) flat out vec3 v_NormalMatrixX;
+layout(location = 8) flat out vec3 v_NormalMatrixY;
+layout(location = 9) flat out vec3 v_NormalMatrixZ;
 
 vec3 interpolate3(vec3 a, vec3 b, vec3 c)
 {
@@ -264,6 +272,9 @@ void main()
     vec4 worldPos = instances[0].Transform * vec4(pos, 1.0);
     v_WorldPos = worldPos.xyz;
     v_Normal = mat3(instances[0].Normal) * nrm;
+    v_NormalMatrixX = instances[0].Normal[0].xyz;
+    v_NormalMatrixY = instances[0].Normal[1].xyz;
+    v_NormalMatrixZ = instances[0].Normal[2].xyz;
     v_TexCoord = uv;
     v_SnowClip = vec4(u_ClipmapCenterAndExtent[0].xyz, u_AccumulationParams.y);
     v_SnowAccumulation = u_DisplacementParams.z;
@@ -391,7 +402,9 @@ layout(binding = 12) uniform sampler2D u_BRDFLutMap;
 #define u_TerrainARMArray OLO_HEAP_TEX_2D_ARRAY(27)  // TEX_TERRAIN_ARM_ARRAY
 #define u_TerrainSplatmap1 OLO_HEAP_TEX_2D(28)  // Layers 4-7 weights — TEX_TERRAIN_SPLATMAP_1
 #define u_TerrainMacroMap OLO_HEAP_TEX_2D(0)  // TEX_DIFFUSE, see below
+#define u_TerrainHeightmap OLO_HEAP_TEX_2D(23)  // TEX_TERRAIN_HEIGHTMAP, for the per-pixel normal
 #else
+layout(binding = 23) uniform sampler2D u_TerrainHeightmap;     // for the per-pixel normal
 layout(binding = 24) uniform sampler2D u_TerrainSplatmap0;     // Layers 0-3 weights
 layout(binding = 25) uniform sampler2DArray u_TerrainAlbedoArray;
 layout(binding = 26) uniform sampler2DArray u_TerrainNormalArray;
@@ -415,6 +428,9 @@ layout(location = 3) flat in vec4 v_SnowClip;
 layout(location = 4) flat in float v_SnowAccumulation;
 layout(location = 5) flat in vec4 v_BrushPosAndRadius;
 layout(location = 6) flat in vec4 v_BrushParams;
+layout(location = 7) flat in vec3 v_NormalMatrixX;
+layout(location = 8) flat in vec3 v_NormalMatrixY;
+layout(location = 9) flat in vec3 v_NormalMatrixZ;
 
 layout(location = 0) out vec4 o_Color;
 layout(location = 1) out int o_EntityID;
@@ -449,6 +465,7 @@ vec2 octEncode(vec3 n)
 #include "include/TerrainLayerBlend.glsl"
 #include "include/TerrainVirtualTexture.glsl"
 #include "include/TerrainLayerSampling.glsl"
+#include "include/TerrainPixelNormal.glsl"
 
 // =============================================================================
 // MAIN FRAGMENT SHADER
@@ -456,7 +473,6 @@ vec2 octEncode(vec3 n)
 
 void main()
 {
-    vec3 N = normalize(v_Normal);
     // Camera-relative (issue #429): v_WorldPos is render-relative. Rebuild the
     // absolute world position for the world-anchored patterns below (editor
     // brush, snow height/clipmap/noise). Lighting/shadow/velocity below keep
@@ -467,6 +483,10 @@ void main()
     // Where the layers are sampled and their screen-space gradients, taken here
     // before any per-pixel branch (include/TerrainLayerSampling.glsl says why).
     OloTerrainLayerCoords layerCoords = oloTerrainLayerCoords(v_TexCoord, worldPosAbs.y);
+    // The geometric normal, from the height map at this pixel's own scale
+    // rather than the vertex stage's (include/TerrainPixelNormal.glsl).
+    vec3 N = normalize(mat3(v_NormalMatrixX, v_NormalMatrixY, v_NormalMatrixZ) *
+                       oloTerrainPixelNormalLocal(v_TexCoord, layerCoords.TopDx, layerCoords.TopDy));
 
     // Determine if we should use splatmap or procedural fallback
     bool useSplatmap = (layerCount > 0);
