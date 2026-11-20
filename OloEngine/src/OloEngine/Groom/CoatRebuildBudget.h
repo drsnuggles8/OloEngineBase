@@ -54,7 +54,8 @@ namespace OloEngine::GroomCoatShadow
             ++m_Frame;
 
             // A waiter that did not ask last frame no longer needs its rebuild.
-            std::erase_if(m_Waiting, [](const Waiter& waiter) { return !waiter.Requested; });
+            std::erase_if(m_Waiting, [](const Waiter& waiter)
+                          { return !waiter.Requested; });
             // Oldest first; equal ages keep the order they arrived in.
             std::ranges::stable_sort(m_Waiting, {}, &Waiter::Since);
             m_UnservedReservations = 0;
