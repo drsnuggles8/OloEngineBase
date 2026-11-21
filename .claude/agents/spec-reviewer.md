@@ -33,7 +33,10 @@ push or comment.
    equivalent" and "the other path covers it" are findings.
 3. **Bug accounting**: every bug the branch fixed beyond its task is its own `fix(...)` commit
    listed under *Found and fixed*; every bug only mentioned is under *Filed, not fixed* with one of
-   the four Phase 1a reasons. A bug mentioned only in prose is a finding.
+   the four Phase 1a reasons. A bug mentioned only in prose is a finding. Every *Found and fixed*
+   bullet carries one severity tag, `[S1]`, `[S2]`, `[S3]`, `[S5]`, `[S8]` or `[S13]`, on the
+   Stability rungs of `docs/process/issue-scoring.md` §1 (the picker's discovery term reads it).
+   A missing tag, or a number that is not one of those rungs, is a finding.
 4. **Cross-binding**: if the diff touches a `*Component` (a struct named `...Component` in a header
    under `OloEngine/src/`), check every row of
    `docs/agent-rules/component-serializer-codegen.md` §0 against the diff — save-game `Serialize` +
