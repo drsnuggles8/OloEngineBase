@@ -38,6 +38,13 @@ using namespace OloEngine;
 
 namespace
 {
+    /// Two tables' weights as BYTES: a float compared with == is not a
+    /// comparison this repo makes, and the bits are the claim anyway.
+    [[nodiscard]] bool SameWeightBytes(const std::vector<GroomGuideWeights>& a, const std::vector<GroomGuideWeights>& b)
+    {
+        return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(GroomGuideWeights)) == 0);
+    }
+
     /// A groom of `count` strands laid along +X, every `guideEvery`-th flagged
     /// as a guide, all in one group unless `groupStride` splits them. Straight
     /// and evenly spaced so "the nearest guide" is a fact anyone can check by
@@ -326,7 +333,7 @@ TEST(GroomGuideInfluence, IsDeterministic)
     auto a = BuildGroomGuideInfluence(*coat.Groom);
     auto b = BuildGroomGuideInfluence(*coat.Groom);
     EXPECT_EQ(a->GetGuideCurves(), b->GetGuideCurves());
-    EXPECT_EQ(a->GetWeights(), b->GetWeights());
+    EXPECT_TRUE(SameWeightBytes(a->GetWeights(), b->GetWeights()));
     EXPECT_EQ(a->GetUnguidedStrands(), b->GetUnguidedStrands());
 }
 
@@ -403,7 +410,7 @@ TEST(GroomGuideInfluence, TheParallelBuildIsTheSerialSearch)
 
     // And the same bits as a second build, whichever threads ran which batch.
     const auto again = BuildGroomGuideInfluence(groom);
-    EXPECT_EQ(again->GetWeights(), table->GetWeights());
+    EXPECT_TRUE(SameWeightBytes(again->GetWeights(), table->GetWeights()));
 }
 
 // -----------------------------------------------------------------------------

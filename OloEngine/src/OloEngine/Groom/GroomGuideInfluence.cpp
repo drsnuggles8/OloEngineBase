@@ -2,6 +2,8 @@
 
 #include "OloEngine/Groom/GroomGuideInfluence.h"
 
+#include "OloEngine/Containers/Array.h"
+
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Math/Math.h"
 #include "OloEngine/Task/ParallelFor.h"
@@ -139,12 +141,13 @@ namespace OloEngine
         {
             groupSpan = std::max(groupSpan, static_cast<u32>(groupIds[curve]) + 1u);
         }
-        std::vector<const std::vector<u32>*> slotsOfGroup(groupSpan, nullptr);
+        TArray<const std::vector<u32>*> slotsOfGroup;
+        slotsOfGroup.Init(nullptr, static_cast<i32>(groupSpan));
         for (auto& [group, slots] : slotsByGroup)
         {
             if (group < groupSpan)
             {
-                slotsOfGroup[group] = &slots;
+                slotsOfGroup[static_cast<i32>(group)] = &slots;
             }
         }
         const u32* const guideCurvesBegin = table->m_GuideCurves.data();
@@ -178,7 +181,7 @@ namespace OloEngine
                             }
                         }
 
-                        const std::vector<u32>* const group = slotsOfGroup[groupIds[curve]];
+                        const std::vector<u32>* const group = slotsOfGroup[static_cast<i32>(groupIds[curve])];
                         if (group == nullptr)
                         {
                             // Its group was groomed with no guide. A fact about the

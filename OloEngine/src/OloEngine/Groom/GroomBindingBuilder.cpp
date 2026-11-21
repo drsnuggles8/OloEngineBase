@@ -1,6 +1,7 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Groom/GroomBindingBuilder.h"
 
+#include "OloEngine/Containers/Array.h"
 #include "OloEngine/Groom/GroomAsset.h"
 #include "OloEngine/Task/ParallelFor.h"
 
@@ -564,21 +565,31 @@ namespace OloEngine
         const auto& points = groom.GetPoints();
         f64 distanceSum = 0.0;
 
-        // EVERY ROOT'S CLOSEST TRIANGLE FIRST, on the workers (#1659): each
+        // EACH CHUNK'S CLOSEST TRIANGLES FIRST, on the workers (#1659): each
         // search reads only the grid and the target and writes its own slot,
         // so the answers are the serial search's. The loop below then takes
         // them in curve order, so the first bad curve is still the one named
-        // and the distance sum adds in the same order. Serial, this was four
-        // fifths of a Debug test that cooks a binding for a 410k-strand coat.
-        std::vector<ClosestTriangle> closestOf(curveCount);
+        // and the distance sum adds in the same order. Chunked, so a groom
+        // refused early pays for at most one chunk of searches and the scratch
+        // stays one chunk's. Serial, this was four fifths of a Debug test that
+        // cooks a binding for a 410k-strand coat.
+        constexpr u32 kSearchChunk = 65536u;
+        TArray<ClosestTriangle> closestOf;
+        closestOf.SetNum(static_cast<i32>(std::min(curveCount, kSearchChunk)));
+        const glm::vec3* const pointData = points.data();
+        const sizet pointCount = points.size();
+        u32 chunkBegin = 0;
+        u32 chunkEnd = 0;
+        const auto searchChunk = [&](u32 begin)
         {
-            const glm::vec3* const pointData = points.data();
-            const sizet pointCount = points.size();
-            ClosestTriangle* const out = closestOf.data();
-            ParallelFor("GroomBindingClosest", static_cast<i32>(curveCount), 256,
+            chunkBegin = begin;
+            chunkEnd = std::min(curveCount, begin + kSearchChunk);
+            ClosestTriangle* const out = closestOf.GetData();
+            ParallelFor("GroomBindingClosest", static_cast<i32>(chunkEnd - chunkBegin), 256,
                         [&](i32 index)
                         {
-                            const auto curve = static_cast<u32>(index);
+                            const u32 curve = chunkBegin + static_cast<u32>(index);
+                            out[index] = ClosestTriangle{};
                             const u32 first = groom.GetCurveFirstPoint(curve);
                             if (first >= pointCount)
                             {
@@ -589,12 +600,16 @@ namespace OloEngine
                             {
                                 return;
                             }
-                            out[curve] = FindClosestTriangle(bindView, grid, root);
+                            out[index] = FindClosestTriangle(bindView, grid, root);
                         });
-        }
+        };
 
         for (u32 curve = 0; curve < curveCount; ++curve)
         {
+            if (curve >= chunkEnd)
+            {
+                searchChunk(curve);
+            }
             const u32 first = groom.GetCurveFirstPoint(curve);
             // BOUNDS FIRST, then read. The finiteness guard below is documented
             // as covering a groom built in memory by a test or a tool rather
@@ -624,7 +639,7 @@ namespace OloEngine
                 return false;
             }
 
-            const ClosestTriangle& closest = closestOf[curve];
+            const ClosestTriangle& closest = closestOf[static_cast<i32>(curve - chunkBegin)];
             if (!closest.Found)
             {
                 outReason = std::format("curve {} found no triangle on a target with {} of them", curve,
