@@ -27,9 +27,13 @@
 #include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Physics3D/JoltScene.h"
 #include "OloEngine/Physics3D/SceneQueries.h"
+#include "TestTempDir.h"
+
+#include <stb_image/stb_image_write.h>
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <vector>
 
 using namespace OloEngine;
@@ -291,4 +295,85 @@ TEST_F(TerrainCollisionProceduralTest, DestroyingTerrainEntityRemovesCollision)
     const bool stillHits = joltScene->CastRay(ray, after);
     EXPECT_FALSE(stillHits && after.HasHit())
         << "terrain collision body leaked after the entity was destroyed";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// A terrain that names a height-map FILE (issue #1721). Headless there is no
+// render-built TerrainData, so the collision body is built from the file decoded
+// on the CPU (TerrainData::DecodeHeightmapFile) — and from the file even when the
+// component still carries ProceduralEnabled, because the file is what the render
+// path draws such a terrain from. The procedural recipe here is the same one the
+// fixture above collides with, whose surface is under 4 m; the file is a level
+// 36 m. A body resting at 36 m is standing on the file.
+// ─────────────────────────────────────────────────────────────────────────────
+class TerrainCollisionHeightmapFileTest : public FunctionalTest
+{
+  protected:
+    void BuildScene() override
+    {
+        const std::filesystem::path file = OloEngine::Tests::TempDir("terrain-collision-heightmap") / "level.png";
+        const std::vector<u8> pixels(static_cast<sizet>(kFileResolution) * kFileResolution, kFileValue);
+        // The write-side flip is process-wide and has no getter; state it.
+        ::stbi_flip_vertically_on_write(0);
+        ASSERT_NE(::stbi_write_png(file.string().c_str(), static_cast<int>(kFileResolution), static_cast<int>(kFileResolution), 1,
+                                   pixels.data(), static_cast<int>(kFileResolution)),
+                  0)
+            << "could not write " << file.string();
+
+        m_Terrain = GetScene().CreateEntity("Terrain");
+        auto& terrain = m_Terrain.AddComponent<TerrainComponent>();
+        terrain.m_HeightmapPath = file.generic_string();
+        terrain.m_WorldSizeX = kProcWorldSize;
+        terrain.m_WorldSizeZ = kProcWorldSize;
+        terrain.m_HeightScale = kFileHeightScale;
+        terrain.m_CollisionEnabled = true;
+        // Left over from a terrain that used to be generated: must not win.
+        terrain.m_ProceduralEnabled = true;
+        terrain.m_ProceduralResolution = kProcResolution;
+        terrain.m_ProceduralSeed = kProcSeed;
+        terrain.m_ProceduralOctaves = kProcOctaves;
+        terrain.m_ProceduralFrequency = kProcFrequency;
+        terrain.m_ProceduralLacunarity = kProcLacunarity;
+        terrain.m_ProceduralPersistence = kProcPersistence;
+
+        m_Ball = GetScene().CreateEntity("Ball");
+        m_Ball.GetComponent<TransformComponent>().Translation = { 32.0f, kFileSurface + 6.0f, 32.0f };
+        auto& body = m_Ball.AddComponent<Rigidbody3DComponent>();
+        body.m_Type = BodyType3D::Dynamic;
+        body.m_Mass = 1.0f;
+        body.m_LinearDrag = 0.0f;
+        auto& col = m_Ball.AddComponent<SphereCollider3DComponent>();
+        col.m_Radius = kRadius;
+
+        EnablePhysics3D();
+    }
+
+    static constexpr u32 kFileResolution = 33;
+    static constexpr u8 kFileValue = 230;
+    static constexpr f32 kFileHeightScale = 40.0f;
+    static constexpr f32 kFileSurface = static_cast<f32>(kFileValue) / 255.0f * kFileHeightScale; // 36.08 m
+    static constexpr f32 kRadius = 0.5f;
+
+    Entity m_Terrain;
+    Entity m_Ball;
+};
+
+TEST_F(TerrainCollisionHeightmapFileTest, ABodyRestsOnTheFileEvenWhenTheProceduralFlagIsSet)
+{
+    // The recipe the component still carries puts a different ground under the
+    // ball, so resting on the file's level cannot be the recipe's doing.
+    TArray<f32> recipe;
+    TerrainGenerator::GenerateHeightField(recipe, MakeProcParams());
+    const f32 recipeSurface = SampleHeight01(recipe, kProcResolution, 0.5f, 0.5f) * kFileHeightScale;
+    ASSERT_GT(std::abs(recipeSurface - kFileSurface), 2.0f)
+        << "the procedural recipe's ground at the ball (" << recipeSurface << " m) is the file's level: pick another value";
+
+    TickFor(5.0f);
+
+    const auto& pos = m_Ball.GetComponent<TransformComponent>().Translation;
+    ASSERT_TRUE(std::isfinite(pos.x) && std::isfinite(pos.y) && std::isfinite(pos.z)) << "ball transform contains NaN/Inf";
+    EXPECT_NEAR(pos.y, kFileSurface + kRadius, 0.1f)
+        << "the ball is not resting on the height map file's surface (a rest far below it is the procedural recipe's "
+           "ground, or no collision at all); y="
+        << pos.y;
 }

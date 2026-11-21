@@ -131,6 +131,7 @@ layout(std140, binding = 6) uniform ShadowData {
 
 // Terrain UBO (binding 10)
 #include "include/TerrainParamsBlock.glsl"
+#include "include/TerrainVoxelTiling.glsl"
 
 #include "include/BindlessHeap.glsl"
 #ifdef OLO_BINDLESS
@@ -210,11 +211,11 @@ float voxelLayerIndex()
     return float(min(v_Material, 7u));
 }
 
-float voxelLayerTiling()
+// Repeats per metre along world (X, Z): include/TerrainVoxelTiling.glsl.
+vec2 voxelLayerTiling()
 {
     uint layer = min(v_Material, 7u);
-    float tiling = (layer < 4u) ? u_LayerTilingScales0[layer] : u_LayerTilingScales1[layer - 4u];
-    return (tiling < 0.001) ? 0.1 : tiling;
+    return oloTerrainVoxelTiling((layer < 4u) ? u_LayerTilingScales0[layer] : u_LayerTilingScales1[layer - 4u]);
 }
 
 void main()
@@ -226,19 +227,19 @@ void main()
     vec3 triWeights = pow(absNormal, vec3(triplanarSharpness));
     triWeights /= (triWeights.x + triWeights.y + triWeights.z + 0.0001);
 
-    float tiling = voxelLayerTiling();
+    vec2 tiling = voxelLayerTiling();
     float layer = voxelLayerIndex();
 
     // Camera-relative (issue #429): triplanar tiling is world-anchored.
     vec3 wpTri = v_WorldPos + u_RenderOrigin;
-    vec4 albedoX = texture(u_TerrainAlbedoArray, vec3(wpTri.yz * tiling, layer));
+    vec4 albedoX = texture(u_TerrainAlbedoArray, vec3(wpTri.yz * tiling.y, layer));
     vec4 albedoY = texture(u_TerrainAlbedoArray, vec3(wpTri.xz * tiling, layer));
-    vec4 albedoZ = texture(u_TerrainAlbedoArray, vec3(wpTri.xy * tiling, layer));
+    vec4 albedoZ = texture(u_TerrainAlbedoArray, vec3(wpTri.xy * tiling.x, layer));
     vec3 albedo = (albedoX.rgb * triWeights.x + albedoY.rgb * triWeights.y + albedoZ.rgb * triWeights.z);
 
-    vec4 armX = texture(u_TerrainARMArray, vec3(wpTri.yz * tiling, layer));
+    vec4 armX = texture(u_TerrainARMArray, vec3(wpTri.yz * tiling.y, layer));
     vec4 armY = texture(u_TerrainARMArray, vec3(wpTri.xz * tiling, layer));
-    vec4 armZ = texture(u_TerrainARMArray, vec3(wpTri.xy * tiling, layer));
+    vec4 armZ = texture(u_TerrainARMArray, vec3(wpTri.xy * tiling.x, layer));
     vec4 arm = armX * triWeights.x + armY * triWeights.y + armZ * triWeights.z;
 
     float ao = arm.r;
@@ -256,9 +257,9 @@ void main()
     // materials and the lighting are all provably fine. A cubic voxel face
     // normal is EXACT and analytic; perturbing it with garbage is strictly
     // worse than leaving it alone.
-    vec3 packedNormal = texture(u_TerrainNormalArray, vec3(wpTri.yz * tiling, layer)).rgb * triWeights.x
+    vec3 packedNormal = texture(u_TerrainNormalArray, vec3(wpTri.yz * tiling.y, layer)).rgb * triWeights.x
                       + texture(u_TerrainNormalArray, vec3(wpTri.xz * tiling, layer)).rgb * triWeights.y
-                      + texture(u_TerrainNormalArray, vec3(wpTri.xy * tiling, layer)).rgb * triWeights.z;
+                      + texture(u_TerrainNormalArray, vec3(wpTri.xy * tiling.x, layer)).rgb * triWeights.z;
 
     if (dot(packedNormal, packedNormal) > 1e-5)
     {

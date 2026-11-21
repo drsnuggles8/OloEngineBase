@@ -146,6 +146,8 @@ The dominant archetype: a passing run is not evidence, so name the observation t
 | [temporal-measurement-control-arms.md](temporal-measurement-control-arms.md) | Three control arms in a row measured nothing and every headline number looked excellent, including a "feature off" arm that shimmered exactly 0. |
 | [pixel-error-mesh-lod.md](pixel-error-mesh-lod.md) | Projecting through the real view-projection instead of a facing plane passes every value test. |
 | [terrain-tile-meets-ocean.md](terrain-tile-meets-ocean.md) | A vertical wall at the tile edge and six flat-coloured islands. |
+| [generated-island-height-maps.md](generated-island-height-maps.md) | Six islands that are one disc with a 50 degree ramp for a coast, pastel ground, and 9-15 ms of terrain shadow casters at long range. |
+| [generated-island-height-maps.md](generated-island-height-maps.md) (rules 13, 18) | Terrain drawn up to half a height texel beside the ground a body stands on, more toward a tile's edges; a distant terrain's shadow edge short of where its rim puts it. |
 | [water-shading-nyquist.md](water-shading-nyquist.md) | Normals derived without the amplitude the displacement carried went unnoticed for months. |
 | [geometry-lod-measure-the-unreachable-cost.md](geometry-lod-measure-the-unreachable-cost.md) | A tess-control cull rejecting 95% of patches still pays every vertex invocation. |
 | [persistent-world-space-fields.md](persistent-world-space-fields.md) | A wake in an R8 texture renders and follows correctly and never fades. |

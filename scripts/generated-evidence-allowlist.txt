@@ -19,6 +19,7 @@ OloEditor/assets/tests/imported-corpus/corpus.yaml  ImportedCorpusFixtures
 docs/images/benchmarks/*.jpg                        hero frames shown in docs/guides/renderer-benchmarks.md
 docs/images/dog/*                                   #1533 showcase review composites and their manifest
 docs/images/drift-boat/*.jpg                        before/after composites shown in docs/guides/drift-boat.md
+docs/images/drift-islands/*.jpg                     #1721 before/after composites shown in docs/agent-rules/generated-island-height-maps-details.md
 docs/images/drift-keeper/*.jpg                      historical references and character studies shown in docs/guides/drift-keeper.md
 docs/images/vegetation/*.jpg                        #1398 comparison images (tools/vegetation-import/preview.py)
 docs/reviews/dog-breeds-1558/**                     approval galleries linked from docs/guides/dog-breeds.md

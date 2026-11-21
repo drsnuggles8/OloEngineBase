@@ -4,8 +4,10 @@
 #include "OloEngine/Core/Ref.h"
 #include "OloEngine/Renderer/BoundingVolume.h"
 #include "OloEngine/Renderer/VertexArray.h"
+#include "OloEngine/Terrain/TerrainShadowLod.h"
 #include "OloEngine/Terrain/TerrainVertex.h"
 
+#include <algorithm>
 #include <glm/glm.hpp>
 #include "OloEngine/Containers/Array.h"
 
@@ -45,6 +47,24 @@ namespace OloEngine
         {
             return m_IndexCount;
         }
+
+        // The mesh this chunk casts its shadow from at a TerrainShadowLod level
+        // (issue #1721). Level 0 is the chunk mesh; each level above it keeps
+        // every second vertex of the one below, over the SAME vertex buffer, so
+        // a level's vertices carry the heights the full mesh has there. A level
+        // past the last one answers with the coarsest.
+        [[nodiscard]] const Ref<VertexArray>& GetShadowVertexArray(u32 level) const
+        {
+            return (level == 0 || m_ShadowLodVAOs.IsEmpty())
+                       ? m_VAO
+                       : m_ShadowLodVAOs[static_cast<i32>(std::min<u32>(level, static_cast<u32>(m_ShadowLodVAOs.Num())) - 1u)];
+        }
+        [[nodiscard]] u32 GetShadowIndexCount(u32 level) const
+        {
+            return (level == 0 || m_ShadowLodIndexCounts.IsEmpty())
+                       ? m_IndexCount
+                       : m_ShadowLodIndexCounts[static_cast<i32>(std::min<u32>(level, static_cast<u32>(m_ShadowLodIndexCounts.Num())) - 1u)];
+        }
         [[nodiscard]] const BoundingBox& GetBounds() const
         {
             return m_Bounds;
@@ -60,10 +80,16 @@ namespace OloEngine
         Ref<VertexArray> m_VAO;
         u32 m_IndexCount = 0;
         BoundingBox m_Bounds;
+        // Shadow levels 1 .. kLevelCount - 1; level 0 is m_VAO.
+        TArray<Ref<VertexArray>> m_ShadowLodVAOs;
+        TArray<u32> m_ShadowLodIndexCounts;
 
         // Staging buffers for CPU→GPU split
         TArray<TerrainVertex> m_StagedVertices;
         TArray<u32> m_StagedIndices;
+        // The shadow levels' indices, one level after another; the counts above
+        // say where each ends.
+        TArray<u32> m_StagedShadowIndices;
     };
 
     // External intrusive VAO Ref, owned TArray staging buffers and scalar/bounds values.
@@ -73,7 +99,10 @@ namespace OloEngine
         static constexpr bool Value = TIsTriviallyRelocatable<decltype(TerrainChunk::m_VAO)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TerrainChunk::m_IndexCount)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TerrainChunk::m_Bounds)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainChunk::m_ShadowLodVAOs)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainChunk::m_ShadowLodIndexCounts)>::Value &&
                                       TIsTriviallyRelocatable<decltype(TerrainChunk::m_StagedVertices)>::Value &&
-                                      TIsTriviallyRelocatable<decltype(TerrainChunk::m_StagedIndices)>::Value;
+                                      TIsTriviallyRelocatable<decltype(TerrainChunk::m_StagedIndices)>::Value &&
+                                      TIsTriviallyRelocatable<decltype(TerrainChunk::m_StagedShadowIndices)>::Value;
     };
 } // namespace OloEngine

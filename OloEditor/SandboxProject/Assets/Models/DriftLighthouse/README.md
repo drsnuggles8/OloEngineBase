@@ -81,7 +81,11 @@ JPEGs from four [CC0 Poly Haven scans](https://polyhaven.com/license).
 
 `Stacks Light` and `Stacks Light - optic` are two roots in `Scenes/Drift.olo`.
 The tower stands at **(−419, 29.9, −465)** on the western shelf, with **15°**
-of yaw. The bottom tread meets the rock near (−417.74, 28.7, −469.71).
+of yaw. The bottom tread meets the rock near (−417.74, 28.7, −469.71): the
+stack's top is flat at 28.68–28.70 m across the tower's footprint (Jolt rays),
+because it is a site in Stacks' recipe (`stacks_sites` in
+`tools/drift-islands/olo_islands/recipes.py`). Survey it again after changing
+that island.
 The optic sits 20.30 m above the tower origin. When moving the tower, update
 the optic's world position as well. One glTF unit is one metre, Y is up, the
 finial rises 24.12 m above the entry landing and the pier extends 14 m below it.

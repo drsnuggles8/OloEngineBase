@@ -280,7 +280,7 @@ is handled by picking a coarser *page*, not a coarser texel.
 ## 7. Things that invalidate the cache, and are easy to forget
 
 A baked tile is a function of the height field, the splatmaps, the layer arrays **and the terrain's
-world transform** (the triplanar projection is world-anchored). Nothing about changing any of those
+world transform** (the side projections of the triplanar blend read the absolute world height). Nothing about changing any of those
 tells the cache its contents are stale, so each has to say so:
 
 | Change | Where the `Invalidate()` lives |
@@ -299,9 +299,10 @@ anything was baked.
 
 **On the world-anchored bake and the floating origin:** the bake takes the terrain's ABSOLUTE model
 matrix while the draw's `u_Model` is made render-relative by `UploadModelInstance`. That looks like a
-disagreement and is not — the fragment path adds `u_RenderOrigin` back inside every
-`triplanarSample*` before tiling (`Terrain_PBR.glsl`), so both sides project from the same absolute
-position. Changing either half without the other is the way to break it.
+disagreement and is not — the fragment paths add `u_RenderOrigin` back before
+`oloTerrainLayerCoords` (`Terrain_PBR.glsl`, `Terrain_GBuffer.glsl`), so both sides project from the
+same absolute height. The horizontal coordinate is the terrain UV on every evaluator, so only the
+vertical one depends on where the terrain stands. Changing either half without the other is the way to break it.
 
 A sculpt that rewrites the height field goes through the material/auto-splat path today. **If a
 future sculpt path writes the height field without touching either flag, it needs a fourth entry
@@ -347,9 +348,15 @@ whole cache would be a per-frame stutter.
   appending a member to twelve of thirteen copies is a link failure somewhere unobvious. Edit
   `include/TerrainParamsBlock.glsl`.
 - **The splat blend now has three evaluators** — forward, deferred, and the tile bake — sharing
-  `include/TerrainLayerBlend.glsl`. The *sampling* is deliberately not shared: the two fragment paths
-  use implicit derivatives while the bake computes an explicit LOD from the page's texel density (it
-  has no derivatives, and the explicit LOD is what makes a baked tile alias-free). The threshold
+  `include/TerrainLayerBlend.glsl` for the math: where each projection is sampled, the projection
+  weights, the per-projection normal blend and the dead-layer rule. The two fragment paths also share
+  their *sampling* (`include/TerrainLayerSampling.glsl`, `textureGrad` with gradients taken once before
+  any branch); the bake does not, because it has no derivatives and computes an explicit LOD from the
+  page's texel density, which is what makes a baked tile alias-free. The bake also samples each layer
+  at ONE scale: two-scale sampling needs a view distance a tile does not have, so a terrain that
+  shades through the cache has it switched off (`TerrainSurfaceShading::PackLayerScale`), keyed on the
+  terrain's VT setting so a sector's per-pixel fallback matches the tiles around it. The macro map is
+  applied after the resolve, per pixel, and is not baked. The threshold
   constant `OLO_TERRAIN_TRIPLANAR_SLOPE` **is** shared: a tile baked planar and shaded as if
   triplanar shows a hard band exactly where the two disagree.
 

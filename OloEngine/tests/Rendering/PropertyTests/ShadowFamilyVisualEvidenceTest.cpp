@@ -345,6 +345,9 @@ namespace OloEngine::Tests
                 EXPECT_NE(stbi_write_png((directory / (name + ".png")).string().c_str(), width, height, 4,
                                          frame.Pixels.data(), width * 4),
                           0);
+                // The flag is process-global: left set, every PNG a later test
+                // writes in this process comes out upside down.
+                stbi_flip_vertically_on_write(0);
             }
             // Restrict the oracle to the actual receiver, including deformation
             // controls where a leaf can move across the ray's floor intersection.

@@ -21,7 +21,13 @@ namespace OloEngine
         // BC7: block-compressed RGBA, LINEAR variant deliberately (VT cache
         // texels are transcoded data, not sRGB-authored colour). Populated only
         // GPU-side via image copy — no SetLayerData, no GenerateMipmaps.
-        BC7
+        BC7,
+        // Appended (issue #1721) — 8-bit sRGB-encoded colour with linear alpha.
+        // The bytes uploaded are sRGB; a filtered sample (and the mip chain)
+        // is decoded to linear by the hardware. For sRGB-AUTHORED colour only:
+        // the terrain albedo layers. Uploads like RGBA8 (u8x4). Not a storage
+        // image on either backend (an sRGB format has no imageStore).
+        RGBA8_SRGB
     };
 
     struct Texture2DArraySpecification
@@ -46,6 +52,14 @@ namespace OloEngine
         // address mode the heap mints its sampler from), and only meaningful
         // for colour formats — depth arrays keep their bordered clamp.
         bool RepeatWrap = false;
+
+        // Maximum anisotropic filtering degree (issue #1721). 1 = isotropic,
+        // which is what every array had before the field existed. Both backends
+        // clamp the request to the device maximum, and to 1 where the device
+        // has no anisotropic filtering. Only meaningful for filterable colour
+        // formats with a mip chain — the terrain material layers, which tile
+        // across ground seen at a grazing angle.
+        f32 MaxAnisotropy = 1.0f;
     };
 
     class Texture2DArray : public RefCounted
@@ -70,7 +84,8 @@ namespace OloEngine
 
         // Upload pixel data to a specific layer (for building texture arrays from
         // individual images). Client data is NATIVE per format: RGBA8 = u8x4,
-        // RGBA16F = halves, RGBA32F = f32x4, RGBA32UI = u32x4; width × height
+        // RGBA16F = halves, RGBA32F = f32x4, RGBA32UI = u32x4, RGBA8_SRGB = u8x4
+        // (sRGB-encoded); width × height
         // texels. Depth and block-compressed formats have no upload path here —
         // BC7 layers are populated GPU-side (CopyImageSubDataFull block copy).
         virtual void SetLayerData(u32 layer, const void* data, u32 width, u32 height) = 0;

@@ -1,0 +1,286 @@
+{
+ "Heath": {
+  "asset": "withered_grass",
+  "authors": {
+   "Charlotte Baglioni": "All"
+  },
+  "licence": "CC0 1.0 Universal",
+  "maps": {
+   "arm": {
+    "bytes": 4744452,
+    "md5": "7a3762459017d9cb80cb52401d06381a",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/withered_grass/withered_grass_arm_1k.png"
+   },
+   "diff": {
+    "bytes": 5999305,
+    "md5": "aaf94c41831f1f2e66aafb667bfb5677",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/withered_grass/withered_grass_diff_1k.png"
+   },
+   "disp": {
+    "bytes": 1885120,
+    "md5": "c29d45d78c25aa2bf429f25adb59d924",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/withered_grass/withered_grass_disp_1k.png"
+   },
+   "nor_gl": {
+    "bytes": 6142710,
+    "md5": "1fd7d26d6a6088f1f5a3568462bdd753",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/withered_grass/withered_grass_nor_gl_1k.png"
+   }
+  },
+  "name": "Withered Grass",
+  "page": "https://polyhaven.com/a/withered_grass",
+  "scan_size_mm": [
+   1999.9996423721313,
+   1999.9996423721313
+  ]
+ },
+ "Rock": {
+  "asset": "rock_face_03",
+  "authors": {
+   "Dario Barresi": "Photography",
+   "Rico Cilliers": "Processing"
+  },
+  "licence": "CC0 1.0 Universal",
+  "maps": {
+   "arm": {
+    "bytes": 4398487,
+    "md5": "b6b04489f307e2aa368d3471732db159",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/rock_face_03/rock_face_03_arm_1k.png"
+   },
+   "diff": {
+    "bytes": 5693797,
+    "md5": "9c0e0f8a40d9bde94b4e92fa5574648a",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/rock_face_03/rock_face_03_diff_1k.png"
+   },
+   "disp": {
+    "bytes": 1592817,
+    "md5": "5eb2e547a36e322462da3fba4c6125bb",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/rock_face_03/rock_face_03_disp_1k.png"
+   },
+   "nor_gl": {
+    "bytes": 5841646,
+    "md5": "17a4feb957478ce571e1146c1e278e31",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/rock_face_03/rock_face_03_nor_gl_1k.png"
+   }
+  },
+  "name": "Rock Face 03",
+  "page": "https://polyhaven.com/a/rock_face_03",
+  "scan_size_mm": [
+   2699.9995708465576,
+   2699.9995708465576
+  ]
+ },
+ "RockBedded": {
+  "asset": "cliff_side",
+  "authors": {
+   "Dario Barresi": "Photography",
+   "James Ray Cock": "Photography",
+   "Jenelle van Heerden": "Processing"
+  },
+  "licence": "CC0 1.0 Universal",
+  "maps": {
+   "arm": {
+    "bytes": 3866038,
+    "md5": "a6161479a72655bccb49b2d36b0c31ca",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/cliff_side/cliff_side_arm_1k.png"
+   },
+   "diff": {
+    "bytes": 5608489,
+    "md5": "dcadac50d405f4cca8ea020fe9ccc84f",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/cliff_side/cliff_side_diff_1k.png"
+   },
+   "disp": {
+    "bytes": 1486936,
+    "md5": "ecdbafe9ac0a18d08217385236f70470",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/cliff_side/cliff_side_disp_1k.png"
+   },
+   "nor_gl": {
+    "bytes": 5658685,
+    "md5": "f25f9ba54ba35d00a83367b79e03b7ca",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/cliff_side/cliff_side_nor_gl_1k.png"
+   }
+  },
+  "name": "Cliff Side",
+  "page": "https://polyhaven.com/a/cliff_side",
+  "scan_size_mm": [
+   1830.0000429153442,
+   1830.0000429153442
+  ]
+ },
+ "Sand": {
+  "asset": "sandy_gravel_02",
+  "authors": {
+   "Dario Barresi": "All"
+  },
+  "licence": "CC0 1.0 Universal",
+  "maps": {
+   "arm": {
+    "bytes": 4315669,
+    "md5": "57cfc9860570ac56322266bb0e5682d4",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/sandy_gravel_02/sandy_gravel_02_arm_1k.png"
+   },
+   "diff": {
+    "bytes": 5796237,
+    "md5": "1d769544fc618caf31fad9dcb37352f2",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/sandy_gravel_02/sandy_gravel_02_diff_1k.png"
+   },
+   "disp": {
+    "bytes": 1745447,
+    "md5": "2c33a7d79a3aca74bf8101a6f2b7aa33",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/sandy_gravel_02/sandy_gravel_02_disp_1k.png"
+   },
+   "nor_gl": {
+    "bytes": 5962726,
+    "md5": "ccaa8e41db9f03c9b5a289524d7592c0",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/sandy_gravel_02/sandy_gravel_02_nor_gl_1k.png"
+   }
+  },
+  "name": "Sandy Gravel 02",
+  "page": "https://polyhaven.com/a/sandy_gravel_02",
+  "scan_size_mm": [
+   2529.9999713897705,
+   2529.9999713897705
+  ]
+ },
+ "Scree": {
+  "asset": "gray_rocks",
+  "authors": {
+   "Dimitrios Savva": "All"
+  },
+  "licence": "CC0 1.0 Universal",
+  "maps": {
+   "arm": {
+    "bytes": 4375287,
+    "md5": "7caa305498a72b603a2ca349aae0f753",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/gray_rocks/gray_rocks_arm_1k.png"
+   },
+   "diff": {
+    "bytes": 5862734,
+    "md5": "e30de9e65773d739f72998e9d4267333",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/gray_rocks/gray_rocks_diff_1k.png"
+   },
+   "disp": {
+    "bytes": 1682631,
+    "md5": "45e40a48eab41d5d2a123b3bdf6adbbc",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/gray_rocks/gray_rocks_disp_1k.png"
+   },
+   "nor_gl": {
+    "bytes": 5943135,
+    "md5": "3d1e057a9781bfa3a9e70cb8acbbca3e",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/gray_rocks/gray_rocks_nor_gl_1k.png"
+   }
+  },
+  "name": "Gray Rocks",
+  "page": "https://polyhaven.com/a/gray_rocks",
+  "scan_size_mm": [
+   1799.9995946884155,
+   1799.9995946884155
+  ]
+ },
+ "Seabed": {
+  "asset": "coast_sand_04",
+  "authors": {
+   "Dario Barresi": "Processing",
+   "Rob Tuytel": "Photography, Processing"
+  },
+  "licence": "CC0 1.0 Universal",
+  "maps": {
+   "arm": {
+    "bytes": 4424742,
+    "md5": "f32c612fe76ad1d726d3def70b7d5abb",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/coast_sand_04/coast_sand_04_arm_1k.png"
+   },
+   "diff": {
+    "bytes": 5885324,
+    "md5": "a52b4b75978b22bed54c20fb1e42bdce",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/coast_sand_04/coast_sand_04_diff_1k.png"
+   },
+   "disp": {
+    "bytes": 1723003,
+    "md5": "b394418942fd6f990ae4302bd41fa3fc",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/coast_sand_04/coast_sand_04_disp_1k.png"
+   },
+   "nor_gl": {
+    "bytes": 6014032,
+    "md5": "13f41a719902a64d87f300ac33ad2690",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/coast_sand_04/coast_sand_04_nor_gl_1k.png"
+   }
+  },
+  "name": "Coast Sand 04",
+  "page": "https://polyhaven.com/a/coast_sand_04",
+  "scan_size_mm": [
+   3940.000057220459,
+   3940.000057220459
+  ]
+ },
+ "Shingle": {
+  "asset": "ganges_river_pebbles",
+  "authors": {
+   "Amal Kumar": "All"
+  },
+  "licence": "CC0 1.0 Universal",
+  "maps": {
+   "arm": {
+    "bytes": 4234031,
+    "md5": "659da63bab7f35bc39c6c432cb2d1f8e",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/ganges_river_pebbles/ganges_river_pebbles_arm_1k.png"
+   },
+   "diff": {
+    "bytes": 6496530,
+    "md5": "6d440df5115aff43674c05ae2971bdae",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/ganges_river_pebbles/ganges_river_pebbles_diff_1k.png"
+   },
+   "disp": {
+    "bytes": 1700350,
+    "md5": "704703b5df92446055872fe8df9e2137",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/ganges_river_pebbles/ganges_river_pebbles_disp_1k.png"
+   },
+   "nor_gl": {
+    "bytes": 6758248,
+    "md5": "d934d8d2b84a72d01181e60b0a908b01",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/ganges_river_pebbles/ganges_river_pebbles_nor_gl_1k.png"
+   }
+  },
+  "name": "Ganges River Pebbles",
+  "page": "https://polyhaven.com/a/ganges_river_pebbles",
+  "scan_size_mm": [
+   2159.9998474121094,
+   2159.9998474121094
+  ]
+ },
+ "Turf": {
+  "asset": "sparse_grass",
+  "authors": {
+   "Amal Kumar": "All"
+  },
+  "licence": "CC0 1.0 Universal",
+  "maps": {
+   "arm": {
+    "bytes": 4141772,
+    "md5": "181429c6f06f05cee297939329960b6d",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/sparse_grass/sparse_grass_arm_1k.png"
+   },
+   "diff": {
+    "bytes": 5697636,
+    "md5": "e4c7593acc6bd6b937e43351fadc41aa",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/sparse_grass/sparse_grass_diff_1k.png"
+   },
+   "disp": {
+    "bytes": 1870802,
+    "md5": "1970b1a8fd8a79e80f01c00f3450ae0f",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/sparse_grass/sparse_grass_disp_1k.png"
+   },
+   "nor_gl": {
+    "bytes": 6096327,
+    "md5": "a09e4b0ea1cbec68992cfae5b00c2607",
+    "url": "https://dl.polyhaven.org/file/ph-assets/Textures/png/1k/sparse_grass/sparse_grass_nor_gl_1k.png"
+   }
+  },
+  "name": "Sparse Grass",
+  "page": "https://polyhaven.com/a/sparse_grass",
+  "scan_size_mm": [
+   2000,
+   2000
+  ]
+ }
+}

@@ -106,6 +106,33 @@ namespace OloEngine
                 m_StagedIndices.Add(bottomRight);
             }
         }
+
+        // The shadow levels (TerrainShadowLod): the same grid at a stride of 2,
+        // 4 and 8 quads, indexing the vertices above. Same winding.
+        m_StagedShadowIndices.Reset();
+        m_ShadowLodIndexCounts.Reset();
+        for (u32 level = 1; level < TerrainShadowLod::kLevelCount; ++level)
+        {
+            const u32 stride = 1u << level;
+            const u32 quads = CHUNK_RESOLUTION / stride;
+            for (u32 z = 0; z < quads; ++z)
+            {
+                for (u32 x = 0; x < quads; ++x)
+                {
+                    const u32 topLeft = (z * stride) * vertsPerSide + x * stride;
+                    const u32 topRight = topLeft + stride;
+                    const u32 bottomLeft = ((z + 1) * stride) * vertsPerSide + x * stride;
+                    const u32 bottomRight = bottomLeft + stride;
+                    m_StagedShadowIndices.Add(topLeft);
+                    m_StagedShadowIndices.Add(bottomLeft);
+                    m_StagedShadowIndices.Add(topRight);
+                    m_StagedShadowIndices.Add(topRight);
+                    m_StagedShadowIndices.Add(bottomLeft);
+                    m_StagedShadowIndices.Add(bottomRight);
+                }
+            }
+            m_ShadowLodIndexCounts.Add(quads * quads * 6u);
+        }
     }
 
     void TerrainChunk::UploadToGPU()
@@ -126,10 +153,24 @@ namespace OloEngine
         auto ibo = IndexBuffer::Create(m_StagedIndices.GetData(), static_cast<u32>(m_StagedIndices.Num()));
         m_VAO->SetIndexBuffer(ibo);
 
+        // One vertex array per shadow level, over the vertex buffer above.
+        m_ShadowLodVAOs.Reset();
+        u32 first = 0;
+        for (const u32 count : m_ShadowLodIndexCounts)
+        {
+            auto levelVAO = VertexArray::Create();
+            levelVAO->AddVertexBuffer(vbo);
+            levelVAO->SetIndexBuffer(IndexBuffer::Create(m_StagedShadowIndices.GetData() + first, count));
+            m_ShadowLodVAOs.Add(levelVAO);
+            first += count;
+        }
+
         // Free staging memory
         m_StagedVertices.Reset();
         m_StagedVertices.Shrink();
         m_StagedIndices.Reset();
         m_StagedIndices.Shrink();
+        m_StagedShadowIndices.Reset();
+        m_StagedShadowIndices.Shrink();
     }
 } // namespace OloEngine

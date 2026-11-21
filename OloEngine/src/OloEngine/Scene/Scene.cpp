@@ -133,6 +133,7 @@
 #include "OloEngine/Terrain/TerrainChunk.h"
 #include "OloEngine/Terrain/TerrainChunkManager.h"
 #include "OloEngine/Terrain/TerrainMaterial.h"
+#include "OloEngine/Terrain/TerrainSurfaceShading.h"
 #include "OloEngine/Terrain/TerrainTile.h"
 #include "OloEngine/Terrain/TerrainStreamer.h"
 #include "OloEngine/Scene/ModelImporter.h"
@@ -180,6 +181,7 @@
 #include "OloEngine/Audio/VoiceManager.h"
 #include "OloEngine/Audio/AudioTransform.h"
 #include "OloEngine/Audio/DSP/Spatializer/Spatializer.h"
+#include "OloEngine/Project/ContentPath.h"
 #include "OloEngine/Project/Project.h"
 
 #include <glm/glm.hpp>
@@ -2808,6 +2810,26 @@ namespace OloEngine
             outHeights = { heights.GetData(), static_cast<sizet>(heights.Num()) };
             return true;
         }
+        // The render path's own order (the single-tile rebuild in OnUpdate):
+        // a heightmap file first, then the procedural recipe, then flat. A
+        // terrain that names a file AND keeps ProceduralEnabled set is drawn
+        // from the file, so it must collide with the file.
+        if (!terrain.m_HeightmapPath.empty())
+        {
+            // A heightmap file whose heights the render path has not built (a
+            // dedicated server, a functional test): decoded here with the
+            // decoder the render path uploads from, so both stand on the same
+            // field. An unresolvable or undecodable file is logged by the
+            // resolver or the decoder and is "no heights", never a stand-in.
+            const std::filesystem::path file = ResolveContentPath(terrain.m_HeightmapPath);
+            if (file.empty() || !TerrainData::DecodeHeightmapFile(file.string(), scratch, outResolution))
+            {
+                outResolution = 0;
+                return false;
+            }
+            outHeights = { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
+            return true;
+        }
         if (terrain.m_ProceduralEnabled)
         {
             TerrainGenerator::HeightParams params;
@@ -2824,18 +2846,12 @@ namespace OloEngine
             outHeights = { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
             return true;
         }
-        if (terrain.m_HeightmapPath.empty())
-        {
-            // Flat terrain -- mirrors the render path's CreateFlat(256, 0).
-            outResolution = 256;
-            scratch.Reset();
-            scratch.SetNumZeroed(static_cast<i32>(outResolution * outResolution));
-            outHeights = { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
-            return true;
-        }
-        // A heightmap file whose heights the render path has not built: file
-        // loading is GPU-coupled today.
-        return false;
+        // Flat terrain -- mirrors the render path's CreateFlat(256, 0).
+        outResolution = 256;
+        scratch.Reset();
+        scratch.SetNumZeroed(static_cast<i32>(outResolution * outResolution));
+        outHeights = { scratch.GetData(), static_cast<sizet>(scratch.Num()) };
+        return true;
     }
 
     glm::mat4 Scene::GetWorldTransform(entt::entity entity) const
@@ -8106,10 +8122,11 @@ namespace OloEngine
             TArray<f32> generated;
             if (!Scene::CpuTerrainHeights(terrain, generated, heights, resolution))
             {
-                // Heightmap-file terrain whose CPU heights aren't built yet (headless).
-                // File loading is GPU-coupled today; the render-built TerrainData path
-                // covers editor/runtime. Headless heightmap-file collision is a follow-up.
-                OLO_CORE_WARN("Terrain collision: heightmap-file terrain has no CPU heights yet; skipping collision for entity {0}", (u64)entity.GetUUID());
+                // A streamed terrain was returned above, so this is a heightmap
+                // file that did not resolve or decode; the cause is in the log
+                // line before this one.
+                OLO_CORE_ERROR("Terrain collision: no height field for entity {0} (heightmap '{1}'); it has no collision body",
+                               (u64)entity.GetUUID(), terrain.m_HeightmapPath);
                 return;
             }
 
@@ -13705,6 +13722,7 @@ namespace OloEngine
                     {
                         terrain.m_Material->BuildTextureArrays();
                         terrain.m_Material->LoadSplatmaps();
+                        terrain.m_Material->LoadMacroMap();
                         terrain.m_Streamer->SetMaterial(terrain.m_Material);
                         terrain.m_MaterialNeedsRebuild = false;
                     }
@@ -13737,7 +13755,19 @@ namespace OloEngine
                             terrain.m_TerrainData = Ref<TerrainData>::Create();
                             if (!terrain.m_HeightmapPath.empty())
                             {
-                                terrain.m_TerrainData->LoadFromFile(terrain.m_HeightmapPath);
+                                // A content path (#1496): project-relative
+                                // "Assets/..." or working-directory-relative.
+                                // Handing the stored spelling to the loader read
+                                // a project heightmap against the working
+                                // directory, where it is not. A file that does
+                                // not resolve or decode is logged and leaves
+                                // the terrain with no surface, which is what the
+                                // scene then visibly lacks.
+                                if (const std::filesystem::path file = ResolveContentPath(terrain.m_HeightmapPath);
+                                    !file.empty())
+                                {
+                                    terrain.m_TerrainData->LoadFromFile(file.string());
+                                }
                             }
                             else if (terrain.m_ProceduralEnabled)
                             {
@@ -13807,6 +13837,7 @@ namespace OloEngine
                     {
                         terrain.m_Material->BuildTextureArrays();
                         terrain.m_Material->LoadSplatmaps();
+                        terrain.m_Material->LoadMacroMap();
                         terrain.m_MaterialNeedsRebuild = false;
                         // Every resident VT tile was composited from the OLD layer
                         // arrays. Nothing about a rebuilt material tells the cache
@@ -14355,15 +14386,21 @@ namespace OloEngine
                         // The non-tessellated cull frustum is built PER TILE inside
                         // (from tileModel), so a streamed tile offset by WorldOrigin
                         // is culled against its true position — see below (#613).
+                        // What the shadow casters' level of detail is judged
+                        // by: the size of the main view's own terrain triangles.
+                        const f32 shadowPixelSizePerMetre =
+                            TerrainShadowLod::PixelSizePerMetre(cullViewProjection, static_cast<f32>(m_ViewportHeight));
+                        const f32 shadowTargetTrianglePixels = SanitizedTargetTriangleSize(terrain.m_TargetTriangleSize);
                         auto submitChunkPackets = [&terrain, &transform, &splatmapID, &splatmap1ID,
                                                    &albedoArrayID, &normalArrayID, &armArrayID,
                                                    &hasMaterial, &useTess, &terrainShader, &entityID,
-                                                   &hasActiveShadows, &cullCameraPosition, &cullViewProjection, casterInstanceKey](const TerrainChunkManager& chunkMgr,
-                                                                                                                                   const TerrainData* terrainData,
-                                                                                                                                   const TerrainMaterial* tileMaterial,
-                                                                                                                                   f32 worldSizeX, f32 worldSizeZ,
-                                                                                                                                   f32 heightScale,
-                                                                                                                                   const glm::vec3& tileWorldOrigin)
+                                                   &hasActiveShadows, &cullCameraPosition, &cullViewProjection, casterInstanceKey,
+                                                   shadowPixelSizePerMetre, shadowTargetTrianglePixels](const TerrainChunkManager& chunkMgr,
+                                                                                                        const TerrainData* terrainData,
+                                                                                                        const TerrainMaterial* tileMaterial,
+                                                                                                        f32 worldSizeX, f32 worldSizeZ,
+                                                                                                        f32 heightScale,
+                                                                                                        const glm::vec3& tileWorldOrigin)
                         {
                             if (!chunkMgr.IsBuilt())
                             {
@@ -14445,6 +14482,27 @@ namespace OloEngine
                                 }
                             }
 
+                            // Two-scale layer sampling (issue #1721): on, unless
+                            // this terrain shades through the virtual texture. A
+                            // baked tile has no view distance, and the per-pixel
+                            // fallback of a sector that is not ready yet has to
+                            // keep matching the tiles around it — so the test is
+                            // the terrain's VT SETTING (the condition the update
+                            // pass creates the virtual texture on), not whether
+                            // the cache happens to be ready this frame.
+                            const bool shadesThroughVirtualTexture = terrain.m_VirtualTextureEnabled && !terrain.m_StreamingEnabled;
+                            terrainUBOData.LayerScale = TerrainSurfaceShading::PackLayerScale(!shadesThroughVirtualTexture);
+
+                            // The macro map (issue #1721), from the material the
+                            // layers come from.
+                            RHI::ResourceHandle macroMapID{};
+                            if (effectiveMat)
+                            {
+                                if (const auto macroMap = effectiveMat->GetMacroMap())
+                                    macroMapID = macroMap->GetRHIHandle();
+                            }
+                            terrainUBOData.MacroParams = TerrainSurfaceShading::PackMacroParams(macroMapID.IsValid());
+
                             // Virtual texturing (issue #715). PER TERRAIN, not per
                             // tile: slice 1's virtual image covers one terrain's UV
                             // space, and a streamed terrain's tiles each have their
@@ -14517,7 +14575,7 @@ namespace OloEngine
                                     tileModel, gpuUBO, entityID,
                                     gpuQuadtree->GetDrawArgsHandle(),
                                     gpuQuadtree->GetVisibleNodesHandle(),
-                                    vtBindings);
+                                    vtBindings, macroMapID);
                                 if (packet)
                                     Renderer3D::SubmitPacket(packet);
 
@@ -14548,7 +14606,7 @@ namespace OloEngine
                                         terrainShader,
                                         heightmapID, tileSplatmapID, tileSplatmap1ID,
                                         tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                        tileModel, terrainUBOData, entityID, {}, {}, vtBindings);
+                                        tileModel, terrainUBOData, entityID, {}, {}, vtBindings, macroMapID);
                                     if (packet)
                                         Renderer3D::SubmitPacket(packet);
                                 }
@@ -14572,7 +14630,7 @@ namespace OloEngine
                                         terrainShader,
                                         heightmapID, tileSplatmapID, tileSplatmap1ID,
                                         tileAlbedoArrayID, tileNormalArrayID, tileArmArrayID,
-                                        tileModel, terrainUBOData, entityID, {}, {}, vtBindings);
+                                        tileModel, terrainUBOData, entityID, {}, {}, vtBindings, macroMapID);
                                     if (packet)
                                         Renderer3D::SubmitPacket(packet);
                                 }
@@ -14589,15 +14647,87 @@ namespace OloEngine
                                     for (const auto& selected : chunkMgr.GetSelectedChunks())
                                         shadowLODs.emplace(selected.Chunk, selected.LODData);
                                 }
+                                // A chunk mesh already carries a vertex on every
+                                // height texel (TerrainChunk::Build), so tessellating
+                                // it for a shadow map adds triangles and no shape:
+                                // at the 4x this used to ask for, a 1024 px island
+                                // was 33 million triangles per cascade it fell in,
+                                // and the far cascade of a 600 m shadow range cost
+                                // 6-23 ms of terrain casters alone. Snow is the one
+                                // displacement finer than the height field, so only
+                                // a terrain under displacing snow is subdivided.
+                                const auto& snow = Renderer3D::GetSnowAccumulationSettings();
+                                const bool snowDisplaces = snow.Enabled && std::abs(snow.MaxDepth * snow.DisplacementScale) > 0.0f;
                                 ShaderBindingLayout::TerrainUBO shadowUBO = terrainUBOData;
-                                shadowUBO.TessFactors = glm::vec4(useTess ? 4.0f : 1.0f);
+                                shadowUBO.TessFactors = glm::vec4((useTess && snowDisplaces) ? 4.0f : 1.0f);
                                 shadowUBO.TessFactors2 = glm::vec4(0.0f, useTess ? 0.0f : 1.0f, 0.0f, 1.0f);
                                 const auto sourceRange = terrainData ? terrainData->GetHeightRange() : std::optional<glm::vec2>{ glm::vec2(0.0f, 1.0f) };
                                 const auto heightRange = sourceRange.value_or(glm::vec2(0.0f)) * heightScale;
                                 const f32 minHeight = std::min(heightRange.x, heightRange.y);
                                 const f32 maxHeight = std::max(heightRange.x, heightRange.y);
-                                const auto& snow = Renderer3D::GetSnowAccumulationSettings();
                                 const f32 snowExtent = snow.Enabled ? std::abs(snow.MaxDepth * snow.DisplacementScale) : 0.0f;
+                                // A chunk casts from the coarsest of its meshes
+                                // that is still as fine as the main view draws
+                                // the same ground (TerrainShadowLod, issue
+                                // #1721). Not under the virtual shadow map,
+                                // whose cached pages would keep the level they
+                                // were drawn at as the camera closed in, and not
+                                // under displacing snow, which is finer than the
+                                // height field.
+                                const bool shadowLevels = shadowPixelSizePerMetre > 0.0f && !snowDisplaces &&
+                                                          !Renderer3D::GetShadowMap().IsVirtualShadowMapActive();
+                                const f32 shadowQuadSize =
+                                    std::max(worldSizeX / static_cast<f32>(std::max(chunkMgr.GetNumChunksX(), 1u)),
+                                             worldSizeZ / static_cast<f32>(std::max(chunkMgr.GetNumChunksZ(), 1u))) /
+                                    static_cast<f32>(TerrainChunk::CHUNK_RESOLUTION);
+                                // The main view's quads stop growing at its
+                                // root node's; a caster coarser than that is a
+                                // blunter terrain than the one drawn.
+                                const f32 shadowCoarsestReceiverQuad = TerrainShadowLod::CoarsestReceiverQuad(worldSizeX, worldSizeZ);
+                                // A terrain far enough away that its NEAREST
+                                // point is at the coarsest level has every
+                                // chunk there, and casts from the whole tile as
+                                // one mesh: one draw and one cull in place of
+                                // one per chunk, 256 for a 1024 px map.
+                                //
+                                // Tessellated terrain only. The tile mesh has
+                                // no heights of its own: the evaluation stage
+                                // samples them, filtered to its spacing, which
+                                // is the ground a tessellated main view draws
+                                // at that distance. A terrain drawn without
+                                // tessellation shows every vertex at its exact
+                                // height at any distance, and its chunk casters
+                                // do too (morph 1), so for it the filtered tile
+                                // mesh would be the blunter ground.
+                                bool castFromTileMesh = false;
+                                if (useTess && shadowLevels && sourceRange && chunkMgr.GetShadowTileMesh() && shadowLODs.empty())
+                                {
+                                    const BoundingBox tileBounds =
+                                        BoundingBox(glm::vec3(0.0f, minHeight - snowExtent, 0.0f),
+                                                    glm::vec3(worldSizeX, maxHeight + snowExtent, worldSizeZ))
+                                            .Transform(tileModel);
+                                    const glm::vec3 nearest = glm::clamp(cullCameraPosition, tileBounds.Min, tileBounds.Max);
+                                    if (TerrainShadowLod::Select(glm::distance(cullCameraPosition, nearest), shadowQuadSize,
+                                                                 shadowPixelSizePerMetre, shadowTargetTrianglePixels,
+                                                                 shadowCoarsestReceiverQuad) == TerrainShadowLod::kLevelCount - 1u)
+                                    {
+                                        // A flat grid: its height is always the
+                                        // sampled one (morph 0), one patch per
+                                        // triangle.
+                                        ShaderBindingLayout::TerrainUBO tileUBO = shadowUBO;
+                                        tileUBO.TessFactors = glm::vec4(1.0f);
+                                        tileUBO.TessFactors2 = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                                        const auto handle = chunkMgr.GetShadowTileMesh()->GetRHIHandle();
+                                        const u64 partKey = (static_cast<u64>(handle.Generation) << 32) | handle.Index;
+                                        Renderer3D::AddTerrainShadowCaster(
+                                            handle, chunkMgr.GetShadowTileIndexCount(), 3, tileModel, heightmapID, tileUBO,
+                                            { (casterInstanceKey * 1099511628211ull) ^ partKey, tileBounds,
+                                              terrainData ? terrainData->GetHeightRevision() : 0 });
+                                        castFromTileMesh = true;
+                                    }
+                                }
+                                if (castFromTileMesh)
+                                    shadowChunks.Reset();
                                 for (const auto* chunk : shadowChunks)
                                 {
                                     const auto va = chunk->GetVertexArray();
@@ -14609,18 +14739,37 @@ namespace OloEngine
                                     bounds.Min.y = std::min(bounds.Min.y, minHeight) - snowExtent;
                                     bounds.Max.y = std::max(bounds.Max.y, maxHeight) + snowExtent;
                                     ShaderBindingLayout::TerrainUBO chunkUBO = shadowUBO;
+                                    u32 shadowLevel = 0;
+                                    const BoundingBox worldBounds = bounds.Transform(tileModel);
                                     if (const auto selected = shadowLODs.find(chunk); selected != shadowLODs.end())
                                     {
+                                        // The CPU LOD path: the caster follows
+                                        // the main view's own tessellation.
                                         chunkUBO.TessFactors = selected->second.TessFactors;
                                         chunkUBO.TessFactors2 = selected->second.TessFactors2;
                                         chunkUBO.TessFactors2.w = 1.0f;
                                     }
+                                    else if (shadowLevels)
+                                    {
+                                        const glm::vec3 nearest = glm::clamp(cullCameraPosition, worldBounds.Min, worldBounds.Max);
+                                        shadowLevel = TerrainShadowLod::Select(glm::distance(cullCameraPosition, nearest), shadowQuadSize,
+                                                                               shadowPixelSizePerMetre, shadowTargetTrianglePixels,
+                                                                               shadowCoarsestReceiverQuad);
+                                    }
+                                    else
+                                    {
+                                        // No additional handling required.
+                                    }
+                                    // Keyed on the chunk's own mesh whatever
+                                    // level is drawn, so the caster's identity
+                                    // does not change with the camera.
                                     const auto handle = va->GetRHIHandle();
                                     const u64 partKey = (static_cast<u64>(handle.Generation) << 32) | handle.Index;
                                     const u64 casterKey = (casterInstanceKey * 1099511628211ull) ^ partKey;
-                                    Renderer3D::AddTerrainShadowCaster(va->GetRHIHandle(), chunk->GetIndexCount(), 3,
+                                    Renderer3D::AddTerrainShadowCaster(chunk->GetShadowVertexArray(shadowLevel)->GetRHIHandle(),
+                                                                       chunk->GetShadowIndexCount(shadowLevel), 3,
                                                                        tileModel, heightmapID, chunkUBO,
-                                                                       { casterKey, sourceRange ? bounds.Transform(tileModel) : NoBounds, terrainData ? terrainData->GetHeightRevision() : 0 });
+                                                                       { casterKey, sourceRange ? worldBounds : NoBounds, terrainData ? terrainData->GetHeightRevision() : 0 });
                                 }
                             }
                         };
@@ -14662,8 +14811,21 @@ namespace OloEngine
                     // heightmap chunks above use for u_TerrainParams.w and
                     // u_LayerTilingScales0/1. The voxel draw uploads them itself
                     // rather than inheriting whatever the last chunk left behind.
+                    //
+                    // TilingScale is repeats across the TILE (issue #1721); the
+                    // voxel shaders sample a world position in metres, so they
+                    // are given the tile's size beside it and turn the one into
+                    // repeats per metre along X and along Z
+                    // (include/TerrainVoxelTiling.glsl). A carved cave wall then
+                    // shows a layer at the scale the surface around it does, on
+                    // both axes of a tile that is not square. The tile is the
+                    // one the surface draw is given: a streamed terrain's own
+                    // tile size, not the component's world size.
                     VoxelTerrainSurface voxelSurface;
                     voxelSurface.TriplanarSharpness = kTerrainTriplanarSharpness;
+                    voxelSurface.TileWorldSize = terrain.m_StreamingEnabled
+                                                     ? glm::vec2(terrain.m_TileWorldSize)
+                                                     : glm::vec2(terrain.m_WorldSizeX, terrain.m_WorldSizeZ);
                     if (terrain.m_Material)
                     {
                         const u32 voxelLayerCount = std::min(terrain.m_Material->GetLayerCount(), 8u);

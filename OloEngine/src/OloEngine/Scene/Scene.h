@@ -1202,10 +1202,11 @@ namespace OloEngine
         [[nodiscard]] std::optional<BoneAttachmentResolution> ResolveBoneAttachment(entt::entity entity) const;
 
         // A single-tile terrain's height field on the CPU, without the GPU: the
-        // render-built TerrainData when there is one, else the procedural recipe
-        // generated headless, else flat. `scratch` holds generated heights. False
-        // for a streamed terrain, and for a heightmap file the render path has
-        // not loaded (file loading is GPU-coupled). The physics height field and
+        // render-built TerrainData when there is one, else the heightmap file
+        // decoded on the CPU, else the procedural recipe generated headless, else
+        // flat: the order the render path builds its own field in. `scratch` holds generated or decoded heights. False for a
+        // streamed terrain, and for a heightmap file that does not resolve or
+        // decode (logged). The physics height field and
         // the navmesh bake both read it, so a bake before the first rendered
         // frame (runtime start, a server) still finds the ground (#1559).
         [[nodiscard]] static bool CpuTerrainHeights(const TerrainComponent& terrain, TArray<f32>& scratch,

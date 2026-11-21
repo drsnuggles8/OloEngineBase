@@ -59,6 +59,12 @@ namespace OloEngine
         }
     }
 
+    u32 Renderer3D::GetTerrainShadowCasterCountLastFrame()
+    {
+        const auto shadowPass = s_Data.Pipeline ? s_Data.Pipeline->FrameCorePasses.Shadow : nullptr;
+        return shadowPass ? shadowPass->GetTerrainCasterCountLastFrame() : 0u;
+    }
+
     void Renderer3D::AddVoxelShadowCaster(RHI::ResourceHandle vaoID, u32 indexCount, const glm::mat4& transform,
                                           u32 instanceCount, const ShadowCasterFootprint& footprint)
     {

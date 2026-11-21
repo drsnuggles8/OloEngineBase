@@ -65,7 +65,9 @@ namespace
     //
     // SINCE #880 THE SCRIPT NEEDS A TerrainComponent ON THE ISLAND, not just a
     // transform: it derives each island's coast from IslandFalloffRadius x
-    // WorldSizeX rather than hard-coding a radius. It also needs EVERY island in
+    // WorldSizeX rather than hard-coding a radius. Since #1721 the islands are
+    // height maps and that field is the one tools/drift-islands stamps the
+    // measured coast into; the numbers below are the stamped ones. It also needs EVERY island in
     // its kIslandNames list to exist — resolveIslands() returns nil until they
     // all resolve, so a scene with one island leaves the leg machine permanently
     // un-resolved and every leg advances on the failsafe. That is the shape of
@@ -73,15 +75,15 @@ namespace
     // and it is why the fixture now builds all six rather than the one it cares
     // about.
     constexpr f32 kIslandSize = 420.0f;
-    constexpr f32 kIslandFalloffRadius = 0.30f;
+    constexpr f32 kIslandFalloffRadius = 0.366f;
     constexpr glm::vec3 kIslandOrigin{ -210.0f, -24.0f, 70.0f };
     const glm::vec3 kIslandCentre{ kIslandOrigin.x + kIslandSize * 0.5f, 0.0f,
                                    kIslandOrigin.z + kIslandSize * 0.5f };
 
-    // The script's own radii, derived the way it derives them: the coast is the
-    // midpoint between the falloff radius and the tile's half-width, landfall is
-    // 45 m outside that and departure 135 m outside it. For Ridgeback that is a
-    // ~168 m coast, a ~213 m landfall ring and a ~303 m departure ring.
+    // The script's own radii, derived the way it derives them: the coast is
+    // (falloff radius + 0.5) x half the tile, landfall is 45 m outside that and
+    // departure 135 m outside it. For Ridgeback that is a 182 m coast (its
+    // farthest land), a 227 m landfall ring and a 317 m departure ring.
     constexpr f32 kCoast = (kIslandFalloffRadius + 0.5f) * 0.5f * kIslandSize;
     const glm::vec3 kOffshore{ kIslandCentre.x, 0.0f, kIslandCentre.z - (kCoast + 400.0f) };
     const glm::vec3 kAtIsland{ kIslandCentre.x, 0.0f, kIslandCentre.z - (kCoast + 10.0f) };
@@ -98,11 +100,11 @@ namespace
         f32 FalloffRadius;
     };
     constexpr std::array<OtherIsland, 5> kOtherIslands = { {
-        { "Island - Mesa", { 320.0f, -24.0f, -140.0f }, 360.0f, 0.29f },
-        { "Island - Atoll", { 130.0f, -24.0f, -680.0f }, 400.0f, 0.33f },
-        { "Island - Stacks", { -480.0f, -24.0f, -670.0f }, 300.0f, 0.26f },
-        { "Island - Dunes", { -730.0f, -24.0f, -130.0f }, 380.0f, 0.32f },
-        { "Island - Sisters", { -290.0f, -24.0f, 530.0f }, 260.0f, 0.28f },
+        { "Island - Mesa", { 320.0f, -24.0f, -140.0f }, 360.0f, 0.318f },
+        { "Island - Atoll", { 130.0f, -24.0f, -680.0f }, 400.0f, 0.128f },
+        { "Island - Stacks", { -480.0f, -24.0f, -670.0f }, 300.0f, 0.448f },
+        { "Island - Dunes", { -730.0f, -24.0f, -130.0f }, 380.0f, 0.313f },
+        { "Island - Sisters", { -290.0f, -24.0f, 530.0f }, 260.0f, 0.227f },
     } };
 
     // Coarse steps: nothing here is physics, and the script's slowest constant

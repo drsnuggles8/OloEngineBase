@@ -1,6 +1,8 @@
 #include "OloEnginePCH.h"
 #include "OloEngine/Terrain/TerrainQuadtree.h"
+#include "OloEngine/Terrain/TerrainChunk.h"
 #include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Terrain/TerrainLodMetric.h"
 #include "OloEngine/Renderer/Frustum.h"
 
 #include <glm/gtc/matrix_access.hpp>
@@ -347,24 +349,25 @@ namespace OloEngine
                                                    const glm::mat4& viewProjection,
                                                    f32 viewportHeight) const
     {
-        // Geometric error: proportional to the node's world-space extent
-        // A node covering more terrain has more potential detail to miss
+        // The on-screen size, in pixels, of ONE QUAD of this node: a node is
+        // drawn as a grid of TerrainLodMetric::kNodeQuads quads a side, and
+        // TargetTriangleSize is what those quads should measure
+        // (TerrainLodMetric.h says what comparing the whole node cost).
+        static_assert(TerrainChunk::CHUNK_RESOLUTION == TerrainLodMetric::kNodeQuads,
+                      "a chunk mesh and the LOD metric must agree on a node's quads per edge");
         f32 nodeWorldSizeX = (node.MaxX - node.MinX) * m_WorldSizeX;
         f32 nodeWorldSizeZ = (node.MaxZ - node.MinZ) * m_WorldSizeZ;
-        f32 geometricError = std::max(nodeWorldSizeX, nodeWorldSizeZ);
+        f32 nodeWorldSize = std::max(nodeWorldSizeX, nodeWorldSizeZ);
 
         // Distance from camera to node center
         glm::vec3 nodeCenter = (node.Bounds.Min + node.Bounds.Max) * 0.5f;
         f32 distance = glm::length(cameraPos - nodeCenter);
         distance = std::max(distance, 0.001f); // Avoid division by zero
 
-        // Project geometric error to screen space
-        // screenError = (geometricError / distance) * (viewportHeight / (2 * tan(fov/2)))
-        // We approximate the projection scale from the VP matrix
-        f32 projScale = viewProjection[1][1] * viewportHeight * 0.5f;
-        f32 screenError = (geometricError * projScale) / distance;
-
-        return screenError;
+        // The same scale TerrainGPUQuadtree::Dispatch uploads, so the two
+        // descents cannot disagree by a rounding step.
+        const f32 projScale = TerrainLodMetric::QuadProjectionScale(viewProjection, viewportHeight);
+        return (nodeWorldSize * projScale) / distance;
     }
 
     void TerrainQuadtree::ResolveNeighborLODs()
