@@ -1100,7 +1100,9 @@ def apply_discovery(blocks, model, star):
                 # GOAL_LIFT_MARGIN: `score` rounds to 2 decimals and ties then fall to
                 # Learning/Fun, so an exact lift could still tie and lose.
                 need = trailing - discovery_bonus(d)
-                d["_goal_lift"] = round(need + GOAL_LIFT_MARGIN, 4) if need > -GOAL_LIFT_MARGIN else 0.0
+                # No trailing bonus, nothing to undo: zero discovery adds no margin either.
+                d["_goal_lift"] = (round(need + GOAL_LIFT_MARGIN, 4)
+                                   if trailing > 0 and need > -GOAL_LIFT_MARGIN else 0.0)
 
 
 def is_blocked(d, states):
@@ -2140,6 +2142,15 @@ def discovery_failures():
     if plain != [1, 2] or with_star != [1, 2] or without_star != [2, 1]:
         bad.append(f"goal check: want [1, 2] / [1, 2] / [2, 1] (no discovery / milestone set / "
                    f"none), got {plain} / {with_star} / {without_star}")
+    # Zero discovery everywhere (no history): the goal lift must be zero too, so a goal
+    # issue at 4.00 stays behind a non-goal issue at 4.01, as without discovery.
+    zg = {"capability": 5, "craft": 5, "stability": 2, "decay": 0, "effort": 3,
+          "confidence": 1.0, "_milestone": "Slice"}
+    zn = {"capability": 5, "craft": 5, "stability": 2, "decay": 0, "effort": 3,
+          "confidence": 1.002, "_milestone": ""}
+    apply_discovery([zg, zn], {a: {"factor": 0.0} for a in AREAS}, {"milestone": "Slice", "items": []})
+    if zg.get("_goal_lift", 0) != 0 or _rank_order([(1, zg), (2, zn)]) != [2, 1]:
+        bad.append(f"zero discovery must give no goal lift: lift={zg.get('_goal_lift')}")
     if _tie_case() != [1, 2]:
         bad.append(f"goal lift survives rounding and the Learning tie-break: got {_tie_case()}")
     if expected_yield(1, ["Audio", "Audio", "Core"], {a: {"factor": 30.0 if a == "Audio" else 0.0}
@@ -2236,9 +2247,9 @@ def self_test():
 
 
 # discovery_failures(): one case per row of each table, plus its seven single checks
-# (directory shares, history crediting, staleness, cap, unknown area, goal, goal tie,
+# (directory shares, history crediting, staleness, cap, unknown area, goal, zero-lift, goal tie,
 # repeated area, areas).
-DISCOVERY_SINGLE_CHECKS = 9
+DISCOVERY_SINGLE_CHECKS = 10
 
 
 def self_test_count():
