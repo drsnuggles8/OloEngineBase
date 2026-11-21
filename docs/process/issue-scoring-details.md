@@ -57,30 +57,30 @@ revealed it (#1161).
 ## What the discovery term was set on
 
 The numbers behind the §1 *Discovery* term and §3.10 (#1725), from `issue_scores.py yield` on
-2026-11-21: 101 merged task PRs with the template sections (2026-09-05 to 2026-11-20), 613 found
-bugs, 517 of them with an estimated severity. Each PR is predicted from the PRs merged before it;
+2026-11-21: 101 merged task PRs with the template sections (2026-09-05 to 2026-11-20), 639 found
+bugs, 543 of them with an estimated severity. Each PR is predicted from the PRs merged before it;
 87 had enough history before them to be scored.
 
-- **Yield grows far slower than effort.** Over the 79 PRs with a known effort, yield ≈ 10.4 ×
-  effort^0.36: the mean was 14 severity points at effort 1, 17 at effort 3 and 43 at effort 8.
+- **Yield grows far slower than effort.** Over the 79 PRs with a known effort, yield ≈ 10.2 ×
+  effort^0.39: the mean was 14 severity points at effort 1, 17 at effort 3 and 49 at effort 8.
   Hence `effort^0.5`. A broad item finds more bugs than a small one but fewer per unit of effort,
   so the term does **not** carry broad items up the rank on its own. Whether the large-item slot
   (§3.8) is still needed is the checkpoint question for #1725.
-- **Discovery runs out.** The model's rank correlation with the actual yield was 0.27; effort alone
-  scored 0.13 and the model without staleness 0.16, so the staleness factor carries the skill. The
+- **Discovery runs out.** The model's rank correlation with the actual yield was 0.29; effort alone
+  scored 0.13 and the model without staleness 0.15, so the staleness factor carries the skill. The
   constants were chosen from a grid on this check; uncapping staleness changed it by 0.002. #1694
-  (renderer ownership) found 95 severity points. Across its merge, Renderer's expected yield per
-  `effort^0.5` fell from 11.8 to 10.2, Scene/ECS (7 % of the PR) held at 20.0, and the other
-  areas rose with the level.
+  (renderer ownership) found 113 severity points. Across its merge, Renderer's expected yield per
+  `effort^0.5` fell from 12.0 to 10.2, Scene/ECS (7 % of the PR) held at 20.0 to 20.1, and the
+  other areas rose with the level.
 - **Breadth did not predict yield.** The number of areas a PR mainly worked in (each 20 % or more of
   its directories) had a rank correlation of −0.10 with its yield, so an issue's factor is the mean
   of its areas, not their sum.
 - **The level.** Uncalibrated, the predictions came to about half of what was found; the run-time
-  level (×1.93 on this history) scales them so a prediction reads in found severity points.
+  level (×1.91 on this history) scales them so a prediction reads in found severity points.
 
 **The goal check.** Two synthetic milestones of five open issues each, goal issues at Decay 5, 60
 startable rows. Renderer issues (#654, #1143, #1344, #1353, #1497): with the term and no lift,
-#1344 fell from 7th to 14th, #1143 from 27th to 32nd and #654 from 44th to 47th; with the §3.10 lift
+#1344 fell from 7th to 15th, #1143 from 27th to 32nd and #654 from 44th to 47th; with the §3.10 lift
 none fell (5th, 24th, 41st). Issues in quiet areas (#434, #437, #1046, #1132, #1714): the term alone
 moved none of them down, and the lift moved them up by 3 to 5 places. The constants and the reason
 for each are at the top of the discovery section in `scripts/issue_scores.py`.

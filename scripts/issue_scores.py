@@ -362,7 +362,7 @@ FILED_NUM_RE = re.compile(r"^[-*]\s+(?:\*\*)?\[?#(\d+)")  # `- #N`, `- **#N`, `-
 # on"); `yield` prints the predicted-vs-actual check they must keep passing.
 #
 # Yield grows with effort, but far slower than linearly: a log-log fit over the 79
-# PRs with a known effort gave yield = 10.4 x effort^0.36 (mean 14 at effort 1, 43 at
+# PRs with a known effort gave yield = 10.2 x effort^0.39 (mean 14 at effort 1, 49 at
 # effort 8). Effort enters as effort^EFFORT_EXPONENT, so a large item is not credited
 # eight times a small one's bugs. `yield` prints the current fit beside the constant.
 EFFORT_EXPONENT = 0.5
@@ -376,7 +376,7 @@ STALE_MAX = 2.0           # the most a fresh area's expectation exceeds its meas
 # Expected severity points per point of Stability. An effort-3 issue in an average area
 # expects about 20 points (the history's mean for effort 3 was 17: six bugs of the
 # default severity), which this turns into +2, one rung step on the other axes. Expected
-# bugs are a forecast with a measured rank correlation near 0.27, so they are not
+# bugs are a forecast with a measured rank correlation near 0.29, so they are not
 # credited one-for-one like a known bug.
 DISC_SCALE = 10
 DISC_CAP = 5              # the most Stability discovery can add (§1): never beats a crash bug
@@ -456,6 +456,22 @@ def _bullets(section):
     return out
 
 
+NESTED_BULLET_RE = re.compile(r"^[ \t]+[-*]\s+", re.MULTILINE)
+
+
+def _findings(bullet):
+    """The bugs one top-level bullet reports. A bullet whose first line ends with `:`
+    and carries nested bullets introduces a list (#1694's `fix(instancing), seven
+    items:`), and each nested bullet is one bug. Otherwise nested bullets are details of
+    the one bug (#1694's #1692 entry lists its evidence that way)."""
+    first = bullet.splitlines()[0].rstrip().rstrip("*").rstrip()
+    starts = [m.start() for m in NESTED_BULLET_RE.finditer(bullet)]
+    if not first.endswith(":") or not starts:
+        return [bullet]
+    return [bullet[s:starts[i + 1] if i + 1 < len(starts) else len(bullet)].strip()
+            for i, s in enumerate(starts)]
+
+
 def heuristic_severity(text):
     text = re.sub(r"^[-*]\s+(?:\*\*)?", "", text.strip())  # the bullet marker, so `^docs(` can match
     if SEVERITY_HIGH_RE.search(text):
@@ -481,7 +497,7 @@ def parse_yield(body):
     found, filed = _section(body, FOUND_HEAD_RE), _section(body, FILED_HEAD_RE)
     if found is None and filed is None:
         return None
-    fixed = [(*bullet_severity(b), b) for b in _bullets(found or "")]
+    fixed = [(*bullet_severity(f), f) for b in _bullets(found or "") for f in _findings(b)]
     nums = []
     for b in _bullets(filed or ""):
         m = FILED_NUM_RE.match(b)
@@ -1959,6 +1975,9 @@ PARSE_YIELD_CASES = (
     ("None. in both sections is zero yield, not no data",
      "## Found and fixed\nNone.\n\n## Filed, not fixed\nNone.\n", {"fixed": [], "filed": []}),
     ("a free-form heading is no data", "## Two bugs found on the way\n- a crash\n", None),
+    ("a bullet ending in ':' introduces one bug per nested bullet",
+     "## Found and fixed\n- abc1234 fix(x), two items:\n  - a crash on load\n  - a typo [S1]\n",
+     {"fixed": [(SEVERITY_HIGH, True), (1, False)], "filed": []}),
 )
 
 _DD = dt.date(2026, 10, 1)

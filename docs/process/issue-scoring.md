@@ -224,7 +224,7 @@ The §1 Discovery term enters the score through Stability. How it meets the othe
   discovery in it. The slots themselves are unchanged.
 - **Goal issues are never pushed down by it.** Discovery favours small items, since yield per unit
   of effort falls with effort, and items in quiet areas. Without a correction, a Renderer goal
-  issue sank 7 → 14 under a synthetic milestone
+  issue sank 7 → 15 under a synthetic milestone
   ([details](issue-scoring-details.md#what-the-discovery-term-was-set-on)). So once a north star is set, a goal
   issue is lifted (`disc:goal`) to the largest discovery bonus among the non-goal issues that
   scored at or below it without discovery. No non-goal issue overtakes a goal issue because of
