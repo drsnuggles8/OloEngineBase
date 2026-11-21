@@ -81,8 +81,13 @@ run.** Every camera pose used the shipped `TargetTriangleSize` of 8 px, at which
 a 512-unit terrain splits to leaves from any distance a camera actually sits at,
 so every boundary joined two nodes at the *same* level and the set equality was
 trivially true. The test reported a green crack check while proving nothing. It
-now sweeps `{8, 120, 600, 2400}` px alongside the camera poses, and asserts that
+now sweeps several targets alongside the camera poses, and asserts that
 at least one boundary joined two DIFFERENT levels.
+
+(Why 8 px split to leaves from anywhere was itself a defect, found by #1721: the descent compared a
+whole node's on-screen size with the per-triangle target, and a node is 64 quads a side. With the
+metric per quad, in `TerrainLodMetric.h`, 8 px is a triangle size again and the sweep is
+`{0.125, 2, 8, 32}` px: [generated-island-height-maps-details.md §14](generated-island-height-maps-details.md#14-the-quadtree-split-on-the-wrong-size).)
 
 Generalise this: a test over "adjacent things agree" needs a second assertion
 that the *interesting* adjacency actually occurred. Without it, the first

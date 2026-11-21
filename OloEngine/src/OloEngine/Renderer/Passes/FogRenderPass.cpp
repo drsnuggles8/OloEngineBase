@@ -164,6 +164,23 @@ namespace OloEngine
         if (!sceneDepthTextureID.IsValid())
             return; // Fog pass requires depth.
 
+        // What the water pass captured this frame, or, when it drew no water, the
+        // scene depth itself: the shaders take the nearer of the two, and the
+        // nearer of a depth and itself is that depth. Never the null resource,
+        // whose samples read 0 and would put the whole frame at the near plane,
+        // and not a stand-in texture either: a "white" one is whatever the
+        // renderer's default device made, which is not this pass's device when a
+        // pass suite runs it on its own (the Vulkan fog suite read half the fog).
+        RHI::ResourceHandle waterSurfaceDepthID = Renderer3D::GetWaterSurfaceDepthTextureID();
+        // The capture is the water pass's own texture and lives across frames;
+        // the scene depth is a graph resource of this frame.
+        RHI::HeapSlotLifetime waterSurfaceDepthLifetime = RHI::HeapSlotLifetime::Persistent;
+        if (!waterSurfaceDepthID.IsValid())
+        {
+            waterSurfaceDepthID = sceneDepthTextureID;
+            waterSurfaceDepthLifetime = RHI::HeapSlotLifetime::FrameTransient;
+        }
+
         // Re-bind PostProcessUBO at binding 7 — IBL precompute and bloom-mip
         // updates can transiently claim this slot before the post-process chain.
         if (m_PostProcessUBO)
@@ -209,6 +226,11 @@ namespace OloEngine
         // Full-resolution depth (the shader samples at half-res UV).
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID,
                                         RHI::HeapSlotLifetime::FrameTransient);
+        // The water surface's own depth: water writes none to the scene, so
+        // without this the fog over the sea is the fog of the seabed behind it
+        // (include/FogSurfaceDepth.glsl, issue #1721).
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, waterSurfaceDepthID,
+                                        waterSurfaceDepthLifetime);
 
         // (The old TEX_SHADOW CSM bind is gone: the per-pixel light-shaft
         // lookup moved into FroxelFogScatter.comp with the raymarch (issue
@@ -277,9 +299,12 @@ namespace OloEngine
         const RHI::ResourceHandle fogTexture = fogHalfResFramebuffer->GetColorAttachmentHandle(0);
         context.BindTextureOrHeapOffset(1, fogTexture, RHI::HeapSlotLifetime::FrameTransient);
 
-        // Full-res depth for bilateral edge detection.
+        // Full-res depth for bilateral edge detection, and the water surface
+        // depth the fog was computed against.
         context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_POSTPROCESS_DEPTH, sceneDepthTextureID,
                                         RHI::HeapSlotLifetime::FrameTransient);
+        context.BindTextureOrHeapOffset(ShaderBindingLayout::TEX_UNDERWATER_WATER_DEPTH, waterSurfaceDepthID,
+                                        waterSurfaceDepthLifetime);
 
         {
             const auto va = MeshPrimitives::GetFullscreenTriangle();

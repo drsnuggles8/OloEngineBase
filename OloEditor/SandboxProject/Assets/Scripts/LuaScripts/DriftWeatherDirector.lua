@@ -25,9 +25,9 @@
 --   OnUpdate.
 --
 --   The thresholds are DERIVED per island from its own TerrainComponent — the
---   radial island falloff radius times the tile size is roughly where that
---   island's coast falls, and the two thresholds are margins outside it — so a
---   retuned island needs no edit here, and a seventh one needs only its name in
+--   scene stamper stores each island's coast radius there (see resolveIslands),
+--   and the two thresholds are margins outside it — so a
+--   regenerated island needs no edit here, and a seventh one needs only its name in
 --   kIslandNames. This script used to hard-code one centre and one 240 m
 --   half-size, which is exactly the kind of mirror that goes stale on the first
 --   move.
@@ -103,6 +103,12 @@ local kSeaName       = "Sea"
 -- Margins outside an island's own coast, not absolute distances: the six run
 -- from a 260 m tile to a 420 m one, so one fixed radius would be inshore of the
 -- big islands and half a kilometre off the small ones.
+--
+-- "The coast" is one circle per island: the radius that holds ALL of its land
+-- (tools/drift-islands stamps it), so a boat on any of its shores is inside
+-- the ring. An island that is longer than it is wide therefore has its ring
+-- well off its long sides: sailing at Ridgeback's south shore from the start
+-- line, landfall comes about 115 m off the beach, not 45.
 local kLandfallMargin   = 45.0   -- m outside the coast: close enough to count as arriving
 local kDepartureMargin  = 135.0  -- must clear this again before a leg can end
 local kLegMaxSeconds    = 300.0  -- failsafe only
@@ -309,15 +315,16 @@ end
 -- Resolve every island once: centre from the tile's CORNER origin plus half its
 -- world size, and the two thresholds from that island's own coast.
 --
--- ESTIMATING THE COAST. The radial island falloff (#880) does not put the
--- coastline at IslandFalloffRadius — that is where the mask STARTS falling. It
--- reaches zero at the tile's inscribed circle (half the world size), and land
--- survives anywhere between the two that the noise left high enough. Measured
--- across all six islands, the waterline lands close to the midpoint of that
--- band, and the midpoint estimator is within ~10% on every one of them
--- (Ridgeback 168 predicted / 165-173 measured, Sisters 101 / 97-102, Stacks
--- 114 / 106-113). Both terms are read off the component, so retuning an island
--- in the editor moves the leg thresholds with it.
+-- THE COAST. The islands are height maps (#1721), each an irregular shape inside
+-- its square tile, so nothing on the component measures the coast. The scene
+-- stamper (tools/drift-islands, --stamp-scene) measures it from the map, as the
+-- distance from the tile centre to the island's farthest land, and stores it in
+-- the one authored float this script can read off a terrain:
+--     ShapingIslandFalloffRadius = 2 * coast / WorldSizeX - 0.5
+-- which the line below inverts. (The field is the radial mask's radius on a
+-- procedural terrain; a height map applies no mask, so here it only carries
+-- this.) DriftIslandSplatCoverage.TheLandfallRingHoldsTheIsland fails when a
+-- map's coast moves without a re-stamp.
 --
 -- Returns nil until EVERY named island has resolved, so a partially-loaded
 -- scene retries next tick instead of caching a short list and quietly ending
@@ -427,7 +434,7 @@ function WeatherDirector.OnUpdate(id, dt)
         -- ARMING IS PER ISLAND, and that is the whole reason this loop is not a
         -- nearest-island test. With one island a single flag was enough. With
         -- six, the departure circles OVERLAP on several of the passages between
-        -- them — Ridgeback's reaches 303 m and Sisters' landfall ring is 266 m
+        -- them — Ridgeback's reaches 317 m and Sisters' landfall ring is 272 m
         -- from Ridgeback's centre — so a boat crossing from one to the other is
         -- never outside "the nearest island's" departure radius, never arms, and
         -- every leg on that route advances on the 300 s failsafe instead. Per

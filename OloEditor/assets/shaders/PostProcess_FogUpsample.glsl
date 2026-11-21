@@ -58,10 +58,12 @@ layout(location = 0) in vec2 v_TexCoord;
 #define u_SceneColor OLO_HEAP_TEX_2D(0)
 #define u_FogTexture OLO_HEAP_TEX_2D(1)
 #define u_DepthTexture OLO_HEAP_TEX_2D(19) // TEX_POSTPROCESS_DEPTH
+#define u_WaterSurfaceDepth OLO_HEAP_TEX_2D(32) // TEX_UNDERWATER_WATER_DEPTH
 #else
 layout(binding = 0) uniform sampler2D u_SceneColor;    // Full-res HDR scene
 layout(binding = 1) uniform sampler2D u_FogTexture;    // Half-res fog (RGB=inscatter, A=transmittance)
 layout(binding = 19) uniform sampler2D u_DepthTexture; // Full-res depth
+layout(binding = 32) uniform sampler2D u_WaterSurfaceDepth;
 #endif
 
 // Camera UBO for near/far linearization
@@ -97,6 +99,8 @@ float linearizeDepth(float d)
 // Bilateral upsample: 2×2 bilinear with depth-aware edge rejection.
 // Prevents fog bleeding across depth discontinuities (object silhouettes).
 // ---------------------------------------------------------------------------
+#include "include/FogSurfaceDepth.glsl"
+
 vec4 bilateralUpsampleFog(vec2 uv)
 {
     vec2 fogTexSize = vec2(textureSize(u_FogTexture, 0));
@@ -108,7 +112,7 @@ vec4 bilateralUpsampleFog(vec2 uv)
     vec2 frac = halfResCoord - baseCoord;
 
     // Full-res center depth (reference for edge detection)
-    float centerDepth = linearizeDepth(texture(u_DepthTexture, uv).r);
+    float centerDepth = linearizeDepth(oloFogSurfaceDepth(uv));
 
     // Depth sensitivity — adaptive to view distance
     float depthSigma = 0.02 * abs(centerDepth);
@@ -130,7 +134,7 @@ vec4 bilateralUpsampleFog(vec2 uv)
             vec4 sampleFog = texture(u_FogTexture, sampleUV);
 
             // Depth at the half-res sample location (read from full-res depth)
-            float sampleDepth = linearizeDepth(texture(u_DepthTexture, sampleUV).r);
+            float sampleDepth = linearizeDepth(oloFogSurfaceDepth(sampleUV));
 
             // Bilinear weight
             float bx = (dx == 0) ? (1.0 - frac.x) : frac.x;

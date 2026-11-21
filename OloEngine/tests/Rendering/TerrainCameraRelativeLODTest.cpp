@@ -30,6 +30,7 @@
 #include "OloEngine/Renderer/CameraRelative.h"
 #include "OloEngine/Renderer/Frustum.h"
 #include "OloEngine/Terrain/TerrainData.h"
+#include "OloEngine/Terrain/TerrainLodMetric.h"
 #include "OloEngine/Terrain/TerrainQuadtree.h"
 
 #include "PropertyTests/RenderPropertyTest.h"
@@ -87,7 +88,7 @@ namespace
         f32 distance = glm::length(cameraPos - nodeCenter);
         distance = std::max(distance, 0.001f);
 
-        const f32 projScale = viewProjection[1][1] * viewportHeight * 0.5f;
+        const f32 projScale = TerrainLodMetric::QuadProjectionScale(viewProjection, viewportHeight);
         return (geometricError * projScale) / distance;
     }
 

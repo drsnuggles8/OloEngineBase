@@ -18,8 +18,20 @@ namespace OloEngine
         TerrainData() = default;
         ~TerrainData() override = default;
 
-        // Load heightmap from a 16-bit PNG or raw R32F file
+        // Load a height map from a square 16-bit (or 8-bit) grey image and
+        // upload it. `path` is opened as given: resolve a scene's stored
+        // HeightmapPath with ResolveContentPath first.
         bool LoadFromFile(const std::string& path);
+
+        // The decode half of LoadFromFile, with no TerrainData and no GPU in
+        // the way: heights normalised to [0, 1], row-major, image row 0 first
+        // (the tile's z = 0 edge). A headless runtime builds a height-map
+        // terrain's collision and navmesh from this (Scene::CpuTerrainHeights),
+        // so it must stay the one decoder: the body a server collides with and
+        // the surface a client draws are then the same field. Logs and returns
+        // false for a file that does not decode or is not square.
+        [[nodiscard]] static bool DecodeHeightmapFile(const std::string& path, TArray<f32>& outHeights,
+                                                      u32& outResolution);
 
         // Create a flat heightmap of given resolution
         void CreateFlat(u32 resolution, f32 defaultHeight = 0.0f);
