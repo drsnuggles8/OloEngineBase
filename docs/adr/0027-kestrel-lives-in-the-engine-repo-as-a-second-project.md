@@ -12,8 +12,11 @@ proposes an answer to the question the layout leaves open: where the game's simu
 ## Status
 
 - §1–§3: **Accepted** (the user's decisions on #1727).
-- §4: **Proposed.** The user accepts or changes it in review of the PR that adds this file. Until then
-  [#1731](https://github.com/drsnuggles8/OloEngineBase/issues/1731), which implements it, stays unstarted.
+- §4: **Proposed.** The user accepts or changes it in review of the PR that adds this file.
+  [#1731](https://github.com/drsnuggles8/OloEngineBase/issues/1731), which implements it, carries
+  `blocked_by_external` until then, so the picker cannot start it on a proposal. It sits in the milestone
+  (the simulation issues depend on it) but not on north-star.md's critical-path checklist, which holds
+  only lines the user confirmed. Accepting §4 means removing that field and marking §4 Accepted here.
 
 ## 1. Layout
 
@@ -29,7 +32,8 @@ OloEditor/
   one is data (a `--project` flag, then the editor's recent project, then SandboxProject), never a second
   hard-coded path ([#1730](https://github.com/drsnuggles8/OloEngineBase/issues/1730)).
 - `SandboxProject` stays the engine's project: engine tests and fixtures keep mounting it
-  ([ADR 0003](0003-functional-tests-mount-editor-asset-root.md)). Engine tests never depend on KESTREL content.
+  ([ADR 0003](0003-functional-tests-mount-editor-asset-root.md)). Engine tests (`OloEngine-Tests`) never
+  depend on KESTREL content or code; KESTREL's own tests live in a separate target.
 - Drift content stays in SandboxProject. Drift work waits until after the milestone (north-star.md, *Out of
   scope*).
 
@@ -67,7 +71,7 @@ economy, inside a 16.6 ms frame on a 6-core CPU, next to the renderer. That budg
 |---|---|---|---|
 | Per-tick cost for thousands of agents | native | every component read or write from C# is a Mono internal call; per-entity `OnUpdate` dispatch; GC pressure from per-agent objects | native |
 | Task system and `SystemScheduler` (declared reads/writes, parallel systems) | yes | no: scripts run on the main thread inside the script update | yes |
-| Boundary (§3) | broken: game rules compiled into every engine consumer, SandboxProject and the tests | clean | clean, by directory and target |
+| Boundary (§3) | broken: game rules compiled into every engine consumer, SandboxProject and the tests | clean | clean, by directory and target, provided the module's generated bindings get their own output root (below) |
 | Iteration speed | engine rebuild for each rule change | hot reload | rebuild of one static library and relink |
 | Serialization, inspector, bindings | OloHeaderTool, as today | hand-written C# fields | OloHeaderTool, once it scans the module's headers |
 | New engine work | none | none | a CMake convention, a registration entry point, OloHeaderTool scanning a second source root |
@@ -85,6 +89,12 @@ economy, inside a 16.6 ms frame on a 6-core CPU, next to the renderer. That budg
   (`OLO_GAME_PROJECT`), a `RegisterGameModule` entry point, and OloHeaderTool scanning the module so game
   components get serialization, the inspector and the script bindings the same way engine components do. Static
   linking first; a hot-reloadable DLL is a later, separate decision.
+- C keeps §1's runtime project selection honest with three rules. The `.oloproj` names the module it needs, and
+  a binary built without that module refuses to open the project with an error naming it, instead of loading
+  scenes whose game components it cannot read and would drop on save. OloHeaderTool writes the module's generated
+  sources and its C# bindings (into `Kestrel-Scripting`) to an output root of their own, so no game type enters
+  `OloEngine`'s generated files or `OloEngine-ScriptCore`. KESTREL's tests are a `Kestrel-Tests` target built
+  only when the module is configured.
 
 The game-simulation issues ([#1743](https://github.com/drsnuggles8/OloEngineBase/issues/1743),
 [#1745](https://github.com/drsnuggles8/OloEngineBase/issues/1745),
