@@ -161,6 +161,13 @@ namespace OloEngine
                                                           kMaxSkinProfileSlots * 16,
                       "DeferredControlsData no longer matches the DeferredLightingControls block in "
                       "DeferredLighting.glsl / DeferredLighting_MSAA.glsl");
+
+        // The skin profile table's share of the controls block (#1396): every per-slot
+        // array the deferred path's skin shading reads. The leaf tables are not skin.
+        constexpr u64 kSkinProfileTableBytes =
+            sizeof(DeferredControlsData::SkinProfileParams) + sizeof(DeferredControlsData::SkinTransmitScatter) +
+            sizeof(DeferredControlsData::SkinTransmitScaling) + sizeof(DeferredControlsData::SkinSpecularLobe) +
+            sizeof(DeferredControlsData::SkinOralLane);
     } // namespace
 
     glm::vec4 DeferredLightingPass::AmbientLadderControls()
@@ -354,6 +361,26 @@ namespace OloEngine
         m_IndirectSpecularShaderMSAA = Shader::Create("assets/shaders/DeferredIndirectSpecular_MSAA.glsl");
         m_ControlsUBO = UniformBuffer::Create(sizeof(DeferredControlsData),
                                               ShaderBindingLayout::UBO_DEFERRED_LIGHTING, "DeferredLightingControls");
+
+        // The skin profile table's row in the renderer memory report (#1396). It is a slice
+        // of the controls UBO, so its bytes are inside that buffer's own booking: an alias
+        // row, never capacity of its own. Demanded while the Deferred path shades with at
+        // least one assigned skin slot. Read from current state rather than stamped in
+        // Execute: a pass the graph stops running never clears a stamp.
+        m_MemoryReporter = RendererMemoryReporterHandle([this](TArray<MemoryCapacityRow>& rows)
+                                                        {
+            MemoryCapacityRow row;
+            row.Owner = "SkinProfileTable";
+            row.Category = "Deferred profile table (a slice of the DeferredLightingControls UBO)";
+            row.Lifetime = MemoryLifetime::Persistent;
+            row.Source = MemorySizeSource::FormatEstimate;
+            const u64 bytes = m_ControlsUBO ? kSkinProfileTableBytes : 0u;
+            const bool inUse = Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred &&
+                               Renderer3D::GetSkinProfileTable().GetAssignedSlotCount() > 0u;
+            row.CapacityBytes = bytes;
+            row.ActiveDemandBytes = inUse ? bytes : 0u;
+            row.AliasSavingsBytes = bytes;
+            rows.Add(std::move(row)); });
 
         OLO_CORE_INFO("DeferredLightingPass: Initialized ({}x{}); writes into scene FB color[0]",
                       spec.Width, spec.Height);

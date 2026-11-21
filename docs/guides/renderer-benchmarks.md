@@ -111,7 +111,9 @@ RendererSettings:                # renderer-side state the scene CANNOT serializ
                                  # scene-serialized, so it is pinned here
   # also: DepthPrepassEnabled, OcclusionCullingEnabled, HZBOcclusionCullingEnabled,
   # MSAASampleCount, Upscale (Off | Quality | Balanced | Performance | UltraPerformance),
-  # UpscaleTechnique (Spatial | Temporal), LightingTap (see "Lighting taps")
+  # UpscaleTechnique (Spatial | Temporal), LightingTap (see "Lighting taps"),
+  # VirtualShadowMaps (true | false), SkinDiffusion (true | false: applied over the
+  # scene's SkinDiffusion block, so a skin-off control arm is the same scene file, #1396)
   # (unknown keys are fatal — extend BenchmarkManifest.cpp to add one)
 
 Exposure:

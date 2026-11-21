@@ -6,9 +6,11 @@
 #include "OloEngine/Renderer/RenderGraphTransientPlanner.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
 
+#include <initializer_list>
 #include <limits>
 #include <map>
 #include <set>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 
@@ -160,6 +162,48 @@ namespace OloEngine
             row.ActiveDemandBytes = viewDemand;
             row.AliasSavingsBytes = viewLogical;
             rows.Add(std::move(row));
+        }
+
+        // --- Skin diffusion transients (#1396) -------------------------------------------
+        // The separable blur's scratch target, and the two snapshots it samples (the skin
+        // hand-off lane and depth, copied out of SceneColor because Vulkan cannot sample an
+        // attachment of the framebuffer it draws into). All three are pooled transients, so
+        // their bytes are inside the TransientPool row above; these rows say how much of it
+        // skin is responsible for. Read from the transient plan, the same record the pool
+        // allocates from, so a cached frame reports what it holds, not 0. Capacity is
+        // logical: an aliased slot may also serve another resource outside skin's lifetime.
+        {
+            const auto planBytes = [this](std::initializer_list<std::string_view> names)
+            {
+                u64 bytes = 0;
+                for (const auto& entry : m_TransientPlan)
+                {
+                    if (!entry.WillAllocate)
+                        continue;
+                    for (const std::string_view name : names)
+                    {
+                        if (entry.Resource.ToView() == name)
+                            bytes += entry.EstimatedBytes;
+                    }
+                }
+                return bytes;
+            };
+            const auto skinRow = [&rows](const char* category, const u64 bytes)
+            {
+                MemoryCapacityRow row;
+                row.Owner = "SkinDiffusion";
+                row.Category = category;
+                row.Lifetime = MemoryLifetime::Pooled;
+                row.Source = MemorySizeSource::FormatEstimate;
+                row.IsGpu = true;
+                row.CapacityBytes = bytes;
+                row.ActiveDemandBytes = bytes;
+                rows.Add(std::move(row));
+            };
+            skinRow("Diffusion scratch target (bytes inside the TransientPool row)",
+                    planBytes({ ResourceNames::SkinDiffusionScratch }));
+            skinRow("Diffusion input snapshots, hand-off + depth, shared with snow SSS (bytes inside the TransientPool row)",
+                    planBytes({ "DiffusionHandoffSnapshotBacking", "DiffusionDepthSnapshotBacking" }));
         }
 
         // --- Temporal histories, one row per effect ------------------------------------

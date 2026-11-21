@@ -1,6 +1,7 @@
 #pragma once
 
 #include "OloEngine/Core/Base.h"
+#include "OloEngine/Renderer/Debug/RendererMemoryReport.h"
 #include "OloEngine/Renderer/RenderGraphNode.h"
 #include "OloEngine/Renderer/GBuffer.h"
 #include "OloEngine/Renderer/ResourceHandle.h"
@@ -197,5 +198,9 @@ namespace OloEngine
         f32 m_ScreenAOProjB = 0.0f;
         bool m_ContactShadowInLighting = false;
         Ref<UniformBuffer> m_ContactShadowUBO;
+
+        // The skin profile table's row in the renderer memory report (#1396). Declared
+        // LAST so it unregisters before the members its reporter reads are destroyed.
+        RendererMemoryReporterHandle m_MemoryReporter;
     };
 } // namespace OloEngine
