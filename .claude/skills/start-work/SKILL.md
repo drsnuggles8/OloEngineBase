@@ -65,6 +65,9 @@ unscored, scored rank #2 once it was scored.
 - **Stale `blocked_by`** (blocker closed): drop it with `set N blocked_by=[...]`, and name what
   still holds the issue, if anything. A blocker that merged as a no-go is not a green light.
 - **Unresolvable `blocked_by`**: fix the lookup (`gh auth status`, network, typo) and re-run.
+- **No `areas:`, or an unknown area** (issue-scoring.md §1 *Discovery*): add the areas the work
+  will touch, `set N 'areas=[Renderer,Vulkan/RHI]'` (quoted, so no shell globs the brackets), names from the list `lint` prints. It keeps
+  `scored:`. An issue without areas gets no discovery term and is flagged `areas?` in `rank`.
 - **North-star Decay below 5** (issue-scoring.md §3.9): `set N decay=5`, or `decay=8` when the issue
   blocks the milestone's next demo.
 - **North-star item with no issue**: file and score it in the milestone (`gh issue create

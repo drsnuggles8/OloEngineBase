@@ -9,7 +9,8 @@ plus two personal axes (Learning, Fun) that never enter the arithmetic.
 stored one goes stale the moment an axis changes. Re-sorting by a single axis ("a Stability day") is
 free because the inputs are kept.
 
-The reasons behind each rule are in the [appendix](#appendix--why-the-rules-are-shaped-this-way).
+The reasons behind each rule, with the measurements, are in
+[issue-scoring-details.md](issue-scoring-details.md).
 
 ---
 
@@ -47,6 +48,43 @@ path (ECS, serialization, memory, the cross-binding touch-points) poisons everyt
 |---|---|---|---|---|
 | flat | mild compounding | harder each month / near milestone | metastasizing / blocks imminent demo | hard deadline or runaway debt |
 
+### Discovery: the bugs the work will find (computed, added to Stability)
+
+Much of a task's value is the bugs it finds and fixes on the way (task-loop Phase 1a). No axis
+scores them, so the picker computes a term and adds it to Stability, at most **+5**, to one decimal.
+`rank` shows it as `disc:+N`; `rank --no-discovery` gives the plain order. The term is computed on
+every run and never written into an issue. Its only human input is the issue's **`areas:`** (§2).
+
+1. **Yield history.** Every merged `feature/*` PR whose body has the task-loop sections *Found and
+   fixed* and *Filed, not fixed* (task-loop Phase 4). A PR without them is left out as no data,
+   never counted as zero. Its yield is the sum of its found bugs' severities: a fixed bullet's
+   `[S<n>]` tag, a filed issue's own `stability:`. An untagged bullet (all of them before this rule)
+   gets a keyword guess: crash, corrupt, data loss, leak, race, deadlock and the like → 8; a
+   `docs`/`test` commit, typo, log noise → 1; anything else → 3. A guessed severity is marked
+   **estimated** (`~`) wherever it is shown. A filed issue is credited once, to the first PR that
+   lists it.
+2. **Areas of a PR.** The files its merge commit changed against its first parent, mapped to a
+   fixed area list (`AREAS` in the script): Renderer, Groom, Vulkan/RHI, Scene/ECS, Serialization,
+   Physics, Scripting, Animation, Audio, Networking, Assets, Editor, Gameplay, Core, Tests/CI,
+   Tooling. A PR's share in an area counts distinct directories, not files.
+3. **Effort of a PR.** The summed `effort` of the issues it delivered **and closed**. An issue still
+   open after the PR was delivered in slices, so its effort is the epic's: the unknown case uses 2.
+4. **Per area**, the expected severity points per unit of `effort^0.5`:
+   - *rate*: recent yield per unit of effort in the area (PRs weighted by a 60-day half-life,
+     shrunk toward the all-area rate);
+   - *staleness*: how harvested the area is now compared with when its rate was measured. Each PR's
+     yield depletes its areas, and the depletion halves every 30 days and every 10 later PRs' worth
+     of changes to the area. A sweep drops it; quiet months and new code restore it. Capped at 2,
+     because how much a never-worked area yields is not measured;
+   - *level*: one multiplier, Σ actual / Σ predicted over the history, so a prediction reads in
+     found severity points.
+5. **Per issue**: `effort^0.5 ×` the mean of its areas' factors, then ÷ 10 into Stability points,
+   capped at 5.
+
+`issue_scores.py yield` prints the per-area table and, for every merged PR, the yield predicted
+from the PRs before it against what it found. That check is what the term is held to; see the
+[details](issue-scoring-details.md#what-the-discovery-term-was-set-on) for the numbers it was set on.
+
 ### Effort (the denominator)
 
 Relative story size **including verification cost**. For a rendering change, capturing and inspecting
@@ -80,6 +118,11 @@ where you will not know it looks right until you try).
 - **External blockers**: `blocked_by_external: ["…"]`, free text for what the tech tree cannot name (an
   upstream release, a vendor fix). Blocks unconditionally. Omit the field when there is none. Not a way
   to park unwanted work; fix the axes instead.
+- **Areas**: `areas: ["Renderer", "Vulkan/RHI"]`, the areas the work will touch, from the §1
+  *Discovery* list. The input of the discovery term; `lint` fails on an open issue without it or
+  with an unknown name. `set N areas=[Renderer,Vulkan/RHI]` writes it as a JSON list (an older
+  copy of the script cannot parse bare names) and does not re-stamp `scored:`, because naming
+  areas is not a re-check of the axes.
 - **`scored: YYYY-MM-DD`**: the day the block was last checked against reality. Written by
   `issue_scores.py set`, never by hand (§6.4).
 - **`fun_by`**: the user's ruling on a Fun ≥ 8. `user` = confirmed Pull, `agent` = declined (the Fun
@@ -90,10 +133,11 @@ where you will not know it looks right until you try).
 ## §3 — The picker (`issue_scores.py rank`)
 
 ```
-Score = Confidence × CoD / Effort
+Score = Confidence × (CoD + Discovery) / Effort  (+ Goal lift)
 ```
 
-Rows sort by group first, then within each group by: normal-value before low-value (§3.5), Score
+Discovery is the §1 computed term (0 with `--no-discovery`). The goal lift is 0 except for a goal
+issue once a north star is set (§3.10), and is added to the score itself. Rows sort by group first, then within each group by: normal-value before low-value (§3.5), Score
 descending, Learning, Fun, issue number.
 
 | Group | Rows | Pickable |
@@ -170,6 +214,25 @@ prints `north star: NOT SET`. Once it is set:
 - A `/start-work` batch of two or more gives one slot to the `goal:` candidate. For a single pick,
   `next:` stays the plain rank, which the Decay rung already lifts.
 
+### §3.10 — Discovery in the rank
+
+The §1 Discovery term enters the score through Stability. How it meets the other rules:
+
+- **Low-value floor (§3.5)** tests the plain CoD. Discovery is arithmetic too, and cannot lift an
+  issue over the floor.
+- **Tier-1, large-item and goal slots (§3.7–§3.9)** pick their candidates from the rank with
+  discovery in it. The slots themselves are unchanged.
+- **Goal issues are never pushed down by it.** Discovery favours small items, since yield per unit
+  of effort falls with effort, and items in quiet areas. Without a correction, a Renderer goal
+  issue sank 7 → 15 under a synthetic milestone
+  ([details](issue-scoring-details.md#what-the-discovery-term-was-set-on)). So once a north star is set, a goal
+  issue is lifted (`disc:goal`) to the largest discovery bonus among the non-goal issues that
+  scored at or below it without discovery. No non-goal issue overtakes a goal issue because of
+  discovery, and the lift is no larger, so the goal still works through Decay.
+- **An issue without `areas:`** gets 0 and is flagged `areas?`. `rank` prints what the term was
+  computed from above the table, and a `[!]` line if merge commits are missing from the clone
+  (`git fetch origin`).
+
 ---
 
 ## §4 — Anchors (reference issues)
@@ -201,6 +264,7 @@ fun: 3
 kano: table-stakes
 blocked_by: []
 blocks: []
+areas: ["Renderer", "Vulkan/RHI"]
 scored: 2026-10-15
 ```
 ````
@@ -209,13 +273,21 @@ The repo is public, so Learning and Fun are public too. There is no committed sc
 label. [`scripts/issue_scores.py`](../../scripts/issue_scores.py):
 
 - `rank`: the ranked list, `north star:` / `goal:`, `tier-1:` / `tier-1 slot:`, `large:` /
-  `large slot:` and `next:`. `--freeze` (§7), `--no-low-value-floor` (§3.5).
+  `large slot:` and `next:`. `--freeze` (§7), `--no-low-value-floor` (§3.5), `--no-discovery`
+  (§1 Discovery).
+- `yield`: the discovery term's history. The per-area table, each merged task PR's predicted and
+  actual yield, and the check: rank correlation of predicted against actual, beside effort alone.
+  `--as-of DATE` computes it from the PRs merged before a day; issue metadata (a filed issue's
+  `stability:`, a delivered issue's effort and closing date) is still read as it is today, so a
+  later re-score can change a dated report. `--pr N` lists one PR's bugs and severities.
 - `pulse`: task PRs merged and issues opened/closed over the last 7 and 28 days, open feature PRs,
   and the north-star milestone's progress. `/start-work` prints it in its report.
-- `lint`: everything that makes the backlog lie. Unscored issues, merged work since the score, scores
-  older than 45 days, unconfirmed Pulls, stale and unresolvable blocker edges. Exits non-zero on any.
+- `lint`: everything that makes the backlog lie. Unscored issues, missing or unknown `areas:`, merged
+  work since the score, scores older than 45 days, unconfirmed Pulls, stale and unresolvable blocker
+  edges. Exits non-zero on any.
 - `set N axis=value …`: re-score and stamp `scored:` with today. `set N` with no axes re-stamps after a
-  check found nothing to change. Refuses `fun_by` and `scored`.
+  check found nothing to change. `set N areas=[…]` alone keeps `scored:`. Refuses `fun_by` and
+  `scored`.
 - `pull N…` / `pull --off N…`: the user's Pull confirmation or decline (§3.4).
 - `apply`: one-time migration from a JSON file.
 - `selftest`: the picker's built-in cases. `rank` and `lint` run them first on every invocation.
@@ -251,54 +323,3 @@ label. [`scripts/issue_scores.py`](../../scripts/issue_scores.py):
 `tooling` or `cleanup`, hiding pure feature work. It filters the candidates and leaves the scores
 unchanged. Last used for the 2026-07 feature freeze; opt-in, so plain `rank` is the live lens. A
 freeze-eligible issue that does not show up is mislabelled: fix the label.
-
----
-
-## Appendix — why the rules are shaped this way
-
-**Agent-scored Fun was jumping the queue (§3.4).** On 2026-10-15, five of the seven `Fun ≥ 8` issues
-were 2–10 days old, agent-filed (several from one Planet Zoo 2 capture study) and agent-scored. The
-ranking's top ten had a median age of 4 days, ranks 51–80 a median of 37, and #1615 (wet coats)
-outranked #1584 (Windows CI sccache hitting 0 of 2055 compiles, ~2 h per build). Fun exists to record
-the *user's* motivation; an agent rating its own fresh issue 8 was voting it to the front. Of the seven,
-the user confirmed #1558 and #1559 and declined the rest.
-
-**Old scores were never revisited (§6.4).** Nothing re-scored an issue after the session that filed it,
-and Decay is a fixed number, so an issue's rank kept the enthusiasm of the day it was filed. #1593 sat
-at rank 1 for days after #1599 merged its implementation, and each sweep skipped it by hand. The first
-`lint` run with these checks found 14 issues with merged work since their score (including #1259,
-#1584 and #1594 with delivering PRs merged) and 12 scores older than 45 days. Age alone is not
-demoted: it is evidence the score may be wrong, not that it is.
-
-**Force-multiplier work kept losing to features (§3.7).** start-work's tier list says CI, test infra and
-tooling compound and should come first, but the score had no notion of tier, so a run of groom features
-took every slot. One slot in three is a fixed share that needs no stored state.
-
-**Broad structural work kept losing to small fixes (§3.8).** The PRs merged between 2026-09-15 and
-2026-11-20 fixed about 620 bugs in the PR that found them, and most came from broad items: #1694
-(renderer ownership, #1330) fixed 30 and filed 6, #1698 (multi-view) fixed 17 and filed 7, #1597 (the
-#1259 acceptance scene) fixed 11 and filed 13. A typical small fix found 0–5. No axis counts bugs
-that have not been found yet, and effort divides the score, so the backlog's top was all small items.
-The slot is the stopgap. A computed discovery term with severity weighting is the follow-up (#1725).
-
-**Discovery feeds the area last worked, so the backlog needs a goal (§3.9).** A renderer sweep files
-renderer issues, and the next pick comes from them. On 2026-11-20 most of the 69 open issues were
-renderer work, and the top `large:` candidate was an asset for the skin epic, while the stated aim is a
-game in 2027. The large slot and #1725 make the loop stronger. The north star is the counterweight,
-and it works through the existing Decay rung rather than a new axis.
-
-**Proven-done issues kept ranking (§3, `close-recommended`).** #1687 and #1688 carried "Appears
-resolved by #1694" comments from 2026-11-14 and still printed as rank 1 and 2 on 2026-11-20. Every
-sweep had to skip them by hand. A comment is invisible to the picker; a label is not.
-
-**The low-value floor (§3.5).** A ratio cannot tell "cheap and worth doing" from "cheap and not worth a
-slot". #411 (CoD 5, effort 2 → 1.25) ranked 5th of 13 with no actionable content left; nothing was
-mis-scored. CoD answers "is this worth doing at all", which the ratio cannot.
-
-**Blockers are resolved, not trusted (§3.6).** A written `blocked_by` used to block forever. On
-2026-09-09 the closed #1123 and #1139 held seven issues out of `rank` entirely, including #1126 and
-#1130, the two highest-scoring rows. A blocked row is absent, not low, so nothing in the output
-revealed it (#1161).
-
-**External blockers (§2).** #815 sat at rank 7 with an empty `blocked_by` while waiting on two upstream
-`repowise` fixes, and every sweep re-derived "not that one" by hand.
