@@ -95,8 +95,10 @@ shows. The grass holds still in those frames; it sways in the editor.
   [every-specular-lobe-takes-the-pixel-filter.md](../agent-rules/every-specular-lobe-takes-the-pixel-filter.md).
 - **Every layer is load-bearing**: fur, the coat's self-shadow, dual scattering and the scene
   shadow each switched off change the frame by several times the repeat floor.
-- **The coat stays on the body through every clip** (B3): every clip on runtime frames, read at six
-  held instants from two views. Per body part (the face, each ear, the neck, chest, torso, each leg,
+- **The coat stays on the body through every clip** (B3): every clip played once on runtime frames,
+  drawn every fourth solver step, and read at two held instants from two views of that one
+  playthrough (six instants, each view its own playthrough, before #1659 fitted the case into five
+  Debug minutes). Per body part (the face, each ear, the neck, chest, torso, each leg,
   the tail, found from the skinned body so a sitting dog's legs stay its legs): no part is bald,
   coverage stays steady, nothing floats off the skin past the part's reach. Three planted local
   faults are each caught in their own part while the whole frame's coat moves by under 25%: a

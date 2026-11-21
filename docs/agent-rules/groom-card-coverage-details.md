@@ -128,7 +128,8 @@ coat on cards with the same coat on strands at the same visibility step. `m_Card
 smallest threshold the policy keeps; 0 reads as unset and falls back to 256. Cards cover 0.9-1.6% more
 and send 3.6-4.8% less light, inside the near ladder's 5% step bar.
 
-The split at 22 m, cards over strands in energy (#1533's puppy): 0.960 shipped, 0.953 at kappa 0,
+The split at 22 m is a record, printed only with `OLO_DOG_HANDOVER_SPLIT=1` (since #1659; it is twelve
+more holds). Cards over strands in energy (#1533's puppy): 0.960 shipped, 0.953 at kappa 0,
 0.941 without the sky, 1.110 with single scattering only, 0.985 unlit. Unshadowed, cards are darker
 than their strands in every lobe; the coat's self-shadow darkens the strands more, which offsets most
 of it. The adult dogs (#1558) broke that balance at the 12 mm cell (0.91-0.94); rule 9 is the fix,
