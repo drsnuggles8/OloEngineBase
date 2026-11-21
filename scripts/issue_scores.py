@@ -435,7 +435,10 @@ def merge_paths(oids):
     return out
 
 
-FENCE_BLOCK_RE = re.compile(r"^[ \t]*(```|~~~).*?^[ \t]*\1[^\n]*$", re.MULTILINE | re.DOTALL)
+# A fence closes only on a run of the same character at least as long as its opener
+# (CommonMark), so ```` around an example that itself holds ``` stays one block.
+FENCE_BLOCK_RE = re.compile(r"^[ \t]*(?:(`{3,})|(~{3,}))[^\n]*\n.*?^[ \t]*(?(1)\1`*|\2~*)[ \t]*$",
+                            re.MULTILINE | re.DOTALL)
 
 
 def _section(body, head_re):
@@ -2018,6 +2021,12 @@ PARSE_YIELD_CASES = (
     ("a template quoted in a code block is not the PR's section",
      "```markdown\n## Found and fixed\n- an example [S13]\n```\n\n## Found and fixed\n- a real one [S3]\n",
      {"fixed": [(3, False)], "filed": []}),
+    ("a ```` fence is not closed by the ``` inside it",
+     "````markdown\n```\n## Found and fixed\n- example [S13]\n````\n## Found and fixed\n- real [S3]\n",
+     {"fixed": [(3, False)], "filed": []}),
+    ("an unclosed fence hides nothing after it from a later real section",
+     "## Found and fixed\n- real [S5]\n\n```\nunclosed\n",
+     {"fixed": [(5, False)], "filed": []}),
 )
 
 _DD = dt.date(2026, 10, 1)
