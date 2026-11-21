@@ -672,19 +672,32 @@ namespace OloEngine::GroomCoatShadow
         {
             return measured;
         }
-        if (resolution < measuredResolution)
+        // A finer grid by the cube (each voxel splits into ratio^3, of which a
+        // coat occupies at most all), a coarser one by the square (a coat's
+        // surface; a sparser coat is corrected by UpdateCoatOccupancy).
+        const f64 ratio = static_cast<f64>(resolution) / static_cast<f64>(measuredResolution);
+        const f64 scaled = static_cast<f64>(measured) * (ratio > 1.0 ? ratio * ratio * ratio : ratio * ratio);
+        return static_cast<u32>(std::clamp(std::ceil(scaled), 1.0, static_cast<f64>(std::numeric_limits<u32>::max())));
+    }
+
+    CoatOccupancy UpdateCoatOccupancy(CoatOccupancy measured, u32 observed, u32 resolution, u32 stride,
+                                      u64 keptSegments, f32 segmentsPerOccupiedVoxel) noexcept
+    {
+        if (observed == 0u || resolution == 0u)
         {
-            // A coarser grid's voxels each cover several of the measured grid's,
-            // so the coat occupies at most as many as it did; how many fewer
-            // depends on its shape (a shell by the square, a sparse coat or an
-            // isolated tuft hardly at all), so the safe side is the measurement.
             return measured;
         }
-        // A finer one splits each voxel into ratio^3, of which a coat occupies
-        // at most all.
-        const f64 ratio = static_cast<f64>(resolution) / static_cast<f64>(measuredResolution);
-        const f64 scaled = static_cast<f64>(measured) * ratio * ratio * ratio;
-        return static_cast<u32>(std::clamp(std::ceil(scaled), 1.0, static_cast<f64>(std::numeric_limits<u32>::max())));
+        const u32 estimate = EstimateCoatOccupiedVoxels(measured.Voxels, measured.Resolution, resolution);
+        const bool full = stride <= 1u;
+        const bool undercounted = observed > estimate;
+        const bool denselySampled = std::isfinite(segmentsPerOccupiedVoxel) && segmentsPerOccupiedVoxel > 0.0f &&
+                                    static_cast<f64>(keptSegments) >=
+                                        static_cast<f64>(segmentsPerOccupiedVoxel) * static_cast<f64>(observed);
+        if (measured.Voxels == 0u || full || undercounted || denselySampled)
+        {
+            return { observed, resolution };
+        }
+        return measured;
     }
 
     bool CoatBakeKeepsSegment(u32 index, u32 stride) noexcept

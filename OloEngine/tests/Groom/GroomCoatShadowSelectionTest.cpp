@@ -809,27 +809,27 @@ TEST(GroomCoatShadowSelection, TheRebuildBudgetIsTheFramesAcrossViewsAndAStalled
 }
 
 // A RESOLUTION CHANGE NEEDS NO FULL BAKE (#1594): the occupancy a coat measured
-// at one resolution, scaled to another on the safe side -- the cube for a finer
-// grid, the measurement itself for a coarser one -- so the stride never leaves
-// fewer segments in a voxel than the floor asks, whatever the coat's shape.
+// at one resolution, scaled to another -- the cube for a finer grid (never fewer
+// voxels than the coat has), the square for a coarser one (a coat's surface) --
+// so for a shell or a pelt the stride never leaves fewer segments in a voxel
+// than the floor asks. A sparser coat is the update rule's, below.
 // At a camera cut the full re-measure of a walking coat was a 250 ms bake.
 TEST(GroomCoatShadowSelection, AResolutionChangeEstimatesOccupancyOnTheSafeSide)
 {
     using GroomCoatShadow::EstimateCoatOccupiedVoxels;
     EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 64u, 64u), 5000u) << "the measured resolution is the measurement";
     EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 64u, 128u), 40000u) << "a finer grid scales by the cube";
-    EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 64u, 32u), 5000u) << "a coarser grid keeps the measurement";
+    EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 64u, 32u), 1250u) << "a coarser grid scales by the square";
     EXPECT_EQ(EstimateCoatOccupiedVoxels(0u, 64u, 128u), 0u) << "nothing measured is nothing estimated";
     EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 0u, 128u), 0u);
     EXPECT_GE(EstimateCoatOccupiedVoxels(1u, 128u, 8u), 1u) << "an occupied coat never estimates to empty";
 
     // On the safe side means the stride it gives never exceeds the one a full
-    // bake would measure, for any coat whose occupancy grows with the grid by a
-    // power from 0 (isolated tufts) through 1 (sparse strands) and 2 (a thin
-    // shell) to 3 (a thick pelt), both ways.
+    // bake would measure, for a coat whose occupancy grows with the grid by a
+    // power from 2 (a thin shell) to 3 (a thick pelt), both ways.
     constexpr u64 kSegments = 2'000'000u;
     constexpr f32 kPerVoxel = 8.0f;
-    for (const f64 exponent : { 0.0, 1.0, 2.0, 2.5, 3.0 })
+    for (const f64 exponent : { 2.0, 2.5, 3.0 })
     {
         for (const u32 to : { 16u, 32u, 128u, 256u })
         {
@@ -844,4 +844,46 @@ TEST(GroomCoatShadowSelection, AResolutionChangeEstimatesOccupancyOnTheSafeSide)
                 << ": the estimate took a coarser subset than a full bake would";
         }
     }
+}
+
+// WHAT A BAKE TEACHES THE OCCUPANCY (#1594): a full bake measures it; a subset
+// bake that counted more than the estimate raises it (a subset only
+// undercounts: a sparse coat on a coarser grid, which the square underestimates,
+// is corrected after one bake); one that kept the floor's segments in every
+// voxel it occupied counted the coat and replaces a high estimate, so a walking
+// coat's rebakes after a cut are not each paid at the first bake's cautious
+// stride. Anything else leaves the measurement alone.
+TEST(GroomCoatShadowSelection, ABakeCorrectsTheOccupancyEstimateBothWays)
+{
+    using GroomCoatShadow::CoatOccupancy;
+    using GroomCoatShadow::UpdateCoatOccupancy;
+    constexpr f32 kPerVoxel = 8.0f;
+    const CoatOccupancy measured{ 6000u, 64u };
+
+    // Nothing measured yet: any bake is the measurement.
+    const CoatOccupancy first = UpdateCoatOccupancy({}, 900u, 32u, 4u, 1000u, kPerVoxel);
+    EXPECT_EQ(first.Voxels, 900u);
+    EXPECT_EQ(first.Resolution, 32u);
+    // A full bake always measures.
+    const CoatOccupancy full = UpdateCoatOccupancy(measured, 1400u, 32u, 1u, 50'000u, kPerVoxel);
+    EXPECT_EQ(full.Voxels, 1400u);
+    EXPECT_EQ(full.Resolution, 32u);
+    // A sparse coat on a coarser grid: the square estimates 1500, the subset
+    // already counted 3000 -- the estimate was low, so it is raised.
+    const CoatOccupancy sparse = UpdateCoatOccupancy(measured, 3000u, 32u, 16u, 6000u, kPerVoxel);
+    EXPECT_EQ(sparse.Voxels, 3000u) << "an undercounting estimate was not raised";
+    // A pelt on a coarser grid: the square estimates 1500, a bake that kept 20
+    // segments in each of the 600 voxels it occupied counted the coat -- the
+    // estimate was high, so it is replaced.
+    const CoatOccupancy dense = UpdateCoatOccupancy(measured, 600u, 32u, 3u, 12'000u, kPerVoxel);
+    EXPECT_EQ(dense.Voxels, 600u) << "a densely sampled bake did not correct a high estimate";
+    EXPECT_EQ(dense.Resolution, 32u);
+    // A thinly sampled subset that counted fewer than the estimate proves
+    // nothing: the measurement stands.
+    const CoatOccupancy thin = UpdateCoatOccupancy(measured, 600u, 32u, 40u, 1200u, kPerVoxel);
+    EXPECT_EQ(thin.Voxels, measured.Voxels);
+    EXPECT_EQ(thin.Resolution, measured.Resolution);
+    // A bake that occupied nothing teaches nothing.
+    const CoatOccupancy empty = UpdateCoatOccupancy(measured, 0u, 32u, 1u, 0u, kPerVoxel);
+    EXPECT_EQ(empty.Voxels, measured.Voxels);
 }

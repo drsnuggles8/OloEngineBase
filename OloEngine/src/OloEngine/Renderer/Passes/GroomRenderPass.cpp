@@ -3055,13 +3055,16 @@ namespace OloEngine
                         // undercount the coat, so this moves the estimate toward
                         // the truth and never past it -- a first full bake in a
                         // compact pose is not the coat's measure for good.
-                        if (entry.CoatPoseStride == 1u ||
-                            occupiedVoxels > GroomCoatShadow::EstimateCoatOccupiedVoxels(
-                                                 entry.CoatFullOccupiedVoxels, entry.CoatOccupancyResolution, resolution))
-                        {
-                            entry.CoatFullOccupiedVoxels = occupiedVoxels;
-                            entry.CoatOccupancyResolution = resolution;
-                        }
+                        // Every bake teaches the occupancy (UpdateCoatOccupancy):
+                        // a full bake measures it, and a subset bake that
+                        // counted more than the estimate, or sampled the coat
+                        // densely enough to count it, corrects it -- so only the
+                        // first bake at a new grid takes the estimate's stride.
+                        const GroomCoatShadow::CoatOccupancy learned = GroomCoatShadow::UpdateCoatOccupancy(
+                            { entry.CoatFullOccupiedVoxels, entry.CoatOccupancyResolution }, occupiedVoxels, resolution,
+                            entry.CoatPoseStride, segments.size(), m_CoatRebakePolicy.BakeSegmentsPerOccupiedVoxel);
+                        entry.CoatFullOccupiedVoxels = learned.Voxels;
+                        entry.CoatOccupancyResolution = learned.Resolution;
                         // At another resolution, from the occupancy measured at
                         // the first, scaled on the safe side (#1594), not by a
                         // full bake: that re-measure of a walking coat, forced by
@@ -3081,13 +3084,13 @@ namespace OloEngine
                         // And a later one that occupied more than the estimate --
                         // another coat's width scale, say -- raises it, as a pose
                         // bake's does.
-                        if (restWalk != nullptr &&
-                            (restStride == 1u ||
-                             occupiedVoxels > GroomCoatShadow::EstimateCoatOccupiedVoxels(
-                                                  restWalk->OccupiedVoxels, restWalk->OccupancyResolution, resolution)))
+                        if (restWalk != nullptr)
                         {
-                            restWalk->OccupiedVoxels = occupiedVoxels;
-                            restWalk->OccupancyResolution = resolution;
+                            const GroomCoatShadow::CoatOccupancy learned = GroomCoatShadow::UpdateCoatOccupancy(
+                                { restWalk->OccupiedVoxels, restWalk->OccupancyResolution }, occupiedVoxels, resolution,
+                                restStride, segments.size(), m_CoatRebakePolicy.BakeSegmentsPerOccupiedVoxel);
+                            restWalk->OccupiedVoxels = learned.Voxels;
+                            restWalk->OccupancyResolution = learned.Resolution;
                         }
                         if (restWalk != nullptr)
                         {

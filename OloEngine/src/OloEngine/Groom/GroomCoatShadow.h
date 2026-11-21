@@ -331,14 +331,33 @@ namespace OloEngine
         // The voxels a coat measured to occupy at `measuredResolution` would
         // occupy at `resolution` (#1594), so a resolution change needs no full
         // bake to re-measure: at a camera cut that full bake of a walking coat
-        // was 250 ms of binning in one frame. ON THE SAFE SIDE: a finer grid
-        // splits each voxel into ratio^3, of which a coat occupies at most all,
-        // so it is scaled by the cube; a coarser grid's voxels each cover several
-        // measured ones, so the coat occupies at most as many as measured, and
-        // that is the estimate. Never fewer occupied voxels than the coat has,
-        // so never fewer than CoatBakeSubsetStride's segments per occupied
-        // voxel. Zero when nothing was measured.
+        // was 250 ms of binning in one frame. A finer grid splits each voxel
+        // into ratio^3, of which a coat occupies at most all, so it is scaled by
+        // the cube: never fewer voxels than the coat has. A coarser grid is
+        // scaled by the square, a coat's surface: right for a shell or a pelt,
+        // which shrink by the square or the cube, and an underestimate only for
+        // a sparse coat -- which UpdateCoatOccupancy corrects after the one
+        // bake. Keeping the whole measurement for a coarser grid instead put
+        // nearly every segment of a walking coat into its rebakes after a cut,
+        // 100 ms each, frame after frame. Zero when nothing was measured.
         [[nodiscard]] u32 EstimateCoatOccupiedVoxels(u32 measured, u32 measuredResolution, u32 resolution) noexcept;
+
+        // What a bake teaches the occupancy (#1594). `observed` is the voxels a
+        // bake of `keptSegments` segments at `resolution` occupied; it replaces
+        // the measurement when it is one: a full bake (stride 1), a bake that
+        // occupied MORE than the estimate (a subset only undercounts, so the
+        // estimate was low -- a sparse coat on a coarser grid, a first full
+        // bake in a compact pose, another coat's width scale), or a bake that
+        // kept at least `segmentsPerOccupiedVoxel` segments in each voxel it
+        // occupied, which samples the coat densely enough to count it (an
+        // estimate that was high). Otherwise the measurement stands.
+        struct CoatOccupancy
+        {
+            u32 Voxels = 0;
+            u32 Resolution = 0;
+        };
+        [[nodiscard]] CoatOccupancy UpdateCoatOccupancy(CoatOccupancy measured, u32 observed, u32 resolution, u32 stride,
+                                                        u64 keptSegments, f32 segmentsPerOccupiedVoxel) noexcept;
 
         // Is the segment at `index` in the stride's subset? Always true at a
         // stride of 1.

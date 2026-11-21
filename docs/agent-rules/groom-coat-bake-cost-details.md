@@ -31,14 +31,19 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    bake of an entry is full; it records how many voxels it occupied, and the stride is the one that
    leaves `BakeSegmentsPerOccupiedVoxel` (8) in each on average. At another resolution the
    measurement is scaled, not re-measured (#1594): `EstimateCoatOccupiedVoxels` scales a finer grid
-   by the cube (each voxel splits into ratio^3, of which a coat occupies at most all) and keeps the
-   measurement for a coarser one (its voxels each cover several measured ones, and a sparse coat or
-   an isolated tuft hardly shrinks) -- never fewer voxels than the coat occupies, so never fewer
-   segments in each than the floor, and a coat first baked coarse at range is still not held at
-   that stride up close. A later bake that occupied more voxels than the estimate raises it: a
-   subset can only undercount, so a first full bake in a compact pose, or at another coat's width
-   scale, is not the measure for good. The pose takes the stride for the resolution it will be
-   baked at (`ChooseCoatLod`), so a cut's first bake is not the old grid's subset.
+   by the cube (each voxel splits into ratio^3, of which a coat occupies at most all: never fewer
+   voxels than the coat has, so a coat first baked coarse at range is not held at that stride up
+   close) and a coarser one by the square (a coat's surface: right for a shell or a pelt). Every
+   bake then teaches the measurement (`UpdateCoatOccupancy`): a full bake measures it, a subset
+   that counted more than the estimate raises it (a subset only undercounts -- a sparse coat on a
+   coarser grid, a first full bake in a compact pose, another coat's width scale), and one that kept
+   the floor's segments in every voxel it occupied replaces it. So only the first bake at a new grid
+   takes the estimate's stride. Keeping the whole measurement for a coarser grid instead was tried
+   and measured: a walking coat's forced rebakes after the cut put nearly every segment into the
+   grid, 100 ms a bake for five frames in a row. The pose takes the stride for the resolution it
+   will be baked at (`ChooseCoatLod`), so a cut's first bake is not the old grid's subset.
+   `AResolutionChangeEstimatesOccupancyOnTheSafeSide` and `ABakeCorrectsTheOccupancyEstimateBothWays`
+   pin both halves.
    `AResolutionChangeEstimatesOccupancyOnTheSafeSide` pins it. It used to re-measure with one full
    bake, and live at the acceptance scene's camera cut that full bake of a walking coat -- forced
    by its drift (rule 9) -- was 250 ms of binning in one frame.
