@@ -70,7 +70,7 @@ def load(campaign: Path) -> dict:
     cells: dict[str, list] = defaultdict(list)
     for record in runs:
         if record.get("status") == "counted":
-            cells[record["cell"]].append(run_p50s(Path(record["directory"])))
+            cells[record["cell"]].append(run_p50s(campaign / record["directory"]))  # relative to the campaign
     return cells
 
 

@@ -149,6 +149,12 @@ input — a test that asserted a number would pass with any of the three dropped
 
 ## What it costs
 
+**The budget is in [skin-stack-cost-1396](../testing/evidence/skin-stack-cost-1396/README.md)**:
+Release, RTX 4090, native 1080p, a frame 61–71 % skin, three counted runs per cell on both
+backends. SkinDiffusionPass is 0.17–0.19 ms on OpenGL and 0.31–0.37 ms on Vulkan, its two snapshot
+copies 0.06–0.07 ms, and the run-to-run spread is a few microseconds on OpenGL. The figures below
+are the first spot measurement, kept for the CPU numbers it took.
+
 Measured in the editor on an **RTX 4090**, Debug build, `Benchmark/ReferenceHead.olo` at
 **1411 × 942**, Medium tier (17 taps), one active profile, six consecutive samples:
 
