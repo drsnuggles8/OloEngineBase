@@ -1624,7 +1624,8 @@ namespace OloEngine::Tests
 
         // ADVANCES RUNTIME by `frames` frames of `seconds` each (1/60 s unless
         // a caller asks for longer frames: the guide solver takes its fixed
-        // 1/60 s steps either way, up to its four of catch-up per frame).
+        // steps, 1/120 s for the dog's coat, up to its catch-up per frame --
+        // AdvanceRuntimeStrided raises that catch-up for its long frames).
         MotionResult AdvanceRuntime(u32 frames, f32 seconds = 1.0f / 60.0f)
         {
             MotionResult r;
@@ -1646,20 +1647,38 @@ namespace OloEngine::Tests
         }
 
         // ADVANCES RUNTIME by `frames` sixtieths of a second, drawn every
-        // `stride`th of them (the rest at 1/60 s): the solver takes all its 1/60 s
-        // steps, up to four of them a frame (#1659).
+        // `stride`th of them (the rest at 1/60 s), with the solver taking EVERY
+        // fixed step (#1659). The dog's coat steps at 120 Hz (InstallDog), so a
+        // frame of 4/60 s owes it 8 steps, and the solver drops arrears past its
+        // catch-up (GroomGuideSimulation: 4 steps by default): at the default,
+        // every such frame integrated half its time and the coat lagged the
+        // clip. The catch-up is raised to what a strided frame owes, within the
+        // solver's limit, for these frames only, and the steps taken are
+        // checked against the clip time.
         MotionResult AdvanceRuntimeStrided(u32 frames, u32 stride)
         {
-            // Past the solver's catch-up a strided frame drops simulated time,
-            // and the state is no longer the one these frames claim to reach.
-            // Reported, then held to the catch-up, so the rest of the case still
-            // reads the state the clip time names.
-            const u32 catchUp = std::max(1u, m_Dog.Coat.GetComponent<GroomSimulationComponent>().m_MaxSubsteps);
-            EXPECT_LE(stride, catchUp) << "a frame of " << stride << " solver steps is past the coat's catch-up";
-            stride = std::min(stride, catchUp);
+            auto& sim = m_Dog.Coat.GetComponent<GroomSimulationComponent>();
+            const u32 owed = static_cast<u32>(std::ceil((static_cast<f32>(stride) * sim.m_FixedHz / 60.0f) - 1.0e-3f));
+            EXPECT_LE(owed, GroomSimulationLimits::MaxSubsteps)
+                << "a frame of " << stride << "/60 s owes " << owed << " solver steps, past the solver's limit";
+            stride = owed <= GroomSimulationLimits::MaxSubsteps ? stride : 1u;
+            struct CatchUp
+            {
+                GroomSimulationComponent& Sim;
+                u32 Shipped;
+                ~CatchUp()
+                {
+                    Sim.m_MaxSubsteps = Shipped;
+                }
+            } catchUp{ sim, sim.m_MaxSubsteps };
+            sim.m_MaxSubsteps = std::max(sim.m_MaxSubsteps, std::min(owed, GroomSimulationLimits::MaxSubsteps));
             const u32 strided = stride > 1u ? frames / stride : 0u;
             MotionResult r = AdvanceRuntime(strided, static_cast<f32>(stride) / 60.0f);
             const MotionResult rest = AdvanceRuntime(frames - (strided * stride));
+            const f32 dueSteps = static_cast<f32>(frames) * sim.m_FixedHz / 60.0f;
+            EXPECT_GE(static_cast<f32>(r.SolverSteps + rest.SolverSteps) + 1.0f, dueSteps)
+                << "the solver dropped time: " << (r.SolverSteps + rest.SolverSteps) << " steps over " << frames
+                << "/60 s at " << sim.m_FixedHz << " Hz";
             r.Last = frames > strided * stride ? rest.Last : r.Last;
             r.MinGroomsDeformed = std::min(r.MinGroomsDeformed, rest.MinGroomsDeformed);
             r.MaxBindingRefused = std::max(r.MaxBindingRefused, rest.MaxBindingRefused);
@@ -2374,8 +2393,9 @@ namespace OloEngine::Tests
                 // matrix is still compared across the arms below.
                 if (arms == 0u)
                 {
-                    // Drawn every fourth solver step (#1659): the four arms read
-                    // the state the replay reaches, whatever its pace.
+                    // Drawn every fourth sixtieth of a second, the solver taking
+                    // every step (#1659, AdvanceRuntimeStrided): the four arms
+                    // read the state the replay reaches, whatever its pace.
                     if (playOnFrom == 0u)
                     {
                         (void)StartClip(clip, true, 2u);
@@ -4164,8 +4184,9 @@ namespace OloEngine::Tests
         // (MeasureAttachment pauses the scene, so each view reads the same
         // state); the camera returns to the first view, held, before the clip
         // plays on. Each step advances `framesPerStep` sixtieths of a second in
-        // frames of `stride` sixtieths: the solver takes its 1/60 s steps either
-        // way (AdvanceRuntime), the scene is drawn every `stride`th of them.
+        // frames of `stride` sixtieths: the solver takes every one of its fixed
+        // steps either way (AdvanceRuntimeStrided), the scene is drawn every
+        // `stride`th sixtieth.
         // `settle` and `measured` are each measurement's held frames.
         struct ClipViewsAttachment
         {
@@ -4227,7 +4248,8 @@ namespace OloEngine::Tests
         // dog. They played each clip once per view, drew every 1/60 s, and held
         // 16 + 6 frames at each of 6 instants: 15,000 frames, 10 and 9 minutes
         // in Release. Now one playthrough serves both views, drawn every fourth
-        // solver step, measured at kEveryClipSteps instants on
+        // sixtieth of a second with the solver taking every step, measured at
+        // kEveryClipSteps instants on
         // kEveryClipSettle + kEveryClipMeasured held frames. The held frames
         // are the cost (a Debug held frame is ~0.2 s, a strided runtime frame a
         // quarter of that); coverage is read from the entity ids, which need no
