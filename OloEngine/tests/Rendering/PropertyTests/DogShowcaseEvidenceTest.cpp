@@ -1652,8 +1652,11 @@ namespace OloEngine::Tests
         {
             // Past the solver's catch-up a strided frame drops simulated time,
             // and the state is no longer the one these frames claim to reach.
-            EXPECT_LE(stride, m_Dog.Coat.GetComponent<GroomSimulationComponent>().m_MaxSubsteps)
-                << "a frame of " << stride << " solver steps is past the coat's catch-up";
+            // Reported, then held to the catch-up, so the rest of the case still
+            // reads the state the clip time names.
+            const u32 catchUp = std::max(1u, m_Dog.Coat.GetComponent<GroomSimulationComponent>().m_MaxSubsteps);
+            EXPECT_LE(stride, catchUp) << "a frame of " << stride << " solver steps is past the coat's catch-up";
+            stride = std::min(stride, catchUp);
             const u32 strided = stride > 1u ? frames / stride : 0u;
             MotionResult r = AdvanceRuntime(strided, static_cast<f32>(stride) / 60.0f);
             const MotionResult rest = AdvanceRuntime(frames - (strided * stride));
@@ -2701,8 +2704,10 @@ namespace OloEngine::Tests
                     u32 Depth;
                     f32 Gate; // the far side's across^2; negative for a near side, visited unconditionally
                 };
-                // A balanced tree of n points is ~log2(n) deep, and each level
-                // leaves at most one far side waiting: 64 is any mesh's.
+                // Every range is split at its middle INDEX, whatever the points
+                // hold, so a u32 count is at most 32 levels deep, and each level
+                // leaves at most one far side waiting below its near side: the
+                // stack never holds more than about 66.
                 std::array<Range, 128> stack;
                 u32 top = 0;
                 u32 best = ~0u;
@@ -6763,9 +6768,9 @@ namespace OloEngine::Tests
     // the same step taken where nothing changed (JudgeDolly).
     //
     // THE CARD HAND-OVER IS PAST 15 m at this resolution, so the 0.6-15 m dolly
-    // never reaches it; an EXTENDED dolly, 15-45 m and back, is recorded and
-    // judged separately and says where it hands over in each direction. And
-    // the negative control: the same 0.6-15 m dolly with the width
+    // never reaches it: TheCardHandOverStepsTheCoatWithinTheNearLaddersBar
+    // holds it at 17-27 m, and since #1659 no case judges the coat past 27 m
+    // (see the cut below). And the negative control: the same 0.6-15 m dolly with the width
     // compensation capped at 1 (the strands thin with no compensation) must be
     // caught by the same judge.
     // =========================================================================
@@ -6802,9 +6807,12 @@ namespace OloEngine::Tests
         //     where the drawn strands change, against one quiet pair; it was
         //     held at all eight changes and three quiet pairs. The inbound
         //     changes and the simulation-only ones stay judged by the dolly.
-        //   - the EXTENDED 15-45 m dolly. Its 25-80 px dog left the card
-        //     hand-over undecided at this resolution;
-        //     TheCardHandOverStepsTheCoatWithinTheNearLaddersBar holds it exactly.
+        //   - the EXTENDED 15-45 m dolly, which judged past B7's 15 m (its last
+        //     run before the cut: 0 failing, 0 undecided, the simulation tier
+        //     changing at 27.6 m and the visibility tier at 41 m). The card
+        //     hand-over it crossed is held at 17-27 m by
+        //     TheCardHandOverStepsTheCoatWithinTheNearLaddersBar; the far tiers
+        //     past 27 m are judged by no case now. That is the coverage given up.
         const DollyPath out{ 0.6f, 15.0f, 32u };
         const auto record = [&](const DollyPath& path, bool lod, f32 maxWidthCompensation, const Dolly* tilesOf = nullptr)
         {
@@ -6986,7 +6994,8 @@ namespace OloEngine::Tests
             EXPECT_FALSE(relocated.Failures.empty()) << "the held spatial step did not catch a tuft moved across the change";
         }
         // Past 15 m, where the cards take over, is held, not dollied:
-        // TheCardHandOverStepsTheCoatWithinTheNearLaddersBar (see the cut above).
+        // TheCardHandOverStepsTheCoatWithinTheNearLaddersBar at 17-27 m. Past
+        // 27 m nothing judges the coat (see the cut above).
     }
 
     // =========================================================================

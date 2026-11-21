@@ -129,7 +129,9 @@ shows. The grass holds still in those frames; it sways in the editor.
   are recorded). Since #1628 a visibility halving cross-fades like the card hand-over, and the
   worst step at any change is 0.7% in coverage and in energy, from 1.9% and 2.1%. Removing the width
   compensation must fail the same judge. The card hand-over is past 15 m (out at about 22.5 m, in
-  at about 16 m) and gets its own dolly, 15 to 45 m.
+  at about 16 m) and is held at 17-27 m by `TheCardHandOverStepsTheCoatWithinTheNearLaddersBar`.
+  Since #1659 no case judges the coat past 27 m: the 15-45 m dolly that did was cut to fit the
+  Debug budget.
 - **The rest bake shadows the moving coat as the pose bake does**: see
   [groom-coat-rest-bake.md](../agent-rules/groom-coat-rest-bake.md).
 
