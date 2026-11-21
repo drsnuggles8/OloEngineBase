@@ -506,7 +506,12 @@ def _coerce(v):
         # used to raise JSONDecodeError and take `rank` and `lint` down for the whole backlog.
         # Only bare tokens are rewritten; `#N` inside a JSON string (a blocked_by_external
         # reason) is left as written.
-        return json.loads(re.sub(r'"(?:\\.|[^"\\])*"|#(\d+)', lambda m: m.group(1) or m.group(0), v))
+        try:
+            return json.loads(re.sub(r'"(?:\\.|[^"\\])*"|#(\d+)', lambda m: m.group(1) or m.group(0), v))
+        except ValueError:
+            # A list of bare names (`[Renderer, Vulkan/RHI]`), as people write one. json.loads
+            # raised on it, and one such block took `rank` and `lint` down for every issue.
+            return [x.strip().strip('"').strip("'") for x in v.strip("[]").split(",") if x.strip()]
     try:
         return int(v)
     except ValueError:
