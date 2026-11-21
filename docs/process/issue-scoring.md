@@ -100,11 +100,16 @@ descending, Learning, Fun, issue number.
 |---|---|---|
 | 0 | Pull-override (§3.4) | yes |
 | 1 | startable | yes |
-| 2 | needs triage: work merged since the last score (§6.4) | no, triage first |
+| 2 | needs triage: work merged since the last score (§6.4), or labelled `close-recommended` | no, triage first / the user closes it |
 | 3 | blocked (§3.6) | no |
 
-`next:` is the first row of group 0 or 1, unless the Tier-1 slot is due (§3.7); it says why when it
-departs from the printed order.
+`next:` is the first row of group 0 or 1, unless the Tier-1 slot (§3.7) or the large-item slot
+(§3.8) is due; it says why when it departs from the printed order.
+
+**`close-recommended`** is the label a sweep adds next to its evidence comment when it proves an
+open issue done (start-work §2b). The row is flagged `close?`, sorts into group 2 and never becomes
+`next:`. `lint` lists these issues as waiting for the user, which does not fail `lint`. The user closes
+the issue, or removes the label if the evidence is wrong.
 
 ### §3.4 — Pull-override
 
@@ -135,6 +140,35 @@ marked with the `tooling` label (`ci-nightly-red` also counts). If none of the l
 `next:` becomes the top startable Tier-1 row. `rank` prints the `tier-1:` candidate and the slot state
 every run. If the PR history cannot be read it says so and `next:` follows the plain order. A
 `/start-work` batch of two or more always gives one slot to Tier 1.
+
+### §3.8 — Large-item slot
+
+A large item is an issue with `effort ≥ 5`. Effort divides the score, so a large item never reaches
+the top of the rank on its own, yet broad structural work finds and fixes the most latent bugs. The
+slot is **due** when none of the last **3** started tasks closed a large issue **and** no open
+`feature/*` PR closes one. A large item takes a week or more, so one still in review keeps the slot
+filled while small tasks start beside it. `rank` prints the `large:` candidate (the top startable
+large row) and the slot state every run. When the slot is due and the Tier-1 slot is not, `next:`
+becomes the `large:` row. When both are due, Tier 1 takes the single pick and the large slot stays
+due for the next one. A `/start-work` batch of two or more gives one slot to the `large:` candidate
+while the slot is due. The script cannot see a worktree that has no PR yet. A live worktree whose
+HANDOVER names a large issue counts as in flight; the sweep checks for one.
+
+### §3.9 — North star
+
+[north-star.md](north-star.md) states the project goal and names the GitHub milestone that holds its
+critical path. Only the user sets it. While `milestone:` is empty, nothing below applies and `rank`
+prints `north star: NOT SET`. Once it is set:
+
+- An issue in the milestone is a **goal** issue, flagged `goal`. `rank` prints the top startable one
+  as `goal:`, plus the milestone's open, startable and unfiled counts.
+- A goal issue scores **Decay ≥ 5**, the §1 "near milestone" rung (8 if it blocks the milestone's
+  next demo). `lint` fails on one below it. That is the whole effect on the score: the goal works
+  through the existing Decay axis, so there is still one queue.
+- The north star's *Critical path* checklist lists what the milestone cannot ship without. `lint`
+  fails on an unticked item with no `#N`: the goal must be filed to steer anything.
+- A `/start-work` batch of two or more gives one slot to the `goal:` candidate. For a single pick,
+  `next:` stays the plain rank, which the Decay rung already lifts.
 
 ---
 
@@ -174,8 +208,10 @@ scored: 2026-10-15
 The repo is public, so Learning and Fun are public too. There is no committed scores file and no tier
 label. [`scripts/issue_scores.py`](../../scripts/issue_scores.py):
 
-- `rank`: the ranked list, `tier-1:` / `tier-1 slot:` and `next:`. `--freeze` (§7),
-  `--no-low-value-floor` (§3.5).
+- `rank`: the ranked list, `north star:` / `goal:`, `tier-1:` / `tier-1 slot:`, `large:` /
+  `large slot:` and `next:`. `--freeze` (§7), `--no-low-value-floor` (§3.5).
+- `pulse`: task PRs merged and issues opened/closed over the last 7 and 28 days, open feature PRs,
+  and the north-star milestone's progress. `/start-work` prints it in its report.
 - `lint`: everything that makes the backlog lie. Unscored issues, merged work since the score, scores
   older than 45 days, unconfirmed Pulls, stale and unresolvable blocker edges. Exits non-zero on any.
 - `set N axis=value …`: re-score and stamp `scored:` with today. `set N` with no axes re-stamps after a
@@ -237,6 +273,23 @@ demoted: it is evidence the score may be wrong, not that it is.
 **Force-multiplier work kept losing to features (§3.7).** start-work's tier list says CI, test infra and
 tooling compound and should come first, but the score had no notion of tier, so a run of groom features
 took every slot. One slot in three is a fixed share that needs no stored state.
+
+**Broad structural work kept losing to small fixes (§3.8).** The PRs merged between 2026-09-15 and
+2026-11-20 fixed about 620 bugs in the PR that found them, and most came from broad items: #1694
+(renderer ownership, #1330) fixed 30 and filed 6, #1698 (multi-view) fixed 17 and filed 7, #1597 (the
+#1259 acceptance scene) fixed 11 and filed 13. A typical small fix found 0–5. No axis counts bugs
+that have not been found yet, and effort divides the score, so the backlog's top was all small items.
+The slot is the stopgap. A computed discovery term with severity weighting is the follow-up (#1725).
+
+**Discovery feeds the area last worked, so the backlog needs a goal (§3.9).** A renderer sweep files
+renderer issues, and the next pick comes from them. On 2026-11-20 most of the 69 open issues were
+renderer work, and the top `large:` candidate was an asset for the skin epic, while the stated aim is a
+game in 2027. The large slot and #1725 make the loop stronger. The north star is the counterweight,
+and it works through the existing Decay rung rather than a new axis.
+
+**Proven-done issues kept ranking (§3, `close-recommended`).** #1687 and #1688 carried "Appears
+resolved by #1694" comments from 2026-11-14 and still printed as rank 1 and 2 on 2026-11-20. Every
+sweep had to skip them by hand. A comment is invisible to the picker; a label is not.
 
 **The low-value floor (§3.5).** A ratio cannot tell "cheap and worth doing" from "cheap and not worth a
 slot". #411 (CoD 5, effort 2 → 1.25) ranked 5th of 13 with no actionable content left; nothing was
