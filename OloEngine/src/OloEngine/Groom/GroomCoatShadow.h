@@ -347,10 +347,13 @@ namespace OloEngine
         // the measurement when it is one: a full bake (stride 1), a bake that
         // occupied MORE than the estimate (a subset only undercounts, so the
         // estimate was low -- a sparse coat on a coarser grid, a first full
-        // bake in a compact pose, another coat's width scale), or a bake that
-        // kept at least `segmentsPerOccupiedVoxel` segments in each voxel it
-        // occupied, which samples the coat densely enough to count it (an
-        // estimate that was high). Otherwise the measurement stands.
+        // bake in a compact pose, another coat's width scale), or -- only when
+        // the estimate was scaled from another grid -- a bake that kept at least
+        // `segmentsPerOccupiedVoxel` segments in each voxel it occupied, which
+        // samples the coat densely enough to count it (an estimate that was
+        // high). At the measurement's own grid a subset's count only undercounts
+        // it, and adopting it would shrink the occupancy bake after bake.
+        // Otherwise the measurement stands.
         struct CoatOccupancy
         {
             u32 Voxels = 0;

@@ -37,16 +37,17 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    bake then teaches the measurement (`UpdateCoatOccupancy`): a full bake measures it, a subset
    that counted more than the estimate raises it (a subset only undercounts -- a sparse coat on a
    coarser grid, a first full bake in a compact pose, another coat's width scale), and one that kept
-   the floor's segments in every voxel it occupied replaces it. So only the first bake at a new grid
-   takes the estimate's stride. Keeping the whole measurement for a coarser grid instead was tried
+   the floor's segments in every voxel it occupied replaces an estimate scaled from another grid --
+   never a measurement at its own grid, which a subset only undercounts: adopting that shrinks the
+   occupancy bake after bake, grows the stride, and rebakes a still coat on a different subset every
+   frame. So only the first bake at a new grid takes the estimate's stride. Keeping the whole measurement for a coarser grid instead was tried
    and measured: a walking coat's forced rebakes after the cut put nearly every segment into the
    grid, 100 ms a bake for five frames in a row. The pose takes the stride for the resolution it
    will be baked at (`ChooseCoatLod`), so a cut's first bake is not the old grid's subset.
    `AResolutionChangeEstimatesOccupancyOnTheSafeSide` and `ABakeCorrectsTheOccupancyEstimateBothWays`
-   pin both halves.
-   `AResolutionChangeEstimatesOccupancyOnTheSafeSide` pins it. It used to re-measure with one full
-   bake, and live at the acceptance scene's camera cut that full bake of a walking coat -- forced
-   by its drift (rule 9) -- was 250 ms of binning in one frame.
+   pin both halves. It used to re-measure with one full bake, and live at the acceptance scene's
+   camera cut that full bake of a walking coat -- forced by its drift (rule 9) -- was 250 ms of
+   binning in one frame.
 
 5. **A ring slot may be rewritten in place only when no unsubmitted recording can read it.**
    `BakeCoatVolume` never rewrites a slot bound on this tick or the one before (a split-screen frame

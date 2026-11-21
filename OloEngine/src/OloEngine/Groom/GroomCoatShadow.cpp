@@ -693,7 +693,13 @@ namespace OloEngine::GroomCoatShadow
         const bool denselySampled = std::isfinite(segmentsPerOccupiedVoxel) && segmentsPerOccupiedVoxel > 0.0f &&
                                     static_cast<f64>(keptSegments) >=
                                         static_cast<f64>(segmentsPerOccupiedVoxel) * static_cast<f64>(observed);
-        if (measured.Voxels == 0u || full || undercounted || denselySampled)
+        // A dense count replaces only an estimate SCALED FROM ANOTHER GRID: at
+        // the grid it was measured on, a subset's count is the measurement
+        // undercounted, and adopting it shrank the occupancy, grew the stride,
+        // rebaked a different subset and shrank it again -- a coat whose volume
+        // changed every frame while nothing moved.
+        const bool scaled = measured.Resolution != resolution;
+        if (measured.Voxels == 0u || full || undercounted || (scaled && denselySampled))
         {
             return { observed, resolution };
         }

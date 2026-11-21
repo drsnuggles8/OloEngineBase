@@ -883,6 +883,15 @@ TEST(GroomCoatShadowSelection, ABakeCorrectsTheOccupancyEstimateBothWays)
     const CoatOccupancy thin = UpdateCoatOccupancy(measured, 600u, 32u, 40u, 1200u, kPerVoxel);
     EXPECT_EQ(thin.Voxels, measured.Voxels);
     EXPECT_EQ(thin.Resolution, measured.Resolution);
+    // At the measurement's own grid a dense subset only undercounts it: it must
+    // not replace it, or the occupancy shrinks, the stride grows and every
+    // frame rebakes a different subset of a coat that is not moving.
+    CoatOccupancy settled{ 6000u, 64u };
+    for (u32 bake = 0; bake < 8u; ++bake)
+    {
+        settled = UpdateCoatOccupancy(settled, 5200u, 64u, 3u, 60'000u, kPerVoxel);
+    }
+    EXPECT_EQ(settled.Voxels, 6000u) << "repeated subset bakes at the measured grid shrank the measurement";
     // A bake that occupied nothing teaches nothing.
     const CoatOccupancy empty = UpdateCoatOccupancy(measured, 0u, 32u, 1u, 0u, kPerVoxel);
     EXPECT_EQ(empty.Voxels, measured.Voxels);
