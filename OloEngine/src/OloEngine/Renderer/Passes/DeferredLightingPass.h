@@ -198,6 +198,8 @@ namespace OloEngine
         f32 m_ScreenAOProjB = 0.0f;
         bool m_ContactShadowInLighting = false;
         Ref<UniformBuffer> m_ContactShadowUBO;
+        // Physical frame serial of the last fill with assigned skin slots; 0 = none.
+        u64 m_SkinTableFillSerial = 0;
 
         // The skin profile table's row in the renderer memory report (#1396). Declared
         // LAST so it unregisters before the members its reporter reads are destroyed.

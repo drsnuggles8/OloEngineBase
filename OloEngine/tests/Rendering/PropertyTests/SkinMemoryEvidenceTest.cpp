@@ -183,6 +183,7 @@ namespace OloEngine::Tests
             Renderer3D::GetSkinDiffusionSettings() = SkinDiffusionSettings{};
             Renderer3D::GetPostProcessSettings().Upscale = UpscaleMode::Off;
             Renderer3D::GetRendererSettings().Deferred.MSAASampleCount = 1u;
+            Renderer3D::GetSnowSettings() = SnowSettings{};
             Renderer3D::GetSkinProfileTable().Reset();
             RendererAttachedTest::TearDown();
             if (m_Saved)
@@ -259,6 +260,24 @@ namespace OloEngine::Tests
             EXPECT_EQ(rows.UboDemand, 0u);
             EXPECT_EQ(rows.TableDemand, 0u);
         }
+    }
+
+    // Snow's SSS blur reads the same two snapshots. With snow on and no skin they are
+    // allocated for snow, and the skin rows must not claim them.
+    TEST_F(SkinMemoryEvidence, SnowAloneAllocatesTheSnapshotsWithoutBookingThemToSkin)
+    {
+        OLO_ENSURE_GPU_OR_SKIP();
+        SetSkin(false);
+        const SkinRows bare = ReadSkinRows(RenderCell(RenderingPath::Deferred, "SkinMemoryOff", "Deferred_NoSnow"));
+        Renderer3D::GetSnowSettings().Enabled = true;
+        Renderer3D::GetSnowSettings().SSSBlurEnabled = true;
+        const SkinRows snow = ReadSkinRows(RenderCell(RenderingPath::Deferred, "SkinMemoryOff", "Deferred_Snow"));
+
+        // Non-vacuity: snow's blur claimed the snapshots, so the pool demanded more.
+        EXPECT_GE(snow.PoolDemand, bare.PoolDemand + kPixels * (kRgba16fBytes + kD24S8Bytes))
+            << "snow's SSS did not allocate the snapshots; this test measures nothing";
+        EXPECT_EQ(snow.Scratch, 0u);
+        EXPECT_EQ(snow.Snapshots, 0u) << "snow's snapshots were booked to skin";
     }
 
     // The snapshots copy the RESOLVED scene and the scratch is single-sample, so MSAA

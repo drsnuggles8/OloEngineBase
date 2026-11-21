@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import subprocess
 import sys
 from pathlib import Path
 
@@ -206,10 +205,16 @@ def cameras() -> list[dict]:
     ]
 
 
+TEXT_SUFFIXES = {".oloskin", ".olo", ".yaml"}
+
+
 def blob_sha256(relative: str) -> str:
-    """The committed blob's hash: line endings as git stores them, not as checked out."""
-    data = subprocess.run(["git", "show", f"HEAD:{relative}"], cwd=ROOT, check=True,
-                          capture_output=True).stdout
+    """The working-tree file's hash, with a text file's line endings as git stores them
+    (LF), so a Windows checkout and the blob agree and an uncommitted re-bake is seen."""
+    path = ROOT / relative
+    data = path.read_bytes()
+    if path.suffix in TEXT_SUFFIXES:
+        data = data.replace(b"\r\n", b"\n")
     return hashlib.sha256(data).hexdigest()
 
 

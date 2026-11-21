@@ -364,9 +364,11 @@ namespace OloEngine
 
         // The skin profile table's row in the renderer memory report (#1396). It is a slice
         // of the controls UBO, so its bytes are inside that buffer's own booking: an alias
-        // row, never capacity of its own. Demanded while the Deferred path shades with at
-        // least one assigned skin slot. Read from current state rather than stamped in
-        // Execute: a pass the graph stops running never clears a stamp.
+        // row, never capacity of its own. Demanded when this pass filled the table with at
+        // least one assigned skin slot in the current or the previous physical frame: a
+        // stamp that ages, because a pass the graph stops running (a path switch) never
+        // runs again to clear a flag, and the pending path setting can differ from the
+        // path the graph ran.
         m_MemoryReporter = RendererMemoryReporterHandle([this](TArray<MemoryCapacityRow>& rows)
                                                         {
             MemoryCapacityRow row;
@@ -375,8 +377,8 @@ namespace OloEngine
             row.Lifetime = MemoryLifetime::Persistent;
             row.Source = MemorySizeSource::FormatEstimate;
             const u64 bytes = m_ControlsUBO ? kSkinProfileTableBytes : 0u;
-            const bool inUse = Renderer3D::GetRendererSettings().Path == RenderingPath::Deferred &&
-                               Renderer3D::GetSkinProfileTable().GetAssignedSlotCount() > 0u;
+            const u64 serial = Renderer3D::GetPhysicalFrameSerial();
+            const bool inUse = m_SkinTableFillSerial != 0u && m_SkinTableFillSerial + 1u >= serial;
             row.CapacityBytes = bytes;
             row.ActiveDemandBytes = inUse ? bytes : 0u;
             row.AliasSavingsBytes = bytes;
@@ -590,6 +592,8 @@ namespace OloEngine
             // the editor reaches the deferred path on the next one.
             {
                 const SkinProfileTable& profiles = Renderer3D::GetSkinProfileTable();
+                // The memory report's demand stamp (#1396): this frame shaded with skin slots.
+                m_SkinTableFillSerial = profiles.GetAssignedSlotCount() > 0u ? Renderer3D::GetPhysicalFrameSerial() : 0u;
                 for (u32 slot = 0; slot < kMaxSkinProfileSlots; ++slot)
                 {
                     const SkinProfileParameters parameters = profiles.GetParametersForSlot(slot);

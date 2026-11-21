@@ -200,10 +200,13 @@ namespace OloEngine
                 row.ActiveDemandBytes = bytes;
                 rows.Add(std::move(row));
             };
-            skinRow("Diffusion scratch target (bytes inside the TransientPool row)",
-                    planBytes({ ResourceNames::SkinDiffusionScratch }));
+            const u64 scratch = planBytes({ ResourceNames::SkinDiffusionScratch });
+            skinRow("Diffusion scratch target (bytes inside the TransientPool row)", scratch);
+            // Snow's SSS blur reads the same two snapshots. They are skin's only when skin's
+            // own scratch is allocated this frame (the diffusion runs); a snow scene with no
+            // diffusing skin allocates them for snow, and books nothing to skin.
             skinRow("Diffusion input snapshots, hand-off + depth, shared with snow SSS (bytes inside the TransientPool row)",
-                    planBytes({ "DiffusionHandoffSnapshotBacking", "DiffusionDepthSnapshotBacking" }));
+                    scratch > 0 ? planBytes({ "DiffusionHandoffSnapshotBacking", "DiffusionDepthSnapshotBacking" }) : 0u);
         }
 
         // --- Temporal histories, one row per effect ------------------------------------
