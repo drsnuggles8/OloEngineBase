@@ -39,7 +39,7 @@ Add any other context about the problem here.
 
 <!-- olo-score:begin -->
 ## Score
-<!-- Rate this issue per docs/process/issue-scoring.md (Fibonacci 1/2/3/5/8/13). Leave the 3s if unsure. Fun >= 8 jumps the queue only once the user confirms it with `issue_scores.py pull`. -->
+<!-- Rate this issue per docs/process/issue-scoring.md (Fibonacci 1/2/3/5/8/13). Leave the 3s if unsure. Fun >= 8 jumps the queue only once the user confirms it with `issue_scores.py pull`. `areas:` lists what the work will touch, from: Renderer, Groom, Vulkan/RHI, Scene/ECS, Serialization, Physics, Scripting, Animation, Audio, Networking, Assets, Editor, Gameplay, Core, Tests/CI, Tooling (example: `areas: [Renderer, Vulkan/RHI]`). -->
 ```olo-score
 capability: 3
 craft: 3
@@ -52,5 +52,6 @@ fun: 3
 kano: table-stakes
 blocked_by: []
 blocks: []
+areas: []
 ```
 <!-- olo-score:end -->
