@@ -1413,7 +1413,7 @@ namespace OloEngine
             // the CPU path's SubsampleCoatSegments, so the two paths bake the
             // same segments.
             entry.CoatFullPoseSegments = stream.PoseSegments.size();
-            RefreshCoatBakeStride(entry);
+            RefreshCoatBakeStride(entry, ChooseCoatLod(request, entry).Resolution);
             entry.CoatPoseStride = entry.CoatBakeStride;
             std::span<const GroomRestPoseSegment> evaluate = stream.PoseSegments;
             if (entry.CoatPoseStride > 1u)
@@ -1484,7 +1484,7 @@ namespace OloEngine
                 m_DrawnPoseFull[s].RadiusB *= fibre[s];
             }
             entry.CoatFullPoseSegments = m_DrawnPoseFull.size();
-            RefreshCoatBakeStride(entry);
+            RefreshCoatBakeStride(entry, ChooseCoatLod(request, entry).Resolution);
             entry.CoatPoseStride = entry.CoatBakeStride;
             (void)GroomCoatShadow::SubsampleCoatSegments(m_DrawnPoseFull, entry.CoatPoseStride, m_DrawnPose);
         }
@@ -1563,20 +1563,24 @@ namespace OloEngine
         }
     }
 
-    void GroomRenderPass::RefreshCoatBakeStride(CacheEntry& entry) const noexcept
+    void GroomRenderPass::RefreshCoatBakeStride(CacheEntry& entry, u32 resolution) const noexcept
     {
         // THE STRIDE THE CURRENT POLICY WANTS, taken before the pose rather
         // than only after a bake, so a policy change reaches a coat standing
         // still: its pose then comes out at the new stride, which differs from
         // the resident bake's, and that is a rebuild. Only once a full bake has
         // measured the coat; at another resolution the measurement is scaled
-        // on the safe side (EstimateCoatOccupiedVoxels, #1594).
-        if (entry.CoatFullOccupiedVoxels > 0u && entry.CoatResolution > 0u)
+        // on the safe side (EstimateCoatOccupiedVoxels, #1594). For the
+        // resolution this frame will BAKE at (ChooseCoatLod), not the resident
+        // one: a camera cut's first bake at a finer grid otherwise took the
+        // coarse grid's stride, a sparse volume and a second bake the frame
+        // after.
+        if (entry.CoatFullOccupiedVoxels > 0u && resolution > 0u)
         {
             entry.CoatBakeStride = GroomCoatShadow::CoatBakeSubsetStride(
                 entry.CoatFullPoseSegments,
                 GroomCoatShadow::EstimateCoatOccupiedVoxels(entry.CoatFullOccupiedVoxels, entry.CoatOccupancyResolution,
-                                                            entry.CoatResolution),
+                                                            resolution),
                 m_CoatRebakePolicy.BakeSegmentsPerOccupiedVoxel);
         }
     }
@@ -2198,6 +2202,15 @@ namespace OloEngine
         return *walk;
     }
 
+    void GroomRenderPass::PruneRestWalks()
+    {
+        // A walk whose asset only the walk still holds: the asset was unloaded or
+        // reimported, the walk can never match again, and holding it would keep
+        // the old curves alive.
+        m_RestWalks.RemoveAll([](const Ref<RestWalk>& walk)
+                              { return !walk->Asset || walk->Asset->GetRefCount() <= 1u; });
+    }
+
     void GroomRenderPass::PruneSharedCoatVolumes()
     {
         // Only the list's own reference left: no entry draws it.
@@ -2571,6 +2584,66 @@ namespace OloEngine
         return true;
     }
 
+    GroomRenderPass::CoatLodChoice GroomRenderPass::ChooseCoatLod(const GroomStrandRequest& request,
+                                                                  const CacheEntry& entry) const
+    {
+        f32 pixelSize = request.CoatLod.PixelSizeForLod0;
+        if (entry.CoatBoundsMax.x > entry.CoatBoundsMin.x)
+        {
+            const glm::vec3 objectCentre = (entry.CoatBoundsMin + entry.CoatBoundsMax) * 0.5f;
+            const glm::vec3 worldCentre = glm::vec3(request.Transform * glm::vec4(objectCentre, 1.0f));
+            // The radius has to be in WORLD units, because the distance below
+            // is. The bounds are OBJECT space, so the transform's scale has to
+            // come with them: without it a groom authored at scale 10 reads as
+            // a tenth of its apparent size and drops to the coarsest LOD — or
+            // straight through the floor into a counted fallback — while
+            // filling the screen.
+            const f32 transformScale = (glm::length(glm::vec3(request.Transform[0])) +
+                                        glm::length(glm::vec3(request.Transform[1])) +
+                                        glm::length(glm::vec3(request.Transform[2]))) /
+                                       3.0f;
+            const f32 radius = glm::length(entry.CoatBoundsMax - entry.CoatBoundsMin) * 0.5f * transformScale;
+            const f32 distance = glm::length(worldCentre - Renderer3D::GetCullViewPosition());
+            const glm::mat4& projection = Renderer3D::GetCullProjectionMatrix();
+            // abs(): Vulkan's clip space has +Y down, so the engine uploads a
+            // projection whose [1][1] is negative there. The sign is a clip
+            // convention and the MAGNITUDE is what a scale is asking for — the
+            // same trap, invisible on OpenGL and silent on Vulkan, that
+            // groom-strand-visibility.md gives its own heading to.
+            const f32 cotHalfFov = std::abs(projection[1][1]);
+            const f32 viewportHeight =
+                static_cast<f32>(m_SceneFramebuffer ? m_SceneFramebuffer->GetSpecification().Height : 1080u);
+            if (distance > 1.0e-4f && std::isfinite(radius) && std::isfinite(cotHalfFov))
+            {
+                pixelSize = (2.0f * radius) * cotHalfFov * viewportHeight * 0.5f / distance;
+            }
+        }
+
+        // BIASED BY THE REPRESENTATION LOD'S SHADOW STEP (#1252). Added to the
+        // coat policy's own answer rather than replacing it, so the two remain
+        // separable: GroomCoatShadowComponent still decides what resolution a
+        // coat deserves at a size, and GroomLodComponent decides how much
+        // further down that ladder distance pushes it. Clamped to the coat
+        // policy's MaxLodSteps because that is what CoatLodResolution honours
+        // anyway -- a step past it would report a LOD the bake never used.
+        //
+        // This is the third and last of criterion 3's independent axes, and it
+        // is the one that is a BIAS rather than a budget because a shadow
+        // volume spends a resolution, not a count.
+        const u32 requested = std::min(GroomCoatShadow::SelectCoatLodStep(request.CoatLod, pixelSize) +
+                                           request.Lod.ShadowStep,
+                                       request.CoatLod.MaxLodSteps);
+        const u32 stableFrames = requested == entry.CoatRequestedLodStep ? entry.CoatLodStableFrames + 1u : 0u;
+        // Three frames, so a coat sitting exactly on a LOD boundary cannot
+        // rebuild its representation every frame. Refining is immediate; only
+        // coarsening waits. GroomCoatShadowLod.AnOscillatingRequestCannotRebuildEveryFrame
+        // is the case that pins the behaviour.
+        const u32 lodStep =
+            GroomCoatShadow::ApplyCoatLodHysteresis(entry.CoatLodStep, requested, stableFrames, 3u);
+        const u32 resolution = GroomCoatShadow::CoatLodResolution(request.CoatLod, lodStep);
+        return { requested, stableFrames, lodStep, resolution };
+    }
+
     // Rebuilds this coat's density volume when the resident bake is not the one
     // the frame wants, and reports what the coat actually gets.
     //
@@ -2663,61 +2736,11 @@ namespace OloEngine
         // The apparent size comes from the CULL view rather than the render
         // view, which is what every other LOD in this engine uses (issue #726)
         // so that a frozen cut keeps its LODs.
-        f32 pixelSize = request.CoatLod.PixelSizeForLod0;
-        if (entry.CoatBoundsMax.x > entry.CoatBoundsMin.x)
-        {
-            const glm::vec3 objectCentre = (entry.CoatBoundsMin + entry.CoatBoundsMax) * 0.5f;
-            const glm::vec3 worldCentre = glm::vec3(request.Transform * glm::vec4(objectCentre, 1.0f));
-            // The radius has to be in WORLD units, because the distance below
-            // is. The bounds are OBJECT space, so the transform's scale has to
-            // come with them: without it a groom authored at scale 10 reads as
-            // a tenth of its apparent size and drops to the coarsest LOD — or
-            // straight through the floor into a counted fallback — while
-            // filling the screen.
-            const f32 transformScale = (glm::length(glm::vec3(request.Transform[0])) +
-                                        glm::length(glm::vec3(request.Transform[1])) +
-                                        glm::length(glm::vec3(request.Transform[2]))) /
-                                       3.0f;
-            const f32 radius = glm::length(entry.CoatBoundsMax - entry.CoatBoundsMin) * 0.5f * transformScale;
-            const f32 distance = glm::length(worldCentre - Renderer3D::GetCullViewPosition());
-            const glm::mat4& projection = Renderer3D::GetCullProjectionMatrix();
-            // abs(): Vulkan's clip space has +Y down, so the engine uploads a
-            // projection whose [1][1] is negative there. The sign is a clip
-            // convention and the MAGNITUDE is what a scale is asking for — the
-            // same trap, invisible on OpenGL and silent on Vulkan, that
-            // groom-strand-visibility.md gives its own heading to.
-            const f32 cotHalfFov = std::abs(projection[1][1]);
-            const f32 viewportHeight =
-                static_cast<f32>(m_SceneFramebuffer ? m_SceneFramebuffer->GetSpecification().Height : 1080u);
-            if (distance > 1.0e-4f && std::isfinite(radius) && std::isfinite(cotHalfFov))
-            {
-                pixelSize = (2.0f * radius) * cotHalfFov * viewportHeight * 0.5f / distance;
-            }
-        }
-
-        // BIASED BY THE REPRESENTATION LOD'S SHADOW STEP (#1252). Added to the
-        // coat policy's own answer rather than replacing it, so the two remain
-        // separable: GroomCoatShadowComponent still decides what resolution a
-        // coat deserves at a size, and GroomLodComponent decides how much
-        // further down that ladder distance pushes it. Clamped to the coat
-        // policy's MaxLodSteps because that is what CoatLodResolution honours
-        // anyway -- a step past it would report a LOD the bake never used.
-        //
-        // This is the third and last of criterion 3's independent axes, and it
-        // is the one that is a BIAS rather than a budget because a shadow
-        // volume spends a resolution, not a count.
-        const u32 requested = std::min(GroomCoatShadow::SelectCoatLodStep(request.CoatLod, pixelSize) +
-                                           request.Lod.ShadowStep,
-                                       request.CoatLod.MaxLodSteps);
-        entry.CoatLodStableFrames = requested == entry.CoatRequestedLodStep ? entry.CoatLodStableFrames + 1u : 0u;
-        entry.CoatRequestedLodStep = requested;
-        // Three frames, so a coat sitting exactly on a LOD boundary cannot
-        // rebuild its representation every frame. Refining is immediate; only
-        // coarsening waits. GroomCoatShadowLod.AnOscillatingRequestCannotRebuildEveryFrame
-        // is the case that pins the behaviour.
-        const u32 lodStep =
-            GroomCoatShadow::ApplyCoatLodHysteresis(entry.CoatLodStep, requested, entry.CoatLodStableFrames, 3u);
-        const u32 resolution = GroomCoatShadow::CoatLodResolution(request.CoatLod, lodStep);
+        const CoatLodChoice lod = ChooseCoatLod(request, entry);
+        entry.CoatLodStableFrames = lod.StableFrames;
+        entry.CoatRequestedLodStep = lod.Requested;
+        const u32 lodStep = lod.LodStep;
+        const u32 resolution = lod.Resolution;
         inputs.ResolvedResolution = resolution;
         if (entry.CoatShared)
         {
@@ -2959,6 +2982,14 @@ namespace OloEngine
                     // BakeSegmentsPerOccupiedVoxel in each voxel, from that
                     // occupancy scaled on the safe side.
                     const GroomCoatContext coat{ &request.Coat, request.Groom->GetGroupCoats() };
+                    // A width scale that is not a positive finite number bakes
+                    // nothing, as BuildCoatSegments refused it before the walk
+                    // was kept: zero or NaN radii would bake an empty or
+                    // poisoned volume rather than none.
+                    if (!std::isfinite(request.WidthScale) || !(request.WidthScale > 0.0f))
+                    {
+                        return;
+                    }
                     restWalk = &AcquireRestWalk(request, coat);
                     const std::span<const GroomCoatShadow::CoatSegment> walked{
                         restWalk->Segments.GetData(), static_cast<sizet>(restWalk->Segments.Num())
@@ -2980,7 +3011,6 @@ namespace OloEngine
                                      ? static_cast<f32>(segments.size()) / static_cast<f32>(walked.size())
                                      : 1.0f;
                     emitted = static_cast<u32>(segments.size());
-                    m_Stats.CoatShadow.MaxRestBakeStride = std::max(m_Stats.CoatShadow.MaxRestBakeStride, restStride);
                 }
                 m_Stats.CoatShadow.BakeSegmentMicroseconds += MicrosecondsSince(segmentStart);
 
@@ -3020,7 +3050,14 @@ namespace OloEngine
                         // one that measures how many voxels the coat occupies; the
                         // stride is only trusted at the resolution it was measured
                         // at, so a shadow-LOD change takes one full bake to re-measure.
-                        if (entry.CoatPoseStride == 1u)
+                        // A subset bake that occupied MORE voxels than the estimate
+                        // for its grid raises it (#1594): a subset can only
+                        // undercount the coat, so this moves the estimate toward
+                        // the truth and never past it -- a first full bake in a
+                        // compact pose is not the coat's measure for good.
+                        if (entry.CoatPoseStride == 1u ||
+                            occupiedVoxels > GroomCoatShadow::EstimateCoatOccupiedVoxels(
+                                                 entry.CoatFullOccupiedVoxels, entry.CoatOccupancyResolution, resolution))
                         {
                             entry.CoatFullOccupiedVoxels = occupiedVoxels;
                             entry.CoatOccupancyResolution = resolution;
@@ -3041,10 +3078,21 @@ namespace OloEngine
                         entry.CoatBakedFromPose = false;
                         // A full bake of a walk measures the occupancy its
                         // later bakes take their subset from.
-                        if (restWalk != nullptr && restStride == 1u)
+                        // And a later one that occupied more than the estimate --
+                        // another coat's width scale, say -- raises it, as a pose
+                        // bake's does.
+                        if (restWalk != nullptr &&
+                            (restStride == 1u ||
+                             occupiedVoxels > GroomCoatShadow::EstimateCoatOccupiedVoxels(
+                                                  restWalk->OccupiedVoxels, restWalk->OccupancyResolution, resolution)))
                         {
                             restWalk->OccupiedVoxels = occupiedVoxels;
                             restWalk->OccupancyResolution = resolution;
+                        }
+                        if (restWalk != nullptr)
+                        {
+                            m_Stats.CoatShadow.MaxRestBakeStride =
+                                std::max(m_Stats.CoatShadow.MaxRestBakeStride, restStride);
                         }
                         if (shareable)
                         {
@@ -4264,8 +4312,9 @@ namespace OloEngine
 
         FinishStreamingFrame();
         // A coat that moved to another shared rest bake this frame may have
-        // been the last holder of its old one.
+        // been the last holder of its old one; a walk may outlive its asset.
         PruneSharedCoatVolumes();
+        PruneRestWalks();
         EvictToBudget();
         PublishCacheStats();
         ReportStagedBuilds();

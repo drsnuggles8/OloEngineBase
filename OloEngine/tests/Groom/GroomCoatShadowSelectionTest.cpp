@@ -810,25 +810,26 @@ TEST(GroomCoatShadowSelection, TheRebuildBudgetIsTheFramesAcrossViewsAndAStalled
 
 // A RESOLUTION CHANGE NEEDS NO FULL BAKE (#1594): the occupancy a coat measured
 // at one resolution, scaled to another on the safe side -- the cube for a finer
-// grid, the square for a coarser one, between which a coat's occupancy grows --
-// so the stride never leaves fewer segments in a voxel than the floor asks.
+// grid, the measurement itself for a coarser one -- so the stride never leaves
+// fewer segments in a voxel than the floor asks, whatever the coat's shape.
 // At a camera cut the full re-measure of a walking coat was a 250 ms bake.
 TEST(GroomCoatShadowSelection, AResolutionChangeEstimatesOccupancyOnTheSafeSide)
 {
     using GroomCoatShadow::EstimateCoatOccupiedVoxels;
     EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 64u, 64u), 5000u) << "the measured resolution is the measurement";
     EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 64u, 128u), 40000u) << "a finer grid scales by the cube";
-    EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 64u, 32u), 1250u) << "a coarser grid scales by the square";
+    EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 64u, 32u), 5000u) << "a coarser grid keeps the measurement";
     EXPECT_EQ(EstimateCoatOccupiedVoxels(0u, 64u, 128u), 0u) << "nothing measured is nothing estimated";
     EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 0u, 128u), 0u);
     EXPECT_GE(EstimateCoatOccupiedVoxels(1u, 128u, 8u), 1u) << "an occupied coat never estimates to empty";
 
     // On the safe side means the stride it gives never exceeds the one a full
-    // bake would measure, for any coat whose occupancy grows between the square
-    // and the cube: a thin shell (square) and a thick pelt (cube), both ways.
+    // bake would measure, for any coat whose occupancy grows with the grid by a
+    // power from 0 (isolated tufts) through 1 (sparse strands) and 2 (a thin
+    // shell) to 3 (a thick pelt), both ways.
     constexpr u64 kSegments = 2'000'000u;
     constexpr f32 kPerVoxel = 8.0f;
-    for (const f64 exponent : { 2.0, 2.5, 3.0 })
+    for (const f64 exponent : { 0.0, 1.0, 2.0, 2.5, 3.0 })
     {
         for (const u32 to : { 16u, 32u, 128u, 256u })
         {

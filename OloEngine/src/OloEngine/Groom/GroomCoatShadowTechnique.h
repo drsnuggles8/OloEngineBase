@@ -502,8 +502,9 @@ namespace OloEngine
         /// waited. A number that climbs without bound is starvation.
         u32 RebuildsWaiting = 0;
         u32 OldestRebuildWaitFrames = 0;
-        /// Rest bakes this frame that took the walk an earlier bake of the same
-        /// coat made, at another resolution, instead of walking it again; and
+        /// Rest bakes this frame that took a kept walk (one an earlier bake of
+        /// the same coat made, at this resolution or another) instead of
+        /// walking the coat again; and
         /// the largest subset stride a rest bake took this frame (0 when none
         /// baked).
         u32 RestWalksReused = 0;

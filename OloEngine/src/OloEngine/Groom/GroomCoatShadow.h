@@ -271,7 +271,7 @@ namespace OloEngine
             /// (#1594, GroomCoatShadow::CoatRebuildBudget); zero is no limit. A
             /// coat over it keeps drawing the volume it holds, its rebuild is
             /// deferred and counted, and the oldest deferred coats go first.
-            /// See groom-coat-bake-cost.md for how the number was chosen.
+            /// groom-coat-bake-cost-details.md (rule 9) says how 2 was chosen.
             u32 MaxRebuildsPerFrame = 2;
 
             /// Bit-exact per float, per cpp-coding-quality §2a: a defaulted
@@ -331,13 +331,13 @@ namespace OloEngine
         // The voxels a coat measured to occupy at `measuredResolution` would
         // occupy at `resolution` (#1594), so a resolution change needs no full
         // bake to re-measure: at a camera cut that full bake of a walking coat
-        // was 250 ms of binning in one frame. ON THE SAFE SIDE: a coat's
-        // occupancy grows with the resolution between the square (a thin
-        // shell) and the cube (fur thicker than a voxel), so a finer grid is
-        // scaled by the cube and a coarser one by the square -- never fewer
-        // occupied voxels than the coat has, so never fewer than
-        // CoatBakeSubsetStride's segments per occupied voxel. Zero when nothing
-        // was measured.
+        // was 250 ms of binning in one frame. ON THE SAFE SIDE: a finer grid
+        // splits each voxel into ratio^3, of which a coat occupies at most all,
+        // so it is scaled by the cube; a coarser grid's voxels each cover several
+        // measured ones, so the coat occupies at most as many as measured, and
+        // that is the estimate. Never fewer occupied voxels than the coat has,
+        // so never fewer than CoatBakeSubsetStride's segments per occupied
+        // voxel. Zero when nothing was measured.
         [[nodiscard]] u32 EstimateCoatOccupiedVoxels(u32 measured, u32 measuredResolution, u32 resolution) noexcept;
 
         // Is the segment at `index` in the stride's subset? Always true at a

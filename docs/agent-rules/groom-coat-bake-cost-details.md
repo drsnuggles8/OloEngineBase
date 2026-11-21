@@ -30,11 +30,15 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    the static guide says a voxel holding too few fibres stores a sample, not an average. The first
    bake of an entry is full; it records how many voxels it occupied, and the stride is the one that
    leaves `BakeSegmentsPerOccupiedVoxel` (8) in each on average. At another resolution the
-   measurement is scaled, not re-measured (#1594): a coat's occupancy grows with the resolution
-   between the square (a thin shell) and the cube (fur thicker than a voxel), so
-   `EstimateCoatOccupiedVoxels` scales a finer grid by the cube and a coarser one by the square --
-   never fewer voxels than the coat occupies, so never fewer segments in each than the floor, and a
-   coat first baked coarse at range is still not held at that stride up close.
+   measurement is scaled, not re-measured (#1594): `EstimateCoatOccupiedVoxels` scales a finer grid
+   by the cube (each voxel splits into ratio^3, of which a coat occupies at most all) and keeps the
+   measurement for a coarser one (its voxels each cover several measured ones, and a sparse coat or
+   an isolated tuft hardly shrinks) -- never fewer voxels than the coat occupies, so never fewer
+   segments in each than the floor, and a coat first baked coarse at range is still not held at
+   that stride up close. A later bake that occupied more voxels than the estimate raises it: a
+   subset can only undercount, so a first full bake in a compact pose, or at another coat's width
+   scale, is not the measure for good. The pose takes the stride for the resolution it will be
+   baked at (`ChooseCoatLod`), so a cut's first bake is not the old grid's subset.
    `AResolutionChangeEstimatesOccupancyOnTheSafeSide` pins it. It used to re-measure with one full
    bake, and live at the acceptance scene's camera cut that full bake of a walking coat -- forced
    by its drift (rule 9) -- was 250 ms of binning in one frame.
@@ -75,7 +79,14 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    when the last coat holding it lets go. A pose bake is the coat's own pose and is never shared.
 
 9. **At most `CoatRebakePolicy::MaxRebuildsPerFrame` bakes run a frame** (#1594), default 2. It
-   is the backstop for a scene of mixed assets, where sharing does not help.
+   is the backstop for a scene of mixed assets, where sharing does not help. **Why 2**, from the
+   acceptance scene's population-dolly cut (Release Vulkan editor, rules 8, 10 and 11 in force):
+   a deferrable bake there costs 7-40 ms (a herd rest bake at the subset; 110 ms only for a coat's
+   first walk), the frame around it ~33 ms, and the cut queues up to 16 bakes, which drain in 8
+   frames at 2 a frame (the log's "59 deferrals, at most 16 waiting at once", 8 frames). One a frame
+   would leave those coats on their old volume for 16 frames, half a second, to save about one
+   bake's 7-40 ms in each; four would put up to ~160 ms of bakes into a single frame, the hitch
+   the budget exists to cut. Drift rebakes are forced past it either way.
    `GroomCoatShadow::CoatRebuildBudget` keeps the deferred coats in the order they were first
    deferred and reserves the budget for the oldest at each frame start; a newcomer bakes only with
    budget left after every unserved reservation, so a deferred coat is served within

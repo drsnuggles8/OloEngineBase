@@ -1341,7 +1341,20 @@ namespace OloEngine
         /// produced nothing.
         /// Sets CoatBakeStride from the current rebake policy and the coat's
         /// measured occupancy (#1445).
-        void RefreshCoatBakeStride(CacheEntry& entry) const noexcept;
+        void RefreshCoatBakeStride(CacheEntry& entry, u32 resolution) const noexcept;
+
+        /// The coat-LOD step and resolution this frame gives `request`'s coat,
+        /// with the hysteresis state it would leave: computed, not applied, so
+        /// the drawn pose can take the stride for the resolution AcquireCoatVolume
+        /// will then bake at (#1594).
+        struct CoatLodChoice
+        {
+            u32 Requested = 0;
+            u32 StableFrames = 0;
+            u32 LodStep = 0;
+            u32 Resolution = 0;
+        };
+        [[nodiscard]] CoatLodChoice ChooseCoatLod(const GroomStrandRequest& request, const CacheEntry& entry) const;
 
         /// GroomCardFibreByGroup for this request's LOD level, measured once
         /// per level and shared by every entry and stream that draws it.
@@ -1478,6 +1491,8 @@ namespace OloEngine
         u64 m_RestWalkUsedTick = 0;
         /// The rest walk `request` draws, found or walked.
         RestWalk& AcquireRestWalk(const GroomStrandRequest& request, const GroomCoatContext& coat);
+        /// Drops every walk whose asset only the walk still holds.
+        void PruneRestWalks();
 
         /// THE PER-FRAME REBUILD BUDGET (#1594): CoatRebakePolicy::
         /// MaxRebuildsPerFrame bakes a frame, the rest deferred in order. Its
