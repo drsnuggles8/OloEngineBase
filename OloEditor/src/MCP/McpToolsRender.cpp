@@ -7028,6 +7028,11 @@ namespace OloEngine::MCP
             snapshot.CoatDeformedRebakes = coat.DeformedRebakes;
             snapshot.CoatMaxDriftVoxels = coat.MaxDriftVoxels;
             snapshot.CoatBakeMicroseconds = coat.BakeMicroseconds;
+            snapshot.CoatBakeSegmentMicroseconds = coat.BakeSegmentMicroseconds;
+            snapshot.CoatBakeBinMicroseconds = coat.BakeBinMicroseconds;
+            snapshot.CoatBakePackMicroseconds = coat.BakePackMicroseconds;
+            snapshot.CoatBakeUploadMicroseconds = coat.BakeUploadMicroseconds;
+            snapshot.CoatBakeBodyMicroseconds = coat.BakeBodyMicroseconds;
             snapshot.CoatResolutionInForce = coat.ResolutionInForce;
             snapshot.CoatResidentBytes = coat.ResidentBytes;
             snapshot.CoatSharedBakesReused = coat.SharedBakesReused;

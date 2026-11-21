@@ -563,6 +563,14 @@ namespace OloEngine
         // valid address, which no draw-time guard can tell apart (#1446).
         [[nodiscard]] bool TryUploadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes,
                                                   const void* data) override;
+        // A whole 3D image's texels, as a copy RECORDED on the frame command
+        // buffer (#1594), left in the sampled layout with the tracker in
+        // agreement. False, recording nothing, outside a recording bracket or
+        // on a worker: the caller then takes its blocking one-shot. A coat
+        // volume baked mid-frame used to take that one-shot every time, and
+        // each one waited for the queue to drain every frame in flight.
+        [[nodiscard]] bool TryRecordTexture3DUpload(VkImage image, const VkExtent3D& extent, const void* data,
+                                                    u64 sizeBytes);
         void ReadBufferSubData(RHI::ResourceHandle buffer, u64 offsetBytes, u64 sizeBytes, void* dest) override;
         void CopyBufferSubData(RHI::ResourceHandle srcBuffer, RHI::ResourceHandle dstBuffer, u64 srcOffsetBytes, u64 dstOffsetBytes, u64 sizeBytes) override;
         void ClearBufferUInt(RHI::ResourceHandle buffer, u32 value, u64 offset = 0, u64 size = ~0ull) override;

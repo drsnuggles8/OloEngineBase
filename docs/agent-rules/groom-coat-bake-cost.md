@@ -40,10 +40,14 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    **A rebake due on drift is never deferred**: it is forced and spends the budget, or a walking
    coat's shadow slides off it. `AMixedSceneRebuildsWithinTheBudgetAndNoWaitingCoatGoesUnshadowed` pins it.
    [Details](groom-coat-bake-cost-details.md#the-rules)
+10. **On Vulkan, a bake inside a frame records its upload on the frame's command buffer**
+    (`VulkanRendererAPI::TryRecordTexture3DUpload`, #1594), never the blocking one-shot: a one-shot
+    waits for every frame in flight, a GPU frame or more of stall per bake whatever the bake's own
+    cost. [Details](groom-coat-bake-cost-details.md#the-rules)
 
 ## Not done
 
-Multithreaded binning and a recorded Vulkan upload were each measured and left out.
+Multithreaded binning was measured and left out.
 [Details](groom-coat-bake-cost-details.md#not-done-and-why)
 
 ---

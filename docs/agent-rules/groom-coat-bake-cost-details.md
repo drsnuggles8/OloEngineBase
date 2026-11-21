@@ -35,8 +35,8 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
 5. **A ring slot may be rewritten in place only when no unsubmitted recording can read it.**
    `BakeCoatVolume` never rewrites a slot bound on this tick or the one before (a split-screen frame
    runs the pass once per camera). Older reads are in submitted frames: GL orders the upload after
-   them, and Vulkan's `SetData` is a one-shot on the same queue, whose barrier's first scope is
-   everything submitted before it. A slot of the wrong size gets a new texture, and the old one
+   them, and Vulkan's upload (rule 10) is a copy on the same queue whose barrier's first scope is
+   everything submitted and recorded before it. A slot of the wrong size gets a new texture, and the old one
    goes to the deferred deletion as before. Every slot is counted in `CoatBytes`.
 
 6. **Pack RGBA16F.** It halves the volume. It was RGBA32F only because the GL backend handed
@@ -96,6 +96,18 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    `GroomCoatShadowStats`, `olo_groom_budget_stats.coatShadow` and the inspector, and a wave of
    deferrals is logged when it starts and when it drains.
 
+10. **On Vulkan, a bake inside a frame records its upload on the frame's command buffer**
+    (#1594). `VulkanTexture3D::SetData` used a blocking one-shot submit, which executes after every
+    frame already submitted and makes the CPU wait for all of them. Live on the acceptance scene
+    (Release Vulkan editor, the GPU busy with another worktree's sweep) the population-dolly cut's
+    `Groom::CoatVolume` calls read 80-400 ms each with no child scope -- the bake's own stages are
+    a few to tens of milliseconds -- so the two bakes a frame the budget allowed still cost
+    300-470 ms. Inside a recording bracket the upload is now
+    `VulkanRendererAPI::TryRecordTexture3DUpload`: staging, a barrier into TRANSFER_DST from the
+    tracked layout, the copy, and a barrier back to the sampled layout with the tracker updated,
+    since a coat volume is bound through a persistent heap slot that carries no per-draw transition.
+    The staging buffer goes to the deferred-reclaim queue. Outside a frame the one-shot stays.
+
 ## Measured
 
 `TheMovingCoatShadowFollowsTheWalk`, **Release**, GL, two walking horses (57k and 94k strands) and
@@ -130,7 +142,7 @@ representation's own error.
 - **Multithreaded binning.** After the subset it is 4.8 ms for three coats. Order-independent
   binning is only deterministic with a fixed partition and a fixed merge order, which costs a
   per-partition volume; not worth it at this size.
-- **Vulkan's blocking upload.** `VulkanTexture3D::SetData` waits on a fence per bake, so on
-  Vulkan each rebake drains the queue. The ring does not change that; a recorded, in-frame upload
-  would. Live on Vulkan (Release editor, `Scenes/GroomAnimals.olo`) the whole bake read 4.8-8.9 ms
-  a frame for three walking coats, so it is not worth that change yet.
+- **Vulkan's blocking upload** was left out at first: live on Vulkan (Release editor,
+  `Scenes/GroomAnimals.olo`) the whole bake read 4.8-8.9 ms a frame for three walking coats. It is
+  done now (rule 10): at the acceptance scene's camera cuts, with the GPU busy, single bakes read
+  80-400 ms with no child scope, the CPU waiting on the queue.

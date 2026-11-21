@@ -11,6 +11,7 @@
 #include "Platform/Vulkan/VulkanDeferredReclaim.h"
 #include "Platform/Vulkan/VulkanImageInfoRegistry.h"
 #include "Platform/Vulkan/VulkanOneShot.h"
+#include "Platform/Vulkan/VulkanRendererAPI.h"
 #include "Platform/Vulkan/VulkanTransientUpload.h"
 
 #include <algorithm>
@@ -170,6 +171,20 @@ namespace OloEngine
             OLO_CORE_ERROR("VulkanTexture3D::SetData: got {} bytes, expected {} ({}x{}x{}) — dropping the upload",
                            size, expected, m_Specification.Width, m_Specification.Height, m_Specification.Depth);
             return;
+        }
+
+        // INSIDE A FRAME, a copy recorded on the frame's command buffer (#1594).
+        // A coat volume is baked mid-frame, and a one-shot here executes after
+        // every frame already submitted and waits for all of them: on the live
+        // editor that was a GPU frame or more of CPU stall per bake, so a camera
+        // cut's dozens of bakes stalled for seconds whatever their CPU cost.
+        if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
+        {
+            const VkExtent3D extent{ m_Specification.Width, m_Specification.Height, m_Specification.Depth };
+            if (vk->TryRecordTexture3DUpload(m_Image, extent, data, size))
+            {
+                return;
+            }
         }
 
         // Host staging buffer — destroyed right after the blocking one-shot.

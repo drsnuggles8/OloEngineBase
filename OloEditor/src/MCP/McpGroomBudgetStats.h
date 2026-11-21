@@ -104,6 +104,13 @@ namespace OloEngine::MCP::GroomBudgetStats
         u32 CoatDeformedRebakes = 0;
         f32 CoatMaxDriftVoxels = 0.0f;
         u64 CoatBakeMicroseconds = 0;
+        // The bake split by stage (#1445), so a live cell says which part of a
+        // slow bake is slow -- binning, or the upload (#1594).
+        u64 CoatBakeSegmentMicroseconds = 0;
+        u64 CoatBakeBinMicroseconds = 0;
+        u64 CoatBakePackMicroseconds = 0;
+        u64 CoatBakeUploadMicroseconds = 0;
+        u64 CoatBakeBodyMicroseconds = 0;
         u32 CoatResolutionInForce = 0;
         u64 CoatResidentBytes = 0;
         // Shared rest bakes and the per-frame rebuild budget (#1594).
@@ -239,6 +246,11 @@ namespace OloEngine::MCP::GroomBudgetStats
             { "deformedRebakes", snapshot.CoatDeformedRebakes },
             { "maxDriftVoxels", snapshot.CoatMaxDriftVoxels },
             { "bakeMicroseconds", snapshot.CoatBakeMicroseconds },
+            { "bakeSegmentMicroseconds", snapshot.CoatBakeSegmentMicroseconds },
+            { "bakeBinMicroseconds", snapshot.CoatBakeBinMicroseconds },
+            { "bakePackMicroseconds", snapshot.CoatBakePackMicroseconds },
+            { "bakeUploadMicroseconds", snapshot.CoatBakeUploadMicroseconds },
+            { "bakeBodyMicroseconds", snapshot.CoatBakeBodyMicroseconds },
             { "resolutionInForce", snapshot.CoatResolutionInForce },
             { "residentBytes", snapshot.CoatResidentBytes },
             // #1594: rest bakes taken from another coat, the shared bakes
