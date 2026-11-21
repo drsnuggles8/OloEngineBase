@@ -4232,6 +4232,14 @@ namespace OloEngine::Tests
         static constexpr u32 kEveryClipStride = 4;
         static constexpr u32 kEveryClipSettle = 4;
         static constexpr u32 kEveryClipMeasured = 2;
+        // TheCoatStaysOnTheBodyThroughEveryClip reads ONE held frame per
+        // measurement (#1659): on the shipped coat, through every clip and view,
+        // no part read bald above 0.10 against 0.25 or floating above 0.0012
+        // against 0.02 on two-frame averages, and one frame moved those to
+        // 0.104 and 0.0011 (worst coverage 0.370 -> 0.379). The
+        // local-failure plants keep two: the stale hind leg reads bald 0.27-0.44
+        // against the same 0.25, too near to halve its samples.
+        static constexpr u32 kCoatStaysMeasured = 1;
 
         // Whether `failures` names `part` -- the check found the planted fault
         // where it was planted.
@@ -9188,7 +9196,7 @@ namespace OloEngine::Tests
             const u32 framesPerStep = std::max(1u, static_cast<u32>(clip.Seconds * 60.0f / kEveryClipSteps));
             const ClipViewsAttachment through =
                 AttachmentThroughClipFromViews(parts, clip.Name, clip.Loop, kEveryClipSteps, framesPerStep, views, coat,
-                                               kEveryClipStride, kEveryClipSettle, kEveryClipMeasured, true);
+                                               kEveryClipStride, kEveryClipSettle, kCoatStaysMeasured, true);
             ASSERT_FALSE(HasFatalFailure());
             EXPECT_EQ(through.Motion.MinGroomsDeformed, 1u) << "the coat stopped following the body";
             EXPECT_EQ(through.Motion.MaxBindingRefused, 0u) << "the binding was refused mid-clip";
