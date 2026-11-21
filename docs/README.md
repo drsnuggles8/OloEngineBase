@@ -161,6 +161,7 @@ The three workflow skills live in [`.claude/skills/`](../.claude/skills/) and ar
 - [adr/0024-skinned-virtual-geometry-stays-on-the-hardware-rasterizer.md](adr/0024-skinned-virtual-geometry-stays-on-the-hardware-rasterizer.md) — skinned virtual-geometry clusters never go to the software rasterizer; they stay on the hardware route.
 - [adr/0025-renderer-state-has-four-owners.md](adr/0025-renderer-state-has-four-owners.md) — renderer state belongs to one of four owners (device, scene, view, recording); each owner's state is one struct and reset is assignment.
 - [adr/0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md](adr/0026-a-scene-view-is-one-struct-and-a-frame-is-one-step-of-the-world.md) — a scene view owns a whole render stack that is swapped into the renderer when the view is active; a physical frame advances the world once, in its primary view, however many views render in it.
+- [adr/0027-kestrel-lives-in-the-engine-repo-as-a-second-project.md](adr/0027-kestrel-lives-in-the-engine-repo-as-a-second-project.md) — KESTREL, the game, lives in this repo as `OloEditor/KestrelProject` beside SandboxProject; anything another game could use goes in `OloEngine/`, game rules and data go in the project; proposes a native game module for its simulation code.
 
 ## bug-investigations/ — postmortems & deep-dives
 
