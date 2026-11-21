@@ -277,7 +277,9 @@ label. [`scripts/issue_scores.py`](../../scripts/issue_scores.py):
   (§1 Discovery).
 - `yield`: the discovery term's history. The per-area table, each merged task PR's predicted and
   actual yield, and the check: rank correlation of predicted against actual, beside effort alone.
-  `--as-of DATE` computes it as of a day, `--pr N` lists one PR's bugs and severities.
+  `--as-of DATE` computes it from the PRs merged before a day; issue metadata (a filed issue's
+  `stability:`, a delivered issue's effort and closing date) is still read as it is today, so a
+  later re-score can change a dated report. `--pr N` lists one PR's bugs and severities.
 - `pulse`: task PRs merged and issues opened/closed over the last 7 and 28 days, open feature PRs,
   and the north-star milestone's progress. `/start-work` prints it in its report.
 - `lint`: everything that makes the backlog lie. Unscored issues, missing or unknown `areas:`, merged

@@ -435,7 +435,14 @@ def merge_paths(oids):
     return out
 
 
+FENCE_BLOCK_RE = re.compile(r"^[ \t]*(```|~~~).*?^[ \t]*\1[^\n]*$", re.MULTILINE | re.DOTALL)
+
+
 def _section(body, head_re):
+    """The text under the first heading `head_re` matches, up to the next heading.
+    Fenced code is blanked first: a PR that quotes the template in a code block must
+    not have the example read as its findings."""
+    body = FENCE_BLOCK_RE.sub("", body)
     m = head_re.search(body)
     if not m:
         return None
@@ -456,18 +463,21 @@ def _bullets(section):
     return out
 
 
-NESTED_BULLET_RE = re.compile(r"^[ \t]+[-*]\s+", re.MULTILINE)
+NESTED_BULLET_RE = re.compile(r"^([ \t]+)[-*]\s+", re.MULTILINE)
 
 
 def _findings(bullet):
     """The bugs one top-level bullet reports. A bullet whose first line ends with `:`
     and carries nested bullets introduces a list (#1694's `fix(instancing), seven
-    items:`), and each nested bullet is one bug. Otherwise nested bullets are details of
-    the one bug (#1694's #1692 entry lists its evidence that way)."""
+    items:`), and each direct child bullet is one bug; deeper bullets are that child's
+    evidence. Otherwise nested bullets are details of the one bug (#1694's #1692 entry
+    lists its evidence that way)."""
     first = bullet.splitlines()[0].rstrip().rstrip("*").rstrip()
-    starts = [m.start() for m in NESTED_BULLET_RE.finditer(bullet)]
-    if not first.endswith(":") or not starts:
+    nested = list(NESTED_BULLET_RE.finditer(bullet))
+    if not first.endswith(":") or not nested:
         return [bullet]
+    depth = min(len(m.group(1).expandtabs(4)) for m in nested)
+    starts = [m.start() for m in nested if len(m.group(1).expandtabs(4)) == depth]
     return [bullet[s:starts[i + 1] if i + 1 < len(starts) else len(bullet)].strip()
             for i, s in enumerate(starts)]
 
@@ -509,8 +519,8 @@ def parse_yield(body):
 def issue_details(numbers):
     """({number: (title, body, state, closedAt)}, unread) for the issues given, by
     batched GraphQL like resolve_blocker_states. A PR number is absent from the dict.
-    `unread` counts the numbers in chunks that returned nothing at all (offline, rate
-    limit, timeout): their PRs fall back to the default effort and a guessed severity,
+    `unread` counts the numbers with no answer (a failed chunk: offline, rate limit,
+    timeout; or a null alias in a partial answer): their PRs fall back to the default effort and a guessed severity,
     so callers must say so rather than print a quietly different rank."""
     nums = sorted({n for n in numbers if isinstance(n, int) and n > 0})
     found, unread = {}, 0
@@ -526,10 +536,13 @@ def issue_details(numbers):
             repo = (json.loads(out.stdout) or {}).get("data", {}).get("repository") or {}
         except (subprocess.TimeoutExpired, ValueError, AttributeError):
             repo = {}
-        if not repo:
-            unread += len(chunk)
         for n in chunk:
-            node = repo.get(f"i{n}") or {}
+            # A PR number answers `{}` (no Issue fragment matched); a missing or null
+            # alias was not read: a failed chunk, or a partial answer with an error.
+            if repo.get(f"i{n}") is None:
+                unread += 1
+                continue
+            node = repo[f"i{n}"]
             if "title" in node:
                 found[n] = (node["title"], node.get("body") or "", node.get("state") or "",
                             node.get("closedAt") or "")
@@ -683,7 +696,7 @@ def expected_yield(effort, areas, model):
     factor of its areas. A mean, not a sum: listing more areas spreads the same effort
     over them (in the history, the number of areas a PR mainly worked in, each 20 % or
     more of its directories, did not predict its yield; effort did)."""
-    known = [model[a]["factor"] for a in areas if a in AREAS]
+    known = [model[a]["factor"] for a in dict.fromkeys(areas) if a in AREAS]  # a repeat counts once
     return (max(effort, 0) ** EFFORT_EXPONENT) * sum(known) / len(known) if known else 0.0
 
 
@@ -1052,6 +1065,9 @@ def score(d):
                  + d.get("_goal_lift", 0.0), 2)
 
 
+GOAL_LIFT_MARGIN = 0.02  # survives rounding both scores to 2 decimals (worst case 0.01)
+
+
 def discovery_bonus(d):
     """What a block's discovery adds to its score."""
     eff = d.get("effort", 0) or 0
@@ -1078,7 +1094,10 @@ def apply_discovery(blocks, model, star):
             if is_goal(d, star):
                 trailing = max((discovery_bonus(o) for o, so in zip(blocks, plain)
                                 if not is_goal(o, star) and so <= s), default=0.0)
-                d["_goal_lift"] = round(max(0.0, trailing - discovery_bonus(d)), 4)
+                # GOAL_LIFT_MARGIN: `score` rounds to 2 decimals and ties then fall to
+                # Learning/Fun, so an exact lift could still tie and lose.
+                need = trailing - discovery_bonus(d)
+                d["_goal_lift"] = round(need + GOAL_LIFT_MARGIN, 4) if need > -GOAL_LIFT_MARGIN else 0.0
 
 
 def is_blocked(d, states):
@@ -1230,18 +1249,35 @@ def discovery_banner(disc):
                      f"(offline, rate limit or timeout); their PRs use effort "
                      f"{DEFAULT_PR_EFFORT} and guessed severities, so the term is off. Re-run, "
                      f"or use --no-discovery")
-    if not history:
-        return lines + ["[!] discovery: no merged task PR has the template sections; every "
-                        "issue gets +0 (`issue_scores.py yield` shows why)"]
-    items = [it for r in history for it in r["items"]]
-    lines += [f"discovery: {len(history)} task PR(s) merged {history[0]['day']}..{history[-1]['day']}, "
-             f"{len(items)} found bug(s), {sum(1 for it in items if it[1])} with an estimated "
-             f"severity (`issue_scores.py yield`; --no-discovery for the plain order)"]
     local = [n for n, why in skipped if why == "local"]
-    if local:
+    if local:  # before the empty-history case: missing commits can be why it is empty
         lines.append(f"[!] discovery: {len(local)} PR(s) left out, merge commit not in this clone "
                      f"({', '.join(f'#{n}' for n in local[:8])}): run `git fetch origin`")
+    if not history:
+        why = ("none of their merge commits is in this clone" if local
+               else "no merged task PR has the template sections")
+        return lines + [f"[!] discovery: {why}; every issue gets +0 "
+                        f"(`issue_scores.py yield` shows why)"]
+    items = [it for r in history for it in r["items"]]
+    lines.insert(1 if unread else 0,
+                 f"discovery: {len(history)} task PR(s) merged {history[0]['day']}.."
+                 f"{history[-1]['day']}, {len(items)} found bug(s), "
+                 f"{sum(1 for it in items if it[1])} with an estimated severity "
+                 f"(`issue_scores.py yield`; --no-discovery for the plain order)")
     return lines
+
+
+def rank_key(row, states, floor):
+    """The full `rank` sort key, outermost first (§3): the row group (Pull, startable,
+    needs triage, blocked), then normal-value-before-low-value, then score desc, then
+    the documented Learning/Fun tie-break, then issue number as a stable final key.
+
+    Pull is deliberately OUTSIDE the low-value floor: a user-confirmed Fun >= 8 is an
+    explicit human "I want this", whereas the floor exists to catch work that floated
+    up on arithmetic alone (§3.5)."""
+    d = row[3]
+    return (row_group(row, states), floor and is_low_value(d), -row[2],
+            -d.get("learning", 0), -d.get("fun", 0), row[0])
 
 
 def cmd_rank(args):
@@ -1251,18 +1287,7 @@ def cmd_rank(args):
     if disc:
         print("\n".join(discovery_banner(disc)) + "\n")
 
-    # Sort order, outermost first (§3): the row group (Pull, startable, needs
-    # triage, blocked), then normal-value-before-low-value, then score desc, then
-    # the documented Learning/Fun tie-break, then issue number as a stable final key.
-    #
-    # Pull is deliberately OUTSIDE the low-value floor: a user-confirmed Fun >= 8 is
-    # an explicit human "I want this", whereas the floor exists to catch work that
-    # floated up on arithmetic alone (§3.5).
-    rows.sort(key=lambda r: (row_group(r, states),
-                             floor and is_low_value(r[3]),
-                             -r[2],
-                             -r[3].get("learning", 0), -r[3].get("fun", 0),
-                             r[0]))
+    rows.sort(key=lambda r: rank_key(r, states, floor))
     if args.freeze:
         print(f"[--freeze active: only {'/'.join(sorted(FREEZE_LABELS))} labels eligible; "
               f"{excluded} feature-only issue(s) excluded]\n")
@@ -1389,7 +1414,7 @@ def cmd_lint(args):
     if no_areas:
         print(f"\n{len(no_areas)} open issue(s) with no `areas:`, so the discovery term gives them "
               f"+0 (§1 Discovery). Add the areas the work will touch, from {', '.join(AREAS)}: "
-              f"`issue_scores.py set N areas=[Renderer,Vulkan/RHI]` (it keeps `scored:`):")
+              f"`issue_scores.py set N 'areas=[Renderer,Vulkan/RHI]'` (it keeps `scored:`):")
         for num, title, *_ in no_areas:
             print(f"  #{num} {title[:70]}")
     if wrong_areas:
@@ -1572,6 +1597,15 @@ def cmd_yield(args):
     as_of = dt.date.fromisoformat(args.as_of) if args.as_of else dt.date.today()
     model, history, skipped, unread = discovery_state(merged_prs(bodies=True), as_of)
     history = [r for r in history if r["day"] < as_of]
+    if unread:
+        print(f"[!] {unread} history issue(s) could not be read from GitHub (offline, rate limit "
+              f"or timeout); their PRs show effort {DEFAULT_PR_EFFORT} and guessed severities. "
+              f"Re-run before trusting these numbers.\n")
+    if args.as_of:
+        # Only the PRs are cut at the date. Issue metadata (a filed issue's stability, a
+        # delivered issue's effort and closing date) is read as it is today, so a later
+        # re-score can change a dated report.
+        print(f"[as of {as_of}: PRs merged before it; issue metadata read as of today]\n")
     if args.pr:
         rec = next((r for r in history if r["pr"] == args.pr), None)
         if rec is None:
@@ -1978,6 +2012,12 @@ PARSE_YIELD_CASES = (
     ("a bullet ending in ':' introduces one bug per nested bullet",
      "## Found and fixed\n- abc1234 fix(x), two items:\n  - a crash on load\n  - a typo [S1]\n",
      {"fixed": [(SEVERITY_HIGH, True), (1, False)], "filed": []}),
+    ("a child finding's own nested evidence stays with it",
+     "## Found and fixed\n- fix(x), two items:\n  - a crash on load\n    - regression test passed\n"
+     "  - a typo [S1]\n", {"fixed": [(SEVERITY_HIGH, True), (1, False)], "filed": []}),
+    ("a template quoted in a code block is not the PR's section",
+     "```markdown\n## Found and fixed\n- an example [S13]\n```\n\n## Found and fixed\n- a real one [S3]\n",
+     {"fixed": [(3, False)], "filed": []}),
 )
 
 _DD = dt.date(2026, 10, 1)
@@ -2011,8 +2051,28 @@ def _goal_case():
              "confidence": 1.0, "areas": ["Audio"], "_milestone": ""}
         if discovery:
             apply_discovery([g, n], model, {**star, "milestone": ms})
-        out.append([num for num, _ in sorted(((1, g), (2, n)), key=lambda x: -score(x[1]))])
+        out.append(_rank_order([(1, g), (2, n)]))
     return out
+
+
+def _rank_order(numbered_blocks):
+    """Issue numbers in `rank` order, through the real sort key (rank_key)."""
+    rows = [(num, "t", score(d), d, set(), _FRESH) for num, d in numbered_blocks]
+    return [r[0] for r in sorted(rows, key=lambda r: rank_key(r, {}, True))]
+
+
+def _tie_case():
+    """A goal issue a hair ahead of a non-goal issue (plain 4.01 vs 4.00) whose lift
+    would round to the same score, with the non-goal winning the Learning tie-break.
+    The lift must keep the goal first through the full sort key."""
+    model = {a: {"factor": 1.0} for a in AREAS}
+    model["Audio"]["factor"] = 30 / 3 ** 0.5  # effort 3 -> 30 points -> +3.0
+    g = {"capability": 5, "craft": 5, "stability": 3, "decay": 2, "effort": 3,
+         "confidence": 0.80102, "learning": 1, "_milestone": "Slice"}
+    n = {"capability": 5, "craft": 5, "stability": 3, "decay": 2, "effort": 3,
+         "confidence": 0.80098, "learning": 8, "areas": ["Audio"], "_milestone": ""}
+    apply_discovery([g, n], model, {"milestone": "Slice", "items": []})
+    return _rank_order([(1, g), (2, n)])
 
 
 def discovery_failures():
@@ -2071,6 +2131,11 @@ def discovery_failures():
     if plain != [1, 2] or with_star != [1, 2] or without_star != [2, 1]:
         bad.append(f"goal check: want [1, 2] / [1, 2] / [2, 1] (no discovery / milestone set / "
                    f"none), got {plain} / {with_star} / {without_star}")
+    if _tie_case() != [1, 2]:
+        bad.append(f"goal lift survives rounding and the Learning tie-break: got {_tie_case()}")
+    if expected_yield(1, ["Audio", "Audio", "Core"], {a: {"factor": 30.0 if a == "Audio" else 0.0}
+                                                      for a in AREAS}) != 15.0:
+        bad.append("a repeated area must count once in the mean")
     # `areas:` as people write it parses, survives a rewrite, and keeps `scored:` intact.
     d = parse_block("```olo-score\neffort: 2\nareas: [Renderer, Vulkan/RHI]\nscored: 2026-01-01\n```")
     written = splice("", d)
@@ -2162,8 +2227,9 @@ def self_test():
 
 
 # discovery_failures(): one case per row of each table, plus its seven single checks
-# (directory shares, history crediting, staleness, cap, unknown area, goal, areas).
-DISCOVERY_SINGLE_CHECKS = 7
+# (directory shares, history crediting, staleness, cap, unknown area, goal, goal tie,
+# repeated area, areas).
+DISCOVERY_SINGLE_CHECKS = 9
 
 
 def self_test_count():
