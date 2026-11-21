@@ -64,7 +64,7 @@ fun: 5
 kano: table-stakes
 blocked_by: []
 blocks: []
-areas: [Tests/CI]
+areas: ["Tests/CI"]
 ```
 
 Opened by scripts/nightly_red_streak.py (issue #1473). Stability 8: the workflow's coverage is off

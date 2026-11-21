@@ -9,7 +9,8 @@ plus two personal axes (Learning, Fun) that never enter the arithmetic.
 stored one goes stale the moment an axis changes. Re-sorting by a single axis ("a Stability day") is
 free because the inputs are kept.
 
-The reasons behind each rule are in the [appendix](#appendix--why-the-rules-are-shaped-this-way).
+The reasons behind each rule, with the measurements, are in
+[issue-scoring-details.md](issue-scoring-details.md).
 
 ---
 
@@ -82,7 +83,7 @@ every run and never written into an issue. Its only human input is the issue's *
 
 `issue_scores.py yield` prints the per-area table and, for every merged PR, the yield predicted
 from the PRs before it against what it found. That check is what the term is held to; see the
-[appendix](#appendix--why-the-rules-are-shaped-this-way) for the numbers it was set on.
+[details](issue-scoring-details.md#what-the-discovery-term-was-set-on) for the numbers it was set on.
 
 ### Effort (the denominator)
 
@@ -132,11 +133,11 @@ where you will not know it looks right until you try).
 ## §3 — The picker (`issue_scores.py rank`)
 
 ```
-Score = Confidence × (CoD + Discovery) / Effort
+Score = Confidence × (CoD + Discovery) / Effort  (+ Goal lift)
 ```
 
-Discovery is the §1 computed term (0 with `--no-discovery`; a goal issue may also get the §3.10
-lift). Rows sort by group first, then within each group by: normal-value before low-value (§3.5), Score
+Discovery is the §1 computed term (0 with `--no-discovery`). The goal lift is 0 except for a goal
+issue once a north star is set (§3.10), and is added to the score itself. Rows sort by group first, then within each group by: normal-value before low-value (§3.5), Score
 descending, Learning, Fun, issue number.
 
 | Group | Rows | Pickable |
@@ -223,7 +224,8 @@ The §1 Discovery term enters the score through Stability. How it meets the othe
   discovery in it. The slots themselves are unchanged.
 - **Goal issues are never pushed down by it.** Discovery favours small items, since yield per unit
   of effort falls with effort, and items in quiet areas. Without a correction, a Renderer goal
-  issue sank 7 → 13 under a synthetic milestone (appendix). So once a north star is set, a goal
+  issue sank 7 → 14 under a synthetic milestone
+  ([details](issue-scoring-details.md#what-the-discovery-term-was-set-on)). So once a north star is set, a goal
   issue is lifted (`disc:goal`) to the largest discovery bonus among the non-goal issues that
   scored at or below it without discovery. No non-goal issue overtakes a goal issue because of
   discovery, and the lift is no larger, so the goal still works through Decay.
@@ -319,77 +321,3 @@ label. [`scripts/issue_scores.py`](../../scripts/issue_scores.py):
 `tooling` or `cleanup`, hiding pure feature work. It filters the candidates and leaves the scores
 unchanged. Last used for the 2026-07 feature freeze; opt-in, so plain `rank` is the live lens. A
 freeze-eligible issue that does not show up is mislabelled: fix the label.
-
----
-
-## Appendix — why the rules are shaped this way
-
-**Agent-scored Fun was jumping the queue (§3.4).** On 2026-10-15, five of the seven `Fun ≥ 8` issues
-were 2–10 days old, agent-filed (several from one Planet Zoo 2 capture study) and agent-scored. The
-ranking's top ten had a median age of 4 days, ranks 51–80 a median of 37, and #1615 (wet coats)
-outranked #1584 (Windows CI sccache hitting 0 of 2055 compiles, ~2 h per build). Fun exists to record
-the *user's* motivation; an agent rating its own fresh issue 8 was voting it to the front. Of the seven,
-the user confirmed #1558 and #1559 and declined the rest.
-
-**Old scores were never revisited (§6.4).** Nothing re-scored an issue after the session that filed it,
-and Decay is a fixed number, so an issue's rank kept the enthusiasm of the day it was filed. #1593 sat
-at rank 1 for days after #1599 merged its implementation, and each sweep skipped it by hand. The first
-`lint` run with these checks found 14 issues with merged work since their score (including #1259,
-#1584 and #1594 with delivering PRs merged) and 12 scores older than 45 days. Age alone is not
-demoted: it is evidence the score may be wrong, not that it is.
-
-**Force-multiplier work kept losing to features (§3.7).** start-work's tier list says CI, test infra and
-tooling compound and should come first, but the score had no notion of tier, so a run of groom features
-took every slot. One slot in three is a fixed share that needs no stored state.
-
-**Broad structural work kept losing to small fixes (§3.8).** The PRs merged between 2026-09-15 and
-2026-11-20 fixed about 620 bugs in the PR that found them, and most came from broad items: #1694
-(renderer ownership, #1330) fixed 30 and filed 6, #1698 (multi-view) fixed 17 and filed 7, #1597 (the
-#1259 acceptance scene) fixed 11 and filed 13. A typical small fix found 0–5. No axis counts bugs
-that have not been found yet, and effort divides the score, so the backlog's top was all small items.
-The slot is the stopgap. A computed discovery term with severity weighting is the follow-up (#1725).
-
-**What the discovery term was set on (§1 Discovery, §3.10, #1725).** The history on 2026-11-21: 103
-merged task PRs with the template sections (2026-09-05 to 2026-11-21), 628 found bugs, 531 of them
-with an estimated severity. Three findings shaped it:
-
-- *Yield grows far slower than effort.* Over the 79 PRs with a known effort, yield ≈ 9.8 ×
-  effort^0.40; the mean was 12 points at effort 1 and 34 at effort 8. Hence `effort^0.5`. A broad
-  item finds more bugs than a small one but fewer per unit of effort, so the term does **not**
-  carry broad items up the rank on its own. Whether the large-item slot (§3.8) is still needed is
-  the checkpoint question for #1725.
-- *Discovery runs out.* Each PR predicted from the PRs merged before it, the model's rank
-  correlation with the actual yield was 0.32. Effort alone scored 0.16 and the model without
-  staleness 0.245, so the staleness factor carries most of the skill. #1694 (renderer
-  ownership) found 95 severity points; across its merge, Renderer's expected yield per
-  `effort^0.5` fell from 11.5 to 10.0, Scene/ECS (7 % of the PR) held at 19.3, and the other
-  fourteen areas rose.
-- *Breadth did not predict yield.* The number of areas a PR mainly worked in (each 20 % or more of
-  its directories) had a rank correlation of 0.02 with its yield, so an issue's factor is the mean
-  of its areas, not their sum.
-
-Under a synthetic milestone of five Renderer issues, the term alone pushed #1344 from 7th to 13th
-and #1143 from 27th to 32nd; with the §3.10 lift, no goal issue dropped. The constants are at the top
-of the discovery section in the script, with the reason for each.
-
-**Discovery feeds the area last worked, so the backlog needs a goal (§3.9).** A renderer sweep files
-renderer issues, and the next pick comes from them. On 2026-11-20 most of the 69 open issues were
-renderer work, and the top `large:` candidate was an asset for the skin epic, while the stated aim is a
-game in 2027. The large slot and #1725 make the loop stronger. The north star is the counterweight,
-and it works through the existing Decay rung rather than a new axis.
-
-**Proven-done issues kept ranking (§3, `close-recommended`).** #1687 and #1688 carried "Appears
-resolved by #1694" comments from 2026-11-14 and still printed as rank 1 and 2 on 2026-11-20. Every
-sweep had to skip them by hand. A comment is invisible to the picker; a label is not.
-
-**The low-value floor (§3.5).** A ratio cannot tell "cheap and worth doing" from "cheap and not worth a
-slot". #411 (CoD 5, effort 2 → 1.25) ranked 5th of 13 with no actionable content left; nothing was
-mis-scored. CoD answers "is this worth doing at all", which the ratio cannot.
-
-**Blockers are resolved, not trusted (§3.6).** A written `blocked_by` used to block forever. On
-2026-09-09 the closed #1123 and #1139 held seven issues out of `rank` entirely, including #1126 and
-#1130, the two highest-scoring rows. A blocked row is absent, not low, so nothing in the output
-revealed it (#1161).
-
-**External blockers (§2).** #815 sat at rank 7 with an empty `blocked_by` while waiting on two upstream
-`repowise` fixes, and every sweep re-derived "not that one" by hand.

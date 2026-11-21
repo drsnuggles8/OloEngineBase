@@ -236,11 +236,13 @@ def delivered_numbers(head_ref, title):
     return nums
 
 
-def merged_prs():
-    """The last 500 merged PRs, with what both merged-work staleness and the discovery
-    history need. One fetch serves both (§6.4 and §1 Discovery)."""
+def merged_prs(bodies=False):
+    """The last 500 merged PRs. With `bodies`, also what the discovery history needs, so
+    one fetch serves both it and merged-work staleness (§6.4, §1 Discovery); without, the
+    small metadata `lint` needs, not 500 PR bodies."""
+    fields = "number,title,headRefName,mergedAt,author" + (",body,mergeCommit" if bodies else "")
     return gh_json(["pr", "list", "--repo", REPO, "--state", "merged", "--limit", "500",
-                    "--json", "number,title,headRefName,mergedAt,author,body,mergeCommit"])
+                    "--json", fields])
 
 
 def merged_work_index(prs=None):
@@ -309,23 +311,23 @@ AREAS = ("Renderer", "Groom", "Vulkan/RHI", "Scene/ECS", "Serialization", "Physi
 AREA_RULES = tuple((re.compile(rx), area) for rx, area in (
     (r"^docs/|\.md$|^experiments/|^\.git(?:ignore|attributes|modules)$|^\.coderabbit|"
      r"^\.markdownlint|/tests/visual/", None),
-    (r"groom|/breeds/|/fur", "Groom"),
+    (r"groom|/breeds/|/fur(?:/|coat)", "Groom"),
     (r"vulkan|/rhi/|spirv|lavapipe", "Vulkan/RHI"),
     (r"^\.github/|^cmake/|cmakelists\.txt$|cmakepresets|vcpkg|sonar-project|^\.clang", "Tests/CI"),
     (r"^scripts/|^\.claude/|^\.agents/|^oloctl/|^tools/|^\.pre-commit|^\.vscode/", "Tooling"),
     (r"physics|jolt|box2d|collider|/cloth", "Physics"),
-    (r"scripting|scriptcore|\.cs$|lua", "Scripting"),
+    (r"scripting|scriptcore|\.cs$|(?<![a-z])lua", "Scripting"),  # not "evaluator"
     (r"serializ|savegame|/save|assetpack", "Serialization"),
     (r"\.oar$|^oloeditor/sandboxproject/|^oloeditor/assets/(?!shaders/)|^assets/", "Assets"),
     (r"/scene/|component|/ecs", "Scene/ECS"),
-    (r"anim|/skin|morph", "Animation"),
+    (r"anim(?!al)|/skin|morph", "Animation"),
     (r"audio|sound", "Audio"),
     (r"network|/server/|^oloserver/|replicat|rollback", "Networking"),
     (r"/renderer/|shaders?/|opengl|/atmosphere|/terrain|/particle|/fluid|/precipitation|/snow|"
      r"/wind/|/video|render|visual|foliage|light|shadow|/rt/|raytrac|upscal|texture|material", "Renderer"),
     (r"/asset|^oloeditor/assets/|^assets/|volumecook|sandboxproject", "Assets"),
     (r"^oloeditor/|imgui|mcp|^oloruntime/", "Editor"),
-    (r"/ai/|gameplay|dialogue|navigation|/ui/|cinematic|tilemap|locali[sz]|accessib|quest|inventory",
+    (r"/ai/|gameplay|dialogue|navigation|/ui/|cinematic|tilemap|locali[sz]|accessib|(?<![a-z])quest|inventory",
      "Gameplay"),
     (r"^oloengine/tests/", "Tests/CI"),
     (r"^oloengine/src/", "Core"),
@@ -344,7 +346,7 @@ SEVERITY_HIGH_RE = re.compile(
     r"undefined behaviou?r|out of bounds|past the end", re.IGNORECASE)
 SEVERITY_LOW_RE = re.compile(
     r"^(?:`?[0-9a-f]{7,12}`?:?\s+)?(?:docs|test|style|chore)(?:\(|:)|test-only|\btypos?\b|"
-    r"log noise|log spam|\bwording\b|\bdocs?\b", re.IGNORECASE)
+    r"log noise|log spam|\bwording\b|fix\(docs\)", re.IGNORECASE)
 
 # The two sections the task-loop PR template ends with (task-loop.md, Phase 4). Earlier
 # PRs used free headings ("Two bugs found on the way"); those PRs are left out of the
@@ -353,14 +355,14 @@ FOUND_HEAD_RE = re.compile(r"^#{2,4}\s*Found and fixed\b[^\n]*$", re.MULTILINE |
 FILED_HEAD_RE = re.compile(r"^#{2,4}\s*Filed, not fixed\b[^\n]*$", re.MULTILINE | re.IGNORECASE)
 NEXT_HEAD_RE = re.compile(r"^#{1,4}\s", re.MULTILINE)
 BULLET_RE = re.compile(r"^[-*]\s+", re.MULTILINE)
-FILED_NUM_RE = re.compile(r"^[-*]\s+(?:\*\*)?#(\d+)")
+FILED_NUM_RE = re.compile(r"^[-*]\s+(?:\*\*)?\[?#(\d+)")  # `- #N`, `- **#N`, `- [#N](url)`
 
-# The model (§1 Discovery). Constants were set against the 103 template PRs merged
-# 2026-09-24..2026-11-21 (issue-scoring.md appendix); `yield` prints the
-# predicted-vs-actual check they must keep passing.
+# The model (§1 Discovery). Constants were set against the 101 template PRs merged
+# 2026-09-05..2026-11-20 (issue-scoring-details.md, "What the discovery term was set
+# on"); `yield` prints the predicted-vs-actual check they must keep passing.
 #
-# Yield grows with effort, but far slower than linearly: a log-log fit over the 80
-# PRs with a known effort gave yield = 9.7 x effort^0.42 (mean 12 at effort 1, 34 at
+# Yield grows with effort, but far slower than linearly: a log-log fit over the 79
+# PRs with a known effort gave yield = 10.4 x effort^0.36 (mean 14 at effort 1, 43 at
 # effort 8). Effort enters as effort^EFFORT_EXPONENT, so a large item is not credited
 # eight times a small one's bugs. `yield` prints the current fit beside the constant.
 EFFORT_EXPONENT = 0.5
@@ -372,9 +374,9 @@ RECOVER_DAYS = 30         # a sweep's depletion halves every this many days...
 RECOVER_CHURN = 10        # ...and every this many later PRs' worth of changes to the area
 STALE_MAX = 2.0           # the most a fresh area's expectation exceeds its measured rate
 # Expected severity points per point of Stability. An effort-3 issue in an average area
-# expects about 20 points (the history's mean for effort 3 was 18: six bugs of the
+# expects about 20 points (the history's mean for effort 3 was 17: six bugs of the
 # default severity), which this turns into +2, one rung step on the other axes. Expected
-# bugs are a forecast with a measured rank correlation near 0.3, so they are not
+# bugs are a forecast with a measured rank correlation near 0.27, so they are not
 # credited one-for-one like a known bug.
 DISC_SCALE = 10
 DISC_CAP = 5              # the most Stability discovery can add (§1): never beats a crash bug
@@ -489,14 +491,17 @@ def parse_yield(body):
 
 
 def issue_details(numbers):
-    """{number: (title, body, state)} for the issues given, by batched GraphQL like
-    resolve_blocker_states. A number that is a PR or unreadable is absent."""
+    """({number: (title, body, state, closedAt)}, unread) for the issues given, by
+    batched GraphQL like resolve_blocker_states. A PR number is absent from the dict.
+    `unread` counts the numbers in chunks that returned nothing at all (offline, rate
+    limit, timeout): their PRs fall back to the default effort and a guessed severity,
+    so callers must say so rather than print a quietly different rank."""
     nums = sorted({n for n in numbers if isinstance(n, int) and n > 0})
-    found = {}
+    found, unread = {}, 0
     for i in range(0, len(nums), _BLOCKER_CHUNK):
         chunk = nums[i:i + _BLOCKER_CHUNK]
         fields = "\n".join(f"  i{n}: issueOrPullRequest(number: {n}) "
-                           f"{{ ... on Issue {{ title body state }} }}" for n in chunk)
+                           f"{{ ... on Issue {{ title body state closedAt }} }}" for n in chunk)
         query = f'query {{ repository(owner: "{REPO_OWNER}", name: "{REPO_NAME}") {{\n{fields}\n}} }}'
         try:
             out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
@@ -505,11 +510,14 @@ def issue_details(numbers):
             repo = (json.loads(out.stdout) or {}).get("data", {}).get("repository") or {}
         except (subprocess.TimeoutExpired, ValueError, AttributeError):
             repo = {}
+        if not repo:
+            unread += len(chunk)
         for n in chunk:
             node = repo.get(f"i{n}") or {}
             if "title" in node:
-                found[n] = (node["title"], node.get("body") or "", node.get("state") or "")
-    return found
+                found[n] = (node["title"], node.get("body") or "", node.get("state") or "",
+                            node.get("closedAt") or "")
+    return found, unread
 
 
 def history_numbers(prs):
@@ -526,7 +534,7 @@ def history_numbers(prs):
 def build_history(prs, details, paths_of):
     """The yield history: one record per merged task PR with template sections.
 
-    `details` is issue_details() over every delivered and filed number; `paths_of`
+    `details` is issue_details()[0] over every delivered and filed number; `paths_of`
     maps a merge-commit oid to its changed files (merge_paths().get). A filed issue is
     credited once, to the first merged PR that lists it (a later PR often re-lists an
     issue it only saw). Returns (records oldest first, [(skipped PR, "local" | "no area")]).
@@ -534,7 +542,19 @@ def build_history(prs, details, paths_of):
     records, skipped, credited = [], [], set()
     task = [pr for pr in prs if (pr.get("headRefName") or "").startswith("feature/")
             and not pr.get("author", {}).get("is_bot") and pr.get("mergedAt")]
-    for pr in sorted(task, key=lambda p: p["mergedAt"]):
+    task.sort(key=lambda p: p["mergedAt"])
+    # An issue's effort sizes only the PR that closed it: the last PR naming it that
+    # merged by the day after it closed. An umbrella delivered in slices (#607, effort
+    # 13) would otherwise re-size every earlier slice to the epic's effort the day the
+    # last one closes it, and a follow-up naming a closed issue would be charged again.
+    closer = {}
+    for pr in task:
+        for n in delivered_numbers(pr.get("headRefName"), pr.get("title")):
+            _, _, state, closed = details.get(n, ("", "", "", ""))
+            if (state == CLOSED and closed
+                    and gh_day(pr["mergedAt"]) <= gh_day(closed) + dt.timedelta(days=1)):
+                closer[n] = pr["number"]
+    for pr in task:
         parsed = parse_yield(pr.get("body"))
         if parsed is None:
             continue
@@ -551,21 +571,20 @@ def build_history(prs, details, paths_of):
             if n in credited:
                 continue
             credited.add(n)
-            title, body, _ = details.get(n, ("", "", ""))
+            title, body, _, _ = details.get(n, ("", "", "", ""))
             d = parse_block(body)
             if d and isinstance(d.get("stability"), (int, float)):
                 items.append((d["stability"], False, f"filed #{n}: {title[:60]}"))
             else:
                 items.append((heuristic_severity(title), True, f"filed #{n}: {title[:60]}"))
-        # Only a CLOSED delivered issue says how big the PR was. One still open was
-        # delivered in slices (an umbrella like #607, effort 13), and its effort is the
-        # epic's: those PRs averaged 9 points of yield, not the 30+ an effort 13 implies.
+        # Only the delivered issues this PR closed say how big it was. A slice of an
+        # issue still open, or closed later by another PR, carries the epic's effort:
+        # slices of #607 (effort 13) averaged 9 points of yield, not the 30+ it implies.
         efforts = []
         for n in delivered_numbers(pr.get("headRefName"), pr.get("title")):
-            _, body, state = details.get(n, ("", "", ""))
-            d = parse_block(body)
-            if (state == CLOSED and d and isinstance(d.get("effort"), (int, float))
-                    and d["effort"] > 0):
+            d = parse_block(details.get(n, ("", "", "", ""))[1])
+            if (closer.get(n) == pr["number"] and d
+                    and isinstance(d.get("effort"), (int, float)) and d["effort"] > 0):
                 efforts.append(d["effort"])
         records.append({"pr": pr["number"], "day": gh_day(pr["mergedAt"]), "areas": shares,
                         "effort": min(sum(efforts), 13) if efforts else DEFAULT_PR_EFFORT,
@@ -1127,15 +1146,16 @@ def bad_areas(d):
 
 
 def discovery_state(prs, today):
-    """(model, history, skipped) for `today` from the merged PRs; see build_history."""
+    """(model, history, skipped, unread) for `today` from the merged PRs (fetched with
+    bodies); see build_history and issue_details."""
     # Only PRs with the template sections can enter the history: fetch details and
     # diffs for those, not for all 500 (that tripled the cost of every `rank`).
     prs = [pr for pr in prs if (pr.get("headRefName") or "").startswith("feature/")
            and not pr.get("author", {}).get("is_bot") and parse_yield(pr.get("body")) is not None]
-    details = issue_details(history_numbers(prs))
+    details, unread = issue_details(history_numbers(prs))
     paths = merge_paths((pr.get("mergeCommit") or {}).get("oid") for pr in prs)
     history, skipped = build_history(prs, details, paths.get)
-    return calibrated_model(history, today), history, skipped
+    return calibrated_model(history, today), history, skipped, unread
 
 
 # ---- commands ---------------------------------------------------------------
@@ -1147,7 +1167,7 @@ def ranked_rows(args, today, discovery=False):
     """
     rows, excluded, unscored = [], 0, []
     issues = open_issues()
-    prs = merged_prs()
+    prs = merged_prs(bodies=discovery)
     index = merged_work_index(prs)
     for it in issues:
         d = parse_block(it.get("body"))
@@ -1187,12 +1207,18 @@ def row_group(row, states):
 
 def discovery_banner(disc):
     """Lines saying what the discovery term was computed from, and what it left out."""
-    _, history, skipped = disc
+    _, history, skipped, unread = disc
+    lines = []
+    if unread:
+        lines.append(f"[!] discovery: {unread} history issue(s) could not be read from GitHub "
+                     f"(offline, rate limit or timeout); their PRs use effort "
+                     f"{DEFAULT_PR_EFFORT} and guessed severities, so the term is off. Re-run, "
+                     f"or use --no-discovery")
     if not history:
-        return ["[!] discovery: no merged task PR has the template sections; every issue "
-                "gets +0 (`issue_scores.py yield` shows why)"]
+        return lines + ["[!] discovery: no merged task PR has the template sections; every "
+                        "issue gets +0 (`issue_scores.py yield` shows why)"]
     items = [it for r in history for it in r["items"]]
-    lines = [f"discovery: {len(history)} task PR(s) merged {history[0]['day']}..{history[-1]['day']}, "
+    lines += [f"discovery: {len(history)} task PR(s) merged {history[0]['day']}..{history[-1]['day']}, "
              f"{len(items)} found bug(s), {sum(1 for it in items if it[1])} with an estimated "
              f"severity (`issue_scores.py yield`; --no-discovery for the plain order)"]
     local = [n for n, why in skipped if why == "local"]
@@ -1528,7 +1554,7 @@ def predictions(history):
 
 def cmd_yield(args):
     as_of = dt.date.fromisoformat(args.as_of) if args.as_of else dt.date.today()
-    model, history, skipped = discovery_state(merged_prs(), as_of)
+    model, history, skipped, unread = discovery_state(merged_prs(bodies=True), as_of)
     history = [r for r in history if r["day"] < as_of]
     if args.pr:
         rec = next((r for r in history if r["pr"] == args.pr), None)
@@ -1879,6 +1905,14 @@ AREA_CASES = (
     ("OloEngine/tests/ContainerTest.cpp", "Tests/CI"),
     ("scripts/issue_scores.py", "Tooling"),
     (".github/workflows/windows.yml", "Tests/CI"),
+    # Substrings that used to land in the wrong area: "evaluator" holds "lua", "furnace"
+    # holds "/fur", "animal" holds "anim", "request" holds "quest".
+    ("OloEngine/src/OloEngine/Animation/MorphTargets/MorphTargetEvaluator.cpp", "Animation"),
+    ("OloEditor/assets/shaders/include/TerrainDepthTess_EvaluationStage.glsl", "Renderer"),
+    ("OloEditor/assets/textures/hdr/furnace_white_1x1.hdr", "Assets"),
+    ("OloEngine/src/OloEngine/Scene/AnimalPath.cpp", "Scene/ECS"),
+    ("OloEngine/src/OloEngine/Async/RequestQueue.cpp", "Core"),
+    ("OloEngine-LuaScriptCore/src/Bindings.cpp", "Scripting"),
 )
 
 # (bullet, want (severity, estimated))
@@ -1890,6 +1924,10 @@ SEVERITY_CASES = (
     ("- `abc1234` docs: a stale link", (SEVERITY_LOW, True)),
     ("- abc1234 test(vulkan): the tenant calls BeginFrame twice", (SEVERITY_LOW, True)),
     ("- the trace output was misaligned", (SEVERITY_DEFAULT, True)),  # "trace" is no race
+    # #1698: a real rendering fix whose evidence mentions the docs is not a docs fix.
+    ("- abc1234 fix(shaders): the BRDF table is read off by a texel (the doc said so)",
+     (SEVERITY_DEFAULT, True)),
+    ("- abc1234 fix(docs): a dead anchor", (SEVERITY_LOW, True)),
     ("- [S4] not a rung, so the heuristic answers", (SEVERITY_DEFAULT, True)),
 )
 
@@ -1909,6 +1947,7 @@ A closing paragraph that is not a bullet.
 ## Filed, not fixed
 - #12 something big. Too big.
 - #13 (seen here, filed elsewhere)
+- [#14](https://github.com/o/r/issues/14) tracks the rest.
 
 ## Review guide
 - not a finding
@@ -1916,7 +1955,7 @@ A closing paragraph that is not a bullet.
 # (description, body, want parse_yield summary or None)
 PARSE_YIELD_CASES = (
     ("both sections, nested details, trailing paragraph", _YIELD_BODY,
-     {"fixed": [(8, False), (SEVERITY_DEFAULT, True)], "filed": [12, 13]}),
+     {"fixed": [(8, False), (SEVERITY_DEFAULT, True)], "filed": [12, 13, 14]}),
     ("None. in both sections is zero yield, not no data",
      "## Found and fixed\nNone.\n\n## Filed, not fixed\nNone.\n", {"fixed": [], "filed": []}),
     ("a free-form heading is no data", "## Two bugs found on the way\n- a crash\n", None),
@@ -1985,11 +2024,16 @@ def discovery_failures():
            {"number": 11, "headRefName": "feature/y-2", "title": "", "author": {},
             "mergedAt": "2026-10-02T00:00:00Z", "mergeCommit": {"oid": "b"},
             "body": "## Filed, not fixed\n- #7 a again"}]
-    details = {7: ("A crash", blk, OPEN), 8: ("a typo", "", OPEN),
-               1: ("one", blk, CLOSED), 2: ("two", blk, OPEN)}
+    # #9 is an earlier slice of #1: #10 closed it, so only #10 is sized by #1's effort.
+    prs.append({"number": 9, "headRefName": "feature/w-1", "title": "", "author": {},
+                "mergedAt": "2026-09-20T00:00:00Z", "mergeCommit": {"oid": "c"},
+                "body": "## Found and fixed\nNone."})
+    details = {7: ("A crash", blk, OPEN, ""), 8: ("a typo", "", OPEN, ""),
+               1: ("one", blk, CLOSED, "2026-10-01T05:00:00Z"), 2: ("two", blk, OPEN, "")}
     hist, _ = build_history(prs, details, lambda oid: ["scripts/x.py"])
     got = [(r["pr"], r["yield"], r["effort"], r["effort_known"]) for r in hist]
-    want = [(10, 8 + SEVERITY_LOW, 5, True), (11, 0, DEFAULT_PR_EFFORT, False)]
+    want = [(9, 0, DEFAULT_PR_EFFORT, False), (10, 8 + SEVERITY_LOW, 5, True),
+            (11, 0, DEFAULT_PR_EFFORT, False)]
     if got != want:
         bad.append(f"history crediting: want={want} got={got}")
     # Staleness: the sweep drops the swept area's expectation, and time restores it.
