@@ -4,7 +4,8 @@
 
 Read before touching `GroomRenderPass::{AcquireDrawnPose, AcquireCoatVolume, BakeCoatVolume}`,
 `GroomCoatShadow::{CoatBakeSubsetStride, SubsampleCoatSegments, CoatRebuildBudget}`,
-`GroomRenderPass::SharedCoatVolume` or `CoatRebakePolicy::{BakeSegmentsPerOccupiedVoxel, MaxRebuildsPerFrame}`. Why a bound coat is baked from its drawn pose at
+`GroomRenderPass::SharedCoatVolume`, `CoatRebakePolicy::{BakeSegmentsPerOccupiedVoxel, MaxRebuildsPerFrame}`,
+`VulkanTexture3D::SetData` or `VulkanRendererAPI::RecordStagedImageUpload`. Why a bound coat is baked from its drawn pose at
 all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shadowing.md).
 
 ## The rules
@@ -103,7 +104,7 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
     `Groom::CoatVolume` calls read 80-400 ms each with no child scope -- the bake's own stages are
     a few to tens of milliseconds -- so the two bakes a frame the budget allowed still cost
     300-470 ms. Inside a recording bracket the upload is now
-    `VulkanRendererAPI::TryRecordTexture3DUpload`: staging, a barrier into TRANSFER_DST from the
+    `VulkanRendererAPI::RecordStagedImageUpload`: staging, a barrier into TRANSFER_DST from the
     tracked layout, the copy, and a barrier back to the sampled layout with the tracker updated,
     since a coat volume is bound through a persistent heap slot that carries no per-draw transition.
     The staging buffer goes to the deferred-reclaim queue. Outside a frame the one-shot stays.

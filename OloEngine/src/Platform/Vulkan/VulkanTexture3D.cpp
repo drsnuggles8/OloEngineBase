@@ -178,11 +178,16 @@ namespace OloEngine
         // every frame already submitted and waits for all of them: on the live
         // editor that was a GPU frame or more of CPU stall per bake, so a camera
         // cut's dozens of bakes stalled for seconds whatever their CPU cost.
+        // The staged copy ends in the sampled layout (a volume is bound through
+        // a persistent heap slot), and the registry is seeded with it, as the
+        // one-shot arm below does: the heap resolver serves only a texture at
+        // rest in that layout, and a later tracker registers from the registry.
         if (auto* vk = VulkanUpload::TryGetRecordingVulkanAPI(); vk != nullptr)
         {
-            const VkExtent3D extent{ m_Specification.Width, m_Specification.Height, m_Specification.Depth };
-            if (vk->TryRecordTexture3DUpload(m_Image, extent, data, size))
+            if (vk->RecordStagedImageUpload(m_Image, 0u, 0u, m_Specification.Width, m_Specification.Height, data, size,
+                                            m_Specification.Depth, true))
             {
+                VulkanImageInfoRegistry::Get().SetInitialLayout(m_Image, VulkanDevice::Get()->GetSampledImageLayout());
                 return;
             }
         }

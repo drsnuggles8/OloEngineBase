@@ -2,7 +2,8 @@
 
 Read before touching `GroomRenderPass::{AcquireDrawnPose, AcquireCoatVolume, BakeCoatVolume}`,
 `GroomCoatShadow::{CoatBakeSubsetStride, SubsampleCoatSegments, CoatRebuildBudget}`,
-`GroomRenderPass::SharedCoatVolume` or `CoatRebakePolicy::{BakeSegmentsPerOccupiedVoxel, MaxRebuildsPerFrame}`. Why a bound coat is baked from its drawn pose at
+`GroomRenderPass::SharedCoatVolume`, `CoatRebakePolicy::{BakeSegmentsPerOccupiedVoxel, MaxRebuildsPerFrame}`,
+`VulkanTexture3D::SetData` or `VulkanRendererAPI::RecordStagedImageUpload`. Why a bound coat is baked from its drawn pose at
 all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shadowing.md).
 
 ## The rules
@@ -41,7 +42,7 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    coat's shadow slides off it. `AMixedSceneRebuildsWithinTheBudgetAndNoWaitingCoatGoesUnshadowed` pins it.
    [Details](groom-coat-bake-cost-details.md#the-rules)
 10. **On Vulkan, a bake inside a frame records its upload on the frame's command buffer**
-    (`VulkanRendererAPI::TryRecordTexture3DUpload`, #1594), never the blocking one-shot: a one-shot
+    (`VulkanRendererAPI::RecordStagedImageUpload`, #1594), never the blocking one-shot: a one-shot
     waits for every frame in flight, a GPU frame or more of stall per bake whatever the bake's own
     cost. [Details](groom-coat-bake-cost-details.md#the-rules)
 
