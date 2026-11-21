@@ -104,17 +104,22 @@ def rng(v: list[float]) -> str:
     return "—" if not v else (f"{min(v):.3f}" if min(v) == max(v) else f"{min(v):.3f}–{max(v):.3f}")
 
 
-def delta(a: list[float], b: list[float], judged: bool = True) -> str:
-    """`judged=False` for the identical-arms control, whose delta SHOULD sit inside its spread."""
+def delta(a: list[float], b: list[float], control: list[float] | None = None, judged: bool = True) -> str:
+    """A − B, judged against its noise floor: the larger of the two arms' run ranges and,
+    when `control` (the identical repeat of arm A) is given, |A − control|, the difference
+    the same workload shows between two cells. `judged=False` prints the identical-arms
+    control itself, whose delta SHOULD sit inside its spread."""
     if not a or not b:
         return "—"
     if min(len(a), len(b)) < 2:
         # One run has no spread to judge against; never print it as a budget number.
         return f"insufficient runs ({len(a)}/{len(b)})"
     d = statistics.median(a) - statistics.median(b)
-    spread = max(max(a) - min(a), max(b) - min(b))
-    verdict = "" if not judged or spread < abs(d) else " (not resolved)"
-    return f"{d:+.3f} ± {spread:.3f}{verdict}"
+    floor = max(max(a) - min(a), max(b) - min(b))
+    if control:
+        floor = max(floor, abs(statistics.median(a) - statistics.median(control)))
+    verdict = "" if not judged or floor < abs(d) else " (not resolved)"
+    return f"{d:+.3f} ± {floor:.3f}{verdict}"
 
 
 def main() -> int:
@@ -135,7 +140,7 @@ def main() -> int:
                 copies = [r[camera][SKIN_PASSES[1]] + r[camera][SKIN_PASSES[2]] for r in on
                           if SKIN_PASSES[1] in r.get(camera, {}) and SKIN_PASSES[2] in r.get(camera, {})]
                 print(f"| {label} | {camera} | {rng(skin)} | {rng(copies)} | {rng(values(on, camera, 'gpu'))} | "
-                      f"{delta(values(on, camera, 'gpu'), values(off, camera, 'gpu'))} | "
+                      f"{delta(values(on, camera, 'gpu'), values(off, camera, 'gpu'), values(rep, camera, 'gpu'))} | "
                       f"{delta(values(on, camera, 'gpu'), values(rep, camera, 'gpu'), judged=False)} |")
         print()
         print("Skin shading in the passes it rides (full stack − skin-off, ms; per-pass p50):\n")
@@ -143,9 +148,10 @@ def main() -> int:
         print("|---|---|" + "---:|" * len(RIDES))
         for slug, label in PATHS:
             on, bare = cells.get(f"{prefix}-{slug}", []), cells.get(f"{prefix}-{slug}-skin-off", [])
+            rep = cells.get(f"{prefix}-{slug}-repeat", [])
             for camera in ("face-fill", "crowd"):
-                print(f"| {label} | {camera} | " + " | ".join(delta(values(on, camera, p), values(bare, camera, p))
-                                                         for p in RIDES) + " |")
+                print(f"| {label} | {camera} | " + " | ".join(
+                    delta(values(on, camera, p), values(bare, camera, p), values(rep, camera, p)) for p in RIDES) + " |")
         up = cells.get(f"{prefix}-deferred-upscale-quality", [])
         if up:
             print("\nDeferred, upscale Quality: SkinDiffusionPass " + ", ".join(

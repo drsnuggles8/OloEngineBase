@@ -113,7 +113,8 @@ RendererSettings:                # renderer-side state the scene CANNOT serializ
   # MSAASampleCount, Upscale (Off | Quality | Balanced | Performance | UltraPerformance),
   # UpscaleTechnique (Spatial | Temporal), LightingTap (see "Lighting taps"),
   # VirtualShadowMaps (true | false), SkinDiffusion (true | false: applied over the
-  # scene's SkinDiffusion block, so a skin-off control arm is the same scene file, #1396)
+  # scene's SkinDiffusion block, so a diffusion-off control arm is the same scene file, #1396;
+  # a skin-off arm is a different scene, with Generic materials)
   # (unknown keys are fatal — extend BenchmarkManifest.cpp to add one)
 
 Exposure:

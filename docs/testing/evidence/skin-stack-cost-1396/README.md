@@ -29,8 +29,9 @@ full-stack run with valid SkinDiffusionPass samples). After the campaign, only t
 `SkinDominantNoSkin.olo` was reworded; no entity changed, but the skin-off manifests' scene hash
 moved with it. Each cell value is the range over the three
 runs of that run's p50 over 300 measured frames per camera. A delta is the difference of the arms'
-medians over runs, ± the larger of the two arms' run ranges; one whose ± is not smaller than the
-delta is marked *not resolved* and is not a budget number.
+medians over runs, ± its noise floor: the larger of the two arms' run ranges and the full stack's
+own difference from its identical repeat. One whose ± is not smaller than the delta is marked *not
+resolved* and is not a budget number (on this campaign the identical-arms term never set the floor).
 
 ## Per-pass GPU cost
 
@@ -75,8 +76,9 @@ Deferred, upscale Quality: SkinDiffusionPass 0.214–0.217 (face-fill) and 0.208
 The **skin-shading deltas on Vulkan are not resolved**: every ScenePrepassPass, ScenePass and
 DeferredLightingPass delta is within ±0.05 ms with a run spread of 0.003–0.18 ms, and the two whose
 spread is narrower come out negative (Forward+ crowd, −0.010 and −0.049), which skin cannot be. The
-editor host's per-pass noise is larger than that cost; on this hardware it is below **0.05 ms** per
-pass, and that bound is the number to plan with, not a delta.
+editor host's per-pass noise (run spreads up to 0.18 ms) is larger than that cost, so this campaign
+gives **no Vulkan figure and no upper bound** for it: a delta inside the noise does not bound the
+cost. The resolved measurement of the skin shading is OpenGL's.
 
 ## The budget
 
@@ -87,12 +89,14 @@ Native 1080p, RTX 4090, the frame made of skin (61–71 % coverage). Per-pass p5
 | SkinDiffusionPass | 0.17–0.19 ms | 0.31–0.37 ms |
 | its two snapshot copies | 0.07 ms | 0.06 ms |
 | the diffusion's cost to the frame (on − off, resolved cells) | 0.24–0.27 ms | 0.14–0.35 ms |
-| skin shading in the forward scene pass | 0.09–0.18 ms | below 0.05 ms (not resolved) |
-| skin shading in deferred lighting | 0.035 ms | below 0.05 ms (not resolved) |
+| skin shading in the forward scene pass | 0.09–0.18 ms | not resolved (run spread up to 0.04 ms) |
+| skin shading in deferred lighting | 0.035 ms | not resolved (run spread up to 0.18 ms) |
 | skin-stack memory, skin on screen | 55.4 MiB | 55.4 MiB |
 
 Per-pass cost scales with skin pixels (face-fill vs crowd, the upscale cell), so a frame with less
-skin pays proportionally less; a frame with none pays only the hand-off attachment below.
+skin pays proportionally less. A scene that has resolved no diffusing profile since its load pays
+only the hand-off attachment below; once one has held a slot, the diffusion's targets and copies
+stay until the scene reloads (the gate is sticky, `SkinProfileTable::AnyAssignedSlotDiffuses`).
 
 Vulkan's SkinDiffusionPass is about 1.8× OpenGL's for the same kernel and pixels. Its cause is not
 established here.
@@ -118,7 +122,7 @@ prediction, in the GL and the Vulkan test process, and at a render scale and und
 | SkinDiffusion / kernel UBO | 6 272 | always (allocated with the pass) |
 | SkinProfileTable / deferred profile table (slice of the lighting controls UBO) | 1 200 | always; demanded on Deferred |
 | **total with skin on screen** | **58 068 272** (55.4 MiB) | |
-| **total in a scene without skin** | **16 596 272** (15.8 MiB) | the hand-off attachment and the two buffers |
+| **total in a scene with no diffusing profile since its load** | **16 596 272** (15.8 MiB) | the hand-off attachment and the two buffers; removing skin later keeps the targets until a reload |
 
 The scratch and the snapshots are render-graph transients, so their bytes are inside the
 TransientPool row and may share an aliased slot with a transient outside skin's lifetime; the rows say
