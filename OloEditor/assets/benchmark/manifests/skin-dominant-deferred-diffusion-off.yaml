@@ -17,7 +17,7 @@ Cameras:
 - Id: face-fill
   Position:
   - 0.0
-  - 0.01
+  - -0.09
   - 0.34
   YawDegrees: 0.0
   PitchDegrees: 0.0
@@ -27,10 +27,10 @@ Cameras:
 - Id: crowd
   Position:
   - 0.0
-  - 0.4
-  - 1.65
+  - 0.3
+  - 1.45
   YawDegrees: 0.0
-  PitchDegrees: 1.96
+  PitchDegrees: 4.5
   FovDegrees: 30.0
   Near: 0.05
   Far: 50.0

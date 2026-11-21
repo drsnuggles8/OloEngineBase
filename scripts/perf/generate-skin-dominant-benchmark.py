@@ -195,11 +195,13 @@ def compose() -> str:
 def cameras() -> list[dict]:
     # EditorCamera convention: YawDegrees 0 looks -Z; positive PitchDegrees looks DOWN.
     return [
-        # The front-row middle face fills the frame height at 30 degrees.
-        {"Id": "face-fill", "Position": [0.0, 0.01, 0.34], "YawDegrees": 0.0, "PitchDegrees": 0.0,
+        # The front-row middle face (brow to chin, ~0.13 m) fills the frame height at
+        # 30 degrees, with its neighbours' faces at the sides. The scan's face sits
+        # ~0.09 m below the head's nominal centre, measured on a capture.
+        {"Id": "face-fill", "Position": [0.0, -0.09, 0.34], "YawDegrees": 0.0, "PitchDegrees": 0.0,
          "FovDegrees": 30.0, "Near": 0.01, "Far": 50.0},
-        # The whole choir.
-        {"Id": "crowd", "Position": [0.0, 0.40, 1.65], "YawDegrees": 0.0, "PitchDegrees": 1.96,
+        # The whole choir, front-row busts to back-row crowns.
+        {"Id": "crowd", "Position": [0.0, 0.30, 1.45], "YawDegrees": 0.0, "PitchDegrees": 4.5,
          "FovDegrees": 30.0, "Near": 0.05, "Far": 50.0, "WarmupFrames": 32},
     ]
 
