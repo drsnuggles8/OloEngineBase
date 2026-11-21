@@ -28,9 +28,11 @@ OloEditor/
     Source/         the native game module, if §4 is accepted
 ```
 
-- One repository, one CMake tree, one CI. The editor, `OloRuntime` and `OloServer` open either project; which
-  one is data (a `--project` flag, then the editor's recent project, then SandboxProject), never a second
-  hard-coded path ([#1730](https://github.com/drsnuggles8/OloEngineBase/issues/1730)).
+- One repository, one CMake tree, one CI. The editor, `OloRuntime` and `OloServer` open either project, and
+  which one is data, never a second hard-coded path. Today the editor always opens `SandboxProject/Sandbox.oloproj`
+  by default, and `OloServer` takes a `--project` directory or infers the project from the scene path, mounting
+  none if that fails. [#1730](https://github.com/drsnuggles8/OloEngineBase/issues/1730) makes the order the same
+  in all three apps: a `--project` flag, then the editor's recent project, then SandboxProject.
 - `SandboxProject` stays the engine's project: engine tests and fixtures keep mounting it
   ([ADR 0003](0003-functional-tests-mount-editor-asset-root.md)). Engine tests (`OloEngine-Tests`) never
   depend on KESTREL content or code; KESTREL's own tests live in a separate target.
