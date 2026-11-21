@@ -291,6 +291,35 @@ namespace OloEngine::Tests
             }
         }
 
+        // Ticks until every groom draws the detail it asked for, nothing
+        // pending, for a few frames in a row; false past the deadline. A
+        // streamed level lands on a worker in wall time, so a capture placed a
+        // fixed number of FRAMES after a camera or settings change met the
+        // hand-over at a frame that depended on how fast those frames ran: a
+        // faster binary met it closer to the capture, with the temporal
+        // history still converging on the new strands.
+        [[nodiscard]] bool SettleStreaming()
+        {
+            const auto* pass = Renderer3D::GetGroomRenderPass();
+            if (pass == nullptr)
+            {
+                return false;
+            }
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            u32 settled = 0;
+            while (std::chrono::steady_clock::now() < deadline)
+            {
+                Tick();
+                const auto& stats = pass->GetStreamingStats();
+                settled = (stats.Pending == 0u && stats.FallbackDraws == 0u && stats.DetailDraws >= 1u) ? settled + 1u : 0u;
+                if (settled >= 4u)
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         [[nodiscard]] Entity ParentOf(Entity entity) const
         {
             return entity.GetParent();
@@ -1840,6 +1869,9 @@ entity_utils.set_translation(id, vec3.new(ProbeState.fav and 1 or 0, ProbeState.
                 PlaceCamera(angle.Yaw, angle.Pitch, angle.Distance);
                 const glm::vec3 handAt = HandOnTheBack();
                 ASSERT_TRUE(std::isfinite(handAt.x)) << "the back is not under the camera";
+                // Every arm below on the coat's final strands, so the repeat
+                // measures the coat's own noise, not a hand-over (#1594).
+                ASSERT_TRUE(SettleStreaming()) << "the coat never finished streaming in";
 
                 Frame off;
                 Frame repeat;
@@ -1879,11 +1911,11 @@ entity_utils.set_translation(id, vec3.new(ProbeState.fav and 1 or 0, ProbeState.
                 // still settling in both arms) and a little spill from strands
                 // rooted under the hand that reach past its footprint.
                 EXPECT_GT(parted.Inside, std::max(500u, 2u * noise.Inside + 300u)) << "the coat did not part under the hand";
-                // The temporally upscaled cell's repeat drifts by tens of
-                // thousands of pixels over the frame in some runs and by a few
-                // hundred in others (#1692), so its allowance scales with that
-                // drift rather than with the footprint. It is not the
-                // upscaler's history: ResetFrameSequences drops that too.
+                // The temporally upscaled cell's history still carries some of
+                // the coat's settling, so its allowance scales with the repeat's
+                // drift rather than with the footprint. Its run-to-run drift of
+                // tens of thousands of pixels (#1692) was a streaming hand-over
+                // landing between the arms; SettleStreaming above removes it.
                 const f64 drift = cell.Upscaled ? 1.5 : 1.25;
                 EXPECT_LE(static_cast<f64>(parted.Outside), drift * noise.Outside + (cell.Upscaled ? 1.0 : 0.5) * parted.Inside)
                     << "the coat changed away from the hand";
