@@ -2398,11 +2398,11 @@ namespace OloEngine::Tests
                 ColdHistory();
                 const glm::mat4 dogWorld = DogWorld();
                 dogWorlds[arms] = dogWorld;
-                // 3 settle + 2 averaged frames an arm (24 + 8 before #1659):
+                // 2 settle + 1 averaged frame an arm (24 + 8 before #1659):
                 // every arm draws the same samples from the same reset, so the
                 // arms' noise cancels -- the floor read 0.0000 in every region
                 // -- and the ratios sat at 0.005-0.10 against bars of 0.25-0.5.
-                CaptureLinear(DogRelative(where, dogWorld), out, 3u, 2u);
+                CaptureLinear(DogRelative(where, dogWorld), out, 2u, 1u);
                 if (arms++ == 0u && parts != nullptr)
                 {
                     PoseBody(*parts); // the pose arm's state: the mask is made from its frame
@@ -4775,11 +4775,11 @@ namespace OloEngine::Tests
         // the summed |change| of (ladder - reference) / reference energy, per
         // cell of the dolly's grid, across the change. The same held pair
         // where nothing changes gives the noise that is left.
-        // 12 frames averaged (32 before #1659): a held pair passes outright under
+        // 8 frames averaged (32 before #1659): a held pair passes outright under
         // the spatial bar, and at 32 frames the change measured 0.012 and the
         // quiet pair 0.010 against 0.05; noise only adds to a sum of
         // |differences|, so fewer frames can only raise both.
-        static constexpr u32 kHeldFrames = 12;
+        static constexpr u32 kHeldFrames = 8;
         static constexpr u32 kHeldSettle = 12; // past the policy's 4 hold frames
         static constexpr sizet kCells = static_cast<sizet>(kDollyCells) * kDollyCells;
 
@@ -6775,7 +6775,7 @@ namespace OloEngine::Tests
 
         // WHAT #1659 CUT TO FIT FIVE DEBUG MINUTES, where a held 1080p frame
         // costs about 0.4 s (each one rebakes the coat's volume):
-        //   - 40 frames each way out to 15 m, from 200. The judge pairs the
+        //   - 32 frames each way out to 15 m, from 200. The judge pairs the
         //     ladder with the reference frame by frame at the same distance; it
         //     had room (worst band 0.025 against 0.10, worst step at a change
         //     0.007 against 0.05, noise sigma 0.0002), and the changes' 4-frame
@@ -6788,7 +6788,7 @@ namespace OloEngine::Tests
         //   - the EXTENDED 15-45 m dolly. Its 25-80 px dog left the card
         //     hand-over undecided at this resolution;
         //     TheCardHandOverStepsTheCoatWithinTheNearLaddersBar holds it exactly.
-        const DollyPath out{ 0.6f, 15.0f, 40u };
+        const DollyPath out{ 0.6f, 15.0f, 32u };
         const auto record = [&](const DollyPath& path, bool lod, f32 maxWidthCompensation, const Dolly* tilesOf = nullptr)
         {
             auto& lodComponent = m_Dog.Coat.GetComponent<GroomLodComponent>();
@@ -9402,8 +9402,11 @@ namespace OloEngine::Tests
         BodyParts parts = BuildBodyParts();
         constexpr f32 kStub = 0.005f;
         constexpr f64 kStubPartPixels = 100.0;
-        // One measured frame a view (#1659): only floating is judged here, a
-        // distance to the skin per pixel, which needs no averaging.
+        // Two settle frames and one measured a view (#1659): only floating is
+        // judged here, a distance to the skin per pixel of exact held geometry,
+        // which needs neither a converged resolve nor averaging, and both views
+        // stay on the near tier, so no LOD step has to settle.
+        constexpr u32 kStubSettle = 2;
         constexpr u32 kStubMeasured = 1;
         for (sizet p = 0; p < kBodyParts; ++p)
         {
@@ -9504,7 +9507,7 @@ namespace OloEngine::Tests
             const u32 framesPerStep = std::max(1u, static_cast<u32>(clip.Seconds * 60.0f / kEveryClipSteps));
             const ClipViewsAttachment through =
                 AttachmentThroughClipFromViews(parts, clip.Name, clip.Loop, kEveryClipSteps, framesPerStep, views, coat,
-                                               kEveryClipStride, kEveryClipSettle, kStubMeasured, false);
+                                               kEveryClipStride, kStubSettle, kStubMeasured, false);
             ASSERT_FALSE(HasFatalFailure());
             EXPECT_EQ(through.Motion.MaxBindingRefused, 0u) << "the stubs' binding was refused mid-clip";
             for (sizet v = 0; v < views.size(); ++v)
@@ -9549,7 +9552,7 @@ namespace OloEngine::Tests
         const std::array<View, 1> tailView{ HeroViews()[3] };
         const std::vector<FrameParts> planted =
             AttachmentThroughClipFromViews(parts, "Idle", true, kSteps, 40u, tailView, plantedIds, kEveryClipStride,
-                                           kEveryClipSettle, kStubMeasured, false)
+                                           kStubSettle, kStubMeasured, false)
                 .Steps.front();
         GetScene().DestroyEntity(unbound);
         ASSERT_FALSE(HasFatalFailure());
