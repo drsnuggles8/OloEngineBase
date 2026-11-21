@@ -6,6 +6,8 @@
   "functional_tag": "Functional",
   "_case_budget_note": "Per-case body-time budget in seconds, by layer id (default for any layer not listed), measured on the AMD nightly (Release, radeonsi). Exact Suite.Case overrides in case_budget_overrides require a finite positive budget_s and a non-empty reason. generate_test_catalogue.py --durations <gtest.xml> subtracts the triggering case's olo_process_renderer_init_s XML property, prints process renderer init separately, and retains it in the total. Every overage is a warning, never a failure (#1630, #1668). The nightly's whole suite must fit 75 minutes with a busy neighbour, about half that quiet; one L8 case at its 120 s budget is about a nineteenth of the quiet half.",
   "case_budget_s": { "default": 30, "L8": 120 },
+  "_case_budget_debug_note": "Per-case body-time ceiling in seconds for a DEBUG build, by layer id (default for any layer not listed), measured run alone on the RTX dev box (#1659). generate_test_catalogue.py --durations <gtest.xml> --debug judges a Debug report against it, and --fail-over makes an overage exit 1. case_budget_overrides argue the Release nightly's cost and do not apply here. Every renderer evidence case, the dog showcase's included, must be runnable alone in Debug inside five minutes.",
+  "case_budget_debug_s": { "default": 300 },
   "case_budget_overrides": {
     "AcceptanceSceneTest.EveryGateCameraSeesItsSubjectOnEveryRasterPath": {
       "budget_s": 120,

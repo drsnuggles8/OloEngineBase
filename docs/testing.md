@@ -1147,6 +1147,15 @@ The reason is required and printed beside the case. Profile and remove redundant
 work before choosing an override. `--github` emits warnings for overages; overages
 alone never make the report or AMD workflow fail.
 
+`case_budget_debug_s` is the Debug build's ceiling: every case, run alone, inside
+300 s (#1659). Judge a Debug report against it with `--debug`, and add `--fail-over`
+to exit 1 on any overage; the Release overrides do not apply there:
+
+```powershell
+build-cached\OloEngine\tests\Debug\OloEngine-Tests.exe --gtest_filter=DogShowcaseEvidenceTest.* --gtest_output=xml:debug.xml
+python OloEngine/tests/scripts/generate_test_catalogue.py --durations debug.xml --debug --fail-over
+```
+
 The all-sandbox scene-load case keeps its asset manager and a caller-owned
 `SceneSerializer::AssetLoadCache` across the scene loop. The latter retains static
 and animated models loaded directly by path, which bypass the asset manager.

@@ -86,6 +86,45 @@ class DurationReportTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     catalogue.validate_budget_overrides(self.cfg)
 
+    def test_debug_judges_the_debug_ceiling_and_ignores_release_overrides(self):
+        self.cfg["case_budget_debug_s"] = {"default": 300}
+        self.cfg["case_budget_overrides"] = {
+            "Evidence.Gates": {"budget_s": 400, "reason": "A Release nightly's full coverage."}}
+        self.xml.write_text('''<testsuites><testsuite>
+            <testcase classname="Evidence" name="Gates" time="310"/>
+            <testcase classname="Evidence" name="Fits" time="290"/>
+            </testsuite></testsuites>''', encoding="utf-8")
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), patch.object(catalogue, "suite_layers", return_value={"Evidence": "L8"}):
+            over = catalogue.report_durations(self.cfg, {}, self.xml, False, 20, debug=True)
+        self.assertEqual(over, 1)
+        self.assertRegex(output.getvalue(), r"budget\s+300 s\s+OVER\s+Evidence.Gates")
+        self.assertNotIn("override:", output.getvalue())
+        self.assertIn("(case_budget_debug_s in", output.getvalue())
+
+    def test_a_budget_table_needs_finite_positive_seconds(self):
+        for table in ("case_budget_s", "case_budget_debug_s"):
+            for value in (0, -1, float("inf"), float("nan"), True, "300"):
+                with self.subTest(table=table, value=value):
+                    with self.assertRaises(ValueError):
+                        catalogue.validate_budget_tables({table: {"default": value}})
+
+    def test_cli_fail_over_exits_one_and_the_shipped_debug_table_is_five_minutes(self):
+        self.xml.write_text('''<testsuites><testsuite>
+            <testcase classname="AssetSceneLoad" name="Fixture" time="301"/>
+            </testsuite></testsuites>''', encoding="utf-8")
+        script = str(Path(catalogue.__file__))
+        failed = subprocess.run([sys.executable, script, "--durations", str(self.xml), "--debug", "--fail-over"],
+                                capture_output=True, text=True)
+        self.assertEqual(failed.returncode, 1, failed.stdout + failed.stderr)
+        self.assertRegex(failed.stdout, r"budget\s+300 s\s+OVER")
+        self.xml.write_text('''<testsuites><testsuite>
+            <testcase classname="AssetSceneLoad" name="Fixture" time="299"/>
+            </testsuite></testsuites>''', encoding="utf-8")
+        passed = subprocess.run([sys.executable, script, "--durations", str(self.xml), "--debug", "--fail-over"],
+                                capture_output=True, text=True)
+        self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+
     def test_cli_over_budget_remains_a_warning_and_exits_successfully(self):
         self.xml.write_text('''<testsuites><testsuite>
             <testcase classname="AssetSceneLoad" name="Fixture" time="999"/>
