@@ -2116,7 +2116,8 @@ namespace OloEngine
         for (Ref<RestWalk>& walk : m_RestWalks)
         {
             if (walk->Authored == authored && walk->Handle == static_cast<u64>(request.Handle) &&
-                walk->Asset == request.Groom &&
+                walk->Asset == request.Groom && walk->CurveCount == request.Groom->GetCurveCount() &&
+                walk->PointCount == request.Groom->GetPointCount() &&
                 walk->MaxStrands == request.Build.MaxStrands && walk->MaxSegments == request.Build.MaxSegments &&
                 walk->MaxWidthCompensationBits == compensationBits && walk->CoatDigest == request.Build.CoatDigest &&
                 walk->StreamingKey == request.StreamingKey && walk->GuidesOnly == request.Build.GuidesOnly)
@@ -2137,6 +2138,8 @@ namespace OloEngine
         walk->StreamingKey = request.StreamingKey;
         walk->GuidesOnly = request.Build.GuidesOnly;
         walk->Authored = authored;
+        walk->CurveCount = request.Groom->GetCurveCount();
+        walk->PointCount = request.Groom->GetPointCount();
         walk->UsedTick = m_CacheTick;
         OLO_PERF_SCOPE_AUTO("Groom::CoatRestWalk");
         if (authored)
@@ -3046,20 +3049,15 @@ namespace OloEngine
                         ++m_Stats.CoatShadow.DeformedRebakes;
                         m_Stats.CoatShadow.MaxBakeStride = std::max(m_Stats.CoatShadow.MaxBakeStride, entry.CoatPoseStride);
 
-                        // THE SUBSET THE NEXT BAKES USE (#1445). A full bake is the
-                        // one that measures how many voxels the coat occupies; the
-                        // stride is only trusted at the resolution it was measured
-                        // at, so a shadow-LOD change takes one full bake to re-measure.
-                        // A subset bake that occupied MORE voxels than the estimate
-                        // for its grid raises it (#1594): a subset can only
-                        // undercount the coat, so this moves the estimate toward
-                        // the truth and never past it -- a first full bake in a
-                        // compact pose is not the coat's measure for good.
-                        // Every bake teaches the occupancy (UpdateCoatOccupancy):
-                        // a full bake measures it, and a subset bake that
-                        // counted more than the estimate, or sampled the coat
-                        // densely enough to count it, corrects it -- so only the
-                        // first bake at a new grid takes the estimate's stride.
+                        // THE SUBSET THE NEXT BAKES USE (#1445, #1594). Every bake
+                        // teaches the occupancy (UpdateCoatOccupancy): a full bake
+                        // measures it; a subset that counted more than the estimate
+                        // raises it (a subset only undercounts, so this moves toward
+                        // the truth and never past it); and one that sampled the
+                        // coat densely replaces an estimate scaled from another
+                        // grid -- never a measurement at its own grid, which would
+                        // shrink bake after bake. So only the first bake at a new
+                        // grid takes the estimate's stride.
                         const GroomCoatShadow::CoatOccupancy learned = GroomCoatShadow::UpdateCoatOccupancy(
                             { entry.CoatFullOccupiedVoxels, entry.CoatOccupancyResolution }, occupiedVoxels, resolution,
                             entry.CoatPoseStride, segments.size(), m_CoatRebakePolicy.BakeSegmentsPerOccupiedVoxel);

@@ -1476,6 +1476,11 @@ namespace OloEngine
             /// The drawn strands' walk (coat authoring) or the asset sampled at
             /// the strand budget's stride (none): the two sources of a rest bake.
             bool Authored = false;
+            /// The asset's curves and points when it was walked: an asset filled
+            /// in place under the same address (a streamed level arriving) is
+            /// another walk.
+            u32 CurveCount = 0;
+            u32 PointCount = 0;
             TArray<GroomCoatShadow::CoatSegment> Segments;
             u32 OccupiedVoxels = 0;
             u32 OccupancyResolution = 0;
