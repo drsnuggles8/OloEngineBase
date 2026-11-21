@@ -382,7 +382,8 @@ TEST(VulkanBarrierLowering, ACopySettleWaitsOnTheClearsOfItsShadowArray)
     VulkanImageLayoutTracker tracker;
     const auto image = FakeImage(0x59);
     tracker.RegisterImage(image, 1, 4);
-    const auto layer = [](u32 l) { return VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, l, 1 }; };
+    const auto layer = [](u32 l)
+    { return VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, l, 1 }; };
     tracker.SetLayout(image, layer(0), VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     tracker.SetLayout(image, layer(1), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     tracker.SetLayout(image, layer(2), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
