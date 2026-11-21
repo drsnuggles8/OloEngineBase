@@ -618,6 +618,10 @@ def main():
         # Without a report there is nothing to judge, and a gate that quietly
         # judges nothing reads as one that passed.
         parser.error("--debug and --fail-over judge a --durations report; pass --durations <gtest.xml>")
+    if args.gtest_filter and args.durations:
+        # The filter mode prints and returns before any report is read, so a
+        # duration gate asked for beside it would pass without judging.
+        parser.error("--gtest-filter and --durations are separate modes; run them as two commands")
 
     cfg = load_config()
     files = scan_cpp_files(cfg)

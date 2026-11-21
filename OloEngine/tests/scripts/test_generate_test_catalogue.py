@@ -130,6 +130,15 @@ class DurationReportTest(unittest.TestCase):
                 refused = subprocess.run([sys.executable, script, *flags], capture_output=True, text=True)
                 self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
                 self.assertIn("--durations", refused.stderr)
+        # The filter mode returns before any report is read: beside a duration
+        # gate it would pass the 301 s case above unjudged, so it is refused.
+        self.xml.write_text('''<testsuites><testsuite>
+            <testcase classname="AssetSceneLoad" name="Fixture" time="301"/>
+            </testsuite></testsuites>''', encoding="utf-8")
+        both = subprocess.run([sys.executable, script, "--gtest-filter", "--durations", str(self.xml), "--debug",
+                               "--fail-over"], capture_output=True, text=True)
+        self.assertEqual(both.returncode, 2, both.stdout + both.stderr)
+        self.assertIn("separate modes", both.stderr)
 
     def test_cli_over_budget_remains_a_warning_and_exits_successfully(self):
         self.xml.write_text('''<testsuites><testsuite>
