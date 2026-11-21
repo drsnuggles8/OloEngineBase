@@ -543,3 +543,23 @@ reads its build's warnings back from the log) resolves it against the *current* 
 test suite moves the cwd to `OloEditor/` for asset paths. The tool then read a stale
 `OloEditor/OloEngine-Tests.log` and returned no warnings, and its test failed only after a large
 slice of the suite had run (#1572). Hand a reader the absolute name; do not reopen by a relative one.
+
+## 18. Debug iterators serialise a parallel loop
+
+At `_ITERATOR_DEBUG_LEVEL 2` (every Debug build here) a `std::` container iterator is not a pointer:
+constructing, copying or destroying one adopts it into, or orphans it from, its container's list of
+live iterators, under one lock shared by the whole process (`_Lockit`). A loop that makes an
+iterator per element is serial in Debug however many workers run it, and the workers spend their
+time queued on the lock.
+
+Found on the dog showcase's Debug budget (#1659). The per-pixel nearest-vertex pass was moved onto
+the workers and got slower: its predicate asked `std::ranges::find(coatIds, id)` for every pixel,
+and a stack sampler put a third of the main thread in `Mtxlock` / `RtlEnterCriticalSection` under
+that lambda. The parallel guide-influence build (`BuildGroomGuideInfluence`) had the same shape with
+a range-for over each group's slots, an `unordered_map::find` and a `std::ranges::lower_bound` per
+strand. Release is unaffected (the iterators are plain pointers there), so only a Debug profile
+shows it.
+
+What to write instead, inside the body: `vec.data()` and an index, `std::lower_bound` on raw
+pointers, and lookups prepared before the loop (a per-group table of pointers rather than a map
+`find`). `operator[]` is fine: it checks the bound but builds no iterator.

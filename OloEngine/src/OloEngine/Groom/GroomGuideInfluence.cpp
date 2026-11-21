@@ -121,100 +121,134 @@ namespace OloEngine
             guideRoots[slot] = points[groom.GetCurveFirstPoint(table->m_GuideCurves[slot])];
         }
 
+        // EVERY STRAND IN PARALLEL (#1659). Each strand searches its own group's
+        // guides and writes only its own weights, from inputs nothing writes, so
+        // the table is the same bits on any number of threads; only the count of
+        // unguided strands is shared. Serial, the search was O(N G) on one
+        // thread, and a scene builds it again whenever a coat comes back after
+        // a frame hidden (PublishGroomStrandRequests evicts the tables of coats
+        // it did not publish): on the showcase dog's 410k strands, 44% of a
+        // sampled minute of a Debug evidence case.
+        //
+        // NO CONTAINER ITERATOR INSIDE THE LOOP: in a Debug build each one
+        // registers with its container under one process-wide lock, which
+        // serialised the workers. Each group's slots are reached through a
+        // table built here, and the guides are searched by pointer.
+        u32 groupSpan = 0;
         for (u32 curve = 0; curve < curveCount; ++curve)
         {
-            GroomGuideWeights& weights = table->m_Weights[curve];
-
-            if (groom.GetCurvePointCount(curve) < 2u)
+            groupSpan = std::max(groupSpan, static_cast<u32>(groupIds[curve]) + 1u);
+        }
+        std::vector<const std::vector<u32>*> slotsOfGroup(groupSpan, nullptr);
+        for (auto& [group, slots] : slotsByGroup)
+        {
+            if (group < groupSpan)
             {
-                ++table->m_UnguidedStrands;
-                continue;
-            }
-
-            // A GUIDE IS ITS OWN SOLE INFLUENCE. Blending it toward its
-            // neighbours would make the rendered guide disagree with the
-            // particle the solver moved, so the debug overlay and the coat
-            // would draw two different curves.
-            if (groom.IsGuide(curve))
-            {
-                const auto found = std::ranges::lower_bound(table->m_GuideCurves, curve);
-                if (found != table->m_GuideCurves.end() && *found == curve)
-                {
-                    weights.Guides[0] = static_cast<u32>(found - table->m_GuideCurves.begin());
-                    weights.Weights[0] = 1.0f;
-                    continue;
-                }
-            }
-
-            const auto group = slotsByGroup.find(groupIds[curve]);
-            if (group == slotsByGroup.end())
-            {
-                // Its group was groomed with no guide. A fact about the
-                // authoring, counted so the editor can say so.
-                ++table->m_UnguidedStrands;
-                continue;
-            }
-
-            // The ROOT, not the centroid and not the tip: the root is where the
-            // strand grows, it is invariant under every deformation the body can
-            // undergo, and it is the quantity the guide's own influence falls
-            // off from. A tip-based search would hand a strand on the shoulder
-            // to a guide on the flank whenever the two happened to lie down
-            // together.
-            const glm::vec3 root = points[groom.GetCurveFirstPoint(curve)];
-
-            std::array<Candidate, GroomGuideInfluenceCount> best{};
-            for (const u32 slot : group->second)
-            {
-                Consider(best, glm::length2(root - guideRoots[slot]), slot);
-            }
-
-            // Inverse distance, not inverse square: the square makes the nearest
-            // guide dominate so completely that a strand midway between two
-            // guides snaps to one of them, and the seam between two guide
-            // territories is then visible as a crease in the moving coat.
-            f32 total = 0.0f;
-            std::array<f32, GroomGuideInfluenceCount> raw{};
-            for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
-            {
-                if (best[k].Slot == GroomNoGuide)
-                {
-                    continue;
-                }
-                if (best[k].Distance2 <= kCoincidentDistance2)
-                {
-                    // Coincident roots: take that guide alone. Deriving a weight
-                    // from a zero distance is an infinity, and an infinity
-                    // normalised against another infinity is a NaN in the coat.
-                    weights.Guides[0] = best[k].Slot;
-                    weights.Weights[0] = 1.0f;
-                    total = -1.0f; // sentinel: handled, skip the normalise below
-                    break;
-                }
-                raw[k] = glm::inversesqrt(best[k].Distance2);
-                total += raw[k];
-            }
-            if (total < 0.0f)
-            {
-                continue;
-            }
-            if (!(total > 0.0f) || !Math::IsFinite(total))
-            {
-                ++table->m_UnguidedStrands;
-                continue;
-            }
-
-            const f32 inverseTotal = 1.0f / total;
-            for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
-            {
-                if (best[k].Slot == GroomNoGuide)
-                {
-                    continue;
-                }
-                weights.Guides[k] = best[k].Slot;
-                weights.Weights[k] = raw[k] * inverseTotal;
+                slotsOfGroup[group] = &slots;
             }
         }
+        const u32* const guideCurvesBegin = table->m_GuideCurves.data();
+        const u32* const guideCurvesEnd = guideCurvesBegin + guideCount;
+        const glm::vec3* const roots = guideRoots.data();
+        std::atomic<u32> unguided{ 0u };
+        ParallelFor("GroomGuideInfluence", static_cast<i32>(curveCount), 1024,
+                    [&](i32 index)
+                    {
+                        const u32 curve = static_cast<u32>(index);
+                        GroomGuideWeights& weights = table->m_Weights[curve];
+
+                        if (groom.GetCurvePointCount(curve) < 2u)
+                        {
+                            unguided.fetch_add(1u, std::memory_order_relaxed);
+                            return;
+                        }
+
+                        // A GUIDE IS ITS OWN SOLE INFLUENCE. Blending it toward its
+                        // neighbours would make the rendered guide disagree with the
+                        // particle the solver moved, so the debug overlay and the coat
+                        // would draw two different curves.
+                        if (groom.IsGuide(curve))
+                        {
+                            const u32* const found = std::lower_bound(guideCurvesBegin, guideCurvesEnd, curve);
+                            if (found != guideCurvesEnd && *found == curve)
+                            {
+                                weights.Guides[0] = static_cast<u32>(found - guideCurvesBegin);
+                                weights.Weights[0] = 1.0f;
+                                return;
+                            }
+                        }
+
+                        const std::vector<u32>* const group = slotsOfGroup[groupIds[curve]];
+                        if (group == nullptr)
+                        {
+                            // Its group was groomed with no guide. A fact about the
+                            // authoring, counted so the editor can say so.
+                            unguided.fetch_add(1u, std::memory_order_relaxed);
+                            return;
+                        }
+
+                        // The ROOT, not the centroid and not the tip: the root is where the
+                        // strand grows, it is invariant under every deformation the body can
+                        // undergo, and it is the quantity the guide's own influence falls
+                        // off from. A tip-based search would hand a strand on the shoulder
+                        // to a guide on the flank whenever the two happened to lie down
+                        // together.
+                        const glm::vec3 root = points[groom.GetCurveFirstPoint(curve)];
+
+                        std::array<Candidate, GroomGuideInfluenceCount> best{};
+                        const u32* const slots = group->data();
+                        for (sizet k = 0, n = group->size(); k < n; ++k)
+                        {
+                            Consider(best, glm::length2(root - roots[slots[k]]), slots[k]);
+                        }
+
+                        // Inverse distance, not inverse square: the square makes the nearest
+                        // guide dominate so completely that a strand midway between two
+                        // guides snaps to one of them, and the seam between two guide
+                        // territories is then visible as a crease in the moving coat.
+                        f32 total = 0.0f;
+                        std::array<f32, GroomGuideInfluenceCount> raw{};
+                        for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
+                        {
+                            if (best[k].Slot == GroomNoGuide)
+                            {
+                                continue;
+                            }
+                            if (best[k].Distance2 <= kCoincidentDistance2)
+                            {
+                                // Coincident roots: take that guide alone. Deriving a weight
+                                // from a zero distance is an infinity, and an infinity
+                                // normalised against another infinity is a NaN in the coat.
+                                weights.Guides[0] = best[k].Slot;
+                                weights.Weights[0] = 1.0f;
+                                total = -1.0f; // sentinel: handled, skip the normalise below
+                                break;
+                            }
+                            raw[k] = glm::inversesqrt(best[k].Distance2);
+                            total += raw[k];
+                        }
+                        if (total < 0.0f)
+                        {
+                            return;
+                        }
+                        if (!(total > 0.0f) || !Math::IsFinite(total))
+                        {
+                            unguided.fetch_add(1u, std::memory_order_relaxed);
+                            return;
+                        }
+
+                        const f32 inverseTotal = 1.0f / total;
+                        for (u32 k = 0; k < GroomGuideInfluenceCount; ++k)
+                        {
+                            if (best[k].Slot == GroomNoGuide)
+                            {
+                                continue;
+                            }
+                            weights.Guides[k] = best[k].Slot;
+                            weights.Weights[k] = raw[k] * inverseTotal;
+                        }
+                    });
+        table->m_UnguidedStrands = unguided.load(std::memory_order_relaxed);
 
         return table;
     }
