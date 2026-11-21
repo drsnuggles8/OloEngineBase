@@ -2405,7 +2405,7 @@ namespace OloEngine::Tests
                 CaptureLinear(DogRelative(where, dogWorld), out, 2u, 1u);
                 if (arms++ == 0u && parts != nullptr)
                 {
-                    PoseBody(*parts); // the pose arm's state: the mask is made from its frame
+                    PoseBody(*parts); // the state every arm reads; the mask is made from the pose arm's frame
                 }
                 if (!png.empty())
                 {
@@ -2418,10 +2418,16 @@ namespace OloEngine::Tests
             LinearFrame poseAgain;
             LinearFrame rest;
             LinearFrame off;
-            arm(false, true, pose, pngStem.empty() ? std::string() : pngStem + "Pose");
-            arm(false, true, poseAgain, std::string());
+            // REST FIRST (#1659). A coat holds one volume, so a change of bake
+            // source rebuilds it, and the OFF arm gives it back. In the order
+            // pose, pose again, rest, off, every instant baked three volumes:
+            // the replay's rest bake, the pose bake, and the rest bake again.
+            // Rest right after the replay reads the volume the replay baked,
+            // and the pose pair stays back to back for the noise: two bakes.
             arm(true, true, rest, pngStem.empty() ? std::string() : pngStem + "Rest");
             arm(true, false, off, (pngStem.empty() || !writeOff) ? std::string() : pngStem + "Off");
+            arm(false, true, pose, pngStem.empty() ? std::string() : pngStem + "Pose");
+            arm(false, true, poseAgain, std::string());
             shadow.m_BakeAtRest = true;
             shadow.m_Enabled = true;
             BakeComparison result;
@@ -4173,7 +4179,10 @@ namespace OloEngine::Tests
             out.Frames.resize(views.size());
             out.Maps.resize(views.size());
             AimRuntimeCamera(views.front());
-            HoldRuntime(8);
+            // The policy's 4 hold frames settle the first view's tier before the
+            // clip starts (8 before #1659: held frames step nothing, and every
+            // measurement below settles again on its own held frames).
+            HoldRuntime(std::max(settle, 4u));
             (void)StartClip(clip, loop, 2u);
             for (u32 step = 0; step < steps; ++step)
             {
