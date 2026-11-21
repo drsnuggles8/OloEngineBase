@@ -254,12 +254,13 @@ namespace OloEngine::Tests
         }
     }
 
-    // The hand-off attachment is the exception, by design (#1241): it is attachment 4 of
-    // SceneColor's MRT, written by every scene shader (zero where there is no skin) and
-    // loaded with SceneColor by any pass that reads SceneColor as a render target
-    // (ParticlePass, GPUDrivenOcclusionPass), so a skinless scene holds AND touches it.
-    // Every other skin row must demand nothing.
-    TEST_F(SkinMemoryEvidence, ASceneWithoutSkinDemandsNothingOnAnySkinRowButTheHandOff)
+    // Every row the skin owners report (SkinDiffusion, SkinProfileTable) demands nothing
+    // without skin. The hand-off attachment, a RenderGraph row, is not one of them, by
+    // design (#1241): it is attachment 4 of SceneColor's MRT, written by every scene
+    // shader (zero where there is no skin) and loaded with SceneColor by any pass that
+    // reads SceneColor as a render target (ParticlePass, GPUDrivenOcclusionPass), so a
+    // skinless scene holds AND touches it; this test pins that too.
+    TEST_F(SkinMemoryEvidence, ASceneWithoutSkinDemandsNothingOnAnySkinRow)
     {
         OLO_ENSURE_GPU_OR_SKIP();
         SetSkin(false);

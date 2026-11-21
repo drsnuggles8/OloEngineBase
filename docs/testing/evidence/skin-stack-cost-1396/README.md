@@ -132,7 +132,7 @@ says why it is an attachment rather than a per-draw draw-buffer switch.
 
 Before this issue the scratch and the snapshots were **also** paid in every scene without skin, along
 with their two full-screen snapshot copies: the diffusion's gate did not look at whether any profile
-diffused. That is fixed in the same PR; `SkinMemoryEvidence.ASceneWithoutSkinDemandsNothingOnAnySkinRowButTheHandOff`
+diffused. That is fixed in the same PR; `SkinMemoryEvidence.ASceneWithoutSkinDemandsNothingOnAnySkinRow`
 read 491 520 + 737 280 bytes at 320×192 before the fix and reads 0 after it.
 
 ## Re-run procedure
