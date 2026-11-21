@@ -35,30 +35,52 @@ PATHS = (("forward", "Forward"), ("forward-plus", "Forward+"), ("deferred", "Def
 BACKENDS = (("gl", "OpenGL"), ("vk", "Vulkan"))
 
 
+def finite_ms(value) -> float | None:
+    try:
+        ms = float(value)
+    except (TypeError, ValueError):
+        return None
+    return ms if ms == ms and ms not in (float("inf"), float("-inf")) and ms >= 0.0 else None
+
+
+def frame_id(value) -> int | None:
+    try:
+        fid = int(value)
+    except (TypeError, ValueError):
+        return None
+    return fid if fid > 0 else None
+
+
 def run_p50s(directory: Path) -> dict:
-    """{camera: {"gpu": p50, pass: p50}} for one capture directory."""
+    """{camera: {"gpu": p50, pass: p50}} for one capture directory, with the campaign
+    driver's exclusions: valid status, a real GPU frame id, a finite value, each frame
+    (and each (frame, pass)) once, sub-passes never counted as passes."""
     out: dict[str, dict[str, float]] = defaultdict(dict)
     frames: dict[str, list[float]] = defaultdict(list)
     seen: set = set()
     with (directory / "measurement.csv").open(encoding="utf-8") as f:
         for row in csv.DictReader(f):
-            key = (row["camera"], row["gpuFrameId"])
-            if row["gpuStatus"] != "valid" or key in seen:
+            fid, ms = frame_id(row.get("gpuFrameId")), finite_ms(row.get("gpuMs"))
+            if row.get("gpuStatus") != "valid" or fid is None or ms is None or fid in seen:
                 continue
-            seen.add(key)
-            frames[row["camera"]].append(float(row["gpuMs"]))
+            seen.add(fid)
+            frames[row.get("camera", "")].append(ms)
     for camera, values in frames.items():
         out[camera]["gpu"] = statistics.median(values)
     passes: dict[tuple, list[float]] = defaultdict(list)
     seen = set()
     for line in (directory / "measurement-passes.jsonl").open(encoding="utf-8"):
+        if not line.strip():
+            continue
         record = json.loads(line)
-        for p in record["passes"]:
-            key = (record["camera"], record["gpuFrameId"], p["pass"])
-            if p["status"] != "valid" or p["isSubPass"] or key in seen:
+        fid = frame_id(record.get("gpuFrameId"))
+        for p in record.get("passes") or []:
+            ms = finite_ms(p.get("gpuMs"))
+            key = (fid, p.get("pass"))
+            if p.get("status") != "valid" or p.get("isSubPass", True) or fid is None or ms is None or key in seen:
                 continue
             seen.add(key)
-            passes[(record["camera"], p["pass"])].append(p["gpuMs"])
+            passes[(record.get("camera", ""), p["pass"])].append(ms)
     for (camera, name), values in passes.items():
         out[camera][name] = statistics.median(values)
     return out
@@ -86,6 +108,9 @@ def delta(a: list[float], b: list[float], judged: bool = True) -> str:
     """`judged=False` for the identical-arms control, whose delta SHOULD sit inside its spread."""
     if not a or not b:
         return "—"
+    if min(len(a), len(b)) < 2:
+        # One run has no spread to judge against; never print it as a budget number.
+        return f"insufficient runs ({len(a)}/{len(b)})"
     d = statistics.median(a) - statistics.median(b)
     spread = max(max(a) - min(a), max(b) - min(b))
     verdict = "" if not judged or spread < abs(d) else " (not resolved)"
@@ -106,7 +131,9 @@ def main() -> int:
             on, rep, off = (cells.get(f"{prefix}-{slug}{s}", []) for s in ("", "-repeat", "-diffusion-off"))
             for camera in ("face-fill", "crowd"):
                 skin = values(on, camera, "SkinDiffusionPass")
-                copies = [a + b for a, b in zip(values(on, camera, SKIN_PASSES[1]), values(on, camera, SKIN_PASSES[2]))]
+                # Summed within each run; a run missing either copy contributes nothing.
+                copies = [r[camera][SKIN_PASSES[1]] + r[camera][SKIN_PASSES[2]] for r in on
+                          if SKIN_PASSES[1] in r.get(camera, {}) and SKIN_PASSES[2] in r.get(camera, {})]
                 print(f"| {label} | {camera} | {rng(skin)} | {rng(copies)} | {rng(values(on, camera, 'gpu'))} | "
                       f"{delta(values(on, camera, 'gpu'), values(off, camera, 'gpu'))} | "
                       f"{delta(values(on, camera, 'gpu'), values(rep, camera, 'gpu'), judged=False)} |")

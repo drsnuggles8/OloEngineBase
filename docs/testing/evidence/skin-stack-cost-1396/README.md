@@ -25,7 +25,9 @@ fill. Skin covers **71 %** of the 1080p frame at the `face-fill` camera and **61
 
 Campaign `C:/perf/skin-1396-001`, 2026-11-21: 26 cells × 3 interleaved rounds of fresh processes,
 **78 of 78 runs counted** (quiet host before and during each, pinned settings applied, every
-full-stack run with valid SkinDiffusionPass samples). Each cell value is the range over the three
+full-stack run with valid SkinDiffusionPass samples). After the campaign, only the header comment of
+`SkinDominantNoSkin.olo` was reworded; no entity changed, but the skin-off manifests' scene hash
+moved with it. Each cell value is the range over the three
 runs of that run's p50 over 300 measured frames per camera. A delta is the difference of the arms'
 medians over runs, ± the larger of the two arms' run ranges; one whose ± is not smaller than the
 delta is marked *not resolved* and is not a budget number.

@@ -239,7 +239,9 @@ namespace OloEngine::Tests
             EXPECT_EQ(rows.UboDemand, rows.UboCapacity) << "the diffusion did not draw with a diffusing profile on screen";
             EXPECT_GE(rows.PoolDemand, rows.Scratch + rows.Snapshots) << "skin claims more than the pool demanded";
             EXPECT_EQ(rows.HandoffCapacity, kPixels * kRgba16fBytes) << "the hand-off is one RGBA16F attachment";
-            EXPECT_EQ(rows.HandoffDemand, rows.HandoffCapacity) << "the diffusion did not read the hand-off";
+            // Not evidence that the diffusion read it: SceneColor's render-target readers
+            // demand it in every scene (the skinless case below).
+            EXPECT_EQ(rows.HandoffDemand, rows.HandoffCapacity) << "the hand-off row stopped reporting its demand";
 
             // 15 slots x (specular tint, two transmission lanes, lobe, oral lane).
             EXPECT_EQ(rows.TableCapacity, static_cast<u64>(kMaxSkinProfileSlots) * 5u * 16u);
@@ -272,6 +274,10 @@ namespace OloEngine::Tests
             EXPECT_EQ(rows.UboDemand, 0u);
             EXPECT_EQ(rows.TableDemand, 0u);
             EXPECT_EQ(rows.HandoffCapacity, kPixels * kRgba16fBytes) << "SceneColor lost its attachment 4";
+            // Measured, and what the docs state: a skinless scene still demands it.
+            EXPECT_EQ(rows.HandoffDemand, rows.HandoffCapacity)
+                << "the hand-off is no longer demanded without skin (ParticlePass / GPUDrivenOcclusionPass "
+                   "stopped loading the whole SceneColor MRT?) -- update skin-diffusion.md and the #1396 budget";
         }
     }
 
