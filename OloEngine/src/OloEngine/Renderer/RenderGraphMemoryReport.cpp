@@ -111,7 +111,9 @@ namespace OloEngine
         //
         // The skin hand-off (#1241) gets its own row because its cost is the interesting
         // one: attachment 4 of the SceneColor MRT is allocated with SceneColor on every
-        // frame, but only demanded when a reachable pass (SSS) reads it.
+        // frame. Demand is any declared read; in practice every scene demands it, skin or
+        // not, because passes that load SceneColor as a render target (ParticlePass,
+        // GPUDrivenOcclusionPass) read the whole MRT (measured by SkinMemoryEvidence, #1396).
         {
             std::unordered_map<std::string, bool> readByName;
             for (const auto& lifetime : GetResourceLifetimes())

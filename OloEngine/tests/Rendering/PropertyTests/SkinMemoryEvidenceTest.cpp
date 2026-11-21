@@ -79,6 +79,10 @@ namespace OloEngine::Tests
             u64 TableCapacity = 0;
             u64 TableDemand = 0;
             u64 PoolDemand = 0;
+            // SceneColor's attachment 4 (#1241): allocated with SceneColor in every scene,
+            // demanded only when something reads it.
+            u64 HandoffCapacity = 0;
+            u64 HandoffDemand = 0;
         };
 
         // Every row must exist and carry a figure; a missing row or an empty optional
@@ -104,6 +108,7 @@ namespace OloEngine::Tests
             read("SkinProfileTable", "Deferred profile table", out.TableCapacity, &out.TableDemand);
             u64 poolCapacity = 0;
             read("TransientPool", "Render-graph transients", poolCapacity, &out.PoolDemand);
+            read("RenderGraph", "Skin hand-off", out.HandoffCapacity, &out.HandoffDemand);
             return out;
         }
 
@@ -233,6 +238,8 @@ namespace OloEngine::Tests
             EXPECT_EQ(rows.UboCapacity, static_cast<u64>(SkinDiffusionUBOData::GetSize()));
             EXPECT_EQ(rows.UboDemand, rows.UboCapacity) << "the diffusion did not draw with a diffusing profile on screen";
             EXPECT_GE(rows.PoolDemand, rows.Scratch + rows.Snapshots) << "skin claims more than the pool demanded";
+            EXPECT_EQ(rows.HandoffCapacity, kPixels * kRgba16fBytes) << "the hand-off is one RGBA16F attachment";
+            EXPECT_EQ(rows.HandoffDemand, rows.HandoffCapacity) << "the diffusion did not read the hand-off";
 
             // 15 slots x (specular tint, two transmission lanes, lobe, oral lane).
             EXPECT_EQ(rows.TableCapacity, static_cast<u64>(kMaxSkinProfileSlots) * 5u * 16u);
@@ -245,7 +252,12 @@ namespace OloEngine::Tests
         }
     }
 
-    TEST_F(SkinMemoryEvidence, ASceneWithoutSkinReportsZeroOnEverySkinRow)
+    // The hand-off attachment is the exception, by design (#1241): it is attachment 4 of
+    // SceneColor's MRT, written by every scene shader (zero where there is no skin) and
+    // loaded with SceneColor by any pass that reads SceneColor as a render target
+    // (ParticlePass, GPUDrivenOcclusionPass), so a skinless scene holds AND touches it.
+    // Every other skin row must demand nothing.
+    TEST_F(SkinMemoryEvidence, ASceneWithoutSkinDemandsNothingOnAnySkinRowButTheHandOff)
     {
         OLO_ENSURE_GPU_OR_SKIP();
         SetSkin(false);
@@ -259,6 +271,7 @@ namespace OloEngine::Tests
             EXPECT_EQ(rows.Snapshots, 0u) << "a scene with no skin (and no snow) allocated the diffusion snapshots";
             EXPECT_EQ(rows.UboDemand, 0u);
             EXPECT_EQ(rows.TableDemand, 0u);
+            EXPECT_EQ(rows.HandoffCapacity, kPixels * kRgba16fBytes) << "SceneColor lost its attachment 4";
         }
     }
 

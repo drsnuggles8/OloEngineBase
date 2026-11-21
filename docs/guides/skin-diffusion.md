@@ -165,9 +165,20 @@ here, because kernels are cached per slot and rebuilt only when a profile's auth
 the quality tier change. The first frame after a profile edit was measured at 2.4 ms CPU; every
 frame after it is the number above.
 
-Memory: one full-resolution RGBA16F attachment on the scene framebuffer, allocated every frame
-whether or not the scene has skin in it (10.6 MB at 1411 × 942, ≈16 MB at 1080p), plus one
-full-resolution RGBA16F scratch target declared only when the pass can run.
+Memory, as the renderer memory report books it (`SkinDiffusion`, `SkinProfileTable` and the
+`RenderGraph` "Skin hand-off" rows, pinned byte for byte by `SkinMemoryEvidence` on both backends;
+#1396):
+
+| resource | bytes at 1080p | when |
+|---|---:|---|
+| hand-off attachment, SceneColor attachment 4 (RGBA16F) | 16 588 800 | allocated, written and loaded in every scene, skin or not (see below) |
+| diffusion scratch (RGBA16F, scene band) | 16 588 800 | only while a diffusing profile holds a slot |
+| hand-off + depth snapshots (RGBA16F + D24S8) | 24 883 200 | the same; shared with snow's SSS, booked to skin only when the diffusion runs |
+| kernel UBO (`SkinDiffusionParams`) | 6 272 | always |
+| deferred profile table (a slice of the lighting controls UBO) | 1 200 | always; demanded on Deferred |
+
+The scratch and the snapshots are transients at the scene band, so an upscale shrinks them by the
+render scale; they are single-sample, so MSAA adds nothing.
 
 The attachment is part of the scene framebuffer because the alternative — switching draw buffers per
 draw, keyed on material kind — is a framebuffer state change per draw. Every shader that renders
@@ -175,8 +186,13 @@ into that framebuffer **writes** the attachment, with zero where it is not skin:
 shader leaves alone is undefined, not zero, and the diffusion would blur the garbage into scene
 colour.
 
-Both fullscreen draws are skipped entirely when no authored profile in the frame asks to be
-diffused, which is the normal state of every scene without a version-1 skin profile in it.
+The whole diffusion (the scratch, both snapshots, the two snapshot copies and both fullscreen
+draws) is left out of the frame graph until a profile that evaluates screen-space diffusion holds a
+slot in `SkinProfileTable`, which is the normal state of every scene without such a profile in it.
+Before #1396 only the draws were skipped: a skinless scene still allocated the targets and ran the
+copies. The gate is sticky like the slots: once a scene has resolved a diffusing profile, the
+targets stay until the scene reloads, even if every skin material is deleted in the meantime
+(`SkinProfileTable::AnyAssignedSlotDiffuses`).
 
 ## Explicit limitations
 
