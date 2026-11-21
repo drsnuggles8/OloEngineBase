@@ -39,6 +39,7 @@ candidates, start as many as you confidently can and say how many and why. Never
     gh issue list --state closed --limit 40
     python "$BASE/scripts/issue_scores.py" rank   # scored backlog: canonical priority (docs/process/issue-scoring.md)
     python "$BASE/scripts/issue_scores.py" lint   # everything that makes the backlog lie
+    python "$BASE/scripts/issue_scores.py" pulse  # throughput, work in flight, north-star progress: goes in the report
 
 A topic with a worktree, a branch (local or `origin/*`), an open PR or an assigned issue is
 **off-limits as in flight**. A topic in a recently merged PR or closed issue is **off-limits as
@@ -64,6 +65,14 @@ unscored, scored rank #2 once it was scored.
 - **Stale `blocked_by`** (blocker closed): drop it with `set N blocked_by=[...]`, and name what
   still holds the issue, if anything. A blocker that merged as a no-go is not a green light.
 - **Unresolvable `blocked_by`**: fix the lookup (`gh auth status`, network, typo) and re-run.
+- **North-star Decay below 5** (issue-scoring.md §3.9): `set N decay=5`, or `decay=8` when the issue
+  blocks the milestone's next demo.
+- **North-star item with no issue**: file and score it in the milestone (`gh issue create
+  --milestone "<name>"`), then add its `#N` to the item's line in `docs/process/north-star.md` in
+  the first task PR that touches the file. Never add, remove or reword an item; the list is the
+  user's.
+- **`north star: NOT SET`**: not a lint failure. Say so in the report in one line. Never set the
+  milestone or write the goal yourself.
 
 Use `set` rather than hand-editing a body: it keeps every field and writes UTF-8. If you must read a
 body yourself, decode gh's output as UTF-8 explicitly; bare `text=True` decodes as cp1252 and turns
@@ -77,8 +86,10 @@ Capture that proof now; it is the cheapest moment.
 - **Code + history demonstrably prove an open issue resolved** (a merged PR covers it, the failing
   runs predate the fix, the symbol now exists): post a factual evidence comment without asking —
   `gh issue comment <N> --body "Appears resolved by #<PR> (merged <date>): <evidence>. Flagging for closure."`
-  — state evidence, never a verdict, and add it to the close list for the report. **Never close it
-  here**: closing waits for the user.
+  — state evidence, never a verdict, then `gh issue edit <N> --add-label close-recommended`, and
+  add it to the close list for the report. The label takes the issue out of every pick (`close?`,
+  issue-scoring.md §3); a comment alone left #1687 and #1688 at rank 1 and 2 for six days.
+  **Never close it here**: closing waits for the user.
 - **Partially done**: comment what is done and what remains; leave it open; not on the close list.
 - **Not certain**: no comment; list it in the report so the user decides.
 - Stale `docs/` checkboxes and resolved `// TODO`s: in scope for the chosen task's PR if related,
@@ -92,7 +103,7 @@ Build a slate of at least N + 2 candidates not in flight, then pick N.
 **The issue score is canonical.** For GitHub-issue work, `issue_scores.py rank` is the priority
 order: take the top **unblocked** issues not in flight. Take `rank`'s own `next:` line as the
 authoritative single pick; it already applies the Pull-override (a user-confirmed `Fun ≥ 8`,
-`fun_by: user`, jumps the queue), the low-value floor and the Tier-1 slot.
+`fun_by: user`, jumps the queue), the low-value floor, the Tier-1 slot and the large-item slot.
 
 > **Read the printed ORDER, not the score column.** An issue under the Cost-of-Delay floor
 > (`low-value:<CoD>`) sorts below every normal issue whatever its ratio, so `#607 0.23` can sit above
@@ -104,6 +115,20 @@ authoritative single pick; it already applies the Pull-override (a user-confirme
 Work that is Tier 1 by nature (CI, test infra, MCP, dev tooling) but lacks the `tooling` label is
 mislabelled: add the label during the sweep.
 
+**Large-item slot** (issue-scoring.md §3.8). For N = 1, follow `next:` when it switches to the
+`large:` candidate. For N ≥ 2, while `large slot: DUE`, one slot goes to the `large:` candidate (a
+second slot when the Tier-1 slot is also due). `rank` sees only PRs. Before trusting `DUE`, check
+the worktrees from §2: a live worktree whose HANDOVER names an `effort ≥ 5` issue already fills the
+slot. A large pick runs as one long session per
+[model-rubric.md](model-rubric.md#the-whole-epic-fable-52-session).
+
+**Goal slot** (issue-scoring.md §3.9). While a north star is set, a batch of N ≥ 2 gives one slot to
+the `goal:` candidate, so the project's goal always has a task in flight. One task may fill several
+slots (a goal issue that is also large or Tier 1). Fill them in this order: goal, Tier 1 (always
+for N ≥ 2, due or not, per the Tier-1 slot above), large when due, then the rank. With N = 2 and
+all three wanted, goal and Tier 1 take the batch and the large slot stays due for the next one. Any
+slot without a startable candidate goes to the rank.
+
 **N > 1: the tasks must be mutually distinct and non-overlapping**, ideally different subsystems and
 disjoint files. If two candidates would touch the same files, keep one and replace the other.
 
@@ -114,7 +139,8 @@ overriding it.
 
 **Non-issue work** has no score, so the leverage tiers govern it. The score's Capability axis is the
 same instinct quantified. File and score a substantial non-issue task so the loop converges on one
-queue.
+queue. While a north star is set, non-issue work on its critical path outranks Tiers 2-4. File it
+into the milestone.
 
 - **Tier 1, force multipliers** (start here): engine MCP / diagnostics and C++ tooling MCPs; CI/CD
   speed and reliability (mine the runner logs); test infrastructure; `CLAUDE.md` + `docs/agent-rules`.
@@ -218,5 +244,6 @@ For a session the user will drive by hand instead: `Read ./HANDOVER.md and conti
 task, worktree path + branch, recommended model + effort and the kickoff (a table for N > 1); plus
 the §2b findings: evidence comments posted, issues recommended for closure (ask before closing),
 the unscored issues `lint` surfaced with the scores and resulting ranks you gave them, what you did
-with each `merged:` / `stale:` finding, every `PULL?` for the user to confirm, the tier-1 slot state
-and whether you followed it, and any durable facts written to memory.
+with each `merged:` / `stale:` finding, every `PULL?` for the user to confirm, the goal, Tier-1 and
+large-item slot states and whether you followed them, the `pulse` table plus the north-star line
+(or `NOT SET`), and any durable facts written to memory.
