@@ -80,6 +80,14 @@ namespace OloEngine
         // Number of slots handed out so far.
         [[nodiscard]] u32 GetAssignedSlotCount() const;
 
+        // Whether any assigned slot's profile evaluates screen-space diffusion
+        // (SkinEvaluatesScreenSpaceDiffusion). The render pipeline gates the
+        // diffusion's scratch target and input snapshots on it (#1396): without
+        // it, a scene with no skin allocated both and copied two full-screen
+        // snapshots every frame for a pass that then drew nothing. Sticky like the
+        // slots, so a head turning off screen does not rebuild the graph.
+        [[nodiscard]] bool AnyAssignedSlotDiffuses() const;
+
         // How many resolves fell back, by reason, since the last Reset(). The
         // "countably" half of the house rule — a test asserts on these rather
         // than scraping the log.
