@@ -124,6 +124,12 @@ class DurationReportTest(unittest.TestCase):
         passed = subprocess.run([sys.executable, script, "--durations", str(self.xml), "--debug", "--fail-over"],
                                 capture_output=True, text=True)
         self.assertEqual(passed.returncode, 0, passed.stdout + passed.stderr)
+        # A gate with no report to judge is refused, not passed.
+        for flags in (["--fail-over"], ["--debug"], ["--check", "--fail-over"]):
+            with self.subTest(flags=flags):
+                refused = subprocess.run([sys.executable, script, *flags], capture_output=True, text=True)
+                self.assertEqual(refused.returncode, 2, refused.stdout + refused.stderr)
+                self.assertIn("--durations", refused.stderr)
 
     def test_cli_over_budget_remains_a_warning_and_exits_successfully(self):
         self.xml.write_text('''<testsuites><testsuite>

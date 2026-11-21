@@ -614,6 +614,10 @@ def main():
         help="With --durations: exit 1 when any case is over its budget (an overage is otherwise only reported).",
     )
     args = parser.parse_args()
+    if (args.debug or args.fail_over) and not args.durations:
+        # Without a report there is nothing to judge, and a gate that quietly
+        # judges nothing reads as one that passed.
+        parser.error("--debug and --fail-over judge a --durations report; pass --durations <gtest.xml>")
 
     cfg = load_config()
     files = scan_cpp_files(cfg)
