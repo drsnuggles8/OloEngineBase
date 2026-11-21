@@ -328,6 +328,18 @@ namespace OloEngine
         [[nodiscard]] u32 CoatBakeSubsetStride(u64 segments, u32 occupiedVoxels,
                                                f32 segmentsPerOccupiedVoxel) noexcept;
 
+        // The voxels a coat measured to occupy at `measuredResolution` would
+        // occupy at `resolution` (#1594), so a resolution change needs no full
+        // bake to re-measure: at a camera cut that full bake of a walking coat
+        // was 250 ms of binning in one frame. ON THE SAFE SIDE: a coat's
+        // occupancy grows with the resolution between the square (a thin
+        // shell) and the cube (fur thicker than a voxel), so a finer grid is
+        // scaled by the cube and a coarser one by the square -- never fewer
+        // occupied voxels than the coat has, so never fewer than
+        // CoatBakeSubsetStride's segments per occupied voxel. Zero when nothing
+        // was measured.
+        [[nodiscard]] u32 EstimateCoatOccupiedVoxels(u32 measured, u32 measuredResolution, u32 resolution) noexcept;
+
         // Is the segment at `index` in the stride's subset? Always true at a
         // stride of 1.
         [[nodiscard]] bool CoatBakeKeepsSegment(u32 index, u32 stride) noexcept;

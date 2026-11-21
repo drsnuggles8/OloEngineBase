@@ -17,9 +17,10 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
 3. **The subset is fixed and hashed.** `CoatBakeKeepsSegment` hashes the segment index, so the same
    segments are kept every frame and spread along every strand; each kept radius is scaled by
    segments / kept. [Details](groom-coat-bake-cost-details.md#the-rules)
-4. **The stride comes from the coat's own occupancy, measured by a full bake,** leaving
-   `BakeSegmentsPerOccupiedVoxel` (8) per occupied voxel; a shadow-LOD resolution change
-   re-measures. [Details](groom-coat-bake-cost-details.md#the-rules)
+4. **The stride comes from the coat's own occupancy, measured by its first full bake,** leaving
+   `BakeSegmentsPerOccupiedVoxel` (8) per occupied voxel; at another resolution the measurement is
+   scaled on the safe side (`EstimateCoatOccupiedVoxels`), never re-measured by a full bake.
+   [Details](groom-coat-bake-cost-details.md#the-rules)
 5. **Rewrite a ring slot in place only when no unsubmitted recording can read it:** never a slot
    bound on this tick or the one before; a slot of the wrong size gets a new texture.
    [Details](groom-coat-bake-cost-details.md#the-rules)
@@ -45,6 +46,9 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
     (`VulkanRendererAPI::RecordStagedImageUpload`, #1594), never the blocking one-shot: a one-shot
     waits for every frame in flight, a GPU frame or more of stall per bake whatever the bake's own
     cost. [Details](groom-coat-bake-cost-details.md#the-rules)
+11. **A rest bake's walk is kept across resolutions and baked at the subset** (`AcquireRestWalk`,
+    #1594): the walk does not depend on the grid, and the stride follows rule 4 from the walk's
+    first full bake. [Details](groom-coat-bake-cost-details.md#the-rules)
 
 ## Not done
 

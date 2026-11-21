@@ -7040,6 +7040,8 @@ namespace OloEngine::MCP
             snapshot.CoatRebuildBudget = coat.RebuildBudget;
             snapshot.CoatRebuildsDeferred = coat.RebuildsDeferred;
             snapshot.CoatRebuildsForced = coat.RebuildsForced;
+            snapshot.CoatRestWalksReused = coat.RestWalksReused;
+            snapshot.CoatMaxRestBakeStride = coat.MaxRestBakeStride;
             snapshot.CoatDrawnFromDeferredVolume = coat.DrawnFromDeferredVolume;
             snapshot.CoatRebuildsWaiting = coat.RebuildsWaiting;
             snapshot.CoatOldestRebuildWaitFrames = coat.OldestRebuildWaitFrames;

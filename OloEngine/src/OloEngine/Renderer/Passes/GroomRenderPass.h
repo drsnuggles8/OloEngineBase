@@ -1440,6 +1440,45 @@ namespace OloEngine
         /// Drops every shared bake no entry holds, and its bytes.
         void PruneSharedCoatVolumes();
 
+        /// A COAT'S REST WALK, KEPT ACROSS RESOLUTIONS (#1594). A rest bake
+        /// walks the coat's drawn strands at rest (BuildGroomRestCentrelines),
+        /// which no resolution changes, yet every coat-LOD step change walked
+        /// it again: 35-85 ms a bake at a camera cut. Kept per walk -- the
+        /// asset, its build and coat digest, the streamed level -- as segments
+        /// without the width scale, with the occupancy the walk's first full
+        /// bake measured, from which later bakes take their subset (the pose
+        /// bake's rule 4). At least kRestWalksAlwaysKept, and past that as many
+        /// as fit kRestWalkBytes, the least recently used out first; all given
+        /// back after kCoatBodyIdleFrames without a bake.
+        struct RestWalk : public RefCounted
+        {
+            u64 Handle = 0;
+            Ref<GroomAsset> Asset;
+            u32 MaxStrands = 0;
+            u32 MaxSegments = 0;
+            u32 MaxWidthCompensationBits = 0;
+            u64 CoatDigest = 0;
+            u64 StreamingKey = 0;
+            bool GuidesOnly = false;
+            /// The drawn strands' walk (coat authoring) or the asset sampled at
+            /// the strand budget's stride (none): the two sources of a rest bake.
+            bool Authored = false;
+            TArray<GroomCoatShadow::CoatSegment> Segments;
+            u32 OccupiedVoxels = 0;
+            u32 OccupancyResolution = 0;
+            u64 UsedTick = 0;
+            [[nodiscard]] u64 Bytes() const noexcept
+            {
+                return static_cast<u64>(Segments.GetAllocatedSize());
+            }
+        };
+        static constexpr i32 kRestWalksAlwaysKept = 2;
+        static constexpr u64 kRestWalkBytes = 64ull * 1024ull * 1024ull;
+        TArray<Ref<RestWalk>> m_RestWalks;
+        u64 m_RestWalkUsedTick = 0;
+        /// The rest walk `request` draws, found or walked.
+        RestWalk& AcquireRestWalk(const GroomStrandRequest& request, const GroomCoatContext& coat);
+
         /// THE PER-FRAME REBUILD BUDGET (#1594): CoatRebakePolicy::
         /// MaxRebuildsPerFrame bakes a frame, the rest deferred in order. Its
         /// frame is GroomFrameState::FrameIndex, which every view of one frame

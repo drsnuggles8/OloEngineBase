@@ -1323,6 +1323,7 @@ namespace OloEngine::Tests
         {
             u32 Rebuilds = 0;
             u32 Shared = 0;
+            u32 WalksReused = 0;
         };
         const auto run = [&](u32 frames)
         {
@@ -1332,6 +1333,7 @@ namespace OloEngine::Tests
                 RunEditorFrames(camera, 1);
                 bakes.Rebuilds += PassStats().CoatShadow.Rebuilds;
                 bakes.Shared += PassStats().CoatShadow.SharedBakesReused;
+                bakes.WalksReused += PassStats().CoatShadow.RestWalksReused;
             }
             return bakes;
         };
@@ -1379,6 +1381,8 @@ namespace OloEngine::Tests
         const GroomRenderStats twoSteps = PassStats();
         EXPECT_EQ(stepped.Rebuilds, 1u) << "a coat at another step must bake its own volume, once";
         EXPECT_EQ(stepped.Shared, 0u) << "a coat at another step took the first step's bake";
+        EXPECT_EQ(stepped.WalksReused, 1u) << "the coat at another step walked its strands again rather than "
+                                              "taking the walk its first bake made";
         EXPECT_EQ(twoSteps.CoatShadow.SharedVolumes, 2u);
         EXPECT_EQ(twoSteps.CoatShadow.LodStepInForce, 1u);
         EXPECT_EQ(twoSteps.CoatShadow.ShadowedGrooms, 4u);
@@ -1396,6 +1400,7 @@ namespace OloEngine::Tests
         const GroomRenderStats three = PassStats();
         EXPECT_EQ(another.Rebuilds, 1u) << "a coat of another asset must bake its own volume, once";
         EXPECT_EQ(another.Shared, 0u) << "a coat of another asset took this asset's bake";
+        EXPECT_EQ(another.WalksReused, 0u) << "a coat of another asset took this asset's walk";
         EXPECT_EQ(three.CoatShadow.SharedVolumes, 3u);
         EXPECT_EQ(three.CoatShadow.ShadowedGrooms, 5u);
         EXPECT_EQ(three.Memory.GpuBytes(), three.CachedBytes);

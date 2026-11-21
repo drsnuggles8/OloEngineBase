@@ -119,6 +119,8 @@ namespace OloEngine::MCP::GroomBudgetStats
         u32 CoatRebuildBudget = 0;
         u32 CoatRebuildsDeferred = 0;
         u32 CoatRebuildsForced = 0;
+        u32 CoatRestWalksReused = 0;
+        u32 CoatMaxRestBakeStride = 0;
         u32 CoatDrawnFromDeferredVolume = 0;
         u32 CoatRebuildsWaiting = 0;
         u32 CoatOldestRebuildWaitFrames = 0;
@@ -261,6 +263,8 @@ namespace OloEngine::MCP::GroomBudgetStats
             { "rebuildBudget", snapshot.CoatRebuildBudget },
             { "rebuildsDeferred", snapshot.CoatRebuildsDeferred },
             { "rebuildsForced", snapshot.CoatRebuildsForced },
+            { "restWalksReused", snapshot.CoatRestWalksReused },
+            { "maxRestBakeStride", snapshot.CoatMaxRestBakeStride },
             { "drawnFromDeferredVolume", snapshot.CoatDrawnFromDeferredVolume },
             { "rebuildsWaiting", snapshot.CoatRebuildsWaiting },
             { "oldestRebuildWaitFrames", snapshot.CoatOldestRebuildWaitFrames },

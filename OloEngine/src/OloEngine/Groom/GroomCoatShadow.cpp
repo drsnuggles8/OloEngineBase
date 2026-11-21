@@ -662,6 +662,21 @@ namespace OloEngine::GroomCoatShadow
         return static_cast<u32>(std::clamp(stride, 1.0, 65536.0));
     }
 
+    u32 EstimateCoatOccupiedVoxels(u32 measured, u32 measuredResolution, u32 resolution) noexcept
+    {
+        if (measured == 0u || measuredResolution == 0u || resolution == 0u)
+        {
+            return 0u;
+        }
+        if (resolution == measuredResolution)
+        {
+            return measured;
+        }
+        const f64 ratio = static_cast<f64>(resolution) / static_cast<f64>(measuredResolution);
+        const f64 scaled = static_cast<f64>(measured) * (ratio > 1.0 ? ratio * ratio * ratio : ratio * ratio);
+        return static_cast<u32>(std::clamp(std::ceil(scaled), 1.0, static_cast<f64>(std::numeric_limits<u32>::max())));
+    }
+
     bool CoatBakeKeepsSegment(u32 index, u32 stride) noexcept
     {
         if (stride <= 1u)

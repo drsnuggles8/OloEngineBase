@@ -502,6 +502,12 @@ namespace OloEngine
         /// waited. A number that climbs without bound is starvation.
         u32 RebuildsWaiting = 0;
         u32 OldestRebuildWaitFrames = 0;
+        /// Rest bakes this frame that took the walk an earlier bake of the same
+        /// coat made, at another resolution, instead of walking it again; and
+        /// the largest subset stride a rest bake took this frame (0 when none
+        /// baked).
+        u32 RestWalksReused = 0;
+        u32 MaxRestBakeStride = 0;
 
         void Record(const GroomCoatShadowDecision& decision) noexcept
         {
@@ -568,7 +574,8 @@ namespace OloEngine
                    RebuildsForced == other.RebuildsForced &&
                    DrawnFromDeferredVolume == other.DrawnFromDeferredVolume &&
                    RebuildsWaiting == other.RebuildsWaiting &&
-                   OldestRebuildWaitFrames == other.OldestRebuildWaitFrames;
+                   OldestRebuildWaitFrames == other.OldestRebuildWaitFrames &&
+                   RestWalksReused == other.RestWalksReused && MaxRestBakeStride == other.MaxRestBakeStride;
         }
     };
 } // namespace OloEngine

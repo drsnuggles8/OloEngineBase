@@ -26,6 +26,7 @@
 #include "OloEngine/Groom/GroomCoatShadow.h"
 #include "OloEngine/Groom/GroomCoatShadowTechnique.h"
 
+#include <cmath>
 #include <limits>
 #include <map>
 #include <optional>
@@ -805,4 +806,41 @@ TEST(GroomCoatShadowSelection, TheRebuildBudgetIsTheFramesAcrossViewsAndAStalled
     shared.Withdraw(2u);
     EXPECT_TRUE(shared.Request(3u)) << "a withdrawn reservation still blocked the frame";
     EXPECT_EQ(shared.Waiting(), 0u);
+}
+
+// A RESOLUTION CHANGE NEEDS NO FULL BAKE (#1594): the occupancy a coat measured
+// at one resolution, scaled to another on the safe side -- the cube for a finer
+// grid, the square for a coarser one, between which a coat's occupancy grows --
+// so the stride never leaves fewer segments in a voxel than the floor asks.
+// At a camera cut the full re-measure of a walking coat was a 250 ms bake.
+TEST(GroomCoatShadowSelection, AResolutionChangeEstimatesOccupancyOnTheSafeSide)
+{
+    using GroomCoatShadow::EstimateCoatOccupiedVoxels;
+    EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 64u, 64u), 5000u) << "the measured resolution is the measurement";
+    EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 64u, 128u), 40000u) << "a finer grid scales by the cube";
+    EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 64u, 32u), 1250u) << "a coarser grid scales by the square";
+    EXPECT_EQ(EstimateCoatOccupiedVoxels(0u, 64u, 128u), 0u) << "nothing measured is nothing estimated";
+    EXPECT_EQ(EstimateCoatOccupiedVoxels(5000u, 0u, 128u), 0u);
+    EXPECT_GE(EstimateCoatOccupiedVoxels(1u, 128u, 8u), 1u) << "an occupied coat never estimates to empty";
+
+    // On the safe side means the stride it gives never exceeds the one a full
+    // bake would measure, for any coat whose occupancy grows between the square
+    // and the cube: a thin shell (square) and a thick pelt (cube), both ways.
+    constexpr u64 kSegments = 2'000'000u;
+    constexpr f32 kPerVoxel = 8.0f;
+    for (const f64 exponent : { 2.0, 2.5, 3.0 })
+    {
+        for (const u32 to : { 16u, 32u, 128u, 256u })
+        {
+            const u32 measuredAt = 64u;
+            const u32 measured = 6000u;
+            const auto truth = static_cast<u32>(
+                std::ceil(measured * std::pow(static_cast<f64>(to) / static_cast<f64>(measuredAt), exponent)));
+            const u32 estimated = EstimateCoatOccupiedVoxels(measured, measuredAt, to);
+            EXPECT_LE(GroomCoatShadow::CoatBakeSubsetStride(kSegments, estimated, kPerVoxel),
+                      GroomCoatShadow::CoatBakeSubsetStride(kSegments, truth, kPerVoxel))
+                << "exponent " << exponent << ", " << measuredAt << " -> " << to
+                << ": the estimate took a coarser subset than a full bake would";
+        }
+    }
 }

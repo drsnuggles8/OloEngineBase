@@ -26,12 +26,18 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    strand when the segment count divides by the stride). Each kept radius is scaled by
    segments / kept, the achieved fraction, so the expected fibre area in every voxel is unchanged.
 
-4. **The stride comes from the coat's own occupancy, measured by a full bake.** Rule 4 of the
-   static guide says a voxel holding too few fibres stores a sample, not an average. The first bake
-   of an entry is full; it records how many voxels it occupied, and the stride is the one that
-   leaves `BakeSegmentsPerOccupiedVoxel` (8) in each on average. A shadow-LOD resolution change
-   re-measures with one full bake, so a coat first baked coarse at range is not held at that
-   stride up close.
+4. **The stride comes from the coat's own occupancy, measured by its first full bake.** Rule 4 of
+   the static guide says a voxel holding too few fibres stores a sample, not an average. The first
+   bake of an entry is full; it records how many voxels it occupied, and the stride is the one that
+   leaves `BakeSegmentsPerOccupiedVoxel` (8) in each on average. At another resolution the
+   measurement is scaled, not re-measured (#1594): a coat's occupancy grows with the resolution
+   between the square (a thin shell) and the cube (fur thicker than a voxel), so
+   `EstimateCoatOccupiedVoxels` scales a finer grid by the cube and a coarser one by the square --
+   never fewer voxels than the coat occupies, so never fewer segments in each than the floor, and a
+   coat first baked coarse at range is still not held at that stride up close.
+   `AResolutionChangeEstimatesOccupancyOnTheSafeSide` pins it. It used to re-measure with one full
+   bake, and live at the acceptance scene's camera cut that full bake of a walking coat -- forced
+   by its drift (rule 9) -- was 250 ms of binning in one frame.
 
 5. **A ring slot may be rewritten in place only when no unsubmitted recording can read it.**
    `BakeCoatVolume` never rewrites a slot bound on this tick or the one before (a split-screen frame
@@ -92,8 +98,8 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
    the budget defers only resolution and source changes (a camera cut's, an arrival's), whose
    waiting volume is still within the drift bound; the drift policy already paces the rest. A
    waiting pose bake's drift is measured even across a stride change
-   (`MaxCoatPoseDriftAcrossStrides`; a resolution change re-measures with a full bake, which
-   changes the stride under a waiting coat), so a coat that moves while it waits is forced too. Deferrals, the queue and its oldest wait are in
+   (`MaxCoatPoseDriftAcrossStrides`; a resolution change changes the stride under a waiting coat,
+   rule 4), so a coat that moves while it waits is forced too. Deferrals, the queue and its oldest wait are in
    `GroomCoatShadowStats`, `olo_groom_budget_stats.coatShadow` and the inspector, and a wave of
    deferrals is logged when it starts and when it drains.
 
@@ -108,6 +114,21 @@ all is in [groom-deformed-coat-self-shadowing.md](groom-deformed-coat-self-shado
     tracked layout, the copy, and a barrier back to the sampled layout with the tracker updated,
     since a coat volume is bound through a persistent heap slot that carries no per-draw transition.
     The staging buffer goes to the deferred-reclaim queue. Outside a frame the one-shot stays.
+
+11. **A rest bake's walk is kept across resolutions and baked at the subset** (#1594). A rest bake
+    reads the coat at rest: with coat authoring the drawn strands' walk
+    (`BuildGroomRestCentrelines`), without it the asset sampled at the strand budget's stride.
+    Neither depends on the grid, yet every coat-LOD step change produced it again -- 35-85 ms of each
+    rest bake at the acceptance scene's camera cut, under no named scope -- and binned all of it at
+    the finer grid. `AcquireRestWalk` keeps it per source (the asset, its build and coat digest, the
+    streamed level, authored or sampled), without the width scale; at least
+    `kRestWalksAlwaysKept`, and past that as many as fit `kRestWalkBytes`, the least recently used
+    out first, all given back after `kCoatBodyIdleFrames` without a bake, and counted in
+    `CpuBakeInputBytes` and the memory report's CPU row. The walk's first bake is full and records
+    its occupancy; later bakes take rule 4's stride from it, scaled to their resolution, with rule
+    7's `RadiusExtent` so the subset keeps the full grid. A coat that shares a bake (rule 8) may take
+    one made at another stride: both are the same coat within rule 4's error.
+    `CoatShadow.RestWalksReused` and `MaxRestBakeStride` count it.
 
 ## Measured
 

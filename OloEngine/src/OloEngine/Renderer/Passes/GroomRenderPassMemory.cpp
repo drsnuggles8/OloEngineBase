@@ -264,6 +264,8 @@ namespace OloEngine
             cpuBytes += VectorBytes(bake.Body);
         for (const auto& table : m_CardFibreTables)
             cpuBytes += VectorBytes(table.ByGroup);
+        for (const Ref<RestWalk>& walk : m_RestWalks)
+            cpuBytes += walk->Bytes();
         {
             MemoryCapacityRow row;
             row.Owner = "GroomRenderPass";
