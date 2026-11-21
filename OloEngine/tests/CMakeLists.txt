@@ -1039,6 +1039,7 @@ add_executable(OloEngine-Tests
 		Rendering/PropertyTests/TestRenderBackend.cpp
 		Rendering/RendererMemoryTrackerTest.cpp
 		Rendering/RendererMemoryReportTest.cpp
+		Rendering/RendererMemoryBudgetTest.cpp
 		Rendering/MaterialCopyTest.cpp
 		Rendering/MaterialTransmissionTest.cpp
 		Rendering/GltfPhysicalMaterialImportTest.cpp

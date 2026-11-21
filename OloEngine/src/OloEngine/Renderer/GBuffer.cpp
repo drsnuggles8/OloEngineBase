@@ -166,6 +166,28 @@ namespace OloEngine
         return total;
     }
 
+    std::optional<u64> GBuffer::EstimateBytes(u32 width, u32 height, u32 sampleCount)
+    {
+        if (width == 0 || height == 0)
+            return 0;
+        width = std::min(width, kMaxGBufferSize);
+        height = std::min(height, kMaxGBufferSize);
+        sampleCount = std::max(sampleCount, 1u);
+
+        auto total = RendererMemoryFormat::FramebufferBytes(BuildSpec(width, height, sampleCount));
+        if (!total)
+            return std::nullopt;
+        if (sampleCount > 1)
+        {
+            // The single-sample resolve target Recreate() builds beside the MSAA one.
+            const auto resolve = RendererMemoryFormat::FramebufferBytes(BuildSpec(width, height, 1));
+            if (!resolve)
+                return std::nullopt;
+            *total += *resolve;
+        }
+        return total;
+    }
+
     void GBuffer::Resolve()
     {
         OLO_PROFILE_FUNCTION();

@@ -106,6 +106,11 @@ namespace OloEngine
         // single-sample resolve target when there is one (#1342). nullopt when an
         // attachment format has no known size.
         [[nodiscard]] std::optional<u64> EstimateBytes() const;
+        // The same estimate for a G-Buffer that does not exist yet (#1343): what
+        // Create(width, height, sampleCount) would allocate, from the same
+        // attachment table and the same size clamp. Memory admission prices a
+        // sample count with it before anything is created. 0 for a zero extent.
+        [[nodiscard]] static std::optional<u64> EstimateBytes(u32 width, u32 height, u32 sampleCount);
 
         // Current dimensions.
         [[nodiscard]] u32 GetWidth() const noexcept

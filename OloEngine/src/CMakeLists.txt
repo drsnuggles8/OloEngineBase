@@ -870,6 +870,8 @@
 		"OloEngine/Renderer/RenderGraphMemoryReport.cpp"
 		"OloEngine/Renderer/RendererMemoryOwners.h"
 		"OloEngine/Renderer/RendererMemoryOwners.cpp"
+		"OloEngine/Renderer/RendererMemoryBudget.h"
+		"OloEngine/Renderer/RendererMemoryBudget.cpp"
 		"OloEngine/Renderer/RenderGraphNode.h"
 		"OloEngine/Renderer/RenderGraphPlanExecutor.cpp"
 		"OloEngine/Renderer/RenderGraphPlanExecutor.h"
