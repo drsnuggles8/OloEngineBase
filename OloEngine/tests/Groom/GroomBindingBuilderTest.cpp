@@ -268,8 +268,34 @@ TEST(GroomBindingBuilder, TheRootsSearchedOnTheWorkersAreTheNearestTriangles)
     } workers;
     ASSERT_GT(LowLevelTasks::FScheduler::Get().GetNumWorkers(), 0u);
 
-    GridSurface grid = MakeGrid(12u);
-    Ref<GroomAsset> groom = MakeCoat(4000u, 3u);
+    // More roots than one 65,536-root search chunk, so a curve past the first
+    // chunk must be matched to its own chunk's result -- and SCATTERED (the R2
+    // sequence), so consecutive curves land on different triangles and a
+    // result read for a neighbouring curve shows. MakeCoat's roots walk the
+    // diagonal, where neighbours share a triangle and such a slip passes.
+    GridSurface grid = MakeGrid(6u);
+    Ref<GroomAsset> groom;
+    {
+        GroomBuilder builder;
+        std::string why;
+        u16 group = 0;
+        ASSERT_TRUE(builder.AddGroup("coat", group, why)) << why;
+        const std::vector<f32> widths(2u, 0.001f);
+        for (u32 c = 0; c < 70000u; ++c)
+        {
+            const f32 x = 0.05f + (0.9f * std::fmod(0.5f + (0.7548776662f * static_cast<f32>(c)), 1.0f));
+            const f32 z = 0.05f + (0.9f * std::fmod(0.5f + (0.5698402910f * static_cast<f32>(c)), 1.0f));
+            const std::array<glm::vec3, 2> points{ glm::vec3{ x, 0.0f, z }, glm::vec3{ x, 0.1f, z } };
+            GroomCurveInput input;
+            input.Points = points;
+            input.Widths = widths;
+            input.RootUV = { x, z };
+            input.GroupId = group;
+            ASSERT_TRUE(builder.AddCurve(input, why)) << why;
+        }
+        groom = builder.Build(why);
+        ASSERT_TRUE(groom) << why;
+    }
     ASSERT_TRUE(groom);
     Ref<GroomBindingAsset> binding;
     GroomBindingBuildStats stats;
