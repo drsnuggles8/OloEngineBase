@@ -4,11 +4,12 @@ The goal the backlog is steered toward. Only the user sets it. `/start-work` and
 `scripts/issue_scores.py` read it (issue-scoring.md §3.9), and an agent never sets or changes the
 milestone or the goal text below on its own.
 
-**Status: not set.** Until `milestone:` names a GitHub milestone, the picker ranks as if this file
-did not exist, and `rank` prints `north star: NOT SET` on every run.
+**Status: set** by the user on 2026-11-21
+([decisions on #1727](https://github.com/drsnuggles8/OloEngineBase/issues/1727#issuecomment-7060665000)).
+Emptying `milestone:` turns the steering off: the picker then ranks as if this file did not exist.
 
 ```olo-north-star
-milestone: ""   # the GitHub milestone holding the goal's critical path, e.g. "Game: vertical slice"
+milestone: "KESTREL: vertical slice"   # the GitHub milestone holding the goal's critical path
 ```
 
 ## What setting it does
@@ -29,21 +30,47 @@ were renderer work, while the stated aim is a game in 2027. Nothing in the score
 is the counterweight: it states what "forward" means, so the picker can tell critical-path work from
 engine work that is merely good.
 
-## The goal (the user fills this in)
+## The goal
 
-- **Game:** the game, in two sentences: genre, core loop, the moment that sells it.
-- **Milestone:** the first shippable proof (vertical slice, demo, Early Access), and its target date.
-- **Target hardware and frame budget:** the slowest machine it must run on and the frame time it
-  must hold there. Performance issues are judged against this budget, not the RTX 4090 dev box.
-- **Out of scope for the milestone:** engine work that waits until after the milestone.
+- **Game:** KESTREL (codename; no public title yet), a photoreal ski resort management game on real
+  mountains. You design and run each resort through full seasons, unlock lifts and technology era by
+  era from 1950 to today (a tech tree with era gating, in the style of Two Point Museum and Hollywood
+  Animals), and build a group of resorts, moving to new regions of the world (in the style of Planet
+  Zoo and RollerCoaster Tycoon). Sandbox first, plus a scenario campaign. Riding your own runs is a
+  nice extra, not core. Full seasons, summer included. It lives in this repo as
+  `OloEditor/KestrelProject` ([ADR 0027](../adr/0027-kestrel-lives-in-the-engine-repo-as-a-second-project.md)).
+- **Milestone:** *KESTREL: vertical slice*, internal, mid-2027 (GitHub milestone due 2027-06-30). One
+  real mountain in an unnamed Austrian or Swiss valley, a 1950 start, one full year of seasons, the
+  first slice of the tech tree (about 1950–1965), sandbox only.
+- **Target hardware and frame budget:** a GTX 1660 / RX 5600 class PC (6 GB VRAM, 16 GB RAM, 6-core
+  CPU) at 1080p, 60 fps (16.6 ms) on the slice's busiest view. Photoreal, with graphics presets, and
+  heavy optimisation so it looks good on older PCs.
+- **Out of scope for the milestone:** Drift / Adrift only: no further Drift islands, keeper, crane or
+  other Drift gameplay work. The renderer research items (#654, #1046, #1353, #805) and #437 stay where
+  the rank puts them.
+
+Not on the critical path: riding your runs, the multi-resort empire, the scenario campaign, eras after
+1965, summer activities.
 
 ## Critical path
 
-One line per capability the milestone cannot ship without. A line becomes `- [ ] … (#N)` once the
-issue is filed, and is ticked when the issue closes. Draft lines nobody has confirmed stay out until
-the user agrees.
+One line per capability the milestone cannot ship without, confirmed by the user on #1727. Line 0
+follows from the user's layout decision. A line with several issues is ticked when all of them close.
 
-<!-- example, delete when filling in:
-- [ ] Save and load mid-session, including physics and dialogue state (#N)
-- [ ] Holds the frame budget on the target hardware in the slice's busiest scene (#N)
--->
+- [ ] Project scaffold: `OloEditor/KestrelProject` with its own `.oloproj`, assets and script assembly, and general project selection; the native game module ADR 0027 proposes (#1730, #1731)
+- [ ] Real terrain import: Copernicus GLO-30 elevation data turned into a full-scale terrain for one real mountain (about 10×10 km), with the attribution line (#1732)
+- [ ] The mountain at strategy-camera distance within budget: terrain level of detail, distant forest, streaming (#1733, #1734)
+- [ ] Seasons and climate: a full year, weather drawn from the location's climate (#1735, #1736)
+- [ ] Snowpack simulation: depth and quality from snowfall, melt, rain, wind and skier traffic; grooming; snowmaking that depends on cold, dry air; avalanche risk; opening and closing runs (#1737, #1738, #1739)
+- [ ] Strategy camera and build tools: lifts with terrain-following towers, trails cut through forest and graded, buildings, cost previews, undo (#1740, #1741, #1742)
+- [ ] Lifts from the 1950s: rope tow, T-bar, single and double chair, with capacity, queues, wind holds and breakdowns (#1743, #1744)
+- [ ] Guests: thousands of skiers with skills and wants choosing runs on the trail network, riding lifts, crashing, eating, with a satisfaction score; detailed simulation near the camera, cheap simulation far away (#1745, #1746, #1747)
+- [ ] Skiers on screen: skiing animation, many instanced characters with level of detail (#1748, #1749)
+- [ ] Staff: lift operators, ski patrol, groomers, simple for the slice (#1750)
+- [ ] Economy and reputation: ticket prices, running costs, loans, a finance screen, a star rating (#1751)
+- [ ] Tech tree and eras: research with unlocks gated by year, 1950 to about 1965 (#1752)
+- [ ] Game UI: HUD, build menus, info panels, map overlays, notifications (#1753, #1754)
+- [ ] Save and load the whole resort mid-season (#1755)
+- [ ] Sound: lifts, crowds, wind, weather (#1756)
+- [ ] Performance gate: 1080p60 on a GTX 1660 in the busiest view, with graphics presets (#1757, #1758)
+- [ ] A packaged build with a main menu and settings (#1759)
