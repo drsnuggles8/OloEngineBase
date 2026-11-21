@@ -175,6 +175,35 @@ bake's own 0.024:
 The error grows smoothly as the voxels empty, and the target of 8 keeps it under a tenth of the
 representation's own error.
 
+## Measured at the camera cut (#1594)
+
+The acceptance scene's `coats-closeup` -> `population-dolly` cut, Release Vulkan editor,
+`scripts/perf/acceptance-live.py --keep-series` with the CPU scope ring armed (1850 frames x 1024
+events) before each cut. Master and branch arms alternated, and only renderer-advanced frames are
+counted. A hitch is a frame in the first 120 after the cut over 300 ms or over twice the ring's
+p50; its owner is the scope with the most self time.
+
+| | master | branch |
+|---|---|---|
+| worst frame after the cut (forward / forward+ / deferred) | 1044-1134 ms | 609-677 ms |
+| worst frame after the cut (hybrid) | 1293-1462 ms | 918 ms |
+| hitches owned by `Groom::CoatVolume` or its subtree | every one (7-9 a cell) | none (0 of 38) |
+| largest single `CoatVolume` call | 250-341 ms | 51-115 ms |
+| population-dolly p95, forward | 68.8 ms | 51.0 ms |
+
+The branch's worst frame is now `ShadowPass::CollectGrooms` (226-406 ms self) and `GroomPass`.
+The coat-volume subtree's summed self time still exceeds the single top owner in the one or two
+frames that hold a coat's first rest walk and bake after the cut. Each rule's share, in the order
+they landed:
+
+- Sharing and the budget (rules 8, 9) cut the per-frame `CoatVolume` from 700-900 ms to
+  240-340 ms. Single calls were still 80-400 ms with no child scope: the Vulkan wait (rule 10).
+- The recorded upload (rule 10) cut the upload stage to 0.1-1.2 ms. A walking coat's full
+  re-measure then showed up as one 250 ms bake (rule 4), and each rest bake re-walked the coat for
+  35-85 ms (rule 11).
+- With rules 4 and 11, no hitch is the coat volume's, and after +8 the largest pose bake is
+  0.7-4 ms a frame.
+
 ## Not done, and why
 
 - **Multithreaded binning.** After the subset it is 4.8 ms for three coats. Order-independent
