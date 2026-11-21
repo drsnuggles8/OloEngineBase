@@ -3,9 +3,9 @@ ManifestVersion: 2
 Id: skin-dominant-deferred
 Product: diagnostic
 Scene: Scenes/Benchmark/SkinDominant.olo
-Description: '#1396 skin-dominant workload, full skin stack: 28 scanned heads with
-  the reference skin profile filling a 1080p frame, so SkinDiffusionPass is measurable
-  above the run-to-run spread.'
+Description: '#1396 skin-dominant workload, full skin stack: 28 scanned heads filling
+  a 1080p frame, so the skin stack''s per-pass cost is measurable above the run-to-run
+  spread.'
 Backends:
   Supported:
   - opengl
