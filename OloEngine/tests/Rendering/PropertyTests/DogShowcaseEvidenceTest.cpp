@@ -1650,6 +1650,10 @@ namespace OloEngine::Tests
         // steps, up to four of them a frame (#1659).
         MotionResult AdvanceRuntimeStrided(u32 frames, u32 stride)
         {
+            // Past the solver's catch-up a strided frame drops simulated time,
+            // and the state is no longer the one these frames claim to reach.
+            EXPECT_LE(stride, m_Dog.Coat.GetComponent<GroomSimulationComponent>().m_MaxSubsteps)
+                << "a frame of " << stride << " solver steps is past the coat's catch-up";
             const u32 strided = stride > 1u ? frames / stride : 0u;
             MotionResult r = AdvanceRuntime(strided, static_cast<f32>(stride) / 60.0f);
             const MotionResult rest = AdvanceRuntime(frames - (strided * stride));
@@ -2372,7 +2376,7 @@ namespace OloEngine::Tests
                     if (playOnFrom == 0u)
                     {
                         (void)StartClip(clip, true, 2u);
-                        (void)AdvanceRuntimeStrided(frames - 2u, kEveryClipStride);
+                        (void)AdvanceRuntimeStrided(frames > 2u ? frames - 2u : 0u, kEveryClipStride);
                     }
                     else
                     {
@@ -4113,6 +4117,11 @@ namespace OloEngine::Tests
             const Skeleton& skeleton = *m_Dog.Body.GetComponent<SkeletonComponent>().m_Skeleton;
             GroomBindingBuildSettings bind;
             bind.SurfaceToGroom = glm::mat4(1.0f);
+            // A finer search grid than the default 32 (#1659): it changes which
+            // triangles a root tests, never which one wins
+            // (GroomBindingBuilder.AGridResolutionChangeDoesNotChangeTheResult),
+            // and on the dog's dense head it tests far fewer.
+            bind.GridResolution = 64u;
             std::vector<u8> bytes;
             GroomBindingBuildStats stats;
             Ref<GroomBindingAsset> binding;
@@ -9255,10 +9264,11 @@ namespace OloEngine::Tests
             { "Stale", "Sit", false, 40u, HeroViews()[5], BodyPart::LegHindLeft },
         } };
         constexpr u32 kSteps = 3;
-        // The shipped coat through the same clip, steps and view is one replay
-        // (AttachmentThroughClip reaches the same states every call), so a
-        // plant that shares its control with the one before reuses it (#1659):
-        // MissingPatch and Displaced both stand on Idle from the full body.
+        // The shipped coat through the same clip, steps and camera is one
+        // replay (AttachmentThroughClipFromViews reaches the same states every
+        // call), so a plant that shares its control with the one before reuses
+        // it (#1659): MissingPatch and Displaced both stand on Idle from the
+        // full body.
         // Paced as the every-clip cases are (#1659): drawn every fourth solver
         // step, each instant on the shorter held measurement. The plant and its
         // control are paced alike, and it is the two that are compared.
@@ -9275,8 +9285,14 @@ namespace OloEngine::Tests
         {
             SCOPED_TRACE(plant.Name);
             const std::vector<i32> shippedIds{ static_cast<i32>(static_cast<u32>(m_Dog.Coat)) };
+            const auto sameView = [](const View& x, const View& y)
+            {
+                constexpr f32 kSame = 1.0e-6f;
+                return std::string_view(x.Name) == y.Name && x.Head == y.Head && glm::all(glm::lessThan(glm::abs(x.Eye - y.Eye), glm::vec3(kSame))) &&
+                       glm::all(glm::lessThan(glm::abs(x.Target - y.Target), glm::vec3(kSame))) && std::abs(x.Fov - y.Fov) < kSame;
+            };
             if (healthyOf == nullptr || std::string_view(healthyOf->Clip) != plant.Clip || healthyOf->Loop != plant.Loop ||
-                healthyOf->FramesPerStep != plant.FramesPerStep || std::string_view(healthyOf->Where.Name) != plant.Where.Name)
+                healthyOf->FramesPerStep != plant.FramesPerStep || !sameView(healthyOf->Where, plant.Where))
             {
                 healthy = through(plant, shippedIds);
                 healthyOf = &plant;
@@ -9386,6 +9402,9 @@ namespace OloEngine::Tests
         BodyParts parts = BuildBodyParts();
         constexpr f32 kStub = 0.005f;
         constexpr f64 kStubPartPixels = 100.0;
+        // One measured frame a view (#1659): only floating is judged here, a
+        // distance to the skin per pixel, which needs no averaging.
+        constexpr u32 kStubMeasured = 1;
         for (sizet p = 0; p < kBodyParts; ++p)
         {
             parts.Reach[p] = (1.3f * kStub) + 0.015f;
@@ -9454,7 +9473,7 @@ namespace OloEngine::Tests
             bool Loop;
             f32 Seconds;
         };
-        constexpr u32 kSteps = 6;
+        constexpr u32 kSteps = 3; // the stale tail's instants; Idle's wag repeats every three (six before #1659)
         const std::array<View, 2> views{ HeroViews()[5], HeroViews()[3] };
         for (const ClipCase& clip : { ClipCase{ "Idle", true, AuthoredClipDuration("Idle") }, ClipCase{ "HeadTilt", false, 2.5f },
                                       ClipCase{ "Sit", false, 3.0f }, ClipCase{ "Walk", true, 1.0f },
@@ -9485,7 +9504,7 @@ namespace OloEngine::Tests
             const u32 framesPerStep = std::max(1u, static_cast<u32>(clip.Seconds * 60.0f / kEveryClipSteps));
             const ClipViewsAttachment through =
                 AttachmentThroughClipFromViews(parts, clip.Name, clip.Loop, kEveryClipSteps, framesPerStep, views, coat,
-                                               kEveryClipStride, kEveryClipSettle, kEveryClipMeasured, false);
+                                               kEveryClipStride, kEveryClipSettle, kStubMeasured, false);
             ASSERT_FALSE(HasFatalFailure());
             EXPECT_EQ(through.Motion.MaxBindingRefused, 0u) << "the stubs' binding was refused mid-clip";
             for (sizet v = 0; v < views.size(); ++v)
@@ -9530,7 +9549,7 @@ namespace OloEngine::Tests
         const std::array<View, 1> tailView{ HeroViews()[3] };
         const std::vector<FrameParts> planted =
             AttachmentThroughClipFromViews(parts, "Idle", true, kSteps, 40u, tailView, plantedIds, kEveryClipStride,
-                                           kEveryClipSettle, kEveryClipMeasured, false)
+                                           kEveryClipSettle, kStubMeasured, false)
                 .Steps.front();
         GetScene().DestroyEntity(unbound);
         ASSERT_FALSE(HasFatalFailure());
