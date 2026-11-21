@@ -219,7 +219,9 @@ parent: never add the two.
   a light, by design ([groom-coat-body-in-the-volume.md](../agent-rules/groom-coat-body-in-the-volume.md)).
 - **Scene-level Vulkan runs in the `--olo-rhi=vulkan` process** (#1556,
   [testing-architecture.md](../agent-rules/testing-architecture.md) rule 13): the same evidence
-  writes `Dog*_Vulkan_*` cells on a windowless Vulkan context. It is not in the lavapipe nightly
-  (hours of runtime), so run it on hardware. The groom passes also have pass-level Vulkan tenants.
+  writes `Dog*_Vulkan_*` cells on a windowless Vulkan context, and completes there on the RTX box
+  (#1659). Only its three cases that render no frames (the coat description, the root UVs, the coat
+  regions) are in the lavapipe nightly: a case that renders took minutes there, so run the rest on
+  hardware. The groom passes also have pass-level Vulkan tenants.
 - **The look (F3) is a human call, signed off on 2026-10-04.** No test above settles it; a change to
   what the screen shows needs the look again.

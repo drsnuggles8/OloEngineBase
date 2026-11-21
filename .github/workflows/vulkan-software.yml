@@ -125,7 +125,8 @@ env:
   # A case added to these suites joins the requirement automatically; a NEW
   # suite must be added here. Ported but left to hardware for runtime: the
   # shadow-family evidence (one terrain case ran past 20 min on lavapipe in a
-  # Debug build) and the dog showcase (hours on the RTX 4090).
+  # Debug build) and the dog showcase's rendering cases (one took 565 s on
+  # lavapipe locally, #1659); its three cases that render no frames run here.
   # FOUR GroomSceneShadow cases are excluded (#1652): with the shadow region
   # forked and split for the groom opaque copies they shade the fur with
   # garbage, every time on lavapipe 26.2.0 and on a loaded hardware GPU, with

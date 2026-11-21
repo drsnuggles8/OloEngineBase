@@ -383,8 +383,10 @@ Why two processes and not a parameterised fixture:
 
 The suites ported today: the smoke cases, `CrossPathLightingMatrix`, and the groom scene-shadow,
 shadow atlas, VSM, PCSS, shadow-family and dog showcase evidence. The lavapipe nightly runs the
-ones `OloEngine/tests/vulkan_scene_filter.txt` names; shadow-family and the dog showcase are
-left to hardware for their software-rasteriser runtime. A suite joins by porting its readback and names, passing on the
+ones `OloEngine/tests/vulkan_scene_filter.txt` names; shadow-family and most of the dog showcase
+are left to hardware for their software-rasteriser runtime (the dog's three cases that render no
+frames run there, so the fixture's Vulkan bring-up is covered; one case that renders took 565 s
+on lavapipe locally, #1659). A suite joins by porting its readback and names, passing on the
 windowless context, and being added to that filter, whose gate then requires every case to execute.
 What stays live-only: anything the windowless target cannot show -- the swapchain present, the ImGui
 overlay, window-size and vsync behaviour -- and the one cell per task that compares a windowless
