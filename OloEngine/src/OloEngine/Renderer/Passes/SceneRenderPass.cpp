@@ -771,6 +771,12 @@ namespace OloEngine
         EnsureGBuffer(m_FramebufferSpec.Width, m_FramebufferSpec.Height, sampleCount);
     }
 
+    void SceneRenderPass::ReleaseGBuffer()
+    {
+        m_GBuffer.Reset();
+        m_GBufferSampleCount = 1;
+    }
+
     void SceneRenderPass::EnsureGBuffer(u32 width, u32 height, u32 sampleCount)
     {
         if (sampleCount == 0)
