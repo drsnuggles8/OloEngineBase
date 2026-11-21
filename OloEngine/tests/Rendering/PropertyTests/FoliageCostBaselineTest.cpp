@@ -557,7 +557,10 @@ namespace OloEngine::Tests
         material.SetSplatmapPath(0u, green.generic_string());
         material.LoadSplatmaps();
         EXPECT_GT(material.GetSplatmapRevision(), revision);
-        EXPECT_TRUE(material.AreCPUSplatmapsStale());
+        // A file load decodes on the CPU and uploads from that copy (issue
+        // #1721), so the mirror is current the moment the load returns: there
+        // is nothing to read back from the GPU.
+        EXPECT_FALSE(material.AreCPUSplatmapsStale());
         EXPECT_EQ(std::as_const(material).GetSplatmapData(0u), pixels);
         EXPECT_FALSE(material.AreCPUSplatmapsStale());
         const auto handle = material.GetSplatmap(0u)->GetRHIHandle();

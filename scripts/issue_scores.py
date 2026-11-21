@@ -5,13 +5,17 @@ Scores live in each GitHub issue body inside an `olo-score` fenced block
 (only the raw inputs; the score is derived here, never stored). Subcommands:
 
     rank   pull every open issue, parse its block, print the ranked list
-           (default lens; Pull-override and the Tier-1 slot applied). This is
+           (default lens; Pull-override, the Tier-1 slot and the large-item
+           slot applied). This is
            what /start-work calls.
     lint   everything that makes the backlog lie: open issues with no olo-score
            block, stale tech-tree edges (a `blocked_by` naming a closed issue),
            unresolvable edges, scores older than STALE_DAYS, work merged since
            the last score, and a Fun >= 8 the user never confirmed.
            Exits non-zero on any of them.
+    pulse  throughput: task PRs merged and issues opened/closed over the last 7
+           and 28 days, work in flight, and the north-star milestone's progress.
+           `/start-work` prints it in its report.
     set    re-score one issue: `set 1584 effort=2 confidence=1.0`. Writes the
            given axes and stamps `scored:` with today's date, which is also how
            a stale or merged-work flag is acknowledged (`set N` with no axes).
@@ -25,7 +29,7 @@ Scores live in each GitHub issue body inside an `olo-score` fenced block
 Requires the `gh` CLI authenticated against the repo. `rank` and `lint` each make
 one `gh api graphql` call to resolve every distinct `blocked_by` number in one
 shot (see resolve_blocker_states) and one `gh pr list` for merged work; `rank`
-makes one more graphql call for the Tier-1 slot.
+makes one more graphql call for the Tier-1 and large-item slots.
 """
 import argparse
 import datetime as dt
@@ -34,6 +38,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from pathlib import Path
 
 REPO = "drsnuggles8/OloEngineBase"
 REPO_OWNER, REPO_NAME = REPO.split("/")
@@ -90,6 +95,29 @@ STALE_DAYS = 45
 TIER1_LABELS = {"tooling", "ci-nightly-red"}
 TIER1_EVERY = 3
 
+# Large-item slot (§3.8). Effort divides the score, so an issue of effort LARGE_EFFORT
+# or more never reaches the top of `rank` on arithmetic alone, yet the broad
+# structural items are where most latent bugs get found and fixed (#1694 fixed 30 in
+# its own PR, a typical small fix 0-5). The slot is due when none of the last
+# TIER1_EVERY started tasks closed a large issue and no open feature/* PR closes one;
+# then `large:` names the top startable large row. Derived from PR history, no state.
+LARGE_EFFORT = 5
+
+# Close-recommended (§3, group 2). An issue a sweep proved done carries this label until the
+# user closes it. It used to keep ranking: #1687 and #1688 sat at rank 1-2 for six
+# days after their evidence comments. Now it sorts with needs-triage, never `next:`.
+CLOSE_LABEL = "close-recommended"
+
+# North star (§3.9). The project goal the backlog is steered toward, declared by the
+# user in docs/process/north-star.md. Its `milestone:` names the GitHub milestone
+# that holds the goal's critical path. Empty means no goal is set and nothing here
+# changes the rank. Bug discovery feeds whichever area was last worked (a renderer
+# sweep files renderer issues); the north star is the counterweight.
+NORTH_STAR_PATH = Path(__file__).resolve().parent.parent / "docs" / "process" / "north-star.md"
+NORTH_STAR_RE = re.compile(r"```olo-north-star\s*\n(.*?)\n```", re.DOTALL)
+CHECKLIST_RE = re.compile(r"^\s*[-*]\s+\[( |x|X)\]\s+(.*)$", re.MULTILINE)
+GOAL_DECAY = 5  # §1 Decay rung "near milestone": a critical-path issue scores at least this
+
 # Fields `render_section` writes in this order; anything else in a block is kept,
 # after these, rather than silently dropped on a rewrite.
 META_FIELDS = ("kano", "blocked_by", "blocks", "blocked_by_external", "fun_by", "scored")
@@ -121,12 +149,58 @@ def is_backlog_item(it):
 def open_issues():
     """Open issues eligible for scoring (see is_backlog_item)."""
     issues = gh_json(["issue", "list", "--repo", REPO, "--state", "open",
-                       "--limit", "300", "--json", "number,title,body,labels,author,createdAt"])
+                       "--limit", "300", "--json",
+                       "number,title,body,labels,author,createdAt,milestone"])
     return [it for it in issues if is_backlog_item(it)]
 
 
 def label_names(it):
     return {l["name"] for l in it.get("labels", [])}
+
+
+def milestone_title(it):
+    return (it.get("milestone") or {}).get("title") or ""
+
+
+# ---- north star -------------------------------------------------------------
+def scalar_value(val):
+    """A YAML-like scalar. A quoted value keeps every character inside its quotes,
+    `#` included (`"Demo #1"`). An unquoted one ends at an inline `# comment`."""
+    val = val.strip()
+    if val[:1] in ('"', "'"):
+        end = val.find(val[0], 1)
+        return val[1:end] if end > 0 else val[1:]
+    return val.split("#", 1)[0].strip()
+
+
+def parse_north_star(text):
+    """{"milestone": str, "items": [(done, text, issue numbers)]} from north-star.md.
+
+    `items` is the "Critical path" checklist: every `- [ ]` line in the file. A line
+    with no `#N` is a capability nobody has filed yet, which `lint` reports.
+    """
+    out = {"milestone": "", "items": []}
+    m = NORTH_STAR_RE.search(text or "")
+    if m:
+        for line in m.group(1).splitlines():
+            key, _, val = line.partition(":")
+            if key.strip() == "milestone":
+                out["milestone"] = scalar_value(val)
+    for done, item in CHECKLIST_RE.findall(text or ""):
+        out["items"].append((done.lower() == "x", item.strip(),
+                             [int(n) for n in TITLE_NUM_RE.findall(item)]))
+    return out
+
+
+def north_star():
+    try:
+        return parse_north_star(NORTH_STAR_PATH.read_text(encoding="utf-8"))
+    except OSError:
+        return parse_north_star("")
+
+
+def is_goal(d, star):
+    return bool(star["milestone"]) and d.get("_milestone") == star["milestone"]
 
 
 def gh_day(stamp):
@@ -204,24 +278,71 @@ def is_unconfirmed_pull(d):
     return d.get("fun", 0) >= PULL_FUN and d.get("fun_by") not in ("user", "agent")
 
 
-# ---- Tier-1 slot -------------------------------------------------------------
-def recent_started_tasks():
-    """The last TIER1_EVERY feature/* PRs (open or merged) as [(PR, is_tier1)], or None.
+# ---- Tier-1 and large-item slots ---------------------------------------------
+class StartedTask(tuple):
+    """One started task: (PR, is_tier1, is_large, is_open). The last two default to
+    False so a slot test can state only what it is about."""
 
-    None means the history could not be read; `rank` then says so and follows the
-    plain order instead of guessing that a slot is or is not due.
+    def __new__(cls, pr, tier1, large=False, is_open=False):
+        return super().__new__(cls, (pr, tier1, large, is_open))
+
+    pr = property(lambda self: self[0])
+    tier1 = property(lambda self: self[1])
+    large = property(lambda self: self[2])
+    is_open = property(lambda self: self[3])
+
+
+def is_large_issue(body):
+    """An issue whose olo-score effort is LARGE_EFFORT or more."""
+    d = parse_block(body)
+    return bool(d) and d.get("effort", 0) >= LARGE_EFFORT
+
+
+def _pull_requests(query):
+    out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
+                         capture_output=True, text=True, encoding="utf-8",
+                         check=False, timeout=_BLOCKER_TIMEOUT_S)
+    return json.loads(out.stdout)["data"]["repository"]["pullRequests"]
+
+
+def open_large_prs():
+    """Every open feature/* PR that closes a large issue, over all pages of open PRs.
+
+    Not taken from the history page: a large PR can stay open while 40 newer PRs
+    are created, and the slot must still see it."""
+    found, cursor = [], None
+    while True:
+        after = f', after: "{cursor}"' if cursor else ""
+        page = _pull_requests(
+            f'query {{ repository(owner: "{REPO_OWNER}", name: "{REPO_NAME}") {{ '
+            f'pullRequests(first: 100, states: [OPEN]{after}) {{ '
+            'pageInfo { hasNextPage endCursor } nodes { number headRefName '
+            'closingIssuesReferences(first: 10) { nodes { body } } } } } }')
+        for pr in page["nodes"]:
+            if ((pr.get("headRefName") or "").startswith("feature/")
+                    and any(is_large_issue(i.get("body"))
+                            for i in pr["closingIssuesReferences"]["nodes"])):
+                found.append(pr["number"])
+        if not page["pageInfo"]["hasNextPage"]:
+            return found
+        cursor = page["pageInfo"]["endCursor"]
+
+
+def recent_started_tasks():
+    """(last, open_large): the last TIER1_EVERY feature/* PRs (open or merged) as
+    [StartedTask], and the numbers of every open feature/* PR that closes a large
+    issue (open_large_prs). None when either could not be read; `rank` then says so
+    and follows the plain order instead of guessing that a slot is due.
     """
     query = (f'query {{ repository(owner: "{REPO_OWNER}", name: "{REPO_NAME}") {{ '
              'pullRequests(first: 40, states: [OPEN, MERGED], '
              'orderBy: {field: CREATED_AT, direction: DESC}) { nodes { number headRefName '
              'labels(first: 20) { nodes { name } } '
-             'closingIssuesReferences(first: 10) { nodes { labels(first: 20) { nodes { name } } } } '
+             'state closingIssuesReferences(first: 10) { nodes { body labels(first: 20) { nodes { name } } } } '
              '} } } }')
     try:
-        out = subprocess.run(["gh", "api", "graphql", "-f", f"query={query}"],
-                             capture_output=True, text=True, encoding="utf-8",
-                             check=False, timeout=_BLOCKER_TIMEOUT_S)
-        nodes = json.loads(out.stdout)["data"]["repository"]["pullRequests"]["nodes"]
+        nodes = _pull_requests(query)["nodes"]
+        open_large = open_large_prs()
     except (subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
         return None
     started = []
@@ -229,17 +350,28 @@ def recent_started_tasks():
         if not (pr.get("headRefName") or "").startswith("feature/"):
             continue
         labels = {l["name"] for l in pr["labels"]["nodes"]}
-        for issue in pr["closingIssuesReferences"]["nodes"]:
+        issues = pr["closingIssuesReferences"]["nodes"]
+        for issue in issues:
             labels |= {l["name"] for l in issue["labels"]["nodes"]}
-        started.append((pr["number"], bool(labels & TIER1_LABELS)))
+        started.append(StartedTask(pr["number"], bool(labels & TIER1_LABELS),
+                                   any(is_large_issue(i.get("body")) for i in issues),
+                                   pr.get("state") == "OPEN"))
         if len(started) == TIER1_EVERY:
             break
-    return started
+    return started, open_large
 
 
 def tier1_due(started):
     """True when none of the last TIER1_EVERY started tasks was Tier 1."""
-    return len(started) == TIER1_EVERY and not any(t for _, t in started)
+    return len(started) == TIER1_EVERY and not any(t[1] for t in started)
+
+
+def large_due(started, open_large=()):
+    """True when none of the last TIER1_EVERY started tasks closed a large issue and
+    no open feature/* PR closes one: a large item takes a week or more, so one still
+    in review keeps the slot filled after three small tasks have started beside it."""
+    return (len(started) == TIER1_EVERY and not any(StartedTask(*t).large for t in started)
+            and not open_large)
 
 
 # ---- blocker state ----------------------------------------------------------
@@ -492,10 +624,14 @@ def is_blocked(d, states):
     return bool(still_open) or bool(unresolved) or bool(d.get("blocked_by_external"))
 
 
-def row_flags(d, states, floor, fresh=None):
+def row_flags(d, states, floor, fresh=None, labels=(), star=None):
     """The `flags` column for one ranked row. `fresh` is freshness(), when known."""
     still_open, unresolved = split_blockers(d, states)
     flags = []
+    if CLOSE_LABEL in labels:
+        flags.append("close?")
+    if star and is_goal(d, star):
+        flags.append("goal")
     if is_pull(d, states):
         flags.append("PULL")
     elif is_unconfirmed_pull(d) and not is_blocked(d, states):
@@ -538,6 +674,7 @@ def ranked_rows(args, today):
             excluded += 1
             continue
         fresh = freshness(d, gh_day(it["createdAt"]), it["number"], index, today)
+        d["_milestone"] = milestone_title(it)  # transient: never written back (set re-reads)
         rows.append((it["number"], it["title"], score(d), d, labels, fresh))
     states = resolve_blocker_states(k for r in rows for k in blocker_keys(r[3]))
     return rows, states, excluded, unscored
@@ -547,12 +684,13 @@ def row_group(row, states):
     """Outermost sort key (§3): 0 Pull, 1 startable, 2 needs triage, 3 blocked.
 
     Needs-triage is work merged since the last score: the issue may be finished, so
-    it must be looked at before it can be picked, but it is not hidden.
+    it must be looked at before it can be picked, but it is not hidden. An issue a
+    sweep recommended for closure (CLOSE_LABEL) waits there for the user.
     """
     d, fresh = row[3], row[5]
     if is_blocked(d, states):
         return 3
-    if fresh["merged"]:
+    if fresh["merged"] or CLOSE_LABEL in row[4]:
         return 2
     return 0 if is_pull(d, states) else 1
 
@@ -598,29 +736,59 @@ def cmd_rank(args):
               f"(`stale:`).\n    Triage them before picking: `issue_scores.py lint`.\n")
 
     print(f"{'#':>5} {'score':>5} {'flags':<28} title")
-    for num, title, s, d, _, fresh in rows:
-        print(f"{num:>5} {s:>5} {' '.join(row_flags(d, states, floor, fresh)):<28} {title[:60]}")
+    star = north_star()
+    for num, title, s, d, labels, fresh in rows:
+        flags = " ".join(row_flags(d, states, floor, fresh, labels, star))
+        print(f"{num:>5} {s:>5} {flags:<28} {title[:60]}")
 
     startable = [r for r in rows if row_group(r, states) <= 1]
     plain = startable[0] if startable else None
     tier1 = next((r for r in startable if r[4] & TIER1_LABELS), None)
-    started = recent_started_tasks()
+    large = next((r for r in startable if r[3].get("effort", 0) >= LARGE_EFFORT), None)
+    goal = next((r for r in startable if is_goal(r[3], star)), None)
+    history = recent_started_tasks()
+    started, open_large = history if history else (None, [])
     nxt, why = plain, ""
     if plain and is_pull(plain[3], states):
         why = " (Pull-override: Fun >= 8, confirmed by the user)"
     print()
+    if not star["milestone"]:
+        print(f"north star: NOT SET — nothing steers the backlog toward a goal "
+              f"({NORTH_STAR_PATH.name}; issue-scoring.md §3.9)")
+    else:
+        goal_rows = [r for r in rows if is_goal(r[3], star)]
+        unfiled = sum(1 for done, _, nums in star["items"] if not done and not nums)
+        print(f"north star: {star['milestone']} — {len(goal_rows)} open scored issue(s), "
+              f"{len([r for r in goal_rows if r in startable])} startable, "
+              f"{unfiled} critical-path item(s) not filed yet")
+        if goal:
+            print(f"goal: #{goal[0]} — {goal[1]}")
     if tier1:
         print(f"tier-1: #{tier1[0]} — {tier1[1]}")
+    if large:
+        print(f"large: #{large[0]} — {large[1]} (effort {large[3].get('effort')})")
     if started is None:
         print("tier-1 slot: UNKNOWN — the PR history could not be read; `next:` follows the plain rank")
+        print("large slot: UNKNOWN — the PR history could not be read")
     else:
-        listed = ", ".join(f"#{n}{' (tier 1)' if t else ''}" for n, t in started)
+        def tags(t):
+            return "".join(f" ({x})" for x, on in (("tier 1", t.tier1), ("large", t.large)) if on)
+        listed = ", ".join(f"#{t.pr}{tags(t)}" for t in started)
         due = tier1_due(started)
         print(f"tier-1 slot: {'DUE' if due else 'not due'} — last {len(started)} started task(s): {listed}")
+        held = f"; open large PR(s): {', '.join(f'#{n}' for n in open_large)}" if open_large else ""
+        print(f"large slot: {'DUE' if large_due(started, open_large) else 'not due'}{held}")
         if due and tier1 and plain and tier1[0] != plain[0]:
             nxt = tier1
             why = (f" (Tier-1 slot: none of the last {TIER1_EVERY} started tasks was Tier 1; "
                    f"the plain rank would pick #{plain[0]})")
+        elif (not (due and tier1) and large_due(started, open_large) and large and plain
+              and large[0] != plain[0]):
+            # A due Tier-1 slot owns the single pick even when its candidate already
+            # leads the rank; the large slot stays due and takes the next one.
+            nxt = large
+            why = (f" (large-item slot: none of the last {TIER1_EVERY} started tasks was large and "
+                   f"no large PR is open; the plain rank would pick #{plain[0]})")
     if nxt:
         print(f"next: #{nxt[0]} — {nxt[1]}{why}")
 
@@ -642,8 +810,21 @@ def cmd_lint(args):
     merged = [r for r in rows if r[5]["merged"]]
     old = sorted((r for r in rows if r[5]["stale"]), key=lambda r: -(r[5]["age"] or 10 ** 6))
     unconfirmed = [r for r in rows if is_unconfirmed_pull(r[3])]
+    star = north_star()
+    goal_low = [r for r in rows if is_goal(r[3], star) and r[3].get("decay", 0) < GOAL_DECAY]
+    unfiled = [item for done, item, nums in star["items"] if star["milestone"] and not done and not nums]
 
-    if not (missing or stale_edges or unresolved or merged or old or unconfirmed):
+    # Informational, never a failure: these wait on the user, not on the sweep.
+    awaiting = [r for r in rows if CLOSE_LABEL in r[4]]
+    if awaiting:
+        print(f"{len(awaiting)} issue(s) recommended for closure, waiting for the user "
+              f"(`{CLOSE_LABEL}`; they never reach `next:`):")
+        for num, title, *_ in awaiting:
+            print(f"  #{num} {title[:70]}")
+        print()
+
+    if not (missing or stale_edges or unresolved or merged or old or unconfirmed or goal_low
+            or unfiled):
         print("all open issues have a current olo-score block; no stale edges, merged work "
               "or unconfirmed Pulls.")
         return
@@ -671,6 +852,17 @@ def cmd_lint(args):
               f"(yes) or `pull --off N` (no):")
         for num, title, _, d, _, _ in unconfirmed:
             print(f"  #{num} fun {d.get('fun')} — {title[:60]}")
+    if goal_low:
+        print(f"\n{len(goal_low)} north-star issue(s) (milestone `{star['milestone']}`) score Decay "
+              f"below {GOAL_DECAY}, the near-milestone rung (§3.9) — raise it with `set N decay=5` "
+              f"(8 if it blocks the milestone's next demo), or move the issue out of the milestone:")
+        for num, title, _, d, _, _ in goal_low:
+            print(f"  #{num} decay {d.get('decay')} — {title[:60]}")
+    if unfiled:
+        print(f"\n{len(unfiled)} north-star critical-path item(s) with no issue — file and score "
+              f"each in milestone `{star['milestone']}`, then add its `#N` to {NORTH_STAR_PATH.name}:")
+        for item in unfiled:
+            print(f"  - {item[:80]}")
     if stale_edges:
         print(f"\n{len(stale_edges)} stale blocker edge(s) — blocker already closed, "
               f"drop it from `blocked_by`:")
@@ -683,6 +875,75 @@ def cmd_lint(args):
             print(f"  #{num} blocked_by {k} (state unknown: no such issue/PR, or "
                   f"`gh` offline / unauthenticated / rate-limited)")
     sys.exit(1)
+
+
+def pulse_counts(prs, issues, today, days):
+    """(task PRs merged, issues opened, issues closed) in the `days` before `today`.
+
+    A task PR is a human-authored `feature/*` merge; Renovate and Dependabot are not
+    work anybody chose. Issues count every human-filed issue and the bots' scored ones
+    (is_backlog_item), so a red-streak issue counts and the dependency dashboard does not.
+    """
+    since = today - dt.timedelta(days=days)
+
+    def within(stamp):
+        return bool(stamp) and gh_day(stamp) > since
+
+    merged = sum(1 for pr in prs if (pr.get("headRefName") or "").startswith("feature/")
+                 and not pr.get("author", {}).get("is_bot") and within(pr.get("mergedAt")))
+    opened = sum(1 for it in issues if within(it.get("createdAt")))
+    closed = sum(1 for it in issues if within(it.get("closedAt")))
+    return merged, opened, closed
+
+
+PULSE_LIMIT = 1000
+_PULSE_ISSUE_FIELDS = "number,author,body,labels,createdAt,closedAt,state,milestone"
+
+
+def gh_list_complete(args):
+    """A gh list that must be complete. Each pulse query is bounded (a date window, open
+    items, one milestone), so PULSE_LIMIT rows means the bound failed: exit loudly
+    rather than print a count that silently drops the rest."""
+    rows = gh_json([*args, "--repo", REPO, "--limit", str(PULSE_LIMIT)])
+    if len(rows) >= PULSE_LIMIT:
+        sys.exit(f"pulse: `gh {' '.join(args[:3])}` returned {len(rows)} rows, its full limit; "
+                 f"the count would be truncated, so nothing is printed")
+    return rows
+
+
+def cmd_pulse(args):
+    today = dt.date.today()
+    since = (today - dt.timedelta(days=28)).isoformat()
+    prs = gh_list_complete(["pr", "list", "--state", "merged", "--search", f"merged:>={since}",
+                            "--json", "number,headRefName,mergedAt,author"])
+    in_flight = gh_list_complete(["pr", "list", "--state", "open", "--json", "number,headRefName"])
+    by_number = {}
+    for query in (["--state", "all", "--search", f"created:>={since}"],
+                  ["--state", "closed", "--search", f"closed:>={since}"],
+                  ["--state", "open"]):
+        for it in gh_list_complete(["issue", "list", *query, "--json", _PULSE_ISSUE_FIELDS]):
+            by_number[it["number"]] = it
+    issues = [it for it in by_number.values() if is_backlog_item(it)]
+    print("window   task PRs merged   issues opened   issues closed   net backlog")
+    for days in (7, 28):
+        merged, opened, closed = pulse_counts(prs, issues, today, days)
+        print(f"{days:>3} d    {merged:>15}   {opened:>13}   {closed:>13}   {opened - closed:>+11}")
+    open_now = [it for it in issues if it.get("state") == "OPEN"]
+    feature = [pr for pr in in_flight if (pr.get("headRefName") or "").startswith("feature/")]
+    listed = ", ".join("#" + str(pr["number"]) for pr in feature)
+    print(f"\nopen backlog: {len(open_now)} issue(s); open feature PRs: {len(feature)}"
+          + (f" ({listed})" if feature else ""))
+    star = north_star()
+    if not star["milestone"]:
+        print("north star: NOT SET (docs/process/north-star.md)")
+        return
+    goal = [it for it in gh_list_complete(["issue", "list", "--state", "all", "--milestone",
+                                           star["milestone"], "--json", _PULSE_ISSUE_FIELDS])
+            if is_backlog_item(it)]
+    done = sum(1 for it in goal if it.get("state") != "OPEN")
+    items_done = sum(1 for d, _, _ in star["items"] if d)
+    print(f"north star: {star['milestone']} — milestone issues {done}/{len(goal)} closed; "
+          f"critical-path items {items_done}/{len(star['items'])} ticked")
 
 
 def write_body(num, body, dry_run):
@@ -861,6 +1122,61 @@ TIER1_CASES = (
     ("too little history is never due", [(1, False)], False),
 )
 
+_STAR = """# North star
+```olo-north-star
+milestone: "Game: vertical slice"   # comment
+```
+## Critical path
+- [x] Save mid-voyage (#12)
+- [ ] Quest log
+- [ ] Controller input (#13, #14)
+"""
+# (description, text, want milestone, want [(done, issue numbers)])
+NORTH_STAR_CASES = (
+    ("a set milestone, with comment and quotes stripped, and its checklist", _STAR,
+     "Game: vertical slice", [(True, [12]), (False, []), (False, [13, 14])]),
+    ("a quoted milestone keeps its '#', the comment after the quote goes",
+     '```olo-north-star\nmilestone: "Demo #1"   # first demo\n```', "Demo #1", []),
+    ("an unquoted milestone ends at the comment", "```olo-north-star\nmilestone: Slice # x\n```",
+     "Slice", []),
+    ("an empty milestone is no goal", "```olo-north-star\nmilestone:\n```", "", []),
+    ("no file at all is no goal", "", "", []),
+)
+
+_D_ = {"capability": 3, "craft": 3, "stability": 3, "decay": 1, "effort": 3, "confidence": 1.0}
+_FRESH = {"merged": [], "stale": False, "age": 0, "since": None, "source": "scored"}
+# (description, labels, block extras, want row_group)
+GROUP_CASES = (
+    ("a plain issue is startable", set(), {}, 1),
+    ("a close-recommended issue waits with needs-triage", {CLOSE_LABEL}, {}, 2),
+    ("a close-recommended blocked issue stays blocked", {CLOSE_LABEL}, {"blocked_by_external": "x"}, 3),
+)
+
+_T = dt.datetime(2026, 11, 20, 12)
+_PULSE_PRS = [
+    {"headRefName": "feature/a-1", "mergedAt": "2026-11-19T10:00:00Z", "author": {"is_bot": False}},
+    {"headRefName": "feature/b-2", "mergedAt": "2026-11-01T10:00:00Z", "author": {"is_bot": False}},
+    {"headRefName": "renovate/x", "mergedAt": "2026-11-19T10:00:00Z", "author": {"is_bot": True}},
+]
+_PULSE_ISSUES = [
+    {"createdAt": "2026-11-18T00:00:00Z", "closedAt": None},
+    {"createdAt": "2026-10-01T00:00:00Z", "closedAt": "2026-11-17T00:00:00Z"},
+]
+# (description, days, want (merged, opened, closed))
+PULSE_CASES = (
+    ("7 days: one task PR (Renovate excluded), one opened, one closed", 7, (1, 1, 1)),
+    ("28 days adds the older task PR", 28, (2, 1, 1)),
+)
+
+# (description, started, open_large, want large_due)
+LARGE_CASES = (
+    ("none of the last three was large, none open", [(1, False), (2, True), (3, False)], [], True),
+    ("one large task among them", [(1, False), (2, False, True), (3, False)], [], False),
+    ("a large PR still open beyond the window holds the slot",
+     [(1, False), (2, False), (3, False)], [4], False),
+    ("too little history is never due", [(1, False)], [], False),
+)
+
 
 # Which open issues reach `rank` and `lint` at all.
 _BOT = {"login": "app/github-actions", "is_bot": True}
@@ -929,6 +1245,25 @@ def self_test():
         if tier1_due(started) != want:
             failures += 1
             print(f"SELF-TEST FAILED (tier-1: {description}): want={want}", file=sys.stderr)
+    for description, text, want_ms, want_items in NORTH_STAR_CASES:
+        got = parse_north_star(text)
+        if got["milestone"] != want_ms or [(d, n) for d, _, n in got["items"]] != want_items:
+            failures += 1
+            print(f"SELF-TEST FAILED (north star: {description}): got={got}", file=sys.stderr)
+    for description, labels, extra, want in GROUP_CASES:
+        got = row_group((1, "t", 1.0, {**_D_, **extra}, labels, _FRESH), {})
+        if got != want:
+            failures += 1
+            print(f"SELF-TEST FAILED (group: {description}): want={want} got={got}", file=sys.stderr)
+    for description, days, want in PULSE_CASES:
+        got = pulse_counts(_PULSE_PRS, _PULSE_ISSUES, _T.date(), days)
+        if got != want:
+            failures += 1
+            print(f"SELF-TEST FAILED (pulse: {description}): want={want} got={got}", file=sys.stderr)
+    for description, started, open_large, want in LARGE_CASES:
+        if large_due([StartedTask(*t) for t in started], open_large) != want:
+            failures += 1
+            print(f"SELF-TEST FAILED (large: {description}): want={want}", file=sys.stderr)
     # A rewrite must keep every field, and replace a marker-less fence in place.
     block = {"fun": 9, "fun_by": "user", "scored": "2026-10-15", "custom": "kept"}
     bare = "text\n```olo-score\nfun: 3\n```\nmore"
@@ -943,7 +1278,8 @@ def self_test():
 
 def self_test_count():
     return (len(SELF_TEST_CASES) + len(SORT_CASES) + len(FRESHNESS_CASES)
-            + len(DELIVERED_CASES) + len(BACKLOG_CASES) + len(TIER1_CASES) + 1)
+            + len(DELIVERED_CASES) + len(BACKLOG_CASES) + len(TIER1_CASES) + len(LARGE_CASES)
+            + len(NORTH_STAR_CASES) + len(GROUP_CASES) + len(PULSE_CASES) + 1)
 
 
 def cmd_selftest(args):
@@ -966,6 +1302,8 @@ def main():
                           f"keep their score position; Pull and the tie-break are unaffected)")
     rp.set_defaults(func=cmd_rank)
     sub.add_parser("lint").set_defaults(func=cmd_lint)
+    sub.add_parser("pulse", help="throughput over 7 and 28 days, work in flight, north-star progress")\
+       .set_defaults(func=cmd_pulse)
     ap = sub.add_parser("apply")
     ap.add_argument("--from", dest="src", default="issue-scores.json")
     ap.add_argument("--dry-run", action="store_true")

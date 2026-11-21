@@ -37,6 +37,8 @@ namespace OloEngine
                     // The LINEAR variant, deliberately — VT cache texels are
                     // transcoded payload, not sRGB-authored colour.
                     return GL_COMPRESSED_RGBA_BPTC_UNORM;
+                case Texture2DArrayFormat::RGBA8_SRGB:
+                    return GL_SRGB8_ALPHA8;
             }
             OLO_CORE_ASSERT(false, "Unknown Texture2DArrayFormat");
             return 0;
@@ -95,6 +97,19 @@ namespace OloEngine
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_S, static_cast<GLint>(wrapMode));
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_T, static_cast<GLint>(wrapMode));
         glTextureParameteri(m_RendererID, GL_TEXTURE_WRAP_R, static_cast<GLint>(wrapMode));
+
+        // Anisotropic filtering (issue #1721). Core in GL 4.6; set on the
+        // TEXTURE, because that is the state a bind with no stated sampler
+        // intent inherits, and under ARB_bindless_texture it is frozen into the
+        // handle the first time the texture is bound through the heap — so
+        // this constructor is the only place it can be set.
+        if (!isDepthFormat && spec.Format != Texture2DArrayFormat::RGBA32UI && spec.MaxAnisotropy > 1.0f)
+        {
+            GLfloat deviceMax = 1.0f;
+            glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &deviceMax);
+            glTextureParameterf(m_RendererID, GL_TEXTURE_MAX_ANISOTROPY,
+                                std::clamp(spec.MaxAnisotropy, 1.0f, std::max(deviceMax, 1.0f)));
+        }
 
         if (isDepthFormat)
         {
@@ -180,6 +195,9 @@ namespace OloEngine
         switch (m_Specification.Format)
         {
             case Texture2DArrayFormat::RGBA8:
+            case Texture2DArrayFormat::RGBA8_SRGB:
+                // The sRGB array takes the same client bytes: they are the
+                // sRGB-encoded values, stored as they are and decoded on read.
                 dataFormat = GL_RGBA;
                 dataType = GL_UNSIGNED_BYTE;
                 break;

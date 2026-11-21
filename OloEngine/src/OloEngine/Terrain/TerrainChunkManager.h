@@ -106,6 +106,21 @@ namespace OloEngine
             return m_SelectedChunks;
         }
 
+        // The whole tile as ONE mesh at TerrainShadowLod's coarsest level
+        // (issue #1721): what a terrain far enough away that every chunk would
+        // cast from that level casts from instead, one draw in place of one per
+        // chunk. A flat grid; the depth shader's evaluation stage gives it its
+        // heights, so a sculpt never has to rebuild it. Null before the first
+        // build.
+        [[nodiscard]] const Ref<VertexArray>& GetShadowTileMesh() const
+        {
+            return m_ShadowTileMesh;
+        }
+        [[nodiscard]] u32 GetShadowTileIndexCount() const
+        {
+            return m_ShadowTileIndexCount;
+        }
+
         [[nodiscard]] u32 GetNumChunksX() const
         {
             return m_NumChunksX;
@@ -158,7 +173,11 @@ namespace OloEngine
         [[nodiscard("the chunk range must be used to enumerate the covered chunks")]] std::optional<ChunkRange>
         RangeForNode(const TerrainQuadNode& node) const;
 
+        void BuildShadowTileMesh(f32 worldSizeX, f32 worldSizeZ);
+
         TArray<TerrainChunk> m_Chunks;
+        Ref<VertexArray> m_ShadowTileMesh;
+        u32 m_ShadowTileIndexCount = 0;
         u32 m_NumChunksX = 0;
         u32 m_NumChunksZ = 0;
 

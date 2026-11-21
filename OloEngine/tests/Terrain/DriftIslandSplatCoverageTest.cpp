@@ -1,57 +1,48 @@
 // OLO_TEST_LAYER: unit
 #include "OloEnginePCH.h"
-#include <span>
 #include "OloEngine/Containers/Array.h"
 #include <gtest/gtest.h>
 
+#include "../TestTempDir.h"
+
+#include "OloEngine/Build/GameBuildPipeline.h"
 #include "OloEngine/Terrain/TerrainData.h"
-#include "OloEngine/Terrain/TerrainGenerator.h"
 #include "OloEngine/Terrain/TerrainLayer.h"
 
 #include <glm/glm.hpp>
+#include <stb_image/stb_image.h>
 #include <yaml-cpp/yaml.h>
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
 
 // =============================================================================
-// Drift auto-material coverage (issue #942).
+// The six Drift islands' maps (issues #942, #1721).
 //
-// Every island in Drift.olo carries AutoMaterial + four LayerRules, and every
-// island rendered as one flat colour anyway. Nothing in the pipeline was broken:
-// the gate fired, the rules survived deserialization, the splatmap generated and
-// reached the shader, and the shader blended it faithfully. The rules themselves
-// were mis-anchored, in two ways that are invisible to any test that only asks
-// whether the weights VARY — they varied fine:
+// Each island in Drift.olo is a height map with two splatmaps and a macro map,
+// written by tools/drift-islands. This reads the shipped scene and the shipped
+// maps and pins what the art review (#1721) found false of the islands they
+// replaced, as numbers rather than as a picture:
 //
-//   * The slope-gated rock rule opened at 48 deg while #880's shoreline mask
-//     ramps the full height to zero across the outer flank of every island, a
-//     ~50 deg slope by construction. Rock therefore claimed the flank — 77% of
-//     Ridgeback, 86% of Sisters, 93% of Stacks — and normalization drove the
-//     altitude-banded layers to nothing.
-//   * The altitude bands were written as fractions of [0, 1], but the island
-//     mask and the height exponent leave the field short of 1.0 (Mesa peaks at
-//     0.800). A summit band starting at 0.844 is above the summit, so layer 3
-//     drew on 0.0-3.5% of every island.
+//   * the tile's border is the seabed floor, so its edge is never a wall;
+//   * the coast is a beach or a rock platform, not the 45-60 degree ramp a
+//     radial mask leaves at the waterline;
+//   * the landfall ring the weather director derives from the scene holds the
+//     island, so a leg begins offshore and not on the beach;
+//   * every texel's layer weights are a whole, and more than one material
+//     shows above the water (#942: one layer once took 77-93% of an island);
+//   * the ground's albedo is physical, and no two islands share a palette.
 //
-// So the contract worth pinning is COVERAGE, not variation: on each island's
-// above-water surface, every authored layer must claim a real share and none may
-// swallow the rest. That is the property a reader checks in a screenshot, and it
-// is the one that was false.
-//
-// Coverage is necessary and not sufficient. A layer can hold 20% of the surface
-// and still be invisible if its colour matches its neighbour, which is what the
-// third test here guards — every island shipped a pair separated only by
-// brightness, and under this scene's haze and tone curve those read as one
-// material no matter what the splatmap says.
-//
-// Pure CPU — GenerateHeightField and the TerrainData::Sample* statics need no GL
-// context (the TerrainData MEMBERS would: SetHeights uploads to the GPU). Reads
-// the shipped scene directly, so retuning the scene and this test cannot drift.
+// Reads the scene YAML directly, NOT through SceneSerializer (which builds GPU
+// resources for the whole scene), and decodes the maps on the CPU, so retuning
+// the generator and this test cannot drift and no GL context is needed.
 // Classification: unit.
 // =============================================================================
 
@@ -61,322 +52,489 @@ namespace OloEngine::Tests
 
     namespace
     {
-        // Every Drift island sits at y = -24 with the sea at y = 0, so the
-        // fraction of the height range that is under water is -translationY /
-        // heightScale. Read from the scene rather than hardcoded: an island that
-        // gets sunk deeper must re-band, and that is exactly what this measures.
-        [[nodiscard]] f32 SeaLevel01(f32 translationY, f32 heightScale)
-        {
-            if (heightScale <= 0.0f)
-                return 0.0f;
-            return std::clamp(-translationY / heightScale, 0.0f, 1.0f);
-        }
+        constexpr u32 kIslandCount = 6;
 
         struct Island
         {
             std::string Name;
-            TerrainGenerator::HeightParams Params;
-            TArray<TerrainLayerRule> Rules;
-            std::vector<std::string> LayerNames;
-            std::vector<glm::vec3> LayerColours;
-            f32 WorldSizeX = 0.0f;
-            f32 WorldSizeZ = 0.0f;
+            f32 WorldSize = 0.0f;
             f32 HeightScale = 0.0f;
-            f32 SeaLevel = 0.0f;
+            f32 SeaLevel01 = 0.0f; // the sea's height as a fraction of HeightScale
+            f32 LandfallRadius = 0.0f;
+            u32 Resolution = 0;
+            TArray<f32> Heights;                  // [0, 1], row-major
+            std::array<std::vector<u8>, 2> Splat; // RGBA8, Resolution^2 texels each
+            std::vector<u8> Macro;                // RGBA8
+            std::vector<glm::vec3> LayerColours;  // each layer's mean linear albedo
+            std::vector<std::string> LayerNames;
+
+            [[nodiscard]] f32 MetresAboveSea(sizet texel) const
+            {
+                return (Heights[static_cast<TArray<f32>::SizeType>(texel)] - SeaLevel01) * HeightScale;
+            }
+            [[nodiscard]] std::array<f32, MAX_TERRAIN_LAYERS> Weights(sizet texel) const
+            {
+                std::array<f32, MAX_TERRAIN_LAYERS> w{};
+                for (u32 i = 0; i < MAX_TERRAIN_LAYERS; ++i)
+                    w[i] = static_cast<f32>(Splat[i / 4][texel * 4 + (i % 4)]);
+                return w;
+            }
         };
 
-        [[nodiscard]] fs::path DriftScenePath()
+        [[nodiscard]] fs::path ProjectDir()
         {
-            return fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject" / "Assets" / "Scenes" / "Drift.olo";
+            return fs::path{ OLO_TEST_EDITOR_ROOT } / "SandboxProject";
         }
 
-        // Pull every auto-material terrain out of the scene YAML. Deliberately
-        // NOT via SceneSerializer: that eagerly builds GPU resources for the
-        // whole scene (meshes, textures, fonts), which would make this a
-        // GL-gated test for the sake of four numbers per component.
-        [[nodiscard]] std::vector<Island> LoadAutoMaterialIslands(const fs::path& scenePath)
+        [[nodiscard]] bool LoadRGBA(const fs::path& file, std::vector<u8>& out, u32& outSize)
+        {
+            int w = 0;
+            int h = 0;
+            int channels = 0;
+            stbi_set_flip_vertically_on_load_thread(0);
+            stbi_uc* pixels = stbi_load(file.string().c_str(), &w, &h, &channels, 4);
+            if (!pixels)
+                return false;
+            const bool square = (w == h) && w > 0;
+            if (square)
+            {
+                outSize = static_cast<u32>(w);
+                out.assign(pixels, pixels + static_cast<sizet>(w) * static_cast<sizet>(h) * 4);
+            }
+            stbi_image_free(pixels);
+            return square;
+        }
+
+        // Every "Island - <name>" terrain, with its maps decoded. A map that is
+        // missing or malformed is reported through `problems`, not skipped: an
+        // island that silently dropped out would pass every loop below.
+        [[nodiscard]] std::vector<Island> LoadIslands(std::vector<std::string>& problems)
         {
             std::vector<Island> islands;
-            const YAML::Node root = YAML::LoadFile(scenePath.generic_string());
-            const YAML::Node entities = root["Entities"];
-            if (!entities || !entities.IsSequence())
-                return islands;
-
-            for (const auto& entity : entities)
+            const fs::path scenePath = ProjectDir() / "Assets" / "Scenes" / "Drift.olo";
+            if (!fs::exists(scenePath))
             {
+                problems.push_back("Drift scene not found at " + scenePath.generic_string());
+                return islands;
+            }
+            const YAML::Node root = YAML::LoadFile(scenePath.generic_string());
+            for (const auto& entity : root["Entities"])
+            {
+                const YAML::Node tag = entity["TagComponent"];
                 const YAML::Node terrain = entity["TerrainComponent"];
-                if (!terrain || !terrain["AutoMaterial"].as<bool>(false))
-                    continue;
-                if (!terrain["ProceduralEnabled"].as<bool>(false))
-                    continue;
-                const YAML::Node rulesNode = terrain["LayerRules"];
-                if (!rulesNode || !rulesNode.IsSequence() || rulesNode.size() == 0)
+                const std::string name = tag ? tag["Tag"].as<std::string>("") : std::string{};
+                if (!terrain || !name.starts_with("Island - "))
                     continue;
 
                 Island isl;
-                const YAML::Node tag = entity["TagComponent"];
-                isl.Name = tag ? tag["Tag"].as<std::string>("<unnamed>") : "<unnamed>";
-
-                auto& p = isl.Params;
-                p.Resolution = terrain["ProceduralResolution"].as<u32>(p.Resolution);
-                p.Seed = terrain["ProceduralSeed"].as<i32>(p.Seed);
-                p.Octaves = terrain["ProceduralOctaves"].as<u32>(p.Octaves);
-                p.Frequency = terrain["ProceduralFrequency"].as<f32>(p.Frequency);
-                p.Lacunarity = terrain["ProceduralLacunarity"].as<f32>(p.Lacunarity);
-                p.Persistence = terrain["ProceduralPersistence"].as<f32>(p.Persistence);
-                p.ErosionIterations = terrain["ProceduralErosionIterations"].as<i32>(p.ErosionIterations);
-                p.Shaping.RidgeBlend = terrain["ShapingRidgeBlend"].as<f32>(p.Shaping.RidgeBlend);
-                p.Shaping.WarpStrength = terrain["ShapingWarpStrength"].as<f32>(p.Shaping.WarpStrength);
-                p.Shaping.WarpFrequency = terrain["ShapingWarpFrequency"].as<f32>(p.Shaping.WarpFrequency);
-                p.Shaping.TerraceSteps = terrain["ShapingTerraceSteps"].as<u32>(p.Shaping.TerraceSteps);
-                p.Shaping.TerraceSharpness = terrain["ShapingTerraceSharpness"].as<f32>(p.Shaping.TerraceSharpness);
-                p.Shaping.HeightExponent = terrain["ShapingHeightExponent"].as<f32>(p.Shaping.HeightExponent);
-                p.Shaping.IslandFalloff = terrain["ShapingIslandFalloff"].as<f32>(p.Shaping.IslandFalloff);
-                p.Shaping.IslandFalloffRadius =
-                    terrain["ShapingIslandFalloffRadius"].as<f32>(p.Shaping.IslandFalloffRadius);
-
-                isl.WorldSizeX = terrain["WorldSizeX"].as<f32>(0.0f);
-                isl.WorldSizeZ = terrain["WorldSizeZ"].as<f32>(0.0f);
+                isl.Name = name;
+                isl.WorldSize = terrain["WorldSizeX"].as<f32>(0.0f);
                 isl.HeightScale = terrain["HeightScale"].as<f32>(0.0f);
+                if (isl.WorldSize <= 0.0f || isl.HeightScale <= 0.0f ||
+                    std::abs(terrain["WorldSizeZ"].as<f32>(0.0f) - isl.WorldSize) > 1.0e-3f)
+                {
+                    problems.push_back(name + ": the tile is not a square with a positive height scale");
+                    continue;
+                }
+                if (terrain["ProceduralEnabled"].as<bool>(false) || terrain["AutoMaterial"].as<bool>(false))
+                    problems.push_back(name + ": still a procedural / auto-material terrain; the maps would be ignored");
 
                 f32 translationY = 0.0f;
-                if (const YAML::Node xf = entity["TransformComponent"]; xf && xf["Translation"] &&
-                                                                        xf["Translation"].size() == 3)
-                {
+                if (const YAML::Node xf = entity["TransformComponent"]; xf && xf["Translation"] && xf["Translation"].size() == 3)
                     translationY = xf["Translation"][1].as<f32>(0.0f);
-                }
-                isl.SeaLevel = SeaLevel01(translationY, isl.HeightScale);
+                isl.SeaLevel01 = -translationY / isl.HeightScale;
+                // DriftWeatherDirector.lua's own formula for the coast.
+                isl.LandfallRadius = (terrain["ShapingIslandFalloffRadius"].as<f32>(0.0f) + 0.5f) * 0.5f * isl.WorldSize;
 
-                for (const auto& r : rulesNode)
-                {
-                    TerrainLayerRule rule;
-                    rule.LayerIndex = r["LayerIndex"].as<u32>(rule.LayerIndex);
-                    rule.MinHeight = r["MinHeight"].as<f32>(rule.MinHeight);
-                    rule.MaxHeight = r["MaxHeight"].as<f32>(rule.MaxHeight);
-                    rule.HeightBlend = r["HeightBlend"].as<f32>(rule.HeightBlend);
-                    rule.MinSlopeDeg = r["MinSlopeDeg"].as<f32>(rule.MinSlopeDeg);
-                    rule.MaxSlopeDeg = r["MaxSlopeDeg"].as<f32>(rule.MaxSlopeDeg);
-                    rule.SlopeBlend = r["SlopeBlend"].as<f32>(rule.SlopeBlend);
-                    rule.Strength = r["Strength"].as<f32>(rule.Strength);
-                    isl.Rules.Add(rule);
-                }
+                const auto mapPath = [&](const char* key)
+                { return ProjectDir() / terrain[key].as<std::string>("<unset>"); };
 
-                if (const YAML::Node layers = terrain["Layers"]; layers && layers.IsSequence())
+                const fs::path heightFile = mapPath("HeightmapPath");
+                if (!TerrainData::DecodeHeightmapFile(heightFile.string(), isl.Heights, isl.Resolution))
                 {
-                    for (const auto& l : layers)
+                    problems.push_back(name + ": height map did not decode: " + heightFile.generic_string());
+                    continue;
+                }
+                bool mapsOk = true;
+                const std::array<std::pair<const char*, std::vector<u8>*>, 3> rgba = { {
+                    { "SplatmapPath0", &isl.Splat[0] },
+                    { "SplatmapPath1", &isl.Splat[1] },
+                    { "MacroMapPath", &isl.Macro },
+                } };
+                for (const auto& [key, pixels] : rgba)
+                {
+                    u32 size = 0;
+                    if (!LoadRGBA(mapPath(key), *pixels, size) || size != isl.Resolution)
                     {
-                        isl.LayerNames.push_back(l["Name"].as<std::string>("<unnamed>"));
-                        glm::vec3 c{ 0.5f, 0.5f, 0.5f };
-                        if (const YAML::Node bc = l["BaseColor"]; bc && bc.size() == 3)
-                            c = { bc[0].as<f32>(0.5f), bc[1].as<f32>(0.5f), bc[2].as<f32>(0.5f) };
-                        isl.LayerColours.push_back(c);
+                        problems.push_back(name + ": " + key + " is missing or is not the height map's " +
+                                           std::to_string(isl.Resolution) + " px square: " + mapPath(key).generic_string());
+                        mapsOk = false;
                     }
                 }
+                if (!mapsOk)
+                    continue;
+
+                for (const auto& layer : terrain["Layers"])
+                {
+                    isl.LayerNames.push_back(layer["Name"].as<std::string>("<unnamed>"));
+                    glm::vec3 c{ 0.5f };
+                    if (const YAML::Node bc = layer["BaseColor"]; bc && bc.size() == 3)
+                        c = { bc[0].as<f32>(0.5f), bc[1].as<f32>(0.5f), bc[2].as<f32>(0.5f) };
+                    isl.LayerColours.push_back(c);
+                    for (const char* key : { "AlbedoPath", "NormalPath", "ARMPath" })
+                    {
+                        if (!fs::exists(ProjectDir() / layer[key].as<std::string>("<unset>")))
+                            problems.push_back(name + ": layer '" + isl.LayerNames.back() + "' " + key + " names no file");
+                    }
+                }
+                if (isl.LayerColours.size() != MAX_TERRAIN_LAYERS)
+                    problems.push_back(name + ": expected the eight shared library layers");
 
                 islands.push_back(std::move(isl));
             }
+            if (islands.size() != kIslandCount)
+                problems.push_back("expected " + std::to_string(kIslandCount) + " islands, loaded " + std::to_string(islands.size()));
             return islands;
         }
 
-        struct Coverage
-        {
-            std::array<f32, MAX_TERRAIN_LAYERS> DominantPercent{};
-            u32 AboveWaterTexels = 0;
-            f32 MaxHeight01 = 0.0f;
-        };
-
-        // Share of the ABOVE-WATER surface on which each layer is the winning
-        // weight. Above-water is the only part anybody sees; the sea floor out to
-        // the tile edge is the majority of the texels and is all one band, so
-        // including it would let a flat island pass.
-        [[nodiscard]] Coverage MeasureCoverage(const Island& isl)
-        {
-            TArray<f32> heights;
-            TerrainGenerator::GenerateHeightField(heights, isl.Params);
-
-            const u32 res = std::max(isl.Params.Resolution, 2u);
-            const f32 invRes = 1.0f / static_cast<f32>(res - 1);
-
-            Coverage cov;
-            std::array<u32, MAX_TERRAIN_LAYERS> hits{};
-            hits.fill(0);
-            std::array<f32, MAX_TERRAIN_LAYERS> weights{};
-
-            for (u32 z = 0; z < res; ++z)
-            {
-                for (u32 x = 0; x < res; ++x)
-                {
-                    const f32 nx = static_cast<f32>(x) * invRes;
-                    const f32 nz = static_cast<f32>(z) * invRes;
-                    const f32 h01 = TerrainData::SampleHeight(heights, res, nx, nz);
-                    cov.MaxHeight01 = std::max(cov.MaxHeight01, h01);
-                    if (h01 < isl.SeaLevel)
-                        continue;
-
-                    const f32 slopeDeg = TerrainData::SampleSlopeDegrees(
-                        heights, res, nx, nz, isl.WorldSizeX, isl.WorldSizeZ, isl.HeightScale);
-                    TerrainGenerator::EvaluateLayerWeights(h01, slopeDeg, isl.Rules, weights);
-
-                    u32 best = 0;
-                    for (u32 i = 1; i < MAX_TERRAIN_LAYERS; ++i)
-                        if (weights[i] > weights[best])
-                            best = i;
-                    ++hits[best];
-                    ++cov.AboveWaterTexels;
-                }
-            }
-
-            const f32 inv = (cov.AboveWaterTexels > 0)
-                                ? 100.0f / static_cast<f32>(cov.AboveWaterTexels)
-                                : 0.0f;
-            for (u32 i = 0; i < MAX_TERRAIN_LAYERS; ++i)
-                cov.DominantPercent[i] = static_cast<f32>(hits[i]) * inv;
-            return cov;
-        }
-
-        [[nodiscard]] std::string DescribeCoverage(const Island& isl, const Coverage& cov)
+        [[nodiscard]] std::string Join(const std::vector<std::string>& lines)
         {
             std::ostringstream oss;
-            oss << isl.Name << " — " << cov.AboveWaterTexels << " above-water texels, max height "
-                << cov.MaxHeight01 << " (waterline " << isl.SeaLevel << ")\n";
-            for (sizet i = 0; i < isl.LayerNames.size() && i < MAX_TERRAIN_LAYERS; ++i)
-                oss << "      layer " << i << " '" << isl.LayerNames[i] << "': "
-                    << cov.DominantPercent[i] << "% of the surface\n";
+            for (const auto& line : lines)
+                oss << "\n    " << line;
             return oss.str();
         }
+
+        // The fixture decodes six 1024 px islands once for the whole suite.
+        class DriftIslandSplatCoverage : public ::testing::Test
+        {
+          protected:
+            static void SetUpTestSuite()
+            {
+                s_Islands = LoadIslands(s_Problems);
+            }
+            static void TearDownTestSuite()
+            {
+                s_Islands.clear();
+                s_Problems.clear();
+            }
+            void SetUp() override
+            {
+                ASSERT_TRUE(s_Problems.empty()) << "Drift's island maps did not load:" << Join(s_Problems);
+            }
+
+            static inline std::vector<Island> s_Islands;
+            static inline std::vector<std::string> s_Problems;
+        };
     } // namespace
 
-    // Every authored layer has to actually appear, and no layer may swallow the
-    // island. The bounds are deliberately loose — the shipped scene lands at
-    // roughly 17/36/27/20 and the worst island (Mesa, whose terracing quantizes
-    // its height distribution) at 28/31/28/13, so this leaves real retuning room
-    // while still failing the state that prompted the issue (a layer at 77-93%
-    // with two layers at ~0%).
-    TEST(DriftIslandSplatCoverage, EveryAuthoredLayerClaimsPartOfEachIsland)
+    // docs/agent-rules/terrain-tile-meets-ocean.md: a tile edge that is not the
+    // floor is a wall standing in the sea. The generator drives every border
+    // texel to exactly 0; the summit must fit under 1 or the map clipped it flat.
+    TEST_F(DriftIslandSplatCoverage, TheTileBorderIsTheSeabedFloorAndTheSummitFits)
     {
-        const fs::path scene = DriftScenePath();
-        ASSERT_TRUE(fs::exists(scene)) << "Drift scene not found at " << scene.generic_string();
-
-        const std::vector<Island> islands = LoadAutoMaterialIslands(scene);
-        ASSERT_GE(islands.size(), 1u)
-            << "no auto-material procedural terrain found in Drift.olo — scene layout changed?";
-
-        constexpr f32 kMinShare = 6.0f;
-        constexpr f32 kMaxShare = 55.0f;
-
-        for (const Island& isl : islands)
+        for (const Island& isl : s_Islands)
         {
-            const Coverage cov = MeasureCoverage(isl);
-            ASSERT_GT(cov.AboveWaterTexels, 0u) << isl.Name << " is entirely under water";
-
-            // Only layers an authored rule actually targets are required to show.
-            std::array<bool, MAX_TERRAIN_LAYERS> targeted{};
-            targeted.fill(false);
-            for (const TerrainLayerRule& r : isl.Rules)
-                if (r.LayerIndex < MAX_TERRAIN_LAYERS)
-                    targeted[r.LayerIndex] = true;
-
-            for (u32 i = 0; i < MAX_TERRAIN_LAYERS; ++i)
+            const u32 n = isl.Resolution;
+            f32 borderMax = 0.0f;
+            for (u32 i = 0; i < n; ++i)
             {
-                if (!targeted[i])
-                    continue;
-                EXPECT_GE(cov.DominantPercent[i], kMinShare)
-                    << "layer " << i << " is effectively invisible on this island.\n"
-                    << DescribeCoverage(isl, cov)
-                    << "    A rule whose band sits outside the terrain's reachable height range, or "
-                       "whose slope band is shadowed by a more permissive rule, contributes nothing "
-                       "once EvaluateLayerWeights normalizes. See issue #942.";
-                EXPECT_LE(cov.DominantPercent[i], kMaxShare)
-                    << "layer " << i << " has swallowed this island, leaving no visible banding.\n"
-                    << DescribeCoverage(isl, cov)
-                    << "    Usually a slope-gated rule whose MinSlopeDeg opens below the island's "
-                       "median slope — the #880 shoreline mask alone contributes ~50 deg across the "
-                       "whole outer flank. See issue #942.";
+                borderMax = std::max({ borderMax, isl.Heights[i], isl.Heights[(n - 1) * n + i], isl.Heights[i * n],
+                                       isl.Heights[i * n + (n - 1)] });
             }
+            EXPECT_LE(borderMax, 0.0f) << isl.Name << ": a border texel stands " << borderMax * isl.HeightScale
+                                       << " m above the tile floor";
+
+            const f32 summit = *std::ranges::max_element(isl.Heights);
+            EXPECT_LT(summit, 1.0f) << isl.Name << ": the summit reaches the top of the height range, so it was clipped";
+            EXPECT_GT((summit - isl.SeaLevel01) * isl.HeightScale, 3.0f) << isl.Name << " barely clears the sea";
         }
     }
 
-    // The trap behind the second half of #942, pinned on its own so it reads as a
-    // fact about the generator rather than as a scene-tuning accident: with an
-    // island mask (and/or a height exponent > 1) the shaped field no longer
-    // reaches 1.0, so the top of the [0,1] range is unreachable and a band
-    // anchored there never fires. Nothing warns about this — the rule is valid,
-    // it simply never matches a texel.
-    TEST(DriftIslandSplatCoverage, IslandFalloffLeavesTheSummitShortOfFullHeight)
+    // The review measured the old coasts at 45-60 degrees at the waterline (a
+    // radial mask multiplying the whole height range down); a beach is 5-10.
+    // The median, because rock islands keep cliffs along part of their shore.
+    TEST_F(DriftIslandSplatCoverage, TheCoastIsAShoreNotARamp)
     {
-        const fs::path scene = DriftScenePath();
-        ASSERT_TRUE(fs::exists(scene)) << "Drift scene not found at " << scene.generic_string();
-
-        const std::vector<Island> islands = LoadAutoMaterialIslands(scene);
-        ASSERT_GE(islands.size(), 1u);
-
-        bool sawShortfall = false;
-        for (const Island& isl : islands)
+        constexpr f32 kMaxMedianSlopeDeg = 15.0f;
+        for (const Island& isl : s_Islands)
         {
-            TArray<f32> heights;
-            TerrainGenerator::GenerateHeightField(heights, isl.Params);
-            const f32 maxH = *std::ranges::max_element(heights);
-            ASSERT_TRUE(std::isfinite(maxH));
-            EXPECT_LE(maxH, 1.0f) << isl.Name << " exceeds the normalized [0,1] contract";
-            if (maxH < 0.99f)
-                sawShortfall = true;
-
-            // Whatever the shortfall is, no authored band may start above it.
-            for (const TerrainLayerRule& r : isl.Rules)
+            const u32 n = isl.Resolution;
+            const f32 inv = 1.0f / static_cast<f32>(n - 1);
+            std::vector<f32> slopes;
+            // Every third texel: 100k samples of the shore band is plenty.
+            for (u32 z = 1; z + 1 < n; z += 3)
             {
-                EXPECT_LT(r.MinHeight, maxH)
-                    << isl.Name << ": rule for layer " << r.LayerIndex << " starts at MinHeight "
-                    << r.MinHeight << ", but the shaped field never exceeds " << maxH
-                    << " — the band is above the summit and can never fire (issue #942).";
-            }
-        }
-
-        EXPECT_TRUE(sawShortfall)
-            << "no Drift island falls short of full height any more — if the island mask stopped "
-               "compressing the field, the anchoring rationale in the scene comments is stale.";
-    }
-
-    // Coverage says each layer occupies a real share of the surface. It says
-    // nothing about whether a viewer can TELL them apart, and on the first pass
-    // of #942 that was the remaining half of "the islands look flat": every
-    // island carried a pair of materials separated only by brightness — Rock vs
-    // Heath 0.135 apart in RGB, Palm scrub vs Green cap 0.075, Shingle vs Lichen
-    // 0.134, Dry scrub vs Sandstone 0.154. On Ridgeback that pair was 47% of the
-    // surface, so correcting the splat still left the uplands reading as one mass.
-    //
-    // The threshold is on plain RGB distance rather than on hue, because a large
-    // lightness gap really is distinguishable: Stacks pairs Shingle with Guano,
-    // both neutral greys, 0.61 apart and in no danger of merging. What fails is a
-    // pair that is close on BOTH axes, and distance alone catches that.
-    TEST(DriftIslandSplatCoverage, EveryIslandsLayerColoursAreDistinguishable)
-    {
-        const fs::path scene = DriftScenePath();
-        ASSERT_TRUE(fs::exists(scene)) << "Drift scene not found at " << scene.generic_string();
-
-        const std::vector<Island> islands = LoadAutoMaterialIslands(scene);
-        ASSERT_GE(islands.size(), 1u);
-
-        // Shipped palette's worst pair is 0.223 (Mesa's Dry scrub vs Sandstone),
-        // so this leaves room to re-tune a colour without tripping the guard while
-        // still failing every pair the issue found.
-        constexpr f32 kMinSeparation = 0.18f;
-
-        for (const Island& isl : islands)
-        {
-            ASSERT_GE(isl.LayerColours.size(), 2u) << isl.Name << " has fewer than two layers";
-            for (sizet i = 0; i < isl.LayerColours.size(); ++i)
-            {
-                for (sizet j = i + 1; j < isl.LayerColours.size(); ++j)
+                for (u32 x = 1; x + 1 < n; x += 3)
                 {
-                    const f32 d = glm::length(isl.LayerColours[i] - isl.LayerColours[j]);
-                    EXPECT_GE(d, kMinSeparation)
-                        << isl.Name << ": layers '" << isl.LayerNames[i] << "' and '"
-                        << isl.LayerNames[j] << "' are only " << d
-                        << " apart in RGB — they will read as one material under the scene's "
-                           "haze and tone curve, whatever the splatmap assigns. Separate them by "
-                           "hue rather than by another step of brightness (issue #942).";
+                    const f32 above = isl.MetresAboveSea(static_cast<sizet>(z) * n + x);
+                    if (above <= 0.0f || above >= 1.5f)
+                        continue;
+                    slopes.push_back(TerrainData::SampleSlopeDegrees(isl.Heights, n, static_cast<f32>(x) * inv,
+                                                                     static_cast<f32>(z) * inv, isl.WorldSize,
+                                                                     isl.WorldSize, isl.HeightScale));
                 }
             }
+            ASSERT_GT(slopes.size(), 100u) << isl.Name << " has no shore band";
+            const auto mid = slopes.begin() + static_cast<std::ptrdiff_t>(slopes.size() / 2);
+            std::ranges::nth_element(slopes, mid);
+            EXPECT_LE(*mid, kMaxMedianSlopeDeg)
+                << isl.Name << ": the median slope within 1.5 m above the waterline is " << *mid << " degrees";
+        }
+    }
+
+    // An island fits its tile. The generator drives the last 26 m before a
+    // tile's edge down to the tile floor, so that the tile ends in sea and not
+    // in a wall; inside that ramp the ground is not the recipe's any more. A
+    // point or a foreshore that reaches into it ends in a scarp parallel to the
+    // tile's edge instead of in its own shore: Ridgeback's east point did, 57
+    // degrees at the waterline against 8 on the rest of its coast, and the
+    // island-wide median of TheCoastIsAShoreNotARamp could not see it. "Shore"
+    // is ground less than 3 m under the sea: what a boat's crew can see.
+    TEST_F(DriftIslandSplatCoverage, EveryShoreFinishesBeforeTheTilesBorderRamp)
+    {
+        constexpr f32 kBorderRamp = 26.0f; // shaping.BORDER_RAMP in tools/drift-islands
+        constexpr f32 kShoreDepth = -3.0f; // shaping.SHORE_DEPTH
+        for (const Island& isl : s_Islands)
+        {
+            const u32 n = isl.Resolution;
+            const f32 metresPerSample = isl.WorldSize / static_cast<f32>(n - 1);
+            f32 nearest = isl.WorldSize;
+            u32 shore = 0;
+            for (u32 z = 0; z < n; ++z)
+            {
+                for (u32 x = 0; x < n; ++x)
+                {
+                    if (isl.MetresAboveSea(static_cast<sizet>(z) * n + x) <= kShoreDepth)
+                        continue;
+                    ++shore;
+                    const u32 samplesIn = std::min(std::min(x, n - 1 - x), std::min(z, n - 1 - z));
+                    nearest = std::min(nearest, static_cast<f32>(samplesIn) * metresPerSample);
+                }
+            }
+            ASSERT_GT(shore, 0u) << isl.Name << " has no ground near the surface at all";
+            EXPECT_GE(nearest, kBorderRamp)
+                << isl.Name << ": its shore comes within " << nearest << " m of the tile's edge, inside the border ramp";
+        }
+    }
+
+    // DriftWeatherDirector.lua arms a leg 45 m outside
+    //   coast = (IslandFalloffRadius + 0.5) * 0.5 * WorldSizeX
+    // from the tile centre. The scene stamper writes the radius from the map's
+    // farthest land, so a coast that moved without a re-stamp shows here: land
+    // outside the ring, or a ring far outside the land.
+    TEST_F(DriftIslandSplatCoverage, TheLandfallRingHoldsTheIsland)
+    {
+        for (const Island& isl : s_Islands)
+        {
+            const u32 n = isl.Resolution;
+            const f32 inv = 1.0f / static_cast<f32>(n - 1);
+            u32 land = 0;
+            u32 outside = 0;
+            f32 farthest = 0.0f;
+            for (u32 z = 0; z < n; ++z)
+            {
+                for (u32 x = 0; x < n; ++x)
+                {
+                    if (isl.MetresAboveSea(static_cast<sizet>(z) * n + x) <= 0.0f)
+                        continue;
+                    const f32 dx = (static_cast<f32>(x) * inv - 0.5f) * isl.WorldSize;
+                    const f32 dz = (static_cast<f32>(z) * inv - 0.5f) * isl.WorldSize;
+                    const f32 d = std::sqrt(dx * dx + dz * dz);
+                    ++land;
+                    outside += (d > isl.LandfallRadius) ? 1u : 0u;
+                    farthest = std::max(farthest, d);
+                }
+            }
+            ASSERT_GT(land, 0u) << isl.Name << " is entirely under water";
+            // The stamper takes the 99.5th percentile, so an outlying skerry does
+            // not push the whole ring out.
+            EXPECT_LE(static_cast<f32>(outside) / static_cast<f32>(land), 0.01f)
+                << isl.Name << ": " << outside << " of " << land << " land texels lie outside the "
+                << isl.LandfallRadius << " m landfall ring (farthest land " << farthest << " m)";
+            EXPECT_GE(farthest, 0.85f * isl.LandfallRadius)
+                << isl.Name << ": the landfall ring (" << isl.LandfallRadius << " m) is far outside the land ("
+                << farthest << " m); re-stamp the scene";
+            EXPECT_LE(isl.LandfallRadius, 0.5f * isl.WorldSize) << isl.Name << ": the ring leaves the tile";
+        }
+    }
+
+    // A texel no layer claims is not empty: the shader's height blend then gives
+    // every layer a share and the ground is the average of all eight textures.
+    // And #942's state, one layer at 77-93% with the others at nothing, must
+    // not come back: above the water at least two materials show.
+    TEST_F(DriftIslandSplatCoverage, EveryTexelIsClaimedAndMoreThanOneMaterialShows)
+    {
+        constexpr f32 kVisibleShare = 4.0f;
+        for (const Island& isl : s_Islands)
+        {
+            const sizet texels = static_cast<sizet>(isl.Resolution) * isl.Resolution;
+            std::array<u32, MAX_TERRAIN_LAYERS> dominant{};
+            u32 land = 0;
+            u32 unclaimed = 0;
+            for (sizet t = 0; t < texels; ++t)
+            {
+                const auto w = isl.Weights(t);
+                f32 sum = 0.0f;
+                u32 best = 0;
+                for (u32 i = 0; i < MAX_TERRAIN_LAYERS; ++i)
+                {
+                    sum += w[i];
+                    if (w[i] > w[best])
+                        best = i;
+                }
+                // 8 channels rounded separately: a whole is 255 +- 4.
+                unclaimed += (std::abs(sum - 255.0f) > 4.0f) ? 1u : 0u;
+                if (isl.MetresAboveSea(t) > 0.0f)
+                {
+                    ++land;
+                    ++dominant[best];
+                }
+            }
+            EXPECT_EQ(unclaimed, 0u) << isl.Name << ": texels whose eight layer weights do not sum to one";
+
+            u32 visible = 0;
+            std::ostringstream shares;
+            for (u32 i = 0; i < MAX_TERRAIN_LAYERS; ++i)
+            {
+                const f32 share = 100.0f * static_cast<f32>(dominant[i]) / static_cast<f32>(std::max(land, 1u));
+                visible += (share >= kVisibleShare) ? 1u : 0u;
+                shares << "\n      " << isl.LayerNames[i] << ": " << share << "%";
+            }
+            EXPECT_GE(visible, 2u) << isl.Name << ": one material covers the island above the water:" << shares.str();
+        }
+    }
+
+    // The review's palette finding: layer colours had been picked as display
+    // colours and consumed as linear albedo, so sand was brighter than snow and
+    // grass was mint. And two pairs of islands shared one palette outright.
+    // The ground's colour is the layer blend times the macro map's tint, so
+    // that product, averaged over the land, is what this bounds.
+    TEST_F(DriftIslandSplatCoverage, GroundAlbedoIsPhysicalAndNoTwoIslandsShareAPalette)
+    {
+        // Linear luminance: wet basalt is about 0.05, grass 0.1, dry coral sand
+        // 0.45-0.55, fresh snow 0.9.
+        constexpr f32 kMinLuminance = 0.03f;
+        constexpr f32 kMaxLuminance = 0.55f;
+        constexpr f32 kMinSeparation = 0.03f;
+
+        std::vector<glm::vec3> means;
+        for (const Island& isl : s_Islands)
+        {
+            const sizet texels = static_cast<sizet>(isl.Resolution) * isl.Resolution;
+            glm::dvec3 sum{ 0.0 };
+            u32 land = 0;
+            for (sizet t = 0; t < texels; t += 3)
+            {
+                if (isl.MetresAboveSea(t) <= 0.0f)
+                    continue;
+                const auto w = isl.Weights(t);
+                glm::vec3 blend{ 0.0f };
+                f32 total = 0.0f;
+                for (u32 i = 0; i < MAX_TERRAIN_LAYERS; ++i)
+                {
+                    blend += isl.LayerColours[i] * w[i];
+                    total += w[i];
+                }
+                blend /= std::max(total, 1.0f);
+                // The macro map's RGB is a multiplier with 128 as neutral.
+                const glm::vec3 tint = glm::vec3(isl.Macro[t * 4], isl.Macro[t * 4 + 1], isl.Macro[t * 4 + 2]) / 128.0f;
+                sum += glm::dvec3(blend * tint);
+                ++land;
+            }
+            ASSERT_GT(land, 0u);
+            const glm::vec3 mean = glm::vec3(sum / static_cast<f64>(land));
+            const f32 luminance = glm::dot(mean, glm::vec3(0.2126f, 0.7152f, 0.0722f));
+            EXPECT_GE(luminance, kMinLuminance) << isl.Name << " is darker than wet basalt";
+            EXPECT_LE(luminance, kMaxLuminance) << isl.Name << " is brighter than dry coral sand; a display colour used as albedo?";
+            means.push_back(mean);
+        }
+        for (sizet i = 0; i < means.size(); ++i)
+        {
+            for (sizet j = i + 1; j < means.size(); ++j)
+            {
+                EXPECT_GE(glm::length(means[i] - means[j]), kMinSeparation)
+                    << s_Islands[i].Name << " and " << s_Islands[j].Name << " have the same mean ground colour";
+            }
+        }
+    }
+
+    // The cooked cell. Nothing an island names is an asset: the height map, the
+    // two splatmaps, the macro map and the 24 layer files are content PATHS the
+    // runtime opens through ResolveContentPath, so they reach a packaged game
+    // only because the build's scene scan stages every scalar that names a file
+    // (GameBuildPipeline, issue #1392). Staged here from the six island entities
+    // as the scene authors them: every file must arrive, byte for byte, and the
+    // height map must decode from where the runtime will look for it.
+    TEST_F(DriftIslandSplatCoverage, TheGameBuildShipsEveryFileAnIslandNames)
+    {
+        const fs::path project = ProjectDir();
+        const fs::path scenePath = fs::path("Assets") / "Scenes" / "Drift.olo";
+        const fs::path stagingProject = TempDir("islands-only-project");
+        const fs::path package = TempDir("package");
+
+        // The six islands alone: staging the whole scene would copy the boat,
+        // the crane and the lighthouse too, which other suites cover.
+        const YAML::Node authored = YAML::LoadFile((project / scenePath).string());
+        YAML::Node islandsOnly;
+        std::vector<fs::path> named;
+        for (const auto& entity : authored["Entities"])
+        {
+            const YAML::Node tag = entity["TagComponent"];
+            const YAML::Node terrain = entity["TerrainComponent"];
+            if (!terrain || !tag || !tag["Tag"].as<std::string>("").starts_with("Island - "))
+                continue;
+            islandsOnly["Entities"].push_back(entity);
+            for (const char* key : { "HeightmapPath", "SplatmapPath0", "SplatmapPath1", "MacroMapPath" })
+                named.emplace_back(terrain[key].as<std::string>(""));
+            for (const auto& layer : terrain["Layers"])
+            {
+                for (const char* key : { "AlbedoPath", "NormalPath", "ARMPath" })
+                    named.emplace_back(layer[key].as<std::string>(""));
+            }
+        }
+        ASSERT_EQ(islandsOnly["Entities"].size(), kIslandCount);
+        ASSERT_EQ(named.size(), kIslandCount * (4u + MAX_TERRAIN_LAYERS * 3u));
+        fs::create_directories((stagingProject / scenePath).parent_path());
+        {
+            std::ofstream out(stagingProject / scenePath);
+            out << islandsOnly;
+            ASSERT_TRUE(out.good());
+        }
+
+        sizet copied = 0;
+        std::vector<std::string> unresolved;
+        std::string error;
+        ASSERT_TRUE(StageSceneReferencedContent({ stagingProject / scenePath }, project, "Assets", fs::path{ OLO_TEST_EDITOR_ROOT },
+                                                package, copied, unresolved, error))
+            << error;
+        EXPECT_TRUE(unresolved.empty()) << "a file an island names cannot ship:" << Join(unresolved);
+
+        for (const fs::path& file : named)
+        {
+            ASSERT_FALSE(file.empty()) << "an island leaves one of its maps unnamed";
+            std::error_code ec;
+            ASSERT_TRUE(fs::exists(package / file, ec)) << file.generic_string() << " was not staged into the package";
+            const auto bytes = [](const fs::path& path)
+            {
+                std::ifstream in(path, std::ios::binary);
+                return std::vector<char>(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+            };
+            const std::vector<char> staged = bytes(package / file);
+            EXPECT_FALSE(staged.empty()) << file.generic_string() << " was staged empty";
+            EXPECT_TRUE(staged == bytes(project / file)) << file.generic_string() << " was staged as a different file";
+        }
+        for (const Island& isl : s_Islands)
+        {
+            // From the package, with the runtime's own decoder.
+            const fs::path staged = package / "Assets" / "Terrain" / "DriftIslands" / (isl.Name.substr(9) + "_Height.png");
+            TArray<f32> heights;
+            u32 resolution = 0;
+            ASSERT_TRUE(TerrainData::DecodeHeightmapFile(staged.string(), heights, resolution)) << staged.generic_string();
+            EXPECT_EQ(resolution, isl.Resolution);
+            ASSERT_EQ(heights.Num(), isl.Heights.Num());
+            EXPECT_EQ(std::memcmp(heights.GetData(), isl.Heights.GetData(), static_cast<sizet>(heights.Num()) * sizeof(f32)), 0)
+                << isl.Name << ": the staged height map is not the project's";
         }
     }
 } // namespace OloEngine::Tests

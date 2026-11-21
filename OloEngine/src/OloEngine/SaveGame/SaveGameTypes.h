@@ -64,7 +64,13 @@ namespace OloEngine
     //     DialogueStateComponent, DialogueComponent::m_HasTriggered and the
     //     dialogue variables are (#1712). A v50 save can carry a duplicated
     //     dialogue UI hierarchy, so it is refused like every other version.
-    static constexpr u32 kSaveGameFormatVersion = 51;
+    // 52: no layout change. A save captures each terrain's height source
+    //     (path, procedural recipe, shaping, auto-material rules) and each
+    //     foliage layer. A v51 save of Drift carries the six islands as the
+    //     procedural terrains they were; restored onto the generated islands
+    //     (#1721) it would turn them back, under landmarks sited on the new
+    //     ground. Refused like every other version.
+    static constexpr u32 kSaveGameFormatVersion = 52;
     static constexpr u32 kSaveGameHeaderSize = 128;
 
     // Compression flags (stored in Header.Flags)

@@ -109,13 +109,15 @@ void main()
     uint maxDepth = u_TerrainLevelParams.x;
     if (level < maxDepth)
     {
-        // CalculateScreenSpaceError(), transcribed: the geometric error is the
-        // node's larger world-space extent, projected by projScale / distance
-        // to the node centre.
-        float geometricError = max(maxX - minX, maxZ - minZ);
+        // CalculateScreenSpaceError(), transcribed: the on-screen size of ONE
+        // QUAD of this node. The projection scale arrives already divided by
+        // the node's quads per edge (TerrainLodMetric::QuadProjectionScale),
+        // so the node's larger world-space extent times it, over the distance
+        // to the node centre, is that quad in pixels.
+        float nodeWorldSize = max(maxX - minX, maxZ - minZ);
         vec3 nodeCenter = (boundsMin + boundsMax) * 0.5;
         float distanceToNode = max(length(u_TerrainCameraAndProjScale.xyz - nodeCenter), 0.001);
-        float screenError = (geometricError * u_TerrainCameraAndProjScale.w) / distanceToNode;
+        float screenError = (nodeWorldSize * u_TerrainCameraAndProjScale.w) / distanceToNode;
 
         if (screenError >= u_TerrainSizeAndTarget.z)
         {

@@ -77,7 +77,9 @@
 #include <glm/gtc/constants.hpp>
 #include <stb_image/stb_image.h>
 #include <stb_image/stb_image_write.h>
+#include <yaml-cpp/yaml.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -768,15 +770,52 @@ namespace OloEngine::Tests
         WeatherSystem::ApplyImmediate(GetScene());
         ApplySeaState(kSeaRough);
 
-        // Mirror Drift's Ridgeback discovery trigger. From the issue's camera
-        // pose this 300x160x300 m volume is centred on the horizon, where its
-        // green wireframe collapses to scattered one-pixel fragments.
+        // Drift's Ridgeback discovery trigger, read out of the scene file: the
+        // box is stamped by tools/drift-islands from the land's own bounding
+        // box, so a copy of its numbers here goes stale with the next map.
+        // From the issue's camera pose this roughly 400x160x225 m volume is
+        // centred on the horizon, where its green wireframe collapses to
+        // scattered one-pixel fragments.
+        glm::vec3 triggerTranslation(0.0f);
+        glm::vec3 triggerHalfExtents(0.0f);
+        glm::vec3 triggerOffset(0.0f);
+        {
+            const std::filesystem::path scenePath =
+                std::filesystem::path("SandboxProject") / "Assets" / "Scenes" / "Drift.olo";
+            ASSERT_TRUE(std::filesystem::exists(scenePath)) << "Drift.olo not found at " << scenePath.generic_string();
+            const YAML::Node root = YAML::LoadFile(scenePath.generic_string());
+            bool found = false;
+            for (const auto& entity : root["Entities"])
+            {
+                const YAML::Node tag = entity["TagComponent"];
+                if (!tag || tag["Tag"].as<std::string>("") != "Island - Ridgeback")
+                    continue;
+                const YAML::Node translation = entity["TransformComponent"]["Translation"];
+                const YAML::Node box = entity["BoxCollider3DComponent"];
+                ASSERT_TRUE(translation && translation.size() == 3 && box && box["HalfExtents"].size() == 3 &&
+                            box["Offset"].size() == 3)
+                    << "'Island - Ridgeback' in Drift.olo has no discovery trigger box";
+                for (glm::length_t axis = 0; axis < 3; ++axis)
+                {
+                    triggerTranslation[axis] = translation[axis].as<f32>();
+                    triggerHalfExtents[axis] = box["HalfExtents"][axis].as<f32>();
+                    triggerOffset[axis] = box["Offset"][axis].as<f32>();
+                }
+                found = true;
+                break;
+            }
+            ASSERT_TRUE(found) << "no 'Island - Ridgeback' entity in Drift.olo";
+            const glm::vec3 sum = triggerTranslation + triggerHalfExtents + triggerOffset;
+            ASSERT_TRUE(std::isfinite(sum.x) && std::isfinite(sum.y) && std::isfinite(sum.z) &&
+                        std::min({ triggerHalfExtents.x, triggerHalfExtents.y, triggerHalfExtents.z }) > 1.0f)
+                << "the Ridgeback discovery trigger read from Drift.olo is not a box";
+        }
         Entity trigger = GetScene().CreateEntity("Ridgeback discovery trigger");
         auto& triggerTransform = trigger.GetComponent<TransformComponent>();
-        triggerTransform.Translation = { -210.0f, -24.0f, 70.0f };
+        triggerTransform.Translation = triggerTranslation;
         auto& collider = trigger.AddComponent<BoxCollider3DComponent>();
-        collider.m_HalfExtents = { 150.0f, 80.0f, 150.0f };
-        collider.m_Offset = { 210.0f, 24.0f, 210.0f };
+        collider.m_HalfExtents = triggerHalfExtents;
+        collider.m_Offset = triggerOffset;
 
         EditorCamera camera(30.0f, static_cast<f32>(kWidth) / static_cast<f32>(kHeight),
                             0.1f, 1000.0f);
