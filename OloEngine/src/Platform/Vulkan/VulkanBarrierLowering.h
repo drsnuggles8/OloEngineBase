@@ -50,6 +50,19 @@ namespace OloEngine::VulkanBarrierLowering
     // differs between color and depth (ClearAsLoadOp).
     [[nodiscard]] StageAccess LowerAccess(RHI::Access access, RHI::QueueType queue, RHI::TextureAspect aspect);
 
+    // The SOURCE scope of one layout run in a whole-image settle (a copy's
+    // destination returned to its sampled layout), from the layout the
+    // tracker last recorded for that run: each run waits on what last
+    // touched it, not on the copy alone (#1533).
+    //  - TRANSFER_DST: written by A transfer -- the copy, or a clear (a
+    //    shadow array clears its layers in that layout, #1659) -- so
+    //    ALL_TRANSFER, which covers copy, clear, blit and resolve. COPY alone
+    //    left a clear's write racing the transition.
+    //  - UNDEFINED: nothing to wait on.
+    //  - anything else: every stage and access, the transfer transitions'
+    //    own discipline.
+    [[nodiscard]] StageAccess SettleSourceScope(VkImageLayout trackedLayout);
+
     // The layout-resolution function of ADR 0011 §1.5:
     // (Access, aspect, read-while-attached) → VkImageLayout.
     //

@@ -370,6 +370,57 @@ TEST(VulkanImageLayoutTracker, MixedRangeSplitsIntoExactRuns)
     EXPECT_EQ(tracker.CurrentLayout(image, full), VK_IMAGE_LAYOUT_UNDEFINED);
 }
 
+TEST(VulkanBarrierLowering, ACopySettleWaitsOnTheClearsOfItsShadowArray)
+{
+    // #1659: a shadow array copying a cascade into its own upper layer, then
+    // settled whole. Layer 0 was drawn as depth, layer 1 CLEARED in
+    // TRANSFER_DST (outside the copied range), layer 2 the copy's source,
+    // layer 3 its destination. The settle's source scope per run must wait on
+    // what last wrote that run: a TRANSFER_DST run on every transfer write,
+    // the clear's CLEAR stage included. COPY alone raced the clear (a
+    // write-after-write per hand-over frame under synchronization validation).
+    VulkanImageLayoutTracker tracker;
+    const auto image = FakeImage(0x59);
+    tracker.RegisterImage(image, 1, 4);
+    const auto layer = [](u32 l) { return VkImageSubresourceRange{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, l, 1 }; };
+    tracker.SetLayout(image, layer(0), VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    tracker.SetLayout(image, layer(1), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    tracker.SetLayout(image, layer(2), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    tracker.SetLayout(image, layer(3), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    const VkImageSubresourceRange whole{ VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 4 };
+    // ALL_TRANSFER is its own bit, defined by the spec to stand for every
+    // transfer stage; ALL_COMMANDS for every stage.
+    const auto covers = [](VkPipelineStageFlags2 mask, VkPipelineStageFlags2 transferStage)
+    { return (mask & (transferStage | VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT | VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)) != 0u; };
+    EXPECT_FALSE(covers(VK_PIPELINE_STAGE_2_COPY_BIT, VK_PIPELINE_STAGE_2_CLEAR_BIT)) << "the scope before #1659";
+    u32 clearedLayerRuns = 0;
+    tracker.ForEachLayoutRun(image, whole,
+                             [&](const VkImageSubresourceRange& run, const VkImageLayout layout)
+                             {
+                                 const VBL::StageAccess source = VBL::SettleSourceScope(layout);
+                                 if (layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL)
+                                 {
+                                     EXPECT_TRUE(covers(source.StageMask, VK_PIPELINE_STAGE_2_CLEAR_BIT))
+                                         << "layer " << run.baseArrayLayer << ": a clear's write is not waited on";
+                                     EXPECT_TRUE(covers(source.StageMask, VK_PIPELINE_STAGE_2_COPY_BIT));
+                                     EXPECT_EQ(source.AccessMask & VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+                                     clearedLayerRuns += run.baseArrayLayer <= 1u && 1u < run.baseArrayLayer + run.layerCount ? 1u : 0u;
+                                 }
+                                 else
+                                 {
+                                     // Depth-attachment and TRANSFER_SRC runs wait on every stage.
+                                     EXPECT_EQ(source.StageMask, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT)
+                                         << "layer " << run.baseArrayLayer;
+                                 }
+                             });
+    EXPECT_EQ(clearedLayerRuns, 1u) << "the cleared layer was not settled as its own TRANSFER_DST run";
+
+    const VBL::StageAccess untouched = VBL::SettleSourceScope(VK_IMAGE_LAYOUT_UNDEFINED);
+    EXPECT_EQ(untouched.StageMask, VK_PIPELINE_STAGE_2_NONE);
+    EXPECT_EQ(untouched.AccessMask, VK_ACCESS_2_NONE);
+}
+
 TEST(VulkanImageLayoutTracker, ForgetDropsStateAndReRegistrationResets)
 {
     VulkanImageLayoutTracker tracker;
