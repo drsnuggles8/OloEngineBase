@@ -143,6 +143,10 @@ C++23, OpenGL 4.6 with DSA, Vulkan behind the RHI. ECS is EnTT under an `Entity`
 - Linux is a CI target for tests, runtime and server, not the editor
   ([ADR 0015](docs/adr/0015-editor-is-windows-only-linux-ships-runtime-only.md)). ADRs live in
   `docs/adr/`; read them before proposing structural changes.
+- **The game is KESTREL**, a second project beside `SandboxProject` that will live at
+  `OloEditor/KestrelProject` once its scaffold (#1730) lands; what goes in `OloEngine/` versus the
+  project: [ADR 0027](docs/adr/0027-kestrel-lives-in-the-engine-repo-as-a-second-project.md). The goal
+  and its critical path: [north-star.md](docs/process/north-star.md).
 - **Primitives:** `Ref<T>` from `Core/Ref.h`; `u32`, `f32`, `sizet` from `Core/Base.h`, global scope.
 
 ## Conventions
